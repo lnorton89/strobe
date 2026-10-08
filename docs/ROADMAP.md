@@ -34,6 +34,13 @@ The following is done and verified headless:
 - `strobe-audio` (Sonnet agent, worktree branch `agent/strobe-audio`)
 - `strobe-app` and the windowed native/ANGLE context (Sonnet agent,
   branch `agent/strobe-app`)
+- `strobe-diag`: logging, panic and native crash reports, minidumps
+  through an out-of-process monitor, GL debug output, `--diagnose`
+  (Sonnet agent, branch `agent/strobe-diag`)
+- Repo and CI alignment with the owner's rustaman/rustdirstat
+  conventions: release workflow, issue forms, dependabot, `xtask`, a
+  generated changelog, macOS CI, and bench artifacts in CI (Sonnet agent,
+  branch `agent/repo-ci`)
 - A real-hardware test session on the owner's ThinkPad T480 (remote
   bridge session in `C:\Users\ExaltedLaptop2\Development\strobe`):
   hardware report, a native MSVC build and tests, and later a real-GPU
