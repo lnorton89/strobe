@@ -16,6 +16,7 @@ macOS and Linux later. Performance is a feature, not a polish step.
 | [`docs/OPEN_QUESTIONS.md`](docs/OPEN_QUESTIONS.md) | Things not yet verified against real Synesthesia behaviour. Check here before assuming. |
 | [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) | Before and after any change on a per-frame path. |
 | [`docs/PLAN.md`](docs/PLAN.md) | The original design plan and its research sources. It's historical. Where it disagrees with DECISIONS.md, DECISIONS.md wins. |
+| [`docs/AGENT_RESEARCH.md`](docs/AGENT_RESEARCH.md) | Before starting app, script, audio, Shadertoy, playlist, diagnostics, or performance work. It records verified upstream behaviour and integration contracts. |
 
 ## Commands
 
