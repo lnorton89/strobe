@@ -2,7 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # `main` once it exists; until then development happens on claude/*
+    # branches, which must be checked on every push too.
+    branches: [main, "claude/**"]
   pull_request:
   workflow_dispatch:
 
@@ -65,7 +67,7 @@ jobs:
       # Release is where `panic = "abort"`, LTO and one codegen unit apply,
       # and those change what compiles.
       - name: Build release binary
-        run: cargo build --release -p strobe-app
+        run: cargo build --release --workspace --bins
 
   linux:
     name: linux (headless GL)
