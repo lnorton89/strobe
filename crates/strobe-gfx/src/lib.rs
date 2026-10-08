@@ -13,6 +13,7 @@
 //! [`caps`] decides the dialect and formats a context supports, and
 //! [`player`] compiles a scene and renders its passes.
 
+pub mod adaptive;
 pub mod caps;
 pub mod gl;
 pub mod player;
