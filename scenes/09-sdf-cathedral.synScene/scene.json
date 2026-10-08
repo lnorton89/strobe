@@ -1,0 +1,11 @@
+{
+  "TITLE": "SDF Cathedral",
+  "CREDIT": "Strobe",
+  "DESCRIPTION": "An endless raymarched nave of arches and pillars, soft shadows and ambient occlusion; the camera surges on the kick. Benchmark tier 4: ~100 march steps plus shadow and AO rays per pixel.",
+  "CONTROLS": [
+    { "NAME": "fly", "TYPE": "slider speed", "MIN": 0.0, "MAX": 4.0, "DEFAULT": 1.2, "UI_GROUP": "camera" },
+    { "NAME": "look", "TYPE": "xy smooth", "MIN": [-1.0, -0.5], "MAX": [1.0, 0.5], "DEFAULT": [0.0, 0.05], "UI_GROUP": "camera" },
+    { "NAME": "light_color", "TYPE": "color smooth", "DEF_COLOR": [1.0, 0.8, 0.55], "UI_GROUP": "light" },
+    { "NAME": "shadows", "TYPE": "toggle", "DEFAULT": 1.0, "UI_GROUP": "quality" }
+  ]
+}

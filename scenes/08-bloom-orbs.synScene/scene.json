@@ -1,0 +1,15 @@
+{
+  "TITLE": "Bloom Orbs",
+  "CREDIT": "Strobe",
+  "DESCRIPTION": "Orbiting lights with a quarter-resolution separable bloom. Benchmark tier 2: a classic post pipeline, mixed pass sizes.",
+  "PASSES": [
+    { "TARGET": "lights", "FLOAT": false },
+    { "TARGET": "blurH", "WIDTH": 480, "HEIGHT": 270, "FLOAT": true, "WRAP": "clamp" },
+    { "TARGET": "blurV", "WIDTH": 480, "HEIGHT": 270, "FLOAT": true, "WRAP": "clamp" }
+  ],
+  "CONTROLS": [
+    { "NAME": "count", "TYPE": "slider", "MIN": 4.0, "MAX": 32.0, "DEFAULT": 18.0, "UI_GROUP": "shape" },
+    { "NAME": "bloom", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 3.0, "DEFAULT": 1.4, "UI_GROUP": "glow" },
+    { "NAME": "orbit", "TYPE": "slider speed", "MIN": -1.0, "MAX": 1.0, "DEFAULT": 0.25, "UI_GROUP": "shape" }
+  ]
+}

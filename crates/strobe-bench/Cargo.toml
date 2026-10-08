@@ -1,0 +1,22 @@
+[package]
+name = "strobe-bench"
+description = "Headless benchmark: renders every scene in a library, times it, and writes frames and a contact sheet."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[[bin]]
+name = "strobe-bench"
+path = "src/main.rs"
+
+[dependencies]
+strobe-scene.workspace = true
+strobe-gfx.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+image.workspace = true
+
+[lints]
+workspace = true

@@ -12,10 +12,11 @@ JavaScript control API intact, imports Shadertoy shaders in one click, and
 builds long shows from playlists that take minutes to author instead of
 an afternoon of per-item data entry.
 
-> **Status: early development.** The workspace, the scene model and the
-> renderer foundation are being built now. The [roadmap](#roadmap) below
-> shows what works today and what doesn't yet. This README changes as
-> each piece lands.
+> **Status: early development.** The scene model, the SSF function
+> library and the renderer work, and are tested headless against real
+> GLSL compilers in both dialects. There's no window yet. See the
+> [roadmap](#roadmap) and [`docs/ROADMAP.md`](docs/ROADMAP.md) for live
+> status.
 
 - **Scenes run as-is.** `main.glsl`, `scene.json`, `script.js`: the
   Synesthesia Shader Format, its uniforms, its function library, and its
@@ -56,6 +57,8 @@ machine.
 
 | Crate | Owns |
 |---|---|
+| `strobe-bench` | Headless benchmark: renders `scenes/`, times each, writes frames and a contact sheet |
+| `strobe-conventions` | The house rules as tests: file headers, the `unsafe` boundary, the toolchain pin |
 | `strobe-app` | Window, event loop, egui control surface, wiring |
 | `strobe-gfx` | The GL renderer: context providers (native GL, ANGLE), programs, passes, compositor, post |
 | `strobe-scene` | SSF model: `scene.json`, controls and their runtime, presets, shader assembly |
@@ -89,6 +92,20 @@ The renderer above the context is identical in both cases.
 
 ---
 
+## Scene library
+
+`scenes/` holds ten original scenes. They're the base library, and also
+the benchmark set, written to span five tiers of GPU load: from a
+trivial gradient, through feedback, voronoi, domain warping, a
+four-step reaction-diffusion simulation and a bloom pipeline, up to a
+raymarched cathedral and volumetric clouds.
+
+![The base scene library](docs/images/contact-sheet.png)
+
+*Rendered headless by `strobe-bench`. Baseline timings are in [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md).*
+
+---
+
 ## Requirements
 
 - **Windows 10** or later, 64-bit, with a GPU that supports OpenGL 3.3, or
@@ -100,8 +117,8 @@ The renderer above the context is identical in both cases.
 ## Building
 
 ```bash
-cargo run --release -p strobe-app        # the app
 cargo test --workspace                   # every crate's tests
+cargo run --release -p strobe-bench      # render + time every scene, headless
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo fmt --all -- --check
 ```
@@ -116,8 +133,8 @@ GLES 3.0. That covers the two dialects the native and ANGLE paths take.
 
 | Phase | Scope | State |
 |---|---|---|
-| 0 | Workspace, conventions, CI; GL context spikes (native + ANGLE) | In progress |
-| 1 | Renderer, SSF scene loading, multipass, controls UI, output window | In progress |
+| 0 | Workspace, conventions, CI; GL context spikes (native + ANGLE) | Workspace, CI and headless contexts done; windowed contexts next |
+| 1 | Renderer, SSF scene loading, multipass, controls UI, output window | Renderer and scene model done; window and UI next |
 | 2 | JavaScript API (`rquickjs`, interrupt budget, conformance suite) | Planned |
 | 3 | Audio analysis: bands, hits, BPM, spectrum textures, tap tempo | Planned |
 | 4 | Shadertoy import: userscript, API, drop folder, batch | Planned |
