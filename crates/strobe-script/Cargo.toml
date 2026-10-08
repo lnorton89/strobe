@@ -1,0 +1,19 @@
+[package]
+name = "strobe-script"
+description = "The QuickJS host for the Synesthesia JavaScript API: globals, events, control and uniform output."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+strobe-scene.workspace = true
+rquickjs.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+anyhow.workspace = true
+
+[lints]
+workspace = true
