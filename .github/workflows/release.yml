@@ -232,8 +232,12 @@ jobs:
           # shaped SBOM. A version moves the way an action SHA does —
           # deliberately, in a reviewed commit.
           cargo install cargo-cyclonedx --version 0.5.9 --locked
-          # The SBOM is for the shipped package, so it is pointed at
-          # strobe-app rather than left to describe the workspace.
+          # cargo-cyclonedx 0.5.9 has no `--package`: whatever manifest it
+          # is pointed at, it writes one file per workspace member, each
+          # into its own crate directory under the same name. Only
+          # strobe-app's is copied out below — it is the shipped package,
+          # and its SBOM lists the crates that are actually in strobe.exe.
+          # The rest are scratch files in a throwaway checkout.
           cargo cyclonedx \
             --manifest-path crates/strobe-app/Cargo.toml \
             --format json \
