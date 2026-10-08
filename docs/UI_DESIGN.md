@@ -25,7 +25,7 @@ Everything else should be contextual, collapsible, or behind another workspace.
 
 ## 2. Synesthesia: keep the behaviour, replace the topology
 
-Synesthesia currently divides the control panel into Scene Controls, Meta Controls and Media. Scene controls are grouped with UI_GROUP, and common group actions include lock, default, random and undo. The current product also provides MIDI/OSC mapping, hotkeys, pane resizing, playlists, FavSlots and an integrated editor. citeturn994923search0turn249613search5turn994923search3turn994923search10
+Synesthesia currently divides the control panel into Scene Controls, Meta Controls and Media. Scene controls are grouped with UI_GROUP, and common group actions include lock, default, random and undo. The current product also provides MIDI/OSC mapping, hotkeys, pane resizing, playlists, FavSlots and an integrated editor.
 
 Keep:
 
@@ -50,7 +50,7 @@ Change:
 - editor becomes a dedicated Build workspace;
 - pane visibility becomes persistent workspace layout.
 
-Synesthesia itself has been improving filtering, scene browsing, pane resizing and the scene builder, which validates these directions. citeturn994923search4
+Synesthesia itself has been improving filtering, scene browsing, pane resizing and the scene builder, which validates these directions.
 
 ## 3. Core information hierarchy
 
@@ -281,7 +281,7 @@ Control rendering maps directly from ControlKind.
 - double-click reset;
 - context menu.
 
-These preserve Synesthesia's established modifier conventions. citeturn249613search5
+These preserve Synesthesia's established modifier conventions.
 
 ### Knob
 
@@ -364,7 +364,7 @@ Global search should support:
 - broken;
 - favorite.
 
-This follows the modern content-browser pattern used by Ableton Live 12. citeturn249613search2turn249613search6
+This follows the modern content-browser pattern used by Ableton Live 12.
 
 ## 13. Playlist workspace
 
@@ -460,7 +460,7 @@ Search mappings by:
 - scene;
 - action.
 
-Resolume's shortcut/effect/dashboard approach supports the same philosophy: surface repeated actions and parameters rather than forcing manual traversal for common operations. citeturn133771search2turn133771search4
+Resolume's shortcut/effect/dashboard approach supports the same philosophy: surface repeated actions and parameters rather than forcing manual traversal for common operations.
 
 ## 16. Diagnostics workspace
 
