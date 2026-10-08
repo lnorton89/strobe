@@ -1,0 +1,21 @@
+[package]
+name = "strobe-diag"
+description = "Logging, session context, panic hook and out-of-process native crash capture, so a failed show leaves a usable report."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+build = "build.rs"
+
+[dependencies]
+log.workspace = true
+dirs.workspace = true
+crash-handler.workspace = true
+minidumper.workspace = true
+
+[dev-dependencies]
+anyhow.workspace = true
+
+[lints]
+workspace = true
