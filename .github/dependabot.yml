@@ -1,0 +1,84 @@
+version: 2
+updates:
+  # Crate updates as reviewable PRs rather than the dependency tree
+  # drifting on its own.
+  #
+  # Only *patch* bumps are grouped. Dependabot classifies an update by the
+  # literal version segments, so glow 0.17 -> 0.18 reaches it as
+  # `semver-minor` — but under cargo a 0.x minor bump is precisely the
+  # breaking one, and almost everything this workspace depends on is still
+  # 0.x (glow, glutin, glutin-winit, winit, egui, egui_glow, egui-winit,
+  # raw-window-handle, image, log). Grouping minors would hand us one PR
+  # that quietly carries breaking API changes for half a dozen crates.
+  # Patch releases are the churn worth batching; anything above patch
+  # arrives on its own so it can be read, built, and reverted by itself.
+  #
+  # The window stack moves together, by hand. egui, egui_glow and
+  # egui-winit are released in lock-step and must share one egui version;
+  # egui_glow in turn pins a glow minor, and its `winit` feature pins a
+  # winit minor; glutin-winit pins both a glutin and a winit. Taking
+  # glow 0.18 alone, or winit alone, therefore does not build: cargo
+  # resolves two copies of the type that crosses the crate boundary and
+  # the error is a wall of "expected `winit::window::Window`, found
+  # `winit::window::Window`". Dependabot opens each of these as its own
+  # PR, and the PR for any one of them will fail CI until the others
+  # catch up. That is expected, not a signal to fix in the PR — take them
+  # as one deliberate upgrade (`cargo update -p egui --precise …` and its
+  # siblings, in a single commit) and close the strays.
+  #
+  # Nothing is ignored. The egui/glow/glutin/winit stack is held at the
+  # current release by the workspace manifest, not by suppressing its PRs,
+  # and a PR for any of it is one worth reading. If an entry ever has to
+  # be ignored, record what would clear it, the way `deny.toml` asks of an
+  # ignored advisory.
+  #
+  # ANGLE is deliberately not here, and nothing here could move it. The
+  # three ANGLE DLLs are not a Cargo dependency: `scripts/fetch-angle.ps1`
+  # downloads them from a pinned Electron 38.2.0 release and checks the
+  # archive and every extracted file against hard-coded SHA-256 hashes.
+  # That version is a constant in a PowerShell script, a place no
+  # Dependabot ecosystem looks, so there is nothing to ignore. It must
+  # stay that way: Electron 44 stopped shipping those DLLs (ANGLE is
+  # linked statically), so a newer Electron archive is not a drop-in
+  # bump. See docs/AGENT_RESEARCH.md section 8 and DECISIONS.md D12.
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: build
+      include: scope
+    groups:
+      cargo-patch:
+        applies-to: version-updates
+        update-types:
+          - patch
+
+  # Actions are pinned to full commit SHAs (see .github/workflows), so a
+  # Dependabot PR is the deliberate, diff-visible way a pin moves — it
+  # rewrites the SHA and the trailing version comment together.
+  #
+  # Grouped into one PR: the actions move independently, but reading a
+  # batch of SHA pins against their release notes is one job rather than
+  # eight. The exception is dtolnay/rust-toolchain, pinned to a master
+  # commit rather than a release tag — Dependabot cannot resolve a newer
+  # version for a SHA that belongs to no tag, so that one pin moves by
+  # hand, alongside `rust-toolchain.toml` (which Dependabot also cannot
+  # see) in its own commit. `crates/strobe-conventions` fails the build if
+  # the workflows and `rust-toolchain.toml` disagree about the version.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: ci
+      include: scope
+    groups:
+      github-actions:
+        applies-to: version-updates
+        patterns:
+          - "*"
