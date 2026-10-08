@@ -102,3 +102,18 @@ scenes, or the owner supplying their own scenes.
 the actual render width. That way render scale (the main lever on old
 GPUs) shrinks every buffer in proportion instead of leaving 1080p
 buffers behind a 720p output.
+
+### D12: ANGLE comes from a pinned Electron release (2026-10-08)
+
+ANGLE doesn't publish binaries, and building it needs Chromium's
+`depot_tools` toolchain. Every official Electron `win32-x64` release ships
+Google's ANGLE build (`libEGL.dll`, `libGLESv2.dll`) plus
+`d3dcompiler_47.dll`, under BSD/MIT licenses with
+`LICENSES.chromium.html`. `scripts/fetch-angle.ps1` downloads Electron
+v38.2.0, checks the archive's SHA-256 against the release's
+`SHASUMS256.txt`, checks each DLL's SHA-256, and copies them beside the
+executables. To upgrade, bump the version and all four hashes in one
+commit.
+
+**Would reopen:** a need for ANGLE features newer than Electron ships, or
+bundle size (about 13.5 MB for the three DLLs) becoming a problem.
