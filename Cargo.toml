@@ -16,6 +16,7 @@ repository = "https://github.com/lnorton89/strobe"
 strobe-scene = { path = "crates/strobe-scene" }
 strobe-ssf-lib = { path = "crates/strobe-ssf-lib" }
 strobe-gfx = { path = "crates/strobe-gfx" }
+strobe-audio = { path = "crates/strobe-audio" }
 
 anyhow = "1"
 thiserror = "2"
@@ -25,6 +26,14 @@ toml = "1.1"
 dirs = "6"
 log = "0.4"
 clap = { version = "4", features = ["derive"] }
+# Audio: cpal captures, realfft transforms, rtrb carries samples from the
+# audio callback to the analysis thread, arc-swap publishes the result to
+# the render thread, hound reads WAVs for the offline tuning harness.
+cpal = "0.18"
+realfft = "3.5"
+rtrb = "0.4"
+arc-swap = "1.9"
+hound = "3.5"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 
 # The GL stack. glow is the bindings; glutin creates the context — natively
