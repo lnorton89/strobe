@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Strobe UI Direction Review</title>
+<style>
+:root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#e8ebef;background:#090b0f}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;background:#090b0f}
+button,input{font:inherit}.review{min-height:100vh;padding:28px}
+header{display:flex;justify-content:space-between;align-items:end;margin-bottom:18px;gap:20px}
+h1{font-size:24px;margin:0 0 5px}.sub{color:#87909c;font-size:13px}.choices{display:flex;gap:7px;flex-wrap:wrap}
+.choices button,.chrome button{background:#11151b;border:1px solid #252c35;color:#aeb6c1;border-radius:7px;padding:8px 11px;cursor:pointer}
+.choices button.active{background:#29200e;border-color:#b27a24;color:#f0c978}
+.stage{height:calc(100vh - 125px);min-height:650px;border:1px solid #242a32;border-radius:10px;overflow:hidden;background:#0d1015;box-shadow:0 20px 60px #0008}
+.appbar{height:48px;border-bottom:1px solid #252b33;display:flex;align-items:center;justify-content:space-between;padding:0 14px;background:#0b0e12}
+.brand{font-weight:700;letter-spacing:.08em}.crumb{color:#7f8996;margin-left:14px;font-size:12px}.health{display:flex;gap:14px;color:#8e98a5;font-size:11px}
+.body{display:grid;height:calc(100% - 96px);grid-template-columns:54px 250px minmax(400px,1fr) 290px}
+.rail{border-right:1px solid #242a32;padding:9px 7px;display:flex;flex-direction:column;gap:7px}
+.rail button{height:38px;background:transparent;border:0;color:#697481;border-radius:7px;cursor:pointer;font-size:11px}.rail button.active{background:#1b1a16;color:#d8aa52}
+.panel{background:#10141a;border-right:1px solid #242a32;overflow:hidden}.panel:last-child{border-left:1px solid #242a32;border-right:0}
+.panelhead{height:42px;border-bottom:1px solid #252b33;display:flex;align-items:center;justify-content:space-between;padding:0 12px;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#aeb7c2}
+.search{margin:9px;width:calc(100% - 18px);background:#0b0e12;border:1px solid #272e37;border-radius:6px;padding:8px;color:#dce1e7;outline:0}
+.scene{margin:7px 9px;padding:9px;border:1px solid transparent;border-radius:7px;cursor:pointer}.scene:hover{background:#151a21}.scene.active{background:#1a1711;border-color:#6d5125}
+.thumb{height:55px;border-radius:5px;margin-bottom:7px;background:radial-gradient(circle at 70% 30%,#e2aa36,#402f13 22%,#171a23 48%,#07090d 75%),linear-gradient(120deg,#1a5c70,#080a10);overflow:hidden}
+.scene b{font-size:12px}.meta{display:block;color:#717b87;font-size:10px;margin-top:3px}
+.preview{position:relative;background:#05070a;overflow:hidden;display:flex;align-items:center;justify-content:center}
+.shader{width:82%;height:78%;border-radius:3px;background:
+radial-gradient(circle at 48% 47%,#ffd45a 0 2%,transparent 8%),
+radial-gradient(circle at 48% 48%,#a86c23 0 7%,transparent 20%),
+conic-gradient(from 30deg at 48% 48%,#08131c,#3c2743,#0b3141,#121018,#9a6425,#08131c);
+filter:saturate(.9);box-shadow:0 0 90px #bd7b2430 inset,0 0 70px #000}
+.preview::after{content:"LIVE";position:absolute;top:12px;left:14px;font-size:9px;letter-spacing:.14em;color:#9ca6b2;background:#0a0d11cc;border:1px solid #252c34;padding:5px 7px;border-radius:5px}
+.inspector{padding:0 10px;overflow:auto}.section{border-bottom:1px solid #242a32;padding:12px 2px}.section h3{font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:#7e8995;margin:0 0 10px}.row{margin:10px 0}.rowtop{display:flex;justify-content:space-between;font-size:11px;margin-bottom:5px}.val{color:#c69a4b;font-variant-numeric:tabular-nums}.slider{height:4px;background:#252c34;border-radius:5px}.slider i{display:block;height:100%;width:64%;background:#b27a24;border-radius:5px}
+.transport{height:48px;border-top:1px solid #292f37;display:grid;grid-template-columns:auto 1fr auto;align-items:center;padding:0 12px;gap:14px;background:#0b0e12}.transport button{background:#161a20;border:1px solid #2a313a;color:#dce1e7;border-radius:6px;padding:7px 10px}.cue{font-size:11px;color:#9099a5}.cue b{color:#e4e8ed;margin:0 4px}.macros{display:flex;gap:5px}.macro{min-width:55px;border:1px solid #2b3139;background:#12161b;border-radius:5px;padding:6px 8px;color:#b7bec8;font-size:10px;text-align:center}.macro strong{display:block;color:#e0a944;font-size:9px}
+.compact .body{grid-template-columns:48px 1fr 245px}.compact .panel.library{display:none}.compact .preview .shader{width:90%;height:82%}
+.minimal .body{grid-template-columns:44px 1fr}.minimal .panel{display:none}.minimal .preview .shader{width:94%;height:88%}.minimal .transport{grid-template-columns:auto 1fr auto}.minimal .macros .macro:nth-child(n+5){display:none}
+.studio .body{grid-template-columns:54px 300px minmax(400px,1fr) 330px}.studio .panel,.studio .inspector{background:#12161c}.studio .scene{padding:11px}.studio .panelhead{height:48px}.studio .preview .shader{width:78%;height:74%}
+.note{position:absolute;bottom:13px;right:14px;font-size:9px;color:#59636f}
+</style>
+</head>
+<body>
+<div class="review">
+<header>
+<div><h1>Strobe / Perform Direction Review</h1><div class="sub">Controlled 1440×900 topology study · same content across all directions</div></div>
+<div class="choices">
+<button data-mode="instrument" class="active">A · Instrument</button>
+<button data-mode="compact">B · Contextual</button>
+<button data-mode="minimal">C · Minimal</button>
+<button data-mode="studio">D · Studio</button>
+</div>
+</header>
+<section id="stage" class="stage instrument">
+<div class="appbar"><div><span class="brand">STROBE</span><span class="crumb">PERFORM / Aurora Field</span></div><div class="health"><span>GL 3.3 / NVIDIA</span><span>60 FPS</span><span>Adaptive 0.85</span><span>Display 2 / 60 Hz</span></div></div>
+<div class="body">
+<nav class="rail">
+<button class="active">PLAY</button><button>LIB</button><button>LIST</button><button>EDIT</button><button>MAP</button><button>DIAG</button><button>SET</button>
+</nav>
+<aside class="panel library">
+<div class="panelhead">Scenes <span>+</span></div>
+<input class="search" placeholder="Search scenes">
+<div class="scene active"><div class="thumb"></div><b>Aurora Field</b><span class="meta">lnorton89 · healthy · favorite</span></div>
+<div class="scene"><div class="thumb"></div><b>SDF Cathedral</b><span class="meta">shader · healthy</span></div>
+<div class="scene"><div class="thumb"></div><b>Plasma Bloom</b><span class="meta">shader · healthy</span></div>
+<div class="scene"><div class="thumb"></div><b>Fractal Tunnel</b><span class="meta">shader · feedback</span></div>
+</aside>
+<main class="preview"><div class="shader"></div><span class="note">Preview · output is separate</span></main>
+<aside class="panel inspector">
+<div class="panelhead">Controls <span>⋯</span></div>
+<div class="section"><h3>Motion</h3><div class="row"><div class="rowtop"><span>Speed</span><span class="val">0.72</span></div><div class="slider"><i style="width:72%"></i></div></div><div class="row"><div class="rowtop"><span>Warp</span><span class="val">0.48</span></div><div class="slider"><i style="width:48%"></i></div></div></div>
+<div class="section"><h3>Audio</h3><div class="row"><div class="rowtop"><span>Bass React</span><span class="val">0.81</span></div><div class="slider"><i style="width:81%"></i></div></div><div class="row"><div class="rowtop"><span>Hit React</span><span class="val">0.36</span></div><div class="slider"><i style="width:36%"></i></div></div></div>
+<div class="section"><h3>Colour</h3><div class="row"><div class="rowtop"><span>Hue</span><span class="val">0.61</span></div><div class="slider"><i style="width:61%"></i></div></div><div class="row"><div class="rowtop"><span>Saturation</span><span class="val">0.76</span></div><div class="slider"><i style="width:76%"></i></div></div><div class="row"><div class="rowtop"><span>Brightness</span><span class="val">0.92</span></div><div class="slider"><i style="width:92%"></i></div></div></div>
+<div class="section"><h3>Feedback</h3><div class="row"><div class="rowtop"><span>Feedback</span><span class="val">0.44</span></div><div class="slider"><i style="width:44%"></i></div></div></div>
+</aside>
+</div>
+<div class="transport"><div><button>◀</button> <button>▶ / HOLD</button> <button>▶</button> <button>BLACKOUT</button></div><div class="cue">NOW <b>Aurora Field</b> · NEXT <b>SDF Cathedral</b> · 00:41 / 01:10 · BPM 128</div><div class="macros"><div class="macro"><strong>SCENE</strong>COLOR</div><div class="macro"><strong>SCENE</strong>WARP</div><div class="macro"><strong>AUDIO</strong>BASS</div><div class="macro"><strong>SYSTEM</strong>FLASH</div><div class="macro"><strong>PLAYLIST</strong>NEXT</div><div class="macro"><strong>SYSTEM</strong>BLACKOUT</div></div></div>
+</section>
+</div>
+<script>
+const stage=document.getElementById("stage");
+document.querySelectorAll("[data-mode]").forEach(b=>b.addEventListener("click",()=>{document.querySelectorAll("[data-mode]").forEach(x=>x.classList.remove("active"));b.classList.add("active");stage.className="stage "+b.dataset.mode}));
+</script>
+</body>
+</html>
