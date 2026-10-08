@@ -833,3 +833,19 @@ When future agents encounter a conflict:
 5. `docs/PLAN.md` is historical and yields to the other documents.
 
 When new research changes an implementation constraint, update this document and add a dated decision/open-question entry rather than letting the knowledge live only in an agent conversation.
+
+
+## 20. UI research and design direction
+
+The UI is intentionally a redesign of the Synesthesia presentation rather than a clone. Synesthesia remains the behavioural reference for Scene Controls, Meta Controls, Media, UI_GROUP, presets, FavSlots, MIDI/OSC and the integrated editor. Its current direction already includes improved filtering, panes, scene cards and scene building. The new Strobe plan is recorded in [UI_DESIGN.md](UI_DESIGN.md).
+
+The strongest transferable patterns found in current creative tools were:
+
+- Resolume: a Dashboard surfaces the small set of parameters a performer uses constantly, while layout presets keep advanced panes out of the way. This becomes Strobe Performance Macros. https://resolume.com/support/en/dashboard
+- Ableton Live 12: searchable/tagged content browsers and independently show/hideable views keep large libraries from permanently consuming workspace. https://help.ableton.com/hc/en-us/articles/12927340213660-The-Live-12-Browser
+- TouchDesigner: one consistent parameter-editor model works across different pane placements. https://derivative.ca/UserGuide/Parameter_Dialog
+- Rustaman: derived theme tokens, WCAG checks, 4/8/12/20 spacing, custom chrome, geometry icons and a four-duration motion vocabulary provide the implementation baseline for Strobe's visual system.
+
+The important product conclusion is that Strobe should optimize the Perform workspace first: live output, immediate controls, next-cue awareness, persistent Performance Macros, and health status. Library, playlist, mapping, editor, diagnostics and settings become dedicated workspaces instead of permanent stacks of panels.
+
+The UI should share one application action boundary with the renderer/audio/script/playlist subsystems. Immediate-mode drawing emits actions; it does not perform file I/O, network requests, audio work, QuickJS calls, shader compilation or GPU readback.
