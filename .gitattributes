@@ -1,0 +1,12 @@
+# One rule for line endings, enforced by git rather than by whoever edits
+# next. Every text file is stored and checked out as LF on every platform,
+# Windows included, so a tool that rewrites a file whole cannot turn a
+# two-line change into a whole-file diff.
+* text=auto eol=lf
+
+# Binary assets: never touch their bytes.
+*.png binary
+*.jpg binary
+*.ico binary
+*.wav binary
+*.dll binary
