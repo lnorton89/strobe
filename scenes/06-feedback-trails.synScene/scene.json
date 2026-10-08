@@ -1,0 +1,11 @@
+{
+  "TITLE": "Feedback Trails",
+  "CREDIT": "Strobe",
+  "DESCRIPTION": "Shapes stamped on the beat smear outward through a rotating, zooming feedback loop of the previous frame. Benchmark tier 2: texture bandwidth via syn_FinalPass.",
+  "CONTROLS": [
+    { "NAME": "decay", "TYPE": "slider smooth", "MIN": 0.80, "MAX": 0.995, "DEFAULT": 0.955, "PARAMS": 0.05, "UI_GROUP": "feedback" },
+    { "NAME": "zoom_in", "TYPE": "slider smooth", "MIN": -0.02, "MAX": 0.04, "DEFAULT": 0.012, "UI_GROUP": "feedback" },
+    { "NAME": "twist", "TYPE": "knob smooth", "MIN": -3.0, "MAX": 3.0, "DEFAULT": 0.8, "UI_GROUP": "feedback" },
+    { "NAME": "hue_drift", "TYPE": "slider", "MIN": 0.0, "MAX": 4.0, "DEFAULT": 1.5, "UI_GROUP": "colour" }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "TITLE": "Reaction Diffusion",
+  "CREDIT": "Strobe",
+  "DESCRIPTION": "Gray-Scott coral grown at half resolution, four simulation steps a frame; the kick seeds new growth. Benchmark tier 3: five passes, float buffers, bandwidth-bound.",
+  "WIDTH": 1920,
+  "HEIGHT": 1080,
+  "PASSES": [
+    { "TARGET": "simA", "WIDTH": 960, "HEIGHT": 540, "FLOAT": true },
+    { "TARGET": "simB", "WIDTH": 960, "HEIGHT": 540, "FLOAT": true },
+    { "TARGET": "simC", "WIDTH": 960, "HEIGHT": 540, "FLOAT": true },
+    { "TARGET": "simD", "WIDTH": 960, "HEIGHT": 540, "FLOAT": true }
+  ],
+  "CONTROLS": [
+    { "NAME": "feed", "TYPE": "slider smooth", "MIN": 0.02, "MAX": 0.08, "DEFAULT": 0.0545, "UI_GROUP": "chemistry" },
+    { "NAME": "kill", "TYPE": "slider smooth", "MIN": 0.045, "MAX": 0.07, "DEFAULT": 0.062, "UI_GROUP": "chemistry" },
+    { "NAME": "reseed", "TYPE": "bang", "UI_GROUP": "chemistry" },
+    { "NAME": "ink", "TYPE": "color", "DEF_COLOR": [0.95, 0.45, 0.2], "UI_GROUP": "colour" }
+  ]
+}

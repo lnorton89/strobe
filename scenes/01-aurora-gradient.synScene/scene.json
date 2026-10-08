@@ -1,0 +1,10 @@
+{
+  "TITLE": "Aurora Gradient",
+  "CREDIT": "Strobe",
+  "DESCRIPTION": "Slow drifting colour bands with a horizon that swells on the kick. Benchmark tier 1: trivial ALU, one pass.",
+  "CONTROLS": [
+    { "NAME": "hue_shift", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 1.0, "DEFAULT": 0.0, "UI_GROUP": "colour" },
+    { "NAME": "drift", "TYPE": "slider", "MIN": 0.0, "MAX": 2.0, "DEFAULT": 0.6, "UI_GROUP": "motion" },
+    { "NAME": "glow", "TYPE": "knob smooth", "MIN": 0.0, "MAX": 2.0, "DEFAULT": 1.0, "PARAMS": 0.08, "UI_GROUP": "colour" }
+  ]
+}

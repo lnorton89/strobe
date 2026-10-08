@@ -1,0 +1,11 @@
+{
+  "TITLE": "Plasma Pulse",
+  "CREDIT": "Strobe",
+  "DESCRIPTION": "Classic interference plasma; scale breathes with the mids, flashes on hits. Benchmark tier 1.",
+  "CONTROLS": [
+    { "NAME": "tint", "TYPE": "color smooth", "DEF_COLOR": [0.2, 0.6, 1.0], "UI_GROUP": "colour" },
+    { "NAME": "scale", "TYPE": "slider smooth", "MIN": 1.0, "MAX": 12.0, "DEFAULT": 5.0, "PARAMS": 0.05, "UI_GROUP": "shape" },
+    { "NAME": "invert", "TYPE": "toggle smooth", "DEFAULT": 0.0, "UI_GROUP": "colour" },
+    { "NAME": "flash", "TYPE": "bang smooth", "PARAMS": 0.1, "UI_GROUP": "colour" }
+  ]
+}

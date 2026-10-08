@@ -1,0 +1,104 @@
+# Decisions
+
+This is an append-only log of choices that aren't obvious from the code.
+Each entry has a date, the decision, why it was made, and what would
+reopen it. Newest entries are at the bottom. To reverse a decision, add a
+new entry that says so; don't edit the old one.
+
+---
+
+### D1: native OpenGL (glow + glutin), not wgpu (2026-10-08)
+
+Scenes and Shadertoy shaders are GLSL. Native GL hands GLSL to the
+driver's compiler, which is the model Synesthesia and Shadertoy (WebGL)
+both use. wgpu ingests GLSL through naga, which rejects samplers passed
+as function parameters, combined image/samplers, and some `const int`
+switch patterns that real Shadertoy code uses (see PLAN.md §2 D1).
+
+**Would reopen:** naga's GLSL frontend reaching parity, or macOS removing
+OpenGL.
+
+### D2: ANGLE as the fallback context, not native-only (2026-10-08, owner's choice)
+
+The owner's `rustaman` app found that WGL fails on hybrid-graphics and
+stale-driver laptops, which are exactly Strobe's target machines. ANGLE
+translates GLES 3.0 to Direct3D 11, which is what Chrome uses to run
+Shadertoy on Windows. glutin's EGL backend loads `libEGL.dll` on
+Windows, so the ANGLE path is the same code as the Linux EGL path
+pointed at ANGLE's DLLs. Native GL stays the first choice because it's
+faster, and desktop GLSL is what SSF scenes are written in.
+
+**Cost:** SSF scenes that rely on desktop-only GLSL (implicit
+conversions) need source fixups on the ANGLE path. That's not built
+yet; see OPEN_QUESTIONS.md.
+
+### D3: GL 3.3 hardware floor (2026-10-08, owner's choice)
+
+This means Intel HD 4000 / Ivy Bridge (2012) on Windows 10. Shadertoy
+`#version 300 es` code is rewritten to `#version 330` when
+`ARB_ES3_compatibility` is absent.
+
+### D4: cargo workspace with rustaman's rules (2026-10-08, owner's choice)
+
+Crates give fast incremental builds and hard boundaries (audio can't
+touch GL). The lints, header banners, unsafe-leaf discipline, pinned
+toolchain, cargo-deny, and LF line endings all come from
+`lnorton89/rustaman`.
+
+### D5: port rustaman's UI system (2026-10-08, owner's choice)
+
+That means the themes.toml catalog with WCAG tests, motion durations,
+the spacing scale, geometry icons, and the custom title bar. The default
+theme is dark with a single amber accent. Not built yet.
+
+### D6: `#version 330 core` on every desktop context (2026-10-08)
+
+Real SSF scenes compare `PASSINDEX == 0.0` (int vs float) and write
+`float x = 2;`. Desktop GLSL converts implicitly; GLSL ES doesn't.
+Every 4.x core context, including macOS 4.1, accepts 330. One dialect
+means one set of behaviours.
+
+### D7: one program per pass, `PASSINDEX` a constant (2026-10-08)
+
+A fragment program's register allocation, and therefore its occupancy,
+is set by its heaviest path. If a cheap blur pass shares a program with
+a raymarcher, the blur runs at the raymarcher's occupancy. Specialising
+lets the driver delete untaken branches. The trade-off is N compiles
+instead of one at load time, which is fine because playlists precompile.
+`Options::specialise_passes = false` keeps the faithful mode, and the
+bench measures both (`--shared`).
+
+### D8: the final pass is implicit (2026-10-08, verified)
+
+Verified against real community scenes: a scene listing two `PASSES`
+renders `PASSINDEX` 0 and 1 into them, then `PASSINDEX == 2` produces
+the output. `SceneDef::passes` always ends with that final, untargeted
+pass.
+
+### D9: frame-rate-independent smoothing (2026-10-08)
+
+SSF documents smoothing as "about `1/PARAMS` frames", which is a
+per-frame exponential step. Per-frame steps mean a scene tuned at 60 fps
+feels twice as sluggish at 30 fps, which is exactly what happens on an
+old laptop. We use `alpha = 1 - (1 - PARAMS)^(dt*60)`, which is
+identical at 60 fps.
+
+### D10: original benchmark scenes (2026-10-08)
+
+The owner asked for 10 scenes spanning GPU load. Shadertoy is
+unreachable from the cloud environment (Cloudflare 403 on every
+request), and the community Synesthesia scenes found on GitHub carry no
+license. So the base library in `scenes/` is original and MIT-licensed,
+written to span five load tiers on purpose (see BENCHMARKS.md).
+Unlicensed community scenes are used only as local, uncommitted
+compatibility fixtures.
+
+**Would reopen:** a source of permissively licensed SSF or Shadertoy
+scenes, or the owner supplying their own scenes.
+
+### D11: pass sizes as fractions of the design resolution (2026-10-08)
+
+`"WIDTH": 960` in a 1920-wide scene is stored as `0.5` and multiplied by
+the actual render width. That way render scale (the main lever on old
+GPUs) shrinks every buffer in proportion instead of leaving 1080p
+buffers behind a 720p output.
