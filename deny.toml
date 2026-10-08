@@ -1,0 +1,44 @@
+# cargo-deny configuration, enforced by the `deny` job in CI.
+# `cargo install cargo-deny && cargo deny check` locally gives the same answer.
+
+[graph]
+# The targets Strobe is built for. Windows is the shipping platform; Linux
+# runs the headless renderer tests and is a later desktop target.
+targets = ["x86_64-pc-windows-msvc", "x86_64-unknown-linux-gnu"]
+all-features = true
+
+[advisories]
+yanked = "warn"
+# Deliberately empty. An entry must say which crate, what pulls it in, why
+# there is no fix, and what would clear it.
+ignore = []
+
+[licenses]
+allow = [
+    "MIT",
+    "MIT-0",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "CC0-1.0",
+    "0BSD",
+    "Unlicense",
+    "BSL-1.0",
+    "MPL-2.0",
+    "OFL-1.1",
+    # egui's bundled default fonts.
+    "Ubuntu-font-1.0",
+]
+confidence-threshold = 0.9
+
+[bans]
+multiple-versions = "warn"
+deny = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
