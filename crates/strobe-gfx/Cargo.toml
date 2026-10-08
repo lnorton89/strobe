@@ -1,0 +1,25 @@
+[package]
+name = "strobe-gfx"
+description = "The GL renderer: context providers (native GL, ANGLE, headless EGL), programs, passes, presentation."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+strobe-scene.workspace = true
+glow.workspace = true
+glutin.workspace = true
+glutin-winit.workspace = true
+winit.workspace = true
+raw-window-handle.workspace = true
+thiserror.workspace = true
+log.workspace = true
+image.workspace = true
+
+[dev-dependencies]
+anyhow.workspace = true
+
+[lints]
+workspace = true

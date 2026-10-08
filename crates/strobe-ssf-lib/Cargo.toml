@@ -1,0 +1,11 @@
+[package]
+name = "strobe-ssf-lib"
+description = "The SSF GLSL function library, written to compile as desktop GLSL 3.30 and GLSL ES 3.00."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[lints]
+workspace = true

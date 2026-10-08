@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A second push to the same branch makes the first run's result irrelevant.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  format:
+    name: rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      # Pinned to full SHAs: a mutable tag in a workflow is a supply-chain
+      # risk. The versions are in the trailing comments.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The version matches rust-toolchain.toml; strobe-conventions'
+      # `toolchain` tests fail the build if the two drift.
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master, 2026-08
+        with:
+          toolchain: "1.98.0"
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+
+  deny:
+    name: cargo-deny
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          command: check
+
+  windows:
+    name: windows (the shipping platform)
+    runs-on: windows-latest
+    # The platform the show runs on. A GitHub runner has no GPU and no
+    # interactive session, so the renderer tests skip themselves here (no
+    # headless GL context) — the Linux job below is where shaders are
+    # actually compiled. This job is what proves the Windows build, the
+    # WGL/EGL context code, and release settings compile and link.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master, 2026-08
+        with:
+          toolchain: "1.98.0"
+          components: clippy
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: windows
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      - name: Test
+        run: cargo test --workspace --all-features
+      # Release is where `panic = "abort"`, LTO and one codegen unit apply,
+      # and those change what compiles.
+      - name: Build release binary
+        run: cargo build --release -p strobe-app
+
+  linux:
+    name: linux (headless GL)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master, 2026-08
+        with:
+          toolchain: "1.98.0"
+          components: clippy
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: linux
+      # Mesa's software rasteriser behind surfaceless EGL: a real GLSL
+      # compiler for both desktop GL 3.3 core (the native path) and GLES 3.0
+      # (the dialect the ANGLE path speaks), with no display and no GPU.
+      # Without these the renderer tests skip; with them, every shader the
+      # assembler emits is compiled and linked on every push.
+      - name: Install headless GL
+        run: sudo apt-get update && sudo apt-get install -y libegl1 libegl-mesa0 libgl1-mesa-dri libxkbcommon-dev
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      - name: Test
+        env:
+          STROBE_REQUIRE_HEADLESS_GL: "1"
+        run: cargo test --workspace --all-features
+      # Type-checks the Windows-only code (WGL, ANGLE loading) without
+      # linking, so a Linux push fails fast on a Windows-only mistake.
+      - name: Cross-check the Windows build
+        run: cargo clippy --workspace --all-targets --all-features --target x86_64-pc-windows-msvc -- -D warnings

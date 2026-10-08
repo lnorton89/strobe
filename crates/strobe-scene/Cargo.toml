@@ -1,0 +1,20 @@
+[package]
+name = "strobe-scene"
+description = "The Synesthesia Shader Format model: scene.json, controls and their runtime, shader assembly."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+strobe-ssf-lib.workspace = true
+
+[dev-dependencies]
+anyhow.workspace = true
+
+[lints]
+workspace = true
