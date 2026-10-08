@@ -22,6 +22,8 @@ locally but must not be committed.
 | Q7 | Do the EULA terms allow running Synesthesia's own built-in scenes in another engine? | Unknown, so Strobe doesn't do it | Read the EULA |
 | Q8 | ANGLE path for SSF code: how much real SSF code fails under GLSL ES (implicit conversions, `PASSINDEX == 0.0`)? | Much of it. Needs a source-fixup pass or a GLSL parser (e.g. `glsl-lang`) to insert casts | Run the community fixtures through `strobe-bench --api gles` |
 | Q9 | What is the root `"UNIFORMS"` key in some community scenes? | Probably non-standard (from AI-generated scenes); ignored | Look for it in a real Synesthesia-authored scene |
+| Q10 | Does the release build (`strip = "none"`, `debug = "line-tables-only"`) actually produce a `strobe.pdb` that symbolicates a minidump from the diagnostics crate? | Yes: MSVC writes a PDB unless rustc passes `/DEBUG:NONE`, which `strip = "debuginfo"` does (D53) | Cut a tag-less release build on Windows, crash it, and symbolicate the dump with the PDB |
+| Q11 | Does `release.yml` run end to end (ANGLE fetch, packaging paths, cargo-cyclonedx, attestations)? | Yes; every command was run in pieces locally and the YAML passes actionlint | Push a `v0.0.0-test` tag to a fork (or use `workflow_dispatch` on a throwaway tag), then delete the draft |
 
 ## Resolved
 
