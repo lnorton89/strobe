@@ -396,3 +396,118 @@ It preserves enough of Synesthesia's discoverability while avoiding its tendency
 - Ableton Live 12 Browser manual: https://www.ableton.com/en/live-manual/12/working-with-the-browser/
 - Ableton Live 12 new features: https://www.ableton.com/en/live/all-new-features/
 - egui repository/performance notes: https://github.com/emilk/egui
+
+## 15. Second-pass research: interaction and runtime implications
+
+This pass checked the current upstream documentation again rather than treating the first research pass as settled.
+
+### Ableton Live 12: browser state is a first-class workflow
+
+Live 12's Browser can be shown/hidden, resized, filtered, tagged, searched, navigated through history, and saved as custom labels. Search can be combined with filters, and the Browser supports keyboard-first navigation. The important lesson for Strobe is not the visual appearance of Live's Browser; it is that browser state is part of the user's workflow and therefore deserves persistence.
+
+Strobe should persist:
+- query
+- filters
+- sort
+- selected collection/tag
+- browser width
+- browser visibility
+- recent searches
+
+It should also support saved searches such as favorite, broken, author:lnorton89, and tag:feedback rather than requiring users to repeatedly reconstruct filters.
+
+Source: https://help.ableton.com/hc/en-us/articles/12927340213660-The-Live-12-Browser and https://www.ableton.com/en/live-manual/12/working-with-the-browser/
+
+### Resolume: the Dashboard is more than a shortcut strip
+
+Resolume's Dashboard is explicitly designed around parameters the operator needs frequently, and it supports multiple parameters on one dial with parameter and dial ranges. This suggests that Strobe's Performance Macro should eventually support one operator action driving multiple compatible targets, not merely one macro-to-one-control mappings.
+
+This should be implemented as a later capability because it complicates target resolution and feedback display. The first implementation should support one macro → one target, but the data model should not make multi-target macros impossible.
+
+Source: https://resolume.com/support/en/6/dashboard
+
+### Synesthesia: precision interaction should be deliberate
+
+Synesthesia documents relative slider dragging, Shift-drag precision, direct numeric manipulation and quick reset/default/random/preset/lock actions. These are not cosmetic details. They establish a useful performance interaction contract: normal gestures should be fast; modifiers should make them precise; reset should be immediate and discoverable.
+
+Strobe should therefore avoid sliders that jump to the pointer position when the operator clicks near the handle. Relative dragging should be the default where practical.
+
+Source: https://app.synesthesia.live/docs/manual/control_hotkeys.html
+
+### egui: avoid accidental repaint coupling
+
+egui supports multiple native viewports, but its documentation distinguishes deferred and immediate viewports. Immediate child viewports can cause parent and child repaint coupling, multiplying CPU work when multiple windows animate. Deferred viewports are the preferred architecture when independent repainting matters.
+
+For Strobe this reinforces the existing decision to keep the output window visually separate from the control UI. The output is already a continuously animated surface; the control surface should not be forced into an equally expensive repaint lifecycle merely because both are represented by egui.
+
+Source: https://docs.rs/egui/latest/egui/viewport/
+
+### egui: product state should not hide inside widget memory
+
+egui's Memory stores widget state such as scroll positions, collapsing headers and text cursor state, and can be persisted. Its documentation explicitly says Memory is not intended to store important application data.
+
+Therefore Strobe should distinguish:
+- UI memory: collapse state, scroll position, transient widget state
+- Strobe state: active scene, macros, playlist, mappings, workspace, pane layout, output assignment
+
+This distinction is important because future UI agents otherwise tend to put product behavior into widget-local state, making it difficult for MIDI/OSC, command palette and persistence to share the same behavior.
+
+Source: https://docs.rs/egui/latest/egui/struct.Memory.html
+
+### egui: expensive derived data belongs in caches or workers
+
+egui provides a cache facility specifically for computations that are expensive but still appropriate to perform in the UI process. Its documentation recommends moving very slow work to another thread.
+
+Strobe should classify work before implementation:
+
+| Work | UI thread | Cache | Worker |
+|---|---:|---:|---:|
+| control layout | yes | no | no |
+| current values | yes | no | no |
+| scene thumbnail lookup | yes | yes | maybe |
+| thumbnail generation | no | yes | yes |
+| directory scan | no | no | yes |
+| shader compile | no | no | yes/runtime preparation |
+| audio analysis | no | no | yes |
+| diagnostic formatting | small only | yes | yes for bulk |
+| playlist generation | no | no | yes |
+
+The rule should be: egui decides what to draw; it does not perform expensive product work just because a panel is visible.
+
+Sources: https://docs.rs/egui/latest/egui/struct.Memory.html and https://github.com/emilk/egui
+
+### winit: lifecycle should be explicit from day one
+
+Current Winit 0.30 uses the ApplicationHandler lifecycle and recommends graphics/window creation after the first resumed event. Even though Strobe is Windows-first, adopting this lifecycle model from the beginning avoids baking window creation into global initialization and makes future suspend/resume and monitor changes easier to reason about.
+
+Source: https://docs.rs/winit/latest/winit/application/trait.ApplicationHandler.html
+
+## 16. Revised interaction principles
+
+The second pass produces five stronger principles:
+
+1. Preview is persistent; configuration is contextual.
+2. Performance actions are commands, not widget callbacks.
+3. UI memory and product state are separate.
+4. The browser is a saved workflow, not a file picker.
+5. The UI must never make the renderer pay for hidden complexity.
+
+These principles should be treated as architecture constraints for future agents.
+
+## 17. New questions to verify against real scenes and live use
+
+The research should not invent answers where the real Synesthesia behavior can settle them. Add these to the verification queue:
+
+- exact behavior when a control referenced by a preset disappears
+- whether FavSlots preserve unresolved targets and how they present them
+- whether scene changes preserve global/meta values independently
+- precise timing of scene preview preparation versus active load
+- whether script-created uniforms can change arity during a scene lifetime
+- actual spectrum/level-trail texture coordinate semantics
+- expected keyboard precedence while text editing
+- whether a blackout should pause scene time or only suppress output
+- whether output monitor loss should automatically rebind to the primary monitor
+- whether playlist cue state should survive an application restart
+- whether preview rendering should use the same adaptive render scale as live output
+
+Until verified, agents should implement explicit state and diagnostics rather than silently guessing.
