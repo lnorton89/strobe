@@ -28,8 +28,6 @@
 //! llvmpipe: absolute numbers are CPU rasterisation, but the *ranking* of
 //! scenes and the effect of a renderer change hold.
 
-mod synthetic;
-
 use anyhow::{Context as _, Result, anyhow};
 use clap::{Parser, ValueEnum};
 use std::fmt::Write as _;
@@ -218,7 +216,7 @@ fn bench_scene(
     let mut times = Vec::with_capacity(cli.frames as usize);
     for frame in 0..u64::from(cli.warmup + cli.frames) {
         let time = cli.start + frame as f32 * dt;
-        synthetic::fill(time, &mut audio);
+        strobe_scene::synthetic::fill(time, &mut audio);
         controls.tick(dt);
         let start = Instant::now();
         player.render(&FrameInputs {

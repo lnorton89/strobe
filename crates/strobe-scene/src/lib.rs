@@ -40,6 +40,7 @@ pub mod json;
 pub mod load;
 pub mod names;
 pub mod scene;
+pub mod synthetic;
 
 pub use error::SceneError;
 pub use load::SceneFolder;
