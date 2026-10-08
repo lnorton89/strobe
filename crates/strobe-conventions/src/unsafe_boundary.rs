@@ -1,7 +1,8 @@
 // ============================================================================
 // Module:       strobe_conventions::unsafe_boundary
 // Description:  Enforces the safe-leaf boundary: unsafe lives only in
-//               strobe-gfx's gl module, one operation per wrapper.
+//               strobe-gfx's gl module and strobe-diag's native.rs, one
+//               operation per wrapper.
 //
 // Dependencies: anyhow; crate::sources (the workspace walk)
 // ============================================================================
@@ -10,10 +11,16 @@
 //!
 //! Every GL call is `unsafe` in `glow`, and so is creating a context. That
 //! is a lot of unsafe for one renderer, which is exactly why it is fenced:
-//! it all lives under `crates/strobe-gfx/src/gl/`, each operation in its
-//! own small, named, private safe function whose `unsafe` block holds the
-//! call and nothing else, under a `// SAFETY:` comment. Nothing above that
-//! module contains the word, and no test does.
+//! it all lives in the [`ALLOWED`] places, each operation in its own
+//! small, named, private safe function whose `unsafe` block holds the call
+//! and nothing else, under a `// SAFETY:` comment. Nothing outside them
+//! contains the word, and no test does.
+//!
+//! There are two places: `crates/strobe-gfx/src/gl/`, where every GL call
+//! and context creation lives, and the single file
+//! `crates/strobe-diag/src/native.rs`, which holds the one unsafe call that
+//! installs the native crash handler (decision D41). An entry ending in `/`
+//! is a directory; any other entry is exactly one file.
 //!
 //! Compiler lints check the local mechanics (`undocumented_unsafe_blocks`,
 //! `unsafe_op_in_unsafe_fn`). This check enforces what they cannot:
@@ -22,11 +29,26 @@
 
 use std::collections::HashMap;
 
-/// The one directory allowed to hold unsafe code.
-pub const ALLOWED: &str = "crates/strobe-gfx/src/gl/";
+/// The places allowed to hold unsafe code: a directory (trailing `/`) or
+/// exactly one file.
+pub const ALLOWED: [&str; 2] = [
+    "crates/strobe-gfx/src/gl/",
+    "crates/strobe-diag/src/native.rs",
+];
 
 /// This crate's own sources, which spell the keyword in their checks.
 const SELF: &str = "crates/strobe-conventions/";
+
+/// Whether `relative` is one of the [`ALLOWED`] places.
+fn is_allowed(relative: &str) -> bool {
+    ALLOWED.iter().any(|place| {
+        if place.ends_with('/') {
+            relative.starts_with(place)
+        } else {
+            relative == *place
+        }
+    })
+}
 
 /// Whether a source line (comments stripped) opens an unsafe boundary.
 fn is_boundary(line: &str) -> bool {
@@ -70,8 +92,11 @@ pub fn violations(relative: &str, text: &str) -> Vec<String> {
             continue;
         }
         let location = format!("{relative}:{}", index + 1);
-        if !relative.starts_with(ALLOWED) {
-            failures.push(format!("{location}: unsafe code must live under {ALLOWED}"));
+        if !is_allowed(relative) {
+            failures.push(format!(
+                "{location}: unsafe code must live in one of {}",
+                ALLOWED.join(", ")
+            ));
         }
         if relative.contains("/tests/") || test_start.is_some_and(|start| index > start) {
             failures.push(format!("{location}: test code must use safe wrappers"));
@@ -126,12 +151,46 @@ mod tests {
         assert!(
             found
                 .iter()
-                .any(|problem| problem.contains("must live under")),
+                .any(|problem| problem.contains("must live in one of")),
             "got {found:?}"
         );
         assert!(
             violations("crates/strobe-gfx/src/gl/raw.rs", &text).is_empty(),
             "one operation in the gl module is allowed"
+        );
+    }
+
+    #[test]
+    fn the_diag_native_file_is_allowed_but_its_neighbours_are_not() {
+        let keyword = ["un", "safe"].concat();
+        let text = format!("fn leaf() {{\n    {keyword} {{ call() }}\n}}\n");
+        assert!(
+            violations("crates/strobe-diag/src/native.rs", &text).is_empty(),
+            "one operation in strobe-diag's native.rs is allowed"
+        );
+        for neighbour in [
+            "crates/strobe-diag/src/crash.rs",
+            "crates/strobe-diag/src/native_extra.rs",
+            "crates/strobe-diag/src/native.rs.bak",
+        ] {
+            assert!(
+                !violations(neighbour, &text).is_empty(),
+                "{neighbour} must not be allowed to hold unsafe code"
+            );
+        }
+    }
+
+    #[test]
+    fn two_operations_in_the_diag_native_file_are_reported() {
+        let keyword = ["un", "safe"].concat();
+        let text =
+            format!("fn leaf() {{\n    {keyword} {{ a() }};\n    {keyword} {{ b() }};\n}}\n");
+        let found = violations("crates/strobe-diag/src/native.rs", &text);
+        assert!(
+            found
+                .iter()
+                .any(|problem| problem.contains("2 unsafe operations")),
+            "got {found:?}"
         );
     }
 

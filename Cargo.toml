@@ -16,6 +16,7 @@ repository = "https://github.com/lnorton89/strobe"
 strobe-scene = { path = "crates/strobe-scene" }
 strobe-ssf-lib = { path = "crates/strobe-ssf-lib" }
 strobe-gfx = { path = "crates/strobe-gfx" }
+strobe-diag = { path = "crates/strobe-diag" }
 
 anyhow = "1"
 thiserror = "2"
@@ -23,6 +24,10 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "1.1"
 dirs = "6"
+# Out-of-process crash capture: crash-handler catches the fault in the app,
+# minidumper writes the dump from a second process.
+crash-handler = "0.8"
+minidumper = "0.11"
 log = "0.4"
 clap = { version = "4", features = ["derive"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
