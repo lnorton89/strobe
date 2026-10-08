@@ -1,9 +1,9 @@
 // ============================================================================
-// Module:       strobe_bench::synthetic
+// Module:       strobe_scene::synthetic
 // Description:  A deterministic stand-in for the audio analyser: plausible
 //               values for every SSF audio uniform as a function of time.
 //
-// Dependencies: strobe-scene (the audio uniform names)
+// Dependencies: crate::audio (the audio uniform names)
 // ============================================================================
 
 //! Synthetic audio.
@@ -13,15 +13,16 @@
 //! seeded. Until the real analyser exists, this drives every audio uniform
 //! from a 120 BPM four-on-the-floor pattern: a kick envelope on each beat,
 //! hats on the off-beats, a slow swell over sixteen bars. It is a pure
-//! function of time, so two runs render identical frames.
+//! function of time, so two runs render identical frames. The benchmark
+//! uses it always; the app uses it when no audio device is available.
 
-use strobe_scene::audio::SCALARS;
+use crate::audio::SCALARS;
 
 /// Beats per minute of the synthetic track.
 const BPM: f32 = 120.0;
 
 /// Fills `out` (in [`SCALARS`] order) with the audio state at `time`.
-pub(crate) fn fill(time: f32, out: &mut [f32]) {
+pub fn fill(time: f32, out: &mut [f32]) {
     let beat_len = 60.0 / BPM;
     let beats = time / beat_len;
     let phase = beats.fract();
@@ -71,7 +72,7 @@ pub(crate) fn fill(time: f32, out: &mut [f32]) {
             "syn_BPMTri4" => tri(4.0),
             "syn_BPMTri8" => tri(8.0),
             "syn_FadeInOut" | "syn_Intensity" => swell,
-            _ => strobe_scene::audio::silent_value(name),
+            _ => crate::audio::silent_value(name),
         };
     }
 }
