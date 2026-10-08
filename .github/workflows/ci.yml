@@ -13,6 +13,12 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Least privilege by default: nothing in this workflow writes to the
+# repository, so the token it runs with can only read it. A job that needs
+# more says so itself.
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -43,6 +49,30 @@ jobs:
         with:
           command: check
 
+  changelog:
+    name: changelog
+    runs-on: ubuntu-latest
+    # CHANGELOG.md is generated from the git history by `cargo xtask
+    # changelog`, so a released section that disagrees with the tags is a
+    # mistake, not a style choice. Released sections only: `Unreleased`
+    # moves with every merge and a squash rewrites the very hashes it pins,
+    # so gating pull requests on it would fail all of them for no signal.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The check reads `git tag` and walks the whole history. The
+          # default checkout is shallow and fetches no tags at all, so
+          # every release would come back missing and the check would fail
+          # for a reason that has nothing to do with the changelog.
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master, 2026-08
+        with:
+          toolchain: "1.98.0"
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: changelog
+      - run: cargo xtask changelog --check
+
   windows:
     name: windows (the shipping platform)
     runs-on: windows-latest
@@ -68,6 +98,44 @@ jobs:
       # and those change what compiles.
       - name: Build release binary
         run: cargo build --release --workspace --bins
+
+  macos:
+    name: macos (the portable crates)
+    runs-on: macos-latest
+    # macOS is a later target, so this job is deliberately two-tier.
+    #
+    # The blocking tier is every crate that has no OpenGL context in it:
+    # the scene model, the GLSL library, the conventions and the tooling.
+    # They must keep building and passing on a Mac so the port is not made
+    # harder by drift in the meantime.
+    #
+    # `strobe-gfx` cannot build here yet. Its headless context is written
+    # against glutin's EGL backend, and glutin compiles that backend out on
+    # Apple targets (`not(apple)`); macOS contexts are CGL. That port is
+    # future work, so the whole-workspace step below is informational: it
+    # is allowed to fail, and its log is the running list of what is left.
+    # When it goes green, delete the `--exclude` flags and the
+    # `continue-on-error`, and make it the blocking tier.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master, 2026-08
+        with:
+          toolchain: "1.98.0"
+          components: clippy
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: macos
+      - name: Clippy (portable crates)
+        run: cargo clippy --workspace --exclude strobe-gfx --exclude strobe-bench --exclude strobe-app --all-targets --all-features -- -D warnings
+      # The renderer tests in strobe-gfx self-skip without an EGL driver,
+      # which a Mac runner does not have, so once strobe-gfx builds here
+      # they will pass by skipping rather than prove anything; the Linux
+      # job is where shaders are compiled.
+      - name: Test (portable crates)
+        run: cargo test --workspace --exclude strobe-gfx --exclude strobe-bench --exclude strobe-app --all-features
+      - name: Clippy (whole workspace, informational)
+        continue-on-error: true
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
   linux:
     name: linux (headless GL)
@@ -95,6 +163,37 @@ jobs:
         env:
           STROBE_REQUIRE_HEADLESS_GL: "1"
         run: cargo test --workspace --all-features
+      # Render every scene in the library headless, once per GLSL dialect,
+      # and keep the frames. Mesa's llvmpipe is CPU rasterisation, so the
+      # timings in results.md are not a GPU's — but the *images* are a pure
+      # function of time (fixed dt, synthetic audio), so a reviewer can
+      # open the contact sheet from any pull request and see what a shader
+      # or renderer change did, and the ranking of scenes by cost is still
+      # meaningful. A scene that fails to compile in either dialect fails
+      # the step. A few timed frames and a short warm-up keep it to a
+      # minute or two; `cargo xtask bench` is the way to take real numbers.
+      - name: Render the scene library (desktop GL 3.3)
+        run: cargo run --release -p strobe-bench -- --size 640x360 --frames 10 --warmup 60 --out target/bench
+      - name: Render the scene library (GLES 3.0, the ANGLE dialect)
+        run: cargo run --release -p strobe-bench -- --size 640x360 --frames 10 --warmup 60 --api gles --out target/bench-gles
+      # `!cancelled()` rather than the default success(): a run where one
+      # scene broke is exactly the run whose other frames you want to see.
+      - name: Upload frames (desktop GL)
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: bench-desktop
+          path: target/bench
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Upload frames (GLES)
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: bench-gles
+          path: target/bench-gles
+          if-no-files-found: warn
+          retention-days: 14
       # Type-checks the Windows-only code (WGL, ANGLE loading) without
       # linking, so a Linux push fails fast on a Windows-only mistake.
       - name: Cross-check the Windows build
