@@ -28,6 +28,20 @@ The following is done and verified headless:
 - `strobe-bench`, plus the 10-scene library in `scenes/`. The baseline
   is in [BENCHMARKS.md](BENCHMARKS.md).
 
+### In flight (parallel agents, 2026-10-08)
+
+- `strobe-script` (Sonnet agent, worktree branch `agent/strobe-script`)
+- `strobe-audio` (Sonnet agent, worktree branch `agent/strobe-audio`)
+- `strobe-app` and the windowed native/ANGLE context (Sonnet agent,
+  branch `agent/strobe-app`)
+- A real-hardware test session on the owner's ThinkPad T480 (remote
+  bridge session in `C:\Users\ExaltedLaptop2\Development\strobe`):
+  hardware report, a native MSVC build and tests, and later a real-GPU
+  bench. Its report goes to `docs/hardware/T480.md`.
+
+The coordinating session reviews each branch and merges it into
+`claude/festive-ramanujan-oic192`.
+
 ## Next (in order)
 
 1. **`strobe-app` window shell.** A winit event loop, one GL context with
