@@ -1,0 +1,31 @@
+[package]
+name = "strobe-audio"
+description = "Audio analysis: capture, FFT, bands, onsets and tempo, producing the SSF audio uniforms and textures."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[features]
+default = ["capture"]
+# The live-capture half: cpal input streams, the SPSC ring, and the analysis
+# thread. Off, the crate is pure DSP and builds without a system audio library
+# (ALSA headers on Linux), which is what the offline tuning harness needs.
+capture = ["dep:cpal", "dep:rtrb", "dep:arc-swap"]
+
+[dependencies]
+strobe-scene.workspace = true
+realfft.workspace = true
+thiserror.workspace = true
+log.workspace = true
+cpal = { workspace = true, optional = true }
+rtrb = { workspace = true, optional = true }
+arc-swap = { workspace = true, optional = true }
+
+[dev-dependencies]
+anyhow.workspace = true
+hound.workspace = true
+
+[lints]
+workspace = true
