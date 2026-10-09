@@ -16,10 +16,10 @@ crates/
 ├── strobe-conventions  The house rules as tests (headers, unsafe boundary, toolchain pin)
 ├── strobe-diag         Logger, session context, panic hook, native crash capture
 ├── strobe-app          winit event loop, control window (egui) + output window, wiring
+├── strobe-playlist     Playlist model, TOML, generator, timeline, playback clock (pure)
 │
 │   planned (see ROADMAP.md):
 ├── strobe-shadertoy    Shadertoy JSON → scene conversion
-├── strobe-playlist     Playlist model, TOML, scheduler, generator
 └── strobe-io           MIDI, OSC, hotkeys, localhost import listener
 ```
 
@@ -175,3 +175,28 @@ void main() { _xy/_uv/_uvc setup; strobe_FragColor = renderMain(); }
 
 `map_error_line` reads Mesa, NVIDIA and ANGLE/AMD/Intel log formats, so
 an error points at `main.glsl:N`.
+
+## Playlists (`strobe-playlist`)
+
+Pure: no GL, no threads, no system clock, no I/O except `file::load` / `save`
+and `ResumePoint::save` / `load` (both atomic). Depends on serde, toml and
+thiserror only; it does not depend on `strobe-audio` or `strobe-scene`
+(the clock takes a `BeatInfo`, overrides use its own `ControlValue`).
+
+| Part | Module | Entry points |
+|---|---|---|
+| model | `model`, `duration` | `Playlist`, `Section`, `Cue`, `CueSettings`, `DurationSpec` (`90s`, `1:30`, `32 bars`, `rand(a, b)`) |
+| inheritance | `resolve` | `resolve()` to `ResolvedCue`, `identity()`, `distinct_scenes()` |
+| file | `parse`, `write`, `file` | `parse::parse`, `write::to_toml`, `file::load` / `save`; errors carry line and column |
+| generator | `generate`, `rng` | `generate(&LibrarySnapshot, &GenerateSpec)` to a `Section`; `SplitMix64` |
+| timeline | `timeline`, `schedule` | `Timeline::from_playlist`, `total_runtime`, `locate`, `place`, `wall_time` |
+| playback | `clock`, `tempo` | `PlaylistClock::tick(dt, &BeatInfo)`, `apply(Command)`, `drain_events()` |
+| resume | `resume` | `PlaylistClock::resume_point()` / `restore()`, `ResumePoint` TOML |
+
+The playlist tick sits where the frame section above says it will: after
+input, before the scene renders. The app calls `clock.tick(dt, &beat)`, drains
+`ClockEvent`s into its own reused buffer, and reacts: `CueStarted` loads the
+scene (already precompiled), `TransitionStarted` / `clock.transition()` drive
+the compositor, `WarmUp` starts the incoming scene rendering off-screen at
+quarter resolution, `CueSkipped` and `PlaylistEnded` go to the console. See
+D73-D77 for the rules behind each of those.
