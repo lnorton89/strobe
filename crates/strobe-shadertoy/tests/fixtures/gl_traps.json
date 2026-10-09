@@ -1,0 +1,60 @@
+{
+  "ver": "0.1",
+  "info": {
+    "id": "Tst005",
+    "date": "1700000000",
+    "viewed": 0,
+    "name": "Sampler parameter and const switch",
+    "username": "strobe-tests",
+    "description": "Original test shader written for Strobe's fixtures. MIT, like the repository.",
+    "likes": 0,
+    "published": 3,
+    "flags": 0,
+    "usePreview": 0,
+    "tags": [],
+    "hasliked": 0
+  },
+  "renderpass": [
+    {
+      "inputs": [],
+      "outputs": [
+        {
+          "id": 257,
+          "channel": 0
+        }
+      ],
+      "code": "void mainImage( out vec4 fragColor, in vec2 fragCoord )\n{\n    fragColor = vec4(fragCoord / iResolution.xy, 0.5, 1.0);\n}\n",
+      "name": "Buffer A",
+      "description": "",
+      "type": "buffer"
+    },
+    {
+      "inputs": [
+        {
+          "id": 257,
+          "src": "/media/previz/buffer00.png",
+          "ctype": "buffer",
+          "channel": 0,
+          "sampler": {
+            "filter": "linear",
+            "wrap": "clamp",
+            "vflip": "true",
+            "srgb": "false",
+            "internal": "byte"
+          },
+          "published": 1
+        }
+      ],
+      "outputs": [
+        {
+          "id": "4dfGRr",
+          "channel": 0
+        }
+      ],
+      "code": "const int MODE = 2;\n\nvec3 tap(sampler2D s, vec2 uv)\n{\n    return texture(s, uv).rgb;\n}\n\nvec3 pick(int i)\n{\n    switch (i) {\n        case 0: return vec3(1.0, 0.0, 0.0);\n        case 1: return vec3(0.0, 1.0, 0.0);\n        case MODE: return vec3(0.0, 0.0, 1.0);\n        default: return vec3(1.0);\n    }\n}\n\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord )\n{\n    vec2 uv = fragCoord / iResolution.xy;\n    fragColor = vec4(0.5 * tap(iChannel0, uv) + 0.5 * pick(MODE), 1.0);\n}\n",
+      "name": "Image",
+      "description": "",
+      "type": "image"
+    }
+  ]
+}

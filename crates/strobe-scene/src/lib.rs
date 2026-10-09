@@ -35,6 +35,7 @@
 pub mod assemble;
 pub mod audio;
 pub mod control;
+pub mod date;
 pub mod error;
 pub mod json;
 pub mod load;

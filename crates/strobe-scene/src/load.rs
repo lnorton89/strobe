@@ -11,11 +11,20 @@
 //! The only file access in this crate. A folder needs `main.glsl`;
 //! `scene.json` is optional (a bare shader is a valid scene with no
 //! controls), and so is `script.js`.
+//!
+//! A scene that sets `PASS_SOURCES` also has one shader file per pass,
+//! read here too. `main.glsl` stays mandatory even then (the final pass's
+//! file is normally `main.glsl` itself): it is what [`scan`] looks for to
+//! tell a scene folder from any other folder.
 
 use crate::error::SceneError;
 use crate::scene::SceneDef;
 use std::fs;
 use std::path::{Path, PathBuf};
+
+/// The file name errors in a pass are reported against when the scene has
+/// no `PASS_SOURCES`.
+pub const MAIN_SHADER: &str = "main.glsl";
 
 /// A scene folder, read and validated.
 #[derive(Debug, Clone)]
@@ -26,11 +35,31 @@ pub struct SceneFolder {
     pub def: SceneDef,
     /// `main.glsl`.
     pub shader: String,
+    /// The source of each pass, in pass order, when the scene sets
+    /// `PASS_SOURCES`; empty otherwise.
+    pub pass_shaders: Vec<String>,
     /// `script.js`, if present.
     pub script: Option<String>,
 }
 
 impl SceneFolder {
+    /// The GLSL that pass `index` runs: its own file under `PASS_SOURCES`,
+    /// `main.glsl` for every pass otherwise.
+    pub fn shader_for(&self, index: usize) -> &str {
+        self.pass_shaders
+            .get(index)
+            .map_or(self.shader.as_str(), String::as_str)
+    }
+
+    /// The file name pass `index`'s code lives in, for error messages.
+    pub fn file_for(&self, index: usize) -> &str {
+        self.def
+            .pass_sources
+            .as_ref()
+            .and_then(|files| files.get(index))
+            .map_or(MAIN_SHADER, String::as_str)
+    }
+
     /// Reads and validates the scene at `dir`.
     pub fn load(dir: &Path) -> Result<Self, SceneError> {
         let read = |name: &str| -> Result<Option<String>, SceneError> {
@@ -45,11 +74,18 @@ impl SceneFolder {
             read("main.glsl")?.ok_or_else(|| SceneError::MissingShader(dir.to_path_buf()))?;
         let json = read("scene.json")?.unwrap_or_else(|| "{}".to_string());
         let def = SceneDef::parse(&json, &folder_title(dir))?;
+        let pass_shaders = def
+            .pass_sources
+            .iter()
+            .flatten()
+            .map(|file| read(file)?.ok_or_else(|| SceneError::missing_file(dir, file)))
+            .collect::<Result<Vec<_>, _>>()?;
         let script = read("script.js")?;
         Ok(Self {
             dir: dir.to_path_buf(),
             def,
             shader,
+            pass_shaders,
             script,
         })
     }
@@ -85,6 +121,44 @@ pub fn scan(library: &Path) -> Result<Vec<PathBuf>, SceneError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn folder(json: &str, pass_shaders: &[&str]) -> Result<SceneFolder, SceneError> {
+        Ok(SceneFolder {
+            dir: PathBuf::from("."),
+            def: SceneDef::parse(json, "t")?,
+            shader: "main".to_string(),
+            pass_shaders: pass_shaders.iter().map(|s| (*s).to_string()).collect(),
+            script: None,
+        })
+    }
+
+    #[test]
+    fn each_pass_gets_its_own_file_or_falls_back_to_main() -> Result<(), SceneError> {
+        let per_pass = folder(
+            r#"{ "PASSES": [ {"TARGET": "a"} ], "PASS_SOURCES": ["passes/a.glsl", "main.glsl"] }"#,
+            &["code a", "code main"],
+        )?;
+        assert_eq!(
+            per_pass.shader_for(0),
+            "code a",
+            "pass 0 has its own source"
+        );
+        assert_eq!(
+            per_pass.file_for(0),
+            "passes/a.glsl",
+            "and its own file name"
+        );
+        assert_eq!(
+            per_pass.shader_for(1),
+            "code main",
+            "so does the final pass"
+        );
+
+        let plain = folder(r#"{ "PASSES": [ {"TARGET": "a"} ] }"#, &[])?;
+        assert_eq!(plain.shader_for(1), "main", "no PASS_SOURCES: main.glsl");
+        assert_eq!(plain.file_for(0), "main.glsl", "for every pass");
+        Ok(())
+    }
 
     #[test]
     fn the_title_comes_from_the_folder_without_its_suffix() {

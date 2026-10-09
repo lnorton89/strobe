@@ -15,11 +15,11 @@ crates/
 ├── strobe-bench        Headless benchmark + visual regression frames
 ├── strobe-conventions  The house rules as tests (headers, unsafe boundary, toolchain pin)
 ├── strobe-diag         Logger, session context, panic hook, native crash capture
+├── strobe-shadertoy    Shadertoy export JSON → scene folder (id parser, model, dialect rewrite, converter, strobe-import)
 ├── strobe-app          winit event loop, control window (egui) + output window, wiring
 ├── strobe-playlist     Playlist model, TOML, generator, timeline, playback clock (pure)
 │
 │   planned (see ROADMAP.md):
-├── strobe-shadertoy    Shadertoy JSON → scene conversion
 └── strobe-io           MIDI, OSC, hotkeys, localhost import listener
 ```
 
@@ -31,6 +31,10 @@ strobe-ssf-lib ◀── strobe-scene ◀── strobe-gfx ◀── strobe-app
                         │   └── strobe-script ◀──────┤
                         └────── strobe-audio  ◀──────┤
                                 strobe-playlist ◀────┘
+
+strobe-scene ◀── strobe-shadertoy         (nothing depends on it yet;
+                                           dev-dependency: strobe-gfx, for
+                                           the render tests only)
 ```
 
 - `strobe-scene` knows nothing about GL, threads, or clocks: `dt` is
@@ -40,6 +44,9 @@ strobe-ssf-lib ◀── strobe-scene ◀── strobe-gfx ◀── strobe-app
   It renders a scene given a `FrameInputs` (time, audio values, controls).
 - `strobe-audio` and `strobe-script` must not depend on `strobe-gfx`.
   They produce values, and the app hands those values to the player.
+- `strobe-shadertoy` depends on `strobe-scene` only, to validate what it
+  generates with `SceneDef::parse`. `strobe-gfx` must never depend on it;
+  its render tests take `strobe-gfx` as a dev-dependency instead.
 - `strobe-diag` depends on no other Strobe crate, so every crate may
   depend on it (for `log` output, `context::set`, `failure::report`).
   `strobe-gfx` itself only uses the `log` facade; the app is what installs
@@ -191,7 +198,8 @@ records (`failures.rs`), so the log, the console and a crash report agree.
   program and resolves their locations at link time; `set_script_uniforms`
   copies this frame's values into a reused buffer.
 - **Sampler units.** Units are assigned in a fixed order: `syn_FinalPass`,
-  `syn_Media`, `syn_Spectrum`, `syn_LevelTrail`, pass targets, images,
+  `syn_Media`, `syn_Spectrum`, `syn_LevelTrail`, `strobe_ShadertoyAudio`,
+  pass targets, images,
   cubemaps. Each sampler gets its own unit even when the driver optimised
   it out, so a `samplerCube` never shares a unit with a `sampler2D`,
   which GL rejects at draw time.
@@ -238,3 +246,44 @@ scene (already precompiled), `TransitionStarted` / `clock.transition()` drive
 the compositor, `WarmUp` starts the incoming scene rendering off-screen at
 quarter resolution, `CueSkipped` and `PlaylistEnded` go to the console. See
 D73-D77 for the rules behind each of those.
+
+## Shadertoy import (`strobe-shadertoy`)
+
+Four layers, kept apart (AGENT_RESEARCH section 9). Only (a), (b), (c) and
+the CLI exist; acquisition is a later layer that ends in the same JSON.
+
+```
+(a) id        ShaderId::parse        URL / embed link / bare id          id.rs
+(b) model     Shader::from_json      API {"Shader":..} or bare export     model.rs
+    [ acquisition: REST API (path B), localhost listener (path A) ]       not built
+(c) convert   convert(&Shader, &Options) -> Converted                    convert/
+      plan      order buffers A..D, bind channels, decide the clock       plan.rs
+      dialect   token-level rewrite of each tab's code (D94)              dialect.rs, glsl.rs
+      shim      per-pass GLSL: shim + Common + tab + entry (D91)          shim.rs
+      scene_json  scene.json from Serialize structs (deterministic)       scene_json.rs
+      write     hidden staging folder, one rename                         write.rs
+(e) strobe-import <file.json> [--out DIR] [--name N] [--assets DIR] [--strict] [--force]
+```
+
+What it writes, and how the player runs it:
+
+```
+<name>-<id>.synScene/
+  scene.json            PASSES [st_clock?, st_buf_a..d], PASS_SOURCES, IMAGES,
+                        CONTROLS (the five "Strobe" controls), SOURCE
+  main.glsl             the Image pass (the final PASS_SOURCES entry)
+  passes/*.glsl         st_clock (when a pass reads time), buffer_a..buffer_d
+  images/               fetched textures, st_black.png, pending-assets.json
+```
+
+- The player builds one program per pass from that pass's own file
+  (`SceneFolder::shader_for`), names the file in compile errors
+  (`file_for`), and ignores a request for a shared program (D90).
+- `st_clock` is an ordinary one-pixel float pass; nothing in the frame loop
+  knows about it (D91).
+- Audio inputs sample `strobe_ShadertoyAudio`, filled inside
+  `upload_audio` only when a pass samples it; `iDate` is `strobe_Date`
+  (D93).
+- Every fixture under `crates/strobe-shadertoy/tests/fixtures/` is original
+  and in exact export shape; the render tests convert, write, load and
+  render them on both dialects.

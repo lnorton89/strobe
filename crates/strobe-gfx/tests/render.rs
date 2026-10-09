@@ -42,6 +42,7 @@ fn folder(json: &str, shader: &str) -> Result<SceneFolder> {
         dir: PathBuf::from("."),
         def: SceneDef::parse(json, "test")?,
         shader: shader.to_string(),
+        pass_shaders: Vec::new(),
         script: None,
     })
 }
@@ -364,6 +365,271 @@ fn the_gpu_timer_reports_results_without_ever_waiting() -> Result<()> {
             "{api:?}: samples are finite and non-negative: {samples:?}"
         );
         assert_eq!(timer.in_flight(), 0, "{api:?}: everything was drained");
+        if let Some(code) = gl.error() {
+            return Err(anyhow!("{api:?}: GL error 0x{code:x}"));
+        }
+    }
+    Ok(())
+}
+
+/// Renders `frames` frames of `scene` and returns the centre pixel, with
+/// the player available to `before` for per-frame setup.
+fn render_folder(
+    api: Api,
+    options: Options,
+    scene: &SceneFolder,
+    frames: u64,
+    mut before: impl FnMut(&mut ScenePlayer),
+) -> Result<Option<[u8; 4]>> {
+    let Some(headless) = context(api)? else {
+        return Ok(None);
+    };
+    let gl = headless.gl();
+    let caps = Caps::from_info(gl.info());
+    let controls = ControlBank::new(scene.def.controls.clone())?;
+    let audio = vec![0.0; SCALARS.len()];
+    let mut player = ScenePlayer::new(gl, &caps, scene, [32, 18], options)?;
+    for frame in 0..frames {
+        before(&mut player);
+        player.render(&FrameInputs {
+            time: frame as f32 / 60.0,
+            frame,
+            mouse: Mouse::default(),
+            audio: &audio,
+            controls: &controls,
+            transitions: &[],
+        });
+    }
+    if let Some(code) = gl.error() {
+        return Err(anyhow!("{api:?}: GL error 0x{code:x}"));
+    }
+    let pixels = player.read_output();
+    let offset = (9 * 32 + 16) * 4;
+    let px = pixels
+        .get(offset..offset + 4)
+        .ok_or_else(|| anyhow!("readback too short"))?;
+    Ok(Some([px[0], px[1], px[2], px[3]]))
+}
+
+/// A scene whose passes each have their own source file.
+fn per_pass_folder(json: &str, sources: &[&str]) -> Result<SceneFolder> {
+    Ok(SceneFolder {
+        dir: PathBuf::from("."),
+        def: SceneDef::parse(json, "test")?,
+        shader: sources.last().copied().unwrap_or_default().to_string(),
+        pass_shaders: sources.iter().map(|s| (*s).to_string()).collect(),
+        script: None,
+    })
+}
+
+const TWO_PASSES: &str = r#"{ "PASSES": [ {"TARGET": "buf"} ],
+    "PASS_SOURCES": ["passes/buf.glsl", "main.glsl"] }"#;
+
+#[test]
+fn pass_sources_give_each_pass_its_own_program_even_with_colliding_names() -> Result<()> {
+    // Both files define `tint` and `K` differently. One shared program could
+    // not hold both; asking for one anyway must fall back to per-pass.
+    let scene = per_pass_folder(
+        TWO_PASSES,
+        &[
+            "const float K = 0.25;\nvec3 tint() { return vec3(K, 0.0, 0.0); }\n\
+             vec4 renderMain() { return vec4(tint(), 1.0); }",
+            "const float K = 0.5;\nvec3 tint() { return vec3(0.0, K, 0.0); }\n\
+             vec4 renderMain() { return vec4(texture(buf, _uv).rgb + tint(), 1.0); }",
+        ],
+    )?;
+    for api in BOTH {
+        for specialise_passes in [true, false] {
+            let options = Options {
+                specialise_passes,
+                ..Options::default()
+            };
+            let Some(px) = render_folder(api, options, &scene, 1, |_| {})? else {
+                continue;
+            };
+            assert!(
+                near(px[0], 64) && near(px[1], 128) && px[2] == 0,
+                "{api:?} specialise_passes={specialise_passes}: red from the buffer's K, \
+                 green from the final pass's K; got {px:?}"
+            );
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn a_compile_error_names_the_pass_file_and_its_own_line() -> Result<()> {
+    let Some(headless) = context(Api::DesktopCore33)? else {
+        return Ok(());
+    };
+    let gl = headless.gl();
+    let caps = Caps::from_info(gl.info());
+
+    let scene = per_pass_folder(
+        TWO_PASSES,
+        &[
+            "vec4 renderMain() {\n    return vec4(1.0);\n}\n",
+            "// line 1\n// line 2\nvec4 renderMain() {\n    return missingThing;\n}\n",
+        ],
+    )?;
+    let error = ScenePlayer::new(gl, &caps, &scene, [8, 8], Options::default())
+        .err()
+        .map(|e| e.to_string())
+        .unwrap_or_default();
+    // The scene's PASS_SOURCES entry for the final pass is main.glsl, and
+    // the error is on that file's line 4.
+    assert!(
+        error.contains("pass 1") && error.contains("main.glsl:4"),
+        "expected pass 1, main.glsl:4, got: {error}"
+    );
+
+    let scene = per_pass_folder(
+        TWO_PASSES,
+        &[
+            "vec4 renderMain() {\n    return nope;\n}\n",
+            "vec4 renderMain() { return vec4(1.0); }",
+        ],
+    )?;
+    let error = ScenePlayer::new(gl, &caps, &scene, [8, 8], Options::default())
+        .err()
+        .map(|e| e.to_string())
+        .unwrap_or_default();
+    assert!(
+        error.contains("pass 0") && error.contains("passes/buf.glsl:2"),
+        "expected pass 0, passes/buf.glsl:2, got: {error}"
+    );
+    Ok(())
+}
+
+#[test]
+fn strobe_date_is_the_date_the_host_set() -> Result<()> {
+    let shader = "vec4 renderMain() { return vec4(strobe_Date.x / 4096.0, strobe_Date.y / 16.0, \
+                  strobe_Date.z / 32.0, 1.0); }";
+    for api in BOTH {
+        let scene = folder("{}", shader)?;
+        let Some(px) = render_folder(api, Options::default(), &scene, 1, |player| {
+            player.set_date([2048.0, 8.0, 16.0, 0.0]);
+        })?
+        else {
+            continue;
+        };
+        assert!(
+            near(px[0], 128) && near(px[1], 128) && near(px[2], 128),
+            "{api:?}: year 2048/4096, month 8/16, day 16/32 should all be half; got {px:?}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn a_full_precision_pass_keeps_counting_where_half_floats_stall() -> Result<()> {
+    // 0.25 a frame for 2400 frames reaches 600. A 16-bit float cannot hold
+    // 600.25 (its spacing there is 0.5), so it would stall near 512.
+    let shader = "vec4 renderMain() {\n\
+        if (PASSINDEX == 0) { return texture(acc, vec2(0.5)) + vec4(0.25, 0.0, 0.0, 0.0); }\n\
+        return vec4(texture(acc, vec2(0.5)).r / 1024.0, 0.0, 0.0, 1.0); }";
+    for (full, expected) in [(true, 149_u8), (false, 128)] {
+        let json = format!(
+            r#"{{ "PASSES": [ {{"TARGET": "acc", "DOUBLE_BUFFER": true, "WIDTH": 1,
+                 "HEIGHT": 1, "FILTER": "nearest", "FULL_PRECISION": {full}}} ] }}"#
+        );
+        let scene = folder(&json, shader)?;
+        let Some(px) = render_folder(Api::DesktopCore33, Options::default(), &scene, 2400, |_| {})?
+        else {
+            return Ok(());
+        };
+        // 600 / 1024 is 149.4 of 255; stalled at 512 it is 127.5.
+        assert!(
+            px[0].abs_diff(expected) <= 2,
+            "full_precision={full}: expected about {expected}, got {px:?}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn image_wrap_filter_and_vflip_options_are_honoured() -> Result<()> {
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("image-options");
+    std::fs::create_dir_all(&dir)?;
+    // One column, two rows: red on top, blue underneath.
+    let mut picture = image::RgbaImage::new(1, 2);
+    picture.put_pixel(0, 0, image::Rgba([255, 0, 0, 255]));
+    picture.put_pixel(0, 1, image::Rgba([0, 0, 255, 255]));
+    picture.save(dir.join("two.png"))?;
+    let shader = "vec4 renderMain() { return vec4(texture(pic, vec2(0.5, 0.9)).rgb, 1.0); }";
+    for (vflip, expected) in [(true, [255_u8, 0]), (false, [0, 255])] {
+        let json = format!(
+            r#"{{ "IMAGES": [ {{"NAME": "pic", "PATH": "two.png", "WRAP": "clamp",
+                 "FILTER": "nearest", "VFLIP": {vflip}}} ] }}"#
+        );
+        let mut scene = folder(&json, shader)?;
+        scene.dir = dir.clone();
+        let Some(px) = render_folder(Api::DesktopCore33, Options::default(), &scene, 1, |_| {})?
+        else {
+            return Ok(());
+        };
+        assert!(
+            px[0] == expected[0] && px[2] == expected[1],
+            "vflip={vflip}: near the top of uv the picture's top row is red when flipped \
+             upright and blue when not; got {px:?}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn the_shadertoy_audio_texture_is_512_by_2_and_resampled_from_the_spectrum() -> Result<()> {
+    // Row 0 (v = 0.25) is the spectrum, row 1 (v = 0.75) the waveform;
+    // blue reports the texture's width through textureSize.
+    let shader = "vec4 renderMain() {\n\
+        vec4 spec = texture(strobe_ShadertoyAudio, vec2(0.5, 0.25));\n\
+        vec4 wave = texture(strobe_ShadertoyAudio, vec2(0.5, 0.75));\n\
+        float wide = float(textureSize(strobe_ShadertoyAudio, 0).x) / 512.0;\n\
+        return vec4(spec.r, wave.r, wide * 0.5, 1.0); }";
+    for api in BOTH {
+        let Some(headless) = context(api)? else {
+            continue;
+        };
+        let gl = headless.gl();
+        let caps = Caps::from_info(gl.info());
+        let scene = folder("{}", shader)?;
+        let controls = ControlBank::new(scene.def.controls.clone())?;
+        let audio = vec![0.0; SCALARS.len()];
+        let mut player = ScenePlayer::new(gl, &caps, &scene, [32, 18], Options::default())?;
+        let centre = |player: &mut ScenePlayer| -> Result<[u8; 3]> {
+            player.render(&FrameInputs {
+                time: 0.0,
+                frame: 0,
+                mouse: Mouse::default(),
+                audio: &audio,
+                controls: &controls,
+                transitions: &[],
+            });
+            let pixels = player.read_output();
+            let offset = (9 * 32 + 16) * 4;
+            let px = pixels
+                .get(offset..offset + 3)
+                .ok_or_else(|| anyhow!("readback too short"))?;
+            Ok([px[0], px[1], px[2]])
+        };
+        // Before any upload: a dark spectrum and a centred waveform.
+        let silent = centre(&mut player)?;
+        assert!(
+            silent[0] == 0 && near(silent[1], 128) && near(silent[2], 128),
+            "{api:?}: silence is zero spectrum, waveform at 0.5, 512 wide; got {silent:?}"
+        );
+        // 256 texels whose raw spectrum is 0.75 and whose waveform is 0.25.
+        let texels = vec![[0.75, 0.0, 0.0, 0.25]; 256];
+        player.upload_audio(&AudioTextures {
+            spectrum: &texels,
+            level_trail: &texels,
+        });
+        let live = centre(&mut player)?;
+        // (0.75 * 80 - 6.0206) / 70 = 0.771 -> 197 of 255.
+        assert!(
+            near(live[0], 197) && near(live[1], 64) && near(live[2], 128),
+            "{api:?}: resampled spectrum 197, waveform 64; got {live:?}"
+        );
         if let Some(code) = gl.error() {
             return Err(anyhow!("{api:?}: GL error 0x{code:x}"));
         }
