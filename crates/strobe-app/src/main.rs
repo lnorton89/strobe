@@ -77,9 +77,8 @@ fn run() -> Result<()> {
 
 /// Logs a startup failure and shows it where the person will see it.
 fn report_failure(message: &str) {
-    log::error!("{message}");
     let log_file = logging::log_path();
-    eprintln!("strobe: {message}\n(log: {})", log_file.display());
+    log::error!("{message} (log: {})", log_file.display());
     if cfg!(target_os = "windows") {
         let text = format!("{message}\n\nLog: {}", log_file.display());
         let script = "Add-Type -AssemblyName PresentationFramework; \
