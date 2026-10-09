@@ -3,7 +3,7 @@
 // Description:  The only unsafe code in the workspace: safe one-call wrappers
 //               over glow, and owning handles that free GL objects on drop.
 //
-// Dependencies: glow; submodule context (glutin context creation)
+// Dependencies: glow; submodules context, window (glutin context creation)
 // ============================================================================
 
 //! The GL boundary.
@@ -30,6 +30,7 @@
 
 pub mod context;
 pub mod debug;
+pub mod window;
 
 use glow::HasContext;
 use std::marker::PhantomData;
@@ -686,6 +687,16 @@ impl Gl {
         self.bind_raw_framebuffer(glow::FRAMEBUFFER, Some(fbo.raw));
         self.read_pixels(width, height, &mut pixels);
         self.bind_raw_framebuffer(glow::FRAMEBUFFER, None);
+        pixels
+    }
+
+    /// Reads back `width * height` RGBA8 pixels from the default
+    /// framebuffer's back buffer, bottom row first. For screenshots; call
+    /// it after drawing and before the swap.
+    pub fn read_default_rgba8(&self, width: i32, height: i32) -> Vec<u8> {
+        let mut pixels = vec![0_u8; (width.max(0) as usize) * (height.max(0) as usize) * 4];
+        self.bind_raw_framebuffer(glow::FRAMEBUFFER, None);
+        self.read_pixels(width, height, &mut pixels);
         pixels
     }
 
