@@ -616,7 +616,7 @@ fn render(releases: &[Release], unreleased: &[Commit], repo: &str) -> String {
     out.push_str(UNRELEASED);
     out.push('\n');
     if unreleased.is_empty() {
-        out.push_str("\nNothing yet — the latest release is the tip of `main`.\n");
+        out.push_str("\nNothing yet — the latest release is the tip of `master`.\n");
     } else {
         push_sections(&mut out, unreleased, repo);
     }
