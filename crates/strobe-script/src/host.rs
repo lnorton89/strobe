@@ -141,6 +141,11 @@ fn describe(ctx: &Ctx<'_>, error: rquickjs::Error) -> String {
         .as_object()
         .and_then(|object| Exception::from_object(object.clone()));
     let Some(exception) = exception else {
+        // QuickJS cannot build an Error object once the heap is full, so a
+        // memory-limit breach surfaces as an exception with no value.
+        if thrown.is_null() || thrown.is_undefined() {
+            return "out of memory (the engine raised an exception with no value)".to_string();
+        }
         return display(ctx, &thrown);
     };
     let message = exception.message().unwrap_or_default();
