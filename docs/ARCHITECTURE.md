@@ -10,14 +10,14 @@ crates/
 ├── strobe-scene        SSF model: scene.json → SceneDef, controls runtime, shader assembly
 ├── strobe-ssf-lib      The SSF GLSL function library (one .glsl file, include_str!)
 ├── strobe-gfx          GL boundary (only unsafe), context providers, scene player
-├── strobe-audio        FFT, bands, onsets, BPM → the syn_* values; cpal capture thread (built)
+├── strobe-audio        FFT, bands, onsets, BPM → the syn_* values; cpal capture thread
+├── strobe-script       QuickJS host for the Synesthesia JavaScript API
 ├── strobe-bench        Headless benchmark + visual regression frames
 ├── strobe-conventions  The house rules as tests (headers, unsafe boundary, toolchain pin)
 ├── strobe-diag         Logger, session context, panic hook, native crash capture
+├── strobe-app          winit event loop, control window (egui) + output window, wiring
 │
 │   planned (see ROADMAP.md):
-├── strobe-app          winit event loop, control window (egui) + output window
-├── strobe-script       QuickJS host for the Synesthesia JavaScript API
 ├── strobe-shadertoy    Shadertoy JSON → scene conversion
 ├── strobe-playlist     Playlist model, TOML, scheduler, generator
 └── strobe-io           MIDI, OSC, hotkeys, localhost import listener
@@ -68,22 +68,70 @@ context is current, so the type system keeps `Gl` on that thread.
 |---|---|---|
 | `Headless::new(Api::DesktopCore33)` | Linux CI and the bench (Mesa llvmpipe via an EGL device display) | GLSL 330 core |
 | `Headless::new(Api::Gles30)` | the same, for testing the ANGLE dialect | GLSL ES 300 |
-| Windowed native (planned) | glutin: WGL on Windows, GLX/EGL on Linux, CGL on macOS | GLSL 330 core |
-| Windowed ANGLE (planned) | glutin EGL with ANGLE's `libEGL.dll`/`libGLESv2.dll` beside the exe | GLSL ES 300 |
+| Windowed native | glutin: WGL on Windows, GLX/EGL on Linux (CGL on macOS is not built) | GLSL 330 core |
+| Windowed ANGLE | glutin EGL with ANGLE's `libEGL.dll`/`libGLESv2.dll` beside the exe | GLSL ES 300 |
 
-## A frame (target design; the current state is in ROADMAP.md)
+## A frame
+
+The output window's redraw (`strobe-app/src/app.rs`, `redraw_output`) is the
+frame. Everything below runs on the event-loop thread, in this order; worker
+threads only ever hand values *to* it.
 
 ```
-1. drain input (UI, MIDI, OSC, hotkeys)            → control targets
-2. snapshot audio analysis                         → syn_* values, spectrum textures
-3. playlist tick                                   → start/finish transitions
-4. per active scene (1, or 2 during a transition):
-     a. JS event handlers, then update(dt)         (strobe-script)
-     b. ControlBank::tick(dt)                      (strobe-scene)
-     c. ScenePlayer::render(&FrameInputs)          (strobe-gfx)
-5. composite transitions, meta post (brightness, hue, mirror…)
-6. present: output window full-res, control window egui + preview
+1. dt from the clock (fixed in screenshot mode); window and render-size housekeeping
+2. mouse uniforms from the pointer over the output window        (app::mouse)
+3. GpuTimer::begin                                               (strobe-gfx::timing)
+4. Session::advance:
+     a. scene clock += dt
+     b. audio frame at that time: live snapshot (one atomic load + copy) or
+        the synthetic track                                       (app::audio)
+     c. script, if the scene has one: events, then update(dt), then control
+        writes and uniforms harvested                             (strobe-script)
+     d. ControlBank::tick(dt)                                     (strobe-scene)
+     e. ScenePlayer::upload_audio: spectrum and level-trail texels
+     f. ScenePlayer::set_script_uniforms is called with step c's values
+     g. ScenePlayer::render(&FrameInputs): every pass
+5. ScenePlayer::present: letterboxed blit to the output window
+6. GpuTimer::end, then poll: results of earlier frames that are ready (never
+   waited for) go to AdaptiveScale; a new scale triggers a resize next frame
+7. swap (vsync paces the loop)
 ```
+
+The control window redraws at 30 Hz in its own event, never inside the output
+frame: it refreshes the console from `strobe-diag`'s ring (only if the record
+count moved), reads the audio status (at most twice a second), runs one egui
+pass over a `Model` and applies the `Action`s it returns, and paints the
+scene's output texture as the preview.
+
+Not yet in the frame, from the original design: MIDI, OSC and hotkeys (step
+1), the playlist tick, two active scenes during a transition, and the meta
+post stage (brightness, hue, mirror).
+
+## Diagnostics wiring
+
+`main` follows `strobe_diag`'s documented order: register the notifier (the
+same `dialog::show_error` the startup-failure path uses), run as the crash
+monitor if asked, `strobe_diag::init()`, `--diagnose`, then
+`crash::start_monitor()` held for the run. After the GL context exists its
+vendor, renderer, version and backend go into the session context, driver
+debug output is switched on (`gldebug`), and the scene name, render size and
+frame counter are kept current. Shader compile failures, scene load errors,
+script faults, resize failures and startup failures are `strobe_diag::failure`
+records (`failures.rs`), so the log, the console and a crash report agree.
+
+## Audio, scripts and performance
+
+- **Audio** (`audio.rs`): one `AudioInput` for the run. Capture opens on a
+  thread; synthetic audio plays until it is up and whenever capture is in
+  `SilentFallback`. Settings (device, reactivity, speed, tap tempo) live in
+  the app and are applied through the capture's atomics.
+- **Scripts** (`script.rs`, `session.rs`): one `ScriptHost` per scene. Its
+  first frame runs at load so the uniforms it creates are compiled into the
+  shaders (`ScenePlayer::with_extras`); see D62.
+- **Performance** (`perf.rs`): GPU time from a four-slot ring of timer
+  queries feeds `AdaptiveScale`; budget is one refresh period of the output
+  monitor; the render-scale slider is the ceiling; nothing changes in the
+  first second after a scene load. See D64.
 
 ## Scene player internals (`strobe-gfx/src/player.rs`)
 
@@ -97,6 +145,13 @@ context is current, so the type system keeps `Gl` on that thread.
   to `vec4(0)`.
 - **Read rule.** When pass `i` samples target `j`: for `j < i` it reads
   this frame's output; for `j >= i` it reads last frame's.
+- **Audio textures.** `upload_audio(&AudioTextures)` quantises the spectrum
+  and level-trail texels into staging buffers kept between frames and
+  uploads only a texture some pass samples (1D on desktop, one-texel-high 2D
+  on GLES).
+- **Script uniforms.** `with_extras` declares the script's uniforms in every
+  program and resolves their locations at link time; `set_script_uniforms`
+  copies this frame's values into a reused buffer.
 - **Sampler units.** Units are assigned in a fixed order: `syn_FinalPass`,
   `syn_Media`, `syn_Spectrum`, `syn_LevelTrail`, pass targets, images,
   cubemaps. Each sampler gets its own unit even when the driver optimised

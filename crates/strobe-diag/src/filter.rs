@@ -32,6 +32,26 @@ pub fn default_level() -> LevelFilter {
     }
 }
 
+/// Third-party targets that are capped at `warn` unless `STROBE_LOG` names
+/// them. In a debug build the default is `debug`, and `winit` alone bridges
+/// a `tracing` span for every window call, a hundred lines per frame that
+/// bury the app's own messages in the session file and the UI console.
+/// Name one to hear it, as in `STROBE_LOG=winit=debug`.
+pub const QUIET_BY_DEFAULT: &[&str] = &[
+    "tracing",
+    "winit",
+    "calloop",
+    "polling",
+    "smithay_client_toolkit",
+    "x11rb",
+    "egui",
+    "egui_glow",
+    "egui_winit",
+    "glutin",
+    "glutin_winit",
+    "arboard",
+];
+
 /// A parsed filter.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Filter {
@@ -75,10 +95,26 @@ impl Filter {
         filter
     }
 
-    /// Reads `STROBE_LOG`, falling back to [`default_level`].
+    /// Reads `STROBE_LOG`, falling back to [`default_level`], with
+    /// [`QUIET_BY_DEFAULT`] applied.
     pub fn from_env() -> Self {
         let spec = std::env::var("STROBE_LOG").unwrap_or_default();
-        Self::parse(&spec, default_level())
+        Self::parse(&spec, default_level()).quiet_third_parties()
+    }
+
+    /// Caps each of [`QUIET_BY_DEFAULT`] at `warn`, except those a
+    /// directive already names.
+    #[must_use]
+    pub fn quiet_third_parties(mut self) -> Self {
+        for target in QUIET_BY_DEFAULT {
+            if !self.directives.iter().any(|(named, _)| named == target) {
+                self.directives
+                    .push(((*target).to_string(), LevelFilter::Warn));
+            }
+        }
+        self.directives
+            .sort_by_key(|(target, _)| std::cmp::Reverse(target.len()));
+        self
     }
 
     /// The highest level any directive enables; the value for
@@ -212,6 +248,28 @@ mod tests {
         );
         let quiet = Filter::parse("off", LevelFilter::Info);
         assert_eq!(quiet.max_level(), LevelFilter::Off, "off disables all");
+        Ok(())
+    }
+
+    #[test]
+    fn third_parties_are_quiet_unless_named() -> Result<()> {
+        let filter = Filter::parse("debug", LevelFilter::Info).quiet_third_parties();
+        assert!(filter.enabled("strobe_app", Level::Debug), "ours stay loud");
+        assert!(
+            !filter.enabled("tracing::span", Level::Debug),
+            "winit's span bridge is capped"
+        );
+        assert!(filter.enabled("winit", Level::Warn), "warnings still show");
+        let named = Filter::parse("winit=trace", LevelFilter::Info).quiet_third_parties();
+        assert!(
+            named.enabled("winit::platform", Level::Trace),
+            "naming a target keeps the person's level"
+        );
+        assert_eq!(
+            Filter::parse(&filter.describe(), LevelFilter::Info),
+            filter,
+            "the described filter still round-trips"
+        );
         Ok(())
     }
 

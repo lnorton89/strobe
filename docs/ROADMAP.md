@@ -101,10 +101,10 @@ mode renders the same images as headless, pixel for pixel, on llvmpipe.
 
 | Phase | Scope | State |
 |---|---|---|
-| 0 | Workspace, conventions, CI; GL context spikes | Workspace, CI, and headless contexts done. Windowed native and ANGLE contexts not started. |
-| 1 | Renderer, SSF scene loading, multipass, controls UI, output window | Renderer, loading, multipass, and the controls runtime done. Images done; cubemaps and media are placeholders. **No window or UI yet.** |
-| 2 | JavaScript API | Not started |
-| 3 | Audio analysis | `strobe-audio` built: analyser, tempo, textures, cpal capture thread, WAV harness. Not yet wired into the app or bench, which still use the synthetic stand-in. |
+| 0 | Workspace, conventions, CI; GL context spikes | Workspace, CI, headless and windowed (native, ANGLE) contexts done. |
+| 1 | Renderer, SSF scene loading, multipass, controls UI, output window | Renderer, loading, multipass, controls runtime and a minimal desktop app (two windows, scene browser, controls, console, preview) done. Images done; cubemaps and media are placeholders. The Perform-first UI is not built. |
+| 2 | JavaScript API | `strobe-script` built and wired into the app (D62): events, `update`, controls, `setUniform` compiled in at load, console, faults shown. Meta controls and `textureFinalPass` pending. |
+| 3 | Audio analysis | `strobe-audio` built and wired into the app (D61): capture with synthetic fallback, textures uploaded, settings UI. The bench still uses the synthetic stand-in and does not upload textures. |
 | 4 | Shadertoy import | Not started |
 | 5 | Playlists | Not started |
 | 6 | Presets, MIDI, OSC | Not started |
@@ -112,11 +112,15 @@ mode renders the same images as headless, pixel for pixel, on llvmpipe.
 
 ## Known gaps in what exists
 
-- `syn_Spectrum` and `syn_LevelTrail` are silent placeholder textures.
+- In the bench, `syn_Spectrum` and `syn_LevelTrail` are silent placeholder
+  textures (the app uploads real or synthetic ones every frame).
 - `syn_Media` is a black 1×1 texture, and `syn_MediaType` is 0.
 - Cubemaps are declared with a unit reserved, but never loaded.
-- Script-created uniforms (`Request::extra`) are plumbed through the
-  assembler, but nothing produces them yet.
+- The bench does not run scripts, so a scene whose shader needs a
+  script-created uniform does not compile there; `11-script-orbits` drives
+  controls instead (D62).
+- `textureFinalPass` returns black in scripts (Q14); script `meta/` control
+  writes are dropped.
 - The GLES dialect doesn't rewrite desktop-only SSF idioms (Q8 in
   OPEN_QUESTIONS.md). The base library is written ES-clean, so the
   bench's `--api gles` run passes.

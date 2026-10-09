@@ -138,7 +138,14 @@ pub struct Info {
     pub es_float_render: bool,
     /// `GL_MAX_TEXTURE_SIZE`.
     pub max_texture_size: i32,
+    /// Whether `GL_TIME_ELAPSED` queries work: core in desktop GL 3.3 (or
+    /// `ARB_timer_query`), and `EXT_disjoint_timer_query` on ES.
+    pub gpu_timer: bool,
 }
+
+/// `GL_GPU_DISJOINT_EXT`: set when a timer result may be garbage because
+/// the GPU was reset or throttled (the ES extension's one extra query).
+const GPU_DISJOINT_EXT: u32 = 0x8FBB;
 
 impl Gl {
     /// Wraps a glow context. Only [`context`] calls this, immediately after
@@ -159,16 +166,20 @@ impl Gl {
     /// Version, renderer and capability facts.
     pub fn info(&self) -> Info {
         let version = self.raw.version();
+        let extensions = self.raw.supported_extensions();
+        let gpu_timer = if version.is_embedded {
+            extensions.contains("GL_EXT_disjoint_timer_query")
+        } else {
+            (version.major, version.minor) >= (3, 3) || extensions.contains("GL_ARB_timer_query")
+        };
         Info {
             version: self.get_string(glow::VERSION),
             renderer: self.get_string(glow::RENDERER),
             vendor: self.get_string(glow::VENDOR),
             parsed: (version.major, version.minor, version.is_embedded),
-            es_float_render: self
-                .raw
-                .supported_extensions()
-                .contains("GL_EXT_color_buffer_float"),
+            es_float_render: extensions.contains("GL_EXT_color_buffer_float"),
             max_texture_size: self.get_i32(glow::MAX_TEXTURE_SIZE),
+            gpu_timer,
         }
     }
 
@@ -723,6 +734,77 @@ impl Gl {
         unsafe { self.raw.delete_framebuffer(fbo) }
     }
 
+    // ------------------------------------------------------------ timer queries
+
+    /// A timer query object. Check [`Info::gpu_timer`] first: without it,
+    /// beginning one is a GL error.
+    pub fn timer_query(&self) -> Result<TimerQuery, String> {
+        let raw = self.create_query()?;
+        Ok(TimerQuery {
+            gl: self.clone(),
+            raw,
+        })
+    }
+
+    fn create_query(&self) -> Result<glow::Query, String> {
+        // SAFETY: current-context invariant.
+        unsafe { self.raw.create_query() }
+    }
+
+    /// Starts timing GPU work with `query`; only one may be active.
+    pub fn begin_timer(&self, query: &TimerQuery) {
+        self.begin_query(glow::TIME_ELAPSED, query.raw);
+    }
+
+    fn begin_query(&self, target: u32, query: glow::Query) {
+        // SAFETY: current-context invariant; the handle is owned by a live
+        // TimerQuery and no other query of this target is active (the
+        // caller, `GpuTimer`, begins at most one at a time).
+        unsafe { self.raw.begin_query(target, query) }
+    }
+
+    /// Stops the active timer query.
+    pub fn end_timer(&self) {
+        self.end_query(glow::TIME_ELAPSED);
+    }
+
+    fn end_query(&self, target: u32) {
+        // SAFETY: current-context invariant; ending with none active is a
+        // GL error, not undefined behaviour.
+        unsafe { self.raw.end_query(target) }
+    }
+
+    /// Whether `query`'s result is ready. Never waits.
+    pub fn timer_ready(&self, query: &TimerQuery) -> bool {
+        self.query_u32(query.raw, glow::QUERY_RESULT_AVAILABLE) != 0
+    }
+
+    /// The elapsed GPU time `query` measured, in nanoseconds, saturating at
+    /// about 4.29 s. Only call after [`Self::timer_ready`] says so: this
+    /// otherwise waits for the GPU.
+    pub fn timer_nanoseconds(&self, query: &TimerQuery) -> u32 {
+        self.query_u32(query.raw, glow::QUERY_RESULT)
+    }
+
+    fn query_u32(&self, query: glow::Query, parameter: u32) -> u32 {
+        // SAFETY: current-context invariant; the handle is owned by a live
+        // TimerQuery and the parameter is a query-object enum.
+        unsafe { self.raw.get_query_parameter_u32(query, parameter) }
+    }
+
+    /// Whether the GPU was disturbed since the last call, so recent timer
+    /// results may be garbage. Meaningful on ES (`EXT_disjoint_timer_query`);
+    /// the one `glGet` a timer needs, made only when reading results.
+    pub fn gpu_disjoint(&self) -> bool {
+        self.get_i32(GPU_DISJOINT_EXT) != 0
+    }
+
+    fn delete_query(&self, query: glow::Query) {
+        // SAFETY: current-context invariant; called once, from
+        // TimerQuery::drop.
+        unsafe { self.raw.delete_query(query) }
+    }
+
     // ------------------------------------------------------------ vertex arrays
 
     /// An empty vertex array, which core profiles require to draw at all.
@@ -833,6 +915,19 @@ pub struct Framebuffer {
 impl Drop for Framebuffer {
     fn drop(&mut self) {
         self.gl.delete_framebuffer(self.raw);
+    }
+}
+
+/// A GPU timer query object.
+#[derive(Debug)]
+pub struct TimerQuery {
+    gl: Gl,
+    raw: glow::Query,
+}
+
+impl Drop for TimerQuery {
+    fn drop(&mut self) {
+        self.gl.delete_query(self.raw);
     }
 }
 

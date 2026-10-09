@@ -11,6 +11,7 @@
 //! `--screenshot <path> --frames <n>` is how the UI is verified with no
 //! human present: the app renders `n` frames, reads both windows back to
 //! `<path>-control.png` and `<path>-output.png`, and exits.
+//! `--diagnose` prints the system report and exits (see [`crate::diagnose`]).
 
 use clap::{Parser, ValueEnum};
 use std::path::PathBuf;
@@ -36,6 +37,16 @@ impl GlArg {
             Self::Angle => GlChoice::Only(Backend::Angle),
         }
     }
+}
+
+/// Where audio comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum AudioArg {
+    /// Capture from an input device; fall back to synthetic audio when
+    /// there is none.
+    Auto,
+    /// Always synthetic audio: a fixed 120 BPM pattern, reproducible.
+    Synthetic,
 }
 
 /// The command line.
@@ -65,6 +76,18 @@ pub struct Cli {
     /// Frames to render before the screenshot.
     #[arg(long, default_value_t = 60, requires = "screenshot")]
     pub frames: u32,
+    /// Start with adaptive resolution off, so the render scale stays where
+    /// `--render-scale` (or the slider) puts it.
+    #[arg(long)]
+    pub no_adaptive: bool,
+    /// Audio source. `synthetic` makes frames reproducible, which is what
+    /// the benchmark and screenshots want when a real device is present.
+    #[arg(long, value_enum, default_value_t = AudioArg::Auto)]
+    pub audio: AudioArg,
+    /// Print a report of this machine, build, GL and audio setup, save it
+    /// next to the logs, and exit. Attach it to bug reports.
+    #[arg(long)]
+    pub diagnose: bool,
 }
 
 #[cfg(test)]
@@ -89,6 +112,41 @@ mod tests {
             GlChoice::Only(Backend::Angle),
             "angle forced"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn audio_defaults_to_auto_and_can_be_forced_synthetic() -> Result<()> {
+        assert_eq!(
+            Cli::try_parse_from(["strobe"])?.audio,
+            AudioArg::Auto,
+            "auto"
+        );
+        let forced = Cli::try_parse_from(["strobe", "--audio", "synthetic"])?;
+        assert_eq!(forced.audio, AudioArg::Synthetic, "forced");
+        Ok(())
+    }
+
+    #[test]
+    fn adaptive_resolution_is_on_unless_switched_off() -> Result<()> {
+        assert!(
+            !Cli::try_parse_from(["strobe"])?.no_adaptive,
+            "on by default"
+        );
+        assert!(
+            Cli::try_parse_from(["strobe", "--no-adaptive"])?.no_adaptive,
+            "off on request"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn diagnose_is_a_plain_flag() -> Result<()> {
+        assert!(
+            Cli::try_parse_from(["strobe", "--diagnose"])?.diagnose,
+            "set"
+        );
+        assert!(!Cli::try_parse_from(["strobe"])?.diagnose, "off by default");
         Ok(())
     }
 
