@@ -152,7 +152,7 @@ fn create_context(
 /// the context has been made current on this thread.
 fn load_gl(display: &Display) -> Gl {
     let loader = |name: &CStr| display.get_proc_address(name);
-    Gl::from_current(glow_from_loader(loader))
+    Gl::from_loader(loader)
 }
 
 pub(super) fn glow_from_loader(

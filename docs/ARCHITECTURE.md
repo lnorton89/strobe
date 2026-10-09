@@ -78,6 +78,8 @@ frame. Everything below runs on the event-loop thread, in this order; worker
 threads only ever hand values *to* it.
 
 ```
+0. fault check (STROBE_FAULT), then make_current on the output surface; a failure
+   skips the frame and goes to the recovery policy (see "Context loss")
 1. dt from the clock (fixed in screenshot mode); window and render-size housekeeping
 2. mouse uniforms from the pointer over the output window        (app::mouse)
 3. GpuTimer::begin                                               (strobe-gfx::timing)
@@ -94,7 +96,9 @@ threads only ever hand values *to* it.
 5. ScenePlayer::present: letterboxed blit to the output window
 6. GpuTimer::end, then poll: results of earlier frames that are ready (never
    waited for) go to AdaptiveScale; a new scale triggers a resize next frame
-7. swap (vsync paces the loop)
+7. reset-status health check, at most once a second, on a robust context only
+8. swap (vsync paces the loop); a failure asks the driver for the reset status
+   and tells the recovery policy, a success tells it the window presented
 ```
 
 The control window redraws at 30 Hz in its own event, never inside the output
@@ -106,6 +110,40 @@ scene's output texture as the preview.
 Not yet in the frame, from the original design: MIDI, OSC and hotkeys (step
 1), the playlist tick, two active scenes during a transition, and the meta
 post stage (brightness, hue, mirror).
+
+## Context loss
+
+A projector must never go dark because one driver call failed (D66).
+
+- **Detection** (`strobe-gfx`): both backends request a robust
+  (`RobustLoseContextOnReset`) context and fall back to default attributes if
+  the driver refuses, logging which they got (`WindowedContext::robust`).
+  `Gl::reset_status()` loads `glGetGraphicsResetStatus` (plain, `ARB`, `KHR` or
+  `EXT` name, chosen by version and extensions) through the glow loader. It is
+  a driver round trip: it runs after a failed swap and as a once-a-second
+  health check, never per frame, and never after a failed `make_current`.
+- **Lost flag**: `Gl::mark_lost()` sets a flag shared by every clone; every
+  owning type (`Program`, `Texture`, `Framebuffer`, `Shader`, `TimerQuery`,
+  `VertexArray`) skips its delete on drop when it is set, and egui's painter is
+  abandoned rather than destroyed. The driver frees a destroyed context.
+- **Policy** (`strobe-app/src/recovery.rs`): a pure state machine, fed
+  failures, reset statuses, successes, rebuild results and time. Three failed
+  frames on a window, or any reset report, mean rebuild; a second native
+  rebuild within 60 s, or a failed native rebuild, means ANGLE (only when
+  `--gl auto`); ANGLE failing too, or more than four rebuilds in 60 s, means
+  give up through the normal failure dialog.
+- **Rebuild** (`Running::recover`, run from `App::settle` where the
+  `ActiveEventLoop` is available): mark lost, drop the session, timers, egui,
+  **both windows** and the context, in that order (WGL sets a window's pixel
+  format once, so windows are never reused), release the context from the
+  thread (glvnd refuses an EGL context while a GLX one is current), build a new
+  `Stack` on the chosen backend, restore fullscreen, monitor and maximized
+  state, resume the adaptive render scale, and reload the scene at its clock
+  with its control values. Audio, library, console and screenshot state are
+  not GL state and carry over untouched.
+- **Records**: each loss and rebuild is a `CONTEXT` failure record, plus an
+  `INFO` line the console shows. `STROBE_FAULT` injects a loss for testing
+  (DEBUGGING.md).
 
 ## Diagnostics wiring
 
