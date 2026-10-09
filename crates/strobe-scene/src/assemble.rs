@@ -216,7 +216,7 @@ pub fn fragment(request: &Request<'_>) -> String {
 
     out.push_str(
         "const float PI = 3.14159265359;\n\
-         vec2 _xy;\nvec2 _uv;\nvec2 _uvc;\n\
+         vec2 _xy = vec2(0.0);\nvec2 _uv = vec2(0.0);\nvec2 _uvc = vec2(0.0);\n\
          out vec4 strobe_FragColor;\n\
          #define texture2D texture\n\
          #define texture2DLod textureLod\n",

@@ -14,10 +14,14 @@ path = "src/main.rs"
 [dependencies]
 strobe-scene.workspace = true
 strobe-gfx.workspace = true
+strobe-diag.workspace = true
+strobe-audio.workspace = true
+strobe-script.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 image.workspace = true
 log.workspace = true
+thiserror.workspace = true
 egui.workspace = true
 egui_glow.workspace = true
 egui-winit.workspace = true

@@ -94,11 +94,14 @@ The renderer above the context is identical in both cases.
 
 ## Scene library
 
-`scenes/` holds ten original scenes. They're the base library, and also
-the benchmark set, written to span five tiers of GPU load: from a
+`scenes/` holds ten original scenes plus a scripted one. They're the base
+library, and also the benchmark set, written to span five tiers of GPU load: from a
 trivial gradient, through feedback, voronoi, domain warping, a
 four-step reaction-diffusion simulation and a bloom pipeline, up to a
-raymarched cathedral and volumetric clouds.
+raymarched cathedral and volumetric clouds. An eleventh scene,
+`11-script-orbits`, is the scripted one: a `script.js` physics loop
+drives it, which the benchmark does not run (it renders the scene with its
+controls at their defaults).
 
 ![The base scene library](docs/images/contact-sheet.png)
 

@@ -16,6 +16,7 @@
 //! in egui's widget memory, so a future workspace layout, MIDI mapping or
 //! playlist can change it without going through a widget.
 
+pub mod audio;
 pub mod browser;
 pub mod console;
 pub mod controls;
@@ -24,4 +25,4 @@ pub mod layout;
 pub mod model;
 
 pub use host::UiHost;
-pub use model::{Action, Model, Preview};
+pub use model::{Action, AudioPanel, Model, PerfPanel, Preview};

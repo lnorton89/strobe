@@ -39,7 +39,7 @@ use crate::gl::{Format, Framebuffer, Gl, Program, Sampling, Stage, Texture, Vert
 use std::path::Path;
 use std::rc::Rc;
 use strobe_scene::SceneFolder;
-use strobe_scene::assemble::{self, ErrorSite, PassIndex, Request};
+use strobe_scene::assemble::{self, ErrorSite, ExtraType, PassIndex, Request};
 use strobe_scene::audio::SCALARS;
 use strobe_scene::control::{ControlBank, UniformValue};
 use strobe_scene::scene::{Filter, SceneDef, Wrap};
@@ -109,6 +109,21 @@ pub struct FrameInputs<'a> {
     pub transitions: &'a [f32],
 }
 
+/// The audio data behind `syn_Spectrum` and `syn_LevelTrail`, as plain
+/// slices so this crate needs nothing from the audio crate.
+///
+/// One `[r, g, b, a]` per texel, every channel `0..1` (clamped on upload).
+/// What each channel means is the audio crate's contract; the renderer only
+/// moves the texels. A slice whose length differs from the texture's
+/// reallocates that texture once, so layouts other than 256 work.
+#[derive(Debug, Clone, Copy)]
+pub struct AudioTextures<'a> {
+    /// `syn_Spectrum`.
+    pub spectrum: &'a [[f32; 4]],
+    /// `syn_LevelTrail`.
+    pub level_trail: &'a [[f32; 4]],
+}
+
 /// A texture and the framebuffer that renders into it.
 #[derive(Debug)]
 struct Target {
@@ -145,6 +160,8 @@ struct Compiled {
     audio: Vec<Loc>,
     controls: Vec<Loc>,
     transitions: Vec<Loc>,
+    /// Script-created uniforms, in the order the player was built with.
+    extras: Vec<(Loc, ExtraType)>,
     /// Active samplers and their units.
     samplers: Vec<(Source, u32)>,
 }
@@ -177,6 +194,23 @@ pub struct ScenePlayer {
     spectrum: Texture,
     level_trail: Texture,
     images: Vec<Texture>,
+    audio: AudioUpload,
+    /// Uniforms a script creates, declared in every pass program.
+    extras: Vec<(String, ExtraType)>,
+    /// This frame's values for `extras`, in the same order.
+    extra_values: Vec<[f32; 4]>,
+}
+
+/// What the audio texture upload path keeps between frames.
+#[derive(Debug, Default)]
+struct AudioUpload {
+    /// Whether any pass samples `syn_Spectrum` / `syn_LevelTrail`; a
+    /// texture nothing reads is never uploaded.
+    wanted: [bool; 2],
+    /// 8-bit staging for each texture, sized once.
+    staging: [Vec<u8>; 2],
+    /// Set after a failed upload so the log gets one line, not one a frame.
+    failed: bool,
 }
 
 impl ScenePlayer {
@@ -187,6 +221,26 @@ impl ScenePlayer {
         scene: &SceneFolder,
         render_size: [i32; 2],
         options: Options,
+    ) -> Result<Self, PlayerError> {
+        Self::with_extras(gl, caps, scene, render_size, options, &[])
+    }
+
+    /// [`Self::new`] for a scene whose script creates uniforms.
+    ///
+    /// `extras` are the script's `(name, type)` pairs. They are declared in
+    /// every pass program and their locations resolved at link time, like
+    /// every other uniform, so setting them each frame
+    /// ([`Self::set_script_uniforms`]) costs no lookups. All of this happens
+    /// here, at load: a show never compiles a shader while it plays. A
+    /// script that creates a *new* uniform later means building a fresh
+    /// player with the longer list.
+    pub fn with_extras(
+        gl: &Gl,
+        caps: &Caps,
+        scene: &SceneFolder,
+        render_size: [i32; 2],
+        options: Options,
+        extras: &[(String, ExtraType)],
     ) -> Result<Self, PlayerError> {
         let res = |e: String| PlayerError::Resource(e);
         let def = scene.def.clone();
@@ -216,9 +270,10 @@ impl ScenePlayer {
                         user_code: &scene.shader,
                         dialect: caps.dialect,
                         pass_index,
-                        extra: &[],
+                        extra: extras,
                     });
-                    let compiled = Rc::new(build_program(gl, &def, &vertex, &source, index)?);
+                    let compiled =
+                        Rc::new(build_program(gl, &def, extras, &vertex, &source, index)?);
                     if !options.specialise_passes {
                         shared = Some(Rc::clone(&compiled));
                     }
@@ -237,7 +292,17 @@ impl ScenePlayer {
                 Some(&[0, 0, 0, 255]),
             )
             .map_err(res)?;
-        let (spectrum, level_trail) = audio_textures(gl, caps).map_err(res)?;
+        let spectrum = audio_texture(gl, caps, SILENT_AUDIO_WIDTH).map_err(res)?;
+        let level_trail = audio_texture(gl, caps, SILENT_AUDIO_WIDTH).map_err(res)?;
+        let samples = |wanted: Source| {
+            programs
+                .iter()
+                .any(|program| program.samplers.iter().any(|(source, _)| *source == wanted))
+        };
+        let audio = AudioUpload {
+            wanted: [samples(Source::Spectrum), samples(Source::LevelTrail)],
+            ..AudioUpload::default()
+        };
         let images = def
             .images
             .iter()
@@ -264,6 +329,9 @@ impl ScenePlayer {
             spectrum,
             level_trail,
             images,
+            audio,
+            extras: extras.to_vec(),
+            extra_values: Vec::with_capacity(extras.len()),
         };
         player.passes = player.allocate_passes(programs)?;
         Ok(player)
@@ -272,6 +340,19 @@ impl ScenePlayer {
     /// The scene being played.
     pub fn def(&self) -> &SceneDef {
         &self.def
+    }
+
+    /// The script-created uniforms this player was built with.
+    pub fn extras(&self) -> &[(String, ExtraType)] {
+        &self.extras
+    }
+
+    /// Sets this frame's values for the script-created uniforms, in the
+    /// order of [`Self::extras`]; a value past the list is ignored and a
+    /// missing one stays at zero. Copies into a buffer reused each frame.
+    pub fn set_script_uniforms(&mut self, values: &[[f32; 4]]) {
+        self.extra_values.clear();
+        self.extra_values.extend_from_slice(values);
     }
 
     /// The current render resolution.
@@ -296,6 +377,52 @@ impl ScenePlayer {
         let programs = self.passes.iter().map(|p| Rc::clone(&p.program)).collect();
         self.passes = self.allocate_passes(programs)?;
         Ok(())
+    }
+
+    /// Uploads this frame's audio texels to `syn_Spectrum` and
+    /// `syn_LevelTrail`, for whichever of them a pass actually samples.
+    ///
+    /// Call once per frame before [`Self::render`]. After the first call at
+    /// a given width it allocates nothing: texels are quantised to 8 bits
+    /// into staging buffers kept between frames, then sent with the same
+    /// upload wrapper as every other texture (a 1D texture on desktop GL, a
+    /// one-texel-high 2D texture on GLES, as the shader declares them).
+    pub fn upload_audio(&mut self, audio: &AudioTextures<'_>) {
+        let result = self
+            .upload_one(0, audio.spectrum)
+            .and_then(|()| self.upload_one(1, audio.level_trail));
+        if let Err(error) = result
+            && !self.audio.failed
+        {
+            self.audio.failed = true;
+            log::warn!("audio texture upload failed (reported once): {error}");
+        }
+    }
+
+    fn upload_one(&mut self, which: usize, texels: &[[f32; 4]]) -> Result<(), String> {
+        if !self.audio.wanted.get(which).copied().unwrap_or(false) || texels.is_empty() {
+            return Ok(());
+        }
+        let width = i32::try_from(texels.len()).map_err(|e| e.to_string())?;
+        let texture = if which == 0 {
+            &mut self.spectrum
+        } else {
+            &mut self.level_trail
+        };
+        if texture.width() != width {
+            *texture = audio_texture(&self.gl, &self.caps, width)?;
+        }
+        let Some(staging) = self.audio.staging.get_mut(which) else {
+            return Ok(());
+        };
+        staging.resize(texels.len() * 4, 0);
+        let (packed, _) = staging.as_chunks_mut::<4>();
+        for (bytes, texel) in packed.iter_mut().zip(texels) {
+            for (byte, value) in bytes.iter_mut().zip(texel) {
+                *byte = quantise(*value);
+            }
+        }
+        self.gl.upload(texture, staging)
     }
 
     fn allocate_passes(&self, programs: Vec<Rc<Compiled>>) -> Result<Vec<PassState>, PlayerError> {
@@ -445,6 +572,18 @@ impl ScenePlayer {
                 gl.uniform_f32(loc, *value);
             }
         }
+        for ((loc, ty), value) in program.extras.iter().zip(&self.extra_values) {
+            let Some(loc) = loc else {
+                continue;
+            };
+            let [x, y, z, w] = *value;
+            match ty {
+                ExtraType::Float => gl.uniform_f32(loc, x),
+                ExtraType::Vec2 => gl.uniform_vec2(loc, [x, y]),
+                ExtraType::Vec3 => gl.uniform_vec3(loc, [x, y, z]),
+                ExtraType::Vec4 => gl.uniform_vec4(loc, [x, y, z, w]),
+            }
+        }
     }
 
     fn sampler_texture(&self, source: Source) -> &Texture {
@@ -503,6 +642,7 @@ impl ScenePlayer {
 fn build_program(
     gl: &Gl,
     def: &SceneDef,
+    extras: &[(String, ExtraType)],
     vertex: &crate::gl::Shader,
     source: &str,
     pass: usize,
@@ -563,6 +703,7 @@ fn build_program(
             .iter()
             .map(|t| loc(&t.name))
             .collect(),
+        extras: extras.iter().map(|(name, ty)| (loc(name), *ty)).collect(),
         samplers,
         program,
     })
@@ -616,34 +757,30 @@ fn new_target(
     Ok(Target { texture, fbo })
 }
 
-/// Silent placeholders for `syn_Spectrum` and `syn_LevelTrail`, in the
-/// shape the context's dialect declared them.
-fn audio_textures(gl: &Gl, caps: &Caps) -> Result<(Texture, Texture), String> {
-    const WIDTH: i32 = 256;
-    let zeros = vec![0_u8; WIDTH as usize * 4];
+/// Width of the silent placeholders a scene starts with.
+const SILENT_AUDIO_WIDTH: i32 = 256;
+
+/// A silent audio data texture `width` texels wide, in the shape the
+/// context's dialect declared it: 1D on desktop GL, 2D one texel tall on
+/// GLES, which has no `sampler1D`.
+fn audio_texture(gl: &Gl, caps: &Caps, width: i32) -> Result<Texture, String> {
+    let zeros = vec![0_u8; width.max(1) as usize * 4];
     if caps.has_1d_textures {
-        Ok((
-            gl.texture_1d(WIDTH, Format::Rgba8, Some(&zeros))?,
-            gl.texture_1d(WIDTH, Format::Rgba8, Some(&zeros))?,
-        ))
+        gl.texture_1d(width, Format::Rgba8, Some(&zeros))
     } else {
-        Ok((
-            gl.texture_2d(
-                WIDTH,
-                1,
-                Format::Rgba8,
-                Sampling::LINEAR_CLAMP,
-                Some(&zeros),
-            )?,
-            gl.texture_2d(
-                WIDTH,
-                1,
-                Format::Rgba8,
-                Sampling::LINEAR_CLAMP,
-                Some(&zeros),
-            )?,
-        ))
+        gl.texture_2d(
+            width,
+            1,
+            Format::Rgba8,
+            Sampling::LINEAR_CLAMP,
+            Some(&zeros),
+        )
     }
+}
+
+/// A `0..1` channel as a byte; NaN reads as zero.
+fn quantise(value: f32) -> u8 {
+    (value.clamp(0.0, 1.0) * 255.0 + 0.5) as u8
 }
 
 /// Decodes an image file into a texture, bottom row first so `_uv` reads

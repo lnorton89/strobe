@@ -8,9 +8,28 @@
 
 //! The status strip and console (bottom panel).
 
-use super::model::{Action, Model};
+use super::model::{Action, Model, PerfPanel};
 use crate::console::Level;
 use crate::theme;
+
+/// The GPU readout: measured time against the budget, and the scale in
+/// force, marked when the controller is the one choosing it.
+fn gpu_text(perf: &PerfPanel) -> String {
+    let scale = format!(
+        "{:.0}%{}",
+        perf.scale * 100.0,
+        if perf.adaptive && perf.has_timer {
+            " adaptive"
+        } else {
+            ""
+        }
+    );
+    match (perf.has_timer, perf.gpu_ms) {
+        (true, Some(ms)) => format!("GPU {ms:.1}/{:.1} ms  scale {scale}", perf.budget_ms),
+        (true, None) => format!("GPU measuring...  scale {scale}"),
+        (false, _) => format!("GPU timer n/a  scale {scale}"),
+    }
+}
 
 /// Draws the stats line, then the console below it.
 pub fn show(ui: &mut egui::Ui, model: &Model<'_>, actions: &mut Vec<Action>) {
@@ -23,6 +42,20 @@ pub fn show(ui: &mut egui::Ui, model: &Model<'_>, actions: &mut Vec<Action>) {
             ))
             .monospace()
             .color(theme::accent()),
+        );
+        ui.label(
+            egui::RichText::new(format!("audio {}", model.audio.source))
+                .monospace()
+                .color(if model.audio.live {
+                    theme::accent()
+                } else {
+                    theme::muted()
+                }),
+        );
+        ui.label(
+            egui::RichText::new(gpu_text(&model.perf))
+                .monospace()
+                .color(theme::muted()),
         );
         if let Some(preview) = model.preview {
             ui.label(
@@ -47,6 +80,8 @@ pub fn show(ui: &mut egui::Ui, model: &Model<'_>, actions: &mut Vec<Action>) {
                 let text = egui::RichText::new(&line.text).monospace();
                 match line.level {
                     Level::Info => ui.label(text),
+                    Level::Debug => ui.label(text.color(theme::muted())),
+                    Level::Warn => ui.label(text.color(theme::warning())),
                     Level::Error => ui.label(text.color(theme::error())),
                 };
             }

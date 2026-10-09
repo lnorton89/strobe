@@ -16,11 +16,13 @@
 
 use crate::console::Console;
 use crate::library::Library;
+use crate::script::ScriptState;
 use crate::stats::FrameStats;
+use strobe_audio::capture::{DeviceChoice, DeviceInfo};
 use strobe_scene::control::ControlBank;
 
 /// Something the UI asks the app to do.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Action {
     /// Load the library entry at this index.
     Load(usize),
@@ -34,6 +36,53 @@ pub enum Action {
     MoveToMonitor(usize),
     /// Empty the console.
     ClearConsole,
+    /// Capture from this audio input.
+    SelectAudioInput(DeviceChoice),
+    /// List the capturable audio devices again.
+    RefreshAudioDevices,
+    /// Set the gain on audio levels and hits.
+    SetReactivity(f32),
+    /// Set the gain on the audio time clocks.
+    SetAudioSpeed(f32),
+    /// Register a tap-tempo tap.
+    TapTempo,
+    /// Turn adaptive resolution on or off.
+    SetAdaptive(bool),
+}
+
+/// What the performance readouts and the adaptive toggle show.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PerfPanel {
+    /// Whether adaptive resolution is switched on.
+    pub adaptive: bool,
+    /// Whether the GPU can be timed on this context at all.
+    pub has_timer: bool,
+    /// Smoothed GPU milliseconds per frame, once measured.
+    pub gpu_ms: Option<f32>,
+    /// The per-frame budget in milliseconds.
+    pub budget_ms: f32,
+    /// The render scale in force.
+    pub scale: f32,
+}
+
+/// The audio settings panel's inputs.
+pub struct AudioPanel<'a> {
+    /// The status line: which source is active, and on which device.
+    pub source: &'a str,
+    /// Whether a live capture is the active source.
+    pub live: bool,
+    /// Whether capture was asked for (`--audio synthetic` says no).
+    pub can_capture: bool,
+    /// Capturable devices, inputs and (on Windows) outputs for loopback.
+    pub devices: &'a [DeviceInfo],
+    /// The device chosen.
+    pub choice: &'a DeviceChoice,
+    /// Reactivity slider's value.
+    pub reactivity: &'a mut f32,
+    /// Audio-speed slider's value.
+    pub speed: &'a mut f32,
+    /// The tempo in the latest frame.
+    pub bpm: f32,
 }
 
 /// The output as an egui texture, for the preview.
@@ -73,4 +122,10 @@ pub struct Model<'a> {
     pub fullscreen: bool,
     /// The GL backend, renderer and version, one line.
     pub gl_summary: &'a str,
+    /// Audio source and settings.
+    pub audio: AudioPanel<'a>,
+    /// The playing scene's script, if it has one.
+    pub script: Option<&'a ScriptState>,
+    /// GPU time, budget and adaptive resolution.
+    pub perf: PerfPanel,
 }

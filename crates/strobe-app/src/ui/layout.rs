@@ -14,12 +14,13 @@
 //! panels read a [`Model`] and return [`Action`]s.
 
 use super::model::{Action, Model};
-use super::{browser, console, controls};
+use super::{audio, browser, console, controls};
+use crate::script::ScriptState;
 use crate::session::RENDER_SCALE;
 use crate::theme;
 
 /// Width of the scene browser, in points.
-const BROWSER_WIDTH: f32 = 220.0;
+const BROWSER_WIDTH: f32 = 260.0;
 /// Width of the controls panel, in points.
 const CONTROLS_WIDTH: f32 = 340.0;
 /// Height of the console panel, in points.
@@ -35,7 +36,15 @@ pub fn show(ui: &mut egui::Ui, model: &mut Model<'_>, actions: &mut Vec<Action>)
     egui::Panel::left("browser")
         .resizable(true)
         .default_size(BROWSER_WIDTH)
-        .show(ui, |ui| browser::show(ui, model, actions));
+        .show(ui, |ui| {
+            // The audio settings sit under the scene list, always visible:
+            // on stage "is it hearing anything?" is the first question.
+            egui::Panel::bottom("audio")
+                .resizable(false)
+                .show_separator_line(true)
+                .show(ui, |ui| audio::show(ui, &mut model.audio, actions));
+            browser::show(ui, model, actions);
+        });
     egui::Panel::right("controls")
         .resizable(true)
         .default_size(CONTROLS_WIDTH)
@@ -62,7 +71,25 @@ fn output_strip(ui: &mut egui::Ui, model: &mut Model<'_>, actions: &mut Vec<Acti
         }
         monitor_picker(ui, model, actions);
         ui.separator();
-        ui.label("Render scale");
+        let mut adaptive = model.perf.adaptive;
+        let toggle = ui
+            .add_enabled(
+                model.perf.has_timer,
+                egui::Checkbox::new(&mut adaptive, "Adaptive"),
+            )
+            .on_hover_text(
+                "Lower the render scale when the GPU misses its frame budget, and raise it \
+                 again when there is headroom. The slider sets the maximum.",
+            )
+            .on_disabled_hover_text("This graphics context cannot time the GPU");
+        if toggle.changed() {
+            actions.push(Action::SetAdaptive(adaptive));
+        }
+        ui.label(if model.perf.adaptive && model.perf.has_timer {
+            "Max scale"
+        } else {
+            "Render scale"
+        });
         let slider = ui.add(
             egui::Slider::new(model.render_scale, RENDER_SCALE)
                 .step_by(0.05)
@@ -113,6 +140,9 @@ fn controls_panel(ui: &mut egui::Ui, model: &mut Model<'_>, actions: &mut Vec<Ac
         }
     });
     ui.label(egui::RichText::new(model.scene_title).color(theme::muted()));
+    if let Some(state) = model.script {
+        script_status(ui, state);
+    }
     ui.separator();
     match model.controls.as_deref_mut() {
         Some(bank) if !bank.defs().is_empty() => controls::show(ui, bank),
@@ -123,6 +153,26 @@ fn controls_panel(ui: &mut egui::Ui, model: &mut Model<'_>, actions: &mut Vec<Ac
             ui.colored_label(theme::muted(), "Pick a scene on the left.");
         }
     }
+}
+
+/// One line (or a short paragraph) on how the scene's script is doing: a
+/// dead script must be visible without opening the console.
+fn script_status(ui: &mut egui::Ui, state: &ScriptState) {
+    let (text, colour) = match state {
+        ScriptState::Running => ("script.js running".to_string(), theme::muted()),
+        ScriptState::Faulted {
+            consecutive,
+            message,
+        } => (
+            format!("script.js fault ({consecutive} in a row): {message}"),
+            theme::warning(),
+        ),
+        ScriptState::Disabled { message } => (
+            format!("script.js disabled: {message}. Reload the scene to run it again."),
+            theme::error(),
+        ),
+    };
+    ui.label(egui::RichText::new(text).small().color(colour));
 }
 
 /// The live preview, fitted to the panel and centred.
