@@ -57,7 +57,7 @@ The following is done and verified headless:
 | 0 | Workspace, conventions, CI; GL context spikes | Workspace, CI, and headless contexts done. Windowed native and ANGLE contexts not started. |
 | 1 | Renderer, SSF scene loading, multipass, controls UI, output window | Renderer, loading, multipass, and the controls runtime done. Images done; cubemaps and media are placeholders. **No window or UI yet.** |
 | 2 | JavaScript API | Not started |
-| 3 | Audio analysis | Not started; the bench has a synthetic stand-in |
+| 3 | Audio analysis | `strobe-audio` built: analyser, tempo, textures, cpal capture thread, WAV harness. Not yet wired into the app or bench, which still use the synthetic stand-in. |
 | 4 | Shadertoy import | Not started |
 | 5 | Playlists | Not started |
 | 6 | Presets, MIDI, OSC | Not started |
