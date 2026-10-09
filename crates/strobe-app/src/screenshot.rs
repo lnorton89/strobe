@@ -67,8 +67,8 @@ impl Screenshot {
 
     /// Whether the output window should be captured now, given how many
     /// output frames have been presented.
-    pub fn output_due(&self, presented: u32) -> bool {
-        !self.output_done && presented >= self.frames
+    pub fn output_due(&self, presented: u64) -> bool {
+        !self.output_done && presented >= u64::from(self.frames)
     }
 
     /// Whether the control window should be captured on this frame.

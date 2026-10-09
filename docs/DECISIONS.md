@@ -424,3 +424,35 @@ points it at `crates/strobe-app/Cargo.toml` with `--target
 x86_64-pc-windows-msvc` and `--override-filename strobe.cdx`, and
 copies only that file out, so the SBOM lists the crates in `strobe.exe`
 and not the Linux-only ones a host-target resolve would add.
+
+### D60: the app's console is a view of strobe-diag's ring, not a second log (2026-10-09)
+
+`strobe-app` once kept its own `strobe.log` and its own console buffer.
+Both are gone. The app installs `strobe_diag::init()` and writes by
+logging (`log::info!`) or by reporting a structured failure
+(`strobe_diag::failure::report`); the bottom panel is a view of
+`strobe_diag::logger::recent_lines`, so the console, the session file and a
+crash report's log tail are the same text. The view refreshes only when
+`logger::records_written()` (a new atomic counter, one relaxed load) moves.
+Shader compile failures, scene load errors, resize failures and startup
+failures are `Failure`s (`failures::scene_load` is the one conversion, and a
+unit-tested one). The startup dialog and the crash notifier share
+`dialog::show_error`.
+
+Two supporting choices. `Filter::from_env` now caps a short list of noisy
+third-party targets (`winit`'s `tracing` span bridge, egui, glutin, ...) at
+`warn` unless `STROBE_LOG` names them, because the debug-build default of
+`debug` otherwise produced about a hundred lines per frame of window calls.
+And GL driver debug output is on at *warnings* in debug builds (synchronous)
+and *errors only* in release, `STROBE_GL_DEBUG` overriding either way
+(`gldebug::level`): errors are the evidence a crash report needs, and a
+conformant driver with nothing to report pays nothing.
+
+`--diagnose` probes GL with a headless EGL context, because the windowed
+context needs the event loop. That cannot see a WGL-only Windows driver, so
+the report says so and points to the session log, where the windowed
+context's facts are recorded. The report is also saved as `diagnose.txt`
+beside the logs because the release build has no console on Windows.
+
+**Would reopen:** a need for the console to show only some subsystems (a
+filter UI), which wants the structured failure list rather than ring text.

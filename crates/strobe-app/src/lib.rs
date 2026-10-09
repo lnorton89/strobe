@@ -3,7 +3,7 @@
 // Description:  The desktop app's parts: window and frame loop, scene
 //               session, control-window UI, theme, and the CLI.
 //
-// Dependencies: winit, egui, strobe-gfx, strobe-scene
+// Dependencies: winit, egui, strobe-gfx, strobe-scene, strobe-diag
 // ============================================================================
 
 //! The `strobe` desktop app, as a library so its logic is testable and
@@ -13,15 +13,21 @@
 //! - [`session`]: the one active scene and the render-scale arithmetic.
 //! - [`ui`]: the control window's panels, as a function of a model.
 //! - [`theme`]: the look, in one place.
-//! - [`library`], [`console`], [`stats`]: the data the UI shows.
+//! - [`library`], [`console`], [`stats`]: the data the UI shows. The console
+//!   is a view of `strobe-diag`'s log ring.
+//! - [`failures`], [`dialog`], [`gldebug`], [`diagnose`]: how errors,
+//!   crashes and driver messages reach a person (all through `strobe-diag`).
 //! - [`screenshot`]: the `--screenshot` verification mode.
-//! - [`cli`], [`logging`]: the command line and the log.
+//! - [`cli`]: the command line.
 
 pub mod app;
 pub mod cli;
 pub mod console;
+pub mod diagnose;
+pub mod dialog;
+pub mod failures;
+pub mod gldebug;
 pub mod library;
-pub mod logging;
 pub mod screenshot;
 pub mod session;
 pub mod stats;

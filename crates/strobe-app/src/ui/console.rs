@@ -47,6 +47,8 @@ pub fn show(ui: &mut egui::Ui, model: &Model<'_>, actions: &mut Vec<Action>) {
                 let text = egui::RichText::new(&line.text).monospace();
                 match line.level {
                     Level::Info => ui.label(text),
+                    Level::Debug => ui.label(text.color(theme::muted())),
+                    Level::Warn => ui.label(text.color(theme::warning())),
                     Level::Error => ui.label(text.color(theme::error())),
                 };
             }

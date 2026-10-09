@@ -37,6 +37,8 @@ const TEXT_STRONG: Color32 = Color32::from_rgb(250, 248, 242);
 const AMBER: Color32 = Color32::from_rgb(255, 176, 32);
 /// Failures.
 const ERROR: Color32 = Color32::from_rgb(240, 96, 84);
+/// Warnings: paler than the accent so a warning never reads as "live".
+const WARNING: Color32 = Color32::from_rgb(206, 168, 96);
 
 /// Corner radius of widgets, in points.
 const RADIUS: u8 = 3;
@@ -49,6 +51,11 @@ pub fn accent() -> Color32 {
 /// The colour of failure text.
 pub fn error() -> Color32 {
     ERROR
+}
+
+/// The colour of warning text.
+pub fn warning() -> Color32 {
+    WARNING
 }
 
 /// The colour of secondary text.

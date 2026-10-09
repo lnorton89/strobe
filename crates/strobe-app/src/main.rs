@@ -4,7 +4,8 @@
 //               browser and controls, and an output window for the show.
 //
 // Dependencies: winit (event loop), egui (control UI), clap (command line);
-//               strobe-gfx (GL), strobe-scene (scenes and controls)
+//               strobe-gfx (GL), strobe-scene (scenes and controls),
+//               strobe-diag (logging, crash capture)
 // ============================================================================
 
 //! `strobe`: the desktop app.
@@ -13,6 +14,7 @@
 //! cargo run --release -p strobe-app -- --scene 05-domain-warp
 //! cargo run --release -p strobe-app -- --gl angle --render-scale 0.5
 //! cargo run --release -p strobe-app -- --scene 05 --screenshot target/shot --frames 60
+//! cargo run --release -p strobe-app -- --diagnose
 //! ```
 //!
 //! Two windows share one GL context. The *output* window shows the scene
@@ -20,40 +22,78 @@
 //! egui at a lower rate and shows a live preview next to the controls.
 //! See [`strobe_app::app`] for the frame loop.
 //!
+//! ## Start-up order
+//!
+//! This is the order `strobe_diag`'s crate docs prescribe, and it matters:
+//!
+//! 1. register the notifier (how a person is told about a crash);
+//! 2. if this process is the crash *monitor* (the same executable, started
+//!    with a hidden argument), run that and exit;
+//! 3. `strobe_diag::init()`: logger, panic hook, background system probe;
+//! 4. `--diagnose` prints the report and exits;
+//! 5. arm native crash capture and hold the handle for the whole run;
+//! 6. open the windows (the GL context's facts go into the session
+//!    context), then the event loop.
+//!
 //! ## Startup failures
 //!
 //! The release build is a Windows GUI application with no console, so a
-//! failure to start (no usable OpenGL, no display) is logged to
-//! `strobe.log` in the temp folder *and* shown in a dialog. The dialog is
-//! raised through PowerShell rather than a Win32 call, because `unsafe`
-//! is confined to the GL boundary.
+//! failure to start (no usable OpenGL, no display) is reported as a
+//! structured failure in the session log *and* shown in a dialog, the same
+//! dialog the crash notifier uses.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use anyhow::{Context as _, Result};
 use clap::Parser as _;
 use std::process::ExitCode;
-use strobe_app::{app, cli, library, logging};
+use std::time::Duration;
+use strobe_app::{app, cli, diagnose, dialog, library};
+use strobe_diag::failure::{self, Failure, Subsystem};
 use winit::event_loop::EventLoop;
 
+/// How long to wait for the log writer at exit.
+const FLUSH_TIMEOUT: Duration = Duration::from_secs(2);
+
 fn main() -> ExitCode {
-    logging::init();
-    match run() {
+    // 1 and 2: before anything that can fail, because the monitor process
+    // reports native crashes with the notifier.
+    strobe_diag::notify::set_notifier(|notice| dialog::show_error(&dialog::crash_text(notice)));
+    if strobe_diag::crash::run_monitor_if_requested(std::env::args()) {
+        return ExitCode::SUCCESS;
+    }
+    // 3.
+    let session = strobe_diag::init();
+
+    let cli = match cli::Cli::try_parse() {
+        Ok(cli) => cli,
+        Err(error) if error.use_stderr() => {
+            report_failure(&error.to_string(), session.log_file.as_deref());
+            return ExitCode::FAILURE;
+        }
+        // --help and --version: print and stop.
+        Err(error) => error.exit(),
+    };
+    // 4.
+    if cli.diagnose {
+        diagnose::run();
+        return ExitCode::SUCCESS;
+    }
+    // 5. Held until `main` returns; dropping it detaches the handler.
+    let _crash_capture = strobe_diag::crash::start_monitor();
+
+    let outcome = run(cli);
+    strobe_diag::logger::flush(FLUSH_TIMEOUT);
+    match outcome {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            report_failure(&format!("{error:#}"));
+            report_failure(&format!("{error:#}"), session.log_file.as_deref());
             ExitCode::FAILURE
         }
     }
 }
 
-fn run() -> Result<()> {
-    let cli = match cli::Cli::try_parse() {
-        Ok(cli) => cli,
-        Err(error) if error.use_stderr() => return Err(error.into()),
-        // --help and --version: print and stop.
-        Err(error) => error.exit(),
-    };
+fn run(cli: cli::Cli) -> Result<()> {
     let (library, scan_error) = match library::Library::scan(&cli.library) {
         Ok(library) => (library, None),
         Err(error) => (
@@ -75,20 +115,16 @@ fn run() -> Result<()> {
     }
 }
 
-/// Logs a startup failure and shows it where the person will see it.
-fn report_failure(message: &str) {
-    let log_file = logging::log_path();
-    log::error!("{message} (log: {})", log_file.display());
-    if cfg!(target_os = "windows") {
-        let text = format!("{message}\n\nLog: {}", log_file.display());
-        let script = "Add-Type -AssemblyName PresentationFramework; \
-                      [void][System.Windows.MessageBox]::Show($env:STROBE_ERROR, 'Strobe', 'OK', 'Error')";
-        let shown = std::process::Command::new("powershell")
-            .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", script])
-            .env("STROBE_ERROR", text)
-            .status();
-        if let Err(error) = shown {
-            log::error!("could not show the error dialog: {error}");
-        }
+/// Records a startup failure and shows it where the person will see it.
+fn report_failure(message: &str, log_file: Option<&std::path::Path>) {
+    failure::report(
+        Failure::new(Subsystem::Context, "startup")
+            .message(message)
+            .action("Strobe did not start"),
+    );
+    let mut text = message.to_string();
+    if let Some(path) = log_file {
+        text.push_str(&format!("\n\nLog: {}", path.display()));
     }
+    dialog::show_error(&text);
 }

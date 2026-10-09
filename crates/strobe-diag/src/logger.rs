@@ -102,6 +102,8 @@ pub struct Logger {
     ring: Mutex<VecDeque<Arc<str>>>,
     sink: Option<SyncSender<Message>>,
     dropped: Arc<AtomicU64>,
+    /// Records ever pushed, so a reader can tell the ring changed.
+    written: AtomicU64,
     path: Option<PathBuf>,
 }
 
@@ -150,6 +152,7 @@ impl Logger {
             ring: Mutex::new(VecDeque::with_capacity(RING_LINES)),
             sink,
             dropped,
+            written: AtomicU64::new(0),
             path,
         };
         logger.write_header(&notes);
@@ -205,6 +208,12 @@ impl Logger {
         }
     }
 
+    /// Records pushed since the logger started, including those the ring
+    /// has since evicted. One relaxed load.
+    pub fn written(&self) -> u64 {
+        self.written.load(Ordering::Relaxed)
+    }
+
     fn push(&self, text: Arc<str>) {
         {
             let mut ring = self.ring.lock().unwrap_or_else(PoisonError::into_inner);
@@ -212,6 +221,7 @@ impl Logger {
                 ring.pop_front();
             }
             ring.push_back(Arc::clone(&text));
+            self.written.fetch_add(1, Ordering::Relaxed);
         }
         if let Some(sink) = &self.sink
             && sink.try_send(Message::Line(text)).is_err()
@@ -408,6 +418,14 @@ pub fn recent_lines(count: usize) -> Vec<String> {
         .map_or_else(Vec::new, |logger| logger.recent(count))
 }
 
+/// How many records have been logged since [`init`]; zero before it. A UI
+/// console compares this with the value it last saw and calls
+/// [`recent_lines`] only when it moved, so an idle console costs one
+/// atomic load per repaint.
+pub fn records_written() -> u64 {
+    LOGGER.get().map_or(0, Logger::written)
+}
+
 /// [`recent_lines`] that never blocks, for crash handlers.
 pub fn try_recent_lines(count: usize) -> Vec<String> {
     LOGGER
@@ -473,6 +491,17 @@ mod tests {
     fn continuation_lines_are_indented() -> Result<()> {
         let line = format_record(Duration::ZERO, Level::Error, "t", "x", "SHADER\nscene=a");
         assert!(line.ends_with("SHADER\n    scene=a"), "got {line:?}");
+        Ok(())
+    }
+
+    #[test]
+    fn the_written_count_moves_with_every_kept_record() -> Result<()> {
+        let logger = memory_logger("info");
+        let before = logger.written();
+        emit(&logger, Level::Info, "t", "one");
+        emit(&logger, Level::Trace, "t", "filtered out");
+        emit(&logger, Level::Warn, "t", "two");
+        assert_eq!(logger.written(), before + 2, "only kept records count");
         Ok(())
     }
 

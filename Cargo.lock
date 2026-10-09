@@ -2742,8 +2742,10 @@ dependencies = [
  "egui_glow",
  "image",
  "log",
+ "strobe-diag",
  "strobe-gfx",
  "strobe-scene",
+ "thiserror 2.0.21",
  "winit",
 ]
 
