@@ -23,6 +23,8 @@ locally but must not be committed.
 | Q8 | ANGLE path for SSF code: how much real SSF code fails under GLSL ES (implicit conversions, `PASSINDEX == 0.0`)? | Much of it. Needs a source-fixup pass or a GLSL parser (e.g. `glsl-lang`) to insert casts | Run the community fixtures through `strobe-bench --api gles` |
 | Q9 | What is the root `"UNIFORMS"` key in some community scenes? | Probably non-standard (from AI-generated scenes); ignored | Look for it in a real Synesthesia-authored scene |
 | Q10 | What exact layout do real scenes expect from `syn_Spectrum` and `syn_LevelTrail`: texel count, frequency axis of the raw channel, which end of the trail is "now", and what the waveform channel's range is? | `strobe-audio` assumes 256 texels; raw linear 0..Nyquist; juiced log 30 Hz to 16 kHz; waveform 0.5 at zero; trail index 0 = newest, channels whole/bass/mid/high. All sizes are configurable (`Layout`) | A real licensed scene that samples the textures in known ways |
+| Q11 | Does the release build (`strip = "none"`, `debug = "line-tables-only"`) actually produce a `strobe.pdb` that symbolicates a minidump from the diagnostics crate? | Yes: MSVC writes a PDB unless rustc passes `/DEBUG:NONE`, which `strip = "debuginfo"` does (D53) | Cut a tag-less release build on Windows, crash it, and symbolicate the dump with the PDB |
+| Q12 | Does `release.yml` run end to end (ANGLE fetch, packaging paths, cargo-cyclonedx, attestations)? | Yes; every command was run in pieces locally and the YAML passes actionlint | Push a `v0.0.0-test` tag to a fork (or use `workflow_dispatch` on a throwaway tag), then delete the draft |
 
 ## Resolved
 

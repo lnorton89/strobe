@@ -1,0 +1,7 @@
+# `cargo xtask <command>` runs the workspace's own tooling (crates/xtask):
+# `ci` (everything CI runs), `changelog` (CHANGELOG.md is generated) and
+# `bench` (strobe-bench in release). A cargo alias is the whole "install"
+# step: there is nothing to `cargo install`, and the tool is built from
+# the same pinned toolchain and lockfile as the code it checks.
+[alias]
+xtask = "run -p xtask --"

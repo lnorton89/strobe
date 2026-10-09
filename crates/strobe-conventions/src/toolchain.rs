@@ -80,6 +80,30 @@ mod tests {
         Ok(())
     }
 
+    /// The release workflow is the one that ships a binary, so a toolchain
+    /// drift there matters most and is easiest to miss: it only runs on a
+    /// tag. `workflows()` reads the whole directory, so it is covered the
+    /// moment the file exists; this pins that it *is* covered, by name, and
+    /// that each of the two workflows that compile code actually names the
+    /// toolchain it builds with.
+    #[test]
+    fn the_ci_and_release_workflows_are_both_checked_and_name_a_toolchain() -> Result<()> {
+        let workflows = workflows()?;
+        for expected in ["ci.yml", "release.yml"] {
+            let Some((name, text)) = workflows.iter().find(|(name, _)| name.ends_with(expected))
+            else {
+                return Err(anyhow!("no .github/workflows/{expected} was found"));
+            };
+            assert!(
+                text.lines()
+                    .any(|line| line.trim().starts_with("toolchain:")),
+                "{name} never names a toolchain to install, so it would build with \
+                 whatever the runner image ships"
+            );
+        }
+        Ok(())
+    }
+
     #[test]
     fn no_workflow_installs_a_floating_stable_toolchain() -> Result<()> {
         for (name, text) in workflows()? {

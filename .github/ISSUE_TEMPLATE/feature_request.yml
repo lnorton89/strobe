@@ -1,0 +1,54 @@
+# See the note at the top of bug_report.yml: an issue form has to be .yml.
+name: Feature request
+description: Suggest an improvement — a new feature, or something that should work better
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the suggestion. Please search the [existing issues](https://github.com/lnorton89/strobe/issues) first — it may already be proposed.
+
+        Worth reading before you write: [`docs/ROADMAP.md`](https://github.com/lnorton89/strobe/blob/main/docs/ROADMAP.md) lists what is planned and in what order, and [`docs/OPEN_QUESTIONS.md`](https://github.com/lnorton89/strobe/blob/main/docs/OPEN_QUESTIONS.md) lists the Synesthesia behaviours that are not yet verified. Strobe targets old laptops (an OpenGL 3.3 floor), so a feature that costs frame time on a 2012 Intel GPU needs a case for it.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where does this belong?
+      description: Picking one helps scope the work.
+      multiple: true
+      options:
+        - Scenes and the .synScene format
+        - Shader / Shadertoy import
+        - Scene scripting (the JavaScript API)
+        - Audio analysis and input
+        - Playlists
+        - Rendering and performance
+        - Output window and displays
+        - Control UI
+        - Diagnostics and crash reporting
+        - Something new
+    validations:
+      required: true
+
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Problem
+      description: What is this for? What does it let someone do that they cannot today? A live-performance example is ideal.
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: How you imagine it working — interaction, placement, defaults. Sketches or ASCII mockups welcome. If it is about matching Synesthesia, say which behaviour and how you know.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Anything else you tried or thought of, and why it does not cover the need.
