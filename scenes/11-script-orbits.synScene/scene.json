@@ -1,0 +1,17 @@
+{
+  "TITLE": "Script Orbits",
+  "CREDIT": "Strobe",
+  "DESCRIPTION": "Four orbs on springs, pushed around by a script.js physics loop: they circle to the music and are kicked off their orbits on every bass hit (or the Kick button). The orb positions arrive through the orb1-orb4 controls the script writes; the spectrum runs along the bottom edge. Scripted tier: a feedback pass plus JavaScript.",
+  "CONTROLS": [
+    { "NAME": "glow", "TYPE": "slider", "MIN": 0.3, "MAX": 2.0, "DEFAULT": 1.0, "UI_GROUP": "look" },
+    { "NAME": "trail", "TYPE": "slider", "MIN": 0.0, "MAX": 0.97, "DEFAULT": 0.9, "UI_GROUP": "look" },
+    { "NAME": "hue", "TYPE": "slider", "MIN": 0.0, "MAX": 1.0, "DEFAULT": 0.58, "UI_GROUP": "look" },
+    { "NAME": "pull", "TYPE": "slider", "MIN": 0.2, "MAX": 4.0, "DEFAULT": 1.6, "DESCRIPTION": "How hard the orbs are pulled back to their orbit.", "UI_GROUP": "script" },
+    { "NAME": "chaos", "TYPE": "slider", "MIN": 0.0, "MAX": 1.0, "DEFAULT": 0.4, "DESCRIPTION": "How hard a kick throws them.", "UI_GROUP": "script" },
+    { "NAME": "kick_orbs", "TYPE": "bang", "DESCRIPTION": "Throw the orbs, as a bass hit does.", "UI_GROUP": "script" },
+    { "NAME": "orb1", "TYPE": "xy", "MIN": [-1.0, -1.0], "MAX": [1.0, 1.0], "DEFAULT": [0.5, 0.0], "UI_GROUP": "orb positions (written by script.js)" },
+    { "NAME": "orb2", "TYPE": "xy", "MIN": [-1.0, -1.0], "MAX": [1.0, 1.0], "DEFAULT": [0.0, 0.5], "UI_GROUP": "orb positions (written by script.js)" },
+    { "NAME": "orb3", "TYPE": "xy", "MIN": [-1.0, -1.0], "MAX": [1.0, 1.0], "DEFAULT": [-0.5, 0.0], "UI_GROUP": "orb positions (written by script.js)" },
+    { "NAME": "orb4", "TYPE": "xy", "MIN": [-1.0, -1.0], "MAX": [1.0, 1.0], "DEFAULT": [0.0, -0.5], "UI_GROUP": "orb positions (written by script.js)" }
+  ]
+}

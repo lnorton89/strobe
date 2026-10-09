@@ -15,6 +15,7 @@
 
 use super::model::{Action, Model};
 use super::{audio, browser, console, controls};
+use crate::script::ScriptState;
 use crate::session::RENDER_SCALE;
 use crate::theme;
 
@@ -121,6 +122,9 @@ fn controls_panel(ui: &mut egui::Ui, model: &mut Model<'_>, actions: &mut Vec<Ac
         }
     });
     ui.label(egui::RichText::new(model.scene_title).color(theme::muted()));
+    if let Some(state) = model.script {
+        script_status(ui, state);
+    }
     ui.separator();
     match model.controls.as_deref_mut() {
         Some(bank) if !bank.defs().is_empty() => controls::show(ui, bank),
@@ -131,6 +135,26 @@ fn controls_panel(ui: &mut egui::Ui, model: &mut Model<'_>, actions: &mut Vec<Ac
             ui.colored_label(theme::muted(), "Pick a scene on the left.");
         }
     }
+}
+
+/// One line (or a short paragraph) on how the scene's script is doing: a
+/// dead script must be visible without opening the console.
+fn script_status(ui: &mut egui::Ui, state: &ScriptState) {
+    let (text, colour) = match state {
+        ScriptState::Running => ("script.js running".to_string(), theme::muted()),
+        ScriptState::Faulted {
+            consecutive,
+            message,
+        } => (
+            format!("script.js fault ({consecutive} in a row): {message}"),
+            theme::warning(),
+        ),
+        ScriptState::Disabled { message } => (
+            format!("script.js disabled: {message}. Reload the scene to run it again."),
+            theme::error(),
+        ),
+    };
+    ui.label(egui::RichText::new(text).small().color(colour));
 }
 
 /// The live preview, fitted to the panel and centred.

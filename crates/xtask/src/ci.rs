@@ -182,15 +182,21 @@ fn plan(args: &Args) -> Result<Vec<Step>> {
         action: match windows_cross_check()? {
             Some(reason) => Action::Skip(reason),
             // strobe-script is excluded: rquickjs compiles QuickJS's C
-            // sources, which needs MSVC and the Windows SDK. This step only
-            // runs on non-Windows hosts, so the crate is checked for Windows
-            // by a native build (CI's windows job) instead.
+            // sources, which needs MSVC and the Windows SDK. strobe-app is
+            // excluded because it depends on strobe-script, so cargo would
+            // build it anyway (its code has no `#[cfg(windows)]` of its own:
+            // the Windows branches are `cfg!` values, type-checked on every
+            // host). This step only runs on non-Windows hosts, so both are
+            // checked for Windows by a native build (CI's windows job)
+            // instead.
             None => Action::Cargo {
                 args: vec![
                     "clippy",
                     "--workspace",
                     "--exclude",
                     "strobe-script",
+                    "--exclude",
+                    "strobe-app",
                     "--all-targets",
                     "--all-features",
                     "--target",

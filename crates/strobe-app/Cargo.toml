@@ -16,6 +16,7 @@ strobe-scene.workspace = true
 strobe-gfx.workspace = true
 strobe-diag.workspace = true
 strobe-audio.workspace = true
+strobe-script.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 image.workspace = true

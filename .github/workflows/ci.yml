@@ -207,6 +207,8 @@ jobs:
       # linking, so a Linux push fails fast on a Windows-only mistake.
       # strobe-script is excluded: rquickjs compiles QuickJS's C sources,
       # which needs the MSVC toolchain and Windows SDK headers that a Linux
-      # runner does not have. The windows job above builds it natively.
+      # runner does not have. strobe-app depends on it, so it is excluded
+      # too (its Windows branches are `cfg!` values, which the Linux build
+      # already type-checks). The windows job above builds both natively.
       - name: Cross-check the Windows build
-        run: cargo clippy --workspace --exclude strobe-script --all-targets --all-features --target x86_64-pc-windows-msvc -- -D warnings
+        run: cargo clippy --workspace --exclude strobe-script --exclude strobe-app --all-targets --all-features --target x86_64-pc-windows-msvc -- -D warnings
