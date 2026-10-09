@@ -1,0 +1,19 @@
+[package]
+name = "strobe-playlist"
+description = "Playlists: model, inheritance, TOML I/O, deterministic generator, timeline and the pure playback state machine."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+serde.workspace = true
+toml.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+anyhow.workspace = true
+
+[lints]
+workspace = true

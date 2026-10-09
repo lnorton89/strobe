@@ -717,3 +717,100 @@ threshold there. The T480 check is in `docs/hardware/T480.md`.
 seconds on ANGLE), a swap failure on the control window alone causing needless
 rebuilds (it counts like the output's), or the robust request itself costing
 frame time on Intel (robust buffer access can).
+
+### D73: the playlist model is authored data, resolved once into a flat view (2026-10-09)
+
+`strobe-playlist` keeps two shapes. `Playlist`/`Section`/`Cue`/`CueSettings`
+is what a person wrote, every inheritable field an `Option`. `resolve()`
+walks cue, section, playlist, built-ins (180 s, timer, 2 s crossfade) and
+yields `ResolvedCue`s with nothing optional and a record of which level
+supplied each field, so the UI can show "inherited" and nothing else repeats
+the rules. `meta` is the one field merged key by key rather than replaced.
+Choices worth knowing:
+
+- A cue's `transition` is how the show *arrives at* that cue. The first cue
+  cuts in; a looping wrap uses cue 0's transition from the last cue. A
+  transition is capped at its cue's length, so cues stay contiguous and
+  total runtime is the plain sum of durations.
+- Control overrides use a crate-local `ControlValue` (float, int, bool, vec2,
+  colour, text), not `strobe-scene`'s runtime types, so the file format does
+  not move when the scene crate does. The app converts at the boundary.
+- `[shuffle]` supplies the seed for `rand(a, b)` durations and the generator's
+  defaults. It does not reorder authored cues at run time. A runtime shuffle
+  of authored cues is possible later and would not change the file format.
+- Random durations are drawn once per cue from `derive(seed, cue position)`,
+  identical on every pass of a loop. That makes the editor's preview exact and
+  the wall-clock lookup a modulo. Cost: a looping show repeats its lengths.
+- The resume identity hashes name, section names, and each cue's scene and
+  enabled flag, not timing, so hand-editing a duration keeps the saved
+  position and adding or reordering cues drops it.
+- The TOML reader goes through serde with `Spanned` leaves and converts by
+  hand, so every error carries line, column and the offending text, and
+  unknown keys are errors. The writer is hand-rolled for a fixed, readable
+  layout (one cue per line).
+
+**Would reopen:** a need for per-pass random durations, or per-field transition
+inheritance (today a cue's `transition` replaces the inherited one whole).
+
+### D74: playlist randomness is our own SplitMix64 (2026-10-09)
+
+The generator and random durations use `strobe_playlist::rng::SplitMix64`
+(eight lines of arithmetic, reference outputs for seed 0 pinned in a test),
+not `rand`. A seed written in a playlist or shown by the generator preview is
+a promise that the same section comes back, and `rand` reserves the right to
+change its streams between versions. The generator sorts its pool by name
+first, so a library snapshot's order cannot change the result, and a golden
+test pins a whole generated section. Changing the algorithm, the draw order
+or the pick rule breaks saved seeds, so it must be a deliberate act that
+updates the golden test and says so here.
+
+**Would reopen:** nothing short of a better reason than a dependency's
+convenience.
+
+### D75: beat-locked ends: fix the length at cue start, end on the next downbeat (2026-10-09)
+
+A `Bars`/`Beats` cue's length is computed when the cue starts, from the live
+BPM if `syn_BPMConfidence` is above 0.5 and the tempo is plausible (50-220),
+else from the timeline's fallback BPM (120). When that time is up the cue
+waits for the beat grid to enter a new bar and ends there; a downbeat
+exactly at the computed end counts. The wait is abandoned at once if
+confidence is lost, and after six beats if no downbeat arrives, so a stalled
+grid cannot strand a show. Seconds cues end exactly on time. Bars are four
+beats (no time signature in the analysis). The clock takes a small `BeatInfo`
+(bpm, confidence, grid position in beats) rather than depending on
+`strobe-audio`. Open: the app must supply a grid position whose bars line up
+with the music; strobe-audio's beat grid is phase-locked to detected beats
+but has no downbeat detector, so "bar" is counted from the grid's origin
+until one exists.
+
+**Would reopen:** real tracks showing the six-beat timeout or the 0.5
+threshold are wrong, or a downbeat detector landing in `strobe-audio`.
+
+### D76: the scene clock and the wall clock are separate, and time is always an argument (2026-10-09)
+
+`PlaylistClock` advances by `dt`, stops while held, and answers from its own
+state. Wall-clock scheduling (`Timeline::place`, `elapsed_since_anchor`) only
+reads a `Timeline`, takes "now" as seconds since local midnight, and never
+edits the playlist. The two meet in one place, `sync_to_wall_clock`, which
+the app calls on a late start. Wall times come from the static timeline, so
+beat-locked ends and manual advances drift the real show away from them;
+the schedule is a plan. Nothing in the crate reads a system clock, which is
+why a 4-hour soak at 60 Hz runs in under a second. Hold freezes the cue's
+elapsed time but lets an in-flight transition finish. Events are indices and
+ids in a queue reserved at construction (1024), so `tick` never allocates;
+if the app stops draining, events are counted as dropped instead of queued.
+
+**Would reopen:** a need to resync the live show to the wall clock while it
+runs (today only at start).
+
+### D77: failed scenes are marked on the clock, not the playlist (2026-10-09)
+
+Precompile results arrive after the playlist is loaded, and a scene can also
+be lost at run time, so `PlaylistClock::mark_failed` / `mark_scene_failed`
+flag timeline cues. A flagged cue is skipped with a `CueSkipped` event
+wherever the clock would have gone (start, next, previous, skip-section,
+auto-advance, wall-clock catch-up), cannot be jumped to, and if it is the
+active cue the clock leaves at once without a transition from the missing
+scene. If nothing is playable the playlist ends rather than spinning.
+`distinct_scenes()` is the precompile list: enabled cues only, first-use
+order.
