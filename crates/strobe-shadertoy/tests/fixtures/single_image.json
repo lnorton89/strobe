@@ -1,0 +1,37 @@
+{
+  "Shader": {
+    "ver": "0.1",
+    "info": {
+      "id": "Tst001",
+      "date": "1700000000",
+      "viewed": 0,
+      "name": "Single image",
+      "username": "strobe-tests",
+      "description": "Original test shader written for Strobe's fixtures. MIT, like the repository.",
+      "likes": 0,
+      "published": 3,
+      "flags": 0,
+      "usePreview": 0,
+      "tags": [
+        "test",
+        "image"
+      ],
+      "hasliked": 0
+    },
+    "renderpass": [
+      {
+        "inputs": [],
+        "outputs": [
+          {
+            "id": "4dfGRr",
+            "channel": 0
+          }
+        ],
+        "code": "void mainImage( out vec4 fragColor, in vec2 fragCoord )\n{\n    vec2 uv = fragCoord / iResolution.xy;\n    vec2 m = iMouse.xy / iResolution.xy;\n    vec3 col = 0.5 + 0.5 * cos(iTime + uv.xyx + vec3(0.0, 2.0, 4.0));\n    col += 0.3 * smoothstep(0.2, 0.0, distance(uv, m));\n    fragColor = vec4(col, 0.25);\n}\n",
+        "name": "Image",
+        "description": "",
+        "type": "image"
+      }
+    ]
+  }
+}
