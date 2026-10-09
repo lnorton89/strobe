@@ -27,6 +27,14 @@ The following is done and verified headless:
   tests in both dialects.
 - `strobe-bench`, plus the 10-scene library in `scenes/`. The baseline
   is in [BENCHMARKS.md](BENCHMARKS.md).
+- `strobe-diag` (branch `agent/strobe-diag`): logging with a session
+  file and UI ring, session context, structured failures, a panic hook,
+  out-of-process native crash capture with minidumps, and GL driver debug
+  output (`strobe-gfx`'s `gl::debug`). Crash pipeline verified end to end
+  on Linux; the Windows half is compile-checked only until the T480
+  session runs it. See [DEBUGGING.md](DEBUGGING.md) and decisions D40 to
+  D45. **Not yet wired into an app**: `strobe-app` must follow the
+  integration steps in the `strobe_diag` crate docs.
 
 ### In flight (parallel agents, 2026-10-08)
 

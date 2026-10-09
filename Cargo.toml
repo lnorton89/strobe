@@ -79,7 +79,14 @@ undocumented_unsafe_blocks = "deny"
 opt-level = 3
 lto = true
 codegen-units = 1
-strip = "debuginfo"
+# Crash reports and minidumps are only as useful as their symbols (D42).
+# `line-tables-only` is enough for function names and file:line in a
+# backtrace or WinDbg stack at a small cost in size. `strip = "debuginfo"`
+# would make rustc pass /DEBUG:NONE to the MSVC linker, which produces no
+# PDB at all, so stripping is off. On Windows the symbols live in a separate
+# .pdb that is not loaded at runtime; ship it with each release build.
+debug = "line-tables-only"
+strip = "none"
 # A show that panics should stop and say so; the output window is the one
 # thing on a projector, and unwinding through a GL context buys nothing.
 panic = "abort"

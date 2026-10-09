@@ -41,26 +41,6 @@ pub struct SystemInfo {
     pub ram_bytes: Option<u64>,
 }
 
-impl SystemInfo {
-    /// `(key, value)` pairs for the session context and reports.
-    pub fn pairs(&self) -> Vec<(String, String)> {
-        let mut pairs = Vec::new();
-        if let Some(os) = &self.os {
-            pairs.push(("os".to_string(), os.clone()));
-        }
-        if let Some(cpu) = &self.cpu_model {
-            pairs.push(("cpu.model".to_string(), cpu.clone()));
-        }
-        if let Some(cores) = self.cpu_cores {
-            pairs.push(("cpu.cores".to_string(), cores.to_string()));
-        }
-        if let Some(bytes) = self.ram_bytes {
-            pairs.push(("ram".to_string(), format_bytes(bytes)));
-        }
-        pairs
-    }
-}
-
 static CACHE: OnceLock<SystemInfo> = OnceLock::new();
 
 /// Starts the probe on a background thread. Idempotent.
