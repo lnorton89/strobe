@@ -1,10 +1,11 @@
 // ============================================================================
 // Module:       strobe_bench (binary crate root)
-// Description:  Renders every scene in a library on a headless context, times
-//               each, and writes frames, a contact sheet and a results table.
+// Description:  Renders every scene in a library on a headless or windowed
+//               context, times each, and writes frames, a contact sheet and
+//               a results table.
 //
-// Dependencies: clap, anyhow, image; strobe-gfx (headless context, player),
-//               strobe-scene (loading, controls)
+// Dependencies: clap, anyhow, image; strobe-gfx (contexts, player),
+//               strobe-scene (loading, controls); crate::window
 // ============================================================================
 
 //! `strobe-bench`: the performance baseline.
@@ -24,6 +25,18 @@
 //! the PNGs usable as a visual regression check, and the timings
 //! comparable across a change.
 //!
+//! ## Which context
+//!
+//! `--context headless` opens an EGL *device* display: no window system,
+//! which is what CI and a cloud container have. Windows' Intel driver
+//! exposes no EGL devices, so there `--context window` opens one hidden
+//! window through the same [`strobe_gfx::WindowedContext`] the app uses
+//! (`--gl native|angle|auto` picks the backend) and runs the identical
+//! loop from inside the event loop. The window only owns a context: scenes
+//! render into the player's offscreen targets, nothing is ever swapped, and
+//! the surface's vsync is off. `--context auto`, the default, tries
+//! headless first and falls back to the window. See [`window`].
+//!
 //! On a machine with no GPU (CI, a cloud container) the context is Mesa's
 //! llvmpipe: absolute numbers are CPU rasterisation, but the *ranking* of
 //! scenes and the effect of a renderer change hold.
@@ -33,10 +46,16 @@ use clap::{Parser, ValueEnum};
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
-use strobe_gfx::{Api, Caps, FloatPrecision, FrameInputs, Headless, Mouse, Options, ScenePlayer};
+use strobe_gfx::gl::Gl;
+use strobe_gfx::{
+    Api, Backend, Caps, FloatPrecision, FrameInputs, GlChoice, Headless, Mouse, Options,
+    ScenePlayer,
+};
 use strobe_scene::SceneFolder;
 use strobe_scene::audio::SCALARS;
 use strobe_scene::control::ControlBank;
+
+mod window;
 
 /// The command line.
 #[derive(Parser, Debug)]
@@ -60,9 +79,25 @@ struct Cli {
     /// Seconds of scene time at the first frame.
     #[arg(long, default_value_t = 2.0)]
     start: f32,
-    /// Context dialect.
-    #[arg(long, value_enum, default_value_t = ApiArg::Desktop)]
-    api: ApiArg,
+    /// Where the GL context comes from: an EGL device with no window
+    /// system (`headless`), one hidden window (`window`), or headless
+    /// when a device exists and the window otherwise (`auto`).
+    #[arg(long, value_enum, default_value_t = ContextArg::Auto)]
+    context: ContextArg,
+    /// GL backend for `--context window`: the platform's OpenGL 3.3
+    /// core (`native`), ANGLE's OpenGL ES 3.0 (`angle`), or native then
+    /// ANGLE (`auto`).
+    #[arg(long, value_enum, default_value_t = GlArg::Auto)]
+    gl: GlArg,
+    /// Use a tiny undecorated window parked off-screen instead of a
+    /// hidden one. Hidden is tried first anyway, and a tiny window is the
+    /// fallback when a platform will not give a hidden one a GL surface.
+    #[arg(long)]
+    show_window: bool,
+    /// Context dialect for headless (default desktop). In window mode the
+    /// backend decides it, and this must agree: `gles` means ANGLE.
+    #[arg(long, value_enum)]
+    api: Option<ApiArg>,
     /// RGBA16F instead of RGBA32F for FLOAT passes.
     #[arg(long)]
     half: bool,
@@ -84,6 +119,46 @@ enum ApiArg {
     Gles,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum ContextArg {
+    Auto,
+    Headless,
+    Window,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum GlArg {
+    Auto,
+    Native,
+    Angle,
+}
+
+impl ApiArg {
+    fn api(self) -> Api {
+        match self {
+            Self::Desktop => Api::DesktopCore33,
+            Self::Gles => Api::Gles30,
+        }
+    }
+}
+
+/// The window backend `--gl` and `--api` ask for together.
+fn gl_choice(gl: GlArg, api: Option<ApiArg>) -> Result<GlChoice> {
+    match (gl, api) {
+        (GlArg::Auto, None | Some(ApiArg::Desktop)) => Ok(GlChoice::Auto),
+        (GlArg::Auto | GlArg::Angle, Some(ApiArg::Gles)) | (GlArg::Angle, None) => {
+            Ok(GlChoice::Only(Backend::Angle))
+        }
+        (GlArg::Native, None | Some(ApiArg::Desktop)) => Ok(GlChoice::Only(Backend::Native)),
+        (GlArg::Native, Some(ApiArg::Gles)) => Err(anyhow!(
+            "--api gles is the ANGLE dialect; it cannot run on --gl native"
+        )),
+        (GlArg::Angle, Some(ApiArg::Desktop)) => Err(anyhow!(
+            "--api desktop is the native dialect; it cannot run on --gl angle"
+        )),
+    }
+}
+
 /// One scene's results.
 struct Row {
     name: String,
@@ -98,13 +173,39 @@ struct Row {
 fn main() -> Result<()> {
     let cli = Cli::parse();
     let size = parse_size(&cli.size)?;
-    let api = match cli.api {
-        ApiArg::Desktop => Api::DesktopCore33,
-        ApiArg::Gles => Api::Gles30,
-    };
-    let headless = Headless::new(api).map_err(|e| anyhow!("headless context: {e}"))?;
+    let choice = gl_choice(cli.gl, cli.api)?;
+    let job = |gl: &Gl, caps: &Caps, context: &str| run(gl, caps, context, size, &cli);
+
+    match cli.context {
+        ContextArg::Headless => run_headless(open_headless(&cli)?, &cli, size),
+        ContextArg::Window => window::run(choice, cli.show_window, job),
+        ContextArg::Auto => match open_headless(&cli) {
+            Ok(headless) => run_headless(headless, &cli, size),
+            Err(error) => {
+                println!("{error:#}; using a window context instead");
+                window::run(choice, cli.show_window, job)
+            }
+        },
+    }
+}
+
+fn headless_api(cli: &Cli) -> Api {
+    cli.api.map_or(Api::DesktopCore33, ApiArg::api)
+}
+
+fn open_headless(cli: &Cli) -> Result<Headless> {
+    Headless::new(headless_api(cli)).map_err(|e| anyhow!("headless context: {e}"))
+}
+
+fn run_headless(headless: Headless, cli: &Cli, size: [i32; 2]) -> Result<()> {
     let gl = headless.gl();
-    let caps = Caps::from_info(gl.info());
+    let context = format!("headless EGL device, {:?}", headless_api(cli));
+    run(gl, &Caps::from_info(gl.info()), &context, size, cli)
+}
+
+/// The benchmark proper, on whichever context is current. `context`
+/// says where the context came from, for the report.
+fn run(gl: &Gl, caps: &Caps, context: &str, size: [i32; 2], cli: &Cli) -> Result<()> {
     let options = Options {
         specialise_passes: !cli.shared,
         float_precision: if cli.half {
@@ -114,7 +215,7 @@ fn main() -> Result<()> {
         },
     };
     println!(
-        "{} | {} | {:?} | {}x{} | {} | float {:?}",
+        "{} | {} | {:?} | {context} | {}x{} | {} | float {:?}",
         caps.info.renderer,
         caps.info.version,
         caps.dialect,
@@ -128,6 +229,9 @@ fn main() -> Result<()> {
         options.float_precision,
     );
 
+    // Context creation can leave an error flag set that is not the
+    // scenes' doing.
+    let _ = gl.error();
     std::fs::create_dir_all(&cli.out).with_context(|| format!("creating {}", cli.out.display()))?;
     let mut rows = Vec::new();
     for dir in strobe_scene::load::scan(&cli.library)? {
@@ -139,7 +243,7 @@ fn main() -> Result<()> {
         {
             continue;
         }
-        let row = bench_scene(gl, &caps, &dir, &name, size, options, &cli);
+        let row = bench_scene(gl, caps, &dir, &name, size, options, cli);
         match &row.error {
             Some(error) => println!("{name:<28} FAILED: {error}"),
             None => println!(
@@ -157,7 +261,7 @@ fn main() -> Result<()> {
     }
 
     write_contact_sheet(&rows, &cli.out.join("contact-sheet.png"))?;
-    let report = report(&rows, &caps, size, options, &cli);
+    let report = report(&rows, caps, context, size, options, cli);
     std::fs::write(cli.out.join("results.md"), &report)?;
     println!("\nwrote {}", cli.out.display());
     Ok(())
@@ -171,7 +275,7 @@ fn parse_size(text: &str) -> Result<[i32; 2]> {
 }
 
 fn bench_scene(
-    gl: &strobe_gfx::gl::Gl,
+    gl: &Gl,
     caps: &Caps,
     dir: &Path,
     name: &str,
@@ -289,14 +393,22 @@ fn write_contact_sheet(rows: &[Row], path: &Path) -> Result<()> {
 }
 
 /// The results as a Markdown table.
-fn report(rows: &[Row], caps: &Caps, size: [i32; 2], options: Options, cli: &Cli) -> String {
+fn report(
+    rows: &[Row],
+    caps: &Caps,
+    context: &str,
+    size: [i32; 2],
+    options: Options,
+    cli: &Cli,
+) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "# Strobe benchmark\n");
     let _ = writeln!(
         out,
-        "- Renderer: {} ({})\n- Dialect: {:?}\n- Resolution: {}x{}\n- Programs: {}\n- Float passes: {:?}\n- Frames: {} timed after {} warm-up\n",
+        "- Renderer: {} ({})\n- Context: {}\n- Dialect: {:?}\n- Resolution: {}x{}\n- Programs: {}\n- Float passes: {:?}\n- Frames: {} timed after {} warm-up\n",
         caps.info.renderer,
         caps.info.version,
+        context,
         caps.dialect,
         size[0],
         size[1],
