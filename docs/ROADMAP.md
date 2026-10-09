@@ -71,6 +71,12 @@ mode renders the same images as headless, pixel for pixel, on llvmpipe.
 
 ## Next (in order)
 
+0. **Survive a lost or unusable GL context** (T480 bug 1): detect it
+   (`make_current` or `swap` failure, `GetGraphicsResetStatus`),
+   recreate the context, fail over to ANGLE if native keeps failing,
+   reload the scene, and record a structured failure. A projector must
+   never go dark because one driver call failed.
+
 1. **`strobe-app` window shell.** A winit event loop, one GL context with
    two surfaces (the egui control window and the fullscreen output
    window), a scene browser over `scenes/`, control widgets per control

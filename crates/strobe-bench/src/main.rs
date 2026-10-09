@@ -98,9 +98,9 @@ struct Cli {
     /// backend decides it, and this must agree: `gles` means ANGLE.
     #[arg(long, value_enum)]
     api: Option<ApiArg>,
-    /// RGBA16F instead of RGBA32F for FLOAT passes.
+    /// RGBA32F instead of the default RGBA16F for FLOAT passes.
     #[arg(long)]
-    half: bool,
+    full: bool,
     /// One shared program per scene with a PASSINDEX uniform, instead of
     /// one specialised program per pass.
     #[arg(long)]
@@ -208,10 +208,10 @@ fn run_headless(headless: Headless, cli: &Cli, size: [i32; 2]) -> Result<()> {
 fn run(gl: &Gl, caps: &Caps, context: &str, size: [i32; 2], cli: &Cli) -> Result<()> {
     let options = Options {
         specialise_passes: !cli.shared,
-        float_precision: if cli.half {
-            FloatPrecision::Half
-        } else {
+        float_precision: if cli.full {
             FloatPrecision::Full
+        } else {
+            FloatPrecision::Half
         },
     };
     println!(

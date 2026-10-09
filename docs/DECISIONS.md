@@ -463,3 +463,29 @@ gets its dialect from the backend (native is GLSL 330, ANGLE is GLES
 whatever `--gl` implies for a window. `--api gles` with `--gl auto` means
 ANGLE; `--api gles` with `--gl native`, or `--api desktop` with
 `--gl angle`, is an error, not a silent override.
+
+### D13: float passes default to RGBA16F (2026-10-09, measured)
+
+SSF specifies RGBA32F for `FLOAT` passes. On the T480's Intel UHD 620,
+RGBA16F made the bandwidth-bound reaction-diffusion scene 2.8× faster
+(4.47 → 1.59 ms at 720p), and no scene in the library was meaningfully
+slower (BENCHMARKS.md, 2026-10-09). Integrated GPUs share system memory
+bandwidth, and that is the wall on Strobe's target machines.
+`FloatPrecision::Full` and the bench's `--full` keep 32-bit available.
+
+**Would reopen:** a real scene whose simulation visibly degrades in 16
+bits (accumulators, positions in world units). The fix then is a
+per-scene override, probably in `X_STROBE`, not a global flip back.
+
+### D14: per-pass specialisation stays the default, despite being neutral on Intel (2026-10-09, measured)
+
+On the UHD 620, one program per pass vs one shared program is within
+noise on frame time. On llvmpipe, specialisation made Bloom Orbs 35%
+faster. It never measured slower, so it stays the default (D7). Its cost
+is compile time on multi-pass scenes (07: 154 ms vs 57 ms), which
+playlist precompilation hides.
+
+**Would reopen:** compile time becoming user-visible, e.g. scene switches
+without precompile. Then shared mode is the right default for
+interactive browsing, and specialisation becomes a background upgrade.
+
