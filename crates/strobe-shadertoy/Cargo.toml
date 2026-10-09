@@ -1,0 +1,31 @@
+[package]
+name = "strobe-shadertoy"
+description = "Shadertoy import: id parsing, the export JSON model, and a deterministic converter to a Strobe scene folder."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+name = "strobe_shadertoy"
+path = "src/lib.rs"
+
+[[bin]]
+name = "strobe-import"
+path = "src/main.rs"
+
+[dependencies]
+strobe-scene.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+
+[dev-dependencies]
+strobe-gfx.workspace = true
+image.workspace = true
+
+[lints]
+workspace = true

@@ -2835,6 +2835,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "strobe-shadertoy"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "image",
+ "serde",
+ "serde_json",
+ "strobe-gfx",
+ "strobe-scene",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "strobe-ssf-lib"
 version = "0.1.0"
 
