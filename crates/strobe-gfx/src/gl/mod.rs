@@ -29,6 +29,7 @@
 //! the length of the slice behind it — stated where it applies.
 
 pub mod context;
+pub mod debug;
 
 use glow::HasContext;
 use std::marker::PhantomData;

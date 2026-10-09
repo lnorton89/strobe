@@ -13,6 +13,7 @@ crates/
 ├── strobe-audio        FFT, bands, onsets, BPM → the syn_* values; cpal capture thread (built)
 ├── strobe-bench        Headless benchmark + visual regression frames
 ├── strobe-conventions  The house rules as tests (headers, unsafe boundary, toolchain pin)
+├── strobe-diag         Logger, session context, panic hook, native crash capture
 │
 │   planned (see ROADMAP.md):
 ├── strobe-app          winit event loop, control window (egui) + output window
@@ -39,10 +40,17 @@ strobe-ssf-lib ◀── strobe-scene ◀── strobe-gfx ◀── strobe-app
   It renders a scene given a `FrameInputs` (time, audio values, controls).
 - `strobe-audio` and `strobe-script` must not depend on `strobe-gfx`.
   They produce values, and the app hands those values to the player.
+- `strobe-diag` depends on no other Strobe crate, so every crate may
+  depend on it (for `log` output, `context::set`, `failure::report`).
+  `strobe-gfx` itself only uses the `log` facade; the app is what installs
+  the backend.
 
 ## The GL boundary
 
-All `unsafe` lives in `strobe-gfx/src/gl/`:
+All `unsafe` lives in `strobe-gfx/src/gl/`, with one exception:
+`strobe-diag/src/native.rs` holds the single call that installs the native
+crash handler (D41). `strobe-conventions` allows exactly those two places.
+Within the GL module:
 
 - `gl/context.rs` creates contexts. It is the only place that makes a
   context current, and the only place a `Gl` is constructed, immediately

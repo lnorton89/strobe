@@ -18,7 +18,8 @@
 //!   module, purpose and dependencies, and `Module:` matches where the
 //!   file actually sits.
 //! - [`unsafe_boundary`] — `unsafe` lives only in `strobe-gfx`'s `gl`
-//!   module, one operation per safe leaf wrapper, never in a test.
+//!   module and `strobe-diag`'s `native.rs`, one operation per safe leaf
+//!   wrapper, never in a test.
 //! - [`toolchain`] — `rust-toolchain.toml` and every CI workflow name the
 //!   same Rust version.
 //!
