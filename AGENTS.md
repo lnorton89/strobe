@@ -12,7 +12,7 @@ Before you finish a piece of work:
    (`--target x86_64-pc-windows-msvc`).
 2. If you touched a per-frame path, run `strobe-bench` before and after
    and record the delta in `docs/BENCHMARKS.md`.
-3. Update `docs/ROADMAP.md` with what is now done and what is next.
+3. Update `docs/ROADMAP.md` with what is now done and what is next, and tick `docs/STATUS_AUDIT.md` items only with evidence.
 4. Log any non-obvious choice in `docs/DECISIONS.md`. If you verified or
    disproved something in `docs/OPEN_QUESTIONS.md`, move it there.
 

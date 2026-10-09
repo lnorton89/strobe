@@ -11,6 +11,7 @@ macOS and Linux later. Performance is a feature, not a polish step.
 | Doc | When |
 |---|---|
 | [`docs/ROADMAP.md`](docs/ROADMAP.md) | Always. It shows what's done, what's next, and the current state of each phase. **Update it when you finish something.** |
+| [`docs/STATUS_AUDIT.md`](docs/STATUS_AUDIT.md) | Before claiming something works. The evidence-based gap list: what is verified, on which machine, and each item's acceptance test. Tick an item only with evidence. |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Before adding a crate, moving code between crates, or touching the frame loop. |
 | [`docs/DECISIONS.md`](docs/DECISIONS.md) | Before reversing a choice. Every non-obvious decision and its reason is logged there. Add one when you make one. |
 | [`docs/OPEN_QUESTIONS.md`](docs/OPEN_QUESTIONS.md) | Things not yet verified against real Synesthesia behaviour. Check here before assuming. |
