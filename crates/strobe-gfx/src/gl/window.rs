@@ -443,3 +443,40 @@ fn new_window_surface(
     unsafe { display.create_window_surface(config, attributes) }
         .map_err(|e| format!("surface: {e}"))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn auto_tries_native_before_angle() {
+        assert_eq!(
+            GlChoice::Auto.attempts(),
+            &[Backend::Native, Backend::Angle],
+            "native first"
+        );
+    }
+
+    #[test]
+    fn a_forced_backend_is_the_only_attempt() {
+        assert_eq!(
+            GlChoice::Only(Backend::Angle).attempts(),
+            &[Backend::Angle],
+            "angle only"
+        );
+        assert_eq!(
+            GlChoice::Only(Backend::Native).attempts(),
+            &[Backend::Native],
+            "native only"
+        );
+    }
+
+    #[test]
+    fn the_backends_ask_for_different_apis() {
+        assert_ne!(
+            Backend::Native.config_api(),
+            Backend::Angle.config_api(),
+            "desktop GL versus GLES"
+        );
+    }
+}

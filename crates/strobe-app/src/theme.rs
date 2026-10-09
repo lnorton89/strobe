@@ -31,6 +31,8 @@ const SURFACE_3: Color32 = Color32::from_rgb(48, 48, 54);
 const TEXT: Color32 = Color32::from_rgb(222, 220, 214);
 /// Secondary text.
 const TEXT_MUTED: Color32 = Color32::from_rgb(140, 138, 132);
+/// Emphasised text: headings, and a pressed widget's label.
+const TEXT_STRONG: Color32 = Color32::from_rgb(250, 248, 242);
 /// The accent: amber.
 const AMBER: Color32 = Color32::from_rgb(255, 176, 32);
 /// Failures.
@@ -102,10 +104,10 @@ fn visuals() -> Visuals {
     w.hovered.weak_bg_fill = SURFACE_3;
     w.hovered.bg_stroke = Stroke::new(1.0, AMBER.gamma_multiply(0.6));
     w.hovered.fg_stroke = Stroke::new(1.5, TEXT);
-    w.active.bg_fill = AMBER;
-    w.active.weak_bg_fill = AMBER;
+    w.active.bg_fill = SURFACE_3;
+    w.active.weak_bg_fill = SURFACE_3;
     w.active.bg_stroke = Stroke::new(1.0, AMBER);
-    w.active.fg_stroke = Stroke::new(1.5, SURFACE_0);
+    w.active.fg_stroke = Stroke::new(1.5, TEXT_STRONG);
     w.open.bg_fill = SURFACE_3;
     w.open.weak_bg_fill = SURFACE_3;
     w.open.bg_stroke = Stroke::new(1.0, AMBER.gamma_multiply(0.6));

@@ -86,13 +86,21 @@ jobs:
       # Without these the renderer tests skip; with them, every shader the
       # assembler emits is compiled and linked on every push.
       - name: Install headless GL
-        run: sudo apt-get update && sudo apt-get install -y libegl1 libegl-mesa0 libgl1-mesa-dri libxkbcommon-dev
+        run: sudo apt-get update && sudo apt-get install -y libegl1 libegl-mesa0 libgl1-mesa-dri libglx-mesa0 libxkbcommon-dev libxkbcommon-x11-0 libx11-xcb1 libxcursor1 libxi6 libxrandr2 xvfb
       - name: Clippy
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       - name: Test
         env:
           STROBE_REQUIRE_HEADLESS_GL: "1"
         run: cargo test --workspace --all-features
+      # Starts the real app on a virtual X display, renders frames on both
+      # windows through one shared GL context, and reads them back to PNGs.
+      # The step fails if either image is missing.
+      - name: App smoke test (Xvfb)
+        run: |
+          xvfb-run -a -s "-screen 0 1920x1080x24" cargo run -p strobe-app -- --scene 01 --screenshot target/ci-shot --frames 10
+          test -s target/ci-shot-control.png
+          test -s target/ci-shot-output.png
       # Type-checks the Windows-only code (WGL, ANGLE loading) without
       # linking, so a Linux push fails fast on a Windows-only mistake.
       - name: Cross-check the Windows build
