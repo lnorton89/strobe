@@ -40,6 +40,18 @@ pub fn crashes_dir() -> PathBuf {
     base_dir().join("crashes")
 }
 
+/// Where the crash monitor's socket file lives (Windows and macOS; Linux
+/// uses an abstract-namespace socket with no file).
+///
+/// Deliberately not the system temp directory. On Windows `%TEMP%` is often
+/// an 8.3 short path (`C:\Users\EXALTE~1\...`), and an AF_UNIX connect
+/// through a short path to a socket bound at the long path fails with
+/// `WSAEINVAL` (10022), which is what happened on the T480. The known-folder
+/// API behind [`base_dir`] returns the long form.
+pub fn sockets_dir() -> PathBuf {
+    base_dir().join("run")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
