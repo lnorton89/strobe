@@ -122,7 +122,7 @@ impl SceneError {
     /// rather than as a new variant: `PASS_SOURCES` and image-option
     /// mistakes are errors in `scene.json`, and the app matches this enum
     /// exhaustively, so a variant added here would break a crate this one
-    /// does not own (D80).
+    /// does not own (D93).
     pub fn invalid(message: impl std::fmt::Display) -> Self {
         Self::Json(<serde_json::Error as serde::de::Error>::custom(message))
     }

@@ -490,7 +490,7 @@ impl ScenePlayer {
     /// converts. The audio crate also builds a texture matched to the
     /// browser exactly (`AudioFrame::shadertoy`, temporally smoothed); this
     /// path does not use it because `AudioTextures` has no field for it yet
-    /// (D80).
+    /// (D93).
     fn upload_shadertoy(&mut self, spectrum: &[[f32; 4]]) -> Result<(), String> {
         if !self.audio.wanted.get(2).copied().unwrap_or(false) || spectrum.is_empty() {
             return Ok(());

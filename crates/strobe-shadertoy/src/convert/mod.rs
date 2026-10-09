@@ -29,7 +29,7 @@
 //!
 //! Each pass file is complete and independent: shim, then `Common`, then
 //! that pass's own code, then the entry point (see [`shim`]). That is what
-//! lets two buffers define the same helper function (D77).
+//! lets two buffers define the same helper function (D90).
 //!
 //! ## Pass order and the read rule
 //!

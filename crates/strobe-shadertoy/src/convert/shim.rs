@@ -44,7 +44,7 @@
 //! pass (see [`clock_file`]), a one-pixel float buffer that accumulates
 //! `dt * rate` where `rate` is the `st_speed` control blended with the
 //! bass by `st_audio_time`. Doing this in a pass keeps the scene format
-//! unchanged: no host-side state, nothing for the app to wire (D78).
+//! unchanged: no host-side state, nothing for the app to wire (D91).
 
 use super::plan::{Binding, Plan, PlannedPass, Role};
 use crate::model::Shader;
