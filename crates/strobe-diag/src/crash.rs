@@ -522,16 +522,34 @@ fn spawn_connector(slot: Arc<OnceLock<Client>>, name: String) {
         .name("strobe-crash-connect".to_string())
         .spawn(move || {
             let started = Instant::now();
+            let mut last_error: Option<String> = None;
             while started.elapsed() < CONNECT_BUDGET {
-                if let Ok(client) = socket(&name, Client::with_name) {
-                    // First connection wins; there is only ever one.
-                    slot.set(client).ok();
-                    log::debug!("connected to crash monitor after {:?}", started.elapsed());
-                    return;
+                match socket(&name, Client::with_name) {
+                    Ok(client) => {
+                        // First connection wins; there is only ever one.
+                        slot.set(client).ok();
+                        log::info!("connected to crash monitor after {:?}", started.elapsed());
+                        return;
+                    }
+                    Err(error) => {
+                        // The first failure is expected (the monitor may not
+                        // be listening yet) but its text is the only clue when
+                        // every attempt fails, so it is logged straight away:
+                        // a crash inside the budget would otherwise leave no
+                        // trace of why capture never connected.
+                        let text = error.to_string();
+                        if last_error.as_deref() != Some(text.as_str()) {
+                            log::info!("crash monitor connect to {name} failed: {text}");
+                            last_error = Some(text);
+                        }
+                    }
                 }
                 std::thread::sleep(CONNECT_RETRY);
             }
-            log::warn!("crash monitor never accepted a connection; native capture is off");
+            log::warn!(
+                "crash monitor never accepted a connection ({}); native capture is off",
+                last_error.as_deref().unwrap_or("no error recorded")
+            );
         });
     if let Err(error) = spawned {
         log::warn!("native crash capture off: connector thread failed: {error}");
