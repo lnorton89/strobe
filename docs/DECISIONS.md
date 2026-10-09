@@ -117,3 +117,44 @@ commit.
 
 **Would reopen:** a need for ANGLE features newer than Electron ships, or
 bundle size (about 13.5 MB for the three DLLs) becoming a problem.
+
+### D20: the analyser has two clocks (2026-10-08)
+
+Spectral analysis runs on audio time (one step per 512-sample hop), and
+presentation runs on the caller's `dt`. A hop only writes *targets*
+(normalised levels, hit peaks, beat events); `analyze(dt)` then glides,
+decays and integrates toward them with `1 - exp(-dt/tau)`. Hits keep the
+peak of every hop since the last call so a 20 fps render loop cannot miss
+a kick. The result is the same frame-rate independence as D9, and the
+analyser stays a pure function of (samples, dts), which is what makes
+the WAV harness and the tests exact.
+
+### D21: tempo by autocorrelation comb, with an octave prior (2026-10-08)
+
+Peak-picking the autocorrelation lands on any harmonic of the beat. Each
+candidate tempo (50 to 220 BPM, every 0.25) is instead scored by the
+mean autocorrelation at its first four multiples, times a soft prior
+centred on 120 BPM (one octave sigma). The biased autocorrelation also
+favours the shorter period. A clean track resolves to the tapped tempo;
+a track near the range edges can still report double or half time, which
+tap tempo and nudge exist to override. Confidence is peak sharpness times
+a stability term.
+
+### D22: capture is one thread that owns the stream (2026-10-08)
+
+cpal streams need not be `Send` on every backend, so the analysis thread
+builds and keeps the stream, and handles device loss itself:
+Running, Recovering, SilentFallback, retrying every 2 s. A missing device
+is an `Err` from `Capture::start` and a silent, retrying handle from
+`Capture::start_resilient`; the render thread only does an atomic pointer
+load (`Capture::latest`). Windows loopback is cpal's behaviour of
+building an input stream on a render device, so output devices are listed
+(on Windows only) as `DeviceKind::Loopback`.
+
+### D23: texture widths are a `Layout`, not constants (2026-10-08)
+
+The real Synesthesia texture layout is unverified (OPEN_QUESTIONS Q10),
+so `AudioFrame` carries `Vec`s sized by `Layout` (default 256 spectrum,
+256 trail, 512x2 Shadertoy) and every texel is built from a bin span
+computed from the layout. Changing a width changes data, not code.
+
