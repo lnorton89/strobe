@@ -5,7 +5,7 @@ the next agent reads. Keep "Now", "Next", and the phase tables current.
 Design detail lives in [PLAN.md](PLAN.md) and decisions in
 [DECISIONS.md](DECISIONS.md).
 
-_Last updated: 2026-10-08._
+_Last updated: 2026-10-09._
 
 ## Now
 
@@ -108,7 +108,7 @@ mode renders the same images as headless, pixel for pixel, on llvmpipe.
 | 1 | Renderer, SSF scene loading, multipass, controls UI, output window | Renderer, loading, multipass, controls runtime and a minimal desktop app (two windows, scene browser, controls, console, preview) done. Images done; cubemaps and media are placeholders. The Perform-first UI is not built. |
 | 2 | JavaScript API | `strobe-script` built and wired into the app (D62): events, `update`, controls, `setUniform` compiled in at load, console, faults shown. Meta controls and `textureFinalPass` pending. |
 | 3 | Audio analysis | `strobe-audio` built and wired into the app (D61): capture with synthetic fallback, textures uploaded, settings UI. The bench still uses the synthetic stand-in and does not upload textures. |
-| 4 | Shadertoy import | Not started |
+| 4 | Shadertoy import | Stage 1 done (branch `agent/shadertoy`, D77-D82): `strobe-shadertoy` parses ids and both JSON shapes, rewrites dialects, and converts to a scene folder that renders correctly on GL 3.3 and GLES 3.0 (`strobe-import <file.json>`); 69 tests, 9 original fixtures. Not built: the REST client (path B), the localhost listener and userscript (path A), the app Import UI, thumbnails and the Needs-work bin, promote-to-control. |
 | 5 | Playlists | Not started |
 | 6 | Presets, MIDI, OSC | Not started |
 | 7 | NDI, media input, song-change transitions | Not started (`HARD`/`SMOOTH_TRANSITIONS` uniforms are declared and initialised, but never change) |
@@ -127,3 +127,26 @@ mode renders the same images as headless, pixel for pixel, on llvmpipe.
 - The GLES dialect doesn't rewrite desktop-only SSF idioms (Q8 in
   OPEN_QUESTIONS.md). The base library is written ES-clean, so the
   bench's `--api gles` run passes.
+
+### Known gaps: Shadertoy import (stage 1)
+
+- Fetching by id does nothing yet: `strobe-import --id` says so. Path B (REST
+  API with a key), path A (userscript to a localhost listener), the asset
+  downloader and the app's Import UI are stage 2.
+- The app does not call the importer, does not feed `strobe_Date` (the
+  player falls back to UTC wall clock, Q15), and still hard-codes
+  `main.glsl` in its shader-failure detail, so a compile error in a buffer
+  (`passes/buffer_a.glsl:14`) shows without a line number there.
+- The audio input is resampled from the 256-texel spectrum, not the
+  browser-matched `AudioFrame::shadertoy` the audio crate already builds
+  (D80, Q18). `AudioTextures` needs an optional field for it, which touches
+  the app's struct literal.
+- Not supported: `cubemap`/`volume` inputs, `sound`/`cubemap` passes
+  (errors); `keyboard`/`video`/`webcam` read black (warnings); `srgb`
+  textures are not decoded (Q16); packing built-ins fail on a 3.30 context
+  (Q8); implicit int-to-float is not rewritten (Q8).
+- A resize wipes feedback buffers, as always, and restarts `iTime` at
+  `TIME` and `iFrame` at 0 (D78); at non-default Speed that is a visible
+  jump.
+- Every buffer is double-buffered even when it never reads itself (D82).
+- Promote-to-control, thumbnails and the Needs-work bin are not built.
