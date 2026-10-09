@@ -10,6 +10,7 @@
 //! every item can be `pub` without being dead.
 //!
 //! - [`app`]: the winit application and frame loop.
+//! - [`perf`]: GPU timing and adaptive resolution.
 //! - [`script`], [`mouse`]: a scene's `script.js` at run time, and the
 //!   pointer uniforms it and the shaders read.
 //! - [`audio`]: live capture or synthetic audio, and its settings.
@@ -33,6 +34,7 @@ pub mod failures;
 pub mod gldebug;
 pub mod library;
 pub mod mouse;
+pub mod perf;
 pub mod screenshot;
 pub mod script;
 pub mod session;

@@ -46,6 +46,23 @@ pub enum Action {
     SetAudioSpeed(f32),
     /// Register a tap-tempo tap.
     TapTempo,
+    /// Turn adaptive resolution on or off.
+    SetAdaptive(bool),
+}
+
+/// What the performance readouts and the adaptive toggle show.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PerfPanel {
+    /// Whether adaptive resolution is switched on.
+    pub adaptive: bool,
+    /// Whether the GPU can be timed on this context at all.
+    pub has_timer: bool,
+    /// Smoothed GPU milliseconds per frame, once measured.
+    pub gpu_ms: Option<f32>,
+    /// The per-frame budget in milliseconds.
+    pub budget_ms: f32,
+    /// The render scale in force.
+    pub scale: f32,
 }
 
 /// The audio settings panel's inputs.
@@ -109,4 +126,6 @@ pub struct Model<'a> {
     pub audio: AudioPanel<'a>,
     /// The playing scene's script, if it has one.
     pub script: Option<&'a ScriptState>,
+    /// GPU time, budget and adaptive resolution.
+    pub perf: PerfPanel,
 }

@@ -554,3 +554,50 @@ command.
 
 **Would reopen:** adding `#[cfg(windows)]` code to the app, which would then
 want a feature gate or a Windows runner for the check.
+
+### D64: GPU timing is a four-slot query ring that never waits; adaptation waits a second after a load (2026-10-09)
+
+`strobe_gfx::GpuTimer` keeps four `GL_TIME_ELAPSED` queries in flight. `begin`
+skips the frame when all four are still pending (a missing sample costs the
+controller nothing; queueing more would grow without bound), and `poll` reads
+only results the driver reports available, oldest first, stopping at the first
+that is not, so no read ever blocks (AGENT_RESEARCH section 7). It is the one
+per-frame path that makes driver queries (`glGetQueryObject`, and on ES the
+`GPU_DISJOINT_EXT` flag, checked only when a result was read and discarding the
+batch if set); capability facts stay decided once (`Info::gpu_timer`: desktop
+3.3+ or `ARB_timer_query`, ES with `EXT_disjoint_timer_query`). Results above a
+second are discarded as driver glitches. 32-bit `glGetQueryObjectuiv` is used
+for the result on both APIs (saturates at 4.29 s), so there is one code path.
+On a context without timers the toggle is disabled and the scale stays manual.
+
+`strobe-app::perf` wires it to `AdaptiveScale`. Budget is one refresh period of
+the output window's monitor (winit `refresh_rate_millihertz`, re-read with the
+monitor list every two seconds), 16.67 ms when unknown. The render-scale slider
+becomes the **maximum** when Adaptive is on (default on; `--no-adaptive`), and
+moving it rebuilds the controller at the new ceiling. A scene load forgets the
+measurements (`AdaptiveScale::reset_measurements`, new) and holds the scale for
+one second of wall-clock time, because a new scene's first frames pay for
+compiling and allocating and the old average describes a different scene.
+Every change is logged with the GPU time that caused it. The timer brackets the
+scene's work and the blit to the output, not egui. Verified under llvmpipe
+(which exposes timer queries in both dialects): the heavy cloud scene dropped
+1.00 to 0.25 at 188 ms against 16.7; real-GPU behaviour is unmeasured
+(AGENT_RESEARCH 14.G says to wait for hardware data before trusting the
+constants).
+
+Each resize still reallocates targets and restarts feedback from black; that
+cost is accepted, and the controller's cooldown and quantisation limit how
+often it happens.
+
+**Would reopen:** T480 data showing the 0.70/1.05 thresholds or the 12-frame
+drop delay are wrong, or a visible hitch from restarting feedback on a change.
+
+### D65: the control window always opens maximized (2026-10-09)
+
+Owner requirement: `WindowAttributes::with_maximized(true)` on the control
+window on every launch (nothing is remembered between runs, so "not just the
+first" is automatic). The output window is unchanged. The 1360x820 inner size
+stays as the fallback for a window system that cannot maximize; bare Xvfb has
+no window manager, so under `--screenshot` the control window stays 1360x820
+and captures are still deterministic, which is why screenshot mode needs no
+exception.

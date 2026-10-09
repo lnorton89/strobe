@@ -98,6 +98,37 @@ impl AdaptiveScale {
         self.budget_ms = budget_ms.max(0.1);
     }
 
+    /// The budget in force, in milliseconds.
+    pub fn budget_ms(&self) -> f32 {
+        self.budget_ms
+    }
+
+    /// Changes the ceiling (the person's manual scale). A current scale
+    /// above it comes down at once; one below it stays and may creep up.
+    /// Returns the new scale if it had to change.
+    pub fn set_max(&mut self, max: f32) -> Option<f32> {
+        self.max = quantise(max.clamp(self.min, 1.0));
+        if self.scale > self.max {
+            self.scale = self.max;
+            self.forget();
+            return Some(self.scale);
+        }
+        None
+    }
+
+    /// Forgets what was measured, keeping the scale. For a moment when the
+    /// old measurements stop describing the load, such as a new scene.
+    pub fn reset_measurements(&mut self) {
+        self.forget();
+        self.cooldown = 0;
+    }
+
+    fn forget(&mut self) {
+        self.average_ms = None;
+        self.over = 0;
+        self.under = 0;
+    }
+
     /// Feeds one frame's measured GPU time. Returns the new scale when it
     /// changed, so the caller resizes only then.
     pub fn observe(&mut self, gpu_ms: f32) -> Option<f32> {
@@ -234,6 +265,38 @@ mod tests {
         assert_eq!(simulate(&mut c, 1000.0, 600), 0.5, "never below the floor");
         assert_eq!(c.observe(f32::NAN), None, "NaN is ignored");
         assert_eq!(c.observe(-1.0), None, "negative time is ignored");
+    }
+
+    #[test]
+    fn lowering_the_ceiling_pulls_the_scale_down_at_once() {
+        let mut c = AdaptiveScale::new(16.0, 0.25, 1.0);
+        assert_eq!(c.set_max(0.5), Some(0.5), "1.0 comes down to the new max");
+        assert_eq!(c.scale(), 0.5, "scale follows");
+        assert_eq!(
+            c.set_max(0.8),
+            None,
+            "raising the ceiling changes nothing yet"
+        );
+        assert_eq!(c.scale(), 0.5, "the scale waits for headroom");
+        assert_eq!(
+            simulate(&mut c, 4.0, 1500),
+            0.8,
+            "then creeps up to the new max"
+        );
+    }
+
+    #[test]
+    fn forgetting_measurements_stops_a_stale_average_causing_a_drop() {
+        let mut c = AdaptiveScale::new(16.0, 0.25, 1.0);
+        for _ in 0..11 {
+            c.observe(60.0);
+        }
+        c.reset_measurements();
+        // One more heavy frame would have been the twelfth in a row; after
+        // the reset it is the first.
+        assert_eq!(c.observe(60.0), None, "no drop on stale evidence");
+        assert_eq!(c.scale(), 1.0, "scale untouched");
+        assert!((c.budget_ms() - 16.0).abs() < f32::EPSILON, "budget kept");
     }
 
     #[test]

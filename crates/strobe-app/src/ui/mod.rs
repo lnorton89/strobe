@@ -25,4 +25,4 @@ pub mod layout;
 pub mod model;
 
 pub use host::UiHost;
-pub use model::{Action, AudioPanel, Model, Preview};
+pub use model::{Action, AudioPanel, Model, PerfPanel, Preview};

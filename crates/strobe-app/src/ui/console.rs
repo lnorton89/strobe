@@ -8,9 +8,28 @@
 
 //! The status strip and console (bottom panel).
 
-use super::model::{Action, Model};
+use super::model::{Action, Model, PerfPanel};
 use crate::console::Level;
 use crate::theme;
+
+/// The GPU readout: measured time against the budget, and the scale in
+/// force, marked when the controller is the one choosing it.
+fn gpu_text(perf: &PerfPanel) -> String {
+    let scale = format!(
+        "{:.0}%{}",
+        perf.scale * 100.0,
+        if perf.adaptive && perf.has_timer {
+            " adaptive"
+        } else {
+            ""
+        }
+    );
+    match (perf.has_timer, perf.gpu_ms) {
+        (true, Some(ms)) => format!("GPU {ms:.1}/{:.1} ms  scale {scale}", perf.budget_ms),
+        (true, None) => format!("GPU measuring...  scale {scale}"),
+        (false, _) => format!("GPU timer n/a  scale {scale}"),
+    }
+}
 
 /// Draws the stats line, then the console below it.
 pub fn show(ui: &mut egui::Ui, model: &Model<'_>, actions: &mut Vec<Action>) {
@@ -32,6 +51,11 @@ pub fn show(ui: &mut egui::Ui, model: &Model<'_>, actions: &mut Vec<Action>) {
                 } else {
                     theme::muted()
                 }),
+        );
+        ui.label(
+            egui::RichText::new(gpu_text(&model.perf))
+                .monospace()
+                .color(theme::muted()),
         );
         if let Some(preview) = model.preview {
             ui.label(
