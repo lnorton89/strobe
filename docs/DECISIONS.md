@@ -665,3 +665,187 @@ stays as the fallback for a window system that cannot maximize; bare Xvfb has
 no window manager, so under `--screenshot` the control window stays 1360x820
 and captures are still deterministic, which is why screenshot mode needs no
 exception.
+
+### D77: one GLSL file per pass (`PASS_SOURCES`), top-level `SOURCE`, and per-pass programs forced (2026-10-09)
+
+Shadertoy buffers each define their own helpers (`hash`, `palette`,
+`rotate`), usually with different bodies, so merging the passes into one
+`main.glsl` with a `PASSINDEX` switch (the SSF way) cannot work. `scene.json`
+gains an optional **top-level** `PASS_SOURCES`: an array with exactly one
+relative path per pass, the implicit final pass last. The assembler is
+unchanged: it is called once per pass with that pass's text as `user_code`,
+which is still source string 1, so a driver error maps to a line of *that
+file* and the player reports it as `passes/buffer_b.glsl:14`
+(`SceneFolder::file_for`). `main.glsl` stays mandatory (the scanner keys on
+it) and is the final pass's file. A `SOURCE` block (`kind`, `id`, `url`,
+`author`, `name`, `license_note`, and free extras such as `tags` and a
+per-pass line map) records provenance.
+
+PLAN 4.5 put these inside an `X_STROBE` object. They are top-level keys
+instead, as the Phase 4 brief specified; Q6 (Synesthesia ignores unknown
+keys) applies either way. Where the two disagree, this entry wins.
+
+**Shared mode.** `--shared` (`Options::specialise_passes == false`) cannot
+share a program across different sources. The player builds per-pass
+programs anyway and logs a warning, rather than failing a whole bench run
+over one imported scene; the bench's `--shared` label is then wrong for
+that scene, which is the lesser evil.
+
+**Other scene additions** made for the importer, all optional and
+defaulting to SSF's behaviour: per-image `WRAP`, `FILTER`, `VFLIP`
+(Shadertoy sampler hints; defaults repeat, mipmap, flipped as before), and a
+per-pass `FULL_PRECISION` (RGBA32F even where the player defaults to
+RGBA16F, D13). The new validation errors are reported as
+`SceneError::Json` with a message (`SceneError::invalid`) rather than as new
+variants, because `strobe-app` matches `SceneError` exhaustively and is not
+this change's to edit. Promote them to variants when the app next changes.
+
+**Would reopen:** a Synesthesia that rejects the extra keys (Q6), or a need
+to share one program for memory reasons on the oldest GPUs.
+
+### D78: the uniform shim is generated GLSL around untouched code; time comes from a clock pass (2026-10-09)
+
+Each pass file is: a 3-line header, the shim, the `Common` tab, the pass's
+tab, and a generated `renderMain` that calls `mainImage`. The author's code
+is dialect-normalised (D81) but no statement of it is edited. The shim:
+
+- sets globals (`strobe_iResolution`, `strobe_iTime`, ...) in
+  `strobe_begin()` and `#define`s the author's names to them, **only for the
+  names that pass mentions**. Defining to globals rather than to expressions
+  over Strobe's uniforms keeps the shim working when the author's code
+  redefines `TIME` or `RENDERSIZE`;
+- aliases any assembler-declared global the author also declares
+  (`const float PI` is the common case) with
+  `#define PI strobe_user_PI`, unless the author `#define`s it;
+- binds `iChannelN` by `#define iChannel0 st_buf_a` (a pass target, an image,
+  `strobe_ShadertoyAudio`, or `st_black`), so a sampler passed as a
+  function parameter still works;
+- forces alpha to 1 on the Image pass.
+
+**Time.** `iTime`, `iTimeDelta`, `iFrame`, `iFrameRate` need host-side
+state (a clock that advances by `dt * speed`). Instead of new host state the
+converter adds a one-texel, double-buffered, **FULL_PRECISION** float pass,
+`st_clock`, first in `PASSES`, only when some pass mentions a time name. It
+stores `(clock, last TIME, real dt, start frame + 1)` and advances the clock
+by `dt * rate`, with `rate` from the Strobe controls (D79). `dt` comes from
+`TIME` minus last frame's `TIME`, so the app needs no change. A cleared
+target (first frame, or a resize, which wipes feedback) restarts the clock
+at `TIME` and `iFrame` at 0, which is also what a Shadertoy feedback shader
+that initialises on `iFrame == 0` needs after its buffers were wiped.
+Full precision is required: in RGBA16F the clock stops advancing after about
+16 seconds. The cost is one 1-pixel draw per frame.
+
+**Known loss:** a resize with a non-default speed makes the clock jump to
+`TIME`. The adaptive-resolution controller resizes rarely, and at default
+controls the clock equals `TIME`, so nothing visible happens.
+
+**Would reopen:** host-side clock state in the frame loop (it would remove
+the pass), or a driver that cannot do `texelFetch` on RGBA32F (the ES path
+needs `EXT_color_buffer_float`, which `Caps` already requires for float
+passes).
+
+### D79: the "Strobe" control group is `st_`-prefixed, and acts on the Image pass only (2026-10-09)
+
+PLAN 6.3 names the controls `speed`, `audio_time`, `bass_flash`, `zoom`,
+`hue`. Controls are global-scope uniforms, and `zoom`, `speed` and `hue`
+are among the most common identifiers in Shadertoy code (`const float zoom
+= 2.0;`, `vec3 hue(float)`), so plain names would fail to compile some
+fraction of imports. They are `st_speed`, `st_audio_time`, `st_bass_flash`,
+`st_zoom`, `st_hue`, in UI group "Strobe", always present, and the
+converter errors (`NameClash`) if a shader uses an `st_` name it generates
+or any `strobe_` name. `strobe_` is not usable for controls: the loader
+reserves it.
+
+- `st_speed` (0 to 3, default 1) and `st_audio_time` (0 to 1, default 0)
+  drive the clock pass: `rate = speed * mix(1, 0.3 + 2 * syn_BassLevel,
+  audio_time)`.
+- `st_zoom` (0.5 to 2), `st_hue` (-180 to 180) and `st_bass_flash` (0 to 1,
+  `* (1 + flash * syn_BassHits)`) apply **only to the Image pass**. A buffer
+  holds per-pixel state; zooming `fragCoord` in a buffer would write a
+  different pixel's value to every texel and corrupt a simulation.
+- All defaults are exact identities (`x * 1.0`, `hue != 0` branch), so an
+  untouched import renders what Shadertoy renders; a test checks it.
+
+**Would reopen:** a `LABEL` mechanism for controls (then the uniform and
+display names can differ).
+
+### D80: Shadertoy audio and `iDate` ride the existing player paths; the rest of the contract (2026-10-09)
+
+- **Audio inputs** (`music`, `musicstream`, `mic`) bind a new reserved
+  sampler, `strobe_ShadertoyAudio`, declared by the assembler. It is a
+  512x2 R8 texture (row 0 spectrum, row 1 waveform, `v = 0.25` and `0.75`),
+  created at its full size **only when some pass samples it** (otherwise
+  1x2), and filled inside `upload_audio` by resampling the `AudioTextures`
+  spectrum texels: raw FFT (`r`, -100 to -20 dB) converted to the browser's
+  scale (-100 to -30 dB, 6 dB lower) for row 0, and the waveform (`a`) for
+  row 1. `strobe-audio` already builds a browser-exact, smoothed texture
+  (`AudioFrame::shadertoy`), but `AudioTextures` has no field for it and the
+  app builds that struct literally, so adding one would break a crate that
+  is not this change's. **Gap:** a follow-up should add
+  `AudioTextures::shadertoy: Option<&[u8]>` and prefer it.
+- **`iDate`** is a new reserved uniform `strobe_Date`. The player reads the
+  wall clock in UTC (`strobe_scene::date`) each frame unless the host calls
+  `ScenePlayer::set_date`. UTC because `std` has no time-zone database
+  (Q15). The bench and tests are deterministic by setting it or by not using
+  it.
+- `iSampleRate` is the constant 44100. `iChannelTime` is `iTime` for audio
+  channels and 0 for the rest (Q15). `keyboard`, `video` and `webcam` inputs
+  read black with a warning; `cubemap` and `volume` inputs and `sound` and
+  `cubemap` passes are errors naming the pass and channel.
+- `iMouse` is `_mouse`, which the player already documents as Shadertoy's
+  `iMouse`; the app feeds it (Q13, Q15).
+
+### D81: dialect normalisation is token-level, dialect-neutral, and stops where types begin (2026-10-09)
+
+Shadertoy source is already inside the intersection of GLSL 3.30 core and
+ES 3.00 (it compiles as ES 3.00 in a browser), so the converter writes **one**
+rewritten file for both dialects and the assembler supplies `#version`. The
+rewriter (`strobe_shadertoy::dialect`) works on a lossless tokenizer
+(`glsl`), so it cannot touch comments, longer names or numbers, and every
+removal keeps its newlines. It renames `texture2D`-family calls, removes
+`precision` statements, `#version`, `#extension`, redeclarations of
+Shadertoy uniforms, replaces non-ASCII comment text, and normalises line
+endings. Two semantic rewrites live in the converter instead: `gl_FragColor`
+becomes a shim global, and a **built-in the shader defines itself**
+(`float tanh(float)`, common in WebGL1-era code) is aliased to a private
+name under `#ifdef GL_ES`, because GLSL ES 3.00 forbids redefining a
+built-in (Mesa rejects it; found by the legacy fixture) while desktop 3.30
+lets the definition hide it.
+
+Not attempted: implicit `int` to `float` (needs types; Shadertoy source
+never needs it, SSF scenes do; Q8) and the packing built-ins
+(`packHalf2x16`) which are ES 3.00 core but GLSL 4.00 on desktop (Q8).
+
+**Would reopen:** a real shader that needs a rewrite the token level cannot
+express, which is the point at which a GLSL parser (`glsl-lang`) earns its
+place.
+
+### D82: converter output rules (2026-10-09)
+
+- **Every buffer is `FLOAT` and `DOUBLE_BUFFER`**, as PLAN 6.2 says, even
+  one nothing reads back from itself. That costs memory a pipeline-only
+  buffer does not need; the alternative (single-buffer unless it reads
+  itself) leaves a trap for anyone who later edits a buffer to feed back.
+  Revisit if memory on the HD 4000 matters.
+- **Buffers run A, B, C, D, then Image**, ordered by the letter in the pass
+  name, else the output ids 257 to 260, else listed order, whatever order the
+  JSON lists them in. Strobe's existing read rule (pass `j >= i` reads last
+  frame) is Shadertoy's, and a test checks it numerically.
+- **Buffer sampling** (filter, wrap) comes from the first pass that reads the
+  buffer; a second reader with different settings gets a warning.
+- **No network, no clock, no randomness** in the converter. A texture that is
+  not supplied becomes a warning, a black channel and an
+  `images/pending-assets.json` entry with its URL (an error with `--strict`).
+  Re-running the import with the file present replaces the scene.
+- **Output is deterministic**: `scene.json` is built from `Serialize`
+  structs (no `serde_json::Value`, whose key order depends on a cargo
+  feature), files are in a `BTreeMap`, and golden files lock it.
+- **Writing is atomic**: files go to a hidden `.<name>.importing` folder
+  (`main.glsl` last), then one rename; `--force` swaps an existing scene
+  aside first and restores it if the rename fails.
+- **`SOURCE.license_note`** says Shadertoy shaders are CC BY-NC-SA 3.0
+  unless the author says otherwise and that commercial use needs
+  permission. That is the importer's best knowledge, not a legal
+  determination (Q15).
+- The converter keeps the original JSON as `shadertoy.json` when the caller
+  passes it, so an import can be redone offline.
