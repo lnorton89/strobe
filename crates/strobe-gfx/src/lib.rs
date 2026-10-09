@@ -21,4 +21,4 @@ pub mod player;
 pub use caps::{Caps, FloatPrecision};
 pub use gl::context::{Api, Headless};
 pub use gl::window::{Backend, GlChoice, SwapWindow, WindowError, WindowedContext};
-pub use player::{FrameInputs, Mouse, Options, PlayerError, ScenePlayer};
+pub use player::{AudioTextures, FrameInputs, Mouse, Options, PlayerError, ScenePlayer};

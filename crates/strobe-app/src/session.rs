@@ -22,15 +22,18 @@
 //!
 //! ## Audio
 //!
-//! The values come from [`strobe_scene::synthetic::fill`] until the audio
-//! crate lands. The buffer is allocated once at load; a frame writes into
-//! it in place.
+//! Audio is the app's, not the scene's: [`Session::advance`] takes the
+//! [`AudioInput`] and asks it for the frame at the scene clock's time, so
+//! the same capture (or synthetic track) carries on across scene changes.
+//! The scalars go to the shaders as uniforms and the spectrum and
+//! level-trail texels to the player's audio textures, before the passes
+//! render.
 
+use crate::audio::AudioInput;
 use std::ops::RangeInclusive;
 use std::path::{Path, PathBuf};
 use strobe_gfx::gl::Gl;
-use strobe_gfx::{Caps, FrameInputs, Mouse, Options, PlayerError, ScenePlayer};
-use strobe_scene::audio::SCALARS;
+use strobe_gfx::{AudioTextures, Caps, FrameInputs, Mouse, Options, PlayerError, ScenePlayer};
 use strobe_scene::control::ControlBank;
 use strobe_scene::{SceneError, SceneFolder};
 
@@ -87,7 +90,6 @@ pub struct Session {
     /// The compiled passes and render targets.
     pub player: ScenePlayer,
     transitions: Vec<f32>,
-    audio: Vec<f32>,
     frame: u64,
     time: f32,
 }
@@ -122,7 +124,6 @@ impl Session {
             controls,
             player,
             transitions,
-            audio: vec![0.0; SCALARS.len()],
             frame: 0,
             time: start,
         })
@@ -130,15 +131,19 @@ impl Session {
 
     /// Advances the scene by `dt` seconds and renders one frame into the
     /// player's output.
-    pub fn advance(&mut self, dt: f32) {
+    pub fn advance(&mut self, dt: f32, audio: &mut AudioInput) {
         self.time += dt;
-        strobe_scene::synthetic::fill(self.time, &mut self.audio);
+        let audio = audio.frame_at(self.time);
         self.controls.tick(dt);
+        self.player.upload_audio(&AudioTextures {
+            spectrum: &audio.spectrum,
+            level_trail: &audio.level_trail,
+        });
         self.player.render(&FrameInputs {
             time: self.time,
             frame: self.frame,
             mouse: Mouse::default(),
-            audio: &self.audio,
+            audio: &audio.scalars,
             controls: &self.controls,
             transitions: &self.transitions,
         });

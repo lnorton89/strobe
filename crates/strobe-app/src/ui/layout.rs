@@ -14,12 +14,12 @@
 //! panels read a [`Model`] and return [`Action`]s.
 
 use super::model::{Action, Model};
-use super::{browser, console, controls};
+use super::{audio, browser, console, controls};
 use crate::session::RENDER_SCALE;
 use crate::theme;
 
 /// Width of the scene browser, in points.
-const BROWSER_WIDTH: f32 = 220.0;
+const BROWSER_WIDTH: f32 = 260.0;
 /// Width of the controls panel, in points.
 const CONTROLS_WIDTH: f32 = 340.0;
 /// Height of the console panel, in points.
@@ -35,7 +35,15 @@ pub fn show(ui: &mut egui::Ui, model: &mut Model<'_>, actions: &mut Vec<Action>)
     egui::Panel::left("browser")
         .resizable(true)
         .default_size(BROWSER_WIDTH)
-        .show(ui, |ui| browser::show(ui, model, actions));
+        .show(ui, |ui| {
+            // The audio settings sit under the scene list, always visible:
+            // on stage "is it hearing anything?" is the first question.
+            egui::Panel::bottom("audio")
+                .resizable(false)
+                .show_separator_line(true)
+                .show(ui, |ui| audio::show(ui, &mut model.audio, actions));
+            browser::show(ui, model, actions);
+        });
     egui::Panel::right("controls")
         .resizable(true)
         .default_size(CONTROLS_WIDTH)

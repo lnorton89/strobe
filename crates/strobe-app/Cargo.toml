@@ -15,6 +15,7 @@ path = "src/main.rs"
 strobe-scene.workspace = true
 strobe-gfx.workspace = true
 strobe-diag.workspace = true
+strobe-audio.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 image.workspace = true

@@ -39,6 +39,16 @@ impl GlArg {
     }
 }
 
+/// Where audio comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum AudioArg {
+    /// Capture from an input device; fall back to synthetic audio when
+    /// there is none.
+    Auto,
+    /// Always synthetic audio: a fixed 120 BPM pattern, reproducible.
+    Synthetic,
+}
+
 /// The command line.
 #[derive(Parser, Debug)]
 #[command(
@@ -66,6 +76,10 @@ pub struct Cli {
     /// Frames to render before the screenshot.
     #[arg(long, default_value_t = 60, requires = "screenshot")]
     pub frames: u32,
+    /// Audio source. `synthetic` makes frames reproducible, which is what
+    /// the benchmark and screenshots want when a real device is present.
+    #[arg(long, value_enum, default_value_t = AudioArg::Auto)]
+    pub audio: AudioArg,
     /// Print a report of this machine, build, GL and audio setup, save it
     /// next to the logs, and exit. Attach it to bug reports.
     #[arg(long)]
@@ -94,6 +108,18 @@ mod tests {
             GlChoice::Only(Backend::Angle),
             "angle forced"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn audio_defaults_to_auto_and_can_be_forced_synthetic() -> Result<()> {
+        assert_eq!(
+            Cli::try_parse_from(["strobe"])?.audio,
+            AudioArg::Auto,
+            "auto"
+        );
+        let forced = Cli::try_parse_from(["strobe", "--audio", "synthetic"])?;
+        assert_eq!(forced.audio, AudioArg::Synthetic, "forced");
         Ok(())
     }
 

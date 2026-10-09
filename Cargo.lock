@@ -2742,6 +2742,7 @@ dependencies = [
  "egui_glow",
  "image",
  "log",
+ "strobe-audio",
  "strobe-diag",
  "strobe-gfx",
  "strobe-scene",
