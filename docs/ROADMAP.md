@@ -5,7 +5,7 @@ the next agent reads. Keep "Now", "Next", and the phase tables current.
 Design detail lives in [PLAN.md](PLAN.md) and decisions in
 [DECISIONS.md](DECISIONS.md).
 
-_Last updated: 2026-10-08._
+_Last updated: 2026-10-09._
 
 ## Now
 
@@ -72,6 +72,26 @@ native|angle|auto` (D70-D72). The bench now runs on a hidden-window
 context where the driver has no EGL device (Intel on Windows). Window
 mode renders the same images as headless, pixel for pixel, on llvmpipe.
 
+### Playlists, stage 1 (branch `agent/playlist`)
+
+`strobe-playlist` is built and tested without a window: 166 tests, including
+two simulated 4-hour soaks at 60 Hz (one against the static timeline, one
+under a random command stream) and an example playlist
+(`playlists/example.toml`) checked against `scenes/`. Decisions D73-D77.
+
+**Left for stage 2 (app integration):** precompile `distinct_scenes()` at load
+with a progress bar and report failures through `mark_scene_failed`; a
+second `ScenePlayer` for the incoming scene with the quarter-resolution
+warm-up render; the transition compositor (cut, crossfade, fade-through-black,
+custom GLSL) driven by `clock.transition()`; the Playlist workspace UI
+(UI_DESIGN section 13) and generate dialog; a file watcher that reloads and
+keeps the old playlist on a parse error (`restore_lenient` keeps the
+position); live controls from UI, hotkeys, MIDI and OSC mapped onto
+`Command`; saving `resume_point()` every 5 s; feeding `BeatInfo` from the
+audio frame, including a real downbeat; the wall-clock `sync_to_wall_clock`
+call at start-up. Phase 7's audio-event detection will call
+`clock.audio_event()`.
+
 ## Next (in order)
 
 0. **Survive a lost or unusable GL context** (T480 bug 1): detect it
@@ -109,7 +129,7 @@ mode renders the same images as headless, pixel for pixel, on llvmpipe.
 | 2 | JavaScript API | `strobe-script` built and wired into the app (D62): events, `update`, controls, `setUniform` compiled in at load, console, faults shown. Meta controls and `textureFinalPass` pending. |
 | 3 | Audio analysis | `strobe-audio` built and wired into the app (D61): capture with synthetic fallback, textures uploaded, settings UI. The bench still uses the synthetic stand-in and does not upload textures. |
 | 4 | Shadertoy import | Not started |
-| 5 | Playlists | Not started |
+| 5 | Playlists | Stage 1 done: `strobe-playlist` pure core (D73-D77): model, inheritance, TOML I/O, generator, timeline, playback clock, resume, precompile list. Stage 2 (app integration) not started. |
 | 6 | Presets, MIDI, OSC | Not started |
 | 7 | NDI, media input, song-change transitions | Not started (`HARD`/`SMOOTH_TRANSITIONS` uniforms are declared and initialised, but never change) |
 
