@@ -1,0 +1,44 @@
+name = "Example: lobby, weekday"
+loop_mode = "loop"
+anchor = "09:00"
+
+# Anything a cue does not say comes from its section, then from here.
+[defaults]
+duration = "3m"
+advance = "timer"
+transition = { kind = "crossfade", duration = "4s" }
+
+# The seed fixes every rand(a, b) duration, so the timeline preview is exact.
+[shuffle]
+seed = 1337
+no_repeat_window = 5
+
+[[sections]]
+name = "Morning"
+defaults = { duration = "rand(2m, 4m)" }
+cues = [
+  { scene = "01-aurora-gradient" },
+  { scene = "04-voronoi-glass", overrides = { density = 0.4, edge = 0.7 } },
+  { scene = "09-sdf-cathedral", duration = "64 bars", transition = { kind = "cut" } },
+  { scene = "10-volume-clouds", overrides = { coverage = 0.55, sun = [0.3, 0.8] } },
+]
+
+[[sections]]
+name = "Afternoon"
+defaults = { duration = "90s", transition = { kind = "fade-through-black", duration = "2s" } }
+cues = [
+  { scene = "02-plasma-pulse", overrides = { tint = [1.0, 0.45, 0.1], invert = false } },
+  { scene = "03-kaleido-tunnel", duration = "1:30" },
+  { scene = "05-domain-warp", overrides = { warp = 0.6 } },
+  { scene = "06-feedback-trails", duration = "32 bars" },
+  { scene = "07-reaction-diffusion", enabled = false },
+]
+
+[[sections]]
+name = "Evening"
+defaults = { duration = "2m", advance = ["timer", "audio-drop"] }
+cues = [
+  { scene = "08-bloom-orbs", preset = "slow" },
+  { scene = "11-script-orbits", overrides = { glow = 0.8, trail = 0.5 } },
+  { scene = "01-aurora-gradient", duration = "1h30m", advance = "manual" },
+]
