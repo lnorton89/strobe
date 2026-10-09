@@ -156,6 +156,14 @@ impl Performance {
         self.adaptive = controller(self.adaptive.budget_ms(), self.max);
     }
 
+    /// Resumes the controller at `scale`, for a rebuilt GL context: the
+    /// scale the old one had settled on is what this GPU could carry, and
+    /// starting again from the ceiling would reload the very load that may
+    /// have caused the loss.
+    pub fn resume_scale(&mut self, scale: f32) {
+        self.adaptive.set_scale(scale);
+    }
+
     /// Adopts the output monitor's refresh rate. Returns whether the budget
     /// changed enough to matter.
     pub fn set_refresh(&mut self, refresh_millihertz: Option<u32>) -> bool {
