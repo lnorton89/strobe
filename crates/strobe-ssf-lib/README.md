@@ -34,9 +34,9 @@ let glsl: &str = strobe_ssf_lib::LIBRARY;
 ```
 
 To see the library in a finished shader, read the tests in
-`crates/strobe-scene/src/assemble.rs`, or the `the_ssf_library_compiles_in_both_dialects` test in
-`crates/strobe-gfx/tests/render.rs`, which calls a function from every
-family.
+`crates/strobe-scene/src/assemble.rs`, or
+`the_ssf_library_compiles_in_both_dialects` in
+`crates/strobe-gfx/tests/render.rs`, which calls a function from every family.
 
 ## Testing
 

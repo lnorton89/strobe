@@ -57,16 +57,16 @@ machine.
 
 | Crate | Owns |
 |---|---|
-| `strobe-bench` | Headless benchmark: renders `scenes/`, times each, writes frames and a contact sheet |
-| `strobe-conventions` | The house rules as tests: file headers, the `unsafe` boundary, the toolchain pin |
-| `strobe-app` | Window, event loop, egui control surface, wiring |
-| `strobe-gfx` | The GL renderer: context providers (native GL, ANGLE), programs, passes, compositor, post |
-| `strobe-scene` | SSF model: `scene.json`, controls and their runtime, presets, shader assembly |
-| `strobe-ssf-lib` | The SSF GLSL function library and preambles |
-| `strobe-script` | QuickJS host for the Synesthesia JavaScript API |
-| `strobe-audio` | Capture, FFT, bands, onsets, BPM, audio textures |
+| [`strobe-bench`](crates/strobe-bench/README.md) | Headless benchmark: renders `scenes/`, times each, writes frames and a contact sheet |
+| [`strobe-conventions`](crates/strobe-conventions/README.md) | The house rules as tests: file headers, the `unsafe` boundary, the toolchain pin |
+| [`strobe-app`](crates/strobe-app/README.md) | Window, event loop, egui control surface, wiring |
+| [`strobe-gfx`](crates/strobe-gfx/README.md) | The GL renderer: context providers (native GL, ANGLE), programs, passes, compositor, post |
+| [`strobe-scene`](crates/strobe-scene/README.md) | SSF model: `scene.json`, controls and their runtime, presets, shader assembly |
+| [`strobe-ssf-lib`](crates/strobe-ssf-lib/README.md) | The SSF GLSL function library and preambles |
+| [`strobe-script`](crates/strobe-script/README.md) | QuickJS host for the Synesthesia JavaScript API |
+| [`strobe-audio`](crates/strobe-audio/README.md) | Capture, FFT, bands, onsets, BPM, audio textures |
 | `strobe-shadertoy` | Shadertoy JSON → scene conversion and asset fetch |
-| `strobe-playlist` | Playlist model, TOML I/O, scheduler, generator |
+| [`strobe-playlist`](crates/strobe-playlist/README.md) | Playlist model, TOML I/O, scheduler, generator |
 | `strobe-io` | MIDI, OSC, hotkeys, the localhost import listener |
 
 ### Graphics: native OpenGL, with ANGLE as the fallback
