@@ -45,26 +45,26 @@ The following is done and verified headless:
   Decisions D50-D59. Untested until the first push: the release workflow
   itself, which only runs on a tag.
 
-### In flight (parallel agents, 2026-10-08)
+### Merged 2026-10-09
 
-- `strobe-script` (Sonnet agent, worktree branch `agent/strobe-script`)
-- `strobe-audio` (Sonnet agent, worktree branch `agent/strobe-audio`)
-- `strobe-app` and the windowed native/ANGLE context (Sonnet agent,
-  branch `agent/strobe-app`)
-- `strobe-diag`: logging, panic and native crash reports, minidumps
-  through an out-of-process monitor, GL debug output, `--diagnose`
-  (Sonnet agent, branch `agent/strobe-diag`)
-- Repo and CI alignment with the owner's rustaman/rustdirstat
-  conventions: release workflow, issue forms, dependabot, `xtask`, a
-  generated changelog, macOS CI, and bench artifacts in CI (Sonnet agent,
-  branch `agent/repo-ci`)
-- A real-hardware test session on the owner's ThinkPad T480 (remote
-  bridge session in `C:\Users\ExaltedLaptop2\Development\strobe`):
-  hardware report, a native MSVC build and tests, and later a real-GPU
-  bench. Its report goes to `docs/hardware/T480.md`.
+The parallel agents' branches were reviewed, gated, and merged:
+`strobe-audio` (analysis, capture, WAV harness), `strobe-script`
+(QuickJS host), `strobe-diag` (logging, crash reports, minidumps through
+a monitor process, GL debug output), `strobe-app` (control and output
+windows sharing one context, with native/ANGLE fallback), and repo/CI
+alignment (`cargo xtask ci`, release workflow, a generated changelog,
+issue forms, and frames from the bench as CI artifacts).
 
-The coordinating session reviews each branch and merges it into
-`claude/festive-ramanujan-oic192`.
+### In flight
+
+- App integration (`agent/app-integration`): diagnostics, real audio,
+  the script host, and GPU timer queries driving adaptive resolution in
+  `strobe-app`.
+- Windowed benchmark (`agent/bench-window`): `strobe-bench --context
+  window`, so it runs on Windows, where Intel's driver has no EGL device.
+- T480 real-hardware pass: app smoke test on native GL and ANGLE,
+  per-scene fps, and the crash-capture drill on Windows. Results go into
+  `docs/hardware/T480.md`.
 
 ## Next (in order)
 
