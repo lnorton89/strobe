@@ -7,7 +7,7 @@ deterministic: fixed `dt`, and synthetic 120 BPM audio from
 
 ```bash
 cargo run --release -p strobe-bench -- --size 1280x720 --frames 30 --warmup 90
-#   --half      RGBA16F instead of RGBA32F for FLOAT passes
+#   --full      RGBA32F instead of the default RGBA16F for FLOAT passes
 #   --shared    one program per scene with a PASSINDEX uniform (Synesthesia's way)
 #   --api gles  compile in the GLSL ES dialect the ANGLE path uses (headless)
 ```
@@ -66,6 +66,54 @@ GPUs.
 
 ## Results
 
+### 2026-10-09: first real GPU, ThinkPad T480 (Intel UHD 620), commit b7b0b50
+
+Intel UHD 620, driver 30.0.101.1122, Windows 11 26300, on AC power.
+`--context window` (hidden window), 60 timed frames after 90 warm-up
+frames. Times are mean ms per frame. Native means WGL with GLSL 330;
+ANGLE means GLES 3.0 on D3D11 (ANGLE 2.1.25847, from Electron 38.2.0).
+32F and 16F are the float-pass formats; "shared" is one program per
+scene instead of one per pass.
+
+| Scene | Native 720p 32F | Native 720p 16F | Native 720p shared | ANGLE 720p 32F | Native 1440p 32F |
+|---|---:|---:|---:|---:|---:|
+| 01-aurora-gradient | 0.80 | 0.74 | 0.69 | 0.71 | 1.64 |
+| 02-plasma-pulse | 0.80 | 0.67 | 0.63 | 0.69 | 2.18 |
+| 03-kaleido-tunnel | 1.03 | 0.84 | 0.95 | 0.86 | 3.17 |
+| 04-voronoi-glass | 7.65 | 8.33 | 8.61 | 8.66 | 32.12 |
+| 05-domain-warp | 11.77 | 10.67 | 10.79 | 10.40 | 42.67 |
+| 06-feedback-trails | 1.20 | 1.16 | 1.13 | 0.83 | 3.24 |
+| 07-reaction-diffusion | 4.47 | **1.59** | 3.98 | 3.79 | 15.49 |
+| 08-bloom-orbs | 4.14 | 3.82 | 3.88 | 4.42 | 16.51 |
+| 09-sdf-cathedral | 20.44 | 20.01 | 20.01 | 20.14 | 82.27 |
+| 10-volume-clouds | 193.26 | 191.43 | 188.31 | 186.00 | 743.40 |
+
+All 10 scenes compile and render identically on native and ANGLE, judged
+from the contact sheets.
+
+**What this run decided:**
+
+- **RGBA16F is now the default for float passes (D13).** Reaction
+  diffusion, the bandwidth-bound scene, is **2.8× faster** (4.47 → 1.59
+  ms), and nothing is meaningfully slower. This is exactly the
+  integrated-GPU bandwidth wall that llvmpipe couldn't show. Use
+  `--full` for RGBA32F.
+- **Per-pass specialisation is neutral on Intel (D14).** Frame time is
+  within run-to-run noise either way. Unlike llvmpipe, Intel's compiler
+  handles uniform branches well. Specialisation stays the default
+  because it is a 35% win elsewhere and never a loss, but it costs
+  compile time on multi-pass scenes (07: 154 ms specialised vs 57 ms
+  shared). Precompiling playlists hides that cost.
+- **ANGLE performs on par with native** (within 5–10%, sometimes faster).
+  It is a full-quality fallback, not a degraded mode.
+- **At the panel's native 1440p**, only the tier-1 scenes hold 60 fps
+  with headroom. 07 and 08 sit at about 60, 04, 05 and 09 fall well
+  short, and 10 runs at 1.3 fps. Cost scales almost exactly with pixel
+  count, so render scale and adaptive resolution are the lever on this
+  machine. Volume Clouds, the tier-5 stress scene, needs about scale 0.35
+  to reach 30 fps at 720p.
+
+
 ### 2026-10-08: baseline, Mesa llvmpipe (no GPU), cloud container, commit f84b564
 
 llvmpipe (LLVM 20.1.2, 256-bit), 4 vCPU, desktop GL 4.5 core context,
@@ -108,9 +156,7 @@ render.
 
 ## Wanted
 
-- [ ] A real-GPU run on the owner's ThinkPad T480 (Intel UHD 620, and
-  the MX150 if fitted), native GL vs ANGLE, 32F vs 16F, at 1280×720 and
-  1920×1080. This needs the windowed context provider, which is in
-  progress.
+- [x] A real-GPU run on the T480: native vs ANGLE, 32F vs 16F, 720p and
+  1440p (2026-10-09, above). This machine has no discrete GPU.
 - [ ] Render-scale sweep (1.0 / 0.75 / 0.5) once render scale is in the
   app.

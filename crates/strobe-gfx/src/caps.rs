@@ -28,12 +28,18 @@ use crate::gl::{Format, Info};
 use strobe_scene::assemble::Dialect;
 
 /// Storage chosen for passes marked `FLOAT`.
+///
+/// The default is [`FloatPrecision::Half`], decided on measurements from the
+/// owner's ThinkPad T480 (Intel UHD 620, 2026-10-09, D13). RGBA16F made the
+/// bandwidth-bound reaction-diffusion scene 2.8x faster (4.47 to 1.59 ms at
+/// 720p), and no scene was meaningfully slower. `Full` stays available for
+/// a scene that integrates values large enough to lose precision in 16 bits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum FloatPrecision {
     /// RGBA32F, as SSF specifies.
-    #[default]
     Full,
     /// RGBA16F: half the bandwidth.
+    #[default]
     Half,
 }
 

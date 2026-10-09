@@ -74,7 +74,7 @@ impl Default for Options {
     fn default() -> Self {
         Self {
             specialise_passes: true,
-            float_precision: FloatPrecision::Full,
+            float_precision: FloatPrecision::default(),
         }
     }
 }
