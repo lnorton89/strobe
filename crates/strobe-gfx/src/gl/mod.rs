@@ -21,6 +21,13 @@
 //!   array) is held by an owning type here whose `Drop` releases it
 //!   through the same `Gl`, so an early return cannot leak GPU memory.
 //!
+//! - **A lost context is never touched again.** [`Gl::mark_lost`] sets a flag
+//!   shared by every clone of the `Gl`, and every owning type's `Drop` then
+//!   skips its delete call. Once a context has been reset or destroyed, a
+//!   GL call can fault inside the driver (on Windows the ICD may be gone
+//!   entirely), and the driver frees a destroyed context's objects anyway.
+//!   See [`Gl::reset_status`] for how a loss is detected.
+//!
 //! Each wrapper holds exactly one unsafe call and nothing else; argument
 //! checking and conversions happen outside the block. GL itself validates
 //! enums and handles and reports misuse through `glGetError` rather than
@@ -33,15 +40,129 @@ pub mod debug;
 pub mod window;
 
 use glow::HasContext;
+use std::cell::Cell;
+use std::ffi::{CStr, CString, c_void};
 use std::marker::PhantomData;
+use std::rc::Rc;
 use std::sync::Arc;
 
 /// A current GL context, usable from the thread it is current on.
 #[derive(Clone)]
 pub struct Gl {
     raw: Arc<glow::Context>,
+    /// `glGetGraphicsResetStatus` (or its `ARB`/`KHR`/`EXT` form), when the
+    /// driver has one. glow 0.17 does not wrap it.
+    reset: Option<ResetAddress>,
+    /// Set once the context is known to be lost; shared by every clone, so
+    /// every owning type sees it. `Rc` because `Gl` is `!Send` anyway.
+    lost: Rc<Cell<bool>>,
     /// `!Send` and `!Sync`: the context is current on one thread only.
     _thread: PhantomData<*const ()>,
+}
+
+/// The address of the driver's reset-status function.
+#[derive(Debug, Clone, Copy)]
+struct ResetAddress(*const c_void);
+
+/// What `glGetGraphicsResetStatus` said about the context.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResetStatus {
+    /// `GL_NO_ERROR`: no reset has happened since the last query.
+    NoError,
+    /// `GL_GUILTY_CONTEXT_RESET`: this context's own work caused a reset
+    /// (a shader that ran too long, a bad access).
+    Guilty,
+    /// `GL_INNOCENT_CONTEXT_RESET`: the GPU was reset by something else
+    /// (another process, a power event) and this context lost its state.
+    Innocent,
+    /// `GL_UNKNOWN_CONTEXT_RESET`: reset, with no blame assigned. Also what
+    /// [`Gl::reset_status`] returns without asking the driver once the
+    /// context has been marked lost.
+    Unknown,
+    /// The driver offers no way to ask (no robustness extension), or
+    /// answered with a value the specification does not define.
+    Unsupported,
+}
+
+impl ResetStatus {
+    const GUILTY: u32 = 0x8253;
+    const INNOCENT: u32 = 0x8254;
+    const UNKNOWN: u32 = 0x8255;
+
+    /// Maps the `GLenum` a driver returned.
+    pub fn from_raw(raw: u32) -> Self {
+        match raw {
+            glow::NO_ERROR => Self::NoError,
+            Self::GUILTY => Self::Guilty,
+            Self::INNOCENT => Self::Innocent,
+            Self::UNKNOWN => Self::Unknown,
+            _ => Self::Unsupported,
+        }
+    }
+
+    /// Whether the driver reported that the context was reset: the three
+    /// of [`Self::Guilty`], [`Self::Innocent`] and [`Self::Unknown`].
+    pub fn is_reset(self) -> bool {
+        matches!(self, Self::Guilty | Self::Innocent | Self::Unknown)
+    }
+}
+
+impl std::fmt::Display for ResetStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::NoError => "no error",
+            Self::Guilty => "guilty context reset",
+            Self::Innocent => "innocent context reset",
+            Self::Unknown => "unknown context reset",
+            Self::Unsupported => "reset status unsupported",
+        })
+    }
+}
+
+/// The entry-point names to try for `glGetGraphicsResetStatus`, in order,
+/// for a context of this `version` (major, minor, is ES) offering these
+/// extensions. A name is tried only when the context should have it,
+/// because some loaders (Mesa's `glXGetProcAddress`) hand back a stub for
+/// any name they know.
+fn reset_status_names(
+    (major, minor, embedded): (u32, u32, bool),
+    has_extension: impl Fn(&str) -> bool,
+) -> Vec<&'static str> {
+    let mut names = Vec::new();
+    let core = if embedded {
+        (major, minor) >= (3, 2)
+    } else {
+        (major, minor) >= (4, 5)
+    };
+    // KHR_robustness on desktop GL uses the unsuffixed name.
+    if core || (!embedded && has_extension("GL_KHR_robustness")) {
+        names.push("glGetGraphicsResetStatus");
+    }
+    if has_extension("GL_ARB_robustness") {
+        names.push("glGetGraphicsResetStatusARB");
+    }
+    if embedded && has_extension("GL_KHR_robustness") {
+        names.push("glGetGraphicsResetStatusKHR");
+    }
+    if has_extension("GL_EXT_robustness") {
+        names.push("glGetGraphicsResetStatusEXT");
+    }
+    names
+}
+
+/// Calls the driver's reset-status function.
+fn call_reset_status(address: ResetAddress) -> u32 {
+    // SAFETY: `address` was returned by the display's proc loader for an
+    // entry point named `glGetGraphicsResetStatus*`, which is the C function
+    // `GLenum f(void)`; the transmute only gives that address its type, and
+    // function and data pointers are the same size on every platform this
+    // builds for. The fn-pointer type is written without the unsafe
+    // qualifier so this block holds the one operation; the call itself
+    // relies on the current-context invariant (callers document that the
+    // context must be current).
+    let function =
+        unsafe { std::mem::transmute::<*const c_void, extern "system" fn() -> u32>(address.0) };
+    function()
 }
 
 impl std::fmt::Debug for Gl {
@@ -148,12 +269,68 @@ pub struct Info {
 const GPU_DISJOINT_EXT: u32 = 0x8FBB;
 
 impl Gl {
-    /// Wraps a glow context. Only [`context`] calls this, immediately after
-    /// making the context current on this thread.
-    fn from_current(raw: glow::Context) -> Self {
+    /// Builds a `Gl` from a proc-address loader. Only [`context`] and
+    /// [`window`] call this, immediately after making the context current on
+    /// this thread. The same loader that builds the glow context also looks
+    /// up the reset-status function glow does not wrap.
+    fn from_loader(mut loader: impl FnMut(&CStr) -> *const c_void) -> Self {
+        let raw = context::glow_from_loader(&mut loader);
+        let version = raw.version();
+        let extensions = raw.supported_extensions();
+        let names = reset_status_names(
+            (version.major, version.minor, version.is_embedded),
+            |name| extensions.contains(name),
+        );
+        let reset = names.iter().find_map(|name| {
+            let name = CString::new(*name).ok()?;
+            let address = loader(&name);
+            (!address.is_null()).then_some(ResetAddress(address))
+        });
         Self {
             raw: Arc::new(raw),
+            reset,
+            lost: Rc::new(Cell::new(false)),
             _thread: PhantomData,
+        }
+    }
+
+    /// Records that this context is lost (reset, destroyed, or no longer
+    /// current anywhere). From now on no owning type calls into GL when it
+    /// is dropped: the driver releases a destroyed context's objects, and
+    /// a delete against a dead context can fault in the ICD. Shared by
+    /// every clone of this `Gl`.
+    pub fn mark_lost(&self) {
+        self.lost.set(true);
+    }
+
+    /// Whether [`Self::mark_lost`] was called.
+    pub fn is_lost(&self) -> bool {
+        self.lost.get()
+    }
+
+    /// Whether the driver exposes a reset-status query at all.
+    pub fn has_reset_status(&self) -> bool {
+        self.reset.is_some()
+    }
+
+    /// Asks the driver whether the context has been reset
+    /// (`glGetGraphicsResetStatus`).
+    ///
+    /// This is a driver round trip, so it is **not** a per-frame call: make
+    /// it after a failed swap, or at most once a second as a health check.
+    /// The context must be current. A reset is reported once, then the query
+    /// reads [`ResetStatus::NoError`] again, and a context that was not
+    /// created robust may always answer `NoError`. Returns
+    /// [`ResetStatus::Unknown`] without asking if the context was already
+    /// marked lost, and [`ResetStatus::Unsupported`] if the driver has no
+    /// such function.
+    pub fn reset_status(&self) -> ResetStatus {
+        if self.is_lost() {
+            return ResetStatus::Unknown;
+        }
+        match self.reset {
+            Some(address) => ResetStatus::from_raw(call_reset_status(address)),
+            None => ResetStatus::Unsupported,
         }
     }
 
@@ -849,7 +1026,9 @@ pub struct Shader {
 
 impl Drop for Shader {
     fn drop(&mut self) {
-        self.gl.delete_shader(self.raw);
+        if !self.gl.is_lost() {
+            self.gl.delete_shader(self.raw);
+        }
     }
 }
 
@@ -862,7 +1041,9 @@ pub struct Program {
 
 impl Drop for Program {
     fn drop(&mut self) {
-        self.gl.delete_program(self.raw);
+        if !self.gl.is_lost() {
+            self.gl.delete_program(self.raw);
+        }
     }
 }
 
@@ -901,7 +1082,9 @@ impl Texture {
 
 impl Drop for Texture {
     fn drop(&mut self) {
-        self.gl.delete_texture(self.raw);
+        if !self.gl.is_lost() {
+            self.gl.delete_texture(self.raw);
+        }
     }
 }
 
@@ -914,7 +1097,9 @@ pub struct Framebuffer {
 
 impl Drop for Framebuffer {
     fn drop(&mut self) {
-        self.gl.delete_framebuffer(self.raw);
+        if !self.gl.is_lost() {
+            self.gl.delete_framebuffer(self.raw);
+        }
     }
 }
 
@@ -927,7 +1112,9 @@ pub struct TimerQuery {
 
 impl Drop for TimerQuery {
     fn drop(&mut self) {
-        self.gl.delete_query(self.raw);
+        if !self.gl.is_lost() {
+            self.gl.delete_query(self.raw);
+        }
     }
 }
 
@@ -940,6 +1127,97 @@ pub struct VertexArray {
 
 impl Drop for VertexArray {
     fn drop(&mut self) {
-        self.gl.delete_vertex_array(self.raw);
+        if !self.gl.is_lost() {
+            self.gl.delete_vertex_array(self.raw);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn names(version: (u32, u32, bool), extensions: &[&str]) -> Vec<&'static str> {
+        reset_status_names(version, |name| extensions.contains(&name))
+    }
+
+    #[test]
+    fn the_enum_values_map_to_the_four_defined_statuses() {
+        assert_eq!(ResetStatus::from_raw(0), ResetStatus::NoError, "no error");
+        assert_eq!(ResetStatus::from_raw(0x8253), ResetStatus::Guilty, "guilty");
+        assert_eq!(
+            ResetStatus::from_raw(0x8254),
+            ResetStatus::Innocent,
+            "innocent"
+        );
+        assert_eq!(
+            ResetStatus::from_raw(0x8255),
+            ResetStatus::Unknown,
+            "unknown"
+        );
+        assert_eq!(
+            ResetStatus::from_raw(0x0500),
+            ResetStatus::Unsupported,
+            "an undefined value says nothing"
+        );
+    }
+
+    #[test]
+    fn only_the_three_reset_answers_count_as_a_reset() {
+        for (status, reset) in [
+            (ResetStatus::NoError, false),
+            (ResetStatus::Guilty, true),
+            (ResetStatus::Innocent, true),
+            (ResetStatus::Unknown, true),
+            (ResetStatus::Unsupported, false),
+        ] {
+            assert_eq!(status.is_reset(), reset, "{status}");
+        }
+    }
+
+    #[test]
+    fn desktop_gl_45_has_the_plain_name_and_an_old_driver_has_the_arb_one() {
+        assert_eq!(
+            names((4, 6, false), &["GL_ARB_robustness"]),
+            ["glGetGraphicsResetStatus", "glGetGraphicsResetStatusARB"],
+            "plain first, then ARB"
+        );
+        assert_eq!(
+            names((3, 3, false), &["GL_ARB_robustness"]),
+            ["glGetGraphicsResetStatusARB"],
+            "a 3.3 core context relies on the extension"
+        );
+        assert!(
+            names((3, 3, false), &[]).is_empty(),
+            "no extension, no function"
+        );
+    }
+
+    #[test]
+    fn desktop_khr_robustness_uses_the_plain_name() {
+        assert_eq!(
+            names((3, 3, false), &["GL_KHR_robustness"]),
+            ["glGetGraphicsResetStatus"],
+            "KHR on desktop is unsuffixed"
+        );
+    }
+
+    #[test]
+    fn es_contexts_use_the_khr_or_ext_names_until_es_32() {
+        assert_eq!(
+            names((3, 0, true), &["GL_EXT_robustness"]),
+            ["glGetGraphicsResetStatusEXT"],
+            "ANGLE exposes the EXT form"
+        );
+        assert_eq!(
+            names((3, 0, true), &["GL_KHR_robustness", "GL_EXT_robustness"]),
+            ["glGetGraphicsResetStatusKHR", "glGetGraphicsResetStatusEXT"],
+            "KHR before EXT"
+        );
+        assert_eq!(
+            names((3, 2, true), &[]),
+            ["glGetGraphicsResetStatus"],
+            "core in ES 3.2"
+        );
     }
 }

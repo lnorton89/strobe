@@ -370,3 +370,43 @@ fn the_gpu_timer_reports_results_without_ever_waiting() -> Result<()> {
     }
     Ok(())
 }
+
+#[test]
+fn a_healthy_context_reports_no_reset_and_a_lost_one_is_never_asked() -> Result<()> {
+    for api in [Api::DesktopCore33, Api::Gles30] {
+        let Some(headless) = context(api)? else {
+            continue;
+        };
+        let gl = headless.gl();
+        assert!(!gl.is_lost(), "{api:?}: a new context is not lost");
+        let status = gl.reset_status();
+        assert!(
+            !status.is_reset(),
+            "{api:?}: a fresh context has not been reset, got {status}"
+        );
+        let clone = gl.clone();
+        gl.mark_lost();
+        assert!(clone.is_lost(), "{api:?}: the flag is shared by clones");
+        assert_eq!(
+            clone.reset_status(),
+            strobe_gfx::gl::ResetStatus::Unknown,
+            "{api:?}: a lost context is reported without calling the driver"
+        );
+        // Dropping an object on a lost context skips the delete (a smoke
+        // test: the skip itself cannot be observed from outside, but the
+        // drop must be harmless and leave no GL error behind).
+        let texture = gl
+            .texture_2d(
+                4,
+                4,
+                strobe_gfx::gl::Format::Rgba8,
+                strobe_gfx::gl::Sampling::LINEAR_CLAMP,
+                None,
+            )
+            .map_err(|e| anyhow!("{api:?}: texture: {e}"))?;
+        drop(texture);
+        let error = gl.error();
+        assert!(error.is_none(), "{api:?}: unexpected GL error {error:?}");
+    }
+    Ok(())
+}
