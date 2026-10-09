@@ -456,3 +456,38 @@ beside the logs because the release build has no console on Windows.
 
 **Would reopen:** a need for the console to show only some subsystems (a
 filter UI), which wants the structured failure list rather than ring text.
+
+### D61: audio is the app's, started on a thread, falls back to synthetic by capture state (2026-10-09)
+
+`AudioInput` (`strobe-app/src/audio.rs`) lives for the whole run, not per
+scene, so switching scenes neither restarts capture nor loses a tapped
+tempo. Opening a device can take seconds on WASAPI, so
+`Capture::start_resilient` and `list_devices` each run on a short-lived
+thread and the render thread only `try_recv`s the result; synthetic audio
+plays until a device is open. After that the active source follows the
+capture's atomic state: `Running` is live, `SilentFallback` is synthetic,
+`Recovering` keeps whichever was active (so a one-second device hiccup does
+not flash the synthetic track). `start_resilient` is used rather than
+`start` because it keeps retrying, so a device plugged in later takes over
+without a restart. Each change is logged once and shown in the status bar;
+losing a device that had worked is an `AUDIO` failure, never having had one
+is a single warning (a laptop with no microphone is not a fault).
+
+The synthetic source also fills `syn_Spectrum` and `syn_LevelTrail`
+(`strobe_scene::synthetic::fill_textures`), shaped like the analyser's
+channels, so a scene that draws the spectrum is not dead without a device.
+`ScenePlayer::upload_audio(&AudioTextures)` takes plain `[f32; 4]` slices so
+`strobe-gfx` still knows nothing of the audio crate; it quantises into
+staging buffers kept between frames, uploads only a texture some pass
+samples, and reallocates a texture once if the slice width differs. `glow`
+has no `glTexSubImage1D`, so the desktop path re-specifies the 1 KB 1D
+texture with `glTexImage1D` each frame, which is not a measurable cost.
+
+`--audio synthetic` forces the fixed pattern. Screenshot mode does not:
+under `--audio auto` it attempts capture too, so the fallback is exercised
+and its status line is honest; pass `--audio synthetic` for reproducible
+frames on a machine that has a device.
+
+**Would reopen:** a measured upload cost on a real Intel HD 4000, or a
+Windows device-change notification (the `wasapi` crate) replacing the
+2-second retry.

@@ -51,7 +51,8 @@
 //! fields in that order and [`Running::shutdown`] frees the scene and the
 //! egui painter explicitly first.
 
-use crate::cli::Cli;
+use crate::audio::AudioInput;
+use crate::cli::{AudioArg, Cli};
 use crate::console::Console;
 use crate::failures;
 use crate::gldebug;
@@ -180,6 +181,7 @@ struct Running {
     console: Console,
     stats: FrameStats,
     gl_summary: String,
+    audio: AudioInput,
 
     /// The render scale in force.
     render_scale: f32,
@@ -257,6 +259,7 @@ impl Running {
             console: Console::default(),
             stats: FrameStats::default(),
             gl_summary,
+            audio: AudioInput::new(cli.audio == AudioArg::Auto),
             render_scale,
             scale_edit: render_scale,
             pending_resize: None,
@@ -388,6 +391,9 @@ impl Running {
         }
         if key.logical_key == Key::Named(NamedKey::F11) {
             self.toggle_fullscreen();
+        } else if matches!(&key.logical_key, Key::Character(text) if text.eq_ignore_ascii_case("t"))
+        {
+            self.audio.tap();
         } else if key.logical_key == Key::Named(NamedKey::Escape)
             && self.output.window().fullscreen().is_some()
         {
@@ -490,6 +496,11 @@ impl Running {
                 Action::ToggleFullscreen => self.toggle_fullscreen(),
                 Action::MoveToMonitor(index) => self.move_to_monitor(index),
                 Action::ClearConsole => self.console.clear(),
+                Action::SelectAudioInput(choice) => self.audio.select_device(choice),
+                Action::RefreshAudioDevices => self.audio.refresh_devices(),
+                Action::SetReactivity(gain) => self.audio.set_reactivity(gain),
+                Action::SetAudioSpeed(gain) => self.audio.set_speed(gain),
+                Action::TapTempo => self.audio.tap(),
             }
         }
     }
@@ -554,7 +565,7 @@ impl Running {
         let gl = self.gfx.gl();
         match self.session.as_mut() {
             Some(session) => {
-                session.advance(dt);
+                session.advance(dt, &mut self.audio);
                 gl.plain_state();
                 session.player.present(window);
             }
@@ -592,6 +603,7 @@ impl Running {
             return;
         }
         self.console.refresh();
+        self.audio.refresh_status(Instant::now());
         let preview = self.session.as_ref().map(|session| {
             let texture = session.player.output_texture();
             Preview {
@@ -617,6 +629,7 @@ impl Running {
             output_monitor: self.output_monitor,
             fullscreen: self.output.window().fullscreen().is_some(),
             gl_summary: &self.gl_summary,
+            audio: self.audio.panel(),
         };
         let mut actions = std::mem::take(&mut self.actions);
         let window = self.control.window();

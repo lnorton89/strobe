@@ -17,7 +17,7 @@
 
 use anyhow::{Result, anyhow};
 use std::path::PathBuf;
-use strobe_gfx::{Api, Caps, FrameInputs, Headless, Mouse, Options, ScenePlayer};
+use strobe_gfx::{Api, AudioTextures, Caps, FrameInputs, Headless, Mouse, Options, ScenePlayer};
 use strobe_scene::SceneFolder;
 use strobe_scene::audio::SCALARS;
 use strobe_scene::control::ControlBank;
@@ -234,5 +234,84 @@ fn a_compile_error_points_at_main_glsl() -> Result<()> {
         error.contains("main.glsl:2"),
         "expected a main.glsl:2 location, got: {error}"
     );
+    Ok(())
+}
+
+/// Reads both audio textures at the middle of the frame: spectrum in red,
+/// level trail in green. Written for both dialects with one `#ifdef`,
+/// because GLES has no `sampler1D`.
+const AUDIO_PROBE: &str = r#"
+    #ifdef GL_ES
+    #define SPEC(x) texture(syn_Spectrum, vec2(x, 0.5))
+    #define TRAIL(x) texture(syn_LevelTrail, vec2(x, 0.5))
+    #else
+    #define SPEC(x) texture(syn_Spectrum, x)
+    #define TRAIL(x) texture(syn_LevelTrail, x)
+    #endif
+    vec4 renderMain() { return vec4(SPEC(0.5).r, TRAIL(0.5).g, SPEC(0.5).a, 1.0); }
+"#;
+
+#[test]
+fn uploaded_audio_texels_reach_the_spectrum_and_trail_samplers() -> Result<()> {
+    for api in BOTH {
+        let Some(headless) = context(api)? else {
+            continue;
+        };
+        let gl = headless.gl();
+        let caps = Caps::from_info(gl.info());
+        let scene = folder("{}", AUDIO_PROBE)?;
+        let controls = ControlBank::new(scene.def.controls.clone())?;
+        let audio = vec![0.0; SCALARS.len()];
+        let mut player = ScenePlayer::new(gl, &caps, &scene, [32, 18], Options::default())?;
+        // A width other than the 256 the player starts with, to cover the
+        // reallocation path as well.
+        for width in [256_usize, 64] {
+            let spectrum = vec![[0.5, 0.0, 0.0, 1.0]; width];
+            let trail = vec![[0.0, 0.25, 0.0, 0.0]; width];
+            player.upload_audio(&AudioTextures {
+                spectrum: &spectrum,
+                level_trail: &trail,
+            });
+            player.render(&FrameInputs {
+                time: 0.0,
+                frame: 0,
+                mouse: Mouse::default(),
+                audio: &audio,
+                controls: &controls,
+                transitions: &[],
+            });
+            if let Some(code) = gl.error() {
+                return Err(anyhow!("{api:?}: GL error 0x{code:x}"));
+            }
+            let pixels = player.read_output();
+            let offset = (9 * 32 + 16) * 4;
+            let px = pixels
+                .get(offset..offset + 3)
+                .ok_or_else(|| anyhow!("readback too short"))?;
+            assert!(
+                near(px[0], 128) && near(px[1], 64) && near(px[2], 255),
+                "{api:?} width {width}: spectrum r 0.5, trail g 0.25, wave a 1.0; got {px:?}"
+            );
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn a_scene_that_ignores_the_audio_textures_never_uploads_them() -> Result<()> {
+    let Some(headless) = context(Api::DesktopCore33)? else {
+        return Ok(());
+    };
+    let gl = headless.gl();
+    let caps = Caps::from_info(gl.info());
+    let scene = folder("{}", "vec4 renderMain() { return vec4(1.0); }")?;
+    let mut player = ScenePlayer::new(gl, &caps, &scene, [32, 18], Options::default())?;
+    // Nothing to assert on pixels: the point is that a mismatched width
+    // (which would reallocate) is harmless and raises no GL error.
+    player.upload_audio(&AudioTextures {
+        spectrum: &[[1.0; 4]; 7],
+        level_trail: &[[1.0; 4]; 7],
+    });
+    assert!(gl.error().is_none(), "an unused upload must be a no-op");
     Ok(())
 }

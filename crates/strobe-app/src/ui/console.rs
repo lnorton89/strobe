@@ -24,6 +24,15 @@ pub fn show(ui: &mut egui::Ui, model: &Model<'_>, actions: &mut Vec<Action>) {
             .monospace()
             .color(theme::accent()),
         );
+        ui.label(
+            egui::RichText::new(format!("audio {}", model.audio.source))
+                .monospace()
+                .color(if model.audio.live {
+                    theme::accent()
+                } else {
+                    theme::muted()
+                }),
+        );
         if let Some(preview) = model.preview {
             ui.label(
                 egui::RichText::new(format!("render {}x{}", preview.size[0], preview.size[1]))

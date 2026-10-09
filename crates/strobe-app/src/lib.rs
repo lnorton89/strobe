@@ -10,6 +10,7 @@
 //! every item can be `pub` without being dead.
 //!
 //! - [`app`]: the winit application and frame loop.
+//! - [`audio`]: live capture or synthetic audio, and its settings.
 //! - [`session`]: the one active scene and the render-scale arithmetic.
 //! - [`ui`]: the control window's panels, as a function of a model.
 //! - [`theme`]: the look, in one place.
@@ -21,6 +22,7 @@
 //! - [`cli`]: the command line.
 
 pub mod app;
+pub mod audio;
 pub mod cli;
 pub mod console;
 pub mod diagnose;
