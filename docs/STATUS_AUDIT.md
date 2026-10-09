@@ -76,8 +76,11 @@ Diagnostics are not recovery. The bounded state machine is built (D66):
 - [x] Deterministic fault injection (`STROBE_FAULT`) covers the state
   transitions, and the retries are bounded (22 policy tests, plus Xvfb
   runs).
-- [ ] At least one real Windows attempt documented: T480 Task 8, in
-  progress.
+- [x] At least one real Windows attempt documented. On the T480 (Task 8),
+  an injected loss recovered on native in 181 ms and failed over to ANGLE
+  in 171 ms, and the give-up path ended cleanly
+  ([hardware/T480.md](hardware/T480.md), bug 1). No real driver reset has
+  been observed yet: bug 1 no longer reproduces.
 
 ## P1: performer-facing UI
 
