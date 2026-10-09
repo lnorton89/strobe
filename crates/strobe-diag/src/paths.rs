@@ -43,11 +43,15 @@ pub fn crashes_dir() -> PathBuf {
 /// Where the crash monitor's socket file lives (Windows and macOS; Linux
 /// uses an abstract-namespace socket with no file).
 ///
-/// Deliberately not the system temp directory. On Windows `%TEMP%` is often
-/// an 8.3 short path (`C:\Users\EXALTE~1\...`), and an AF_UNIX connect
-/// through a short path to a socket bound at the long path fails with
-/// `WSAEINVAL` (10022), which is what happened on the T480. The known-folder
-/// API behind [`base_dir`] returns the long form.
+/// It sits under [`base_dir`] with the logs and crash reports, so it moves
+/// with `STROBE_DIAG_DIR` and a test or drill can keep everything in one
+/// place. If the path is too long for AF_UNIX, `crash` falls back to the
+/// temp directory.
+///
+/// On Windows, a process started inside an MSIX-packaged app (the Claude
+/// desktop app, for one) sees a virtualised `%LOCALAPPDATA%`, and AF_UNIX
+/// connects there fail with `WSAEINVAL` (10022). Strobe launched normally is
+/// unaffected (verified on the T480; see `docs/hardware/T480.md`, bug 2).
 pub fn sockets_dir() -> PathBuf {
     base_dir().join("run")
 }
