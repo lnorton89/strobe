@@ -13,7 +13,7 @@
 //! therefore carries enough to point at the problem — the control's name,
 //! the offending token, the file — and none of them is a panic.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Why a scene could not be loaded.
 #[derive(Debug, thiserror::Error)]
@@ -113,4 +113,25 @@ pub enum SceneError {
     /// The folder has no `main.glsl`.
     #[error("{0} has no main.glsl")]
     MissingShader(PathBuf),
+}
+
+impl SceneError {
+    /// A `scene.json` value that parsed but means something invalid.
+    ///
+    /// It is reported as a [`SceneError::Json`] with a message of its own
+    /// rather than as a new variant: `PASS_SOURCES` and image-option
+    /// mistakes are errors in `scene.json`, and the app matches this enum
+    /// exhaustively, so a variant added here would break a crate this one
+    /// does not own (D80).
+    pub fn invalid(message: impl std::fmt::Display) -> Self {
+        Self::Json(<serde_json::Error as serde::de::Error>::custom(message))
+    }
+
+    /// A file the scene names that is not in its folder.
+    pub fn missing_file(dir: &Path, file: &str) -> Self {
+        Self::Io {
+            path: dir.join(file),
+            source: std::io::Error::new(std::io::ErrorKind::NotFound, "no such file"),
+        }
+    }
 }

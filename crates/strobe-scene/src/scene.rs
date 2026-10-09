@@ -28,7 +28,7 @@
 
 use crate::control::ControlDef;
 use crate::error::SceneError;
-use crate::json::{RawPass, RawScene, RawSize};
+use crate::json::{RawImage, RawPass, RawScene, RawSize};
 use crate::names::{is_glsl_identifier, is_reserved, normalize};
 use std::collections::HashMap;
 
@@ -74,6 +74,8 @@ pub struct PassDef {
     pub wrap: Wrap,
     /// Sampler filter mode.
     pub filter: Filter,
+    /// Store in 32-bit float even when the player defaults to 16-bit.
+    pub full_precision: bool,
 }
 
 /// An image file bound as a `sampler2D`.
@@ -83,6 +85,31 @@ pub struct ImageDef {
     pub name: String,
     /// Path relative to the scene folder.
     pub path: String,
+    /// Sampler wrap mode. SSF scenes get `Repeat`.
+    pub wrap: Wrap,
+    /// Sampler filter mode. SSF scenes get `Mipmap`.
+    pub filter: Filter,
+    /// Whether the file is flipped vertically on load, so `_uv` (origin at
+    /// the bottom left) reads it upright. SSF scenes get `true`.
+    pub vflip: bool,
+}
+
+/// Where a converted scene came from: the `SOURCE` block, as text for
+/// people. Nothing here affects rendering.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct SceneSource {
+    /// What it was converted from, e.g. `shadertoy`.
+    pub kind: Option<String>,
+    /// The identifier at the origin.
+    pub id: Option<String>,
+    /// Where to find the original.
+    pub url: Option<String>,
+    /// The original author.
+    pub author: Option<String>,
+    /// The original title.
+    pub name: Option<String>,
+    /// What is known (and not known) about the licence.
+    pub license_note: Option<String>,
 }
 
 /// A cube map bound as a `samplerCube`.
@@ -126,6 +153,13 @@ pub struct SceneDef {
     pub cubemaps: Vec<CubemapDef>,
     /// Uniforms declared by `HARD_TRANSITIONS` / `SMOOTH_TRANSITIONS`.
     pub transition_uniforms: Vec<TransitionUniform>,
+    /// One shader file per pass (the final pass last), relative to the
+    /// scene folder, when the scene sets `PASS_SOURCES`. `None` means every
+    /// pass runs `main.glsl`, as in SSF. When present it has exactly
+    /// `passes.len()` entries.
+    pub pass_sources: Option<Vec<String>>,
+    /// Provenance, when the scene says where it came from.
+    pub source: Option<SceneSource>,
 }
 
 impl SceneDef {
@@ -162,16 +196,14 @@ impl SceneDef {
             double_buffer: false,
             wrap: Wrap::Clamp,
             filter: Filter::Linear,
+            full_precision: false,
         });
 
         let images = raw
             .images
             .iter()
-            .map(|image| ImageDef {
-                name: image.name.trim().to_string(),
-                path: image.path.clone(),
-            })
-            .collect::<Vec<_>>();
+            .map(image_def)
+            .collect::<Result<Vec<_>, _>>()?;
         let cubemaps = raw
             .cubemaps
             .iter()
@@ -197,6 +229,34 @@ impl SceneDef {
             }
         }
 
+        let pass_sources = match &raw.pass_sources {
+            None => None,
+            Some(files) => {
+                if files.len() != passes.len() {
+                    return Err(SceneError::invalid(format!(
+                        "PASS_SOURCES lists {} file(s) but the scene has {} pass(es) \
+                         (the implicit final pass counts, and comes last)",
+                        files.len(),
+                        passes.len()
+                    )));
+                }
+                if let Some(bad) = files.iter().find(|file| !is_folder_relative(file)) {
+                    return Err(SceneError::invalid(format!(
+                        "PASS_SOURCES entry `{bad}` must be a relative path inside the scene folder"
+                    )));
+                }
+                Some(files.clone())
+            }
+        };
+        let source = raw.source.as_ref().map(|s| SceneSource {
+            kind: s.kind.clone(),
+            id: s.id.clone(),
+            url: s.url.clone(),
+            author: s.author.clone(),
+            name: s.name.clone(),
+            license_note: s.license_note.clone(),
+        });
+
         let def = Self {
             title: raw
                 .title
@@ -212,6 +272,8 @@ impl SceneDef {
             images,
             cubemaps,
             transition_uniforms,
+            pass_sources,
+            source,
         };
         def.check_names()?;
         Ok(def)
@@ -254,41 +316,68 @@ impl SceneDef {
     }
 }
 
+/// A wrap mode from its `scene.json` spelling; `None` means `default`.
+fn parse_wrap(text: Option<&str>, default: Wrap) -> Result<Wrap, String> {
+    match text.map(str::to_ascii_lowercase).as_deref() {
+        None => Ok(default),
+        Some("repeat") => Ok(Wrap::Repeat),
+        Some("clamp") => Ok(Wrap::Clamp),
+        Some("mirror") => Ok(Wrap::Mirror),
+        Some(other) => Err(other.to_string()),
+    }
+}
+
+/// A filter mode from its `scene.json` spelling; `None` means `default`.
+fn parse_filter(text: Option<&str>, default: Filter) -> Result<Filter, String> {
+    match text.map(str::to_ascii_lowercase).as_deref() {
+        None => Ok(default),
+        Some("linear") => Ok(Filter::Linear),
+        Some("nearest") => Ok(Filter::Nearest),
+        Some("mipmap") => Ok(Filter::Mipmap),
+        Some(other) => Err(other.to_string()),
+    }
+}
+
+/// Whether `path` stays inside the scene folder: relative, with no `..`,
+/// no drive or root, and no backslash (which means different things on
+/// different systems).
+fn is_folder_relative(path: &str) -> bool {
+    use std::path::{Component, Path};
+    !path.is_empty()
+        && !path.contains(['\\', ':', '\0'])
+        && Path::new(path)
+            .components()
+            .all(|part| matches!(part, Component::Normal(_)))
+}
+
+/// Validates one image.
+fn image_def(raw: &RawImage) -> Result<ImageDef, SceneError> {
+    let name = raw.name.trim().to_string();
+    let bad = |key: &str, value: String| {
+        SceneError::invalid(format!("image `{name}`: unknown {key} `{value}`"))
+    };
+    let wrap = parse_wrap(raw.wrap.as_deref(), Wrap::Repeat).map_err(|v| bad("WRAP", v))?;
+    let filter =
+        parse_filter(raw.filter.as_deref(), Filter::Mipmap).map_err(|v| bad("FILTER", v))?;
+    Ok(ImageDef {
+        name: name.clone(),
+        path: raw.path.clone(),
+        wrap,
+        filter,
+        vflip: raw.vflip.unwrap_or(true),
+    })
+}
+
 /// Validates one listed pass.
 fn pass_def(index: usize, raw: &RawPass, design: [f32; 2]) -> Result<PassDef, SceneError> {
     let scale = [
         size_fraction(index, raw.width.as_ref(), design[0], design)?,
         size_fraction(index, raw.height.as_ref(), design[1], design)?,
     ];
-    let wrap = match raw.wrap.as_deref().map(str::to_ascii_lowercase).as_deref() {
-        None | Some("repeat") => Wrap::Repeat,
-        Some("clamp") => Wrap::Clamp,
-        Some("mirror") => Wrap::Mirror,
-        Some(other) => {
-            return Err(SceneError::PassOption {
-                index,
-                key: "WRAP",
-                value: other.to_string(),
-            });
-        }
-    };
-    let filter = match raw
-        .filter
-        .as_deref()
-        .map(str::to_ascii_lowercase)
-        .as_deref()
-    {
-        None | Some("linear") => Filter::Linear,
-        Some("nearest") => Filter::Nearest,
-        Some("mipmap") => Filter::Mipmap,
-        Some(other) => {
-            return Err(SceneError::PassOption {
-                index,
-                key: "FILTER",
-                value: other.to_string(),
-            });
-        }
-    };
+    let option = |key: &'static str, value: String| SceneError::PassOption { index, key, value };
+    let wrap = parse_wrap(raw.wrap.as_deref(), Wrap::Repeat).map_err(|v| option("WRAP", v))?;
+    let filter =
+        parse_filter(raw.filter.as_deref(), Filter::Linear).map_err(|v| option("FILTER", v))?;
     Ok(PassDef {
         target: raw
             .target
@@ -300,6 +389,7 @@ fn pass_def(index: usize, raw: &RawPass, design: [f32; 2]) -> Result<PassDef, Sc
         double_buffer: raw.double_buffer.unwrap_or(false),
         wrap,
         filter,
+        full_precision: raw.full_precision.unwrap_or(false),
     })
 }
 
@@ -430,6 +520,91 @@ mod tests {
             result.is_err(),
             "a control and a pass cannot share a uniform name"
         );
+    }
+
+    #[test]
+    fn pass_sources_list_one_file_per_pass_final_included() -> Result<()> {
+        let def = SceneDef::parse(
+            r#"{ "PASSES": [ {"TARGET": "a"} ],
+                 "PASS_SOURCES": ["passes/a.glsl", "main.glsl"] }"#,
+            "s",
+        )?;
+        assert_eq!(
+            def.pass_sources,
+            Some(vec!["passes/a.glsl".to_string(), "main.glsl".to_string()]),
+            "one file for the buffer and one for the implicit final pass"
+        );
+        let plain = SceneDef::parse(r#"{ "PASSES": [ {"TARGET": "a"} ] }"#, "s")?;
+        assert_eq!(plain.pass_sources, None, "absent means main.glsl for all");
+        Ok(())
+    }
+
+    #[test]
+    fn pass_sources_with_the_wrong_count_are_rejected() {
+        let result = SceneDef::parse(
+            r#"{ "PASSES": [ {"TARGET": "a"} ], "PASS_SOURCES": ["only.glsl"] }"#,
+            "s",
+        );
+        let message = result.err().map(|e| e.to_string()).unwrap_or_default();
+        assert!(
+            message.contains("1 file") && message.contains("2 pass"),
+            "the count mismatch should say both numbers, got: {message}"
+        );
+    }
+
+    #[test]
+    fn pass_sources_cannot_leave_the_scene_folder() {
+        for bad in ["../x.glsl", "/etc/x.glsl", "a\\\\b.glsl", "C:/x.glsl", ""] {
+            let json = format!(r#"{{ "PASS_SOURCES": ["{bad}"] }}"#);
+            assert!(
+                SceneDef::parse(&json, "s").is_err(),
+                "`{bad}` must be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn images_default_to_ssf_sampling_and_honour_overrides() -> Result<()> {
+        let def = SceneDef::parse(
+            r#"{ "IMAGES": [ {"NAME": "a", "PATH": "a.png"},
+                             {"NAME": "b", "PATH": "b.png", "WRAP": "clamp",
+                              "FILTER": "nearest", "VFLIP": false} ] }"#,
+            "s",
+        )?;
+        let [a, b] = [&def.images[0], &def.images[1]];
+        assert_eq!(
+            (a.wrap, a.filter, a.vflip),
+            (Wrap::Repeat, Filter::Mipmap, true),
+            "SSF's behaviour is the default"
+        );
+        assert_eq!(
+            (b.wrap, b.filter, b.vflip),
+            (Wrap::Clamp, Filter::Nearest, false),
+            "explicit options win"
+        );
+        let bad = SceneDef::parse(
+            r#"{ "IMAGES": [ {"NAME": "a", "PATH": "a.png", "WRAP": "spiral"} ] }"#,
+            "s",
+        );
+        assert!(bad.is_err(), "an unknown image wrap is an error");
+        Ok(())
+    }
+
+    #[test]
+    fn the_source_block_and_full_precision_are_read() -> Result<()> {
+        let def = SceneDef::parse(
+            r#"{ "SOURCE": { "kind": "shadertoy", "id": "XsXXDn", "author": "iq",
+                             "license_note": "check it", "extra": 1 },
+                 "PASSES": [ {"TARGET": "a", "FULL_PRECISION": true}, {"TARGET": "b"} ] }"#,
+            "s",
+        )?;
+        let source = def.source.unwrap_or_default();
+        assert_eq!(source.kind.as_deref(), Some("shadertoy"), "kind");
+        assert_eq!(source.id.as_deref(), Some("XsXXDn"), "id");
+        assert_eq!(source.license_note.as_deref(), Some("check it"), "note");
+        assert!(def.passes[0].full_precision, "explicit full precision");
+        assert!(!def.passes[1].full_precision, "off by default");
+        Ok(())
     }
 
     #[test]
