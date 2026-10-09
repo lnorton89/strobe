@@ -1,129 +1,71 @@
 # Roadmap and status
 
-**Update this file whenever you finish something.** It's the first thing
-the next agent reads. Keep "Now", "Next", and the phase tables current.
-Design detail lives in [PLAN.md](PLAN.md) and decisions in
-[DECISIONS.md](DECISIONS.md).
+**Update this file whenever you finish something.** It is the first file the next agent should read. Keep Now, Next, and the phase table current. Design detail lives in [PLAN.md](PLAN.md), decisions in [DECISIONS.md](DECISIONS.md), and the current gap assessment in [STATUS_AUDIT_2026-10-09.md](STATUS_AUDIT_2026-10-09.md).
 
-_Last updated: 2026-10-08._
+_Last updated: 2026-10-09._
 
 ## Now
 
-**Goal set by the owner:** get a working copy running in the cloud
-environment that can be tested, verified, and benchmarked, with a
-10-scene library spanning GPU load as both the benchmark and the base
-scene library. Then improve performance from measured data.
+**Owner goal:** keep a working, testable, benchmarkable VJ engine moving toward reliable real-world use on older hardware. The ten-scene library is both the visual baseline and performance workload. Prefer measured improvements and explicit acceptance tests over speculative tuning.
 
-The following is done and verified headless:
+### Implemented and integrated
 
-- Workspace, conventions, and CI: `strobe-conventions` checks headers,
-  the unsafe boundary, and the toolchain pin.
-- `strobe-scene`: SSF parsing, validation, controls runtime, and shader
-  assembly. 43 tests.
-- `strobe-ssf-lib`: every documented SSF function. Compiles on GL 3.3
-  core and GLES 3.0.
-- `strobe-gfx`: the GL boundary, headless EGL contexts, and the scene
-  player (multipass, ping-pong, `syn_FinalPass`, images). Seven render
-  tests in both dialects.
-- `strobe-bench`, plus the 10-scene library in `scenes/`. The baseline
-  is in [BENCHMARKS.md](BENCHMARKS.md).
-- `strobe-diag` (branch `agent/strobe-diag`): logging with a session
-  file and UI ring, session context, structured failures, a panic hook,
-  out-of-process native crash capture with minidumps, and GL driver debug
-  output (`strobe-gfx`'s `gl::debug`). Crash pipeline verified end to end
-  on Linux; the Windows half is compile-checked only until the T480
-  session runs it. See [DEBUGGING.md](DEBUGGING.md) and decisions D40 to
-  D45. **Not yet wired into an app**: `strobe-app` must follow the
-  integration steps in the `strobe_diag` crate docs.
-
-- Repo and release plumbing (branch `agent/repo-ci`): `cargo xtask ci |
-  changelog | bench`, a generated `CHANGELOG.md`, a tag-triggered release
-  workflow (Windows zip with ANGLE and scenes, separate PDB symbols
-  archive, SBOM, checksums, provenance attestations), a macOS job (portable
-  crates blocking; `strobe-gfx` awaits a CGL context), bench frames
-  uploaded from CI, issue forms, dependabot, CODEOWNERS and SECURITY.md.
-  Decisions D50-D59. Untested until the first push: the release workflow
-  itself, which only runs on a tag.
-
-### Merged 2026-10-09
-
-The parallel agents' branches were reviewed, gated, and merged:
-`strobe-audio` (analysis, capture, WAV harness), `strobe-script`
-(QuickJS host), `strobe-diag` (logging, crash reports, minidumps through
-a monitor process, GL debug output), `strobe-app` (control and output
-windows sharing one context, with native/ANGLE fallback), and repo/CI
-alignment (`cargo xtask ci`, release workflow, a generated changelog,
-issue forms, and frames from the bench as CI artifacts).
+- Workspace conventions and CI, including formatting, clippy, tests, pinned toolchain/actions, and repository policy checks.
+- `strobe-scene`: SSF parsing/validation, controls runtime, shader assembly, and the authoritative scene model.
+- `strobe-ssf-lib`: SSF GLSL helpers, compiled against desktop GL 3.3 and GLES 3.0.
+- `strobe-gfx`: GL provider abstraction, native GL/ANGLE window contexts, headless EGL, multipass rendering, ping-pong targets, implicit final pass, image textures, diagnostics, and GPU timer-query wrappers.
+- `strobe-bench`: scene rendering, timings, contact sheets, headless/window/auto context selection, and native/ANGLE/auto backend selection. CI retains rendered frames as artifacts.
+- Eleven original scenes, including `11-script-orbits`; baseline and real-hardware findings live in [BENCHMARKS.md](BENCHMARKS.md) and [hardware/T480.md](hardware/T480.md).
+- `strobe-app`: desktop control window and separate fullscreen output, scene selection/controls, output preview, audio status/device selection, diagnostics console, and native GL with ANGLE fallback.
+- `strobe-audio`: capture, analysis, resilient device retry, synthetic fallback, and audio textures. Capture and device enumeration run off the render thread.
+- `strobe-script`: persistent QuickJS scene scripting, event/update/control integration, bounded execution, script logging/fault display, and script-created uniforms prepared before initial shader compilation where possible.
+- `strobe-diag`: session logging, structured failures, panic reporting, native crash monitor/minidumps, and GL debug output. The crash-capture path has been exercised on Linux and the Windows monitor/socket behavior is being verified on hardware.
+- Adaptive render scale is driven by non-blocking GPU timer queries. The ceiling is user-controlled; adaptation pauses after scene loads. See decisions D64-D65.
+- Release/repository plumbing: `cargo xtask ci|changelog|bench`, generated changelog, Windows release workflow, separate matching PDB archive, SBOM/checksums/provenance, issue forms, Dependabot, CODEOWNERS, and SECURITY.md. The first tag-triggered release still needs an end-to-end release run.
+- Agent research and UI handoff: [AGENT_RESEARCH.md](AGENT_RESEARCH.md), [UI_DESIGN.md](UI_DESIGN.md), [UI_IMPLEMENTATION_PLAN.md](UI_IMPLEMENTATION_PLAN.md), and [mockups/strobe-perform-directions.html](mockups/strobe-perform-directions.html).
 
 ### In flight
 
-- T480 real-hardware pass: app smoke test on native GL and ANGLE,
-  per-scene fps, and the crash-capture drill on Windows. Results go into
-  `docs/hardware/T480.md`.
+- **T480 real-hardware verification:** native GL and ANGLE smoke tests, per-scene frame-time measurements, crash-capture drill, and context-loss reproduction. Record reproducible steps, driver/backend, expected/actual behavior, and logs in [hardware/T480.md](hardware/T480.md).
+- **Context-loss recovery:** detect failed make-current/swap or graphics reset, recover or recreate the context, try ANGLE after repeated native failures, reload the active scene, and report a structured failure. Do not claim recovery is implemented until a fault-injection or reproducible hardware test passes.
+- **Perform-first UI:** the current app is a functional engineering shell, not the final performance-oriented product UI. The intended topology is contextual: persistent preview/transport/cues/macros/health, with browser and inspector becoming contextual. Use the HTML directions to decide the interaction model before committing to a large UI rewrite.
 
-Done since: app integration (D60-D65). The app now has strobe-diag
-logging, crash capture and `--diagnose`; live audio capture with a device
-picker and a synthetic fallback; scene scripts (see
-`scenes/11-script-orbits`); GPU timer queries driving adaptive
-resolution; and a control window that opens maximized.
+## Next, in priority order
 
-Also done: `strobe-bench --context window|headless|auto` and `--gl
-native|angle|auto` (D70-D72). The bench now runs on a hidden-window
-context where the driver has no EGL device (Intel on Windows). Window
-mode renders the same images as headless, pixel for pixel, on llvmpipe.
-
-## Next (in order)
-
-0. **Survive a lost or unusable GL context** (T480 bug 1): detect it
-   (`make_current` or `swap` failure, `GetGraphicsResetStatus`),
-   recreate the context, fail over to ANGLE if native keeps failing,
-   reload the scene, and record a structured failure. A projector must
-   never go dark because one driver call failed.
-
-1. **`strobe-app` window shell.** A winit event loop, one GL context with
-   two surfaces (the egui control window and the fullscreen output
-   window), a scene browser over `scenes/`, control widgets per control
-   type, and an error console. Verify it under Xvfb with screenshots.
-2. **Windowed context providers in `gl/context.rs`.** Native first, then
-   ANGLE: try native GL 3.3 and fall back to ANGLE on failure or by
-   flag. Ship ANGLE's `libEGL.dll`/`libGLESv2.dll` beside the exe.
-   Decide where those come from (build from source? Chromium/Edge
-   redistributable?) and log it in DECISIONS.md.
-3. **Performance pass, driven by the bench.** Add render scale and
-   adaptive resolution (drop the scale when frame time exceeds budget,
-   raise it when there's headroom). Make the final pass optionally
-   render at lower scale with an upscale blit, and decide the float
-   pass precision default on real GPU data. Note that llvmpipe can't
-   measure bandwidth, so RGBA16F needs a real GPU run.
-4. **Phase 2: JavaScript API (`strobe-script`, rquickjs).**
-5. **Phase 3: audio (`strobe-audio`).** This replaces the bench's
-   synthetic audio with real analysis behind the same `SCALARS` contract.
-6. **Port rustaman's UI system** (D5) into the app.
+1. **Close the reliability loop on Windows hardware.** Finish the T480 matrix: startup, native GL, forced ANGLE, audio device absent/present/lost/reconnected, scene changes, adaptive scaling, crash capture, and long-running stability. Attach evidence rather than just marking tasks done.
+2. **Implement GL context-loss recovery.** Keep output failure visible and actionable; avoid silent black output or repeated failure loops. Add a deterministic test seam where platform APIs permit it.
+3. **Make the UI decision explicit, then build the Perform surface.** Test at 1280×720 and 1440×900, with scene browser open/closed, narrow window, missing audio, broken scene, and script fault. Separate UI presentation state from runtime state; send actions through a command model. Keep expensive work out of egui paint.
+4. **Finish scene compatibility gaps.** Prioritize script `meta/` control writes and `textureFinalPass` via a non-blocking/asynchronous readback design; do not add a synchronous per-frame GPU readback. Add conformance fixtures for each supported Synesthesia behavior.
+5. **Shadertoy import end to end.** Conversion, buffer dependencies, texture acquisition, live audio mapping, attribution/license preservation, failure reporting, and userscript/drop-folder workflow. Treat source licenses as data that must survive import/export.
+6. **Playlists and precompilation.** Complete inheritance/scheduler/generator/resume semantics, precompile before cue changes, and test beat-locked and wall-clock behavior. Keep shader compilation out of active playback.
+7. **Input and show control.** Presets, MIDI, OSC, hotkeys, and a documented mapping model targeting the shared ControlBank rather than separate control semantics.
+8. **Media and transitions.** Replace placeholder `syn_Media` and cubemap behavior with real loading; implement and test transitions before NDI or other output transports.
+9. **Release validation.** Run a real tag-triggered release, inspect the installed archive and symbols archive, verify diagnosis/crash artifacts, and document rollback/repro steps.
 
 ## Phases
 
 | Phase | Scope | State |
 |---|---|---|
-| 0 | Workspace, conventions, CI; GL context spikes | Workspace, CI, headless and windowed (native, ANGLE) contexts done. |
-| 1 | Renderer, SSF scene loading, multipass, controls UI, output window | Renderer, loading, multipass, controls runtime and a minimal desktop app (two windows, scene browser, controls, console, preview) done. Images done; cubemaps and media are placeholders. The Perform-first UI is not built. |
-| 2 | JavaScript API | `strobe-script` built and wired into the app (D62): events, `update`, controls, `setUniform` compiled in at load, console, faults shown. Meta controls and `textureFinalPass` pending. |
-| 3 | Audio analysis | `strobe-audio` built and wired into the app (D61): capture with synthetic fallback, textures uploaded, settings UI. The bench still uses the synthetic stand-in and does not upload textures. |
-| 4 | Shadertoy import | Not started |
-| 5 | Playlists | Not started |
-| 6 | Presets, MIDI, OSC | Not started |
-| 7 | NDI, media input, song-change transitions | Not started (`HARD`/`SMOOTH_TRANSITIONS` uniforms are declared and initialised, but never change) |
+| 0 | Workspace, conventions, CI, GL contexts | Implemented; Linux CI and native/ANGLE paths exist. Validate packaged Windows behavior on hardware. |
+| 1 | Renderer, SSF scene loading, multipass, controls, output window | Functional desktop shell exists. Perform-first UI is still a design/implementation gap. Images work; cubemaps and media are placeholders. |
+| 2 | JavaScript API | QuickJS host is integrated: events, update, controls, setUniform, console/fault state. Meta control writes and full textureFinalPass remain open. |
+| 3 | Audio analysis | Capture, analysis, retry/fallback, app settings, and textures integrated. Bench still uses synthetic values and does not exercise the app capture path. |
+| 4 | Shadertoy import | Not implemented end to end. |
+| 5 | Playlists | Model/planning exists; full app workflow and playback integration remain. |
+| 6 | Presets, MIDI, OSC, hotkeys | Not complete. |
+| 7 | NDI, media input, song-change transitions | Not complete; media/cubemap placeholders and transition behavior remain. |
 
-## Known gaps in what exists
+## Known gaps and constraints
 
-- In the bench, `syn_Spectrum` and `syn_LevelTrail` are silent placeholder
-  textures (the app uploads real or synthetic ones every frame).
+- The app is not yet a finished performer-facing UI. The current scene browser/control shell is functional but the Perform-first information architecture has not been implemented.
+- Context-loss recovery is not complete. A failed driver call can still require restart/reload rather than a managed recovery path.
+- In the bench, `syn_Spectrum` and `syn_LevelTrail` remain synthetic placeholder textures; the app uploads real or synthetic audio textures.
 - `syn_Media` is a black 1×1 texture, and `syn_MediaType` is 0.
-- Cubemaps are declared with a unit reserved, but never loaded.
-- The bench does not run scripts, so a scene whose shader needs a
-  script-created uniform does not compile there; `11-script-orbits` drives
-  controls instead (D62).
-- `textureFinalPass` returns black in scripts (Q14); script `meta/` control
-  writes are dropped.
-- The GLES dialect doesn't rewrite desktop-only SSF idioms (Q8 in
-  OPEN_QUESTIONS.md). The base library is written ES-clean, so the
-  bench's `--api gles` run passes.
+- Cubemap samplers reserve units but cubemap assets are not loaded.
+- The bench does not run scene scripts. `11-script-orbits` intentionally uses controls so it remains renderable in the bench; script-created uniforms are tested in app-side tests.
+- `textureFinalPass` currently returns black in scripts. The desired implementation needs delayed/asynchronous GPU readback to avoid stalling every frame.
+- Script `meta/` control writes are dropped.
+- GLES translation does not cover every desktop-only SSF idiom (Q8 in [OPEN_QUESTIONS.md](OPEN_QUESTIONS.md)); keep the scene corpus ES-clean and add regression fixtures when compatibility work is done.
+- Adaptive-resolution thresholds and scaling behavior need real-hardware validation beyond llvmpipe. The T480 findings should drive any threshold changes.
+- The tag-triggered release workflow has not yet been proven end to end.
+
