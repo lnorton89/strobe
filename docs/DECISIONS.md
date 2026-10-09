@@ -665,3 +665,55 @@ stays as the fallback for a window system that cannot maximize; bare Xvfb has
 no window manager, so under `--screenshot` the control window stays 1360x820
 and captures are still deterministic, which is why screenshot mode needs no
 exception.
+
+### D66: a lost or unusable GL context is rebuilt, on ANGLE if native keeps failing (2026-10-09)
+
+T480 bug 1: native `make_current` fails mid-show (`The handle is invalid`,
+os error 6 or 2004) on the heaviest scene, ANGLE does not, cause unknown (a
+silent driver reset is the leading guess). The app used to end on a failed
+`make_current` and log a failed swap. It now recovers:
+
+- **Robust context first.** `RobustLoseContextOnReset` is requested on both
+  backends, with a fallback to default attributes (logged). Without it a
+  driver reset is not reported and the context carries on with undefined
+  results.
+- **Reset status through the glow loader.** glow 0.17 has no
+  `GetGraphicsResetStatus`; `Gl` loads it (plain, `ARB`, `KHR`, `EXT` name,
+  gated by version and extension because Mesa's loaders return stubs for any
+  name) as an address and calls it in one leaf. It is queried after a failed
+  swap and once a second, never per frame, and never after a failed
+  `make_current` (the context may not be current).
+- **Lost flag, no GL in `Drop`.** `Gl::mark_lost()` makes every owning type
+  skip its delete, and egui's painter is forgotten rather than destroyed. The
+  driver frees a destroyed context's objects; a delete against a dead
+  context can fault in the ICD.
+- **The policy is a pure state machine** (`recovery.rs`), unit-tested without a
+  GPU. Three consecutive failed frames on one window, or any reset report, mean
+  rebuild (a single failure is often a window being moved or minimised; a
+  reset report is unambiguous). A second native rebuild inside 60 s, or a
+  failed native rebuild, fails over to ANGLE, but only under `--gl auto`: a
+  forced backend is retried, never abandoned. ANGLE failing twice in 60 s or
+  failing to rebuild means give up through the existing failure dialog; any
+  backend stops after four rebuilds in 60 s rather than thrash the GPU.
+- **Windows are rebuilt with the context.** WGL sets a window's pixel format
+  once, so a window that has had a context is not reused. The old context is
+  also made not current before it is dropped: under glvnd an EGL context
+  cannot become current while a GLX one is (found by the fault run: the
+  native to ANGLE fail-over failed with `EGL_BAD_ACCESS` until fixed).
+- **State carried over**: the output's fullscreen state and window geometry, the
+  control window's maximized state, the adaptive render scale (restarting from
+  the ceiling would reload the load that may have caused the loss), and the
+  scene at its clock with its control targets. Audio, library and console are
+  not GL state.
+- **`STROBE_FAULT`** (`lose-context@N[,N...]`, `fail-rebuild:native|angle`)
+  injects a loss so the whole path runs under Xvfb and in CI.
+
+**Unverified:** real WGL behaviour. Whether `wglMakeCurrent(NULL)` on a lost
+Intel context is safe, whether the T480's failure is a driver reset
+(`reset_status` will say), and whether three failed frames is the right
+threshold there. The T480 check is in `docs/hardware/T480.md`.
+
+**Would reopen:** T480 data showing recovery thrashing (a loss every few
+seconds on ANGLE), a swap failure on the control window alone causing needless
+rebuilds (it counts like the output's), or the robust request itself costing
+frame time on Intel (robust buffer access can).
