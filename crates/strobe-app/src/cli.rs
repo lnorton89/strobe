@@ -76,6 +76,10 @@ pub struct Cli {
     /// Frames to render before the screenshot.
     #[arg(long, default_value_t = 60, requires = "screenshot")]
     pub frames: u32,
+    /// Start with adaptive resolution off, so the render scale stays where
+    /// `--render-scale` (or the slider) puts it.
+    #[arg(long)]
+    pub no_adaptive: bool,
     /// Audio source. `synthetic` makes frames reproducible, which is what
     /// the benchmark and screenshots want when a real device is present.
     #[arg(long, value_enum, default_value_t = AudioArg::Auto)]
@@ -120,6 +124,19 @@ mod tests {
         );
         let forced = Cli::try_parse_from(["strobe", "--audio", "synthetic"])?;
         assert_eq!(forced.audio, AudioArg::Synthetic, "forced");
+        Ok(())
+    }
+
+    #[test]
+    fn adaptive_resolution_is_on_unless_switched_off() -> Result<()> {
+        assert!(
+            !Cli::try_parse_from(["strobe"])?.no_adaptive,
+            "on by default"
+        );
+        assert!(
+            Cli::try_parse_from(["strobe", "--no-adaptive"])?.no_adaptive,
+            "off on request"
+        );
         Ok(())
     }
 

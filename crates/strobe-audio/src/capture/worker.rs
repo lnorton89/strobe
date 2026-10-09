@@ -98,6 +98,10 @@ pub(crate) fn run(
     let mut last_pass = Instant::now();
     // The frame the render thread last saw, kept to reuse its allocation.
     let mut spare: Option<Arc<AudioFrame>> = None;
+    // The last open failure that was logged at `warn`: a device that stays
+    // missing is retried every two seconds, and saying so every time would
+    // bury the rest of the log (and the UI console).
+    let mut warned: Option<String> = None;
 
     while !shared.stop.load(Ordering::Acquire) {
         let now = Instant::now();
@@ -129,6 +133,7 @@ pub(crate) fn run(
                         analyzer = Analyzer::with_layout(opened.sample_rate, layout);
                     }
                     log::info!("capturing `{}` at {} Hz", opened.name, opened.sample_rate);
+                    warned = None;
                     {
                         let mut status =
                             shared.status.lock().unwrap_or_else(PoisonError::into_inner);
@@ -143,7 +148,13 @@ pub(crate) fn run(
                     }
                 }
                 Err(error) => {
-                    log::warn!("no audio capture: {error}");
+                    let text = error.to_string();
+                    if warned.as_deref() == Some(text.as_str()) {
+                        log::debug!("still no audio capture: {text}");
+                    } else {
+                        log::warn!("no audio capture: {text}");
+                        warned = Some(text);
+                    }
                     {
                         let mut status =
                             shared.status.lock().unwrap_or_else(PoisonError::into_inner);

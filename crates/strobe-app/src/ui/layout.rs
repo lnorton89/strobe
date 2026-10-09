@@ -71,7 +71,25 @@ fn output_strip(ui: &mut egui::Ui, model: &mut Model<'_>, actions: &mut Vec<Acti
         }
         monitor_picker(ui, model, actions);
         ui.separator();
-        ui.label("Render scale");
+        let mut adaptive = model.perf.adaptive;
+        let toggle = ui
+            .add_enabled(
+                model.perf.has_timer,
+                egui::Checkbox::new(&mut adaptive, "Adaptive"),
+            )
+            .on_hover_text(
+                "Lower the render scale when the GPU misses its frame budget, and raise it \
+                 again when there is headroom. The slider sets the maximum.",
+            )
+            .on_disabled_hover_text("This graphics context cannot time the GPU");
+        if toggle.changed() {
+            actions.push(Action::SetAdaptive(adaptive));
+        }
+        ui.label(if model.perf.adaptive && model.perf.has_timer {
+            "Max scale"
+        } else {
+            "Render scale"
+        });
         let slider = ui.add(
             egui::Slider::new(model.render_scale, RENDER_SCALE)
                 .step_by(0.05)

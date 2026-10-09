@@ -58,14 +58,15 @@ use crate::failures;
 use crate::gldebug;
 use crate::library::Library;
 use crate::mouse::{Button, MouseTracker};
+use crate::perf::{self, Performance};
 use crate::screenshot::{Screenshot, Target};
 use crate::session::{self, Session};
 use crate::stats::FrameStats;
-use crate::ui::{Action, Model, Preview, UiHost, layout};
+use crate::ui::{Action, Model, PerfPanel, Preview, UiHost, layout};
 use std::time::{Duration, Instant};
 use strobe_diag::context;
 use strobe_diag::failure::{self, Failure, Subsystem};
-use strobe_gfx::{Backend, SwapWindow, WindowedContext};
+use strobe_gfx::{Backend, GpuTimer, SwapWindow, WindowedContext};
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalPosition};
 use winit::event::{ElementState, KeyEvent, MouseButton, WindowEvent};
@@ -172,6 +173,8 @@ impl ApplicationHandler for App {
 /// windows, and last the context and display they share.
 struct Running {
     session: Option<Session>,
+    /// Owns GL timer queries, so it sits before the context in drop order.
+    perf: Performance,
     ui: UiHost,
     control: SwapWindow,
     output: SwapWindow,
@@ -185,9 +188,10 @@ struct Running {
     audio: AudioInput,
     mouse: MouseTracker,
 
-    /// The render scale in force.
+    /// The render scale in force: the adaptive controller's, or the
+    /// slider's when adaptation is off.
     render_scale: f32,
-    /// The slider's working value.
+    /// The slider's working value, which is the maximum scale.
     scale_edit: f32,
     pending_resize: Option<([i32; 2], Instant)>,
     resize_now: bool,
@@ -220,6 +224,11 @@ impl Running {
         let control_attrs = Window::default_attributes()
             .with_title("Strobe")
             .with_inner_size(LogicalSize::new(1360.0, 820.0))
+            // Always maximized, on every launch: the control surface is
+            // the operator's workspace. The size above is what an
+            // un-maximized window (or a window system with no concept of
+            // maximizing, such as bare Xvfb) falls back to.
+            .with_maximized(true)
             .with_min_inner_size(LogicalSize::new(900.0, 560.0));
 
         let (mut gfx, output) = WindowedContext::open(event_loop, cli.gl.choice(), &output_attrs)
@@ -250,8 +259,33 @@ impl Running {
             .map(|base| Screenshot::new(base, cli.frames));
         let now = Instant::now();
         let render_scale = session::clamp_scale(cli.render_scale);
+        let refresh = output
+            .window()
+            .current_monitor()
+            .and_then(|monitor| monitor.refresh_rate_millihertz());
+        let perf = Performance::new(
+            GpuTimer::new(gfx.gl(), gfx.caps()),
+            render_scale,
+            !cli.no_adaptive,
+            perf::budget_for(refresh),
+        );
+        log::info!(
+            "GPU timing {}; frame budget {:.2} ms ({}); adaptive resolution {}",
+            if perf.has_timer() {
+                "available"
+            } else {
+                "unavailable"
+            },
+            perf.budget_ms(),
+            refresh.map_or_else(
+                || "monitor refresh rate unknown, assuming 60 Hz".to_string(),
+                |mhz| format!("{:.1} Hz", mhz as f32 / 1000.0)
+            ),
+            if perf.adapting() { "on" } else { "off" },
+        );
         let mut running = Self {
             session: None,
+            perf,
             ui,
             control,
             output,
@@ -314,6 +348,7 @@ impl Running {
     fn shutdown(mut self) {
         if self.gfx.make_current(&self.control).is_ok() {
             self.session = None;
+            self.perf.release();
             self.ui.destroy();
         }
     }
@@ -339,6 +374,18 @@ impl Running {
 
     fn refresh_monitors(&mut self, event_loop: &ActiveEventLoop) {
         self.last_monitor_refresh = Instant::now();
+        // The output may have moved to a display with another refresh rate.
+        let refresh = self
+            .output
+            .window()
+            .current_monitor()
+            .and_then(|monitor| monitor.refresh_rate_millihertz());
+        if self.perf.set_refresh(refresh) {
+            log::info!(
+                "frame budget now {:.2} ms for the output's monitor",
+                self.perf.budget_ms()
+            );
+        }
         self.monitors = event_loop.available_monitors().collect();
         self.monitor_labels = self
             .monitors
@@ -476,6 +523,7 @@ impl Running {
                 self.session = Some(session);
                 self.playing = Some(index);
                 self.pending_resize = None;
+                self.perf.scene_loaded(Instant::now());
                 context::set(context::SCENE, &entry.name);
                 context::set(context::RENDER_SIZE, format!("{}x{}", size[0], size[1]));
                 log::info!(
@@ -505,9 +553,35 @@ impl Running {
                     }
                 }
                 Action::SetRenderScale(scale) => {
-                    self.render_scale = session::clamp_scale(scale);
-                    self.scale_edit = self.render_scale;
+                    let from = self.render_scale;
+                    self.scale_edit = session::clamp_scale(scale);
+                    self.perf.set_max(self.scale_edit);
+                    self.render_scale = self.perf.scale();
                     self.resize_now = true;
+                    log::info!(
+                        "{} set to {:.2} (was {:.2})",
+                        if self.perf.adapting() {
+                            "maximum render scale"
+                        } else {
+                            "render scale"
+                        },
+                        self.render_scale,
+                        from
+                    );
+                }
+                Action::SetAdaptive(on) => {
+                    self.perf.set_enabled(on);
+                    self.render_scale = self.perf.scale();
+                    self.resize_now = true;
+                    log::info!(
+                        "adaptive resolution {}{}",
+                        if on { "on" } else { "off" },
+                        if on && !self.perf.has_timer() {
+                            " (but this context has no GPU timer, so the scale stays manual)"
+                        } else {
+                            ""
+                        }
+                    );
                 }
                 Action::ToggleFullscreen => self.toggle_fullscreen(),
                 Action::MoveToMonitor(index) => self.move_to_monitor(index),
@@ -583,9 +657,23 @@ impl Running {
             Some(session) => {
                 let render = session.player.render_size();
                 let mouse = self.mouse.uniforms([size.width, size.height], render);
+                // The GPU timer brackets the scene's work and the blit to
+                // the output; its result arrives a frame or two later.
+                self.perf.begin();
                 session.advance(dt, &mut self.audio, mouse);
                 gl.plain_state();
                 session.player.present(window);
+                if let Some(change) = self.perf.end(started) {
+                    log::info!(
+                        "adaptive resolution: render scale {:.2} -> {:.2} (GPU {:.1} ms against a {:.1} ms budget)",
+                        change.from,
+                        change.to,
+                        change.gpu_ms,
+                        change.budget_ms
+                    );
+                    self.render_scale = change.to;
+                    self.resize_now = true;
+                }
             }
             None => {
                 gl.plain_state();
@@ -652,6 +740,13 @@ impl Running {
             gl_summary: &self.gl_summary,
             audio: self.audio.panel(),
             script,
+            perf: PerfPanel {
+                adaptive: self.perf.enabled(),
+                has_timer: self.perf.has_timer(),
+                gpu_ms: self.perf.gpu_ms(),
+                budget_ms: self.perf.budget_ms(),
+                scale: self.render_scale,
+            },
         };
         let mut actions = std::mem::take(&mut self.actions);
         let window = self.control.window();

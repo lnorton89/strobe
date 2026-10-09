@@ -17,7 +17,9 @@
 
 use anyhow::{Result, anyhow};
 use std::path::PathBuf;
-use strobe_gfx::{Api, AudioTextures, Caps, FrameInputs, Headless, Mouse, Options, ScenePlayer};
+use strobe_gfx::{
+    Api, AudioTextures, Caps, FrameInputs, GpuTimer, Headless, Mouse, Options, ScenePlayer,
+};
 use strobe_scene::SceneFolder;
 use strobe_scene::audio::SCALARS;
 use strobe_scene::control::ControlBank;
@@ -313,5 +315,58 @@ fn a_scene_that_ignores_the_audio_textures_never_uploads_them() -> Result<()> {
         level_trail: &[[1.0; 4]; 7],
     });
     assert!(gl.error().is_none(), "an unused upload must be a no-op");
+    Ok(())
+}
+
+#[test]
+fn the_gpu_timer_reports_results_without_ever_waiting() -> Result<()> {
+    for api in BOTH {
+        let Some(headless) = context(api)? else {
+            continue;
+        };
+        let gl = headless.gl();
+        let caps = Caps::from_info(gl.info());
+        let Some(mut timer) = GpuTimer::new(gl, &caps) else {
+            eprintln!("skipping: {api:?} has no GPU timer queries");
+            continue;
+        };
+        let scene = folder("{}", "vec4 renderMain() { return vec4(TIME); }")?;
+        let controls = ControlBank::new(scene.def.controls.clone())?;
+        let audio = vec![0.0; SCALARS.len()];
+        let mut player = ScenePlayer::new(gl, &caps, &scene, [64, 36], Options::default())?;
+        let mut samples = Vec::new();
+        for frame in 0..12_u64 {
+            timer.begin();
+            player.render(&FrameInputs {
+                time: frame as f32 / 60.0,
+                frame,
+                mouse: Mouse::default(),
+                audio: &audio,
+                controls: &controls,
+                transitions: &[],
+            });
+            timer.end();
+            timer.poll(|ms| samples.push(ms));
+            assert!(
+                timer.in_flight() <= strobe_gfx::timing::SLOTS,
+                "{api:?}: never more than the ring holds"
+            );
+        }
+        // Let the GPU finish, then every outstanding result is readable.
+        gl.finish();
+        timer.poll(|ms| samples.push(ms));
+        assert!(
+            !samples.is_empty(),
+            "{api:?}: at least one measurement must come back"
+        );
+        assert!(
+            samples.iter().all(|ms| ms.is_finite() && *ms >= 0.0),
+            "{api:?}: samples are finite and non-negative: {samples:?}"
+        );
+        assert_eq!(timer.in_flight(), 0, "{api:?}: everything was drained");
+        if let Some(code) = gl.error() {
+            return Err(anyhow!("{api:?}: GL error 0x{code:x}"));
+        }
+    }
     Ok(())
 }
