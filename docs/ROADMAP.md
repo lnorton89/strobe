@@ -57,14 +57,17 @@ issue forms, and frames from the bench as CI artifacts).
 
 ### In flight
 
-- App integration (`agent/app-integration`): diagnostics, real audio,
-  the script host, and GPU timer queries driving adaptive resolution in
-  `strobe-app`.
 - T480 real-hardware pass: app smoke test on native GL and ANGLE,
   per-scene fps, and the crash-capture drill on Windows. Results go into
   `docs/hardware/T480.md`.
 
-Done since: `strobe-bench --context window|headless|auto` and `--gl
+Done since: app integration (D60-D65). The app now has strobe-diag
+logging, crash capture and `--diagnose`; live audio capture with a device
+picker and a synthetic fallback; scene scripts (see
+`scenes/11-script-orbits`); GPU timer queries driving adaptive
+resolution; and a control window that opens maximized.
+
+Also done: `strobe-bench --context window|headless|auto` and `--gl
 native|angle|auto` (D70-D72). The bench now runs on a hidden-window
 context where the driver has no EGL device (Intel on Windows). Window
 mode renders the same images as headless, pixel for pixel, on llvmpipe.
