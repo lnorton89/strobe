@@ -19,7 +19,7 @@
 //! are among the commonest identifiers in Shadertoy code, and a shader
 //! with `const float zoom = 2.0;` would then fail to compile. The prefix
 //! costs a slightly less pretty label and removes that whole class of
-//! failure (D79).
+//! failure (D92).
 
 /// Control: playback speed multiplier for `iTime`.
 pub(super) const SPEED: &str = "st_speed";

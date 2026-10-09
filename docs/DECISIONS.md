@@ -666,7 +666,7 @@ no window manager, so under `--screenshot` the control window stays 1360x820
 and captures are still deterministic, which is why screenshot mode needs no
 exception.
 
-### D77: one GLSL file per pass (`PASS_SOURCES`), top-level `SOURCE`, and per-pass programs forced (2026-10-09)
+### D90: one GLSL file per pass (`PASS_SOURCES`), top-level `SOURCE`, and per-pass programs forced (2026-10-09)
 
 Shadertoy buffers each define their own helpers (`hash`, `palette`,
 `rotate`), usually with different bodies, so merging the passes into one
@@ -703,11 +703,11 @@ this change's to edit. Promote them to variants when the app next changes.
 **Would reopen:** a Synesthesia that rejects the extra keys (Q6), or a need
 to share one program for memory reasons on the oldest GPUs.
 
-### D78: the uniform shim is generated GLSL around untouched code; time comes from a clock pass (2026-10-09)
+### D91: the uniform shim is generated GLSL around untouched code; time comes from a clock pass (2026-10-09)
 
 Each pass file is: a 3-line header, the shim, the `Common` tab, the pass's
 tab, and a generated `renderMain` that calls `mainImage`. The author's code
-is dialect-normalised (D81) but no statement of it is edited. The shim:
+is dialect-normalised (D94) but no statement of it is edited. The shim:
 
 - sets globals (`strobe_iResolution`, `strobe_iTime`, ...) in
   `strobe_begin()` and `#define`s the author's names to them, **only for the
@@ -727,7 +727,7 @@ state (a clock that advances by `dt * speed`). Instead of new host state the
 converter adds a one-texel, double-buffered, **FULL_PRECISION** float pass,
 `st_clock`, first in `PASSES`, only when some pass mentions a time name. It
 stores `(clock, last TIME, real dt, start frame + 1)` and advances the clock
-by `dt * rate`, with `rate` from the Strobe controls (D79). `dt` comes from
+by `dt * rate`, with `rate` from the Strobe controls (D92). `dt` comes from
 `TIME` minus last frame's `TIME`, so the app needs no change. A cleared
 target (first frame, or a resize, which wipes feedback) restarts the clock
 at `TIME` and `iFrame` at 0, which is also what a Shadertoy feedback shader
@@ -744,7 +744,7 @@ the pass), or a driver that cannot do `texelFetch` on RGBA32F (the ES path
 needs `EXT_color_buffer_float`, which `Caps` already requires for float
 passes).
 
-### D79: the "Strobe" control group is `st_`-prefixed, and acts on the Image pass only (2026-10-09)
+### D92: the "Strobe" control group is `st_`-prefixed, and acts on the Image pass only (2026-10-09)
 
 PLAN 6.3 names the controls `speed`, `audio_time`, `bass_flash`, `zoom`,
 `hue`. Controls are global-scope uniforms, and `zoom`, `speed` and `hue`
@@ -769,7 +769,7 @@ reserves it.
 **Would reopen:** a `LABEL` mechanism for controls (then the uniform and
 display names can differ).
 
-### D80: Shadertoy audio and `iDate` ride the existing player paths; the rest of the contract (2026-10-09)
+### D93: Shadertoy audio and `iDate` ride the existing player paths; the rest of the contract (2026-10-09)
 
 - **Audio inputs** (`music`, `musicstream`, `mic`) bind a new reserved
   sampler, `strobe_ShadertoyAudio`, declared by the assembler. It is a
@@ -795,7 +795,7 @@ display names can differ).
 - `iMouse` is `_mouse`, which the player already documents as Shadertoy's
   `iMouse`; the app feeds it (Q13, Q15).
 
-### D81: dialect normalisation is token-level, dialect-neutral, and stops where types begin (2026-10-09)
+### D94: dialect normalisation is token-level, dialect-neutral, and stops where types begin (2026-10-09)
 
 Shadertoy source is already inside the intersection of GLSL 3.30 core and
 ES 3.00 (it compiles as ES 3.00 in a browser), so the converter writes **one**
@@ -820,7 +820,7 @@ never needs it, SSF scenes do; Q8) and the packing built-ins
 express, which is the point at which a GLSL parser (`glsl-lang`) earns its
 place.
 
-### D82: converter output rules (2026-10-09)
+### D95: converter output rules (2026-10-09)
 
 - **Every buffer is `FLOAT` and `DOUBLE_BUFFER`**, as PLAN 6.2 says, even
   one nothing reads back from itself. That costs memory a pipeline-only

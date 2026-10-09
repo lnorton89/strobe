@@ -195,8 +195,8 @@ the CLI exist; acquisition is a later layer that ends in the same JSON.
     [ acquisition: REST API (path B), localhost listener (path A) ]       not built
 (c) convert   convert(&Shader, &Options) -> Converted                    convert/
       plan      order buffers A..D, bind channels, decide the clock       plan.rs
-      dialect   token-level rewrite of each tab's code (D81)              dialect.rs, glsl.rs
-      shim      per-pass GLSL: shim + Common + tab + entry (D78)          shim.rs
+      dialect   token-level rewrite of each tab's code (D94)              dialect.rs, glsl.rs
+      shim      per-pass GLSL: shim + Common + tab + entry (D91)          shim.rs
       scene_json  scene.json from Serialize structs (deterministic)       scene_json.rs
       write     hidden staging folder, one rename                         write.rs
 (e) strobe-import <file.json> [--out DIR] [--name N] [--assets DIR] [--strict] [--force]
@@ -215,12 +215,12 @@ What it writes, and how the player runs it:
 
 - The player builds one program per pass from that pass's own file
   (`SceneFolder::shader_for`), names the file in compile errors
-  (`file_for`), and ignores a request for a shared program (D77).
+  (`file_for`), and ignores a request for a shared program (D90).
 - `st_clock` is an ordinary one-pixel float pass; nothing in the frame loop
-  knows about it (D78).
+  knows about it (D91).
 - Audio inputs sample `strobe_ShadertoyAudio`, filled inside
   `upload_audio` only when a pass samples it; `iDate` is `strobe_Date`
-  (D80).
+  (D93).
 - Every fixture under `crates/strobe-shadertoy/tests/fixtures/` is original
   and in exact export shape; the render tests convert, write, load and
   render them on both dialects.
