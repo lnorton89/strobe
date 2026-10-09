@@ -202,6 +202,10 @@ fn socket_name_for_this_process() -> String {
     if text.len() < SUN_PATH_LIMIT {
         text
     } else {
+        log::info!(
+            "crash monitor socket {text} is {} bytes, over AF_UNIX's {SUN_PATH_LIMIT}; using the temp directory",
+            text.len()
+        );
         long_form(&std::env::temp_dir())
             .join(file)
             .to_string_lossy()
@@ -470,6 +474,20 @@ impl MonitorHandle {
     }
 }
 
+impl Drop for MonitorHandle {
+    /// A connected monitor exits on its own when the app disconnects. One
+    /// that never got a connection would sit out its sixty-second watchdog,
+    /// and anything waiting on the app's process tree (PowerShell's
+    /// `Start-Process -Wait`, a CI step, a launcher) waits with it. Found on
+    /// the T480: a screenshot run finished in 5.5 s and exited after 60.
+    fn drop(&mut self) {
+        if !self.is_connected() {
+            self.child.kill().ok();
+            self.child.wait().ok();
+        }
+    }
+}
+
 /// Starts the monitor and attaches the crash handler. Call on the main
 /// thread, after [`run_monitor_if_requested`]. Returns `None` (after
 /// logging why) if capture could not be set up; the app should carry on.
@@ -500,8 +518,11 @@ pub fn start_monitor() -> Option<MonitorHandle> {
         }
     };
     set_ptracer(&handler, child.id());
+    log::info!(
+        "native crash capture armed (monitor pid {}, socket {name})",
+        child.id()
+    );
     spawn_connector(Arc::clone(&client), name);
-    log::info!("native crash capture armed (monitor pid {})", child.id());
     Some(MonitorHandle {
         _handler: handler,
         child,
