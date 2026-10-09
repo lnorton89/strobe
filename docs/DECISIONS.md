@@ -424,3 +424,42 @@ points it at `crates/strobe-app/Cargo.toml` with `--target
 x86_64-pc-windows-msvc` and `--override-filename strobe.cdx`, and
 copies only that file out, so the SBOM lists the crates in `strobe.exe`
 and not the Linux-only ones a host-target resolve would add.
+
+### D70: the bench gets a window context rather than a different GL path (2026-10-09)
+
+Intel's Windows driver exposes no EGL devices, so `Headless` cannot
+open there, and real-GPU numbers are the point of the bench.
+`strobe-bench --context window` opens one hidden winit window through
+`WindowedContext`, the app's own provider, so the bench measures the same
+native (WGL) and ANGLE contexts the show runs on, not a third path.
+winit 0.30 only creates windows inside the event loop, so the whole
+benchmark runs inside `resumed` and the loop exits when it returns; the
+per-scene loop is one function taking `&Gl` and `&Caps` that both modes
+call. `--context auto` is the default: headless when a device exists
+(CI and cloud containers behave exactly as before), the window
+otherwise. The window never presents; scenes render into the player's
+offscreen targets, so size, visibility and compositor do not affect the
+frames or the timings, and the output is identical to headless (checked
+on llvmpipe, desktop and GLES).
+
+### D71: hidden window first, tiny off-screen window as the fallback (2026-10-09)
+
+Some platforms will not give an invisible window a GL surface (a Wayland
+surface with no commit), and a visible window can be throttled or
+re-composited by others. The bench tries a hidden window first and, if
+the context cannot open on it, a 16x16 undecorated window parked at
+(-32000, -32000); `--show-window` starts at the second. Both were
+exercised under Xvfb and produce identical frames. Only the first attempt
+that opens is used, and `results.md` says which. The surface's swap
+interval is set to zero even though nothing is swapped, so a driver that
+ties other synchronisation to the interval has no reason to throttle the
+timed frames.
+
+### D72: `--api` is optional, and in window mode the backend decides the dialect (2026-10-09)
+
+Headless chooses its dialect with `--api desktop|gles`. A window context
+gets its dialect from the backend (native is GLSL 330, ANGLE is GLES
+3.0), so `--api` became an `Option`: unset means desktop for headless and
+whatever `--gl` implies for a window. `--api gles` with `--gl auto` means
+ANGLE; `--api gles` with `--gl native`, or `--api desktop` with
+`--gl angle`, is an error, not a silent override.

@@ -63,6 +63,12 @@ The following is done and verified headless:
   hardware report, a native MSVC build and tests, and later a real-GPU
   bench. Its report goes to `docs/hardware/T480.md`.
 
+- `strobe-bench --context window|headless|auto` and `--gl
+  native|angle|auto`: the bench runs on a hidden-window context where the
+  driver has no EGL devices (Intel on Windows), D70-D72 (Sonnet agent,
+  branch `agent/bench-window`). The real-GPU runs on the T480 are still
+  pending.
+
 The coordinating session reviews each branch and merges it into
 `claude/festive-ramanujan-oic192`.
 
