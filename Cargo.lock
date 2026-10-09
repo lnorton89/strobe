@@ -2771,6 +2771,7 @@ dependencies = [
  "image",
  "strobe-gfx",
  "strobe-scene",
+ "winit",
 ]
 
 [[package]]
