@@ -98,7 +98,9 @@ impl Frame {
     fn lit_fraction(&self) -> f32 {
         let lit = self
             .pixels
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .filter(|px| px[0] > 0 || px[1] > 0 || px[2] > 0)
             .count();
         lit as f32 / (self.pixels.len() / 4).max(1) as f32
@@ -201,7 +203,12 @@ fn every_fixture_compiles_and_renders_a_lit_frame_in_both_dialects() -> Result<(
                 lit * 100.0
             );
             assert!(
-                frame.pixels.chunks_exact(4).all(|px| px[3] == 255),
+                frame
+                    .pixels
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .all(|px| px[3] == 255),
                 "{name} on {api:?}: the Image pass must output alpha 1"
             );
         }

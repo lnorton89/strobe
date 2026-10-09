@@ -481,9 +481,12 @@ mod tests {
         let names: Vec<String> = n
             .notes
             .iter()
-            .filter_map(|note| match &note.rewrite {
-                Rewrite::UniformDeclaration(name) => Some(name.clone()),
-                _ => None,
+            .filter_map(|note| {
+                if let Rewrite::UniformDeclaration(name) = &note.rewrite {
+                    Some(name.clone())
+                } else {
+                    None
+                }
             })
             .collect();
         assert_eq!(
