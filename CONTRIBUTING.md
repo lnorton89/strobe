@@ -88,6 +88,14 @@ you wrote, or scenes whose license allows redistribution, with the
 license recorded in `scene.json`'s `CREDIT`/`DESCRIPTION`. If you change
 a scene, re-run the bench and update `docs/BENCHMARKS.md`.
 
+## Branches
+
+`master` is the default branch and always passes `cargo xtask ci`. Work
+happens on topic branches (`claude/*` for agent sessions, anything
+descriptive otherwise) and reaches `master` through a pull request whose
+checks pass. Delete a branch once it is merged. Never force-push
+`master`, and never move a release tag (see Releasing).
+
 ## Commit messages
 
 Use conventional prefixes: `feat:`, `fix:`, `perf:`, `refactor:`,
@@ -116,7 +124,7 @@ very hashes it pins.
 Releases are tags, and the changelog is finished *before* the tag exists.
 In this order:
 
-1. On a release branch off `main`: bump `version` in the workspace
+1. On a release branch off `master`: bump `version` in the workspace
    `Cargo.toml` (`[workspace.package]`) and commit.
 2. Write the release's section: `cargo xtask changelog --release v0.2.0`,
    and commit it. The generator refuses a version that does not match

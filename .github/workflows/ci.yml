@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    # `main` once it exists; until then development happens on claude/*
-    # branches, which must be checked on every push too.
-    branches: [main, "claude/**"]
+    # `master` is the default branch; agent work lands on claude/*
+    # branches first, which must be checked on every push too.
+    branches: [master, "claude/**"]
   pull_request:
   workflow_dispatch:
 
