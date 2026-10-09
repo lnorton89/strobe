@@ -11,6 +11,7 @@
 //! `--screenshot <path> --frames <n>` is how the UI is verified with no
 //! human present: the app renders `n` frames, reads both windows back to
 //! `<path>-control.png` and `<path>-output.png`, and exits.
+//! `--diagnose` prints the system report and exits (see [`crate::diagnose`]).
 
 use clap::{Parser, ValueEnum};
 use std::path::PathBuf;
@@ -65,6 +66,10 @@ pub struct Cli {
     /// Frames to render before the screenshot.
     #[arg(long, default_value_t = 60, requires = "screenshot")]
     pub frames: u32,
+    /// Print a report of this machine, build, GL and audio setup, save it
+    /// next to the logs, and exit. Attach it to bug reports.
+    #[arg(long)]
+    pub diagnose: bool,
 }
 
 #[cfg(test)]
@@ -89,6 +94,16 @@ mod tests {
             GlChoice::Only(Backend::Angle),
             "angle forced"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn diagnose_is_a_plain_flag() -> Result<()> {
+        assert!(
+            Cli::try_parse_from(["strobe", "--diagnose"])?.diagnose,
+            "set"
+        );
+        assert!(!Cli::try_parse_from(["strobe"])?.diagnose, "off by default");
         Ok(())
     }
 

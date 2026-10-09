@@ -29,10 +29,10 @@
 use std::ops::RangeInclusive;
 use std::path::{Path, PathBuf};
 use strobe_gfx::gl::Gl;
-use strobe_gfx::{Caps, FrameInputs, Mouse, Options, ScenePlayer};
-use strobe_scene::SceneFolder;
+use strobe_gfx::{Caps, FrameInputs, Mouse, Options, PlayerError, ScenePlayer};
 use strobe_scene::audio::SCALARS;
 use strobe_scene::control::ControlBank;
+use strobe_scene::{SceneError, SceneFolder};
 
 /// The render scales the UI offers.
 pub const RENDER_SCALE: RangeInclusive<f32> = 0.25..=1.0;
@@ -61,6 +61,18 @@ pub fn render_size(window: [u32; 2], scale: f32, max_edge: i32) -> [i32; 2] {
     [edge(window[0]), edge(window[1])]
 }
 
+/// Why a scene could not be loaded.
+#[derive(Debug, thiserror::Error)]
+pub enum LoadError {
+    /// The folder, `scene.json` or the controls were unreadable or invalid.
+    #[error("{0}")]
+    Scene(#[from] SceneError),
+    /// A shader would not compile or link, or a GL resource was refused.
+    /// Compiler messages already point at `main.glsl:N`.
+    #[error("{0}")]
+    Player(#[from] PlayerError),
+}
+
 /// One loaded, compiled scene.
 #[derive(Debug)]
 pub struct Session {
@@ -84,8 +96,8 @@ impl Session {
     /// Reads, validates and compiles the scene in `dir`, rendering at
     /// `render_size`. The scene clock starts at `start` seconds.
     ///
-    /// The error text is ready for the console: shader errors already
-    /// point at `main.glsl:N`.
+    /// Shader errors already point at `main.glsl:N`; see
+    /// [`crate::failures::scene_load`] for how an error is reported.
     pub fn load(
         gl: &Gl,
         caps: &Caps,
@@ -93,17 +105,16 @@ impl Session {
         name: &str,
         render_size: [i32; 2],
         start: f32,
-    ) -> Result<Self, String> {
-        let scene = SceneFolder::load(dir).map_err(|e| e.to_string())?;
-        let controls = ControlBank::new(scene.def.controls.clone()).map_err(|e| e.to_string())?;
+    ) -> Result<Self, LoadError> {
+        let scene = SceneFolder::load(dir)?;
+        let controls = ControlBank::new(scene.def.controls.clone())?;
         let transitions = scene
             .def
             .transition_uniforms
             .iter()
             .map(|t| t.initial)
             .collect();
-        let player = ScenePlayer::new(gl, caps, &scene, render_size, Options::default())
-            .map_err(|e| e.to_string())?;
+        let player = ScenePlayer::new(gl, caps, &scene, render_size, Options::default())?;
         Ok(Self {
             name: name.to_string(),
             dir: dir.to_path_buf(),

@@ -303,6 +303,14 @@ impl WindowedContext {
         &self.gl
     }
 
+    /// The context's GL functions, mutably. Exists for one purpose:
+    /// [`super::debug::enable_debug_output`] needs the unshared `Gl`, so
+    /// call it right after [`Self::open`], before adding windows or giving
+    /// [`Gl::glow`] to egui.
+    pub fn gl_mut(&mut self) -> &mut Gl {
+        &mut self.gl
+    }
+
     /// Which backend is running.
     pub fn backend(&self) -> Backend {
         self.backend

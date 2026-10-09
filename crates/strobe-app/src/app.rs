@@ -53,13 +53,17 @@
 
 use crate::cli::Cli;
 use crate::console::Console;
+use crate::failures;
+use crate::gldebug;
 use crate::library::Library;
 use crate::screenshot::{Screenshot, Target};
 use crate::session::{self, Session};
 use crate::stats::FrameStats;
 use crate::ui::{Action, Model, Preview, UiHost, layout};
 use std::time::{Duration, Instant};
-use strobe_gfx::{SwapWindow, WindowedContext};
+use strobe_diag::context;
+use strobe_diag::failure::{self, Failure, Subsystem};
+use strobe_gfx::{Backend, SwapWindow, WindowedContext};
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalPosition};
 use winit::event::{ElementState, KeyEvent, WindowEvent};
@@ -194,7 +198,7 @@ struct Running {
     actions: Vec<Action>,
 
     screenshot: Option<Screenshot>,
-    output_frames: u32,
+    output_frames: u64,
     start_time: f32,
     failure: Option<String>,
 }
@@ -214,8 +218,12 @@ impl Running {
             .with_inner_size(LogicalSize::new(1360.0, 820.0))
             .with_min_inner_size(LogicalSize::new(900.0, 560.0));
 
-        let (gfx, output) = WindowedContext::open(event_loop, cli.gl.choice(), &output_attrs)
+        let (mut gfx, output) = WindowedContext::open(event_loop, cli.gl.choice(), &output_attrs)
             .map_err(|e| format!("Could not start OpenGL.\n{e}"))?;
+        // Before the Gl is shared with a second window or egui; see
+        // `strobe_gfx::gl::debug`.
+        gldebug::enable(gfx.gl_mut());
+        record_gl_facts(&gfx);
         let control = gfx
             .add_window(event_loop, control_attrs)
             .map_err(|e| format!("Could not open the control window: {e}"))?;
@@ -270,16 +278,24 @@ impl Running {
             failure: None,
         };
         running.refresh_monitors(event_loop);
-        running.console.info(format!("GL: {}", running.gl_summary));
+        log::info!("GL: {}", running.gl_summary);
         if let Some(error) = scan_error {
-            running.console.error(error);
+            failure::report(
+                Failure::new(Subsystem::Io, "scan")
+                    .path(&running.library.dir)
+                    .message(error)
+                    .action("the scene list is empty"),
+            );
         }
         if let Some(query) = cli.scene.as_deref() {
             match running.library.find(query) {
                 Some(index) => running.load(index),
-                None => running
-                    .console
-                    .error(format!("No scene matching \"{query}\" in the library.")),
+                None => failure::report(
+                    Failure::new(Subsystem::Io, "find")
+                        .asset(query)
+                        .message(format!("no scene matching \"{query}\" in the library"))
+                        .action("no scene loaded"),
+                ),
             }
         }
         Ok(running)
@@ -438,15 +454,22 @@ impl Running {
                 self.session = Some(session);
                 self.playing = Some(index);
                 self.pending_resize = None;
-                self.console.info(format!(
+                context::set(context::SCENE, &entry.name);
+                context::set(context::RENDER_SIZE, format!("{}x{}", size[0], size[1]));
+                log::info!(
                     "Loaded {} ({}x{}) in {:.0} ms",
                     entry.name,
                     size[0],
                     size[1],
                     started.elapsed().as_secs_f64() * 1000.0
-                ));
+                );
             }
-            Err(error) => self.console.error(format!("{}: {error}", entry.name)),
+            Err(error) => failure::report(failures::scene_load(
+                &entry.name,
+                &entry.dir,
+                &error,
+                self.session.is_some(),
+            )),
         }
     }
 
@@ -495,8 +518,14 @@ impl Running {
         if steady || self.resize_now || self.screenshot.is_some() {
             self.resize_now = false;
             self.pending_resize = None;
-            if let Err(error) = session.player.resize(want) {
-                self.console.error(format!("resize: {error}"));
+            match session.player.resize(want) {
+                Ok(()) => context::set(context::RENDER_SIZE, format!("{}x{}", want[0], want[1])),
+                Err(error) => failure::report(
+                    Failure::new(Subsystem::Context, "resize")
+                        .scene(&session.name)
+                        .message(error)
+                        .action("keeping the previous render size"),
+                ),
             }
         } else if !matches!(self.pending_resize, Some((size, _)) if size == want) {
             self.pending_resize = Some((want, now));
@@ -537,6 +566,7 @@ impl Running {
             }
         }
         self.output_frames += 1;
+        context::note_frame(self.output_frames);
         if let Some(shot) = self.screenshot.as_mut()
             && shot.output_due(self.output_frames)
         {
@@ -561,6 +591,7 @@ impl Running {
             self.failure = Some(e);
             return;
         }
+        self.console.refresh();
         let preview = self.session.as_ref().map(|session| {
             let texture = session.player.output_texture();
             Preview {
@@ -611,4 +642,20 @@ impl Running {
         self.apply(&mut actions);
         self.actions = actions;
     }
+}
+
+/// Writes the GL context's facts into the session context, so every crash
+/// report and `--diagnose` run says which driver was in use.
+fn record_gl_facts(gfx: &WindowedContext) {
+    let info = &gfx.caps().info;
+    context::set(context::GL_VENDOR, &info.vendor);
+    context::set(context::GL_RENDERER, &info.renderer);
+    context::set(context::GL_VERSION, &info.version);
+    context::set(
+        context::GL_BACKEND,
+        match gfx.backend() {
+            Backend::Native => "native",
+            Backend::Angle => "angle",
+        },
+    );
 }
