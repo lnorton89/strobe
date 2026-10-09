@@ -1,0 +1,27 @@
+[package]
+name = "strobe-app"
+description = "The desktop app: control window (egui), output window, scene browser, and the frame loop."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[[bin]]
+name = "strobe"
+path = "src/main.rs"
+
+[dependencies]
+strobe-scene.workspace = true
+strobe-gfx.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+image.workspace = true
+log.workspace = true
+egui.workspace = true
+egui_glow.workspace = true
+egui-winit.workspace = true
+winit.workspace = true
+
+[lints]
+workspace = true

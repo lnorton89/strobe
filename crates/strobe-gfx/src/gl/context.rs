@@ -1,7 +1,7 @@
 // ============================================================================
 // Module:       strobe_gfx::gl::context
-// Description:  Context providers: headless EGL (tests, benchmarks) and the
-//               windowed native-GL / ANGLE contexts the app runs on.
+// Description:  The headless EGL context provider (tests, benchmarks); the
+//               windowed providers the app runs on are in gl::window.
 //
 // Dependencies: glutin (context creation), glow (function loading)
 // ============================================================================
@@ -155,7 +155,9 @@ fn load_gl(display: &Display) -> Gl {
     Gl::from_current(glow_from_loader(loader))
 }
 
-fn glow_from_loader(loader: impl FnMut(&CStr) -> *const std::ffi::c_void) -> glow::Context {
+pub(super) fn glow_from_loader(
+    loader: impl FnMut(&CStr) -> *const std::ffi::c_void,
+) -> glow::Context {
     // SAFETY: the loader returns addresses from the display whose context
     // was made current on this thread immediately before this call; glow
     // stores them and calls none until a method is invoked.
