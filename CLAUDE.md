@@ -25,11 +25,14 @@ macOS and Linux later. Performance is a feature, not a polish step.
 cargo test --workspace                                    # everything
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo fmt --all -- --check
-cargo clippy --workspace --all-targets --all-features --target x86_64-pc-windows-msvc -- -D warnings
+cargo clippy --workspace --exclude strobe-script --all-targets --all-features --target x86_64-pc-windows-msvc -- -D warnings
 cargo run --release -p strobe-bench -- --size 1280x720     # benchmark + frames
 ```
 
-All of these are clean on the branch, and CI enforces them. A warning is
+All of these are clean on the branch, and CI enforces them. The Windows
+cross-check excludes `strobe-script`: QuickJS is C, and compiling it for
+MSVC needs the Windows SDK, so only a real Windows build (CI's `windows`
+job, or the T480) checks that crate for Windows. A warning is
 a build failure.
 
 ### Seeing what you changed without a window
