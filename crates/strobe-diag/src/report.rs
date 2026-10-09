@@ -77,7 +77,7 @@ impl CrashReport {
             text.push('\n');
         }
 
-        writeln!(text, "\nRecent log (last {} records)", self.log.len()).ok();
+        writeln!(text, "\nRecent log (last {} entries)", self.log.len()).ok();
         text.push_str("---------------------------\n");
         if self.log.is_empty() {
             text.push_str("  (logger was not running)\n");
@@ -154,7 +154,7 @@ mod tests {
             "scene.name",
             "Recent failures",
             "SHADER",
-            "Recent log (last 1 records)",
+            "Recent log (last 1 entries)",
             "hello",
             "Backtrace",
             "0: main",

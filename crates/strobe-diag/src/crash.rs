@@ -399,9 +399,30 @@ impl ServerHandler for MonitorHandler {
 pub struct MonitorHandle {
     _handler: CrashHandler,
     child: Child,
+    client: Arc<OnceLock<Client>>,
 }
 
 impl MonitorHandle {
+    /// Whether the link to the monitor is up, so a crash now would be
+    /// captured. Becomes true within milliseconds of [`start_monitor`] on a
+    /// healthy machine.
+    pub fn is_connected(&self) -> bool {
+        self.client.get().is_some()
+    }
+
+    /// Waits until [`MonitorHandle::is_connected`] or `timeout` passes.
+    /// For tests and the crash demo; the app never needs to wait.
+    pub fn wait_connected(&self, timeout: Duration) -> bool {
+        let started = Instant::now();
+        while started.elapsed() < timeout {
+            if self.is_connected() {
+                return true;
+            }
+            std::thread::sleep(CONNECT_RETRY);
+        }
+        self.is_connected()
+    }
+
     /// The monitor process id.
     pub fn monitor_pid(&self) -> u32 {
         self.child.id()
@@ -438,11 +459,12 @@ pub fn start_monitor() -> Option<MonitorHandle> {
         }
     };
     set_ptracer(&handler, child.id());
-    spawn_connector(client, name);
+    spawn_connector(Arc::clone(&client), name);
     log::info!("native crash capture armed (monitor pid {})", child.id());
     Some(MonitorHandle {
         _handler: handler,
         child,
+        client,
     })
 }
 

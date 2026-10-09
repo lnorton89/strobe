@@ -15,6 +15,7 @@ macOS and Linux later. Performance is a feature, not a polish step.
 | [`docs/DECISIONS.md`](docs/DECISIONS.md) | Before reversing a choice. Every non-obvious decision and its reason is logged there. Add one when you make one. |
 | [`docs/OPEN_QUESTIONS.md`](docs/OPEN_QUESTIONS.md) | Things not yet verified against real Synesthesia behaviour. Check here before assuming. |
 | [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) | Before and after any change on a per-frame path. |
+| [`docs/DEBUGGING.md`](docs/DEBUGGING.md) | When something hangs, crashes or misbehaves: where logs and crash reports go, `STROBE_LOG`, GL debug output, symbolicating a `.dmp`, and the T480 crash-report checklist. |
 | [`docs/PLAN.md`](docs/PLAN.md) | The original design plan and its research sources. It's historical. Where it disagrees with DECISIONS.md, DECISIONS.md wins. |
 
 ## Commands
@@ -85,7 +86,7 @@ fallback. Tests return `anyhow::Result<()>`, and every `assert!` carries
 a message. Release builds use `panic = "abort"`, and the output window
 is on a projector.
 
-### `unsafe` lives only in `crates/strobe-gfx/src/gl/`
+### `unsafe` lives only in `crates/strobe-gfx/src/gl/` (and `strobe-diag/src/native.rs`)
 
 - One named, private, **safe** function per unsafe operation. The
   `unsafe` block holds that one call and nothing else.
@@ -100,6 +101,13 @@ is on a projector.
 
 Need a new GL call? Add a leaf wrapper in `gl/mod.rs` next to its
 siblings. Don't reach for `glow` from anywhere else.
+
+The one other place is `crates/strobe-diag/src/native.rs` (the crash
+handler's callback, decision D41), under the same leaf rules. Debug
+logging and crash reports are described in
+[`docs/DEBUGGING.md`](docs/DEBUGGING.md); use `log::` macros, not
+`println!`, and `strobe_diag::failure::report` for anything a person
+should see.
 
 ### `allow` is denied; use `#[expect(lint, reason = "…")]`
 

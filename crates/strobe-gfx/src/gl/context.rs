@@ -91,6 +91,13 @@ impl Headless {
     pub fn gl(&self) -> &Gl {
         &self.gl
     }
+
+    /// The context's GL functions, mutably. Exists for one purpose:
+    /// [`super::debug::enable_debug_output`] needs the unshared `Gl`, so
+    /// call it right after [`Headless::new`], before cloning.
+    pub fn gl_mut(&mut self) -> &mut Gl {
+        &mut self.gl
+    }
 }
 
 fn open_on_device(device: &Device, api: Api) -> Result<Headless, String> {

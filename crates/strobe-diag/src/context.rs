@@ -3,7 +3,7 @@
 // Description:  The session context: facts every crash report must carry,
 //               updated by the app as it learns them.
 //
-// Dependencies: strobe_diag::{buildinfo, clock, system}
+// Dependencies: strobe_diag::{buildinfo, clock}
 // ============================================================================
 
 //! Session context.
@@ -22,7 +22,7 @@
 //! Conventional keys have constants ([`GL_RENDERER`], [`SCENE`], …) so the
 //! app and the reports agree on spelling.
 
-use crate::{buildinfo, clock, system};
+use crate::{buildinfo, clock};
 use std::collections::BTreeMap;
 use std::fmt::Display;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
@@ -82,7 +82,8 @@ pub fn clear_pass() {
 }
 
 /// Everything known, sorted for stable reports: build, uptime, frame and
-/// pass first, then machine facts, then the app's keys alphabetically.
+/// pass first, then the app's keys alphabetically. Machine facts (OS, CPU,
+/// RAM) are not here; reports get them from [`crate::system`].
 pub fn snapshot() -> Vec<(String, String)> {
     let facts = FACTS.lock().unwrap_or_else(PoisonError::into_inner);
     assemble(&facts)
@@ -110,9 +111,6 @@ fn assemble(facts: &BTreeMap<String, String>) -> Vec<(String, String)> {
     let pass = PASS.load(Ordering::Relaxed);
     if pass != NO_PASS {
         pairs.push(("pass".to_string(), pass.to_string()));
-    }
-    if let Some(machine) = system::cached() {
-        pairs.extend(machine.pairs());
     }
     pairs.extend(
         facts

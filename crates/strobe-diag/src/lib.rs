@@ -81,6 +81,9 @@ pub struct Session {
 pub fn init() -> Session {
     clock::start();
     let log_file = logger::init().ok().flatten();
+    if let Some(path) = &log_file {
+        context::set("log.file", path.display());
+    }
     install_panic_hook();
     system::probe_in_background();
     log::info!("strobe {} starting", buildinfo::summary());
