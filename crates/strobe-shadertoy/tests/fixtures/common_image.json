@@ -1,0 +1,40 @@
+{
+  "ver": "0.1",
+  "info": {
+    "id": "Tst002",
+    "date": "1700000000",
+    "viewed": 0,
+    "name": "Common and image",
+    "username": "strobe-tests",
+    "description": "Original test shader written for Strobe's fixtures. MIT, like the repository.",
+    "likes": 0,
+    "published": 3,
+    "flags": 0,
+    "usePreview": 0,
+    "tags": [],
+    "hasliked": 0
+  },
+  "renderpass": [
+    {
+      "inputs": [],
+      "outputs": [
+        {
+          "id": "4dfGRr",
+          "channel": 0
+        }
+      ],
+      "code": "void mainImage( out vec4 fragColor, in vec2 fragCoord )\n{\n    vec2 uv = fragCoord / iResolution.xy;\n    float w = wave(uv - 0.5, iTime);\n    fragColor = vec4(vec3(w, 0.5 + 0.5 * sin(PI * uv.x), 0.4), 1.0);\n}\n",
+      "name": "Image",
+      "description": "",
+      "type": "image"
+    },
+    {
+      "inputs": [],
+      "outputs": [],
+      "code": "const float PI = 3.14159265;\nfloat wave(vec2 p, float t)\n{\n    return 0.5 + 0.5 * sin(6.0 * p.x + t) * cos(6.0 * p.y - t);\n}\n",
+      "name": "Common",
+      "description": "",
+      "type": "common"
+    }
+  ]
+}

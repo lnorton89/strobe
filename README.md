@@ -65,7 +65,7 @@ machine.
 | `strobe-ssf-lib` | The SSF GLSL function library and preambles |
 | `strobe-script` | QuickJS host for the Synesthesia JavaScript API |
 | `strobe-audio` | Capture, FFT, bands, onsets, BPM, audio textures |
-| `strobe-shadertoy` | Shadertoy JSON → scene conversion and asset fetch |
+| `strobe-shadertoy` | Shadertoy import: URL/id parser, export-JSON model, deterministic converter to a scene folder, and the `strobe-import` command (fetching by id is not built yet) |
 | `strobe-playlist` | Playlist model, TOML I/O, scheduler, generator |
 | `strobe-io` | MIDI, OSC, hotkeys, the localhost import listener |
 

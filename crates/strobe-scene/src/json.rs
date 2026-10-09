@@ -81,6 +81,33 @@ pub struct RawScene {
     pub hard_transitions: Vec<RawHardTransition>,
     /// One-hot uniform families that crossfade on a song change.
     pub smooth_transitions: Vec<RawSmoothTransition>,
+    /// One GLSL file per pass, final pass included, instead of one
+    /// `main.glsl` for all of them (a Strobe extension).
+    pub pass_sources: Option<Vec<String>>,
+    /// Where an imported scene came from (a Strobe extension).
+    pub source: Option<RawSource>,
+}
+
+/// The `SOURCE` block: provenance for a scene converted from elsewhere.
+///
+/// Every field is free text for people to read; nothing here changes how
+/// the scene renders. Unknown keys inside it are ignored like everywhere
+/// else, so an importer can record more than this lists.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "snake_case", default)]
+pub struct RawSource {
+    /// What it was converted from, e.g. `shadertoy`.
+    pub kind: Option<String>,
+    /// The identifier at the origin (a Shadertoy shader id).
+    pub id: Option<String>,
+    /// Where to find the original.
+    pub url: Option<String>,
+    /// The original author.
+    pub author: Option<String>,
+    /// The original title.
+    pub name: Option<String>,
+    /// What is known (and not known) about the licence.
+    pub license_note: Option<String>,
 }
 
 /// One `HARD_TRANSITIONS` entry.
@@ -160,6 +187,10 @@ pub struct RawPass {
     pub wrap: Option<String>,
     /// `linear`, `nearest` or `mipmap`.
     pub filter: Option<String>,
+    /// Store this pass in 32-bit float whatever precision the player
+    /// defaults to, for a pass that integrates values 16 bits cannot hold
+    /// (a Strobe extension).
+    pub full_precision: Option<bool>,
 }
 
 /// One image.
@@ -170,6 +201,13 @@ pub struct RawImage {
     pub name: String,
     /// Path relative to the scene folder.
     pub path: String,
+    /// `repeat`, `clamp` or `mirror`. Absent means `repeat`.
+    pub wrap: Option<String>,
+    /// `linear`, `nearest` or `mipmap`. Absent means `mipmap`.
+    pub filter: Option<String>,
+    /// Flip the file vertically on load so `_uv` reads it upright. Absent
+    /// means `true`.
+    pub vflip: Option<bool>,
 }
 
 #[cfg(test)]

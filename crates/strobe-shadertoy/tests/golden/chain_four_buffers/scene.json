@@ -1,0 +1,137 @@
+{
+  "TITLE": "Four buffer chain",
+  "CREDIT": "strobe-tests (Shadertoy)",
+  "DESCRIPTION": "Original test shader written for Strobe's fixtures. MIT, like the repository.",
+  "PASSES": [
+    {
+      "TARGET": "st_clock",
+      "WIDTH": 1,
+      "HEIGHT": 1,
+      "FLOAT": true,
+      "DOUBLE_BUFFER": true,
+      "WRAP": "clamp",
+      "FILTER": "nearest",
+      "FULL_PRECISION": true
+    },
+    {
+      "TARGET": "st_buf_a",
+      "FLOAT": true,
+      "DOUBLE_BUFFER": true,
+      "WRAP": "clamp",
+      "FILTER": "linear"
+    },
+    {
+      "TARGET": "st_buf_b",
+      "FLOAT": true,
+      "DOUBLE_BUFFER": true,
+      "WRAP": "clamp",
+      "FILTER": "linear"
+    },
+    {
+      "TARGET": "st_buf_c",
+      "FLOAT": true,
+      "DOUBLE_BUFFER": true,
+      "WRAP": "clamp",
+      "FILTER": "linear"
+    },
+    {
+      "TARGET": "st_buf_d",
+      "FLOAT": true,
+      "DOUBLE_BUFFER": true,
+      "WRAP": "clamp",
+      "FILTER": "linear"
+    }
+  ],
+  "PASS_SOURCES": [
+    "passes/st_clock.glsl",
+    "passes/buffer_a.glsl",
+    "passes/buffer_b.glsl",
+    "passes/buffer_c.glsl",
+    "passes/buffer_d.glsl",
+    "main.glsl"
+  ],
+  "IMAGES": [],
+  "CONTROLS": [
+    {
+      "NAME": "st_speed",
+      "TYPE": "slider",
+      "MIN": 0.0,
+      "MAX": 3.0,
+      "DEFAULT": 1.0,
+      "UI_GROUP": "Strobe",
+      "DESCRIPTION": "How fast iTime runs. 1 is real time."
+    },
+    {
+      "NAME": "st_audio_time",
+      "TYPE": "slider",
+      "MIN": 0.0,
+      "MAX": 1.0,
+      "DEFAULT": 0.0,
+      "UI_GROUP": "Strobe",
+      "DESCRIPTION": "Blend iTime's pace toward the bass: slow when quiet, surging on loud bass."
+    },
+    {
+      "NAME": "st_bass_flash",
+      "TYPE": "slider",
+      "MIN": 0.0,
+      "MAX": 1.0,
+      "DEFAULT": 0.0,
+      "UI_GROUP": "Strobe",
+      "DESCRIPTION": "Brightness kick on bass hits."
+    },
+    {
+      "NAME": "st_zoom",
+      "TYPE": "slider",
+      "MIN": 0.5,
+      "MAX": 2.0,
+      "DEFAULT": 1.0,
+      "UI_GROUP": "Strobe",
+      "DESCRIPTION": "Zoom of the picture around its centre."
+    },
+    {
+      "NAME": "st_hue",
+      "TYPE": "slider",
+      "MIN": -180.0,
+      "MAX": 180.0,
+      "DEFAULT": 0.0,
+      "UI_GROUP": "Strobe",
+      "DESCRIPTION": "Hue rotation of the picture, degrees."
+    }
+  ],
+  "SOURCE": {
+    "kind": "shadertoy",
+    "id": "Tst004",
+    "url": "https://www.shadertoy.com/view/Tst004",
+    "author": "strobe-tests",
+    "name": "Four buffer chain",
+    "license_note": "Shadertoy shaders are published under CC BY-NC-SA 3.0 unless the author says otherwise (check the shader page and the comments at the top of the code). That licence forbids commercial use without the author's permission; get it before showing this in a paid setting.",
+    "tags": [],
+    "passes": [
+      {
+        "name": "Buffer A",
+        "file": "passes/buffer_a.glsl",
+        "code_line": 14
+      },
+      {
+        "name": "Buffer B",
+        "file": "passes/buffer_b.glsl",
+        "code_line": 11
+      },
+      {
+        "name": "Buffer C",
+        "file": "passes/buffer_c.glsl",
+        "code_line": 11
+      },
+      {
+        "name": "Buffer D",
+        "file": "passes/buffer_d.glsl",
+        "code_line": 11
+      },
+      {
+        "name": "Image",
+        "file": "main.glsl",
+        "code_line": 18
+      }
+    ]
+  }
+}
