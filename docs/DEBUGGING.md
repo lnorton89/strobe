@@ -123,7 +123,7 @@ every supported release's symbols archive. Open the `.dmp` in WinDbg with
 the PDB on the symbol path (`.sympath+ <folder>`, `.reload`, `!analyze -v`),
 or in Visual Studio. Release builds have line tables (D42), so frames show
 function names and `file:line`. No debugger is installed on the T480 yet;
-this procedure has not been run there.
+this procedure has not been run there (Q11).
 
 ### The crash drill (T480 checklist)
 
@@ -137,13 +137,17 @@ STROBE_DIAG_DIR=target/diag cargo run --release -p strobe-diag --example crash_d
 | Mode | Expected files |
 |---|---|
 | `panic` | `.txt` only |
-| `abort` | `.txt` and `.dmp`. D43 predicts no `.dmp` on Windows (a bare abort bypasses the filter), while `docs/hardware/T480.md` expects one; the drill settles which is true, so record it |
+| `abort` | session log only on Windows: Rust's `abort` is `__fastfail`, which no in-process handler sees (confirmed on the T480, 2026-10-09). `.txt` and `.dmp` on Linux |
 | `overflow` | `.txt` and `.dmp` |
 | `panic-abort-profile` | one stem shared by the panic report and the dump |
 | `ok` | a session log only |
 
-On the laptop, each of `abort` and `overflow` should produce its files
-within a few seconds. Then, per run: confirm the notifier message appeared,
+On the laptop, `overflow` should produce its files within a few seconds.
+An agent driving the laptop runs inside the Claude desktop app's MSIX
+package context, where `%LOCALAPPDATA%` is virtualised and the monitor
+socket cannot be connected (`os error 10022`); it must set
+`STROBE_DIAG_DIR` to a folder inside the repo. A person in an ordinary
+terminal needs no override (T480 bug 2). Then, per run: confirm the notifier message appeared,
 the `.txt` names the GL renderer and the scene, and the session log's last
 lines are present. Report the paths of the files, not their contents, and
 attach the `--diagnose` report.
