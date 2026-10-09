@@ -202,6 +202,32 @@ impl fmt::Display for Cause {
     }
 }
 
+impl Cause {
+    /// The window the loss was noticed on, if the cause names one.
+    pub fn window(&self) -> Option<Surface> {
+        match self {
+            Self::Reset { window, .. } | Self::FailedFrames { window, .. } => Some(*window),
+            Self::FailedRebuild { .. } => None,
+        }
+    }
+
+    /// The driver's reset status, if it was asked and said so.
+    pub fn reset_status(&self) -> Option<ResetStatus> {
+        match self {
+            Self::Reset { status, .. } => Some(*status),
+            Self::FailedFrames { .. } | Self::FailedRebuild { .. } => None,
+        }
+    }
+
+    /// The error text of the call that failed, if there was one.
+    pub fn error(&self) -> Option<&str> {
+        match self {
+            Self::Reset { error, .. } => error.as_deref(),
+            Self::FailedFrames { error, .. } | Self::FailedRebuild { error, .. } => Some(error),
+        }
+    }
+}
+
 /// A rebuild to carry out.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Rebuild {
@@ -814,6 +840,30 @@ mod tests {
             !policy.poll_due(start + secs(1) + Duration::from_millis(500)),
             "and then the clock restarts"
         );
+    }
+
+    #[test]
+    fn the_cause_exposes_its_parts_for_the_failure_record() {
+        let frames = Cause::FailedFrames {
+            window: Surface::Control,
+            count: 3,
+            error: ERROR.to_string(),
+        };
+        assert_eq!(frames.window(), Some(Surface::Control), "window");
+        assert_eq!(frames.reset_status(), None, "not queried");
+        assert_eq!(frames.error(), Some(ERROR), "error");
+        let reset = Cause::Reset {
+            window: Surface::Output,
+            status: ResetStatus::Guilty,
+            error: None,
+        };
+        assert_eq!(reset.reset_status(), Some(ResetStatus::Guilty), "status");
+        assert_eq!(reset.error(), None, "a health poll has no failed call");
+        let rebuild = Cause::FailedRebuild {
+            backend: Backend::Native,
+            error: "x".to_string(),
+        };
+        assert_eq!(rebuild.window(), None, "no window");
     }
 
     #[test]

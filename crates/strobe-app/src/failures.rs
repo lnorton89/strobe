@@ -15,10 +15,11 @@
 //! from the event loop, so each shape is a unit test rather than something
 //! only a broken scene on a projector would show.
 
+use crate::recovery::{Decision, Rebuild};
 use crate::session::LoadError;
 use std::path::Path;
 use strobe_diag::failure::{Failure, Subsystem};
-use strobe_gfx::PlayerError;
+use strobe_gfx::{Backend, PlayerError};
 use strobe_scene::SceneError;
 use strobe_script::ScriptError;
 
@@ -97,6 +98,102 @@ pub fn script_load(name: &str, error: &ScriptError) -> Failure {
         .action("the scene runs without its script")
 }
 
+/// The short name of a backend, as the session context and the failure
+/// records spell it.
+pub fn backend_label(backend: Backend) -> &'static str {
+    match backend {
+        Backend::Native => "native",
+        Backend::Angle => "angle",
+    }
+}
+
+/// What to say the app is about to do for a rebuild.
+fn rebuild_action(rebuild: &Rebuild) -> String {
+    if rebuild.failover {
+        format!(
+            "failing over to {}; the output goes dark until it is up",
+            backend_label(rebuild.backend)
+        )
+    } else {
+        format!(
+            "rebuilding the context on {}; the output goes dark until it is up",
+            backend_label(rebuild.backend)
+        )
+    }
+}
+
+/// The failure for a GL context that was lost or became unusable: which
+/// window noticed, what the driver said, what the reset query answered,
+/// which backend it was, and what the app will do next.
+pub fn context_lost(rebuild: &Rebuild, before: Backend, scene: Option<&str>) -> Failure {
+    let mut failure = Failure::new(Subsystem::Context, "lost");
+    if let Some(scene) = scene {
+        failure = failure.scene(scene);
+    }
+    if let Some(window) = rebuild.cause.window() {
+        failure = failure.detail("window", window);
+    }
+    failure
+        .detail(
+            "reset_status",
+            rebuild.cause.reset_status().map_or_else(
+                || "not queried (the context was not current)".to_string(),
+                |status| status.to_string(),
+            ),
+        )
+        .detail("backend", backend_label(before))
+        .message(&rebuild.cause)
+        .action(rebuild_action(rebuild))
+}
+
+/// The failure record for a rebuild that worked. It is a record, not an
+/// error: the point is that the next person to read the log sees that the
+/// output went away, for how long, and on which backend it came back.
+pub fn context_rebuilt(
+    rebuild: &Rebuild,
+    before: Backend,
+    elapsed_ms: u128,
+    scene: Option<&str>,
+    reloaded: bool,
+) -> Failure {
+    let mut failure = Failure::new(Subsystem::Context, "rebuild");
+    if let Some(scene) = scene {
+        failure = failure.scene(scene);
+    }
+    failure
+        .detail("backend_before", backend_label(before))
+        .detail("backend_after", backend_label(rebuild.backend))
+        .detail("elapsed_ms", elapsed_ms)
+        .detail("outcome", "recovered")
+        .message(&rebuild.cause)
+        .action(match (scene, reloaded) {
+            (Some(name), true) => format!("output recovered; {name} reloaded"),
+            (Some(name), false) => {
+                format!("output recovered; {name} could not be reloaded, showing black")
+            }
+            (None, _) => "output recovered; no scene was playing".to_string(),
+        })
+}
+
+/// The failure for a rebuild that did not come up, with what happens next.
+pub fn context_rebuild_failed(
+    backend: Backend,
+    error: &str,
+    before: Backend,
+    next: &Decision,
+) -> Failure {
+    Failure::new(Subsystem::Context, "rebuild")
+        .detail("backend_before", backend_label(before))
+        .detail("backend_attempted", backend_label(backend))
+        .detail("outcome", "failed")
+        .message(error)
+        .action(match next {
+            Decision::Rebuild(rebuild) => rebuild_action(rebuild),
+            Decision::GiveUp(reason) => format!("giving up: {reason}"),
+            Decision::Continue | Decision::RetryNextFrame => "continuing".to_string(),
+        })
+}
+
 /// A compiler log without the warnings the generated preamble itself
 /// provokes (`_uv` used uninitialized, on every scene, on Mesa). They bury
 /// the one error a person can act on. Errors in generated code are kept.
@@ -117,8 +214,10 @@ fn user_line(log: &str) -> Option<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::recovery::{Cause, Surface};
     use anyhow::Result;
     use std::path::PathBuf;
+    use strobe_gfx::gl::ResetStatus;
 
     #[test]
     fn a_compile_error_carries_the_pass_the_file_and_the_line() -> Result<()> {
@@ -193,6 +292,133 @@ mod tests {
         ] {
             assert!(text.contains(needle), "missing `{needle}` in:\n{text}");
         }
+        Ok(())
+    }
+
+    fn lost_after_three_frames(failover: bool) -> Rebuild {
+        Rebuild {
+            backend: if failover {
+                Backend::Angle
+            } else {
+                Backend::Native
+            },
+            failover,
+            cause: Cause::FailedFrames {
+                window: Surface::Output,
+                count: 3,
+                error: "make current: [6] The handle is invalid. (os error 6)".to_string(),
+            },
+        }
+    }
+
+    #[test]
+    fn a_loss_says_which_window_what_error_which_backend_and_what_happens_next() -> Result<()> {
+        let text = context_lost(
+            &lost_after_three_frames(false),
+            Backend::Native,
+            Some("09-sdf"),
+        )
+        .to_string();
+        for needle in [
+            "CONTEXT",
+            "scene=09-sdf",
+            "phase=lost",
+            "window=output",
+            "reset_status=not queried",
+            "backend=native",
+            "The handle is invalid",
+            "rebuilding the context on native",
+        ] {
+            assert!(text.contains(needle), "missing `{needle}` in:\n{text}");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn a_fail_over_loss_says_so() -> Result<()> {
+        let text = context_lost(&lost_after_three_frames(true), Backend::Native, None).to_string();
+        assert!(text.contains("failing over to angle"), "action:\n{text}");
+        assert!(!text.contains("scene="), "no scene was playing:\n{text}");
+        Ok(())
+    }
+
+    #[test]
+    fn a_loss_with_a_driver_reset_carries_its_status() -> Result<()> {
+        let rebuild = Rebuild {
+            backend: Backend::Native,
+            failover: false,
+            cause: Cause::Reset {
+                window: Surface::Output,
+                status: ResetStatus::Innocent,
+                error: None,
+            },
+        };
+        let text = context_lost(&rebuild, Backend::Native, None).to_string();
+        assert!(
+            text.contains("reset_status=innocent context reset"),
+            "status:\n{text}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_recovery_records_the_backends_the_time_and_the_scene() -> Result<()> {
+        let text = context_rebuilt(
+            &lost_after_three_frames(true),
+            Backend::Native,
+            412,
+            Some("09-sdf"),
+            true,
+        )
+        .to_string();
+        for needle in [
+            "phase=rebuild",
+            "backend_before=native",
+            "backend_after=angle",
+            "elapsed_ms=412",
+            "outcome=recovered",
+            "output recovered; 09-sdf reloaded",
+        ] {
+            assert!(text.contains(needle), "missing `{needle}` in:\n{text}");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn a_recovery_without_a_scene_or_with_a_failed_reload_says_so() -> Result<()> {
+        let rebuild = lost_after_three_frames(false);
+        let none = context_rebuilt(&rebuild, Backend::Native, 5, None, false).to_string();
+        assert!(none.contains("no scene was playing"), "no scene:\n{none}");
+        let failed = context_rebuilt(&rebuild, Backend::Native, 5, Some("x"), false).to_string();
+        assert!(
+            failed.contains("could not be reloaded"),
+            "failed:\n{failed}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_failed_rebuild_names_the_next_step() -> Result<()> {
+        let next = Decision::Rebuild(lost_after_three_frames(true));
+        let text =
+            context_rebuild_failed(Backend::Native, "context: refused", Backend::Native, &next)
+                .to_string();
+        for needle in [
+            "outcome=failed",
+            "backend_attempted=native",
+            "context: refused",
+            "failing over to angle",
+        ] {
+            assert!(text.contains(needle), "missing `{needle}` in:\n{text}");
+        }
+        let give_up = Decision::GiveUp("ANGLE failed too".to_string());
+        let text =
+            context_rebuild_failed(Backend::Angle, "display: none", Backend::Native, &give_up)
+                .to_string();
+        assert!(
+            text.contains("giving up: ANGLE failed too"),
+            "give up:\n{text}"
+        );
         Ok(())
     }
 

@@ -139,4 +139,14 @@ impl UiHost {
     pub fn destroy(&mut self) {
         self.painter.destroy();
     }
+
+    /// Drops the host **without** touching GL, for a context that is lost:
+    /// deleting against it could fault in the driver, and the driver frees a
+    /// destroyed context's objects anyway. egui's painter would log a
+    /// misleading "forgot to call destroy()" warning, so it is forgotten
+    /// instead of dropped (a few kilobytes, once per lost context).
+    pub fn abandon(self) {
+        let Self { painter, .. } = self;
+        std::mem::forget(painter);
+    }
 }
