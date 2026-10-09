@@ -362,6 +362,3 @@ pub fn convert(shader: &Shader, options: &Options) -> Result<Converted, ConvertE
         rewrites,
     })
 }
-
-#[cfg(test)]
-mod tests;

@@ -335,7 +335,7 @@ impl Shader {
                     items.len()
                 )));
             }
-            other => {
+            other @ (Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_)) => {
                 return Err(ModelError::NotAShader(format!(
                     "expected an object, found {}",
                     kind_of(&other)
