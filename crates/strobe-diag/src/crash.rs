@@ -190,12 +190,39 @@ fn file_name(path: &Path) -> String {
 fn socket_name_for_this_process() -> String {
     let pid = std::process::id();
     if cfg!(target_os = "linux") {
-        format!("strobe-crash-{pid}")
+        return format!("strobe-crash-{pid}");
+    }
+    let file = format!("strobe-crash-{pid}.sock");
+    let dir = paths::sockets_dir();
+    fs::create_dir_all(&dir).ok();
+    let path = long_form(&dir).join(&file);
+    let text = path.to_string_lossy().into_owned();
+    // sun_path holds 108 bytes including the terminator; a deep
+    // STROBE_DIAG_DIR could exceed it, so fall back to a short known path.
+    if text.len() < SUN_PATH_LIMIT {
+        text
     } else {
-        std::env::temp_dir()
-            .join(format!("strobe-crash-{pid}.sock"))
+        long_form(&std::env::temp_dir())
+            .join(file)
             .to_string_lossy()
             .into_owned()
+    }
+}
+
+/// Bytes available in an AF_UNIX path, leaving room for the terminator.
+const SUN_PATH_LIMIT: usize = 100;
+
+/// `dir` with any 8.3 short components expanded, and without the `\\?\`
+/// verbatim prefix `canonicalize` adds on Windows (AF_UNIX paths are plain
+/// Win32 paths). Falls back to `dir` unchanged when it cannot be resolved.
+fn long_form(dir: &Path) -> PathBuf {
+    let Ok(resolved) = fs::canonicalize(dir) else {
+        return dir.to_path_buf();
+    };
+    let text = resolved.to_string_lossy();
+    match text.strip_prefix(r"\\?\") {
+        Some(rest) if !rest.starts_with("UNC") => PathBuf::from(rest),
+        Some(_) | None => resolved,
     }
 }
 
