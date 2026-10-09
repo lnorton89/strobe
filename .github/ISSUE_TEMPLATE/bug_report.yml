@@ -1,0 +1,143 @@
+# An issue *form*, which is why this is .yml and not .md. GitHub renders a
+# .md template as prose with optional YAML front matter; the schema below
+# — `body:` with typed fields — is only understood in a .yml file. Named
+# wrongly it silently degrades into a markdown blob showing the raw YAML.
+#
+# The fields are the ones a graphics bug cannot be diagnosed without: the
+# GPU and its driver version, and which context backend actually ran
+# (native OpenGL or the ANGLE/Direct3D 11 fallback). The same scene can
+# render correctly on one and not the other, so "it looks wrong" with
+# neither named is not something anyone can act on. `strobe --diagnose`
+# prints most of it in one paste.
+name: Bug report
+description: Something is broken — Strobe crashed, hung, rendered wrongly, or did the wrong thing
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Please search the [existing issues](https://github.com/lnorton89/strobe/issues) first — it may already be known.
+
+        The fastest route to a fix is the **crash report** (if it crashed) and the output of **`strobe --diagnose`**. Both are asked for below.
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What kind of problem is it?
+      options:
+        - Crash (Strobe closed or the window vanished)
+        - Hang (Strobe stopped responding or froze the output)
+        - Visual glitch (wrong colours, artefacts, black or garbled output)
+        - Wrong behaviour (a control, import, playlist or audio feature does the wrong thing)
+        - Performance (low frame rate, stutter, high CPU or GPU use)
+        - Something else
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Your Windows build and how you installed Strobe. `winver` gives the build number.
+      placeholder: |
+        - Windows: (e.g. Windows 10 Pro 22H2, build 19045.6466)
+        - Install: release zip, or `cargo build --release -p strobe-app`
+        - Version: strobe 0.1.0, or the commit hash if you built from source
+    validations:
+      required: true
+
+  - type: textarea
+    id: gpu
+    attributes:
+      label: GPU and driver version
+      description: |
+        The adapter and its driver version, as the driver reports it. Device Manager → Display adapters → Properties → Driver gives the version; on a laptop with two GPUs, say which one Strobe was running on. `strobe --diagnose` prints this too.
+      placeholder: |
+        - GPU: Intel HD Graphics 4000 (or NVIDIA GeForce GTX 1650 Mobile, …)
+        - Driver: 10.18.10.5161 (date 2019-xx-xx)
+        - Hybrid graphics: yes / no
+    validations:
+      required: true
+
+  - type: dropdown
+    id: backend
+    attributes:
+      label: Context backend
+      description: Which OpenGL context Strobe ran on. The log names it on its first lines (`context=native` or `context=angle`); `strobe --diagnose` prints it too. If you forced one with a flag, say so under Additional context.
+      options:
+        - Native OpenGL (WGL)
+        - ANGLE (Direct3D 11 fallback)
+        - Both — it differs between them
+        - I don't know
+    validations:
+      required: true
+
+  - type: input
+    id: scene
+    attributes:
+      label: Scene
+      description: The scene name, or the Shadertoy ID / URL if the scene was imported. Say "all of them" if it is not scene-specific.
+      placeholder: "e.g. 09-sdf-cathedral, or shadertoy.com/view/XXXXXX"
+
+  - type: input
+    id: resolution
+    attributes:
+      label: Render resolution and render scale
+      description: The output resolution and the render-scale setting in use, if you changed it.
+      placeholder: "e.g. 1920x1080 at 50% render scale"
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: What you clicked, loaded or played. Include whether it happens every time or once.
+      placeholder: |
+        1. Load scene ...
+        2. Move control ...
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+      description: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+      description: What happened instead? Include any error text from the console panel. A screenshot or a photo of the output is worth a paragraph for a visual glitch.
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnose
+    attributes:
+      label: Output of `strobe --diagnose`
+      description: Run `strobe --diagnose` from a terminal in the folder you unzipped Strobe to, and paste what it prints.
+      render: text
+
+  - type: textarea
+    id: crash
+    attributes:
+      label: Crash report
+      description: |
+        If Strobe crashed, attach the newest file from `%LOCALAPPDATA%\strobe\crashes\` (paste that path into Explorer's address bar). It holds the panic or fault details and a minidump. Drag the file into this box, or zip it first if GitHub refuses the extension. Do not edit it.
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Latest log
+      description: |
+        Attach the newest file from `%LOCALAPPDATA%\strobe\logs\`. It names the context backend, the shader compile and link results, and anything that went wrong before the problem — attach it even if nothing crashed.
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Anything else that might help — audio device and input, whether a second window or projector was connected, which command-line flags you used, whether an older version behaved differently.

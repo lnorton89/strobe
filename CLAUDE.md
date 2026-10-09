@@ -23,6 +23,9 @@ macOS and Linux later. Performance is a feature, not a polish step.
 ## Commands
 
 ```bash
+cargo xtask ci                                            # everything CI runs; stops at the first failure
+cargo xtask changelog [--check | --release vX.Y.Z]       # CHANGELOG.md is generated; never hand-edit it
+cargo xtask bench -- --size 1280x720                      # strobe-bench in release; args forwarded
 cargo test --workspace                                    # everything
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo fmt --all -- --check
@@ -30,11 +33,19 @@ cargo clippy --workspace --exclude strobe-script --all-targets --all-features --
 cargo run --release -p strobe-bench -- --size 1280x720     # benchmark + frames
 ```
 
-All of these are clean on the branch, and CI enforces them. The Windows
-cross-check excludes `strobe-script`: QuickJS is C, and compiling it for
-MSVC needs the Windows SDK, so only a real Windows build (CI's `windows`
-job, or the T480) checks that crate for Windows. A warning is
-a build failure.
+All of these are clean on the branch, and CI enforces them. A warning is
+a build failure. `cargo xtask ci` runs the lot (fmt, clippy, tests, the
+Windows cross-clippy when the target is installed, cargo-deny when
+installed, the changelog check); a skipped step says why.
+
+`CHANGELOG.md` is **generated** from conventional-commit subjects by
+`cargo xtask changelog`, so commit subjects matter and the file is never
+edited by hand. Releases follow the order in `CONTRIBUTING.md`: write the
+section with `--release` first, tag after, never move a tag.
+
+The Windows cross-check excludes `strobe-script`. QuickJS is C, and
+compiling it for MSVC needs the Windows SDK, so only a real Windows build
+checks that crate for Windows: CI's `windows` job, or the T480.
 
 ### Seeing what you changed without a window
 

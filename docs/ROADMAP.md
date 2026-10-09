@@ -36,6 +36,15 @@ The following is done and verified headless:
   D45. **Not yet wired into an app**: `strobe-app` must follow the
   integration steps in the `strobe_diag` crate docs.
 
+- Repo and release plumbing (branch `agent/repo-ci`): `cargo xtask ci |
+  changelog | bench`, a generated `CHANGELOG.md`, a tag-triggered release
+  workflow (Windows zip with ANGLE and scenes, separate PDB symbols
+  archive, SBOM, checksums, provenance attestations), a macOS job (portable
+  crates blocking; `strobe-gfx` awaits a CGL context), bench frames
+  uploaded from CI, issue forms, dependabot, CODEOWNERS and SECURITY.md.
+  Decisions D50-D59. Untested until the first push: the release workflow
+  itself, which only runs on a tag.
+
 ### In flight (parallel agents, 2026-10-08)
 
 - `strobe-script` (Sonnet agent, worktree branch `agent/strobe-script`)

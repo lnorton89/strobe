@@ -1,0 +1,351 @@
+name: Release
+
+# Tagging is the trigger, and the changelog comes first (CONTRIBUTING.md):
+#
+#   cargo xtask changelog --release v0.2.0   # commit the result
+#   git tag -a v0.2.0 -m "strobe v0.2.0" && git push origin v0.2.0
+#
+# The release is created as a draft, the archives are attached to it, and
+# it is only published once the build has succeeded — so a failed build
+# leaves an unpublished draft rather than a half-populated public release.
+# Never move a tag that has been pushed: a second push re-runs this
+# workflow, which ends in `gh release upload --clobber`.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build a release from (e.g. v0.1.0)"
+        required: true
+
+# Least privilege by default. The build below runs third-party code (every
+# crate's build script) and needs to read the repository and nothing else;
+# `draft` and `publish` ask for more, individually.
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  draft:
+    name: Create draft release
+    runs-on: ubuntu-latest
+    # This job and `publish` are the only ones holding a write-capable
+    # token; the build below runs third-party code and needs none.
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+    steps:
+      # The tagged tree, not the default branch: a manual run names a tag
+      # in `inputs.tag`, and the changelog section and version checked
+      # below must come from that tag's tree.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+
+      # Through `env`, never interpolated into the script: the tag name is
+      # attacker-influenced text in a workflow that holds a write token.
+      - name: Resolve tag
+        id: resolve
+        shell: bash
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+      # A tag that disagrees with Cargo.toml would ship a binary whose
+      # `--version` contradicts its release page, and cannot be fixed
+      # afterwards because a published tag is never moved. Catch it before
+      # any build minutes are spent.
+      - name: Check the tag matches the workspace version
+        shell: bash
+        env:
+          TAG: ${{ steps.resolve.outputs.tag }}
+        run: |
+          set -euo pipefail
+          version=$(awk '/^\[workspace.package\]/{in_pkg=1; next} /^\[/{in_pkg=0} in_pkg && /^version *=/{gsub(/[" ]/, "", $0); sub(/^version=/, "", $0); print; exit}' Cargo.toml)
+          if [ "v${version}" != "${TAG}" ]; then
+            echo "Tag ${TAG} does not match Cargo.toml's workspace version (${version})."
+            echo "Bump the version and regenerate the changelog before tagging."
+            exit 1
+          fi
+
+      - name: Create draft release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.resolve.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists, reusing it."
+            exit 0
+          fi
+          # The notes are this release's section of CHANGELOG.md, which
+          # `cargo xtask changelog --release` wrote before the tag existed,
+          # so the page says exactly what the changelog in the tagged tree
+          # says. GitHub's generated notes are the fallback for a tag cut
+          # without that step.
+          version="${TAG#v}"
+          awk -v v="## [${version}]" '
+            index($0, v) == 1 { on = 1; next }
+            on && /^## / { exit }
+            on && /^\[Unreleased\]:/ { exit }
+            on { print }
+          ' CHANGELOG.md > notes.md
+          if [ -s notes.md ] && grep -q '[^[:space:]]' notes.md; then
+            gh release create "$TAG" --draft --title "strobe $TAG" --notes-file notes.md
+          else
+            echo "No [${version}] section in CHANGELOG.md; using generated notes."
+            gh release create "$TAG" --draft --title "strobe $TAG" --generate-notes
+          fi
+
+  build:
+    name: ${{ matrix.target }}
+    needs: draft
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # One target, because there is one platform. x86_64 only: nothing
+          # here can *test* an ARM64 Windows binary, and shipping an
+          # untested archive is not a trade worth making for the number of
+          # ARM64 Windows laptops running a VJ engine. The matrix stays a
+          # matrix so adding one later is an entry rather than a rewrite.
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+    steps:
+      # Pinned to full SHAs, as in ci.yml — a mutable action tag inside a
+      # workflow that once held a release-writing token is exactly the
+      # blast radius this pins away.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.draft.outputs.tag }}
+
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master, 2026-08
+        with:
+          toolchain: "1.98.0"
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: release-${{ matrix.target }}
+
+      # ANGLE (libEGL.dll, libGLESv2.dll, d3dcompiler_47.dll) is the
+      # fallback context for machines whose WGL driver is broken, and it
+      # travels beside strobe.exe. The script downloads a pinned Electron
+      # 38.2.0 and checks the archive and every extracted DLL against
+      # hard-coded SHA-256 hashes, failing the release on a mismatch. Do
+      # not bump that version casually: Electron 44+ no longer ships the
+      # DLLs (docs/AGENT_RESEARCH.md section 8, DECISIONS.md D12).
+      - name: Fetch ANGLE
+        shell: pwsh
+        run: ./scripts/fetch-angle.ps1 -Profile release
+
+      # Two overrides of the release profile, for this build only:
+      #
+      # `strip = "none"`. The profile says `strip = "debuginfo"`, and for
+      # the MSVC linker rustc turns that into `/DEBUG:NONE` — which means
+      # *no .pdb is written at all*. Without one a minidump from a user's
+      # crash (written to %LOCALAPPDATA%\strobe\crashes\) is a list of
+      # addresses nobody can name.
+      #
+      # `debug = "line-tables-only"`. Function names and source lines in
+      # the .pdb, without the type information that makes it enormous.
+      # None of this changes the code that is generated or the size of
+      # strobe.exe: the symbols live in the separate .pdb, which is
+      # published as the `-symbols` archive and never shipped to users.
+      - name: Build
+        env:
+          CARGO_PROFILE_RELEASE_STRIP: none
+          CARGO_PROFILE_RELEASE_DEBUG: line-tables-only
+        run: cargo build --release --locked -p strobe-app --target ${{ matrix.target }}
+
+      - name: Package
+        shell: bash
+        env:
+          TAG: ${{ needs.draft.outputs.tag }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          name="strobe-${TAG}-${TARGET}"
+          staging="dist/${name}"
+          mkdir -p "$staging"
+
+          release_dir="target/${TARGET}/release"
+          # ANGLE is fetched into target/release, which is not the
+          # --target directory. Every file is checked by name: `cp` on a
+          # missing source fails anyway, but "libEGL.dll: No such file" is
+          # a clearer end to a release than a half-full archive.
+          for file in \
+            "${release_dir}/strobe.exe" \
+            "${release_dir}/strobe.pdb" \
+            target/release/libEGL.dll \
+            target/release/libGLESv2.dll \
+            target/release/d3dcompiler_47.dll \
+            target/release/LICENSES.chromium.html; do
+            test -f "$file" || { echo "missing build output: $file"; exit 1; }
+          done
+
+          cp "${release_dir}/strobe.exe" "$staging/"
+          cp target/release/libEGL.dll target/release/libGLESv2.dll \
+             target/release/d3dcompiler_47.dll target/release/LICENSES.chromium.html "$staging/"
+          # The scene library travels with the binary: it is the first
+          # thing a new user plays, and the worked examples anyone writing
+          # a scene starts from.
+          cp -r scenes "$staging/scenes"
+          cp README.md LICENSE "$staging/"
+
+          # The symbols go in an archive of their own, never in the user's
+          # zip: the .pdb is several times the size of the program, and a
+          # user has no use for it. It is for symbolicating the crash
+          # reports they send back, and it only matches *this* build, so
+          # it must be kept for as long as the release is supported.
+          symbols="${name}-symbols"
+          mkdir -p "dist/${symbols}"
+          cp "${release_dir}/strobe.pdb" "dist/${symbols}/"
+
+          cd dist
+          7z a -tzip "${name}.zip" "$name" >/dev/null
+          7z a -tzip "${symbols}.zip" "$symbols" >/dev/null
+
+      # A CycloneDX SBOM naming every crate in the build, so a consumer
+      # can audit what the binary contains without taking this workflow's
+      # word for it. Resolved for the Windows target, so it lists what is
+      # in strobe.exe and not the Linux-only crates a workspace-wide
+      # resolve would add.
+      - name: Build the SBOM
+        shell: bash
+        env:
+          TAG: ${{ needs.draft.outputs.tag }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          # An exact version, not "latest": `--locked` alone pins this
+          # tool's *dependencies*, not the tool itself, so a re-run of
+          # this same workflow months later could emit a differently
+          # shaped SBOM. A version moves the way an action SHA does —
+          # deliberately, in a reviewed commit.
+          cargo install cargo-cyclonedx --version 0.5.9 --locked
+          # cargo-cyclonedx 0.5.9 has no `--package`: whatever manifest it
+          # is pointed at, it writes one file per workspace member, each
+          # into its own crate directory under the same name. Only
+          # strobe-app's is copied out below — it is the shipped package,
+          # and its SBOM lists the crates that are actually in strobe.exe.
+          # The rest are scratch files in a throwaway checkout.
+          cargo cyclonedx \
+            --manifest-path crates/strobe-app/Cargo.toml \
+            --format json \
+            --target "$TARGET" \
+            --override-filename strobe.cdx
+          cp crates/strobe-app/strobe.cdx.json "dist/strobe-${TAG}-sbom.cdx.json"
+
+      # Checksums travel with the artifacts so a download can be verified
+      # without trusting the transfer — one step at the end rather than a
+      # line in each producing step, because every step is its own shell
+      # and the alternative is the same helper pasted three times.
+      #
+      # Git Bash on the Windows runner ships `sha256sum`; the `certutil`
+      # fallback is there because a runner image that dropped it would
+      # otherwise fail a release at the last step over a one-line file.
+      # `certutil` prints a label line, the hex digest, and a trailing
+      # blank, so the digest is line 2 with the CR stripped.
+      - name: Checksums
+        shell: bash
+        working-directory: dist
+        run: |
+          set -euo pipefail
+          for file in *.zip *.cdx.json; do
+            if command -v sha256sum >/dev/null; then
+              sha256sum "$file" > "$file.sha256"
+            else
+              digest=$(certutil -hashfile "$file" SHA256 | sed -n 2p | tr -d '\r ')
+              printf '%s  %s\n' "$digest" "$file" > "$file.sha256"
+            fi
+          done
+
+      # One artifact per target: with upload-artifact@v4 and later, a
+      # second matrix job uploading to the same name fails outright, and
+      # even when it did not, a shared name is how one platform's files
+      # get mixed into another's release. Only the finished archives,
+      # checksums and SBOM are uploaded — the staging directories with the
+      # raw binary, README and LICENSE stay inside the build job where
+      # they belong.
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-assets-${{ matrix.target }}
+          path: |
+            dist/*.zip
+            dist/*.cdx.json
+            dist/*.sha256
+
+  publish:
+    name: Publish release
+    needs: [draft, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      # For the provenance attestation below — the OIDC token that proves
+      # which workflow, at which commit, produced these bytes.
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Download archives
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          # `pattern`, not `name`: `name` is an exact artifact name with no
+          # glob semantics, so `name: release-assets-*` would look for an
+          # artifact literally called that and fail the job.
+          pattern: release-assets-*
+          path: dist
+          merge-multiple: true
+
+      # Signed build provenance for both archives and the SBOM file —
+      # exactly those; the `.sha256` companions are not attested, because
+      # an attestation *is* a signed digest and a signed
+      # checksum-of-a-checksum adds nothing. Verifiable with
+      # `gh attestation verify <file> -R lnorton89/strobe`.
+      #
+      # This is the supply-chain half a project without paid signing
+      # certificates can still provide. Authenticode needs a code-signing
+      # certificate that lives outside this repository, which is also why
+      # SmartScreen will warn on a fresh download.
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            dist/*.zip
+            dist/*.cdx.json
+
+      # And the SBOM again as a real SBOM attestation, so the CycloneDX
+      # document is cryptographically bound to the artifact it describes
+      # rather than merely uploaded beside it —
+      # `gh attestation verify <artifact> -R lnorton89/strobe
+      #  --predicate-type https://cyclonedx.org/bom` retrieves it.
+      #
+      # The subject is the program archive only. The glob ends in `-msvc`
+      # plus `.zip`, so it cannot match `…-msvc-symbols.zip`: the SBOM
+      # describes what is in strobe.exe, and the symbols archive is not it.
+      - name: Attest SBOM
+        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
+        with:
+          subject-path: dist/strobe-*-x86_64-pc-windows-msvc.zip
+          sbom-path: dist/strobe-${{ needs.draft.outputs.tag }}-sbom.cdx.json
+
+      - name: Upload and undraft
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.draft.outputs.tag }}
+        run: |
+          set -euo pipefail
+          cd dist
+          gh release upload "$TAG" $(find . -type f) --clobber
+          gh release edit "$TAG" --draft=false --latest
