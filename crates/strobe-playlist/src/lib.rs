@@ -42,6 +42,7 @@
 //! is reproducible from its inputs and the 4-hour soak test runs in
 //! milliseconds.
 
+pub mod clock;
 pub mod duration;
 pub mod error;
 pub mod file;
@@ -49,12 +50,16 @@ pub mod generate;
 pub mod model;
 pub mod parse;
 pub mod resolve;
+pub mod resume;
 pub mod rng;
 pub mod schedule;
 pub mod tempo;
 pub mod timeline;
 pub mod write;
 
+pub use clock::{
+    ClockConfig, ClockEvent, ClockState, Command, PlaylistClock, SkipReason, TransitionProgress,
+};
 pub use duration::{BEATS_PER_BAR, DurationError, DurationSpec, Length};
 pub use error::{ParseError, PlaylistError};
 pub use generate::{
@@ -65,6 +70,7 @@ pub use model::{
     SceneRef, Section, ShuffleSpec, TransitionKind, TransitionSpec, WallClockAnchor,
 };
 pub use resolve::{ResolvedCue, ResolvedPlaylist, distinct_scenes, identity, resolve};
+pub use resume::{ResumeError, ResumePoint};
 pub use schedule::{Placement, WallTime};
 pub use tempo::BeatInfo;
 pub use timeline::{Timeline, TimelineConfig, TimelineCue};
