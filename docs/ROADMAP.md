@@ -67,6 +67,9 @@ picker and a synthetic fallback; scene scripts (see
 `scenes/11-script-orbits`); GPU timer queries driving adaptive
 resolution; and a control window that opens maximized.
 
+Also done: context-loss recovery (D66, "Next" item 0): a lost native context
+is rebuilt, or the app fails over to ANGLE, and the scene reloads.
+
 Also done: `strobe-bench --context window|headless|auto` and `--gl
 native|angle|auto` (D70-D72). The bench now runs on a hidden-window
 context where the driver has no EGL device (Intel on Windows). Window
@@ -74,11 +77,19 @@ mode renders the same images as headless, pixel for pixel, on llvmpipe.
 
 ## Next (in order)
 
-0. **Survive a lost or unusable GL context** (T480 bug 1): detect it
-   (`make_current` or `swap` failure, `GetGraphicsResetStatus`),
-   recreate the context, fail over to ANGLE if native keeps failing,
-   reload the scene, and record a structured failure. A projector must
-   never go dark because one driver call failed.
+0. **Survive a lost or unusable GL context** (T480 bug 1): **DONE**
+   (D66, branch `agent/context-recovery`), verified under Xvfb with
+   `STROBE_FAULT`; real WGL behaviour is still to be checked on the T480
+   (steps in `docs/hardware/T480.md`). What exists: robust contexts with a
+   logged fallback; `Gl::reset_status` through the glow loader; a lost flag
+   so `Drop` makes no GL calls; a pure, unit-tested policy
+   (`strobe-app/src/recovery.rs`: 3 failed frames or a reset report rebuild,
+   a second native rebuild in 60 s or a failed one fails over to ANGLE under
+   `--gl auto`, ANGLE failing too gives up); a rebuild of the context and
+   both windows that restores the output's fullscreen and monitor, the
+   control window's maximized state, the render scale and the playing scene;
+   `CONTEXT` failure records for each loss and rebuild; and `STROBE_FAULT`
+   fault injection (see `docs/DEBUGGING.md`, which is new).
 
 1. **`strobe-app` window shell.** A winit event loop, one GL context with
    two surfaces (the egui control window and the fullscreen output

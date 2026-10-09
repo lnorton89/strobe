@@ -51,6 +51,17 @@
 //! the first window's config (which on X11 sets the matching visual), and
 //! its surface comes from that same config.
 //!
+//! ## Robust contexts
+//!
+//! Both backends first ask for `Robustness::RobustLoseContextOnReset`.
+//! With it a driver that resets the GPU reports so
+//! ([`super::Gl::reset_status`]) and the context then refuses further
+//! work, instead of carrying on with undefined results or hanging; the
+//! app's recovery (D66) rebuilds the context on that signal. If the driver
+//! refuses the request (no `*_create_context_robustness`), the context is
+//! created again with the default attributes, the refusal is logged, and
+//! [`WindowedContext::robust`] says `false`.
+//!
 //! ## Vsync
 //!
 //! The swap interval belongs to the surface. The output window waits for
@@ -58,12 +69,11 @@
 //! in one loop would halve the frame rate.
 
 use super::Gl;
-use super::context::glow_from_loader;
 use crate::caps::Caps;
 use glutin::config::{Api, Config, ConfigTemplate, ConfigTemplateBuilder, GlConfig};
 use glutin::context::{
     ContextApi, ContextAttributes, ContextAttributesBuilder, GlProfile, NotCurrentContext,
-    NotCurrentGlContext, PossiblyCurrentContext, PossiblyCurrentGlContext, Version,
+    NotCurrentGlContext, PossiblyCurrentContext, PossiblyCurrentGlContext, Robustness, Version,
 };
 use glutin::display::{Display, DisplayApiPreference, GlDisplay};
 use glutin::surface::{GlSurface, Surface, SurfaceAttributesBuilder, SwapInterval, WindowSurface};
@@ -101,14 +111,20 @@ impl Backend {
         }
     }
 
-    fn context_attributes(self, window: RawWindowHandle) -> ContextAttributes {
+    fn context_attributes(
+        self,
+        window: RawWindowHandle,
+        robustness: Robustness,
+    ) -> ContextAttributes {
         match self {
             Self::Native => ContextAttributesBuilder::new()
                 .with_context_api(ContextApi::OpenGl(Some(Version::new(3, 3))))
                 .with_profile(GlProfile::Core)
+                .with_robustness(robustness)
                 .build(Some(window)),
             Self::Angle => ContextAttributesBuilder::new()
                 .with_context_api(ContextApi::Gles(Some(Version::new(3, 0))))
+                .with_robustness(robustness)
                 .build(Some(window)),
         }
     }
@@ -198,6 +214,7 @@ pub struct WindowedContext {
     gl: Gl,
     backend: Backend,
     caps: Caps,
+    robust: bool,
     context: PossiblyCurrentContext,
     config: Config,
     display: Display,
@@ -266,18 +283,19 @@ impl WindowedContext {
             .window_handle()
             .map_err(|e| format!("window handle: {e}"))?
             .as_raw();
-        let not_current = create_context(&display, &config, &backend.context_attributes(handle))?;
+        let (not_current, robust) = create_robust_context(&display, &config, backend, handle)?;
         let surface = create_surface(&display, &config, &window)?;
         let context = not_current
             .make_current(&surface)
             .map_err(|e| format!("make current: {e}"))?;
-        let gl = Gl::from_current(glow_from_loader(proc_loader(&display)));
+        let gl = Gl::from_loader(proc_loader(&display));
         let caps = Caps::from_info(gl.info());
         Ok((
             Self {
                 gl,
                 backend,
                 caps,
+                robust,
                 context,
                 config,
                 display,
@@ -321,11 +339,31 @@ impl WindowedContext {
         &self.caps
     }
 
+    /// Whether the context was created with
+    /// [`Robustness::RobustLoseContextOnReset`], so that the driver reports
+    /// a reset through [`Gl::reset_status`] and then refuses further work
+    /// instead of carrying on with undefined results. `false` when the
+    /// driver refused the request and the context uses default attributes.
+    pub fn robust(&self) -> bool {
+        self.robust
+    }
+
     /// Makes the context current on `target`'s surface.
     pub fn make_current(&self, target: &SwapWindow) -> Result<(), String> {
         self.context
             .make_current(&target.surface)
             .map_err(|e| format!("make current: {e}"))
+    }
+
+    /// Makes the context not current on this thread. Call it before
+    /// dropping a context that is to be replaced by one on another backend:
+    /// with a vendor-neutral GL dispatcher (glvnd on Linux) an EGL context
+    /// cannot be made current while a GLX one still is, and destroying a
+    /// context that is current only defers its destruction.
+    pub fn release_current(&self) -> Result<(), String> {
+        self.context
+            .make_not_current_in_place()
+            .map_err(|e| format!("release context: {e}"))
     }
 
     /// Presents `target`'s back buffer. The context must be current on it.
@@ -359,6 +397,32 @@ impl WindowedContext {
             (NonZeroU32::new(size.width), NonZeroU32::new(size.height))
         {
             target.surface.resize(&self.context, width, height);
+        }
+    }
+}
+
+/// Creates the context asking for lose-context-on-reset robustness first,
+/// then, if the driver refuses that, with the default attributes. Returns
+/// whether the robust request was honoured. Both outcomes are logged: a
+/// support report needs to say which context a machine got.
+fn create_robust_context(
+    display: &Display,
+    config: &Config,
+    backend: Backend,
+    window: RawWindowHandle,
+) -> Result<(NotCurrentContext, bool), String> {
+    let robust = backend.context_attributes(window, Robustness::RobustLoseContextOnReset);
+    match create_context(display, config, &robust) {
+        Ok(context) => {
+            log::info!("GL context: robust (lose context on reset), {backend}");
+            Ok((context, true))
+        }
+        Err(refusal) => {
+            log::warn!(
+                "GL context: robustness refused on {backend} ({refusal}); using default attributes, so a driver reset will not be reported"
+            );
+            let plain = backend.context_attributes(window, Robustness::NotRobust);
+            create_context(display, config, &plain).map(|context| (context, false))
         }
     }
 }

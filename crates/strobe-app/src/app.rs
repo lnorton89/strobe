@@ -1,10 +1,12 @@
 // ============================================================================
 // Module:       strobe_app::app
 // Description:  The winit application: creates the two windows on one GL
-//               context, paces the frame loop, and carries out UI actions.
+//               context, paces the frame loop, carries out UI actions, and
+//               rebuilds the context when it is lost.
 //
 // Dependencies: winit (event loop); strobe-gfx (WindowedContext);
-//               crate::{ui, session, library, console, stats, screenshot}
+//               crate::{ui, session, library, console, stats, screenshot,
+//               recovery, fault}
 // ============================================================================
 
 //! The application.
@@ -44,21 +46,48 @@
 //! feedback scenes from black, which dragging a window edge must not do
 //! sixty times a second). A render-scale change is applied immediately.
 //!
+//! ## Context loss (D66)
+//!
+//! A failed `make_current` or swap is not the end of the show. Each one is
+//! an [`Event`] for the [`Recovery`] policy, which says retry, rebuild,
+//! fail over to ANGLE or give up (see [`crate::recovery`] for the rules).
+//! A rebuild is carried out in [`Running::recover`], from [`App::settle`],
+//! where the `ActiveEventLoop` is at hand:
+//!
+//! 1. the old `Gl` is marked lost, so nothing calls into it again;
+//! 2. the session, timers, egui and **both windows** and the context are
+//!    dropped, in that order. The windows go too: WGL sets a window's pixel
+//!    format once, so a window that has had a context cannot be given
+//!    another safely;
+//! 3. a new context and two new windows are built on the chosen backend;
+//! 4. the output's monitor and fullscreen state and the control window's
+//!    maximized state come back, the render scale carries over, and the
+//!    scene that was playing is reloaded at its clock with its controls.
+//!
+//! The reset status is queried only after a failed swap (the context is
+//! current then) and at most once a second as a health check, never every
+//! frame, and never after a failed `make_current` (the context may not be
+//! current, and a GL call without one can fault in the driver).
+//! `STROBE_FAULT` ([`crate::fault`]) injects a loss to test all of this.
+//!
 //! ## Shutdown order
 //!
 //! GL objects must be released while the context is current and before
-//! the windows and display they came from, so [`Running`] declares its
-//! fields in that order and [`Running::shutdown`] frees the scene and the
-//! egui painter explicitly first.
+//! the windows and display they came from, so [`Running`] keeps them in a
+//! [`Stack`] that declares its fields in that order and [`Stack::release`]
+//! frees the scene and the egui painter explicitly first. A lost context
+//! skips the explicit frees: the driver reclaims them.
 
 use crate::audio::AudioInput;
 use crate::cli::{AudioArg, Cli};
 use crate::console::Console;
 use crate::failures;
+use crate::fault::{self, Faults};
 use crate::gldebug;
 use crate::library::Library;
 use crate::mouse::{Button, MouseTracker};
 use crate::perf::{self, Performance};
+use crate::recovery::{Decision, Event, Rebuild, Recovery, Surface};
 use crate::screenshot::{Screenshot, Target};
 use crate::session::{self, Session};
 use crate::stats::FrameStats;
@@ -66,14 +95,15 @@ use crate::ui::{Action, Model, PerfPanel, Preview, UiHost, layout};
 use std::time::{Duration, Instant};
 use strobe_diag::context;
 use strobe_diag::failure::{self, Failure, Subsystem};
-use strobe_gfx::{Backend, GpuTimer, SwapWindow, WindowedContext};
+use strobe_gfx::{GlChoice, GpuTimer, SwapWindow, WindowedContext};
+use strobe_scene::control::def::Values;
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalPosition};
 use winit::event::{ElementState, KeyEvent, MouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow};
 use winit::keyboard::{Key, NamedKey};
 use winit::monitor::MonitorHandle;
-use winit::window::{Fullscreen, Window, WindowId};
+use winit::window::{Fullscreen, Window, WindowAttributes, WindowId};
 
 /// Minimum time between output frames: a 144 Hz cap.
 const OUTPUT_PERIOD: Duration = Duration::from_micros(6_944);
@@ -89,6 +119,9 @@ const SCREENSHOT_DT: f32 = 1.0 / 60.0;
 const SCREENSHOT_START: f32 = 2.0;
 /// Where a moved, windowed output lands relative to the monitor's corner.
 const MONITOR_INSET: i32 = 40;
+/// What a `STROBE_FAULT` loss makes every `make_current` say.
+const INJECTED_LOSS: &str =
+    "make current: injected fault (STROBE_FAULT lose-context): the context is lost";
 
 /// The application, before and after its windows exist.
 pub struct App {
@@ -116,7 +149,9 @@ impl App {
         self.failure.as_deref()
     }
 
-    /// Stops the loop if the running app asked to or failed.
+    /// Stops the loop if the running app asked to or failed, and carries
+    /// out a context rebuild it asked for. Runs after every event, so a
+    /// rebuild decided during a redraw happens before the next one.
     fn settle(&mut self, event_loop: &ActiveEventLoop) {
         let Some(running) = self.running.as_mut() else {
             return;
@@ -124,6 +159,17 @@ impl App {
         if let Some(failure) = running.failure.take() {
             self.failure = Some(failure);
             event_loop.exit();
+        } else if let Some(rebuild) = running.rebuild.take() {
+            let Some(running) = self.running.take() else {
+                return;
+            };
+            match running.recover(event_loop, rebuild) {
+                Ok(running) => self.running = Some(running),
+                Err(message) => {
+                    self.failure = Some(message);
+                    event_loop.exit();
+                }
+            }
         } else if running.finished() {
             event_loop.exit();
         }
@@ -167,11 +213,77 @@ impl ApplicationHandler for App {
     }
 }
 
-/// Everything that exists once the windows are open.
+/// Where the two windows go, and how they start.
+#[derive(Debug, Clone)]
+struct Layout {
+    output: WindowAttributes,
+    control: WindowAttributes,
+    /// The output's fullscreen state, applied after the window exists.
+    fullscreen: Option<Fullscreen>,
+}
+
+impl Layout {
+    /// The layout of a fresh launch.
+    fn initial() -> Self {
+        Self {
+            output: Window::default_attributes()
+                .with_title("Strobe Output")
+                .with_inner_size(LogicalSize::new(960.0, 540.0)),
+            control: Window::default_attributes()
+                .with_title("Strobe")
+                .with_inner_size(LogicalSize::new(1360.0, 820.0))
+                // Always maximized, on every launch: the control surface is
+                // the operator's workspace. The size above is what an
+                // un-maximized window (or a window system with no concept of
+                // maximizing, such as bare Xvfb) falls back to.
+                .with_maximized(true)
+                .with_min_inner_size(LogicalSize::new(900.0, 560.0)),
+            fullscreen: None,
+        }
+    }
+
+    /// The layout the live windows are in now, so a rebuilt pair can be put
+    /// back where the operator left them.
+    fn capture(stack: &Stack) -> Self {
+        let mut layout = Self::initial();
+        let output = stack.output.window();
+        layout.fullscreen = output.fullscreen();
+        // A fullscreen window's size is the monitor's, not the window's own.
+        if layout.fullscreen.is_none() {
+            layout.output = layout.output.with_inner_size(output.inner_size());
+            if let Ok(position) = output.outer_position() {
+                layout.output = layout.output.with_position(position);
+            }
+        }
+        let control = stack.control.window();
+        let maximized = control.is_maximized();
+        layout.control = layout.control.with_maximized(maximized);
+        if !maximized {
+            layout.control = layout.control.with_inner_size(control.inner_size());
+            if let Ok(position) = control.outer_position() {
+                layout.control = layout.control.with_position(position);
+            }
+        }
+        layout
+    }
+}
+
+/// The performance settings a context starts with.
+#[derive(Debug, Clone, Copy)]
+struct PerfStart {
+    /// The render-scale ceiling.
+    max: f32,
+    /// Whether adaptive resolution is on.
+    adaptive: bool,
+}
+
+/// Everything that is bound to one GL context: the scene, the timers, egui,
+/// the two windows and the context itself.
 ///
-/// Field order is drop order for the GL-owning fields: scene, egui, the
-/// windows, and last the context and display they share.
-struct Running {
+/// Field order is drop order for the GL-owning fields: scene, timers, egui,
+/// the windows, and last the context and display they share. A rebuild
+/// replaces the whole stack; [`Stack::release`] takes one down.
+struct Stack {
     session: Option<Session>,
     /// Owns GL timer queries, so it sits before the context in drop order.
     perf: Performance,
@@ -179,6 +291,148 @@ struct Running {
     control: SwapWindow,
     output: SwapWindow,
     gfx: WindowedContext,
+}
+
+impl Stack {
+    /// Opens a context on `choice` with its two windows: the output window
+    /// first (the context is made on it), then the control window, vsync,
+    /// driver debug output, the session-context facts, egui and the GPU
+    /// timer. The scene is loaded afterwards by the caller.
+    fn open(
+        event_loop: &ActiveEventLoop,
+        choice: GlChoice,
+        layout: &Layout,
+        start: PerfStart,
+    ) -> Result<Self, String> {
+        let (mut gfx, output) = WindowedContext::open(event_loop, choice, &layout.output)
+            .map_err(|e| format!("Could not start OpenGL.\n{e}"))?;
+        // Before the Gl is shared with a second window or egui; see
+        // `strobe_gfx::gl::debug`.
+        gldebug::enable(gfx.gl_mut());
+        record_gl_facts(&gfx);
+        let control = gfx
+            .add_window(event_loop, layout.control.clone())
+            .map_err(|e| format!("Could not open the control window: {e}"))?;
+        // Output waits for vertical blank; control must not, or two vsynced
+        // swaps in one loop would halve the frame rate.
+        if let Err(e) = gfx.set_vsync(&output, true) {
+            log::warn!("output vsync: {e}");
+        }
+        if let Err(e) = gfx.set_vsync(&control, false) {
+            log::warn!("control vsync: {e}");
+        }
+        gfx.make_current(&control)?;
+        let ui = UiHost::new(event_loop, gfx.gl())?;
+        if let Some(fullscreen) = layout.fullscreen.clone() {
+            output.window().set_fullscreen(Some(fullscreen));
+        }
+
+        let refresh = output
+            .window()
+            .current_monitor()
+            .and_then(|monitor| monitor.refresh_rate_millihertz());
+        let perf = Performance::new(
+            GpuTimer::new(gfx.gl(), gfx.caps()),
+            start.max,
+            start.adaptive,
+            perf::budget_for(refresh),
+        );
+        log::info!(
+            "GPU timing {}; frame budget {:.2} ms ({}); adaptive resolution {}",
+            if perf.has_timer() {
+                "available"
+            } else {
+                "unavailable"
+            },
+            perf.budget_ms(),
+            refresh.map_or_else(
+                || "monitor refresh rate unknown, assuming 60 Hz".to_string(),
+                |mhz| format!("{:.1} Hz", mhz as f32 / 1000.0)
+            ),
+            if perf.adapting() { "on" } else { "off" },
+        );
+        Ok(Self {
+            session: None,
+            perf,
+            ui,
+            control,
+            output,
+            gfx,
+        })
+    }
+
+    /// One line naming the backend, renderer and driver version.
+    fn summary(&self) -> String {
+        let info = &self.gfx.caps().info;
+        format!(
+            "{} | {} | {}",
+            self.gfx.backend(),
+            info.renderer,
+            info.version
+        )
+    }
+
+    /// Takes the stack down in dependency order. With a live context the
+    /// scene, timers and egui painter free their GL objects first. With a
+    /// lost one (or one that will not become current) the `Gl` is marked
+    /// lost and nothing calls into it: the driver reclaims a destroyed
+    /// context's objects, and a delete against a dead one can fault.
+    fn release(self) {
+        let Self {
+            session,
+            mut perf,
+            mut ui,
+            control,
+            output,
+            gfx,
+        } = self;
+        if !gfx.gl().is_lost() && gfx.make_current(&control).is_err() {
+            gfx.gl().mark_lost();
+        }
+        if gfx.gl().is_lost() {
+            drop(session);
+            drop(perf);
+            ui.abandon();
+        } else {
+            drop(session);
+            perf.release();
+            drop(perf);
+            ui.destroy();
+            drop(ui);
+        }
+        // A destroyed context that is still current is only destroyed
+        // later, and a context on another backend cannot become current
+        // while it is (glvnd refuses with EGL_BAD_ACCESS). Not a GL call.
+        if let Err(error) = gfx.release_current() {
+            log::warn!("{error}");
+        }
+        drop(control);
+        drop(output);
+        drop(gfx);
+    }
+}
+
+/// The scene that was playing when the context was lost.
+struct Resume {
+    /// Its index in the library.
+    index: usize,
+    /// Its clock, in seconds.
+    time: f32,
+    /// The operator's control values.
+    controls: Vec<(usize, Values)>,
+}
+
+/// What a rebuild carries over from the context it replaces.
+struct Carried {
+    layout: Layout,
+    playing: Option<Resume>,
+    scale: f32,
+    start: PerfStart,
+}
+
+/// Everything that exists once the windows are open.
+struct Running {
+    stack: Stack,
 
     library: Library,
     playing: Option<usize>,
@@ -209,6 +463,16 @@ struct Running {
     output_frames: u64,
     start_time: f32,
     failure: Option<String>,
+
+    /// What to do about failed frames and resets.
+    recovery: Recovery,
+    /// `STROBE_FAULT`, read once.
+    faults: Faults,
+    /// A fault-injected loss is in force: every `make_current` fails until
+    /// the context is rebuilt.
+    context_dead: bool,
+    /// A rebuild the policy decided on, for [`App::settle`] to carry out.
+    rebuild: Option<Rebuild>,
 }
 
 impl Running {
@@ -218,78 +482,25 @@ impl Running {
         library: Library,
         scan_error: Option<String>,
     ) -> Result<Self, String> {
-        let output_attrs = Window::default_attributes()
-            .with_title("Strobe Output")
-            .with_inner_size(LogicalSize::new(960.0, 540.0));
-        let control_attrs = Window::default_attributes()
-            .with_title("Strobe")
-            .with_inner_size(LogicalSize::new(1360.0, 820.0))
-            // Always maximized, on every launch: the control surface is
-            // the operator's workspace. The size above is what an
-            // un-maximized window (or a window system with no concept of
-            // maximizing, such as bare Xvfb) falls back to.
-            .with_maximized(true)
-            .with_min_inner_size(LogicalSize::new(900.0, 560.0));
-
-        let (mut gfx, output) = WindowedContext::open(event_loop, cli.gl.choice(), &output_attrs)
-            .map_err(|e| format!("Could not start OpenGL.\n{e}"))?;
-        // Before the Gl is shared with a second window or egui; see
-        // `strobe_gfx::gl::debug`.
-        gldebug::enable(gfx.gl_mut());
-        record_gl_facts(&gfx);
-        let control = gfx
-            .add_window(event_loop, control_attrs)
-            .map_err(|e| format!("Could not open the control window: {e}"))?;
-        // Output waits for vertical blank; control must not, or two vsynced
-        // swaps in one loop would halve the frame rate.
-        if let Err(e) = gfx.set_vsync(&output, true) {
-            log::warn!("output vsync: {e}");
-        }
-        if let Err(e) = gfx.set_vsync(&control, false) {
-            log::warn!("control vsync: {e}");
-        }
-        gfx.make_current(&control)?;
-        let ui = UiHost::new(event_loop, gfx.gl())?;
-
-        let info = &gfx.caps().info;
-        let gl_summary = format!("{} | {} | {}", gfx.backend(), info.renderer, info.version);
+        let render_scale = session::clamp_scale(cli.render_scale);
+        let stack = Stack::open(
+            event_loop,
+            cli.gl.choice(),
+            &Layout::initial(),
+            PerfStart {
+                max: render_scale,
+                adaptive: !cli.no_adaptive,
+            },
+        )?;
+        let gl_summary = stack.summary();
         let screenshot = cli
             .screenshot
             .clone()
             .map(|base| Screenshot::new(base, cli.frames));
         let now = Instant::now();
-        let render_scale = session::clamp_scale(cli.render_scale);
-        let refresh = output
-            .window()
-            .current_monitor()
-            .and_then(|monitor| monitor.refresh_rate_millihertz());
-        let perf = Performance::new(
-            GpuTimer::new(gfx.gl(), gfx.caps()),
-            render_scale,
-            !cli.no_adaptive,
-            perf::budget_for(refresh),
-        );
-        log::info!(
-            "GPU timing {}; frame budget {:.2} ms ({}); adaptive resolution {}",
-            if perf.has_timer() {
-                "available"
-            } else {
-                "unavailable"
-            },
-            perf.budget_ms(),
-            refresh.map_or_else(
-                || "monitor refresh rate unknown, assuming 60 Hz".to_string(),
-                |mhz| format!("{:.1} Hz", mhz as f32 / 1000.0)
-            ),
-            if perf.adapting() { "on" } else { "off" },
-        );
+        let recovery = Recovery::new(cli.gl.choice(), stack.gfx.backend());
         let mut running = Self {
-            session: None,
-            perf,
-            ui,
-            control,
-            output,
-            gfx,
+            stack,
             library,
             playing: None,
             console: Console::default(),
@@ -316,6 +527,10 @@ impl Running {
             screenshot,
             output_frames: 0,
             failure: None,
+            recovery,
+            faults: Faults::from_env(),
+            context_dead: false,
+            rebuild: None,
         };
         running.refresh_monitors(event_loop);
         log::info!("GL: {}", running.gl_summary);
@@ -345,12 +560,288 @@ impl Running {
         self.screenshot.as_ref().is_some_and(Screenshot::finished)
     }
 
-    fn shutdown(mut self) {
-        if self.gfx.make_current(&self.control).is_ok() {
-            self.session = None;
-            self.perf.release();
-            self.ui.destroy();
+    fn shutdown(self) {
+        self.stack.release();
+    }
+
+    // ------------------------------------------------------- context loss
+
+    /// Makes the context current on `surface`'s window. On failure the
+    /// recovery policy hears of it and the caller skips the frame.
+    fn make_current(&mut self, surface: Surface) -> bool {
+        let result = if self.context_dead {
+            Err(INJECTED_LOSS.to_string())
+        } else {
+            let target = match surface {
+                Surface::Output => &self.stack.output,
+                Surface::Control => &self.stack.control,
+            };
+            self.stack.gfx.make_current(target)
+        };
+        match result {
+            Ok(()) => true,
+            // The context is not known to be current, so the reset status
+            // is not asked for: a GL call without a current context can
+            // fault inside the driver.
+            Err(error) => {
+                self.context_failed(surface, &error, None);
+                false
+            }
         }
+    }
+
+    /// Presents `surface`'s back buffer; the context must be current on it.
+    /// A swap failure asks the driver for the reset status (the context is
+    /// current, so it is safe to) and tells the policy.
+    fn present(&mut self, surface: Surface, now: Instant) {
+        let result = {
+            let target = match surface {
+                Surface::Output => &self.stack.output,
+                Surface::Control => &self.stack.control,
+            };
+            self.stack.gfx.swap_buffers(target)
+        };
+        match result {
+            Ok(()) => {
+                self.recovery.handle(now, Event::Presented(surface));
+            }
+            Err(error) => {
+                let gl = self.stack.gfx.gl();
+                let reset = gl.has_reset_status().then(|| gl.reset_status());
+                self.context_failed(surface, &error, reset);
+            }
+        }
+    }
+
+    /// Reports a failed context call to the policy and acts on its answer.
+    fn context_failed(
+        &mut self,
+        surface: Surface,
+        error: &str,
+        reset: Option<strobe_gfx::gl::ResetStatus>,
+    ) {
+        let decision = self.recovery.handle(
+            Instant::now(),
+            Event::Failed {
+                window: surface,
+                error,
+                reset,
+            },
+        );
+        match decision {
+            Decision::RetryNextFrame => {
+                log::warn!("{surface} window: {error}; skipping the frame and retrying");
+            }
+            Decision::Rebuild(rebuild) => self.begin_rebuild(rebuild),
+            Decision::GiveUp(reason) => self.give_up(&reason),
+            Decision::Continue => {}
+        }
+    }
+
+    /// Health-checks the driver's reset status, at most once a second, on a
+    /// robust context that can be asked. Returns whether a rebuild was
+    /// decided (the frame should then be abandoned).
+    fn check_reset(&mut self, now: Instant) -> bool {
+        let gl = self.stack.gfx.gl();
+        if !self.stack.gfx.robust() || !gl.has_reset_status() || !self.recovery.poll_due(now) {
+            return false;
+        }
+        let status = gl.reset_status();
+        match self.recovery.handle(
+            now,
+            Event::Reset {
+                window: Surface::Output,
+                status,
+            },
+        ) {
+            Decision::Rebuild(rebuild) => {
+                self.begin_rebuild(rebuild);
+                true
+            }
+            Decision::GiveUp(reason) => {
+                self.give_up(&reason);
+                true
+            }
+            Decision::Continue | Decision::RetryNextFrame => false,
+        }
+    }
+
+    /// Records the loss and asks [`App::settle`] to rebuild. The `Gl` is
+    /// marked lost right away, so nothing touches it in the meantime.
+    fn begin_rebuild(&mut self, rebuild: Rebuild) {
+        if self.rebuild.is_some() {
+            return;
+        }
+        let scene = self.stack.session.as_ref().map(|s| s.name.clone());
+        failure::report(failures::context_lost(
+            &rebuild,
+            self.stack.gfx.backend(),
+            scene.as_deref(),
+        ));
+        self.stack.gfx.gl().mark_lost();
+        self.rebuild = Some(rebuild);
+    }
+
+    /// Ends the run through the existing failure path (a log record and
+    /// the startup-failure dialog).
+    fn give_up(&mut self, reason: &str) {
+        failure::report(
+            Failure::new(Subsystem::Context, "recover")
+                .detail("backend", failures::backend_label(self.stack.gfx.backend()))
+                .message(reason)
+                .action("giving up; the app stops"),
+        );
+        self.stack.gfx.gl().mark_lost();
+        self.failure = Some(format!(
+            "The graphics context was lost and could not be recovered.\n{reason}"
+        ));
+    }
+
+    /// `STROBE_FAULT`: the context dies as if the driver had reset it.
+    fn inject_loss(&mut self) {
+        log::warn!(
+            "{}: injected context loss after {} output frames",
+            fault::ENV,
+            self.output_frames
+        );
+        self.stack.gfx.gl().mark_lost();
+        self.context_dead = true;
+    }
+
+    /// Replaces the lost context: drops everything bound to it, builds a
+    /// new context and windows on `first.backend` (or, if that fails and the
+    /// policy says so, the next backend), and puts the show back. See the
+    /// module docs for the steps. An `Err` is the final failure message.
+    fn recover(mut self, event_loop: &ActiveEventLoop, first: Rebuild) -> Result<Self, String> {
+        let started = Instant::now();
+        let before = self.stack.gfx.backend();
+        let scene = self.stack.session.as_ref().map(|s| s.name.clone());
+        let carried = Carried {
+            layout: Layout::capture(&self.stack),
+            playing: self.playing.map(|index| {
+                let session = self.stack.session.as_ref();
+                Resume {
+                    index,
+                    time: session.map_or(self.start_time, Session::time),
+                    controls: session.map_or_else(Vec::new, Session::control_targets),
+                }
+            }),
+            scale: self.render_scale,
+            start: PerfStart {
+                max: self.stack.perf.max(),
+                adaptive: self.stack.perf.enabled(),
+            },
+        };
+
+        self.stack.gfx.gl().mark_lost();
+        let old = self.stack;
+        old.release();
+
+        let mut attempt = first;
+        let (stack, done) = loop {
+            let backend = attempt.backend;
+            log::info!(
+                "rebuilding the GL context on {}{}",
+                failures::backend_label(backend),
+                if attempt.failover { " (fail-over)" } else { "" }
+            );
+            let opened = if self.faults.rebuild_fails(backend) {
+                Err(format!(
+                    "injected fault ({}): rebuilding on {} fails",
+                    fault::ENV,
+                    failures::backend_label(backend)
+                ))
+            } else {
+                Stack::open(
+                    event_loop,
+                    GlChoice::Only(backend),
+                    &carried.layout,
+                    carried.start,
+                )
+            };
+            match opened {
+                Ok(stack) => {
+                    self.recovery.handle(
+                        Instant::now(),
+                        Event::Rebuilt {
+                            backend,
+                            error: None,
+                        },
+                    );
+                    break (stack, attempt);
+                }
+                Err(error) => {
+                    let decision = self.recovery.handle(
+                        Instant::now(),
+                        Event::Rebuilt {
+                            backend,
+                            error: Some(&error),
+                        },
+                    );
+                    failure::report(failures::context_rebuild_failed(
+                        backend, &error, before, &decision,
+                    ));
+                    match decision {
+                        Decision::Rebuild(next) => attempt = next,
+                        Decision::GiveUp(reason) => {
+                            return Err(format!(
+                                "The graphics context was lost and could not be recovered.\n{reason}"
+                            ));
+                        }
+                        Decision::Continue | Decision::RetryNextFrame => {
+                            return Err(format!(
+                                "The graphics context was lost and could not be recovered.\n{error}"
+                            ));
+                        }
+                    }
+                }
+            }
+        };
+
+        let now = Instant::now();
+        let mut running = Self {
+            gl_summary: stack.summary(),
+            stack,
+            context_dead: false,
+            rebuild: None,
+            pending_resize: None,
+            resize_now: false,
+            next_output: now,
+            next_control: now,
+            ..self
+        };
+        log::info!("GL: {}", running.gl_summary);
+        running.stack.perf.resume_scale(carried.scale);
+        running.refresh_monitors(event_loop);
+        let reloaded = match carried.playing {
+            Some(resume) => {
+                running.load_from(resume.index, resume.time);
+                if let Some(session) = running.stack.session.as_mut() {
+                    session.restore_control_targets(&resume.controls);
+                }
+                running.stack.session.is_some()
+            }
+            None => false,
+        };
+        let elapsed = started.elapsed();
+        failure::report(failures::context_rebuilt(
+            &done,
+            before,
+            elapsed.as_millis(),
+            scene.as_deref(),
+            reloaded,
+        ));
+        log::info!(
+            "Output recovered on {} in {} ms{}",
+            failures::backend_label(running.stack.gfx.backend()),
+            elapsed.as_millis(),
+            match (&scene, reloaded) {
+                (Some(name), true) => format!("; {name} reloaded"),
+                (Some(name), false) => format!("; {name} could not be reloaded"),
+                (None, _) => String::new(),
+            }
+        );
+        Ok(running)
     }
 
     // ----------------------------------------------------------- scheduling
@@ -358,15 +849,19 @@ impl Running {
     /// Requests redraws for whichever windows are due; returns when to wake.
     fn schedule(&mut self, event_loop: &ActiveEventLoop) -> Instant {
         let now = Instant::now();
+        if self.rebuild.is_some() {
+            // `App::settle` runs right after this and rebuilds.
+            return now;
+        }
         if now.duration_since(self.last_monitor_refresh) >= MONITOR_REFRESH {
             self.refresh_monitors(event_loop);
         }
         if now >= self.next_output {
-            self.output.window().request_redraw();
+            self.stack.output.window().request_redraw();
             self.next_output = now + OUTPUT_PERIOD;
         }
         if now >= self.next_control {
-            self.control.window().request_redraw();
+            self.stack.control.window().request_redraw();
             self.next_control = now + CONTROL_PERIOD;
         }
         self.next_output.min(self.next_control)
@@ -376,14 +871,15 @@ impl Running {
         self.last_monitor_refresh = Instant::now();
         // The output may have moved to a display with another refresh rate.
         let refresh = self
+            .stack
             .output
             .window()
             .current_monitor()
             .and_then(|monitor| monitor.refresh_rate_millihertz());
-        if self.perf.set_refresh(refresh) {
+        if self.stack.perf.set_refresh(refresh) {
             log::info!(
                 "frame budget now {:.2} ms for the output's monitor",
-                self.perf.budget_ms()
+                self.stack.perf.budget_ms()
             );
         }
         self.monitors = event_loop.available_monitors().collect();
@@ -407,15 +903,21 @@ impl Running {
     // --------------------------------------------------------------- events
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
-        let is_control = id == self.control.window().id();
-        let is_output = id == self.output.window().id();
         if matches!(event, WindowEvent::CloseRequested) {
             event_loop.exit();
-        } else if matches!(event, WindowEvent::Resized(_)) {
+            return;
+        }
+        if self.rebuild.is_some() {
+            // The windows are about to be replaced.
+            return;
+        }
+        let is_control = id == self.stack.control.window().id();
+        let is_output = id == self.stack.output.window().id();
+        if matches!(event, WindowEvent::Resized(_)) {
             if is_control {
-                self.gfx.resize(&self.control);
+                self.stack.gfx.resize(&self.stack.control);
             } else if is_output {
-                self.gfx.resize(&self.output);
+                self.stack.gfx.resize(&self.stack.output);
             }
         } else if matches!(event, WindowEvent::RedrawRequested) {
             if is_output {
@@ -436,14 +938,14 @@ impl Running {
                 self.mouse.button(button, *state == ElementState::Pressed);
             }
         } else if let WindowEvent::KeyboardInput { event: key, .. } = &event {
-            let typing = is_control && self.ui.wants_keyboard();
+            let typing = is_control && self.stack.ui.wants_keyboard();
             if !typing {
                 self.key(key);
             }
         }
-        if is_control {
-            let window = self.control.window();
-            let _ = self.ui.on_window_event(window, &event);
+        if is_control && self.rebuild.is_none() {
+            let window = self.stack.control.window();
+            let _ = self.stack.ui.on_window_event(window, &event);
         }
     }
 
@@ -457,14 +959,14 @@ impl Running {
         {
             self.audio.tap();
         } else if key.logical_key == Key::Named(NamedKey::Escape)
-            && self.output.window().fullscreen().is_some()
+            && self.stack.output.window().fullscreen().is_some()
         {
-            self.output.window().set_fullscreen(None);
+            self.stack.output.window().set_fullscreen(None);
         }
     }
 
     fn toggle_fullscreen(&mut self) {
-        let window = self.output.window();
+        let window = self.stack.output.window();
         if window.fullscreen().is_some() {
             window.set_fullscreen(None);
         } else {
@@ -481,7 +983,7 @@ impl Running {
             return;
         };
         self.output_monitor = Some(index);
-        let window = self.output.window();
+        let window = self.stack.output.window();
         if window.fullscreen().is_some() {
             window.set_fullscreen(Some(Fullscreen::Borderless(Some(monitor))));
         } else {
@@ -496,34 +998,38 @@ impl Running {
     // ----------------------------------------------------------- scene load
 
     fn load(&mut self, index: usize) {
+        self.load_from(index, self.start_time);
+    }
+
+    /// Loads scene `index` with its clock starting at `start` seconds.
+    fn load_from(&mut self, index: usize, start: f32) {
         let Some(entry) = self.library.entries.get(index).cloned() else {
             return;
         };
-        if let Err(e) = self.gfx.make_current(&self.output) {
-            self.failure = Some(e);
+        if !self.make_current(Surface::Output) {
             return;
         }
-        let window = self.output.window().inner_size();
+        let window = self.stack.output.window().inner_size();
         let size = session::render_size(
             [window.width, window.height],
             self.render_scale,
-            self.gfx.caps().info.max_texture_size,
+            self.stack.gfx.caps().info.max_texture_size,
         );
         let started = Instant::now();
         match Session::load(
-            self.gfx.gl(),
-            self.gfx.caps(),
+            self.stack.gfx.gl(),
+            self.stack.gfx.caps(),
             &entry.dir,
             &entry.name,
             size,
-            self.start_time,
+            start,
             &mut self.audio,
         ) {
             Ok(session) => {
-                self.session = Some(session);
+                self.stack.session = Some(session);
                 self.playing = Some(index);
                 self.pending_resize = None;
-                self.perf.scene_loaded(Instant::now());
+                self.stack.perf.scene_loaded(Instant::now());
                 context::set(context::SCENE, &entry.name);
                 context::set(context::RENDER_SIZE, format!("{}x{}", size[0], size[1]));
                 log::info!(
@@ -538,7 +1044,7 @@ impl Running {
                 &entry.name,
                 &entry.dir,
                 &error,
-                self.session.is_some(),
+                self.stack.session.is_some(),
             )),
         }
     }
@@ -555,12 +1061,12 @@ impl Running {
                 Action::SetRenderScale(scale) => {
                     let from = self.render_scale;
                     self.scale_edit = session::clamp_scale(scale);
-                    self.perf.set_max(self.scale_edit);
-                    self.render_scale = self.perf.scale();
+                    self.stack.perf.set_max(self.scale_edit);
+                    self.render_scale = self.stack.perf.scale();
                     self.resize_now = true;
                     log::info!(
                         "{} set to {:.2} (was {:.2})",
-                        if self.perf.adapting() {
+                        if self.stack.perf.adapting() {
                             "maximum render scale"
                         } else {
                             "render scale"
@@ -570,13 +1076,13 @@ impl Running {
                     );
                 }
                 Action::SetAdaptive(on) => {
-                    self.perf.set_enabled(on);
-                    self.render_scale = self.perf.scale();
+                    self.stack.perf.set_enabled(on);
+                    self.render_scale = self.stack.perf.scale();
                     self.resize_now = true;
                     log::info!(
                         "adaptive resolution {}{}",
                         if on { "on" } else { "off" },
-                        if on && !self.perf.has_timer() {
+                        if on && !self.stack.perf.has_timer() {
                             " (but this context has no GPU timer, so the scale stays manual)"
                         } else {
                             ""
@@ -603,9 +1109,9 @@ impl Running {
         let want = session::render_size(
             window,
             self.render_scale,
-            self.gfx.caps().info.max_texture_size,
+            self.stack.gfx.caps().info.max_texture_size,
         );
-        let Some(session) = self.session.as_mut() else {
+        let Some(session) = self.stack.session.as_mut() else {
             return;
         };
         if session.player.render_size() == want {
@@ -635,35 +1141,37 @@ impl Running {
 
     fn redraw_output(&mut self) {
         let started = Instant::now();
+        let size = self.stack.output.window().inner_size();
+        if size.width == 0 || size.height == 0 {
+            return;
+        }
+        if self.faults.lose_context_due(self.output_frames) {
+            self.inject_loss();
+        }
+        if !self.make_current(Surface::Output) {
+            return;
+        }
         let measured = self.stats.begin(started);
         let dt = if self.screenshot.is_some() {
             SCREENSHOT_DT
         } else {
             measured
         };
-        let size = self.output.window().inner_size();
-        if size.width == 0 || size.height == 0 {
-            return;
-        }
-        if let Err(e) = self.gfx.make_current(&self.output) {
-            self.failure = Some(e);
-            return;
-        }
         let window = [size.width as i32, size.height as i32];
         self.settle_resize([size.width, size.height], started);
 
-        let gl = self.gfx.gl();
-        match self.session.as_mut() {
+        let gl = self.stack.gfx.gl();
+        match self.stack.session.as_mut() {
             Some(session) => {
                 let render = session.player.render_size();
                 let mouse = self.mouse.uniforms([size.width, size.height], render);
                 // The GPU timer brackets the scene's work and the blit to
                 // the output; its result arrives a frame or two later.
-                self.perf.begin();
+                self.stack.perf.begin();
                 session.advance(dt, &mut self.audio, mouse);
                 gl.plain_state();
                 session.player.present(window);
-                if let Some(change) = self.perf.end(started) {
+                if let Some(change) = self.stack.perf.end(started) {
                     log::info!(
                         "adaptive resolution: render scale {:.2} -> {:.2} (GPU {:.1} ms against a {:.1} ms budget)",
                         change.from,
@@ -694,31 +1202,31 @@ impl Running {
             }
         }
         self.stats.finish(started.elapsed());
-        if let Err(e) = self.gfx.swap_buffers(&self.output) {
-            log::warn!("output: {e}");
+        if self.check_reset(started) {
+            return;
         }
+        self.present(Surface::Output, started);
     }
 
     fn redraw_control(&mut self) {
-        let size = self.control.window().inner_size();
+        let size = self.stack.control.window().inner_size();
         if size.width == 0 || size.height == 0 {
             return;
         }
-        if let Err(e) = self.gfx.make_current(&self.control) {
-            self.failure = Some(e);
+        if !self.make_current(Surface::Control) {
             return;
         }
         self.console.refresh();
         self.audio.refresh_status(Instant::now());
-        let preview = self.session.as_ref().map(|session| {
+        let preview = self.stack.session.as_ref().map(|session| {
             let texture = session.player.output_texture();
             Preview {
-                texture: self.ui.preview_texture(texture.raw()),
+                texture: self.stack.ui.preview_texture(texture.raw()),
                 aspect: texture.width() as f32 / texture.height().max(1) as f32,
                 size: [texture.width(), texture.height()],
             }
         });
-        let (scene_title, controls, script) = match self.session.as_mut() {
+        let (scene_title, controls, script) = match self.stack.session.as_mut() {
             Some(session) => {
                 let (title, controls, script) = session.panel_parts();
                 (title, Some(controls), script)
@@ -736,28 +1244,30 @@ impl Running {
             render_scale: &mut self.scale_edit,
             monitors: &self.monitor_labels,
             output_monitor: self.output_monitor,
-            fullscreen: self.output.window().fullscreen().is_some(),
+            fullscreen: self.stack.output.window().fullscreen().is_some(),
             gl_summary: &self.gl_summary,
             audio: self.audio.panel(),
             script,
             perf: PerfPanel {
-                adaptive: self.perf.enabled(),
-                has_timer: self.perf.has_timer(),
-                gpu_ms: self.perf.gpu_ms(),
-                budget_ms: self.perf.budget_ms(),
+                adaptive: self.stack.perf.enabled(),
+                has_timer: self.stack.perf.has_timer(),
+                gpu_ms: self.stack.perf.gpu_ms(),
+                budget_ms: self.stack.perf.budget_ms(),
                 scale: self.render_scale,
             },
         };
         let mut actions = std::mem::take(&mut self.actions);
-        let window = self.control.window();
-        self.ui
+        let window = self.stack.control.window();
+        self.stack
+            .ui
             .run(window, |ui| layout::show(ui, &mut model, &mut actions));
-        self.ui.paint(window, crate::theme::clear_color());
+        self.stack.ui.paint(window, crate::theme::clear_color());
 
         if let Some(shot) = self.screenshot.as_mut()
             && shot.control_due()
         {
             let pixels = self
+                .stack
                 .gfx
                 .gl()
                 .read_default_rgba8(size.width as i32, size.height as i32);
@@ -766,10 +1276,10 @@ impl Running {
                 Err(e) => self.failure = Some(e),
             }
         }
-        if let Err(e) = self.gfx.swap_buffers(&self.control) {
-            log::warn!("control: {e}");
+        self.present(Surface::Control, Instant::now());
+        if self.rebuild.is_none() {
+            self.apply(&mut actions);
         }
-        self.apply(&mut actions);
         self.actions = actions;
     }
 }
@@ -781,11 +1291,6 @@ fn record_gl_facts(gfx: &WindowedContext) {
     context::set(context::GL_VENDOR, &info.vendor);
     context::set(context::GL_RENDERER, &info.renderer);
     context::set(context::GL_VERSION, &info.version);
-    context::set(
-        context::GL_BACKEND,
-        match gfx.backend() {
-            Backend::Native => "native",
-            Backend::Angle => "angle",
-        },
-    );
+    context::set(context::GL_BACKEND, failures::backend_label(gfx.backend()));
+    context::set("gl.robust", gfx.robust());
 }

@@ -92,6 +92,16 @@ impl AdaptiveScale {
         self.scale
     }
 
+    /// Starts from `scale` (kept in `min..=max`) instead of the ceiling.
+    /// For resuming after the GL context was rebuilt: the old scale is what
+    /// the GPU could carry, and going back to the ceiling would reload the
+    /// load that may have caused the loss.
+    pub fn set_scale(&mut self, scale: f32) {
+        self.scale = quantise(scale.clamp(self.min, self.max));
+        self.forget();
+        self.cooldown = 0;
+    }
+
     /// Changes the budget, e.g. when the output moves to a display with a
     /// different refresh rate.
     pub fn set_budget(&mut self, budget_ms: f32) {
@@ -206,6 +216,17 @@ mod tests {
             controller.observe(ms);
         }
         controller.scale()
+    }
+
+    #[test]
+    fn a_resumed_controller_starts_where_it_was_told_within_its_range() {
+        let mut c = AdaptiveScale::new(16.0, 0.25, 1.0);
+        c.set_scale(0.5);
+        assert_eq!(c.scale(), 0.5, "resumed");
+        c.set_scale(0.05);
+        assert_eq!(c.scale(), 0.25, "never below the minimum");
+        c.set_scale(3.0);
+        assert_eq!(c.scale(), 1.0, "never above the ceiling");
     }
 
     #[test]

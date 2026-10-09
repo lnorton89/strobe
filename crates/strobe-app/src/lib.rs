@@ -21,6 +21,8 @@
 //!   is a view of `strobe-diag`'s log ring.
 //! - [`failures`], [`dialog`], [`gldebug`], [`diagnose`]: how errors,
 //!   crashes and driver messages reach a person (all through `strobe-diag`).
+//! - [`recovery`], [`fault`]: surviving a lost GL context (the policy, as a
+//!   pure state machine) and `STROBE_FAULT`, which injects one to test it.
 //! - [`screenshot`]: the `--screenshot` verification mode.
 //! - [`cli`]: the command line.
 
@@ -31,10 +33,12 @@ pub mod console;
 pub mod diagnose;
 pub mod dialog;
 pub mod failures;
+pub mod fault;
 pub mod gldebug;
 pub mod library;
 pub mod mouse;
 pub mod perf;
+pub mod recovery;
 pub mod screenshot;
 pub mod script;
 pub mod session;

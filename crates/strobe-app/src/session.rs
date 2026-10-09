@@ -64,7 +64,8 @@ use strobe_diag::failure::{self, Failure, Subsystem};
 use strobe_gfx::gl::Gl;
 use strobe_gfx::{AudioTextures, Caps, FrameInputs, Mouse, Options, PlayerError, ScenePlayer};
 use strobe_scene::assemble::ExtraType;
-use strobe_scene::control::ControlBank;
+use strobe_scene::control::def::Values;
+use strobe_scene::control::{ControlBank, ControlKind};
 use strobe_scene::{SceneError, SceneFolder};
 use strobe_script::ScriptInputs;
 
@@ -211,6 +212,30 @@ impl Session {
             session.send_script_uniforms(harvest);
         }
         Ok(session)
+    }
+
+    /// The scene clock, in seconds.
+    pub fn time(&self) -> f32 {
+        self.time
+    }
+
+    /// The controls' targets (what the operator last asked for), for
+    /// carrying across a rebuilt GL context. Bangs hold no value.
+    pub fn control_targets(&self) -> Vec<(usize, Values)> {
+        self.controls
+            .defs()
+            .iter()
+            .enumerate()
+            .filter(|(_, def)| !matches!(def.kind, ControlKind::Bang(_)))
+            .filter_map(|(index, _)| self.controls.target(index).map(|value| (index, *value)))
+            .collect()
+    }
+
+    /// Puts targets saved by [`Self::control_targets`] back.
+    pub fn restore_control_targets(&mut self, targets: &[(usize, Values)]) {
+        for (index, values) in targets {
+            self.controls.set(*index, None, values);
+        }
     }
 
     /// What the controls panel shows and edits, borrowed together (the
