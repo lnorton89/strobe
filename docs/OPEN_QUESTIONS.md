@@ -22,6 +22,7 @@ locally but must not be committed.
 | Q7 | Do the EULA terms allow running Synesthesia's own built-in scenes in another engine? | Unknown, so Strobe doesn't do it | Read the EULA |
 | Q8 | ANGLE path for SSF code: how much real SSF code fails under GLSL ES (implicit conversions, `PASSINDEX == 0.0`)? | Much of it. Needs a source-fixup pass or a GLSL parser (e.g. `glsl-lang`) to insert casts | Run the community fixtures through `strobe-bench --api gles` |
 | Q9 | What is the root `"UNIFORMS"` key in some community scenes? | Probably non-standard (from AI-generated scenes); ignored | Look for it in a real Synesthesia-authored scene |
+| Q10 | What exact layout do real scenes expect from `syn_Spectrum` and `syn_LevelTrail`: texel count, frequency axis of the raw channel, which end of the trail is "now", and what the waveform channel's range is? | `strobe-audio` assumes 256 texels; raw linear 0..Nyquist; juiced log 30 Hz to 16 kHz; waveform 0.5 at zero; trail index 0 = newest, channels whole/bass/mid/high. All sizes are configurable (`Layout`) | A real licensed scene that samples the textures in known ways |
 
 ## Resolved
 

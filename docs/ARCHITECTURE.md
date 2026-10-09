@@ -10,13 +10,13 @@ crates/
 ├── strobe-scene        SSF model: scene.json → SceneDef, controls runtime, shader assembly
 ├── strobe-ssf-lib      The SSF GLSL function library (one .glsl file, include_str!)
 ├── strobe-gfx          GL boundary (only unsafe), context providers, scene player
+├── strobe-audio        FFT, bands, onsets, BPM → the syn_* values; cpal capture thread (built)
 ├── strobe-bench        Headless benchmark + visual regression frames
 ├── strobe-conventions  The house rules as tests (headers, unsafe boundary, toolchain pin)
 │
 │   planned (see ROADMAP.md):
 ├── strobe-app          winit event loop, control window (egui) + output window
 ├── strobe-script       QuickJS host for the Synesthesia JavaScript API
-├── strobe-audio        Capture, FFT, bands, onsets, BPM → the syn_* values
 ├── strobe-shadertoy    Shadertoy JSON → scene conversion
 ├── strobe-playlist     Playlist model, TOML, scheduler, generator
 └── strobe-io           MIDI, OSC, hotkeys, localhost import listener
