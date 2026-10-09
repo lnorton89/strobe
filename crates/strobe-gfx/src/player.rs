@@ -42,7 +42,7 @@ use strobe_scene::SceneFolder;
 use strobe_scene::assemble::{self, ErrorSite, ExtraType, PassIndex, Request};
 use strobe_scene::audio::SCALARS;
 use strobe_scene::control::{ControlBank, UniformValue};
-use strobe_scene::scene::{Filter, SceneDef, Wrap};
+use strobe_scene::scene::{Filter, ImageDef, SceneDef, Wrap};
 
 /// Why a scene could not be prepared.
 #[derive(Debug, thiserror::Error)]
@@ -64,7 +64,9 @@ pub enum PlayerError {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Options {
     /// One specialised program per pass (`true`), or one shared program
-    /// branching on a `PASSINDEX` uniform (`false`).
+    /// branching on a `PASSINDEX` uniform (`false`). A scene with
+    /// `PASS_SOURCES` has a different source per pass, so it is always
+    /// built per pass whatever this says (a warning is logged).
     pub specialise_passes: bool,
     /// Storage for `FLOAT` passes.
     pub float_precision: FloatPrecision,
@@ -138,6 +140,8 @@ enum Source {
     Media,
     Spectrum,
     LevelTrail,
+    /// The Shadertoy audio texture, `strobe_ShadertoyAudio`.
+    ShadertoyAudio,
     Pass(usize),
     Image(usize),
     /// Cube maps are not loaded yet; the unit is reserved so a samplerCube
@@ -154,6 +158,7 @@ struct Compiled {
     rendersize: Loc,
     time: Loc,
     framecount: Loc,
+    date: Loc,
     passindex: Loc,
     mouse: [Loc; 4],
     media_type: Loc,
@@ -193,8 +198,12 @@ pub struct ScenePlayer {
     black: Texture,
     spectrum: Texture,
     level_trail: Texture,
+    shadertoy_audio: Texture,
     images: Vec<Texture>,
     audio: AudioUpload,
+    /// What `strobe_Date` holds, when the host has set it; otherwise the
+    /// player reads the wall clock (UTC) each frame.
+    date: Option<[f32; 4]>,
     /// Uniforms a script creates, declared in every pass program.
     extras: Vec<(String, ExtraType)>,
     /// This frame's values for `extras`, in the same order.
@@ -204,11 +213,11 @@ pub struct ScenePlayer {
 /// What the audio texture upload path keeps between frames.
 #[derive(Debug, Default)]
 struct AudioUpload {
-    /// Whether any pass samples `syn_Spectrum` / `syn_LevelTrail`; a
-    /// texture nothing reads is never uploaded.
-    wanted: [bool; 2],
+    /// Whether any pass samples `syn_Spectrum`, `syn_LevelTrail` or
+    /// `strobe_ShadertoyAudio`; a texture nothing reads is never uploaded.
+    wanted: [bool; 3],
     /// 8-bit staging for each texture, sized once.
-    staging: [Vec<u8>; 2],
+    staging: [Vec<u8>; 3],
     /// Set after a failed upload so the log gets one line, not one a frame.
     failed: bool,
 }
@@ -254,27 +263,50 @@ impl ScenePlayer {
                     message: format!("vertex: {log}"),
                 })?;
 
+        // Different source per pass means different programs: sharing one
+        // is not an option, so `PASS_SOURCES` overrides the benchmark's
+        // shared mode rather than failing a whole library run.
+        let per_pass_sources = def.pass_sources.is_some();
+        if per_pass_sources && !options.specialise_passes {
+            log::warn!(
+                "{}: PASS_SOURCES gives each pass its own source, so its programs are built \
+                 per pass even though a shared program was asked for",
+                def.title
+            );
+        }
+        let specialise = options.specialise_passes || per_pass_sources;
+        let options = Options {
+            specialise_passes: specialise,
+            ..options
+        };
         let mut shared: Option<Rc<Compiled>> = None;
         let mut programs = Vec::with_capacity(def.passes.len());
         for index in 0..def.passes.len() {
-            let program = match (&shared, options.specialise_passes) {
+            let program = match (&shared, specialise) {
                 (Some(program), false) => Rc::clone(program),
                 (None, false) | (_, true) => {
-                    let pass_index = if options.specialise_passes {
+                    let pass_index = if specialise {
                         PassIndex::Constant(index)
                     } else {
                         PassIndex::Uniform
                     };
                     let source = assemble::fragment(&Request {
                         scene: &def,
-                        user_code: &scene.shader,
+                        user_code: scene.shader_for(index),
                         dialect: caps.dialect,
                         pass_index,
                         extra: extras,
                     });
-                    let compiled =
-                        Rc::new(build_program(gl, &def, extras, &vertex, &source, index)?);
-                    if !options.specialise_passes {
+                    let compiled = Rc::new(build_program(
+                        gl,
+                        &def,
+                        extras,
+                        &vertex,
+                        &source,
+                        index,
+                        scene.file_for(index),
+                    )?);
+                    if !specialise {
                         shared = Some(Rc::clone(&compiled));
                     }
                     compiled
@@ -300,13 +332,21 @@ impl ScenePlayer {
                 .any(|program| program.samplers.iter().any(|(source, _)| *source == wanted))
         };
         let audio = AudioUpload {
-            wanted: [samples(Source::Spectrum), samples(Source::LevelTrail)],
+            wanted: [
+                samples(Source::Spectrum),
+                samples(Source::LevelTrail),
+                samples(Source::ShadertoyAudio),
+            ],
             ..AudioUpload::default()
         };
+        // The Shadertoy audio texture is only worth its 1 KB when a shader
+        // reads it. Until the first upload it holds silence: a dark
+        // spectrum row and a waveform row at its centre.
+        let shadertoy_audio = shadertoy_audio_texture(gl, audio.wanted[2]).map_err(res)?;
         let images = def
             .images
             .iter()
-            .map(|image| load_image(gl, &scene.dir.join(&image.path)))
+            .map(|image| load_image(gl, &scene.dir.join(&image.path), image))
             .collect::<Result<Vec<_>, _>>()?;
 
         let finals = [
@@ -328,8 +368,10 @@ impl ScenePlayer {
             black,
             spectrum,
             level_trail,
+            shadertoy_audio,
             images,
             audio,
+            date: None,
             extras: extras.to_vec(),
             extra_values: Vec::with_capacity(extras.len()),
         };
@@ -353,6 +395,16 @@ impl ScenePlayer {
     pub fn set_script_uniforms(&mut self, values: &[[f32; 4]]) {
         self.extra_values.clear();
         self.extra_values.extend_from_slice(values);
+    }
+
+    /// Sets `strobe_Date` (Shadertoy's `iDate`): year, month 0 to 11, day
+    /// 1 to 31, seconds since midnight. Until this is called the player
+    /// reads the wall clock in UTC each frame, which is right for a shader
+    /// that only needs *a* date and wrong by the time-zone offset for one
+    /// that shows the time. A host that knows the local offset should call
+    /// this every frame; tests call it to render deterministic frames.
+    pub fn set_date(&mut self, date: [f32; 4]) {
+        self.date = Some(date);
     }
 
     /// The current render resolution.
@@ -390,7 +442,8 @@ impl ScenePlayer {
     pub fn upload_audio(&mut self, audio: &AudioTextures<'_>) {
         let result = self
             .upload_one(0, audio.spectrum)
-            .and_then(|()| self.upload_one(1, audio.level_trail));
+            .and_then(|()| self.upload_one(1, audio.level_trail))
+            .and_then(|()| self.upload_shadertoy(audio.spectrum));
         if let Err(error) = result
             && !self.audio.failed
         {
@@ -425,6 +478,37 @@ impl ScenePlayer {
         self.gl.upload(texture, staging)
     }
 
+    /// Builds the 512x2 Shadertoy audio texture from the spectrum texels
+    /// and uploads it, when a pass samples it.
+    ///
+    /// Row 0 is the spectrum and row 1 the waveform, as on Shadertoy. Both
+    /// are resampled (linearly) from the spectrum texture's `r` (raw FFT)
+    /// and `a` (waveform) channels, which the audio crate documents in
+    /// `AudioFrame::spectrum`. The raw channel spans -100 dB to -20 dB
+    /// where the browser's analyser, and so Shadertoy's texture, spans
+    /// -100 dB to -30 dB with a 6 dB lower scale; [`shadertoy_level`]
+    /// converts. The audio crate also builds a texture matched to the
+    /// browser exactly (`AudioFrame::shadertoy`, temporally smoothed); this
+    /// path does not use it because `AudioTextures` has no field for it yet
+    /// (D80).
+    fn upload_shadertoy(&mut self, spectrum: &[[f32; 4]]) -> Result<(), String> {
+        if !self.audio.wanted.get(2).copied().unwrap_or(false) || spectrum.is_empty() {
+            return Ok(());
+        }
+        let Some(staging) = self.audio.staging.get_mut(2) else {
+            return Ok(());
+        };
+        staging.resize(SHADERTOY_AUDIO_WIDTH * 2, 0);
+        let (spectrum_row, wave_row) = staging.split_at_mut(SHADERTOY_AUDIO_WIDTH);
+        for (i, byte) in spectrum_row.iter_mut().enumerate() {
+            *byte = quantise(shadertoy_level(resample(spectrum, i, 0)));
+        }
+        for (i, byte) in wave_row.iter_mut().enumerate() {
+            *byte = quantise(resample(spectrum, i, 3));
+        }
+        self.gl.upload(&self.shadertoy_audio, staging)
+    }
+
     fn allocate_passes(&self, programs: Vec<Rc<Compiled>>) -> Result<Vec<PassState>, PlayerError> {
         let last = self.def.final_pass();
         let mut passes = Vec::with_capacity(programs.len());
@@ -443,9 +527,12 @@ impl ScenePlayer {
                 ((self.render_size[0] as f32 * pass.scale[0]).round() as i32).max(1),
                 ((self.render_size[1] as f32 * pass.scale[1]).round() as i32).max(1),
             ];
-            let format = self
-                .caps
-                .pass_format(pass.float, self.options.float_precision);
+            let precision = if pass.full_precision {
+                FloatPrecision::Full
+            } else {
+                self.options.float_precision
+            };
+            let format = self.caps.pass_format(pass.float, precision);
             let sampling = sampling_for(pass.wrap, pass.filter);
             let count = if pass.double_buffer { 2 } else { 1 };
             let targets = (0..count)
@@ -533,6 +620,9 @@ impl ScenePlayer {
         if let Some(loc) = &program.framecount {
             gl.uniform_f32(loc, inputs.frame as f32);
         }
+        if let Some(loc) = &program.date {
+            gl.uniform_vec4(loc, self.date.unwrap_or_else(wall_clock_date));
+        }
         if let Some(loc) = &program.passindex {
             gl.uniform_i32(loc, index as i32);
         }
@@ -592,6 +682,7 @@ impl ScenePlayer {
             Source::Media | Source::Cubemap => &self.black,
             Source::Spectrum => &self.spectrum,
             Source::LevelTrail => &self.level_trail,
+            Source::ShadertoyAudio => &self.shadertoy_audio,
             Source::Image(i) => self.images.get(i).unwrap_or(&self.black),
             Source::Pass(j) => self
                 .passes
@@ -646,12 +737,13 @@ fn build_program(
     vertex: &crate::gl::Shader,
     source: &str,
     pass: usize,
+    file: &str,
 ) -> Result<Compiled, PlayerError> {
     let fragment = gl
         .compile(Stage::Fragment, source)
         .map_err(|log| PlayerError::Program {
             pass,
-            message: describe_log(&log),
+            message: describe_log(&log, file),
         })?;
     let program = gl
         .link(vertex, &fragment)
@@ -677,6 +769,7 @@ fn build_program(
     assign("syn_Media", Source::Media);
     assign("syn_Spectrum", Source::Spectrum);
     assign("syn_LevelTrail", Source::LevelTrail);
+    assign("strobe_ShadertoyAudio", Source::ShadertoyAudio);
     for (j, p) in def.passes.iter().enumerate() {
         if let Some(target) = &p.target {
             assign(target, Source::Pass(j));
@@ -693,6 +786,7 @@ fn build_program(
         rendersize: loc("RENDERSIZE"),
         time: loc("TIME"),
         framecount: loc("FRAMECOUNT"),
+        date: loc("strobe_Date"),
         passindex: loc("PASSINDEX"),
         mouse: [loc("_mouse"), loc("_click"), loc("_muv"), loc("_muvc")],
         media_type: loc("syn_MediaType"),
@@ -709,12 +803,13 @@ fn build_program(
     })
 }
 
-/// A driver log with user-code locations rewritten as `main.glsl:N`.
-fn describe_log(log: &str) -> String {
+/// A driver log with user-code locations rewritten as `file:N`, `file`
+/// being the pass's shader (`main.glsl`, or its `PASS_SOURCES` entry).
+fn describe_log(log: &str, file: &str) -> String {
     log.lines()
         .filter(|line| !line.trim().is_empty())
         .map(|line| match assemble::map_error_line(line) {
-            Some(ErrorSite::User(n)) => format!("main.glsl:{n}: {}", line.trim()),
+            Some(ErrorSite::User(n)) => format!("{file}:{n}: {}", line.trim()),
             Some(ErrorSite::Generated) => format!("(generated): {}", line.trim()),
             None => line.trim().to_string(),
         })
@@ -783,19 +878,14 @@ fn quantise(value: f32) -> u8 {
     (value.clamp(0.0, 1.0) * 255.0 + 0.5) as u8
 }
 
-/// Decodes an image file into a texture, bottom row first so `_uv` reads
-/// it upright.
-fn load_image(gl: &Gl, path: &Path) -> Result<Texture, PlayerError> {
-    let decoded = image::open(path)
-        .map_err(|e| PlayerError::Resource(format!("{}: {e}", path.display())))?
-        .flipv()
-        .into_rgba8();
+/// Decodes an image file into a texture. By default the bottom row comes
+/// first so `_uv` reads it upright; the scene can turn that off.
+fn load_image(gl: &Gl, path: &Path, def: &ImageDef) -> Result<Texture, PlayerError> {
+    let opened =
+        image::open(path).map_err(|e| PlayerError::Resource(format!("{}: {e}", path.display())))?;
+    let decoded = if def.vflip { opened.flipv() } else { opened }.into_rgba8();
     let (w, h) = decoded.dimensions();
-    let sampling = Sampling {
-        wrap: glow::REPEAT,
-        min: glow::LINEAR_MIPMAP_LINEAR,
-        mag: glow::LINEAR,
-    };
+    let sampling = sampling_for(def.wrap, def.filter);
     let texture = gl
         .texture_2d(
             w as i32,
@@ -805,6 +895,55 @@ fn load_image(gl: &Gl, path: &Path) -> Result<Texture, PlayerError> {
             Some(decoded.as_raw()),
         )
         .map_err(PlayerError::Resource)?;
-    gl.generate_mipmaps(&texture);
+    if def.filter == Filter::Mipmap {
+        gl.generate_mipmaps(&texture);
+    }
     Ok(texture)
+}
+
+/// Width of Shadertoy's audio texture (rows: spectrum, waveform).
+const SHADERTOY_AUDIO_WIDTH: usize = 512;
+
+/// The Shadertoy audio texture: 512x2 when a shader reads it, 1x2
+/// otherwise, holding silence (zero spectrum, waveform at 128).
+fn shadertoy_audio_texture(gl: &Gl, wanted: bool) -> Result<Texture, String> {
+    let width = if wanted { SHADERTOY_AUDIO_WIDTH } else { 1 };
+    let mut silence = vec![0_u8; width * 2];
+    if let Some(wave_row) = silence.get_mut(width..) {
+        wave_row.fill(128);
+    }
+    gl.texture_2d(
+        width as i32,
+        2,
+        Format::R8,
+        Sampling::LINEAR_CLAMP,
+        Some(&silence),
+    )
+}
+
+/// Channel `channel` of `texels` at column `i` of a 512-column row,
+/// interpolating linearly between neighbouring texels.
+fn resample(texels: &[[f32; 4]], i: usize, channel: usize) -> f32 {
+    let last = texels.len().saturating_sub(1);
+    let position = (i as f32 + 0.5) / SHADERTOY_AUDIO_WIDTH as f32 * texels.len() as f32 - 0.5;
+    let position = position.clamp(0.0, last as f32);
+    let low = position.floor() as usize;
+    let high = (low + 1).min(last);
+    let at = |index: usize| texels.get(index).and_then(|t| t.get(channel)).copied();
+    let t = position - low as f32;
+    at(low).unwrap_or(0.0) * (1.0 - t) + at(high).unwrap_or(0.0) * t
+}
+
+/// Converts the raw-FFT channel (-100 to -20 dB) to Shadertoy's texture
+/// scale (-100 to -30 dB, with the browser analyser's 6 dB lower scaling).
+fn shadertoy_level(raw: f32) -> f32 {
+    ((raw * 80.0 - 6.0206) / 70.0).clamp(0.0, 1.0)
+}
+
+/// `strobe_Date` from the wall clock, in UTC.
+fn wall_clock_date() -> [f32; 4] {
+    let seconds = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0.0, |elapsed| elapsed.as_secs_f64());
+    strobe_scene::date::from_unix_seconds(seconds)
 }

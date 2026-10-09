@@ -38,6 +38,16 @@
 //! every branch that pass never takes. [`PassIndex::Uniform`] is the
 //! faithful fallback.
 //!
+//! ## One source file per pass
+//!
+//! A scene that sets `PASS_SOURCES` gives each pass its own file, and the
+//! assembler is simply called once per pass with that pass's text as
+//! `user_code`. Nothing here changes: the file is still source string 1,
+//! so a driver error still maps to [`ErrorSite::User`] with a line of *that
+//! pass's file*, and the caller (which knows the file name) reports it as
+//! `passes/buffer_b.glsl:14`. Helper functions with the same name in two
+//! passes cannot collide, because no two passes share a program.
+//!
 //! ## Dialects
 //!
 //! SSF code is desktop GLSL, and real scenes lean on it: `PASSINDEX ==
@@ -177,6 +187,9 @@ pub fn fragment(request: &Request<'_>) -> String {
         "uniform vec4 _mouse;\nuniform vec3 _click;\nuniform vec2 _muv;\nuniform vec2 _muvc;\n\
          uniform sampler2D syn_FinalPass;\nuniform sampler2D syn_Media;\nuniform float syn_MediaType;\n",
     );
+    // Strobe's own additions, behind the reserved `strobe_` prefix: the
+    // Shadertoy audio texture (512x2, spectrum then waveform) and `iDate`.
+    out.push_str("uniform sampler2D strobe_ShadertoyAudio;\nuniform vec4 strobe_Date;\n");
     for name in SCALARS {
         let _ = writeln!(out, "uniform float {name};");
     }
@@ -340,6 +353,8 @@ mod tests {
             "uniform int PASSINDEX;",
             "uniform float syn_BassLevel;",
             "uniform sampler1D syn_Spectrum;",
+            "uniform sampler2D strobe_ShadertoyAudio;",
+            "uniform vec4 strobe_Date;",
         ] {
             assert!(src.contains(decl), "missing `{decl}`");
         }
