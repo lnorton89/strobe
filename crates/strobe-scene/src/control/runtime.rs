@@ -207,6 +207,44 @@ impl ControlBank {
         }
     }
 
+    /// Points control `index`'s target back at its default.
+    ///
+    /// Unlike [`Self::reset`] this does not touch the output, so a smoothed
+    /// control eases home instead of jumping, and a `speed` control keeps
+    /// the position it has integrated to. A bang has no default to return
+    /// to and is left alone.
+    pub fn set_default(&mut self, index: usize) {
+        let Some(def) = self.defs.get(index) else {
+            return;
+        };
+        if matches!(def.kind, ControlKind::Bang(_)) {
+            return;
+        }
+        let default = def.default;
+        self.set(index, None, &default[..def.dims()]);
+    }
+
+    /// Sets control `index`'s target to a random point in its range.
+    ///
+    /// `unit` supplies the randomness, one call per component, each in
+    /// `0..1`; the bank owns no generator so that a seeded script host
+    /// stays reproducible. A bang is left alone: a random press is not a
+    /// value.
+    pub fn randomize(&mut self, index: usize, mut unit: impl FnMut() -> f32) {
+        let Some(def) = self.defs.get(index) else {
+            return;
+        };
+        if matches!(def.kind, ControlKind::Bang(_)) {
+            return;
+        }
+        let dims = def.dims();
+        let mut positions = [0.0_f32; MAX_DIMENSIONS];
+        for position in positions.iter_mut().take(dims) {
+            *position = unit();
+        }
+        self.set_normalized(index, None, &positions[..dims]);
+    }
+
     /// Returns control `index` to its default.
     pub fn reset(&mut self, index: usize) {
         if let (Some(def), Some(state)) = (self.defs.get(index), self.states.get_mut(index)) {
@@ -517,6 +555,68 @@ mod tests {
             Some((0.5, -1.0)),
             "only y changed"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn set_default_eases_home_without_jumping() -> Result<()> {
+        let mut b =
+            bank(&[r#"{ "NAME": "s", "TYPE": "slider smooth", "PARAMS": 0.5, "DEFAULT": 0.25 }"#])?;
+        b.set(0, None, &[1.0]);
+        b.tick(1.0 / 60.0);
+        b.set_default(0);
+        assert_eq!(
+            b.target(0).map(|v| v[0]),
+            Some(0.25),
+            "the target is the default again"
+        );
+        assert!(
+            out(&b, 0) > 0.5,
+            "but the output has not jumped: {}",
+            out(&b, 0)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn set_default_leaves_a_bang_alone() -> Result<()> {
+        let mut b = bank(&[r#"{ "NAME": "b", "TYPE": "bang" }"#])?;
+        b.set_default(0);
+        b.tick(1.0 / 60.0);
+        assert_eq!(
+            out(&b, 0),
+            0.0,
+            "returning a bang to default is not a press"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn randomize_draws_one_position_per_component() -> Result<()> {
+        let mut b = bank(&[
+            r#"{ "NAME": "p", "TYPE": "xy", "MIN": 0, "MAX": 10 }"#,
+            r#"{ "NAME": "d", "TYPE": "dropdown", "LABELS": ["a","b","c"], "VALUES": [5, 6, 7] }"#,
+        ])?;
+        let mut draws = [0.25_f32, 0.75].into_iter();
+        b.randomize(0, || draws.next().unwrap_or(0.0));
+        b.tick(0.0);
+        assert_eq!(
+            b.output(0).map(|v| (v[0], v[1])),
+            Some((2.5, 7.5)),
+            "x then y, mapped across the range"
+        );
+        b.randomize(1, || 1.0);
+        b.tick(0.0);
+        assert_eq!(out(&b, 1), 7.0, "a dropdown picks an option, here the last");
+        Ok(())
+    }
+
+    #[test]
+    fn randomize_leaves_a_bang_alone() -> Result<()> {
+        let mut b = bank(&[r#"{ "NAME": "b", "TYPE": "bang" }"#])?;
+        b.randomize(0, || 1.0);
+        b.tick(1.0 / 60.0);
+        assert_eq!(out(&b, 0), 0.0, "a random press is not a value");
         Ok(())
     }
 }

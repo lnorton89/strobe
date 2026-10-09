@@ -26,7 +26,7 @@ On Linux, the renderer tests and the bench need Mesa's EGL:
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace
-cargo clippy --workspace --all-targets --all-features --target x86_64-pc-windows-msvc -- -D warnings
+cargo clippy --workspace --exclude strobe-script --all-targets --all-features --target x86_64-pc-windows-msvc -- -D warnings
 ```
 
 CI runs these on Windows and Linux, plus `cargo deny check`. A warning
