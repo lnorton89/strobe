@@ -491,3 +491,66 @@ frames on a machine that has a device.
 **Would reopen:** a measured upload cost on a real Intel HD 4000, or a
 Windows device-change notification (the `wasapi` crate) replacing the
 2-second retry.
+
+### D62: script uniforms are compiled in at load, from the script's first frame (2026-10-09)
+
+A shader cannot use a uniform nobody declared, and the roadmap promises no
+shader compilation during playback. So `Session::load` builds the
+`ScriptHost` and runs its **first frame before it builds the player**: with
+the real audio at the scene's start and a 60 Hz step, not as a throwaway
+probe, so the scene's second frame is the script's second frame. Whatever the
+script published in `setup()` or that first `update` is declared in every pass
+program (`ScenePlayer::with_extras`, which resolves their locations at link
+time like all other uniforms) and sent each frame with
+`set_script_uniforms`, a copy into a reused buffer. `FrameInputs` was left
+alone on purpose: the benchmark builds it by struct literal, and a new
+required field would have broken a crate this work does not own.
+
+A script that publishes a *new* uniform later (only once a beat is heard, say)
+costs one recompile at that moment, logged as a warning and never repeated if
+it fails; the alternative is a shader that cannot compile at all. Names the
+scene already declares (pass targets, images, cubemaps, transition uniforms;
+`strobe-script` itself already refuses control names) are dropped with a
+warning, because redeclaring one is a compile error that would take the scene
+down. A `script.js` that fails to load is a structured `SCRIPT` failure and
+the scene runs without it. A faulting script shows its state beside the scene's
+controls ("script.js fault (2 in a row): ...", or "disabled ... reload the
+scene"), and the first fault of a streak and the disabling are `SCRIPT`
+failures; the script's own console goes to the log under the target `script`.
+
+The shipped script scene, `11-script-orbits`, drives its picture through
+`setControl` on four `xy` controls rather than `setUniform`, because
+`strobe-bench` loads every scene in `scenes/` without running scripts, and a
+shader that needs a script-created uniform does not compile there. The
+`setUniform` path is covered by `crates/strobe-app/tests/script_uniforms.rs`
+on a headless context in both dialects instead. Without the script the
+scene's controls sit at their defaults, a valid still picture.
+
+Not provided yet: the previous frame's 64x36 downsample behind
+`textureFinalPass`. Producing it means a GPU readback every frame, which
+stalls the pipeline on the hardware this targets; Q14 records what it wants
+(an asynchronous PBO readback a frame or two late).
+
+**Would reopen:** the bench growing a script host (then scenes could use
+`setUniform` freely), or a measured readback cost that makes
+`textureFinalPass` affordable.
+
+### D63: the Windows cross-check from Linux now excludes `strobe-app` too (2026-10-09)
+
+The check was `--exclude strobe-script` because rquickjs compiles QuickJS's C
+sources, which needs MSVC and the Windows SDK. Once `strobe-app` depends on
+`strobe-script`, excluding the script crate no longer keeps it out of the
+build, so the command fails in `rquickjs-sys`'s build script. Options weighed:
+making scripting a cargo feature of the app (a stub `ScriptRun`, `cfg` at
+every call site, and `--all-features` would turn it back on), faking an MSVC C
+toolchain with clang (the SDK headers are still missing), or excluding the app.
+The last costs almost nothing: the app has no `#[cfg(windows)]` code, only
+`cfg!(target_os = "windows")` values, which the Linux build type-checks
+anyway, and `strobe-gfx` (WGL) and `strobe-audio` (WASAPI), which hold the
+Windows-specific code, stay in the cross-check. The native `windows` CI job
+(and the T480) remain the real proof for the app and the script crate.
+`xtask ci`, `ci.yml`, `CLAUDE.md` and `CONTRIBUTING.md` all carry the new
+command.
+
+**Would reopen:** adding `#[cfg(windows)]` code to the app, which would then
+want a feature gate or a Windows runner for the check.

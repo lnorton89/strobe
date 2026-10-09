@@ -10,6 +10,8 @@
 //! every item can be `pub` without being dead.
 //!
 //! - [`app`]: the winit application and frame loop.
+//! - [`script`], [`mouse`]: a scene's `script.js` at run time, and the
+//!   pointer uniforms it and the shaders read.
 //! - [`audio`]: live capture or synthetic audio, and its settings.
 //! - [`session`]: the one active scene and the render-scale arithmetic.
 //! - [`ui`]: the control window's panels, as a function of a model.
@@ -30,7 +32,9 @@ pub mod dialog;
 pub mod failures;
 pub mod gldebug;
 pub mod library;
+pub mod mouse;
 pub mod screenshot;
+pub mod script;
 pub mod session;
 pub mod stats;
 pub mod theme;

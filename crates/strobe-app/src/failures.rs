@@ -20,6 +20,7 @@ use std::path::Path;
 use strobe_diag::failure::{Failure, Subsystem};
 use strobe_gfx::PlayerError;
 use strobe_scene::SceneError;
+use strobe_script::ScriptError;
 
 /// What the app did about a scene that would not load.
 fn load_action(keeps_playing: bool) -> &'static str {
@@ -79,6 +80,21 @@ pub fn scene_load(name: &str, dir: &Path, error: &LoadError, keeps_playing: bool
                 .action(action)
         }
     }
+}
+
+/// The failure for a `script.js` that did not start. The scene runs
+/// without its script, so the person is told exactly that.
+pub fn script_load(name: &str, error: &ScriptError) -> Failure {
+    let phase = match error {
+        ScriptError::Engine(_) => "start",
+        ScriptError::Load { .. } => "load",
+        ScriptError::Setup { .. } => "setup",
+    };
+    Failure::new(Subsystem::Script, phase)
+        .scene(name)
+        .asset("script.js")
+        .message(error)
+        .action("the scene runs without its script")
 }
 
 /// A compiler log without the warnings the generated preamble itself
@@ -158,6 +174,25 @@ mod tests {
         assert!(!kept.contains("warning"), "warning kept:\n{kept}");
         assert!(kept.contains("broken preamble"), "generated error lost");
         assert!(kept.contains("main.glsl:2"), "user error lost");
+        Ok(())
+    }
+
+    #[test]
+    fn a_script_that_did_not_load_says_the_scene_runs_without_it() -> Result<()> {
+        let error = ScriptError::Load {
+            message: "unexpected token (script.js:3)".to_string(),
+        };
+        let text = script_load("11-script-orbits", &error).to_string();
+        for needle in [
+            "SCRIPT",
+            "scene=11-script-orbits",
+            "asset=script.js",
+            "phase=load",
+            "unexpected token",
+            "runs without its script",
+        ] {
+            assert!(text.contains(needle), "missing `{needle}` in:\n{text}");
+        }
         Ok(())
     }
 

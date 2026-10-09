@@ -29,7 +29,7 @@ cargo xtask bench -- --size 1280x720                      # strobe-bench in rele
 cargo test --workspace                                    # everything
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo fmt --all -- --check
-cargo clippy --workspace --exclude strobe-script --all-targets --all-features --target x86_64-pc-windows-msvc -- -D warnings
+cargo clippy --workspace --exclude strobe-script --exclude strobe-app --all-targets --all-features --target x86_64-pc-windows-msvc -- -D warnings
 cargo run --release -p strobe-bench -- --size 1280x720     # benchmark + frames
 ```
 
@@ -43,9 +43,13 @@ installed, the changelog check); a skipped step says why.
 edited by hand. Releases follow the order in `CONTRIBUTING.md`: write the
 section with `--release` first, tag after, never move a tag.
 
-The Windows cross-check excludes `strobe-script`. QuickJS is C, and
+The Windows cross-check excludes `strobe-script`, and `strobe-app` with
+it because the app depends on the script crate. QuickJS is C, and
 compiling it for MSVC needs the Windows SDK, so only a real Windows build
-checks that crate for Windows: CI's `windows` job, or the T480.
+checks those two for Windows: CI's `windows` job, or the T480. The app has
+no `#[cfg(windows)]` code of its own (its Windows branches are `cfg!`
+values, which every host type-checks), so little is lost; keep it that
+way.
 
 ### Seeing what you changed without a window
 

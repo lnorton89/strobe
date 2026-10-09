@@ -57,6 +57,7 @@ use crate::console::Console;
 use crate::failures;
 use crate::gldebug;
 use crate::library::Library;
+use crate::mouse::{Button, MouseTracker};
 use crate::screenshot::{Screenshot, Target};
 use crate::session::{self, Session};
 use crate::stats::FrameStats;
@@ -67,7 +68,7 @@ use strobe_diag::failure::{self, Failure, Subsystem};
 use strobe_gfx::{Backend, SwapWindow, WindowedContext};
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalPosition};
-use winit::event::{ElementState, KeyEvent, WindowEvent};
+use winit::event::{ElementState, KeyEvent, MouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow};
 use winit::keyboard::{Key, NamedKey};
 use winit::monitor::MonitorHandle;
@@ -182,6 +183,7 @@ struct Running {
     stats: FrameStats,
     gl_summary: String,
     audio: AudioInput,
+    mouse: MouseTracker,
 
     /// The render scale in force.
     render_scale: f32,
@@ -260,6 +262,7 @@ impl Running {
             stats: FrameStats::default(),
             gl_summary,
             audio: AudioInput::new(cli.audio == AudioArg::Auto),
+            mouse: MouseTracker::default(),
             render_scale,
             scale_edit: render_scale,
             pending_resize: None,
@@ -373,6 +376,18 @@ impl Running {
             } else if is_control {
                 self.redraw_control();
             }
+        } else if is_output && let WindowEvent::CursorMoved { position, .. } = &event {
+            self.mouse.moved([position.x as f32, position.y as f32]);
+        } else if is_output && let WindowEvent::MouseInput { state, button, .. } = &event {
+            let button = match button {
+                MouseButton::Left => Some(Button::Left),
+                MouseButton::Right => Some(Button::Right),
+                MouseButton::Middle => Some(Button::Middle),
+                MouseButton::Back | MouseButton::Forward | MouseButton::Other(_) => None,
+            };
+            if let Some(button) = button {
+                self.mouse.button(button, *state == ElementState::Pressed);
+            }
         } else if let WindowEvent::KeyboardInput { event: key, .. } = &event {
             let typing = is_control && self.ui.wants_keyboard();
             if !typing {
@@ -455,6 +470,7 @@ impl Running {
             &entry.name,
             size,
             self.start_time,
+            &mut self.audio,
         ) {
             Ok(session) => {
                 self.session = Some(session);
@@ -565,7 +581,9 @@ impl Running {
         let gl = self.gfx.gl();
         match self.session.as_mut() {
             Some(session) => {
-                session.advance(dt, &mut self.audio);
+                let render = session.player.render_size();
+                let mouse = self.mouse.uniforms([size.width, size.height], render);
+                session.advance(dt, &mut self.audio, mouse);
                 gl.plain_state();
                 session.player.present(window);
             }
@@ -612,9 +630,12 @@ impl Running {
                 size: [texture.width(), texture.height()],
             }
         });
-        let (scene_title, controls) = match self.session.as_mut() {
-            Some(session) => (session.title.as_str(), Some(&mut session.controls)),
-            None => ("", None),
+        let (scene_title, controls, script) = match self.session.as_mut() {
+            Some(session) => {
+                let (title, controls, script) = session.panel_parts();
+                (title, Some(controls), script)
+            }
+            None => ("", None, None),
         };
         let mut model = Model {
             library: &self.library,
@@ -630,6 +651,7 @@ impl Running {
             fullscreen: self.output.window().fullscreen().is_some(),
             gl_summary: &self.gl_summary,
             audio: self.audio.panel(),
+            script,
         };
         let mut actions = std::mem::take(&mut self.actions);
         let window = self.control.window();

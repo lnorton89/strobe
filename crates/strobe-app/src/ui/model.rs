@@ -16,6 +16,7 @@
 
 use crate::console::Console;
 use crate::library::Library;
+use crate::script::ScriptState;
 use crate::stats::FrameStats;
 use strobe_audio::capture::{DeviceChoice, DeviceInfo};
 use strobe_scene::control::ControlBank;
@@ -106,4 +107,6 @@ pub struct Model<'a> {
     pub gl_summary: &'a str,
     /// Audio source and settings.
     pub audio: AudioPanel<'a>,
+    /// The playing scene's script, if it has one.
+    pub script: Option<&'a ScriptState>,
 }
