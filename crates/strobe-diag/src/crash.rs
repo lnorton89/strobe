@@ -206,9 +206,23 @@ fn socket<R>(name: &str, then: impl FnOnce(SocketName<'_>) -> R) -> R {
 
 #[cfg(not(any(target_os = "linux", target_os = "android")))]
 fn socket<R>(name: &str, then: impl FnOnce(SocketName<'_>) -> R) -> R {
-    // A stale socket file from a dead process would make bind fail.
-    fs::remove_file(name).ok();
     then(SocketName::path(name))
+}
+
+/// The monitor's side: clears a stale socket file, then binds.
+///
+/// Only the monitor may remove the file. This used to live in [`socket`],
+/// which the app's connector also calls, so on Windows and macOS (path
+/// sockets, unlike Linux's abstract namespace) every connection attempt
+/// deleted the very socket the monitor was listening on, and the app never
+/// connected. Found on the T480: `native capture connected: false` and no
+/// minidump for an abort or a stack overflow.
+fn bind_socket<R>(name: &str, then: impl FnOnce(SocketName<'_>) -> R) -> R {
+    if !cfg!(any(target_os = "linux", target_os = "android")) {
+        // A stale socket file from a dead process would make bind fail.
+        fs::remove_file(name).ok();
+    }
+    socket(name, then)
 }
 
 // ------------------------------------------------------------- the monitor
@@ -237,7 +251,7 @@ fn write_stderr(message: &str) {
 }
 
 fn run_monitor(name: &str) {
-    let server = socket(name, Server::with_name);
+    let server = bind_socket(name, Server::with_name);
     let mut server = match server {
         Ok(server) => server,
         Err(error) => {
