@@ -355,6 +355,17 @@ impl WindowedContext {
             .map_err(|e| format!("make current: {e}"))
     }
 
+    /// Makes the context not current on this thread. Call it before
+    /// dropping a context that is to be replaced by one on another backend:
+    /// with a vendor-neutral GL dispatcher (glvnd on Linux) an EGL context
+    /// cannot be made current while a GLX one still is, and destroying a
+    /// context that is current only defers its destruction.
+    pub fn release_current(&self) -> Result<(), String> {
+        self.context
+            .make_not_current_in_place()
+            .map_err(|e| format!("release context: {e}"))
+    }
+
     /// Presents `target`'s back buffer. The context must be current on it.
     pub fn swap_buffers(&self, target: &SwapWindow) -> Result<(), String> {
         target

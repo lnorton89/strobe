@@ -400,6 +400,12 @@ impl Stack {
             ui.destroy();
             drop(ui);
         }
+        // A destroyed context that is still current is only destroyed
+        // later, and a context on another backend cannot become current
+        // while it is (glvnd refuses with EGL_BAD_ACCESS). Not a GL call.
+        if let Err(error) = gfx.release_current() {
+            log::warn!("{error}");
+        }
         drop(control);
         drop(output);
         drop(gfx);
