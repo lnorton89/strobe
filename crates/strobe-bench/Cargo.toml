@@ -1,6 +1,6 @@
 [package]
 name = "strobe-bench"
-description = "Headless benchmark: renders every scene in a library, times it, and writes frames and a contact sheet."
+description = "Benchmark (headless or windowed context): renders every scene in a library, times it, and writes frames and a contact sheet."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -17,6 +17,7 @@ strobe-gfx.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 image.workspace = true
+winit.workspace = true
 
 [lints]
 workspace = true

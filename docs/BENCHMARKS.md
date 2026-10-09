@@ -1,7 +1,7 @@
 # Benchmarks
 
 Measured with `strobe-bench`, which renders every scene in `scenes/` on
-a headless context and times each frame with `glFinish`. Frames are
+a headless or window-owned context and times each frame with `glFinish`. Frames are
 deterministic: fixed `dt`, and synthetic 120 BPM audio from
 `strobe_scene::synthetic`.
 
@@ -9,8 +9,42 @@ deterministic: fixed `dt`, and synthetic 120 BPM audio from
 cargo run --release -p strobe-bench -- --size 1280x720 --frames 30 --warmup 90
 #   --half      RGBA16F instead of RGBA32F for FLOAT passes
 #   --shared    one program per scene with a PASSINDEX uniform (Synesthesia's way)
-#   --api gles  compile in the GLSL ES dialect the ANGLE path uses
+#   --api gles  compile in the GLSL ES dialect the ANGLE path uses (headless)
 ```
+
+### Which context: headless or window
+
+| `--context` | Context | Use |
+|---|---|---|
+| `headless` | An EGL device display, no window system | CI, cloud containers, Linux with Mesa |
+| `window` | One hidden winit window through the app's `WindowedContext` | Windows with Intel or other drivers that expose no EGL devices; any real GPU through its normal driver |
+| `auto` (default) | Headless if an EGL device exists, else the window | Everywhere |
+
+Window mode runs the identical per-scene loop (load, compile timing,
+warm-up, timed frames with `glFinish`, PNG readback, contact sheet,
+`results.md`). The window exists only to own a context: scenes render
+into the player's offscreen targets, nothing is swapped, and the
+surface's vsync is off. `results.md` records the context line (headless
+or window, hidden or tiny, and the backend) next to the renderer. If a
+platform will not give a hidden window a GL surface, the bench retries
+with a 16x16 undecorated window parked off-screen; `--show-window`
+starts there.
+
+**On Windows** (the T480, any machine whose driver has no EGL devices):
+
+```powershell
+cargo run --release -p strobe-bench -- --context window --size 1280x720
+# ANGLE (GLES 3.0 on Direct3D 11): fetch its DLLs once, then
+powershell -ExecutionPolicy Bypass -File scripts\fetch-angle.ps1
+cargo run --release -p strobe-bench -- --context window --gl angle --size 1280x720
+```
+
+`--gl native|angle|auto` picks the window's backend (`auto` is native,
+then ANGLE). `--api gles` in window mode means ANGLE, and a `--gl` that
+contradicts `--api` is an error. Use a different `--out` per run
+(`--out target\bench-native`, `--out target\bench-angle`) to keep the
+frames side by side. Window mode renders the same images as headless
+(checked pixel for pixel on llvmpipe under Xvfb, native and GLES).
 
 **Add a new section, at the top of "Results", for every run that
 informs a decision.** Include the machine, the date, the commit, and

@@ -60,11 +60,14 @@ issue forms, and frames from the bench as CI artifacts).
 - App integration (`agent/app-integration`): diagnostics, real audio,
   the script host, and GPU timer queries driving adaptive resolution in
   `strobe-app`.
-- Windowed benchmark (`agent/bench-window`): `strobe-bench --context
-  window`, so it runs on Windows, where Intel's driver has no EGL device.
 - T480 real-hardware pass: app smoke test on native GL and ANGLE,
   per-scene fps, and the crash-capture drill on Windows. Results go into
   `docs/hardware/T480.md`.
+
+Done since: `strobe-bench --context window|headless|auto` and `--gl
+native|angle|auto` (D70-D72). The bench now runs on a hidden-window
+context where the driver has no EGL device (Intel on Windows). Window
+mode renders the same images as headless, pixel for pixel, on llvmpipe.
 
 ## Next (in order)
 
