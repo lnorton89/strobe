@@ -74,7 +74,7 @@ reported.
 
 | Item | Effect |
 |---|---|
-| `lose-context@60` | After 60 presented output frames the context dies: every `make_current`, on both windows, fails with an injected error until the context is rebuilt, and the `Gl` is marked lost, as if the driver had reset. |
+| `lose-context@60` | After 60 scene frames (shown or hidden output) the context dies: every `make_current`, on both windows, fails with an injected error until the context is rebuilt, and the `Gl` is marked lost, as if the driver had reset. |
 | `lose-context@60,120` | Two losses, at frames 60 and 120. |
 | `fail-rebuild:native` / `fail-rebuild:angle` | Rebuilding on that backend fails. |
 
@@ -93,7 +93,9 @@ run lose-context@60,fail-rebuild:native,fail-rebuild:angle   # gives up: the fai
 run lose-context@60,120 --gl native                  # a forced backend is retried, never abandoned
 ```
 
-Each run except the give-up one writes `target/recover/shot-output.png`
+The output window is hidden unless `--show-output` is added; both modes recover
+and keep their visibility (`xdotool search --name Strobe` and `xwininfo -id`
+show the output's `Map State`). Each run except the give-up one writes `target/recover/shot-output.png`
 and `-control.png`; open them to check the output is not black.
 
 ## GL problems

@@ -45,6 +45,12 @@ The following is done and verified headless:
   Decisions D50-D59. Untested until the first push: the release workflow
   itself, which only runs on a tag.
 
+- Output window starts hidden (D96): `--show-output`, a Show/Hide output
+  button, the scene frame decoupled from the output window's redraw (it runs
+  on its own schedule, so the control preview keeps moving), close-button
+  hides, visibility survives a context rebuild. Verified under Xvfb; the
+  Windows behaviours are listed in D96 as unverified.
+
 ### Merged 2026-10-09
 
 The parallel agents' branches were reviewed, gated, and merged:
