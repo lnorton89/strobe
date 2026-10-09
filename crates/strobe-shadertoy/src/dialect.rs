@@ -93,6 +93,9 @@ pub struct Normalised {
     pub macros: BTreeSet<String>,
     /// Every identifier in the rewritten code outside comments.
     pub identifiers: BTreeSet<String>,
+    /// Built-in functions the code defines itself (see
+    /// [`shadowed_builtins`]).
+    pub shadowed_builtins: BTreeSet<String>,
 }
 
 /// Legacy built-in names and what they become.
@@ -229,12 +232,69 @@ pub fn normalise(source: &str) -> Normalised {
     }
 
     let identifiers = glsl::identifiers(&out);
+    let shadowed_builtins = shadowed_builtins(&out);
     Normalised {
         code: out,
         notes,
         macros,
         identifiers,
+        shadowed_builtins,
     }
+}
+
+/// Built-in functions that WebGL1-era shaders commonly define themselves
+/// because GLSL ES 1.00 lacked them.
+const REDEFINABLE_BUILTINS: &[&str] = &[
+    "tanh",
+    "sinh",
+    "cosh",
+    "asinh",
+    "acosh",
+    "atanh",
+    "round",
+    "roundEven",
+    "trunc",
+    "inverse",
+    "transpose",
+    "determinant",
+    "outerProduct",
+    "isnan",
+    "isinf",
+];
+
+/// Return types a function definition can start with.
+const TYPE_NAMES: &[&str] = &[
+    "void", "float", "int", "uint", "bool", "vec2", "vec3", "vec4", "ivec2", "ivec3", "ivec4",
+    "uvec2", "uvec3", "uvec4", "bvec2", "bvec3", "bvec4", "mat2", "mat3", "mat4",
+];
+
+/// The built-in functions `code` defines itself, e.g. `float tanh(float x)`.
+///
+/// GLSL ES 3.00 forbids that (Mesa rejects it), though desktop GLSL 3.30
+/// lets a definition hide the built-in. The converter aliases each name
+/// away under `#ifdef GL_ES`, so the ES build calls the shader's own
+/// version under a private name and desktop compiles the code as written.
+/// Detection is by shape (`<type> <name> (`), so a *call* does not count.
+pub fn shadowed_builtins(code: &str) -> BTreeSet<String> {
+    let tokens: Vec<Token<'_>> = glsl::lex(code)
+        .into_iter()
+        .filter(|t| !matches!(t.kind, Kind::Space | Kind::LineComment | Kind::BlockComment))
+        .collect();
+    tokens
+        .windows(3)
+        .filter_map(|window| match window {
+            [ty, name, paren]
+                if ty.kind == Kind::Ident
+                    && TYPE_NAMES.contains(&ty.text)
+                    && name.kind == Kind::Ident
+                    && REDEFINABLE_BUILTINS.contains(&name.text)
+                    && paren.text == "(" =>
+            {
+                Some(name.text.to_string())
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 /// A comment's text with non-ASCII characters replaced by `?`.
@@ -475,6 +535,21 @@ mod tests {
         assert!(
             !n.identifiers.contains("texture2D"),
             "renamed names are gone"
+        );
+    }
+
+    #[test]
+    fn user_defined_builtins_are_found_but_calls_are_not() {
+        let n = normalise(
+            "float tanh(float x) { return x; }\n\
+             vec3 f(vec3 v) { return v * tanh(2.0) + round(v); }\n\
+             mat2 inverse(mat2 m) { return m; }",
+        );
+        let found: Vec<&str> = n.shadowed_builtins.iter().map(String::as_str).collect();
+        assert_eq!(
+            found,
+            vec!["inverse", "tanh"],
+            "definitions only: {found:?}"
         );
     }
 

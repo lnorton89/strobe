@@ -1,0 +1,60 @@
+{
+  "ver": "0.1",
+  "info": {
+    "id": "Tst009",
+    "date": "1700000000",
+    "viewed": 0,
+    "name": "Name collisions",
+    "username": "strobe-tests",
+    "description": "Original test shader written for Strobe's fixtures. MIT, like the repository.",
+    "likes": 0,
+    "published": 3,
+    "flags": 0,
+    "usePreview": 0,
+    "tags": [],
+    "hasliked": 0
+  },
+  "renderpass": [
+    {
+      "inputs": [],
+      "outputs": [
+        {
+          "id": 257,
+          "channel": 0
+        }
+      ],
+      "code": "#define SCALE 2.0\nconst float K = 0.25;\n\nvec3 palette(float t)\n{\n    return vec3(t, 0.0, 0.0);\n}\n\nfloat hash(vec2 p)\n{\n    return 0.2 * SCALE * 0.0;\n}\n\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord )\n{\n    fragColor = vec4(palette(K), hash(fragCoord));\n}\n",
+      "name": "Buffer A",
+      "description": "",
+      "type": "buffer"
+    },
+    {
+      "inputs": [
+        {
+          "id": 257,
+          "src": "/media/previz/buffer00.png",
+          "ctype": "buffer",
+          "channel": 0,
+          "sampler": {
+            "filter": "linear",
+            "wrap": "clamp",
+            "vflip": "true",
+            "srgb": "false",
+            "internal": "byte"
+          },
+          "published": 1
+        }
+      ],
+      "outputs": [
+        {
+          "id": "4dfGRr",
+          "channel": 0
+        }
+      ],
+      "code": "#define SCALE 8.0\nconst float K = 0.5;\n\nvec3 palette(float t)\n{\n    return vec3(0.0, t, 0.0);\n}\n\nfloat hash(vec2 p)\n{\n    return 0.5;\n}\n\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord )\n{\n    vec2 uv = fragCoord / iResolution.xy;\n    vec3 a = texture(iChannel0, uv).rgb;\n    fragColor = vec4(a + palette(K) + vec3(0.0, 0.0, hash(uv) * SCALE / 16.0), 1.0);\n}\n",
+      "name": "Image",
+      "description": "",
+      "type": "image"
+    }
+  ]
+}

@@ -1,0 +1,60 @@
+{
+  "ver": "0.1",
+  "info": {
+    "id": "Tst006",
+    "date": "1700000000",
+    "viewed": 0,
+    "name": "Legacy style",
+    "username": "strobe-tests",
+    "description": "Original test shader written for Strobe's fixtures. MIT, like the repository.",
+    "likes": 0,
+    "published": 3,
+    "flags": 0,
+    "usePreview": 0,
+    "tags": [],
+    "hasliked": 0
+  },
+  "renderpass": [
+    {
+      "inputs": [],
+      "outputs": [
+        {
+          "id": 257,
+          "channel": 0
+        }
+      ],
+      "code": "#ifdef GL_ES\nprecision mediump float;\n#endif\n#extension GL_OES_standard_derivatives : enable\nuniform vec3 iResolution;\nuniform float iTime;\n\nfloat tanh(float x)\n{\n    float e = exp(2.0 * x);\n    return (e - 1.0) / (e + 1.0);\n}\n\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord )\n{\n    vec2 uv = fragCoord / iResolution.xy;\n    gl_FragColor = vec4(uv, 0.5 + 0.5 * tanh(iTime), 1.0);\n}\n",
+      "name": "Buffer A",
+      "description": "",
+      "type": "buffer"
+    },
+    {
+      "inputs": [
+        {
+          "id": 257,
+          "src": "/media/previz/buffer00.png",
+          "ctype": "buffer",
+          "channel": 0,
+          "sampler": {
+            "filter": "linear",
+            "wrap": "clamp",
+            "vflip": "true",
+            "srgb": "false",
+            "internal": "byte"
+          },
+          "published": 1
+        }
+      ],
+      "outputs": [
+        {
+          "id": "4dfGRr",
+          "channel": 0
+        }
+      ],
+      "code": "precision highp float;\nuniform sampler2D iChannel0;\n\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord )\n{\n    vec2 uv = fragCoord / iResolution.xy;\n    gl_FragColor = texture2D(iChannel0, uv) * 0.5 + vec4(0.25, 0.0, 0.0, 0.0);\n}\n",
+      "name": "Image",
+      "description": "",
+      "type": "image"
+    }
+  ]
+}

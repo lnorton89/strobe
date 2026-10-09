@@ -221,6 +221,13 @@ pub(super) fn pass_file(plan: &Plan, pass: &PlannedPass, shader: &Shader) -> Gen
             let _ = writeln!(aliases, "#define {name} strobe_user_{name}");
         }
     }
+    // GLSL ES 3.00 forbids redefining a built-in; desktop GLSL lets it hide.
+    for name in &pass.shadowed {
+        let _ = writeln!(
+            aliases,
+            "#ifdef GL_ES\n#define {name} strobe_user_{name}\n#endif"
+        );
+    }
 
     let mut body = String::new();
     body.push_str("vec2 strobe_fragCoord = vec2(0.0);\n");

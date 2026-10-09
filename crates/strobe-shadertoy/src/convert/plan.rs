@@ -87,6 +87,8 @@ pub(super) struct PlannedPass {
     pub idents: BTreeSet<String>,
     /// Macros defined in common plus code.
     pub macros: BTreeSet<String>,
+    /// Built-in functions the code defines itself.
+    pub shadowed: BTreeSet<String>,
     pub channels: [Option<Binding>; 4],
     /// Whether the code writes `gl_FragColor`.
     pub legacy_frag_color: bool,
@@ -347,9 +349,11 @@ pub(super) fn build(shader: &Shader, options: &Options) -> Result<Plan, ConvertE
 
         let mut idents: BTreeSet<String> = code.identifiers.clone();
         let mut macros: BTreeSet<String> = code.macros.clone();
+        let mut shadowed: BTreeSet<String> = code.shadowed_builtins.clone();
         if let Some(c) = &common {
             idents.extend(c.identifiers.iter().cloned());
             macros.extend(c.macros.iter().cloned());
+            shadowed.extend(c.shadowed_builtins.iter().cloned());
         }
         if !code.identifiers.contains("mainImage") {
             return Err(ConvertError::NoMainImage(name));
@@ -430,6 +434,7 @@ pub(super) fn build(shader: &Shader, options: &Options) -> Result<Plan, ConvertE
             notes,
             idents,
             macros,
+            shadowed,
             channels,
             legacy_frag_color,
         });

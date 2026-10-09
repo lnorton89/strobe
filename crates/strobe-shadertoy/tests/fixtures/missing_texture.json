@@ -1,0 +1,47 @@
+{
+  "ver": "0.1",
+  "info": {
+    "id": "Tst008",
+    "date": "1700000000",
+    "viewed": 0,
+    "name": "Missing texture",
+    "username": "strobe-tests",
+    "description": "Original test shader written for Strobe's fixtures. MIT, like the repository.",
+    "likes": 0,
+    "published": 3,
+    "flags": 0,
+    "usePreview": 0,
+    "tags": [],
+    "hasliked": 0
+  },
+  "renderpass": [
+    {
+      "inputs": [
+        {
+          "id": "4dXGRr",
+          "src": "/media/a/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef.jpg",
+          "ctype": "texture",
+          "channel": 0,
+          "sampler": {
+            "filter": "mipmap",
+            "wrap": "repeat",
+            "vflip": "true",
+            "srgb": "false",
+            "internal": "byte"
+          },
+          "published": 1
+        }
+      ],
+      "outputs": [
+        {
+          "id": "4dfGRr",
+          "channel": 0
+        }
+      ],
+      "code": "void mainImage( out vec4 fragColor, in vec2 fragCoord )\n{\n    vec2 uv = fragCoord / iResolution.xy;\n    fragColor = vec4(0.2 + 0.5 * texture(iChannel0, uv).rgb, 1.0);\n}\n",
+      "name": "Image",
+      "description": "",
+      "type": "image"
+    }
+  ]
+}
