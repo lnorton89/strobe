@@ -475,7 +475,7 @@ impl Catalog {
             // `themes` is never empty (see `load`), so this is
             // unreachable; returning the leaked default keeps the
             // function total without an `unwrap`.
-            .unwrap_or_else(|| default_palette())
+            .unwrap_or_else(fallback_ref)
     }
 
     /// The palette used when the catalog could not be loaded at all.
@@ -484,16 +484,22 @@ impl Catalog {
     /// tampered-with binary opens a readable window saying so, rather
     /// than a black rectangle.
     fn emergency() -> Palette {
-        default_palette().clone()
+        fallback().clone()
     }
 }
 
-/// The last-resort palette, built in code rather than parsed.
+/// [`fallback`] with a lifetime a caller's borrow can be unified with.
+fn fallback_ref<'a>() -> &'a Palette {
+    fallback()
+}
+
+/// The last-resort palette, built in code rather than parsed. It is also
+/// the palette the UI starts with before a theme is chosen.
 ///
 /// A `OnceLock` rather than a `const` because [`Palette`] holds `String`s
 /// and a derived [`Ramp`], neither of which can be constructed in a
 /// constant. Built at most once, and on almost every run not at all.
-fn default_palette() -> &'static Palette {
+pub fn fallback() -> &'static Palette {
     use std::sync::OnceLock;
     static FALLBACK: OnceLock<Palette> = OnceLock::new();
     FALLBACK.get_or_init(|| {
@@ -801,7 +807,7 @@ mod tests {
 
     #[test]
     fn the_heat_scale_clamps_an_overshooting_load() {
-        let theme = default_palette();
+        let theme = fallback();
         assert_eq!(theme.heat(9.0), theme.danger);
         assert_eq!(theme.heat(-1.0), theme.success);
         assert_eq!(
@@ -943,7 +949,7 @@ mod tests {
     fn the_fallback_palette_is_itself_readable() {
         // It only ever appears when everything else has failed, which is
         // precisely when a readable window matters most.
-        let theme = default_palette();
+        let theme = fallback();
         assert!(theme.text.contrast(theme.panel) >= TEXT_CONTRAST);
         assert!(theme.text_muted.contrast(theme.panel) >= SECONDARY_CONTRAST);
         assert!(theme.control.contrast(theme.panel) >= 1.25);

@@ -243,6 +243,18 @@ impl Panes {
             .max_by_key(|pane| self.stamp.get(pane.index()).copied().unwrap_or(0))
     }
 
+    /// Feeds everything that distinguishes one layout from another into
+    /// `state`, without allocating: the UI hashes its state once a frame to
+    /// notice a change.
+    pub fn hash_into<H: std::hash::Hasher>(&self, state: &mut H) {
+        use std::hash::Hash;
+        self.open.hash(state);
+        for width in self.width {
+            width.to_bits().hash(state);
+        }
+        self.stamp.hash(state);
+    }
+
     /// The open panes, oldest first: the order they were opened in, which
     /// the preferences file keeps so a restart restores which is on top.
     pub fn open_order(&self) -> Vec<Pane> {

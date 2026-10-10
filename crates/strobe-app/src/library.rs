@@ -118,6 +118,39 @@ impl HealthFilter {
     }
 }
 
+/// The scene a step of `delta` (1 for next, -1 for previous) from `current`
+/// lands on in a library of `len` scenes: wrapping at both ends, skipping
+/// any scene `is_failed` calls broken, and never landing back on `current`
+/// unless it is the only one that works. With nothing playing, next is the
+/// first scene and previous the last. `None` when there is nothing to step
+/// to.
+pub fn step(
+    current: Option<usize>,
+    len: usize,
+    delta: isize,
+    is_failed: impl Fn(usize) -> bool,
+) -> Option<usize> {
+    if len == 0 || delta == 0 {
+        return None;
+    }
+    let len_i = isize::try_from(len).ok()?;
+    let start = match current {
+        Some(index) => isize::try_from(index).ok()?,
+        None if delta > 0 => -1,
+        None => len_i,
+    };
+    let step = delta.signum();
+    let mut at = start;
+    for _ in 0..len {
+        at = (at + step).rem_euclid(len_i);
+        let candidate = usize::try_from(at).ok()?;
+        if !is_failed(candidate) {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
 /// Whether `entry` passes the search `query_lower` (already lowercased and
 /// trimmed; empty matches everything) and the health `filter`.
 ///
@@ -182,6 +215,43 @@ mod tests {
                 .map(|name| Entry::new((*name).to_string(), PathBuf::from(name)))
                 .collect(),
         }
+    }
+
+    #[test]
+    fn stepping_wraps_and_skips_broken_scenes() {
+        let none_failed = |_| false;
+        assert_eq!(step(Some(0), 3, 1, none_failed), Some(1), "next");
+        assert_eq!(step(Some(2), 3, 1, none_failed), Some(0), "next wraps");
+        assert_eq!(step(Some(0), 3, -1, none_failed), Some(2), "previous wraps");
+        assert_eq!(
+            step(None, 3, 1, none_failed),
+            Some(0),
+            "nothing playing: first"
+        );
+        assert_eq!(
+            step(None, 3, -1, none_failed),
+            Some(2),
+            "nothing playing: last"
+        );
+        let middle_failed = |i| i == 1;
+        assert_eq!(
+            step(Some(0), 3, 1, middle_failed),
+            Some(2),
+            "skips a broken one"
+        );
+        assert_eq!(
+            step(Some(2), 3, -1, middle_failed),
+            Some(0),
+            "skips going back"
+        );
+        assert_eq!(step(Some(0), 3, 1, |_| true), None, "all broken");
+        assert_eq!(step(Some(0), 0, 1, none_failed), None, "empty library");
+        assert_eq!(
+            step(Some(0), 1, 1, none_failed),
+            Some(0),
+            "a lone scene steps to itself"
+        );
+        assert_eq!(step(Some(0), 3, 0, none_failed), None, "no step");
     }
 
     #[test]

@@ -1,38 +1,66 @@
 // ============================================================================
 // Module:       strobe_app::ui::audio
-// Description:  The audio settings panel: active source, input device
-//               picker, reactivity and speed sliders, and tap tempo.
+// Description:  The audio section of Settings: the active source, the input
+//               device picker, reactivity and speed, and tap tempo.
 //
-// Dependencies: egui; strobe-audio (device types); crate::ui::model;
-//               crate::{audio, theme}
+// Dependencies: egui; strobe-audio (device types); super::{model, theme,
+//               widgets}; crate::audio
 // ============================================================================
 
-//! The audio panel (bottom of the left column).
+//! The audio section (in the Settings pane).
 //!
-//! It shows what the status bar also shows (the active source), because on
-//! stage the first question about a dead-looking show is "is it hearing
-//! anything?". The widgets only edit the model's values and push actions;
-//! the app owns the settings, so they survive a scene change.
+//! It shows what the title bar's audio readout also shows (the active
+//! source), because on stage the first question about a dead-looking show is
+//! "is it hearing anything?". Missing audio is a state, not an error: the
+//! visuals keep running on the fixed synthetic track, and this section says
+//! so and offers the two things that fix it, *Rescan* and choosing a device.
+//!
+//! The widgets only edit the model's values and push actions; the app owns
+//! the settings, so they survive a scene change.
 
 use super::model::{Action, AudioPanel};
+use super::theme::{self, SPACE_SM, SPACE_XS};
+use super::widgets::{self, Tone};
 use crate::audio::GAIN;
-use crate::theme;
+use crate::icon::Icon;
+use crate::palette::Palette;
 use strobe_audio::capture::{DeviceChoice, DeviceInfo, DeviceKind};
 
 /// Width of the device picker, in points.
-const PICKER_WIDTH: f32 = 170.0;
+const PICKER_WIDTH: f32 = 190.0;
 
-/// Draws the panel.
-pub fn show(ui: &mut egui::Ui, audio: &mut AudioPanel<'_>, actions: &mut Vec<Action>) {
-    ui.add_space(4.0);
-    ui.heading("Audio");
-    let colour = if audio.live {
-        theme::accent()
+/// Draws the section.
+pub fn show(
+    ui: &mut egui::Ui,
+    theme: &Palette,
+    audio: &mut AudioPanel<'_>,
+    actions: &mut Vec<Action>,
+) {
+    if audio.live {
+        ui.label(
+            egui::RichText::new(audio.source)
+                .small()
+                .color(theme::rgb(theme.success)),
+        );
+    } else if audio.can_capture {
+        widgets::banner(
+            ui,
+            theme,
+            Tone::Warning,
+            &format!(
+                "{}. The visuals keep running without audio reaction.",
+                audio.source
+            ),
+            |_| {},
+        );
     } else {
-        theme::muted()
-    };
-    ui.label(egui::RichText::new(audio.source).small().color(colour));
-    ui.add_space(2.0);
+        ui.label(
+            egui::RichText::new(audio.source)
+                .small()
+                .color(theme::rgb(theme.text_muted)),
+        );
+    }
+    ui.add_space(SPACE_XS);
 
     ui.add_enabled_ui(audio.can_capture, |ui| {
         ui.horizontal(|ui| {
@@ -40,8 +68,7 @@ pub fn show(ui: &mut egui::Ui, audio: &mut AudioPanel<'_>, actions: &mut Vec<Act
                 .width(PICKER_WIDTH)
                 .selected_text(choice_label(audio.choice, audio.devices))
                 .show_ui(ui, |ui| input_choices(ui, audio, actions));
-            if ui
-                .small_button("Rescan")
+            if widgets::button(ui, theme, Some(Icon::Refresh), "Rescan")
                 .on_hover_text("List the audio devices again")
                 .clicked()
             {
@@ -49,6 +76,7 @@ pub fn show(ui: &mut egui::Ui, audio: &mut AudioPanel<'_>, actions: &mut Vec<Act
             }
         });
     });
+    ui.add_space(SPACE_XS);
 
     let reactivity = ui.add(
         egui::Slider::new(audio.reactivity, GAIN)
@@ -67,9 +95,13 @@ pub fn show(ui: &mut egui::Ui, audio: &mut AudioPanel<'_>, actions: &mut Vec<Act
         actions.push(Action::SetAudioSpeed(*audio.speed));
     }
 
+    ui.add_space(SPACE_SM);
     ui.horizontal(|ui| {
         let tap = ui
-            .add_enabled(audio.live, egui::Button::new("Tap tempo (T)"))
+            .add_enabled_ui(audio.live, |ui| {
+                widgets::button(ui, theme, None, "Tap tempo (T)")
+            })
+            .inner
             .on_disabled_hover_text("Tap tempo needs a live audio input");
         if tap.clicked() {
             actions.push(Action::TapTempo);
@@ -77,7 +109,7 @@ pub fn show(ui: &mut egui::Ui, audio: &mut AudioPanel<'_>, actions: &mut Vec<Act
         ui.label(
             egui::RichText::new(format!("{:.1} BPM", audio.bpm))
                 .monospace()
-                .color(theme::muted()),
+                .color(theme::rgb(theme.text_muted)),
         );
     });
 }
