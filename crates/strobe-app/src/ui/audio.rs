@@ -78,18 +78,26 @@ pub fn show(
     });
     ui.add_space(SPACE_XS);
 
+    ui.label(
+        egui::RichText::new("Reactivity")
+            .small()
+            .color(theme::rgb(theme.text_muted)),
+    );
+    ui.spacing_mut().slider_width = (ui.available_width() - 80.0).max(60.0);
     let reactivity = ui.add(
         egui::Slider::new(audio.reactivity, GAIN)
-            .text("Reactivity")
             .custom_formatter(|value, _| format!("{value:.2}")),
     );
     if reactivity.changed() {
         actions.push(Action::SetReactivity(*audio.reactivity));
     }
+    ui.label(
+        egui::RichText::new("Audio speed")
+            .small()
+            .color(theme::rgb(theme.text_muted)),
+    );
     let speed = ui.add(
-        egui::Slider::new(audio.speed, GAIN)
-            .text("Audio speed")
-            .custom_formatter(|value, _| format!("{value:.2}")),
+        egui::Slider::new(audio.speed, GAIN).custom_formatter(|value, _| format!("{value:.2}")),
     );
     if speed.changed() {
         actions.push(Action::SetAudioSpeed(*audio.speed));

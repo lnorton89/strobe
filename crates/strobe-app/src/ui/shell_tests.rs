@@ -62,6 +62,7 @@ struct Scenario {
     loading: bool,
     notice: bool,
     previewing: bool,
+    replace: bool,
     panes: &'static [Pane],
 }
 
@@ -78,6 +79,7 @@ const BASE: Scenario = Scenario {
     loading: false,
     notice: false,
     previewing: false,
+    replace: false,
     panes: &[Pane::Inspector],
 };
 
@@ -148,6 +150,12 @@ fn scenarios() -> Vec<Scenario> {
             name: "browser with a preview",
             previewing: true,
             panes: &[Pane::Browser, Pane::Inspector],
+            ..BASE
+        },
+        Scenario {
+            name: "replace question",
+            replace: true,
+            panes: &[Pane::Import],
             ..BASE
         },
         Scenario {
@@ -330,7 +338,7 @@ fn draw(scenario: Scenario, size: (f32, f32), frames: usize) -> Result<Drawn> {
             import: ImportPanel {
                 text: &mut import_text,
                 status: &status,
-                replace_title: None,
+                replace_title: scenario.replace.then_some("fractal-tunnel"),
                 busy: false,
                 drop_hover: false,
                 listener: ListenerPanel {

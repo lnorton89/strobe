@@ -150,12 +150,13 @@ impl Pane {
 /// The share of the width beside the rail that the preview keeps before a
 /// second dock is allowed to take space from it.
 ///
-/// 0.58 is where, at 1440 wide, the browser and the inspector (280 + 300)
-/// still fit beside a preview that keeps 58% of the width, and where, at
-/// 1280 and 1366, they do not: those windows show one contextual pane at a
-/// time, as UI_IMPLEMENTATION_PLAN section 7 asks. D120 names the reopen
-/// condition if the 1280x720 screenshots disagree.
-pub const PREVIEW_SHARE: f32 = 0.58;
+/// 0.55 is where, at 1440 wide, the browser and the inspector (280 + 300)
+/// still fit beside a preview that keeps 55% of the width beside the rail,
+/// and where, at 1280, they do not: that window shows one contextual pane at
+/// a time, as UI_IMPLEMENTATION_PLAN section 7 asks. (It started at 0.58 and
+/// was lowered when the real rail, 60 points, pushed 1440 just under it.)
+/// D120 names the reopen condition if the 1280x720 screenshots disagree.
+pub const PREVIEW_SHARE: f32 = 0.55;
 
 /// Below this window width the rail drops its labels and a pane becomes an
 /// overlay drawer.
@@ -325,6 +326,16 @@ impl Arrangement {
     }
 }
 
+/// The widest a docked pane may be dragged without evicting the pane in the
+/// other dock (`other` is that pane's drawn width, if there is one): what is
+/// left of the window beside the rail once the preview has its share. Never
+/// less than `pane`'s own minimum, so a drag always has somewhere to go.
+pub fn drag_limit(pane: Pane, window_width: f32, rail: f32, other: Option<f32>) -> f32 {
+    let avail = (window_width - rail).max(0.0);
+    let room = avail - PREVIEW_SHARE * avail - other.unwrap_or(0.0);
+    room.max(pane.min_width()).min(pane.max_width())
+}
+
 /// Decides which panes are drawn, and how wide, for a window `window_width`
 /// points wide whose rail is `rail` points wide. See the module docs for
 /// the rules.
@@ -391,7 +402,7 @@ pub fn arrange(panes: &Panes, window_width: f32, rail: f32) -> Arrangement {
 mod tests {
     use super::*;
 
-    const RAIL: f32 = 56.0;
+    const RAIL: f32 = 60.0;
 
     fn with(open: &[Pane]) -> Panes {
         let mut panes = Panes::default();
@@ -474,7 +485,7 @@ mod tests {
 
     #[test]
     fn a_very_narrow_window_turns_the_pane_into_a_drawer() {
-        let layout = arrange(&with(&[Pane::Inspector]), 640.0, RAIL);
+        let layout = arrange(&with(&[Pane::Inspector]), 600.0, RAIL);
         assert!(layout.overlay, "{layout:?}");
         assert!(!layout.rail_labels, "labels go first");
         assert_eq!(layout.docked_width(), 0.0, "a drawer takes no layout width");
@@ -493,6 +504,26 @@ mod tests {
             drawn < 480.0 && drawn >= Pane::Inspector.min_width(),
             "{drawn}"
         );
+    }
+
+    #[test]
+    fn dragging_a_pane_wider_never_evicts_its_neighbour() {
+        let mut panes = with(&[Pane::Inspector, Pane::Browser]);
+        let before = arrange(&panes, 1440.0, RAIL);
+        assert!(
+            before.left.is_some() && before.right.is_some(),
+            "both fit: {before:?}"
+        );
+        let inspector = before.right.map(|(_, w)| w);
+        let limit = drag_limit(Pane::Browser, 1440.0, RAIL, inspector);
+        panes.set_width(Pane::Browser, limit);
+        let after = arrange(&panes, 1440.0, RAIL);
+        assert!(
+            after.left.is_some() && after.right.is_some(),
+            "dragging to the limit ({limit}) evicted a pane: {after:?}"
+        );
+        // And the limit is never below the pane's own minimum.
+        assert!(drag_limit(Pane::Browser, 300.0, RAIL, Some(300.0)) >= Pane::Browser.min_width());
     }
 
     #[test]

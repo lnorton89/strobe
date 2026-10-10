@@ -45,7 +45,7 @@ pub const MAX_MACROS: usize = 6;
 const CELL_WIDTH: f32 = 168.0;
 
 /// The height of the strip.
-pub const STRIP_HEIGHT: f32 = 50.0;
+pub const STRIP_HEIGHT: f32 = 60.0;
 
 /// How many cells fit in `width`, between 1 and [`MAX_MACROS`].
 pub fn cells_that_fit(width: f32, gap: f32) -> usize {
@@ -125,11 +125,18 @@ fn cell(ui: &mut Ui, theme: &Palette, bank: &mut ControlBank, index: usize, pane
         StrokeKind::Inside,
     );
     let inner = rect.shrink2(Vec2::new(SPACE_SM, SPACE_XS + 1.0));
-    ui.scope_builder(
+    // A child that is *not* merged back into the row: a widget that is
+    // wider than its cell must overflow into the clip, not push the next
+    // cell along. (`scope_builder` would allocate the overflow.)
+    let mut child = ui.new_child(
         UiBuilder::new()
             .max_rect(inner)
             .layout(egui::Layout::top_down(egui::Align::Min)),
-        |ui| {
+    );
+    child.set_clip_rect(inner.expand(1.0));
+    {
+        let ui = &mut child;
+        {
             ui.spacing_mut().item_spacing = Vec2::new(SPACE_XS, 2.0);
             let target = bank.target(index).copied().unwrap_or_default();
             ui.horizontal(|ui| {
@@ -245,8 +252,8 @@ fn cell(ui: &mut Ui, theme: &Palette, bank: &mut ControlBank, index: usize, pane
                     }
                 }
             }
-        },
-    );
+        }
+    }
 }
 
 #[cfg(test)]

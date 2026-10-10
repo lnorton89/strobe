@@ -127,9 +127,18 @@ pub struct Cli {
     /// Start with the output blacked out.
     #[arg(long)]
     pub blackout: bool,
+    /// In screenshot mode, ask for this scene to be loaded through the UI's
+    /// own path on the frame before the control capture, so the capture shows
+    /// the "preparing" state (the load itself still happens right after).
+    #[arg(long, value_name = "SCENE", requires = "screenshot")]
+    pub request_load: Option<String>,
     /// Search text to put in the scene browser at launch.
     #[arg(long, value_name = "TEXT")]
     pub browser_query: Option<String>,
+    /// Use this theme (by id, e.g. `high-contrast`) for this run instead of
+    /// the saved one. The Settings pane changes and saves it.
+    #[arg(long, value_name = "ID")]
+    pub theme: Option<String>,
     /// Draw the system's title bar instead of Strobe's for this run,
     /// whatever the saved setting says (D132).
     #[arg(long)]
