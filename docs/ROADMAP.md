@@ -50,7 +50,7 @@ Each item names its acceptance test. Details and evidence are in
 
 1. **Close out the T480 validation.** Recovery on real WGL, bug 1 at full
    scale, an audio device removed and reconnected, a 30-minute soak with
-   scene switches, and a symbolicated `.dmp` (Q11). *Accept:* each result
+   scene switches. *Accept:* each result
    recorded in [hardware/T480.md](hardware/T480.md), failures included.
 2. **Perform-first UI.** Choose the topology from
    [mockups/strobe-perform-directions.html](mockups/strobe-perform-directions.html),

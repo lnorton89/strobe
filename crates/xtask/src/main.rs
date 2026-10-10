@@ -1,9 +1,10 @@
 // ============================================================================
 // Module:       xtask (binary crate root)
 // Description:  The workspace's own tooling behind `cargo xtask`: the local
-//               CI runner, the changelog generator, and the bench shortcut.
+//               CI runner, the changelog generator, the bench shortcut, and
+//               crash-dump symbolication.
 //
-// Dependencies: clap, anyhow; modules changelog, ci, bench
+// Dependencies: clap, anyhow; modules changelog, ci, bench, symbolicate
 // ============================================================================
 
 //! `cargo xtask`: the repository's tooling, written in the repository's
@@ -15,6 +16,7 @@
 //! cargo xtask changelog --check               # what CI runs
 //! cargo xtask changelog --release v0.2.0      # write the section before tagging
 //! cargo xtask bench -- --size 1280x720        # strobe-bench, in release
+//! cargo xtask symbolicate crash-….dmp         # a crash dump as a readable stack
 //! ```
 //!
 //! The `xtask` alias in `.cargo/config.toml` is the whole installation.
@@ -38,6 +40,7 @@
 mod bench;
 mod changelog;
 mod ci;
+mod symbolicate;
 
 use anyhow::{Context as _, Result, anyhow};
 use clap::{Parser, Subcommand};
@@ -82,6 +85,10 @@ enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
+    /// Turn a crash minidump into a readable stack with the build's own
+    /// debug information. Needs `cargo install dump_syms minidump-stackwalk
+    /// --locked`.
+    Symbolicate(symbolicate::Args),
 }
 
 /// The workspace root: `crates/xtask/../..`.
@@ -108,6 +115,7 @@ fn run() -> Result<()> {
         Command::Ci(args) => ci::run(&args),
         Command::Changelog { check, release } => changelog::run(check, release.as_deref()),
         Command::Bench { args } => bench::run(&args),
+        Command::Symbolicate(args) => symbolicate::run(&args),
     }
 }
 

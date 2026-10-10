@@ -119,13 +119,38 @@ first moments, before the monitor link is up, is not captured. A bare
 `abort()` on Windows is a fast-fail that bypasses exception filters and
 leaves no minidump (the `.txt` of a panic that led to it still exists).
 
-Symbolicating a `.dmp` needs the PDB of the *same build*: the release
-workflow publishes it as `strobe-<tag>-<target>-symbols.zip` (D53). Keep
-every supported release's symbols archive. Open the `.dmp` in WinDbg with
-the PDB on the symbol path (`.sympath+ <folder>`, `.reload`, `!analyze -v`),
-or in Visual Studio. Release builds have line tables (D42), so frames show
-function names and `file:line`. No debugger is installed on the T480 yet;
-this procedure has not been run there (Q11).
+### Symbolicating a `.dmp`
+
+You need the debug information of the *same build*. For a local release
+build, that is the `.pdb` files under `target/release` (on Linux or macOS,
+the unstripped binaries). For a published release, it is the
+`strobe-<tag>-<target>-symbols.zip` archive (D53); keep every supported
+release's archive. Release builds have line tables (D42), so frames show
+function names and `file:line`.
+
+No debugger is needed:
+
+```bash
+cargo install dump_syms minidump-stackwalk --locked     # once
+cargo xtask symbolicate path/to/crash-….dmp             # uses target/release's PDBs
+cargo xtask symbolicate crash.dmp --symbols strobe.pdb --out stack.txt
+```
+
+The command runs `dump_syms` on each PDB and files the `.sym` where
+`minidump-stackwalk` looks for it (`target/symbols/<debug-file>/<id>/<name>.sym`,
+read from the `MODULE` line). Then it prints the stack: the crash reason and
+address, and every thread's frames, the crashed thread first.
+
+Verified on the T480 (R5): a stack overflow came back as
+
+```
+Crash reason:  EXCEPTION_STACK_OVERFLOW
+ 1  crash_demo.exe!crash_demo::recurse() [crash_demo.rs : 32 + 0xc]
+246  crash_demo.exe!crash_demo::main() [crash_demo.rs : 90 + 0x19]
+```
+
+WinDbg or Visual Studio work too: put the PDB folder on the symbol path
+(`.sympath+ <folder>`, `.reload`, `!analyze -v`).
 
 ### The crash drill (T480 checklist)
 

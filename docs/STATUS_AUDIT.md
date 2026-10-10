@@ -52,8 +52,8 @@ Linux and llvmpipe cannot prove any of these:
   is created (owner, 2026-10-09; bug 2 in T480.md). An agent inside the
   Claude desktop app cannot do this at the default location (MSIX
   virtualisation).
-- [ ] Symbolicate that dump with the matching PDB (Q11). No debugger is
-  installed on the T480 yet.
+- [x] Symbolicate that dump with the matching PDB. Verified on the T480
+  (R5): function names and `file:line`, via `cargo xtask symbolicate`.
 - [ ] Test the packaged release executable separately (Q12).
 - [ ] Run for at least 30 minutes with repeated scene switches, and
   inspect for crashes, log growth and resource stability.
