@@ -179,8 +179,9 @@ runs are listed in [`DEBUGGING.md`](../../docs/DEBUGGING.md).
   150% scaling are still waiting for an interactive check.
 - Playlists are built (stage 2, D150-D158) and verified on llvmpipe only. Not
   built: audio-event advance, the Playlist workspace's inspector, presets,
-  MIDI, OSC, hotkey mapping, Shadertoy thumbnails and the Needs-work bin, NDI. Cubemaps and media input are
-  placeholders. `textureFinalPass` returns black and script `meta/` writes are
-  dropped.
+  MIDI, OSC, hotkey mapping, Shadertoy thumbnails and the Needs-work bin, NDI.
+  Cubemaps and media input are placeholders. Script `meta/` writes land in
+  the session's meta bank, which nothing renders from yet (D160);
+  `textureFinalPass` is a two-frame-late asynchronous readback (D162).
 - Linux runs under Xvfb and Mesa only; macOS is not built (no CGL provider,
   D55).

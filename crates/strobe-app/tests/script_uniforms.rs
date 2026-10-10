@@ -1,8 +1,9 @@
 // ============================================================================
 // Module:       script_uniforms (integration test)
 // Description:  A scene's script.js creates uniforms with setUniform; they
-//               must be compiled in at load, reach the shader, and survive
-//               the rare late creation, in both GL dialects.
+//               must be compiled in at load and reach the shader; one
+//               created late is refused and never compiles a shader, in
+//               both GL dialects.
 //
 // Dependencies: anyhow; strobe-app (Session, AudioInput); strobe-gfx
 //               (headless context)
@@ -69,6 +70,8 @@ fn near(actual: u8, expected: u8) -> bool {
 }
 
 const BOTH: [Api; 2] = [Api::DesktopCore33, Api::Gles30];
+
+const DATE: [f32; 4] = [2026.0, 9.0, 10.0, 0.0];
 
 #[test]
 fn a_uniform_made_in_update_is_declared_at_load_and_reaches_the_shader() -> Result<()> {
@@ -140,14 +143,120 @@ fn a_uniform_made_in_setup_is_also_declared_at_load() -> Result<()> {
 }
 
 #[test]
-fn a_uniform_that_appears_later_is_adopted_with_one_recompile() -> Result<()> {
+fn a_uniform_that_appears_later_is_refused_and_nothing_compiles_after_load() -> Result<()> {
     let scene = TempScene::new(
         "late",
         r#"{ "CONTROLS": [ { "NAME": "amount", "TYPE": "slider", "DEFAULT": 0.5 } ] }"#,
         "vec4 renderMain() { return vec4(amount, 0.0, 0.0, 1.0); }",
-        // `late` only appears from the fourth frame, so it cannot be known
-        // at load; the shader does not use it, so it compiles without.
-        "function update(dt) { if (FRAMECOUNT > 3) { setUniform('late', 1.0); } }",
+        // `known` is declared in the first update; `late` only appears from
+        // the fourth frame, so it cannot be known at load. The shader uses
+        // neither, so it compiles regardless.
+        "function update(dt) { setUniform('known', 1.0); \
+         if (FRAMECOUNT > 3) { setUniform('late', 1.0); setUniform('known', 2.0); } }",
+    )?;
+    for api in BOTH {
+        let Some(headless) = context(api)? else {
+            continue;
+        };
+        let gl = headless.gl();
+        let caps = Caps::from_info(gl.info());
+        let mut audio = AudioInput::new(false);
+        let mut session = Session::load(gl, &caps, &scene.0, "late", [32, 18], 0.0, &mut audio)
+            .map_err(|e| anyhow!("{api:?}: load failed: {e}"))?;
+        let names = |session: &Session| -> Vec<String> {
+            session
+                .player
+                .extras()
+                .iter()
+                .map(|(name, _)| name.clone())
+                .collect()
+        };
+        assert_eq!(names(&session), ["known"], "{api:?}: only `known` at load");
+        let compiled_at_load = gl.shader_compiles();
+        assert!(
+            compiled_at_load > 0,
+            "{api:?}: the counter sees the load's compiles"
+        );
+        for _ in 0..12 {
+            session.advance(1.0 / 60.0, &mut audio, Mouse::default(), DATE);
+        }
+        assert_eq!(
+            gl.shader_compiles(),
+            compiled_at_load,
+            "{api:?}: no shader was compiled while the scene played, even though the script \
+             created `late` on frame 4"
+        );
+        assert_eq!(
+            names(&session),
+            ["known"],
+            "{api:?}: the late uniform was refused, not adopted"
+        );
+        if let Some(code) = gl.error() {
+            return Err(anyhow!("{api:?}: GL error 0x{code:x}"));
+        }
+        let px = centre(&session)?;
+        assert!(
+            near(px[0], 128),
+            "{api:?}: the scene still renders (amount 0.5): {px:?}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn texture_final_pass_reads_the_picture_a_few_frames_late() -> Result<()> {
+    // The picture is red 0.8 on every frame; green is whatever the script
+    // saw of it. The script can only see it once the readback ring has
+    // filled, so green is 0 for the first frames and 0.8 afterwards.
+    let scene = TempScene::new(
+        "final-pass",
+        "{}",
+        "vec4 renderMain() { return vec4(0.8, seen.r, 0.0, 1.0); }",
+        "function update(dt) { setUniform('seen', textureFinalPass(0.5, 0.5)); }",
+    )?;
+    for api in BOTH {
+        let Some(headless) = context(api)? else {
+            continue;
+        };
+        let gl = headless.gl();
+        let caps = Caps::from_info(gl.info());
+        let mut audio = AudioInput::new(false);
+        let mut session =
+            Session::load(gl, &caps, &scene.0, "final-pass", [64, 36], 0.0, &mut audio)
+                .map_err(|e| anyhow!("{api:?}: load failed: {e}"))?;
+        for step in 1..=3 {
+            session.advance(1.0 / 60.0, &mut audio, Mouse::default(), DATE);
+            let px = centre(&session)?;
+            assert!(
+                near(px[0], 204) && px[1] == 0,
+                "{api:?}: advance {step}: the script still sees black; got {px:?}"
+            );
+        }
+        for _ in 0..40 {
+            session.advance(1.0 / 60.0, &mut audio, Mouse::default(), DATE);
+            gl.finish();
+        }
+        let px = centre(&session)?;
+        assert!(
+            near(px[0], 204) && near(px[1], 204),
+            "{api:?}: the script saw the red the scene drew; got {px:?}"
+        );
+        assert_eq!(
+            strobe_gfx::readback::RGB_BYTES,
+            strobe_script::FINAL_PASS_BYTES,
+            "the gfx and script sides agree on the downsample size"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn a_script_that_never_names_texture_final_pass_pays_for_no_readback() -> Result<()> {
+    let scene = TempScene::new(
+        "no-final-pass",
+        "{}",
+        "vec4 renderMain() { return vec4(0.8, 0.0, 0.0, 1.0); }",
+        "function update(dt) { }",
     )?;
     let Some(headless) = context(Api::DesktopCore33)? else {
         return Ok(());
@@ -155,32 +264,23 @@ fn a_uniform_that_appears_later_is_adopted_with_one_recompile() -> Result<()> {
     let gl = headless.gl();
     let caps = Caps::from_info(gl.info());
     let mut audio = AudioInput::new(false);
-    let mut session = Session::load(gl, &caps, &scene.0, "late", [32, 18], 0.0, &mut audio)
-        .map_err(|e| anyhow!("load failed: {e}"))?;
-    assert!(
-        session.player.extras().is_empty(),
-        "nothing is known at load: {:?}",
-        session.player.extras()
-    );
-    for _ in 0..8 {
-        session.advance(
-            1.0 / 60.0,
-            &mut audio,
-            Mouse::default(),
-            [2026.0, 9.0, 10.0, 0.0],
-        );
+    let mut session = Session::load(
+        gl,
+        &caps,
+        &scene.0,
+        "no-final-pass",
+        [64, 36],
+        0.0,
+        &mut audio,
+    )
+    .map_err(|e| anyhow!("load failed: {e}"))?;
+    for _ in 0..6 {
+        session.advance(1.0 / 60.0, &mut audio, Mouse::default(), DATE);
+        gl.finish();
     }
-    let names: Vec<&str> = session
-        .player
-        .extras()
-        .iter()
-        .map(|(name, _)| name.as_str())
-        .collect();
-    assert_eq!(names, ["late"], "the late uniform was adopted");
-    let px = centre(&session)?;
     assert!(
-        near(px[0], 128),
-        "the scene still renders after the recompile (amount 0.5): {px:?}"
+        session.player.final_pass_pixels().is_none(),
+        "no script call, no readback ring"
     );
     Ok(())
 }

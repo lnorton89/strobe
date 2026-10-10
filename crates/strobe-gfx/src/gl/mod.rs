@@ -18,7 +18,7 @@
 //!   reach a thread where the context is not current. That is the
 //!   invariant every `// SAFETY:` comment below leans on.
 //! - Every object GL allocates (program, texture, framebuffer, vertex
-//!   array) is held by an owning type here whose `Drop` releases it
+//!   array, buffer, fence) is held by an owning type here whose `Drop` releases it
 //!   through the same `Gl`, so an early return cannot leak GPU memory.
 //!
 //! - **A lost context is never touched again.** [`Gl::mark_lost`] sets a flag
@@ -56,9 +56,9 @@ pub struct Gl {
     /// Set once the context is known to be lost; shared by every clone, so
     /// every owning type sees it. `Rc` because `Gl` is `!Send` anyway.
     lost: Rc<Cell<bool>>,
-    /// How many shader stages have been compiled on this context, shared by
-    /// every clone. A show promises none after its load, and this is how a
-    /// test or a diagnostic checks the promise ([`Gl::shader_compiles`]).
+    /// How many shader stages this context has been asked to compile; shared
+    /// by every clone. A plain counter (no driver query), so a test can
+    /// prove that nothing compiles while a scene plays.
     compiles: Rc<Cell<u64>>,
     /// `!Send` and `!Sync`: the context is current on one thread only.
     _thread: PhantomData<*const ()>,
@@ -313,6 +313,13 @@ impl Gl {
         self.lost.get()
     }
 
+    /// How many shader stages [`Self::compile`] has been asked to build on
+    /// this context (all clones together). A show should see this number
+    /// stop moving once the scene is loaded (D161).
+    pub fn shader_compiles(&self) -> u64 {
+        self.compiles.get()
+    }
+
     /// Whether the driver exposes a reset-status query at all.
     pub fn has_reset_status(&self) -> bool {
         self.reset.is_some()
@@ -440,17 +447,9 @@ impl Gl {
 
     // ------------------------------------------------------------ shaders
 
-    /// How many shader stages this context has been asked to compile since
-    /// it was made (successful or not; a program is two). A playlist
-    /// precompiles every scene at load and then expects this number never
-    /// to move (D152), so the app samples it after the load and compares.
-    pub fn shader_compiles(&self) -> u64 {
-        self.compiles.get()
-    }
-
     /// Compiles one shader stage, returning the driver's log on failure.
     pub fn compile(&self, stage: Stage, source: &str) -> Result<Shader, String> {
-        self.compiles.set(self.compiles.get().saturating_add(1));
+        self.compiles.set(self.compiles.get() + 1);
         let raw = self.create_shader(stage)?;
         let shader = Shader {
             gl: self.clone(),
@@ -888,7 +887,7 @@ impl Gl {
     /// nearest texel is taken, which is the only filter GL allows between
     /// 32-bit float attachments. Both framebuffers must have a colour
     /// attachment of the same kind (a float one for a float one).
-    pub fn blit_between(
+    pub fn blit_between_filtered(
         &self,
         src: &Framebuffer,
         src_size: [i32; 2],
@@ -1025,6 +1024,187 @@ impl Gl {
         unsafe { self.raw.delete_query(query) }
     }
 
+    // ------------------------------------------------------------ asynchronous readback
+
+    /// Copies `src` (a `src_size` image) into `dst` (a `dst_size` image),
+    /// filtered. Halving in steps gives an exact 2x2 box average per step.
+    pub fn blit_between(
+        &self,
+        src: &Framebuffer,
+        src_size: [i32; 2],
+        dst: &Framebuffer,
+        dst_size: [i32; 2],
+    ) {
+        self.bind_raw_framebuffer(glow::READ_FRAMEBUFFER, Some(src.raw));
+        self.bind_raw_framebuffer(glow::DRAW_FRAMEBUFFER, Some(dst.raw));
+        self.blit(src_size, [0, 0, dst_size[0], dst_size[1]]);
+        self.bind_raw_framebuffer(glow::FRAMEBUFFER, None);
+    }
+
+    /// A pixel-pack buffer of `size` bytes, to receive a readback without
+    /// stalling the pipeline (core in desktop GL 2.1 and in GLES 3.0).
+    pub fn pack_buffer(&self, size: usize) -> Result<Buffer, String> {
+        let bytes = i32::try_from(size).map_err(|e| e.to_string())?;
+        let raw = self.create_buffer()?;
+        let buffer = Buffer {
+            gl: self.clone(),
+            raw,
+            size,
+        };
+        self.bind_raw_buffer(glow::PIXEL_PACK_BUFFER, Some(raw));
+        self.buffer_storage(glow::PIXEL_PACK_BUFFER, bytes);
+        self.bind_raw_buffer(glow::PIXEL_PACK_BUFFER, None);
+        Ok(buffer)
+    }
+
+    fn create_buffer(&self) -> Result<glow::Buffer, String> {
+        // SAFETY: current-context invariant.
+        unsafe { self.raw.create_buffer() }
+    }
+
+    fn bind_raw_buffer(&self, target: u32, buffer: Option<glow::Buffer>) {
+        // SAFETY: current-context invariant; the handle is owned by a live
+        // Buffer, or None to unbind.
+        unsafe { self.raw.bind_buffer(target, buffer) }
+    }
+
+    fn buffer_storage(&self, target: u32, size: i32) {
+        // SAFETY: current-context invariant; a buffer is bound to `target`
+        // and no client memory is read (glow's size-only variant).
+        unsafe { self.raw.buffer_data_size(target, size, glow::STREAM_READ) }
+    }
+
+    fn delete_buffer(&self, buffer: glow::Buffer) {
+        // SAFETY: current-context invariant; called once, from Buffer::drop.
+        unsafe { self.raw.delete_buffer(buffer) }
+    }
+
+    /// Starts reading `width * height` RGBA8 pixels of `src` into `buffer`,
+    /// bottom row first. Returns at once: the copy is queued on the GPU and
+    /// lands in the buffer later, so nothing here waits for it. Pair it
+    /// with [`Self::fence`] and [`Self::fence_status`] to learn when it is
+    /// safe to [`Self::read_buffer`].
+    pub fn read_pixels_into(
+        &self,
+        src: &Framebuffer,
+        buffer: &Buffer,
+        width: i32,
+        height: i32,
+    ) -> Result<(), String> {
+        let needed = (width.max(0) as usize) * (height.max(0) as usize) * 4;
+        if needed > buffer.size {
+            return Err(format!(
+                "readback of {needed} bytes into a {} byte buffer",
+                buffer.size
+            ));
+        }
+        self.bind_raw_framebuffer(glow::READ_FRAMEBUFFER, Some(src.raw));
+        self.bind_raw_buffer(glow::PIXEL_PACK_BUFFER, Some(buffer.raw));
+        self.read_pixels_to_bound_buffer(width, height);
+        self.bind_raw_buffer(glow::PIXEL_PACK_BUFFER, None);
+        self.bind_raw_framebuffer(glow::FRAMEBUFFER, None);
+        Ok(())
+    }
+
+    fn read_pixels_to_bound_buffer(&self, width: i32, height: i32) {
+        // SAFETY: current-context invariant; a pixel-pack buffer is bound,
+        // so the pointer argument is an offset (0) into it rather than
+        // client memory, and the caller checked that the buffer holds
+        // width * height * 4 bytes, what GL writes for RGBA / UNSIGNED_BYTE
+        // at the default pack alignment of 4.
+        unsafe {
+            self.raw.read_pixels(
+                0,
+                0,
+                width,
+                height,
+                glow::RGBA,
+                glow::UNSIGNED_BYTE,
+                glow::PixelPackData::BufferOffset(0),
+            )
+        }
+    }
+
+    /// A fence that signals when the GPU has finished the work submitted
+    /// before it.
+    pub fn fence(&self) -> Result<Fence, String> {
+        let raw = self.create_fence()?;
+        Ok(Fence {
+            gl: self.clone(),
+            raw,
+        })
+    }
+
+    fn create_fence(&self) -> Result<glow::Fence, String> {
+        // SAFETY: current-context invariant.
+        unsafe { self.raw.fence_sync(glow::SYNC_GPU_COMMANDS_COMPLETE, 0) }
+    }
+
+    /// Whether `fence` has signalled. A zero-timeout poll: it never waits.
+    /// (It asks the driver to flush the queue first, so a fence cannot sit
+    /// unsubmitted forever.)
+    pub fn fence_status(&self, fence: &Fence) -> FenceStatus {
+        match self.client_wait(fence.raw) {
+            glow::ALREADY_SIGNALED | glow::CONDITION_SATISFIED => FenceStatus::Signaled,
+            glow::TIMEOUT_EXPIRED => FenceStatus::Pending,
+            _ => FenceStatus::Failed,
+        }
+    }
+
+    fn client_wait(&self, fence: glow::Fence) -> u32 {
+        // SAFETY: current-context invariant; the handle is owned by a live
+        // Fence and the timeout is zero, so the call returns immediately.
+        unsafe {
+            self.raw
+                .client_wait_sync(fence, glow::SYNC_FLUSH_COMMANDS_BIT, 0)
+        }
+    }
+
+    fn delete_fence(&self, fence: glow::Fence) {
+        // SAFETY: current-context invariant; called once, from Fence::drop.
+        unsafe { self.raw.delete_sync(fence) }
+    }
+
+    /// Copies the first `out.len()` bytes of `buffer` into `out`. Returns
+    /// false (leaving `out` alone) if the buffer is smaller or the driver
+    /// refused to map it. **Only call after the matching fence signalled**:
+    /// mapping a buffer the GPU is still writing waits for it.
+    pub fn read_buffer(&self, buffer: &Buffer, out: &mut [u8]) -> bool {
+        if out.len() > buffer.size {
+            return false;
+        }
+        let Ok(length) = i32::try_from(out.len()) else {
+            return false;
+        };
+        self.bind_raw_buffer(glow::PIXEL_PACK_BUFFER, Some(buffer.raw));
+        let mapped = self.map_pack_buffer(length);
+        let copied = !mapped.is_null();
+        if copied {
+            copy_from_mapped(mapped, out);
+            self.unmap_pack_buffer();
+        }
+        self.bind_raw_buffer(glow::PIXEL_PACK_BUFFER, None);
+        copied
+    }
+
+    fn map_pack_buffer(&self, length: i32) -> *const u8 {
+        // SAFETY: current-context invariant; the buffer is bound to the
+        // pack target and `length` was checked against its size. The
+        // returned pointer is only a value here; copy_from_mapped is the one
+        // place it is read, before the buffer is unmapped.
+        unsafe {
+            self.raw
+                .map_buffer_range(glow::PIXEL_PACK_BUFFER, 0, length, glow::MAP_READ_BIT)
+                .cast_const()
+        }
+    }
+
+    fn unmap_pack_buffer(&self) {
+        // SAFETY: current-context invariant; the buffer is mapped, and no
+        // pointer into it is used afterwards.
+        unsafe { self.raw.unmap_buffer(glow::PIXEL_PACK_BUFFER) }
+    }
+
     // ------------------------------------------------------------ vertex arrays
 
     /// An empty vertex array, which core profiles require to draw at all.
@@ -1159,6 +1339,64 @@ impl Drop for TimerQuery {
             self.gl.delete_query(self.raw);
         }
     }
+}
+
+/// Copies `out.len()` bytes from a mapped buffer pointer.
+fn copy_from_mapped(mapped: *const u8, out: &mut [u8]) {
+    // SAFETY: the caller mapped at least `out.len()` readable bytes starting
+    // at `mapped` (`Gl::read_buffer` maps exactly that many and has not yet
+    // unmapped), and `out` is a distinct Rust allocation, so the ranges
+    // cannot overlap.
+    unsafe { std::ptr::copy_nonoverlapping(mapped, out.as_mut_ptr(), out.len()) }
+}
+
+/// A buffer object used to receive pixel readbacks.
+#[derive(Debug)]
+pub struct Buffer {
+    gl: Gl,
+    raw: glow::Buffer,
+    size: usize,
+}
+
+impl Buffer {
+    /// Size in bytes.
+    pub fn size(&self) -> usize {
+        self.size
+    }
+}
+
+impl Drop for Buffer {
+    fn drop(&mut self) {
+        if !self.gl.is_lost() {
+            self.gl.delete_buffer(self.raw);
+        }
+    }
+}
+
+/// A GPU fence (sync object).
+#[derive(Debug)]
+pub struct Fence {
+    gl: Gl,
+    raw: glow::Fence,
+}
+
+impl Drop for Fence {
+    fn drop(&mut self) {
+        if !self.gl.is_lost() {
+            self.gl.delete_fence(self.raw);
+        }
+    }
+}
+
+/// What a zero-timeout poll of a [`Fence`] found.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FenceStatus {
+    /// The GPU has finished the work before the fence.
+    Signaled,
+    /// Not yet; poll again later.
+    Pending,
+    /// The driver could not answer (a lost context, say).
+    Failed,
 }
 
 /// A vertex array object.

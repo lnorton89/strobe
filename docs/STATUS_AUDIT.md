@@ -155,16 +155,34 @@ the topology before any broad redesign.
 
 ## P1: SSF and script compatibility
 
-- [ ] Script writes to `meta/` controls are dropped.
-- [ ] `textureFinalPass` returns black. Implement it only with an
-  asynchronous, delayed readback such as a PBO ring, never a synchronous
-  per-frame GPU readback (Q14).
-- [ ] A script-created uniform that appears after initial preparation can
-  trigger a logged recompile. Keep the invariant: no compilation during
-  normal playback.
+- [x] Script writes to `meta/` controls reach a meta `ControlBank` (D160).
+  Evidence, llvmpipe: `strobe-script` conformance tests `meta_*` (routing,
+  clamping, toggles, default, randomize, groups, unknown names) and
+  `strobe-app/tests/script_meta.rs` (a session, both dialects).
+  **Limit:** nothing renders from the meta bank yet, so a script cannot
+  change brightness or hue on screen. What is verified is that the write is
+  held and clamped, not that it has an effect; see Q21.
+- [x] `textureFinalPass` through an asynchronous PBO readback (D162, Q14).
+  Evidence, llvmpipe, both dialects: `render.rs`
+  `the_final_pass_readback_arrives_two_frames_late_and_is_black_before`,
+  `the_downsample_keeps_the_pictures_orientation_and_average`,
+  `a_busy_gpu_costs_freshness_never_a_stall_and_the_ring_recovers`,
+  `resizing_restarts_the_readback_from_black`,
+  `a_lost_context_makes_the_readback_inert_and_its_drops_harmless`; and
+  `script_uniforms.rs` `texture_final_pass_reads_the_picture_a_few_frames_late`.
+  **Not yet:** the T480 (Intel, native and ANGLE/D3D11), where the cost and
+  the fence behaviour are unmeasured.
+- [x] A script-created uniform that appears after initial preparation is
+  refused, and no shader compiles after load (D161). Evidence:
+  `script_uniforms.rs`
+  `a_uniform_that_appears_later_is_refused_and_nothing_compiles_after_load`
+  counts compiles through `Gl::shader_compiles()` in both dialects.
 - [ ] The benchmark does not execute scripts. Keep this limitation
   explicit.
 - [ ] Expand the GLES translation tests for desktop-only SSF idioms (Q8).
+  Done for `PASSINDEX == 0.0` (D163, `render.rs`
+  `passindex_compared_with_a_float_literal_compiles_in_both_dialects`);
+  the other implicit int-to-float cases need a parser.
 
 *Acceptance:* a fixture per behaviour, tests on both shader dialects where
 they apply, and explicit supported, degraded or unsupported claims.
@@ -199,15 +217,11 @@ they apply, and explicit supported, degraded or unsupported claims.
   is the route to prove. *Accept:* one real import from the button in the
   owner's browser, and one by id if the API can be reached at all, each
   recorded in [hardware/T480.md](hardware/T480.md).
-- [ ] Auto-generated controls on Windows. Scoring needed a GL context, and
-  the CLI only knew the headless EGL one, which Intel lacks. It now has the
-  bench's window-context fallback (`--context auto|headless|window`, D140),
-  and on llvmpipe under Xvfb the window run gives a byte-identical report to
-  the headless one (`crates/strobe-autocontrol/tests/window.rs`). *Accept:*
-  `strobe-autocontrol.exe target\t480\ac\05.synScene --context window
-  --report --dry-run` on the T480 scores the stripped scene 05 and keeps
-  controls, recorded in [hardware/T480.md](hardware/T480.md). Not ticked
-  until the laptop confirms it.
+- [x] Auto-generated controls on Windows (T480, Task 13, D140).
+  `--context window` scores on Intel UHD 620 in 0.55 s (8 candidates, 7
+  kept), and two runs give byte-identical reports. `auto` falls back to the
+  window, and says so. Native and ANGLE keep the same 7 controls in the
+  same order, with a largest score difference of 0.00008.
 - [ ] A real file drop (X11 and Windows). The typed path runs the same job.
 - [ ] Thumbnails, conversion diagnostics beyond the warnings list, and the
   Needs-work bin.
