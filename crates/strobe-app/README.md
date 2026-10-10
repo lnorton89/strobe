@@ -156,7 +156,8 @@ runs are listed in [`DEBUGGING.md`](../../docs/DEBUGGING.md).
   150% scaling are still waiting for an interactive check.
 - Not built: playlists in the app (stage 2), transitions, presets, MIDI, OSC,
   hotkey mapping, Shadertoy thumbnails and the Needs-work bin, NDI. Cubemaps and media input are
-  placeholders. `textureFinalPass` returns black and script `meta/` writes are
-  dropped.
+  placeholders. Script `meta/` writes land in the session's meta bank,
+  which nothing renders from yet (D160); `textureFinalPass` is a two-frame-late
+  asynchronous readback (D162).
 - Linux runs under Xvfb and Mesa only; macOS is not built (no CGL provider,
   D55).
