@@ -95,6 +95,7 @@ use crate::console::Console;
 use crate::failures;
 use crate::fault::{self, Faults};
 use crate::gldebug;
+use crate::import::{self, Input, Outcome};
 use crate::library::Library;
 use crate::localtime::LocalDate;
 use crate::mouse::{Button, MouseTracker};
@@ -103,12 +104,13 @@ use crate::recovery::{Decision, Event, Rebuild, Recovery, Surface};
 use crate::screenshot::{Screenshot, Target};
 use crate::session::{self, Session};
 use crate::stats::FrameStats;
-use crate::ui::{Action, Model, PerfPanel, Preview, UiHost, layout};
+use crate::ui::{Action, ImportPanel, ListenerPanel, Model, PerfPanel, Preview, UiHost, layout};
 use std::time::{Duration, Instant};
 use strobe_diag::context;
 use strobe_diag::failure::{self, Failure, Subsystem};
 use strobe_gfx::{GlChoice, GpuTimer, SwapWindow, WindowedContext};
 use strobe_scene::control::def::Values;
+use strobe_shadertoy::listener::{Listener, ListenerConfig, Token};
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalPosition};
 use winit::event::{ElementState, KeyEvent, MouseButton, WindowEvent};
@@ -512,6 +514,22 @@ struct Running {
     context_dead: bool,
     /// A rebuild the policy decided on, for [`App::settle`] to carry out.
     rebuild: Option<Rebuild>,
+
+    /// The Shadertoy import worker (D113).
+    import: import::Service,
+    /// The import panel's state.
+    import_state: import::State,
+    /// The browser listener, while it is switched on (D114).
+    listener: Option<Listener>,
+    /// The listener's token, once one has been made.
+    import_token: Option<Token>,
+    /// The listener row's one-line state, and whether it is an error.
+    listener_note: String,
+    listener_failed: bool,
+    /// The listener's port (`--listen-port`).
+    listen_port: u16,
+    /// Strobe's data directory: the token, the API key, the texture cache.
+    data_dir: std::path::PathBuf,
 }
 
 impl Running {
@@ -538,6 +556,13 @@ impl Running {
             .map(|base| Screenshot::new(base, cli.frames));
         let now = Instant::now();
         let recovery = Recovery::new(cli.gl.choice(), stack.gfx.backend());
+        let data_dir = strobe_diag::paths::base_dir();
+        let import = import::Service::start(import::WorkerConfig {
+            library: library.dir.clone(),
+            data_dir: data_dir.clone(),
+            download_textures: !cli.no_texture_download,
+        })
+        .map_err(|e| format!("Could not start the Shadertoy importer: {e}"))?;
         let mut running = Self {
             stack,
             library,
@@ -572,9 +597,20 @@ impl Running {
             faults: Faults::from_env(),
             context_dead: false,
             rebuild: None,
+            import,
+            import_state: import::State::default(),
+            listener: None,
+            import_token: None,
+            listener_note: "Off".to_string(),
+            listener_failed: false,
+            listen_port: cli.listen_port,
+            data_dir,
         };
         running.refresh_monitors(event_loop);
         log::info!("GL: {}", running.gl_summary);
+        if cli.listen {
+            running.start_listener();
+        }
         if let Some(error) = scan_error {
             failure::report(
                 Failure::new(Subsystem::Io, "scan")
@@ -602,6 +638,8 @@ impl Running {
     }
 
     fn shutdown(self) {
+        // Stop accepting browser requests before the windows go.
+        drop(self.listener);
         self.stack.release();
     }
 
@@ -897,6 +935,7 @@ impl Running {
         if now.duration_since(self.last_monitor_refresh) >= MONITOR_REFRESH {
             self.refresh_monitors(event_loop);
         }
+        self.drain_imports();
         if now >= self.next_output {
             if self.output_visible {
                 self.stack.output.window().request_redraw();
@@ -976,6 +1015,14 @@ impl Running {
         }
         let is_control = id == self.stack.control.window().id();
         let is_output = id == self.stack.output.window().id();
+        if matches!(event, WindowEvent::HoveredFile(_)) {
+            self.import_state.drop_hover = true;
+        } else if matches!(event, WindowEvent::HoveredFileCancelled) {
+            self.import_state.drop_hover = false;
+        } else if let WindowEvent::DroppedFile(path) = &event {
+            self.import_state.drop_hover = false;
+            self.dropped(path);
+        }
         if matches!(event, WindowEvent::Resized(_)) {
             if is_control {
                 self.stack.gfx.resize(&self.stack.control);
@@ -1134,6 +1181,158 @@ impl Running {
         }
     }
 
+    // ------------------------------------------------------ Shadertoy import
+
+    /// A file dropped on a window: queue it if it is a `.json` export.
+    fn dropped(&mut self, path: &std::path::Path) {
+        let is_json = path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("json"));
+        if is_json {
+            log::info!("dropped {}", path.display());
+            self.submit_import(Input::Text(path.display().to_string()), false);
+        } else {
+            let name = path.file_name().map_or_else(
+                || path.display().to_string(),
+                |n| n.to_string_lossy().into_owned(),
+            );
+            log::warn!("dropped {name}: only exported Shadertoy .json files can be imported");
+            self.import_state.status = import::Status::Failed(format!(
+                "Only an exported Shadertoy .json file can be imported, not {name}."
+            ));
+        }
+    }
+
+    /// Queues an import on the worker. Never blocks.
+    fn submit_import(&mut self, input: Input, replace: bool) {
+        match self.import.submit(input.clone(), replace) {
+            Ok(()) => self.import_state.queued(&input),
+            Err(error) => self.import_state.refused(error),
+        }
+    }
+
+    /// Takes the worker's finished jobs (non-blocking) and applies them.
+    fn drain_imports(&mut self) {
+        while let Some(done) = self.import.try_next() {
+            let failed = done.result.as_ref().err().map(ToString::to_string);
+            let label = done.input.label();
+            match self.import_state.finished(done) {
+                Outcome::Imported(dir) => self.show_imported(&dir),
+                Outcome::Unchanged => {
+                    // "Already in the library" is a question, not a failure.
+                    if let Some(message) = failed.filter(|_| self.import_state.prompt.is_none()) {
+                        failure::report(
+                            Failure::new(Subsystem::Import, "import")
+                                .asset(label)
+                                .message(message)
+                                .action("nothing was added to the library"),
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// Rescans the library and loads the scene at `dir`, so a finished
+    /// import is on screen without another click. Runs on the main thread:
+    /// the scene's shaders are compiled here, never on the worker.
+    fn show_imported(&mut self, dir: &std::path::Path) {
+        let playing_dir = self
+            .playing
+            .and_then(|index| self.library.entries.get(index))
+            .map(|entry| entry.dir.clone());
+        match Library::scan(&self.library.dir) {
+            Ok(library) => self.library = library,
+            Err(error) => {
+                failure::report(
+                    Failure::new(Subsystem::Io, "scan")
+                        .path(&self.library.dir)
+                        .message(error)
+                        .action("the library list was not refreshed"),
+                );
+                return;
+            }
+        }
+        self.playing =
+            playing_dir.and_then(|old| self.library.entries.iter().position(|e| e.dir == old));
+        match self.library.entries.iter().position(|e| e.dir == dir) {
+            Some(index) => self.load(index),
+            None => log::warn!(
+                "imported scene {} is not in the rescanned library {}",
+                dir.display(),
+                self.library.dir.display()
+            ),
+        }
+    }
+
+    /// Switches the browser listener on: makes or reads the token, binds
+    /// `127.0.0.1:<port>` and starts accepting. A failure is shown in the
+    /// panel and the log, and the listener stays off.
+    fn start_listener(&mut self) {
+        if self.listener.is_some() {
+            return;
+        }
+        let token = match self.import_token.clone() {
+            Some(token) => token,
+            None => match Token::load_or_create(&self.data_dir) {
+                Ok(token) => token,
+                Err(error) => {
+                    self.listener_failed(
+                        format!("Could not make the import token: {error}"),
+                        Failure::new(Subsystem::Io, "token")
+                            .path(&self.data_dir)
+                            .message(&error)
+                            .action("the browser listener stays off"),
+                    );
+                    return;
+                }
+            },
+        };
+        let started = Listener::start(
+            ListenerConfig::new(self.listen_port, token.clone()),
+            self.import.listener_handler(),
+        );
+        match started {
+            Ok(listener) => {
+                self.listener_note = format!("Listening on {}", listener.addr());
+                self.listener_failed = false;
+                log::info!(
+                    "browser listener on {} (token in {})",
+                    listener.addr(),
+                    self.data_dir
+                        .join(strobe_shadertoy::listener::TOKEN_FILE)
+                        .display()
+                );
+                self.import_token = Some(token);
+                self.listener = Some(listener);
+            }
+            Err(error) => self.listener_failed(
+                error.to_string(),
+                Failure::new(Subsystem::Import, "listen")
+                    .detail("port", self.listen_port)
+                    .message(&error)
+                    .action("the browser listener stays off"),
+            ),
+        }
+    }
+
+    fn listener_failed(&mut self, note: String, failure: Failure) {
+        self.listener_note = note;
+        self.listener_failed = true;
+        failure::report(failure);
+    }
+
+    /// Switches the listener off and frees the port.
+    fn stop_listener(&mut self) {
+        if let Some(listener) = self.listener.take() {
+            let addr = listener.addr();
+            listener.stop();
+            log::info!("browser listener on {addr} stopped");
+        }
+        self.listener_note = "Off".to_string();
+        self.listener_failed = false;
+    }
+
     fn apply(&mut self, actions: &mut Vec<Action>) {
         for action in actions.drain(..) {
             match action {
@@ -1183,6 +1382,20 @@ impl Running {
                 Action::SetReactivity(gain) => self.audio.set_reactivity(gain),
                 Action::SetAudioSpeed(gain) => self.audio.set_speed(gain),
                 Action::TapTempo => self.audio.tap(),
+                Action::Import(text) => self.submit_import(Input::Text(text), false),
+                Action::ConfirmReplace => {
+                    if let Some(input) = self.import_state.confirm_replace() {
+                        self.submit_import(input, true);
+                    }
+                }
+                Action::CancelReplace => self.import_state.cancel_replace(),
+                Action::SetImportListener(on) => {
+                    if on {
+                        self.start_listener();
+                    } else {
+                        self.stop_listener();
+                    }
+                }
             }
         }
     }
@@ -1392,6 +1605,23 @@ impl Running {
                 gpu_ms: self.stack.perf.gpu_ms(),
                 budget_ms: self.stack.perf.budget_ms(),
                 scale: self.render_scale,
+            },
+            import: ImportPanel {
+                text: &mut self.import_state.text,
+                status: &self.import_state.status,
+                replace_title: self
+                    .import_state
+                    .prompt
+                    .as_ref()
+                    .map(|prompt| prompt.title.as_str()),
+                busy: self.import_state.in_flight > 0,
+                drop_hover: self.import_state.drop_hover,
+                listener: ListenerPanel {
+                    enabled: self.listener.is_some(),
+                    state: &self.listener_note,
+                    failed: self.listener_failed,
+                    token: self.import_token.as_ref().map(Token::expose),
+                },
             },
         };
         let mut actions = std::mem::take(&mut self.actions);

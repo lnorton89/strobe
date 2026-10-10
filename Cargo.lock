@@ -2892,6 +2892,7 @@ dependencies = [
  "strobe-gfx",
  "strobe-scene",
  "strobe-script",
+ "strobe-shadertoy",
  "thiserror 2.0.21",
  "winit",
 ]

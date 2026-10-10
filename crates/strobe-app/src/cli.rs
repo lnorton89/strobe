@@ -90,6 +90,17 @@ pub struct Cli {
     /// or the monitor picker (D96).
     #[arg(long)]
     pub show_output: bool,
+    /// Accept shaders from the "Send to Strobe" browser userscript on
+    /// 127.0.0.1 (off by default; the Import panel can switch it on too).
+    #[arg(long)]
+    pub listen: bool,
+    /// The port the listener uses (127.0.0.1 only).
+    #[arg(long, default_value_t = strobe_shadertoy::listener::DEFAULT_PORT)]
+    pub listen_port: u16,
+    /// Do not download Shadertoy textures when importing (they read black
+    /// and are listed in the scene's images/pending-assets.json).
+    #[arg(long)]
+    pub no_texture_download: bool,
     /// Print a report of this machine, build, GL and audio setup, save it
     /// next to the logs, and exit. Attach it to bug reports.
     #[arg(long)]
@@ -170,6 +181,22 @@ mod tests {
         assert!(
             shot.show_output && shot.screenshot.is_some(),
             "combines with screenshot mode"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn the_listener_is_off_unless_asked_for_and_the_port_has_a_default() -> Result<()> {
+        let off = Cli::try_parse_from(["strobe"])?;
+        assert!(!off.listen, "off by default");
+        assert_eq!(off.listen_port, 47811, "the documented port");
+        assert!(!off.no_texture_download, "textures download by default");
+        let on = Cli::try_parse_from(["strobe", "--listen", "--listen-port", "50000"])?;
+        assert!(on.listen, "on when asked");
+        assert_eq!(on.listen_port, 50000, "port");
+        assert!(
+            Cli::try_parse_from(["strobe", "--listen-port", "70000"]).is_err(),
+            "not a port"
         );
         Ok(())
     }

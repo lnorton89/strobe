@@ -17,6 +17,8 @@
 //! - [`session`]: the one active scene and the render-scale arithmetic.
 //! - [`ui`]: the control window's panels, as a function of a model.
 //! - [`theme`]: the look, in one place.
+//! - [`import`]: Shadertoy import on a worker thread, the panel's state, and
+//!   the browser listener's handler.
 //! - [`library`], [`console`], [`stats`]: the data the UI shows. The console
 //!   is a view of `strobe-diag`'s log ring.
 //! - [`failures`], [`dialog`], [`gldebug`], [`diagnose`]: how errors,
@@ -36,6 +38,7 @@ pub mod dialog;
 pub mod failures;
 pub mod fault;
 pub mod gldebug;
+pub mod import;
 pub mod library;
 pub mod localtime;
 pub mod mouse;
