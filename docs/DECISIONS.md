@@ -1045,10 +1045,17 @@ preview ("Strobe Output") is shown on request.
   window with the old visibility, and fullscreen is re-applied (winit defers
   it on X11 until the window is mapped).
 
-**Unverified (needs real Windows):** that winit's `set_fullscreen` on a hidden
-window, followed by `set_visible(true)`, ends fullscreen on the right monitor
-without a visible 960x540 flash; the output's close button hiding it; the
-GPU queue staying short with the output hidden on Intel. **Not available:**
+**Verified on the T480 (2026-10-10, Task 9):**
+- Only the control window is visible at launch.
+- The preview runs at 59.6 fps with the output hidden.
+- F11 on the hidden output brings it up fullscreen. It was sampled every
+  15 ms, and the first sample was already the borderless window filling
+  the screen.
+- The output's close button hides it, and the app keeps running.
+
+**Still unverified:** that the GPU queue stays short with the output hidden
+on Intel. GPU time read 0.9 ms against a 16.7 ms budget, so it is not in
+question for light scenes. **Not available:**
 `set_visible` is unsupported on Wayland, where the output window would simply
 show.
 
