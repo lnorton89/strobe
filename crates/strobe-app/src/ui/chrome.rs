@@ -771,7 +771,7 @@ fn rail_entry(
     let response = response.on_hover_text(tooltip);
     if built && response.clicked() {
         match pane {
-            Some(pane) => model.ui.panes.toggle(pane),
+            Some(pane) => model.ui.panes.toggle_drawn(pane, shown(pane)),
             None => model.ui.panes.close_all(),
         }
     }

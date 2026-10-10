@@ -212,10 +212,12 @@ impl Panes {
         }
     }
 
-    /// Opens `pane` if it is closed or buried under a newer pane in its
-    /// dock, closes it if it is the one showing.
-    pub fn toggle(&mut self, pane: Pane) {
-        if self.is_open(pane) && self.shown_in(pane.dock()) == Some(pane) {
+    /// What a button for `pane` does, given whether the pane is actually
+    /// *drawn* right now (an open pane can be hidden because the window is
+    /// too narrow for it beside the other dock): close it if it is drawn,
+    /// otherwise open it, which raises it and lets it win the room.
+    pub fn toggle_drawn(&mut self, pane: Pane, drawn: bool) {
+        if drawn {
             self.close(pane);
         } else {
             self.open(pane);
@@ -538,17 +540,21 @@ mod tests {
     }
 
     #[test]
-    fn toggling_a_buried_pane_raises_it_instead_of_closing_it() {
-        let mut panes = with(&[Pane::Inspector]);
-        panes.open(Pane::Settings);
-        panes.toggle(Pane::Inspector);
+    fn a_button_for_a_pane_hidden_by_width_shows_it_rather_than_closing_it() {
+        // At 1280 the browser (newer) holds the contextual region, so the
+        // inspector is open but not drawn. Its button must bring it back.
+        let mut panes = with(&[Pane::Inspector, Pane::Browser]);
+        let layout = arrange(&panes, 1280.0, RAIL);
+        let drawn = layout.right.is_some_and(|(p, _)| p == Pane::Inspector);
+        assert!(!drawn, "precondition: the inspector is hidden by width");
+        panes.toggle_drawn(Pane::Inspector, drawn);
+        let after = arrange(&panes, 1280.0, RAIL);
         assert_eq!(
-            panes.shown_in(Dock::Right),
+            after.right.map(|(p, _)| p),
             Some(Pane::Inspector),
-            "a click on a hidden pane's button shows it"
+            "the inspector is drawn after its button was pressed: {after:?}"
         );
-        panes.toggle(Pane::Inspector);
-        assert!(!panes.is_open(Pane::Inspector), "and a second click closes");
+        assert!(after.left.is_none(), "and the browser gave way");
     }
 
     #[test]
