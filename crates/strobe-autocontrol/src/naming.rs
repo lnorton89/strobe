@@ -76,6 +76,24 @@ pub fn snake_case(name: &str) -> String {
     collapsed.trim_matches('_').to_string()
 }
 
+/// Prefixes that belong to Strobe or GL, not to what a value means.
+const NOISE_PREFIXES: [&str; 4] = ["strobe_", "gl_", "st_", "syn_"];
+
+/// [`snake_case`] with the Strobe and GL prefixes dropped, so the converter's
+/// `strobe_gl_FragColor` reads as `frag_color`.
+pub fn readable(name: &str) -> String {
+    let mut text = snake_case(name);
+    loop {
+        let stripped = NOISE_PREFIXES
+            .iter()
+            .find_map(|prefix| text.strip_prefix(prefix).filter(|rest| !rest.is_empty()));
+        match stripped {
+            Some(rest) => text = rest.to_string(),
+            None => return text,
+        }
+    }
+}
+
 /// Every name a new control must avoid.
 #[derive(Debug, Clone, Default)]
 pub struct Taken {
@@ -209,6 +227,18 @@ mod tests {
         ] {
             assert_eq!(snake_case(input), expected, "`{input}`");
         }
+    }
+
+    #[test]
+    fn strobe_and_gl_prefixes_are_dropped_from_readable_names() {
+        assert_eq!(
+            readable("strobe_gl_FragColor"),
+            "frag_color",
+            "converter name"
+        );
+        assert_eq!(readable("gl_FragColor"), "frag_color", "legacy name");
+        assert_eq!(readable("FogColor"), "fog_color", "no prefix");
+        assert_eq!(readable("st_"), "st", "never empty");
     }
 
     #[test]

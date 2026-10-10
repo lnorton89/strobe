@@ -1,0 +1,35 @@
+{
+  "ver": "0.1",
+  "info": {
+    "id": "Tst104",
+    "date": "1700000000",
+    "viewed": 0,
+    "name": "Voronoi cells",
+    "username": "strobe-tests",
+    "description": "Original test shader written for Strobe's fixtures. MIT, like the repository.",
+    "likes": 0,
+    "published": 3,
+    "flags": 0,
+    "usePreview": 0,
+    "tags": [
+      "test",
+      "cells"
+    ],
+    "hasliked": 0
+  },
+  "renderpass": [
+    {
+      "inputs": [],
+      "outputs": [
+        {
+          "id": "4dfGRr",
+          "channel": 0
+        }
+      ],
+      "code": "vec2 hash2(vec2 p)\n{\n    p = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)));\n    return fract(sin(p) * 43758.5453);\n}\n\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord )\n{\n    vec2 uv = fragCoord / iResolution.y;\n    vec2 g = uv * 6.0;\n    vec2 cell = floor(g);\n    vec2 f = fract(g);\n    float best = 8.0;\n    for (int j = -1; j <= 1; j++) {\n        for (int i = -1; i <= 1; i++) {\n            vec2 o = vec2(float(i), float(j));\n            vec2 pt = hash2(cell + o);\n            pt = 0.5 + 0.5 * sin(iTime * 0.8 + 6.2831 * pt);\n            best = min(best, length(o + pt - f));\n        }\n    }\n    vec3 col = mix(vec3(0.95, 0.80, 0.35), vec3(0.10, 0.25, 0.55), smoothstep(0.0, 0.8, best));\n    fragColor = vec4(col, 1.0);\n}\n",
+      "name": "Image",
+      "description": "",
+      "type": "image"
+    }
+  ]
+}
