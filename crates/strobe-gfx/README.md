@@ -58,7 +58,9 @@ is a non-blocking timer-query read (D64).
 | `Backend`, `GlChoice` | `Native` or `Angle`; `GlChoice::Auto` tries native then ANGLE, `Only(backend)` forces one. `WindowedContext::robust()` says whether a robust context was granted. |
 | `offscreen::run`, `Request`, `ContextMode` | A context for work that draws nothing: an EGL device if the machine has one, else one hidden window (hidden, then tiny off-screen). Calls a job with `&Gl`, `&Caps` and a description and returns its value. Main thread, once per process. Used by `strobe-bench` and `strobe-autocontrol` (D140). |
 | `Caps` | Dialect, 1D-texture support and float-render support, decided once per context. `FloatPrecision` (`Half` default, `Full`). |
-| `ScenePlayer` | `new` / `with_extras` compile a `SceneFolder`; `render(&FrameInputs)`, `upload_audio`, `set_script_uniforms`, `resize`, `present`, `read_output`. |
+| `ScenePlayer` | `new` / `with_extras` compile a `SceneFolder`; `render(&FrameInputs)`, `upload_audio`, `set_script_uniforms`, `resize`, `present`, `read_output`, `enable_final_pass_readback` / `final_pass_pixels`. |
+| `readback::FinalPassReader` | The asynchronous 64x36 final-pass readback behind `textureFinalPass` (D162): a chain of 2:1 blits, a ring of three pixel-pack buffers with fences, the oldest collected only when already signalled. Two frames late, never a stall, nothing queried with `glGet*`. Off unless asked for. |
+| `gl::Buffer`, `gl::Fence` | Owning wrappers for pixel-pack buffers and sync objects; `Drop` skips the delete on a lost context. `Gl::shader_compiles()` counts compiles, so a test can prove none happen mid-show (D161). |
 | `Options` | `specialise_passes` (default true) and `float_precision`. |
 | `FrameInputs`, `Mouse`, `AudioTextures` | The per-frame values the player is handed. |
 | `GpuTimer` | A four-slot ring of `GL_TIME_ELAPSED` queries read without ever waiting. |
@@ -163,9 +165,11 @@ STROBE_REQUIRE_HEADLESS_GL=1 cargo test -p strobe-gfx --test render
   context recovery (D66) is built, but real WGL recovery is unverified; the
   cause was never confirmed.
 - Cubemaps are declared with a unit reserved but never loaded. `syn_Media` is
-  a black 1x1 texture. `textureFinalPass` data (Q14) is not provided.
+  a black 1x1 texture. `textureFinalPass` data (Q14) comes from the
+  asynchronous readback (D162), verified on llvmpipe in both dialects but not
+  yet on the T480 or ANGLE/D3D11.
 - macOS is not built: glutin compiles its EGL backend out on Apple targets
   and there is no CGL headless provider (D55).
 - The audio textures' layout is unverified against real Synesthesia (Q1,
-  Q10), and the ANGLE path does not rewrite desktop-only SSF idioms (Q8); see
+  Q10), and the ANGLE path rewrites only `PASSINDEX == 0.0` of the desktop-only SSF idioms (Q8, D163); see
   [`OPEN_QUESTIONS.md`](../../docs/OPEN_QUESTIONS.md).

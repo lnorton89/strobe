@@ -572,7 +572,8 @@ required field would have broken a crate this work does not own.
 
 A script that publishes a *new* uniform later (only once a beat is heard, say)
 costs one recompile at that moment, logged as a warning and never repeated if
-it fails; the alternative is a shader that cannot compile at all. Names the
+it fails; the alternative is a shader that cannot compile at all.
+**Superseded by D161: a late uniform is now refused, and nothing recompiles.** Names the
 scene already declares (pass targets, images, cubemaps, transition uniforms;
 `strobe-script` itself already refuses control names) are dropped with a
 warning, because redeclaring one is a compile error that would take the scene
@@ -593,7 +594,7 @@ scene's controls sit at their defaults, a valid still picture.
 Not provided yet: the previous frame's 64x36 downsample behind
 `textureFinalPass`. Producing it means a GPU readback every frame, which
 stalls the pipeline on the hardware this targets; Q14 records what it wants
-(an asynchronous PBO readback a frame or two late).
+(an asynchronous PBO readback a frame or two late). **Provided by D162.**
 
 **Would reopen:** the bench growing a script host (then scenes could use
 `setUniform` freely), or a measured readback cost that makes
@@ -1830,11 +1831,13 @@ before and after, `crates/strobe-gfx/tests/compositor.rs` shows a hundred
 transition frames compile nothing, and the Xvfb runs log `closed with 0
 runtime shader compile(s)`.
 
+`Gl::shader_compiles()` is the counter D161 relies on too; there is one counter
+and this decision uses it. D161 removed the one known way a scene recompiled
+after load (a script creating a uniform late), so the count is a tripwire for
+a regression rather than a known leak.
+
 What the counter **cannot** see: a driver that finishes a program late (hence
 the priming draw in D151), and state-dependent recompiles inside the driver.
-What it **does** see, and what remains a known hole: a scene whose script
-creates a uniform *after* load rebuilds its player (`Session::adopt_new_uniforms`,
-D62). In a show that is a counted, logged violation, not a silent one.
 
 ### D153: warm-up renders the next scene at half each edge, and the resize keeps what it drew (2026-10-10)
 
@@ -1857,7 +1860,8 @@ becomes 0.5 where a plain resize gives 0.1).
 - Control overrides are written as targets when the scene is taken for
   warm-up, so smoothing has had two seconds to settle; a cold start eases from
   the defaults. `preset` is read and ignored with a warning until presets
-  exist (Phase 6); `meta` overrides are carried and not applied (no meta stage).
+  exist (Phase 6); `meta` overrides are written to the session's meta bank (D160), which no
+  post stage reads yet.
 
 ### D154: the compositor is one program compiled when the context opens (2026-10-10)
 
@@ -1956,3 +1960,157 @@ error is shown and the previous playlist stays.
 
 **Would reopen:** an editor that saves in a way two polls apart cannot settle,
 or a playlist directory with many files (a recursive watch).
+
+### D160: meta controls are a second `ControlBank`, and a script's `meta/` writes take the normal path (2026-10-10)
+
+Scripts reach Synesthesia's meta controls with a `meta/` prefix or
+`bank: "meta"` on `setControl`, `setControlNormalized`, `randomizeControl`,
+`defaultControl`, `randomizeGroup` and `defaultGroup` (PLAN §1.5). Strobe
+used to record those writes in `FrameOutput::meta_writes` and the app dropped
+them with one warning.
+
+They now go the way every control write goes. `strobe_scene::meta` defines
+the output-wide set (master, invert, brightness, gamma, contrast, hue,
+saturation, vertical and horizontal mirror, reactivity, audio speed) as
+`scene.json`-style control objects validated by `ControlDef::from_raw`, and
+`meta::bank()` builds a `ControlBank` from them. `ScriptHost::new` takes that
+bank beside the scene's own, resolves `meta/` names against it, and
+`ScriptHost::frame` takes both banks mutably. A native call queues a
+`Command` tagged with its target bank, and the host applies the queue in
+order at the end of the frame, so clamping, toggle snapping, normalised
+writes, `randomize` (the host's seeded generator) and `default` are the one
+implementation. An unknown meta name is one console error, as for scene
+controls ("no meta control named `x`"), not a fault. `MetaWrite`,
+`MetaAction` and `FrameOutput::meta_writes` are gone, because the host now
+applies what it used to report.
+
+`Session` owns the meta bank (`pub meta`), ticks it after the scene's
+controls, and passes it to the script.
+
+**What this is not.** There is no output post stage in the renderer, so
+nothing reads the meta values: brightness, hue and mirror do not change the
+picture. That is stated in the code, the READMEs and the audit rather than
+faked. A scene change builds a fresh `Session`, so meta values also reset
+there; carrying them across scenes belongs with presets and the playlist's
+`MetaOverrides`, which are still placeholders. Scripts cannot *read* meta
+values as globals: nothing documents that they can (Q21).
+
+The ranges and the list are Strobe's, from the Synesthesia UI as PLAN §1.6
+records it; Q21 lists what is unverified.
+
+**Would reopen:** a real script that reads a meta value, or the output post
+stage landing (then the bank is what it reads).
+
+### D161: a script uniform created after load is refused, not recompiled for (2026-10-10)
+
+D62 let a script publish a uniform after load at the price of one logged
+recompile. That broke the rule AGENT_RESEARCH §3 states, "zero shader
+compilation in the show": a recompile on an old laptop is a visible hitch,
+and the precompile guarantee for playlists (§11) cannot hold if any script
+can ask for another. Two options were weighed: refuse, or pre-declare through
+a new mechanism (a manifest in `scene.json`, a `declareUniform` call).
+Refusing needs nothing new from scene authors: `setup()` and the first
+`update()` already run before the shaders are compiled, so a uniform created
+there is declared, and that is the documented way to create one.
+
+- `ScriptHost::seal_uniforms()` (replacing `announce_extras`) lists the
+  committed uniforms and seals the store. After it, `setUniform` of a name
+  not in that set stores nothing and logs **one** console error naming the
+  uniform and the rule ("created after the scene loaded... create every
+  uniform in setup() or in the first update()"). Declared uniforms keep
+  updating, a different arity keeps being padded or truncated, and the
+  deprecated `uniforms` object obeys the same rule. A refusal is not a fault.
+- `FrameOutput::new_uniforms` is removed: nothing can become new.
+- `Session::load` seals right after building the player;
+  `Session::adopt_new_uniforms`, its `rebuild_failed` flag and the stored
+  `SceneFolder`, `Gl` and `Caps` it needed are gone.
+- `Gl::shader_compiles()` counts compile requests (a client-side counter,
+  no driver query). `script_uniforms.rs` loads a scene, runs twelve frames
+  in which the script creates `late` on frame four, and asserts the counter
+  did not move and the uniform was refused, in both dialects.
+
+A scene whose *shader* uses a late uniform fails to compile at load, as it
+always did: it was never declared. The error says which name; the author
+moves the `setUniform` into `setup()`.
+
+**Would reopen:** a real scene that creates a uniform conditionally and
+reads it in the shader. The answer would then be a declared-uniform manifest,
+not mid-show compiles.
+
+### D162: `textureFinalPass` is a 64x36 asynchronous readback, two frames late (2026-10-10)
+
+`textureFinalPass(x, y)` used to return black (D62). The picture reaches the
+CPU like this, and `crates/strobe-gfx/src/readback.rs` is the whole of it:
+
+1. **Downsample on the GPU.** A chain of `glBlitFramebuffer` linear blits,
+   each at most 2:1 per axis (1280x720 goes 640x360, 320x180, 160x90, 80x45,
+   64x36), so each step is an exact 2x2 box average and a busy picture does
+   not alias the way one four-tap blit from 1080p would. The chain's textures
+   are allocated at load and on resize.
+2. **Start the read.** `glReadPixels` of the 64x36 RGBA8 image into the next
+   of **three** pixel-pack buffers, then a fence behind it. The call returns
+   at once. PBOs, `glMapBufferRange`, sync objects and `glBlitFramebuffer`
+   are all core in desktop 3.3 and in GLES 3.0, so one code path serves
+   native and ANGLE.
+3. **Collect without waiting.** The oldest slot (issued two frames ago) is
+   polled with `glClientWaitSync` at timeout 0 and, only if signalled, mapped
+   with `MAP_READ_BIT`, copied to an RGB8 buffer kept between frames and
+   unmapped. If it is not signalled it is skipped; when the ring comes round
+   to it the stale read is dropped (counted) and the slot reused. A slow GPU
+   costs freshness, never frame time. No `glGet*`, no per-frame allocation.
+
+**Latency, the answer to Q14's "how stale".** After frame `k` renders,
+`pixels()` is frame `k - 2`; a script running before frame `k + 1` sees the
+picture of three frames earlier (about 50 ms at 60 fps), more if the GPU lags.
+Until two frames have been rendered the script reads black. This is
+documented on `textureFinalPass`, `ScriptInputs::final_pass` and the READMEs.
+
+**Size.** 64x36 is `strobe-script`'s existing constant (`FINAL_PASS_WIDTH`,
+`HEIGHT`), kept. AGENT_RESEARCH does not mention `textureFinalPass` at all
+and PLAN §1.5 gives only "RGB of the final pass at normalized coords", so the
+resolution is a Strobe choice, not a verified Synesthesia fact (Q14). An
+integration test pins that the gfx and script constants agree.
+
+**Cost control.** The readback runs only for a scene whose `script.js`
+contains the text `textureFinalPass` (`Session::load`). Other scenes pay
+nothing. A script that builds the name dynamically would get black; nobody
+writes that.
+
+**Lost contexts (D66).** `Buffer` and `Fence` are owning types whose `Drop`
+skips the delete once `Gl::is_lost()`, and `capture` does nothing on a lost
+context. `resize` rebuilds the reader and the picture restarts from black.
+
+**Rows run bottom-up**, the orientation of `_uv`, as `strobe-script`
+documented; a test pins it with a gradient.
+
+**Evidence**: llvmpipe, both dialects (`crates/strobe-gfx/tests/render.rs`,
+`crates/strobe-app/tests/script_uniforms.rs`). Nothing here has run on the
+T480 or on ANGLE/D3D11, where fences and PBO maps behave differently; that
+is the open check.
+
+**Would reopen:** a measured readback cost on the T480, or a real script
+that needs the previous frame exactly (then a synchronous path for that
+scene alone, chosen by the author).
+
+### D163: `PASSINDEX` compared with a float literal is cast on GLSL ES (2026-10-10)
+
+R4: real scenes compare `PASSINDEX` with `0` and with `0.0`, and `PASSINDEX`
+is an `int`. Desktop GLSL converts; GLSL ES rejects `int == float`, so such a
+scene could not use the ANGLE fallback. `strobe_scene::fixups` rewrites the
+user's code for `Dialect::Es300` only: a `PASSINDEX` that is an operand of
+`== != < > <= >=` whose other operand is a float literal (`0.0`, `.5`, `2.`,
+`1e2`, either order) becomes `float(PASSINDEX)`.
+
+Chosen over declaring `PASSINDEX` as a float on ES because the int form is
+just as common and the two cannot both compile against one declaration.
+The rewrite is a small tokeniser, not a parser: it skips comments, never
+touches a longer identifier, treats `<<` and `>>` as shifts, leaves hex and
+`u`-suffixed literals alone, and never adds or removes a line, so
+driver error lines still map to `main.glsl`. In specialised mode the cast is
+of a `const int`, so the branch still folds away.
+
+Not done, and why: `float p = PASSINDEX;`, `float s = 2;` and every other
+implicit int to float conversion need types, so a GLSL parser (Q8 stays
+open for them). The packing built-ins on a 3.30 context are unrelated.
+
+**Would reopen:** adopting a GLSL parser, which would replace this module.

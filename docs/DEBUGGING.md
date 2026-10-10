@@ -212,8 +212,9 @@ playlist "Transition demo": closed with 0 runtime shader compile(s) (...)
   block naming the scene (a reference that is not in the library, or the
   compile error), and its cues are `skipped` in the LIST pane.
 - **`N shader compile(s) happened during playback`** (a warning) means the
-  zero-compile promise broke (D152). The usual cause is a scene whose script
-  creates a uniform after load (D62); the log line before it names the scene.
+  zero-compile promise broke (D152). A late script uniform used to be the
+  cause; D161 now refuses it instead of recompiling, so this is a bug: report
+  it with the log lines before it.
 - **A playlist that will not load** is `PLAYLIST` / `phase=load` with the file
   and the TOML error (`line 3, column 13: "3mn" is not a duration`); on a hot
   reload it is `phase=reload` and the old playlist keeps playing.

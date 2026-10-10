@@ -825,6 +825,7 @@ impl Show {
     fn prepare(&self, session: &mut Session, index: usize, start_time: f32) {
         session.restart_clock(start_time);
         resolve::reset_controls(&mut session.controls);
+        resolve::reset_controls(&mut session.meta);
         let Some(cue) = self.clock.timeline().cues().get(index) else {
             return;
         };
@@ -836,6 +837,11 @@ impl Show {
         }
         for problem in resolve::apply_overrides(&mut session.controls, &cue.resolved.overrides) {
             log::warn!("playlist: cue {}: {problem}", index + 1);
+        }
+        // Meta values go to the session's meta bank (D160); nothing renders
+        // from it yet, but a script or a later post stage will read them.
+        for problem in resolve::apply_overrides(&mut session.meta, &cue.resolved.meta.values) {
+            log::warn!("playlist: cue {} meta: {problem}", index + 1);
         }
     }
 

@@ -30,6 +30,8 @@ compiles. It owns every SSF rule that can be decided without a GPU.
 | `assemble` | `assemble::fragment(&Request)` and `assemble::vertex(Dialect)` build shader text. `Dialect` is `Glsl330`, `Glsl410` or `Es300`; `PassIndex` is a constant or a uniform; `map_error_line` maps a driver's log line back to a line of `main.glsl`. |
 | `audio::SCALARS` | The one list of `syn_*` scalar audio uniform names, shared by the assembler, the analyser and the script host. |
 | `synthetic` | A deterministic 120 BPM stand-in for audio (`fill`, `bands`, `fill_textures`), a pure function of time. |
+| `meta` | The meta controls (master, brightness, hue, mirror...) as a `ControlBank` built by `meta::bank()`, which a script's `meta/` writes reach (D160). Nothing renders from it yet. |
+| `fixups` | GLSL ES rewrites for desktop-only SSF idioms; today `PASSINDEX == 0.0` becomes `float(PASSINDEX) == 0.0` (D163). |
 | `names` | Name matching used by the script API (case-insensitive, ignoring `_`, `-` and spaces) and the reserved-name list. |
 | `SceneError` | Every way a scene can fail to load; messages name the control or pass at fault. |
 

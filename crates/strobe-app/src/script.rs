@@ -24,8 +24,9 @@
 //! - **Uniforms.** What the script creates with `setUniform` is returned for
 //!   the session to declare in the shaders and upload each frame.
 //! - **Meta controls.** A script may aim writes at `meta/...` controls
-//!   (brightness, hue, mirror). Strobe has none yet, so they are dropped,
-//!   once, with a warning.
+//!   (brightness, hue, mirror). They land in the session's meta bank
+//!   ([`strobe_scene::meta`]) through the same queued path as every other
+//!   control write; see D160 for what the bank does and does not drive.
 //!
 //! The host runs on the render thread. It allocates a little each frame
 //! (its output is built as owned vectors); a script that does nothing costs
@@ -66,10 +67,9 @@ pub enum ScriptState {
 /// What a frame of script leaves for the session.
 #[derive(Debug, Default)]
 pub struct Harvest {
-    /// Every uniform the script has published, last good values.
+    /// Every uniform the script has published, last good values. After
+    /// [`ScriptRun::seal_uniforms`] this list cannot grow.
     pub uniforms: Vec<ScriptUniform>,
-    /// A uniform became known this frame.
-    pub new_uniforms: bool,
 }
 
 /// One scene's running script.
@@ -77,7 +77,6 @@ pub struct ScriptRun {
     host: ScriptHost,
     scene: String,
     state: ScriptState,
-    meta_warned: bool,
 }
 
 impl std::fmt::Debug for ScriptRun {
@@ -91,13 +90,17 @@ impl std::fmt::Debug for ScriptRun {
 
 impl ScriptRun {
     /// Evaluates `source` (the scene's `script.js`) and runs its `setup()`.
-    pub fn start(source: &str, scene: &str, controls: &ControlBank) -> Result<Self, ScriptError> {
-        let host = ScriptHost::new(source, controls, Budget::default())?;
+    pub fn start(
+        source: &str,
+        scene: &str,
+        controls: &ControlBank,
+        meta: &ControlBank,
+    ) -> Result<Self, ScriptError> {
+        let host = ScriptHost::new(source, controls, meta, Budget::default())?;
         Ok(Self {
             host,
             scene: scene.to_string(),
             state: ScriptState::Running,
-            meta_warned: false,
         })
     }
 
@@ -107,14 +110,15 @@ impl ScriptRun {
     }
 
     /// Runs one frame: events, then `update(dt)`, applying control writes
-    /// to `controls` before returning.
+    /// to `controls` (and `meta/` writes to `meta`) before returning.
     pub fn frame(
         &mut self,
         dt: f32,
         inputs: &ScriptInputs<'_>,
         controls: &mut ControlBank,
+        meta: &mut ControlBank,
     ) -> Harvest {
-        let output = self.host.frame(dt, inputs, controls);
+        let output = self.host.frame(dt, inputs, controls, meta);
         for line in &output.console {
             let level = match line.level {
                 ConsoleLevel::Log => log::Level::Info,
@@ -123,18 +127,17 @@ impl ScriptRun {
             };
             log::log!(target: LOG_TARGET, level, "{}", line.text);
         }
-        if !output.meta_writes.is_empty() && !self.meta_warned {
-            self.meta_warned = true;
-            log::warn!(
-                target: LOG_TARGET,
-                "script writes meta controls (brightness, hue, mirror...), which Strobe does not have yet; ignored"
-            );
-        }
         self.track(output.status);
         Harvest {
             uniforms: output.uniforms,
-            new_uniforms: output.new_uniforms,
         }
+    }
+
+    /// Seals the script's uniforms: the shaders have been compiled with
+    /// what it published so far, so a later new name is refused with a
+    /// console error instead of ever causing a recompile (D161).
+    pub fn seal_uniforms(&mut self) {
+        self.host.seal_uniforms();
     }
 
     /// Updates [`Self::state`] and reports the transitions that matter.
@@ -254,11 +257,11 @@ mod tests {
     #[test]
     fn a_running_script_publishes_uniforms_and_reaches_controls() -> Result<()> {
         let (_, mut bank) = controls(r#"{ "CONTROLS": [ {"NAME": "level", "TYPE": "slider"} ] }"#)?;
+        let mut meta = strobe_scene::meta::bank()?;
         let source =
             "function update(dt) { setUniform('glow', 0.25, 0.5); setControl('level', 0.75); }";
-        let mut run = ScriptRun::start(source, "t", &bank)?;
-        let harvest = run.frame(1.0 / 60.0, &ScriptInputs::default(), &mut bank);
-        assert!(harvest.new_uniforms, "the first publication is new");
+        let mut run = ScriptRun::start(source, "t", &bank, &meta)?;
+        let harvest = run.frame(1.0 / 60.0, &ScriptInputs::default(), &mut bank, &mut meta);
         let first = harvest
             .uniforms
             .first()
@@ -276,16 +279,21 @@ mod tests {
     #[test]
     fn faults_are_visible_and_three_in_a_row_disable_the_script() -> Result<()> {
         let (_, mut bank) = controls("{}")?;
-        let mut run =
-            ScriptRun::start("function update() { throw new Error('boom'); }", "t", &bank)?;
-        run.frame(0.016, &ScriptInputs::default(), &mut bank);
+        let mut meta = strobe_scene::meta::bank()?;
+        let mut run = ScriptRun::start(
+            "function update() { throw new Error('boom'); }",
+            "t",
+            &bank,
+            &meta,
+        )?;
+        run.frame(0.016, &ScriptInputs::default(), &mut bank, &mut meta);
         assert!(
             matches!(run.state(), ScriptState::Faulted { consecutive: 1, .. }),
             "first fault: {:?}",
             run.state()
         );
-        run.frame(0.016, &ScriptInputs::default(), &mut bank);
-        run.frame(0.016, &ScriptInputs::default(), &mut bank);
+        run.frame(0.016, &ScriptInputs::default(), &mut bank, &mut meta);
+        run.frame(0.016, &ScriptInputs::default(), &mut bank, &mut meta);
         assert!(
             matches!(run.state(), ScriptState::Disabled { message } if message.contains("boom")),
             "disabled with the reason: {:?}",
@@ -296,12 +304,12 @@ mod tests {
 
     #[test]
     fn a_script_that_does_not_load_is_an_error_not_a_panic() {
-        let bank = ControlBank::new(Vec::new());
-        let Ok(bank) = bank else {
+        let (Ok(bank), Ok(meta)) = (ControlBank::new(Vec::new()), strobe_scene::meta::bank())
+        else {
             return;
         };
         assert!(
-            ScriptRun::start("this is not javascript (", "t", &bank).is_err(),
+            ScriptRun::start("this is not javascript (", "t", &bank, &meta).is_err(),
             "a syntax error must be reported"
         );
     }

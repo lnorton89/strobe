@@ -22,6 +22,7 @@ pub mod compositor;
 pub mod gl;
 pub mod offscreen;
 pub mod player;
+pub mod readback;
 pub mod timing;
 
 pub use caps::{Caps, FloatPrecision};

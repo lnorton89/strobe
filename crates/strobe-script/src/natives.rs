@@ -12,8 +12,8 @@
 //! and talks to the host only through [`Shared`]. They never touch the
 //! control bank directly (see the `shared` module for why); a control write
 //! is a queued [`Command`], a uniform write is staged in the
-//! [`crate::uniforms::UniformStore`], and a meta-control write is recorded
-//! for the app.
+//! [`crate::uniforms::UniformStore`]. A meta-control write (`meta/...` or
+//! `bank: "meta"`) is the same queued [`Command`] aimed at the meta bank.
 //!
 //! ## Errors
 //!
@@ -29,11 +29,12 @@
 
 use crate::events::{EventKind, Handler};
 use crate::inputs::{FINAL_PASS_BYTES, FINAL_PASS_HEIGHT, FINAL_PASS_WIDTH};
-use crate::output::{ConsoleLevel, MetaAction, MetaWrite};
-use crate::shared::{Command, Shared};
+use crate::output::ConsoleLevel;
+use crate::shared::{Command, Shared, Target};
 use crate::uniforms::SetOutcome;
 use rquickjs::function::{Opt, Rest};
 use rquickjs::{Coerced, Ctx, Exception, FromJs, Function, Object, Result, Value};
+use std::collections::HashMap;
 use std::rc::Rc;
 use strobe_scene::names::{is_glsl_identifier, is_reserved, normalize};
 
@@ -247,6 +248,33 @@ fn split_meta(name: &str) -> (bool, &str) {
     }
 }
 
+/// The name tables and queue target for `bank`.
+fn tables(
+    shared: &Shared,
+    bank: Bank,
+) -> (
+    &HashMap<String, usize>,
+    &HashMap<String, Vec<usize>>,
+    Target,
+) {
+    match bank {
+        Bank::Scene => (&shared.names.controls, &shared.names.groups, Target::Scene),
+        Bank::Meta => (
+            &shared.names.meta_controls,
+            &shared.names.meta_groups,
+            Target::Meta,
+        ),
+    }
+}
+
+/// What a name that matched nothing is called in a console message.
+fn noun(bank: Bank) -> &'static str {
+    match bank {
+        Bank::Scene => "control",
+        Bank::Meta => "meta control",
+    }
+}
+
 /// `setControl` and `setControlNormalized`.
 fn control_write<'js>(
     ctx: &Ctx<'js>,
@@ -269,34 +297,26 @@ fn control_write<'js>(
         true,
     )?;
     let mut state = shared.state.borrow_mut();
-    match bank {
-        Bank::Meta => state.meta.push(MetaWrite {
-            name: bare.to_string(),
-            action: MetaAction::Set {
-                values: components.slice().to_vec(),
-                normalized,
-                dimension: options.dimension,
-            },
-        }),
-        Bank::Scene => match shared.names.controls.get(&normalize(bare)) {
-            Some(&index) => {
-                let mut values = [0.0_f32; MAX_CONTROL_COMPONENTS];
-                for (target, source) in values.iter_mut().zip(components.slice()) {
-                    *target = *source;
-                }
-                state.commands.push(Command::Set {
-                    index,
-                    dimension: options.dimension,
-                    values,
-                    len: components.len.min(MAX_CONTROL_COMPONENTS),
-                    normalized,
-                });
+    let (controls, _, target) = tables(shared, bank);
+    match controls.get(&normalize(bare)) {
+        Some(&index) => {
+            let mut values = [0.0_f32; MAX_CONTROL_COMPONENTS];
+            for (slot, source) in values.iter_mut().zip(components.slice()) {
+                *slot = *source;
             }
-            None => state.log_once(
-                ConsoleLevel::Error,
-                &format!("{function}: no control named `{bare}`"),
-            ),
-        },
+            state.commands.push(Command::Set {
+                target,
+                index,
+                dimension: options.dimension,
+                values,
+                len: components.len.min(MAX_CONTROL_COMPONENTS),
+                normalized,
+            });
+        }
+        None => state.log_once(
+            ConsoleLevel::Error,
+            &format!("{function}: no {} named `{bare}`", noun(bank)),
+        ),
     }
     Ok(())
 }
@@ -311,26 +331,17 @@ enum Operation {
 /// `randomizeControl` and `defaultControl`.
 fn control_operation(shared: &Shared, function: &str, name: &str, operation: Operation) {
     let (prefixed, bare) = split_meta(name);
+    let bank = if prefixed { Bank::Meta } else { Bank::Scene };
+    let (controls, _, target) = tables(shared, bank);
     let mut state = shared.state.borrow_mut();
-    if prefixed {
-        let action = match operation {
-            Operation::Randomize => MetaAction::Randomize,
-            Operation::Default => MetaAction::Default,
-        };
-        state.meta.push(MetaWrite {
-            name: bare.to_string(),
-            action,
-        });
-        return;
-    }
-    match shared.names.controls.get(&normalize(bare)) {
+    match controls.get(&normalize(bare)) {
         Some(&index) => state.commands.push(match operation {
-            Operation::Randomize => Command::Randomize(index),
-            Operation::Default => Command::Default(index),
+            Operation::Randomize => Command::Randomize(target, index),
+            Operation::Default => Command::Default(target, index),
         }),
         None => state.log_once(
             ConsoleLevel::Error,
-            &format!("{function}: no control named `{bare}`"),
+            &format!("{function}: no {} named `{bare}`", noun(bank)),
         ),
     }
 }
@@ -338,30 +349,21 @@ fn control_operation(shared: &Shared, function: &str, name: &str, operation: Ope
 /// `randomizeGroup` and `defaultGroup`.
 fn group_operation(shared: &Shared, function: &str, name: &str, operation: Operation) {
     let (prefixed, bare) = split_meta(name);
+    let bank = if prefixed { Bank::Meta } else { Bank::Scene };
+    let (_, groups, target) = tables(shared, bank);
     let mut state = shared.state.borrow_mut();
-    if prefixed {
-        let action = match operation {
-            Operation::Randomize => MetaAction::RandomizeGroup,
-            Operation::Default => MetaAction::DefaultGroup,
-        };
-        state.meta.push(MetaWrite {
-            name: bare.to_string(),
-            action,
-        });
-        return;
-    }
-    match shared.names.groups.get(&normalize(bare)) {
+    match groups.get(&normalize(bare)) {
         Some(members) => {
             for &index in members {
                 state.commands.push(match operation {
-                    Operation::Randomize => Command::Randomize(index),
-                    Operation::Default => Command::Default(index),
+                    Operation::Randomize => Command::Randomize(target, index),
+                    Operation::Default => Command::Default(target, index),
                 });
             }
         }
         None => state.log_once(
             ConsoleLevel::Error,
-            &format!("{function}: no control group named `{bare}`"),
+            &format!("{function}: no {} group named `{bare}`", noun(bank)),
         ),
     }
 }
@@ -438,15 +440,24 @@ pub(crate) fn stage_uniform<'js>(
     }
     let components = read_components(ctx, components, MAX_UNIFORM_COMPONENTS, false)?;
     let mut state = shared.state.borrow_mut();
-    if let SetOutcome::Coerced(ty) = state.uniforms.set(name, components.slice()) {
-        state.log_once(
+    match state.uniforms.set(name, components.slice()) {
+        SetOutcome::Stored => {}
+        SetOutcome::Coerced(ty) => state.log_once(
             ConsoleLevel::Warn,
             &format!(
                 "setUniform: `{name}` was first set as a {} and keeps that type; a different \
                  number of components was padded or truncated",
                 ty.glsl()
             ),
-        );
+        ),
+        SetOutcome::Refused => state.log_once(
+            ConsoleLevel::Error,
+            &format!(
+                "setUniform: `{name}` was created after the scene loaded, so the shaders were \
+                 compiled without it and it is ignored; create every uniform in setup() or in \
+                 the first update() (a show never compiles shaders while it plays)"
+            ),
+        ),
     }
     Ok(())
 }
@@ -567,7 +578,11 @@ fn cell(t: f64, n: usize) -> usize {
     ((t.clamp(0.0, 1.0) * n as f64) as usize).min(n.saturating_sub(1))
 }
 
-/// `textureFinalPass(x, y)`: nearest-texel colour of the previous frame.
+/// `textureFinalPass(x, y)`: nearest-texel colour of a recent frame, as
+/// `[r, g, b]` in `0..1`. `x` and `y` are `0..1` across the picture, `y`
+/// up, and clamp to the edge. The colour comes from the host's 64x36
+/// asynchronous readback, so it lags the picture by a few frames and is
+/// black until the first one lands (D162).
 fn texture_final_pass(shared: &Shared, x: f64, y: f64) -> Vec<f64> {
     let state = shared.state.borrow();
     if state.final_pass.len() != FINAL_PASS_BYTES {
