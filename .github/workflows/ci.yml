@@ -210,5 +210,10 @@ jobs:
       # runner does not have. strobe-app depends on it, so it is excluded
       # too (its Windows branches are `cfg!` values, which the Linux build
       # already type-checks). The windows job above builds both natively.
+      # strobe-shadertoy's `net` feature (ureq + rustls + ring) compiles C
+      # for MSVC, so it is checked without that feature here (D110); the
+      # Linux all-features clippy and the windows job cover the client.
       - name: Cross-check the Windows build
-        run: cargo clippy --workspace --exclude strobe-script --exclude strobe-app --all-targets --all-features --target x86_64-pc-windows-msvc -- -D warnings
+        run: cargo clippy --workspace --exclude strobe-script --exclude strobe-app --exclude strobe-shadertoy --all-targets --all-features --target x86_64-pc-windows-msvc -- -D warnings
+      - name: Cross-check strobe-shadertoy for Windows without its HTTP client
+        run: cargo clippy -p strobe-shadertoy --no-default-features --all-targets --target x86_64-pc-windows-msvc -- -D warnings
