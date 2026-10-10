@@ -44,6 +44,15 @@ arc-swap = "1.9"
 hound = "3.5"
 
 rquickjs = "0.14"
+# Shadertoy import (D110): a small blocking HTTP client with rustls (no
+# OpenSSL, no async runtime), SHA-256 for the asset cache's keys, and the OS
+# random source for the listener's token.
+ureq = { version = "3", default-features = false, features = ["rustls"] }
+sha2 = "0.10"
+getrandom = "0.3"
+# Local time for `strobe_Date` (D111). Only the clock feature: no serde,
+# no time-zone database, no wasm shims.
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 
 # The GL stack. glow is the bindings; glutin creates the context — natively

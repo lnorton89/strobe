@@ -124,6 +124,13 @@ pub struct AudioTextures<'a> {
     pub spectrum: &'a [[f32; 4]],
     /// `syn_LevelTrail`.
     pub level_trail: &'a [[f32; 4]],
+    /// The browser-matched Shadertoy audio texture (`strobe_ShadertoyAudio`):
+    /// 512x2 bytes of R8, the spectrum row then the waveform row, exactly
+    /// what the audio crate's `AudioFrame::shadertoy` holds. When it is
+    /// `Some` with exactly that length it is uploaded as given; otherwise
+    /// (`None`, or any other length) the texture is resampled from
+    /// `spectrum` as before.
+    pub shadertoy: Option<&'a [u8]>,
 }
 
 /// A texture and the framebuffer that renders into it.
@@ -443,7 +450,7 @@ impl ScenePlayer {
         let result = self
             .upload_one(0, audio.spectrum)
             .and_then(|()| self.upload_one(1, audio.level_trail))
-            .and_then(|()| self.upload_shadertoy(audio.spectrum));
+            .and_then(|()| self.upload_shadertoy(audio.spectrum, audio.shadertoy));
         if let Err(error) = result
             && !self.audio.failed
         {
@@ -478,21 +485,33 @@ impl ScenePlayer {
         self.gl.upload(texture, staging)
     }
 
-    /// Builds the 512x2 Shadertoy audio texture from the spectrum texels
-    /// and uploads it, when a pass samples it.
+    /// Uploads the 512x2 Shadertoy audio texture, when a pass samples it.
     ///
-    /// Row 0 is the spectrum and row 1 the waveform, as on Shadertoy. Both
-    /// are resampled (linearly) from the spectrum texture's `r` (raw FFT)
-    /// and `a` (waveform) channels, which the audio crate documents in
-    /// `AudioFrame::spectrum`. The raw channel spans -100 dB to -20 dB
-    /// where the browser's analyser, and so Shadertoy's texture, spans
-    /// -100 dB to -30 dB with a 6 dB lower scale; [`shadertoy_level`]
-    /// converts. The audio crate also builds a texture matched to the
-    /// browser exactly (`AudioFrame::shadertoy`, temporally smoothed); this
-    /// path does not use it because `AudioTextures` has no field for it yet
-    /// (D93).
-    fn upload_shadertoy(&mut self, spectrum: &[[f32; 4]]) -> Result<(), String> {
-        if !self.audio.wanted.get(2).copied().unwrap_or(false) || spectrum.is_empty() {
+    /// Row 0 is the spectrum and row 1 the waveform, as on Shadertoy. When
+    /// the host supplies the browser-matched bytes (`exact`, from the audio
+    /// crate's `AudioFrame::shadertoy`, already on the browser analyser's
+    /// decibel window and temporally smoothed) they are uploaded as they
+    /// are, with no per-frame work beyond the copy GL makes (D93, D112).
+    ///
+    /// Without them both rows are resampled (linearly) from the spectrum
+    /// texture's `r` (raw FFT) and `a` (waveform) channels, which the audio
+    /// crate documents in `AudioFrame::spectrum`. The raw channel spans
+    /// -100 dB to -20 dB where the browser's analyser, and so Shadertoy's
+    /// texture, spans -100 dB to -30 dB with a 6 dB lower scale;
+    /// [`shadertoy_level`] converts. That path has none of the analyser's
+    /// smoothing, which is why a host with the exact bytes should pass them.
+    fn upload_shadertoy(
+        &mut self,
+        spectrum: &[[f32; 4]],
+        exact: Option<&[u8]>,
+    ) -> Result<(), String> {
+        if !self.audio.wanted.get(2).copied().unwrap_or(false) {
+            return Ok(());
+        }
+        if let Some(bytes) = exact.filter(|bytes| bytes.len() == SHADERTOY_AUDIO_WIDTH * 2) {
+            return self.gl.upload(&self.shadertoy_audio, bytes);
+        }
+        if spectrum.is_empty() {
             return Ok(());
         }
         let Some(staging) = self.audio.staging.get_mut(2) else {

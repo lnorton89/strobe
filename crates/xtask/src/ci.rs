@@ -17,6 +17,8 @@
 //! 3. `cargo test --workspace --all-features`
 //! 4. the same clippy for `x86_64-pc-windows-msvc`, when that target's
 //!    standard library is installed and the host is not already Windows
+//!    (and `strobe-shadertoy` without its `net` feature, which needs a C
+//!    compiler for MSVC)
 //! 5. `cargo deny check`, when `cargo-deny` is installed
 //! 6. the changelog check
 //!
@@ -188,7 +190,9 @@ fn plan(args: &Args) -> Result<Vec<Step>> {
             // the Windows branches are `cfg!` values, type-checked on every
             // host). This step only runs on non-Windows hosts, so both are
             // checked for Windows by a native build (CI's windows job)
-            // instead.
+            // instead. strobe-shadertoy is excluded here and checked by the
+            // next step without its `net` feature: the HTTP client's TLS
+            // (ring) compiles C for MSVC (D110).
             None => Action::Cargo {
                 args: vec![
                     "clippy",
@@ -197,8 +201,36 @@ fn plan(args: &Args) -> Result<Vec<Step>> {
                     "strobe-script",
                     "--exclude",
                     "strobe-app",
+                    "--exclude",
+                    "strobe-shadertoy",
                     "--all-targets",
                     "--all-features",
+                    "--target",
+                    WINDOWS_TARGET,
+                    "--",
+                    "-D",
+                    "warnings",
+                ],
+                env: Vec::new(),
+            },
+        },
+    });
+
+    steps.push(Step {
+        name: "windows shadertoy",
+        action: match windows_cross_check()? {
+            Some(reason) => Action::Skip(reason),
+            // Everything in strobe-shadertoy except the `net` feature's
+            // HTTP client, which needs a C compiler for MSVC. The client is
+            // type-checked natively by CI's windows job and by the Linux
+            // job's all-features clippy.
+            None => Action::Cargo {
+                args: vec![
+                    "clippy",
+                    "-p",
+                    "strobe-shadertoy",
+                    "--no-default-features",
+                    "--all-targets",
                     "--target",
                     WINDOWS_TARGET,
                     "--",
