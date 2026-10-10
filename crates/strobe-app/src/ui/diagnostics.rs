@@ -44,9 +44,13 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
     if closed {
         model.ui.panes.close(Pane::Diagnostics);
     }
-    // The status cards scroll in the top half; the console takes what is
-    // left and follows the newest line.
-    let top = (ui.available_height() * 0.5).max(160.0);
+    // The status cards take what they need, leaving the console at least
+    // CONSOLE_MIN; they scroll only when even that does not fit. A fixed
+    // half split cut the SCRIPT card in two on the T480 at 150% (its
+    // floating scroll bar hidden until hover), which read as clipping.
+    const CONSOLE_MIN: f32 = 180.0;
+    let available = ui.available_height();
+    let top = (available - CONSOLE_MIN).max(available * 0.5).max(160.0);
     egui::ScrollArea::vertical()
         .id_salt("diagnostics-status")
         .max_height(top)
