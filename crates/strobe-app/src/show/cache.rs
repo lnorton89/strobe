@@ -197,6 +197,20 @@ impl<T> SceneCache<T> {
         )
     }
 
+    /// Moves what `old` knows about the scenes this cache shares with it:
+    /// compiled scenes stay compiled, failed ones stay failed, and a scene
+    /// that is out being played stays out. Scenes only this cache has are
+    /// left pending. A reloaded playlist uses this to compile only what is
+    /// new (D158).
+    pub fn adopt_from(&mut self, old: &mut Self) {
+        for (scene, slot) in self.scenes.iter().zip(self.slots.iter_mut()) {
+            let Some(old_slot) = old.index.get(scene).and_then(|i| old.slots.get_mut(*i)) else {
+                continue;
+            };
+            *slot = std::mem::replace(old_slot, Slot::Pending);
+        }
+    }
+
     /// Drops every parked value (the context they belong to is gone) and
     /// makes every slot pending again, so the precompile can run anew.
     pub fn reset(&mut self) {
@@ -296,6 +310,22 @@ mod tests {
         c.reset();
         assert_eq!(c.progress().done, 0, "nothing compiled any more");
         assert_eq!(c.next_pending(), Some(0), "starts over");
+    }
+
+    #[test]
+    fn a_reload_keeps_what_is_compiled_and_compiles_only_what_is_new() {
+        let mut old = cache(&["a", "b", "c"]);
+        old.fill(0, Ok(1));
+        old.fill(1, Err("bad".to_string()));
+        old.fill(2, Ok(3));
+        let _lent = old.take(&scene("c"));
+        let mut new = cache(&["c", "a", "b", "d"]);
+        new.adopt_from(&mut old);
+        assert!(new.is_parked(&scene("a")), "a is still compiled");
+        assert_eq!(new.failure(&scene("b")), Some("bad"), "b is still failed");
+        assert_eq!(new.take(&scene("c")), None, "c is still out being played");
+        let pending = new.next_pending().and_then(|i| new.scene(i).cloned());
+        assert_eq!(pending, Some(scene("d")), "only d is left to compile");
     }
 
     #[test]
