@@ -121,11 +121,17 @@ threads only ever hand values *to* it.
      b. audio frame at that time: live snapshot (one atomic load + copy) or
         the synthetic track                                       (app::audio)
      c. script, if the scene has one: events, then update(dt), then control
-        writes and uniforms harvested                             (strobe-script)
-     d. ControlBank::tick(dt)                                     (strobe-scene)
+        writes (scene and meta/ banks) and uniforms harvested; the script
+        reads textureFinalPass from the readback of two frames ago
+                                                                  (strobe-script)
+     d. ControlBank::tick(dt), for the scene's bank and the meta bank (strobe-scene)
      e. ScenePlayer::upload_audio: spectrum and level-trail texels
      f. ScenePlayer::set_script_uniforms is called with step c's values
-     g. ScenePlayer::render(&FrameInputs): every pass
+     g. ScenePlayer::render(&FrameInputs): every pass, then, only for a
+        script that names textureFinalPass, the final-pass readback: a
+        chain of <=2:1 blits down to 64x36, glReadPixels into the next of 3
+        pixel-pack buffers, a fence behind it, and the oldest buffer mapped
+        only if its fence has already signalled        (strobe-gfx::readback)
 5. ScenePlayer::present: letterboxed blit to the output window (shown only)
 6. GpuTimer::end, then poll: results of earlier frames that are ready (never
    waited for) go to AdaptiveScale; a new scale triggers a resize next frame
@@ -277,7 +283,10 @@ records (`failures.rs`), so the log, the console and a crash report agree.
   the app and are applied through the capture's atomics.
 - **Scripts** (`script.rs`, `session.rs`): one `ScriptHost` per scene. Its
   first frame runs at load so the uniforms it creates are compiled into the
-  shaders (`ScenePlayer::with_extras`); see D62.
+  shaders (`ScenePlayer::with_extras`), after which the uniforms are sealed:
+  a later new name is refused and nothing compiles mid-show (D62, D161).
+  Writes to `meta/` controls go to the session's meta bank
+  (`strobe_scene::meta`, D160), which nothing renders from yet.
 - **Performance** (`perf.rs`): GPU time from a four-slot ring of timer
   queries feeds `AdaptiveScale`; budget is one refresh period of the output
   monitor; the render-scale slider is the ceiling; nothing changes in the
@@ -299,6 +308,12 @@ records (`failures.rs`), so the log, the console and a crash report agree.
   and level-trail texels into staging buffers kept between frames and
   uploads only a texture some pass samples (1D on desktop, one-texel-high 2D
   on GLES).
+- **Final-pass readback.** `enable_final_pass_readback` builds a
+  `readback::FinalPassReader`: the downsample chain and a ring of three
+  pixel-pack buffers, each with a fence. `render` ends with `capture`: blit
+  down, start a read, poll the oldest slot with a zero-timeout wait and
+  copy it out only if signalled. `final_pass_pixels` is the frame two
+  renders ago (D162). No `glGet*`, no allocation, no wait.
 - **Script uniforms.** `with_extras` declares the script's uniforms in every
   program and resolves their locations at link time; `set_script_uniforms`
   copies this frame's values into a reused buffer.

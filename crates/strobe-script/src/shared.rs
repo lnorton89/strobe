@@ -27,7 +27,7 @@
 //! write still lands in the frame that made it.
 
 use crate::events::{Handler, Source};
-use crate::output::{ConsoleLevel, ConsoleLine, MetaWrite};
+use crate::output::{ConsoleLevel, ConsoleLine};
 use crate::uniforms::UniformStore;
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
@@ -45,12 +45,23 @@ const MAX_CONSOLE_LINES: usize = 200;
 /// so a script generating unique error text cannot grow the set forever.
 const MAX_REMEMBERED_MESSAGES: usize = 256;
 
-/// A control write waiting to be applied to the bank.
+/// Which bank a queued write is for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Target {
+    /// The scene's own controls.
+    Scene,
+    /// The meta controls (`meta/…`, or `bank: "meta"`).
+    Meta,
+}
+
+/// A control write waiting to be applied to a bank.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Command {
     /// `setControl` / `setControlNormalized`.
     Set {
-        /// The control's index in the bank.
+        /// The bank written to.
+        target: Target,
+        /// The control's index in that bank.
         index: usize,
         /// The `dimension` option.
         dimension: Option<usize>,
@@ -62,9 +73,9 @@ pub(crate) enum Command {
         normalized: bool,
     },
     /// `randomizeControl`, or one member of `randomizeGroup`.
-    Randomize(usize),
+    Randomize(Target, usize),
     /// `defaultControl`, or one member of `defaultGroup`.
-    Default(usize),
+    Default(Target, usize),
 }
 
 /// The name tables, built once from the bank and never changed.
@@ -77,13 +88,17 @@ pub(crate) struct Names {
     pub(crate) control_exact: HashSet<String>,
     /// Normalised `UI_GROUP` to the bank indices in it.
     pub(crate) groups: HashMap<String, Vec<usize>>,
+    /// Normalised meta control name to its index in the meta bank.
+    pub(crate) meta_controls: HashMap<String, usize>,
+    /// Normalised meta group to the meta bank indices in it.
+    pub(crate) meta_groups: HashMap<String, Vec<usize>>,
     /// Normalised input name to what an event handler would watch.
     pub(crate) sources: HashMap<String, Source>,
 }
 
 impl Names {
-    /// Builds the tables for `bank`.
-    pub(crate) fn build(bank: &ControlBank) -> Self {
+    /// Builds the tables for `bank` and the `meta` bank.
+    pub(crate) fn build(bank: &ControlBank, meta: &ControlBank) -> Self {
         let mut controls = HashMap::new();
         let mut control_exact = HashSet::new();
         let mut groups: HashMap<String, Vec<usize>> = HashMap::new();
@@ -102,10 +117,20 @@ impl Names {
                 groups.entry(normalize(group)).or_default().push(index);
             }
         }
+        let mut meta_controls = HashMap::new();
+        let mut meta_groups: HashMap<String, Vec<usize>> = HashMap::new();
+        for (index, def) in meta.defs().iter().enumerate() {
+            meta_controls.insert(normalize(&def.name), index);
+            if let Some(group) = &def.group {
+                meta_groups.entry(normalize(group)).or_default().push(index);
+            }
+        }
         Self {
             controls,
             control_exact,
             groups,
+            meta_controls,
+            meta_groups,
             sources,
         }
     }
@@ -120,8 +145,6 @@ pub(crate) struct State {
     pub(crate) console: Vec<ConsoleLine>,
     /// Control writes not yet applied.
     pub(crate) commands: Vec<Command>,
-    /// Meta-control writes not yet returned.
-    pub(crate) meta: Vec<MetaWrite>,
     /// Registered event handlers, in registration order.
     pub(crate) handlers: Vec<Handler>,
     /// Messages already logged once.
@@ -139,7 +162,6 @@ impl State {
             uniforms: UniformStore::default(),
             console: Vec::new(),
             commands: Vec::new(),
-            meta: Vec::new(),
             handlers: Vec::new(),
             once: HashSet::new(),
             final_pass: Vec::new(),
@@ -197,10 +219,15 @@ pub(crate) struct Shared {
 }
 
 impl Shared {
-    /// Shared state for a script driving `bank`.
-    pub(crate) fn new(bank: &ControlBank, seed: u64, deadline: Rc<Cell<Option<Instant>>>) -> Self {
+    /// Shared state for a script driving `bank` and the `meta` bank.
+    pub(crate) fn new(
+        bank: &ControlBank,
+        meta: &ControlBank,
+        seed: u64,
+        deadline: Rc<Cell<Option<Instant>>>,
+    ) -> Self {
         Self {
-            names: Names::build(bank),
+            names: Names::build(bank, meta),
             state: RefCell::new(State::new(seed)),
             deadline,
         }
