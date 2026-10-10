@@ -149,10 +149,17 @@ they apply, and explicit supported, degraded or unsupported claims.
   fixture path typed into the Import panel imported and loaded a four-buffer
   scene, a second import showed Replace / Cancel and Replace swapped it, and
   an id with no key showed the "no Shadertoy API key" failure.
-- [ ] Shadertoy against the live site. Not verified: the REST call, texture
-  downloads, and the userscript's route to the page's JSON (Q19). *Accept:*
-  one real import by id and one from the button, each recorded in
-  [hardware/T480.md](hardware/T480.md).
+- [x] The import listener on Windows (T480, Task 11). It binds loopback
+  only; the responses are 200, then 409 for a re-import, and 401 for a bad
+  token; the imported scene loads.
+- [ ] Shadertoy against the live site. The REST API answered the T480's
+  plain HTTP client with a Cloudflare 403 (Q19), so the browser userscript
+  is the route to prove. *Accept:* one real import from the button in the
+  owner's browser, and one by id if the API can be reached at all, each
+  recorded in [hardware/T480.md](hardware/T480.md).
+- [ ] Auto-generated controls on Windows. Scoring needs a GL context, and
+  it only knows the headless EGL one, which Intel lacks. It needs the
+  bench's window-context fallback (D70).
 - [ ] A real file drop (X11 and Windows). The typed path runs the same job.
 - [ ] Thumbnails, conversion diagnostics beyond the warnings list, and the
   Needs-work bin.
