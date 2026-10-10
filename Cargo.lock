@@ -2776,6 +2776,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "strobe-autocontrol"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "image",
+ "log",
+ "serde",
+ "serde_json",
+ "strobe-gfx",
+ "strobe-scene",
+ "strobe-shadertoy",
+ "strobe-ssf-lib",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "strobe-bench"
 version = "0.1.0"
 dependencies = [
