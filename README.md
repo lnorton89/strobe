@@ -13,8 +13,8 @@ builds long shows from playlists that take minutes to author instead of
 an afternoon of per-item data entry.
 
 > **Status: early development.** The scene model, the SSF function
-> library and the renderer work, and are tested headless against real
-> GLSL compilers in both dialects. There's no window yet. See the
+> library, the renderer and a first performer-facing window work, and are
+> tested headless against real GLSL compilers in both dialects. See the
 > [roadmap](#roadmap) and [`docs/ROADMAP.md`](docs/ROADMAP.md) for live
 > status.
 
@@ -92,6 +92,18 @@ The renderer above the context is identical in both cases.
 | GL 4.3+ core | Compiled as-is (`ARB_ES3_compatibility`) | `#version 330 core` |
 | GL 3.3–4.2 core, macOS 4.1 | Header rewritten to desktop GLSL | `#version 330 core` / `410 core` |
 | GLES 3.0 (ANGLE) | Compiled as-is | Translated to GLSL ES 3.00 |
+
+---
+
+## The control window
+
+![The Perform window at 1440x900](docs/images/app-control.png)
+
+*Contextual Perform: the live preview, the transport and macros underneath,
+and the scene browser and controls as panes that open beside it. Captured
+under Xvfb with `--screenshot`; more states are in
+[`docs/images/perform/`](docs/images/perform/) and the design is in
+[`docs/UI_DESIGN.md`](docs/UI_DESIGN.md).*
 
 ---
 

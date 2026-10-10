@@ -1,0 +1,148 @@
+# The theme catalog (ported from rustaman, D5; see D130).
+#
+# This file is compiled into the binary with `include_str!`, and any
+# `*.toml` file with the same shape dropped into `<data dir>/themes/` (beside
+# the logs) is loaded on top of it at startup, so a theme can be added, or a
+# shipped one tweaked, without rebuilding. A user theme whose `id` matches a
+# built-in one replaces it.
+#
+# A theme states thirteen colours and everything else is derived from them in
+# `Palette::derive` (the selection fill, the muted accent, the scrollbar
+# handle, the grid line, the text colour that goes on the accent, the series
+# ramp). Adding a derived colour means editing one function, not every entry
+# here.
+#
+# The four surface layers are named for depth, not for use: `app` is behind
+# everything, `panel` sits on it, `raised` on that, and `hover` is the
+# interactive lift above `raised`. In a dark theme that ramp gets lighter as
+# it comes forward; in a light theme it goes the other way, which is why
+# `mode` is stated rather than guessed.
+#
+# `rainbow_span` is how many degrees of hue the series ramp covers, centred on
+# the accent. Strobe indexes scene identity colours into it.
+#
+# Every theme is checked by `every_theme_is_readable` and the tests beside it:
+# adjacent layers must be tellable apart, primary text must clear WCAG AAA
+# (7:1) and secondary text AA (4.5:1) against every surface either can land
+# on, the accent and status colours must be visible against the panel, and
+# the derived scrollbar handle must not vanish into any surface. A theme that
+# fails is a failing build.
+#
+# `id` is persisted in the preferences file. Never rename one. The first entry
+# is the default theme.
+
+# The default (UI_DESIGN section 18): a very dark blue-black, a restrained
+# amber accent, pale primary text and blue-grey secondary text. Amber marks
+# what is live or selected; red is for failures.
+[[theme]]
+id = "strobe"
+name = "Strobe"
+mode = "dark"
+app = "#090b0f"
+panel = "#10141a"
+raised = "#171c24"
+hover = "#212733"
+border = "#2b323d"
+accent = "#f0b030"
+text = "#e8ebef"
+text_muted = "#98a3b4"
+danger = "#ff6b7c"
+warning = "#ff9a47"
+success = "#5fd08a"
+info = "#6cc4f0"
+rainbow_span = 260
+
+# Neutral greys, no colour cast in the chrome at all.
+[[theme]]
+id = "graphite"
+name = "Graphite"
+mode = "dark"
+app = "#131313"
+panel = "#1a1a1a"
+raised = "#242424"
+hover = "#2f2f2f"
+border = "#3d3d3d"
+accent = "#62b6f5"
+text = "#e6e6e6"
+text_muted = "#a3a3a3"
+danger = "#f2606f"
+warning = "#e0a53f"
+success = "#5ec46f"
+rainbow_span = 250
+
+# A deep blue-black with a cyan accent.
+[[theme]]
+id = "midnight"
+name = "Midnight"
+mode = "dark"
+app = "#0a0c11"
+panel = "#11141c"
+raised = "#1a1e28"
+hover = "#242936"
+border = "#333a4a"
+accent = "#4cc9f0"
+text = "#e9edf5"
+text_muted = "#98a3b8"
+danger = "#ff5c7a"
+warning = "#ffb347"
+success = "#4ade80"
+rainbow_span = 280
+
+# Pure black background for OLED panels and dark rooms, where a black pixel
+# is an unlit pixel. The layers above it still have to separate.
+[[theme]]
+id = "void"
+name = "Void"
+mode = "dark"
+app = "#000000"
+panel = "#0c0c0e"
+raised = "#17171b"
+hover = "#232329"
+border = "#34343d"
+accent = "#f0b030"
+text = "#ededf2"
+text_muted = "#9898a1"
+danger = "#ff5f70"
+warning = "#ff9a47"
+success = "#4fd67f"
+rainbow_span = 260
+
+# High contrast (UI_DESIGN section 27). It changes the surface and text
+# relationships rather than just raising saturation: white text on true
+# black, a strong yellow accent, and a bright border so every pane edge is
+# visible without relying on a tint.
+[[theme]]
+id = "high-contrast"
+name = "High contrast"
+mode = "dark"
+app = "#000000"
+panel = "#0d0d0d"
+raised = "#1c1c1c"
+hover = "#2e2e2e"
+border = "#9a9a9a"
+accent = "#ffd400"
+text = "#ffffff"
+text_muted = "#d4d4d4"
+danger = "#ff7b7b"
+warning = "#ffb000"
+success = "#55ff95"
+info = "#6fd8ff"
+rainbow_span = 300
+
+# A light theme, for a bright room or a daylight demo.
+[[theme]]
+id = "daylight"
+name = "Daylight"
+mode = "light"
+app = "#eef1f6"
+panel = "#f7f9fc"
+raised = "#eaeef5"
+hover = "#dde3ee"
+border = "#c3ccdb"
+accent = "#0b63ad"
+text = "#12161d"
+text_muted = "#525c6b"
+danger = "#b3213a"
+warning = "#8a5a06"
+success = "#1a6b3c"
+rainbow_span = 250

@@ -6,7 +6,7 @@ in [DECISIONS.md](DECISIONS.md), the evidence-based gap list in
 [STATUS_AUDIT.md](STATUS_AUDIT.md), and real-hardware results in
 [hardware/T480.md](hardware/T480.md).
 
-_Last updated: 2026-10-10._
+_Last updated: 2026-10-10 (Perform UI stage 1)._
 
 ## Now
 
@@ -23,7 +23,7 @@ which backend proved a claim.
 | `strobe-scene`, `strobe-ssf-lib` | SSF parsing and validation, controls runtime, shader assembly, `PASS_SOURCES` (D90), the SSF GLSL library | Headless GL 3.3 core and GLES 3.0 (llvmpipe) |
 | `strobe-gfx` | Native GL and ANGLE context providers, headless EGL, multipass and ping-pong, implicit final pass, images, GPU timer queries, robust contexts and reset status (D66) | llvmpipe; T480 native and ANGLE |
 | `strobe-bench` | Timings, frames, contact sheet; headless, window and auto contexts (D70-D72) | llvmpipe; T480 ([BENCHMARKS.md](BENCHMARKS.md)) |
-| `strobe-app` | Control window (maximized) and output window on one context; the output starts hidden and the scene frame runs on its own schedule (D96); scene browser, controls, preview, console, `--diagnose`, adaptive resolution (D64), context-loss recovery with ANGLE fail-over (D66) | Xvfb; T480: smoke tests, recovery on real WGL (Task 8), hidden output, F11 and the close button (Task 9) |
+| `strobe-app` | Control window (maximized) and output window on one context; the output starts hidden and the scene frame runs on its own schedule (D96); **Contextual Perform stage 1** (D130-D138): rail, custom title bar with health readouts, preview, transport (prev, next, blackout; hold shown as not wired), first-controls macros, and contextual panes for the scene browser (search, health filter, Preview apart from Load), inspector, diagnostics, import and settings, with saved layout, a focus-aware keyboard model and themes; `--diagnose`, adaptive resolution (D64), context-loss recovery with ANGLE fail-over (D66) | Xvfb (screenshots at 1280x720 and 1440x900 for every state, xdotool for keys); T480: smoke tests, recovery on real WGL (Task 8), hidden output, F11 and the close button (Task 9). The new UI has not run on the T480 or on real Windows |
 | `strobe-audio` | Capture with retry and synthetic fallback, analysis, spectrum and level-trail textures, tap tempo (D20-D23, D61) | T480 live mic at 48 kHz |
 | `strobe-script` | QuickJS host: events, `update`, controls, `setUniform` compiled in at load, budget and faults (D62) | Xvfb; T480 (`11-script-orbits`) |
 | `strobe-diag` | Session logs, structured failures, panic reports, out-of-process minidumps, GL debug output (D40-D45) | Linux; T480 (`overflow` gives a `.dmp`, bug 2) |
@@ -34,9 +34,8 @@ which backend proved a claim.
 
 ### In flight
 
-- **Perform UI rebuild** as Contextual Perform (D120), porting rustaman's
-  UI system (D5). Its panes will also hold the review panel for generated
-  controls and the Playlist workspace.
+- **Perform UI stage 2** (see item 2): the panes built in stage 1 will also
+  hold the review panel for generated controls and the Playlist workspace.
 
 ## Next, in priority order
 
@@ -47,14 +46,25 @@ Each item names its acceptance test. Details and evidence are in
    scale, an audio device removed and reconnected, a 30-minute soak with
    scene switches. *Accept:* each result
    recorded in [hardware/T480.md](hardware/T480.md), failures included.
-2. **Perform-first UI.** Choose the topology from
-   [mockups/strobe-perform-directions.html](mockups/strobe-perform-directions.html),
-   then build it per [UI_DESIGN.md](UI_DESIGN.md) and
-   [UI_IMPLEMENTATION_PLAN.md](UI_IMPLEMENTATION_PLAN.md), porting
-   rustaman's UI system (D5). Runtime state stays out of egui memory, and
-   widgets emit typed actions. *Accept:* screenshots at 1280x720 and
-   1440x900 of the empty, loading, failure, missing-audio and script-fault
-   states.
+2. **Perform-first UI.** *Stage 1 built* (D130-D138, rustaman's UI system
+   ported, D5): Contextual Perform with the shell, the panes above,
+   persistence, the keyboard model and every state in the audit
+   (screenshots in [images/perform/](images/perform/)). *Left (stage 2):*
+   - a curated, persistent Performance Macro set with target resolution
+     and the unavailable, broken, learning and conflict states (D137);
+   - the Playlist workspace (LIST) with real cues, NEXT and remaining
+     time, and Hold wired to it; the Editor (EDIT) and Mappings (MAP)
+     workspaces; MIDI/OSC Learn;
+   - the generated-controls review panel (item 4) and "open the shader
+     error in the Editor";
+   - a command palette (Ctrl+K) over the command table, saved named
+     layouts, density, scene thumbnails and favourites;
+   - on the T480 and real Windows: the custom title bar's drag, snap and
+     resize and DPI behaviour, a maximised undecorated window against the
+     taskbar, the UI's frame cost, and a Preview's cost (D132, D136).
+
+   *Accept (stage 1, met on Xvfb):* screenshots at 1280x720 and 1440x900 of
+   the empty, loading, failure, missing-audio and script-fault states.
 3. **Shadertoy import, stage 2.** Built: the REST client (path B), the
    localhost listener and the "Send to Strobe" userscript (path A), the
    asset downloader and cache, the app's Import panel and file drop (path
@@ -179,7 +189,7 @@ never per frame.
 | Phase | Scope | State |
 |---|---|---|
 | 0 | Workspace, conventions, CI, GL contexts | Done. A tagged release has not been run. |
-| 1 | Renderer, SSF, controls, output window | A functional engineering shell. The Perform-first UI is not built. Images work; media and cubemaps are placeholders. |
+| 1 | Renderer, SSF, controls, output window | Done, with the Perform-first UI at stage 1 (D130-D138). Images work; media and cubemaps are placeholders. |
 | 2 | JavaScript API | Integrated (D62). `meta/` writes and `textureFinalPass` are open. |
 | 3 | Audio | Integrated (D61). The bench still uses the synthetic stand-in. |
 | 4 | Shadertoy import | The converter (D90-D95), acquisition (REST client, texture downloader, localhost listener), the Import panel, file drop and the userscript (D110-D117) are built, and stage 1 of auto-generated controls (D123-D126). Open: live-site verification (Q19), thumbnails, the Needs-work bin, batch import, and the app's review panel for generated controls. |
@@ -189,7 +199,7 @@ never per frame.
 
 ## Known gaps in what exists
 
-- The app is an engineering shell, not the performer-facing UI.
+- The performer-facing UI is at stage 1: Hold, the Playlist, Editor and Mappings workspaces, persistent macros and thumbnails are not built, and none of it has run on the T480.
 - Context-loss recovery is verified under Xvfb with injected faults;
   real-driver behaviour on the T480 is pending (bug 1, D66).
 - The bench's `syn_Spectrum` and `syn_LevelTrail` are silent placeholders,

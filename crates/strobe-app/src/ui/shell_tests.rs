@@ -1,0 +1,418 @@
+// ============================================================================
+// Module:       strobe_app::ui::shell_tests
+// Description:  The whole shell drawn headless at the sizes the plan names and
+//               in every state the audit lists. Test code only.
+//
+// Dependencies: egui (headless context); super::{shell, model, state},
+//               crate::{library, console, stats, script}
+// ============================================================================
+
+//! The shell, end to end, with no GPU.
+//!
+//! egui lays out and tessellates without a window, so the states STATUS_AUDIT
+//! P1 lists (empty and loading, failure, missing audio, script fault, output
+//! hidden, a narrow window) are drawn here at 1920x1080, 1440x900, 1366x768,
+//! 1280x720, 900x600 and 640x480, and each must fit its window: the root
+//! UI's used rectangle may not exceed the screen. That is the "no horizontal
+//! scrolling" acceptance criterion (UI_IMPLEMENTATION_PLAN section 23) as an
+//! assertion rather than a screenshot. The screenshots in
+//! `docs/images/perform/` are the other half: they show it looks right.
+
+use super::shell::{ShellState, show};
+use super::{
+    Action, AudioPanel, FailurePanel, ImportPanel, ListenerPanel, Model, NoticePanel, PerfPanel,
+    Preview, ScenePreview, TransportPanel, UiState,
+};
+use crate::console::Console;
+use crate::import::Status;
+use crate::library::{Entry, Health, Library};
+use crate::script::ScriptState;
+use crate::stats::FrameStats;
+use crate::ui::widgets::Tone;
+use crate::workspace::Pane;
+use anyhow::Result;
+use egui::{Rect, Vec2};
+use std::path::PathBuf;
+use strobe_audio::capture::DeviceChoice;
+use strobe_scene::control::ControlBank;
+use strobe_scene::scene::SceneDef;
+
+/// The sizes UI_DESIGN section 22 and the plan name, plus two small ones.
+const SIZES: [(f32, f32); 6] = [
+    (1920.0, 1080.0),
+    (1440.0, 900.0),
+    (1366.0, 768.0),
+    (1280.0, 720.0),
+    (900.0, 600.0),
+    (640.0, 480.0),
+];
+
+/// One state of the app to draw.
+#[derive(Clone, Copy, Debug)]
+struct Scenario {
+    name: &'static str,
+    scenes: usize,
+    playing: bool,
+    failed: bool,
+    blackout: bool,
+    output_visible: bool,
+    audio_live: bool,
+    audio_capture: bool,
+    script: Option<&'static str>,
+    loading: bool,
+    notice: bool,
+    previewing: bool,
+    replace: bool,
+    panes: &'static [Pane],
+}
+
+const BASE: Scenario = Scenario {
+    name: "playing",
+    scenes: 6,
+    playing: true,
+    failed: false,
+    blackout: false,
+    output_visible: true,
+    audio_live: true,
+    audio_capture: true,
+    script: None,
+    loading: false,
+    notice: false,
+    previewing: false,
+    replace: false,
+    panes: &[Pane::Inspector],
+};
+
+fn scenarios() -> Vec<Scenario> {
+    vec![
+        BASE,
+        Scenario {
+            name: "empty library",
+            scenes: 0,
+            playing: false,
+            panes: &[Pane::Browser, Pane::Inspector],
+            ..BASE
+        },
+        Scenario {
+            name: "no scene yet",
+            playing: false,
+            ..BASE
+        },
+        Scenario {
+            name: "loading",
+            loading: true,
+            ..BASE
+        },
+        Scenario {
+            name: "scene failure",
+            failed: true,
+            panes: &[Pane::Browser],
+            ..BASE
+        },
+        Scenario {
+            name: "missing audio",
+            audio_live: false,
+            audio_capture: true,
+            ..BASE
+        },
+        Scenario {
+            name: "synthetic audio",
+            audio_live: false,
+            audio_capture: false,
+            ..BASE
+        },
+        Scenario {
+            name: "script fault",
+            script: Some("fault"),
+            ..BASE
+        },
+        Scenario {
+            name: "script disabled",
+            script: Some("disabled"),
+            ..BASE
+        },
+        Scenario {
+            name: "blackout",
+            blackout: true,
+            ..BASE
+        },
+        Scenario {
+            name: "output hidden",
+            output_visible: false,
+            ..BASE
+        },
+        Scenario {
+            name: "notice",
+            notice: true,
+            ..BASE
+        },
+        Scenario {
+            name: "browser with a preview",
+            previewing: true,
+            panes: &[Pane::Browser, Pane::Inspector],
+            ..BASE
+        },
+        Scenario {
+            name: "replace question",
+            replace: true,
+            panes: &[Pane::Import],
+            ..BASE
+        },
+        Scenario {
+            name: "diagnostics",
+            panes: &[Pane::Diagnostics],
+            ..BASE
+        },
+        Scenario {
+            name: "settings",
+            panes: &[Pane::Settings],
+            ..BASE
+        },
+        Scenario {
+            name: "import",
+            panes: &[Pane::Import, Pane::Inspector],
+            ..BASE
+        },
+        Scenario {
+            name: "no panes",
+            panes: &[],
+            ..BASE
+        },
+        Scenario {
+            name: "every pane",
+            panes: &[
+                Pane::Browser,
+                Pane::Import,
+                Pane::Inspector,
+                Pane::Diagnostics,
+                Pane::Settings,
+            ],
+            ..BASE
+        },
+    ]
+}
+
+/// A scene with one control of every kind, in two groups.
+fn controls() -> Result<ControlBank> {
+    let json = r#"{ "CONTROLS": [
+        { "NAME": "speed", "TYPE": "slider", "MIN": 0.0, "MAX": 2.0, "DEFAULT": 0.7, "UI_GROUP": "Motion" },
+        { "NAME": "warp", "TYPE": "knob", "UI_GROUP": "Motion" },
+        { "NAME": "invert", "TYPE": "toggle", "UI_GROUP": "Colour" },
+        { "NAME": "flash", "TYPE": "bang", "UI_GROUP": "Colour" },
+        { "NAME": "centre", "TYPE": "xy" },
+        { "NAME": "tint", "TYPE": "color" },
+        { "NAME": "mode", "TYPE": "dropdown", "LABELS": ["a", "b"], "VALUES": [0, 1] }
+    ] }"#;
+    Ok(ControlBank::new(SceneDef::parse(json, "t")?.controls)?)
+}
+
+/// What a drawn scenario leaves behind.
+struct Drawn {
+    ctx: egui::Context,
+    actions: Vec<Action>,
+    shapes: Vec<egui::epaint::ClippedShape>,
+}
+
+/// Draws `scenario` at `size` for `frames` frames.
+fn draw(scenario: Scenario, size: (f32, f32), frames: usize) -> Result<Drawn> {
+    let ctx = egui::Context::default();
+    crate::ui::theme::apply(&ctx, crate::palette::fallback());
+    let library = Library {
+        dir: PathBuf::from("scenes"),
+        entries: (0..scenario.scenes)
+            .map(|i| Entry::new(format!("{:02}-scene-{i}", i + 1), PathBuf::from("x")))
+            .collect(),
+    };
+    let health: Vec<Health> = (0..scenario.scenes)
+        .map(|i| {
+            if scenario.failed && i == 1 {
+                Health::Failed("main.glsl:42: unknown identifier `foo`".to_string())
+            } else if i == 0 {
+                Health::Ready
+            } else {
+                Health::Unknown
+            }
+        })
+        .collect();
+    let mut bank = controls()?;
+    let console = Console::default();
+    let stats = FrameStats::default();
+    let mut ui_state = UiState::ephemeral();
+    ui_state.panes.close_all();
+    for pane in scenario.panes {
+        ui_state.panes.open(*pane);
+    }
+    let mut scale = 1.0_f32;
+    let mut reactivity = 1.0_f32;
+    let mut speed = 1.0_f32;
+    let mut import_text = String::new();
+    let choice = DeviceChoice::DefaultInput;
+    let script = scenario.script.map(|kind| {
+        if kind == "fault" {
+            ScriptState::Faulted {
+                consecutive: 2,
+                message: "ReferenceError: nope is not defined (script.js:12)".to_string(),
+            }
+        } else {
+            ScriptState::Disabled {
+                message: "three faults in a row".to_string(),
+            }
+        }
+    });
+    let image = Preview {
+        texture: egui::TextureId::default(),
+        aspect: 16.0 / 9.0,
+        size: [1280, 720],
+    };
+    let status = Status::Idle;
+    let monitors = vec!["1: Display (1920x1080)".to_string()];
+    let mut shell_state = ShellState::default();
+    let mut actions = Vec::new();
+    let mut shapes = Vec::new();
+    let screen = Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(size.0, size.1));
+    for _ in 0..frames {
+        actions.clear();
+        let mut model = Model {
+            ui: &mut ui_state,
+            library: &library,
+            health: &health,
+            library_rev: 1,
+            scan_error: None,
+            playing: scenario.playing.then_some(0),
+            scene_title: if scenario.playing { "Aurora Field" } else { "" },
+            controls: scenario.playing.then_some(&mut bank),
+            preview: scenario.playing.then_some(image),
+            scene_preview: scenario.previewing.then_some(ScenePreview {
+                index: 2,
+                name: "03-scene-2",
+                image,
+            }),
+            loading: scenario.loading.then_some("02-scene-1"),
+            failure: scenario.failed.then_some(FailurePanel {
+                scene: "02-scene-1",
+                summary: "main.glsl:42: unknown identifier `foo`",
+                kept: scenario.playing.then_some("01-scene-0"),
+            }),
+            notice: scenario.notice.then_some(NoticePanel {
+                tone: Tone::Info,
+                text: "The graphics context was lost and rebuilt on ANGLE in 181 ms.",
+            }),
+            transport: TransportPanel {
+                now: scenario.playing.then_some("01-scene-0"),
+                next: (scenario.scenes > 1).then_some("02-scene-1"),
+                scene_time: 41.0,
+                blackout: scenario.blackout,
+                can_step: scenario.scenes > 1,
+            },
+            console: &console,
+            stats: &stats,
+            render_scale: &mut scale,
+            monitors: &monitors,
+            output_monitor: Some(0),
+            output_visible: scenario.output_visible,
+            fullscreen: false,
+            maximized: false,
+            gl_summary: "native | llvmpipe | 4.5 Mesa",
+            audio: AudioPanel {
+                source: if scenario.audio_live {
+                    "live: Default input"
+                } else {
+                    "synthetic (no input device)"
+                },
+                live: scenario.audio_live,
+                can_capture: scenario.audio_capture,
+                devices: &[],
+                choice: &choice,
+                reactivity: &mut reactivity,
+                speed: &mut speed,
+                bpm: 128.0,
+            },
+            script: script.as_ref(),
+            perf: PerfPanel {
+                adaptive: true,
+                has_timer: true,
+                gpu_ms: Some(2.1),
+                budget_ms: 16.7,
+                scale: 0.85,
+            },
+            import: ImportPanel {
+                text: &mut import_text,
+                status: &status,
+                replace_title: scenario.replace.then_some("fractal-tunnel"),
+                busy: false,
+                drop_hover: false,
+                listener: ListenerPanel {
+                    enabled: false,
+                    state: "Off",
+                    failed: false,
+                    token: None,
+                },
+            },
+        };
+        let pass = crate::ui::testing::run(
+            &ctx,
+            crate::ui::testing::input(screen.size(), Vec::new()),
+            |ui| show(ui, &mut shell_state, &mut model, &mut actions),
+        );
+        shapes = pass.shapes;
+    }
+    Ok(Drawn {
+        ctx,
+        actions,
+        shapes,
+    })
+}
+
+#[test]
+fn every_state_draws_at_every_size_without_overflowing_the_window() -> Result<()> {
+    for scenario in scenarios() {
+        for size in SIZES {
+            // Several frames: egui lays some things out over two passes.
+            let drawn = draw(scenario, size, 3)?;
+            assert!(
+                !drawn.shapes.is_empty(),
+                "{} at {size:?} drew nothing",
+                scenario.name
+            );
+            let used = drawn.ctx.globally_used_rect();
+            assert!(
+                used.max.x <= size.0 + 0.5 && used.max.y <= size.1 + 0.5,
+                "{} at {size:?} wants {used:?}: it overflows the window",
+                scenario.name
+            );
+            for clipped in &drawn.shapes {
+                // An empty text (an unfilled search field) has no ink, and
+                // egui reports its bounds as an inverted infinite box.
+                if let egui::Shape::Text(text) = &clipped.shape
+                    && text.galley.rows.iter().all(|row| row.glyphs.is_empty())
+                {
+                    continue;
+                }
+                let bounds = clipped.shape.visual_bounding_rect();
+                let nan = [bounds.min.x, bounds.min.y, bounds.max.x, bounds.max.y]
+                    .iter()
+                    .any(|v| v.is_nan());
+                assert!(
+                    !nan,
+                    "{} at {size:?} painted a NaN shape: {:?}",
+                    scenario.name, clipped.shape
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn an_idle_frame_asks_for_no_actions() -> Result<()> {
+    for scenario in scenarios() {
+        let drawn = draw(scenario, (1440.0, 900.0), 3)?;
+        assert!(
+            drawn.actions.is_empty(),
+            "{} produced actions with nobody touching it: {:?}",
+            scenario.name,
+            drawn.actions
+        );
+    }
+    Ok(())
+}

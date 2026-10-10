@@ -178,3 +178,17 @@ terminal needs no override (T480 bug 2). Then, per run: confirm the notifier mes
 the `.txt` names the GL renderer and the scene, and the session log's last
 lines are present. Report the paths of the files, not their contents, and
 attach the `--diagnose` report.
+
+## The UI's saved state and screenshots
+
+The control window's layout is `ui.toml` in the data directory (beside the
+logs; `STROBE_DIAG_DIR` moves it). A malformed file is ignored with a warning
+in the log, so deleting it is always safe. Custom themes go in
+`<data dir>/themes/*.toml` (the format is in `crates/strobe-app/assets/themes.toml`).
+`STROBE_REDUCED_MOTION=1` forces reduced motion on.
+
+To see what the UI looks like without a screen, use
+`strobe --window-size 1280x720 --open-pane browser --screenshot out/shot`
+under Xvfb (`Xvfb :99 -screen 0 1440x900x24`); the flags are in the
+strobe-app README. To drive keys, `xdotool windowfocus` the window first (there
+is no window manager to focus it) and capture with `import -window root`.
