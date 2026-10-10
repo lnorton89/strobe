@@ -142,7 +142,7 @@ fn cards(ui: &mut Ui, model: &Model<'_>, theme: &Palette) {
             ),
             (
                 "Control UI",
-                format!("{:.2} ms per pass (30 Hz)", model.stats.ui_ms()),
+                format!("{:.2} ms layout per pass (30 Hz)", model.stats.ui_ms()),
             ),
         ],
     );

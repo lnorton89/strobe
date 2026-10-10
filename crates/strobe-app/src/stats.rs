@@ -60,8 +60,8 @@ impl FrameStats {
         }
     }
 
-    /// Records the time one control-window pass took (layout, tessellation
-    /// and paint), so a UI that has become expensive shows up in the
+    /// Records the time one control-window egui pass took (building and
+    /// laying out every widget, not the GL paint), so a UI that has become expensive shows up in the
     /// diagnostics instead of as an unexplained dropped frame.
     pub fn record_ui(&mut self, took: Duration) {
         let ms = took.as_secs_f32() * 1000.0;
@@ -72,7 +72,7 @@ impl FrameStats {
         }
     }
 
-    /// Smoothed milliseconds a control-window pass takes.
+    /// Smoothed milliseconds an egui layout pass takes.
     pub fn ui_ms(&self) -> f32 {
         self.ui_ms
     }

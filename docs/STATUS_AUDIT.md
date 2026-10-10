@@ -84,7 +84,7 @@ Diagnostics are not recovery. The bounded state machine is built (D66):
 
 ## P1: performer-facing UI
 
-The current egui UI is an engineering shell. The research conclusion is
+The egui UI was an engineering shell and is now at stage 1 of Contextual Perform (evidence below). The research conclusion was
 **Contextual Perform**: a persistent preview and output status, transport
 and cues, performance macros and health. The scene browser and inspector
 are contextual surfaces.
@@ -104,6 +104,47 @@ are contextual surfaces.
   - a narrow window.
 - Keep the output visually independent from the control UI. The output
   window starts hidden; the operator shows it.
+
+**Stage 1 (D130-D138) evidence.** Machine: the cloud container, Xvfb,
+Mesa llvmpipe, native GL 3.3 core, a debug build. Screenshots are the app's
+own `--screenshot` (the control window's back buffer), read by eye; the six
+committed ones are in [images/perform/](images/perform/), the rest were
+checked and not committed. Interaction was driven with xdotool.
+
+- [x] Contextual Perform topology at 1280x720, 1440x900 and 1920x1080: rail,
+  preview, title-bar readouts, transport, macros, optional panes
+  (`perform-1440x900.png`, `perform-1280x720.png`).
+- [x] 1280x720: the browser and the inspector do not both open; the preview
+  stays about 880 x 495 with the strip and macros visible
+  (`browser-preview-1280x720.png`).
+- [x] Empty library (`empty-library-1280x720.png`), loading (a real load,
+  "Preparing X..." over the live picture), scene failure with the old scene
+  still playing (`scene-failure-1440x900.png`), a scene that fails at start,
+  missing audio (`No audio input`, warning), synthetic audio, script fault and
+  disabled (in the title bar and the inspector), output hidden, blackout (the
+  output window's capture is black), a context rebuild notice
+  (`STROBE_FAULT=lose-context@20`), a 900x600 window (rail labels and
+  readouts shrink) and a 720x480 window (the pane becomes a drawer).
+- [x] Preview separate from Load: a previewed scene shows in the browser and
+  the live scene, controls and output are unchanged; a failed preview marks the
+  row and shows a banner while the old scene plays.
+- [x] Pane visibility, widths, order and the browser query persist: a
+  splitter drag and a typed query were written to `ui.toml` and restored by a
+  second launch.
+- [x] Keyboard: Right, Left, B, F11, Ctrl+F, Esc; none fires while the search
+  field has focus (typing "kal", then Right, changed nothing).
+- [x] Themes: every built-in theme passes the WCAG tests; the high-contrast
+  and light themes were looked at.
+- [x] Every state at six window sizes fits its window, as headless egui tests
+  (`ui::shell_tests`).
+- [ ] The custom title bar's drag, Aero Snap, resize and DPI behaviour, a
+  maximised undecorated window against the taskbar, and GNOME Wayland: need a
+  window manager (T480 / real Windows; D132).
+- [ ] The UI's frame cost and a Preview's GPU cost on the T480 (the layout
+  pass was about 1 ms in a debug build on llvmpipe; the paint there is
+  software rasterisation and says nothing).
+- [ ] Performance Macros as persistent bindings with the Unresolved states;
+  Hold, Playlist, Editor and Mappings; a command palette (stage 2).
 
 Read [UI_DESIGN.md](UI_DESIGN.md),
 [UI_IMPLEMENTATION_PLAN.md](UI_IMPLEMENTATION_PLAN.md),

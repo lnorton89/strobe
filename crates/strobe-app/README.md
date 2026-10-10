@@ -2,7 +2,8 @@
 
 The desktop app, built as the `strobe` binary (plus a library so its logic is
 testable). It opens two windows that share one GL context: a control window
-(egui: scene browser, controls, audio settings, console, live preview) and a
+(egui, Contextual Perform: rail, live preview, transport and macros, and
+panes for the scene browser, controls, diagnostics, import and settings) and a
 fullscreen-capable output window that shows the scene letterboxed and waits
 for vertical blank. It wires the other crates together: it loads scenes,
 drives the frame loop, runs each scene's `script.js`, feeds live or synthetic
@@ -37,8 +38,10 @@ The binary entry is `src/main.rs`; everything else is in the library.
 | `script`, `mouse` | A scene's `script.js` at run time, and the pointer uniforms. |
 | `perf` | GPU timer ring and adaptive resolution. |
 | `recovery`, `fault` | The context-loss policy (a pure state machine) and `STROBE_FAULT` injection. |
-| `ui` | The control window's panels as a function of a `Model` that returns `Action`s. |
-| `library`, `console`, `stats`, `theme` | The data the UI shows and the look. |
+| `ui` | The control window: a shell, panes and widgets as a function of a `Model` that returns `Action`s (D120, D130-D138). |
+| `workspace`, `prefs`, `commands` | The pane model and how it fits a window, the saved UI preferences (`ui.toml`), and the keyboard command table with its focus rule. Pure. |
+| `color`, `palette`, `motion`, `icon` | The UI system ported from rustaman (D5): colour maths, themes with WCAG tests, durations and reduced motion, geometry icons. No egui. |
+| `library`, `console`, `stats` | The data the UI shows: scenes with health and search, the console, frame timings. |
 | `import` | Shadertoy import: the worker thread that runs the converter, the panel's state, and the listener's handler (D113, D114, D116). |
 | `failures`, `dialog`, `gldebug`, `diagnose`, `screenshot` | Errors, crash dialogs, driver messages, `--diagnose` and `--screenshot`. |
 
@@ -66,11 +69,29 @@ Flags (from the clap `Cli`):
 | `--listen`, `--listen-port <n>` | off, `47811` | Accept shaders from the "Send to Strobe" userscript on 127.0.0.1 (the Import panel's switch does the same; the panel shows the token). |
 | `--no-texture-download` | off | Do not download textures on import; they read black and are listed in `images/pending-assets.json`. |
 | `--diagnose` | off | Print a machine/build/GL/audio report, save it beside the logs, exit. |
+| `--open-pane <list>` | saved layout | Open panes at launch: `browser`, `import`, `inspector`, `diagnostics`, `settings` (comma separated). |
+| `--no-panes` | off | Close every pane first (the bare Perform surface). |
+| `--window-size WxH` | maximized | Open the control window at exactly this size, not maximized (reproducible screenshots; bare Xvfb has no window manager). |
+| `--browser-query <text>` | saved | Put this in the scene browser's search field. |
+| `--preview <scene>` | none | Prepare this scene in the browser's Preview at launch, without making it live. |
+| `--blackout` | off | Start with the output blacked out. |
+| `--request-load <scene>` | none | With `--screenshot`: ask for this load through the UI path on the frame before the control capture, so the capture shows "Preparing". |
+| `--theme <id>` | saved | Use a theme for this run: `strobe`, `graphite`, `midnight`, `void`, `high-contrast`, `daylight`, or a file in `<data dir>/themes/`. |
+| `--system-title-bar` | off | Use the system's title bar for this run (D132); Settings has the saved choice. |
 | `--help`, `--version` | | Standard clap flags. |
 
-Keys, handled in `app.rs`: `F11` toggles fullscreen on the output window,
-`Esc` leaves fullscreen, and `T` taps tempo (ignored while a text field in the
-control window has focus). The control window always opens maximized (D65).
+Keys (D134; the table is `commands.rs`, shown in Settings): Left and Right
+step the scene, `Space` holds (not wired yet: it shows a notice), `B` blacks the
+output out, `F11` toggles fullscreen on the output window, `Ctrl+F` opens the
+scene browser's search, `Esc` closes the topmost pane (and leaves output
+fullscreen), `T` taps tempo. None fires while a text field has focus, and the
+arrows and Space stay with a focused slider. The control window always opens
+maximized (D65) unless `--window-size` is given.
+
+UI preferences (open panes and their widths, the browser's query and filter,
+the theme, reduced motion, the title-bar choice) are saved to `ui.toml` in the
+data directory (D133), debounced and off the UI thread. Screenshot mode never
+reads or writes it.
 
 The app also reads these environment variables (details in
 [`DEBUGGING.md`](../../docs/DEBUGGING.md)): `STROBE_LOG`, `STROBE_LOG_STDERR=1`,
