@@ -90,11 +90,15 @@ a scene, re-run the bench and update `docs/BENCHMARKS.md`.
 
 ## Branches
 
-`master` is the default branch and always passes `cargo xtask ci`. Work
-happens on topic branches (`claude/*` for agent sessions, anything
-descriptive otherwise) and reaches `master` through a pull request whose
-checks pass. Delete a branch once it is merged. Never force-push
-`master`, and never move a release tag (see Releasing).
+`master` is the default branch and always passes `cargo xtask ci`.
+
+- **Outside contributors and dependabot:** work on a topic branch and
+  reach `master` through a pull request whose checks pass.
+- **The owner's agent sessions:** develop on their `claude/*` branch, then
+  fast-forward `master` to it once CI passes there (D121).
+
+Delete a branch once it is merged. Never force-push `master`, and never
+move a release tag (see Releasing).
 
 ## Commit messages
 
