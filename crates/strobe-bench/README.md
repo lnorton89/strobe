@@ -12,7 +12,8 @@ regression check.
 
 - **Depends on:** `strobe-gfx` (contexts and the scene player) and
   `strobe-scene` (loading, controls, the synthetic audio), plus `clap`,
-  `anyhow`, `image` and `winit`.
+  `anyhow` and `image`. The window context is `strobe_gfx::offscreen`, so it
+  needs no `winit` of its own.
 - **Depended on by:** nothing. It is a binary; `cargo xtask bench` wraps it and
   CI runs it.
 - **Does not:** use `strobe-diag`, run scripts, upload real audio textures or
@@ -22,14 +23,13 @@ regression check.
 
 ## Main types / entry points
 
-This is a binary (`src/main.rs`, with `src/window.rs` for the windowed
-context). The pieces worth knowing:
+This is a binary (`src/main.rs`). The pieces worth knowing:
 
 | Item | What |
 |---|---|
 | `Cli` (clap) | The flags below. |
 | `run` | The per-scene loop used by both context modes: load and compile (timed), untimed warm-up, timed frames each followed by `glFinish`, PNG readback. |
-| `window::run` | Opens one hidden winit window through `WindowedContext` and runs the same job from inside the event loop (D70, D71). |
+| `strobe_gfx::offscreen::run` | Picks headless or window (D70-D72) and runs the same job on either: one hidden winit window through `WindowedContext`, inside the event loop. Shared with `strobe-autocontrol` (D140). |
 
 ## Usage
 
@@ -92,7 +92,10 @@ It has no `#[test]` functions, so `cargo test -p strobe-bench` only compiles it.
 
 - **A window context rather than a different GL path** (D70): the bench
   measures the same native (WGL) and ANGLE contexts the show runs on. The
-  window owns a context and nothing else; nothing is ever swapped.
+  window owns a context and nothing else; nothing is ever swapped. The code
+  is `strobe_gfx::offscreen` since D140, shared with `strobe-autocontrol`;
+  the bench's flags and output did not change, and `--context window` writes
+  PNGs byte-identical to `--context headless` (checked under Xvfb).
 - **Hidden window first, tiny off-screen window as the fallback** (D71).
 - **`--api` is optional** (D72), because in window mode the backend decides
   the dialect.
