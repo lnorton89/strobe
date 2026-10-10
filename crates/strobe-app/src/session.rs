@@ -71,6 +71,9 @@ use strobe_scene::control::{ControlBank, ControlKind};
 use strobe_scene::{SceneError, SceneFolder};
 use strobe_script::ScriptInputs;
 
+/// The script function whose mention turns the final-pass readback on.
+const FINAL_PASS_CALL: &str = "textureFinalPass";
+
 /// The step the script's load-time frame takes: one frame at 60 Hz.
 const FIRST_FRAME_DT: f32 = 1.0 / 60.0;
 
@@ -192,8 +195,17 @@ impl Session {
         if !extras.is_empty() {
             log::info!("script uniforms compiled in at load: {}", names_of(&extras));
         }
-        let player =
+        let mut player =
             ScenePlayer::with_extras(gl, caps, &scene, render_size, Options::default(), &extras)?;
+        // `textureFinalPass` costs a few blits and a fence a frame, so only
+        // a script that names it pays for the readback (D162).
+        if scene
+            .script
+            .as_deref()
+            .is_some_and(|source| source.contains(FINAL_PASS_CALL))
+        {
+            player.enable_final_pass_readback()?;
+        }
         // The shaders now hold every uniform the script may ever send.
         if let Some(run) = script.as_mut() {
             run.seal_uniforms();
@@ -272,7 +284,7 @@ impl Session {
                     click: mouse.click,
                     muv: mouse.muv,
                     muvc: mouse.muvc,
-                    final_pass: None,
+                    final_pass: self.player.final_pass_pixels(),
                 },
                 &mut self.controls,
                 &mut self.meta,

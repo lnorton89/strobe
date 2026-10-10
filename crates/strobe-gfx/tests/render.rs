@@ -703,3 +703,228 @@ fn a_healthy_context_reports_no_reset_and_a_lost_one_is_never_asked() -> Result<
     }
     Ok(())
 }
+
+// ---- textureFinalPass: the asynchronous readback ---------------------------------
+
+/// One 64x36 pixel of the readback, or `None` when it has not arrived.
+fn readback_pixel(player: &ScenePlayer, x: usize, y: usize) -> Option<[u8; 3]> {
+    let pixels = player.final_pass_pixels()?;
+    let offset = (y * 64 + x) * 3;
+    let px = pixels.get(offset..offset + 3)?;
+    Some([px[0], px[1], px[2]])
+}
+
+/// Renders frame `frame` of `player` with a silent room.
+fn render_frame(player: &mut ScenePlayer, controls: &ControlBank, frame: u64) {
+    let audio = vec![0.0; SCALARS.len()];
+    player.render(&FrameInputs {
+        time: frame as f32 / 60.0,
+        frame,
+        mouse: Mouse::default(),
+        audio: &audio,
+        controls,
+        transitions: &[],
+    });
+}
+
+#[test]
+fn the_final_pass_readback_arrives_two_frames_late_and_is_black_before() -> Result<()> {
+    // Red encodes the frame number, so the age of what arrives is readable.
+    let shader = "vec4 renderMain() { return vec4(FRAMECOUNT / 32.0, 0.25, 0.5, 1.0); }";
+    for api in BOTH {
+        let Some(headless) = context(api)? else {
+            continue;
+        };
+        let gl = headless.gl();
+        let caps = Caps::from_info(gl.info());
+        let scene = folder("{}", shader)?;
+        let controls = ControlBank::new(Vec::new())?;
+        let mut player = ScenePlayer::new(gl, &caps, &scene, [320, 180], Options::default())?;
+        assert!(
+            player.final_pass_pixels().is_none(),
+            "{api:?}: off by default, nothing to read"
+        );
+        player.enable_final_pass_readback()?;
+        for frame in 0..10_u64 {
+            render_frame(&mut player, &controls, frame);
+            // The test waits for the GPU so every fence has signalled: it
+            // pins the *documented* latency. The player itself never does.
+            gl.finish();
+            let latest = readback_pixel(&player, 5, 5);
+            if frame < 2 {
+                assert!(
+                    latest.is_none(),
+                    "{api:?}: frame {frame}: the ring has not filled, so the script reads black"
+                );
+                continue;
+            }
+            let px = latest.ok_or_else(|| anyhow!("{api:?}: frame {frame}: nothing arrived"))?;
+            let expected = ((frame - 2) as f32 / 32.0 * 255.0).round() as u8;
+            assert!(
+                near(px[0], expected) && near(px[1], 64) && near(px[2], 128),
+                "{api:?}: after frame {frame} the readback shows frame {}: want red {expected}, got {px:?}",
+                frame - 2
+            );
+        }
+        if let Some(code) = gl.error() {
+            return Err(anyhow!("{api:?}: GL error 0x{code:x}"));
+        }
+        assert_eq!(
+            player.final_pass_dropped(),
+            0,
+            "{api:?}: nothing was dropped"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn the_downsample_keeps_the_pictures_orientation_and_average() -> Result<()> {
+    // Red rises up the picture, green rises to the right.
+    let shader = "vec4 renderMain() { return vec4(_uv.y, _uv.x, 0.0, 1.0); }";
+    for api in BOTH {
+        let Some(headless) = context(api)? else {
+            continue;
+        };
+        let gl = headless.gl();
+        let caps = Caps::from_info(gl.info());
+        let scene = folder("{}", shader)?;
+        let controls = ControlBank::new(Vec::new())?;
+        let mut player = ScenePlayer::new(gl, &caps, &scene, [640, 360], Options::default())?;
+        player.enable_final_pass_readback()?;
+        for frame in 0..4_u64 {
+            render_frame(&mut player, &controls, frame);
+            gl.finish();
+        }
+        let pixel = |x, y| readback_pixel(&player, x, y).ok_or_else(|| anyhow!("{api:?}: no data"));
+        let (bottom_left, top_right, middle) = (pixel(0, 0)?, pixel(63, 35)?, pixel(32, 18)?);
+        // Row 0 is the bottom (rows run bottom-up, like _uv), and each texel
+        // is the average of its block, so it sits at (index + 0.5) / size.
+        let within =
+            |actual: u8, expected: f32| (f32::from(actual) - expected * 255.0).abs() <= 5.0;
+        assert!(
+            within(bottom_left[0], 0.5 / 36.0) && within(bottom_left[1], 0.5 / 64.0),
+            "{api:?}: bottom-left is dark in both channels; got {bottom_left:?}"
+        );
+        assert!(
+            within(top_right[0], 35.5 / 36.0) && within(top_right[1], 63.5 / 64.0),
+            "{api:?}: top-right is bright in both channels; got {top_right:?}"
+        );
+        assert!(
+            within(middle[0], 18.5 / 36.0) && within(middle[1], 32.5 / 64.0),
+            "{api:?}: the middle is the mean; got {middle:?}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn a_busy_gpu_costs_freshness_never_a_stall_and_the_ring_recovers() -> Result<()> {
+    let shader = "vec4 renderMain() { return vec4(FRAMECOUNT / 64.0, 0.0, 0.0, 1.0); }";
+    for api in BOTH {
+        let Some(headless) = context(api)? else {
+            continue;
+        };
+        let gl = headless.gl();
+        let caps = Caps::from_info(gl.info());
+        let scene = folder("{}", shader)?;
+        let controls = ControlBank::new(Vec::new())?;
+        let mut player = ScenePlayer::new(gl, &caps, &scene, [64, 36], Options::default())?;
+        player.enable_final_pass_readback()?;
+        // No gl.finish(): fences signal whenever the driver gets there. The
+        // picture may be older than two frames but never newer, never
+        // garbage, and it never goes backwards.
+        let mut newest_seen = 0_i32;
+        for frame in 0..40_u64 {
+            render_frame(&mut player, &controls, frame);
+            if let Some(px) = readback_pixel(&player, 0, 0) {
+                let shown = (f32::from(px[0]) / 255.0 * 64.0).round() as i32;
+                assert!(
+                    shown <= frame as i32 - 2,
+                    "{api:?}: frame {frame} shows frame {shown}, newer than the ring allows"
+                );
+                assert!(
+                    shown >= newest_seen,
+                    "{api:?}: the picture went backwards ({shown} after {newest_seen})"
+                );
+                newest_seen = shown;
+            }
+        }
+        gl.finish();
+        for frame in 40..44_u64 {
+            render_frame(&mut player, &controls, frame);
+            gl.finish();
+        }
+        let px = readback_pixel(&player, 0, 0).ok_or_else(|| anyhow!("{api:?}: never arrived"))?;
+        let shown = (f32::from(px[0]) / 255.0 * 64.0).round() as i32;
+        assert_eq!(
+            shown, 41,
+            "{api:?}: once the GPU catches up it is two frames old again"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn resizing_restarts_the_readback_from_black() -> Result<()> {
+    let shader = "vec4 renderMain() { return vec4(0.5, 0.5, 0.5, 1.0); }";
+    for api in BOTH {
+        let Some(headless) = context(api)? else {
+            continue;
+        };
+        let gl = headless.gl();
+        let caps = Caps::from_info(gl.info());
+        let scene = folder("{}", shader)?;
+        let controls = ControlBank::new(Vec::new())?;
+        let mut player = ScenePlayer::new(gl, &caps, &scene, [128, 72], Options::default())?;
+        player.enable_final_pass_readback()?;
+        for frame in 0..4_u64 {
+            render_frame(&mut player, &controls, frame);
+            gl.finish();
+        }
+        assert!(
+            readback_pixel(&player, 1, 1).is_some(),
+            "{api:?}: data before resize"
+        );
+        player.resize([200, 100])?;
+        assert!(
+            player.final_pass_pixels().is_none(),
+            "{api:?}: a resize drops the old picture"
+        );
+        for frame in 4..8_u64 {
+            render_frame(&mut player, &controls, frame);
+            gl.finish();
+        }
+        let px = readback_pixel(&player, 1, 1)
+            .ok_or_else(|| anyhow!("{api:?}: no data after resize"))?;
+        assert!(
+            near(px[0], 128) && near(px[1], 128),
+            "{api:?}: the new size reads back too; got {px:?}"
+        );
+        if let Some(code) = gl.error() {
+            return Err(anyhow!("{api:?}: GL error 0x{code:x}"));
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn a_lost_context_makes_the_readback_inert_and_its_drops_harmless() -> Result<()> {
+    for api in BOTH {
+        let Some(headless) = context(api)? else {
+            continue;
+        };
+        let gl = headless.gl();
+        let caps = Caps::from_info(gl.info());
+        let scene = folder("{}", "vec4 renderMain() { return vec4(1.0); }")?;
+        let controls = ControlBank::new(Vec::new())?;
+        let mut player = ScenePlayer::new(gl, &caps, &scene, [64, 36], Options::default())?;
+        player.enable_final_pass_readback()?;
+        render_frame(&mut player, &controls, 0);
+        gl.mark_lost();
+        // With the flag set, no GL call may be made for the ring's buffers
+        // and fences: dropping the player frees nothing and touches no GL.
+        drop(player);
+    }
+    Ok(())
+}

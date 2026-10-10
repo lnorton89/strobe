@@ -578,7 +578,11 @@ fn cell(t: f64, n: usize) -> usize {
     ((t.clamp(0.0, 1.0) * n as f64) as usize).min(n.saturating_sub(1))
 }
 
-/// `textureFinalPass(x, y)`: nearest-texel colour of the previous frame.
+/// `textureFinalPass(x, y)`: nearest-texel colour of a recent frame, as
+/// `[r, g, b]` in `0..1`. `x` and `y` are `0..1` across the picture, `y`
+/// up, and clamp to the edge. The colour comes from the host's 64x36
+/// asynchronous readback, so it lags the picture by a few frames and is
+/// black until the first one lands (D162).
 fn texture_final_pass(shared: &Shared, x: f64, y: f64) -> Vec<f64> {
     let state = shared.state.borrow();
     if state.final_pass.len() != FINAL_PASS_BYTES {
