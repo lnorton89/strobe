@@ -57,17 +57,19 @@ machine.
 
 | Crate | Owns |
 |---|---|
-| `strobe-bench` | Headless benchmark: renders `scenes/`, times each, writes frames and a contact sheet |
-| `strobe-conventions` | The house rules as tests: file headers, the `unsafe` boundary, the toolchain pin |
-| `strobe-app` | Window, event loop, egui control surface, wiring |
-| `strobe-gfx` | The GL renderer: context providers (native GL, ANGLE), programs, passes, compositor, post |
-| `strobe-scene` | SSF model: `scene.json`, controls and their runtime, presets, shader assembly |
-| `strobe-ssf-lib` | The SSF GLSL function library and preambles |
-| `strobe-script` | QuickJS host for the Synesthesia JavaScript API |
-| `strobe-audio` | Capture, FFT, bands, onsets, BPM, audio textures |
-| `strobe-shadertoy` | Shadertoy import: URL/id parser, export-JSON model, deterministic converter to a scene folder, and the `strobe-import` command (fetching by id is not built yet) |
-| `strobe-playlist` | Playlist model, TOML I/O, scheduler, generator |
-| `strobe-io` | MIDI, OSC, hotkeys, the localhost import listener |
+| [`strobe-app`](crates/strobe-app/README.md) | The `strobe` binary: window, event loop, egui control surface, wiring, context-loss recovery |
+| [`strobe-gfx`](crates/strobe-gfx/README.md) | The GL renderer: context providers (native GL, ANGLE), programs, passes, GPU timing |
+| [`strobe-scene`](crates/strobe-scene/README.md) | SSF model: `scene.json`, controls and their runtime, shader assembly |
+| [`strobe-ssf-lib`](crates/strobe-ssf-lib/README.md) | The SSF GLSL function library and preambles |
+| [`strobe-script`](crates/strobe-script/README.md) | QuickJS host for the Synesthesia JavaScript API |
+| [`strobe-audio`](crates/strobe-audio/README.md) | Capture, FFT, bands, onsets, BPM, audio textures |
+| [`strobe-diag`](crates/strobe-diag/README.md) | Logging, structured failures, panic reports, native crash capture with minidumps |
+| [`strobe-shadertoy`](crates/strobe-shadertoy/README.md) | Shadertoy import: URL/id parser, export-JSON model, deterministic converter to a scene folder, `strobe-import` (fetching by id is not built yet) |
+| [`strobe-playlist`](crates/strobe-playlist/README.md) | Playlist model, TOML I/O, generator, timeline, playback clock (not wired into the app yet) |
+| [`strobe-bench`](crates/strobe-bench/README.md) | Benchmark: renders `scenes/`, times each, writes frames and a contact sheet |
+| [`strobe-conventions`](crates/strobe-conventions/README.md) | The house rules as tests: file headers, the `unsafe` boundary, the toolchain pin |
+| [`xtask`](crates/xtask/README.md) | `cargo xtask ci`, `changelog` and `bench` |
+| `strobe-io` | Planned: MIDI, OSC, hotkeys, the localhost import listener |
 
 ### Graphics: native OpenGL, with ANGLE as the fallback
 
