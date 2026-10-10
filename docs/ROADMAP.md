@@ -6,7 +6,7 @@ in [DECISIONS.md](DECISIONS.md), the evidence-based gap list in
 [STATUS_AUDIT.md](STATUS_AUDIT.md), and real-hardware results in
 [hardware/T480.md](hardware/T480.md).
 
-_Last updated: 2026-10-09._
+_Last updated: 2026-10-10._
 
 ## Now
 
@@ -27,7 +27,7 @@ which backend proved a claim.
 | `strobe-audio` | Capture with retry and synthetic fallback, analysis, spectrum and level-trail textures, tap tempo (D20-D23, D61) | T480 live mic at 48 kHz |
 | `strobe-script` | QuickJS host: events, `update`, controls, `setUniform` compiled in at load, budget and faults (D62) | Xvfb; T480 (`11-script-orbits`) |
 | `strobe-diag` | Session logs, structured failures, panic reports, out-of-process minidumps, GL debug output (D40-D45) | Linux; T480 (`overflow` gives a `.dmp`, bug 2) |
-| `strobe-shadertoy` | Stage 1: id parser, both JSON shapes, dialect rewrite, converter to a scene folder, `strobe-import` (D90-D95) | Nine original fixtures on llvmpipe, both dialects |
+| `strobe-shadertoy` | Stage 1: id parser, both JSON shapes, dialect rewrite, converter to a scene folder, `strobe-import` (D90-D95). Stage 2: REST client, texture downloader and cache, shared import pipeline, loopback listener, `strobe-import --id` (D110, D111, D113, D114, D117) | Nine original fixtures on llvmpipe, both dialects; stage 2 against fakes and a loopback mock, never the live site |
 | `strobe-playlist` | Stage 1, pure core: model, inheritance, TOML, generator, timeline, playback clock, resume (D73-D77) | Unit tests and 4-hour soaks; not in the app yet |
 | Scenes | Eleven original scenes over five GPU-load tiers, one scripted | llvmpipe and T480 |
 
@@ -52,13 +52,20 @@ Each item names its acceptance test. Details and evidence are in
    widgets emit typed actions. *Accept:* screenshots at 1280x720 and
    1440x900 of the empty, loading, failure, missing-audio and script-fault
    states.
-3. **Shadertoy import, stage 2.**
-   - Build the REST client (path B), the localhost listener and userscript
-     (path A), the asset downloader, the app's Import action, thumbnails
-     and the Needs-work bin.
-   - In the app, wire through `strobe_Date` and the browser-matched audio
-     texture, and name the pass file in shader failures.
-   
+3. **Shadertoy import, stage 2.** Built: the REST client (path B), the
+   localhost listener and the "Send to Strobe" userscript (path A), the
+   asset downloader and cache, the app's Import panel and file drop (path
+   C), `strobe_Date` as local time, the browser-matched audio texture, and
+   shader failures that name the pass file (D110-D117). Open:
+   - the live site: the REST call, texture URLs and the userscript's route
+     to the page's JSON have only been run against fakes (Q19), so one
+     real import from each of path A and path B on the T480 is the
+     acceptance test;
+   - a real file drop on Windows and X11 (the typed path runs the same
+     job);
+   - thumbnails and the Needs-work bin;
+   - a batch route and the watched drop folder.
+
    *Accept:* representative single-pass and multipass imports play on
    native and ANGLE, a missing asset fails visibly, and attribution
    survives.
@@ -144,7 +151,7 @@ Scoring needs a GL context, so it runs at import time, never per frame.
 | 1 | Renderer, SSF, controls, output window | A functional engineering shell. The Perform-first UI is not built. Images work; media and cubemaps are placeholders. |
 | 2 | JavaScript API | Integrated (D62). `meta/` writes and `textureFinalPass` are open. |
 | 3 | Audio | Integrated (D61). The bench still uses the synthetic stand-in. |
-| 4 | Shadertoy import | The stage 1 converter is done (D90-D95). Acquisition, the Import UI and auto-generated controls are open. |
+| 4 | Shadertoy import | The converter (D90-D95), acquisition, the Import panel and the userscript are built (D110-D117); live-site verification, thumbnails and auto-generated controls are open. |
 | 5 | Playlists | The stage 1 pure core is done (D73-D77). App integration is open. |
 | 6 | Presets, MIDI, OSC, hotkeys | Not started. |
 | 7 | NDI, media input, song-change transitions | Not started. `HARD`/`SMOOTH_TRANSITIONS` are declared but never change. |
@@ -167,18 +174,19 @@ Scoring needs a GL context, so it runs at import time, never per frame.
 - Native crash capture cannot see a bare `abort()` on Windows, which is a
   fast-fail ([DEBUGGING.md](DEBUGGING.md)).
 
-### Shadertoy import (stage 1)
+### Shadertoy import (stages 1 and 2)
 
-- `strobe-import --id` is not built. Path B (the REST API with a key),
-  path A (the userscript and localhost listener), the asset downloader and
-  the app's Import UI are stage 2.
-- The app does not call the importer, and it does not feed `strobe_Date`,
-  so the player falls back to the UTC wall clock (Q15).
-- The app's shader-failure detail still says `main.glsl`, so a compile
-  error in a buffer (`passes/buffer_a.glsl:14`) shows without a line
-  number.
-- The audio input is resampled from the 256-texel spectrum, not taken from
-  the browser-matched `AudioFrame::shadertoy` (D93, Q18).
+- Stage 2 is built but has never touched shadertoy.com (Cloudflare blocks
+  the cloud containers). Path B needs an API key (`STROBE_SHADERTOY_KEY`
+  or `shadertoy.key` in the data directory, D117). The userscript's route
+  to the page's JSON is a best guess and says what it tried when it fails
+  (D115, Q19).
+- The listener is off by default (`--listen`, or the Import panel's
+  switch) and its token is shown in the panel (D114).
+- A real file drop was not exercised under Xvfb; the typed-path route runs
+  the same job and was (D116).
+- Still open: thumbnails, the Needs-work bin, batch import, the watched
+  drop folder.
 - Not supported:
   - `cubemap` and `volume` inputs, and `sound` and `cubemap` passes: these
     are errors;

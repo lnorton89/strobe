@@ -7,16 +7,20 @@ deterministic: the same JSON and options always give byte-identical files.
 It never edits a statement of the original code; it renames, deletes lines
 in place (so line numbers survive), and wraps the code in a generated shim.
 
-This is **stage 1**. It converts a JSON file you already have. Fetching a
-shader by id, the browser userscript and the app's Import button are not
-built yet ([ROADMAP.md](../../docs/ROADMAP.md), "Shadertoy import, stage 2").
+Stage 1 is the converter. **Stage 2** adds the ways to get a shader's JSON:
+`strobe-import --id` (the REST API, with a key), a loopback listener that
+the "Send to Strobe" userscript posts to (`tools/userscript/`), and a
+texture downloader with an on-disk cache. The app's Import panel and file
+drop use the same pipeline (`import::import_json`). None of it has run
+against the live site, only against fakes ([ROADMAP.md](../../docs/ROADMAP.md),
+Q19; D110-D117).
 
 ## Role in the workspace
 
 - **Depends on:** `strobe-scene` (to validate what it writes), plus serde,
   serde_json, thiserror and clap. It has no GL dependency.
-- **Used by:** the `strobe-import` binary in this crate. The app does not
-  call it yet. `strobe-gfx` only uses it as a dev-dependency, for render
+- **Used by:** the `strobe-import` binary in this crate, and `strobe-app`
+  (its import worker and the listener). `strobe-gfx` only uses it as a dev-dependency, for render
   tests.
 - **Does not:**
   - touch the network: acquisition is a separate, later layer;
@@ -55,8 +59,12 @@ cargo run --release -p strobe-shadertoy --bin strobe-import -- shader.json
 #   --assets <DIR>   folder of already downloaded textures, found by file name
 #   --strict         fail on a missing texture instead of binding black
 #   --force          replace a scene imported before
-#   --id <ID|URL>    not built yet; says so and names the planned API path
+#   --id <ID|URL>    fetch through the REST API instead (needs a key:
+#                    STROBE_SHADERTOY_KEY, or `shadertoy.key` in the data dir)
 ```
+
+Textures are downloaded and cached unless `--offline` is given; `--data-dir`
+moves the key file and the cache.
 
 The result is `<name>-<id>.synScene/`, containing:
 - `scene.json`: passes, `PASS_SOURCES`, images, the five "Strobe" controls,
