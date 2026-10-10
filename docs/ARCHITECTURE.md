@@ -12,7 +12,7 @@ crates/
 ├── strobe-gfx          GL boundary (only unsafe), context providers, scene player
 ├── strobe-audio        FFT, bands, onsets, BPM → the syn_* values; cpal capture thread
 ├── strobe-script       QuickJS host for the Synesthesia JavaScript API
-├── strobe-bench        Headless benchmark + visual regression frames
+├── strobe-bench        Benchmark + visual regression frames (headless or hidden-window context)
 ├── strobe-conventions  The house rules as tests (headers, unsafe boundary, toolchain pin)
 ├── strobe-diag         Logger, session context, panic hook, native crash capture
 ├── strobe-shadertoy    Shadertoy export JSON → scene folder (id parser, model, dialect rewrite, converter, strobe-import)
@@ -85,6 +85,7 @@ context is current, so the type system keeps `Gl` on that thread.
 | `Headless::new(Api::Gles30)` | the same, for testing the ANGLE dialect | GLSL ES 300 |
 | Windowed native | glutin: WGL on Windows, GLX/EGL on Linux (CGL on macOS is not built) | GLSL 330 core |
 | Windowed ANGLE | glutin EGL with ANGLE's `libEGL.dll`/`libGLESv2.dll` beside the exe | GLSL ES 300 |
+| `offscreen::run` | The bench and `strobe-autocontrol` (D140): `Headless` when an EGL device exists, else one hidden window's `WindowedContext` (Intel on Windows has no EGL device). Runs a job with `&Gl` and `&Caps`; main thread, once per process | whichever it opened |
 
 ## A frame
 
@@ -324,7 +325,9 @@ What it writes, and how the player runs it:
 ## Auto-generated controls (`strobe-autocontrol`)
 
 Pure analysis, a rewrite that keeps line numbers, and one stage that needs a
-GL context. See D123-D126 for the rules.
+GL context. See D123-D126 for the rules. The library takes the context from
+its caller (`generate(&Gl, &Caps, ..)`); the CLI gets one from
+`strobe_gfx::offscreen`, headless or a hidden window (D140).
 
 ```
 Sources (per-pass GLSL)          source.rs     Scan: tokens + offsets + depth;

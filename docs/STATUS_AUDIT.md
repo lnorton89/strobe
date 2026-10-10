@@ -157,9 +157,15 @@ they apply, and explicit supported, degraded or unsupported claims.
   is the route to prove. *Accept:* one real import from the button in the
   owner's browser, and one by id if the API can be reached at all, each
   recorded in [hardware/T480.md](hardware/T480.md).
-- [ ] Auto-generated controls on Windows. Scoring needs a GL context, and
-  it only knows the headless EGL one, which Intel lacks. It needs the
-  bench's window-context fallback (D70).
+- [ ] Auto-generated controls on Windows. Scoring needed a GL context, and
+  the CLI only knew the headless EGL one, which Intel lacks. It now has the
+  bench's window-context fallback (`--context auto|headless|window`, D140),
+  and on llvmpipe under Xvfb the window run gives a byte-identical report to
+  the headless one (`crates/strobe-autocontrol/tests/window.rs`). *Accept:*
+  `strobe-autocontrol.exe target\t480\ac\05.synScene --context window
+  --report --dry-run` on the T480 scores the stripped scene 05 and keeps
+  controls, recorded in [hardware/T480.md](hardware/T480.md). Not ticked
+  until the laptop confirms it.
 - [ ] A real file drop (X11 and Windows). The typed path runs the same job.
 - [ ] Thumbnails, conversion diagnostics beyond the warnings list, and the
   Needs-work bin.
