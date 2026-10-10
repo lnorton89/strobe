@@ -1124,57 +1124,79 @@ fn deprecated_uniforms_object_is_scanned_after_update() -> Result<()> {
     Ok(())
 }
 
-// ---- new_uniforms ---------------------------------------------------------------
+// ---- sealing ----------------------------------------------------------------------
 
 #[test]
-fn new_uniforms_flags_each_new_name_once() -> Result<()> {
-    let script = r#"
-        function update() {
-            setUniform("a", FRAMECOUNT);
-            if (FRAMECOUNT >= 2) setUniform("b", 1, 2);
-        }
-    "#;
-    let mut rig = Rig::new(script, &[])?;
-    let flags: Vec<bool> = (0..5).map(|_| rig.step().new_uniforms).collect();
-    assert_eq!(
-        flags,
-        vec![true, false, true, false, false],
-        "frame 0 introduces `a`, frame 2 introduces `b`"
-    );
-    let out = rig.step();
-    assert_eq!(
-        out.extras(),
-        vec![
-            ("a".to_string(), ExtraType::Float),
-            ("b".to_string(), ExtraType::Vec2)
-        ],
-        "extras() has the shape assemble::Request::extra takes"
-    );
-    Ok(())
-}
-
-#[test]
-fn uniforms_made_in_setup_are_announced_before_the_first_frame() -> Result<()> {
+fn uniforms_made_in_setup_are_listed_when_sealed() -> Result<()> {
     let script = "function setup() { setUniform('seed', 1, 2, 3); } function update() {}";
-    let mut quiet = Rig::new(script, &[])?;
-    let extras = quiet.host.announce_extras();
+    let mut rig = Rig::new(script, &[])?;
+    let extras = rig.host.seal_uniforms();
     assert_eq!(
         extras,
         vec![("seed".to_string(), ExtraType::Vec3)],
         "setup's uniforms are known as soon as the host is built"
     );
-    assert!(
-        !quiet.step().new_uniforms,
-        "so the first frame does not ask for a second compile"
-    );
-
-    let mut eager = Rig::new(script, &[])?;
-    let out = eager.step();
-    assert!(
-        out.new_uniforms,
-        "without announcing, the first frame reports them"
-    );
+    let out = rig.step();
     expect_uniform(&out, "seed", ExtraType::Vec3, &[1.0, 2.0, 3.0])?;
+    Ok(())
+}
+
+#[test]
+fn a_uniform_first_set_after_the_seal_is_refused_once_and_never_published() -> Result<()> {
+    let script = r#"
+        function update() {
+            setUniform("a", FRAMECOUNT);
+            if (FRAMECOUNT >= 2) setUniform("late", 1, 2);
+        }
+    "#;
+    let mut rig = Rig::new(script, &[])?;
+    rig.step(); // frame 0 declares `a`
+    let extras = rig.host.seal_uniforms();
+    assert_eq!(
+        extras,
+        vec![("a".to_string(), ExtraType::Float)],
+        "only what the load-time frame published is declared"
+    );
+    rig.step();
+    let third = rig.step();
+    assert_eq!(
+        third.status,
+        ScriptStatus::Running,
+        "refusal is not a fault"
+    );
+    assert_eq!(
+        third.extras(),
+        extras,
+        "the uniform list did not grow: {:?}",
+        third.uniforms
+    );
+    expect_uniform(&third, "a", ExtraType::Float, &[2.0])?;
+    let lines = errors(&third);
+    assert_eq!(lines.len(), 1, "one explanation: {lines:?}");
+    assert!(
+        lines[0].contains("`late`") && lines[0].contains("after the scene loaded"),
+        "it names the uniform and the rule: {lines:?}"
+    );
+    assert!(
+        errors(&rig.step()).is_empty(),
+        "and says it once, not every frame"
+    );
+    Ok(())
+}
+
+#[test]
+fn the_legacy_uniforms_object_is_sealed_too() -> Result<()> {
+    let script = "function update() { uniforms.x = 1; if (FRAMECOUNT > 0) { uniforms.y = 2; } }";
+    let mut rig = Rig::new(script, &[])?;
+    rig.step();
+    rig.host.seal_uniforms();
+    let out = rig.step();
+    assert_eq!(
+        out.extras(),
+        vec![("x".to_string(), ExtraType::Float)],
+        "`y` is refused on the legacy path as well: {:?}",
+        out.console
+    );
     Ok(())
 }
 
@@ -1369,7 +1391,6 @@ fn a_faulted_frame_keeps_the_last_good_uniforms() -> Result<()> {
         "writes from the faulted frame are discarded: {:?}",
         out.uniforms
     );
-    assert!(!out.new_uniforms, "a discarded uniform is not announced");
     let message = errors(&out).join("\n");
     assert!(
         message.contains("mid-frame") && message.contains("script.js:4"),

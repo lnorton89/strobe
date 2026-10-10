@@ -247,9 +247,9 @@ impl ScenePlayer {
     /// every pass program and their locations resolved at link time, like
     /// every other uniform, so setting them each frame
     /// ([`Self::set_script_uniforms`]) costs no lookups. All of this happens
-    /// here, at load: a show never compiles a shader while it plays. A
-    /// script that creates a *new* uniform later means building a fresh
-    /// player with the longer list.
+    /// here, at load: a show never compiles a shader while it plays. The
+    /// host seals the script's uniforms right after, so a uniform created
+    /// later is refused rather than answered with a rebuild (D161).
     pub fn with_extras(
         gl: &Gl,
         caps: &Caps,

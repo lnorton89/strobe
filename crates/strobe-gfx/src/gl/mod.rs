@@ -56,6 +56,10 @@ pub struct Gl {
     /// Set once the context is known to be lost; shared by every clone, so
     /// every owning type sees it. `Rc` because `Gl` is `!Send` anyway.
     lost: Rc<Cell<bool>>,
+    /// How many shader stages this context has been asked to compile; shared
+    /// by every clone. A plain counter (no driver query), so a test can
+    /// prove that nothing compiles while a scene plays.
+    compiles: Rc<Cell<u64>>,
     /// `!Send` and `!Sync`: the context is current on one thread only.
     _thread: PhantomData<*const ()>,
 }
@@ -290,6 +294,7 @@ impl Gl {
             raw: Arc::new(raw),
             reset,
             lost: Rc::new(Cell::new(false)),
+            compiles: Rc::new(Cell::new(0)),
             _thread: PhantomData,
         }
     }
@@ -306,6 +311,13 @@ impl Gl {
     /// Whether [`Self::mark_lost`] was called.
     pub fn is_lost(&self) -> bool {
         self.lost.get()
+    }
+
+    /// How many shader stages [`Self::compile`] has been asked to build on
+    /// this context (all clones together). A show should see this number
+    /// stop moving once the scene is loaded (D161).
+    pub fn shader_compiles(&self) -> u64 {
+        self.compiles.get()
     }
 
     /// Whether the driver exposes a reset-status query at all.
@@ -437,6 +449,7 @@ impl Gl {
 
     /// Compiles one shader stage, returning the driver's log on failure.
     pub fn compile(&self, stage: Stage, source: &str) -> Result<Shader, String> {
+        self.compiles.set(self.compiles.get() + 1);
         let raw = self.create_shader(stage)?;
         let shader = Shader {
             gl: self.clone(),

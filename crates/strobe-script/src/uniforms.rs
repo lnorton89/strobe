@@ -15,13 +15,21 @@
 //! would mean recompiling the shader, and a script that alternates between
 //! two arities would recompile every frame.
 //!
+//! ## Sealing
+//!
+//! Shaders are compiled with the uniforms known at load, and a show never
+//! compiles while it plays (D161). [`UniformStore::seal`] marks that
+//! moment: the uniforms committed so far are the declared set, and a
+//! `set` of any other name is [`SetOutcome::Refused`] and stores nothing.
+//! Declared uniforms keep updating as before.
+//!
 //! Writes are staged. A frame that faults halfway must not leave half its
 //! uniforms behind, so values go to a `pending` slot and only
 //! [`UniformStore::commit`] makes them current; [`UniformStore::discard`]
 //! throws them away and the previous frame's values stay in force.
 
 use crate::output::ScriptUniform;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use strobe_scene::assemble::ExtraType;
 
@@ -44,6 +52,9 @@ pub(crate) enum SetOutcome {
     /// The uniform already has this type and the value had a different
     /// number of components, so it was padded with zeros or truncated.
     Coerced(ExtraType),
+    /// The store is sealed and this name was not declared before the seal;
+    /// nothing was stored.
+    Refused,
 }
 
 /// Every uniform a script has published.
@@ -54,8 +65,8 @@ pub(crate) struct UniformStore {
     /// Slots with a `pending` value, so commit and discard touch only
     /// those rather than scanning every slot.
     dirty: Vec<usize>,
-    /// A slot committed for the first time since the last report.
-    fresh: bool,
+    /// The names declared when the store was sealed; `None` until then.
+    declared: Option<HashSet<Arc<str>>>,
 }
 
 /// How many floats a type holds.
@@ -82,6 +93,13 @@ impl UniformStore {
     /// Stages `components` (1 to 4 floats) as `name`'s value this frame,
     /// declaring the uniform if it is new.
     pub(crate) fn set(&mut self, name: &str, components: &[f32]) -> SetOutcome {
+        if self
+            .declared
+            .as_ref()
+            .is_some_and(|declared| !declared.contains(name))
+        {
+            return SetOutcome::Refused;
+        }
         let position = match self.index.get(name) {
             Some(&position) => position,
             None => {
@@ -123,9 +141,6 @@ impl UniformStore {
                 continue;
             };
             if let Some(value) = slot.pending.take() {
-                if slot.committed.is_none() {
-                    self.fresh = true;
-                }
                 slot.committed = Some(value);
             }
         }
@@ -142,19 +157,22 @@ impl UniformStore {
         self.dirty.clear();
     }
 
-    /// Whether a uniform was first committed since the last call; clears
-    /// the flag.
-    pub(crate) fn take_fresh(&mut self) -> bool {
-        std::mem::take(&mut self.fresh)
-    }
-
-    /// Forgets that anything is fresh, and lists every committed uniform
-    /// as `(name, type)`.
-    pub(crate) fn announce(&mut self) -> Vec<(String, ExtraType)> {
-        self.fresh = false;
-        self.slots
+    /// Seals the store and lists every committed uniform as
+    /// `(name, type)`: those are the declared set from now on.
+    pub(crate) fn seal(&mut self) -> Vec<(String, ExtraType)> {
+        let committed: Vec<&Slot> = self
+            .slots
             .iter()
             .filter(|slot| slot.committed.is_some())
+            .collect();
+        self.declared = Some(
+            committed
+                .iter()
+                .map(|slot| Arc::clone(&slot.name))
+                .collect(),
+        );
+        committed
+            .iter()
             .map(|slot| (slot.name.to_string(), slot.ty))
             .collect()
     }
@@ -216,28 +234,45 @@ mod tests {
     }
 
     #[test]
-    fn a_uniform_is_fresh_once() {
-        let mut store = UniformStore::default();
-        store.set("a", &[1.0]);
-        assert!(!store.take_fresh(), "staged is not yet known");
-        store.commit();
-        assert!(store.take_fresh(), "the first commit is fresh");
-        store.set("a", &[2.0]);
-        store.commit();
-        assert!(!store.take_fresh(), "a later commit is not");
-    }
-
-    #[test]
-    fn announcing_clears_the_fresh_flag() {
+    fn a_sealed_store_refuses_new_names_and_keeps_updating_declared_ones() {
         let mut store = UniformStore::default();
         store.set("a", &[1.0, 2.0, 3.0]);
         store.commit();
-        let extras = store.announce();
+        let extras = store.seal();
         assert_eq!(
             extras,
             vec![("a".to_string(), ExtraType::Vec3)],
-            "the committed uniform is listed"
+            "the committed uniform is the declared set"
         );
-        assert!(!store.take_fresh(), "and no longer fresh");
+        assert_eq!(
+            store.set("late", &[1.0]),
+            SetOutcome::Refused,
+            "a name first used after the seal is refused"
+        );
+        assert_eq!(
+            store.set("a", &[4.0, 5.0, 6.0]),
+            SetOutcome::Stored,
+            "a declared name still updates"
+        );
+        store.commit();
+        let names: Vec<String> = store
+            .snapshot()
+            .iter()
+            .map(|uniform| uniform.name.to_string())
+            .collect();
+        assert_eq!(names, ["a"], "the refused name never appears");
+    }
+
+    #[test]
+    fn a_name_staged_but_never_committed_before_the_seal_is_not_declared() {
+        let mut store = UniformStore::default();
+        store.set("half", &[1.0]);
+        store.discard();
+        assert!(store.seal().is_empty(), "nothing was committed");
+        assert_eq!(
+            store.set("half", &[1.0]),
+            SetOutcome::Refused,
+            "the shaders were compiled without it"
+        );
     }
 }

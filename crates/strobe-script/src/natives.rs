@@ -440,15 +440,24 @@ pub(crate) fn stage_uniform<'js>(
     }
     let components = read_components(ctx, components, MAX_UNIFORM_COMPONENTS, false)?;
     let mut state = shared.state.borrow_mut();
-    if let SetOutcome::Coerced(ty) = state.uniforms.set(name, components.slice()) {
-        state.log_once(
+    match state.uniforms.set(name, components.slice()) {
+        SetOutcome::Stored => {}
+        SetOutcome::Coerced(ty) => state.log_once(
             ConsoleLevel::Warn,
             &format!(
                 "setUniform: `{name}` was first set as a {} and keeps that type; a different \
                  number of components was padded or truncated",
                 ty.glsl()
             ),
-        );
+        ),
+        SetOutcome::Refused => state.log_once(
+            ConsoleLevel::Error,
+            &format!(
+                "setUniform: `{name}` was created after the scene loaded, so the shaders were \
+                 compiled without it and it is ignored; create every uniform in setup() or in \
+                 the first update() (a show never compiles shaders while it plays)"
+            ),
+        ),
     }
     Ok(())
 }

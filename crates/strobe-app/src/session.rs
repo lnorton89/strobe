@@ -39,28 +39,30 @@
 //!       -> ControlBank::tick -> audio textures -> script uniforms -> render
 //! ```
 //!
-//! **Uniforms the script creates are compiled in at load.** A shader cannot
-//! use a uniform nobody declared, and a show must not compile shaders while
-//! it plays, so [`Session::load`] runs the script's first frame *before*
-//! building the player and declares whatever it published (in `setup()` or
-//! in that first `update`) in every pass program. That frame is part of the
+//! **Uniforms the script creates are compiled in at load, and only then.**
+//! A shader cannot use a uniform nobody declared, and a show must not
+//! compile shaders while it plays, so [`Session::load`] runs the script's
+//! first frame *before* building the player and declares whatever it
+//! published (in `setup()` or in that first `update`) in every pass
+//! program, then seals the script's uniforms. That frame is part of the
 //! scene's life, not a probe: it runs with the real audio at the scene's
 //! start and a 60 Hz step, and the scene's second frame is its next.
-//! A script that publishes a uniform later (say, only once a beat is heard)
-//! costs one recompile at that moment, logged, because the alternative is a
-//! shader that cannot compile. A uniform whose name clashes with something
-//! the scene declares is dropped with a warning.
+//! A script that publishes a *new* uniform later (say, only once a beat is
+//! heard) has that write refused with one console error; nothing is
+//! recompiled (D161). A uniform whose name clashes with something the
+//! scene declares is dropped with a warning.
 //!
-//! The previous frame's 64x36 downsample (`textureFinalPass`) is **not**
-//! provided yet: it needs a GPU readback every frame, which stalls the
-//! pipeline on an old laptop. `textureFinalPass` returns black.
+//! The previous frames' 64x36 downsample (`textureFinalPass`) comes from an
+//! asynchronous pixel-buffer readback the player runs only when the script
+//! mentions `textureFinalPass` (D162). It is a few frames old, and black
+//! until the first one lands.
 
 use crate::audio::AudioInput;
 use crate::failures;
 use crate::script::{self, Harvest, ScriptRun, ScriptState};
 use std::ops::RangeInclusive;
 use std::path::{Path, PathBuf};
-use strobe_diag::failure::{self, Failure, Subsystem};
+use strobe_diag::failure;
 use strobe_gfx::gl::Gl;
 use strobe_gfx::{AudioTextures, Caps, FrameInputs, Mouse, Options, PlayerError, ScenePlayer};
 use strobe_scene::assemble::ExtraType;
@@ -128,13 +130,7 @@ pub struct Session {
     pub meta: ControlBank,
     /// The compiled passes and render targets.
     pub player: ScenePlayer,
-    /// Kept so the player can be rebuilt with more script uniforms.
-    scene: SceneFolder,
-    gl: Gl,
-    caps: Caps,
     script: Option<ScriptRun>,
-    /// Whether a rebuild for script uniforms failed (not retried).
-    rebuild_failed: bool,
     /// Scratch for the script's uniform values, in the player's order.
     extra_values: Vec<[f32; 4]>,
     transitions: Vec<f32>,
@@ -198,6 +194,10 @@ impl Session {
         }
         let player =
             ScenePlayer::with_extras(gl, caps, &scene, render_size, Options::default(), &extras)?;
+        // The shaders now hold every uniform the script may ever send.
+        if let Some(run) = script.as_mut() {
+            run.seal_uniforms();
+        }
         let mut session = Self {
             name: name.to_string(),
             dir: dir.to_path_buf(),
@@ -205,11 +205,7 @@ impl Session {
             controls,
             meta,
             player,
-            scene,
-            gl: gl.clone(),
-            caps: caps.clone(),
             script,
-            rebuild_failed: false,
             extra_values: Vec::new(),
             transitions,
             frame: 0,
@@ -281,9 +277,6 @@ impl Session {
                 &mut self.controls,
                 &mut self.meta,
             );
-            if harvest.new_uniforms {
-                self.adopt_new_uniforms(&harvest);
-            }
             self.send_script_uniforms(&harvest);
         }
         self.controls.tick(dt);
@@ -303,43 +296,6 @@ impl Session {
             transitions: &self.transitions,
         });
         self.frame += 1;
-    }
-
-    /// Rebuilds the player when the script has published a uniform the
-    /// shaders were not compiled with. Rare, logged, and never retried
-    /// after a failure.
-    fn adopt_new_uniforms(&mut self, harvest: &Harvest) {
-        let wanted = script::usable_extras(&self.scene.def, extras_of(harvest));
-        if wanted == self.player.extras() || self.rebuild_failed {
-            return;
-        }
-        log::warn!(
-            "script created uniform(s) after load ({}); recompiling this scene's shaders once",
-            names_of(&wanted)
-        );
-        let size = self.player.render_size();
-        match ScenePlayer::with_extras(
-            &self.gl,
-            &self.caps,
-            &self.scene,
-            size,
-            Options::default(),
-            &wanted,
-        ) {
-            Ok(player) => self.player = player,
-            Err(error) => {
-                self.rebuild_failed = true;
-                failure::report(
-                    Failure::new(Subsystem::Shader, "recompile")
-                        .scene(&self.name)
-                        .detail("script_uniforms", names_of(&wanted))
-                        .message(error)
-                        .action(
-                            "keeping the shaders compiled at load; new script uniforms are not sent",
-                        ),
-                );
-            }
-        }
     }
 
     /// Hands the script's uniform values to the player, in the order the
