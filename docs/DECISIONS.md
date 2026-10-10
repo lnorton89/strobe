@@ -1693,3 +1693,66 @@ for targets than the strip assumed.
 
 **Would reopen:** a real window manager in CI (a Wayland or X11 session with
 a compositor), which would let drag, snap and resize be driven.
+### D140: the offscreen context runner lives in strobe-gfx, and auto-controls use it (2026-10-10)
+
+On the T480, `strobe-autocontrol` failed with `no headless DesktopCore33
+context (EGL devices: Enumerating devices is not supported by the EGL
+instance)`: Intel on Windows has no EGL devices, and the bench's answer
+(D70-D72, a hidden winit window owning a `WindowedContext`) lived in
+`strobe-bench/src/window.rs`, where nothing else could reach it.
+
+It moved to `strobe_gfx::offscreen`, beside the context providers it
+wraps. `strobe-gfx` already depends on winit and glutin, so
+`strobe-autocontrol` gains no dependency and `strobe-bench` loses one.
+The shape:
+
+- `run(&Request, notice, job)`. `Request { mode: Auto|Headless|Window,
+  api: Option<Api>, gl: GlChoice, tiny }` is the whole decision. `job` is
+  `FnOnce(&Gl, &Caps, &str) -> T` (the str says where the context came
+  from) and `T` comes back through the event loop, so a caller returns a
+  `Result` of its own. `run_headless` and `run_window` are public for a
+  caller that wants only one. `notice` is called once, before the job,
+  when `Auto` falls back, so the bench prints the same line it always did.
+- `--context auto` is headless when an EGL device gives a context and the
+  window otherwise. `--gl` and `--api` fold exactly as D72 says, and a
+  contradiction is an error in **every** mode, so a mistake is not hidden
+  by the machine it was tried on.
+- Hidden window first, tiny off-screen window second (D71), vsync off. A
+  vsync refusal used to be a `println!` in the bench; it is now a log
+  warning and a suffix on the context line, which reaches `results.md`.
+- Window mode must run on the main thread, once per process (winit
+  0.30). That is documented on the module and is why the test for it
+  spawns the binary. The app, which owns an event loop and a context
+  already, must not call this; it hands its own `&Gl` and `&Caps` to the
+  library.
+
+**Autocontrol.** The library API is unchanged: `generate(&Gl, &Caps, ...)`
+takes a context the caller already has, so the app can score on its own
+later. Only the CLI picks a context. It gained `--context
+auto|headless|window`, `--gl native|angle|auto` and `--show-window`, with
+the bench's meaning; `--api` became optional (unset is desktop, or
+whatever `--gl` implies). `--analyze-only` opens no context, and still
+works with no GL and no display. The CLI prints one `context:` line before
+its report and nothing in the report depends on it.
+
+**Determinism, checked.** On llvmpipe under Xvfb, `scenes/05-domain-warp`
+with its CONTROLS stripped (in a temp copy, defaults baked in as
+`#define`s; 8 candidates, 7 kept, 1 dead) gave a byte-identical
+`report.json`, an identical written scene folder and identical `--report`
+text from `--context headless`, `--context window` (hidden), `--context
+window --show-window` (tiny) and `--context auto`; and from headless
+`--api gles` against window `--gl angle` (Mesa's EGL GLES 3.0). The bench
+on `05` wrote byte-identical PNGs in all four modes, and identical to the
+build before the move. `crates/strobe-autocontrol/tests/window.rs` pins
+the CLI comparison and CI runs it under Xvfb.
+
+That is evidence that the context path does not change the picture, not
+that two GPUs agree: both modes were the same rasteriser. On Intel the
+scores will differ from llvmpipe's (as every timing does), and a score
+rounded to five decimals can still straddle a kept/cut boundary between
+drivers. What must hold on any one machine is that headless and window
+agree, which is checkable only where both exist.
+
+**Would reopen:** if the T480's `--context window` run keeps a different
+set than a Linux run in a way a driver cannot explain, or if the app needs
+to score before it has an event loop.

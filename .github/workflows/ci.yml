@@ -172,6 +172,15 @@ jobs:
           test -s target/ci-shot-control.png
           test -s target/ci-shot-output.png
 
+      # The window half of the auto-controls tests: the CLI scores a scene on
+      # an EGL device and on a hidden window and the two reports must match
+      # (D140). The plain Test step above has no display, so it skips them.
+      - name: Auto-controls on a window context (Xvfb)
+        env:
+          STROBE_REQUIRE_HEADLESS_GL: "1"
+          STROBE_REQUIRE_WINDOW_GL: "1"
+        run: xvfb-run -a -s "-screen 0 1280x720x24" cargo test -p strobe-autocontrol --test window
+
       # Render every scene in the library headless, once per GLSL dialect,
       # and keep the frames. Mesa's llvmpipe is CPU rasterisation, so the
       # timings in results.md are not a GPU's — but the *images* are a pure

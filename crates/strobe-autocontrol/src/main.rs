@@ -3,7 +3,8 @@
 // Description:  `strobe-autocontrol`: generates a control set for a scene
 //               folder and writes the result as a new scene, never in place.
 //
-// Dependencies: clap, anyhow; strobe_autocontrol (the library half), strobe-gfx
+// Dependencies: clap, anyhow; strobe_autocontrol (the library half),
+//               strobe-gfx (offscreen contexts)
 // ============================================================================
 
 //! `strobe-autocontrol`.
@@ -12,6 +13,7 @@
 //! strobe-autocontrol scenes/12-warm.synScene
 //! strobe-autocontrol scenes/12-warm.synScene --out generated --keep 6 --report
 //! strobe-autocontrol scenes/12-warm.synScene --analyze-only      (no GPU needed)
+//! strobe-autocontrol scenes/12-warm.synScene --context window    (no EGL device)
 //! ```
 //!
 //! Reads the scene, finds the literals that could be controls, measures each
@@ -25,10 +27,15 @@
 //! names are added. The five "Strobe" controls of a Shadertoy import do not
 //! count as authored.
 //!
-//! Scoring needs a GL context. This binary opens a headless EGL one (Mesa
-//! llvmpipe on a machine with no GPU); a Windows machine whose driver
-//! exposes no EGL device should use `--analyze-only`, or run the engine
-//! from inside the app, which has a window context to give it.
+//! Scoring needs a GL context, and `--context auto|headless|window` (with
+//! `--gl native|angle|auto` for the window) says where it comes from, with
+//! the same meaning as in `strobe-bench`: `headless` is an EGL device with no
+//! window system (CI, Mesa llvmpipe); `window` is one hidden window owning
+//! the app's own context type, for Intel on Windows, which has no EGL device;
+//! `auto`, the default, is headless if a device exists and the window
+//! otherwise. Both run the same job on the same `&Gl` and `&Caps`
+//! ([`strobe_gfx::offscreen`], D140), so the scores and kept controls agree.
+//! `--analyze-only` opens no context at all.
 
 use anyhow::{Context as _, Result, anyhow, bail};
 use clap::{Parser, ValueEnum};
@@ -38,7 +45,8 @@ use strobe_autocontrol::generate::{Options, authored_controls, generate};
 use strobe_autocontrol::output::write_scene;
 use strobe_autocontrol::score::ScoreOptions;
 use strobe_autocontrol::source::Sources;
-use strobe_gfx::{Api, Caps, Headless};
+use strobe_gfx::offscreen::{self, ContextMode, OffscreenError, Request};
+use strobe_gfx::{Api, Backend, GlChoice};
 use strobe_scene::SceneFolder;
 
 /// The command line.
@@ -79,9 +87,25 @@ struct Cli {
     /// controls default to 0, so the scene looks the same until raised.
     #[arg(long)]
     audio_bindings: bool,
-    /// The GL dialect to measure in.
-    #[arg(long, value_enum, default_value_t = ApiArg::Desktop)]
-    api: ApiArg,
+    /// Where the GL context comes from: an EGL device with no window
+    /// system (`headless`), one hidden window (`window`), or headless
+    /// when a device exists and the window otherwise (`auto`).
+    #[arg(long, value_enum, default_value_t = ContextArg::Auto)]
+    context: ContextArg,
+    /// GL backend for `--context window`: the platform's OpenGL 3.3
+    /// core (`native`), ANGLE's OpenGL ES 3.0 (`angle`), or native then
+    /// ANGLE (`auto`).
+    #[arg(long, value_enum, default_value_t = GlArg::Auto)]
+    gl: GlArg,
+    /// Use a tiny undecorated window parked off-screen instead of a
+    /// hidden one, for a platform that will not give a hidden window a GL
+    /// surface. Hidden is tried first anyway.
+    #[arg(long)]
+    show_window: bool,
+    /// The GL dialect to measure in (default desktop). In window mode the
+    /// backend decides it, and this must agree: `gles` means ANGLE.
+    #[arg(long, value_enum)]
+    api: Option<ApiArg>,
     /// Scoring resolution, WIDTHxHEIGHT.
     #[arg(long, default_value = "160x90")]
     size: String,
@@ -100,6 +124,49 @@ struct Cli {
 enum ApiArg {
     Desktop,
     Gles,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum ContextArg {
+    Auto,
+    Headless,
+    Window,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum GlArg {
+    Auto,
+    Native,
+    Angle,
+}
+
+impl ApiArg {
+    fn api(self) -> Api {
+        match self {
+            Self::Desktop => Api::DesktopCore33,
+            Self::Gles => Api::Gles30,
+        }
+    }
+}
+
+impl ContextArg {
+    fn mode(self) -> ContextMode {
+        match self {
+            Self::Auto => ContextMode::Auto,
+            Self::Headless => ContextMode::Headless,
+            Self::Window => ContextMode::Window,
+        }
+    }
+}
+
+impl GlArg {
+    fn choice(self) -> GlChoice {
+        match self {
+            Self::Auto => GlChoice::Auto,
+            Self::Native => GlChoice::Only(Backend::Native),
+            Self::Angle => GlChoice::Only(Backend::Angle),
+        }
+    }
 }
 
 fn parse_size(text: &str) -> Result<[i32; 2]> {
@@ -159,16 +226,6 @@ fn main() -> Result<()> {
         );
     }
 
-    let api = match cli.api {
-        ApiArg::Desktop => Api::DesktopCore33,
-        ApiArg::Gles => Api::Gles30,
-    };
-    let headless = Headless::new(api).map_err(|e| {
-        anyhow!("no headless {api:?} context ({e}); use --analyze-only on a machine without EGL")
-    })?;
-    let gl = headless.gl();
-    let caps = Caps::from_info(gl.info());
-
     let options = Options {
         keep: cli.keep,
         max_scored: cli.max_scored,
@@ -181,7 +238,30 @@ fn main() -> Result<()> {
         merge: cli.force_merge,
         bind_audio: cli.audio_bindings,
     };
-    let generated = generate(gl, &caps, &folder, &options)?;
+    let request = Request {
+        mode: cli.context.mode(),
+        api: cli.api.map(ApiArg::api),
+        gl: cli.gl.choice(),
+        tiny: cli.show_window,
+    };
+    let generated = offscreen::run(
+        &request,
+        |why| println!("{why}"),
+        |gl, caps, context| {
+            println!(
+                "context: {context} | {} | {}",
+                caps.info.renderer, caps.info.version
+            );
+            generate(gl, caps, &folder, &options)
+        },
+    )
+    .map_err(|e| match e {
+        OffscreenError::Conflict(_) => anyhow!("{e}"),
+        OffscreenError::Headless(_) | OffscreenError::Window(_) => anyhow!(
+            "{e}\nscoring needs a GL context: --context window uses a hidden window where \
+             there is no EGL device, and --analyze-only needs none"
+        ),
+    })??;
 
     if cli.report {
         print!("{}", generated.report.detail());

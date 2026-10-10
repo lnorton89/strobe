@@ -18,8 +18,8 @@ anywhere. The same scene always gives the same controls (D126).
 
 - **Depends on:** `strobe-scene` (control model, name rules, `SceneFolder`),
   `strobe-shadertoy` (the lossless `glsl` tokenizer and the converter's
-  tab-marker constants only), `strobe-gfx` (headless context and
-  `ScenePlayer`, for scoring), `strobe-ssf-lib` (library identifiers a control
+  tab-marker constants only), `strobe-gfx` (`ScenePlayer` for scoring, and
+  `offscreen` for the CLI's context), `strobe-ssf-lib` (library identifiers a control
   must not shadow), plus serde, serde_json, thiserror, clap, anyhow, log.
 - **Used by:** the `strobe-autocontrol` binary here. The app does not call it
   yet; the review panel is not built.
@@ -51,6 +51,9 @@ anywhere. The same scene always gives the same controls (D126).
 cargo run --release -p strobe-autocontrol -- scenes/12-warm.synScene
 
 # Options:
+#   --context auto|headless|window   where the GL context comes from (default auto: headless if an EGL device exists, else a hidden window)
+#   --gl auto|native|angle           window backend; --api must not contradict it
+#   --show-window                    start with the tiny off-screen window instead of a hidden one
 #   --out <DIR>        library to write <name>-auto.synScene into (default: beside the source)
 #   --keep <N>         at most N controls (default 8)
 #   --report           print every candidate with scores; write <name>-auto.report.json
@@ -59,8 +62,17 @@ cargo run --release -p strobe-autocontrol -- scenes/12-warm.synScene
 #   --dry-run          measure and report, write nothing
 #   --analyze-only     list the candidates found by static analysis; needs no GPU
 #   --audio-bindings   write the suggested audio mappings into the GLSL (amounts default to 0)
-#   --api desktop|gles measure in GL 3.3 core (default) or GLES 3.0
+#   --api desktop|gles measure in GL 3.3 core (default) or GLES 3.0; with --context window the backend decides
 #   --size WxH, --frames N, --threshold F, --max-scored N
+```
+
+On a machine with no EGL device (Intel on Windows) `--context auto` opens a
+hidden window, the same way `strobe-bench` does (D70-D72, D140). The window
+owns a context and nothing else, and the scores and kept controls match the
+headless ones:
+
+```powershell
+strobe-autocontrol.exe target\t480\ac\05.synScene --context window --report --dry-run
 ```
 
 A scene that already has authored controls is refused unless `--force-merge`
@@ -69,6 +81,7 @@ authored. From Rust:
 
 ```rust
 use strobe_autocontrol::{Options, generate};
+# // The caller supplies the context: the app's own, or strobe_gfx::offscreen::run's.
 # fn run(gl: &strobe_gfx::gl::Gl, caps: &strobe_gfx::Caps, folder: &strobe_scene::SceneFolder)
 #     -> Result<(), Box<dyn std::error::Error>> {
 let generated = generate(gl, caps, folder, &Options::default())?;
@@ -94,6 +107,10 @@ How a literal becomes a control:
 cargo test -p strobe-autocontrol
 STROBE_REQUIRE_HEADLESS_GL=1 cargo test -p strobe-autocontrol   # fail instead of skipping without EGL
 STROBE_BLESS=1 cargo test -p strobe-autocontrol --test golden   # regenerate the goldens
+
+# the window half of tests/window.rs needs a display; without one it skips
+STROBE_REQUIRE_HEADLESS_GL=1 STROBE_REQUIRE_WINDOW_GL=1 \
+    xvfb-run -a -s "-screen 0 1280x720x24" cargo test -p strobe-autocontrol --test window
 ```
 
 - **Unit tests** beside each module: the tokenizer view, every detector with
@@ -115,6 +132,13 @@ STROBE_BLESS=1 cargo test -p strobe-autocontrol --test golden   # regenerate the
   binding being inert at 0, a candidate that breaks the compile being dropped,
   and a scene that does not compile at all. It writes a results table to
   `target/tmp/`.
+- **`tests/window.rs`** spawns the real binary (winit allows one event loop
+  per process, on the main thread, which a test thread is not). It scores one
+  scene with `--context headless` and `--context window` and requires the
+  same printed report; it also checks that an `--api`/`--gl` contradiction is
+  refused in every mode, that `--analyze-only` runs with no display, and that
+  a window with no display says so. The window comparison skips without a
+  display unless `STROBE_REQUIRE_WINDOW_GL` is set (CI's Xvfb step sets it).
 - **Fixtures** (`tests/fixtures/`) are original work in exact Shadertoy export
   shape, MIT like the repo: a ring tunnel, a raymarched field, a feedback
   swirl with a `Common` tab, voronoi cells and colour bars. The converter's
@@ -130,15 +154,19 @@ STROBE_BLESS=1 cargo test -p strobe-autocontrol --test golden   # regenerate the
   output, so moving it does not jump the phase.
 - **Measured, not guessed (D126).** One compile, two nudges per candidate,
   fixed frames and synthetic audio, scores rounded to five decimals.
+- **The library takes a context, only the CLI picks one (D140).** `generate`
+  is given `&Gl` and `&Caps`, so the app can score on its own context. The CLI
+  uses `strobe_gfx::offscreen`, shared with the bench.
 
 ## Status and known gaps
 
 - **Verified:** llvmpipe (Mesa) on desktop GL 3.3 core and GLES 3.0. Not a real
   GPU, not the T480, not ANGLE itself.
 - **No app integration.** There is no Import or Inspector review panel and the
-  app does not call `generate`. On a machine with no EGL device (Windows
-  Intel) the binary cannot score; use `--analyze-only` or call the library
-  with the app's own context.
+  app does not call `generate`.
+- **Window mode on Windows is unverified.** `--context window` agrees with
+  `--context headless` byte for byte on llvmpipe under Xvfb, but it has not
+  run on the T480 yet (the check is in `docs/hardware/T480.md`).
 - **Speed controls bypass `st_speed` and `st_audio_time`** on the terms they
   replace in a Shadertoy import (D125).
 - **Not generated:** `xy` pads (a centre, an offset), dropdowns (a mode

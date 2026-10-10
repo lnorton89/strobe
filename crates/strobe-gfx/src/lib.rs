@@ -18,6 +18,7 @@
 pub mod adaptive;
 pub mod caps;
 pub mod gl;
+pub mod offscreen;
 pub mod player;
 pub mod timing;
 
