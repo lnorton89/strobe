@@ -25,6 +25,7 @@
 //!   header for the context's dialect, the standard and audio uniforms, the
 //!   SSF function library, the user's code, and the `main` that calls
 //!   `renderMain`.
+//! - [`fixups`] are the GLSL ES rewrites for desktop-only SSF idioms.
 //! - [`meta`] is the output-wide meta control bank (master, brightness,
 //!   hue, mirror...), an ordinary [`control::ControlBank`].
 //! - [`names`] is the name matching the JavaScript API relies on:
@@ -39,6 +40,7 @@ pub mod audio;
 pub mod control;
 pub mod date;
 pub mod error;
+pub mod fixups;
 pub mod json;
 pub mod load;
 pub mod meta;
