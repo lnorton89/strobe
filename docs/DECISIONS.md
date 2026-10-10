@@ -1054,3 +1054,47 @@ show.
 
 **Would reopen:** hidden-mode frames drifting from 60 Hz under Windows timer
 granularity, or a driver that lets the queue grow with no swap.
+
+### D120: the Perform UI is "Contextual Perform" (direction B) (2026-10-10)
+
+The owner chose direction **B · Contextual** from
+`docs/mockups/strobe-perform-directions.html`, which is the topology
+`UI_IMPLEMENTATION_PLAN.md` recommends.
+
+Always visible:
+- a navigation rail;
+- the live preview;
+- a compact health strip;
+- transport and cue state;
+- the Performance Macros.
+
+Opened as panes when needed, without changing the primary task:
+- the scene browser;
+- the control inspector;
+- diagnostics;
+- mapping detail;
+- playlist detail.
+
+The others were rejected:
+- **A · Instrument:** everything visible at once.
+- **C · Minimal:** too much behind menus.
+- **D · Studio:** an authoring layout with dockable panes, which is the
+  busiest.
+
+Implementation follows `UI_IMPLEMENTATION_PLAN.md`, porting rustaman's UI
+system (D5).
+
+**Would reopen:** if the 1280x720 acceptance screenshots show the
+persistent strip and macros leave the preview too small to judge the
+output.
+
+### D121: work reaches `master` by direct fast-forward once CI passes (2026-10-10)
+
+The owner chose this over pull requests. Agent sessions develop on their
+`claude/*` branch, and when that branch passes `cargo xtask ci`
+(`STROBE_REQUIRE_HEADLESS_GL=1` in the cloud) they fast-forward `master`
+to it. Nothing is ever force-pushed, and no release tag is ever moved.
+Pull requests stay the route for outside contributors and dependabot.
+
+**Would reopen:** if the owner wants to review before merging, or if a
+second person starts contributing.
