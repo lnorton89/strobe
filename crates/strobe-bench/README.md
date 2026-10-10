@@ -109,11 +109,11 @@ It has no `#[test]` functions, so `cargo test -p strobe-bench` only compiles it.
   heaviest scene, `10-volume-clouds`, ran at about 190 ms per frame at 720p
   there. The other baseline is llvmpipe in a cloud container. A render-scale
   sweep is still listed as wanted.
-- **The exit status does not reflect a failed scene.** A scene that fails to
-  compile is printed as `FAILED`, recorded in `results.md` and left out of the
-  contact sheet, but the process still exits 0 (checked by running
-  it on a deliberately broken scene). D56 and a comment in `ci.yml` say such a
-  scene fails the CI step; as written, it does not.
+- **A failed scene fails the run.** A scene that fails to compile is printed
+  as `FAILED`, recorded in `results.md` and left out of the contact sheet.
+  After every frame and the report are written, the process exits non-zero
+  with `N of M scenes failed: <names>`, which is what fails CI's bench step
+  (D56).
 - No scripts run (so `11-script-orbits` renders as a still with default
   controls) and the audio textures are placeholders (ROADMAP "Known gaps").
 - Not built for macOS: `strobe-gfx` has no CGL provider (D55).

@@ -264,7 +264,24 @@ fn run(gl: &Gl, caps: &Caps, context: &str, size: [i32; 2], cli: &Cli) -> Result
     let report = report(&rows, caps, context, size, options, cli);
     std::fs::write(cli.out.join("results.md"), &report)?;
     println!("\nwrote {}", cli.out.display());
-    Ok(())
+    // Every frame and the report are written first, so a failing run still
+    // leaves its evidence; then the exit status says it failed, which is
+    // what lets CI's bench step catch a scene that no longer compiles (D56).
+    let failed: Vec<&str> = rows
+        .iter()
+        .filter(|row| row.error.is_some())
+        .map(|row| row.name.as_str())
+        .collect();
+    if failed.is_empty() {
+        Ok(())
+    } else {
+        Err(anyhow!(
+            "{} of {} scenes failed: {}",
+            failed.len(),
+            rows.len(),
+            failed.join(", ")
+        ))
+    }
 }
 
 fn parse_size(text: &str) -> Result<[i32; 2]> {
