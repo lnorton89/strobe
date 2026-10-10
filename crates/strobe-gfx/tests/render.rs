@@ -222,6 +222,58 @@ fn real_scene_idioms_compile_on_desktop_gl() -> Result<()> {
 }
 
 #[test]
+fn passindex_compared_with_a_float_literal_compiles_in_both_dialects() -> Result<()> {
+    // Q8: real scenes write `PASSINDEX == 0.0`, either way round, with `<`
+    // and `!=` as well. Desktop GLSL converts the int; GLSL ES needs the
+    // assembler's cast. Both PASSINDEX modes, both dialects, and the right
+    // branch must run (a wrong cast would pick the wrong pass).
+    let json = r#"{ "PASSES": [ {"TARGET": "firstBuffer"} ] }"#;
+    let shader = r#"
+        vec4 renderMain(void) {
+            if (PASSINDEX == 0.0) { return vec4(0.25, 0.0, 0.0, 1.0); }
+            if (1.0 == PASSINDEX && PASSINDEX != 0.0 && PASSINDEX > 0.5 && 0.5 < PASSINDEX) {
+                return vec4(texture(firstBuffer, _uv).r * 2.0, 0.5, 0.0, 1.0);
+            }
+            return vec4(0.0, 0.0, 1.0, 1.0);
+        }"#;
+    for api in BOTH {
+        for specialise_passes in [true, false] {
+            let options = Options {
+                specialise_passes,
+                ..Options::default()
+            };
+            let Some(px) = render_center(api, options, json, shader, 1)? else {
+                continue;
+            };
+            assert!(
+                near(px[0], 128) && near(px[1], 128) && px[2] == 0,
+                "{api:?} specialised={specialise_passes}: pass 0 wrote 0.25, the final pass doubled it; got {px:?}"
+            );
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn int_passindex_comparisons_still_compile_in_both_dialects() -> Result<()> {
+    // The fix-up must not disturb the int idiom (R4) or other uses.
+    let json = r#"{ "PASSES": [ {"TARGET": "firstBuffer"} ] }"#;
+    let shader = r#"
+        vec4 renderMain(void) {
+            if (PASSINDEX == 0) { return vec4(0.25, 0.0, 0.0, 1.0); }
+            float p = float(PASSINDEX);
+            return vec4(texture(firstBuffer, _uv).r * 2.0, p * 0.5, 0.0, 1.0);
+        }"#;
+    for api in BOTH {
+        let Some(px) = render_center(api, Options::default(), json, shader, 1)? else {
+            continue;
+        };
+        assert!(near(px[0], 128) && near(px[1], 128), "{api:?}: got {px:?}");
+    }
+    Ok(())
+}
+
+#[test]
 fn a_compile_error_points_at_main_glsl() -> Result<()> {
     let Some(headless) = context(Api::DesktopCore33)? else {
         return Ok(());
