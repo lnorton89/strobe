@@ -33,9 +33,6 @@ which backend proved a claim.
 
 ### In flight
 
-- Small recovery fixes from T480 Task 8: clear a stale GL error before
-  egui's painter is rebuilt, and label the give-up record as a lost
-  output, not a failed start.
 - T480 check of the hidden output window (D96's unverified list).
 
 ## Next, in priority order

@@ -68,7 +68,7 @@ fn main() -> ExitCode {
     let cli = match cli::Cli::try_parse() {
         Ok(cli) => cli,
         Err(error) if error.use_stderr() => {
-            report_failure(&error.to_string(), session.log_file.as_deref());
+            report_failure(&error.to_string(), false, session.log_file.as_deref());
             return ExitCode::FAILURE;
         }
         // --help and --version: print and stop.
@@ -86,14 +86,28 @@ fn main() -> ExitCode {
     strobe_diag::logger::flush(FLUSH_TIMEOUT);
     match outcome {
         Ok(()) => ExitCode::SUCCESS,
-        Err(error) => {
-            report_failure(&format!("{error:#}"), session.log_file.as_deref());
+        Err(Stopped { error, after_start }) => {
+            report_failure(
+                &format!("{error:#}"),
+                after_start,
+                session.log_file.as_deref(),
+            );
             ExitCode::FAILURE
         }
     }
 }
 
-fn run(cli: cli::Cli) -> Result<()> {
+/// Why a run ended in failure, and whether the windows had opened by then.
+struct Stopped {
+    error: anyhow::Error,
+    after_start: bool,
+}
+
+fn run(cli: cli::Cli) -> Result<(), Stopped> {
+    let before_start = |error: anyhow::Error| Stopped {
+        error,
+        after_start: false,
+    };
     let (library, scan_error) = match library::Library::scan(&cli.library) {
         Ok(library) => (library, None),
         Err(error) => (
@@ -104,23 +118,37 @@ fn run(cli: cli::Cli) -> Result<()> {
             Some(error),
         ),
     };
-    let event_loop = EventLoop::new().context("could not start the window system")?;
+    let event_loop = EventLoop::new()
+        .context("could not start the window system")
+        .map_err(before_start)?;
     let mut app = app::App::new(cli, library, scan_error);
-    event_loop
+    let looped = event_loop
         .run_app(&mut app)
-        .context("the event loop failed")?;
+        .context("the event loop failed");
+    let after_start = app.started();
+    looped.map_err(|error| Stopped { error, after_start })?;
     match app.failure() {
-        Some(message) => Err(anyhow::anyhow!("{message}")),
+        Some(message) => Err(Stopped {
+            error: anyhow::anyhow!("{message}"),
+            after_start,
+        }),
         None => Ok(()),
     }
 }
 
-/// Records a startup failure and shows it where the person will see it.
-fn report_failure(message: &str, log_file: Option<&std::path::Path>) {
+/// Records a failure and shows it where the person will see it. A failure
+/// after the windows opened (a context that could not be recovered, say)
+/// is the app stopping, not a failed start, and the record says which.
+fn report_failure(message: &str, after_start: bool, log_file: Option<&std::path::Path>) {
+    let (phase, action) = if after_start {
+        ("run", "Strobe stopped")
+    } else {
+        ("startup", "Strobe did not start")
+    };
     failure::report(
-        Failure::new(Subsystem::Context, "startup")
+        Failure::new(Subsystem::Context, phase)
             .message(message)
-            .action("Strobe did not start"),
+            .action(action),
     );
     let mut text = message.to_string();
     if let Some(path) = log_file {

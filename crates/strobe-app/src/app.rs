@@ -141,6 +141,9 @@ pub struct App {
     scan_error: Option<String>,
     running: Option<Running>,
     failure: Option<String>,
+    /// Whether the windows ever opened, so a later failure is reported as
+    /// the app stopping rather than as a failed start.
+    started: bool,
 }
 
 impl App {
@@ -152,12 +155,18 @@ impl App {
             scan_error,
             running: None,
             failure: None,
+            started: false,
         }
     }
 
     /// Why the app stopped early, if it did.
     pub fn failure(&self) -> Option<&str> {
         self.failure.as_deref()
+    }
+
+    /// Whether the windows opened before any failure.
+    pub fn started(&self) -> bool {
+        self.started
     }
 
     /// Stops the loop if the running app asked to or failed, and carries
@@ -194,7 +203,10 @@ impl ApplicationHandler for App {
         }
         let library = self.library.take().unwrap_or_default();
         match Running::new(event_loop, &self.cli, library, self.scan_error.take()) {
-            Ok(running) => self.running = Some(running),
+            Ok(running) => {
+                self.running = Some(running);
+                self.started = true;
+            }
             Err(message) => {
                 self.failure = Some(message);
                 event_loop.exit();
@@ -337,6 +349,11 @@ impl Stack {
             log::warn!("control vsync: {e}");
         }
         gfx.make_current(&control)?;
+        // egui's painter checks the error flag before it builds anything,
+        // and a fresh context can carry one it did not cause: on the T480
+        // the native-to-ANGLE fail-over left GL_INVALID_OPERATION behind.
+        // Drain it here, once per context, never in the frame loop.
+        drain_gl_errors(gfx.gl());
         let ui = UiHost::new(event_loop, gfx.gl())?;
         if let Some(fullscreen) = layout.fullscreen.clone() {
             output.window().set_fullscreen(Some(fullscreen));
@@ -1406,6 +1423,19 @@ fn hidden_period(budget_ms: f32) -> Duration {
         return OUTPUT_PERIOD;
     }
     Duration::from_secs_f32(budget_ms / 1000.0).max(OUTPUT_PERIOD)
+}
+
+/// Clears the GL error flag, logging what it held. GL keeps one flag per
+/// error kind, so a handful of reads empties it; the bound only guards
+/// against a driver that never reports `GL_NO_ERROR`.
+fn drain_gl_errors(gl: &strobe_gfx::gl::Gl) {
+    const MAX_FLAGS: usize = 8;
+    for _ in 0..MAX_FLAGS {
+        match gl.error() {
+            Some(code) => log::debug!("cleared a stale GL error 0x{code:x} from context set-up"),
+            None => return,
+        }
+    }
 }
 
 /// Writes the GL context's facts into the session context, so every crash
