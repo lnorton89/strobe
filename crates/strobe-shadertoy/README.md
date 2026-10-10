@@ -21,8 +21,10 @@ built yet ([ROADMAP.md](../../docs/ROADMAP.md), "Shadertoy import, stage 2").
 - **Does not:**
   - touch the network: acquisition is a separate, later layer;
   - render: the scene folder it writes is played by `strobe-gfx`;
-  - generate controls from the shader's literals: that is the planned
-    auto-generated controls engine.
+  - generate controls from the shader's literals: that is
+    [`strobe-autocontrol`](../strobe-autocontrol/README.md), which reads the
+    converter's tab markers (`convert::TAB_MARKER_PREFIX`, `ENTRY_MARKER`) and
+    this crate's tokenizer.
 
 The scene format gained a few keys for imports, documented in
 [DECISIONS.md](../../docs/DECISIONS.md) D90:
@@ -140,8 +142,8 @@ STROBE_REQUIRE_HEADLESS_GL=1 cargo test -p strobe-shadertoy   # fail instead of 
 - **Not built:** fetching by id (path B, the REST API with a key), the
   userscript with its localhost listener (path A), the asset downloader,
   the app's Import UI, thumbnails, the Needs-work bin, and
-  promote-to-control (now part of the planned auto-generated controls
-  engine).
+  the review panel for generated controls (the engine is
+  `strobe-autocontrol`).
 - **Unsupported inputs:** `cubemap` and `volume` inputs, and `sound` and
   `cubemap` passes, are errors. `keyboard`, `video` and `webcam` read
   black, with a warning. `srgb` textures are not decoded (Q16).

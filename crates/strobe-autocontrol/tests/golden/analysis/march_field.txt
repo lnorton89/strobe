@@ -1,0 +1,5 @@
+#0 scale Shape Float default=[0.7] range=[0.0]..[1.4] name=scale sites=[main.glsl:24:28] literal="0.7"
+#1 time scale Motion Float default=[1.2] range=[0.0]..[2.4] name=speed sites=[main.glsl:31:30] literal="iTime * 1.2"
+#2 loop bound Quality Int default=[48.0] range=[12.0]..[96.0] name=steps sites=[main.glsl:35:25] literal="48"
+#3 colour Colour Colour default=[0.1, 0.14, 0.3] range=[0.0, 0.0, 0.0]..[1.0, 1.0, 1.0] name=haze_color sites=[main.glsl:41:17] literal="vec3(0.10, 0.14, 0.30)"
+#4 colour Colour Colour default=[0.9, 0.5, 0.2] range=[0.0, 0.0, 0.0]..[1.0, 1.0, 1.0] name=color sites=[main.glsl:42:40] literal="vec3(0.9, 0.5, 0.2)"
