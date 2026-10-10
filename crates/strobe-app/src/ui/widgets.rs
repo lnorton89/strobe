@@ -688,12 +688,13 @@ pub fn empty_state(ui: &mut Ui, theme: &Palette, icon: Icon, title: &str, detail
         FontId::new(15.0, egui::FontFamily::Proportional),
         theme::rgb(theme.text),
     );
-    let galley = truncated(
-        ui,
-        detail,
+    // Wrapped, not truncated: the detail says what to do next, and an
+    // instruction cut off mid-word is worse than none.
+    let galley = ui.painter().layout(
+        detail.to_string(),
         TextStyle::Small.resolve(ui.style()),
-        theme.text_muted,
-        rect.width() - SPACE_LG_X2,
+        theme::rgb(theme.text_muted),
+        (rect.width() - SPACE_LG_X2).max(40.0),
     );
     ui.painter().galley(
         egui::pos2(centre.x - galley.size().x / 2.0, centre.y + 12.0),
@@ -733,7 +734,7 @@ impl Tone {
     #[must_use]
     pub fn icon(self) -> Icon {
         match self {
-            Self::Info => Icon::Check,
+            Self::Info => Icon::Info,
             Self::Warning => Icon::Warning,
             Self::Error => Icon::Error,
         }
@@ -760,13 +761,18 @@ pub fn banner(
     message: &str,
     buttons: impl FnOnce(&mut Ui),
 ) {
+    /// Below this width the message gets its own wrapped row instead of
+    /// sharing the first one with the tone word and the buttons.
+    const WIDE: f32 = 520.0;
     let colour = tone.colour(theme);
+    let wide = ui.available_width() >= WIDE;
     egui::Frame::new()
         .fill(theme::translucent(colour, 28))
         .stroke(Stroke::new(1.0, theme::rgb(colour)))
         .corner_radius(CornerRadius::same(RADIUS))
         .inner_margin(theme::margin_xy(SPACE_SM, SPACE_XS))
         .show(ui, |ui| {
+            ui.set_width(ui.available_width());
             ui.horizontal(|ui| {
                 icons::show(ui, tone.icon(), icons::INLINE, theme::rgb(colour));
                 ui.label(
@@ -777,23 +783,28 @@ pub fn banner(
                 );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     buttons(ui);
-                    let width = ui.available_width();
-                    let galley = truncated(
-                        ui,
-                        message,
-                        TextStyle::Body.resolve(ui.style()),
-                        theme.text,
-                        width,
-                    );
-                    let (rect, response) = ui.allocate_exact_size(
-                        Vec2::new(width.min(galley.size().x), galley.size().y),
-                        Sense::hover(),
-                    );
-                    ui.painter()
-                        .galley(rect.left_top(), galley, theme::rgb(theme.text));
-                    response.on_hover_text(message);
+                    if wide {
+                        let width = ui.available_width();
+                        let galley = truncated(
+                            ui,
+                            message,
+                            TextStyle::Body.resolve(ui.style()),
+                            theme.text,
+                            width,
+                        );
+                        let (rect, response) = ui.allocate_exact_size(
+                            Vec2::new(width.min(galley.size().x), galley.size().y),
+                            Sense::hover(),
+                        );
+                        ui.painter()
+                            .galley(rect.left_top(), galley, theme::rgb(theme.text));
+                        response.on_hover_text(message);
+                    }
                 });
             });
+            if !wide {
+                ui.label(egui::RichText::new(message).color(theme::rgb(theme.text)));
+            }
         });
 }
 

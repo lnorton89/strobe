@@ -586,6 +586,8 @@ struct Running {
     preview_clock: Instant,
     /// The operator asked to quit (the title bar's close button).
     quit: bool,
+    /// `--request-load`: a scene to ask for just before the control capture.
+    shot_load: Option<String>,
 }
 
 /// A scene that did not load, for the banner.
@@ -627,6 +629,13 @@ impl Running {
         };
         if cli.system_title_bar {
             ui_state.custom_title_bar = false;
+        }
+        if let Some(theme) = &cli.theme {
+            if ui_state.catalog().themes().iter().any(|t| t.id == *theme) {
+                ui_state.set_theme(theme);
+            } else {
+                log::warn!("--theme: there is no theme called \"{theme}\"");
+            }
         }
         if cli.no_panes {
             ui_state.panes.close_all();
@@ -676,6 +685,7 @@ impl Running {
             pending_preview: None,
             preview_clock: now,
             quit: false,
+            shot_load: cli.request_load.clone(),
             ui_state,
             shell: ShellState::default(),
             playing: None,
@@ -2035,6 +2045,17 @@ impl Running {
             }
         }
         self.present(Surface::Control, Instant::now());
+        if self
+            .screenshot
+            .as_ref()
+            .is_some_and(Screenshot::control_capture_next)
+            && let Some(query) = self.shot_load.take()
+        {
+            match self.library.find(&query) {
+                Some(index) => self.request_load(index),
+                None => log::warn!("--request-load: no scene matching \"{query}\""),
+            }
+        }
         if self.rebuild.is_none() {
             self.apply(&mut actions);
             // Now that "preparing" has been on screen, do the blocking work.

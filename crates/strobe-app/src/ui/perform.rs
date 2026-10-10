@@ -188,20 +188,11 @@ pub fn preview(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mu
         theme::rgb(theme.app),
     );
 
-    if let Some(name) = model.loading {
-        centred_status(
-            ui,
-            theme,
-            area,
-            Icon::Refresh,
-            &format!("Preparing {name}..."),
-            "Compiling shaders. The picture returns when it is ready.",
-        );
-        ui.allocate_rect(area, Sense::hover());
-        return;
-    }
     let Some(image) = model.preview else {
-        no_scene(ui, model, theme, area);
+        match model.loading {
+            Some(name) => preparing(ui, theme, area, name),
+            None => no_scene(ui, model, theme, area),
+        }
         ui.allocate_rect(area, Sense::hover());
         return;
     };
@@ -216,6 +207,15 @@ pub fn preview(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mu
         uv,
         egui::Color32::from_white_alpha(255),
     );
+    // A scene being prepared: the live picture stays (the show is still
+    // running behind it), dimmed under the explanation.
+    if let Some(name) = model.loading {
+        ui.painter()
+            .rect_filled(rect, CornerRadius::ZERO, theme::translucent(theme.app, 190));
+        preparing(ui, theme, rect, name);
+        ui.allocate_rect(area, Sense::hover());
+        return;
+    }
 
     let blackout = model.transport.blackout;
     if blackout {
@@ -285,7 +285,7 @@ fn no_scene(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, area: Rect) {
     let (title, detail) = if model.library.entries.is_empty() {
         (
             "No scenes in the library",
-            "Open the library to rescan, or import a Shadertoy shader.",
+            "Put scene folders in the library folder, or import a Shadertoy shader.",
         )
     } else if model.failure.is_some() {
         (
@@ -302,10 +302,30 @@ fn no_scene(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, area: Rect) {
     let button_at = area.center() + Vec2::new(0.0, 56.0);
     let rect = Rect::from_center_size(button_at, Vec2::new(160.0, 30.0));
     ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
-        if widgets::primary_button(ui, theme, "Open the library").clicked() {
-            model.ui.panes.open(Pane::Browser);
+        let empty = model.library.entries.is_empty();
+        let label = if empty {
+            "Import a shader"
+        } else {
+            "Open the library"
+        };
+        if widgets::primary_button(ui, theme, label).clicked() {
+            model
+                .ui
+                .panes
+                .open(if empty { Pane::Import } else { Pane::Browser });
         }
     });
+}
+
+fn preparing(ui: &mut Ui, theme: &Palette, area: Rect, name: &str) {
+    centred_status(
+        ui,
+        theme,
+        area,
+        Icon::Refresh,
+        &format!("Preparing {name}..."),
+        "Compiling shaders. The current scene stays live until it is ready.",
+    );
 }
 
 fn centred_status(ui: &mut Ui, theme: &Palette, area: Rect, icon: Icon, title: &str, detail: &str) {

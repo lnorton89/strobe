@@ -47,7 +47,14 @@ use crate::palette::Palette;
 use egui::{Align, Layout, Sense, Ui, Vec2};
 
 /// The height of the whole strip: the transport row, a gap, and the macros.
-pub const HEIGHT: f32 = theme::TRANSPORT_BUTTON + macros::STRIP_HEIGHT + 3.0 * SPACE_SM;
+pub const HEIGHT: f32 = theme::TRANSPORT_BUTTON
+    + macros::STRIP_HEIGHT
+    // The panel's own top and bottom margins, the gap between the rows, and
+    // the item spacing egui adds around it: measured against a screenshot,
+    // the strip was eight points short without them.
+    + 2.0 * SPACE_SM
+    + SPACE_SM
+    + 2.0 * SPACE_XS;
 
 // The strip must hold both rows; checked when the crate is compiled.
 const _: () = assert!(

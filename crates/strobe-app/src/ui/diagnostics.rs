@@ -44,14 +44,18 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
     if closed {
         model.ui.panes.close(Pane::Diagnostics);
     }
+    // The status cards scroll in the top half; the console takes what is
+    // left and follows the newest line.
+    let top = (ui.available_height() * 0.5).max(160.0);
     egui::ScrollArea::vertical()
-        .id_salt("diagnostics-scroll")
-        .auto_shrink([false, false])
+        .id_salt("diagnostics-status")
+        .max_height(top)
+        .auto_shrink([false, true])
         .show(ui, |ui| {
             cards(ui, model, theme);
             needs_work(ui, model, theme);
-            console(ui, model, theme, actions);
         });
+    console(ui, model, theme, actions);
 }
 
 /// One subsystem's card: a title, a status chip, and its facts.
@@ -135,6 +139,10 @@ fn cards(ui: &mut Ui, model: &Model<'_>, theme: &Palette) {
                     model.stats.fps(),
                     model.stats.cpu_ms()
                 ),
+            ),
+            (
+                "Control UI",
+                format!("{:.2} ms per pass (30 Hz)", model.stats.ui_ms()),
             ),
         ],
     );
@@ -279,27 +287,33 @@ fn console(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Ve
     ui.add_space(SPACE_XS);
     let only_problems = model.ui.console_problems_only;
     let mut shown = 0_usize;
-    for line in model.console.lines() {
-        let text = egui::RichText::new(&line.text).monospace().size(11.5);
-        let text = match line.level {
-            Level::Info => {
-                if only_problems {
-                    continue;
-                }
-                text.color(theme::rgb(theme.text))
+    egui::ScrollArea::vertical()
+        .id_salt("diagnostics-console")
+        .auto_shrink([false, false])
+        .stick_to_bottom(true)
+        .show(ui, |ui| {
+            for line in model.console.lines() {
+                let text = egui::RichText::new(&line.text).monospace().size(11.5);
+                let text = match line.level {
+                    Level::Info => {
+                        if only_problems {
+                            continue;
+                        }
+                        text.color(theme::rgb(theme.text))
+                    }
+                    Level::Debug => {
+                        if only_problems {
+                            continue;
+                        }
+                        text.color(theme::rgb(theme.text_muted))
+                    }
+                    Level::Warn => text.color(theme::rgb(theme.warning)),
+                    Level::Error => text.color(theme::rgb(theme.danger)),
+                };
+                ui.label(text);
+                shown += 1;
             }
-            Level::Debug => {
-                if only_problems {
-                    continue;
-                }
-                text.color(theme::rgb(theme.text_muted))
-            }
-            Level::Warn => text.color(theme::rgb(theme.warning)),
-            Level::Error => text.color(theme::rgb(theme.danger)),
-        };
-        ui.label(text);
-        shown += 1;
-    }
+        });
     if shown == 0 {
         ui.label(
             egui::RichText::new(if only_problems {

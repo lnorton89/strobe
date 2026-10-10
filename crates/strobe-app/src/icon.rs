@@ -103,6 +103,8 @@ pub enum Icon {
     Warning,
     /// Something failed.
     Error,
+    /// Something to know: a circle with an i.
+    Info,
     /// Refresh, re-read.
     Refresh,
     /// Reset to a default: a counter-clockwise arrow.
@@ -243,6 +245,11 @@ impl Icon {
                 Seg::Open(&[(5.9, 5.9), (10.1, 10.1)]),
                 Seg::Open(&[(10.1, 5.9), (5.9, 10.1)]),
             ],
+            Self::Info => &[
+                Seg::Circle(8.0, 8.0, 5.8),
+                Seg::Dot(8.0, 5.3),
+                Seg::Open(&[(8.0, 7.6), (8.0, 11.0)]),
+            ],
             Self::Refresh => &[
                 Seg::Arc(8.0, 8.0, 5.0, 0.6, 5.4),
                 Seg::Open(&[(11.0, 1.5), (12.2, 4.6), (9.0, 5.2)]),
@@ -342,7 +349,7 @@ mod tests {
     /// Every icon the enum names, so a new variant is drawn by the tests
     /// below without anyone remembering to add it. Kept in declaration
     /// order: the check below reads each entry's discriminant.
-    const ALL: [Icon; 31] = [
+    const ALL: [Icon; 32] = [
         Icon::Perform,
         Icon::Library,
         Icon::Playlist,
@@ -365,6 +372,7 @@ mod tests {
         Icon::Check,
         Icon::Warning,
         Icon::Error,
+        Icon::Info,
         Icon::Refresh,
         Icon::Reset,
         Icon::Copy,

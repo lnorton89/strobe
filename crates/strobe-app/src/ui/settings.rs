@@ -144,10 +144,15 @@ fn performance(ui: &mut Ui, model: &mut Model<'_>, actions: &mut Vec<Action>) {
     } else {
         "Render scale"
     };
+    ui.label(
+        egui::RichText::new(label)
+            .small()
+            .color(theme::rgb(theme::palette().text_muted)),
+    );
+    ui.spacing_mut().slider_width = (ui.available_width() - 80.0).max(60.0);
     let slider = ui.add(
         egui::Slider::new(model.render_scale, RENDER_SCALE)
             .step_by(0.05)
-            .text(label)
             .custom_formatter(|value, _| format!("{:.0}%", value * 100.0)),
     );
     if slider.drag_stopped() || (slider.changed() && !slider.dragged()) {

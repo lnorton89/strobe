@@ -51,6 +51,7 @@ use super::theme::{self, PAD, RAIL_WIDTH, SPACE_MD, SPACE_SM, SPACE_XS, TITLE_BA
 use super::widgets;
 use crate::icon::Icon;
 use crate::palette::Palette;
+use crate::script::ScriptState;
 use crate::workspace::{Arrangement, Pane};
 use egui::{
     Align, CornerRadius, Layout, Rect, ResizeDirection, Sense, TextStyle, Ui, Vec2, ViewportCommand,
@@ -98,11 +99,16 @@ pub struct Readouts {
     backend: String,
     audio: String,
     output: String,
+    /// Empty while the scene's script is fine or absent: a script readout
+    /// appears only when there is something to say.
+    script: String,
+    script_level: Level,
 }
 
 /// How a readout is coloured: the state it reports, besides its words.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
 enum Level {
+    #[default]
     Quiet,
     Good,
     Warn,
@@ -144,6 +150,18 @@ impl Readouts {
             .to_string();
         self.audio = audio_text(model);
         self.output = output_text(model);
+        self.script.clear();
+        match model.script {
+            Some(ScriptState::Faulted { .. }) => {
+                self.script.push_str("Script fault");
+                self.script_level = Level::Warn;
+            }
+            Some(ScriptState::Disabled { .. }) => {
+                self.script.push_str("Script disabled");
+                self.script_level = Level::Bad;
+            }
+            Some(ScriptState::Running) | None => {}
+        }
     }
 }
 
@@ -423,6 +441,21 @@ fn health(
     .clicked()
     {
         model.ui.panes.open(Pane::Settings);
+    }
+
+    if !readouts.script.is_empty()
+        && readout(
+            ui,
+            theme,
+            Icon::Warning,
+            &readouts.script,
+            readouts.script_level,
+            "The scene's script.js is not running cleanly. Open Controls for the message.",
+            true,
+        )
+        .clicked()
+    {
+        model.ui.panes.open(Pane::Inspector);
     }
 
     if !compact

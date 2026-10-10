@@ -50,7 +50,7 @@ use super::theme::{self, PAD, RAIL_WIDTH, SPACE_SM, SPACE_XS};
 use super::{browser, diagnostics, import, inspector, keys, modal, perform, settings, transport};
 use crate::palette::Palette;
 use crate::workspace::{self, Dock, Pane};
-use egui::{Align2, CornerRadius, Rect, Sense, Stroke, Ui, Vec2};
+use egui::{CornerRadius, Rect, Sense, Stroke, Ui, Vec2};
 
 /// The drawing state the shell keeps between frames: only the readouts'
 /// formatted text. Everything the operator owns is in `UiState`.
@@ -64,6 +64,9 @@ pub struct ShellState {
 struct Splitter {
     pane: Pane,
     dock: Dock,
+    /// The drawn width of the pane in the other dock, if there is one.
+    other: Option<f32>,
+    window_width: f32,
     /// The pane panel's rectangle.
     rect: Rect,
 }
@@ -88,6 +91,8 @@ pub fn show(ui: &mut Ui, shell: &mut ShellState, model: &mut Model<'_>, actions:
             splitters[0] = Some(Splitter {
                 pane,
                 dock: Dock::Left,
+                other: arrangement.right.map(|(_, w)| w),
+                window_width: width,
                 rect,
             });
         }
@@ -96,6 +101,8 @@ pub fn show(ui: &mut Ui, shell: &mut ShellState, model: &mut Model<'_>, actions:
             splitters[1] = Some(Splitter {
                 pane,
                 dock: Dock::Right,
+                other: arrangement.left.map(|(_, w)| w),
+                window_width: width,
                 rect,
             });
         }
@@ -246,7 +253,15 @@ fn splitter_handle(ui: &mut Ui, splitter: Splitter, model: &mut Model<'_>, theme
             Dock::Left => pos.x - splitter.rect.left(),
             Dock::Right => splitter.rect.right() - pos.x,
         };
-        model.ui.panes.set_width(splitter.pane, width);
+        // Dragging a pane wider must not push its neighbour out of the
+        // window: stop at the limit instead.
+        let limit = workspace::drag_limit(
+            splitter.pane,
+            splitter.window_width,
+            RAIL_WIDTH,
+            splitter.other,
+        );
+        model.ui.panes.set_width(splitter.pane, width.min(limit));
     }
     let lit = response.hovered() || response.dragged();
     let colour = if lit { theme.accent } else { theme.border };
@@ -255,7 +270,4 @@ fn splitter_handle(ui: &mut Ui, splitter: Splitter, model: &mut Model<'_>, theme
         splitter.rect.y_range(),
         Stroke::new(if lit { 2.0 } else { 1.0 }, theme::rgb(colour)),
     );
-    // Keep the anchor name used by the alignment of the grab area visible
-    // to a reader: the grab area is centred on the edge, GRAB wide.
-    let _ = Align2::CENTER_CENTER;
 }
