@@ -143,6 +143,14 @@ pub struct Cli {
     /// whatever the saved setting says (D132).
     #[arg(long)]
     pub system_title_bar: bool,
+    /// Load this playlist file at launch (TOML; see `playlists/example.toml`).
+    /// Every scene it names is compiled before the first cue plays.
+    #[arg(long, value_name = "FILE")]
+    pub playlist: Option<PathBuf>,
+    /// Do not resume the saved playlist position, and do not save one.
+    /// (Screenshot mode never resumes or saves.)
+    #[arg(long)]
+    pub no_resume: bool,
 }
 
 /// Parses `1280x720`.
@@ -292,6 +300,20 @@ mod tests {
             !cli.blackout && !cli.system_title_bar,
             "blackout, title bar"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn a_playlist_can_be_named_and_resuming_can_be_switched_off() -> Result<()> {
+        let none = Cli::try_parse_from(["strobe"])?;
+        assert!(none.playlist.is_none() && !none.no_resume, "off by default");
+        let cli = Cli::try_parse_from(["strobe", "--playlist", "playlists/a.toml", "--no-resume"])?;
+        assert_eq!(
+            cli.playlist,
+            Some(PathBuf::from("playlists/a.toml")),
+            "path"
+        );
+        assert!(cli.no_resume, "no resume");
         Ok(())
     }
 
