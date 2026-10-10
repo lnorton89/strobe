@@ -164,9 +164,7 @@ fn float_literal_at(bytes: &[u8], index: usize) -> bool {
             break;
         }
     }
-    bytes
-        .get(index..end)
-        .is_some_and(|token| is_float_token(token))
+    bytes.get(index..end).is_some_and(is_float_token)
 }
 
 /// Whether a float literal ends just before `end` (spaces already skipped).
@@ -191,9 +189,7 @@ fn float_literal_ending_before(bytes: &[u8], end: usize) -> bool {
     {
         index -= 1;
     }
-    bytes
-        .get(index..token_end)
-        .is_some_and(|token| is_float_token(token))
+    bytes.get(index..token_end).is_some_and(is_float_token)
 }
 
 /// Whether the literal at `index` is hexadecimal.
