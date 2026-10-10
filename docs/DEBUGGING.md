@@ -192,3 +192,35 @@ To see what the UI looks like without a screen, use
 under Xvfb (`Xvfb :99 -screen 0 1440x900x24`); the flags are in the
 strobe-app README. To drive keys, `xdotool windowfocus` the window first (there
 is no window manager to focus it) and capture with `import -window root`.
+
+## Playlists
+
+A playlist logs every step it takes, all at `info`, all prefixed `playlist`:
+
+```
+playlist "Transition demo": 5 cue(s), 6 step(s) to compile before it plays
+playlist: compiled 03-kaleido-tunnel (5/5) in 142 ms
+playlist "Transition demo": 4 scene(s) compiled, 1 failed; shader compiles from here on are counted (12 so far)
+playlist: cue 2 started: 06-feedback-trails (pass 0)
+playlist: warming up cue 4 (02-plasma-pulse) at 480x270
+playlist: transition 1 started: cue 2 to cue 4 (Custom(0))
+playlist: cue 3 (ghost-scene) skipped: its scene failed to compile
+playlist "Transition demo": closed with 0 runtime shader compile(s) (...)
+```
+
+- **A scene that will not play** is a `PLAYLIST` / `phase=precompile` failure
+  block naming the scene (a reference that is not in the library, or the
+  compile error), and its cues are `skipped` in the LIST pane.
+- **`N shader compile(s) happened during playback`** (a warning) means the
+  zero-compile promise broke (D152). The usual cause is a scene whose script
+  creates a uniform after load (D62); the log line before it names the scene.
+- **A playlist that will not load** is `PLAYLIST` / `phase=load` with the file
+  and the TOML error (`line 3, column 13: "3mn" is not a duration`); on a hot
+  reload it is `phase=reload` and the old playlist keeps playing.
+- **The resume point** is `resume.toml` in the data directory (five lines;
+  `STROBE_DIAG_DIR` moves it). `--no-resume` neither reads nor writes it, and
+  screenshot mode never does. `playlist: not resuming: ...` says why a saved
+  point was refused. Delete the file to start from the top.
+- **Screenshots of a playlist**: `--frames N` counts frames after the load
+  finishes, at a fixed 1/60 s step, so `--frames 360` on
+  `playlists/transition-demo.toml` is 1 s into the first transition, every time.

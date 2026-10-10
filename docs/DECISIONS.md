@@ -1756,3 +1756,203 @@ agree, which is checkable only where both exist.
 **Would reopen:** if the T480's `--context window` run keeps a different
 set than a Linux run in a way a driver cannot explain, or if the app needs
 to score before it has an event loop.
+
+### D150: a playlist is a `Show` in the GL stack, and the live scene's slot stays the clock's current cue (2026-10-10)
+
+Playlist playback is `strobe_app::show::Show`: the clock, the compiled scenes,
+the warming and outgoing scenes, the resume writer and the file watcher. It
+lives in `Stack` (beside the compositor), so it is dropped, in order, before
+the context it owns objects of, and a lost context takes it down with the
+rest. It does **not** own the live scene: the app lends the show an `Env` (the
+context, the `Option<Session>` slot, the compositor, the audio, the sizes) for
+the length of a call, and `Stack::session` stays "the scene the clock is on".
+So the preview, the resize logic, the controls pane, screenshots, the crash
+report's scene name and the browser's "playing" mark keep working unchanged,
+and a show is a few calls in `scene_frame`, not a second code path.
+
+- A **context rebuild** carries the playlist, its source file and the clock's
+  resume point (`Show::reload_spec`), then compiles every scene again on the
+  new context and resumes at the cue that was playing (a transition in flight
+  is lost). The single-scene reload is skipped when a show is carried.
+- **Loading a scene by hand** (a browser double-click, an import) unloads the
+  playlist, with a notice. Keeping both would let a cue's start swap a scene
+  the clock does not know it is looking at.
+- **Previous, Next and Hold** are cue commands while a playlist is loaded and
+  library-order stepping otherwise (D135 stands for the no-playlist case).
+
+**Would reopen:** a need to keep a playlist across a manual load (a "pin the
+playlist, audition a scene" mode), which wants a second live slot.
+
+### D151: every distinct scene is compiled at load, one per frame, and parked at 1x1 (2026-10-10)
+
+`distinct_scenes()` is compiled when the playlist loads, with progress in the
+LIST pane, **one scene per control-window frame after that frame is painted**
+(the D135 rule: the frame that shows "compiling 3 of 11" is never the frame
+that blocks), so no frame waits for more than one scene. A scene that fails
+(or whose reference does not resolve against the library) is marked failed on
+the clock (D77), its cues are skipped with a `PLAYLIST` console entry, and its
+library row gets the same `Failed` health the browser uses.
+
+**The cache holds sessions, not just programs, and parks them.** A compiled
+`Session` is programs, images, the script and render targets. Targets are
+what cost video memory (a 3-pass scene with two double-buffered float passes
+at 1080p is tens of MB, so 80 scenes would be gigabytes a 2012 laptop does
+not have), and programs are what cost *time*. So a cached scene's targets are
+cut to 1x1 (`ScenePlayer::resize`, a few textures) and grown only while the
+scene is active, outgoing or warming: **at most three scenes hold full-size
+targets at once, whatever the playlist's length.** What stays resident per
+scene is the linked programs, its images, its script's QuickJS context and
+1x1 targets. The price is that activating a scene allocates its targets (a
+handful of textures, no compile) and a feedback scene starts from black unless
+it was warmed (D153). Compiling programs without targets is not possible
+today, so the alternative (a cache of programs only) would mean splitting
+`ScenePlayer`; that is the place to look if the resident cost of 80 scripted
+scenes turns out to matter.
+
+Each scene is also **primed**: one draw at 1x1 right after it links
+(`Session::prime`), because Mesa's llvmpipe and several Windows drivers defer
+finishing a program to its first draw, which would put the cost on a cue's
+first frame. The scene's clock is put back afterwards.
+
+**Would reopen:** the T480 showing a load time that matters for an 80-scene
+show (the compile could move behind a progress screen with the output blacked
+out), or resident memory for many scripted scenes.
+
+### D152: "zero compiles during playback" is measured, not hoped (2026-10-10)
+
+`Gl::shader_compiles()` counts every shader stage the context is asked to
+compile (a shared counter, like the lost flag). `Show` records it when the load
+finishes and checks it each frame; a change is added to
+`Show::runtime_compiles()`, logged as a warning, and reported at close
+(`closed with N runtime shader compile(s)`). Tests assert it: `tests/show.rs`
+plays a whole show on headless GL in both dialects and compares the counter
+before and after, `crates/strobe-gfx/tests/compositor.rs` shows a hundred
+transition frames compile nothing, and the Xvfb runs log `closed with 0
+runtime shader compile(s)`.
+
+What the counter **cannot** see: a driver that finishes a program late (hence
+the priming draw in D151), and state-dependent recompiles inside the driver.
+What it **does** see, and what remains a known hole: a scene whose script
+creates a uniform *after* load rebuilds its player (`Session::adopt_new_uniforms`,
+D62). In a show that is a counted, logged violation, not a silent one.
+
+### D153: warm-up renders the next scene at half each edge, and the resize keeps what it drew (2026-10-10)
+
+On `WarmUp` (two seconds before a cue ends) the incoming scene is taken from
+the cache, given the cue's control values, and rendered with its own clock at
+**half each edge, a quarter of the pixels** ("quarter resolution"). At its
+cue it is grown to full size with `ScenePlayer::resize_keeping`, which scales
+every pass target and the finished frame into the new targets with a GPU blit
+(linear, except nearest for 32-bit float passes, which GL only copies that
+way). The ordinary `resize` restarts from black, which would make the warm-up
+pointless for exactly the scenes it exists for, so it was not reused.
+`tests/compositor.rs` proves a feedback accumulator continues across it (0.4
+becomes 0.5 where a plain resize gives 0.1).
+
+- A cue reached by a command (Next, jump, restart) has no warm-up and starts
+  cold, at full size.
+- The same scene twice in a row, or a restart, keeps the live session and only
+  re-applies the cue's settings (an A-to-A "transition" would mix a frame with
+  itself).
+- Control overrides are written as targets when the scene is taken for
+  warm-up, so smoothing has had two seconds to settle; a cold start eases from
+  the defaults. `preset` is read and ignored with a warning until presets
+  exist (Phase 6); `meta` overrides are carried and not applied (no meta stage).
+
+### D154: the compositor is one program compiled when the context opens (2026-10-10)
+
+`strobe_gfx::Compositor` mixes the outgoing and incoming frames into a target
+of its own at the render size, with the same orientation as a player's output,
+so the preview, the letterboxed present and screenshots read it exactly like a
+scene's. Crossfade and fade-through-black share one program: the CPU turns
+`progress` into two weights (`weights()`, unit-tested) and the shader is
+`from * wa + to * wb`, so progress 0 is exactly the outgoing frame and 1
+exactly the incoming one. Fade-through-black is `1 - 2p` then `2p - 1`.
+
+It is built in `Stack::open`, so a context rebuild gets a new one and nothing
+compiles per transition. A **custom GLSL transition** is a file defining
+`vec4 transition(vec2 uv)` with `getFromColor`, `getToColor`, `progress` and
+`ratio` (the GL Transitions shape, so that collection's files work), compiled
+by `Compositor::add_custom` as a step of the playlist's load; a file that does
+not compile is a console entry and its cues crossfade instead. Parameters
+with default-value comments, as that collection uses them, are not read.
+`playlists/transitions/wipe.glsl` is the sample. A cut has no compositor step.
+
+During a transition both scenes render, which doubles the scene cost for its
+length; adaptive resolution (D64) is what absorbs that on an old laptop.
+
+### D155: the resume point is written by a thread, and the wall clock outranks it (2026-10-10)
+
+`SaveTimer` says "now" every five seconds of frame time, and only if the point
+changed (a held cue is not rewritten for an hour). `ResumeWriter` is a thread
+that keeps the newest point it was sent and writes it with the playlist crate's
+atomic save, so the frame loop does file I/O never. One file,
+`resume.toml` in the data directory (`STROBE_DIAG_DIR` moves it), holding the
+playlist identity; a point for another playlist, or for a cue that is gone, is
+refused with the reason and the show starts from the top. A finished
+playlist clears the file. `--no-resume` neither reads nor writes it, and
+**screenshot mode never does**, like the saved UI layout, so a capture does not
+depend on the last run.
+
+At start the order is: the **wall clock** if the playlist is anchored (a late
+start jumps to the cue the schedule names, an early start waits and says so, a
+finished one-shot says so), then the resume point, then the first cue
+(`show::start::plan`, tested). A resume point is ignored for an anchored
+playlist: it would put the show where the schedule says it is not. Verified
+under Xvfb: stop mid-show, restart, `resumed the saved position`; an anchor a
+minute in the past lands on the scheduled cue.
+
+### D156: the transport with a playlist (2026-10-10)
+
+The strip keeps its layout and changes its meaning, and says which it is in:
+**Hold** latches (accent fill, `HELD` beside the time, Space), the time is a
+countdown (`-1:23`) or, for a cue only a person ends, time played (`+0:41`),
+`FADE 58%` appears during a transition, NEXT says `cue order`, and with no
+playlist everything is as D135 left it. Hold freezes the cue's *clock*, not
+the picture (D76). Added commands, in the one table that keys, buttons and
+later MIDI/OSC share: **E** extend 30 s, **R** restart cue, **Shift+Right**
+skip section; the LIST pane has buttons for the same. Blackout is one flag
+with two writers (the button and the clock's command); `SetBlackout` keeps the
+clock's in step and the clock's event sets the app's. An anchored playlist
+that is waiting shows the wait in place of the time.
+
+### D157: LIST is a pane, the generator draws on name words, and Save rewrites the file (2026-10-10)
+
+UI_DESIGN section 13 asks for a dedicated workspace with a selected-cue
+inspector. What is built is a **right-dock pane** (`Pane::Playlist`, 340 to 720
+points) because the pane system (D120) gives docking, saved width, Esc, the
+narrow-window drawer and the rail's active state for free, and a true
+workspace means a second shell. The pane has the load field, the summary, the
+cue commands, the Generate card and a virtualised timeline (a screenful of
+rows, however long the show), each cue with its computed start, length,
+transition, wall time and state (`NOW`, `NEXT`, `manual`, `skipped` with the
+reason on hover), double-click to jump. Left for the workspace: the selected
+cue's inheritance inspector, multi-select edits, drag from the library.
+
+**Generate** is a card in the pane over `strobe_playlist::generate`: target,
+pool, duration rule, transition rule, no-repeat window and seed, a preview
+(count, estimated length, pool size, effective window, first cues), then
+"Add to playlist". The scene format has no tag metadata, so the library
+snapshot gives every scene its **name words as tags** (`05-domain-warp` is
+`domain` and `warp`); a pool word also matches a whole scene name. With no
+playlist loaded, Add starts one. **Save** writes the model with
+`file::save`, so comments in a hand-written file are lost; the button says so,
+and the file watcher is told the new version is the app's own.
+
+### D158: the playlist file is watched by polling, and a reload is lenient (2026-10-10)
+
+`show::watch` reads the file's modification time and size once a second
+(counted from frame `dt`: one `stat` per second, no thread, no crate) and
+reports a change only after the stamp is the same on two polls in a row, so an
+editor's truncate-write-rename is not loaded half done. A reload that parses
+swaps the playlist in place (`Show::replace_playlist`): compiled scenes are
+kept, only new ones compile (the live scene keeps rendering meanwhile), and
+the clock goes back where it was by `restore_lenient`, because adding a cue
+changes the identity and a hot edit is meant to be the same show. A reload that
+does not parse keeps the playlist that is playing, shows the precise error
+(line, column, the text) in the LIST pane and a banner, and the next save is a
+new change. Loading from the field or `--playlist` follows the same rule: an
+error is shown and the previous playlist stays.
+
+**Would reopen:** an editor that saves in a way two polls apart cannot settle,
+or a playlist directory with many files (a recursive watch).

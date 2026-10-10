@@ -581,7 +581,7 @@ impl Show {
                 log::info!("playlist: not resuming: {reason}; starting at the first cue");
             }
             Start::OnSchedule { offset } => log::info!(
-                "playlist: anchored, jumped to what the schedule says is playing ({offset:.1} s into the cue)"
+                "playlist: anchored: the schedule says {offset:.1} s into the cue that should be playing, and the clock is there (or on the next playable cue)"
             ),
             Start::WaitingForAnchor { seconds } => {
                 self.waiting = Some(seconds);

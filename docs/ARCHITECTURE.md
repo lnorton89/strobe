@@ -116,6 +116,28 @@ threads only ever hand values *to* it.
 1. dt from the clock (fixed in screenshot mode); window and render-size housekeeping
 2. mouse uniforms from the pointer over the output window        (app::mouse)
 3. GpuTimer::begin                                               (strobe-gfx::timing)
+3b. With a playlist loaded and compiled (Show::frame, app::show::run):
+     a. beat = BeatReader::read(audio frame's scalars)            (show::beat)
+     b. PlaylistClock::tick(dt, &beat); drain_events into a buffer
+        kept between frames; for each event:
+          CueStarted        swap the cue's session into Stack::session (the old
+                            one becomes `outgoing`); a warmed scene is grown
+                            with resize_keeping, a cold one is resized; control
+                            defaults, then the cue's overrides
+          WarmUp            take the next scene from the cache, apply its
+                            overrides, render it at half each edge
+          TransitionStarted pick the Blend (crossfade, fade-through-black or a
+                            custom transition compiled at load)
+          CueSkipped, HoldChanged, PlaylistEnded   console, banner
+          BlackoutChanged   the app's blackout flag
+     c. step 4 below for the live scene, the outgoing scene and the warming
+        scene, each with its own clock
+     d. while clock.transition() is Some: Compositor::render(outgoing, live,
+        blend, progress) into the compositor's own target
+     e. a finished transition parks the outgoing scene (targets cut to 1x1)
+     f. shader-compile counter check; SaveTimer (resume point to its thread);
+        file watcher poll (once a second)
+   With no playlist this step is absent and the live scene is advanced by step 4.
 4. Session::advance:
      a. scene clock += dt
      b. audio frame at that time: live snapshot (one atomic load + copy) or
@@ -126,7 +148,8 @@ threads only ever hand values *to* it.
      e. ScenePlayer::upload_audio: spectrum and level-trail texels
      f. ScenePlayer::set_script_uniforms is called with step c's values
      g. ScenePlayer::render(&FrameInputs): every pass
-5. ScenePlayer::present: letterboxed blit to the output window (shown only)
+5. ScenePlayer::present (or Compositor::present while a transition runs):
+   letterboxed blit to the output window (shown only)
 6. GpuTimer::end, then poll: results of earlier frames that are ready (never
    waited for) go to AdaptiveScale; a new scale triggers a resize next frame
 7. reset-status health check, at most once a second, on a robust context only
@@ -135,7 +158,7 @@ threads only ever hand values *to* it.
    presented
 ```
 
-The GPU timer brackets steps 4 to 5, so hidden it brackets the scene alone;
+The GPU timer brackets steps 3b to 5, so hidden it brackets the scene alone;
 the budget it is judged against is the same one refresh period, so adaptive
 resolution behaves the same either way. In screenshot mode a shown output is
 read back from its own back buffer and a hidden one from the scene's output
@@ -147,9 +170,15 @@ count moved), reads the audio status (at most twice a second), runs one egui
 pass over a `Model` and applies the `Action`s it returns, and paints the
 scene's output texture as the preview.
 
-Not yet in the frame, from the original design: MIDI, OSC and hotkeys (step
-1), the playlist tick, two active scenes during a transition, and the meta
-post stage (brightness, hue, mirror).
+Not yet in the frame, from the original design: MIDI and OSC (step 1), audio
+events that end a cue (`clock.audio_event()`), and the meta post stage
+(brightness, hue, mirror).
+
+Loading a playlist is not in the frame at all. `Running::compile_show_step`
+runs once per control-window frame, after that frame is painted, and compiles
+one scene (or one custom transition) with the context current on the control
+surface; the scene frame does not tick the clock until every step is done.
+See D150-D158.
 
 ## The control window's UI (`strobe-app`)
 
@@ -344,13 +373,28 @@ thiserror only; it does not depend on `strobe-audio` or `strobe-scene`
 | playback | `clock`, `tempo` | `PlaylistClock::tick(dt, &BeatInfo)`, `apply(Command)`, `drain_events()` |
 | resume | `resume` | `PlaylistClock::resume_point()` / `restore()`, `ResumePoint` TOML |
 
-The playlist tick sits where the frame section above says it will: after
-input, before the scene renders. The app calls `clock.tick(dt, &beat)`, drains
-`ClockEvent`s into its own reused buffer, and reacts: `CueStarted` loads the
-scene (already precompiled), `TransitionStarted` / `clock.transition()` drive
-the compositor, `WarmUp` starts the incoming scene rendering off-screen at
-quarter resolution, `CueSkipped` and `PlaylistEnded` go to the console. See
-D73-D77 for the rules behind each of those.
+The playlist tick sits where the frame section above says it will (step 3b):
+after input, before the scene renders. It lives in `strobe-app`'s `show`
+module, which is the glue and the only place the pure crate meets a GPU:
+
+| Module | What |
+|---|---|
+| `show::run` | `Show`: the precompile (one step per control frame), the frame, warm-up, transitions, commands, the compile counter. Lent an `Env` (context, the live scene's slot, the compositor, audio) per call. |
+| `show::cache` | `SceneCache<T>`: a slot per distinct scene, progress, take and put back. Each slot holds a parked `Session` (targets at 1x1, D151). |
+| `show::resolve` | Scene references to folders (exact library names, paths beside the playlist); control overrides to `ControlBank` writes, with a reason for each refusal. |
+| `show::start` | Wall clock, then resume point, then the first cue. |
+| `show::resume`, `show::watch` | The resume file on its own thread, every 5 s; the file watcher (a `stat` a second). |
+| `show::view`, `show::generate` | Timeline rows for the LIST pane; the Generate form and the library snapshot. |
+| `ui::playlist` | The LIST pane. |
+
+Where a scene is at any moment: the cache (parked, 1x1), `Stack::session` (the
+clock's current cue, full size), `Show::outgoing` (during a transition, full
+size) or `Show::warming` (from `WarmUp` to its cue, half each edge). A scene is
+in exactly one of them. `strobe-gfx`'s `Compositor` mixes live and outgoing at
+the clock's `progress`; its program is compiled once when the context opens.
+`Gl::shader_compiles()` is how a test or the show itself proves nothing
+compiled after the load. See D73-D77 for the clock's rules and D150-D158 for
+the app side.
 
 ## Shadertoy import (`strobe-shadertoy`)
 
