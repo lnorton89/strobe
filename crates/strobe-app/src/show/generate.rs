@@ -254,8 +254,10 @@ mod tests {
             .ok_or_else(|| anyhow!("missing"))?;
         assert_eq!(warp.tags, vec!["domain", "warp"], "numbers are not tags");
 
-        let mut form = GenerateForm::default();
-        form.pool = "warp, voronoi-glass".into();
+        let form = GenerateForm {
+            pool: "warp, voronoi-glass".into(),
+            ..GenerateForm::default()
+        };
         let spec = form.spec().map_err(|e| anyhow!(e))?;
         let made = strobe_playlist::generate(&snap, &spec).map_err(|e| anyhow!("{e}"))?;
         assert_eq!(
