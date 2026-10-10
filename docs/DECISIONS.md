@@ -1055,6 +1055,164 @@ show.
 **Would reopen:** hidden-mode frames drifting from 60 Hz under Windows timer
 granularity, or a driver that lets the queue grow with no swap.
 
+### D110: the HTTP client is ureq with rustls and compiled-in roots, behind a `net` feature (2026-10-10)
+
+Shadertoy stage 2 needs an HTTPS client (the REST API, texture downloads).
+`strobe-shadertoy` uses `ureq` (blocking, no async runtime) with `rustls`
+and Mozilla's root bundle compiled in (`webpki-roots`), so a machine with
+a broken or empty system certificate store still works. Proxies come from
+`HTTPS_PROXY`, which a school or office network and the cloud containers
+need. `deny.toml` gained `CDLA-Permissive-2.0` for the roots' data.
+
+rustls' crypto provider (`ring`) compiles C, and compiling C for MSVC
+needs the Windows SDK, which the Linux cross-check does not have. The
+client therefore sits behind the crate's default `net` feature and the
+Windows cross-clippy builds the crate with `--no-default-features`; the
+`strobe-import` binary requires `net`. A real Windows build (CI's
+`windows` job, the T480) checks the client. Everything else in the crate,
+including the listener, is plain `std`.
+
+**Alternatives:** `reqwest` (drags in an async runtime), the OS's own TLS
+(three code paths, and the roots are the thing that breaks).
+
+**Unverified:** that `ring` builds under MSVC in CI's `windows` job, and
+any request to the live site (Cloudflare blocks the cloud containers).
+
+**Would reopen:** a Windows build failure from `ring`, or a proxy that
+needs authentication the environment variables cannot carry.
+
+### D111: acquisition is a seam, kept apart from conversion (2026-10-10)
+
+`acquire` gets bytes and `convert` turns them into a scene; neither knows
+the other. Getting bytes goes through a `Fetch` trait with a `ureq`
+implementation, so every test runs against fakes and a loopback mock of
+Shadertoy; **no test needs the live site**. Path B is
+`GET /api/v1/shaders/<id>?key=<key>`; path A is the listener (D114); path
+C (a dropped or typed file) needs no acquisition.
+
+Textures are downloaded after the converter says which it lacks
+(`pending_assets`), then the same conversion runs again with the files
+(`import_json` converts twice; nothing is written between). Each texture
+has a 10 s limit and 16 MiB cap, only Shadertoy's own hosts are fetched,
+an unreachable host stops the remaining downloads, and an HTML body served
+with status 200 (a challenge page) is refused. The cache keeps one file per
+URL named by the SHA-256 of the URL, so a texture shared by many shaders is
+fetched once and a URL cannot name a path outside the cache. A texture that
+cannot be fetched is a warning and reads black; it never fails the import.
+`--no-texture-download` skips the step.
+
+**Would reopen:** Shadertoy's media URLs or `/api/v1` shape differing from
+what AGENT_RESEARCH records (unverified live).
+
+### D112: the player takes the browser-matched audio slice, and `iDate` is local time (2026-10-10)
+
+Closes the gap D93 named. `AudioTextures` has an optional `shadertoy`
+slice (the audio crate's `AudioFrame::shadertoy`, already on the browser
+analyser's decibel window and smoothed); the player uploads it as given,
+and falls back to resampling the spectrum texture when the host has none.
+The app supplies it. `strobe_Date` is the viewer's **local** time, as on
+Shadertoy: the app caches the OS's UTC offset (`chrono`, used for that one
+question, refreshed with the app's other housekeeping, never on the frame
+path) and the player does the calendar arithmetic. Shader failures now
+name the pass file and line (`passes/buffer_a.glsl:14`).
+
+Supersedes D93's "iDate is UTC" for the app; the bench and tests still use
+the player's UTC default so frames stay a pure function of time (Q15).
+
+### D113: re-importing asks first, and a failed re-import changes nothing (2026-10-10)
+
+A scene folder is named from the shader (`<slug>-<id>`). Importing the
+same shader again is detected **before** any download and returns
+`Exists`; nothing is replaced unless `replace` is set. The app shows
+"Replace / Cancel", the userscript a `confirm()`, `strobe-import` has
+`--force`. The new folder is written beside the old one and swapped in by
+renames, so a failure leaves the old scene intact.
+
+Imports run on one worker thread, one at a time, through a bounded queue
+(16); a full queue refuses with a message. The worker never touches GL.
+When it finishes, the event loop rescans the library, selects the new
+scene and loads it, because compilation needs the context that thread
+owns. The app's import state (`ui/import.rs`) is a view of that, with no
+runtime state kept in egui memory.
+
+**Would reopen:** a person importing dozens at once (a batch route would
+want progress and a queue longer than 16).
+
+### D114: the listener trusts a secret, not "localhost" (2026-10-10)
+
+Any web page open in the same browser can send requests to `127.0.0.1`,
+so a loopback socket is an attack surface. In the order a request meets
+them: bound to `127.0.0.1` only (the port, default 47811, is configurable;
+the address is not); `Host` must be `127.0.0.1:<port>` or
+`localhost:<port>` (refuses DNS rebinding); only `POST /import`, and an
+`OPTIONS` preflight is a 405 with **no CORS headers**, so a page's script
+cannot send the real request; `X-Strobe-Token` must equal the per-install
+secret (401 before the body is read), and the custom header already makes
+a cross-origin request need that refused preflight; `Content-Length`
+required and capped at 2 MiB; the body must be a JSON object with a
+`shader` that has a `renderpass`. At most four connections at once, each
+with timeouts. The listener never imports anything itself; it hands the
+job to the import worker and returns `imported`, `exists` (409) or the
+converter's error.
+
+The token is 32 random bytes (hex) from the OS, written to `import-token`
+in the data directory on first use, owner-only on Unix and the per-user
+`%LOCALAPPDATA%` ACL on Windows, compared without early exit. The
+listener is **off by default**: `--listen` or the Import panel's switch,
+which also shows and copies the token.
+
+The userscript's `GM_xmlhttpRequest` is made by the userscript manager,
+not the page, so CORS does not apply to it and none is offered.
+
+**Would reopen:** a browser or manager that stamps a page `Origin` on
+`GM_xmlhttpRequest`, or a request to import over the network.
+
+### D115: the userscript sends what the page already has, and its route is a guess (2026-10-10)
+
+`tools/userscript/send-to-strobe.user.js` adds a "Send to Strobe" button to
+`shadertoy.com/view/*` and POSTs `{shader, pageUrl, replace}` to the
+listener. It does not call the Shadertoy API (no key needed in the
+browser) and keeps the token in the manager's storage, asked for once.
+
+**How the page exposes the shader JSON is not verified** (Q19): the site
+was unreachable (Cloudflare) when this was written. The script tries the
+same-origin `POST /shadertoy` form request the site itself makes to load a
+shader, then the page's `gShaderToy` object, and says what it tried when
+both fail; the fallback is the export JSON dropped on Strobe. Everything
+after "have the JSON" is tested: `tools/userscript/test/run.mjs` drives the
+script against stubbed `GM_*` and a fake listener (token, 409 replace flow,
+401 re-prompt, unreachable listener), and against the real listener with
+`STROBE_LISTENER` and `STROBE_TOKEN` set.
+
+**Would reopen:** the first look at a real `/view/` page's network tab.
+
+### D116: the Import panel and dropped files are one door (2026-10-10)
+
+A file dropped on either window (`WindowEvent::DroppedFile`) and text typed
+in the Import panel (a path, a shader id, or a URL) both become an
+`Input::Text` and are classified by the worker: an existing file is read
+(8 MiB cap) as path C, anything else must parse as an id or URL and goes
+to path B, which needs a key (D117). Only a `.json` drop is accepted; any
+other file says so in the panel and the console. Several drops queue
+several jobs. The panel shows progress, the converter's warnings,
+the failure with its next step (through `strobe_diag::failure::report`),
+and the Replace prompt.
+
+**Unverified:** a real file drop (X11's XDND and Windows' drag-and-drop
+could not be driven under Xvfb; the typed path runs the same job).
+
+### D117: the API key is an environment variable or a file, not the keychain (2026-10-10)
+
+`STROBE_SHADERTOY_KEY`, else the first line of `shadertoy.key` in the data
+directory. The key is a read-only, per-app string the owner can regenerate
+at `shadertoy.com/myapps`; a keychain crate would bring a platform service
+stack for it, and the data directory is already per-user. It goes into a
+URL query, so it is validated to letters, digits, `_` and `-` (no `&`,
+`#` or space can be injected), and `ApiKey` prints as `ApiKey(***)`. The
+error for a missing key names both places and the page that makes one.
+
+**Would reopen:** keys becoming secrets that matter (a write scope).
+
 ### D122: winit without its Wayland title-bar decorations, not an advisory ignore (2026-10-10)
 
 `cargo deny` failed on RUSTSEC-2026-0192: `ttf-parser` is unmaintained and

@@ -39,6 +39,7 @@ The binary entry is `src/main.rs`; everything else is in the library.
 | `recovery`, `fault` | The context-loss policy (a pure state machine) and `STROBE_FAULT` injection. |
 | `ui` | The control window's panels as a function of a `Model` that returns `Action`s. |
 | `library`, `console`, `stats`, `theme` | The data the UI shows and the look. |
+| `import` | Shadertoy import: the worker thread that runs the converter, the panel's state, and the listener's handler (D113, D114, D116). |
 | `failures`, `dialog`, `gldebug`, `diagnose`, `screenshot` | Errors, crash dialogs, driver messages, `--diagnose` and `--screenshot`. |
 
 ## Usage
@@ -62,6 +63,8 @@ Flags (from the clap `Cli`):
 | `--audio auto\|synthetic` | `auto` | Capture an input device (synthetic fallback), or always the fixed 120 BPM pattern. |
 | `--screenshot <path>` | none | Render `--frames` frames, write `<path>-control.png` and `<path>-output.png`, exit. |
 | `--frames <n>` | `60` | Frames before the screenshot; requires `--screenshot`. |
+| `--listen`, `--listen-port <n>` | off, `47811` | Accept shaders from the "Send to Strobe" userscript on 127.0.0.1 (the Import panel's switch does the same; the panel shows the token). |
+| `--no-texture-download` | off | Do not download textures on import; they read black and are listed in `images/pending-assets.json`. |
 | `--diagnose` | off | Print a machine/build/GL/audio report, save it beside the logs, exit. |
 | `--help`, `--version` | | Standard clap flags. |
 
@@ -72,7 +75,7 @@ control window has focus). The control window always opens maximized (D65).
 The app also reads these environment variables (details in
 [`DEBUGGING.md`](../../docs/DEBUGGING.md)): `STROBE_LOG`, `STROBE_LOG_STDERR=1`,
 `STROBE_GL_DEBUG`, `STROBE_FAULT` (e.g. `lose-context@60`),
-`STROBE_NO_CRASH_MONITOR=1` and `STROBE_DIAG_DIR`. Logs and crash reports go
+`STROBE_NO_CRASH_MONITOR=1`, `STROBE_DIAG_DIR` and `STROBE_SHADERTOY_KEY`. Logs and crash reports go
 under `%LOCALAPPDATA%\strobe` (Windows) or `~/.local/share/strobe` (Linux).
 The Windows release build has no console (`windows_subsystem = "windows"`), so
 startup failures appear in a dialog and in the session log. ANGLE needs
@@ -131,7 +134,7 @@ runs are listed in [`DEBUGGING.md`](../../docs/DEBUGGING.md).
   1.0 are still unchecked. F11 on the 1440p panel, scene switching and DPI at
   150% scaling are still waiting for an interactive check.
 - Not built: playlists in the app (stage 2), transitions, presets, MIDI, OSC,
-  hotkey mapping, Shadertoy import, NDI. Cubemaps and media input are
+  hotkey mapping, Shadertoy thumbnails and the Needs-work bin, NDI. Cubemaps and media input are
   placeholders. `textureFinalPass` returns black and script `meta/` writes are
   dropped.
 - Linux runs under Xvfb and Mesa only; macOS is not built (no CGL provider,
