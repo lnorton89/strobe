@@ -20,7 +20,10 @@ strobe-audio = { path = "crates/strobe-audio" }
 strobe-script = { path = "crates/strobe-script" }
 strobe-diag = { path = "crates/strobe-diag" }
 strobe-playlist = { path = "crates/strobe-playlist" }
-strobe-shadertoy = { path = "crates/strobe-shadertoy" }
+# Without its `net` feature (the HTTP client, which needs C for ring): a
+# crate that only converts or analyses shaders must not pull a C compiler
+# into the Windows cross-check. The app opts in.
+strobe-shadertoy = { path = "crates/strobe-shadertoy", default-features = false }
 
 anyhow = "1"
 thiserror = "2"

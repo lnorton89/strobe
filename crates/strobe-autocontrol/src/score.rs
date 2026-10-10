@@ -150,6 +150,10 @@ impl Rig {
             self.player.upload_audio(&AudioTextures {
                 spectrum: &spectrum,
                 level_trail: &trail,
+                // Resampled from the synthetic spectrum: deterministic, and
+                // what an imported shader's audio channel reads without a
+                // live capture (D112).
+                shadertoy: None,
             });
             self.player.render(&FrameInputs {
                 time,
