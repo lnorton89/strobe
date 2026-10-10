@@ -998,3 +998,59 @@ place.
   determination (Q15).
 - The converter keeps the original JSON as `shadertoy.json` when the caller
   passes it, so an import can be redone offline.
+
+### D96: the output window starts hidden, and the scene frame no longer depends on it (2026-10-09)
+
+Owner requirement: at launch only the control window opens; the windowed
+preview ("Strobe Output") is shown on request.
+
+- **Created invisible, never absent.** The output window is built with
+  `with_visible(false)` unless `--show-output`. It must exist, because the
+  shared GL context is made on it (and WGL fixes a window's pixel format at
+  creation). The bench already gets its context from a hidden window
+  (D70/D71), verified on the T480, so an invisible first window is a known
+  quantity for both WGL and EGL; under Xvfb the GLX/EGL path is fine too.
+- **The scene frame has its own schedule.** It used to live in the output
+  window's `RedrawRequested`, which a hidden window may never receive
+  (Windows sends no `WM_PAINT` to a hidden window), and with no swap there is
+  no vsync to pace it. `scene_frame` now runs on `next_output`: shown, from a
+  requested redraw as before; hidden, directly from `about_to_wait`, on the
+  control surface, one output-monitor refresh period apart (60 Hz if
+  unknown; never faster than the 144 Hz cap). Present and swap happen only
+  when shown. The control preview paints the scene's output texture, so it is
+  unchanged.
+- **Hidden has no vsync, so it has backpressure.** A frame is skipped while
+  every GPU timer slot is still waiting, which bounds the queue to four frames
+  where the context has timer queries. Where it has none, only the control
+  window's swaps limit the queue (unverified on a real driver).
+- **Adaptive resolution is unchanged.** The same budget (one refresh period of
+  the output's monitor); the timer brackets the scene without the blit when
+  hidden.
+- **Showing and hiding.** `Action::SetOutputVisible`, a "Show output" /
+  "Hide output" button beside the fullscreen button. `ToggleFullscreen` (F11)
+  and `MoveToMonitor` show a hidden output, since asking for fullscreen on a
+  monitor means "put it on the projector". Esc leaves fullscreen only on a
+  shown output. The output's close button **hides** it (it used to quit the
+  app); closing the control window quits. After showing, the control window
+  takes focus back, so the output never steals it from the operator.
+  Visibility is tracked in the app: winit's `is_visible` is unimplemented on
+  X11 and unsupported on Wayland.
+- **Screenshots.** A shown output is read from its own back buffer (it checks
+  the present path the projector uses). A hidden one is read from the scene's
+  output texture: the default framebuffer of a window nobody can see has
+  undefined contents (pixel ownership), the texture does not depend on the
+  window, and it needs no show. The PNG is then the render size, not the
+  letterboxed window size. `--show-output` gives the old behaviour.
+- **Context loss (D66)** keeps the state: the layout creates the new output
+  window with the old visibility, and fullscreen is re-applied (winit defers
+  it on X11 until the window is mapped).
+
+**Unverified (needs real Windows):** that winit's `set_fullscreen` on a hidden
+window, followed by `set_visible(true)`, ends fullscreen on the right monitor
+without a visible 960x540 flash; the output's close button hiding it; the
+GPU queue staying short with the output hidden on Intel. **Not available:**
+`set_visible` is unsupported on Wayland, where the output window would simply
+show.
+
+**Would reopen:** hidden-mode frames drifting from 60 Hz under Windows timer
+granularity, or a driver that lets the queue grow with no swap.

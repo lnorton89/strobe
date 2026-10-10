@@ -11,6 +11,7 @@
 //! `--screenshot <path> --frames <n>` is how the UI is verified with no
 //! human present: the app renders `n` frames, reads both windows back to
 //! `<path>-control.png` and `<path>-output.png`, and exits.
+//! The output window starts hidden; `--show-output` opens it at launch.
 //! `--diagnose` prints the system report and exits (see [`crate::diagnose`]).
 
 use clap::{Parser, ValueEnum};
@@ -84,6 +85,11 @@ pub struct Cli {
     /// the benchmark and screenshots want when a real device is present.
     #[arg(long, value_enum, default_value_t = AudioArg::Auto)]
     pub audio: AudioArg,
+    /// Show the output window at launch. Without it only the control window
+    /// opens, and the output is shown from the control window's button, F11,
+    /// or the monitor picker (D96).
+    #[arg(long)]
+    pub show_output: bool,
     /// Print a report of this machine, build, GL and audio setup, save it
     /// next to the logs, and exit. Attach it to bug reports.
     #[arg(long)]
@@ -147,6 +153,24 @@ mod tests {
             "set"
         );
         assert!(!Cli::try_parse_from(["strobe"])?.diagnose, "off by default");
+        Ok(())
+    }
+
+    #[test]
+    fn the_output_window_is_hidden_unless_asked_for() -> Result<()> {
+        assert!(
+            !Cli::try_parse_from(["strobe"])?.show_output,
+            "hidden by default"
+        );
+        assert!(
+            Cli::try_parse_from(["strobe", "--show-output"])?.show_output,
+            "shown on request"
+        );
+        let shot = Cli::try_parse_from(["strobe", "--screenshot", "x", "--show-output"])?;
+        assert!(
+            shot.show_output && shot.screenshot.is_some(),
+            "combines with screenshot mode"
+        );
         Ok(())
     }
 

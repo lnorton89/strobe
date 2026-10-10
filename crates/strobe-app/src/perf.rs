@@ -192,8 +192,14 @@ impl Performance {
     /// Stops timing, reads whatever results are ready (never waiting), and
     /// feeds them to the controller. Returns the last scale change, if any.
     pub fn end(&mut self, now: Instant) -> Option<ScaleChange> {
+        self.timer.as_mut()?.end();
+        self.poll(now)
+    }
+
+    /// Reads whatever results are ready (never waiting) and feeds them to
+    /// the controller. Returns the last scale change, if any.
+    pub fn poll(&mut self, now: Instant) -> Option<ScaleChange> {
         let timer = self.timer.as_mut()?;
-        timer.end();
         let mut samples = [0.0_f32; strobe_gfx::timing::SLOTS];
         let mut count = 0;
         timer.poll(|ms| {
@@ -207,6 +213,16 @@ impl Performance {
             change = self.feed(ms, now).or(change);
         }
         change
+    }
+
+    /// Whether every timer slot is still waiting for its result, meaning the
+    /// GPU is [`strobe_gfx::timing::SLOTS`] frames behind. A frame with
+    /// nothing to pace it (a hidden output has no swap) is skipped while this
+    /// holds. Always false without a timer.
+    pub fn backlogged(&self) -> bool {
+        self.timer
+            .as_ref()
+            .is_some_and(|timer| timer.in_flight() >= strobe_gfx::timing::SLOTS)
     }
 
     /// Takes one GPU time sample at `now`.

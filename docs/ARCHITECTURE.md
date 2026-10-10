@@ -80,13 +80,30 @@ context is current, so the type system keeps `Gl` on that thread.
 
 ## A frame
 
-The output window's redraw (`strobe-app/src/app.rs`, `redraw_output`) is the
-frame. Everything below runs on the event-loop thread, in this order; worker
+The **scene frame** (`strobe-app/src/app.rs`, `scene_frame`) is the frame. It
+runs on the `next_output` schedule whether or not the output window can be
+seen, because the control window's preview paints the scene's output texture
+(D96). The output window starts hidden, and a hidden window may never get a
+`RedrawRequested`, so `Running::schedule` decides who calls it:
+
+- **output shown**: it requests a redraw (up to 144 Hz apart) and the redraw
+  runs `scene_frame` on the output surface, then steps 5 and 8 below. The
+  swap's vsync paces the loop.
+- **output hidden**: `schedule` (from `about_to_wait`) runs `scene_frame`
+  itself on the *control* surface, one refresh period of the output's monitor
+  apart (60 Hz if unknown), and skips steps 5 and 8. Nothing is swapped, so
+  nothing paces the CPU against the GPU; instead the frame is skipped while
+  all four GPU timer slots are still waiting (`Performance::backlogged`),
+  which bounds the queue to four frames when the context has a timer.
+
+Everything below runs on the event-loop thread, in this order; worker
 threads only ever hand values *to* it.
 
 ```
-0. fault check (STROBE_FAULT), then make_current on the output surface; a failure
-   skips the frame and goes to the recovery policy (see "Context loss")
+0. fault check (STROBE_FAULT), then make_current on the output surface (shown) or
+   the control surface (hidden); a failure skips the frame and goes to the
+   recovery policy (see "Context loss"). Hidden only: poll the timer ring and
+   stop here if it is full
 1. dt from the clock (fixed in screenshot mode); window and render-size housekeeping
 2. mouse uniforms from the pointer over the output window        (app::mouse)
 3. GpuTimer::begin                                               (strobe-gfx::timing)
@@ -100,13 +117,20 @@ threads only ever hand values *to* it.
      e. ScenePlayer::upload_audio: spectrum and level-trail texels
      f. ScenePlayer::set_script_uniforms is called with step c's values
      g. ScenePlayer::render(&FrameInputs): every pass
-5. ScenePlayer::present: letterboxed blit to the output window
+5. ScenePlayer::present: letterboxed blit to the output window (shown only)
 6. GpuTimer::end, then poll: results of earlier frames that are ready (never
    waited for) go to AdaptiveScale; a new scale triggers a resize next frame
 7. reset-status health check, at most once a second, on a robust context only
-8. swap (vsync paces the loop); a failure asks the driver for the reset status
-   and tells the recovery policy, a success tells it the window presented
+8. swap (shown only; vsync paces the loop); a failure asks the driver for the
+   reset status and tells the recovery policy, a success tells it the window
+   presented
 ```
+
+The GPU timer brackets steps 4 to 5, so hidden it brackets the scene alone;
+the budget it is judged against is the same one refresh period, so adaptive
+resolution behaves the same either way. In screenshot mode a shown output is
+read back from its own back buffer and a hidden one from the scene's output
+texture.
 
 The control window redraws at 30 Hz in its own event, never inside the output
 frame: it refreshes the console from `strobe-diag`'s ring (only if the record
@@ -144,8 +168,9 @@ A projector must never go dark because one driver call failed (D66).
   **both windows** and the context, in that order (WGL sets a window's pixel
   format once, so windows are never reused), release the context from the
   thread (glvnd refuses an EGL context while a GLX one is current), build a new
-  `Stack` on the chosen backend, restore fullscreen, monitor and maximized
-  state, resume the adaptive render scale, and reload the scene at its clock
+  `Stack` on the chosen backend, restore fullscreen, monitor, maximized and
+  shown/hidden state (the output window is recreated with the same
+  visibility), resume the adaptive render scale, and reload the scene at its clock
   with its control values. Audio, library, console and screenshot state are
   not GL state and carry over untouched.
 - **Records**: each loss and rebuild is a `CONTEXT` failure record, plus an

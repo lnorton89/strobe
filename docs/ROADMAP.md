@@ -23,7 +23,7 @@ which backend proved a claim.
 | `strobe-scene`, `strobe-ssf-lib` | SSF parsing and validation, controls runtime, shader assembly, `PASS_SOURCES` (D90), the SSF GLSL library | Headless GL 3.3 core and GLES 3.0 (llvmpipe) |
 | `strobe-gfx` | Native GL and ANGLE context providers, headless EGL, multipass and ping-pong, implicit final pass, images, GPU timer queries, robust contexts and reset status (D66) | llvmpipe; T480 native and ANGLE |
 | `strobe-bench` | Timings, frames, contact sheet; headless, window and auto contexts (D70-D72) | llvmpipe; T480 ([BENCHMARKS.md](BENCHMARKS.md)) |
-| `strobe-app` | Control window (maximized) and output window on one context, scene browser, controls, preview, console, `--diagnose`, adaptive resolution (D64), context-loss recovery with ANGLE fail-over (D66) | Xvfb; T480 smoke tests. Recovery on real WGL is in progress |
+| `strobe-app` | Control window (maximized) and output window on one context; the output starts hidden and the scene frame runs on its own schedule (D96); scene browser, controls, preview, console, `--diagnose`, adaptive resolution (D64), context-loss recovery with ANGLE fail-over (D66) | Xvfb; T480: smoke tests, and recovery on real WGL (Task 8). Hidden-output behaviour on Windows is unverified (D96) |
 | `strobe-audio` | Capture with retry and synthetic fallback, analysis, spectrum and level-trail textures, tap tempo (D20-D23, D61) | T480 live mic at 48 kHz |
 | `strobe-script` | QuickJS host: events, `update`, controls, `setUniform` compiled in at load, budget and faults (D62) | Xvfb; T480 (`11-script-orbits`) |
 | `strobe-diag` | Session logs, structured failures, panic reports, out-of-process minidumps, GL debug output (D40-D45) | Linux; T480 (`overflow` gives a `.dmp`, bug 2) |
@@ -33,12 +33,10 @@ which backend proved a claim.
 
 ### In flight
 
-- **Output window hidden at launch.** Only the control window opens. The
-  operator shows the output, or sends it fullscreen to a monitor, when
-  ready, and the preview keeps rendering while the output is hidden.
-- **T480 Task 8:** context-loss recovery on real WGL (injected loss,
-  ANGLE fail-over, give-up dialog), and bug 1 at a forced render scale
-  of 1.0.
+- Small recovery fixes from T480 Task 8: clear a stale GL error before
+  egui's painter is rebuilt, and label the give-up record as a lost
+  output, not a failed start.
+- T480 check of the hidden output window (D96's unverified list).
 
 ## Next, in priority order
 

@@ -61,12 +61,32 @@ fn output_strip(ui: &mut egui::Ui, model: &mut Model<'_>, actions: &mut Vec<Acti
                 .size(16.0),
         );
         ui.separator();
-        let label = if model.fullscreen {
+        let visible = model.output_visible;
+        let toggle = if visible {
+            "Hide output"
+        } else {
+            "Show output"
+        };
+        if ui
+            .button(toggle)
+            .on_hover_text(
+                "The output window starts hidden. The scene keeps rendering while it is, \
+                 and the preview below shows it.",
+            )
+            .clicked()
+        {
+            actions.push(Action::SetOutputVisible(!visible));
+        }
+        let label = if model.fullscreen && visible {
             "Exit fullscreen (F11)"
         } else {
             "Fullscreen (F11)"
         };
-        if ui.button(label).clicked() {
+        if ui
+            .button(label)
+            .on_hover_text("Fullscreen on the chosen monitor; shows the output if it is hidden.")
+            .clicked()
+        {
             actions.push(Action::ToggleFullscreen);
         }
         monitor_picker(ui, model, actions);
