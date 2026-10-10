@@ -53,11 +53,16 @@
 //! SSF code is desktop GLSL, and real scenes lean on it: `PASSINDEX ==
 //! 0.0` compares an `int` with a `float`, which desktop GLSL converts
 //! implicitly and GLSL ES rejects. [`Dialect::Es300`] (the ANGLE path)
-//! therefore declares what it can to keep such code compiling, but desktop
-//! GL is the primary target.
+//! therefore declares what it can (`texture2D`) and rewrites what is
+//! unambiguous without types ([`crate::fixups`]: `PASSINDEX` compared with
+//! a float literal) to keep such code compiling, but desktop GL is the
+//! primary target and the rest of the implicit-conversion family is still
+//! open (Q8).
 
 use crate::audio::SCALARS;
+use crate::fixups;
 use crate::scene::SceneDef;
+use std::borrow::Cow;
 use std::fmt::Write as _;
 
 /// The GLSL dialect a context compiles.
@@ -169,6 +174,12 @@ pub fn fragment(request: &Request<'_>) -> String {
         pass_index,
         extra,
     } = *request;
+    // Desktop-only idioms, made explicit for ES. Line count is preserved.
+    let user_code = if dialect.is_es() {
+        fixups::passindex_float_compares(user_code)
+    } else {
+        Cow::Borrowed(user_code)
+    };
     let mut out = String::with_capacity(user_code.len() + strobe_ssf_lib::LIBRARY.len() + 4096);
     let es = dialect.is_es();
 
@@ -241,7 +252,7 @@ pub fn fragment(request: &Request<'_>) -> String {
     }
 
     let _ = writeln!(out, "#line 1 {}", source::USER);
-    out.push_str(user_code);
+    out.push_str(&user_code);
     if !user_code.ends_with('\n') {
         out.push('\n');
     }
@@ -401,6 +412,32 @@ mod tests {
             "ES header"
         );
         assert!(!src.contains("sampler1D"), "GLSL ES has no sampler1D");
+        Ok(())
+    }
+
+    #[test]
+    fn es_gets_the_passindex_cast_and_desktop_gets_the_code_as_written() -> Result<()> {
+        let scene = scene()?;
+        let user = "vec4 renderMain() {\n  if (PASSINDEX == 0.0) { return vec4(1.0); }\n  return vec4(0.0);\n}";
+        let source = |dialect| {
+            fragment(&Request {
+                scene: &scene,
+                user_code: user,
+                dialect,
+                pass_index: PassIndex::Constant(0),
+                extra: &[],
+            })
+        };
+        assert!(
+            source(Dialect::Es300).contains("if (float(PASSINDEX) == 0.0)"),
+            "ES: cast"
+        );
+        for dialect in [Dialect::Glsl330, Dialect::Glsl410] {
+            assert!(
+                source(dialect).contains("if (PASSINDEX == 0.0)"),
+                "{dialect:?}: desktop compiles it as written"
+            );
+        }
         Ok(())
     }
 

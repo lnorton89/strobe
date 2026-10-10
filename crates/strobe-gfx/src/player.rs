@@ -36,6 +36,7 @@
 
 use crate::caps::{Caps, FloatPrecision};
 use crate::gl::{Format, Framebuffer, Gl, Program, Sampling, Stage, Texture, VertexArray};
+use crate::readback::FinalPassReader;
 use std::path::Path;
 use std::rc::Rc;
 use strobe_scene::SceneFolder;
@@ -215,6 +216,9 @@ pub struct ScenePlayer {
     extras: Vec<(String, ExtraType)>,
     /// This frame's values for `extras`, in the same order.
     extra_values: Vec<[f32; 4]>,
+    /// The asynchronous 64x36 readback behind `textureFinalPass`, when a
+    /// host asked for it ([`ScenePlayer::enable_final_pass_readback`]).
+    readback: Option<FinalPassReader>,
 }
 
 /// What the audio texture upload path keeps between frames.
@@ -247,9 +251,9 @@ impl ScenePlayer {
     /// every pass program and their locations resolved at link time, like
     /// every other uniform, so setting them each frame
     /// ([`Self::set_script_uniforms`]) costs no lookups. All of this happens
-    /// here, at load: a show never compiles a shader while it plays. A
-    /// script that creates a *new* uniform later means building a fresh
-    /// player with the longer list.
+    /// here, at load: a show never compiles a shader while it plays. The
+    /// host seals the script's uniforms right after, so a uniform created
+    /// later is refused rather than answered with a rebuild (D161).
     pub fn with_extras(
         gl: &Gl,
         caps: &Caps,
@@ -381,6 +385,7 @@ impl ScenePlayer {
             date: None,
             extras: extras.to_vec(),
             extra_values: Vec::with_capacity(extras.len()),
+            readback: None,
         };
         player.passes = player.allocate_passes(programs)?;
         Ok(player)
@@ -435,7 +440,38 @@ impl ScenePlayer {
         ];
         let programs = self.passes.iter().map(|p| Rc::clone(&p.program)).collect();
         self.passes = self.allocate_passes(programs)?;
+        if self.readback.is_some() {
+            self.readback = None;
+            self.enable_final_pass_readback()?;
+        }
         Ok(())
+    }
+
+    /// Starts the asynchronous readback behind `textureFinalPass`: from the
+    /// next [`Self::render`] on, each frame's final pass is downsampled to
+    /// 64x36 and read into a ring of pixel-pack buffers (see
+    /// [`crate::readback`]). Allocates at once and costs a few small blits
+    /// and one fence per frame; leave it off for scenes whose script never
+    /// calls `textureFinalPass`. Safe to call twice.
+    pub fn enable_final_pass_readback(&mut self) -> Result<(), PlayerError> {
+        if self.readback.is_none() {
+            self.readback = Some(
+                FinalPassReader::new(&self.gl, self.render_size).map_err(PlayerError::Resource)?,
+            );
+        }
+        Ok(())
+    }
+
+    /// The newest final-pass downsample that has arrived: 64x36 RGB8, rows
+    /// from the bottom up, from two frames before the frame last rendered.
+    /// `None` when the readback is off or its first read has not landed.
+    pub fn final_pass_pixels(&self) -> Option<&[u8]> {
+        self.readback.as_ref().and_then(FinalPassReader::pixels)
+    }
+
+    /// Reads abandoned because the GPU was slow, or 0 with the readback off.
+    pub fn final_pass_dropped(&self) -> u64 {
+        self.readback.as_ref().map_or(0, FinalPassReader::dropped)
     }
 
     /// Uploads this frame's audio texels to `syn_Spectrum` and
@@ -620,6 +656,9 @@ impl ScenePlayer {
             }
         }
         gl.bind_framebuffer(None);
+        if let Some(readback) = self.readback.as_mut() {
+            readback.capture(&self.finals[self.final_current].fbo);
+        }
     }
 
     fn set_uniforms(

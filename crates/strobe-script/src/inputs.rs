@@ -46,10 +46,14 @@ pub struct ScriptInputs<'a> {
     pub muv: [f32; 2],
     /// `_muvc`: mouse position in centred coordinates, as `_uvc`.
     pub muvc: [f32; 2],
-    /// The previous frame's final pass, downsampled to
-    /// [`FINAL_PASS_WIDTH`] by [`FINAL_PASS_HEIGHT`] RGB8, rows from the
-    /// bottom up (the same orientation as `_uv`). `None`, or a slice of any
-    /// other length, makes `textureFinalPass` return black.
+    /// A recent frame's final pass, downsampled to [`FINAL_PASS_WIDTH`] by
+    /// [`FINAL_PASS_HEIGHT`] RGB8, rows from the bottom up (the same
+    /// orientation as `_uv`). The app fills it from an asynchronous GPU
+    /// readback, so it is a few frames old (D162: the picture two frames
+    /// before the one just drawn), never the immediately previous frame.
+    /// `None`, or a slice of any other length, makes `textureFinalPass`
+    /// return black, which is also what a script sees until the first
+    /// readback has landed.
     pub final_pass: Option<&'a [u8]>,
 }
 

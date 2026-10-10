@@ -24,9 +24,9 @@ freeze or crash the output.
 
 | Item | What |
 |---|---|
-| `ScriptHost` | One per scene instance. `new(source, &controls, Budget)` evaluates `script.js` and runs `setup()`; `frame(dt, &inputs, &mut controls)` runs one frame; `announce_extras()`, `last_fault()`, `is_disabled()`. |
+| `ScriptHost` | One per scene instance. `new(source, &controls, &meta, Budget)` evaluates `script.js` and runs `setup()`; `frame(dt, &inputs, &mut controls, &mut meta)` runs one frame; `seal_uniforms()`, `last_fault()`, `is_disabled()`. `meta` is `strobe_scene::meta::bank()`. |
 | `ScriptInputs` | One frame's inputs: `time`, `frame_count`, `audio` scalars in `SCALARS` order, mouse (`mouse`, `click`, `muv`, `muvc`) and an optional 64x36 RGB8 `final_pass` downsample. `Default` is a silent room. |
-| `FrameOutput` | `uniforms` (name, GLSL type, value), `new_uniforms`, `console` lines, `meta_writes`, `status`; `extras()` gives the `(name, type)` list the shader assembler takes. |
+| `FrameOutput` | `uniforms` (name, GLSL type, value), `console` lines, `status`; `extras()` gives the `(name, type)` list the shader assembler takes. |
 | `ScriptStatus` | `Running`, `Faulted { consecutive }` or `Disabled`. |
 | `Budget` | Limits: 4 ms per frame, 250 ms to load, 64 MiB heap, 1 MiB stack, and a seed for `randomizeControl` / `randomizeGroup`. |
 | `ScriptError` | Why `new` failed (load error, `setup()` error, interpreter errors). |
@@ -52,12 +52,14 @@ use strobe_script::{Budget, ScriptHost, ScriptInputs};
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let scene = SceneFolder::load(Path::new("scenes/11-script-orbits.synScene"))?;
     let mut controls = ControlBank::new(scene.def.controls.clone())?;
+    let mut meta = strobe_scene::meta::bank()?;
     let source = scene.script.as_deref().unwrap_or_default();
-    let mut host = ScriptHost::new(source, &controls, Budget::default())?;
+    let mut host = ScriptHost::new(source, &controls, &meta, Budget::default())?;
 
     let inputs = ScriptInputs::default();
-    let out = host.frame(1.0 / 60.0, &inputs, &mut controls);
+    let out = host.frame(1.0 / 60.0, &inputs, &mut controls, &mut meta);
     controls.tick(1.0 / 60.0); // the script's control writes are already applied
+    meta.tick(1.0 / 60.0); // and so are its `meta/` writes
     println!("{:?}, {} uniforms, {} console lines", out.status, out.uniforms.len(), out.console.len());
     Ok(())
 }
@@ -91,10 +93,17 @@ the CI `windows` job and the T480 check it on Windows.
 - **Two kinds of error.** A malformed call (a non-number, five components, a
   uniform named `TIME`) throws a JavaScript `TypeError`; a name that matches
   nothing logs one console error and carries on.
-- **Script uniforms are compiled in at load** (D62): the app runs the
-  script's first frame before building the player, so `setUniform` names
-  from `setup()` or the first `update` are declared in every pass. A
-  uniform published later costs one recompile, logged once.
+- **Script uniforms are compiled in at load, and only then** (D62, D161):
+  the app runs the script's first frame before building the player, so
+  `setUniform` names from `setup()` or the first `update` are declared in
+  every pass, then calls `seal_uniforms()`. A uniform first set after that
+  is refused with one console error and never reaches a shader; nothing is
+  recompiled during playback. Create every uniform in `setup()`.
+- **Meta controls** (D160): `setControl("meta/brightness", v)` (or
+  `{ bank: "meta" }`) and the randomize/default/group calls are queued like
+  any control write and applied to the meta bank passed to `frame`, with the
+  same clamping and toggle rules. Unknown meta names are one console error.
+  Scripts cannot read meta values (Q21).
 - **Event threshold**: "on" is `value >= 0.5`. A handler takes the current
   value as its previous one on frame one, so edge handlers do not fire just
   because the scene started.
@@ -108,11 +117,13 @@ the CI `windows` job and the T480 check it on Windows.
 - Built and wired into the app (phase 2, [`ROADMAP.md`](../../docs/ROADMAP.md)).
   On the T480, `11-script-orbits` ran with `script.js running` and
   script-written positions ([`T480.md`](../../docs/hardware/T480.md)).
-- `textureFinalPass` returns black today: the app does not supply the
-  previous frame's downsample, because a per-frame GPU readback would stall
-  old hardware (Q14, D62).
-- Writes to `meta/` controls are recorded in `FrameOutput::meta_writes` but
-  the app drops them; meta controls do not exist yet.
+- `textureFinalPass(x, y)` returns `[r, g, b]` in `0..1` from a 64x36 grid
+  (`x`, `y` in `0..1`, `y` up, nearest texel, clamped). The app fills it from
+  an asynchronous GPU readback (D162), so it shows the picture two frames
+  before the one just drawn, and **black until two frames have rendered**.
+  The grid size is a Strobe choice (Q14).
+- `meta/` writes are applied to the meta bank, but nothing renders from it
+  yet, so brightness, hue and mirror do not change the picture (D160, Q21).
 - `_click` is ambiguous between `strobe-gfx` (buttons held) and this crate
   (last click and button state); the app feeds both readings (Q13).
 - The conformance tests are written per documented API surface; Q13 and Q14

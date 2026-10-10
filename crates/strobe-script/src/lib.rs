@@ -19,8 +19,8 @@
 //! The entry point is [`ScriptHost`], one per scene instance:
 //!
 //! ```text
-//! ScriptHost::new(source, &controls, Budget::default())   evaluate, setup()
-//! ScriptHost::frame(dt, &inputs, &mut controls)           once per frame
+//! ScriptHost::new(source, &controls, &meta, Budget::default())  evaluate, setup()
+//! ScriptHost::frame(dt, &inputs, &mut controls, &mut meta)     once per frame
 //!     write globals → dispatch events → update(dt) → harvest
 //! ```
 //!
@@ -65,6 +65,4 @@ pub use budget::Budget;
 pub use error::ScriptError;
 pub use host::ScriptHost;
 pub use inputs::{FINAL_PASS_BYTES, FINAL_PASS_HEIGHT, FINAL_PASS_WIDTH, ScriptInputs};
-pub use output::{
-    ConsoleLevel, ConsoleLine, FrameOutput, MetaAction, MetaWrite, ScriptStatus, ScriptUniform,
-};
+pub use output::{ConsoleLevel, ConsoleLine, FrameOutput, ScriptStatus, ScriptUniform};
