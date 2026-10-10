@@ -19,9 +19,15 @@
 //! | [`resolve`] | scene references to folders; control overrides to bank writes |
 //! | [`start`] | wall clock, then resume point, then the first cue |
 //! | [`resume`] | the resume file, written off the frame loop |
+//! | [`view`] | timeline rows for the LIST pane |
+//! | [`watch`] | noticing that the playlist file was saved |
+//! | [`generate`] | the Generate dialog's form and the library snapshot |
 
 pub mod beat;
 pub mod cache;
+pub mod generate;
 pub mod resolve;
 pub mod resume;
 pub mod start;
+pub mod view;
+pub mod watch;
