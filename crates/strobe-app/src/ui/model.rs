@@ -28,8 +28,11 @@ use crate::console::Console;
 use crate::import::Status;
 use crate::library::{Health, Library};
 use crate::script::ScriptState;
+use crate::show::Show;
+use crate::show::generate::GenerateForm;
 use crate::stats::FrameStats;
 use strobe_audio::capture::{DeviceChoice, DeviceInfo};
+use strobe_playlist::Generated;
 use strobe_scene::control::ControlBank;
 
 /// Something the UI asks the app to do.
@@ -50,9 +53,28 @@ pub enum Action {
     NextScene,
     /// Step to the previous scene in the library.
     PrevScene,
-    /// Hold or resume the cue. Nothing is wired to this yet (there is no
-    /// playlist in the app); the app logs that it was asked.
+    /// Hold or resume the cue. With a playlist loaded this freezes the
+    /// cue's clock; without one there is nothing to hold and the app says
+    /// so.
     ToggleHold,
+    /// Load the playlist file at this path (the LIST pane's field).
+    LoadPlaylist(String),
+    /// Unload the playlist and go back to library order.
+    UnloadPlaylist,
+    /// Add 30 seconds to the current cue.
+    ExtendCue,
+    /// Start the current cue again.
+    RestartCue,
+    /// Go to the first cue of the next section.
+    SkipSection,
+    /// Go to this timeline cue.
+    JumpToCue(usize),
+    /// Run the Generate dialog's form and show the result as a preview.
+    GeneratePreview,
+    /// Add the previewed section to the playlist.
+    GenerateCommit,
+    /// Write the playlist to its file.
+    SavePlaylist,
     /// Black the output out or bring it back.
     SetBlackout(bool),
     /// Apply this render scale.
@@ -181,19 +203,74 @@ pub struct ScenePreview<'a> {
     pub image: Preview,
 }
 
+/// The playlist cue the transport is on, when a playlist is loaded.
+#[derive(Debug, Clone, Copy)]
+pub struct CueTransport<'a> {
+    /// Position in the timeline, from 0.
+    pub index: usize,
+    /// How many cues the timeline has.
+    pub total: usize,
+    /// The section it is in.
+    pub section: &'a str,
+    /// Seconds the cue has played.
+    pub elapsed: f32,
+    /// Seconds until it ends, or `None` when only a person ends it.
+    pub remaining: Option<f32>,
+    /// The cue's clock is frozen.
+    pub held: bool,
+    /// How far the transition into this cue has got, 0 to 1.
+    pub transition: Option<f32>,
+    /// Seconds until an anchored start, while the show waits for it.
+    pub waiting: Option<f32>,
+}
+
 /// The transport strip's inputs.
 #[derive(Debug, Clone, Copy)]
 pub struct TransportPanel<'a> {
     /// The playing scene's name.
     pub now: Option<&'a str>,
-    /// The scene a Next press would load, in library order.
+    /// The scene a Next press would load: the playlist's next cue, or the
+    /// next in library order when there is no playlist.
     pub next: Option<&'a str>,
+    /// The playlist cue, when a playlist is loaded.
+    pub cue: Option<CueTransport<'a>>,
     /// The playing scene's clock, in seconds.
     pub scene_time: f32,
     /// Whether the output is blacked out.
     pub blackout: bool,
     /// Whether there is more than one scene to step through.
     pub can_step: bool,
+}
+
+/// What the LIST pane keeps between frames. Presentation state: none of it
+/// is saved.
+#[derive(Debug, Default)]
+pub struct PlaylistUi {
+    /// The load field.
+    pub path: String,
+    /// The Generate dialog is open.
+    pub generate_open: bool,
+    /// The Generate dialog's fields.
+    pub form: GenerateForm,
+    /// The last Generate preview, or why there is none.
+    pub preview: Option<Result<Generated, String>>,
+    /// The row highlighted in the timeline.
+    pub selected: Option<usize>,
+    /// The current cue the list last scrolled to, so it scrolls once per
+    /// cue rather than fighting a person who scrolled away.
+    pub scrolled_to: Option<usize>,
+    /// The last load's outcome: whether it is an error, and the message.
+    pub status: Option<(bool, String)>,
+    /// The playlist differs from its file.
+    pub dirty: bool,
+}
+
+/// The LIST pane's inputs.
+pub struct PlaylistPanel<'a> {
+    /// The pane's own state.
+    pub ui: &'a mut PlaylistUi,
+    /// The playlist being played, if one is loaded.
+    pub show: Option<&'a Show>,
 }
 
 /// A scene that did not load.
@@ -274,4 +351,6 @@ pub struct Model<'a> {
     pub perf: PerfPanel,
     /// Shadertoy import.
     pub import: ImportPanel<'a>,
+    /// The playlist pane.
+    pub playlist: PlaylistPanel<'a>,
 }

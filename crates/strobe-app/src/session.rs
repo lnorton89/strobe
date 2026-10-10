@@ -234,6 +234,24 @@ impl Session {
         self.time
     }
 
+    /// Draws one frame (the scene is at its load size, tiny for a parked
+    /// one) so the driver finishes any compilation it deferred to the first
+    /// draw, then puts the clock back at `start`. A playlist does this to
+    /// every scene while it loads, so no cue's first frame pays for it.
+    pub fn prime(&mut self, audio: &mut AudioInput, start: f32) {
+        self.advance(FIRST_FRAME_DT, audio, Mouse::default(), [0.0; 4]);
+        self.restart_clock(start);
+    }
+
+    /// Starts the scene clock and the frame count over at `start`, keeping
+    /// what the passes have drawn. A playlist does this when a cue begins
+    /// (D151): a scene that played an hour ago starts its next cue at its
+    /// start, not at an hour.
+    pub fn restart_clock(&mut self, start: f32) {
+        self.time = start;
+        self.frame = 0;
+    }
+
     /// The controls' targets (what the operator last asked for), for
     /// carrying across a rebuilt GL context. Bangs hold no value.
     pub fn control_targets(&self) -> Vec<(usize, Values)> {

@@ -104,16 +104,20 @@ use crate::perf::{self, Performance};
 use crate::recovery::{Decision, Event, Rebuild, Recovery, Surface};
 use crate::screenshot::{Screenshot, Target};
 use crate::session::{self, Session};
+use crate::show::{self, Env, Phase, Show};
 use crate::stats::FrameStats;
 use crate::ui::widgets::Tone;
 use crate::ui::{
-    Action, FailurePanel, ImportPanel, ListenerPanel, Model, NoticePanel, PerfPanel, Preview,
-    ScenePreview, ShellState, TransportPanel, UiHost, UiState, shell,
+    Action, CueTransport, FailurePanel, ImportPanel, ListenerPanel, Model, NoticePanel, PerfPanel,
+    PlaylistPanel, PlaylistUi, Preview, ScenePreview, ShellState, TransportPanel, UiHost, UiState,
+    shell,
 };
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use strobe_diag::context;
 use strobe_diag::failure::{self, Failure, Subsystem};
-use strobe_gfx::{GlChoice, GpuTimer, SwapWindow, WindowedContext};
+use strobe_gfx::{Compositor, GlChoice, GpuTimer, SwapWindow, WindowedContext};
+use strobe_playlist::{Command, Playlist, ResumePoint};
 use strobe_scene::control::def::Values;
 use strobe_shadertoy::listener::{Listener, ListenerConfig, Token};
 use winit::application::ApplicationHandler;
@@ -138,6 +142,8 @@ const SCREENSHOT_DT: f32 = 1.0 / 60.0;
 const SCREENSHOT_START: f32 = 2.0;
 /// Where a moved, windowed output lands relative to the monitor's corner.
 const MONITOR_INSET: i32 = 40;
+/// Seconds the extend command adds to a cue.
+const EXTEND_SECONDS: f64 = 30.0;
 /// What a `STROBE_FAULT` loss makes every `make_current` say.
 const INJECTED_LOSS: &str =
     "make current: injected fault (STROBE_FAULT lose-context): the context is lost";
@@ -336,6 +342,11 @@ struct Stack {
     /// The browser's preview: a second, small player for a scene that is
     /// not live. Owns GL objects, so it sits before the context.
     preview: Option<Session>,
+    /// The playlist being played, if one is loaded. Its parked scenes own GL
+    /// objects, so it sits before the context in drop order (D151).
+    show: Option<Show>,
+    /// The transition mixer, compiled once when the context opens (D154).
+    compositor: Compositor,
     /// Owns GL timer queries, so it sits before the context in drop order.
     perf: Performance,
     ui: UiHost,
@@ -379,6 +390,10 @@ impl Stack {
         // the native-to-ANGLE fail-over left GL_INVALID_OPERATION behind.
         // Drain it here, once per context, never in the frame loop.
         drain_gl_errors(gfx.gl());
+        // The one place the transition program is compiled: a show never
+        // compiles it again.
+        let compositor = Compositor::new(gfx.gl(), gfx.caps(), [16, 16])
+            .map_err(|e| format!("Could not start the transition compositor.\n{e}"))?;
         let ui = UiHost::new(event_loop, gfx.gl(), palette)?;
         if let Some(fullscreen) = layout.fullscreen.clone() {
             output.window().set_fullscreen(Some(fullscreen));
@@ -411,6 +426,8 @@ impl Stack {
         Ok(Self {
             session: None,
             preview: None,
+            show: None,
+            compositor,
             perf,
             ui,
             control,
@@ -439,6 +456,8 @@ impl Stack {
         let Self {
             session,
             preview,
+            show,
+            compositor,
             mut perf,
             mut ui,
             control,
@@ -448,14 +467,24 @@ impl Stack {
         if !gfx.gl().is_lost() && gfx.make_current(&control).is_err() {
             gfx.gl().mark_lost();
         }
+        // The resume point is flushed and the thread joined in either case;
+        // neither touches GL.
+        let show = show.map(|mut show| {
+            show.finish();
+            show
+        });
         if gfx.gl().is_lost() {
+            drop(show);
             drop(session);
             drop(preview);
+            drop(compositor);
             drop(perf);
             ui.abandon();
         } else {
+            drop(show);
             drop(session);
             drop(preview);
+            drop(compositor);
             perf.release();
             drop(perf);
             ui.destroy();
@@ -588,6 +617,16 @@ struct Running {
     quit: bool,
     /// `--request-load`: a scene to ask for just before the control capture.
     shot_load: Option<String>,
+    /// The LIST pane's state.
+    playlist_ui: PlaylistUi,
+    /// Whether the resume point is read and saved (`--no-resume`, and never
+    /// in screenshot mode).
+    resume_enabled: bool,
+    /// The playlist cue that was current last frame, to notice a change.
+    last_cue: Option<usize>,
+    /// The output frame count when the show became ready, so a screenshot
+    /// counts frames of playback, not of loading.
+    ready_frames: Option<u64>,
 }
 
 /// A scene that did not load, for the banner.
@@ -686,6 +725,10 @@ impl Running {
             preview_clock: now,
             quit: false,
             shot_load: cli.request_load.clone(),
+            playlist_ui: PlaylistUi::default(),
+            resume_enabled: !cli.no_resume && cli.screenshot.is_none(),
+            last_cue: None,
+            ready_frames: None,
             ui_state,
             shell: ShellState::default(),
             playing: None,
@@ -757,6 +800,10 @@ impl Running {
                 Some(index) => running.preview_load(index),
                 None => log::warn!("--preview: no scene matching \"{query}\" in the library"),
             }
+        }
+        if let Some(path) = cli.playlist.as_deref() {
+            running.playlist_ui.path = path.display().to_string();
+            running.load_playlist(path);
         }
         Ok(running)
     }
@@ -925,13 +972,16 @@ impl Running {
         let started = Instant::now();
         let before = self.stack.gfx.backend();
         let scene = self.stack.session.as_ref().map(|s| s.name.clone());
+        // A playlist is reloaded from where it was; its single-scene
+        // fallback below would only load a second copy.
+        let reload = self.stack.show.as_ref().map(Show::reload_spec);
         let carried = Carried {
             layout: Layout::capture(
                 &self.stack,
                 self.output_visible,
                 self.ui_state.custom_title_bar,
             ),
-            playing: self.playing.map(|index| {
+            playing: self.playing.filter(|_| reload.is_none()).map(|index| {
                 let session = self.stack.session.as_ref();
                 Resume {
                     index,
@@ -1027,11 +1077,18 @@ impl Running {
             preview_index: None,
             pending_preview: None,
             pending_load: None,
+            last_cue: None,
+            ready_frames: None,
             ..self
         };
         log::info!("GL: {}", running.gl_summary);
         running.stack.perf.resume_scale(carried.scale);
         running.refresh_monitors(event_loop);
+        if let Some((source, playlist, point)) = reload {
+            // The show's scenes died with the context: compile them again
+            // and carry on from the cue that was playing.
+            running.start_show(source, playlist, point);
+        }
         let reloaded = match carried.playing {
             Some(resume) => {
                 running.load_from(resume.index, resume.time);
@@ -1328,6 +1385,9 @@ impl Running {
         if !self.make_current(Surface::Output) {
             return;
         }
+        if self.stack.show.is_some() {
+            self.unload_show("a scene was loaded by hand");
+        }
         let window = self.stack.output.window().inner_size();
         let size = session::render_size(
             [window.width, window.height],
@@ -1387,6 +1447,18 @@ impl Running {
     /// Steps to the next (`delta` 1) or previous (`delta` -1) scene in the
     /// library, skipping scenes known to be broken.
     fn step_scene(&mut self, delta: isize) {
+        // With a playlist, previous and next are cue commands (D156).
+        if let Some(show) = self.stack.show.as_ref() {
+            if show.phase() == Phase::Ready {
+                let command = if delta > 0 {
+                    Command::Next
+                } else {
+                    Command::Previous
+                };
+                self.playlist_command(command);
+            }
+            return;
+        }
         if let Some(index) = self.step_target(delta) {
             self.request_load(index);
         }
@@ -1485,6 +1557,338 @@ impl Running {
                         .action("the library list was not refreshed"),
                 );
                 self.scan_error = Some(error);
+            }
+        }
+    }
+
+    // ------------------------------------------------------------ playlists
+
+    /// The size the live scene renders at: the output window times the
+    /// render scale.
+    fn full_render_size(&self) -> [i32; 2] {
+        let window = self.stack.output.window().inner_size();
+        session::render_size(
+            [window.width, window.height],
+            self.render_scale,
+            self.stack.gfx.caps().info.max_texture_size,
+        )
+    }
+
+    /// Runs `f` on the show with an [`Env`] built from the context, the live
+    /// scene's slot, the compositor and the audio. The show is taken out of
+    /// the stack for the call, so the borrows are disjoint, and put back.
+    fn run_show<R>(&mut self, f: impl FnOnce(&mut Show, &mut Env<'_>) -> R) -> Option<R> {
+        let mut show = self.stack.show.take()?;
+        let full = self.full_render_size();
+        let window = self.stack.output.window().inner_size();
+        let mouse = self.mouse.uniforms([window.width, window.height], full);
+        let date = self.local_date.now();
+        let result = {
+            let mut env = Env {
+                gl: self.stack.gfx.gl(),
+                caps: self.stack.gfx.caps(),
+                active: &mut self.stack.session,
+                compositor: &mut self.stack.compositor,
+                audio: &mut self.audio,
+                full_size: full,
+                start_time: self.start_time,
+                mouse,
+                date,
+            };
+            f(&mut show, &mut env)
+        };
+        self.stack.show = Some(show);
+        Some(result)
+    }
+
+    /// Acts on what a show frame decided.
+    fn apply_show_report(&mut self, report: show::FrameReport) {
+        if let Some(on) = report.blackout
+            && self.blackout != on
+        {
+            self.blackout = on;
+            log::info!("blackout {}", if on { "on" } else { "off" });
+        }
+        if let Some(notice) = report.notice {
+            self.say(
+                if notice.warning {
+                    Tone::Warning
+                } else {
+                    Tone::Info
+                },
+                notice.text,
+            );
+        }
+    }
+
+    /// Shows a banner.
+    fn say(&mut self, tone: Tone, text: impl Into<String>) {
+        self.notice = Some(Notice {
+            tone,
+            text: text.into(),
+            since: Instant::now(),
+        });
+    }
+
+    /// Notices a new current cue: the browser's "playing" mark follows it,
+    /// the crash report names its scene, and the adaptive controller waits a
+    /// second before judging the new load (D64).
+    fn sync_playing(&mut self, now: Instant) {
+        let cue = self
+            .stack
+            .show
+            .as_ref()
+            .and_then(|show| show.clock().current());
+        if cue == self.last_cue {
+            return;
+        }
+        self.last_cue = cue;
+        if cue.is_none() {
+            return;
+        }
+        if let Some(session) = self.stack.session.as_ref() {
+            self.playing = self
+                .library
+                .entries
+                .iter()
+                .position(|entry| entry.dir == session.dir);
+            context::set(context::SCENE, &session.name);
+        }
+        self.stack.perf.scene_loaded(now);
+    }
+
+    /// Frames of playback since the show became ready, for screenshot
+    /// timing; `None` while it is still compiling.
+    fn shot_frames(&self) -> Option<u64> {
+        match self.stack.show.as_ref() {
+            None => Some(self.output_frames),
+            Some(show) if show.phase() == Phase::Ready => Some(
+                self.output_frames
+                    .saturating_sub(self.ready_frames.unwrap_or(0)),
+            ),
+            Some(_) => None,
+        }
+    }
+
+    /// Runs a transport command on the playlist's clock.
+    fn playlist_command(&mut self, command: Command) -> bool {
+        self.stack
+            .show
+            .as_mut()
+            .is_some_and(|show| show.command(command))
+    }
+
+    /// Loads a playlist file. A file that does not parse is refused with the
+    /// precise error and the previous playlist (if any) keeps playing.
+    fn load_playlist(&mut self, path: &Path) {
+        match strobe_playlist::file::load(path) {
+            Ok(playlist) => {
+                self.drop_show();
+                let resume = if self.resume_enabled {
+                    show::resume::load(&show::resume::path(&self.data_dir))
+                } else {
+                    None
+                };
+                self.playlist_ui.path = path.display().to_string();
+                self.playlist_ui.status = None;
+                self.playlist_ui.dirty = false;
+                self.start_show(Some(path.to_path_buf()), playlist, resume);
+            }
+            Err(error) => {
+                failure::report(
+                    Failure::new(Subsystem::Playlist, "load")
+                        .path(path)
+                        .message(&error)
+                        .action(if self.stack.show.is_some() {
+                            "keeping the previous playlist"
+                        } else {
+                            "no playlist loaded"
+                        }),
+                );
+                self.playlist_ui.status = Some((true, error.to_string()));
+                self.say(Tone::Error, format!("Playlist not loaded: {error}"));
+            }
+        }
+    }
+
+    /// Starts compiling and playing `playlist`.
+    fn start_show(
+        &mut self,
+        source: Option<PathBuf>,
+        playlist: Playlist,
+        resume: Option<ResumePoint>,
+    ) {
+        let writer = self
+            .resume_enabled
+            .then(|| show::resume::ResumeWriter::start(show::resume::path(&self.data_dir)));
+        let (name, cues) = (playlist.name.clone(), playlist.cue_count());
+        let show = Show::new(source, playlist, &self.library, resume, writer);
+        log::info!(
+            "playlist \"{name}\": {cues} cue(s), {} step(s) to compile before it plays",
+            show.progress().total
+        );
+        self.stack.show = Some(show);
+        self.last_cue = None;
+        self.ready_frames = None;
+    }
+
+    /// Closes the playlist, saving where it was. The live scene keeps
+    /// playing.
+    fn drop_show(&mut self) {
+        if let Some(mut show) = self.stack.show.take() {
+            show.finish();
+        }
+        self.last_cue = None;
+        self.ready_frames = None;
+    }
+
+    /// [`Self::drop_show`], saying why.
+    fn unload_show(&mut self, why: &str) {
+        if self.stack.show.is_none() {
+            return;
+        }
+        self.drop_show();
+        log::info!("playlist unloaded: {why}");
+        self.say(
+            Tone::Info,
+            format!("Playlist stopped: {why}. The current scene keeps playing."),
+        );
+    }
+
+    /// Compiles one more of the playlist's scenes, if it still has some.
+    /// Called once per control-window frame, after the frame is painted, so
+    /// no frame is blocked for more than one scene (D151).
+    fn compile_show_step(&mut self) {
+        let compiling = self
+            .stack
+            .show
+            .as_ref()
+            .is_some_and(|show| show.phase() == Phase::Compiling);
+        if !compiling {
+            return;
+        }
+        let Some(Some(step)) = self.run_show(|show, env| show.compile_step(env)) else {
+            return;
+        };
+        if let Some(index) = step.library_index {
+            let health = match step.failure {
+                Some(reason) => Health::Failed(summarize(&reason)),
+                None => Health::Ready,
+            };
+            self.set_health(index, health);
+        }
+    }
+
+    /// The playlist file was saved: reload it, keeping the old playlist if
+    /// the new one does not parse.
+    fn reload_playlist_file(&mut self, path: PathBuf) {
+        match strobe_playlist::file::load(&path) {
+            Ok(playlist) => {
+                if let Some(show) = self.stack.show.as_mut() {
+                    log::info!("playlist file changed: reloading {}", path.display());
+                    show.replace_playlist(playlist, &self.library);
+                    self.playlist_ui.status = Some((false, format!("Reloaded {}", path.display())));
+                    self.playlist_ui.dirty = false;
+                }
+            }
+            Err(error) => {
+                failure::report(
+                    Failure::new(Subsystem::Playlist, "reload")
+                        .path(&path)
+                        .message(&error)
+                        .action("keeping the playlist that is playing"),
+                );
+                self.playlist_ui.status = Some((true, error.to_string()));
+                self.say(
+                    Tone::Warning,
+                    format!("The saved playlist has an error; the old one keeps playing. {error}"),
+                );
+            }
+        }
+    }
+
+    /// Looks at the playlist file once a second.
+    fn poll_playlist_file(&mut self, dt: f32) {
+        let Some(path) = self
+            .stack
+            .show
+            .as_mut()
+            .and_then(|show| show.poll_file(f64::from(dt)))
+        else {
+            return;
+        };
+        self.reload_playlist_file(path);
+    }
+
+    /// Runs the Generate form and keeps the result as a preview.
+    fn generate_preview(&mut self) {
+        let result = self.playlist_ui.form.spec().and_then(|spec| {
+            let snapshot = show::generate::snapshot(&self.library);
+            strobe_playlist::generate(&snapshot, &spec).map_err(|e| e.to_string())
+        });
+        self.playlist_ui.preview = Some(result);
+    }
+
+    /// Adds the previewed section to the playlist (starting one if none is
+    /// loaded).
+    fn generate_commit(&mut self) {
+        let Some(Ok(made)) = self.playlist_ui.preview.take() else {
+            return;
+        };
+        let name = made.section.name.clone();
+        let cues = made.section.cues.len();
+        match self.stack.show.as_mut() {
+            Some(show) => {
+                let mut playlist = show.playlist().clone();
+                playlist.sections.push(made.section);
+                show.replace_playlist(playlist, &self.library);
+            }
+            None => {
+                let mut playlist = Playlist::new("Generated");
+                playlist.sections.push(made.section);
+                self.start_show(None, playlist, None);
+            }
+        }
+        self.playlist_ui.dirty = true;
+        self.playlist_ui.generate_open = false;
+        self.playlist_ui.status = Some((
+            false,
+            format!("Added section \"{name}\" with {cues} cue(s). Save to keep it."),
+        ));
+    }
+
+    /// Writes the playlist to its file, or to the path in the field.
+    fn save_playlist(&mut self) {
+        let Some(show) = self.stack.show.as_mut() else {
+            return;
+        };
+        let target = show.source().map(Path::to_path_buf).or_else(|| {
+            let typed = self.playlist_ui.path.trim();
+            (!typed.is_empty()).then(|| PathBuf::from(typed))
+        });
+        let Some(target) = target else {
+            self.playlist_ui.status = Some((
+                true,
+                "Type a file path in the field above, then Save.".to_string(),
+            ));
+            return;
+        };
+        match strobe_playlist::file::save(show.playlist(), &target) {
+            Ok(()) => {
+                show.set_source(target.clone());
+                show.accept_file();
+                self.playlist_ui.dirty = false;
+                self.playlist_ui.status = Some((false, format!("Saved {}", target.display())));
+                log::info!("playlist saved to {}", target.display());
+            }
+            Err(error) => {
+                failure::report(
+                    Failure::new(Subsystem::Playlist, "save")
+                        .path(&target)
+                        .message(&error)
+                        .action("the playlist was not written"),
+                );
+                self.playlist_ui.status = Some((true, error.to_string()));
             }
         }
     }
@@ -1642,18 +2046,50 @@ impl Running {
                 Action::NextScene => self.step_scene(1),
                 Action::PrevScene => self.step_scene(-1),
                 Action::ToggleHold => {
-                    log::info!("hold requested: there is no cue list yet, so nothing was held");
-                    self.notice = Some(Notice {
-                        tone: Tone::Info,
-                        text: "Hold needs the Playlist workspace (stage 2). Nothing was held."
-                            .to_string(),
-                        since: Instant::now(),
-                    });
+                    if self.stack.show.is_some() {
+                        self.playlist_command(Command::ToggleHold);
+                    } else {
+                        log::info!("hold requested: there is no playlist, so nothing was held");
+                        self.notice = Some(Notice {
+                            tone: Tone::Info,
+                            text: "Hold needs a playlist. Load one in the LIST pane or start with \
+                                   --playlist <file>. Nothing was held."
+                                .to_string(),
+                            since: Instant::now(),
+                        });
+                    }
                 }
+                Action::ExtendCue => {
+                    self.playlist_command(Command::Extend(EXTEND_SECONDS));
+                }
+                Action::RestartCue => {
+                    self.playlist_command(Command::RestartCue);
+                }
+                Action::SkipSection => {
+                    self.playlist_command(Command::SkipSection);
+                }
+                Action::JumpToCue(index) => {
+                    self.playlist_command(Command::JumpTo(index));
+                }
+                Action::LoadPlaylist(text) => self.load_playlist(Path::new(&text)),
+                Action::UnloadPlaylist => self.unload_show("it was unloaded"),
+                Action::GeneratePreview => self.generate_preview(),
+                Action::GenerateCommit => self.generate_commit(),
+                Action::SavePlaylist => self.save_playlist(),
                 Action::SetBlackout(on) => {
                     if self.blackout != on {
                         self.blackout = on;
                         log::info!("blackout {}", if on { "on" } else { "off" });
+                    }
+                    // The clock keeps its own blackout flag (it is a cue
+                    // command too); keep the two the same.
+                    if self
+                        .stack
+                        .show
+                        .as_ref()
+                        .is_some_and(|show| show.clock().is_blackout() != on)
+                    {
+                        self.playlist_command(Command::ToggleBlackout);
                     }
                 }
                 Action::Quit => self.quit = true,
@@ -1750,7 +2186,12 @@ impl Running {
             self.resize_now = false;
             self.pending_resize = None;
             match session.player.resize(want) {
-                Ok(()) => context::set(context::RENDER_SIZE, format!("{}x{}", want[0], want[1])),
+                Ok(()) => {
+                    context::set(context::RENDER_SIZE, format!("{}x{}", want[0], want[1]));
+                    if let Some(show) = self.stack.show.as_mut() {
+                        show.resize(want, &mut self.stack.compositor);
+                    }
+                }
                 Err(error) => failure::report(
                     Failure::new(Subsystem::Context, "resize")
                         .scene(&session.name)
@@ -1811,45 +2252,68 @@ impl Running {
 
         let gl = self.stack.gfx.gl().clone();
         let mut change = None;
-        match self.stack.session.as_mut() {
-            Some(session) => {
-                let render = session.player.render_size();
-                let mouse = self.mouse.uniforms([size.width, size.height], render);
-                // The GPU timer brackets the scene's work and, when the
-                // output is shown, the blit to it; its result arrives a frame
-                // or two later. The budget is the same either way.
-                self.stack.perf.begin();
-                session.advance(dt, &mut self.audio, mouse, self.local_date.now());
-                if shown {
-                    gl.plain_state();
-                    if self.blackout {
-                        // The scene keeps rendering (its clock runs, the
-                        // preview shows it); only what the projector gets
-                        // goes dark.
-                        gl.bind_framebuffer(None);
-                        gl.viewport(window[0], window[1]);
-                        gl.clear([0.0, 0.0, 0.0, 1.0]);
-                    } else {
-                        session.player.present(window);
-                    }
-                }
-                change = self.stack.perf.end(started);
+        let show_ready = self
+            .stack
+            .show
+            .as_ref()
+            .is_some_and(|show| show.phase() == Phase::Ready);
+        if show_ready && self.ready_frames.is_none() {
+            self.ready_frames = Some(self.output_frames);
+        }
+        let begun = show_ready || self.stack.session.is_some();
+        if begun {
+            // The GPU timer brackets everything this frame renders: the live
+            // scene, a playlist's outgoing and warming scenes, the mix, and
+            // when the output is shown the blit to it. Its result arrives a
+            // frame or two later. The budget is the same either way.
+            self.stack.perf.begin();
+        }
+        if show_ready {
+            if let Some(report) = self.run_show(|show, env| show.frame(env, dt)) {
+                self.apply_show_report(report);
             }
-            None if shown => {
+            self.poll_playlist_file(dt);
+            self.sync_playing(started);
+        } else if let Some(session) = self.stack.session.as_mut() {
+            let render = session.player.render_size();
+            let mouse = self.mouse.uniforms([size.width, size.height], render);
+            session.advance(dt, &mut self.audio, mouse, self.local_date.now());
+        }
+        let composited = self.stack.show.as_ref().is_some_and(Show::composited);
+        if self.stack.session.is_some() || composited {
+            if shown {
                 gl.plain_state();
-                gl.bind_framebuffer(None);
-                gl.viewport(window[0], window[1]);
-                gl.clear([0.0, 0.0, 0.0, 1.0]);
+                if self.blackout {
+                    // The scene keeps rendering (its clock runs, the
+                    // preview shows it); only what the projector gets
+                    // goes dark.
+                    gl.bind_framebuffer(None);
+                    gl.viewport(window[0], window[1]);
+                    gl.clear([0.0, 0.0, 0.0, 1.0]);
+                } else if composited {
+                    self.stack.compositor.present(window);
+                } else if let Some(session) = self.stack.session.as_ref() {
+                    session.player.present(window);
+                }
             }
-            None => {}
+        } else if shown {
+            gl.plain_state();
+            gl.bind_framebuffer(None);
+            gl.viewport(window[0], window[1]);
+            gl.clear([0.0, 0.0, 0.0, 1.0]);
+        }
+        if begun {
+            change = self.stack.perf.end(started);
         }
         if let Some(change) = change {
             self.scale_changed(&change);
         }
         self.output_frames += 1;
         context::note_frame(self.output_frames);
+        let shot_frames = self.shot_frames();
         if let Some(shot) = self.screenshot.as_mut()
-            && shot.output_due(self.output_frames)
+            && let Some(frames) = shot_frames
+            && shot.output_due(frames)
         {
             // A shown output is read from its own back buffer, so the run
             // checks what the projector gets. A hidden one has no defined
@@ -1857,6 +2321,10 @@ impl Running {
             let saved = if shown {
                 let pixels = gl.read_default_rgba8(window[0], window[1]);
                 shot.save(Target::Output, [size.width, size.height], pixels)
+            } else if composited {
+                let [w, h] = self.stack.compositor.size();
+                let pixels = self.stack.compositor.read_output();
+                shot.save_top_down(Target::Output, [w as u32, h as u32], pixels)
             } else if let Some(session) = self.stack.session.as_ref() {
                 let [w, h] = session.player.render_size();
                 let pixels = session.player.read_output();
@@ -1916,14 +2384,25 @@ impl Running {
         let preparing = self.pending_preview.take();
 
         self.advance_preview(now);
-        let preview = self.stack.session.as_ref().map(|session| {
-            let texture = session.player.output_texture();
-            Preview {
+        let composited = self.stack.show.as_ref().is_some_and(Show::composited);
+        let preview = if composited {
+            // The mixed frame of a running transition.
+            let texture = self.stack.compositor.output_texture();
+            Some(Preview {
                 texture: self.stack.ui.preview_texture(texture.raw()),
                 aspect: texture.width() as f32 / texture.height().max(1) as f32,
                 size: [texture.width(), texture.height()],
-            }
-        });
+            })
+        } else {
+            self.stack.session.as_ref().map(|session| {
+                let texture = session.player.output_texture();
+                Preview {
+                    texture: self.stack.ui.preview_texture(texture.raw()),
+                    aspect: texture.width() as f32 / texture.height().max(1) as f32,
+                    size: [texture.width(), texture.height()],
+                }
+            })
+        };
         let scene_preview_image = match (self.stack.preview.as_ref(), self.preview_index) {
             (Some(session), Some(index)) => {
                 let texture = session.player.output_texture();
@@ -1952,6 +2431,17 @@ impl Running {
             |index: Option<usize>| index.and_then(|i| entries.get(i)).map(|e| e.name.as_str());
         let loading_name = name_of(loading.or(preparing));
         let playing_name = name_of(self.playing);
+        let transport = match self.stack.show.as_ref() {
+            Some(show) => show_transport(show, playing_name, scene_time, self.blackout),
+            None => TransportPanel {
+                now: playing_name,
+                next: name_of(next).filter(|_| next != self.playing),
+                cue: None,
+                scene_time,
+                blackout: self.blackout,
+                can_step: next.is_some() && next != self.playing,
+            },
+        };
         let kept = playing_name;
         if self.ui_state.take_theme_change() {
             self.stack.ui.apply_theme(self.ui_state.palette());
@@ -1979,13 +2469,7 @@ impl Running {
                 tone: n.tone,
                 text: &n.text,
             }),
-            transport: TransportPanel {
-                now: playing_name,
-                next: name_of(next).filter(|_| next != self.playing),
-                scene_time,
-                blackout: self.blackout,
-                can_step: next.is_some() && next != self.playing,
-            },
+            transport,
             console: &self.console,
             stats: &self.stats,
             render_scale: &mut self.scale_edit,
@@ -2020,6 +2504,10 @@ impl Running {
                     failed: self.listener_failed,
                     token: self.import_token.as_ref().map(Token::expose),
                 },
+            },
+            playlist: PlaylistPanel {
+                ui: &mut self.playlist_ui,
+                show: self.stack.show.as_ref(),
             },
         };
         let mut actions = std::mem::take(&mut self.actions);
@@ -2072,6 +2560,7 @@ impl Running {
             if let Some(index) = preparing {
                 self.preview_load(index);
             }
+            self.compile_show_step();
         }
         self.actions = actions;
     }
@@ -2090,6 +2579,63 @@ impl Running {
         self.preview_clock = now;
         let mouse = strobe_gfx::Mouse::default();
         session.advance(dt, &mut self.audio, mouse, self.local_date.now());
+    }
+}
+
+/// The transport strip's inputs when a playlist is loaded: the cue that is
+/// playing, the cue a Next would go to, and the clock's times.
+fn show_transport<'a>(
+    show: &'a Show,
+    playing_name: Option<&'a str>,
+    scene_time: f32,
+    blackout: bool,
+) -> TransportPanel<'a> {
+    let clock = show.clock();
+    let ready = show.phase() == Phase::Ready;
+    let current = clock.current().filter(|_| ready);
+    let now = current
+        .and_then(|index| show.cue_scene(index))
+        .or(playing_name);
+    let next = clock
+        .peek_next()
+        .filter(|_| ready)
+        .and_then(|index| show.cue_scene(index));
+    let section = |index: usize| {
+        show.rows()
+            .get(index)
+            .map_or("", |row| row.section_name.as_str())
+    };
+    let waiting = show.waiting_for_anchor().map(|seconds| seconds as f32);
+    let cue = if waiting.is_some() {
+        Some(CueTransport {
+            index: 0,
+            total: show.rows().len(),
+            section: section(0),
+            elapsed: 0.0,
+            remaining: None,
+            held: false,
+            transition: None,
+            waiting,
+        })
+    } else {
+        current.map(|index| CueTransport {
+            index,
+            total: show.rows().len(),
+            section: section(index),
+            elapsed: clock.elapsed() as f32,
+            remaining: clock.remaining().map(|seconds| seconds as f32),
+            held: clock.is_held(),
+            transition: clock.transition().map(|t| t.progress as f32),
+            waiting: None,
+        })
+    };
+    TransportPanel {
+        now,
+        next,
+        cue,
+        scene_time,
+        blackout,
+        can_step: ready,
     }
 }
 
@@ -2114,6 +2660,8 @@ fn chord_of(key: &Key) -> Option<commands::Chord> {
         Key::Named(NamedKey::Escape) => Some(Chord::plain(K::Escape)),
         Key::Named(NamedKey::F11) => Some(Chord::plain(K::F11)),
         Key::Character(text) if text.eq_ignore_ascii_case("b") => Some(Chord::plain(K::B)),
+        Key::Character(text) if text.eq_ignore_ascii_case("e") => Some(Chord::plain(K::E)),
+        Key::Character(text) if text.eq_ignore_ascii_case("r") => Some(Chord::plain(K::R)),
         Key::Character(text) if text.eq_ignore_ascii_case("t") => Some(Chord::plain(K::T)),
         Key::Character(_) | Key::Named(_) | Key::Unidentified(_) | Key::Dead(_) => None,
     }
@@ -2127,6 +2675,9 @@ fn command_action(command: CommandId, blackout: bool) -> Option<Action> {
         CommandId::NextScene => Some(Action::NextScene),
         CommandId::PrevScene => Some(Action::PrevScene),
         CommandId::ToggleHold => Some(Action::ToggleHold),
+        CommandId::ExtendCue => Some(Action::ExtendCue),
+        CommandId::RestartCue => Some(Action::RestartCue),
+        CommandId::SkipSection => Some(Action::SkipSection),
         CommandId::ToggleBlackout => Some(Action::SetBlackout(!blackout)),
         CommandId::ToggleFullscreen => Some(Action::ToggleFullscreen),
         CommandId::TapTempo => Some(Action::TapTempo),

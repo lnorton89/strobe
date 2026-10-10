@@ -29,7 +29,7 @@ which backend proved a claim.
 | `strobe-diag` | Session logs, structured failures, panic reports, out-of-process minidumps, GL debug output (D40-D45) | Linux; T480 (`overflow` gives a `.dmp`, bug 2) |
 | `strobe-shadertoy` | Stage 1: id parser, both JSON shapes, dialect rewrite, converter to a scene folder, `strobe-import` (D90-D95). Stage 2: REST client, texture downloader and cache, shared import pipeline, loopback listener, `strobe-import --id` (D110, D111, D113, D114, D117) | Nine original fixtures on llvmpipe, both dialects; stage 2 against fakes and a loopback mock, never the live site |
 | `strobe-autocontrol` | Stage 1: finds candidate literals, rewrites them to uniforms, keeps the ones whose measured effect matters, suggests audio bindings, CLI with `--context auto\|headless\|window` (D123-D126, D140) | llvmpipe, both dialects: 11 of 11 stripped library scenes and 8 of 14 Shadertoy fixtures get controls. Not in the app yet
-| `strobe-playlist` | Stage 1, pure core: model, inheritance, TOML, generator, timeline, playback clock, resume (D73-D77) | Unit tests and 4-hour soaks; not in the app yet |
+| `strobe-playlist` | Stage 1, pure core: model, inheritance, TOML, generator, timeline, playback clock, resume (D73-D77). **Stage 2, in the app (D150-D158):** `--playlist` and the LIST pane, precompile with progress, scenes parked at 1x1, warm-up at a quarter of the pixels, the compositor (crossfade, fade-through-black, custom GLSL), real Hold, extend, restart, skip-section and Next/Prev, NOW/NEXT and remaining time, Generate, Save, a file watcher, resume every 5 s, the wall-clock anchor | Unit tests and 4-hour soaks; stage 2 on headless GL in both dialects (`crates/strobe-app/tests/show.rs`) and under Xvfb with llvmpipe. Not run on the T480 |
 | Scenes | Eleven original scenes over five GPU-load tiers, one scripted | llvmpipe and T480 |
 
 ### In flight
@@ -93,11 +93,25 @@ Each item names its acceptance test. Details and evidence are in
    on llvmpipe for all 11 library scenes and for the fixtures with anything
    tunable in them; 6 of the 14 fixtures are structural and get none, on
    purpose (see `NO_CONTROLS` in `crates/strobe-autocontrol/tests/engine.rs`).
-5. **Playlists, stage 2.** Load-time precompile with progress, a second
-   player for warm-up, the transition compositor, the Playlist workspace
-   and generate dialog, the file watcher, resume every 5 s, and live
-   commands. *Accept:* a 4-hour, 80-cue show authored from tags in under
-   two minutes, then a 4-hour soak with zero runtime compiles.
+5. **Playlists, stage 2.** *Built* (D150-D158): load-time precompile with
+   progress, a second player for warm-up, the transition compositor, the
+   Playlist pane and generate card, the file watcher, resume every 5 s, the
+   wall-clock anchor and live commands. *Left:*
+   - audio-event advance (`clock.audio_event()` needs Phase 7 detection);
+   - the Playlist **workspace** proper: the selected cue's inheritance
+     inspector, multi-select edits, drag from the library, pasted Shadertoy
+     URLs (D157);
+   - real tags in the scene format, so Generate can pick by tag;
+   - MIDI and OSC mapping of the cue commands (the command table is ready);
+   - a downbeat detector, so "bars" line up with the music (D75);
+   - the T480: the load time of an 80-scene show, the cost of a transition
+     (two scenes at once) on an HD 4000, and VRAM with many scenes parked.
+
+   *Accept:* a 4-hour, 80-cue show authored from tags in under two minutes,
+   then a 4-hour soak with zero runtime compiles. Met in part: authoring
+   from name words is a card away, and zero compiles after load is asserted
+   by tests and logged by every run; the 4-hour soak has only run as the pure
+   clock (strobe-playlist), not with real scenes on real hardware.
 6. **SSF and script gaps.** *Partly done (D160-D163), 2026-10-10.*
    - [x] Script `meta/` control writes land in a meta `ControlBank` held by
      the session (D160). **No output post stage reads it yet**, so they
@@ -201,13 +215,13 @@ never per frame.
 | 2 | JavaScript API | Integrated (D62). `meta/` writes land in a meta bank (D160, no post stage reads it yet); `textureFinalPass` is an asynchronous readback (D162); late uniforms are refused (D161). |
 | 3 | Audio | Integrated (D61). The bench still uses the synthetic stand-in. |
 | 4 | Shadertoy import | The converter (D90-D95), acquisition (REST client, texture downloader, localhost listener), the Import panel, file drop and the userscript (D110-D117) are built, and stage 1 of auto-generated controls (D123-D126). Open: live-site verification (Q19), thumbnails, the Needs-work bin, batch import, and the app's review panel for generated controls. |
-| 5 | Playlists | The stage 1 pure core is done (D73-D77). App integration is open. |
+| 5 | Playlists | The pure core (D73-D77) and the app integration (D150-D158) are built. Open: audio-event advance, the Playlist workspace's inspector, MIDI/OSC, T480 verification. |
 | 6 | Presets, MIDI, OSC, hotkeys | Not started. |
 | 7 | NDI, media input, song-change transitions | Not started. `HARD`/`SMOOTH_TRANSITIONS` are declared but never change. |
 
 ## Known gaps in what exists
 
-- The performer-facing UI is at stage 1: Hold, the Playlist, Editor and Mappings workspaces, persistent macros and thumbnails are not built, and none of it has run on the T480.
+- The performer-facing UI is at stage 1 plus the Playlist pane (D157): the Editor and Mappings workspaces, persistent macros and thumbnails are not built, and none of it has run on the T480.
 - Context-loss recovery is verified under Xvfb with injected faults;
   real-driver behaviour on the T480 is pending (bug 1, D66).
 - The bench's `syn_Spectrum` and `syn_LevelTrail` are silent placeholders,
@@ -250,16 +264,26 @@ never per frame.
   visible jump at a non-default Speed.
 - Every buffer is double-buffered, even one that never reads itself (D95).
 
-### Playlists (stage 1)
+### Playlists (stages 1 and 2)
 
-The app does not use `strobe-playlist` yet. Stage 2 needs:
+The app plays playlists (D150-D158). Known gaps:
 
-- precompile at load, reporting failures through `mark_scene_failed`;
-- a second `ScenePlayer` for the warm-up;
-- the transition compositor;
-- the Playlist workspace (UI_DESIGN §13) and the generate dialog;
-- a file watcher (`restore_lenient` keeps the position);
-- `BeatInfo` from the audio frame, including a real downbeat detector
-  (D75);
-- `sync_to_wall_clock` at start-up;
-- live commands from the UI, hotkeys, MIDI and OSC.
+- **Audio-event advance** (`drop`, `breakdown`) is parsed and shown but never
+  fires: nothing calls `clock.audio_event()` until Phase 7 detection exists.
+- **A downbeat detector** (D75): a "bar" is counted from the beat grid's
+  origin, so a beat-locked cue ends on a bar line of *that* grid.
+- **The Playlist pane is not the workspace UI_DESIGN section 13 describes**:
+  no per-cue inheritance inspector, no multi-select edit, no drag from the
+  library, no pasted-URL import. Save rewrites the file from the model, so
+  comments are lost.
+- **No scene tags**, so Generate matches name words (D157).
+- **Cue `preset` is ignored** (presets are Phase 6) and **`meta` overrides
+  are written to the session's meta bank** (D160), which nothing renders
+  from yet.
+- **Two scenes render during a transition**, doubling the cost for its
+  length. Unmeasured on the T480.
+- **Loading a scene by hand unloads the playlist** (D150).
+- **Context loss** reloads the playlist and compiles every scene again
+  before it resumes; on a big show that is a pause the length of the load.
+- Everything here was verified on llvmpipe under Xvfb; none of it has run on
+  real Windows or the T480.

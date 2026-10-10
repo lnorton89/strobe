@@ -14,9 +14,9 @@ loop ticks.
   small `BeatInfo`, and control overrides use the crate's own `ControlValue`
   so the file format does not move when the scene crate does. The app
   converts at the boundary.
-- **Depended on by:** nothing yet. The workspace declares it, but
-  `strobe-app` does not depend on it; app integration is stage 2 and is not
-  started (see Status).
+- **Depended on by:** `strobe-app`, whose `show` module is the glue: it
+  compiles `distinct_scenes()` at load, ticks the clock each frame, warms up
+  and mixes scenes, and saves `resume_point()` (D150-D158).
 - **Does not:** load or compile scenes, render transitions, read the system
   clock, spawn threads, or touch GL. Its only I/O is `file::load` / `save`
   and `ResumePoint::save` / `load`, both atomic.
@@ -112,14 +112,18 @@ cargo test -p strobe-playlist
 ## Status and known gaps
 
 - Stage 1 is done: the pure core, with 166 tests and the soak runs
-  ([`ROADMAP.md`](../../docs/ROADMAP.md)). Nothing here has run on real hardware
-  yet, because the app does not use it.
-- **Stage 2 (app integration) is not started**: precompile `distinct_scenes()`
-  at load with a progress bar, a second `ScenePlayer` with a quarter-resolution
-  warm-up, the transition compositor (cut, crossfade, fade-through-black,
-  custom GLSL), the Playlist workspace UI and generate dialog, a file watcher,
-  live controls from UI, hotkeys, MIDI and OSC, saving `resume_point()` every
-  5 s, and `sync_to_wall_clock` at start-up.
+  ([`ROADMAP.md`](../../docs/ROADMAP.md)).
+- **Stage 2 (app integration) is built** (D150-D158): precompile at load with
+  progress, warm-up, the compositor (cut, crossfade, fade-through-black,
+  custom GLSL), the Playlist pane and generate card, a file watcher, cue
+  commands from the UI and keyboard, `resume_point()` saved every 5 s and
+  `sync_to_wall_clock` at start-up. Verified on llvmpipe and headless GL;
+  not on real hardware. Still to do: hotkeys beyond the table, MIDI and OSC
+  mapping, audio-event advance, a downbeat detector.
+- The app uses this crate's `restore_lenient` for hot reloads and `restore`
+  (with the identity check) for the resume file; `mark_scene_failed` for scenes
+  that do not compile or resolve; `peek_next`, `elapsed` and `remaining` for the
+  transport strip.
 - `strobe-audio` has no downbeat detector, so a "bar" is counted from the beat
   grid's origin until one exists (D75). Audio-event advance modes depend on
   phase 7 detection calling `clock.audio_event()`.

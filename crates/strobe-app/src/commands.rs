@@ -47,6 +47,10 @@ pub enum Key {
     F11,
     /// The letter B.
     B,
+    /// The letter E.
+    E,
+    /// The letter R.
+    R,
     /// The letter F.
     F,
     /// The letter T.
@@ -97,6 +101,8 @@ impl Chord {
             Key::Escape => "Esc",
             Key::F11 => "F11",
             Key::B => "B",
+            Key::E => "E",
+            Key::R => "R",
             Key::F => "F",
             Key::T => "T",
         };
@@ -133,8 +139,14 @@ pub enum CommandId {
     NextScene,
     /// Step to the previous scene.
     PrevScene,
-    /// Hold or resume the cue (not wired yet).
+    /// Hold or resume the cue (needs a playlist loaded).
     ToggleHold,
+    /// Give the current cue 30 more seconds (needs a playlist).
+    ExtendCue,
+    /// Start the current cue again (needs a playlist).
+    RestartCue,
+    /// Go to the first cue of the next section (needs a playlist).
+    SkipSection,
     /// Black out the output, or bring it back.
     ToggleBlackout,
     /// Fullscreen the output on its monitor.
@@ -149,10 +161,13 @@ pub enum CommandId {
 
 impl CommandId {
     /// Every command, in the order the help text lists them.
-    pub const ALL: [CommandId; 8] = [
+    pub const ALL: [CommandId; 11] = [
         Self::PrevScene,
         Self::NextScene,
         Self::ToggleHold,
+        Self::ExtendCue,
+        Self::RestartCue,
+        Self::SkipSection,
         Self::ToggleBlackout,
         Self::ToggleFullscreen,
         Self::FocusBrowserSearch,
@@ -166,6 +181,9 @@ impl CommandId {
             Self::NextScene => "Next scene",
             Self::PrevScene => "Previous scene",
             Self::ToggleHold => "Hold / resume",
+            Self::ExtendCue => "Extend cue by 30 s",
+            Self::RestartCue => "Restart cue",
+            Self::SkipSection => "Skip section",
             Self::ToggleBlackout => "Blackout",
             Self::ToggleFullscreen => "Fullscreen output",
             Self::FocusBrowserSearch => "Search scenes",
@@ -180,6 +198,9 @@ impl CommandId {
             Self::NextScene
             | Self::PrevScene
             | Self::ToggleHold
+            | Self::ExtendCue
+            | Self::RestartCue
+            | Self::SkipSection
             | Self::ToggleBlackout
             | Self::TapTempo => Category::Playback,
             Self::FocusBrowserSearch | Self::CloseTopmostPane => Category::Navigation,
@@ -193,6 +214,12 @@ impl CommandId {
             Self::NextScene => Chord::plain(Key::Right),
             Self::PrevScene => Chord::plain(Key::Left),
             Self::ToggleHold => Chord::plain(Key::Space),
+            Self::ExtendCue => Chord::plain(Key::E),
+            Self::RestartCue => Chord::plain(Key::R),
+            Self::SkipSection => Chord {
+                shift: true,
+                ..Chord::plain(Key::Right)
+            },
             Self::ToggleBlackout => Chord::plain(Key::B),
             Self::ToggleFullscreen => Chord::plain(Key::F11),
             Self::FocusBrowserSearch => Chord::command(Key::F),
@@ -205,8 +232,10 @@ impl CommandId {
     /// uses itself, and so must stand down while one has focus.
     pub fn yields_to_focused_widget(self) -> bool {
         match self {
-            Self::NextScene | Self::PrevScene | Self::ToggleHold => true,
-            Self::ToggleBlackout
+            Self::NextScene | Self::PrevScene | Self::ToggleHold | Self::SkipSection => true,
+            Self::ExtendCue
+            | Self::RestartCue
+            | Self::ToggleBlackout
             | Self::ToggleFullscreen
             | Self::FocusBrowserSearch
             | Self::CloseTopmostPane

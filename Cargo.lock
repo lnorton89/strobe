@@ -2891,6 +2891,7 @@ dependencies = [
  "strobe-audio",
  "strobe-diag",
  "strobe-gfx",
+ "strobe-playlist",
  "strobe-scene",
  "strobe-script",
  "strobe-shadertoy",

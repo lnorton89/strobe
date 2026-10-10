@@ -882,6 +882,35 @@ impl Gl {
         }
     }
 
+    /// Copies the whole of `src` (a `src_size` image) over the whole of
+    /// `dst` (a `dst_size` image), scaling. `linear` filters; otherwise the
+    /// nearest texel is taken, which is the only filter GL allows between
+    /// 32-bit float attachments. Both framebuffers must have a colour
+    /// attachment of the same kind (a float one for a float one).
+    pub fn blit_between_filtered(
+        &self,
+        src: &Framebuffer,
+        src_size: [i32; 2],
+        dst: &Framebuffer,
+        dst_size: [i32; 2],
+        linear: bool,
+    ) {
+        self.bind_raw_framebuffer(glow::READ_FRAMEBUFFER, Some(src.raw));
+        self.bind_raw_framebuffer(glow::DRAW_FRAMEBUFFER, Some(dst.raw));
+        self.blit_scaled(src_size, dst_size, linear);
+        self.bind_raw_framebuffer(glow::FRAMEBUFFER, None);
+    }
+
+    fn blit_scaled(&self, [sw, sh]: [i32; 2], [dw, dh]: [i32; 2], linear: bool) {
+        let filter = if linear { glow::LINEAR } else { glow::NEAREST };
+        // SAFETY: current-context invariant; read and draw framebuffers are
+        // bound by the caller.
+        unsafe {
+            self.raw
+                .blit_framebuffer(0, 0, sw, sh, 0, 0, dw, dh, glow::COLOR_BUFFER_BIT, filter)
+        }
+    }
+
     /// Reads back `width * height` RGBA8 pixels from `fbo`, bottom row first.
     pub fn read_rgba8(&self, fbo: &Framebuffer, width: i32, height: i32) -> Vec<u8> {
         let mut pixels = vec![0_u8; (width.max(0) as usize) * (height.max(0) as usize) * 4];
