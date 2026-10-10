@@ -741,12 +741,6 @@ impl Running {
                     .action("the scene list is empty"),
             );
         }
-        if let Some(query) = cli.preview.as_deref() {
-            match running.library.find(query) {
-                Some(index) => running.preview_load(index),
-                None => log::warn!("--preview: no scene matching \"{query}\" in the library"),
-            }
-        }
         if let Some(query) = cli.scene.as_deref() {
             match running.library.find(query) {
                 Some(index) => running.load(index),
@@ -756,6 +750,12 @@ impl Running {
                         .message(format!("no scene matching \"{query}\" in the library"))
                         .action("no scene loaded"),
                 ),
+            }
+        }
+        if let Some(query) = cli.preview.as_deref() {
+            match running.library.find(query) {
+                Some(index) => running.preview_load(index),
+                None => log::warn!("--preview: no scene matching \"{query}\" in the library"),
             }
         }
         Ok(running)
@@ -2025,9 +2025,16 @@ impl Running {
         let mut actions = std::mem::take(&mut self.actions);
         let window = self.stack.control.window();
         let shell_state = &mut self.shell;
+        let ui_started = Instant::now();
         self.stack.ui.run(window, |ui| {
             shell::show(ui, shell_state, &mut model, &mut actions)
         });
+        let ran = ui_started.elapsed();
+        // Layout only: the paint that follows is the GL driver's (on
+        // llvmpipe it is software rasterisation and dwarfs everything else,
+        // so including it would make the number a measure of the CPU's
+        // pixel throughput rather than of the UI).
+        self.stats.record_ui(ran);
         self.stack.ui.paint(window, crate::ui::theme::clear_color());
         self.ui_state.tick(now);
 

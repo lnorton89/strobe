@@ -4,6 +4,29 @@ _Last researched: 2026-10-08_
 
 This is the implementation handoff for the future `strobe-app` UI. It turns the research in `UI_DESIGN.md` and `UI_RESEARCH_ADDENDUM.md` into a concrete egui architecture without prematurely coupling the UI to renderer internals.
 
+## Implementation status (2026-10-10, stage 1)
+
+Built in `strobe-app` as D130 to D138, with screenshots in
+[images/perform/](images/perform/). Section by section:
+
+| Section | State |
+|---|---|
+| 1 to 3 Topology and layers | **Done.** Contextual Perform; `UiState` is presentation state, `Model` the adapter, `Action` the command layer. The module layout differs from section 4 (see `ARCHITECTURE.md`). |
+| 5 Shell, 6 panes, 7 layout | **Done.** `ui::shell`, `workspace` (pane data, docks, collapse order, drawer). 55% preview share instead of fixed breakpoints (D131). |
+| 8 Browser (Preview, Load) | **Done**; Queue is not. Preview is a second small player (D136). |
+| 9 Scene health | **Partly.** Unknown, Ready and Failed (with the first error lines), filter by health. Preparing is shown on the row; MissingAsset, Unsupported, HighGpu, Degraded are not detected. |
+| 10 Inspector | **Done** for every `ControlKind`, with Shift fine, reset, exact entry, keyboard; not randomise-per-control, lock or undo. |
+| 11, 12 Macros | **Stage 1 only** (the first controls of the scene; D137). The model, resolution, states, learn and shortcuts are stage 2. |
+| 13 Transport | **Partly.** Prev, next and blackout work; Hold, cue time and BPM-confidence are not (no cue list; D135). |
+| 14 Diagnostics | **Levels 1 and 2** (readouts; notices, banners, per-subsystem cards, the failed-scene list) and a console; no dedicated event model with recovery actions. |
+| 15 Commands | **Table and shortcuts**; no palette. |
+| 16 Focus | **Done** (D134). |
+| 17 Persistence | **Done** for panes, widths, query, filter, collapsed groups, theme, motion, title bar (D133); not macro order, bindings, named layouts or density. |
+| 18 Paint cost | Rules enforced by tests and `shell_tests`; the T480 measurement is open. |
+| 19, 20 Output window | Unchanged from D96; show, hide, fullscreen and monitor are in the toolbar and Settings. |
+| 21 Loading and failure | **Done** (two-phase load, banners); "Open Editor" waits for the Editor. |
+| 22 to 26 Acceptance | Perform met on Xvfb (STATUS_AUDIT); playlist, editor, mapping, library thumbnails and tags are later stages. |
+
 ## 1. Executive decision
 
 Use **Contextual Perform** as the default topology.
