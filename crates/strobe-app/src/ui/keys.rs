@@ -34,7 +34,7 @@ const MAX_PER_FRAME: usize = 8;
 /// Maps an egui key to the command table's key, if the table uses it.
 #[expect(
     clippy::wildcard_enum_match_arm,
-    reason = "egui::Key has ~150 variants and the command table uses eight; \
+    reason = "egui::Key has ~150 variants and the command table uses ten; \
               the wildcard is the point, and the test below pins the eight"
 )]
 pub fn key_from(key: egui::Key) -> Option<Key> {
@@ -45,6 +45,8 @@ pub fn key_from(key: egui::Key) -> Option<Key> {
         egui::Key::Escape => Some(Key::Escape),
         egui::Key::F11 => Some(Key::F11),
         egui::Key::B => Some(Key::B),
+        egui::Key::E => Some(Key::E),
+        egui::Key::R => Some(Key::R),
         egui::Key::F => Some(Key::F),
         egui::Key::T => Some(Key::T),
         _ => None,
@@ -100,6 +102,9 @@ pub fn run(command: CommandId, model: &mut Model<'_>, actions: &mut Vec<Action>)
         CommandId::NextScene => actions.push(Action::NextScene),
         CommandId::PrevScene => actions.push(Action::PrevScene),
         CommandId::ToggleHold => actions.push(Action::ToggleHold),
+        CommandId::ExtendCue => actions.push(Action::ExtendCue),
+        CommandId::RestartCue => actions.push(Action::RestartCue),
+        CommandId::SkipSection => actions.push(Action::SkipSection),
         CommandId::ToggleBlackout => {
             actions.push(Action::SetBlackout(!model.transport.blackout));
         }
@@ -130,6 +135,8 @@ mod tests {
             egui::Key::Escape,
             egui::Key::F11,
             egui::Key::B,
+            egui::Key::E,
+            egui::Key::R,
             egui::Key::F,
             egui::Key::T,
         ];

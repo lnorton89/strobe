@@ -59,10 +59,16 @@ pub enum Start {
 
 /// Applies the order above to `clock`. `resume` is the saved point, if one
 /// was found, and `now_seconds_of_day` is local seconds since midnight.
+///
+/// `lenient` skips the identity check on the point: a **reload** of an
+/// edited playlist is meant to be the same show (adding a cue changes the
+/// identity, and the position should survive it), where a point read from
+/// the resume file at launch must belong to this playlist.
 pub fn plan(
     clock: &mut PlaylistClock,
     resume: Option<&ResumePoint>,
     now_seconds_of_day: f64,
+    lenient: bool,
 ) -> Start {
     if let Some(placement) = clock.sync_to_wall_clock(now_seconds_of_day) {
         return match placement {
@@ -76,7 +82,11 @@ pub fn plan(
         };
     }
     match resume {
-        Some(point) => match clock.restore(point) {
+        Some(point) => match if lenient {
+            clock.restore_lenient(point)
+        } else {
+            clock.restore(point)
+        } {
             Ok(()) => Start::Resumed {
                 offset: point.offset,
             },
@@ -121,7 +131,11 @@ mod tests {
     #[test]
     fn with_nothing_saved_and_no_anchor_the_show_starts_fresh() -> Result<()> {
         let mut c = clock(false, false)?;
-        assert_eq!(plan(&mut c, None, NINE), Start::Fresh, "nothing to go on");
+        assert_eq!(
+            plan(&mut c, None, NINE, false),
+            Start::Fresh,
+            "nothing to go on"
+        );
         assert_eq!(c.current(), None, "the first tick starts the first cue");
         Ok(())
     }
@@ -137,7 +151,7 @@ mod tests {
             offset: 4.5,
         };
         assert_eq!(
-            plan(&mut c, Some(&point), NINE),
+            plan(&mut c, Some(&point), NINE, false),
             Start::Resumed { offset: 4.5 },
             "resumed"
         );
@@ -156,7 +170,7 @@ mod tests {
             pass: 0,
             offset: 2.0,
         };
-        let start = plan(&mut c, Some(&point), NINE);
+        let start = plan(&mut c, Some(&point), NINE, false);
         assert!(
             matches!(
                 start,
@@ -165,6 +179,25 @@ mod tests {
             "{start:?}"
         );
         assert_eq!(c.current(), None, "the clock was not moved");
+        Ok(())
+    }
+
+    #[test]
+    fn a_reload_keeps_the_position_even_though_the_playlist_changed() -> Result<()> {
+        let mut c = clock(false, false)?;
+        let point = ResumePoint {
+            identity: c.timeline().identity() ^ 0xff,
+            section: 0,
+            cue: 1,
+            pass: 0,
+            offset: 3.0,
+        };
+        assert_eq!(
+            plan(&mut c, Some(&point), NINE, true),
+            Start::Resumed { offset: 3.0 },
+            "lenient accepts another identity"
+        );
+        assert_eq!(c.current(), Some(1), "on the same cue");
         Ok(())
     }
 
@@ -179,7 +212,7 @@ mod tests {
             offset: 1.0,
         };
         // 09:00:25: 25 seconds in is five seconds into the third cue.
-        let start = plan(&mut c, Some(&point), NINE + 25.0);
+        let start = plan(&mut c, Some(&point), NINE + 25.0, false);
         assert_eq!(start, Start::OnSchedule { offset: 5.0 }, "{start:?}");
         assert_eq!(c.current(), Some(2), "the cue the schedule names");
         Ok(())
@@ -189,7 +222,7 @@ mod tests {
     fn before_the_anchor_the_clock_waits_and_after_a_one_shot_show_it_is_over() -> Result<()> {
         let mut early = clock(true, false)?;
         assert_eq!(
-            plan(&mut early, None, NINE - 60.0),
+            plan(&mut early, None, NINE - 60.0, false),
             Start::WaitingForAnchor { seconds: 60.0 },
             "a minute early"
         );
@@ -197,7 +230,7 @@ mod tests {
 
         let mut late = clock(true, false)?;
         assert_eq!(
-            plan(&mut late, None, NINE + 3600.0),
+            plan(&mut late, None, NINE + 3600.0, false),
             Start::Finished,
             "an hour after a 30-second show"
         );

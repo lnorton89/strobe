@@ -188,6 +188,8 @@ pub struct Show {
     events: Vec<ClockEvent>,
     waiting: Option<f64>,
     resume_in: Option<ResumePoint>,
+    /// The point to restore is from an earlier version of this playlist.
+    lenient: bool,
     writer: Option<ResumeWriter>,
     save: SaveTimer,
     watch: Option<Watch>,
@@ -251,6 +253,7 @@ impl Show {
             events: Vec::with_capacity(64),
             waiting: None,
             resume_in: resume,
+            lenient: false,
             writer,
             save: SaveTimer::new(),
             watch,
@@ -553,7 +556,13 @@ impl Show {
             self.compiles_baseline
         );
         let resume = self.resume_in.take();
-        let outcome = start::plan(&mut self.clock, resume.as_ref(), f64::from(env.date[3]));
+        let outcome = start::plan(
+            &mut self.clock,
+            resume.as_ref(),
+            f64::from(env.date[3]),
+            self.lenient,
+        );
+        self.lenient = false;
         match outcome {
             Start::Fresh => log::info!("playlist: starting at the first cue"),
             Start::Resumed { offset } => log::info!(
@@ -608,6 +617,7 @@ impl Show {
         self.rebuild_tables(library, Some(&mut old));
         self.waiting = None;
         self.resume_in = point;
+        self.lenient = true;
         self.ended_noted = false;
         self.save.reset();
         // Anything the old cache still holds belongs to scenes the new

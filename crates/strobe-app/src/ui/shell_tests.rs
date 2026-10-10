@@ -20,8 +20,8 @@
 
 use super::shell::{ShellState, show};
 use super::{
-    Action, AudioPanel, FailurePanel, ImportPanel, ListenerPanel, Model, NoticePanel, PerfPanel,
-    Preview, ScenePreview, TransportPanel, UiState,
+    Action, AudioPanel, CueTransport, FailurePanel, ImportPanel, ListenerPanel, Model, NoticePanel,
+    PerfPanel, PlaylistPanel, PlaylistUi, Preview, ScenePreview, TransportPanel, UiState,
 };
 use crate::console::Console;
 use crate::import::Status;
@@ -63,6 +63,8 @@ struct Scenario {
     notice: bool,
     previewing: bool,
     replace: bool,
+    /// A playlist is loaded (its scenes `02-scene-1` and `ghost` cannot play).
+    playlist: bool,
     panes: &'static [Pane],
 }
 
@@ -80,6 +82,7 @@ const BASE: Scenario = Scenario {
     notice: false,
     previewing: false,
     replace: false,
+    playlist: false,
     panes: &[Pane::Inspector],
 };
 
@@ -174,6 +177,23 @@ fn scenarios() -> Vec<Scenario> {
             ..BASE
         },
         Scenario {
+            name: "playlist pane, nothing loaded",
+            panes: &[Pane::Playlist],
+            ..BASE
+        },
+        Scenario {
+            name: "playlist loaded",
+            playlist: true,
+            panes: &[Pane::Playlist],
+            ..BASE
+        },
+        Scenario {
+            name: "playlist loaded, narrow strip",
+            playlist: true,
+            panes: &[Pane::Playlist, Pane::Inspector],
+            ..BASE
+        },
+        Scenario {
             name: "no panes",
             panes: &[],
             ..BASE
@@ -186,6 +206,7 @@ fn scenarios() -> Vec<Scenario> {
                 Pane::Inspector,
                 Pane::Diagnostics,
                 Pane::Settings,
+                Pane::Playlist,
             ],
             ..BASE
         },
@@ -204,6 +225,21 @@ fn controls() -> Result<ControlBank> {
         { "NAME": "mode", "TYPE": "dropdown", "LABELS": ["a", "b"], "VALUES": [0, 1] }
     ] }"#;
     Ok(ControlBank::new(SceneDef::parse(json, "t")?.controls)?)
+}
+
+/// A three-cue show over `library`, never compiled: its second scene is in
+/// the library, its third is not (so one row is drawn as skipped).
+fn sample_show(library: &Library) -> Result<crate::show::Show> {
+    use strobe_playlist::{Cue, DurationSpec, Playlist, SceneRef, Section};
+    let mut playlist = Playlist::new("Example show");
+    let mut section = Section::new("Morning");
+    for name in ["01-scene-0", "02-scene-1", "ghost"] {
+        let mut cue = Cue::new(SceneRef::Library(name.to_string()));
+        cue.settings.duration = Some(DurationSpec::Seconds(180.0));
+        section.cues.push(cue);
+    }
+    playlist.sections.push(section);
+    Ok(crate::show::Show::new(None, playlist, library, None, None))
 }
 
 /// What a drawn scenario leaves behind.
@@ -266,6 +302,11 @@ fn draw(scenario: Scenario, size: (f32, f32), frames: usize) -> Result<Drawn> {
     };
     let status = Status::Idle;
     let monitors = vec!["1: Display (1920x1080)".to_string()];
+    let mut playlist_ui = PlaylistUi::default();
+    let sample_show_state = scenario
+        .playlist
+        .then(|| sample_show(&library))
+        .transpose()?;
     let mut shell_state = ShellState::default();
     let mut actions = Vec::new();
     let mut shapes = Vec::new();
@@ -300,6 +341,16 @@ fn draw(scenario: Scenario, size: (f32, f32), frames: usize) -> Result<Drawn> {
             transport: TransportPanel {
                 now: scenario.playing.then_some("01-scene-0"),
                 next: (scenario.scenes > 1).then_some("02-scene-1"),
+                cue: scenario.playlist.then_some(CueTransport {
+                    index: 1,
+                    total: 3,
+                    section: "Morning",
+                    elapsed: 41.0,
+                    remaining: Some(139.0),
+                    held: true,
+                    transition: Some(0.4),
+                    waiting: None,
+                }),
                 scene_time: 41.0,
                 blackout: scenario.blackout,
                 can_step: scenario.scenes > 1,
@@ -347,6 +398,10 @@ fn draw(scenario: Scenario, size: (f32, f32), frames: usize) -> Result<Drawn> {
                     failed: false,
                     token: None,
                 },
+            },
+            playlist: PlaylistPanel {
+                ui: &mut playlist_ui,
+                show: sample_show_state.as_ref(),
             },
         };
         let pass = crate::ui::testing::run(

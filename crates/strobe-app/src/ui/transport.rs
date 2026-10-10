@@ -20,15 +20,25 @@
 //!
 //! ## What is wired, and what is not
 //!
-//! Stage 1 has no cue list in the app (the playlist crate is not a
-//! dependency yet), so the strip is honest about it rather than faking one:
+//! The strip has two modes, and says which it is in (D135, D156):
+//!
+//! **With a playlist loaded** it is the cue transport:
+//!
+//! - **Prev / Next** go to the previous and next playable cue, and "NEXT"
+//!   names the cue a press would go to (`cue order`).
+//! - **Hold** freezes the cue's clock (Space). It latches: filled in the
+//!   accent colour, with `HELD` beside the time, until pressed again.
+//! - **Time** is the cue's remaining time as a countdown (`-1:23`), or its
+//!   elapsed time (`+0:41`) for a cue only a person ends. During a
+//!   transition it says how far along it is.
+//!
+//! **With no playlist** the strip is honest about it rather than faking one:
 //!
 //! - **Prev / Next** step through the library in its sorted order, skipping
 //!   scenes known to be broken. "NEXT" on the strip names what a press would
-//!   load, and the strip says `LIBRARY ORDER` beside it.
+//!   load, and the strip says `library order` beside it.
 //! - **Hold** is drawn as unavailable, with a tooltip that says why. Space
-//!   is reserved for it; pressing Space shows a notice instead of doing
-//!   nothing silently.
+//!   shows a notice instead of doing nothing silently.
 //! - **Time** is the playing scene's clock, not a cue's remaining time, and
 //!   is labelled as such.
 //! - **Blackout** is real: the shown output goes black, the preview keeps
@@ -39,7 +49,7 @@
 
 use super::icon as icons;
 use super::macros;
-use super::model::{Action, Model};
+use super::model::{Action, CueTransport, Model};
 use super::theme::{self, SPACE_MD, SPACE_SM, SPACE_XS};
 use super::widgets::{self, Look};
 use crate::icon::Icon;
@@ -73,6 +83,25 @@ pub fn clock(seconds: f32) -> String {
     }
     let total = seconds as u64;
     format!("{:02}:{:02}", (total / 60) % 100, total % 60)
+}
+
+/// The cue's time as the strip shows it: `-1:23` left, `+0:41` played,
+/// `HELD`, `FADE 45%` while a transition runs, or the wait for an anchor.
+fn cue_time(cue: &CueTransport<'_>) -> String {
+    if let Some(wait) = cue.waiting {
+        return format!("in {}", clock(wait));
+    }
+    let base = match cue.remaining {
+        Some(left) => format!("-{}", clock(left)),
+        None => format!("+{}", clock(cue.elapsed)),
+    };
+    if cue.held {
+        format!("{base} HELD")
+    } else if let Some(progress) = cue.transition {
+        format!("{base} FADE {:.0}%", progress * 100.0)
+    } else {
+        base
+    }
 }
 
 /// Draws the strip.
@@ -117,7 +146,9 @@ fn transport_row(
             Look::Unavailable
         };
         let step_tip = |name: &str, key: &str| {
-            if t.can_step {
+            if t.cue.is_some() {
+                format!("{name} cue in the playlist ({key})")
+            } else if t.can_step {
                 format!("{name} scene in the library ({key})")
             } else {
                 "There is only one scene in the library".to_string()
@@ -128,15 +159,30 @@ fn transport_row(
         {
             actions.push(Action::PrevScene);
         }
-        // Hold: not wired to anything. Drawn as absent, and says why.
-        widgets::transport_button(
-            ui,
-            theme,
-            Icon::Pause,
-            Look::Unavailable,
-            "Hold: not available yet. There is no cue list to hold until the \
-             Playlist workspace lands (stage 2). Space is reserved for it.",
-        );
+        match t.cue {
+            Some(cue) => {
+                let look = if cue.held { Look::Active } else { Look::Normal };
+                let tip = if cue.held {
+                    "Held: the cue's clock is frozen. Press to release (Space)"
+                } else {
+                    "Hold the cue: freeze its clock so it does not end (Space)"
+                };
+                if widgets::transport_button(ui, theme, Icon::Pause, look, tip).clicked() {
+                    actions.push(Action::ToggleHold);
+                }
+            }
+            None => {
+                // No cue list: drawn as absent, and says why.
+                widgets::transport_button(
+                    ui,
+                    theme,
+                    Icon::Pause,
+                    Look::Unavailable,
+                    "Hold needs a playlist. Load one in the LIST pane or start with \
+                     --playlist <file>. Space shows this reminder until then.",
+                );
+            }
+        }
         if widgets::transport_button(ui, theme, Icon::Next, step, &step_tip("Next", "Right"))
             .clicked()
         {
@@ -167,13 +213,24 @@ fn transport_row(
                     .color(theme::rgb(theme.text)),
             );
             ui.add_space(SPACE_SM);
+            let (time, tip) = match t.cue {
+                Some(cue) => (
+                    cue_time(&cue),
+                    "The current cue: a countdown to its end (-1:23), or time played (+0:41) \
+                     for a cue only you end. HELD means its clock is frozen.",
+                ),
+                None => (
+                    clock(t.scene_time),
+                    "Time since the scene started. (There is no playlist, so this is not a cue's remaining time.)",
+                ),
+            };
             ui.label(
-                egui::RichText::new(clock(t.scene_time))
+                egui::RichText::new(time)
                     .monospace()
                     .size(15.0)
                     .color(theme::rgb(theme.text)),
             )
-            .on_hover_text("Time since the scene started. (There are no cues yet, so this is not a cue's remaining time.)");
+            .on_hover_text(tip);
             ui.add_space(SPACE_SM);
             cue_text(ui, model, theme, narrow);
         });
@@ -244,7 +301,11 @@ fn cue_text(ui: &mut Ui, model: &Model<'_>, theme: &Palette, narrow: bool) {
         painter.text(
             egui::pos2(nx, rect.top() + 6.0),
             egui::Align2::LEFT_CENTER,
-            "NEXT  (library order)",
+            if t.cue.is_some() {
+                "NEXT  (cue order)"
+            } else {
+                "NEXT  (library order)"
+            },
             label_font,
             theme::rgb(theme.text_muted),
         );
@@ -262,10 +323,11 @@ fn cue_text(ui: &mut Ui, model: &Model<'_>, theme: &Palette, narrow: bool) {
         );
     }
     let _ = icons::INLINE;
-    response.on_hover_text(
-        "Scenes step in library order. A cue list with real NEXT and remaining time \
-         arrives with the Playlist workspace (stage 2).",
-    );
+    response.on_hover_text(if t.cue.is_some() {
+        "The playlist's current and next cue. Open LIST for the whole timeline."
+    } else {
+        "Scenes step in library order. Load a playlist (LIST) for cues, NEXT and remaining time."
+    });
 }
 
 /// Room the NOW column keeps free of its swatch and padding.
@@ -281,6 +343,44 @@ mod tests {
         assert_eq!(clock(41.9), "00:41");
         assert_eq!(clock(70.0), "01:10");
         assert_eq!(clock(3599.0), "59:59");
+    }
+
+    fn cue(remaining: Option<f32>) -> CueTransport<'static> {
+        CueTransport {
+            index: 0,
+            total: 3,
+            section: "s",
+            elapsed: 41.0,
+            remaining,
+            held: false,
+            transition: None,
+            waiting: None,
+        }
+    }
+
+    #[test]
+    fn a_timed_cue_counts_down_and_a_manual_one_counts_up() {
+        assert_eq!(cue_time(&cue(Some(83.0))), "-01:23");
+        assert_eq!(cue_time(&cue(None)), "+00:41");
+    }
+
+    #[test]
+    fn hold_and_transitions_are_said_in_words() {
+        let held = CueTransport {
+            held: true,
+            ..cue(Some(10.0))
+        };
+        assert_eq!(cue_time(&held), "-00:10 HELD");
+        let fading = CueTransport {
+            transition: Some(0.456),
+            ..cue(Some(10.0))
+        };
+        assert_eq!(cue_time(&fading), "-00:10 FADE 46%");
+        let waiting = CueTransport {
+            waiting: Some(125.0),
+            ..cue(None)
+        };
+        assert_eq!(cue_time(&waiting), "in 02:05");
     }
 
     #[test]
