@@ -15,6 +15,7 @@
 //! the value when the drag ends).
 
 use crate::console::Console;
+use crate::import::Status;
 use crate::library::Library;
 use crate::script::ScriptState;
 use crate::stats::FrameStats;
@@ -51,6 +52,14 @@ pub enum Action {
     TapTempo,
     /// Turn adaptive resolution on or off.
     SetAdaptive(bool),
+    /// Import this file path, Shadertoy id or URL.
+    Import(String),
+    /// Replace the scene the import panel is asking about.
+    ConfirmReplace,
+    /// Leave the existing scene alone.
+    CancelReplace,
+    /// Start or stop the browser listener.
+    SetImportListener(bool),
 }
 
 /// What the performance readouts and the adaptive toggle show.
@@ -86,6 +95,34 @@ pub struct AudioPanel<'a> {
     pub speed: &'a mut f32,
     /// The tempo in the latest frame.
     pub bpm: f32,
+}
+
+/// The browser listener's row in the import panel.
+pub struct ListenerPanel<'a> {
+    /// Whether the person has it switched on.
+    pub enabled: bool,
+    /// One line: where it listens, or why it does not.
+    pub state: &'a str,
+    /// Whether `state` is an error.
+    pub failed: bool,
+    /// The token to paste into the userscript, once the listener has one.
+    pub token: Option<&'a str>,
+}
+
+/// The import panel's inputs.
+pub struct ImportPanel<'a> {
+    /// The path/id field.
+    pub text: &'a mut String,
+    /// The result line.
+    pub status: &'a Status,
+    /// The scene the panel is asking whether to replace.
+    pub replace_title: Option<&'a str>,
+    /// An import is queued or running.
+    pub busy: bool,
+    /// A file is being dragged over the window.
+    pub drop_hover: bool,
+    /// The browser listener.
+    pub listener: ListenerPanel<'a>,
 }
 
 /// The output as an egui texture, for the preview.
@@ -133,4 +170,6 @@ pub struct Model<'a> {
     pub script: Option<&'a ScriptState>,
     /// GPU time, budget and adaptive resolution.
     pub perf: PerfPanel,
+    /// Shadertoy import.
+    pub import: ImportPanel<'a>,
 }

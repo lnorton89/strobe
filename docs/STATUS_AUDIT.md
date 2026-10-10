@@ -22,9 +22,9 @@ The Windows desktop app wires together:
 - GPU-timed adaptive render scale;
 - context-loss recovery with ANGLE fail-over.
 
-The benchmark uses a window context where EGL is unavailable. Two crates
-exist without app integration so far: the Shadertoy converter and the
-playlist core.
+The benchmark uses a window context where EGL is unavailable. One crate
+exists without app integration so far: the playlist core. (The Shadertoy
+importer is wired into the app as of stage 2.)
 
 For the deeper contracts, read [ARCHITECTURE.md](ARCHITECTURE.md),
 [DECISIONS.md](DECISIONS.md) and [BENCHMARKS.md](BENCHMARKS.md).
@@ -141,10 +141,21 @@ they apply, and explicit supported, degraded or unsupported claims.
   - attribution and licence metadata in `SOURCE`.
   
   Nine original fixtures render on both dialects.
-- [ ] Shadertoy acquisition and workflow (stage 2): the REST client, the
-  userscript with its localhost listener, the drop folder, the asset
-  downloader, the app's Import UI, conversion diagnostics in the UI, and
-  the Needs-work bin.
+- [x] Shadertoy acquisition (stage 2, D110-D117), against fakes. *Evidence:*
+  `cargo test -p strobe-shadertoy` (REST, downloader, cache, pipeline and
+  listener, with a loopback mock Shadertoy and no live site); under Xvfb
+  (llvmpipe, native GL, 2026-10-10) a shader POSTed to the real listener by
+  `tools/userscript/test/run.mjs` was imported, selected and rendered, a
+  fixture path typed into the Import panel imported and loaded a four-buffer
+  scene, a second import showed Replace / Cancel and Replace swapped it, and
+  an id with no key showed the "no Shadertoy API key" failure.
+- [ ] Shadertoy against the live site. Not verified: the REST call, texture
+  downloads, and the userscript's route to the page's JSON (Q19). *Accept:*
+  one real import by id and one from the button, each recorded in
+  [hardware/T480.md](hardware/T480.md).
+- [ ] A real file drop (X11 and Windows). The typed path runs the same job.
+- [ ] Thumbnails, conversion diagnostics beyond the warnings list, and the
+  Needs-work bin.
 - [x] Auto-generated controls engine, stage 1 (D123-D126;
   [ROADMAP.md](ROADMAP.md), "Auto-generated controls"). Evidence:
   `crates/strobe-autocontrol/tests/engine.rs` on headless llvmpipe, both

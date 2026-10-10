@@ -21,8 +21,9 @@ pub mod browser;
 pub mod console;
 pub mod controls;
 pub mod host;
+pub mod import;
 pub mod layout;
 pub mod model;
 
 pub use host::UiHost;
-pub use model::{Action, AudioPanel, Model, PerfPanel, Preview};
+pub use model::{Action, AudioPanel, ImportPanel, ListenerPanel, Model, PerfPanel, Preview};

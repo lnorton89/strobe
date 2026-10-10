@@ -94,7 +94,12 @@ fn a_uniform_made_in_update_is_declared_at_load_and_reaches_the_shader() -> Resu
             1,
             "{api:?}: one script uniform compiled in"
         );
-        session.advance(1.0 / 60.0, &mut audio, Mouse::default());
+        session.advance(
+            1.0 / 60.0,
+            &mut audio,
+            Mouse::default(),
+            [2026.0, 9.0, 10.0, 0.0],
+        );
         if let Some(code) = gl.error() {
             return Err(anyhow!("{api:?}: GL error 0x{code:x}"));
         }
@@ -123,7 +128,12 @@ fn a_uniform_made_in_setup_is_also_declared_at_load() -> Result<()> {
     let mut audio = AudioInput::new(false);
     let mut session = Session::load(gl, &caps, &scene.0, "setup", [32, 18], 0.0, &mut audio)
         .map_err(|e| anyhow!("load failed: {e}"))?;
-    session.advance(1.0 / 60.0, &mut audio, Mouse::default());
+    session.advance(
+        1.0 / 60.0,
+        &mut audio,
+        Mouse::default(),
+        [2026.0, 9.0, 10.0, 0.0],
+    );
     let px = centre(&session)?;
     assert!(near(px[0], 191), "0.75 is 191 of 255, got {px:?}");
     Ok(())
@@ -153,7 +163,12 @@ fn a_uniform_that_appears_later_is_adopted_with_one_recompile() -> Result<()> {
         session.player.extras()
     );
     for _ in 0..8 {
-        session.advance(1.0 / 60.0, &mut audio, Mouse::default());
+        session.advance(
+            1.0 / 60.0,
+            &mut audio,
+            Mouse::default(),
+            [2026.0, 9.0, 10.0, 0.0],
+        );
     }
     let names: Vec<&str> = session
         .player

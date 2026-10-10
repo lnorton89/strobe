@@ -14,7 +14,7 @@
 //! panels read a [`Model`] and return [`Action`]s.
 
 use super::model::{Action, Model};
-use super::{audio, browser, console, controls};
+use super::{audio, browser, console, controls, import};
 use crate::script::ScriptState;
 use crate::session::RENDER_SCALE;
 use crate::theme;
@@ -43,6 +43,10 @@ pub fn show(ui: &mut egui::Ui, model: &mut Model<'_>, actions: &mut Vec<Action>)
                 .resizable(false)
                 .show_separator_line(true)
                 .show(ui, |ui| audio::show(ui, &mut model.audio, actions));
+            egui::Panel::bottom("import")
+                .resizable(false)
+                .show_separator_line(true)
+                .show(ui, |ui| import::show(ui, &mut model.import, actions));
             browser::show(ui, model, actions);
         });
     egui::Panel::right("controls")

@@ -1,33 +1,41 @@
 // ============================================================================
 // Module:       strobe_shadertoy (library crate root)
 // Description:  Shadertoy import: id parsing, the shader JSON model, dialect
-//               normalisation, and the converter to a Strobe scene folder.
+//               normalisation, the converter to a Strobe scene folder, and
+//               acquisition (REST client, texture downloader, listener).
 //
-// Dependencies: serde, serde_json, thiserror; strobe-scene (validation)
+// Dependencies: serde, serde_json, thiserror, sha2, getrandom; strobe-scene
+//               (validation); ureq (feature `net`)
 // ============================================================================
 
 //! Shadertoy to Strobe.
 //!
-//! Four layers, kept apart so each can change without the others
+//! Layers, kept apart so each can change without the others
 //! (AGENT_RESEARCH section 9):
 //!
 //! 1. [`id`]: a pasted URL or bare id becomes a [`ShaderId`].
-//! 2. Acquisition: getting the JSON. Not built yet (see below).
+//! 2. [`acquire`] and [`listener`]: getting the JSON and the textures. The
+//!    REST API with a key (path B), the texture downloader and its cache,
+//!    and the localhost listener the browser userscript posts to (path A).
 //! 3. [`model`]: the JSON as typed Rust, in either of its two shapes.
 //! 4. [`convert`]: the deterministic converter from that model to a Strobe
 //!    scene folder, with [`dialect`] rewriting the shader text and
 //!    [`glsl`] the tokenizer both lean on.
 //!
-//! ## Acquisition is a separate, later layer
+//! [`import`] is the pipeline that joins them: JSON text in, scene folder
+//! in the library out. Every route (a dropped file, an id, the userscript,
+//! `strobe-import`) ends in [`import::import_json`], so there is one place
+//! where a re-import is detected, textures are fetched and the folder is
+//! written.
+//!
+//! ## Acquisition is separate from conversion
 //!
 //! Shadertoy is behind Cloudflare, so a server-side fetch of a page does
-//! not work; the planned routes (PLAN section 6.1) are the REST API with a
-//! key for shaders published "Public + API" (path B), and a userscript in
-//! the person's own browser POSTing to a localhost listener (path A).
-//! Neither is built. Both end in the same place, a JSON document, which
-//! [`model::Shader::from_json`] reads, and everything after that point
-//! works offline from a file. The `strobe-import` binary says so when
-//! asked for an id.
+//! not work; the routes are the REST API with a key for shaders published
+//! "Public + API" (path B), a userscript in the person's own browser POSTing
+//! to a loopback listener (path A), and an exported file (path C). All end
+//! in a JSON document, which [`model::Shader::from_json`] reads, and
+//! everything after that point works offline from a file.
 //!
 //! ## What the converter promises
 //!
@@ -40,10 +48,13 @@
 //!   the pass and channel; what is converted with a loss (a video input
 //!   bound to black) is a [`convert::Warning`].
 
+pub mod acquire;
 pub mod convert;
 pub mod dialect;
 pub mod glsl;
 pub mod id;
+pub mod import;
+pub mod listener;
 pub mod model;
 
 pub use convert::{Converted, Options, convert};

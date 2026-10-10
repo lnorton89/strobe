@@ -30,6 +30,11 @@ allow = [
     "BSL-1.0",
     "MPL-2.0",
     "OFL-1.1",
+    # webpki-roots, the Mozilla CA bundle compiled into the Shadertoy HTTP
+    # client (ureq + rustls, D110). CDLA-Permissive-2.0 is a permissive
+    # data licence: use and redistribution with no copyleft, attribution
+    # kept in the licence text only.
+    "CDLA-Permissive-2.0",
     # egui's bundled default fonts.
     "Ubuntu-font-1.0",
 ]

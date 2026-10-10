@@ -64,7 +64,7 @@ machine.
 | [`strobe-script`](crates/strobe-script/README.md) | QuickJS host for the Synesthesia JavaScript API |
 | [`strobe-audio`](crates/strobe-audio/README.md) | Capture, FFT, bands, onsets, BPM, audio textures |
 | [`strobe-diag`](crates/strobe-diag/README.md) | Logging, structured failures, panic reports, native crash capture with minidumps |
-| [`strobe-shadertoy`](crates/strobe-shadertoy/README.md) | Shadertoy import: URL/id parser, export-JSON model, deterministic converter to a scene folder, `strobe-import` (fetching by id is not built yet) |
+| [`strobe-shadertoy`](crates/strobe-shadertoy/README.md) | Shadertoy import: URL/id parser, export-JSON model, deterministic converter to a scene folder, REST client, texture downloader, loopback listener, `strobe-import` |
 | [`strobe-autocontrol`](crates/strobe-autocontrol/README.md) | Auto-generated controls: finds the literals that shape a scene, rewrites them to uniforms, keeps those that measurably change the image; `strobe-autocontrol` writes `<name>-auto.synScene` |
 | [`strobe-playlist`](crates/strobe-playlist/README.md) | Playlist model, TOML I/O, generator, timeline, playback clock (not wired into the app yet) |
 | [`strobe-bench`](crates/strobe-bench/README.md) | Benchmark: renders `scenes/`, times each, writes frames and a contact sheet |
@@ -143,7 +143,7 @@ GLES 3.0. That covers the two dialects the native and ANGLE paths take.
 | 1 | Renderer, SSF scene loading, multipass, controls UI, output window | Renderer and scene model done; window and UI next |
 | 2 | JavaScript API (`rquickjs`, interrupt budget, conformance suite) | Planned |
 | 3 | Audio analysis: bands, hits, BPM, spectrum textures, tap tempo | Planned |
-| 4 | Shadertoy import: userscript, API, drop folder, batch | Planned |
+| 4 | Shadertoy import: userscript, API, drop, batch | Converter, REST client, listener, userscript and Import panel built; the live site and batch/drop-folder are not verified or built |
 | 5 | Playlists: inheritance, generator, transitions, resume | Planned |
 | 6 | Presets, MIDI, OSC | Planned |
 | 7 | NDI out, media input, song-change transitions | Planned |

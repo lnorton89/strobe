@@ -274,6 +274,7 @@ fn uploaded_audio_texels_reach_the_spectrum_and_trail_samplers() -> Result<()> {
             player.upload_audio(&AudioTextures {
                 spectrum: &spectrum,
                 level_trail: &trail,
+                shadertoy: None,
             });
             player.render(&FrameInputs {
                 time: 0.0,
@@ -314,6 +315,7 @@ fn a_scene_that_ignores_the_audio_textures_never_uploads_them() -> Result<()> {
     player.upload_audio(&AudioTextures {
         spectrum: &[[1.0; 4]; 7],
         level_trail: &[[1.0; 4]; 7],
+        shadertoy: None,
     });
     assert!(gl.error().is_none(), "an unused upload must be a no-op");
     Ok(())
@@ -623,12 +625,37 @@ fn the_shadertoy_audio_texture_is_512_by_2_and_resampled_from_the_spectrum() -> 
         player.upload_audio(&AudioTextures {
             spectrum: &texels,
             level_trail: &texels,
+            shadertoy: None,
         });
         let live = centre(&mut player)?;
         // (0.75 * 80 - 6.0206) / 70 = 0.771 -> 197 of 255.
         assert!(
             near(live[0], 197) && near(live[1], 64) && near(live[2], 128),
             "{api:?}: resampled spectrum 197, waveform 64; got {live:?}"
+        );
+        // Browser-matched bytes are uploaded as given, not resampled: row 0
+        // all 40, row 1 all 200.
+        let exact: Vec<u8> = [vec![40_u8; 512], vec![200_u8; 512]].concat();
+        player.upload_audio(&AudioTextures {
+            spectrum: &texels,
+            level_trail: &texels,
+            shadertoy: Some(&exact),
+        });
+        let direct = centre(&mut player)?;
+        assert!(
+            near(direct[0], 40) && near(direct[1], 200) && near(direct[2], 128),
+            "{api:?}: exact bytes pass through untouched; got {direct:?}"
+        );
+        // A wrong-sized slice is ignored and the resampled path is used.
+        player.upload_audio(&AudioTextures {
+            spectrum: &texels,
+            level_trail: &texels,
+            shadertoy: Some(&exact[..100]),
+        });
+        let fallback = centre(&mut player)?;
+        assert!(
+            near(fallback[0], 197) && near(fallback[1], 64),
+            "{api:?}: a wrong-sized slice falls back to resampling; got {fallback:?}"
         );
         if let Some(code) = gl.error() {
             return Err(anyhow!("{api:?}: GL error 0x{code:x}"));

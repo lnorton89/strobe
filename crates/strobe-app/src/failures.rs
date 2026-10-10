@@ -64,10 +64,12 @@ pub fn scene_load(name: &str, dir: &Path, error: &LoadError, keeps_playing: bool
             };
             let mut failure = Failure::new(Subsystem::Shader, phase)
                 .scene(name)
-                .detail("pass", pass)
-                .detail("file", "main.glsl");
-            if let Some(line) = user_line(message) {
-                failure = failure.detail("line", line);
+                .detail("pass", pass);
+            // The compiler log names the pass's own file (`main.glsl`, or
+            // `passes/buffer_a.glsl` for an imported Shadertoy buffer); a
+            // failure in generated code or at link time has no user site.
+            if let Some((file, line)) = user_site(message) {
+                failure = failure.detail("file", file).detail("line", line);
             }
             failure
                 .message(without_preamble_warnings(message))
@@ -204,11 +206,22 @@ fn without_preamble_warnings(log: &str) -> String {
         .join("\n")
 }
 
-/// The first `main.glsl:N` line number in a mapped compiler log.
-fn user_line(log: &str) -> Option<u32> {
-    let (_, rest) = log.split_once("main.glsl:")?;
-    let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
-    digits.parse().ok()
+/// The first user-code site in a mapped compiler log: the shader file as the
+/// scene names it and the line in it. `strobe-gfx` rewrites every driver
+/// line that points into user code as `<file>:<line>: ...` where `<file>` is
+/// a path relative to the scene folder (`main.glsl`, `passes/buffer_a.glsl`).
+fn user_site(log: &str) -> Option<(&str, u32)> {
+    log.lines().find_map(|line| {
+        let (stem, rest) = line.split_once(".glsl:")?;
+        // The file is the whole start of the line, so no spaces: a driver
+        // message that merely mentions a `.glsl:` is not a site.
+        if stem.is_empty() || stem.contains(char::is_whitespace) {
+            return None;
+        }
+        let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+        let number = digits.parse().ok()?;
+        Some((&line[..stem.len() + ".glsl".len()], number))
+    })
 }
 
 #[cfg(test)]
@@ -423,9 +436,42 @@ mod tests {
     }
 
     #[test]
-    fn the_line_parser_reads_the_first_main_glsl_reference() -> Result<()> {
-        assert_eq!(user_line("x\nmain.glsl:7: a\nmain.glsl:9: b"), Some(7));
-        assert_eq!(user_line("(generated): oops"), None, "none present");
+    fn the_site_parser_reads_the_first_user_reference() -> Result<()> {
+        assert_eq!(
+            user_site("x\nmain.glsl:7: a\nmain.glsl:9: b"),
+            Some(("main.glsl", 7)),
+            "first reference"
+        );
+        assert_eq!(user_site("(generated): oops"), None, "none present");
+        assert_eq!(
+            user_site("error near the .glsl: file\npasses/buffer_a.glsl:14: 0:14(7): bad"),
+            Some(("passes/buffer_a.glsl", 14)),
+            "prose that mentions .glsl: is not a site"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_buffer_pass_failure_names_its_own_file_and_line() -> Result<()> {
+        let error = LoadError::Player(PlayerError::Program {
+            pass: 0,
+            message: "(generated): 0:3(5): warning: `_uv' used uninitialized\n\
+                      passes/buffer_a.glsl:14: 0:14(7): error: syntax error"
+                .to_string(),
+        });
+        let text = scene_load("tunnel-XsXXDn", Path::new("x"), &error, true).to_string();
+        for needle in [
+            "phase=compile",
+            "pass=0",
+            "file=passes/buffer_a.glsl",
+            "line=14",
+        ] {
+            assert!(text.contains(needle), "missing `{needle}` in:\n{text}");
+        }
+        assert!(
+            !text.contains("file=main.glsl"),
+            "must not claim main.glsl:\n{text}"
+        );
         Ok(())
     }
 }

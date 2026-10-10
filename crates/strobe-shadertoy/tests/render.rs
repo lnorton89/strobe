@@ -412,6 +412,7 @@ fn the_music_input_reads_the_live_audio_texture() -> Result<()> {
             t.player.upload_audio(&AudioTextures {
                 spectrum: &texels,
                 level_trail: &texels,
+                shadertoy: None,
             });
             Ok(())
         })?

@@ -1,6 +1,6 @@
 [package]
 name = "strobe-shadertoy"
-description = "Shadertoy import: id parsing, the export JSON model, and a deterministic converter to a Strobe scene folder."
+description = "Shadertoy import: id parsing, the export JSON model, a deterministic converter to a Strobe scene folder, and acquisition (REST client, asset downloader, localhost listener)."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -14,14 +14,29 @@ path = "src/lib.rs"
 [[bin]]
 name = "strobe-import"
 path = "src/main.rs"
+required-features = ["net"]
+
+[features]
+# The HTTP client (ureq + rustls). It is the only part of this crate that
+# needs a C compiler (rustls' crypto provider, ring), so the Windows
+# cross-check from Linux builds the crate with `--no-default-features` and
+# a native Windows build checks the rest (D110). Everything else, including
+# the localhost listener and the asset cache, is plain std.
+default = ["net"]
+net = ["dep:ureq"]
 
 [dependencies]
 strobe-scene.workspace = true
+strobe-diag.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 anyhow.workspace = true
 clap.workspace = true
+sha2.workspace = true
+getrandom.workspace = true
+log.workspace = true
+ureq = { workspace = true, optional = true }
 
 [dev-dependencies]
 strobe-gfx.workspace = true
