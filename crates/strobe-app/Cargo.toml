@@ -27,6 +27,8 @@ egui.workspace = true
 egui_glow.workspace = true
 egui-winit.workspace = true
 chrono.workspace = true
+serde.workspace = true
+toml.workspace = true
 winit.workspace = true
 
 [lints]
