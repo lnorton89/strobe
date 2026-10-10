@@ -1850,6 +1850,7 @@ impl Running {
             }
         }
         self.playlist_ui.dirty = true;
+        self.playlist_ui.generate_open = false;
         self.playlist_ui.status = Some((
             false,
             format!("Added section \"{name}\" with {cues} cue(s). Save to keep it."),
