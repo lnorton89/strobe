@@ -1,0 +1,119 @@
+# strobe-bench
+
+The performance baseline and the way to see a renderer change without a
+window. `strobe-bench` renders every scene folder in a library (by default
+`scenes/`), times each one, and writes a PNG per scene, a contact sheet and a
+`results.md` table. Frames are a pure function of time (fixed `dt`, the
+synthetic 120 BPM audio from `strobe_scene::synthetic`), so two runs on one
+machine produce identical images, which makes the PNGs usable as a visual
+regression check.
+
+## Role in the workspace
+
+- **Depends on:** `strobe-gfx` (contexts and the scene player) and
+  `strobe-scene` (loading, controls, the synthetic audio), plus `clap`,
+  `anyhow`, `image` and `winit`.
+- **Depended on by:** nothing. It is a binary; `cargo xtask bench` wraps it and
+  CI runs it.
+- **Does not:** use `strobe-diag`, run scripts, upload real audio textures or
+  swap a window. Scenes render into the player's offscreen targets, so a scene
+  whose shader needs a script-created uniform does not compile here (D62), and
+  `syn_Spectrum` / `syn_LevelTrail` are silent placeholders.
+
+## Main types / entry points
+
+This is a binary (`src/main.rs`, with `src/window.rs` for the windowed
+context). The pieces worth knowing:
+
+| Item | What |
+|---|---|
+| `Cli` (clap) | The flags below. |
+| `run` | The per-scene loop used by both context modes: load and compile (timed), untimed warm-up, timed frames each followed by `glFinish`, PNG readback. |
+| `window::run` | Opens one hidden winit window through `WindowedContext` and runs the same job from inside the event loop (D70, D71). |
+
+## Usage
+
+```bash
+cargo run --release -p strobe-bench -- --size 1280x720
+cargo xtask bench -- --size 1280x720      # the same, via the xtask alias
+```
+
+Every flag is defined in the clap `Cli`:
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--library <dir>` | `scenes` | Folder of scene folders. |
+| `--size WxH` | `640x360` | Render resolution. |
+| `--frames <n>` | `60` | Timed frames per scene. |
+| `--warmup <n>` | `90` | Untimed frames first, so feedback scenes have history. |
+| `--start <seconds>` | `2.0` | Scene time at the first frame. |
+| `--context auto\|headless\|window` | `auto` | An EGL device with no window system, one hidden window, or headless if a device exists and the window otherwise. |
+| `--gl auto\|native\|angle` | `auto` | Backend for `--context window`. |
+| `--show-window` | off | Start with the tiny off-screen window instead of a hidden one. |
+| `--api desktop\|gles` | unset | Dialect for headless (desktop by default). In window mode the backend decides, and a contradiction with `--gl` is an error (D72). |
+| `--full` | off | RGBA32F instead of the default RGBA16F for `FLOAT` passes. |
+| `--shared` | off | One shared program per scene with a `PASSINDEX` uniform, instead of one specialised program per pass. |
+| `--filter <text>` | none | Only scenes whose folder name contains the text. |
+| `--out <dir>` | `target/bench` | Output folder: `<scene>.png`, `contact-sheet.png`, `results.md`. |
+
+There are no environment variables specific to the bench. `STROBE_REQUIRE_HEADLESS_GL`
+is read by tests, not by this binary.
+
+On a Windows laptop whose driver exposes no EGL devices (the T480's Intel UHD
+620):
+
+```powershell
+cargo run --release -p strobe-bench -- --context window --size 1280x720
+powershell -ExecutionPolicy Bypass -File scripts\fetch-angle.ps1   # once, for ANGLE
+cargo run --release -p strobe-bench -- --context window --gl angle --size 1280x720
+```
+
+Use a different `--out` per run to keep the frames side by side. CI runs the
+bench twice (desktop and `--api gles`) at 640x360 and uploads both output
+folders as artifacts (D56). Numbers and method are in
+[`BENCHMARKS.md`](../../docs/BENCHMARKS.md).
+
+## Testing
+
+The crate has no tests of its own. Running it is the test:
+
+```bash
+apt-get install -y libegl1 libegl-mesa0 mesa-utils      # headless Mesa llvmpipe
+cargo run --release -p strobe-bench -- --size 640x360 --frames 10 --warmup 60
+cargo run --release -p strobe-bench -- --size 640x360 --frames 10 --warmup 60 --api gles
+```
+
+Open `target/bench/contact-sheet.png` to check the visuals. On a machine with
+no GPU the context is llvmpipe: the timings are CPU rasterisation, but the
+ranking between scenes and the before/after delta of a change are meaningful.
+It has no `#[test]` functions, so `cargo test -p strobe-bench` only compiles it.
+
+## Design notes
+
+- **A window context rather than a different GL path** (D70): the bench
+  measures the same native (WGL) and ANGLE contexts the show runs on. The
+  window owns a context and nothing else; nothing is ever swapped.
+- **Hidden window first, tiny off-screen window as the fallback** (D71).
+- **`--api` is optional** (D72), because in window mode the backend decides
+  the dialect.
+- **Float passes default to RGBA16F** (D13) and **per-pass programs stay the
+  default** (D14), both from bench runs on the T480; `--full` and `--shared`
+  exist to re-measure the alternatives.
+- **Original scenes** (D10): the library being timed is `scenes/`, written to
+  span five load tiers.
+
+## Status and known gaps
+
+- Real-GPU numbers exist for one machine, the T480 (Intel UHD 620, native and
+  ANGLE, 720p and 1440p), in [`BENCHMARKS.md`](../../docs/BENCHMARKS.md). The
+  heaviest scene, `10-volume-clouds`, ran at about 190 ms per frame at 720p
+  there. The other baseline is llvmpipe in a cloud container. A render-scale
+  sweep is still listed as wanted.
+- **The exit status does not reflect a failed scene.** A scene that fails to
+  compile is printed as `FAILED`, recorded in `results.md` and left out of the
+  contact sheet, but the process still exits 0 (checked by running
+  it on a deliberately broken scene). D56 and a comment in `ci.yml` say such a
+  scene fails the CI step; as written, it does not.
+- No scripts run (so `11-script-orbits` renders as a still with default
+  controls) and the audio textures are placeholders (ROADMAP "Known gaps").
+- Not built for macOS: `strobe-gfx` has no CGL provider (D55).
