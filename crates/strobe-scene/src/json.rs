@@ -81,6 +81,9 @@ pub struct RawScene {
     pub hard_transitions: Vec<RawHardTransition>,
     /// One-hot uniform families that crossfade on a song change.
     pub smooth_transitions: Vec<RawSmoothTransition>,
+    /// The picture behind `syn_Media`: a still image, or a folder of images
+    /// played as a sequence (a Strobe extension, D186).
+    pub media: Option<RawMedia>,
     /// One GLSL file per pass, final pass included, instead of one
     /// `main.glsl` for all of them (a Strobe extension).
     pub pass_sources: Option<Vec<String>>,
@@ -138,6 +141,36 @@ pub struct RawCubemap {
     pub name: String,
     /// Six face paths: +X, -X, +Y, -Y, +Z, -Z.
     pub paths: Vec<String>,
+}
+
+/// The `MEDIA` key: a bare path, or an object with options.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum RawMedia {
+    /// `"MEDIA": "media/backdrop.png"`.
+    Path(String),
+    /// `"MEDIA": { "PATH": "frames", "FPS": 12 }`.
+    Full(RawMediaOptions),
+}
+
+/// The object form of `MEDIA`.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE", default)]
+pub struct RawMediaOptions {
+    /// A file (a still image) or a folder (a sequence), relative to the
+    /// scene folder.
+    pub path: String,
+    /// Sequence rate in frames per second. Absent means 24.
+    pub fps: Option<f32>,
+    /// Whether a sequence repeats. Absent means `true`.
+    #[serde(rename = "LOOP")]
+    pub looping: Option<bool>,
+    /// `repeat`, `clamp` or `mirror`. Absent means `clamp`.
+    pub wrap: Option<String>,
+    /// `linear`, `nearest` or `mipmap`. Absent means `linear`.
+    pub filter: Option<String>,
+    /// Flip on load so `_uv` reads it upright. Absent means `true`.
+    pub vflip: Option<bool>,
 }
 
 /// One control.
