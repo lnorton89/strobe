@@ -98,11 +98,17 @@ Each item names its acceptance test. Details and evidence are in
    and generate dialog, the file watcher, resume every 5 s, and live
    commands. *Accept:* a 4-hour, 80-cue show authored from tags in under
    two minutes, then a 4-hour soak with zero runtime compiles.
-6. **SSF and script gaps.**
-   - Script `meta/` control writes.
-   - `textureFinalPass` through an asynchronous (PBO) readback, never a
-     synchronous one (Q14).
-   - GLES rewrites for desktop-only idioms (Q8).
+6. **SSF and script gaps.** *Partly done (D160-D163), 2026-10-10.*
+   - [x] Script `meta/` control writes land in a meta `ControlBank` held by
+     the session (D160). **No output post stage reads it yet**, so they
+     change nothing on screen; that stage is the next piece.
+   - [x] `textureFinalPass` through an asynchronous PBO readback, two frames
+     late, never a stall (D162, Q14). Checked on llvmpipe only; the T480 and
+     ANGLE/D3D11 are open.
+   - [x] No shader compiles after load: a late `setUniform` is refused
+     (D161).
+   - [~] GLES rewrite for `PASSINDEX == 0.0` (D163). Other implicit
+     `int` to `float` conversions need a parser (Q8).
    
    *Accept:* a fixture per behaviour, on both dialects where it applies.
 7. **Presets, MIDI, OSC and hotkeys** on the shared `ControlBank`, without
@@ -192,7 +198,7 @@ never per frame.
 |---|---|---|
 | 0 | Workspace, conventions, CI, GL contexts | Done. A tagged release has not been run. |
 | 1 | Renderer, SSF, controls, output window | Done, with the Perform-first UI at stage 1 (D130-D138). Images work; media and cubemaps are placeholders. |
-| 2 | JavaScript API | Integrated (D62). `meta/` writes and `textureFinalPass` are open. |
+| 2 | JavaScript API | Integrated (D62). `meta/` writes land in a meta bank (D160, no post stage reads it yet); `textureFinalPass` is an asynchronous readback (D162); late uniforms are refused (D161). |
 | 3 | Audio | Integrated (D61). The bench still uses the synthetic stand-in. |
 | 4 | Shadertoy import | The converter (D90-D95), acquisition (REST client, texture downloader, localhost listener), the Import panel, file drop and the userscript (D110-D117) are built, and stage 1 of auto-generated controls (D123-D126). Open: live-site verification (Q19), thumbnails, the Needs-work bin, batch import, and the app's review panel for generated controls. |
 | 5 | Playlists | The stage 1 pure core is done (D73-D77). App integration is open. |
@@ -209,10 +215,12 @@ never per frame.
   instead (D62).
 - `syn_Media` is black and `syn_MediaType` is 0. Cubemaps are reserved but
   never loaded.
-- `textureFinalPass` returns black in scripts (Q14), and `meta/` control
-  writes are dropped.
-- The GLES dialect does not rewrite every desktop-only SSF idiom (Q8). The
-  base library is written ES-clean.
+- `meta/` control writes are held, not applied: there is no output post
+  stage (D160, Q21). `textureFinalPass` is two frames late and unverified
+  on the T480 (D162, Q14).
+- The GLES dialect rewrites `PASSINDEX == 0.0` only (D163); the rest of the
+  implicit int-to-float family is open (Q8). The base library is written
+  ES-clean.
 - Adaptive-resolution thresholds are validated on one machine, the T480.
 - Native crash capture cannot see a bare `abort()` on Windows, which is a
   fast-fail ([DEBUGGING.md](DEBUGGING.md)).
