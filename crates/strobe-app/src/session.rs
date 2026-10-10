@@ -219,6 +219,15 @@ impl Session {
         self.time
     }
 
+    /// Starts the scene clock and the frame count over at `start`, keeping
+    /// what the passes have drawn. A playlist does this when a cue begins
+    /// (D151): a scene that played an hour ago starts its next cue at its
+    /// start, not at an hour.
+    pub fn restart_clock(&mut self, start: f32) {
+        self.time = start;
+        self.frame = 0;
+    }
+
     /// The controls' targets (what the operator last asked for), for
     /// carrying across a rebuilt GL context. Bangs hold no value.
     pub fn control_targets(&self) -> Vec<(usize, Values)> {
