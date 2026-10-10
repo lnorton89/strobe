@@ -1,7 +1,7 @@
 // ============================================================================
 // Module:       strobe_script::output
 // Description:  What one script frame produces: uniforms, console lines,
-//               meta-control writes, and the script's health.
+//               and the script's health.
 //
 // Dependencies: strobe_scene::assemble (ExtraType)
 // ============================================================================
@@ -10,10 +10,10 @@
 //!
 //! Everything a script can *do* that the host cannot apply itself leaves
 //! through [`FrameOutput`]. Control writes are the exception: they go
-//! straight into the [`strobe_scene::control::ControlBank`] the caller
-//! passed in, because that bank exists. Meta controls (brightness, hue,
-//! mirror…) do not exist yet, so writes aimed at them are recorded here
-//! for the app to apply when they do.
+//! straight into the [`strobe_scene::control::ControlBank`]s the caller
+//! passed in, the scene's own and the meta bank
+//! ([`strobe_scene::meta`]), so a `meta/` write is applied the same way as
+//! any other and the caller reads the result from its bank.
 
 use std::sync::Arc;
 use strobe_scene::assemble::ExtraType;
@@ -50,38 +50,6 @@ pub struct ConsoleLine {
     pub text: String,
 }
 
-/// What a script asked of a meta control.
-#[derive(Debug, Clone, PartialEq)]
-pub enum MetaAction {
-    /// `setControl("meta/…")` or `setControlNormalized("meta/…")`.
-    Set {
-        /// The values as written, at most three.
-        values: Vec<f32>,
-        /// True for `setControlNormalized`: values are `0..1`.
-        normalized: bool,
-        /// The `dimension` option, if given.
-        dimension: Option<usize>,
-    },
-    /// `randomizeControl("meta/…")`.
-    Randomize,
-    /// `defaultControl("meta/…")`.
-    Default,
-    /// `randomizeGroup("meta/…")`; the write's name is the group.
-    RandomizeGroup,
-    /// `defaultGroup("meta/…")`; the write's name is the group.
-    DefaultGroup,
-}
-
-/// A write aimed at a meta control, for the app to apply.
-#[derive(Debug, Clone, PartialEq)]
-pub struct MetaWrite {
-    /// The control (or group) name as the script wrote it, without the
-    /// `meta/` prefix. Match it with [`strobe_scene::names::normalize`].
-    pub name: String,
-    /// What to do to it.
-    pub action: MetaAction,
-}
-
 /// The script's health after a frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScriptStatus {
@@ -114,8 +82,6 @@ pub struct FrameOutput {
     pub new_uniforms: bool,
     /// Lines for the developer console, in order.
     pub console: Vec<ConsoleLine>,
-    /// Writes aimed at meta controls, in order.
-    pub meta_writes: Vec<MetaWrite>,
     /// Whether the script is healthy.
     pub status: ScriptStatus,
 }

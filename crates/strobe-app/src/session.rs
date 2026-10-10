@@ -122,6 +122,10 @@ pub struct Session {
     pub title: String,
     /// Live control values; the UI writes targets here.
     pub controls: ControlBank,
+    /// The meta controls (master, brightness, hue, mirror...). A script's
+    /// `meta/` writes land here. Nothing in the renderer reads them yet
+    /// (there is no output post stage), so they are held, not applied (D160).
+    pub meta: ControlBank,
     /// The compiled passes and render targets.
     pub player: ScenePlayer,
     /// Kept so the player can be rebuilt with more script uniforms.
@@ -157,6 +161,7 @@ impl Session {
     ) -> Result<Self, LoadError> {
         let scene = SceneFolder::load(dir)?;
         let mut controls = ControlBank::new(scene.def.controls.clone())?;
+        let mut meta = strobe_scene::meta::bank()?;
         let transitions = scene
             .def
             .transition_uniforms
@@ -165,7 +170,7 @@ impl Session {
             .collect();
 
         let mut script = scene.script.as_deref().and_then(|source| {
-            ScriptRun::start(source, name, &controls)
+            ScriptRun::start(source, name, &controls, &meta)
                 .map_err(|error| failure::report(failures::script_load(name, &error)))
                 .ok()
         });
@@ -182,6 +187,7 @@ impl Session {
                     ..ScriptInputs::default()
                 },
                 &mut controls,
+                &mut meta,
             )
         });
         let extras = harvest.as_ref().map_or_else(Vec::new, |harvest| {
@@ -197,6 +203,7 @@ impl Session {
             dir: dir.to_path_buf(),
             title: scene.def.title.clone(),
             controls,
+            meta,
             player,
             scene,
             gl: gl.clone(),
@@ -272,6 +279,7 @@ impl Session {
                     final_pass: None,
                 },
                 &mut self.controls,
+                &mut self.meta,
             );
             if harvest.new_uniforms {
                 self.adopt_new_uniforms(&harvest);
@@ -279,6 +287,7 @@ impl Session {
             self.send_script_uniforms(&harvest);
         }
         self.controls.tick(dt);
+        self.meta.tick(dt);
         self.player.set_date(date);
         self.player.upload_audio(&AudioTextures {
             spectrum: &audio.spectrum,

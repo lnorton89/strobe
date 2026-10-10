@@ -42,7 +42,7 @@ use crate::events::Source;
 use crate::inputs::{FINAL_PASS_BYTES, ScriptInputs};
 use crate::natives::{display, install, stage_uniform};
 use crate::output::{ConsoleLevel, FrameOutput, ScriptStatus};
-use crate::shared::{Command, Shared};
+use crate::shared::{Command, Shared, Target};
 use rquickjs::context::EvalOptions;
 use rquickjs::{Context, Ctx, Exception, Object, Persistent, Runtime, Value};
 use std::cell::Cell;
@@ -279,6 +279,18 @@ impl Globals {
     }
 }
 
+/// The bank a queued write is aimed at.
+fn pick<'a>(
+    target: Target,
+    controls: &'a mut ControlBank,
+    meta: &'a mut ControlBank,
+) -> &'a mut ControlBank {
+    match target {
+        Target::Scene => controls,
+        Target::Meta => meta,
+    }
+}
+
 /// What a handler of `source` sees this frame.
 fn source_value(source: Source, inputs: &ScriptInputs<'_>, controls: &ControlBank) -> f32 {
     match source {
@@ -302,9 +314,15 @@ impl ScriptHost {
     /// [`Self::frame`]. An empty `source` is a valid script that does
     /// nothing.
     ///
-    /// `controls` must be the bank later passed to `frame`: the names the
-    /// script can use are fixed here.
-    pub fn new(source: &str, controls: &ControlBank, budget: Budget) -> Result<Self, ScriptError> {
+    /// `controls` and `meta` must be the banks later passed to `frame`: the
+    /// names the script can use are fixed here. `meta` is normally
+    /// [`strobe_scene::meta::bank`].
+    pub fn new(
+        source: &str,
+        controls: &ControlBank,
+        meta: &ControlBank,
+        budget: Budget,
+    ) -> Result<Self, ScriptError> {
         let runtime = Runtime::new()?;
         runtime.set_memory_limit(budget.memory_limit);
         runtime.set_max_stack_size(budget.max_stack);
@@ -314,7 +332,7 @@ impl ScriptHost {
             watch.get().is_some_and(|limit| Instant::now() >= limit)
         })));
         let context = Context::full(&runtime)?;
-        let shared = Rc::new(Shared::new(controls, budget.seed, deadline));
+        let shared = Rc::new(Shared::new(controls, meta, budget.seed, deadline));
 
         shared.deadline.set(Some(Instant::now() + budget.load));
         let built = context.with(|ctx| -> Result<Globals, ScriptError> {
@@ -359,15 +377,17 @@ impl ScriptHost {
     /// Runs one frame: write globals, dispatch events, `update(dt)`,
     /// harvest. See the module docs for the exact order.
     ///
-    /// Control writes the script made are applied to `controls` before this
-    /// returns, so call `controls.tick(dt)` afterwards. A fault does not
-    /// stop those writes: they already happened, and unlike uniforms they
-    /// are not replaced by the next good frame.
+    /// Control writes the script made are applied to `controls` (and, for
+    /// `meta/` writes, to `meta`) before this returns, so call `tick(dt)` on
+    /// both banks afterwards. A fault does not stop those writes: they
+    /// already happened, and unlike uniforms they are not replaced by the
+    /// next good frame.
     pub fn frame(
         &mut self,
         dt: f32,
         inputs: &ScriptInputs<'_>,
         controls: &mut ControlBank,
+        meta: &mut ControlBank,
     ) -> FrameOutput {
         if self.disabled {
             return self.finish(ScriptStatus::Disabled);
@@ -389,7 +409,7 @@ impl ScriptHost {
             }
             Err(message) => self.fault(&message),
         };
-        self.apply_commands(controls);
+        self.apply_commands(controls, meta);
         self.finish(status)
     }
 
@@ -535,13 +555,15 @@ impl ScriptHost {
         }
     }
 
-    /// Applies the control writes queued during the frame, in order.
-    fn apply_commands(&self, controls: &mut ControlBank) {
+    /// Applies the control writes queued during the frame, in order, each
+    /// to the bank it was aimed at.
+    fn apply_commands(&self, controls: &mut ControlBank, meta: &mut ControlBank) {
         let mut state = self.shared.state.borrow_mut();
         let mut commands = std::mem::take(&mut state.commands);
         for command in commands.drain(..) {
             match command {
                 Command::Set {
+                    target,
                     index,
                     dimension,
                     values,
@@ -550,13 +572,15 @@ impl ScriptHost {
                 } => {
                     let values = values.get(..len).unwrap_or(&values);
                     if normalized {
-                        controls.set_normalized(index, dimension, values);
+                        pick(target, controls, meta).set_normalized(index, dimension, values);
                     } else {
-                        controls.set(index, dimension, values);
+                        pick(target, controls, meta).set(index, dimension, values);
                     }
                 }
-                Command::Randomize(index) => controls.randomize(index, || state.next_unit()),
-                Command::Default(index) => controls.set_default(index),
+                Command::Randomize(target, index) => {
+                    pick(target, controls, meta).randomize(index, || state.next_unit());
+                }
+                Command::Default(target, index) => pick(target, controls, meta).set_default(index),
             }
         }
         state.commands = commands;
@@ -569,7 +593,6 @@ impl ScriptHost {
             uniforms: state.uniforms.snapshot(),
             new_uniforms: state.uniforms.take_fresh(),
             console: std::mem::take(&mut state.console),
-            meta_writes: std::mem::take(&mut state.meta),
             status,
         }
     }
