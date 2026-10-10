@@ -5,7 +5,7 @@
 //               a results table.
 //
 // Dependencies: clap, anyhow, image; strobe-gfx (contexts, player),
-//               strobe-scene (loading, controls); crate::window
+//               strobe-scene (loading, controls)
 // ============================================================================
 
 //! `strobe-bench`: the performance baseline.
@@ -35,7 +35,8 @@
 //! loop from inside the event loop. The window only owns a context: scenes
 //! render into the player's offscreen targets, nothing is ever swapped, and
 //! the surface's vsync is off. `--context auto`, the default, tries
-//! headless first and falls back to the window. See [`window`].
+//! headless first and falls back to the window. The context code is
+//! [`strobe_gfx::offscreen`], shared with `strobe-autocontrol` (D140).
 //!
 //! On a machine with no GPU (CI, a cloud container) the context is Mesa's
 //! llvmpipe: absolute numbers are CPU rasterisation, but the *ranking* of
@@ -47,15 +48,13 @@ use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 use strobe_gfx::gl::Gl;
+use strobe_gfx::offscreen::{self, ContextMode, Request};
 use strobe_gfx::{
-    Api, Backend, Caps, FloatPrecision, FrameInputs, GlChoice, Headless, Mouse, Options,
-    ScenePlayer,
+    Api, Backend, Caps, FloatPrecision, FrameInputs, GlChoice, Mouse, Options, ScenePlayer,
 };
 use strobe_scene::SceneFolder;
 use strobe_scene::audio::SCALARS;
 use strobe_scene::control::ControlBank;
-
-mod window;
 
 /// The command line.
 #[derive(Parser, Debug)]
@@ -142,20 +141,23 @@ impl ApiArg {
     }
 }
 
-/// The window backend `--gl` and `--api` ask for together.
-fn gl_choice(gl: GlArg, api: Option<ApiArg>) -> Result<GlChoice> {
-    match (gl, api) {
-        (GlArg::Auto, None | Some(ApiArg::Desktop)) => Ok(GlChoice::Auto),
-        (GlArg::Auto | GlArg::Angle, Some(ApiArg::Gles)) | (GlArg::Angle, None) => {
-            Ok(GlChoice::Only(Backend::Angle))
+impl ContextArg {
+    fn mode(self) -> ContextMode {
+        match self {
+            Self::Auto => ContextMode::Auto,
+            Self::Headless => ContextMode::Headless,
+            Self::Window => ContextMode::Window,
         }
-        (GlArg::Native, None | Some(ApiArg::Desktop)) => Ok(GlChoice::Only(Backend::Native)),
-        (GlArg::Native, Some(ApiArg::Gles)) => Err(anyhow!(
-            "--api gles is the ANGLE dialect; it cannot run on --gl native"
-        )),
-        (GlArg::Angle, Some(ApiArg::Desktop)) => Err(anyhow!(
-            "--api desktop is the native dialect; it cannot run on --gl angle"
-        )),
+    }
+}
+
+impl GlArg {
+    fn choice(self) -> GlChoice {
+        match self {
+            Self::Auto => GlChoice::Auto,
+            Self::Native => GlChoice::Only(Backend::Native),
+            Self::Angle => GlChoice::Only(Backend::Angle),
+        }
     }
 }
 
@@ -173,34 +175,17 @@ struct Row {
 fn main() -> Result<()> {
     let cli = Cli::parse();
     let size = parse_size(&cli.size)?;
-    let choice = gl_choice(cli.gl, cli.api)?;
-    let job = |gl: &Gl, caps: &Caps, context: &str| run(gl, caps, context, size, &cli);
-
-    match cli.context {
-        ContextArg::Headless => run_headless(open_headless(&cli)?, &cli, size),
-        ContextArg::Window => window::run(choice, cli.show_window, job),
-        ContextArg::Auto => match open_headless(&cli) {
-            Ok(headless) => run_headless(headless, &cli, size),
-            Err(error) => {
-                println!("{error:#}; using a window context instead");
-                window::run(choice, cli.show_window, job)
-            }
-        },
-    }
-}
-
-fn headless_api(cli: &Cli) -> Api {
-    cli.api.map_or(Api::DesktopCore33, ApiArg::api)
-}
-
-fn open_headless(cli: &Cli) -> Result<Headless> {
-    Headless::new(headless_api(cli)).map_err(|e| anyhow!("headless context: {e}"))
-}
-
-fn run_headless(headless: Headless, cli: &Cli, size: [i32; 2]) -> Result<()> {
-    let gl = headless.gl();
-    let context = format!("headless EGL device, {:?}", headless_api(cli));
-    run(gl, &Caps::from_info(gl.info()), &context, size, cli)
+    let request = Request {
+        mode: cli.context.mode(),
+        api: cli.api.map(ApiArg::api),
+        gl: cli.gl.choice(),
+        tiny: cli.show_window,
+    };
+    offscreen::run(
+        &request,
+        |why| println!("{why}"),
+        |gl, caps, context| run(gl, caps, context, size, &cli),
+    )?
 }
 
 /// The benchmark proper, on whichever context is current. `context`
