@@ -20,6 +20,7 @@ strobe-audio = { path = "crates/strobe-audio" }
 strobe-script = { path = "crates/strobe-script" }
 strobe-diag = { path = "crates/strobe-diag" }
 strobe-playlist = { path = "crates/strobe-playlist" }
+strobe-shadertoy = { path = "crates/strobe-shadertoy" }
 
 anyhow = "1"
 thiserror = "2"
