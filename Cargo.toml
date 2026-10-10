@@ -60,7 +60,12 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg"]
 glow = "0.17"
 glutin = { version = "0.32", default-features = false, features = ["egl", "glx", "wgl", "x11", "wayland"] }
 glutin-winit = { version = "0.5", default-features = false, features = ["egl", "glx", "wgl", "x11", "wayland"] }
-winit = "0.30"
+# winit's defaults minus `wayland-csd-adwaita`: Wayland client-side title
+# bars drawn by sctk-adwaita, which pulls in ttf-parser (unmaintained,
+# RUSTSEC-2026-0192, no fixed release). Windows and X11 never used it; on a
+# Wayland compositor without server-side decorations the windows have no
+# title bar until the app's own (D5) lands. See D122.
+winit = { version = "0.30", default-features = false, features = ["rwh_06", "x11", "wayland", "wayland-dlopen"] }
 raw-window-handle = "0.6"
 
 egui = { version = "0.36", default-features = false, features = ["default_fonts"] }

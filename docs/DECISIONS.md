@@ -1054,3 +1054,21 @@ show.
 
 **Would reopen:** hidden-mode frames drifting from 60 Hz under Windows timer
 granularity, or a driver that lets the queue grow with no swap.
+
+### D122: winit without its Wayland title-bar decorations, not an advisory ignore (2026-10-10)
+
+`cargo deny` failed on RUSTSEC-2026-0192: `ttf-parser` is unmaintained and
+has no fixed release. Its only path into the build was winit's default
+`wayland-csd-adwaita` feature (winit, then sctk-adwaita, ab_glyph,
+owned_ttf_parser, ttf-parser), which draws client-side title bars on
+Wayland compositors that do not draw their own. The workspace now asks
+for winit's other defaults explicitly (`rwh_06`, `x11`, `wayland`,
+`wayland-dlopen`), and the crate is gone from the tree. The other option
+was an `ignore` entry in `deny.toml`, which is deliberately empty.
+
+The cost: on such a compositor (GNOME's, notably), Strobe's windows have
+no title bar. Windows, the target, and X11 are unaffected. The custom
+title bar from the rustaman UI port (D5) removes the cost.
+
+**Would reopen:** a Linux user on GNOME Wayland before that port lands,
+who needs to move or resize the control window.
