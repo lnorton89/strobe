@@ -13,23 +13,34 @@
 //!
 //! ## Frame loop
 //!
-//! `about_to_wait` decides which windows are due and requests redraws;
-//! the drawing happens in `RedrawRequested`, one window at a time, with
-//! the shared context made current on that window's surface first.
+//! `about_to_wait` decides what is due and either requests a redraw or does
+//! the work itself; drawing happens one window at a time, with the shared
+//! context made current on that window's surface first.
 //!
-//! - **Output window**, up to [`OUTPUT_PERIOD`] apart (a 144 Hz cap that
-//!   only matters where vsync is not working): audio, control tick,
-//!   `ScenePlayer::render`, `present`, swap. Vsync is on, so the swap
-//!   paces this loop to the display.
+//! - **The scene frame** (audio, control tick, `ScenePlayer::render`, the GPU
+//!   timer, adaptive scale) runs on `next_output`'s schedule whether or not
+//!   the output window can be seen (D96). The output window **starts hidden**
+//!   (`--show-output` shows it), and a hidden window may never get a
+//!   `RedrawRequested`, so the schedule decides who drives the frame:
+//!   - *shown*: a redraw is requested up to [`OUTPUT_PERIOD`] apart (a
+//!     144 Hz cap that only matters where vsync is not working). The redraw
+//!     runs the scene frame on the output surface, then `present` (the
+//!     letterboxed blit) and the swap. Vsync is on, so the swap paces this
+//!     loop to the display.
+//!   - *hidden*: `about_to_wait` runs the scene frame itself, on the
+//!     control window's surface, one refresh period of the output monitor
+//!     apart (60 Hz if unknown). There is no present and no swap, so no
+//!     vsync pacing, and a frame is skipped while the GPU timer ring is
+//!     full (`Performance::backlogged`) so the queue cannot grow.
 //! - **Control window**, [`CONTROL_PERIOD`] apart (30 Hz): the preview
 //!   texture, one egui pass, paint, swap. It has vsync off so two vsynced
 //!   swaps cannot halve the output rate. The throttle matters on an old
 //!   laptop, where egui's tessellation and the extra swap are a real cost
 //!   and 30 Hz is plenty for sliders.
 //!
-//! The scene is rendered in the *output* window's redraw, never the
-//! control window's, so a slow or hidden control window cannot slow the
-//! show down.
+//! The scene is never rendered inside the control window's redraw, so a slow
+//! control window cannot slow the show down. The control window's preview
+//! paints the scene's output texture, so it works with the output hidden.
 //!
 //! ## GL state between the scene and egui
 //!
@@ -60,8 +71,8 @@
 //!    format once, so a window that has had a context cannot be given
 //!    another safely;
 //! 3. a new context and two new windows are built on the chosen backend;
-//! 4. the output's monitor and fullscreen state and the control window's
-//!    maximized state come back, the render scale carries over, and the
+//! 4. the output's monitor, fullscreen and shown/hidden state and the
+//!    control window's maximized state come back, the render scale carries over, and the
 //!    scene that was playing is reloaded at its clock with its controls.
 //!
 //! The reset status is queried only after a failed swap (the context is
@@ -223,11 +234,14 @@ struct Layout {
 }
 
 impl Layout {
-    /// The layout of a fresh launch.
-    fn initial() -> Self {
+    /// The layout of a fresh launch. The output window is created hidden
+    /// unless `show_output`: it must exist either way, because the shared GL
+    /// context is made on it.
+    fn initial(show_output: bool) -> Self {
         Self {
             output: Window::default_attributes()
                 .with_title("Strobe Output")
+                .with_visible(show_output)
                 .with_inner_size(LogicalSize::new(960.0, 540.0)),
             control: Window::default_attributes()
                 .with_title("Strobe")
@@ -243,9 +257,10 @@ impl Layout {
     }
 
     /// The layout the live windows are in now, so a rebuilt pair can be put
-    /// back where the operator left them.
-    fn capture(stack: &Stack) -> Self {
-        let mut layout = Self::initial();
+    /// back where the operator left them. `output_visible` is whether the
+    /// output window is shown, which the window system may not report.
+    fn capture(stack: &Stack, output_visible: bool) -> Self {
+        let mut layout = Self::initial(output_visible);
         let output = stack.output.window();
         layout.fullscreen = output.fullscreen();
         // A fullscreen window's size is the monitor's, not the window's own.
@@ -455,6 +470,10 @@ struct Running {
     output_monitor: Option<usize>,
     last_monitor_refresh: Instant,
 
+    /// Whether the output window is shown. Tracked here because winit cannot
+    /// report visibility on X11 or Wayland.
+    output_visible: bool,
+    /// When the next scene frame is due, shown or hidden.
     next_output: Instant,
     next_control: Instant,
     actions: Vec<Action>,
@@ -486,7 +505,7 @@ impl Running {
         let stack = Stack::open(
             event_loop,
             cli.gl.choice(),
-            &Layout::initial(),
+            &Layout::initial(cli.show_output),
             PerfStart {
                 max: render_scale,
                 adaptive: !cli.no_adaptive,
@@ -516,6 +535,7 @@ impl Running {
             monitor_labels: Vec::new(),
             output_monitor: None,
             last_monitor_refresh: now,
+            output_visible: cli.show_output,
             next_output: now,
             next_control: now,
             actions: Vec::new(),
@@ -641,7 +661,7 @@ impl Running {
     /// Health-checks the driver's reset status, at most once a second, on a
     /// robust context that can be asked. Returns whether a rebuild was
     /// decided (the frame should then be abandoned).
-    fn check_reset(&mut self, now: Instant) -> bool {
+    fn check_reset(&mut self, now: Instant, surface: Surface) -> bool {
         let gl = self.stack.gfx.gl();
         if !self.stack.gfx.robust() || !gl.has_reset_status() || !self.recovery.poll_due(now) {
             return false;
@@ -650,7 +670,7 @@ impl Running {
         match self.recovery.handle(
             now,
             Event::Reset {
-                window: Surface::Output,
+                window: surface,
                 status,
             },
         ) {
@@ -717,7 +737,7 @@ impl Running {
         let before = self.stack.gfx.backend();
         let scene = self.stack.session.as_ref().map(|s| s.name.clone());
         let carried = Carried {
-            layout: Layout::capture(&self.stack),
+            layout: Layout::capture(&self.stack, self.output_visible),
             playing: self.playing.map(|index| {
                 let session = self.stack.session.as_ref();
                 Resume {
@@ -857,8 +877,20 @@ impl Running {
             self.refresh_monitors(event_loop);
         }
         if now >= self.next_output {
-            self.stack.output.window().request_redraw();
-            self.next_output = now + OUTPUT_PERIOD;
+            if self.output_visible {
+                self.stack.output.window().request_redraw();
+                self.next_output = now + OUTPUT_PERIOD;
+            } else {
+                // A hidden window may never be sent `RedrawRequested`, and
+                // there is no swap to pace on, so the scene frame runs from
+                // here, on the schedule of the output monitor's refresh.
+                self.scene_frame(Surface::Control);
+                self.next_output = (self.next_output + hidden_period(self.stack.perf.budget_ms()))
+                    .max(Instant::now());
+                if self.rebuild.is_some() {
+                    return Instant::now();
+                }
+            }
         }
         if now >= self.next_control {
             self.stack.control.window().request_redraw();
@@ -904,7 +936,14 @@ impl Running {
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
         if matches!(event, WindowEvent::CloseRequested) {
-            event_loop.exit();
+            // The output's close button (or Alt+F4 on it) hides it: the
+            // control window is the app, and closing it quits.
+            if self.rebuild.is_none() && id == self.stack.output.window().id() {
+                log::info!("output window closed: hiding it (close the control window to quit)");
+                self.set_output_visible(false);
+            } else {
+                event_loop.exit();
+            }
             return;
         }
         if self.rebuild.is_some() {
@@ -959,23 +998,43 @@ impl Running {
         {
             self.audio.tap();
         } else if key.logical_key == Key::Named(NamedKey::Escape)
+            && self.output_visible
             && self.stack.output.window().fullscreen().is_some()
         {
             self.stack.output.window().set_fullscreen(None);
         }
     }
 
+    /// Shows or hides the output window. The scene keeps rendering either
+    /// way, so the control window's preview does not change.
+    fn set_output_visible(&mut self, visible: bool) {
+        if self.output_visible == visible {
+            return;
+        }
+        self.output_visible = visible;
+        self.stack.output.window().set_visible(visible);
+        if visible {
+            // A freshly shown window takes focus; the operator is working in
+            // the control window, so it gets it back.
+            self.stack.control.window().focus_window();
+        }
+        log::info!("output window {}", if visible { "shown" } else { "hidden" });
+    }
+
+    /// Toggles fullscreen on the output. Asking for fullscreen means "put it
+    /// on the projector", so a hidden output is shown (and made fullscreen).
     fn toggle_fullscreen(&mut self) {
         let window = self.stack.output.window();
-        if window.fullscreen().is_some() {
+        if self.output_visible && window.fullscreen().is_some() {
             window.set_fullscreen(None);
-        } else {
-            let monitor = self
-                .output_monitor
-                .and_then(|index| self.monitors.get(index))
-                .cloned();
-            window.set_fullscreen(Some(Fullscreen::Borderless(monitor)));
+            return;
         }
+        let monitor = self
+            .output_monitor
+            .and_then(|index| self.monitors.get(index))
+            .cloned();
+        window.set_fullscreen(Some(Fullscreen::Borderless(monitor)));
+        self.set_output_visible(true);
     }
 
     fn move_to_monitor(&mut self, index: usize) {
@@ -993,6 +1052,8 @@ impl Running {
                 corner.y + MONITOR_INSET,
             ));
         }
+        // Sending the output to a monitor means showing it there.
+        self.set_output_visible(true);
     }
 
     // ----------------------------------------------------------- scene load
@@ -1089,6 +1150,7 @@ impl Running {
                         }
                     );
                 }
+                Action::SetOutputVisible(visible) => self.set_output_visible(visible),
                 Action::ToggleFullscreen => self.toggle_fullscreen(),
                 Action::MoveToMonitor(index) => self.move_to_monitor(index),
                 Action::ClearConsole => self.console.clear(),
@@ -1139,8 +1201,22 @@ impl Running {
         }
     }
 
+    /// The output window's redraw: the scene frame, then the present.
     fn redraw_output(&mut self) {
+        // A redraw requested just before the window was hidden.
+        if self.output_visible {
+            self.scene_frame(Surface::Output);
+        }
+    }
+
+    /// One scene frame: advance, render, time the GPU, adapt the scale. It
+    /// runs on `surface`'s context: the output's when that window is shown
+    /// (the present and swap follow), else the control window's, which is
+    /// always there to be made current (D96). Either way the scene lands in
+    /// the player's own targets, which is what the control preview paints.
+    fn scene_frame(&mut self, surface: Surface) {
         let started = Instant::now();
+        let shown = surface == Surface::Output;
         let size = self.stack.output.window().inner_size();
         if size.width == 0 || size.height == 0 {
             return;
@@ -1148,8 +1224,19 @@ impl Running {
         if self.faults.lose_context_due(self.output_frames) {
             self.inject_loss();
         }
-        if !self.make_current(Surface::Output) {
+        if !self.make_current(surface) {
             return;
+        }
+        if !shown {
+            // Nothing is swapped, so nothing paces the CPU against the GPU:
+            // read what has finished, and sit this frame out while the whole
+            // timer ring is still waiting.
+            if let Some(change) = self.stack.perf.poll(started) {
+                self.scale_changed(&change);
+            }
+            if self.stack.perf.backlogged() {
+                return;
+            }
         }
         let measured = self.stats.begin(started);
         let dt = if self.screenshot.is_some() {
@@ -1160,52 +1247,78 @@ impl Running {
         let window = [size.width as i32, size.height as i32];
         self.settle_resize([size.width, size.height], started);
 
-        let gl = self.stack.gfx.gl();
+        let gl = self.stack.gfx.gl().clone();
+        let mut change = None;
         match self.stack.session.as_mut() {
             Some(session) => {
                 let render = session.player.render_size();
                 let mouse = self.mouse.uniforms([size.width, size.height], render);
-                // The GPU timer brackets the scene's work and the blit to
-                // the output; its result arrives a frame or two later.
+                // The GPU timer brackets the scene's work and, when the
+                // output is shown, the blit to it; its result arrives a frame
+                // or two later. The budget is the same either way.
                 self.stack.perf.begin();
                 session.advance(dt, &mut self.audio, mouse);
-                gl.plain_state();
-                session.player.present(window);
-                if let Some(change) = self.stack.perf.end(started) {
-                    log::info!(
-                        "adaptive resolution: render scale {:.2} -> {:.2} (GPU {:.1} ms against a {:.1} ms budget)",
-                        change.from,
-                        change.to,
-                        change.gpu_ms,
-                        change.budget_ms
-                    );
-                    self.render_scale = change.to;
-                    self.resize_now = true;
+                if shown {
+                    gl.plain_state();
+                    session.player.present(window);
                 }
+                change = self.stack.perf.end(started);
             }
-            None => {
+            None if shown => {
                 gl.plain_state();
                 gl.bind_framebuffer(None);
                 gl.viewport(window[0], window[1]);
                 gl.clear([0.0, 0.0, 0.0, 1.0]);
             }
+            None => {}
+        }
+        if let Some(change) = change {
+            self.scale_changed(&change);
         }
         self.output_frames += 1;
         context::note_frame(self.output_frames);
         if let Some(shot) = self.screenshot.as_mut()
             && shot.output_due(self.output_frames)
         {
-            let pixels = gl.read_default_rgba8(window[0], window[1]);
-            match shot.save(Target::Output, [size.width, size.height], pixels) {
+            // A shown output is read from its own back buffer, so the run
+            // checks what the projector gets. A hidden one has no defined
+            // back buffer; the scene's output texture is read instead.
+            let saved = if shown {
+                let pixels = gl.read_default_rgba8(window[0], window[1]);
+                shot.save(Target::Output, [size.width, size.height], pixels)
+            } else if let Some(session) = self.stack.session.as_ref() {
+                let [w, h] = session.player.render_size();
+                let pixels = session.player.read_output();
+                shot.save_top_down(Target::Output, [w as u32, h as u32], pixels)
+            } else {
+                let black = vec![0_u8; (size.width as usize) * (size.height as usize) * 4];
+                shot.save_top_down(Target::Output, [size.width, size.height], black)
+            };
+            match saved {
                 Ok(path) => log::info!("wrote {}", path.display()),
                 Err(e) => self.failure = Some(e),
             }
         }
         self.stats.finish(started.elapsed());
-        if self.check_reset(started) {
+        if self.check_reset(started, surface) {
             return;
         }
-        self.present(Surface::Output, started);
+        if shown {
+            self.present(Surface::Output, started);
+        }
+    }
+
+    /// Adopts the adaptive controller's new scale and says why.
+    fn scale_changed(&mut self, change: &perf::ScaleChange) {
+        log::info!(
+            "adaptive resolution: render scale {:.2} -> {:.2} (GPU {:.1} ms against a {:.1} ms budget)",
+            change.from,
+            change.to,
+            change.gpu_ms,
+            change.budget_ms
+        );
+        self.render_scale = change.to;
+        self.resize_now = true;
     }
 
     fn redraw_control(&mut self) {
@@ -1244,6 +1357,7 @@ impl Running {
             render_scale: &mut self.scale_edit,
             monitors: &self.monitor_labels,
             output_monitor: self.output_monitor,
+            output_visible: self.output_visible,
             fullscreen: self.stack.output.window().fullscreen().is_some(),
             gl_summary: &self.gl_summary,
             audio: self.audio.panel(),
@@ -1284,6 +1398,16 @@ impl Running {
     }
 }
 
+/// Time between scene frames while the output window is hidden: one refresh
+/// period of the output's monitor (the adaptive budget), never faster than
+/// the shown output's own cap.
+fn hidden_period(budget_ms: f32) -> Duration {
+    if !budget_ms.is_finite() || budget_ms <= 0.0 {
+        return OUTPUT_PERIOD;
+    }
+    Duration::from_secs_f32(budget_ms / 1000.0).max(OUTPUT_PERIOD)
+}
+
 /// Writes the GL context's facts into the session context, so every crash
 /// report and `--diagnose` run says which driver was in use.
 fn record_gl_facts(gfx: &WindowedContext) {
@@ -1293,4 +1417,32 @@ fn record_gl_facts(gfx: &WindowedContext) {
     context::set(context::GL_VERSION, &info.version);
     context::set(context::GL_BACKEND, failures::backend_label(gfx.backend()));
     context::set("gl.robust", gfx.robust());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use anyhow::Result;
+
+    #[test]
+    fn hidden_frames_follow_the_monitor_refresh() -> Result<()> {
+        let sixty = hidden_period(perf::budget_for(Some(60_000)));
+        assert!(
+            (sixty.as_secs_f32() - 1.0 / 60.0).abs() < 1e-4,
+            "60 Hz: {sixty:?}"
+        );
+        let unknown = hidden_period(perf::budget_for(None));
+        assert!(
+            (unknown.as_secs_f32() - 1.0 / 60.0).abs() < 1e-4,
+            "unknown refresh falls back to 60 Hz: {unknown:?}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn hidden_frames_are_never_faster_than_the_shown_cap() {
+        assert_eq!(hidden_period(2.0), OUTPUT_PERIOD, "a 500 Hz monitor");
+        assert_eq!(hidden_period(0.0), OUTPUT_PERIOD, "zero budget");
+        assert_eq!(hidden_period(f32::NAN), OUTPUT_PERIOD, "nan budget");
+    }
 }

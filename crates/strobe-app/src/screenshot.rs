@@ -13,6 +13,12 @@
 //! drawing and before the swap, so the result is what that window drew,
 //! whatever else is on the desktop.
 //!
+//! The output capture has two sources. A *shown* output is read from its own
+//! back buffer, so the run checks what the projector would get, letterboxing
+//! and all. A *hidden* one (the default, D96) is read from the scene's output
+//! texture instead: the default framebuffer of a window nobody can see has
+//! undefined contents, and the texture does not depend on the window at all.
+//!
 //! The output window is captured after `--frames` frames have been
 //! rendered. The control window is captured after that, once it has also
 //! drawn a few frames of its own: egui lays a window out over two passes,
@@ -99,7 +105,28 @@ impl Screenshot {
         &mut self,
         target: Target,
         size: [u32; 2],
+        pixels: Vec<u8>,
+    ) -> Result<PathBuf, String> {
+        self.write(target, size, pixels, true)
+    }
+
+    /// Writes a capture of `target` whose `pixels` are RGBA8, top row
+    /// first, as `ScenePlayer::read_output` returns them.
+    pub fn save_top_down(
+        &mut self,
+        target: Target,
+        size: [u32; 2],
+        pixels: Vec<u8>,
+    ) -> Result<PathBuf, String> {
+        self.write(target, size, pixels, false)
+    }
+
+    fn write(
+        &mut self,
+        target: Target,
+        size: [u32; 2],
         mut pixels: Vec<u8>,
+        flip: bool,
     ) -> Result<PathBuf, String> {
         // The window has no alpha channel; read-back alpha is not meaningful.
         let (texels, _) = pixels.as_chunks_mut::<4>();
@@ -108,7 +135,9 @@ impl Screenshot {
         }
         let mut image = image::RgbaImage::from_raw(size[0], size[1], pixels)
             .ok_or_else(|| format!("{target:?} read-back has the wrong size for {size:?}"))?;
-        image::imageops::flip_vertical_in_place(&mut image);
+        if flip {
+            image::imageops::flip_vertical_in_place(&mut image);
+        }
         let path = self.path(target);
         if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
             std::fs::create_dir_all(parent)

@@ -30,7 +30,10 @@ pub enum Action {
     Reload,
     /// Apply this render scale.
     SetRenderScale(f32),
-    /// Toggle borderless fullscreen on the output window.
+    /// Show or hide the output window. The scene keeps rendering either way.
+    SetOutputVisible(bool),
+    /// Toggle borderless fullscreen on the output window (showing it first
+    /// if it is hidden).
     ToggleFullscreen,
     /// Move the output window to the monitor at this index.
     MoveToMonitor(usize),
@@ -118,6 +121,8 @@ pub struct Model<'a> {
     pub monitors: &'a [String],
     /// The monitor the output was last sent to.
     pub output_monitor: Option<usize>,
+    /// Whether the output window is shown.
+    pub output_visible: bool,
     /// Whether the output window is fullscreen.
     pub fullscreen: bool,
     /// The GL backend, renderer and version, one line.
