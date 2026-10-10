@@ -1,0 +1,35 @@
+{
+  "ver": "0.1",
+  "info": {
+    "id": "Tst101",
+    "date": "1700000000",
+    "viewed": 0,
+    "name": "Ring tunnel",
+    "username": "strobe-tests",
+    "description": "Original test shader written for Strobe's fixtures. MIT, like the repository.",
+    "likes": 0,
+    "published": 3,
+    "flags": 0,
+    "usePreview": 0,
+    "tags": [
+      "test",
+      "tunnel"
+    ],
+    "hasliked": 0
+  },
+  "renderpass": [
+    {
+      "inputs": [],
+      "outputs": [
+        {
+          "id": "4dfGRr",
+          "channel": 0
+        }
+      ],
+      "code": "#define SPEED 0.45\n#define RINGS 9.0\nconst float BLOOM = 1.6;\n\nvec3 ramp(float t)\n{\n    return mix(vec3(0.08, 0.02, 0.25), vec3(1.0, 0.55, 0.15), smoothstep(0.0, 1.0, t));\n}\n\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord )\n{\n    vec2 p = (2.0 * fragCoord - iResolution.xy) / iResolution.y;\n    float r = length(p);\n    float a = atan(p.y, p.x);\n    float depth = 0.4 / max(r, 0.02) + iTime * SPEED;\n    float rings = 0.5 + 0.5 * sin(depth * RINGS);\n    float spokes = 0.5 + 0.5 * cos(a * 6.0 + iTime * 0.3);\n    vec3 col = ramp(rings * spokes) * BLOOM * smoothstep(0.0, 0.4, r);\n    fragColor = vec4(col, 1.0);\n}\n",
+      "name": "Image",
+      "description": "",
+      "type": "image"
+    }
+  ]
+}

@@ -62,6 +62,25 @@ use std::fmt;
 
 pub use write::{WriteError, write};
 
+/// The comment line that opens each Shadertoy tab in a pass file, up to the
+/// tab's name: `// ---- Shadertoy tab: Image ----`.
+///
+/// A pass file is generated shim, then these tabs, then a generated entry
+/// point. A tool that reads the author's code (auto-generated controls)
+/// finds it between these markers and leaves the rest alone, so the
+/// markers are public and the shim writer uses the same constants.
+pub const TAB_MARKER_PREFIX: &str = "// ---- Shadertoy tab: ";
+
+/// What follows the tab's name on the marker line.
+pub const TAB_MARKER_SUFFIX: &str = " ----";
+
+/// The comment line that ends the author's code: the generated
+/// `renderMain` follows it.
+pub const ENTRY_MARKER: &str = "// ---- Strobe entry (generated) ----";
+
+/// The first line of the clock pass file, which holds no author code.
+pub const CLOCK_MARKER: &str = "// ---- Strobe clock pass (generated) ----";
+
 /// A 1x1 black PNG, bound to channels with nothing to show.
 const BLACK_PNG: [u8; 70] = [
     0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,

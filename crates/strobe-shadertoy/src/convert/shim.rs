@@ -296,12 +296,23 @@ pub(super) fn pass_file(plan: &Plan, pass: &PlannedPass, shader: &Shader) -> Gen
     );
     out.push_str(&body);
     if let Some(text) = &common {
-        out.push_str("// ---- Shadertoy tab: Common ----\n");
+        let _ = writeln!(
+            out,
+            "{}Common{}",
+            super::TAB_MARKER_PREFIX,
+            super::TAB_MARKER_SUFFIX
+        );
         out.push_str(text);
     }
-    let _ = writeln!(out, "// ---- Shadertoy tab: {} ----", pass.name);
+    let _ = writeln!(
+        out,
+        "{}{}{}",
+        super::TAB_MARKER_PREFIX,
+        pass.name,
+        super::TAB_MARKER_SUFFIX
+    );
     out.push_str(&code);
-    out.push_str("// ---- Strobe entry (generated) ----\n");
+    let _ = writeln!(out, "{}", super::ENTRY_MARKER);
     let result = if pass.legacy_frag_color {
         "strobe_gl_FragColor"
     } else {
@@ -337,18 +348,19 @@ pub(super) fn pass_file(plan: &Plan, pass: &PlannedPass, shader: &Shader) -> Gen
 ///   what a Shadertoy feedback shader that initialises on `iFrame == 0`
 ///   needs after its buffers were wiped.
 pub(super) fn clock_file() -> String {
-    "// ---- Strobe clock pass (generated) ----\n\
-     // One float texel: x = iTime, y = last TIME, z = real dt, w = start frame + 1.\n\
-     float strobe_rate() {\n\
-     \x20   return st_speed * mix(1.0, 0.3 + 2.0 * syn_BassLevel, st_audio_time);\n\
-     }\n\
-     vec4 renderMain() {\n\
-     \x20   vec4 prev = texelFetch(st_clock, ivec2(0, 0), 0);\n\
-     \x20   bool fresh = prev.w == 0.0 || TIME < prev.y;\n\
-     \x20   float dt = fresh ? 0.0 : TIME - prev.y;\n\
-     \x20   float clock = fresh ? TIME : prev.x + dt * strobe_rate();\n\
-     \x20   float start = fresh ? FRAMECOUNT + 1.0 : prev.w;\n\
-     \x20   return vec4(clock, TIME, dt, start);\n\
-     }\n"
-    .to_string()
+    const BODY: &str = "\
+// One float texel: x = iTime, y = last TIME, z = real dt, w = start frame + 1.
+float strobe_rate() {
+    return st_speed * mix(1.0, 0.3 + 2.0 * syn_BassLevel, st_audio_time);
+}
+vec4 renderMain() {
+    vec4 prev = texelFetch(st_clock, ivec2(0, 0), 0);
+    bool fresh = prev.w == 0.0 || TIME < prev.y;
+    float dt = fresh ? 0.0 : TIME - prev.y;
+    float clock = fresh ? TIME : prev.x + dt * strobe_rate();
+    float start = fresh ? FRAMECOUNT + 1.0 : prev.w;
+    return vec4(clock, TIME, dt, start);
+}
+";
+    [super::CLOCK_MARKER, "\n", BODY].concat()
 }

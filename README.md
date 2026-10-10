@@ -65,6 +65,7 @@ machine.
 | [`strobe-audio`](crates/strobe-audio/README.md) | Capture, FFT, bands, onsets, BPM, audio textures |
 | [`strobe-diag`](crates/strobe-diag/README.md) | Logging, structured failures, panic reports, native crash capture with minidumps |
 | [`strobe-shadertoy`](crates/strobe-shadertoy/README.md) | Shadertoy import: URL/id parser, export-JSON model, deterministic converter to a scene folder, `strobe-import` (fetching by id is not built yet) |
+| [`strobe-autocontrol`](crates/strobe-autocontrol/README.md) | Auto-generated controls: finds the literals that shape a scene, rewrites them to uniforms, keeps those that measurably change the image; `strobe-autocontrol` writes `<name>-auto.synScene` |
 | [`strobe-playlist`](crates/strobe-playlist/README.md) | Playlist model, TOML I/O, generator, timeline, playback clock (not wired into the app yet) |
 | [`strobe-bench`](crates/strobe-bench/README.md) | Benchmark: renders `scenes/`, times each, writes frames and a contact sheet |
 | [`strobe-conventions`](crates/strobe-conventions/README.md) | The house rules as tests: file headers, the `unsafe` boundary, the toolchain pin |
