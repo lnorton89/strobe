@@ -133,9 +133,9 @@ or `ok`. The expected files per mode are in
   `overflow` produced a `.txt` and `.dmp`, and `panic` a `.txt`; `abort`
   leaves only the session log by design
   ([`T480.md`](../../docs/hardware/T480.md)).
-- Open question Q11: no `.dmp` has been symbolicated with a PDB yet, and no
-  debugger is installed on the T480
-  ([`OPEN_QUESTIONS.md`](../../docs/OPEN_QUESTIONS.md)).
+- A release `.dmp` symbolicates with its PDB, with function names and
+  `file:line`, using `cargo xtask symbolicate` (verified on the T480; R5 in
+  [`OPEN_QUESTIONS.md`](../../docs/OPEN_QUESTIONS.md)).
 - Under an MSIX-packaged agent (the Claude desktop app) the monitor socket
   cannot connect on Windows; set `STROBE_DIAG_DIR` inside the repo for drills.
   A normal terminal is unaffected.
