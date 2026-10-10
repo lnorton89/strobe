@@ -23,7 +23,7 @@ which backend proved a claim.
 | `strobe-scene`, `strobe-ssf-lib` | SSF parsing and validation, controls runtime, shader assembly, `PASS_SOURCES` (D90), the SSF GLSL library | Headless GL 3.3 core and GLES 3.0 (llvmpipe) |
 | `strobe-gfx` | Native GL and ANGLE context providers, headless EGL, multipass and ping-pong, implicit final pass, images, GPU timer queries, robust contexts and reset status (D66) | llvmpipe; T480 native and ANGLE |
 | `strobe-bench` | Timings, frames, contact sheet; headless, window and auto contexts (D70-D72) | llvmpipe; T480 ([BENCHMARKS.md](BENCHMARKS.md)) |
-| `strobe-app` | Control window (maximized) and output window on one context; the output starts hidden and the scene frame runs on its own schedule (D96); scene browser, controls, preview, console, `--diagnose`, adaptive resolution (D64), context-loss recovery with ANGLE fail-over (D66) | Xvfb; T480: smoke tests, and recovery on real WGL (Task 8). Hidden-output behaviour on Windows is unverified (D96) |
+| `strobe-app` | Control window (maximized) and output window on one context; the output starts hidden and the scene frame runs on its own schedule (D96); scene browser, controls, preview, console, `--diagnose`, adaptive resolution (D64), context-loss recovery with ANGLE fail-over (D66) | Xvfb; T480: smoke tests, recovery on real WGL (Task 8), hidden output, F11 and the close button (Task 9) |
 | `strobe-audio` | Capture with retry and synthetic fallback, analysis, spectrum and level-trail textures, tap tempo (D20-D23, D61) | T480 live mic at 48 kHz |
 | `strobe-script` | QuickJS host: events, `update`, controls, `setUniform` compiled in at load, budget and faults (D62) | Xvfb; T480 (`11-script-orbits`) |
 | `strobe-diag` | Session logs, structured failures, panic reports, out-of-process minidumps, GL debug output (D40-D45) | Linux; T480 (`overflow` gives a `.dmp`, bug 2) |
@@ -33,7 +33,15 @@ which backend proved a claim.
 
 ### In flight
 
-- T480 check of the hidden output window (D96's unverified list).
+- **Auto-generated controls, stage 1:** a `strobe-autocontrol` crate
+  covering analysis, rewriting, headless scoring and a CLI.
+- **Shadertoy import, stage 2:**
+  - in the app: `strobe_Date`, the browser-matched audio texture,
+    pass-file failures, and drop or import of an exported JSON;
+  - the localhost listener and userscript (path A);
+  - the REST client and asset downloader (path B).
+- **Next after those:** the Perform UI rebuild, as Contextual Perform
+  (D120).
 
 ## Next, in priority order
 
