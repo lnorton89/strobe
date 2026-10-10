@@ -16,6 +16,7 @@ crates/
 ├── strobe-conventions  The house rules as tests (headers, unsafe boundary, toolchain pin)
 ├── strobe-diag         Logger, session context, panic hook, native crash capture
 ├── strobe-shadertoy    Shadertoy export JSON → scene folder (id parser, model, dialect rewrite, converter, strobe-import)
+├── strobe-autocontrol  Auto-generated controls: finds tunable literals, rewrites them to uniforms, keeps those that measurably change the image
 ├── strobe-app          winit event loop, control window (egui) + output window, wiring
 ├── strobe-playlist     Playlist model, TOML, generator, timeline, playback clock (pure)
 │
@@ -32,6 +33,9 @@ strobe-ssf-lib ◀── strobe-scene ◀── strobe-gfx ◀── strobe-app
                         └────── strobe-audio  ◀──────┤
                                 strobe-playlist ◀────┘
 
+strobe-scene ◀── strobe-autocontrol ──▶ strobe-gfx   (nothing depends on it yet;
+strobe-shadertoy ◀──┘  (tokenizer only)                 scoring needs a GL context)
+
 strobe-scene ◀── strobe-shadertoy         (nothing depends on it yet;
                                            dev-dependency: strobe-gfx, for
                                            the render tests only)
@@ -47,6 +51,10 @@ strobe-scene ◀── strobe-shadertoy         (nothing depends on it yet;
 - `strobe-shadertoy` depends on `strobe-scene` only, to validate what it
   generates with `SceneDef::parse`. `strobe-gfx` must never depend on it;
   its render tests take `strobe-gfx` as a dev-dependency instead.
+- `strobe-autocontrol` depends on `strobe-scene`, `strobe-ssf-lib`, the
+  tokenizer and tab markers of `strobe-shadertoy`, and `strobe-gfx` (to
+  render for scoring). `strobe-gfx` must never depend on it, and the frame
+  loop never calls it: scoring runs at import time (D123).
 - `strobe-diag` depends on no other Strobe crate, so every crate may
   depend on it (for `log` output, `context::set`, `failure::report`).
   `strobe-gfx` itself only uses the `log` facade; the app is what installs
@@ -312,3 +320,32 @@ What it writes, and how the player runs it:
 - Every fixture under `crates/strobe-shadertoy/tests/fixtures/` is original
   and in exact export shape; the render tests convert, write, load and
   render them on both dialects.
+
+## Auto-generated controls (`strobe-autocontrol`)
+
+Pure analysis, a rewrite that keeps line numbers, and one stage that needs a
+GL context. See D123-D126 for the rules.
+
+```
+Sources (per-pass GLSL)          source.rs     Scan: tokens + offsets + depth;
+   │                                           Shadertoy shim/entry excluded
+   ▼
+analyze()  -> Candidate[]        analyze/      consts (#define/const), expr
+   │                                           (time, loops, colour, scale/freq)
+   ▼ rewrite::apply (ALL as uniforms, placeholder names)
+   ▼ score::Rig::new  (compile once)
+   │   per probe: reset history, fresh ControlBank, 10 frames @160x90,
+   │   synthetic audio; score = mean |diff| to baseline, nudged down and up
+   ▼
+dead / black / does-not-compile dropped, top K kept   generate.rs
+   ▼ naming::assign, rewrite::apply (only the kept), verify compile + fidelity
+Generated { report, sources, control_lines, folder }
+   ▼ output::write_scene           <name>-auto.synScene (copy, never in place)
+```
+
+- `Rig` compiles the scene once; probes only change uniform values.
+- The original scene is compiled and rendered first, so a broken scene is
+  reported as such, and the finished scene's default picture is compared with
+  the original (`Report::fidelity`).
+- The app is expected to call `generate` with its own `Gl` and `Caps`
+  (the Import and Inspector review panel is not built).

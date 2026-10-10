@@ -145,8 +145,17 @@ they apply, and explicit supported, degraded or unsupported claims.
   userscript with its localhost listener, the drop folder, the asset
   downloader, the app's Import UI, conversion diagnostics in the UI, and
   the Needs-work bin.
-- [ ] Auto-generated controls for imported shaders and control-less scenes
-  ([ROADMAP.md](ROADMAP.md), "Auto-generated controls").
+- [x] Auto-generated controls engine, stage 1 (D123-D126;
+  [ROADMAP.md](ROADMAP.md), "Auto-generated controls"). Evidence:
+  `crates/strobe-autocontrol/tests/engine.rs` on headless llvmpipe, both
+  GL 3.3 core and GLES 3.0. Every library scene with `CONTROLS` stripped
+  (11 of 11) and 8 of 14 Shadertoy fixtures get controls; the other 6 are
+  structural and documented in `NO_CONTROLS`. Each kept control changes the
+  image (scored, then re-checked on the finished scene), the rewrite
+  reproduces the original at its defaults (fidelity 0 in all 25), a second
+  run is identical. **Not verified:** a real GPU or the T480 (llvmpipe only),
+  and the Import/Inspector review panel does not exist, so nothing in the app
+  calls the engine yet.
 - Preserve source and licence metadata, and make it inspectable. Never
   infer commercial rights.
 
