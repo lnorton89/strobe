@@ -87,6 +87,15 @@ impl Screenshot {
         self.control_frames_since > CONTROL_SETTLE_FRAMES
     }
 
+    /// Whether the *next* call to [`Self::control_due`] will say yes: the
+    /// frame before the control capture, which is when a state that must be
+    /// on screen during the capture (a load in progress) has to be asked for.
+    pub fn control_capture_next(&self) -> bool {
+        self.output_done
+            && !self.control_done
+            && self.control_frames_since + 1 > CONTROL_SETTLE_FRAMES
+    }
+
     /// Whether both captures are written.
     pub fn finished(&self) -> bool {
         self.output_done && self.control_done
@@ -170,6 +179,31 @@ mod tests {
             shot.path(Target::Output),
             PathBuf::from("target/shot-output.png"),
             "output"
+        );
+    }
+
+    #[test]
+    fn the_frame_before_the_control_capture_is_announced() {
+        let mut shot = Screenshot::new(PathBuf::from("x"), 3);
+        assert!(!shot.control_capture_next(), "output not captured yet");
+        shot.output_done = true;
+        let mut announced_at = None;
+        let mut captured_at = None;
+        // As the app does it: a control frame draws (and asks whether to
+        // capture), then, at its end, asks whether the next one will.
+        for frame in 1..=CONTROL_SETTLE_FRAMES + 3 {
+            if shot.control_due() {
+                captured_at = Some(frame);
+                break;
+            }
+            if announced_at.is_none() && shot.control_capture_next() {
+                announced_at = Some(frame);
+            }
+        }
+        assert_eq!(
+            announced_at.map(|f| f + 1),
+            captured_at,
+            "announced exactly one frame before the capture"
         );
     }
 

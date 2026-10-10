@@ -30,6 +30,7 @@ pub struct FrameStats {
     last_start: Option<Instant>,
     interval_ms: f32,
     cpu_ms: f32,
+    ui_ms: f32,
 }
 
 impl FrameStats {
@@ -59,6 +60,23 @@ impl FrameStats {
         }
     }
 
+    /// Records the time one control-window egui pass took (building and
+    /// laying out every widget, not the GL paint), so a UI that has become expensive shows up in the
+    /// diagnostics instead of as an unexplained dropped frame.
+    pub fn record_ui(&mut self, took: Duration) {
+        let ms = took.as_secs_f32() * 1000.0;
+        if self.ui_ms == 0.0 {
+            self.ui_ms = ms;
+        } else {
+            self.ui_ms += (ms - self.ui_ms) * SMOOTHING;
+        }
+    }
+
+    /// Smoothed milliseconds an egui layout pass takes.
+    pub fn ui_ms(&self) -> f32 {
+        self.ui_ms
+    }
+
     /// Smoothed CPU milliseconds per frame.
     pub fn cpu_ms(&self) -> f32 {
         self.cpu_ms
@@ -86,6 +104,20 @@ mod tests {
             stats.begin(start + Duration::from_micros(16_667) * i);
         }
         assert!((stats.fps() - 60.0).abs() < 0.5, "fps was {}", stats.fps());
+    }
+
+    #[test]
+    fn the_ui_pass_time_is_smoothed_like_the_others() {
+        let mut stats = FrameStats::default();
+        assert_eq!(stats.ui_ms(), 0.0, "nothing measured yet");
+        stats.record_ui(Duration::from_millis(4));
+        assert!((stats.ui_ms() - 4.0).abs() < 1e-3, "first sample");
+        stats.record_ui(Duration::from_millis(14));
+        assert!(
+            stats.ui_ms() > 4.0 && stats.ui_ms() < 14.0,
+            "{}",
+            stats.ui_ms()
+        );
     }
 
     #[test]

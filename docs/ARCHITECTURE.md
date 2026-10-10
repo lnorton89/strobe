@@ -150,6 +150,77 @@ Not yet in the frame, from the original design: MIDI, OSC and hotkeys (step
 1), the playlist tick, two active scenes during a transition, and the meta
 post stage (brightness, hue, mirror).
 
+## The control window's UI (`strobe-app`)
+
+**Contextual Perform** (D120, built in stage 1 as D130 to D138). The UI is a
+pure function of a borrowed `ui::Model` that returns `Action`s; the app owns
+every piece of state and carries the actions out after the frame is painted.
+
+```
+rail | browser (optional) | preview               | inspector / diagnostics / settings (optional)
+-------------------------------------------------------------------------------------------
+title bar: brand, crumb, health readouts, window buttons (above all of it)
+transport strip: prev, hold (unavailable), next, NOW and NEXT, time, BPM, blackout
+macros: the playing scene's first controls
+```
+
+Layers (UI_IMPLEMENTATION_PLAN section 3), and where they are:
+
+| Layer | Code |
+|---|---|
+| product state | `app.rs` (`Running`), `session.rs`, `audio.rs`; per-scene `library::Health` |
+| presentation state | `ui::state::UiState`, saved by `prefs` (a debounced writer thread, D133) |
+| adapters | `ui::model`: `Model` and its panels, borrowed for one frame |
+| commands | `ui::model::Action`, and `commands` (the keyboard table and focus rule, D134) |
+| rendering | the preview paints the scene's output texture as a native egui texture; there is no readback |
+
+Portable modules (no egui, unit-tested anywhere): `color`, `palette`,
+`motion`, `icon`, `workspace` (the pane model and how it fits a window),
+`prefs`, `commands`, and `library` (search, filter, health and stepping). The
+egui layer is `ui/`: `theme`, `motion` and `icon` bind the portable ones;
+`widgets` and `modal` are the shared vocabulary; `shell` composes `chrome`,
+`perform`, `transport` and `macros` with the panes `browser`, `inspector`
+(with `controls`), `diagnostics`, `import` and `settings`; `keys` turns key
+events into commands; `host` runs egui on the control window.
+
+What a control-window frame does (30 Hz, off the output frame's path):
+
+1. refresh the console and the audio status (cheap, as before);
+2. if a load or a preview was asked for last frame, remember it (the UI shows
+   "preparing" this frame);
+3. advance the browser's preview session, if there is one;
+4. register the preview textures, and build the `Model` (no allocation beyond
+   the model's own borrows);
+5. one egui pass: `shell::show` (hashing `UiState` to notice a change, reading
+   key events, drawing), then paint;
+6. `UiState::tick` (debounced save), the `--screenshot` capture if due,
+   present, then apply the actions;
+7. only now, run the blocking load or preview preparation, so the frame that
+   said "preparing" has been on screen.
+
+New in the frame path, all in `app.rs`:
+
+- **Scene stepping** (`library::step`: wraps, skips scenes known to fail).
+- **Blackout**: when the output is shown, `scene_frame` clears it to black
+  instead of calling `present`. The scene keeps rendering.
+- **Two-phase load** and a **per-scene health** vector, so a failed load
+  leaves the old scene live and marks the row.
+- **A second `Session` for Preview**, kept in the `Stack` before the context
+  in drop order, rendered at 384 px and dropped on a context rebuild.
+- **A notice** after a context rebuild ("rebuilt on ANGLE in 181 ms; the scene
+  is playing again").
+- **The title bar**: `Layout::initial` opens the control window undecorated
+  when `custom_title_bar` is set, and `Action::SetCustomTitleBar` flips it
+  live (D132).
+
+The rules that keep it cheap and honest, each a test: the drawing modules
+hold no colour literal, hand-picked gap, hand-rolled animation or font icon;
+no fixed panel has a dead resize handle; nothing in them touches the disk,
+the driver or a socket; `shell_tests` draws every state at six window sizes
+and asserts it fits; `palette` checks every theme's contrast. The per-frame
+cost is measured and shown (`Control UI` in the diagnostics: the egui layout pass, about 1 ms in a
+debug build; the GL paint is the driver's and the T480 number is open).
+
 ## Context loss
 
 A projector must never go dark because one driver call failed (D66).

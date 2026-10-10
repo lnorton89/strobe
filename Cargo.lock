@@ -2887,6 +2887,7 @@ dependencies = [
  "egui_glow",
  "image",
  "log",
+ "serde",
  "strobe-audio",
  "strobe-diag",
  "strobe-gfx",
@@ -2894,6 +2895,7 @@ dependencies = [
  "strobe-script",
  "strobe-shadertoy",
  "thiserror 2.0.21",
+ "toml",
  "winit",
 ]
 

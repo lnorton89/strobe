@@ -91,12 +91,13 @@
 
 use crate::audio::AudioInput;
 use crate::cli::{AudioArg, Cli};
+use crate::commands::{self, CommandId, Focus};
 use crate::console::Console;
 use crate::failures;
 use crate::fault::{self, Faults};
 use crate::gldebug;
 use crate::import::{self, Input, Outcome};
-use crate::library::Library;
+use crate::library::{Health, Library};
 use crate::localtime::LocalDate;
 use crate::mouse::{Button, MouseTracker};
 use crate::perf::{self, Performance};
@@ -104,7 +105,11 @@ use crate::recovery::{Decision, Event, Rebuild, Recovery, Surface};
 use crate::screenshot::{Screenshot, Target};
 use crate::session::{self, Session};
 use crate::stats::FrameStats;
-use crate::ui::{Action, ImportPanel, ListenerPanel, Model, PerfPanel, Preview, UiHost, layout};
+use crate::ui::widgets::Tone;
+use crate::ui::{
+    Action, FailurePanel, ImportPanel, ListenerPanel, Model, NoticePanel, PerfPanel, Preview,
+    ScenePreview, ShellState, TransportPanel, UiHost, UiState, shell,
+};
 use std::time::{Duration, Instant};
 use strobe_diag::context;
 use strobe_diag::failure::{self, Failure, Subsystem};
@@ -252,21 +257,34 @@ impl Layout {
     /// The layout of a fresh launch. The output window is created hidden
     /// unless `show_output`: it must exist either way, because the shared GL
     /// context is made on it.
-    fn initial(show_output: bool) -> Self {
+    ///
+    /// `custom_title_bar` opens the control window undecorated, because the
+    /// UI draws its own title bar (D132). `window_size` (`--window-size`)
+    /// opens it at exactly that size and *not* maximized, which is what makes
+    /// a screenshot reproducible.
+    fn initial(show_output: bool, custom_title_bar: bool, window_size: Option<(u32, u32)>) -> Self {
+        let control = Window::default_attributes()
+            .with_title("Strobe")
+            .with_decorations(!custom_title_bar)
+            .with_min_inner_size(LogicalSize::new(720.0, 480.0));
+        let control = match window_size {
+            Some((width, height)) => {
+                control.with_inner_size(LogicalSize::new(f64::from(width), f64::from(height)))
+            }
+            // Always maximized, on every launch (D65): the control surface
+            // is the operator's workspace. The size is what an un-maximized
+            // window (or a window system with no concept of maximizing, such
+            // as bare Xvfb) falls back to.
+            None => control
+                .with_inner_size(LogicalSize::new(1360.0, 820.0))
+                .with_maximized(true),
+        };
         Self {
             output: Window::default_attributes()
                 .with_title("Strobe Output")
                 .with_visible(show_output)
                 .with_inner_size(LogicalSize::new(960.0, 540.0)),
-            control: Window::default_attributes()
-                .with_title("Strobe")
-                .with_inner_size(LogicalSize::new(1360.0, 820.0))
-                // Always maximized, on every launch: the control surface is
-                // the operator's workspace. The size above is what an
-                // un-maximized window (or a window system with no concept of
-                // maximizing, such as bare Xvfb) falls back to.
-                .with_maximized(true)
-                .with_min_inner_size(LogicalSize::new(900.0, 560.0)),
+            control,
             fullscreen: None,
         }
     }
@@ -274,8 +292,8 @@ impl Layout {
     /// The layout the live windows are in now, so a rebuilt pair can be put
     /// back where the operator left them. `output_visible` is whether the
     /// output window is shown, which the window system may not report.
-    fn capture(stack: &Stack, output_visible: bool) -> Self {
-        let mut layout = Self::initial(output_visible);
+    fn capture(stack: &Stack, output_visible: bool, custom_title_bar: bool) -> Self {
+        let mut layout = Self::initial(output_visible, custom_title_bar, None);
         let output = stack.output.window();
         layout.fullscreen = output.fullscreen();
         // A fullscreen window's size is the monitor's, not the window's own.
@@ -315,6 +333,9 @@ struct PerfStart {
 /// replaces the whole stack; [`Stack::release`] takes one down.
 struct Stack {
     session: Option<Session>,
+    /// The browser's preview: a second, small player for a scene that is
+    /// not live. Owns GL objects, so it sits before the context.
+    preview: Option<Session>,
     /// Owns GL timer queries, so it sits before the context in drop order.
     perf: Performance,
     ui: UiHost,
@@ -333,6 +354,7 @@ impl Stack {
         choice: GlChoice,
         layout: &Layout,
         start: PerfStart,
+        palette: &crate::palette::Palette,
     ) -> Result<Self, String> {
         let (mut gfx, output) = WindowedContext::open(event_loop, choice, &layout.output)
             .map_err(|e| format!("Could not start OpenGL.\n{e}"))?;
@@ -357,7 +379,7 @@ impl Stack {
         // the native-to-ANGLE fail-over left GL_INVALID_OPERATION behind.
         // Drain it here, once per context, never in the frame loop.
         drain_gl_errors(gfx.gl());
-        let ui = UiHost::new(event_loop, gfx.gl())?;
+        let ui = UiHost::new(event_loop, gfx.gl(), palette)?;
         if let Some(fullscreen) = layout.fullscreen.clone() {
             output.window().set_fullscreen(Some(fullscreen));
         }
@@ -388,6 +410,7 @@ impl Stack {
         );
         Ok(Self {
             session: None,
+            preview: None,
             perf,
             ui,
             control,
@@ -415,6 +438,7 @@ impl Stack {
     fn release(self) {
         let Self {
             session,
+            preview,
             mut perf,
             mut ui,
             control,
@@ -426,10 +450,12 @@ impl Stack {
         }
         if gfx.gl().is_lost() {
             drop(session);
+            drop(preview);
             drop(perf);
             ui.abandon();
         } else {
             drop(session);
+            drop(preview);
             perf.release();
             drop(perf);
             ui.destroy();
@@ -530,7 +556,61 @@ struct Running {
     listen_port: u16,
     /// Strobe's data directory: the token, the API key, the texture cache.
     data_dir: std::path::PathBuf,
+
+    /// Presentation state (panes, the browser query, the theme), persisted.
+    ui_state: UiState,
+    /// What the shell remembers between frames.
+    shell: ShellState,
+    /// What is known of each scene's health, parallel to `library.entries`.
+    health: Vec<Health>,
+    /// Bumped whenever the library or its health changes, so the browser
+    /// refilters only then.
+    library_rev: u64,
+    /// Why the library scan failed, if it did.
+    scan_error: Option<String>,
+    /// The output is blacked out (the shown output stays dark).
+    blackout: bool,
+    /// A scene the UI asked for, to be loaded *after* the frame that shows
+    /// "preparing" has been painted, because loading blocks.
+    pending_load: Option<usize>,
+    /// The last scene that failed to load.
+    load_failure: Option<LoadFailure>,
+    /// A notice banner and when it appeared.
+    notice: Option<Notice>,
+    /// Which library entry the browser's preview holds.
+    preview_index: Option<usize>,
+    /// A preview the UI asked for, prepared after the frame is painted
+    /// (preparing compiles shaders, like a load).
+    pending_preview: Option<usize>,
+    /// When the preview was last advanced, for its own `dt`.
+    preview_clock: Instant,
+    /// The operator asked to quit (the title bar's close button).
+    quit: bool,
+    /// `--request-load`: a scene to ask for just before the control capture.
+    shot_load: Option<String>,
 }
+
+/// A scene that did not load, for the banner.
+#[derive(Debug, Clone)]
+struct LoadFailure {
+    scene: String,
+    summary: String,
+}
+
+/// A banner that is not a failure.
+#[derive(Debug, Clone)]
+struct Notice {
+    tone: Tone,
+    text: String,
+    since: Instant,
+}
+
+/// How long a notice stays up on its own.
+const NOTICE_SECONDS: u64 = 12;
+
+/// The size the browser's preview is rendered at: small, because it shares
+/// the GPU with the show.
+const PREVIEW_WIDTH: i32 = 384;
 
 impl Running {
     fn new(
@@ -540,14 +620,41 @@ impl Running {
         scan_error: Option<String>,
     ) -> Result<Self, String> {
         let render_scale = session::clamp_scale(cli.render_scale);
+        // Screenshot mode never reads or writes the saved layout, so a
+        // capture depends on neither, and a capture never changes it.
+        let mut ui_state = if cli.screenshot.is_some() {
+            UiState::ephemeral()
+        } else {
+            UiState::load()
+        };
+        if cli.system_title_bar {
+            ui_state.custom_title_bar = false;
+        }
+        if let Some(theme) = &cli.theme {
+            if ui_state.catalog().themes().iter().any(|t| t.id == *theme) {
+                ui_state.set_theme(theme);
+            } else {
+                log::warn!("--theme: there is no theme called \"{theme}\"");
+            }
+        }
+        if cli.no_panes {
+            ui_state.panes.close_all();
+        }
+        for unknown in ui_state.open_named(&cli.open_pane) {
+            log::warn!("--open-pane: there is no pane called \"{unknown}\"");
+        }
+        if let Some(query) = &cli.browser_query {
+            ui_state.browser.query.clone_from(query);
+        }
         let stack = Stack::open(
             event_loop,
             cli.gl.choice(),
-            &Layout::initial(cli.show_output),
+            &Layout::initial(cli.show_output, ui_state.custom_title_bar, cli.window_size),
             PerfStart {
                 max: render_scale,
                 adaptive: !cli.no_adaptive,
             },
+            ui_state.palette(),
         )?;
         let gl_summary = stack.summary();
         let screenshot = cli
@@ -563,9 +670,24 @@ impl Running {
             download_textures: !cli.no_texture_download,
         })
         .map_err(|e| format!("Could not start the Shadertoy importer: {e}"))?;
+        let health = vec![Health::Unknown; library.entries.len()];
         let mut running = Self {
             stack,
             library,
+            health,
+            library_rev: 1,
+            scan_error: scan_error.clone(),
+            blackout: cli.blackout,
+            pending_load: None,
+            load_failure: None,
+            notice: None,
+            preview_index: None,
+            pending_preview: None,
+            preview_clock: now,
+            quit: false,
+            shot_load: cli.request_load.clone(),
+            ui_state,
+            shell: ShellState::default(),
             playing: None,
             console: Console::default(),
             stats: FrameStats::default(),
@@ -630,16 +752,24 @@ impl Running {
                 ),
             }
         }
+        if let Some(query) = cli.preview.as_deref() {
+            match running.library.find(query) {
+                Some(index) => running.preview_load(index),
+                None => log::warn!("--preview: no scene matching \"{query}\" in the library"),
+            }
+        }
         Ok(running)
     }
 
     fn finished(&self) -> bool {
-        self.screenshot.as_ref().is_some_and(Screenshot::finished)
+        self.quit || self.screenshot.as_ref().is_some_and(Screenshot::finished)
     }
 
     fn shutdown(self) {
         // Stop accepting browser requests before the windows go.
         drop(self.listener);
+        // Write the layout if a change is still waiting, off the UI thread.
+        self.ui_state.finish();
         self.stack.release();
     }
 
@@ -796,7 +926,11 @@ impl Running {
         let before = self.stack.gfx.backend();
         let scene = self.stack.session.as_ref().map(|s| s.name.clone());
         let carried = Carried {
-            layout: Layout::capture(&self.stack, self.output_visible),
+            layout: Layout::capture(
+                &self.stack,
+                self.output_visible,
+                self.ui_state.custom_title_bar,
+            ),
             playing: self.playing.map(|index| {
                 let session = self.stack.session.as_ref();
                 Resume {
@@ -836,6 +970,7 @@ impl Running {
                     GlChoice::Only(backend),
                     &carried.layout,
                     carried.start,
+                    self.ui_state.palette(),
                 )
             };
             match opened {
@@ -887,6 +1022,11 @@ impl Running {
             resize_now: false,
             next_output: now,
             next_control: now,
+            // The preview and a load that was waiting belonged to the lost
+            // context; the scene that was playing is reloaded below.
+            preview_index: None,
+            pending_preview: None,
+            pending_load: None,
             ..self
         };
         log::info!("GL: {}", running.gl_summary);
@@ -910,6 +1050,24 @@ impl Running {
             scene.as_deref(),
             reloaded,
         ));
+        running.notice = Some(Notice {
+            tone: if reloaded || scene.is_none() {
+                Tone::Info
+            } else {
+                Tone::Warning
+            },
+            text: format!(
+                "The graphics context was lost and rebuilt on {} in {} ms{}.",
+                failures::backend_label(running.stack.gfx.backend()),
+                elapsed.as_millis(),
+                match (&scene, reloaded) {
+                    (Some(name), true) => format!("; {name} is playing again"),
+                    (Some(name), false) => format!("; {name} could not be reloaded"),
+                    (None, _) => String::new(),
+                }
+            ),
+            since: Instant::now(),
+        });
         log::info!(
             "Output recovered on {} in {} ms{}",
             failures::backend_label(running.stack.gfx.backend()),
@@ -1047,11 +1205,11 @@ impl Running {
             if let Some(button) = button {
                 self.mouse.button(button, *state == ElementState::Pressed);
             }
-        } else if let WindowEvent::KeyboardInput { event: key, .. } = &event {
-            let typing = is_control && self.stack.ui.wants_keyboard();
-            if !typing {
-                self.key(key);
-            }
+        } else if is_output && let WindowEvent::KeyboardInput { event: key, .. } = &event {
+            // The control window's keys go through egui, where focus is
+            // known (`ui::keys`); the output window has no UI, so its keys
+            // are mapped here with the same command table.
+            self.output_key(key);
         }
         if is_control && self.rebuild.is_none() {
             let window = self.stack.control.window();
@@ -1059,20 +1217,27 @@ impl Running {
         }
     }
 
-    fn key(&mut self, key: &KeyEvent) {
+    /// A key pressed in the output window: the same commands as the control
+    /// window, with no text field to respect. Esc leaves fullscreen first.
+    fn output_key(&mut self, key: &KeyEvent) {
         if key.state != ElementState::Pressed || key.repeat {
             return;
         }
-        if key.logical_key == Key::Named(NamedKey::F11) {
-            self.toggle_fullscreen();
-        } else if matches!(&key.logical_key, Key::Character(text) if text.eq_ignore_ascii_case("t"))
-        {
-            self.audio.tap();
-        } else if key.logical_key == Key::Named(NamedKey::Escape)
+        if key.logical_key == Key::Named(NamedKey::Escape)
             && self.output_visible
             && self.stack.output.window().fullscreen().is_some()
         {
             self.stack.output.window().set_fullscreen(None);
+            return;
+        }
+        let Some(chord) = chord_of(&key.logical_key) else {
+            return;
+        };
+        if let Some(command) = commands::dispatch(chord, Focus::default())
+            && let Some(action) = command_action(command, self.blackout)
+        {
+            let mut actions = vec![action];
+            self.apply(&mut actions);
         }
     }
 
@@ -1129,8 +1294,30 @@ impl Running {
 
     // ----------------------------------------------------------- scene load
 
+    /// Loads scene `index` now, with its clock at the start. Used at
+    /// start-up and for a context rebuild; the UI asks through
+    /// [`Self::request_load`] so it can show "preparing" first.
     fn load(&mut self, index: usize) {
         self.load_from(index, self.start_time);
+    }
+
+    /// Asks for scene `index` to be loaded after the next control-window
+    /// frame. Loading compiles shaders on this thread and blocks, so the
+    /// frame that says "Preparing X..." must be painted first.
+    fn request_load(&mut self, index: usize) {
+        if index < self.library.entries.len() {
+            self.pending_load = Some(index);
+        }
+    }
+
+    /// Records what happened when scene `index` was tried.
+    fn set_health(&mut self, index: usize, health: Health) {
+        if let Some(slot) = self.health.get_mut(index)
+            && *slot != health
+        {
+            *slot = health;
+            self.library_rev += 1;
+        }
     }
 
     /// Loads scene `index` with its clock starting at `start` seconds.
@@ -1161,6 +1348,8 @@ impl Running {
                 self.stack.session = Some(session);
                 self.playing = Some(index);
                 self.pending_resize = None;
+                self.load_failure = None;
+                self.set_health(index, Health::Ready);
                 self.stack.perf.scene_loaded(Instant::now());
                 context::set(context::SCENE, &entry.name);
                 context::set(context::RENDER_SIZE, format!("{}x{}", size[0], size[1]));
@@ -1172,12 +1361,131 @@ impl Running {
                     started.elapsed().as_secs_f64() * 1000.0
                 );
             }
-            Err(error) => failure::report(failures::scene_load(
-                &entry.name,
-                &entry.dir,
-                &error,
-                self.stack.session.is_some(),
-            )),
+            Err(error) => {
+                failure::report(failures::scene_load(
+                    &entry.name,
+                    &entry.dir,
+                    &error,
+                    self.stack.session.is_some(),
+                ));
+                self.scene_failed(index, &entry.name, &error.to_string());
+            }
+        }
+    }
+
+    /// Remembers that a scene failed: its row says so, and a banner names
+    /// it. The scene that was playing keeps playing.
+    fn scene_failed(&mut self, index: usize, name: &str, error: &str) {
+        let summary = summarize(error);
+        self.set_health(index, Health::Failed(summary.clone()));
+        self.load_failure = Some(LoadFailure {
+            scene: name.to_string(),
+            summary,
+        });
+    }
+
+    /// Steps to the next (`delta` 1) or previous (`delta` -1) scene in the
+    /// library, skipping scenes known to be broken.
+    fn step_scene(&mut self, delta: isize) {
+        if let Some(index) = self.step_target(delta) {
+            self.request_load(index);
+        }
+    }
+
+    /// The scene a step of `delta` would land on.
+    fn step_target(&self, delta: isize) -> Option<usize> {
+        let failed = |index: usize| matches!(self.health.get(index), Some(Health::Failed(_)));
+        crate::library::step(self.playing, self.library.entries.len(), delta, failed)
+    }
+
+    /// Prepares scene `index` in the browser's preview, without touching
+    /// the live scene.
+    fn preview_load(&mut self, index: usize) {
+        let Some(entry) = self.library.entries.get(index).cloned() else {
+            return;
+        };
+        if !self.make_current(Surface::Control) {
+            return;
+        }
+        let output = self.stack.output.window().inner_size();
+        let aspect = output.height.max(1) as f32 / output.width.max(1) as f32;
+        let height = ((PREVIEW_WIDTH as f32 * aspect).round() as i32).max(16);
+        let size = [PREVIEW_WIDTH, height];
+        match Session::load(
+            self.stack.gfx.gl(),
+            self.stack.gfx.caps(),
+            &entry.dir,
+            &entry.name,
+            size,
+            self.start_time,
+            &mut self.audio,
+        ) {
+            Ok(session) => {
+                self.stack.preview = Some(session);
+                self.preview_index = Some(index);
+                self.preview_clock = Instant::now();
+                self.set_health(index, Health::Ready);
+                log::info!("Previewing {} ({}x{})", entry.name, size[0], size[1]);
+            }
+            Err(error) => {
+                failure::report(failures::scene_load(
+                    &entry.name,
+                    &entry.dir,
+                    &error,
+                    self.stack.session.is_some(),
+                ));
+                self.scene_failed(index, &entry.name, &error.to_string());
+            }
+        }
+    }
+
+    /// Throws the preview away.
+    fn close_preview(&mut self) {
+        self.stack.preview = None;
+        self.preview_index = None;
+    }
+
+    /// Lists the library folder again, keeping what is known of each scene.
+    fn rescan_library(&mut self) {
+        match Library::scan(&self.library.dir) {
+            Ok(library) => {
+                let playing_dir = self
+                    .playing
+                    .and_then(|index| self.library.entries.get(index))
+                    .map(|entry| entry.dir.clone());
+                let old: Vec<(std::path::PathBuf, Health)> = self
+                    .library
+                    .entries
+                    .iter()
+                    .zip(self.health.drain(..))
+                    .map(|(entry, health)| (entry.dir.clone(), health))
+                    .collect();
+                self.health = library
+                    .entries
+                    .iter()
+                    .map(|entry| {
+                        old.iter()
+                            .find(|(dir, _)| *dir == entry.dir)
+                            .map_or(Health::Unknown, |(_, health)| health.clone())
+                    })
+                    .collect();
+                self.library = library;
+                self.library_rev += 1;
+                self.scan_error = None;
+                self.playing = playing_dir
+                    .and_then(|old| self.library.entries.iter().position(|e| e.dir == old));
+                self.close_preview();
+                self.ui_state.browser.selected = None;
+            }
+            Err(error) => {
+                failure::report(
+                    Failure::new(Subsystem::Io, "scan")
+                        .path(&self.library.dir)
+                        .message(&error)
+                        .action("the library list was not refreshed"),
+                );
+                self.scan_error = Some(error);
+            }
         }
     }
 
@@ -1237,24 +1545,10 @@ impl Running {
     /// import is on screen without another click. Runs on the main thread:
     /// the scene's shaders are compiled here, never on the worker.
     fn show_imported(&mut self, dir: &std::path::Path) {
-        let playing_dir = self
-            .playing
-            .and_then(|index| self.library.entries.get(index))
-            .map(|entry| entry.dir.clone());
-        match Library::scan(&self.library.dir) {
-            Ok(library) => self.library = library,
-            Err(error) => {
-                failure::report(
-                    Failure::new(Subsystem::Io, "scan")
-                        .path(&self.library.dir)
-                        .message(error)
-                        .action("the library list was not refreshed"),
-                );
-                return;
-            }
+        self.rescan_library();
+        if self.scan_error.is_some() {
+            return;
         }
-        self.playing =
-            playing_dir.and_then(|old| self.library.entries.iter().position(|e| e.dir == old));
         match self.library.entries.iter().position(|e| e.dir == dir) {
             Some(index) => self.load(index),
             None => log::warn!(
@@ -1336,12 +1630,43 @@ impl Running {
     fn apply(&mut self, actions: &mut Vec<Action>) {
         for action in actions.drain(..) {
             match action {
-                Action::Load(index) => self.load(index),
+                Action::Load(index) => self.request_load(index),
                 Action::Reload => {
                     if let Some(index) = self.playing {
-                        self.load(index);
+                        self.request_load(index);
                     }
                 }
+                Action::Preview(index) => self.pending_preview = Some(index),
+                Action::ClosePreview => self.close_preview(),
+                Action::RescanLibrary => self.rescan_library(),
+                Action::NextScene => self.step_scene(1),
+                Action::PrevScene => self.step_scene(-1),
+                Action::ToggleHold => {
+                    log::info!("hold requested: there is no cue list yet, so nothing was held");
+                    self.notice = Some(Notice {
+                        tone: Tone::Info,
+                        text: "Hold needs the Playlist workspace (stage 2). Nothing was held."
+                            .to_string(),
+                        since: Instant::now(),
+                    });
+                }
+                Action::SetBlackout(on) => {
+                    if self.blackout != on {
+                        self.blackout = on;
+                        log::info!("blackout {}", if on { "on" } else { "off" });
+                    }
+                }
+                Action::Quit => self.quit = true,
+                Action::SetCustomTitleBar(on) => {
+                    self.ui_state.custom_title_bar = on;
+                    self.stack.control.window().set_decorations(!on);
+                    log::info!(
+                        "title bar: {}",
+                        if on { "Strobe's own" } else { "the system's" }
+                    );
+                }
+                Action::DismissFailure => self.load_failure = None,
+                Action::DismissNotice => self.notice = None,
                 Action::SetRenderScale(scale) => {
                     let from = self.render_scale;
                     self.scale_edit = session::clamp_scale(scale);
@@ -1497,7 +1822,16 @@ impl Running {
                 session.advance(dt, &mut self.audio, mouse, self.local_date.now());
                 if shown {
                     gl.plain_state();
-                    session.player.present(window);
+                    if self.blackout {
+                        // The scene keeps rendering (its clock runs, the
+                        // preview shows it); only what the projector gets
+                        // goes dark.
+                        gl.bind_framebuffer(None);
+                        gl.viewport(window[0], window[1]);
+                        gl.clear([0.0, 0.0, 0.0, 1.0]);
+                    } else {
+                        session.player.present(window);
+                    }
                 }
                 change = self.stack.perf.end(started);
             }
@@ -1566,8 +1900,22 @@ impl Running {
         if !self.make_current(Surface::Control) {
             return;
         }
+        let now = Instant::now();
         self.console.refresh();
-        self.audio.refresh_status(Instant::now());
+        self.audio.refresh_status(now);
+        if self
+            .notice
+            .as_ref()
+            .is_some_and(|n| now.duration_since(n.since).as_secs() >= NOTICE_SECONDS)
+        {
+            self.notice = None;
+        }
+        // A load asked for last frame is shown as "preparing" in this one
+        // and runs after it is painted, because it blocks.
+        let loading = self.pending_load.take();
+        let preparing = self.pending_preview.take();
+
+        self.advance_preview(now);
         let preview = self.stack.session.as_ref().map(|session| {
             let texture = session.player.output_texture();
             Preview {
@@ -1576,19 +1924,68 @@ impl Running {
                 size: [texture.width(), texture.height()],
             }
         });
-        let (scene_title, controls, script) = match self.stack.session.as_mut() {
-            Some(session) => {
-                let (title, controls, script) = session.panel_parts();
-                (title, Some(controls), script)
+        let scene_preview_image = match (self.stack.preview.as_ref(), self.preview_index) {
+            (Some(session), Some(index)) => {
+                let texture = session.player.output_texture();
+                Some((
+                    index,
+                    Preview {
+                        texture: self.stack.ui.preview_texture(texture.raw()),
+                        aspect: texture.width() as f32 / texture.height().max(1) as f32,
+                        size: [texture.width(), texture.height()],
+                    },
+                ))
             }
-            None => ("", None, None),
+            _ => None,
         };
+        let next = self.step_target(1);
+        let (scene_title, controls, script, scene_time) = match self.stack.session.as_mut() {
+            Some(session) => {
+                let time = session.time();
+                let (title, controls, script) = session.panel_parts();
+                (title, Some(controls), script, time)
+            }
+            None => ("", None, None, 0.0),
+        };
+        let entries = &self.library.entries;
+        let name_of =
+            |index: Option<usize>| index.and_then(|i| entries.get(i)).map(|e| e.name.as_str());
+        let loading_name = name_of(loading.or(preparing));
+        let playing_name = name_of(self.playing);
+        let kept = playing_name;
+        if self.ui_state.take_theme_change() {
+            self.stack.ui.apply_theme(self.ui_state.palette());
+        }
         let mut model = Model {
+            ui: &mut self.ui_state,
             library: &self.library,
+            health: &self.health,
+            library_rev: self.library_rev,
+            scan_error: self.scan_error.as_deref(),
             playing: self.playing,
             scene_title,
             controls,
             preview,
+            scene_preview: scene_preview_image.and_then(|(index, image)| {
+                name_of(Some(index)).map(|name| ScenePreview { index, name, image })
+            }),
+            loading: loading_name,
+            failure: self.load_failure.as_ref().map(|f| FailurePanel {
+                scene: &f.scene,
+                summary: &f.summary,
+                kept,
+            }),
+            notice: self.notice.as_ref().map(|n| NoticePanel {
+                tone: n.tone,
+                text: &n.text,
+            }),
+            transport: TransportPanel {
+                now: playing_name,
+                next: name_of(next).filter(|_| next != self.playing),
+                scene_time,
+                blackout: self.blackout,
+                can_step: next.is_some() && next != self.playing,
+            },
             console: &self.console,
             stats: &self.stats,
             render_scale: &mut self.scale_edit,
@@ -1596,6 +1993,7 @@ impl Running {
             output_monitor: self.output_monitor,
             output_visible: self.output_visible,
             fullscreen: self.stack.output.window().fullscreen().is_some(),
+            maximized: self.stack.control.window().is_maximized(),
             gl_summary: &self.gl_summary,
             audio: self.audio.panel(),
             script,
@@ -1626,10 +2024,19 @@ impl Running {
         };
         let mut actions = std::mem::take(&mut self.actions);
         let window = self.stack.control.window();
-        self.stack
-            .ui
-            .run(window, |ui| layout::show(ui, &mut model, &mut actions));
-        self.stack.ui.paint(window, crate::theme::clear_color());
+        let shell_state = &mut self.shell;
+        let ui_started = Instant::now();
+        self.stack.ui.run(window, |ui| {
+            shell::show(ui, shell_state, &mut model, &mut actions)
+        });
+        let ran = ui_started.elapsed();
+        // Layout only: the paint that follows is the GL driver's (on
+        // llvmpipe it is software rasterisation and dwarfs everything else,
+        // so including it would make the number a measure of the CPU's
+        // pixel throughput rather than of the UI).
+        self.stats.record_ui(ran);
+        self.stack.ui.paint(window, crate::ui::theme::clear_color());
+        self.ui_state.tick(now);
 
         if let Some(shot) = self.screenshot.as_mut()
             && shot.control_due()
@@ -1645,10 +2052,44 @@ impl Running {
             }
         }
         self.present(Surface::Control, Instant::now());
+        if self
+            .screenshot
+            .as_ref()
+            .is_some_and(Screenshot::control_capture_next)
+            && let Some(query) = self.shot_load.take()
+        {
+            match self.library.find(&query) {
+                Some(index) => self.request_load(index),
+                None => log::warn!("--request-load: no scene matching \"{query}\""),
+            }
+        }
         if self.rebuild.is_none() {
             self.apply(&mut actions);
+            // Now that "preparing" has been on screen, do the blocking work.
+            if let Some(index) = loading {
+                self.load(index);
+            }
+            if let Some(index) = preparing {
+                self.preview_load(index);
+            }
         }
         self.actions = actions;
+    }
+
+    /// Advances the browser's preview scene one control-window frame, if it
+    /// has one. It renders into its own small targets and is painted by the
+    /// control window only; it never touches the live scene or the output.
+    fn advance_preview(&mut self, now: Instant) {
+        let Some(session) = self.stack.preview.as_mut() else {
+            return;
+        };
+        let dt = now
+            .duration_since(self.preview_clock)
+            .as_secs_f32()
+            .min(0.1);
+        self.preview_clock = now;
+        let mouse = strobe_gfx::Mouse::default();
+        session.advance(dt, &mut self.audio, mouse, self.local_date.now());
     }
 }
 
@@ -1660,6 +2101,63 @@ fn hidden_period(budget_ms: f32) -> Duration {
         return OUTPUT_PERIOD;
     }
     Duration::from_secs_f32(budget_ms / 1000.0).max(OUTPUT_PERIOD)
+}
+
+/// The chord a key press in the output window stands for. Modifiers are
+/// not tracked there, so only plain keys exist.
+fn chord_of(key: &Key) -> Option<commands::Chord> {
+    use commands::{Chord, Key as K};
+    match key {
+        Key::Named(NamedKey::Space) => Some(Chord::plain(K::Space)),
+        Key::Named(NamedKey::ArrowLeft) => Some(Chord::plain(K::Left)),
+        Key::Named(NamedKey::ArrowRight) => Some(Chord::plain(K::Right)),
+        Key::Named(NamedKey::Escape) => Some(Chord::plain(K::Escape)),
+        Key::Named(NamedKey::F11) => Some(Chord::plain(K::F11)),
+        Key::Character(text) if text.eq_ignore_ascii_case("b") => Some(Chord::plain(K::B)),
+        Key::Character(text) if text.eq_ignore_ascii_case("t") => Some(Chord::plain(K::T)),
+        Key::Character(_) | Key::Named(_) | Key::Unidentified(_) | Key::Dead(_) => None,
+    }
+}
+
+/// The action a command stands for when it is invoked from the output
+/// window. Presentation commands (the browser's search, closing a pane)
+/// belong to the control window's UI and have no action here.
+fn command_action(command: CommandId, blackout: bool) -> Option<Action> {
+    match command {
+        CommandId::NextScene => Some(Action::NextScene),
+        CommandId::PrevScene => Some(Action::PrevScene),
+        CommandId::ToggleHold => Some(Action::ToggleHold),
+        CommandId::ToggleBlackout => Some(Action::SetBlackout(!blackout)),
+        CommandId::ToggleFullscreen => Some(Action::ToggleFullscreen),
+        CommandId::TapTempo => Some(Action::TapTempo),
+        CommandId::FocusBrowserSearch | CommandId::CloseTopmostPane => None,
+    }
+}
+
+/// The first lines of a load error, for a banner and a row: enough to say
+/// what broke (the compiler log already names `main.glsl:N`), not a page.
+fn summarize(error: &str) -> String {
+    /// Most characters kept.
+    const LIMIT: usize = 220;
+    let mut text = String::new();
+    for line in error
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .take(2)
+    {
+        if !text.is_empty() {
+            text.push_str(" / ");
+        }
+        text.push_str(line);
+    }
+    if text.chars().count() > LIMIT {
+        text = text.chars().take(LIMIT).collect::<String>() + "...";
+    }
+    if text.is_empty() {
+        text.push_str("unknown error");
+    }
+    text
 }
 
 /// Clears the GL error flag, logging what it held. GL keeps one flag per
@@ -1704,6 +2202,67 @@ mod tests {
             "unknown refresh falls back to 60 Hz: {unknown:?}"
         );
         Ok(())
+    }
+
+    #[test]
+    fn output_window_keys_map_to_the_same_commands() {
+        let key = |text: &str| chord_of(&Key::Character(text.into()));
+        assert_eq!(
+            key("b"),
+            Some(commands::Chord::plain(commands::Key::B)),
+            "b"
+        );
+        assert_eq!(
+            key("B"),
+            Some(commands::Chord::plain(commands::Key::B)),
+            "shifted B"
+        );
+        assert_eq!(key("x"), None, "unbound letter");
+        assert_eq!(
+            chord_of(&Key::Named(NamedKey::ArrowRight)),
+            Some(commands::Chord::plain(commands::Key::Right)),
+            "right"
+        );
+        assert_eq!(chord_of(&Key::Named(NamedKey::Tab)), None, "tab");
+    }
+
+    #[test]
+    fn every_runtime_command_has_an_action_and_blackout_toggles() {
+        for command in CommandId::ALL {
+            let action = command_action(command, false);
+            let presentation = matches!(
+                command,
+                CommandId::FocusBrowserSearch | CommandId::CloseTopmostPane
+            );
+            assert_eq!(
+                action.is_none(),
+                presentation,
+                "{} has the wrong kind of action",
+                command.name()
+            );
+        }
+        assert_eq!(
+            command_action(CommandId::ToggleBlackout, false),
+            Some(Action::SetBlackout(true)),
+            "off to on"
+        );
+        assert_eq!(
+            command_action(CommandId::ToggleBlackout, true),
+            Some(Action::SetBlackout(false)),
+            "on to off"
+        );
+    }
+
+    #[test]
+    fn a_load_error_is_summarised_in_two_lines_and_bounded() {
+        assert_eq!(summarize(""), "unknown error", "empty");
+        assert_eq!(
+            summarize("main.glsl:3: unknown identifier\n\n  foo\nmore"),
+            "main.glsl:3: unknown identifier / foo",
+            "two non-empty lines"
+        );
+        let long = "x".repeat(1000);
+        assert!(summarize(&long).chars().count() <= 223, "bounded");
     }
 
     #[test]
