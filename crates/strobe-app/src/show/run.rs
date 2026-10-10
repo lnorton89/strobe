@@ -467,7 +467,12 @@ impl Show {
             env.audio,
         );
         let failure_text = match loaded {
-            Ok(session) => {
+            Ok(mut session) => {
+                // One draw at 1x1 makes the driver do its deferred work
+                // (Mesa's llvmpipe and several Windows drivers finish a
+                // program on its first draw), so it is not left for the
+                // first cue.
+                session.prime(env.audio, env.start_time);
                 log::info!(
                     "playlist: compiled {} ({}/{}) in {:.0} ms",
                     found.name,
@@ -547,6 +552,9 @@ impl Show {
     fn finish_compile(&mut self, env: &mut Env<'_>) {
         self.compiles_baseline = env.gl.shader_compiles();
         self.phase = Phase::Ready;
+        if let Err(error) = env.compositor.resize(env.full_size) {
+            log::warn!("playlist: could not size the compositor: {error}");
+        }
         let progress = self.cache.progress();
         log::info!(
             "playlist \"{}\": {} scene(s) compiled, {} failed; shader compiles from here on are counted ({} so far)",
@@ -709,6 +717,9 @@ impl Show {
                     to + 1
                 );
                 self.blend = Some(blend);
+                if let Err(error) = env.compositor.resize(env.full_size) {
+                    log::warn!("playlist: could not size the compositor: {error}");
+                }
             }
             ClockEvent::TransitionFinished { id, completed } => {
                 log::info!(

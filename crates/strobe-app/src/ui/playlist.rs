@@ -522,14 +522,14 @@ fn cue_row(
             row.section_name
         ),
         (None, Some(wall)) => format!(
-            "{} {}  {}  {}  {wall}",
+            "at {} \u{b7} {} \u{b7} {} \u{b7} {} \u{b7} {wall}",
             view::clock(row.start),
             row.length_label,
             row.transition_label,
             row.section_name
         ),
         (None, None) => format!(
-            "{}  {}  {}  {}",
+            "at {} \u{b7} {} \u{b7} {} \u{b7} {}",
             view::clock(row.start),
             row.length_label,
             row.transition_label,
