@@ -62,9 +62,16 @@ Each item names its acceptance test. Details and evidence are in
    *Accept:* representative single-pass and multipass imports play on
    native and ANGLE, a missing asset fails visibly, and attribution
    survives.
-4. **Auto-generated controls** (new, described below). *Accept:* every
+4. **Auto-generated controls.** *Stage 1 built* (`strobe-autocontrol`,
+   D123-D126). *Left:* the Import and Inspector review panel and the app
+   calling the engine, running it on the T480's window context (the CLI
+   needs an EGL device), the speed control not following `st_speed`, and a
+   second look at the heuristics on real community scenes. *Accept:* every
    fixture, and every library scene with its `CONTROLS` stripped, gets a
-   useful, named, grouped control set that visibly changes the image.
+   useful, named, grouped control set that visibly changes the image. Met
+   on llvmpipe for all 11 library scenes and for the fixtures with anything
+   tunable in them; 6 of the 14 fixtures are structural and get none, on
+   purpose (see `NO_CONTROLS` in `crates/strobe-autocontrol/tests/engine.rs`).
 5. **Playlists, stage 2.** Load-time precompile with progress, a second
    player for warm-up, the transition compositor, the Playlist workspace
    and generate dialog, the file watcher, resume every 5 s, and live
@@ -84,7 +91,7 @@ Each item names its acceptance test. Details and evidence are in
    the matching PDB archive, the SBOM, the checksums and the attestations
    (Q12).
 
-### Auto-generated controls (planned)
+### Auto-generated controls (stage 1 built)
 
 Most Shadertoy shaders, and many community SSF scenes, have no controls:
 their character is baked into literal numbers. Strobe should find those
@@ -132,9 +139,30 @@ performable the moment it lands. This generalises PLAN.md §6.3's manual
   scoring use fixed frames and seeded audio, so golden tests can pin the
   output.
 
-The likely home is a module in `strobe-shadertoy`, or a small
-`strobe-autocontrol` crate if SSF scenes need it without the importer.
-Scoring needs a GL context, so it runs at import time, never per frame.
+It lives in the `strobe-autocontrol` crate (D123), so SSF scenes need not
+pull in the importer. Scoring needs a GL context, so it runs at import time,
+never per frame.
+
+**Built (stage 1):**
+- analysis, the line-preserving rewrite, scoring by measured effect, naming,
+  audio suggestions (opt-in bindings that default to off), the report and a
+  scene writer that never edits in place (D124-D126);
+- the `strobe-autocontrol <scene-dir> [--out DIR] [--keep N] [--report]`
+  binary, with `--force-merge`, `--analyze-only`, `--audio-bindings` and
+  `--api gles`;
+- headless tests in both dialects over every library scene (controls
+  stripped) and 14 Shadertoy fixtures.
+
+**Left:**
+- the Import and Inspector review panel (rename, re-range, drop, keep, live
+  previews) and the app calling `generate` with its own context;
+- accepting a suggested audio binding in the app, and binding a speed
+  control (it is an integrator, so it is data only in GLSL);
+- verifying on a real GPU and the T480, and trying community scenes (the
+  heuristics have only seen Strobe's own library and original fixtures);
+- speed controls that also follow `st_speed` and `st_audio_time` (D125);
+- vector and `xy` candidates (an offset, a centre) and dropdown candidates
+  (a mode switch) are not generated.
 
 ## Phases
 
@@ -144,7 +172,7 @@ Scoring needs a GL context, so it runs at import time, never per frame.
 | 1 | Renderer, SSF, controls, output window | A functional engineering shell. The Perform-first UI is not built. Images work; media and cubemaps are placeholders. |
 | 2 | JavaScript API | Integrated (D62). `meta/` writes and `textureFinalPass` are open. |
 | 3 | Audio | Integrated (D61). The bench still uses the synthetic stand-in. |
-| 4 | Shadertoy import | The stage 1 converter is done (D90-D95). Acquisition, the Import UI and auto-generated controls are open. |
+| 4 | Shadertoy import | The stage 1 converter is done (D90-D95), and so is stage 1 of auto-generated controls (D123-D126). Acquisition, the Import UI and the controls review panel are open. |
 | 5 | Playlists | The stage 1 pure core is done (D73-D77). App integration is open. |
 | 6 | Presets, MIDI, OSC, hotkeys | Not started. |
 | 7 | NDI, media input, song-change transitions | Not started. `HARD`/`SMOOTH_TRANSITIONS` are declared but never change. |

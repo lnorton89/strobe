@@ -1116,3 +1116,136 @@ title bar from the rustaman UI port (D5) removes the cost.
 
 **Would reopen:** a Linux user on GNOME Wayland before that port lands,
 who needs to move or resize the control window.
+
+### D123: auto-generated controls are their own crate, `strobe-autocontrol` (2026-10-10)
+
+The roadmap allowed either a module in `strobe-shadertoy` or a small crate.
+It is a crate, because the engine also runs on plain SSF scenes whose
+`scene.json` has no `CONTROLS` (a community scene, a library scene), and
+those must not need the Shadertoy importer. Its dependencies are
+`strobe-scene` (the control model, name rules, `SceneFolder`),
+`strobe-shadertoy` (only the lossless `glsl` tokenizer and the tab-marker
+constants, now `pub` in `convert`), `strobe-gfx` (the headless context and
+`ScenePlayer`, for scoring) and `strobe-ssf-lib` (its identifiers are names a
+control must avoid). **`strobe-gfx` must never depend on it**, and nothing
+in the frame loop calls it: scoring runs at import time.
+
+The app will call `generate(&Gl, &Caps, &SceneFolder, &Options)` with the
+context it already has, so a Windows machine whose driver exposes no EGL
+device (the T480) can run it; the `strobe-autocontrol` binary opens a
+headless context itself and has `--analyze-only` for machines without one.
+
+**Would reopen:** if a second consumer needs the tokenizer without the
+importer (then the tokenizer moves to its own crate).
+
+### D124: only patterns that are almost certainly knobs, and only where a uniform is legal (2026-10-10)
+
+False positives cost more than misses: a slider that does nothing, or breaks
+the picture, is worse than one never offered. So each detector is narrow:
+
+- **Named constants:** a top-level `#define N <number>` or `const float|int N
+  = <number>;`. Skipped when the name or value is mathematical (`PI`, `TAU`,
+  `EPS`, 3.14159..., under 1e-3), when it is used in an `#if`, as an array
+  size, as a `case` label, in another `const`, at global scope, or when it is
+  defined twice or undefined. An integer constant is a candidate only as a
+  `for` loop bound (otherwise it is a mode switch, a count or an array size).
+- **Time:** `TIME * k`, `k * TIME`, and `iTime` likewise, also with a named
+  constant as `k`. Not after a `/` or `%`.
+- **Loops:** `for (.. i < N ..)` or `<=`, N a literal or constant, at least 4,
+  and the body does not index with `i` (N may be an array size).
+- **Colour:** `vec3(r, g, b)` and `vec4(r, g, b, a)` of literals in 0..1.
+  Not axis masks (all components 0 or 1), greys, luminance weights or
+  directions (arguments of `dot`, `normalize`, `cross`...), geometry
+  variables (`ro`, `rd`, `n`), or a `const` statement.
+- **Scale and frequency:** `coord * N`, `N * coord`, `coord *= N` where coord
+  is `_uv`, `_uvc`, `_xy`, `uv`, `p`, `fragCoord`, `st`, `pos`, `coord`, `q`
+  (swizzles allowed), and `x * N` inside `sin`/`cos` when the statement
+  mentions a coordinate. Not 0, 1, 0.5, under 0.05, `2.0` followed by a
+  minus (the `* 2.0 - 1.0` and `2.0 * fragCoord - iResolution.xy` remaps),
+  or anything inside a function named like `hash`, `noise` or `fbm`.
+- **Nothing at global scope** (a uniform is not a constant expression), and
+  nothing in a Shadertoy import's generated shim or entry point: only the
+  author's tabs between the converter's markers are scanned.
+
+A `const` cannot read a uniform, so a rewritten `const float N = 0.3;` becomes
+`#define N (name)` on its own line (a statement sharing its line is skipped).
+If a rewrite still does not compile (a macro used in a constant context the
+scan cannot see), the scoring stage compiles each candidate alone, drops the
+ones that fail, and reports them `does not compile`.
+
+**Would reopen:** a real shader where a missed pattern hides an obvious knob.
+The traps each pattern avoids are pinned in `analyze/expr.rs`'s tests.
+
+### D125: a speed control replaces `TIME * k` with an integrator (2026-10-10)
+
+`TIME * 0.3` made a plain slider would jump the phase whenever the slider
+moved (the phase is `TIME * k`, and `TIME` is large). SSF's own answer is the
+`slider speed` type, which integrates its value per second; so the whole
+`TIME * k` expression becomes the uniform and the control is `slider speed`
+with default `k`. Steady state is identical, and moving it is smooth. Several
+`TIME * 0.5` with the same factor are one control. The range is `[0, 2k]`.
+
+**Cost:** in a Shadertoy import `iTime` is the clock pass's time, scaled by
+`st_speed` and `st_audio_time`. A term rewritten this way no longer follows
+those two; the other terms of the shader still do. The alternatives (keep
+`iTime`, make `k` a plain uniform; or multiply by `st_speed`) both make the
+phase jump when something is dragged, which looks worse on a projector.
+Closing the gap needs the clock pass to publish its rate where other passes
+can read it.
+
+**Would reopen:** if operators drag `st_speed` and expect every term to follow.
+
+### D126: controls are chosen by measured effect, with a small fixed protocol (2026-10-10)
+
+The scene is rewritten once with every candidate as a uniform and compiled
+once; a probe is only a different uniform value. For the baseline and for two
+nudges per candidate (half and one and a half times the default; integers
+rounded; a colour at half brightness and halfway to white) the rig:
+
+1. resets history (resize to another size and back, which clears every pass
+   target to black), builds a fresh `ControlBank`, and
+2. renders 10 frames of 160x90 at times `0, 0.2, ... 1.8` s with
+   `strobe_scene::synthetic` audio, and reads the last 2.
+
+The score is the mean per-channel absolute difference (0..1) to the
+baseline, the larger of the two nudges. Below 0.003 the candidate is dead; a
+nudge that turns a lit picture black rejects it (what a NaN looks like in an
+8-bit output); the rest are ranked, the top `keep` (default 8) are kept and
+grouped Motion, Shape, Colour, Quality. Time starts at 0 and the speed
+integrators start at 0 too, so the rewritten scene's default picture equals
+the original's, and the pipeline measures that (`Report::fidelity`, 0 for all
+25 scenes tested) and compiles the final scene once more before returning.
+
+Ranges: `[0, 2x]`, or `[-2|x|, 2|x|]` for negative; colours 0..1; a loop
+count `[max(1, n/4), min(2n, 256 or n)]`, so the maximum is never over twice
+the default and never over 256 unless the scene already is. Names are
+snake_case from the identifier or context (`fog_col`, `zoom`, `steps`,
+`shadow_steps`), numbered `_1`, `_2` in source order when shared, and avoid
+every control, reserved name, GLSL word, library function and identifier in
+the scene's code (a local variable of that name would shadow the uniform at
+the very site that uses it) and the `st_` prefix.
+
+Scores are rounded to five decimals. Everything is a pure function of the
+scene and the options, so two runs agree on one machine. The rasteriser is
+part of that function: the tests pin the pure analysis and rewrite byte for
+byte, and pin the measured half by invariants (kept controls above the
+threshold, both dialects agree, a second run is identical), not by score.
+
+**Audio suggestions** are data on the report: shape controls to
+`syn_BassLevel`, colour to `syn_HighLevel`, speed to `syn_Level`, never
+quality, at most three and never two on one band. With `bind_audio` a float
+or colour site is written as `(name * (1.0 + name_audio * syn_BassLevel))`
+and `name_audio` is a new slider in the "Audio" group that defaults to 0, so
+nothing changes until it is raised. A speed control is an integrator and
+cannot be modulated in GLSL, so its suggestion is data only.
+
+**Authored controls:** a scene with controls other than the five "Strobe"
+ones is refused unless the caller asks to merge; a merge keeps them and adds
+only new names. The original folder is never written: the result is
+`<name>-auto.synScene`, a copy whose `scene.json` has the new entries spliced
+in as text (key order and the `SOURCE` block survive), staged and renamed in
+one step.
+
+**Would reopen:** a scene where the 10-frame window misses an effect that
+only appears later (a slow fade-in), or a driver where the 160x90 render is
+not representative.
