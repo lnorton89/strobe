@@ -72,14 +72,9 @@ pub enum ScriptStatus {
 pub struct FrameOutput {
     /// Every uniform the script has published, in the order each first
     /// appeared (so the order is stable across frames). Values are the last
-    /// good ones: a faulted frame contributes nothing.
+    /// good ones: a faulted frame contributes nothing. After
+    /// [`crate::ScriptHost::seal_uniforms`] the list can no longer grow.
     pub uniforms: Vec<ScriptUniform>,
-    /// True when a uniform became known since the last frame (or since
-    /// [`crate::ScriptHost::announce_extras`]). The shader does not declare
-    /// it yet: the app must recompile with
-    /// [`strobe_scene::assemble::Request::extra`] set to
-    /// [`Self::extras`].
-    pub new_uniforms: bool,
     /// Lines for the developer console, in order.
     pub console: Vec<ConsoleLine>,
     /// Whether the script is healthy.

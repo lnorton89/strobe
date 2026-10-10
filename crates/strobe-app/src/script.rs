@@ -67,10 +67,9 @@ pub enum ScriptState {
 /// What a frame of script leaves for the session.
 #[derive(Debug, Default)]
 pub struct Harvest {
-    /// Every uniform the script has published, last good values.
+    /// Every uniform the script has published, last good values. After
+    /// [`ScriptRun::seal_uniforms`] this list cannot grow.
     pub uniforms: Vec<ScriptUniform>,
-    /// A uniform became known this frame.
-    pub new_uniforms: bool,
 }
 
 /// One scene's running script.
@@ -131,8 +130,14 @@ impl ScriptRun {
         self.track(output.status);
         Harvest {
             uniforms: output.uniforms,
-            new_uniforms: output.new_uniforms,
         }
+    }
+
+    /// Seals the script's uniforms: the shaders have been compiled with
+    /// what it published so far, so a later new name is refused with a
+    /// console error instead of ever causing a recompile (D161).
+    pub fn seal_uniforms(&mut self) {
+        self.host.seal_uniforms();
     }
 
     /// Updates [`Self::state`] and reports the transitions that matter.
@@ -257,7 +262,6 @@ mod tests {
             "function update(dt) { setUniform('glow', 0.25, 0.5); setControl('level', 0.75); }";
         let mut run = ScriptRun::start(source, "t", &bank, &meta)?;
         let harvest = run.frame(1.0 / 60.0, &ScriptInputs::default(), &mut bank, &mut meta);
-        assert!(harvest.new_uniforms, "the first publication is new");
         let first = harvest
             .uniforms
             .first()

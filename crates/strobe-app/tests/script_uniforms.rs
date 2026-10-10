@@ -1,8 +1,9 @@
 // ============================================================================
 // Module:       script_uniforms (integration test)
 // Description:  A scene's script.js creates uniforms with setUniform; they
-//               must be compiled in at load, reach the shader, and survive
-//               the rare late creation, in both GL dialects.
+//               must be compiled in at load and reach the shader; one
+//               created late is refused and never compiles a shader, in
+//               both GL dialects.
 //
 // Dependencies: anyhow; strobe-app (Session, AudioInput); strobe-gfx
 //               (headless context)
@@ -69,6 +70,8 @@ fn near(actual: u8, expected: u8) -> bool {
 }
 
 const BOTH: [Api; 2] = [Api::DesktopCore33, Api::Gles30];
+
+const DATE: [f32; 4] = [2026.0, 9.0, 10.0, 0.0];
 
 #[test]
 fn a_uniform_made_in_update_is_declared_at_load_and_reaches_the_shader() -> Result<()> {
@@ -140,47 +143,62 @@ fn a_uniform_made_in_setup_is_also_declared_at_load() -> Result<()> {
 }
 
 #[test]
-fn a_uniform_that_appears_later_is_adopted_with_one_recompile() -> Result<()> {
+fn a_uniform_that_appears_later_is_refused_and_nothing_compiles_after_load() -> Result<()> {
     let scene = TempScene::new(
         "late",
         r#"{ "CONTROLS": [ { "NAME": "amount", "TYPE": "slider", "DEFAULT": 0.5 } ] }"#,
         "vec4 renderMain() { return vec4(amount, 0.0, 0.0, 1.0); }",
-        // `late` only appears from the fourth frame, so it cannot be known
-        // at load; the shader does not use it, so it compiles without.
-        "function update(dt) { if (FRAMECOUNT > 3) { setUniform('late', 1.0); } }",
+        // `known` is declared in the first update; `late` only appears from
+        // the fourth frame, so it cannot be known at load. The shader uses
+        // neither, so it compiles regardless.
+        "function update(dt) { setUniform('known', 1.0); \
+         if (FRAMECOUNT > 3) { setUniform('late', 1.0); setUniform('known', 2.0); } }",
     )?;
-    let Some(headless) = context(Api::DesktopCore33)? else {
-        return Ok(());
-    };
-    let gl = headless.gl();
-    let caps = Caps::from_info(gl.info());
-    let mut audio = AudioInput::new(false);
-    let mut session = Session::load(gl, &caps, &scene.0, "late", [32, 18], 0.0, &mut audio)
-        .map_err(|e| anyhow!("load failed: {e}"))?;
-    assert!(
-        session.player.extras().is_empty(),
-        "nothing is known at load: {:?}",
-        session.player.extras()
-    );
-    for _ in 0..8 {
-        session.advance(
-            1.0 / 60.0,
-            &mut audio,
-            Mouse::default(),
-            [2026.0, 9.0, 10.0, 0.0],
+    for api in BOTH {
+        let Some(headless) = context(api)? else {
+            continue;
+        };
+        let gl = headless.gl();
+        let caps = Caps::from_info(gl.info());
+        let mut audio = AudioInput::new(false);
+        let mut session = Session::load(gl, &caps, &scene.0, "late", [32, 18], 0.0, &mut audio)
+            .map_err(|e| anyhow!("{api:?}: load failed: {e}"))?;
+        let names = |session: &Session| -> Vec<String> {
+            session
+                .player
+                .extras()
+                .iter()
+                .map(|(name, _)| name.clone())
+                .collect()
+        };
+        assert_eq!(names(&session), ["known"], "{api:?}: only `known` at load");
+        let compiled_at_load = gl.shader_compiles();
+        assert!(
+            compiled_at_load > 0,
+            "{api:?}: the counter sees the load's compiles"
+        );
+        for _ in 0..12 {
+            session.advance(1.0 / 60.0, &mut audio, Mouse::default(), DATE);
+        }
+        assert_eq!(
+            gl.shader_compiles(),
+            compiled_at_load,
+            "{api:?}: no shader was compiled while the scene played, even though the script \
+             created `late` on frame 4"
+        );
+        assert_eq!(
+            names(&session),
+            ["known"],
+            "{api:?}: the late uniform was refused, not adopted"
+        );
+        if let Some(code) = gl.error() {
+            return Err(anyhow!("{api:?}: GL error 0x{code:x}"));
+        }
+        let px = centre(&session)?;
+        assert!(
+            near(px[0], 128),
+            "{api:?}: the scene still renders (amount 0.5): {px:?}"
         );
     }
-    let names: Vec<&str> = session
-        .player
-        .extras()
-        .iter()
-        .map(|(name, _)| name.as_str())
-        .collect();
-    assert_eq!(names, ["late"], "the late uniform was adopted");
-    let px = centre(&session)?;
-    assert!(
-        near(px[0], 128),
-        "the scene still renders after the recompile (amount 0.5): {px:?}"
-    );
     Ok(())
 }

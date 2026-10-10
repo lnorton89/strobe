@@ -423,12 +423,15 @@ impl ScriptHost {
         self.disabled
     }
 
-    /// Lists every uniform the script has published so far as
-    /// `(name, type)`, for compiling the shader before the first frame, and
-    /// marks them known: the next [`FrameOutput::new_uniforms`] reports only
-    /// uniforms that appear after this call.
-    pub fn announce_extras(&mut self) -> Vec<(String, strobe_scene::assemble::ExtraType)> {
-        self.shared.state.borrow_mut().uniforms.announce()
+    /// Seals the script's uniforms and lists them as `(name, type)`: every
+    /// uniform published so far (in `setup()` and any frames already run).
+    ///
+    /// Call this once the shaders have been compiled with that list. From
+    /// then on a `setUniform` of any other name is refused with a console
+    /// error and stores nothing, so the host can never ask for a shader
+    /// recompile mid-show (D161). Declared uniforms keep updating.
+    pub fn seal_uniforms(&mut self) -> Vec<(String, strobe_scene::assemble::ExtraType)> {
+        self.shared.state.borrow_mut().uniforms.seal()
     }
 
     /// Copies the final-pass downsample where `textureFinalPass` reads it.
@@ -591,7 +594,6 @@ impl ScriptHost {
         let mut state = self.shared.state.borrow_mut();
         FrameOutput {
             uniforms: state.uniforms.snapshot(),
-            new_uniforms: state.uniforms.take_fresh(),
             console: std::mem::take(&mut state.console),
             status,
         }
