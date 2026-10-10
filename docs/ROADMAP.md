@@ -22,13 +22,13 @@ which backend proved a claim.
 | Workspace | Conventions as tests, pinned toolchain and actions, `cargo xtask ci \| changelog \| bench`, release workflow (D50-D59) | CI. The release workflow has never run on a tag |
 | `strobe-scene`, `strobe-ssf-lib` | SSF parsing and validation, controls runtime, shader assembly, `PASS_SOURCES` (D90), the SSF GLSL library | Headless GL 3.3 core and GLES 3.0 (llvmpipe) |
 | `strobe-gfx` | Native GL and ANGLE context providers, headless EGL, multipass and ping-pong, implicit final pass, images, GPU timer queries, robust contexts and reset status (D66) | llvmpipe; T480 native and ANGLE |
-| `strobe-bench` | Timings, frames, contact sheet; headless, window and auto contexts (D70-D72) | llvmpipe; T480 ([BENCHMARKS.md](BENCHMARKS.md)) |
+| `strobe-bench` | Timings, frames, contact sheet; headless, window and auto contexts (D70-D72), now `strobe_gfx::offscreen` (D140) | llvmpipe; T480 ([BENCHMARKS.md](BENCHMARKS.md)) |
 | `strobe-app` | Control window (maximized) and output window on one context; the output starts hidden and the scene frame runs on its own schedule (D96); scene browser, controls, preview, console, `--diagnose`, adaptive resolution (D64), context-loss recovery with ANGLE fail-over (D66) | Xvfb; T480: smoke tests, recovery on real WGL (Task 8), hidden output, F11 and the close button (Task 9) |
 | `strobe-audio` | Capture with retry and synthetic fallback, analysis, spectrum and level-trail textures, tap tempo (D20-D23, D61) | T480 live mic at 48 kHz |
 | `strobe-script` | QuickJS host: events, `update`, controls, `setUniform` compiled in at load, budget and faults (D62) | Xvfb; T480 (`11-script-orbits`) |
 | `strobe-diag` | Session logs, structured failures, panic reports, out-of-process minidumps, GL debug output (D40-D45) | Linux; T480 (`overflow` gives a `.dmp`, bug 2) |
 | `strobe-shadertoy` | Stage 1: id parser, both JSON shapes, dialect rewrite, converter to a scene folder, `strobe-import` (D90-D95). Stage 2: REST client, texture downloader and cache, shared import pipeline, loopback listener, `strobe-import --id` (D110, D111, D113, D114, D117) | Nine original fixtures on llvmpipe, both dialects; stage 2 against fakes and a loopback mock, never the live site |
-| `strobe-autocontrol` | Stage 1: finds candidate literals, rewrites them to uniforms, keeps the ones whose measured effect matters, suggests audio bindings, CLI (D123-D126) | llvmpipe, both dialects: 11 of 11 stripped library scenes and 8 of 14 Shadertoy fixtures get controls. Not in the app yet
+| `strobe-autocontrol` | Stage 1: finds candidate literals, rewrites them to uniforms, keeps the ones whose measured effect matters, suggests audio bindings, CLI with `--context auto\|headless\|window` (D123-D126, D140) | llvmpipe, both dialects: 11 of 11 stripped library scenes and 8 of 14 Shadertoy fixtures get controls. Not in the app yet
 | `strobe-playlist` | Stage 1, pure core: model, inheritance, TOML, generator, timeline, playback clock, resume (D73-D77) | Unit tests and 4-hour soaks; not in the app yet |
 | Scenes | Eleven original scenes over five GPU-load tiers, one scripted | llvmpipe and T480 |
 
@@ -74,8 +74,9 @@ Each item names its acceptance test. Details and evidence are in
    survives.
 4. **Auto-generated controls.** *Stage 1 built* (`strobe-autocontrol`,
    D123-D126). *Left:* the Import and Inspector review panel and the app
-   calling the engine, running it on the T480's window context (the CLI
-   needs an EGL device), the speed control not following `st_speed`, and a
+   calling the engine, confirming the CLI's window context on the T480 (built,
+   D140; `--context window` matches headless on llvmpipe under Xvfb, not yet
+   run on Windows), the speed control not following `st_speed`, and a
    second look at the heuristics on real community scenes. *Accept:* every
    fixture, and every library scene with its `CONTROLS` stripped, gets a
    useful, named, grouped control set that visibly changes the image. Met
@@ -158,8 +159,9 @@ never per frame.
   audio suggestions (opt-in bindings that default to off), the report and a
   scene writer that never edits in place (D124-D126);
 - the `strobe-autocontrol <scene-dir> [--out DIR] [--keep N] [--report]`
-  binary, with `--force-merge`, `--analyze-only`, `--audio-bindings` and
-  `--api gles`;
+  binary, with `--force-merge`, `--analyze-only`, `--audio-bindings`,
+  `--api gles` and `--context auto|headless|window` / `--gl` (a hidden-window
+  context where there is no EGL device, shared with the bench, D140);
 - headless tests in both dialects over every library scene (controls
   stripped) and 14 Shadertoy fixtures.
 

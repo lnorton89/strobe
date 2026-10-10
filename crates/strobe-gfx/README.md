@@ -15,7 +15,7 @@ adaptive render scale.
   `raw-window-handle` (context and window creation), `image` (scene image
   files), `log`, `thiserror`. It uses only the `log` facade, so it does not
   depend on `strobe-diag`.
-- **Depended on by:** `strobe-app` and `strobe-bench`.
+- **Depended on by:** `strobe-app`, `strobe-bench` and `strobe-autocontrol`.
 - **Does not:** know about audio capture, scripts or playlists. It renders a
   scene given a `FrameInputs` (time, audio scalars, a `ControlBank`, mouse)
   and, optionally, `AudioTextures` (plain `[f32; 4]` slices) and script
@@ -56,6 +56,7 @@ is a non-blocking timer-query read (D64).
 | `Headless`, `Api` | A surfaceless EGL device context (`Api::DesktopCore33` or `Api::Gles30`). Used by tests, CI and the bench on Linux with Mesa. |
 | `WindowedContext`, `SwapWindow` | One GL context drawing to several winit windows (the app's control and output windows). `make_current`, `swap_buffers`, `set_vsync`, `resize`. |
 | `Backend`, `GlChoice` | `Native` or `Angle`; `GlChoice::Auto` tries native then ANGLE, `Only(backend)` forces one. `WindowedContext::robust()` says whether a robust context was granted. |
+| `offscreen::run`, `Request`, `ContextMode` | A context for work that draws nothing: an EGL device if the machine has one, else one hidden window (hidden, then tiny off-screen). Calls a job with `&Gl`, `&Caps` and a description and returns its value. Main thread, once per process. Used by `strobe-bench` and `strobe-autocontrol` (D140). |
 | `Caps` | Dialect, 1D-texture support and float-render support, decided once per context. `FloatPrecision` (`Half` default, `Full`). |
 | `ScenePlayer` | `new` / `with_extras` compile a `SceneFolder`; `render(&FrameInputs)`, `upload_audio`, `set_script_uniforms`, `resize`, `present`, `read_output`. |
 | `Options` | `specialise_passes` (default true) and `float_precision`. |
@@ -102,7 +103,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 For a window, the app's frame loop is the reference
 (`crates/strobe-app/src/app.rs`, `redraw_output`) and the frame order is
 written out in [`ARCHITECTURE.md`](../../docs/ARCHITECTURE.md). The bench
-(`crates/strobe-bench/src/main.rs`) shows both headless and windowed use.
+(`crates/strobe-bench/src/main.rs`) shows both headless and windowed use
+through `offscreen::run`.
 
 ## Testing
 
@@ -124,7 +126,9 @@ STROBE_REQUIRE_HEADLESS_GL=1 cargo test -p strobe-gfx --test render
   skip (T480, [`T480.md`](../../docs/hardware/T480.md)); use
   `strobe-bench --context window` there instead.
 - The windowed providers are not exercised by these tests; they are covered by
-  running `strobe-app` and the bench's window mode.
+  running `strobe-app`, the bench's window mode and
+  `crates/strobe-autocontrol/tests/window.rs` (which spawns the CLI on a hidden
+  window under Xvfb). `offscreen`'s unit tests cover the `--api`/`--gl` folding.
 - Unit tests cover the adaptive controller, capability decisions,
   reset-status name selection, the debug rate limiter and backend selection.
 
