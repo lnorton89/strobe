@@ -21,7 +21,7 @@
 
 use crate::{
     Budget, ConsoleLevel, FINAL_PASS_BYTES, FINAL_PASS_HEIGHT, FINAL_PASS_WIDTH, FrameOutput,
-    MetaAction, MetaWrite, ScriptError, ScriptHost, ScriptInputs, ScriptStatus, ScriptUniform,
+    ScriptError, ScriptHost, ScriptInputs, ScriptStatus, ScriptUniform,
 };
 use anyhow::{Result, anyhow};
 use std::time::{Duration, Instant};
@@ -56,6 +56,7 @@ fn relaxed() -> Budget {
 struct Rig {
     host: ScriptHost,
     bank: ControlBank,
+    meta: ControlBank,
     frame: u64,
 }
 
@@ -66,10 +67,12 @@ impl Rig {
 
     fn with_budget(script: &str, controls: &[&str], budget: Budget) -> Result<Self> {
         let bank = bank(controls)?;
-        let host = ScriptHost::new(script, &bank, budget)?;
+        let meta = strobe_scene::meta::bank()?;
+        let host = ScriptHost::new(script, &bank, &meta, budget)?;
         Ok(Self {
             host,
             bank,
+            meta,
             frame: 0,
         })
     }
@@ -80,8 +83,9 @@ impl Rig {
             frame_count: self.frame,
             ..*inputs
         };
-        let output = self.host.frame(DT, &inputs, &mut self.bank);
+        let output = self.host.frame(DT, &inputs, &mut self.bank, &mut self.meta);
         self.bank.tick(DT);
+        self.meta.tick(DT);
         self.frame += 1;
         output
     }
@@ -575,58 +579,176 @@ fn randomize_is_reproducible_from_the_seed() -> Result<()> {
 
 // ---- meta controls ------------------------------------------------------------
 
+impl Rig {
+    /// A meta control's target, first component.
+    fn meta_target(&self, name: &str) -> Result<f32> {
+        let index = self
+            .meta
+            .find(name)
+            .ok_or_else(|| anyhow!("no meta control `{name}`"))?;
+        self.meta
+            .target(index)
+            .map(|values| values[0])
+            .ok_or_else(|| anyhow!("no target for meta `{name}`"))
+    }
+
+    /// A meta control's output, first component.
+    fn meta_output(&self, name: &str) -> Result<f32> {
+        let index = self
+            .meta
+            .find(name)
+            .ok_or_else(|| anyhow!("no meta control `{name}`"))?;
+        self.meta
+            .output(index)
+            .map(|values| values[0])
+            .ok_or_else(|| anyhow!("no output for meta `{name}`"))
+    }
+}
+
 #[test]
-fn meta_targets_are_recorded_for_the_app_not_applied() -> Result<()> {
+fn meta_writes_land_in_the_meta_bank_and_not_the_scene_bank() -> Result<()> {
+    // The scene deliberately has its own `brightness`, so a misrouted
+    // write would show up on it.
     let script = r#"
         function update(dt) {
             setControl("meta/brightness", -0.5);
-            setControl("brightness", -0.25, { bank: "meta" });
-            setControlNormalized("Meta/Hue", [0.2], { dimension: 0 });
-            randomizeControl("meta/hue");
-            defaultControl("meta/brightness");
-            randomizeGroup("meta/color");
-            defaultGroup("meta/color");
+            setControl("Meta/Hue", 0.75);
+            setControl("gamma", 2.0, { bank: "meta" });
+            setControlNormalized("meta/Vertical Mirror", 1);
         }
     "#;
     let brightness = r#"{ "NAME": "brightness", "TYPE": "slider" }"#;
     let mut rig = Rig::new(script, &[brightness])?;
     let out = rig.step();
     assert_eq!(out.status, ScriptStatus::Running, "{:?}", out.console);
-    let set = |name: &str, values: &[f32], normalized, dimension| MetaWrite {
-        name: name.to_string(),
-        action: MetaAction::Set {
-            values: values.to_vec(),
-            normalized,
-            dimension,
-        },
-    };
-    let action = |name: &str, action| MetaWrite {
-        name: name.to_string(),
-        action,
-    };
+    assert!(out.console.is_empty(), "no complaints: {:?}", out.console);
+    assert_eq!(rig.meta_target("brightness")?, -0.5, "meta/ prefix");
+    assert_eq!(rig.meta_target("hue")?, 0.75, "prefix is case-insensitive");
+    assert_eq!(rig.meta_target("gamma")?, 2.0, "bank: \"meta\" option");
     assert_eq!(
-        out.meta_writes,
-        vec![
-            set("brightness", &[-0.5], false, None),
-            set("brightness", &[-0.25], false, None),
-            set("Hue", &[0.2], true, Some(0)),
-            action("hue", MetaAction::Randomize),
-            action("brightness", MetaAction::Default),
-            action("color", MetaAction::RandomizeGroup),
-            action("color", MetaAction::DefaultGroup),
-        ],
-        "meta writes, in call order, with the prefix stripped"
+        rig.meta_target("vertical_mirror")?,
+        1.0,
+        "spacing-insensitive"
     );
     assert_eq!(
         rig.target("brightness", 1)?,
         vec![0.0],
         "the scene's own `brightness` control was not touched"
     );
-    let next = rig.step();
+    Ok(())
+}
+
+#[test]
+fn meta_writes_are_clamped_and_snapped_like_any_control() -> Result<()> {
+    let script = r#"
+        function update(dt) {
+            setControl("meta/brightness", 9);
+            setControl("meta/invert", 0.9);
+            setControlNormalized("meta/gamma", 0);
+        }
+    "#;
+    let mut rig = Rig::new(script, &[])?;
+    rig.step();
+    assert_eq!(rig.meta_target("brightness")?, 1.0, "clamped to the range");
+    assert_eq!(rig.meta_target("invert")?, 1.0, "a toggle snaps to MAX");
+    assert_eq!(rig.meta_target("gamma")?, 0.2, "normalised 0 is MIN");
+    Ok(())
+}
+
+#[test]
+fn meta_values_ease_and_persist_across_frames() -> Result<()> {
+    let script =
+        "function update(dt) { if (FRAMECOUNT === 0) { setControl('meta/master', 0.25); } }";
+    let mut rig = Rig::new(script, &[])?;
+    for _ in 0..4 {
+        rig.step();
+    }
+    assert_eq!(rig.meta_target("master")?, 0.25, "the write is sticky");
     assert_eq!(
-        next.meta_writes.len(),
-        7,
-        "writes are per frame, not sticky"
+        rig.meta_output("master")?,
+        0.25,
+        "a plain slider follows at once"
+    );
+    Ok(())
+}
+
+#[test]
+fn meta_default_randomize_and_groups_use_the_same_operations() -> Result<()> {
+    let script = r#"
+        function setup() {
+            setControl("meta/brightness", 0.5);
+            setControl("meta/gamma", 2.5);
+            setControl("meta/contrast", 1.9);
+            setControl("meta/reactivity", 0.1);
+        }
+        function update(dt) {
+            if (FRAMECOUNT === 1) { defaultControl("meta/brightness"); }
+            if (FRAMECOUNT === 2) { defaultGroup("meta/color"); }
+            if (FRAMECOUNT === 3) { randomizeControl("meta/reactivity"); }
+            if (FRAMECOUNT === 4) { randomizeGroup("meta/mirror"); }
+        }
+    "#;
+    let mut rig = Rig::new(script, &[])?;
+    let frame = |rig: &mut Rig| rig.step();
+    frame(&mut rig); // FRAMECOUNT 0: setup's writes land
+    assert_eq!(rig.meta_target("brightness")?, 0.5, "setup's write landed");
+    frame(&mut rig);
+    assert_eq!(rig.meta_target("brightness")?, 0.0, "defaultControl");
+    assert_eq!(
+        rig.meta_target("gamma")?,
+        2.5,
+        "only the named control moved"
+    );
+    frame(&mut rig);
+    assert_eq!(
+        rig.meta_target("gamma")?,
+        1.0,
+        "defaultGroup reaches the group"
+    );
+    assert_eq!(rig.meta_target("contrast")?, 1.0, "...every member of it");
+    assert_eq!(
+        rig.meta_target("reactivity")?,
+        0.1,
+        "...and nothing outside"
+    );
+    frame(&mut rig);
+    let random = rig.meta_target("reactivity")?;
+    assert!(
+        (0.0..=2.0).contains(&random) && (random - 0.1).abs() > 1e-6,
+        "randomizeControl picked a new value in range: {random}"
+    );
+    let last = frame(&mut rig);
+    assert!(
+        last.console.is_empty() && last.status == ScriptStatus::Running,
+        "randomizeGroup(\"meta/mirror\") resolved: {:?}",
+        last.console
+    );
+    let mirror = rig.meta_target("vertical_mirror")?;
+    assert!(
+        mirror == 0.0 || mirror == 1.0,
+        "a toggle stays at an end: {mirror}"
+    );
+    Ok(())
+}
+
+#[test]
+fn an_unknown_meta_name_is_one_console_error_not_a_fault() -> Result<()> {
+    let script = "function update() { setControl('meta/sparkle', 1); defaultGroup('meta/nope'); }";
+    let mut rig = Rig::new(script, &[])?;
+    let first = rig.step();
+    assert_eq!(first.status, ScriptStatus::Running, "not a fault");
+    let texts: Vec<&str> = first.console.iter().map(|l| l.text.as_str()).collect();
+    assert_eq!(
+        texts,
+        [
+            "setControl: no meta control named `sparkle`",
+            "defaultGroup: no meta control group named `nope`",
+        ],
+        "named after the meta bank"
+    );
+    assert!(
+        rig.step().console.is_empty(),
+        "repeats are swallowed, as for scene controls"
     );
     Ok(())
 }
@@ -1113,12 +1235,13 @@ fn a_script_with_neither_setup_nor_update_is_fine() -> Result<()> {
 #[test]
 fn load_errors_name_what_failed() -> Result<()> {
     let bank = bank(&[])?;
-    let syntax = ScriptHost::new("function (", &bank, relaxed());
+    let meta = strobe_scene::meta::bank()?;
+    let syntax = ScriptHost::new("function (", &bank, &meta, relaxed());
     assert!(
         matches!(syntax, Err(ScriptError::Load { .. })),
         "a syntax error is a load error, got {syntax:?}"
     );
-    let throws = ScriptHost::new("\n\nthrow new Error('at load');", &bank, relaxed());
+    let throws = ScriptHost::new("\n\nthrow new Error('at load');", &bank, &meta, relaxed());
     match throws {
         Err(ScriptError::Load { message }) => assert!(
             message.contains("at load") && message.contains("script.js:3"),
@@ -1126,7 +1249,7 @@ fn load_errors_name_what_failed() -> Result<()> {
         ),
         other => return Err(anyhow!("expected a load error, got {other:?}")),
     }
-    let setup = ScriptHost::new("function setup() { nope(); }", &bank, relaxed());
+    let setup = ScriptHost::new("function setup() { nope(); }", &bank, &meta, relaxed());
     assert!(
         matches!(setup, Err(ScriptError::Setup { .. })),
         "a throwing setup() is a setup error, got {setup:?}"
@@ -1137,12 +1260,13 @@ fn load_errors_name_what_failed() -> Result<()> {
 #[test]
 fn a_runaway_load_is_interrupted() -> Result<()> {
     let bank = bank(&[])?;
+    let meta = strobe_scene::meta::bank()?;
     let budget = Budget {
         load: Duration::from_millis(30),
         ..Budget::default()
     };
     let started = Instant::now();
-    let result = ScriptHost::new("while (true) {}", &bank, budget);
+    let result = ScriptHost::new("while (true) {}", &bank, &meta, budget);
     assert!(
         matches!(result, Err(ScriptError::Load { .. })),
         "an endless top level is a load error, got {result:?}"

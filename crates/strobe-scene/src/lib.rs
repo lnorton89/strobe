@@ -25,6 +25,8 @@
 //!   header for the context's dialect, the standard and audio uniforms, the
 //!   SSF function library, the user's code, and the `main` that calls
 //!   `renderMain`.
+//! - [`meta`] is the output-wide meta control bank (master, brightness,
+//!   hue, mirror...), an ordinary [`control::ControlBank`].
 //! - [`names`] is the name matching the JavaScript API relies on:
 //!   case-insensitive, ignoring `_`, `-` and spaces.
 //!
@@ -39,6 +41,7 @@ pub mod date;
 pub mod error;
 pub mod json;
 pub mod load;
+pub mod meta;
 pub mod names;
 pub mod scene;
 pub mod synthetic;
