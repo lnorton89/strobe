@@ -64,7 +64,10 @@ pub fn toolbar(
         )
         .clicked()
         {
-            model.ui.panes.toggle(Pane::Browser);
+            model
+                .ui
+                .panes
+                .toggle_drawn(Pane::Browser, shown(Pane::Browser));
         }
         if widgets::tool_button(
             ui,
@@ -76,7 +79,10 @@ pub fn toolbar(
         )
         .clicked()
         {
-            model.ui.panes.toggle(Pane::Inspector);
+            model
+                .ui
+                .panes
+                .toggle_drawn(Pane::Inspector, shown(Pane::Inspector));
         }
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

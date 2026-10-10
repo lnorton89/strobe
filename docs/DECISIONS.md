@@ -1413,3 +1413,283 @@ one step.
 **Would reopen:** a scene where the 10-frame window misses an effect that
 only appears later (a slow fade-in), or a driver where the 160x90 render is
 not representative.
+
+### D130: what was ported from rustaman, and what was changed on the way (2026-10-10)
+
+D5 said to port rustaman's UI system. Stage 1 did, under these rules:
+
+- **Ported:** `color` (Rgb, WCAG contrast, OKLCh ramp), the theme catalog as
+  `palette` (thirteen stated colours, derived rest) with `assets/themes.toml`,
+  `motion` (four named durations, curves, `Tween`), the geometry icons, the
+  spacing scale and egui `Visuals` binding (`ui::theme`), `widgets`, the
+  custom title bar and resize handles (`ui::chrome`), and the single modal
+  (`ui::modal`). Every test came with them: contrast, layer separation, a
+  scrollbar handle never being its surface's colour, icon grid and centring,
+  motion monotonicity and convergence, the eight resize regions, and the
+  source scans (no colour literal, no hand-picked gap, no icon in a font, no
+  hand-rolled animation, no fixed panel with a dead resize handle).
+- **Kept portable.** `color`, `palette`, `motion`, `icon` and `workspace`
+  know nothing of egui; `ui::theme`, `ui::motion` and `ui::icon` are the
+  bindings, as in rustaman.
+- **Changed, for Strobe's frame rules.** `theme::palette()` returns an `Rc`
+  (a count bump) instead of cloning a palette's strings every call. Icons are
+  `&'static` geometry (`Seg`), not a `Vec<Path>` built per paint, and circles
+  flatten into a stack buffer. Readout text is formatted at 4 Hz, not 30.
+  The theme is applied when it changes, not every frame.
+- **Added.** A Strobe default theme (blue-black, amber), a high-contrast
+  theme (UI_DESIGN section 27), a light one, and reduced motion
+  (`motion::set_reduced`: every duration is zero and the spring has no
+  overshoot; the preferences file, the Settings pane and
+  `STROBE_REDUCED_MOTION=1` feed it). rustaman has no reduced-motion setting.
+- **Not ported.** `egui_extras` tables, the treemap and the Windows task
+  manager views, `dnd`, and `font.rs`. rustaman bundles no font (it loads a
+  configured system family), so there was nothing to license-check or
+  commit; Strobe keeps egui's bundled faces. A system-font setting is left
+  until someone asks for Segoe UI.
+
+**Would reopen:** a theme that passes the contrast tests and still reads
+badly on a projector, or the T480 showing the geometry icons costing frame
+time (they are a few allocations per icon; a cached mesh would replace them).
+
+### D131: Contextual Perform stage 1: the shell, the docks, and the fit rules (2026-10-10)
+
+Implements D120 and UI_IMPLEMENTATION_PLAN sections 1 to 7.
+
+- **Persistent:** the rail (PLAY / LIB / LIST / EDIT / MAP / DIAG / SET), the
+  preview, the title bar's health readouts (fps, GPU time against budget,
+  render scale, backend, audio, output, and a script readout only when the
+  script is faulted or disabled), the transport strip and the macros.
+- **Contextual:** the scene browser, the inspector, diagnostics, import and
+  settings, as *panes*. A pane is data (`workspace::Pane`: dock, width range,
+  key). The left dock holds the browser and import; the right dock holds the
+  inspector, diagnostics and settings. A dock shows its most recently opened
+  open pane, so Esc on Diagnostics puts the Inspector back.
+- **Fit.** `workspace::arrange` shows both docks only if the preview keeps
+  55% of the width beside the rail (`PREVIEW_SHARE`). So 1920 and 1440 show
+  the browser and the inspector together (1440 with the browser at 280 and
+  the inspector at 300), and 1280 shows one: the newer pane wins and the
+  other stays "open" but hidden, and its toolbar button says so. A lone pane
+  shrinks to its minimum, and below that becomes an overlay drawer. Rail
+  labels and the secondary readouts drop below 1000 and 1180 points. The
+  share began at 0.58 and became 0.55 when the real rail width (60) pushed
+  1440 just under the line.
+- **Rail semantics.** PLAY closes every pane (a larger preview), LIB, DIAG
+  and SET toggle theirs, and LIST, EDIT and MAP are drawn disabled with
+  "not built yet" tooltips rather than hidden, so the rail already has the
+  shape of the app. Inspector and browser also have buttons in the preview's
+  toolbar, where the output controls (show or hide, fullscreen, monitor)
+  live too.
+- **Pane widths are ours.** Docked panes are fixed-size panels; a splitter on
+  each inner edge writes the width into `Panes`, which the preferences file
+  keeps. egui's own panel resizing would have kept widths in its memory.
+  A drag stops at `drag_limit`, so widening one pane never evicts the other.
+- **The 1280x720 check (D120's reopen condition).** At 1280x720 the preview
+  is about 880 x 495 whether no pane or one is open (it is height-limited),
+  with the transport strip and the macros both visible. That is dominant, so
+  D120 stands.
+
+**Would reopen:** the T480's 1366x768 panel (both panes fit there, with a
+preview about 725 wide) feeling cramped, which would raise `PREVIEW_SHARE`.
+
+### D132: the custom title bar is a setting, on by default on Windows and Linux (2026-10-10)
+
+D122 removed winit's Wayland title bars, so GNOME's Wayland sessions had no
+caption at all, and D5 had promised the custom bar for exactly that. The
+control window now opens undecorated (`with_decorations(false)`) and
+`ui::chrome` draws the bar.
+
+- **Behaviour.** Drag hands the gesture to the window manager
+  (`ViewportCommand::StartDrag`, which is what keeps Aero Snap, snap layouts
+  and drag-to-another-monitor), double-click maximises, the three buttons
+  minimise, maximise or restore, and quit, and eight invisible handles
+  (`BeginResize` on the press frame) resize. Maximize-on-launch (D65) is
+  unchanged. The bar also carries the readouts, so a second status row is not
+  needed.
+- **The setting.** `custom_title_bar` in `ui.toml`, a checkbox in Settings,
+  and `--system-title-bar` for one run. Turning it off calls
+  `set_decorations(true)` live and the bar keeps its readouts. The default
+  is `cfg!(any(windows, target_os = "linux"))`: Windows because the system
+  caption cannot be themed, Linux because GNOME has none; off on macOS,
+  whose traffic lights Strobe does not imitate.
+- **Why a setting.** Window-manager behaviour is the one thing the cloud
+  cannot test: bare Xvfb has no window manager, so drag, snap and resize were
+  verified only as far as the events they send (the unit tests assert a
+  corner press asks for a south-east resize). The fallback must be one click
+  away on a machine where it misbehaves.
+- **Not verifiable here:** drag, Aero Snap and snap layouts, resize at
+  125% and 150% scaling, a maximised undecorated window against the taskbar,
+  and GNOME Wayland's behaviour with `drag_resize_window`. They are listed in
+  STATUS_AUDIT as open for the T480.
+
+**Would reopen:** any of those misbehaving on Windows, which would flip the
+Windows default to off.
+
+### D133: presentation state lives in `UiState` and is saved by a debounced writer (2026-10-10)
+
+UI_IMPLEMENTATION_PLAN section 17 asks for pane visibility, widths and the
+browser's query to survive a restart, and section 3 for runtime state to stay
+out of egui memory.
+
+- **`UiState`** (`ui::state`) owns the `Panes`, the browser's query, filter
+  and selection, the collapsed inspector groups, the theme, reduced motion
+  and the title-bar choice. Nothing is in egui `Memory`.
+- **`ui.toml`** in the data directory (`strobe_diag::paths::base_dir()`, so
+  `STROBE_DIAG_DIR` moves it): every field has a default, unknown keys and
+  panes are ignored, widths are clamped on the way in, and a malformed file
+  loads the defaults and logs why.
+- **When it is written.** Never from the paint path. Each frame hashes the
+  state (no allocation) and compares it with the last frame's; a change
+  starts a `Debounce`, which fires when changes have been quiet for 500 ms or
+  have gone on for 5 s (a drag). The text goes to a writer thread that
+  writes a temporary file and renames it, so a crash cannot leave half a
+  file and a slow disk cannot stall a frame. A pending change is written at
+  shutdown.
+- **Screenshot mode never reads or writes it**, so a capture depends on, and
+  changes, nothing.
+- **Verified under Xvfb:** opening the browser, typing a query and dragging
+  the splitter wrote one file (width 280 to 360, query `tun`, the order the
+  panes were opened in), and a second launch restored all of it.
+
+**Would reopen:** a need to save per-scene state (macros, presets, favourites),
+which wants its own file keyed by scene, not this one.
+
+### D134: commands, and the focus rule that decides whether a key may fire one (2026-10-10)
+
+UI_IMPLEMENTATION_PLAN sections 15 and 16. `commands` is a table (id, name,
+category, default chord) and one pure function, `dispatch(chord, focus)`.
+
+- Keys: Left and Right (previous, next scene), Space (hold, which is not wired
+  and shows a notice instead of doing nothing silently), B (blackout), F11
+  (fullscreen), Ctrl+F (open the browser and focus its search), Esc (close the
+  topmost pane), T (tap tempo, from before).
+- **The rule.** While a *text field* has focus nothing fires. While a
+  *modal* is open nothing fires. While another widget has keyboard focus (a
+  slider, a button) the keys it uses itself, arrows and Space, do not fire
+  transport commands, so nudging a slider with the arrow keys never changes
+  the scene; B, F11, Ctrl+F and Esc still do. The search field handles its
+  own Esc (clear, then leave), its own Up and Down (move the selection) and
+  Enter (load it).
+- **A bug this fixed.** The old `key()` ignored keys whenever
+  `egui_wants_keyboard_input()` was true, which is true whenever *any* widget
+  has focus (a slider keeps it after a click), so T and F11 went dead after
+  touching a control. The new rule uses
+  `text_edit_focused()` for typing and the widget flag only for the keys a
+  widget uses. Clicking the preview takes focus off whatever had it.
+- **The output window** has no UI, so its keys are mapped in `app.rs` with the
+  same table and no focus (`output_key`). Modifiers are not tracked there, so
+  Ctrl+F is a control-window command.
+- **Verified under Xvfb with xdotool:** Right, Left, B, F11; Ctrl+F then typing
+  "kal" then Right changes nothing, Down and Enter load the match, and Esc
+  twice closes both panes.
+
+There is no command palette (Ctrl+K) yet; the table is what it will list.
+
+**Would reopen:** a stage that adds MIDI or OSC, which should map onto
+`CommandId` rather than onto a second list.
+
+### D135: transport semantics without a playlist: what is wired and what is shown as not (2026-10-10)
+
+The app has no cue list (`strobe-playlist` is not a dependency yet), and the
+plan says to show that rather than fake it.
+
+- **Previous and Next** step through the library in sorted order, wrap, and
+  skip scenes the app has seen fail. The strip names what a Next press would
+  load, labelled "library order".
+- **Hold** is drawn unavailable (dashed look, faint), with a tooltip that
+  says why. Space shows a notice banner and logs the request.
+- **Time** is the playing scene's own clock, labelled as such, not a cue's
+  remaining time.
+- **Blackout** is real and safe: the shown output is cleared to black
+  instead of presented, the preview in the control window keeps showing the
+  scene (the operator has to see what they are about to bring back), the
+  scene clock keeps running, and the button is danger-outlined, fills when
+  on, and says `BLACKOUT ON`. It survives a context rebuild. It is a
+  present-time clear, not a multiply in the final pass, so a future NDI or
+  capture output would need the same gate (OPEN_QUESTIONS Q20).
+- **Loading is two-phase.** A load asked for by the UI sets `pending_load`;
+  the next control frame paints "Preparing X..." over the live picture, and
+  the blocking compile runs after that frame is presented. The old scene
+  stays live until the new one is ready, and a failure leaves it playing.
+
+**Would reopen:** the T480 showing a compile long enough that a 30 Hz
+"preparing" frame is not enough (it would want the compile on a worker, which
+the shared GL context does not allow today).
+
+### D136: Preview is separate from Load, and each scene carries a health (2026-10-10)
+
+UI_IMPLEMENTATION_PLAN sections 8 and 9.
+
+- **Preview** loads the scene into a *second* `Session`, rendered at 384
+  pixels wide and advanced once per control-window frame (30 Hz), and shown
+  in a card at the top of the browser. It never touches the live scene, the
+  controls, the macros or the output; **Load** is a separate, visibly
+  different button. The preview shares the audio input and runs the scene's
+  script, so a script fault in a preview is visible too. A context rebuild
+  drops it.
+- **Cost.** Preparing a preview compiles shaders on the UI thread, like a
+  load, so the output stalls for the same compile time; once prepared it adds
+  one small render per control frame. It is off until asked for, and closing
+  the card frees it. Neither is measured on the T480 yet.
+- **Health.** `library::Health` is what the app has *seen*: unknown until a
+  scene is loaded or previewed, ready after it is, failed (with the first two
+  lines of why) after it fails. Rows show an icon and a word, never a colour
+  alone; "Needs work" filters to the failed ones; the Diagnostics pane lists
+  them. Thumbnails are not rendered (UI_IMPLEMENTATION_PLAN section 18 forbids
+  rendering them in the frame loop).
+- **Search** is every word, in any order, in the scene's name. `tag:` and
+  `author:` wait until the library reads scene metadata.
+
+**Would reopen:** previews being too costly on the T480, which would make them
+a single still frame rather than a running scene.
+
+### D137: Performance Macros, stage 1, are the first controls of the playing scene (2026-10-10)
+
+The strip shows the playing scene's first N controls (N follows the width,
+at most six) with a `SCENE` badge, using a widget fitted to each kind: a rail
+for sliders and knobs, a switch, a trigger button, a dropdown, a swatch, and
+a button that opens the inspector for an XY pad. They are the same
+`ControlBank` entries the inspector edits, so there is no second control
+model.
+
+**Left to stage 2, and shown as such rather than faked:** a curated,
+persistent set; pin, unpin and reorder; target resolution (exact id, group
+plus name, alias, meta); the Resolved, Unavailable, Broken, Disabled,
+Learning and Conflict states (a stage-1 macro is always Resolved because it
+*is* the control); MIDI and OSC sources; shortcuts; identity colours.
+
+Slider interaction follows Synesthesia's conventions (UI_DESIGN section 10):
+click or drag to set, Shift for a tenth of the speed, double-click or
+middle-click to reset, a reset button that appears only on a modified
+control, click the number to type an exact value, and arrow keys (Shift finer,
+Ctrl coarser) when the rail has focus. Group headers carry Default and
+Random, which act on the group.
+
+**Would reopen:** the macro model landing in stage 2 with a different shape
+for targets than the strip assumed.
+
+### D138: how the UI is verified without a window manager (2026-10-10)
+
+- **Headless egui tests.** `ui::shell_tests` draws the whole shell at 1920x1080,
+  1440x900, 1366x768, 1280x720, 900x600 and 640x480 in twenty states (empty
+  library, loading, failure, missing and synthetic audio, script fault and
+  disabled, blackout, output hidden, notice, preview, each pane and all of
+  them, the replace question), and asserts that nothing overflows the window,
+  that no shape is NaN, and that an untouched frame emits no action.
+- **Screenshots** use the app's own `--screenshot`, which reads the control
+  window's back buffer, so what is checked is what egui painted. Because bare
+  Xvfb has no window manager (D65), flags were added to make captures
+  reproducible: `--window-size WxH` (not maximized), `--open-pane`,
+  `--no-panes`, `--browser-query`, `--preview`, `--blackout`, `--theme`,
+  `--system-title-bar`, and `--request-load`, which asks for a load through
+  the UI's own path on the frame before the control capture so the capture
+  really shows "Preparing". Screenshot mode never reads or writes `ui.toml`.
+- **Interaction** was driven with xdotool against a live window on Xvfb
+  (focus needs `xdotool windowfocus`, since there is no window manager to
+  give it) and captured with `import -window root`.
+- **Scans.** The source scans from rustaman run over every drawing module,
+  plus one of Strobe's own: no drawing module touches the filesystem, the
+  driver, a socket or a sleep, which is UI_IMPLEMENTATION_PLAN section 18 as
+  a test.
+
+**Would reopen:** a real window manager in CI (a Wayland or X11 session with
+a compositor), which would let drag, snap and resize be driven.
