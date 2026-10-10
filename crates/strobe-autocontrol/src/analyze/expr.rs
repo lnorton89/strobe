@@ -20,7 +20,7 @@
 use super::Hit;
 use super::consts::{Named, Num, parse_number};
 use crate::candidate::{Group, Kind, Rewrite, ValueType};
-use crate::naming::snake_case;
+use crate::naming::readable;
 use crate::source::Scan;
 
 /// Identifiers that mean "the scene clock".
@@ -82,9 +82,29 @@ const GEOMETRY_NAMES: [&str; 22] = [
 
 /// Names that say nothing about what a value is, so they do not make a good
 /// control name.
-const GENERIC_NAMES: [&str; 20] = [
-    "uv", "p", "q", "st", "pos", "coord", "col", "color", "colour", "c", "d", "t", "x", "y", "r",
-    "v", "res", "result", "ret", "o",
+const GENERIC_NAMES: [&str; 22] = [
+    "uv",
+    "p",
+    "q",
+    "st",
+    "pos",
+    "coord",
+    "col",
+    "color",
+    "colour",
+    "c",
+    "d",
+    "t",
+    "x",
+    "y",
+    "r",
+    "v",
+    "res",
+    "result",
+    "ret",
+    "o",
+    "frag_color",
+    "out_color",
 ];
 
 /// Substrings of function names whose bodies are number-theory, not art:
@@ -162,6 +182,15 @@ pub(super) fn loops(scan: &Scan<'_>) -> Vec<Loop> {
     found
 }
 
+/// `steps` in the entry point; `<function>_steps` in a helper, so a scene's
+/// shadow loop and its march loop get different names.
+fn loop_name(scan: &Scan<'_>, bound: usize) -> String {
+    match enclosing_function(scan, bound) {
+        Some("renderMain" | "mainImage" | "main") | None => "steps".to_string(),
+        Some(function) => format!("{}_steps", readable(function)),
+    }
+}
+
 /// The hit for a literal loop bound.
 pub(super) fn loop_hit(scan: &Scan<'_>, found: &Loop) -> Option<Hit> {
     let bound = found.bound;
@@ -184,7 +213,7 @@ pub(super) fn loop_hit(scan: &Scan<'_>, found: &Loop) -> Option<Hit> {
         } else {
             ValueType::Int
         },
-        name: "steps".to_string(),
+        name: loop_name(scan, bound),
         group: Group::Quality,
         key: format!("loop:{}", scan.origin(start)),
     })
@@ -404,7 +433,7 @@ pub(super) fn colours(scan: &Scan<'_>) -> Vec<Hit> {
             continue;
         }
         let assigned = assigned_name(scan, i);
-        let lower = assigned.as_deref().map(snake_case);
+        let lower = assigned.as_deref().map(readable);
         if lower
             .as_deref()
             .is_some_and(|name| GEOMETRY_NAMES.contains(&name))
@@ -626,7 +655,7 @@ fn scale_hit(scan: &Scan<'_>, product: &Product, kind: Kind) -> Option<Hit> {
         return None;
     }
     let (start, end) = (scan.start(number), scan.end(number));
-    let assigned = assigned_name(scan, number).map(|n| snake_case(&n));
+    let assigned = assigned_name(scan, number).map(|n| readable(&n));
     let specific = assigned
         .as_deref()
         .filter(|name| !GENERIC_NAMES.contains(name));

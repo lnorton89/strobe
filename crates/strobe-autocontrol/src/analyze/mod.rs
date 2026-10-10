@@ -33,7 +33,7 @@ mod consts;
 mod expr;
 
 use crate::candidate::{Candidate, Group, Kind, Rewrite, Site, ValueType, float_range, loop_range};
-use crate::naming::snake_case;
+use crate::naming::readable;
 use crate::source::{Scan, Sources};
 use std::collections::HashMap;
 
@@ -179,7 +179,7 @@ fn named_hit(named: &consts::Named) -> Option<Hit> {
     if loop_count && !(4.0..=4096.0).contains(&named.value) {
         return None;
     }
-    let name = snake_case(&named.name);
+    let name = readable(&named.name);
     let (value_type, group) = if loop_count {
         (
             if named.is_float {
