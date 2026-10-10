@@ -96,6 +96,7 @@ use crate::failures;
 use crate::fault::{self, Faults};
 use crate::gldebug;
 use crate::library::Library;
+use crate::localtime::LocalDate;
 use crate::mouse::{Button, MouseTracker};
 use crate::perf::{self, Performance};
 use crate::recovery::{Decision, Event, Rebuild, Recovery, Surface};
@@ -473,6 +474,8 @@ struct Running {
     gl_summary: String,
     audio: AudioInput,
     mouse: MouseTracker,
+    /// Local time for `strobe_Date`, with its UTC offset cached.
+    local_date: LocalDate,
 
     /// The render scale in force: the adaptive controller's, or the
     /// slider's when adaptation is off.
@@ -544,6 +547,7 @@ impl Running {
             gl_summary,
             audio: AudioInput::new(cli.audio == AudioArg::Auto),
             mouse: MouseTracker::default(),
+            local_date: LocalDate::from_system(),
             render_scale,
             scale_edit: render_scale,
             pending_resize: None,
@@ -918,6 +922,9 @@ impl Running {
 
     fn refresh_monitors(&mut self, event_loop: &ActiveEventLoop) {
         self.last_monitor_refresh = Instant::now();
+        // The time zone's offset can change (daylight saving); looking it
+        // up may read the zone database, so it is done here, never per frame.
+        self.local_date.refresh();
         // The output may have moved to a display with another refresh rate.
         let refresh = self
             .stack
@@ -1274,7 +1281,7 @@ impl Running {
                 // output is shown, the blit to it; its result arrives a frame
                 // or two later. The budget is the same either way.
                 self.stack.perf.begin();
-                session.advance(dt, &mut self.audio, mouse);
+                session.advance(dt, &mut self.audio, mouse, self.local_date.now());
                 if shown {
                     gl.plain_state();
                     session.player.present(window);

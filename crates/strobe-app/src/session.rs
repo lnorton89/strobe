@@ -250,11 +250,12 @@ impl Session {
     }
 
     /// Advances the scene by `dt` seconds and renders one frame into the
-    /// player's output. `mouse` is the pointer over the output window.
+    /// player's output. `mouse` is the pointer over the output window and
+    /// `date` is `strobe_Date` in local time (see [`crate::localtime`]).
     ///
     /// The script's `FRAMECOUNT` runs one ahead of the shader's, because
     /// its first frame already ran at load.
-    pub fn advance(&mut self, dt: f32, audio: &mut AudioInput, mouse: Mouse) {
+    pub fn advance(&mut self, dt: f32, audio: &mut AudioInput, mouse: Mouse, date: [f32; 4]) {
         self.time += dt;
         let audio = audio.frame_at(self.time);
         if let Some(run) = self.script.as_mut() {
@@ -278,9 +279,11 @@ impl Session {
             self.send_script_uniforms(&harvest);
         }
         self.controls.tick(dt);
+        self.player.set_date(date);
         self.player.upload_audio(&AudioTextures {
             spectrum: &audio.spectrum,
             level_trail: &audio.level_trail,
+            shadertoy: Some(&audio.shadertoy),
         });
         self.player.render(&FrameInputs {
             time: self.time,

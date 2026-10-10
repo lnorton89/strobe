@@ -23,6 +23,7 @@
 //!   crashes and driver messages reach a person (all through `strobe-diag`).
 //! - [`recovery`], [`fault`]: surviving a lost GL context (the policy, as a
 //!   pure state machine) and `STROBE_FAULT`, which injects one to test it.
+//! - [`localtime`]: local wall-clock time for `strobe_Date`.
 //! - [`screenshot`]: the `--screenshot` verification mode.
 //! - [`cli`]: the command line.
 
@@ -36,6 +37,7 @@ pub mod failures;
 pub mod fault;
 pub mod gldebug;
 pub mod library;
+pub mod localtime;
 pub mod mouse;
 pub mod perf;
 pub mod recovery;
