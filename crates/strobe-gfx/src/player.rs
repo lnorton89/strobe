@@ -382,7 +382,7 @@ impl ScenePlayer {
             extras: extras.to_vec(),
             extra_values: Vec::with_capacity(extras.len()),
         };
-        player.passes = player.allocate_passes(programs)?;
+        player.passes = player.allocate_passes(programs, render_size)?;
         Ok(player)
     }
 
@@ -434,7 +434,54 @@ impl ScenePlayer {
                 .map_err(res)?,
         ];
         let programs = self.passes.iter().map(|p| Rc::clone(&p.program)).collect();
-        self.passes = self.allocate_passes(programs)?;
+        self.passes = self.allocate_passes(programs, render_size)?;
+        Ok(())
+    }
+
+    /// Changes the render resolution **keeping what the scene has drawn**:
+    /// every pass target and the finished frame are scaled into the new
+    /// targets (a GPU blit, filtered, except for 32-bit float passes, which
+    /// GL only copies nearest) instead of restarting from black.
+    ///
+    /// This is what lets a feedback scene warmed up at a small size arrive
+    /// at full size with its trails in place (D153). Nothing is compiled;
+    /// only textures are allocated. On failure the player is unchanged.
+    pub fn resize_keeping(&mut self, render_size: [i32; 2]) -> Result<(), PlayerError> {
+        let render_size = [render_size[0].max(1), render_size[1].max(1)];
+        if render_size == self.render_size {
+            return Ok(());
+        }
+        let res = |e: String| PlayerError::Resource(e);
+        let old_size = self.render_size;
+        let finals = [
+            new_target(&self.gl, render_size, Format::Rgba8, Sampling::LINEAR_CLAMP)
+                .map_err(res)?,
+            new_target(&self.gl, render_size, Format::Rgba8, Sampling::LINEAR_CLAMP)
+                .map_err(res)?,
+        ];
+        let programs = self.passes.iter().map(|p| Rc::clone(&p.program)).collect();
+        // Allocated against the new size without touching `self` yet.
+        let mut passes = self.allocate_passes(programs, render_size)?;
+        for (old, new) in self.finals.iter().zip(&finals) {
+            self.gl
+                .blit_between(&old.fbo, old_size, &new.fbo, render_size, true);
+        }
+        for (old, new) in self.passes.iter().zip(passes.iter_mut()) {
+            new.current = old.current;
+            for (from, to) in old.targets.iter().zip(&new.targets) {
+                let linear = from.texture.format() != Format::Rgba32f;
+                self.gl
+                    .blit_between(&from.fbo, old.size, &to.fbo, new.size, linear);
+            }
+            if new.mipmap
+                && let Some(target) = new.targets.get(new.current)
+            {
+                self.gl.generate_mipmaps(&target.texture);
+            }
+        }
+        self.render_size = render_size;
+        self.finals = finals;
+        self.passes = passes;
         Ok(())
     }
 
@@ -528,7 +575,11 @@ impl ScenePlayer {
         self.gl.upload(&self.shadertoy_audio, staging)
     }
 
-    fn allocate_passes(&self, programs: Vec<Rc<Compiled>>) -> Result<Vec<PassState>, PlayerError> {
+    fn allocate_passes(
+        &self,
+        programs: Vec<Rc<Compiled>>,
+        render_size: [i32; 2],
+    ) -> Result<Vec<PassState>, PlayerError> {
         let last = self.def.final_pass();
         let mut passes = Vec::with_capacity(programs.len());
         for (index, (pass, program)) in self.def.passes.iter().zip(programs).enumerate() {
@@ -537,14 +588,14 @@ impl ScenePlayer {
                     program,
                     targets: Vec::new(),
                     current: 0,
-                    size: self.render_size,
+                    size: render_size,
                     mipmap: false,
                 });
                 continue;
             }
             let size = [
-                ((self.render_size[0] as f32 * pass.scale[0]).round() as i32).max(1),
-                ((self.render_size[1] as f32 * pass.scale[1]).round() as i32).max(1),
+                ((render_size[0] as f32 * pass.scale[0]).round() as i32).max(1),
+                ((render_size[1] as f32 * pass.scale[1]).round() as i32).max(1),
             ];
             let precision = if pass.full_precision {
                 FloatPrecision::Full

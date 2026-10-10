@@ -56,6 +56,10 @@ pub struct Gl {
     /// Set once the context is known to be lost; shared by every clone, so
     /// every owning type sees it. `Rc` because `Gl` is `!Send` anyway.
     lost: Rc<Cell<bool>>,
+    /// How many shader stages have been compiled on this context, shared by
+    /// every clone. A show promises none after its load, and this is how a
+    /// test or a diagnostic checks the promise ([`Gl::shader_compiles`]).
+    compiles: Rc<Cell<u64>>,
     /// `!Send` and `!Sync`: the context is current on one thread only.
     _thread: PhantomData<*const ()>,
 }
@@ -290,6 +294,7 @@ impl Gl {
             raw: Arc::new(raw),
             reset,
             lost: Rc::new(Cell::new(false)),
+            compiles: Rc::new(Cell::new(0)),
             _thread: PhantomData,
         }
     }
@@ -435,8 +440,17 @@ impl Gl {
 
     // ------------------------------------------------------------ shaders
 
+    /// How many shader stages this context has been asked to compile since
+    /// it was made (successful or not; a program is two). A playlist
+    /// precompiles every scene at load and then expects this number never
+    /// to move (D152), so the app samples it after the load and compares.
+    pub fn shader_compiles(&self) -> u64 {
+        self.compiles.get()
+    }
+
     /// Compiles one shader stage, returning the driver's log on failure.
     pub fn compile(&self, stage: Stage, source: &str) -> Result<Shader, String> {
+        self.compiles.set(self.compiles.get().saturating_add(1));
         let raw = self.create_shader(stage)?;
         let shader = Shader {
             gl: self.clone(),
@@ -866,6 +880,35 @@ impl Gl {
                 glow::COLOR_BUFFER_BIT,
                 glow::LINEAR,
             )
+        }
+    }
+
+    /// Copies the whole of `src` (a `src_size` image) over the whole of
+    /// `dst` (a `dst_size` image), scaling. `linear` filters; otherwise the
+    /// nearest texel is taken, which is the only filter GL allows between
+    /// 32-bit float attachments. Both framebuffers must have a colour
+    /// attachment of the same kind (a float one for a float one).
+    pub fn blit_between(
+        &self,
+        src: &Framebuffer,
+        src_size: [i32; 2],
+        dst: &Framebuffer,
+        dst_size: [i32; 2],
+        linear: bool,
+    ) {
+        self.bind_raw_framebuffer(glow::READ_FRAMEBUFFER, Some(src.raw));
+        self.bind_raw_framebuffer(glow::DRAW_FRAMEBUFFER, Some(dst.raw));
+        self.blit_scaled(src_size, dst_size, linear);
+        self.bind_raw_framebuffer(glow::FRAMEBUFFER, None);
+    }
+
+    fn blit_scaled(&self, [sw, sh]: [i32; 2], [dw, dh]: [i32; 2], linear: bool) {
+        let filter = if linear { glow::LINEAR } else { glow::NEAREST };
+        // SAFETY: current-context invariant; read and draw framebuffers are
+        // bound by the caller.
+        unsafe {
+            self.raw
+                .blit_framebuffer(0, 0, sw, sh, 0, 0, dw, dh, glow::COLOR_BUFFER_BIT, filter)
         }
     }
 
