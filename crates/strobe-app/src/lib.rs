@@ -60,6 +60,7 @@ pub mod recovery;
 pub mod screenshot;
 pub mod script;
 pub mod session;
+pub mod show;
 pub mod stats;
 
 pub mod ui;

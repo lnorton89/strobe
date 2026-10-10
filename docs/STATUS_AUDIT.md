@@ -22,9 +22,9 @@ The Windows desktop app wires together:
 - GPU-timed adaptive render scale;
 - context-loss recovery with ANGLE fail-over.
 
-The benchmark uses a window context where EGL is unavailable. One crate
-exists without app integration so far: the playlist core. (The Shadertoy
-importer is wired into the app as of stage 2.)
+The benchmark uses a window context where EGL is unavailable. Every crate
+is now wired into the app: the Shadertoy importer (stage 2) and the playlist
+core (stage 2, D150-D158). `strobe-autocontrol` is not.
 
 For the deeper contracts, read [ARCHITECTURE.md](ARCHITECTURE.md),
 [DECISIONS.md](DECISIONS.md) and [BENCHMARKS.md](BENCHMARKS.md).
@@ -144,7 +144,8 @@ checked and not committed. Interaction was driven with xdotool.
   pass was about 1 ms in a debug build on llvmpipe; the paint there is
   software rasterisation and says nothing).
 - [ ] Performance Macros as persistent bindings with the Unresolved states;
-  Hold, Playlist, Editor and Mappings; a command palette (stage 2).
+  Editor and Mappings; a command palette (stage 2). (Hold and the Playlist
+  pane are built, D156 and D157.)
 
 Read [UI_DESIGN.md](UI_DESIGN.md),
 [UI_IMPLEMENTATION_PLAN.md](UI_IMPLEMENTATION_PLAN.md),
@@ -247,8 +248,35 @@ survives export.
 - [x] Playlist inheritance (defaults, then section, then cue), the
   generator, the timeline, the playback clock with beat-locked ends, and
   resume. This is the pure core (D73-D77), with 4-hour soaks.
-- [ ] Playlist app integration: precompile before cue activation,
-  warm-up, transitions, the UI, file watching and resume saves.
+- [x] Playlist app integration (D150-D158), on llvmpipe under Xvfb and on
+  headless GL in both dialects. Evidence:
+  - precompile before cue activation, one scene per control frame, with
+    progress and per-cue skipped state: the log of
+    `--playlist playlists/transition-demo.toml` (`compiled ... (3/5)`,
+    `cue 3 (ghost-scene) skipped`) and
+    [`docs/images/perform/playlist-1280x720.png`](images/perform/playlist-1280x720.png);
+  - zero shader compiles after the load: `closed with 0 runtime shader
+    compile(s)` in every run, and `crates/strobe-app/tests/show.rs` compares
+    `Gl::shader_compiles()` before and after a whole show;
+  - warm-up and transitions: the same log (`warming up cue 2 ... at
+    480x270`, `transition 0 started ... FadeThroughBlack`), the mixed frames
+    in screenshots at `--frames 330`, `660` (a custom wipe,
+    [`playlist-wipe-output.png`](images/perform/playlist-wipe-output.png)) and
+    `1260` (a crossfade), and `tests/compositor.rs` (crossfade at 0, 0.5 and 1
+    gives A, the mix and B; feedback survives `resize_keeping`);
+  - Hold, Next, Extend, Restart, Previous: `tests/show.rs`; the strip in the
+    screenshots (`-00:03 FADE 58%`);
+  - resume: stop mid-show and restart, `playlist: resumed the saved
+    position`; `--no-resume`: `starting at the first cue`;
+  - the wall-clock anchor: an anchor a minute in the past starts on the
+    scheduled cue (`anchored: ...`);
+  - the file watcher: saving a longer file logs `playlist file changed:
+    reloading` and compiles only the new scene; saving a broken one keeps
+    the playing playlist and shows `line 3, column 13: "3mn" is not a
+    duration ...`.
+  **Not verified:** the T480 or real Windows (load time, the cost of two
+  scenes at once on an HD 4000, VRAM), a 4-hour show with real scenes, and
+  audio-event advance (not built).
 - [ ] Wire presets, MIDI, OSC and hotkeys into the shared `ControlBank`.
   Don't duplicate its toggle, bang or smoothing semantics.
 - [ ] Run a tag-triggered release, then inspect:

@@ -63,6 +63,7 @@ pub mod modal;
 pub mod model;
 pub mod motion;
 pub mod perform;
+pub mod playlist;
 pub mod settings;
 pub mod shell;
 #[cfg(test)]
@@ -76,8 +77,8 @@ pub mod widgets;
 
 pub use host::UiHost;
 pub use model::{
-    Action, AudioPanel, FailurePanel, ImportPanel, ListenerPanel, Model, NoticePanel, PerfPanel,
-    Preview, ScenePreview, TransportPanel,
+    Action, AudioPanel, CueTransport, FailurePanel, ImportPanel, ListenerPanel, Model, NoticePanel,
+    PerfPanel, PlaylistPanel, PlaylistUi, Preview, ScenePreview, TransportPanel,
 };
 pub use shell::ShellState;
 pub use state::UiState;
@@ -88,7 +89,7 @@ mod tests {
     /// is where colours are made. `motion` is not here either: it is the
     /// one module allowed to animate. `icon` holds the painting of the
     /// geometry and `state` has no drawing at all.
-    const DRAWING_MODULES: [(&str, &str); 16] = [
+    const DRAWING_MODULES: [(&str, &str); 17] = [
         ("audio", include_str!("audio.rs")),
         ("browser", include_str!("browser.rs")),
         ("chrome", include_str!("chrome.rs")),
@@ -99,6 +100,7 @@ mod tests {
         ("macros", include_str!("macros.rs")),
         ("modal", include_str!("modal.rs")),
         ("perform", include_str!("perform.rs")),
+        ("playlist", include_str!("playlist.rs")),
         ("settings", include_str!("settings.rs")),
         ("shell", include_str!("shell.rs")),
         ("transport", include_str!("transport.rs")),

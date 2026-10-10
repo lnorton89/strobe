@@ -1,0 +1,20 @@
+# A short show for checking transitions, warm-up and skipping on a screen:
+# 5-second cues, 2-second transitions, one of each kind. `ghost-scene` is not
+# in the library, so its cue is skipped with a console entry. The wipe is a
+# custom GLSL transition (transitions/wipe.glsl), compiled at load.
+name = "Transition demo"
+loop_mode = "loop"
+
+[defaults]
+duration = "5s"
+transition = { kind = "crossfade", duration = "2s" }
+
+[[sections]]
+name = "Demo"
+cues = [
+  { scene = "01-aurora-gradient" },
+  { scene = "06-feedback-trails", transition = { kind = "fade-through-black", duration = "2s" } },
+  { scene = "ghost-scene" },
+  { scene = "02-plasma-pulse", transition = { kind = "shader", path = "transitions/wipe.glsl", duration = "2s" }, overrides = { tint = [0.2, 0.8, 1.0] } },
+  { scene = "03-kaleido-tunnel", transition = { kind = "cut" } },
+]

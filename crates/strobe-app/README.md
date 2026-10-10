@@ -16,11 +16,12 @@ from a lost GL context.
   and `strobe-script`, plus `winit`, `egui`, `egui_glow`, `egui-winit`, `clap`,
   `image`, `log`, `thiserror` and `anyhow`.
 - **Depended on by:** nothing. It is the top of the graph.
-- **Does not (yet):** use `strobe-playlist`. The playlist crate is not a
-  dependency of the app; the playlist tick, transitions between two scenes,
-  MIDI, OSC and the meta post stage (brightness, hue, mirror) are not in the
-  frame loop ([`ARCHITECTURE.md`](../../docs/ARCHITECTURE.md), "A frame").
-  `strobe-shadertoy` and `strobe-io` do not exist yet.
+- Also depends on `strobe-playlist` and `strobe-shadertoy`: the playlist tick,
+  transitions between two scenes and the Playlist pane are in the frame loop
+  ([`ARCHITECTURE.md`](../../docs/ARCHITECTURE.md), "A frame" and
+  "Playlists").
+- **Does not (yet):** MIDI, OSC, audio-event advance or the meta post stage
+  (brightness, hue, mirror); `strobe-io` does not exist yet.
 - The app has no `#[cfg(windows)]` code of its own, only `cfg!` values; that is
   why the Windows cross-check from Linux can exclude it (D63).
 
@@ -33,7 +34,8 @@ The binary entry is `src/main.rs`; everything else is in the library.
 | `main.rs` | Start-up order: register the crash notifier, run as the crash monitor if asked, `strobe_diag::init()`, `--diagnose`, arm crash capture, open windows, run the event loop. |
 | `cli` | The clap `Cli` (flags below). |
 | `app` | The winit application and the frame loop (`redraw_output` is the frame). |
-| `session` | The one active scene: load, advance (clock, audio, script, controls), render. |
+| `session` | One scene: load, advance (clock, audio, script, controls), render, prime, restart its clock. |
+| `show` | A playlist being played (D150-D158): `run::Show` (precompile, clock events, warm-up, transitions), `cache`, `resolve`, `start`, `resume`, `watch`, `view`, `generate`, `beat`. |
 | `audio` | `AudioInput`: live capture started on a thread, with synthetic fallback and settings (device, reactivity, speed, tap tempo). |
 | `script`, `mouse` | A scene's `script.js` at run time, and the pointer uniforms. |
 | `perf` | GPU timer ring and adaptive resolution. |
@@ -114,9 +116,26 @@ the UI (layout and widgets) as pure logic. `tests/script_uniforms.rs` runs scrip
 uniforms end to end on a headless context in both GL dialects; it needs
 headless EGL (`libegl1 libegl-mesa0`) and skips without it unless
 `STROBE_REQUIRE_HEADLESS_GL=1`, which CI's Linux job sets.
+`tests/show.rs` plays a whole playlist on a headless context in both
+dialects: a failed scene skipped, warm-up, a crossfade seen in the mixed
+frame, hold, next, a reload, and zero shader compiles after the load. The
+pure parts of the show (beat mapping, cache, overrides, start order, resume
+writer, watcher, Generate form) are unit tests in `src/show/`.
 
 To check what the windows actually draw with no display or person present,
-use screenshot mode under Xvfb (what CI does):
+use screenshot mode under Xvfb (what CI does). A playlist is a flag away, and
+`--frames` then counts frames of *playback* (after the load), so a capture
+lands mid-transition on purpose:
+
+```bash
+strobe --playlist playlists/transition-demo.toml --screenshot target/demo --frames 660 \
+  --window-size 1280x720 --audio synthetic --no-adaptive --open-pane playlist
+```
+
+The log says `transition 1 started`, `warming up cue 4` and, at close,
+`closed with 0 runtime shader compile(s)`. Resume is never read or written in
+screenshot mode; for a real run use `STROBE_DIAG_DIR` to keep it out of your
+profile. The general form:
 
 ```bash
 apt-get install -y xvfb libegl1 libegl-mesa0 mesa-utils libgl1-mesa-dri
@@ -139,7 +158,11 @@ runs are listed in [`DEBUGGING.md`](../../docs/DEBUGGING.md).
 - **GPU timing never waits, and adaptation holds for a second after a scene
   load** (D64); the render-scale slider becomes the ceiling while adaptive is on.
 - **A lost context is rebuilt, on ANGLE if native keeps failing** (D66): both
-  windows and the context are recreated and the scene reloads at its clock.
+  windows and the context are recreated and the scene reloads at its clock;
+  a playlist is compiled again and resumes at its cue (D150).
+- **A playlist compiles everything at load, one scene per frame, parks scenes
+  at 1x1 and proves it compiled nothing later** (D151, D152); two scenes
+  render during a transition and the compositor mixes them (D154).
 
 ## Status and known gaps
 
@@ -154,10 +177,11 @@ runs are listed in [`DEBUGGING.md`](../../docs/DEBUGGING.md).
   (D66) is verified under Xvfb only; real WGL recovery and a forced scale of
   1.0 are still unchecked. F11 on the 1440p panel, scene switching and DPI at
   150% scaling are still waiting for an interactive check.
-- Not built: playlists in the app (stage 2), transitions, presets, MIDI, OSC,
-  hotkey mapping, Shadertoy thumbnails and the Needs-work bin, NDI. Cubemaps and media input are
-  placeholders. Script `meta/` writes land in the session's meta bank,
-  which nothing renders from yet (D160); `textureFinalPass` is a two-frame-late
-  asynchronous readback (D162).
+- Playlists are built (stage 2, D150-D158) and verified on llvmpipe only. Not
+  built: audio-event advance, the Playlist workspace's inspector, presets,
+  MIDI, OSC, hotkey mapping, Shadertoy thumbnails and the Needs-work bin, NDI.
+  Cubemaps and media input are placeholders. Script `meta/` writes land in
+  the session's meta bank, which nothing renders from yet (D160);
+  `textureFinalPass` is a two-frame-late asynchronous readback (D162).
 - Linux runs under Xvfb and Mesa only; macOS is not built (no CGL provider,
   D55).
