@@ -1,59 +1,67 @@
 // ============================================================================
 // Module:       strobe_app::ui::controls
-// Description:  The right panel: one widget per scene control, grouped by
-//               UI_GROUP, writing the control bank's targets.
+// Description:  One widget per scene control kind, written against the
+//               control bank: the slider rail, toggle, bang, XY pad, colour
+//               swatch and dropdown, and the grouping of controls by
+//               UI_GROUP.
 //
-// Dependencies: egui; strobe-scene (ControlBank, ControlDef, ControlKind)
+// Dependencies: egui; strobe-scene (ControlBank, ControlDef, ControlKind);
+//               super::{theme, widgets, icon}
 // ============================================================================
 
-//! The scene's controls (right panel).
+//! The control widgets (UI_DESIGN section 10).
 //!
 //! One widget per [`ControlKind`], chosen by an exhaustive match so a new
 //! control type cannot silently render nothing:
 //!
 //! | Control | Widget | Writes |
 //! |---|---|---|
-//! | slider, knob | slider over the control's real range | `set` |
-//! | toggle | checkbox | `set` to `MIN` or `MAX` |
-//! | bang, bang counter | button | `press` |
-//! | xy | drag pad | `set` of both components |
-//! | color | colour picker | `set` of three components |
-//! | dropdown | combo box of labels | `set` to the option index |
+//! | slider, knob | [`rail`] over the control's real range, plus an exact numeric field | `set` |
+//! | toggle | a switch | `set` to `MIN` or `MAX` |
+//! | bang, bang counter | a button with a pressed state | `press` |
+//! | xy | a drag pad with keyboard nudging | `set` of both components |
+//! | color | a colour swatch with a popup picker | `set` of three components |
+//! | dropdown | a combo box of labels | `set` to the option index |
 //!
 //! Widgets show the control's *target* (what was asked for), not its
 //! smoothed output, so a smooth slider does not fight the hand moving it.
+//!
+//! ## The slider's interaction contract
+//!
+//! These preserve Synesthesia's established modifier conventions
+//! (UI_DESIGN section 10, UI_IMPLEMENTATION_PLAN section 10):
+//!
+//! - click or drag the rail to set the value (relative, fine, with Shift:
+//!   a tenth of the speed);
+//! - double-click the rail, or middle-click it, to reset to the default;
+//! - the reset button beside the value does the same, and appears only when
+//!   the value differs from the default, so it is also the "modified" mark;
+//! - click the number to type an exact value;
+//! - with the rail focused, arrows move by 1% of the range (Shift: 0.1%,
+//!   Ctrl: 10%).
+//!
+//! Every value is checked for being finite before it is drawn or written.
 
-use crate::theme;
-use egui::{Sense, Vec2};
+use super::icon as icons;
+use super::theme::{self, SPACE_SM, SPACE_XS};
+use super::widgets;
+use crate::icon::Icon;
+use crate::palette::Palette;
+use egui::{CornerRadius, Key, Modifiers, Rect, Response, Sense, Stroke, Ui, Vec2};
 use strobe_scene::control::{Bang, ControlBank, ControlDef, ControlKind};
 
 /// Size of the xy pad, in points.
-const PAD_SIZE: Vec2 = Vec2::new(180.0, 120.0);
+const PAD_SIZE: Vec2 = Vec2::new(160.0, 108.0);
 
-/// Draws every control, ungrouped ones first, then each group in order of
-/// first appearance.
-pub fn show(ui: &mut egui::Ui, bank: &mut ControlBank) {
-    let groups = group_order(bank.defs());
-    egui::ScrollArea::vertical()
-        .auto_shrink([false, false])
-        .show(ui, |ui| {
-            for (group, members) in groups {
-                match group {
-                    None => draw_members(ui, bank, &members),
-                    Some(name) => {
-                        egui::CollapsingHeader::new(egui::RichText::new(&name).strong())
-                            .id_salt(&name)
-                            .default_open(true)
-                            .show(ui, |ui| draw_members(ui, bank, &members));
-                    }
-                }
-            }
-        });
-}
+/// The height of a slider rail's hit area.
+const RAIL_HEIGHT: f32 = 18.0;
 
-/// Control indices bucketed by `UI_GROUP`: the ungrouped bucket first,
-/// then groups in the order they first appear.
-fn group_order(defs: &[ControlDef]) -> Vec<(Option<String>, Vec<usize>)> {
+/// How much of the range one arrow press moves the value.
+const NUDGE: f32 = 0.01;
+
+/// Control indices bucketed by `UI_GROUP`: the ungrouped bucket first, then
+/// groups in the order they first appear.
+pub fn group_order(defs: &[ControlDef]) -> Vec<(Option<String>, Vec<usize>)> {
     let mut groups: Vec<(Option<String>, Vec<usize>)> = vec![(None, Vec::new())];
     for (index, def) in defs.iter().enumerate() {
         let slot = groups.iter().position(|(name, _)| *name == def.group);
@@ -70,7 +78,168 @@ fn group_order(defs: &[ControlDef]) -> Vec<(Option<String>, Vec<usize>)> {
     groups
 }
 
-fn draw_members(ui: &mut egui::Ui, bank: &mut ControlBank, members: &[usize]) {
+/// The value after an arrow press or a drag, kept inside the range.
+fn clamp_to(value: f32, min: f32, max: f32) -> f32 {
+    if !value.is_finite() {
+        return min;
+    }
+    value.clamp(min.min(max), min.max(max))
+}
+
+/// The fraction of the way along `min..max` that `value` is, 0..=1; zero for
+/// a degenerate range or a non-finite value.
+pub fn fraction(value: f32, min: f32, max: f32) -> f32 {
+    let span = max - min;
+    if !value.is_finite() || !span.is_finite() || span.abs() < f32::EPSILON {
+        return 0.0;
+    }
+    ((value - min) / span).clamp(0.0, 1.0)
+}
+
+/// What a slider rail did this frame.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct RailOut {
+    /// The value changed.
+    pub changed: bool,
+    /// The operator asked for the default (double or middle click).
+    pub reset: bool,
+}
+
+/// A horizontal slider rail. See the module docs for the interaction
+/// contract. `id_salt` must identify the control, not its position.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a rail is defined by exactly these; grouping them would only rename them"
+)]
+pub fn rail(
+    ui: &mut Ui,
+    theme: &Palette,
+    id_salt: impl std::hash::Hash,
+    width: f32,
+    value: &mut f32,
+    min: f32,
+    max: f32,
+    default: f32,
+) -> (Response, RailOut) {
+    let (rect, response) = ui.allocate_exact_size(
+        Vec2::new(width.max(24.0), RAIL_HEIGHT),
+        Sense::click_and_drag(),
+    );
+    let response = response.on_hover_cursor(egui::CursorIcon::ResizeHorizontal);
+    let _ = id_salt;
+    let mut out = RailOut::default();
+    let span = max - min;
+    let usable = span.is_finite() && span.abs() > f32::EPSILON;
+
+    if usable {
+        let before = *value;
+        let shift = ui.input(|i| i.modifiers.shift);
+        if response.double_clicked() || response.middle_clicked() {
+            *value = default;
+            out.reset = true;
+        } else if (response.drag_started() || response.clicked()) && !shift {
+            if let Some(pos) = response.interact_pointer_pos() {
+                let t = ((pos.x - rect.left()) / rect.width()).clamp(0.0, 1.0);
+                *value = min + t * span;
+            }
+        } else if response.dragged() {
+            let delta = response.drag_delta().x / rect.width() * span;
+            let delta = if shift { delta * 0.1 } else { delta };
+            if !shift && let Some(pos) = response.interact_pointer_pos() {
+                let t = ((pos.x - rect.left()) / rect.width()).clamp(0.0, 1.0);
+                *value = min + t * span;
+            } else {
+                *value += delta;
+            }
+        }
+        if response.has_focus() {
+            let (step, modifiers) = ui.input(|i| {
+                let mut step = 0.0_f32;
+                for key in [Key::ArrowLeft, Key::ArrowDown] {
+                    if i.key_pressed(key) {
+                        step -= 1.0;
+                    }
+                }
+                for key in [Key::ArrowRight, Key::ArrowUp] {
+                    if i.key_pressed(key) {
+                        step += 1.0;
+                    }
+                }
+                (step, i.modifiers)
+            });
+            if step != 0.0 {
+                *value += step * nudge_size(modifiers) * span;
+            }
+        }
+        *value = clamp_to(*value, min, max);
+        if (*value - before).abs() > f32::EPSILON || out.reset {
+            out.changed = true;
+        }
+    }
+
+    let t = fraction(*value, min, max);
+    let painter = ui.painter();
+    let track = Rect::from_center_size(rect.center(), Vec2::new(rect.width(), 4.0));
+    let radius = CornerRadius::same(2);
+    painter.rect_filled(track, radius, theme::rgb(theme.control));
+    if usable {
+        let filled = Rect::from_min_max(
+            track.min,
+            egui::pos2(track.left() + track.width() * t, track.bottom()),
+        );
+        painter.rect_filled(filled, radius, theme::rgb(theme.accent));
+        // The default's tick: where "reset" goes.
+        let tick = fraction(default, min, max);
+        if (tick - t).abs() > 0.02 {
+            let x = track.left() + track.width() * tick;
+            painter.vline(
+                x,
+                rect.center().y - 4.0..=rect.center().y + 4.0,
+                Stroke::new(1.0, theme::rgb(theme.text_faint)),
+            );
+        }
+        let lit = response.hovered() || response.dragged() || response.has_focus();
+        let handle = egui::pos2(track.left() + track.width() * t, rect.center().y);
+        painter.circle_filled(
+            handle,
+            if lit { 7.0 } else { 6.0 },
+            theme::rgb(if lit { theme.accent_hover } else { theme.text }),
+        );
+        if response.has_focus() {
+            painter.circle_stroke(handle, 9.0, Stroke::new(1.5, theme::rgb(theme.accent)));
+        }
+    }
+    (response, out)
+}
+
+/// How far one arrow press moves a slider, as a fraction of its range.
+fn nudge_size(modifiers: Modifiers) -> f32 {
+    if modifiers.command {
+        NUDGE * 10.0
+    } else if modifiers.shift {
+        NUDGE * 0.1
+    } else {
+        NUDGE
+    }
+}
+
+/// Decimal places worth showing for a range: more for a small one.
+pub fn decimals(min: f32, max: f32) -> usize {
+    let span = (max - min).abs();
+    if !span.is_finite() || span >= 100.0 {
+        0
+    } else if span >= 10.0 {
+        1
+    } else if span >= 1.0 {
+        2
+    } else {
+        3
+    }
+}
+
+/// Draws every control in `members` (indices into the bank). Group headers
+/// are the inspector's business; this draws the rows.
+pub fn rows(ui: &mut Ui, theme: &Palette, bank: &mut ControlBank, members: &[usize]) {
     for &index in members {
         let Some(def) = bank.defs().get(index).cloned() else {
             continue;
@@ -79,48 +248,145 @@ fn draw_members(ui: &mut egui::Ui, bank: &mut ControlBank, members: &[usize]) {
         let output = bank.output(index).copied().unwrap_or_default();
         ui.push_id(index, |ui| match def.kind {
             ControlKind::Slider(_) | ControlKind::Knob(_) => {
-                slider(ui, bank, index, &def, target[0]);
+                slider_row(ui, theme, bank, index, &def, target[0]);
             }
-            ControlKind::Toggle { .. } => toggle(ui, bank, index, &def, target[0]),
-            ControlKind::Bang(kind) => bang(ui, bank, index, &def, kind, output[0]),
-            ControlKind::Xy(_) => xy(ui, bank, index, &def, target),
-            ControlKind::Color { .. } => color(ui, bank, index, &def, target),
-            ControlKind::Dropdown { .. } => dropdown(ui, bank, index, &def, target[0]),
+            ControlKind::Toggle { .. } => toggle_row(ui, theme, bank, index, &def, target[0]),
+            ControlKind::Bang(kind) => bang_row(ui, theme, bank, index, &def, kind, output[0]),
+            ControlKind::Xy(_) => xy_row(ui, theme, bank, index, &def, target),
+            ControlKind::Color { .. } => color_row(ui, bank, index, &def, target),
+            ControlKind::Dropdown { .. } => dropdown_row(ui, bank, index, &def, target[0]),
         });
-        ui.add_space(2.0);
+        ui.add_space(SPACE_XS);
     }
 }
 
-fn describe(response: egui::Response, def: &ControlDef) -> egui::Response {
+fn describe(response: Response, def: &ControlDef) -> Response {
     match &def.description {
         Some(text) => response.on_hover_text(text),
         None => response,
     }
 }
 
-fn slider(ui: &mut egui::Ui, bank: &mut ControlBank, index: usize, def: &ControlDef, v: f32) {
-    let (min, max) = (def.min[0], def.max[0]);
+/// The small reset button that appears beside a modified control.
+fn reset_button(ui: &mut Ui, theme: &Palette) -> Response {
+    let (rect, response) = ui.allocate_exact_size(Vec2::splat(18.0), Sense::click());
+    let fill = widgets::hover_fill(
+        ui,
+        response.id,
+        response.hovered(),
+        theme.panel,
+        theme.hover,
+    );
+    ui.painter()
+        .rect_filled(rect, CornerRadius::same(theme::RADIUS), fill);
+    icons::paint(
+        ui.painter(),
+        Rect::from_center_size(rect.center(), Vec2::splat(icons::DISCLOSURE)),
+        Icon::Reset,
+        theme::rgb(theme.text_muted),
+    );
+    response.on_hover_text("Reset to the default")
+}
+
+fn slider_row(
+    ui: &mut Ui,
+    theme: &Palette,
+    bank: &mut ControlBank,
+    index: usize,
+    def: &ControlDef,
+    v: f32,
+) {
+    let (min, max, default) = (def.min[0], def.max[0], def.default[0]);
     if (max - min).abs() < f32::EPSILON {
         ui.label(format!("{}: {v:.3}", def.name));
         return;
     }
-    let mut value = v;
-    let response = ui.add(egui::Slider::new(&mut value, min..=max).text(&def.name));
-    if describe(response, def).changed() {
+    let mut value = if v.is_finite() { v } else { default };
+    let places = decimals(min, max);
+    let modified = (value - default).abs() > (max - min).abs() * 0.001;
+    ui.horizontal(|ui| {
+        let label = ui.label(egui::RichText::new(&def.name).color(theme::rgb(theme.text)));
+        describe(label, def);
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            // Reserve the reset button's slot whether or not it is shown, so
+            // the number does not jump sideways when a control is modified.
+            if modified {
+                if reset_button(ui, theme).clicked() {
+                    bank.set_default(index);
+                }
+            } else {
+                ui.allocate_exact_size(Vec2::splat(18.0), Sense::hover());
+            }
+            let drag = ui.add(
+                egui::DragValue::new(&mut value)
+                    .range(min.min(max)..=min.max(max))
+                    .speed((max - min).abs() / 400.0)
+                    .min_decimals(places)
+                    .max_decimals(places)
+                    .update_while_editing(false),
+            );
+            if drag.changed() {
+                bank.set(index, Some(0), &[clamp_to(value, min, max)]);
+            }
+        });
+    });
+    let width = ui.available_width();
+    let (_, out) = rail(ui, theme, index, width, &mut value, min, max, default);
+    if out.reset {
+        bank.set_default(index);
+    } else if out.changed {
         bank.set(index, Some(0), &[value]);
     }
 }
 
-fn toggle(ui: &mut egui::Ui, bank: &mut ControlBank, index: usize, def: &ControlDef, v: f32) {
-    let mut on = def.normalize(0, v) >= 0.5;
-    if describe(ui.checkbox(&mut on, &def.name), def).changed() {
-        let next = if on { def.max[0] } else { def.min[0] };
+fn toggle_row(
+    ui: &mut Ui,
+    theme: &Palette,
+    bank: &mut ControlBank,
+    index: usize,
+    def: &ControlDef,
+    v: f32,
+) {
+    let on = def.normalize(0, v) >= 0.5;
+    let response = ui
+        .horizontal(|ui| {
+            let (rect, response) = ui.allocate_exact_size(Vec2::new(32.0, 18.0), Sense::click());
+            let t = super::motion::toggle(ui.ctx(), response.id, on, super::motion::INSTANT);
+            let painter = ui.painter();
+            let track = if on { theme.accent } else { theme.control };
+            painter.rect_filled(rect, CornerRadius::same(9), theme::rgb(track));
+            let x = rect.left() + 9.0 + t * (rect.width() - 18.0);
+            painter.circle_filled(
+                egui::pos2(x, rect.center().y),
+                6.5,
+                theme::rgb(if on { theme.text_on_accent } else { theme.text }),
+            );
+            if response.has_focus() {
+                painter.rect_stroke(
+                    rect.expand(2.0),
+                    CornerRadius::same(10),
+                    Stroke::new(1.5, theme::rgb(theme.accent)),
+                    egui::StrokeKind::Outside,
+                );
+            }
+            ui.label(egui::RichText::new(&def.name).color(theme::rgb(theme.text)));
+            ui.label(
+                egui::RichText::new(if on { "ON" } else { "OFF" })
+                    .small()
+                    .color(theme::rgb(if on { theme.accent } else { theme.text_muted })),
+            );
+            response
+        })
+        .inner;
+    if describe(response, def).clicked() {
+        let next = if on { def.min[0] } else { def.max[0] };
         bank.set(index, Some(0), &[next]);
     }
 }
 
-fn bang(
-    ui: &mut egui::Ui,
+fn bang_row(
+    ui: &mut Ui,
+    theme: &Palette,
     bank: &mut ControlBank,
     index: usize,
     def: &ControlDef,
@@ -128,7 +394,8 @@ fn bang(
     output: f32,
 ) {
     ui.horizontal(|ui| {
-        if describe(ui.button(&def.name), def).clicked() {
+        let response = bang_button(ui, theme, &def.name);
+        if describe(response, def).clicked() {
             bank.press(index);
         }
         match kind {
@@ -136,7 +403,7 @@ fn bang(
                 ui.label(
                     egui::RichText::new(format!("{output:.0}"))
                         .monospace()
-                        .color(theme::muted()),
+                        .color(theme::rgb(theme.text_muted)),
                 );
             }
             Bang::Plain | Bang::Smooth => {}
@@ -144,8 +411,73 @@ fn bang(
     });
 }
 
-fn xy(ui: &mut egui::Ui, bank: &mut ControlBank, index: usize, def: &ControlDef, v: [f32; 3]) {
-    ui.label(&def.name);
+/// A momentary button with a visible pressed state.
+pub fn bang_button(ui: &mut Ui, theme: &Palette, name: &str) -> Response {
+    let font = egui::TextStyle::Button.resolve(ui.style());
+    let galley = ui
+        .painter()
+        .layout_no_wrap(name.to_string(), font, theme::rgb(theme.text));
+    let size = Vec2::new(galley.size().x + SPACE_SM * 3.0, 26.0);
+    let (rect, response) = ui.allocate_exact_size(size, Sense::click());
+    let pressed = response.is_pointer_button_down_on();
+    let fill = if pressed { theme.accent } else { theme.raised };
+    let text = if pressed {
+        theme.text_on_accent
+    } else {
+        theme.text
+    };
+    let fill = if pressed {
+        theme::rgb(fill)
+    } else {
+        widgets::hover_fill(
+            ui,
+            response.id,
+            response.hovered(),
+            theme.raised,
+            theme.hover,
+        )
+    };
+    let painter = ui.painter();
+    painter.rect_filled(rect, CornerRadius::same(theme::RADIUS), fill);
+    painter.rect_stroke(
+        rect,
+        CornerRadius::same(theme::RADIUS),
+        Stroke::new(
+            1.0,
+            theme::rgb(if pressed { theme.accent } else { theme.border }),
+        ),
+        egui::StrokeKind::Inside,
+    );
+    painter.galley(
+        rect.center() - galley.size() / 2.0,
+        galley,
+        theme::rgb(text),
+    );
+    response
+}
+
+fn xy_row(
+    ui: &mut Ui,
+    theme: &Palette,
+    bank: &mut ControlBank,
+    index: usize,
+    def: &ControlDef,
+    v: [f32; 3],
+) {
+    let modified = def.default[0] != v[0] || def.default[1] != v[1];
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new(&def.name).color(theme::rgb(theme.text)));
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if modified && reset_button(ui, theme).clicked() {
+                bank.set_default(index);
+            }
+            ui.label(
+                egui::RichText::new(format!("{:.2}, {:.2}", v[0], v[1]))
+                    .monospace()
+                    .color(theme::rgb(theme.text_muted)),
+            );
+        });
+    });
     let (rect, response) = ui.allocate_exact_size(PAD_SIZE, Sense::click_and_drag());
     let response = describe(response, def);
     if let Some(pos) = response.interact_pointer_pos() {
@@ -156,31 +488,55 @@ fn xy(ui: &mut egui::Ui, bank: &mut ControlBank, index: usize, def: &ControlDef,
             None,
             &[def.denormalize(0, tx), def.denormalize(1, ty)],
         );
+    } else if response.has_focus() {
+        // Keyboard nudging: arrows move the marker by 1% (Shift 0.1%, Ctrl 10%).
+        let (dx, dy, modifiers) = ui.input(|i| {
+            let axis = |plus: Key, minus: Key| {
+                f32::from(i.key_pressed(plus)) - f32::from(i.key_pressed(minus))
+            };
+            (
+                axis(Key::ArrowRight, Key::ArrowLeft),
+                axis(Key::ArrowUp, Key::ArrowDown),
+                i.modifiers,
+            )
+        });
+        if dx != 0.0 || dy != 0.0 {
+            let step = nudge_size(modifiers);
+            let x = (def.normalize(0, v[0]) + dx * step).clamp(0.0, 1.0);
+            let y = (def.normalize(1, v[1]) + dy * step).clamp(0.0, 1.0);
+            bank.set(index, None, &[def.denormalize(0, x), def.denormalize(1, y)]);
+        }
     }
     let painter = ui.painter_at(rect);
-    painter.rect_filled(rect, 3.0, ui.visuals().extreme_bg_color);
+    painter.rect_filled(
+        rect,
+        CornerRadius::same(theme::RADIUS),
+        theme::rgb(theme.app),
+    );
     painter.rect_stroke(
         rect,
-        3.0,
-        ui.visuals().widgets.noninteractive.bg_stroke,
+        CornerRadius::same(theme::RADIUS),
+        Stroke::new(
+            1.0,
+            theme::rgb(if response.has_focus() {
+                theme.accent
+            } else {
+                theme.border
+            }),
+        ),
         egui::StrokeKind::Inside,
     );
     let at = egui::pos2(
         rect.left() + def.normalize(0, v[0]) * rect.width(),
         rect.bottom() - def.normalize(1, v[1]) * rect.height(),
     );
-    let guide = egui::Stroke::new(1.0, theme::muted());
+    let guide = Stroke::new(1.0, theme::rgb(theme.grid));
     painter.hline(rect.x_range(), at.y, guide);
     painter.vline(at.x, rect.y_range(), guide);
-    painter.circle_filled(at, 5.0, theme::accent());
-    ui.label(
-        egui::RichText::new(format!("{:.2}, {:.2}", v[0], v[1]))
-            .monospace()
-            .color(theme::muted()),
-    );
+    painter.circle_filled(at, 5.0, theme::rgb(theme.accent));
 }
 
-fn color(ui: &mut egui::Ui, bank: &mut ControlBank, index: usize, def: &ControlDef, v: [f32; 3]) {
+fn color_row(ui: &mut Ui, bank: &mut ControlBank, index: usize, def: &ControlDef, v: [f32; 3]) {
     ui.horizontal(|ui| {
         let mut rgb = v;
         if describe(ui.color_edit_button_rgb(&mut rgb), def).changed() {
@@ -190,7 +546,7 @@ fn color(ui: &mut egui::Ui, bank: &mut ControlBank, index: usize, def: &ControlD
     });
 }
 
-fn dropdown(ui: &mut egui::Ui, bank: &mut ControlBank, index: usize, def: &ControlDef, v: f32) {
+fn dropdown_row(ui: &mut Ui, bank: &mut ControlBank, index: usize, def: &ControlDef, v: f32) {
     let selected = (v.round().max(0.0) as usize).min(def.labels.len().saturating_sub(1));
     let current = def.labels.get(selected).cloned().unwrap_or_default();
     ui.horizontal(|ui| {
@@ -238,5 +594,134 @@ mod tests {
             "ungrouped first, then groups as first seen"
         );
         Ok(())
+    }
+
+    #[test]
+    fn a_fraction_is_zero_for_nonsense_and_clamped_otherwise() {
+        assert_eq!(fraction(f32::NAN, 0.0, 1.0), 0.0, "NaN value");
+        assert_eq!(fraction(0.5, 1.0, 1.0), 0.0, "zero-width range");
+        assert_eq!(fraction(0.5, 0.0, f32::INFINITY), 0.0, "infinite range");
+        assert_eq!(fraction(5.0, 0.0, 1.0), 1.0, "over the top");
+        assert!((fraction(0.25, 0.0, 1.0) - 0.25).abs() < 1e-6, "inside");
+        assert!(
+            (fraction(-1.0, -2.0, 2.0) - 0.25).abs() < 1e-6,
+            "negative range"
+        );
+    }
+
+    #[test]
+    fn a_value_is_clamped_into_a_reversed_range_too() {
+        assert_eq!(clamp_to(5.0, 0.0, 1.0), 1.0);
+        assert_eq!(clamp_to(-5.0, 1.0, 0.0), 0.0, "min and max swapped");
+        assert_eq!(
+            clamp_to(f32::NAN, 0.25, 1.0),
+            0.25,
+            "NaN falls to the minimum"
+        );
+    }
+
+    #[test]
+    fn shift_is_finer_and_ctrl_is_coarser_than_a_plain_nudge() {
+        let plain = nudge_size(Modifiers::NONE);
+        let fine = nudge_size(Modifiers::SHIFT);
+        let coarse = nudge_size(Modifiers::COMMAND);
+        assert!(fine < plain && plain < coarse, "{fine} {plain} {coarse}");
+    }
+
+    #[test]
+    fn a_small_range_shows_more_decimals_than_a_large_one() {
+        assert!(decimals(0.0, 1.0) > decimals(0.0, 10.0));
+        assert!(decimals(0.0, 10.0) > decimals(0.0, 1000.0));
+        assert_eq!(decimals(0.0, f32::NAN), 0, "nonsense shows an integer");
+    }
+
+    /// Runs one egui pass with `events` and reports what the rail did.
+    fn run_rail(
+        ctx: &egui::Context,
+        events: Vec<egui::Event>,
+        value: &mut f32,
+        default: f32,
+    ) -> (Rect, RailOut) {
+        let theme = crate::palette::fallback().clone();
+        let mut out = RailOut::default();
+        let mut rect = Rect::NOTHING;
+        let _ = crate::ui::testing::run(
+            ctx,
+            crate::ui::testing::input(Vec2::new(400.0, 200.0), events),
+            |ui| {
+                let (response, result) = rail(ui, &theme, 0_u8, 200.0, value, 0.0, 10.0, default);
+                rect = response.rect;
+                out = result;
+            },
+        );
+        (rect, out)
+    }
+
+    fn press(pos: egui::Pos2, pressed: bool) -> egui::Event {
+        egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: Modifiers::NONE,
+        }
+    }
+
+    #[test]
+    fn clicking_the_rail_sets_the_value_from_the_pointer() {
+        let ctx = egui::Context::default();
+        let mut value = 0.0;
+        let (rect, _) = run_rail(&ctx, Vec::new(), &mut value, 5.0);
+        let at = egui::pos2(rect.left() + rect.width() * 0.75, rect.center().y);
+        let _ = run_rail(
+            &ctx,
+            vec![egui::Event::PointerMoved(at), press(at, true)],
+            &mut value,
+            5.0,
+        );
+        let (_, out) = run_rail(&ctx, vec![press(at, false)], &mut value, 5.0);
+        assert!(
+            (value - 7.5).abs() < 0.2,
+            "a click at 75% set {value} (changed this frame: {})",
+            out.changed
+        );
+    }
+
+    #[test]
+    fn a_double_click_resets_to_the_default() {
+        let ctx = egui::Context::default();
+        let mut value = 9.0;
+        let (rect, _) = run_rail(&ctx, Vec::new(), &mut value, 2.0);
+        let at = rect.center();
+        let click = |ctx: &egui::Context, value: &mut f32| {
+            let _ = run_rail(
+                ctx,
+                vec![egui::Event::PointerMoved(at), press(at, true)],
+                value,
+                2.0,
+            );
+            run_rail(ctx, vec![press(at, false)], value, 2.0).1
+        };
+        let _ = click(&ctx, &mut value);
+        let out = click(&ctx, &mut value);
+        assert!(out.reset, "a second click in a row is a double click");
+        assert!(
+            (value - 2.0).abs() < f32::EPSILON,
+            "reset to the default: {value}"
+        );
+    }
+
+    #[test]
+    fn a_non_finite_value_is_repaired_not_propagated() {
+        let ctx = egui::Context::default();
+        let mut value = f32::NAN;
+        let (rect, _) = run_rail(&ctx, Vec::new(), &mut value, 1.0);
+        let at = egui::pos2(rect.left() + 10.0, rect.center().y);
+        let _ = run_rail(
+            &ctx,
+            vec![egui::Event::PointerMoved(at), press(at, true)],
+            &mut value,
+            1.0,
+        );
+        assert!(value.is_finite(), "the rail left {value} in a control");
     }
 }

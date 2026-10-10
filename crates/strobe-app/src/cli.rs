@@ -105,6 +105,54 @@ pub struct Cli {
     /// next to the logs, and exit. Attach it to bug reports.
     #[arg(long)]
     pub diagnose: bool,
+    /// Open these panes at launch (comma separated): `browser`, `import`,
+    /// `inspector`, `diagnostics`, `settings`. Added to whatever the saved
+    /// layout opens; in screenshot mode there is no saved layout, so this
+    /// alone decides.
+    #[arg(long, value_name = "PANE", value_delimiter = ',')]
+    pub open_pane: Vec<String>,
+    /// Close every pane at launch (for a screenshot of the bare surface).
+    /// Applied before `--open-pane`.
+    #[arg(long)]
+    pub no_panes: bool,
+    /// Open the control window at this size instead of maximized, e.g.
+    /// `1280x720`. Makes screenshots reproducible on a display with no
+    /// window manager.
+    #[arg(long, value_name = "WxH", value_parser = parse_size)]
+    pub window_size: Option<(u32, u32)>,
+    /// Prepare this scene in the browser's preview at launch, without
+    /// making it live (screenshots of the Preview card).
+    #[arg(long, value_name = "SCENE")]
+    pub preview: Option<String>,
+    /// Start with the output blacked out.
+    #[arg(long)]
+    pub blackout: bool,
+    /// Search text to put in the scene browser at launch.
+    #[arg(long, value_name = "TEXT")]
+    pub browser_query: Option<String>,
+    /// Draw the system's title bar instead of Strobe's for this run,
+    /// whatever the saved setting says (D132).
+    #[arg(long)]
+    pub system_title_bar: bool,
+}
+
+/// Parses `1280x720`.
+fn parse_size(text: &str) -> Result<(u32, u32), String> {
+    let (w, h) = text
+        .split_once(['x', 'X'])
+        .ok_or_else(|| format!("`{text}` is not WIDTHxHEIGHT"))?;
+    let w: u32 = w
+        .trim()
+        .parse()
+        .map_err(|_| format!("`{w}` is not a width"))?;
+    let h: u32 = h
+        .trim()
+        .parse()
+        .map_err(|_| format!("`{h}` is not a height"))?;
+    if !(320..=16_384).contains(&w) || !(240..=16_384).contains(&h) {
+        return Err(format!("{w}x{h} is outside 320x240 to 16384x16384"));
+    }
+    Ok((w, h))
 }
 
 #[cfg(test)]
@@ -197,6 +245,43 @@ mod tests {
         assert!(
             Cli::try_parse_from(["strobe", "--listen-port", "70000"]).is_err(),
             "not a port"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn panes_and_the_window_size_are_parsed() -> Result<()> {
+        let cli = Cli::try_parse_from([
+            "strobe",
+            "--open-pane",
+            "browser,diagnostics",
+            "--window-size",
+            "1280x720",
+        ])?;
+        assert_eq!(cli.open_pane, vec!["browser", "diagnostics"], "panes");
+        assert_eq!(cli.window_size, Some((1280, 720)), "size");
+        assert!(
+            Cli::try_parse_from(["strobe", "--window-size", "big"]).is_err(),
+            "not a size"
+        );
+        assert!(
+            Cli::try_parse_from(["strobe", "--window-size", "10x10"]).is_err(),
+            "too small to be a window"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn the_ui_flags_default_to_off() -> Result<()> {
+        let cli = Cli::try_parse_from(["strobe"])?;
+        assert!(cli.open_pane.is_empty() && !cli.no_panes, "panes");
+        assert!(
+            cli.window_size.is_none() && cli.preview.is_none(),
+            "size, preview"
+        );
+        assert!(
+            !cli.blackout && !cli.system_title_bar,
+            "blackout, title bar"
         );
         Ok(())
     }

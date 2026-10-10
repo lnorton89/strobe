@@ -3,20 +3,30 @@
 // Description:  What the panels read each frame, and the actions they hand
 //               back to the app.
 //
-// Dependencies: strobe-scene (ControlBank); crate::{library, console, stats}
+// Dependencies: strobe-scene (ControlBank); crate::{library, console, stats,
+//               import, script}; super::{state, widgets}
 // ============================================================================
 
 //! The UI's inputs and outputs.
 //!
-//! [`Model`] borrows from the app for one frame. Only two things in it are
-//! mutable: the control bank, which is the point of the controls panel, and
-//! the render-scale slider's working value, which exists so a drag does not
-//! reallocate every render target on every pointer move (the app applies
-//! the value when the drag ends).
+//! [`Model`] borrows from the app for one frame. Three things in it are
+//! mutable: the control bank, which is the point of the inspector (the one
+//! sanctioned direct write into runtime state, because the bank *is* the
+//! control model and a second copy would be the fake the plan forbids); the
+//! [`UiState`](super::state::UiState), which is presentation state (pane
+//! visibility, the browser query) that the app owns and persists; and the
+//! render-scale slider's working value, which exists so a drag does not
+//! reallocate every render target on every pointer move.
+//!
+//! Everything else the panels want done comes back as an [`Action`], and the
+//! app carries it out after the frame is painted. Widgets never reach into
+//! the renderer, the audio input or the windows.
 
+use super::state::UiState;
+use super::widgets::Tone;
 use crate::console::Console;
 use crate::import::Status;
-use crate::library::Library;
+use crate::library::{Health, Library};
 use crate::script::ScriptState;
 use crate::stats::FrameStats;
 use strobe_audio::capture::{DeviceChoice, DeviceInfo};
@@ -25,10 +35,26 @@ use strobe_scene::control::ControlBank;
 /// Something the UI asks the app to do.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Action {
-    /// Load the library entry at this index.
+    /// Load the library entry at this index (the scene becomes live).
     Load(usize),
+    /// Prepare the entry at this index in the browser's preview, without
+    /// changing what is live (UI_IMPLEMENTATION_PLAN section 8).
+    Preview(usize),
+    /// Throw away the browser's preview.
+    ClosePreview,
     /// Reload the current scene from disk.
     Reload,
+    /// List the scene folder again.
+    RescanLibrary,
+    /// Step to the next scene in the library.
+    NextScene,
+    /// Step to the previous scene in the library.
+    PrevScene,
+    /// Hold or resume the cue. Nothing is wired to this yet (there is no
+    /// playlist in the app); the app logs that it was asked.
+    ToggleHold,
+    /// Black the output out or bring it back.
+    SetBlackout(bool),
     /// Apply this render scale.
     SetRenderScale(f32),
     /// Show or hide the output window. The scene keeps rendering either way.
@@ -60,6 +86,14 @@ pub enum Action {
     CancelReplace,
     /// Start or stop the browser listener.
     SetImportListener(bool),
+    /// Quit the app (the control window is the app, D96).
+    Quit,
+    /// Draw Strobe's title bar (true) or the system's (false).
+    SetCustomTitleBar(bool),
+    /// Dismiss the scene-failure banner.
+    DismissFailure,
+    /// Dismiss the notice banner.
+    DismissNotice,
 }
 
 /// What the performance readouts and the adaptive toggle show.
@@ -125,7 +159,7 @@ pub struct ImportPanel<'a> {
     pub listener: ListenerPanel<'a>,
 }
 
-/// The output as an egui texture, for the preview.
+/// A texture of the scene's output, for a preview.
 #[derive(Debug, Clone, Copy)]
 pub struct Preview {
     /// The registered texture.
@@ -136,10 +170,65 @@ pub struct Preview {
     pub size: [i32; 2],
 }
 
+/// The scene the browser is previewing without playing it.
+#[derive(Debug, Clone, Copy)]
+pub struct ScenePreview<'a> {
+    /// Its library index.
+    pub index: usize,
+    /// Its name.
+    pub name: &'a str,
+    /// Its picture.
+    pub image: Preview,
+}
+
+/// The transport strip's inputs.
+#[derive(Debug, Clone, Copy)]
+pub struct TransportPanel<'a> {
+    /// The playing scene's name.
+    pub now: Option<&'a str>,
+    /// The scene a Next press would load, in library order.
+    pub next: Option<&'a str>,
+    /// The playing scene's clock, in seconds.
+    pub scene_time: f32,
+    /// Whether the output is blacked out.
+    pub blackout: bool,
+    /// Whether there is more than one scene to step through.
+    pub can_step: bool,
+}
+
+/// A scene that did not load.
+#[derive(Debug, Clone, Copy)]
+pub struct FailurePanel<'a> {
+    /// Which scene.
+    pub scene: &'a str,
+    /// The first lines of why.
+    pub summary: &'a str,
+    /// The scene still playing, if there is one.
+    pub kept: Option<&'a str>,
+}
+
+/// A banner that is not a failure: a recovered context, say.
+#[derive(Debug, Clone, Copy)]
+pub struct NoticePanel<'a> {
+    /// How serious.
+    pub tone: Tone,
+    /// What to say.
+    pub text: &'a str,
+}
+
 /// Everything the panels need for one frame.
 pub struct Model<'a> {
+    /// Presentation state: panes, the browser query. Persisted by the app.
+    pub ui: &'a mut UiState,
     /// The scenes on disk.
     pub library: &'a Library,
+    /// What is known of each scene's health, parallel to the library.
+    pub health: &'a [Health],
+    /// Bumped whenever the library or its health changes, so the browser
+    /// knows when to refilter.
+    pub library_rev: u64,
+    /// Why the last library scan failed, if it did.
+    pub scan_error: Option<&'a str>,
     /// The library entry currently playing.
     pub playing: Option<usize>,
     /// The playing scene's title, from its definition.
@@ -148,6 +237,17 @@ pub struct Model<'a> {
     pub controls: Option<&'a mut ControlBank>,
     /// The live preview, once a scene has rendered.
     pub preview: Option<Preview>,
+    /// The browser's preview of a scene that is not live.
+    pub scene_preview: Option<ScenePreview<'a>>,
+    /// The scene being compiled right now, shown for the frame before the
+    /// UI thread blocks on it.
+    pub loading: Option<&'a str>,
+    /// The last scene that failed to load.
+    pub failure: Option<FailurePanel<'a>>,
+    /// A notice to show.
+    pub notice: Option<NoticePanel<'a>>,
+    /// The transport strip.
+    pub transport: TransportPanel<'a>,
     /// Console lines.
     pub console: &'a Console,
     /// Frame timings.
@@ -162,6 +262,8 @@ pub struct Model<'a> {
     pub output_visible: bool,
     /// Whether the output window is fullscreen.
     pub fullscreen: bool,
+    /// Whether the control window is maximised.
+    pub maximized: bool,
     /// The GL backend, renderer and version, one line.
     pub gl_summary: &'a str,
     /// Audio source and settings.

@@ -1,0 +1,276 @@
+// ============================================================================
+// Module:       strobe_app::ui::inspector
+// Description:  The control inspector pane: the playing scene's controls,
+//               grouped by UI_GROUP, with per-group default and random.
+//
+// Dependencies: egui; strobe-scene (ControlBank); super::{controls, model,
+//               theme, widgets, state}, crate::script
+// ============================================================================
+
+//! The control inspector (UI_DESIGN sections 9 to 11, UI_IMPLEMENTATION_PLAN
+//! section 10).
+//!
+//! The inspector is *generated* from the scene's `ControlDef`s: nothing here
+//! knows what a control is called or what range it has, and there is no
+//! second taxonomy. Groups come from `UI_GROUP`, in the order a scene
+//! declares them, ungrouped controls first.
+//!
+//! Each group has a header with a disclosure chevron (collapse state is the
+//! operator's and is saved), and two small actions that act on the group
+//! only: *default* (every control in the group eases back to its default,
+//! and a bang is left alone) and *random* (every control in the group moves
+//! to a random point in its range). Descriptions stay in tooltips until
+//! asked for; there is no four-button toolbar beside every control.
+//!
+//! States: no scene ("Pick a scene"), a scene with no controls, a script
+//! that is running, faulted or disabled (visible here without opening the
+//! console).
+
+use super::controls;
+use super::icon as icons;
+use super::model::{Action, Model};
+use super::theme::{self, SPACE_SM, SPACE_XS};
+use super::widgets::{self, Tone};
+use crate::icon::Icon;
+use crate::palette::Palette;
+use crate::script::ScriptState;
+use crate::workspace::Pane;
+use egui::{Sense, Ui, Vec2};
+use strobe_scene::control::{ControlBank, ControlKind};
+
+/// Draws the pane's contents.
+pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Vec<Action>) {
+    let has_scene = model.controls.is_some();
+    let closed = widgets::pane_header(ui, theme, Icon::Controls, Pane::Inspector.title(), |ui| {
+        if has_scene
+            && widgets::button(ui, theme, Some(Icon::Refresh), "Reload")
+                .on_hover_text("Reload the scene from disk. Control values are kept.")
+                .clicked()
+        {
+            actions.push(Action::Reload);
+        }
+    });
+    if closed {
+        model.ui.panes.close(Pane::Inspector);
+    }
+
+    if let Some(title) = (!model.scene_title.is_empty()).then_some(model.scene_title) {
+        ui.label(
+            egui::RichText::new(title)
+                .strong()
+                .color(theme::rgb(theme.text)),
+        );
+    }
+    if let Some(state) = model.script {
+        script_status(ui, theme, state);
+    }
+    ui.add_space(SPACE_XS);
+
+    let ui_state = &mut *model.ui;
+    match model.controls.as_deref_mut() {
+        Some(bank) if !bank.defs().is_empty() => {
+            groups(ui, theme, bank, ui_state);
+        }
+        Some(_) => widgets::empty_state(
+            ui,
+            theme,
+            Icon::Controls,
+            "This scene has no controls",
+            "It plays as authored. Auto-generated controls arrive in a later stage.",
+        ),
+        None => widgets::empty_state(
+            ui,
+            theme,
+            Icon::Library,
+            "No scene playing",
+            "Open the scene library and load one to see its controls.",
+        ),
+    }
+}
+
+/// One line (or a short paragraph) on how the scene's script is doing: a
+/// dead script must be visible without opening the console.
+fn script_status(ui: &mut Ui, theme: &Palette, state: &ScriptState) {
+    match state {
+        ScriptState::Running => {
+            ui.horizontal(|ui| {
+                icons::show(
+                    ui,
+                    Icon::Check,
+                    icons::DISCLOSURE,
+                    theme::rgb(theme.success),
+                );
+                ui.label(
+                    egui::RichText::new("script.js running")
+                        .small()
+                        .color(theme::rgb(theme.text_muted)),
+                );
+            });
+        }
+        ScriptState::Faulted {
+            consecutive,
+            message,
+        } => widgets::banner(
+            ui,
+            theme,
+            Tone::Warning,
+            &format!("script.js fault ({consecutive} in a row): {message}"),
+            |_| {},
+        ),
+        ScriptState::Disabled { message } => widgets::banner(
+            ui,
+            theme,
+            Tone::Error,
+            &format!("script.js disabled: {message}. Reload the scene to run it again."),
+            |_| {},
+        ),
+    }
+}
+
+fn groups(ui: &mut Ui, theme: &Palette, bank: &mut ControlBank, state: &mut super::state::UiState) {
+    let groups = controls::group_order(bank.defs());
+    egui::ScrollArea::vertical()
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            for (group, members) in groups {
+                match group {
+                    None => controls::rows(ui, theme, bank, &members),
+                    Some(name) => {
+                        let collapsed = state.is_collapsed(&name);
+                        match group_header(ui, theme, &name, collapsed, members.len()) {
+                            HeaderAction::None => {}
+                            HeaderAction::Toggle => state.set_collapsed(&name, !collapsed),
+                            HeaderAction::Default => {
+                                for &index in &members {
+                                    bank.set_default(index);
+                                }
+                            }
+                            HeaderAction::Random => {
+                                for &index in &members {
+                                    bank.randomize(index, || state.random_unit());
+                                }
+                            }
+                        }
+                        if !collapsed {
+                            ui.indent(("group", &name), |ui| {
+                                controls::rows(ui, theme, bank, &members);
+                            });
+                        }
+                    }
+                }
+                ui.add_space(SPACE_SM);
+            }
+            // Bangs are left alone by default and random; say so once, near
+            // the end, only if the scene has any.
+            let has_bang = bank
+                .defs()
+                .iter()
+                .any(|def| matches!(def.kind, ControlKind::Bang(_)));
+            if has_bang {
+                ui.label(
+                    egui::RichText::new("Default and random leave bangs alone.")
+                        .small()
+                        .color(theme::rgb(theme.text_faint)),
+                );
+            }
+        });
+}
+
+/// What a group header's click did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HeaderAction {
+    None,
+    Toggle,
+    Default,
+    Random,
+}
+
+/// A group header: a chevron that turns, the name, the member count, and
+/// the group's two actions.
+fn group_header(
+    ui: &mut Ui,
+    theme: &Palette,
+    name: &str,
+    collapsed: bool,
+    count: usize,
+) -> HeaderAction {
+    let mut action = HeaderAction::None;
+    let width = ui.available_width();
+    let (rect, response) = ui.allocate_exact_size(Vec2::new(width, 26.0), Sense::click());
+    let id = ui.id().with(("group-header", name));
+    let fill = widgets::hover_fill(
+        ui,
+        response.id,
+        response.hovered(),
+        theme.panel,
+        theme.raised,
+    );
+    ui.painter()
+        .rect_filled(rect, egui::CornerRadius::same(theme::RADIUS), fill);
+    // Collapsed points right; open points down: a quarter turn.
+    let turn = super::motion::toggle(ui.ctx(), id, !collapsed, super::motion::QUICK);
+    icons::paint_rotated(
+        ui.painter(),
+        egui::Rect::from_center_size(
+            egui::pos2(rect.left() + 12.0, rect.center().y),
+            Vec2::splat(icons::DISCLOSURE),
+        ),
+        Icon::ChevronRight,
+        theme::rgb(theme.text_muted),
+        turn * 0.25,
+    );
+    ui.painter().text(
+        egui::pos2(rect.left() + 24.0, rect.center().y),
+        egui::Align2::LEFT_CENTER,
+        name.to_uppercase(),
+        egui::FontId::new(11.0, egui::FontFamily::Proportional),
+        theme::rgb(theme.text),
+    );
+    ui.painter().text(
+        egui::pos2(
+            rect.left() + 24.0 + 7.0 * name.chars().count() as f32 + 14.0,
+            rect.center().y,
+        ),
+        egui::Align2::LEFT_CENTER,
+        count.to_string(),
+        egui::FontId::new(10.0, egui::FontFamily::Proportional),
+        theme::rgb(theme.text_faint),
+    );
+    if response.clicked() {
+        action = HeaderAction::Toggle;
+    }
+    // The two actions sit over the right end of the header and take their
+    // clicks before the header does.
+    let buttons = egui::Rect::from_min_max(
+        egui::pos2(rect.right() - 56.0, rect.top() + 2.0),
+        egui::pos2(rect.right() - 2.0, rect.bottom() - 2.0),
+    );
+    ui.scope_builder(
+        egui::UiBuilder::new()
+            .max_rect(buttons)
+            .layout(egui::Layout::right_to_left(egui::Align::Center)),
+        |ui| {
+            if widgets::icon_button(
+                ui,
+                theme,
+                Icon::Refresh,
+                "Random: move every control in this group to a random value",
+            )
+            .clicked()
+            {
+                action = HeaderAction::Random;
+            }
+            if widgets::icon_button(
+                ui,
+                theme,
+                Icon::Reset,
+                "Default: return every control in this group to its default",
+            )
+            .clicked()
+            {
+                action = HeaderAction::Default;
+            }
+        },
+    );
+    action
+}

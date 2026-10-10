@@ -45,11 +45,15 @@ pub struct UiHost {
 impl UiHost {
     /// Builds the host on the control window's event loop and the shared
     /// GL context (which must be current).
-    pub fn new(event_loop: &ActiveEventLoop, gl: &Gl) -> Result<Self, String> {
+    pub fn new(
+        event_loop: &ActiveEventLoop,
+        gl: &Gl,
+        palette: &crate::palette::Palette,
+    ) -> Result<Self, String> {
         let painter =
             Painter::new(gl.glow(), "", None, true).map_err(|e| format!("egui painter: {e}"))?;
         let ctx = egui::Context::default();
-        crate::theme::apply(&ctx);
+        super::theme::apply(&ctx, palette);
         let input = State::new(
             ctx.clone(),
             ViewportId::ROOT,
@@ -74,9 +78,15 @@ impl UiHost {
         self.input.on_window_event(window, event)
     }
 
-    /// Whether egui is using the keyboard (a text field has focus).
-    pub fn wants_keyboard(&self) -> bool {
-        self.ctx.egui_wants_keyboard_input()
+    /// Re-derives egui's style from `palette`: called when the theme
+    /// changes, not every frame.
+    pub fn apply_theme(&self, palette: &crate::palette::Palette) {
+        super::theme::apply(&self.ctx, palette);
+    }
+
+    /// Whether a text field has keyboard focus.
+    pub fn text_edit_focused(&self) -> bool {
+        self.ctx.text_edit_focused()
     }
 
     /// The egui id for showing `texture`, registering it on first sight.

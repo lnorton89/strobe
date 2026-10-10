@@ -15,8 +15,15 @@
 //!   pointer uniforms it and the shaders read.
 //! - [`audio`]: live capture or synthetic audio, and its settings.
 //! - [`session`]: the one active scene and the render-scale arithmetic.
-//! - [`ui`]: the control window's panels, as a function of a model.
-//! - [`theme`]: the look, in one place.
+//! - [`ui`]: the control window's panels (Contextual Perform, D120), as a
+//!   function of a model.
+//! - The UI system ported from rustaman (D5, D130): [`color`] and
+//!   [`palette`] (themes, with their contrast tests), [`motion`] (durations
+//!   and reduced motion) and [`icon`] (geometry icons). None of them knows
+//!   about egui; `ui::theme`, `ui::motion` and `ui::icon` are the bindings.
+//! - [`workspace`], [`prefs`], [`commands`]: the pane model and how it fits
+//!   a window, the saved UI preferences, and the keyboard command table with
+//!   its focus rule. All pure, all tested without a window.
 //! - [`import`]: Shadertoy import on a worker thread, the panel's state, and
 //!   the browser listener's handler.
 //! - [`library`], [`console`], [`stats`]: the data the UI shows. The console
@@ -54,6 +61,6 @@ pub mod screenshot;
 pub mod script;
 pub mod session;
 pub mod stats;
-pub mod theme;
+
 pub mod ui;
 pub mod workspace;
