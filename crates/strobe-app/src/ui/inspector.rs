@@ -29,6 +29,7 @@
 use super::controls;
 use super::icon as icons;
 use super::model::{Action, Model};
+use super::presets;
 use super::theme::{self, SPACE_SM, SPACE_XS};
 use super::widgets::{self, Tone};
 use crate::icon::Icon;
@@ -65,6 +66,9 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
         script_status(ui, theme, state);
     }
     ui.add_space(SPACE_XS);
+    if has_scene {
+        presets::show(ui, model, theme, actions);
+    }
 
     let ui_state = &mut *model.ui;
     let meta = model.meta.as_deref_mut();

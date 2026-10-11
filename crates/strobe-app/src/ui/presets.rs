@@ -1,0 +1,146 @@
+// ============================================================================
+// Module:       strobe_app::ui::presets
+// Description:  The preset row and the fav slots at the top of the Controls
+//               pane: recall a preset, save the controls as one, and eight
+//               slots for scene + preset pairs.
+//
+// Dependencies: egui; super::{model, theme, widgets}, crate::icon
+// ============================================================================
+
+//! Presets and fav slots (D176).
+//!
+//! ```text
+//! PRESET  [ Slow Burn          v ]  [name         ] [Save]  [Delete]
+//! FAV     [1] [2] [3] [ ] [ ] [ ] [ ] [ ]
+//! ```
+//!
+//! A **preset** is the scene's control values under a name, kept in the
+//! scene folder. Choosing one in the list recalls it at once (the values are
+//! written as targets, so smoothed controls ease to them). *Save* captures
+//! the controls as the name typed, replacing a preset of that name.
+//!
+//! A **fav slot** holds a scene and optionally one of its presets. A filled
+//! slot recalls it with a click (loading the scene first if it is not the
+//! one playing); an empty one stores the playing scene and its active preset.
+//! Right-click a slot to store into it or to clear it. The same slots are
+//! reachable from MIDI, OSC and the macro strip.
+//!
+//! The pane only asks: every action goes back to the app, which owns the
+//! files and the scene.
+
+use super::model::{Action, Model};
+use super::theme::{self, SPACE_SM, SPACE_XS};
+use super::widgets;
+use crate::icon::Icon;
+use crate::palette::Palette;
+use egui::Ui;
+
+/// Draws the preset row and the fav slots.
+pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Vec<Action>) {
+    let panel = &mut model.remote;
+    let names = panel.presets;
+    let active = panel.active_preset;
+    ui.horizontal(|ui| {
+        label(ui, theme, "PRESET");
+        let shown = active.unwrap_or(if names.is_empty() { "none saved" } else { "choose" });
+        egui::ComboBox::from_id_salt("preset-pick")
+            .width(150.0)
+            .selected_text(shown)
+            .show_ui(ui, |ui| {
+                for name in names {
+                    if ui
+                        .selectable_label(active == Some(name.as_str()), name)
+                        .clicked()
+                    {
+                        actions.push(Action::RecallPreset(name.clone()));
+                    }
+                }
+            });
+        let field = &mut panel.ui.preset_name;
+        ui.add(
+            egui::TextEdit::singleline(field)
+                .hint_text("name")
+                .desired_width(ui.available_width() - 120.0),
+        );
+        let name = field.trim().to_string();
+        let usable = strobe_scene::preset::valid_name(&name);
+        let save = ui
+            .add_enabled_ui(usable, |ui| {
+                widgets::button(ui, theme, None, "Save").on_hover_text(
+                    "Save the controls as a preset of this scene. A preset with the same name is replaced.",
+                )
+            })
+            .inner;
+        if save.clicked() {
+            actions.push(Action::SavePreset(name));
+        }
+        if let Some(active) = active
+            && widgets::icon_button(ui, theme, Icon::Close, "Delete the active preset's file").clicked()
+        {
+            actions.push(Action::DeletePreset(active.to_string()));
+        }
+    });
+    ui.add_space(SPACE_XS);
+    ui.horizontal(|ui| {
+        label(ui, theme, "FAV");
+        for slot in 0..strobe_scene::preset::FAV_SLOTS {
+            let fav = panel.remote.favs.get(slot);
+            let filled = fav.is_some();
+            let here = fav.is_some_and(|f| Some(f.scene.as_str()) == panel.scene_name);
+            let tip = match fav {
+                Some(f) => format!(
+                    "Slot {}: {}{}. Click to recall. Right-click to store here or clear.",
+                    slot + 1,
+                    f.scene,
+                    f.preset
+                        .as_deref()
+                        .map_or_else(String::new, |p| format!(" with preset {p}"))
+                ),
+                None => format!(
+                    "Slot {} is empty. Click to store the playing scene here.",
+                    slot + 1
+                ),
+            };
+            let response = widgets::tool_button(
+                ui,
+                theme,
+                if filled { Icon::Check } else { Icon::Close },
+                &(slot + 1).to_string(),
+                here,
+                &tip,
+            );
+            if response.clicked() {
+                actions.push(if filled {
+                    Action::RecallFav(slot)
+                } else {
+                    Action::StoreFav(slot)
+                });
+            }
+            response.context_menu(|ui| {
+                if ui.button("Store the playing scene here").clicked() {
+                    actions.push(Action::StoreFav(slot));
+                    ui.close();
+                }
+                if filled && ui.button("Clear this slot").clicked() {
+                    actions.push(Action::ClearFav(slot));
+                    ui.close();
+                }
+            });
+        }
+    });
+    ui.add_space(SPACE_SM);
+    widgets::section_rule(ui, theme);
+    ui.add_space(SPACE_XS);
+}
+
+fn label(ui: &mut Ui, theme: &Palette, text: &str) {
+    ui.add_sized(
+        [38.0, 18.0],
+        egui::Label::new(
+            egui::RichText::new(text)
+                .size(10.0)
+                .strong()
+                .color(theme::rgb(theme.text_muted)),
+        ),
+    );
+}

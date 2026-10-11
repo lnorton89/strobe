@@ -214,7 +214,10 @@ mod tests {
     #[test]
     fn osc_is_off_unless_asked_for_and_never_on_every_interface_by_default() -> Result<()> {
         let cli = Cli::try_parse_from(["strobe"])?;
-        assert!(!cli.osc && !cli.osc_all_interfaces && !cli.no_midi, "all off");
+        assert!(
+            !cli.osc && !cli.osc_all_interfaces && !cli.no_midi,
+            "all off"
+        );
         let cli = Cli::try_parse_from(["strobe", "--osc", "--osc-port", "9100"])?;
         assert!(cli.osc && !cli.osc_all_interfaces, "loopback unless asked");
         assert_eq!(cli.osc_port, Some(9100), "port");

@@ -237,9 +237,7 @@ impl Remote {
         if overrides.no_midi {
             midi.enabled = false;
         }
-        let hub = overrides
-            .workers
-            .then(|| Hub::start(&midi, &osc));
+        let hub = overrides.workers.then(|| Hub::start(&midi, &osc));
         if osc.enabled && osc.all_interfaces {
             log::warn!(
                 "OSC will listen on every network interface (port {}). Anyone on the network can send it commands.",
@@ -290,12 +288,7 @@ impl Remote {
 
     /// Runs the queued events through the mapper. Control writes land in
     /// `banks`; everything else is appended to `out`.
-    pub fn drain(
-        &mut self,
-        banks: &mut strobe_io::Banks<'_>,
-        now: Instant,
-        out: &mut Vec<Output>,
-    ) {
+    pub fn drain(&mut self, banks: &mut strobe_io::Banks<'_>, now: Instant, out: &mut Vec<Output>) {
         let Some(hub) = self.hub.as_mut() else {
             return;
         };
@@ -379,7 +372,9 @@ impl Remote {
             }
             Status::Dropped(total) => {
                 if total != self.dropped {
-                    log::warn!("show control: {total} input message(s) dropped so far (queue full)");
+                    log::warn!(
+                        "show control: {total} input message(s) dropped so far (queue full)"
+                    );
                 }
                 self.dropped = total;
             }
@@ -469,7 +464,10 @@ impl Remote {
                     return layer(State::Learning, "move a control or send a message");
                 }
                 if conflicts.get(index).copied().unwrap_or(false) {
-                    return layer(State::Conflict, "another mapping answers to the same source");
+                    return layer(
+                        State::Conflict,
+                        "another mapping answers to the same source",
+                    );
                 }
                 resolve(&mapping.target, &scope)
             })
@@ -492,7 +490,10 @@ impl Remote {
                         && (m.target == target || m.target == found.target)
                 });
                 if clash {
-                    return layer(State::Conflict, "its source is also mapped to something else");
+                    return layer(
+                        State::Conflict,
+                        "its source is also mapped to something else",
+                    );
                 }
                 resolve(&target, &scope)
             })
@@ -665,16 +666,25 @@ mod tests {
             ..quiet()
         };
         let remote = Remote::new(&dir, &overrides, Instant::now());
-        assert!(remote.osc.enabled && remote.osc.all_interfaces, "running with the flags");
+        assert!(
+            remote.osc.enabled && remote.osc.all_interfaces,
+            "running with the flags"
+        );
         assert_eq!(remote.osc.port, 9123, "port");
-        assert!(!remote.osc_saved.enabled && !remote.osc_saved.all_interfaces, "saved stays safe");
+        assert!(
+            !remote.osc_saved.enabled && !remote.osc_saved.all_interfaces,
+            "saved stays safe"
+        );
         assert!(!remote.changed(), "and nothing is waiting to be written");
         let mut remote = remote;
         let mut chosen = remote.osc.clone();
         chosen.all_interfaces = false;
         remote.set_osc(chosen);
         assert!(remote.changed(), "an explicit choice is saved");
-        assert!(!remote.osc_saved.all_interfaces && remote.osc_saved.enabled, "as chosen");
+        assert!(
+            !remote.osc_saved.all_interfaces && remote.osc_saved.enabled,
+            "as chosen"
+        );
         std::fs::remove_dir_all(&dir)?;
         Ok(())
     }
@@ -692,7 +702,10 @@ mod tests {
             Target::meta("hue"),
         ));
         remote.persist(start + Duration::from_millis(10));
-        assert!(!dir.join(FILE).exists(), "not yet: the edit has not settled");
+        assert!(
+            !dir.join(FILE).exists(),
+            "not yet: the edit has not settled"
+        );
         remote.persist(start + Duration::from_secs(2));
         remote.finish();
         let loaded = ShowControl::load(&dir.join(FILE));
@@ -710,7 +723,11 @@ mod tests {
         let remote = Remote::new(&dir, &quiet(), Instant::now());
         assert_eq!(remote.problems.len(), 1, "reported");
         let backup = dir.join(format!("{FILE}.bak"));
-        assert_eq!(std::fs::read_to_string(&backup)?, text, "the original is kept");
+        assert_eq!(
+            std::fs::read_to_string(&backup)?,
+            text,
+            "the original is kept"
+        );
         remote.finish();
         std::fs::remove_dir_all(&dir)?;
         Ok(())

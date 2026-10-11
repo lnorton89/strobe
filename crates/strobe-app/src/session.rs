@@ -117,6 +117,24 @@ pub enum LoadError {
     Player(#[from] PlayerError),
 }
 
+/// What the panels borrow from a session for one frame.
+pub struct PanelParts<'a> {
+    /// The scene's design title.
+    pub title: &'a str,
+    /// The scene's folder (library) name.
+    pub name: &'a str,
+    /// The scene's controls.
+    pub controls: &'a mut ControlBank,
+    /// The meta controls.
+    pub meta: &'a mut ControlBank,
+    /// How the scene's script is doing, if it has one.
+    pub script: Option<&'a ScriptState>,
+    /// The scene's preset names.
+    pub presets: &'a [String],
+    /// The preset last recalled or saved.
+    pub active_preset: Option<&'a str>,
+}
+
 /// One loaded, compiled scene.
 #[derive(Debug)]
 pub struct Session {
@@ -287,16 +305,22 @@ impl Session {
     /// Captures the controls as preset `name`, remembers it in memory and
     /// returns it for the caller to write to disk.
     pub fn capture_preset(&mut self, name: &str) -> Preset {
-        let captured = Preset::capture(name, &self.controls, &self.meta, preset::Channels::default());
+        let captured = Preset::capture(
+            name,
+            &self.controls,
+            &self.meta,
+            preset::Channels::default(),
+        );
         match self
             .preset_names
             .iter()
             .position(|n| n.eq_ignore_ascii_case(name))
         {
             Some(index) => {
-                if let (Some(slot), Some(existing)) =
-                    (self.presets.get_mut(index), self.preset_names.get_mut(index))
-                {
+                if let (Some(slot), Some(existing)) = (
+                    self.presets.get_mut(index),
+                    self.preset_names.get_mut(index),
+                ) {
                     *slot = captured.clone();
                     *existing = name.to_string();
                 }
@@ -385,20 +409,16 @@ impl Session {
     /// What the controls panel shows and edits, borrowed together (the
     /// controls mutably, the rest not): the scene's title, its controls,
     /// and how its script is doing, if it has one.
-    pub fn panel_parts(
-        &mut self,
-    ) -> (
-        &str,
-        &mut ControlBank,
-        &mut ControlBank,
-        Option<&ScriptState>,
-    ) {
-        (
-            self.title.as_str(),
-            &mut self.controls,
-            &mut self.meta,
-            self.script.as_ref().map(ScriptRun::state),
-        )
+    pub fn panel_parts(&mut self) -> PanelParts<'_> {
+        PanelParts {
+            title: self.title.as_str(),
+            name: self.name.as_str(),
+            controls: &mut self.controls,
+            meta: &mut self.meta,
+            script: self.script.as_ref().map(ScriptRun::state),
+            presets: &self.preset_names,
+            active_preset: self.active_preset.as_deref(),
+        }
     }
 
     /// Advances the scene by `dt` seconds and renders one frame into the

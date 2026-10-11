@@ -663,7 +663,10 @@ mod tests {
         let dir = temp_scene("loadall")?;
         let scene = scene_bank()?;
         let meta = crate::meta::bank()?;
-        save(&dir, &Preset::capture("good", &scene, &meta, Channels::default()))?;
+        save(
+            &dir,
+            &Preset::capture("good", &scene, &meta, Channels::default()),
+        )?;
         std::fs::write(dir_of(&dir).join("bad.json"), "{ nope")?;
         let (loaded, problems) = load_all(&dir);
         assert_eq!(loaded.len(), 1, "one good");
