@@ -20,6 +20,7 @@ strobe-audio = { path = "crates/strobe-audio" }
 strobe-script = { path = "crates/strobe-script" }
 strobe-diag = { path = "crates/strobe-diag" }
 strobe-playlist = { path = "crates/strobe-playlist" }
+strobe-io = { path = "crates/strobe-io" }
 # Without its `net` feature (the HTTP client, which needs C for ring): a
 # crate that only converts or analyses shaders must not pull a C compiler
 # into the Windows cross-check. The app opts in.
@@ -45,6 +46,11 @@ realfft = "3.5"
 rtrb = "0.4"
 arc-swap = "1.9"
 hound = "3.5"
+
+# Show control (D170): MIDI input (ALSA, WinMM, CoreMIDI) and OSC 1.0 parsing.
+# midir is behind strobe-io's `midi` feature.
+midir = "0.11"
+rosc = "0.11"
 
 rquickjs = "0.14"
 # Shadertoy import (D110): a small blocking HTTP client with rustls (no
