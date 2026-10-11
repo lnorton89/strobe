@@ -19,10 +19,11 @@ crates/
 ├── strobe-autocontrol  Auto-generated controls: finds tunable literals, rewrites them to uniforms, keeps those that measurably change the image
 ├── strobe-app          winit event loop, control window (egui) + output window, wiring
 ├── strobe-playlist     Playlist model, TOML, generator, timeline, playback clock (pure)
-│
-│   planned (see ROADMAP.md):
-└── strobe-io           MIDI, OSC, hotkeys, localhost import listener
+└── strobe-io           Show control: MIDI and OSC workers, mappings, learn, soft takeover, macros (no GL)
 ```
+
+(The localhost import listener stayed in `strobe-shadertoy`, D114. Presets and
+fav slots are in `strobe-scene::preset`, D176.)
 
 ### Dependency direction
 
@@ -31,10 +32,13 @@ strobe-ssf-lib ◀── strobe-scene ◀── strobe-gfx ◀── strobe-app
                         ▲   ▲                        │
                         │   └── strobe-script ◀──────┤
                         └────── strobe-audio  ◀──────┤
-                                strobe-playlist ◀────┘
+                                strobe-playlist ◀────┤
+                                strobe-io       ◀────┘
 
 strobe-scene ◀── strobe-autocontrol ──▶ strobe-gfx   (nothing depends on it yet;
 strobe-shadertoy ◀──┘  (tokenizer only)                 scoring needs a GL context)
+
+strobe-scene ◀── strobe-io                (midir, rosc; never strobe-gfx)
 
 strobe-scene ◀── strobe-shadertoy         (nothing depends on it yet;
                                            dev-dependency: strobe-gfx, for
@@ -55,6 +59,12 @@ strobe-scene ◀── strobe-shadertoy         (nothing depends on it yet;
   tokenizer and tab markers of `strobe-shadertoy`, and `strobe-gfx` (to
   render for scoring). `strobe-gfx` must never depend on it, and the frame
   loop never calls it: scoring runs at import time (D123).
+- `strobe-io` depends on `strobe-scene` (for `ControlBank`, name matching
+  and presets) and on `rosc` and `midir`, and **never on `strobe-gfx`**, a
+  window or egui. It writes controls only through `ControlBank`, so toggle,
+  bang and smoothing semantics have one implementation (D170). Its two worker
+  threads own every blocking call and hand typed events to the app through a
+  bounded queue the app drains once per frame (D171).
 - `strobe-diag` depends on no other Strobe crate, so every crate may
   depend on it (for `log` output, `context::set`, `failure::report`).
   `strobe-gfx` itself only uses the `log` facade; the app is what installs
@@ -114,6 +124,11 @@ threads only ever hand values *to* it.
    recovery policy (see "Context loss"). Hidden only: poll the timer ring and
    stop here if it is full
 1. dt from the clock (fixed in screenshot mode); window and render-size housekeeping
+1b. Show control (`Running::drain_remote`, `app::remote`): take up to 256 queued
+    MIDI and OSC events (never blocks), run each through `strobe_io::Engine`,
+    which writes the live session's scene and meta `ControlBank`s directly and
+    returns commands, cue jumps, fav-slot and preset recalls, which the app
+    carries out through the same `Action`s the buttons send (D171, D173)
 2. mouse uniforms from the pointer over the output window        (app::mouse)
 3. GpuTimer::begin                                               (strobe-gfx::timing)
 3b. With a playlist loaded and compiled (Show::frame, app::show::run):
@@ -195,8 +210,8 @@ screenshot all read the post stage's target when it ran this frame
 there is no pass and no extra target traffic, which is what an HD 4000
 needs. Step order inside it is documented in `strobe_gfx::post`.
 
-Not yet in the frame, from the original design: MIDI and OSC (step 1) and
-audio events that end a cue (`clock.audio_event()`).
+Not yet in the frame, from the original design: audio events that end a cue
+(`clock.audio_event()`).
 
 Loading a playlist is not in the frame at all. `Running::compile_show_step`
 runs once per control-window frame, after that frame is painted, and compiles
@@ -215,8 +230,12 @@ rail | browser (optional) | preview               | inspector / diagnostics / se
 -------------------------------------------------------------------------------------------
 title bar: brand, crumb, health readouts, window buttons (above all of it)
 transport strip: prev, hold (unavailable), next, NOW and NEXT, time, BPM, blackout
-macros: the playing scene's first controls
+macros: the operator's pinned Performance Macros (the scene's first controls until there is one)
 ```
+The MAP pane (right dock, `ui::map`) holds the OSC and MIDI connections, the
+macro set, the mappings with learn and the activity monitor (D177); the
+Controls pane starts with the preset row and the eight fav slots (`ui::presets`,
+D176).
 
 Layers (UI_IMPLEMENTATION_PLAN section 3), and where they are:
 
@@ -234,7 +253,8 @@ Portable modules (no egui, unit-tested anywhere): `color`, `palette`,
 egui layer is `ui/`: `theme`, `motion` and `icon` bind the portable ones;
 `widgets` and `modal` are the shared vocabulary; `shell` composes `chrome`,
 `perform`, `transport` and `macros` with the panes `browser`, `inspector`
-(with `controls`), `diagnostics`, `import` and `settings`; `keys` turns key
+(with `controls` and `presets`), `diagnostics`, `import`, `settings`, `playlist`
+and `map`; `keys` turns key
 events into commands; `host` runs egui on the control window.
 
 What a control-window frame does (30 Hz, off the output frame's path):
