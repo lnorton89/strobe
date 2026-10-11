@@ -328,6 +328,21 @@ pub fn load(scene_dir: &Path, name: &str) -> Result<Preset, PresetError> {
     Preset::from_text(&text).map_err(|source| PresetError::Json { path, source })
 }
 
+/// Every preset of a scene, read once (when the scene is loaded) so that
+/// recalling one during a show touches no disk. Returns the presets by name,
+/// and one line for each file that could not be read; the rest are kept.
+pub fn load_all(scene_dir: &Path) -> (Vec<(String, Preset)>, Vec<String>) {
+    let mut loaded = Vec::new();
+    let mut problems = Vec::new();
+    for name in list(scene_dir) {
+        match load(scene_dir, &name) {
+            Ok(preset) => loaded.push((name, preset)),
+            Err(error) => problems.push(error.to_string()),
+        }
+    }
+    (loaded, problems)
+}
+
 /// Writes `preset` as `presets/<name>.json`, replacing a preset of that
 /// name. The file appears whole or not at all (written aside, then renamed).
 pub fn save(scene_dir: &Path, preset: &Preset) -> Result<PathBuf, PresetError> {
@@ -639,6 +654,22 @@ mod tests {
         );
         delete(&dir, "b")?;
         assert_eq!(list(&dir), vec!["Slow Burn"], "deleted");
+        std::fs::remove_dir_all(&dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn load_all_keeps_the_good_presets_and_reports_the_bad_one() -> Result<()> {
+        let dir = temp_scene("loadall")?;
+        let scene = scene_bank()?;
+        let meta = crate::meta::bank()?;
+        save(&dir, &Preset::capture("good", &scene, &meta, Channels::default()))?;
+        std::fs::write(dir_of(&dir).join("bad.json"), "{ nope")?;
+        let (loaded, problems) = load_all(&dir);
+        assert_eq!(loaded.len(), 1, "one good");
+        assert_eq!(loaded[0].0, "good", "by name");
+        assert_eq!(problems.len(), 1, "one bad: {problems:?}");
+        assert!(problems[0].contains("bad.json"), "{}", problems[0]);
         std::fs::remove_dir_all(&dir)?;
         Ok(())
     }

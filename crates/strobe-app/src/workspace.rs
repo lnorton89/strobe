@@ -19,7 +19,7 @@
 //!
 //! There are two docks. The *left* dock holds the scene [`Pane::Browser`]
 //! and [`Pane::Import`]; the *right* dock holds the [`Pane::Inspector`],
-//! [`Pane::Diagnostics`], [`Pane::Settings`] and [`Pane::Playlist`]. A dock shows one pane: the
+//! [`Pane::Diagnostics`], [`Pane::Settings`], [`Pane::Playlist`] and [`Pane::Map`]. A dock shows one pane: the
 //! most recently opened of its open panes. Closing that pane (Esc closes the
 //! topmost one) reveals the one that was under it, so opening Diagnostics
 //! over the Inspector and pressing Esc puts the Inspector back, which is
@@ -55,6 +55,8 @@ pub enum Pane {
     Settings,
     /// The playlist: load, timeline, generate, and the cue commands.
     Playlist,
+    /// Mappings: MIDI and OSC, learn, macros and the activity monitor.
+    Map,
 }
 
 /// Which side of the work surface a pane docks to.
@@ -68,13 +70,14 @@ pub enum Dock {
 
 impl Pane {
     /// Every pane, in a fixed order that indexes the arrays below.
-    pub const ALL: [Pane; 6] = [
+    pub const ALL: [Pane; 7] = [
         Pane::Browser,
         Pane::Import,
         Pane::Inspector,
         Pane::Diagnostics,
         Pane::Settings,
         Pane::Playlist,
+        Pane::Map,
     ];
 
     fn index(self) -> usize {
@@ -85,6 +88,7 @@ impl Pane {
             Self::Diagnostics => 3,
             Self::Settings => 4,
             Self::Playlist => 5,
+            Self::Map => 6,
         }
     }
 
@@ -92,7 +96,9 @@ impl Pane {
     pub fn dock(self) -> Dock {
         match self {
             Self::Browser | Self::Import => Dock::Left,
-            Self::Inspector | Self::Diagnostics | Self::Settings | Self::Playlist => Dock::Right,
+            Self::Inspector | Self::Diagnostics | Self::Settings | Self::Playlist | Self::Map => {
+                Dock::Right
+            }
         }
     }
 
@@ -105,6 +111,7 @@ impl Pane {
             Self::Diagnostics => "Diagnostics",
             Self::Settings => "Settings",
             Self::Playlist => "Playlist",
+            Self::Map => "Mappings",
         }
     }
 
@@ -117,6 +124,7 @@ impl Pane {
             Self::Diagnostics => "diagnostics",
             Self::Settings => "settings",
             Self::Playlist => "playlist",
+            Self::Map => "map",
         }
     }
 
@@ -132,6 +140,7 @@ impl Pane {
             Self::Inspector => 260.0,
             Self::Diagnostics | Self::Settings => 300.0,
             Self::Playlist => 340.0,
+            Self::Map => 380.0,
         }
     }
 
@@ -142,6 +151,7 @@ impl Pane {
             Self::Inspector => 300.0,
             Self::Diagnostics | Self::Settings => 380.0,
             Self::Playlist => 440.0,
+            Self::Map => 460.0,
         }
     }
 
@@ -152,6 +162,7 @@ impl Pane {
             Self::Inspector => 480.0,
             Self::Diagnostics | Self::Settings => 640.0,
             Self::Playlist => 720.0,
+            Self::Map => 760.0,
         }
     }
 }
@@ -174,10 +185,10 @@ pub const NARROW: f32 = 1000.0;
 /// Which panes are open, how wide, and in what order they were opened.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Panes {
-    open: [bool; 6],
-    width: [f32; 6],
+    open: [bool; 7],
+    width: [f32; 7],
     /// When each pane was last opened, on a counter; larger is newer.
-    stamp: [u64; 6],
+    stamp: [u64; 7],
     clock: u64,
 }
 
@@ -186,9 +197,9 @@ impl Default for Panes {
     /// browser closed until asked for.
     fn default() -> Self {
         let mut panes = Self {
-            open: [false; 6],
+            open: [false; 7],
             width: Pane::ALL.map(Pane::default_width),
-            stamp: [0; 6],
+            stamp: [0; 7],
             clock: 0,
         };
         panes.open(Pane::Inspector);
@@ -235,7 +246,7 @@ impl Panes {
 
     /// Closes every pane, for a larger preview.
     pub fn close_all(&mut self) {
-        self.open = [false; 6];
+        self.open = [false; 7];
     }
 
     /// The pane showing in `dock` when there is room: the most recently

@@ -175,6 +175,50 @@ impl CommandId {
         Self::TapTempo,
     ];
 
+    /// The command's stable id, the name mappings, OSC addresses
+    /// (`/strobe/cmd/<id>`) and the hotkey file use. It never changes once
+    /// shipped, whatever the display name does.
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::NextScene => "next_scene",
+            Self::PrevScene => "prev_scene",
+            Self::ToggleHold => "toggle_hold",
+            Self::ExtendCue => "extend_cue",
+            Self::RestartCue => "restart_cue",
+            Self::SkipSection => "skip_section",
+            Self::ToggleBlackout => "toggle_blackout",
+            Self::ToggleFullscreen => "toggle_fullscreen",
+            Self::FocusBrowserSearch => "focus_browser_search",
+            Self::CloseTopmostPane => "close_topmost_pane",
+            Self::TapTempo => "tap_tempo",
+        }
+    }
+
+    /// The command with this id (case-insensitive), if there is one.
+    pub fn from_id(id: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|command| command.id().eq_ignore_ascii_case(id))
+    }
+
+    /// Whether a controller may run it. The two presentation commands act on
+    /// the control window's panes, and a pad that closes a pane in the
+    /// middle of a show is a mistake waiting to happen.
+    pub fn mappable(self) -> bool {
+        match self {
+            Self::FocusBrowserSearch | Self::CloseTopmostPane => false,
+            Self::NextScene
+            | Self::PrevScene
+            | Self::ToggleHold
+            | Self::ExtendCue
+            | Self::RestartCue
+            | Self::SkipSection
+            | Self::ToggleBlackout
+            | Self::ToggleFullscreen
+            | Self::TapTempo => true,
+        }
+    }
+
     /// The command's name.
     pub fn name(self) -> &'static str {
         match self {
@@ -303,6 +347,35 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn ids_are_unique_stable_and_round_trip() {
+        for (index, a) in CommandId::ALL.iter().enumerate() {
+            assert_eq!(CommandId::from_id(a.id()), Some(*a), "{} round trip", a.id());
+            assert_eq!(
+                CommandId::from_id(&a.id().to_uppercase()),
+                Some(*a),
+                "{} ignores case",
+                a.id()
+            );
+            for b in CommandId::ALL.iter().skip(index + 1) {
+                assert!(a.id() != b.id(), "{} is used twice", a.id());
+            }
+        }
+        assert_eq!(CommandId::from_id("nope"), None, "unknown");
+        assert_eq!(CommandId::NextScene.id(), "next_scene", "the OSC docs name this");
+        assert_eq!(CommandId::ToggleBlackout.id(), "toggle_blackout", "and this");
+    }
+
+    #[test]
+    fn only_the_presentation_commands_are_kept_from_controllers() {
+        let unmappable: Vec<&str> = CommandId::ALL
+            .into_iter()
+            .filter(|c| !c.mappable())
+            .map(CommandId::id)
+            .collect();
+        assert_eq!(unmappable, ["focus_browser_search", "close_topmost_pane"], "which");
     }
 
     #[test]

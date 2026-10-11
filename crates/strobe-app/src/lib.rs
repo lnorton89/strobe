@@ -57,6 +57,7 @@ pub mod palette;
 pub mod perf;
 pub mod prefs;
 pub mod recovery;
+pub mod remote;
 pub mod screenshot;
 pub mod script;
 pub mod session;

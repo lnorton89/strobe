@@ -646,10 +646,10 @@ fn resize_regions(rect: Rect) -> [(Rect, ResizeDirection, egui::CursorIcon); 8] 
     ]
 }
 
-/// The rail's destinations. EDIT and MAP are the Editor and Mappings
-/// workspaces; they are not built yet and are drawn disabled, with a
-/// tooltip that says so, rather than hidden: the rail is how the operator
-/// learns the shape of the app. LIST opens the Playlist pane (D157).
+/// The rail's destinations. EDIT is the Editor workspace; it is not built
+/// yet and is drawn disabled, with a tooltip that says so, rather than
+/// hidden: the rail is how the operator learns the shape of the app. LIST
+/// opens the Playlist pane (D157) and MAP the Mappings pane (D177).
 const RAIL: [(Icon, &str, Option<Pane>, &str); 7] = [
     (
         Icon::Perform,
@@ -668,8 +668,8 @@ const RAIL: [(Icon, &str, Option<Pane>, &str); 7] = [
     (
         Icon::Mapping,
         "MAP",
-        None,
-        "MIDI and OSC mappings: not built yet",
+        Some(Pane::Map),
+        "MIDI and OSC: devices, mappings with learn, macros and the activity monitor",
     ),
     (
         Icon::Diagnostics,

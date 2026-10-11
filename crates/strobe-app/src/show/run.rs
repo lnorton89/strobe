@@ -473,6 +473,7 @@ impl Show {
                 // program on its first draw), so it is not left for the
                 // first cue.
                 session.prime(env.audio, env.start_time);
+                self.check_cue_presets(&scene, &session);
                 log::info!(
                     "playlist: compiled {} ({}/{}) in {:.0} ms",
                     found.name,
@@ -494,6 +495,25 @@ impl Show {
             scene: found.name,
             library_index: found.library_index,
             failure: failure_text,
+        }
+    }
+
+    /// Warns, once and early, about a cue that names a preset its scene does
+    /// not have, instead of at the cue's warm-up in the middle of a show.
+    fn check_cue_presets(&self, scene: &SceneRef, session: &Session) {
+        for (index, cue) in self.clock.timeline().cues().iter().enumerate() {
+            if cue.resolved.scene != *scene {
+                continue;
+            }
+            if let Some(name) = cue.resolved.preset.as_deref()
+                && !session.has_preset(name)
+            {
+                log::warn!(
+                    "playlist: cue {} names preset \"{name}\", which {} does not have; the cue will play with the scene's defaults",
+                    index + 1,
+                    session.name
+                );
+            }
         }
     }
 
@@ -829,11 +849,20 @@ impl Show {
         let Some(cue) = self.clock.timeline().cues().get(index) else {
             return;
         };
-        if cue.resolved.preset.is_some() {
-            log::warn!(
-                "playlist: cue {} names a preset, but scene presets are not built yet (Phase 6); ignored",
-                index + 1
-            );
+        // Settings layer, later over earlier: the scene's defaults, then its
+        // `default` preset (or the cue's own preset, which replaces it), then
+        // the cue's explicit overrides. Presets were read when the scene was
+        // compiled, so this touches no disk (D176).
+        match cue.resolved.preset.as_deref() {
+            Some(name) => match session.apply_preset(name) {
+                Ok(problems) => {
+                    for problem in problems {
+                        log::warn!("playlist: cue {}: preset \"{name}\": {problem}", index + 1);
+                    }
+                }
+                Err(problem) => log::warn!("playlist: cue {}: {problem}", index + 1),
+            },
+            None => session.apply_startup_preset(),
         }
         for problem in resolve::apply_overrides(&mut session.controls, &cue.resolved.overrides) {
             log::warn!("playlist: cue {}: {problem}", index + 1);
