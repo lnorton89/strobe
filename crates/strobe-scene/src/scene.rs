@@ -29,7 +29,7 @@
 use crate::control::ControlDef;
 use crate::error::SceneError;
 use crate::json::{RawImage, RawMedia, RawMediaOptions, RawPass, RawScene, RawSize};
-use crate::names::{is_glsl_identifier, is_reserved, normalize};
+use crate::names::{is_glsl_identifier, is_reserved};
 use std::collections::HashMap;
 
 /// The design resolution when `WIDTH` / `HEIGHT` are absent.
@@ -326,7 +326,10 @@ impl SceneDef {
 
     /// Rejects names that are not identifiers, are reserved, or collide.
     fn check_names(&self) -> Result<(), SceneError> {
-        let mut seen: HashMap<String, &str> = HashMap::new();
+        // Exact duplicates collide in GLSL. Names equal only once normalised
+        // (`in_or_out`, `inOrOut`) are legal there and in real scenes (D196);
+        // the script API then prefers the exact name.
+        let mut seen: HashMap<&str, ()> = HashMap::new();
         for name in self.declared_names() {
             if !is_glsl_identifier(name) {
                 return Err(SceneError::InvalidName(name.to_string()));
@@ -334,9 +337,9 @@ impl SceneDef {
             if is_reserved(name) {
                 return Err(SceneError::ReservedName(name.to_string()));
             }
-            if let Some(first) = seen.insert(normalize(name), name) {
+            if seen.insert(name, ()).is_some() {
                 return Err(SceneError::NameCollision {
-                    first: first.to_string(),
+                    first: name.to_string(),
                     second: name.to_string(),
                 });
             }

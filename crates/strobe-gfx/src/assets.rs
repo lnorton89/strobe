@@ -86,9 +86,20 @@ pub struct CubeFaces {
 }
 
 fn open(path: &Path) -> Result<RgbaImage, String> {
-    image::open(path)
+    decode_file(path)
         .map(image::DynamicImage::into_rgba8)
         .map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// Decodes an image by its content, not its extension: a real Synesthesia
+/// scene ships a PNG named `skytex.jpg`, and Synesthesia shows it (D196).
+pub(crate) fn decode_file(path: &Path) -> Result<image::DynamicImage, String> {
+    image::ImageReader::open(path)
+        .map_err(|e| e.to_string())?
+        .with_guessed_format()
+        .map_err(|e| e.to_string())?
+        .decode()
+        .map_err(|e| e.to_string())
 }
 
 /// Reads the cube map `def` declares, relative to the scene folder `dir`.
@@ -360,6 +371,28 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn an_image_is_decoded_by_its_content_not_its_extension() -> Result<()> {
+        // D196: a real scene ships a PNG named `skytex.jpg`.
+        let scratch = Scratch::new("sniff")?;
+        let png = scratch.0.join("png.png");
+        RgbaImage::from_pixel(2, 2, Rgba([10, 20, 30, 255])).save(&png)?;
+        let misnamed = scratch.0.join("skytex.jpg");
+        std::fs::rename(&png, &misnamed)?;
+        let frame = decode_frame(&misnamed, false).map_err(|e| anyhow!(e))?;
+        assert_eq!(
+            (frame.width, frame.height),
+            (2, 2),
+            "decoded as the PNG it is"
+        );
+        assert_eq!(
+            frame.rgba.get(..3),
+            Some(&[10_u8, 20, 30][..]),
+            "pixels intact"
+        );
+        Ok(())
     }
 
     fn solid(w: u32, h: u32, color: [u8; 4]) -> RgbaImage {
