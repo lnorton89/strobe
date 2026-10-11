@@ -48,6 +48,11 @@ Each item names its acceptance test. Details and evidence are in
    scale, an audio device removed and reconnected, a 30-minute soak with
    scene switches. *Accept:* each result
    recorded in [hardware/T480.md](hardware/T480.md), failures included.
+   *Done except the audio reconnect:* recovery (Task 8), bug 1 (Tasks 8 and
+   14), and the soak (Task 17: a 30-minute fullscreen playlist, 271
+   transitions, 0 runtime compiles, flat memory and handles, 60 fps, exit in
+   0.11 s). Open: the minute-6 step in memory and GPU time, and unplugging
+   and replugging the audio device.
 2. **Perform-first UI.** *Stage 1 built* (D130-D138, rustaman's UI system
    ported, D5): Contextual Perform with the shell, the panes above,
    persistence, the keyboard model and every state in the audit

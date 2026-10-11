@@ -2688,3 +2688,43 @@ dialects: a 16x8 grid stays 16x8 after a resize, a normal pass follows to
 **Would reopen:** finding that Synesthesia treats `PASSES` sizes as
 absolute (Q24), in which case the default should flip for SSF scenes.
 
+### D192: the output is opaque, and ES global initializers move into `main` (2026-10-11)
+
+TORNADO's run over 65 real Synesthesia scenes (T2) found two bugs that no
+original scene had shown.
+
+**Alpha.** `cosine_palette_generator`, `hello_world_start` and
+`hello_world_end` return alpha 0 from the final pass (`hello_world_start`
+returns `vec4(1.0, 0.0, 0.0, 0.0)`, meant to be red) and came out white or
+transparent. Synesthesia's output and Shadertoy's canvas are opaque, so the
+assembler now writes alpha 1 after the final pass's `renderMain()`. With
+`PASSINDEX` a constant that is one line in the final program. In shared mode
+it is `if (PASSINDEX == last)`. Buffer passes keep their alpha, which scenes
+use as a fourth data channel. When Synesthesia's `Alpha Channel` meta control
+is built (Q21), it is the one thing allowed to undo this.
+
+**Global initializers on ES.** GLSL ES 3.00 requires a global initializer to
+be a constant expression. Desktop GLSL drivers (Mesa, NVIDIA) accept any
+expression, and real scenes rely on it: 31 of the 65 open with `vec4 iMouse =
+vec4(MouseXY*RENDERSIZE, MouseClick, MouseClick);`, so ANGLE rejected them.
+`fixups::hoist_global_initializers` runs for `Dialect::Es300` only, like
+D163. It turns each plain global `T name = expression;` into `T name;`,
+blanking the initializer with spaces and keeping newlines so no line moves.
+The assembler then runs the assignments at the top of `main`, in source
+order, after `_xy`/`_uv`/`_uvc` are set, each under a `#line` pointing back
+at its line of `main.glsl`. That is equivalent, because a global can only be
+read from a function and every function runs from `main`, and the order lets
+one global use another. Only value types (`float` through `mat4`, with an
+optional precision qualifier) are touched. `const`, `uniform`, arrays, structs,
+declarations of several names, function bodies and preprocessor lines are
+left alone.
+
+Evidence: `fixups::hoist_tests` (4 tests) and `render.rs`
+`a_non_constant_global_initializer_compiles_in_both_dialects` and
+`the_output_is_opaque_and_buffer_passes_keep_their_alpha`, on both dialects
+and in both `PASSINDEX` modes.
+
+**Would reopen:** a scene that reads a global from a global initializer
+*before* `main` would run on desktop (impossible in GLSL), or Synesthesia's
+output turning out to honour alpha.
+
