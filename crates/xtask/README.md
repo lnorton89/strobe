@@ -40,6 +40,8 @@ cargo xtask changelog --check                 # what CI runs; compares released 
 cargo xtask changelog --release v0.2.0        # write a release's section before tagging
 cargo xtask bench -- --size 1280x720          # strobe-bench, in release
 cargo xtask symbolicate crash-….dmp           # a crash dump as a readable stack
+cargo xtask brand                             # icon PNGs and .ico from assets/brand/*.svg
+cargo xtask brand --check                     # what CI runs; fails on a stale render
 ```
 
 Flags, from the clap definitions:
@@ -54,6 +56,10 @@ Flags, from the clap definitions:
   `--out <file>`. It needs `cargo install dump_syms minidump-stackwalk
   --locked`, and finds the tools on `PATH` or in cargo's `bin` folder. See
   [`docs/DEBUGGING.md`](../../docs/DEBUGGING.md).
+- `brand`: `--check`. Renders `icon-small.svg` at 16-32 px and `icon.svg`
+  at 48-512 px with resvg (no fonts, so the bytes depend only on
+  `Cargo.lock`), and packs `icon.ico`. See D190 and
+  [`assets/brand/README.md`](../../assets/brand/README.md).
 
 Environment: `cargo xtask ci` sets `STROBE_REQUIRE_HEADLESS_GL=1` for the test
 step on Linux (unless you already set it or pass `--allow-gl-skip`), so a

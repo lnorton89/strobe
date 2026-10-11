@@ -28,7 +28,7 @@
 
 use crate::control::ControlDef;
 use crate::error::SceneError;
-use crate::json::{RawImage, RawPass, RawScene, RawSize};
+use crate::json::{RawImage, RawMedia, RawMediaOptions, RawPass, RawScene, RawSize};
 use crate::names::{is_glsl_identifier, is_reserved, normalize};
 use std::collections::HashMap;
 
@@ -121,6 +121,27 @@ pub struct CubemapDef {
     pub paths: Vec<String>,
 }
 
+/// The default sequence rate, frames per second.
+pub const DEFAULT_MEDIA_FPS: f32 = 24.0;
+
+/// What `syn_Media` shows when the scene brings its own picture: a still
+/// image, or a folder of images played in file-name order (D186).
+#[derive(Debug, Clone, PartialEq)]
+pub struct MediaDef {
+    /// A file or a folder, relative to the scene folder.
+    pub path: String,
+    /// Sequence rate in frames per second (ignored for a still).
+    pub fps: f32,
+    /// Whether a sequence repeats.
+    pub looping: bool,
+    /// Sampler wrap mode. Media gets `Clamp`, so `_uv` offsets do not tile.
+    pub wrap: Wrap,
+    /// Sampler filter mode. Media gets `Linear`.
+    pub filter: Filter,
+    /// Whether the files are flipped vertically on load.
+    pub vflip: bool,
+}
+
 /// A float uniform driven by song-change transitions rather than a control.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TransitionUniform {
@@ -153,6 +174,8 @@ pub struct SceneDef {
     pub cubemaps: Vec<CubemapDef>,
     /// Uniforms declared by `HARD_TRANSITIONS` / `SMOOTH_TRANSITIONS`.
     pub transition_uniforms: Vec<TransitionUniform>,
+    /// The scene's own `syn_Media` picture, if it names one.
+    pub media: Option<MediaDef>,
     /// One shader file per pass (the final pass last), relative to the
     /// scene folder, when the scene sets `PASS_SOURCES`. `None` means every
     /// pass runs `main.glsl`, as in SSF. When present it has exactly
@@ -229,6 +252,7 @@ impl SceneDef {
             }
         }
 
+        let media = raw.media.as_ref().map(media_def).transpose()?;
         let pass_sources = match &raw.pass_sources {
             None => None,
             Some(files) => {
@@ -272,6 +296,7 @@ impl SceneDef {
             images,
             cubemaps,
             transition_uniforms,
+            media,
             pass_sources,
             source,
         };
@@ -341,7 +366,7 @@ fn parse_filter(text: Option<&str>, default: Filter) -> Result<Filter, String> {
 /// Whether `path` stays inside the scene folder: relative, with no `..`,
 /// no drive or root, and no backslash (which means different things on
 /// different systems).
-fn is_folder_relative(path: &str) -> bool {
+pub fn is_folder_relative(path: &str) -> bool {
     use std::path::{Component, Path};
     !path.is_empty()
         && !path.contains(['\\', ':', '\0'])
@@ -365,6 +390,41 @@ fn image_def(raw: &RawImage) -> Result<ImageDef, SceneError> {
         wrap,
         filter,
         vflip: raw.vflip.unwrap_or(true),
+    })
+}
+
+/// Validates the `MEDIA` key. A path that leaves the scene folder is an
+/// error here, because unlike a missing file it can never become right.
+fn media_def(raw: &RawMedia) -> Result<MediaDef, SceneError> {
+    let options = match raw {
+        RawMedia::Path(path) => RawMediaOptions {
+            path: path.clone(),
+            ..RawMediaOptions::default()
+        },
+        RawMedia::Full(options) => options.clone(),
+    };
+    let bad =
+        |key: &str, value: String| SceneError::invalid(format!("MEDIA: unknown {key} `{value}`"));
+    if !is_folder_relative(&options.path) {
+        return Err(SceneError::invalid(format!(
+            "MEDIA path `{}` must be a relative path inside the scene folder",
+            options.path
+        )));
+    }
+    let fps = options.fps.unwrap_or(DEFAULT_MEDIA_FPS);
+    if !fps.is_finite() || fps <= 0.0 {
+        return Err(SceneError::invalid(format!(
+            "MEDIA FPS must be above zero, got {fps}"
+        )));
+    }
+    Ok(MediaDef {
+        path: options.path.clone(),
+        fps,
+        looping: options.looping.unwrap_or(true),
+        wrap: parse_wrap(options.wrap.as_deref(), Wrap::Clamp).map_err(|v| bad("WRAP", v))?,
+        filter: parse_filter(options.filter.as_deref(), Filter::Linear)
+            .map_err(|v| bad("FILTER", v))?,
+        vflip: options.vflip.unwrap_or(true),
     })
 }
 
@@ -587,6 +647,46 @@ mod tests {
             "s",
         );
         assert!(bad.is_err(), "an unknown image wrap is an error");
+        Ok(())
+    }
+
+    #[test]
+    fn media_is_a_bare_path_or_an_object_and_stays_in_the_folder() -> Result<()> {
+        let bare = SceneDef::parse(r#"{ "MEDIA": "pics/a.png" }"#, "s")?;
+        let media = bare.media.ok_or_else(|| anyhow::anyhow!("no media"))?;
+        assert_eq!(media.path, "pics/a.png", "path");
+        assert_eq!(
+            (
+                media.fps,
+                media.looping,
+                media.wrap,
+                media.filter,
+                media.vflip
+            ),
+            (24.0, true, Wrap::Clamp, Filter::Linear, true),
+            "defaults"
+        );
+        let full = SceneDef::parse(
+            r#"{ "MEDIA": { "PATH": "frames", "FPS": 8, "LOOP": false, "FILTER": "nearest" } }"#,
+            "s",
+        )?;
+        let media = full.media.ok_or_else(|| anyhow::anyhow!("no media"))?;
+        assert_eq!(
+            (media.fps, media.looping, media.filter),
+            (8.0, false, Filter::Nearest),
+            "options"
+        );
+        assert!(
+            SceneDef::parse("{}", "s")?.media.is_none(),
+            "absent means none"
+        );
+        for bad in [
+            r#"{ "MEDIA": "../x.png" }"#,
+            r#"{ "MEDIA": { "PATH": "a", "FPS": 0 } }"#,
+            r#"{ "MEDIA": { "PATH": "a", "WRAP": "spiral" } }"#,
+        ] {
+            assert!(SceneDef::parse(bad, "s").is_err(), "{bad} must be rejected");
+        }
         Ok(())
     }
 

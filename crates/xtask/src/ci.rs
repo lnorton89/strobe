@@ -3,8 +3,8 @@
 // Description:  `cargo xtask ci`: runs locally, in order, the checks that
 //               .github/workflows/ci.yml runs, and stops at the first failure.
 //
-// Dependencies: clap, anyhow, std::process; crate::changelog (the in-process
-//               changelog check)
+// Dependencies: clap, anyhow, std::process; crate::changelog and crate::brand
+//               (the in-process changelog and icon checks)
 // ============================================================================
 
 //! `cargo xtask ci`: what CI runs, without the push.
@@ -21,6 +21,8 @@
 //!    compiler for MSVC)
 //! 5. `cargo deny check`, when `cargo-deny` is installed
 //! 6. the changelog check
+//! 7. the brand check: the icon PNGs and `.ico` match a fresh render of
+//!    their SVG sources (`cargo xtask brand --check`)
 //!
 //! It **stops at the first failure**. Later steps usually fail for the same
 //! reason, and a wall of clippy errors under a formatting failure buries
@@ -39,7 +41,7 @@
 //! `--allow-gl-skip` to opt out on a machine that cannot have one.
 //! Elsewhere the variable is left alone, as in CI's Windows and macOS jobs.
 
-use crate::changelog;
+use crate::{brand, changelog};
 use anyhow::{Context as _, Result, bail};
 use clap::Args as ClapArgs;
 use std::path::Path;
@@ -76,6 +78,8 @@ enum Action {
     },
     /// The in-process changelog check.
     Changelog,
+    /// The in-process icon check.
+    Brand,
     /// Not runnable here, for this reason.
     Skip(String),
 }
@@ -262,6 +266,10 @@ fn plan(args: &Args) -> Result<Vec<Step>> {
         name: "changelog",
         action: Action::Changelog,
     });
+    steps.push(Step {
+        name: "brand",
+        action: Action::Brand,
+    });
     Ok(steps)
 }
 
@@ -323,6 +331,7 @@ fn describe(action: &Action) -> String {
             format!("{vars}cargo {}", args.join(" "))
         }
         Action::Changelog => "cargo xtask changelog --check".to_owned(),
+        Action::Brand => "cargo xtask brand --check".to_owned(),
         Action::Skip(reason) => format!("skipped ({reason})"),
     }
 }
@@ -332,6 +341,10 @@ fn execute(action: &Action) -> Outcome {
     match action {
         Action::Skip(reason) => Outcome::Skipped(reason.clone()),
         Action::Changelog => match changelog::run(true, None) {
+            Ok(()) => Outcome::Passed,
+            Err(error) => Outcome::Failed(format!("{error:#}")),
+        },
+        Action::Brand => match brand::run(true) {
             Ok(()) => Outcome::Passed,
             Err(error) => Outcome::Failed(format!("{error:#}")),
         },

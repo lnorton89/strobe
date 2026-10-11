@@ -34,10 +34,12 @@
 //!   pure state machine) and `STROBE_FAULT`, which injects one to test it.
 //! - [`localtime`]: local wall-clock time for `strobe_Date`.
 //! - [`screenshot`]: the `--screenshot` verification mode.
+//! - [`brand`]: the window and taskbar icon (D190).
 //! - [`cli`]: the command line.
 
 pub mod app;
 pub mod audio;
+pub mod brand;
 pub mod cli;
 pub mod color;
 pub mod commands;

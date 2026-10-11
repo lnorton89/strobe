@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="assets/brand/icon-128.png" width="96" height="96" alt="The Strobe ribbon mark">
+
 # Strobe
 
 **A Synesthesia-style VJ engine in Rust, built for old laptops.**

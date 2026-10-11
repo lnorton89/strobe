@@ -20,6 +20,7 @@ macOS and Linux later. Performance is a feature, not a polish step.
 | [`docs/PLAN.md`](docs/PLAN.md) | The original design plan and its research sources. It's historical. Where it disagrees with DECISIONS.md, DECISIONS.md wins. |
 | [`docs/AGENT_RESEARCH.md`](docs/AGENT_RESEARCH.md) | Before starting app, script, audio, Shadertoy, playlist, diagnostics, or performance work. It records verified upstream behaviour and integration contracts. |
 | [`docs/UI_DESIGN.md`](docs/UI_DESIGN.md) | Before touching strobe-app UI. It defines the Perform-first information architecture, control UX, workspaces, theme/motion rules, and UI acceptance criteria. |
+| [`docs/branding.md`](docs/branding.md) | Before touching the theme colours, the icon, the title-bar mark, README imagery or release graphics. The SVGs in `assets/brand/` are the sources; run `cargo xtask brand` after editing one. |
 
 ## Commands
 
@@ -28,6 +29,7 @@ cargo xtask ci                                            # everything CI runs; 
 cargo xtask changelog [--check | --release vX.Y.Z]       # CHANGELOG.md is generated; never hand-edit it
 cargo xtask bench -- --size 1280x720                      # strobe-bench in release; args forwarded
 cargo xtask symbolicate <crash.dmp>                       # minidump -> stack with function names and file:line
+cargo xtask brand [--check]                               # icon PNGs + .ico from assets/brand/*.svg
 cargo test --workspace                                    # everything
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo fmt --all -- --check
@@ -38,7 +40,7 @@ cargo run --release -p strobe-bench -- --size 1280x720     # benchmark + frames
 All of these are clean on the branch, and CI enforces them. A warning is
 a build failure. `cargo xtask ci` runs the lot (fmt, clippy, tests, the
 Windows cross-clippy when the target is installed, cargo-deny when
-installed, the changelog check); a skipped step says why.
+installed, the changelog check, the brand check); a skipped step says why.
 
 `CHANGELOG.md` is **generated** from conventional-commit subjects by
 `cargo xtask changelog`, so commit subjects matter and the file is never
