@@ -163,10 +163,15 @@ fn expect_uniform(output: &FrameOutput, name: &str, ty: ExtraType, expected: &[f
 }
 
 fn errors(output: &FrameOutput) -> Vec<&str> {
+    at_level(output, ConsoleLevel::Error)
+}
+
+/// The console lines at `level`.
+fn at_level(output: &FrameOutput, level: ConsoleLevel) -> Vec<&str> {
     output
         .console
         .iter()
-        .filter(|line| line.level == ConsoleLevel::Error)
+        .filter(|line| line.level == level)
         .map(|line| line.text.as_str())
         .collect()
 }
@@ -458,18 +463,21 @@ fn control_names_ignore_case_spaces_underscores_and_dashes() -> Result<()> {
 }
 
 #[test]
-fn an_unknown_control_is_one_console_error_not_one_per_frame() -> Result<()> {
+fn an_unknown_control_is_one_console_warning_not_one_per_frame() -> Result<()> {
+    // A warning, not an error (D193): real template scripts name controls
+    // their scene lacks.
     let script = r#"function update() { setControl("nope", 1); randomizeControl("nada"); }"#;
     let mut rig = Rig::new(script, &[SLIDER])?;
     let first = rig.step();
     let second = rig.step();
     assert_eq!(first.status, ScriptStatus::Running, "not a fault");
     assert_eq!(
-        errors(&first).len(),
+        at_level(&first, ConsoleLevel::Warn).len(),
         2,
         "one per distinct problem: {:?}",
         first.console
     );
+    assert!(errors(&first).is_empty(), "no errors: {:?}", first.console);
     assert!(
         second.console.is_empty(),
         "silent after: {:?}",
@@ -860,7 +868,7 @@ fn handlers_run_before_update_and_may_write_controls() -> Result<()> {
 }
 
 #[test]
-fn a_missing_callback_or_target_is_one_error_at_registration() -> Result<()> {
+fn a_missing_callback_is_an_error_and_an_unknown_input_a_warning() -> Result<()> {
     let script = r#"
         function setup() {
             onChange("mySlider", "doesNotExist");
@@ -872,14 +880,15 @@ fn a_missing_callback_or_target_is_one_error_at_registration() -> Result<()> {
     let first = rig.step();
     let second = rig.step();
     let messages = errors(&first);
-    assert_eq!(messages.len(), 2, "one per bad registration: {messages:?}");
+    let warnings = at_level(&first, ConsoleLevel::Warn);
+    assert_eq!(messages.len(), 1, "the missing callback: {messages:?}");
     assert!(
         messages.iter().any(|m| m.contains("doesNotExist")),
         "names the missing callback: {messages:?}"
     );
     assert!(
-        messages.iter().any(|m| m.contains("noSuchInput")),
-        "names the unknown input: {messages:?}"
+        warnings.iter().any(|m| m.contains("noSuchInput")),
+        "names the unknown input, as a warning (D193): {warnings:?}"
     );
     assert!(
         second.console.is_empty(),
