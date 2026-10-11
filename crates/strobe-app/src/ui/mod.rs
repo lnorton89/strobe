@@ -36,8 +36,9 @@
 //! - The shell: [`shell`] composes [`chrome`] (title bar, readouts, rail,
 //!   resize handles), [`perform`] (toolbar, banners, preview) and
 //!   [`transport`] with [`macros`].
-//! - The panes: [`browser`], [`inspector`] (with [`controls`]),
-//!   [`diagnostics`], [`import`], [`settings`] (with [`audio`]).
+//! - The panes: [`browser`], [`inspector`] (with [`controls`] and [`presets`]),
+//!   [`diagnostics`], [`import`], [`settings`] (with [`audio`]), [`playlist`]
+//!   and [`map`].
 //! - [`keys`] turns key events into commands under the focus rule.
 //! - [`host`] runs egui on the control window.
 //!
@@ -59,11 +60,13 @@ pub mod import;
 pub mod inspector;
 pub mod keys;
 pub mod macros;
+pub mod map;
 pub mod modal;
 pub mod model;
 pub mod motion;
 pub mod perform;
 pub mod playlist;
+pub mod presets;
 pub mod settings;
 pub mod shell;
 #[cfg(test)]
@@ -77,8 +80,9 @@ pub mod widgets;
 
 pub use host::UiHost;
 pub use model::{
-    Action, AudioPanel, CueTransport, FailurePanel, ImportPanel, ListenerPanel, Model, NoticePanel,
-    PerfPanel, PlaylistPanel, PlaylistUi, Preview, ScenePreview, TransportPanel,
+    Action, AddForm, AddKind, AudioPanel, CueTransport, FailurePanel, ImportPanel, ListenerPanel,
+    MapUi, Model, NoticePanel, PerfPanel, PlaylistPanel, PlaylistUi, Preview, RemotePanel,
+    ScenePreview, TransportPanel,
 };
 pub use shell::ShellState;
 pub use state::UiState;
@@ -89,7 +93,7 @@ mod tests {
     /// is where colours are made. `motion` is not here either: it is the
     /// one module allowed to animate. `icon` holds the painting of the
     /// geometry and `state` has no drawing at all.
-    const DRAWING_MODULES: [(&str, &str); 17] = [
+    const DRAWING_MODULES: [(&str, &str); 19] = [
         ("audio", include_str!("audio.rs")),
         ("browser", include_str!("browser.rs")),
         ("chrome", include_str!("chrome.rs")),
@@ -98,9 +102,11 @@ mod tests {
         ("import", include_str!("import.rs")),
         ("inspector", include_str!("inspector.rs")),
         ("macros", include_str!("macros.rs")),
+        ("map", include_str!("map.rs")),
         ("modal", include_str!("modal.rs")),
         ("perform", include_str!("perform.rs")),
         ("playlist", include_str!("playlist.rs")),
+        ("presets", include_str!("presets.rs")),
         ("settings", include_str!("settings.rs")),
         ("shell", include_str!("shell.rs")),
         ("transport", include_str!("transport.rs")),

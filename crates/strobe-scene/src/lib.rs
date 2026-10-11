@@ -45,6 +45,7 @@ pub mod json;
 pub mod load;
 pub mod meta;
 pub mod names;
+pub mod preset;
 pub mod scene;
 pub mod synthetic;
 

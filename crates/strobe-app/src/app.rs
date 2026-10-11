@@ -91,7 +91,7 @@
 
 use crate::audio::AudioInput;
 use crate::cli::{AudioArg, Cli};
-use crate::commands::{self, CommandId, Focus};
+use crate::commands::{self, Bindings, CommandId, Focus};
 use crate::console::Console;
 use crate::failures;
 use crate::fault::{self, Faults};
@@ -102,21 +102,23 @@ use crate::localtime::LocalDate;
 use crate::mouse::{Button, MouseTracker};
 use crate::perf::{self, Performance};
 use crate::recovery::{Decision, Event, Rebuild, Recovery, Surface};
+use crate::remote::{Overrides, Remote};
 use crate::screenshot::{Screenshot, Target};
 use crate::session::{self, Session};
 use crate::show::{self, Env, Phase, Show};
 use crate::stats::FrameStats;
 use crate::ui::widgets::Tone;
 use crate::ui::{
-    Action, CueTransport, FailurePanel, ImportPanel, ListenerPanel, Model, NoticePanel, PerfPanel,
-    PlaylistPanel, PlaylistUi, Preview, ScenePreview, ShellState, TransportPanel, UiHost, UiState,
-    shell,
+    Action, CueTransport, FailurePanel, ImportPanel, ListenerPanel, MapUi, Model, NoticePanel,
+    PerfPanel, PlaylistPanel, PlaylistUi, Preview, RemotePanel, ScenePreview, ShellState,
+    TransportPanel, UiHost, UiState, shell,
 };
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use strobe_diag::context;
 use strobe_diag::failure::{self, Failure, Subsystem};
 use strobe_gfx::{Compositor, GlChoice, GpuTimer, MediaRequest, Post, SwapWindow, WindowedContext};
+use strobe_io::{Banks, Output};
 use strobe_playlist::{Command, Playlist, ResumePoint};
 use strobe_scene::control::def::Values;
 use strobe_scene::meta::MetaValues;
@@ -637,6 +639,17 @@ struct Running {
     shot_load: Option<String>,
     /// The LIST pane's state.
     playlist_ui: PlaylistUi,
+    /// MIDI, OSC, mappings, macros and the fav slots (D170 to D177).
+    remote: Remote,
+    /// The keyboard shortcuts in force: the defaults plus `hotkeys` (D178).
+    bindings: Bindings,
+    /// Outputs the mapper handed back this frame, kept to reuse its buffer.
+    remote_out: Vec<Output>,
+    /// The MAP pane's state.
+    map_ui: MapUi,
+    /// A preset to apply once the scene at this library index has loaded
+    /// (a fav slot recalled a scene and a preset together).
+    pending_preset: Option<(usize, String)>,
     /// Whether the resume point is read and saved (`--no-resume`, and never
     /// in screenshot mode).
     resume_enabled: bool,
@@ -747,6 +760,23 @@ impl Running {
             quit: false,
             shot_load: cli.request_load.clone(),
             playlist_ui: PlaylistUi::default(),
+            remote: Remote::new(
+                &data_dir,
+                &Overrides {
+                    workers: cli.screenshot.is_none() || cli.osc,
+                    osc: cli.osc,
+                    osc_port: cli.osc_port,
+                    osc_all_interfaces: cli.osc_all_interfaces,
+                    no_midi: cli.no_midi || cli.screenshot.is_some(),
+                    file: cli.show_control.clone(),
+                    read_only: cli.screenshot.is_some(),
+                },
+                now,
+            ),
+            remote_out: Vec::new(),
+            bindings: Bindings::default(),
+            map_ui: MapUi::default(),
+            pending_preset: None,
             resume_enabled: !cli.no_resume && cli.screenshot.is_none(),
             last_cue: None,
             ready_frames: None,
@@ -792,6 +822,11 @@ impl Running {
             listen_port: cli.listen_port,
             data_dir,
         };
+        let (bindings, problems) = Bindings::from_config(&running.remote.hotkeys);
+        for problem in problems {
+            log::warn!("{problem}");
+        }
+        running.bindings = bindings;
         running.refresh_monitors(event_loop);
         log::info!("GL: {}", running.gl_summary);
         if cli.listen {
@@ -838,6 +873,8 @@ impl Running {
         drop(self.listener);
         // Write the layout if a change is still waiting, off the UI thread.
         self.ui_state.finish();
+        // Likewise the mappings and macros, and stop the MIDI and OSC workers.
+        self.remote.finish();
         self.stack.release();
     }
 
@@ -1311,7 +1348,7 @@ impl Running {
         let Some(chord) = chord_of(&key.logical_key) else {
             return;
         };
-        if let Some(command) = commands::dispatch(chord, Focus::default())
+        if let Some(command) = commands::dispatch_with(chord, Focus::default(), &self.bindings)
             && let Some(action) = command_action(command, self.blackout)
         {
             let mut actions = vec![action];
@@ -1444,8 +1481,14 @@ impl Running {
                     size[1],
                     started.elapsed().as_secs_f64() * 1000.0
                 );
+                if let Some((target, name)) = self.pending_preset.take()
+                    && target == index
+                {
+                    self.recall_preset(&name);
+                }
             }
             Err(error) => {
+                self.pending_preset = None;
                 failure::report(failures::scene_load(
                     &entry.name,
                     &entry.dir,
@@ -2093,7 +2136,12 @@ impl Running {
                     self.playlist_command(Command::SkipSection);
                 }
                 Action::JumpToCue(index) => {
-                    self.playlist_command(Command::JumpTo(index));
+                    if !self.playlist_command(Command::JumpTo(index)) && self.stack.show.is_none() {
+                        self.say(
+                            Tone::Info,
+                            "Jumping to a cue needs a playlist. Load one in the LIST pane.",
+                        );
+                    }
                 }
                 Action::LoadPlaylist(text) => self.load_playlist(Path::new(&text)),
                 Action::UnloadPlaylist => self.unload_show("it was unloaded"),
@@ -2181,8 +2229,202 @@ impl Running {
                         self.stop_listener();
                     }
                 }
+                Action::SetOsc(settings) => self.remote.set_osc(settings),
+                Action::SetMidiEnabled(enabled) => {
+                    let mut settings = self.remote.midi_saved.clone();
+                    settings.enabled = enabled;
+                    self.remote.set_midi(settings);
+                }
+                Action::SetMidiDevice(key, used) => self.remote.set_device_enabled(&key, used),
+                Action::RescanMidi => self.remote.rescan_midi(),
+                Action::SavePreset(name) => self.save_preset(&name),
+                Action::RecallPreset(name) => self.recall_preset(&name),
+                Action::DeletePreset(name) => self.delete_preset(&name),
+                Action::StoreFav(slot) => self.store_fav(slot),
+                Action::ClearFav(slot) => self.remote.favs.clear(slot),
+                Action::RecallFav(slot) => self.recall_fav(slot),
+                Action::RunCommand(id) => self.run_command(&id),
             }
         }
+    }
+
+    // --------------------------------------------------------- show control
+
+    /// Step 1 of the frame (docs/ARCHITECTURE.md): runs the MIDI and OSC
+    /// events that arrived since the last frame through the mapper. Control
+    /// writes land in the live scene's banks through `ControlBank`; commands,
+    /// cues, fav slots and presets come back as outputs and are carried out
+    /// by the same actions the buttons send.
+    fn drain_remote(&mut self, now: Instant) {
+        if !self.remote.workers_running() {
+            return;
+        }
+        let mut outputs = std::mem::take(&mut self.remote_out);
+        outputs.clear();
+        {
+            let (scene, meta) = match self.stack.session.as_mut() {
+                Some(session) => (Some(&mut session.controls), Some(&mut session.meta)),
+                None => (None, None),
+            };
+            let mut banks = Banks { scene, meta };
+            self.remote.drain(&mut banks, now, &mut outputs);
+        }
+        if !outputs.is_empty() {
+            let mut actions: Vec<Action> = Vec::with_capacity(outputs.len());
+            for output in outputs.drain(..) {
+                match output {
+                    Output::Command(id) => actions.push(Action::RunCommand(id)),
+                    Output::Cue(number) => {
+                        actions.push(Action::JumpToCue(number.saturating_sub(1) as usize));
+                    }
+                    Output::FavSlot(slot) => {
+                        actions.push(Action::RecallFav(usize::from(slot).saturating_sub(1)));
+                    }
+                    Output::Preset(name) => actions.push(Action::RecallPreset(name)),
+                }
+            }
+            self.apply(&mut actions);
+        }
+        self.remote_out = outputs;
+    }
+
+    /// Runs a command from the command table by its id (a mapping, a macro
+    /// or an OSC address named it).
+    fn run_command(&mut self, id: &str) {
+        let Some(command) = CommandId::from_id(id).filter(|c| c.mappable()) else {
+            log::warn!("show control: there is no command \"{id}\"");
+            return;
+        };
+        if let Some(action) = command_action(command, self.blackout) {
+            let mut actions = vec![action];
+            self.apply(&mut actions);
+        }
+    }
+
+    /// Saves the playing scene's controls as preset `name` in its folder.
+    fn save_preset(&mut self, name: &str) {
+        let Some(session) = self.stack.session.as_mut() else {
+            self.say(
+                Tone::Info,
+                "No scene is playing, so there is nothing to save.",
+            );
+            return;
+        };
+        let captured = session.capture_preset(name);
+        let scene = session.name.clone();
+        match strobe_scene::preset::save(&session.dir, &captured) {
+            Ok(path) => {
+                log::info!("preset \"{name}\" of {scene} saved to {}", path.display());
+                self.say(Tone::Info, format!("Preset \"{name}\" saved for {scene}."));
+            }
+            Err(error) => {
+                failure::report(
+                    Failure::new(Subsystem::Io, "save preset")
+                        .asset(name)
+                        .message(error.to_string())
+                        .action("the preset is kept in memory until the scene is reloaded"),
+                );
+                self.say(Tone::Error, format!("Preset not saved: {error}"));
+            }
+        }
+    }
+
+    /// Recalls preset `name` of the playing scene.
+    fn recall_preset(&mut self, name: &str) {
+        let Some(session) = self.stack.session.as_mut() else {
+            self.say(
+                Tone::Info,
+                "No scene is playing, so there is no preset to recall.",
+            );
+            return;
+        };
+        match session.apply_preset(name) {
+            Ok(problems) => {
+                log::info!("preset \"{name}\" recalled on {}", session.name);
+                for problem in problems {
+                    log::warn!("preset \"{name}\": {problem}");
+                }
+            }
+            Err(problem) => {
+                log::warn!("{problem}");
+                self.say(Tone::Warning, problem);
+            }
+        }
+    }
+
+    /// Deletes preset `name`'s file.
+    fn delete_preset(&mut self, name: &str) {
+        let Some(session) = self.stack.session.as_mut() else {
+            return;
+        };
+        match strobe_scene::preset::delete(&session.dir, name) {
+            Ok(()) => {
+                session.forget_preset(name);
+                log::info!("preset \"{name}\" deleted");
+            }
+            Err(error) => {
+                self.say(Tone::Error, format!("Preset not deleted: {error}"));
+            }
+        }
+    }
+
+    /// Stores the playing scene (and its active preset) in fav slot `slot`.
+    fn store_fav(&mut self, slot: usize) {
+        let Some(session) = self.stack.session.as_ref() else {
+            self.say(
+                Tone::Info,
+                "No scene is playing, so there is nothing to store.",
+            );
+            return;
+        };
+        let fav = strobe_scene::preset::Fav {
+            scene: session.name.clone(),
+            preset: session.active_preset.clone(),
+        };
+        if self.remote.favs.set(slot, fav.clone()) {
+            log::info!("fav slot {} holds {} {:?}", slot + 1, fav.scene, fav.preset);
+        }
+    }
+
+    /// Recalls fav slot `slot`: loads its scene if another is playing, then
+    /// applies its preset.
+    fn recall_fav(&mut self, slot: usize) {
+        let Some(fav) = self.remote.favs.get(slot).cloned() else {
+            self.say(Tone::Info, format!("Fav slot {} is empty.", slot + 1));
+            return;
+        };
+        let playing = self.stack.session.as_ref().map(|s| s.name.as_str());
+        if playing == Some(fav.scene.as_str()) {
+            match fav.preset {
+                Some(name) => self.recall_preset(&name),
+                None => {
+                    if let Some(session) = self.stack.session.as_mut() {
+                        for index in 0..session.controls.defs().len() {
+                            session.controls.set_default(index);
+                        }
+                    }
+                }
+            }
+            return;
+        }
+        let Some(index) = self
+            .library
+            .entries
+            .iter()
+            .position(|entry| entry.name == fav.scene)
+        else {
+            self.say(
+                Tone::Warning,
+                format!(
+                    "Fav slot {} names \"{}\", which is not in the library.",
+                    slot + 1,
+                    fav.scene
+                ),
+            );
+            return;
+        };
+        self.pending_preset = fav.preset.map(|name| (index, name));
+        self.request_load(index);
     }
 
     // ------------------------------------------------------------- drawing
@@ -2273,6 +2515,7 @@ impl Running {
         };
         let window = [size.width as i32, size.height as i32];
         self.settle_resize([size.width, size.height], started);
+        self.drain_remote(started);
 
         let gl = self.stack.gfx.gl().clone();
         let mut change = None;
@@ -2494,14 +2737,24 @@ impl Running {
             _ => None,
         };
         let next = self.step_target(1);
-        let (scene_title, controls, meta, script, scene_time) = match self.stack.session.as_mut() {
-            Some(session) => {
-                let time = session.time();
-                let (title, controls, meta, script) = session.panel_parts();
-                (title, Some(controls), Some(meta), script, time)
-            }
-            None => ("", None, None, None, 0.0),
-        };
+        let (scene_title, controls, meta, script, scene_time, presets, active_preset, scene_name) =
+            match self.stack.session.as_mut() {
+                Some(session) => {
+                    let time = session.time();
+                    let parts = session.panel_parts();
+                    (
+                        parts.title,
+                        Some(parts.controls),
+                        Some(parts.meta),
+                        parts.script,
+                        time,
+                        parts.presets,
+                        parts.active_preset,
+                        Some(parts.name),
+                    )
+                }
+                None => ("", None, None, None, 0.0, &[][..], None, None),
+            };
         let entries = &self.library.entries;
         let name_of =
             |index: Option<usize>| index.and_then(|i| entries.get(i)).map(|e| e.name.as_str());
@@ -2586,6 +2839,14 @@ impl Running {
                 ui: &mut self.playlist_ui,
                 show: self.stack.show.as_ref(),
             },
+            remote: RemotePanel {
+                ui: &mut self.map_ui,
+                remote: &mut self.remote,
+                presets,
+                active_preset,
+                scene_name,
+                bindings: &self.bindings,
+            },
         };
         let mut actions = std::mem::take(&mut self.actions);
         let window = self.stack.control.window();
@@ -2602,6 +2863,7 @@ impl Running {
         self.stats.record_ui(ran);
         self.stack.ui.paint(window, crate::ui::theme::clear_color());
         self.ui_state.tick(now);
+        self.remote.persist(now);
 
         if let Some(shot) = self.screenshot.as_mut()
             && shot.control_due()
@@ -2730,17 +2992,42 @@ fn hidden_period(budget_ms: f32) -> Duration {
 /// not tracked there, so only plain keys exist.
 fn chord_of(key: &Key) -> Option<commands::Chord> {
     use commands::{Chord, Key as K};
+    const FUNCTION: [NamedKey; 12] = [
+        NamedKey::F1,
+        NamedKey::F2,
+        NamedKey::F3,
+        NamedKey::F4,
+        NamedKey::F5,
+        NamedKey::F6,
+        NamedKey::F7,
+        NamedKey::F8,
+        NamedKey::F9,
+        NamedKey::F10,
+        NamedKey::F11,
+        NamedKey::F12,
+    ];
     match key {
         Key::Named(NamedKey::Space) => Some(Chord::plain(K::Space)),
         Key::Named(NamedKey::ArrowLeft) => Some(Chord::plain(K::Left)),
         Key::Named(NamedKey::ArrowRight) => Some(Chord::plain(K::Right)),
         Key::Named(NamedKey::Escape) => Some(Chord::plain(K::Escape)),
-        Key::Named(NamedKey::F11) => Some(Chord::plain(K::F11)),
-        Key::Character(text) if text.eq_ignore_ascii_case("b") => Some(Chord::plain(K::B)),
-        Key::Character(text) if text.eq_ignore_ascii_case("e") => Some(Chord::plain(K::E)),
-        Key::Character(text) if text.eq_ignore_ascii_case("r") => Some(Chord::plain(K::R)),
-        Key::Character(text) if text.eq_ignore_ascii_case("t") => Some(Chord::plain(K::T)),
-        Key::Character(_) | Key::Named(_) | Key::Unidentified(_) | Key::Dead(_) => None,
+        Key::Named(named) => FUNCTION
+            .iter()
+            .position(|f| f == named)
+            .and_then(|at| u8::try_from(at + 1).ok())
+            .and_then(K::function)
+            .map(Chord::plain),
+        Key::Character(text) => {
+            let mut chars = text.chars();
+            match (chars.next(), chars.next()) {
+                (Some(c), None) if c.is_ascii_digit() => {
+                    Some(Chord::plain(K::Digit(c as u8 - b'0')))
+                }
+                (Some(c), None) => K::letter(c).map(Chord::plain),
+                _ => None,
+            }
+        }
+        Key::Unidentified(_) | Key::Dead(_) => None,
     }
 }
 
@@ -2845,7 +3132,29 @@ mod tests {
             Some(commands::Chord::plain(commands::Key::B)),
             "shifted B"
         );
-        assert_eq!(key("x"), None, "unbound letter");
+        assert_eq!(
+            key("x"),
+            Some(commands::Chord::plain(commands::Key::Letter('X'))),
+            "any letter is a key; whether it is bound is the table's business"
+        );
+        assert_eq!(
+            commands::dispatch(
+                key("x").unwrap_or(commands::Chord::plain(commands::Key::Space)),
+                Focus::default()
+            ),
+            None,
+            "and an unbound one runs nothing"
+        );
+        assert_eq!(
+            chord_of(&Key::Named(NamedKey::F5)),
+            Some(commands::Chord::plain(commands::Key::Function(5))),
+            "F5"
+        );
+        assert_eq!(
+            chord_of(&Key::Named(NamedKey::F11)),
+            Some(commands::Chord::plain(commands::Key::F11)),
+            "F11 keeps its variant"
+        );
         assert_eq!(
             chord_of(&Key::Named(NamedKey::ArrowRight)),
             Some(commands::Chord::plain(commands::Key::Right)),

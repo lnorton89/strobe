@@ -20,12 +20,14 @@
 
 use super::shell::{ShellState, show};
 use super::{
-    Action, AudioPanel, CueTransport, FailurePanel, ImportPanel, ListenerPanel, Model, NoticePanel,
-    PerfPanel, PlaylistPanel, PlaylistUi, Preview, ScenePreview, TransportPanel, UiState,
+    Action, AudioPanel, CueTransport, FailurePanel, ImportPanel, ListenerPanel, MapUi, Model,
+    NoticePanel, PerfPanel, PlaylistPanel, PlaylistUi, Preview, RemotePanel, ScenePreview,
+    TransportPanel, UiState,
 };
 use crate::console::Console;
 use crate::import::Status;
 use crate::library::{Entry, Health, Library};
+use crate::remote::{Overrides, Remote};
 use crate::script::ScriptState;
 use crate::stats::FrameStats;
 use crate::ui::widgets::Tone;
@@ -65,6 +67,8 @@ struct Scenario {
     replace: bool,
     /// A playlist is loaded (its scenes `02-scene-1` and `ghost` cannot play).
     playlist: bool,
+    /// Show control has mappings, macros and fav slots in every state.
+    mapped: bool,
     panes: &'static [Pane],
 }
 
@@ -83,6 +87,7 @@ const BASE: Scenario = Scenario {
     previewing: false,
     replace: false,
     playlist: false,
+    mapped: false,
     panes: &[Pane::Inspector],
 };
 
@@ -194,6 +199,30 @@ fn scenarios() -> Vec<Scenario> {
             ..BASE
         },
         Scenario {
+            name: "mappings pane, nothing mapped",
+            panes: &[Pane::Map],
+            ..BASE
+        },
+        Scenario {
+            name: "mappings pane with every state",
+            mapped: true,
+            panes: &[Pane::Map],
+            ..BASE
+        },
+        Scenario {
+            name: "mappings pane, no scene playing",
+            mapped: true,
+            playing: false,
+            panes: &[Pane::Map],
+            ..BASE
+        },
+        Scenario {
+            name: "macro strip with unavailable macros and the presets row",
+            mapped: true,
+            panes: &[Pane::Inspector],
+            ..BASE
+        },
+        Scenario {
             name: "no panes",
             panes: &[],
             ..BASE
@@ -207,10 +236,99 @@ fn scenarios() -> Vec<Scenario> {
                 Pane::Diagnostics,
                 Pane::Settings,
                 Pane::Playlist,
+                Pane::Map,
             ],
             ..BASE
         },
     ]
+}
+
+/// Show control with the content the MAP pane and the macro strip need to
+/// show every state: nothing, or one of each.
+fn sample_remote(mapped: bool) -> Result<Remote> {
+    use strobe_io::{Mapping, Source, Target};
+    let dir = std::env::temp_dir().join(format!("strobe-shell-tests-{}", std::process::id()));
+    let overrides = Overrides {
+        workers: false,
+        read_only: true,
+        ..Overrides::default()
+    };
+    let mut remote = Remote::new(&dir, &overrides, std::time::Instant::now());
+    if !mapped {
+        return Ok(remote);
+    }
+    let cc = |controller: u8| Source::MidiCc {
+        device: Some("nanoKONTROL2".into()),
+        channel: 1,
+        controller,
+    };
+    let engine = &mut remote.engine;
+    engine
+        .mappings
+        .push(Mapping::new(cc(0), Target::control("speed")));
+    engine.mappings.push(Mapping::new(
+        cc(1),
+        Target::control("missing in this scene"),
+    ));
+    engine
+        .mappings
+        .push(Mapping::new(cc(2), Target::command("not_a_command")));
+    engine
+        .mappings
+        .push(Mapping::new(cc(3), Target::meta("hue")));
+    engine
+        .mappings
+        .push(Mapping::new(cc(3), Target::control("warp")));
+    engine.mappings.push(Mapping::new(
+        Source::Osc {
+            address: "/1/fader1".into(),
+        },
+        Target::command("next_scene"),
+    ));
+    let mut off = Mapping::new(cc(5), Target::control("warp"));
+    off.enabled = false;
+    engine.mappings.push(off);
+    engine
+        .mappings
+        .push(Mapping::new(cc(6), Target::control("tint")));
+    let speed = engine.macros.pin("Speed", Target::control("speed"));
+    engine.macros.pin("Hue", Target::meta("hue"));
+    engine.macros.pin("Glow", Target::control("glow"));
+    engine.macros.pin("Next", Target::command("next_scene"));
+    engine.macros.pin("Cue 2", Target::Cue { number: 2 });
+    engine
+        .mappings
+        .push(Mapping::new(cc(7), Target::Macro { id: speed }));
+    engine.arm_relearn(5);
+    // What a real run puts in the monitor: the long lines are the ones that
+    // once pushed the pane wider than its dock.
+    remote.osc_state = crate::remote::OscState::Listening("127.0.0.1:9000".parse()?);
+    remote.activity.note(
+        1.5,
+        "/strobe/control/hue_shift 0.800".into(),
+        "applied".into(),
+        None,
+    );
+    remote.activity.note(
+        2.5,
+        "/strobe/control/nope 0.500".into(),
+        "unavailable: \"nope\" is not a control of the scene that is playing".into(),
+        None,
+    );
+    remote.activity.note(
+        3.5,
+        "CC 21 = 64  ch 1  [Launchpad Mini MIDI 1]".into(),
+        "waiting for pickup".into(),
+        None,
+    );
+    remote.favs.set(
+        0,
+        strobe_scene::preset::Fav {
+            scene: "01-aurora".into(),
+            preset: Some("Slow burn".into()),
+        },
+    );
+    Ok(remote)
 }
 
 /// A scene with one control of every kind, in two groups.
@@ -304,6 +422,10 @@ fn draw(scenario: Scenario, size: (f32, f32), frames: usize) -> Result<Drawn> {
     let status = Status::Idle;
     let monitors = vec!["1: Display (1920x1080)".to_string()];
     let mut playlist_ui = PlaylistUi::default();
+    let mut map_ui = MapUi::default();
+    let bindings = crate::commands::Bindings::default();
+    let mut remote = sample_remote(scenario.mapped)?;
+    let presets = vec!["Slow burn".to_string(), "Peak".to_string()];
     let sample_show_state = scenario
         .playlist
         .then(|| sample_show(&library))
@@ -404,6 +526,14 @@ fn draw(scenario: Scenario, size: (f32, f32), frames: usize) -> Result<Drawn> {
             playlist: PlaylistPanel {
                 ui: &mut playlist_ui,
                 show: sample_show_state.as_ref(),
+            },
+            remote: RemotePanel {
+                ui: &mut map_ui,
+                remote: &mut remote,
+                presets: if scenario.playing { &presets } else { &[] },
+                active_preset: scenario.playing.then_some("Slow burn"),
+                scene_name: scenario.playing.then_some("01-aurora"),
+                bindings: &bindings,
             },
         };
         let pass = crate::ui::testing::run(

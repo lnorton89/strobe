@@ -16,12 +16,12 @@ Built in `strobe-app` as D130 to D138, with screenshots in
 | 8 Browser (Preview, Load) | **Done**; Queue is not. Preview is a second small player (D136). |
 | 9 Scene health | **Partly.** Unknown, Ready and Failed (with the first error lines), filter by health. Preparing is shown on the row; MissingAsset, Unsupported, HighGpu, Degraded are not detected. |
 | 10 Inspector | **Done** for every `ControlKind`, with Shift fine, reset, exact entry, keyboard; not randomise-per-control, lock or undo. |
-| 11, 12 Macros | **Stage 1 only** (the first controls of the scene; D137). The model, resolution, states, learn and shortcuts are stage 2. |
+| 11, 12 Macros | **Stage 2 built** (D175): a curated, pinned, ordered, saved set, resolution by name, group/name and alias, the six states on each card, MIDI/OSC Learn, a context menu. Not built: a range and colour editor, smoothing and a shortcut per macro. With no macros the strip falls back to stage 1. |
 | 13 Transport | **Partly.** Prev, next and blackout work; Hold, cue time and BPM-confidence are not (no cue list; D135). |
 | 14 Diagnostics | **Levels 1 and 2** (readouts; notices, banners, per-subsystem cards, the failed-scene list) and a console; no dedicated event model with recovery actions. |
-| 15 Commands | **Table and shortcuts**; no palette. |
+| 15 Commands | **Table and shortcuts**, with stable ids that MIDI, OSC and macros share, and hotkeys configurable by file (D178); no palette. |
 | 16 Focus | **Done** (D134). |
-| 17 Persistence | **Done** for panes, widths, query, filter, collapsed groups, theme, motion, title bar (D133); not macro order, bindings, named layouts or density. |
+| 17 Persistence | **Done** for panes, widths, query, filter, collapsed groups, theme, motion, title bar (D133), and macro order, mappings, fav slots and hotkeys in `show-control.json` (D179); not named layouts or density. |
 | 18 Paint cost | Rules enforced by tests and `shell_tests`; the T480 measurement is open. |
 | 19, 20 Output window | Unchanged from D96; show, hide, fullscreen and monitor are in the toolbar and Settings. |
 | 21 Loading and failure | **Done** (two-phase load, banners); "Open Editor" waits for the Editor. |

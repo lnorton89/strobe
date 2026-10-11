@@ -323,8 +323,46 @@ survives export.
   **Not verified:** an HD 4000 (the cost of two scenes at once, VRAM), ANGLE
   on the T480, a 4-hour show with real scenes, and audio-event advance (not
   built).
-- [ ] Wire presets, MIDI, OSC and hotkeys into the shared `ControlBank`.
-  Don't duplicate its toggle, bang or smoothing semantics.
+- [~] Wire presets, MIDI, OSC and hotkeys into the shared `ControlBank`.
+  Don't duplicate its toggle, bang or smoothing semantics. (D170-D179,
+  2026-10-11.) **Verified, with evidence:**
+  - one control model: the mapper writes only `ControlBank::set_normalized`,
+    `set` and `press`; `strobe-io` tests pin that a mapped smoothed slider's
+    target moves at once and its output eases, that a pad flips a toggle or
+    follows it, that a bang counts one press per press, that a dropdown wraps;
+  - **OSC end to end**, real UDP into the running app under Xvfb
+    (`--osc --osc-port 9477`, datagrams hand-built in `python3`): the log has
+    `OSC: listening on 127.0.0.1:9477`, then `/strobe/control/hue_shift 0.800:
+    applied`, `/strobe/meta/hue 0.500: applied`, `/strobe/cmd/toggle_blackout
+    1.000: applied` with `blackout on` and later `blackout off`,
+    `/strobe/cmd/next_scene 1.000: applied` with `Loaded 02-plasma-pulse`,
+    `/strobe/control/nope 0.500: unavailable: "nope" is not a control of the
+    scene that is playing`, `show control: there is no command
+    "not_a_command"`, and `/1/fader1 0.500: unmapped`. The macro strip in the
+    screenshot moves to `0.80` and `0.50` from the same messages;
+  - **Learn in the real UI**: an `xdotool` click on a macro's Learn button
+    (the card says "move a control to bind it", the banner says Learning), then
+    `/9/fader 0.300` logged `learned /9/fader -> macro #1`, the mapping was
+    written to `show-control.json`, and `/9/fader 0.900` then moved the control
+    ([`map-learning-1440x900.png`](images/perform/map-learning-1440x900.png) is
+    the armed state, with Learning, Conflict and Resolved rows; Unavailable, Disabled and Conflict rows were read in a taller capture, and Broken is drawn in the headless layout tests but was not read in a screenshot);
+  - **MIDI parsing** from recorded byte sequences (a fader sweep, a pad, a
+    wheel, a patch change, clock ticks, sysex, malformed and truncated), and
+    the worker starting cleanly where there is no MIDI service (this container
+    has no `/dev/snd/seq`: `snd-virmidi` cannot be loaded here, so a virtual
+    port was not possible);
+  - **presets**: capture and apply through the bank, bad names refused, a
+    cue's `preset` applied on cue start with an override beating it and a
+    missing preset falling back to `default.json`, with zero shader compiles
+    (`crates/strobe-app/tests/show.rs`, headless GL, both dialects);
+  - hotkeys: parsing, clash and unknown-command rejection, and the D134 focus
+    rule over rebound keys (unit tests);
+  - `cargo deny` clean; the Windows cross-check builds `strobe-io` with
+    `midir` (no C compiler needed, D170).
+  **Not verified:** any MIDI hardware (port names, hot-plug timing, a device
+  held by another program on WinMM, message rates), Windows or the T480 for any
+  of it, OSC from another machine (`--osc-all-interfaces` was only bound, never
+  reached from a LAN), and a person's use of Learn with a controller.
 - [ ] Run a tag-triggered release, then inspect:
   - the zip and the ANGLE DLL provenance;
   - the matching PDB archive;

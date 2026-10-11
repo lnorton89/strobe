@@ -297,7 +297,7 @@ impl Saver {
                         text = newer;
                     }
                     if let Err(error) = write_atomically(&path, &text) {
-                        log::warn!("could not save the UI preferences: {error}");
+                        log::warn!("could not save {}: {error}", path.display());
                     }
                 }
             });
