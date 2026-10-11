@@ -241,12 +241,14 @@ const VALUE_TYPES: [&str; 19] = [
 /// from a function, every function runs from `main`, and the assignments
 /// keep their order, so one global may still use an earlier one.
 ///
-/// Only a plain declaration of one of [`VALUE_TYPES`] (optionally with a
-/// precision qualifier) is touched, including a declaration of several
-/// names; `const`, `uniform`, arrays and structs are left as they are. The `= expression`
-/// is blanked to spaces with its newlines kept, so no line moves.
+/// Only a plain declaration of one of [`VALUE_TYPES`] or of a struct the
+/// source declares (optionally with a precision qualifier) is touched,
+/// including a declaration of several names; `const`, `uniform` and arrays
+/// are left as they are. The `= expression` is blanked to spaces with its
+/// newlines kept, so no line moves.
 pub fn hoist_global_initializers(source: &str) -> (Cow<'_, str>, Vec<Hoisted>) {
     let bytes = source.as_bytes();
+    let structs = struct_names(source);
     let mut found: Vec<(usize, usize, Hoisted)> = Vec::new();
     let mut depth = 0_usize;
     let mut statement = 0;
@@ -275,7 +277,7 @@ pub fn hoist_global_initializers(source: &str) -> (Cow<'_, str>, Vec<Hoisted>) {
                 }
             }
             b';' if depth == 0 => {
-                found.extend(global_initializers(source, statement, i));
+                found.extend(global_initializers(source, &structs, statement, i));
                 statement = i + 1;
             }
             _ => {}
@@ -357,7 +359,12 @@ fn next_token(bytes: &[u8], mut from: usize, end: usize) -> Option<(usize, usize
 /// expression ends, and the assignment to hoist. Names and commas stay, so
 /// `float a = x, b = y;` becomes `float a , b ;` (TORNADO T2: one real
 /// scene declares five audio globals in one statement).
-fn global_initializers(source: &str, start: usize, end: usize) -> Vec<(usize, usize, Hoisted)> {
+fn global_initializers(
+    source: &str,
+    structs: &[&str],
+    start: usize,
+    end: usize,
+) -> Vec<(usize, usize, Hoisted)> {
     const PRECISIONS: [&str; 3] = ["lowp", "mediump", "highp"];
     let bytes = source.as_bytes();
     let word = |(from, to): (usize, usize)| source.get(from..to).unwrap_or_default();
@@ -372,7 +379,7 @@ fn global_initializers(source: &str, start: usize, end: usize) -> Vec<(usize, us
         };
         token = next;
     }
-    if !VALUE_TYPES.contains(&word(token)) {
+    if !VALUE_TYPES.contains(&word(token)) && !structs.contains(&word(token)) {
         return out;
     }
     let mut cursor = token.1;
@@ -424,6 +431,29 @@ fn global_initializers(source: &str, start: usize, end: usize) -> Vec<(usize, us
             _ => return Vec::new(),
         }
     }
+}
+
+/// The names the source declares with `struct Name`, so a global of a user
+/// struct type is hoisted too (TORNADO T3: `ring white = ring(..., syn_BassLevel);`).
+fn struct_names(source: &str) -> Vec<&str> {
+    let bytes = source.as_bytes();
+    let mut names = Vec::new();
+    let mut cursor = 0;
+    while let Some(token) = next_token(bytes, cursor, bytes.len()) {
+        cursor = token.1;
+        if source.get(token.0..token.1) == Some("struct")
+            && let Some(name) = next_token(bytes, cursor, bytes.len())
+            && let Some(text) = source.get(name.0..name.1)
+            && text
+                .bytes()
+                .next()
+                .is_some_and(|b| b.is_ascii_alphabetic() || b == b'_')
+        {
+            names.push(text);
+            cursor = name.1;
+        }
+    }
+    names
 }
 
 /// The first `,` in `bytes[from..end]` outside parentheses and brackets.
@@ -521,6 +551,18 @@ mod hoist_tests {
             assignments,
             vec!["a = mix(1.0, 2.0, syn_BassLevel);", "c = TIME;"],
             "each initializer, the call's commas untouched"
+        );
+    }
+
+    #[test]
+    fn a_global_of_a_user_struct_type_is_hoisted() {
+        let source = "struct ring { float r; float w; };\n\
+                      ring white = ring(1.0, syn_BassLevel);\n";
+        let (_, hoisted) = hoist_global_initializers(source);
+        assert_eq!(
+            hoisted.first().map(|h| h.assignment.as_str()),
+            Some("white = ring(1.0, syn_BassLevel);"),
+            "the struct global's initializer moves into main"
         );
     }
 
