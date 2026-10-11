@@ -1,6 +1,6 @@
 # Research: LAN remote control with an installable PWA
 
-**Status:** proposal and implementation plan; no runtime code is changed by this document.  
+**Status:** proposal and implementation plan; no runtime code is changed by this document. Scheduled after show control (ROADMAP item 7b), whose `strobe-io` crate and app-side remote command bridge this remote should reuse.  
 **Scope:** control a running Strobe show from a phone or tablet on the same local network, without cloud accounts, a hosted service, or opening router ports.
 
 ## Executive recommendation
