@@ -2800,3 +2800,35 @@ that wants the lever uses an expression. Evidence: `scene.rs`
 **Would reopen:** a Synesthesia scene that clearly expects a literal size to
 scale with the output.
 
+### D196: more real-scene shapes, from Synesthesia 1.25.4's own scenes (2026-10-11)
+
+The owner's private corpus, `lnorton89/strobe-syn-corpus` (90 scenes from
+Synesthesia 1.25.4.189, never copied into this repo), surfaced more shapes.
+These now load:
+
+- **`null`** where a list or a type belongs (`"HARD_TRANSITIONS": null`)
+  reads as empty or default (`json::null_as_default`).
+- **Names equal only once normalised** (`in_or_out` and `inOrOut`) are
+  legal GLSL, and a real scene has them, so they are no longer a load error.
+  `ControlBank::find` prefers the exact name and the normalised key reaches
+  the first. An exact duplicate is still an error.
+- **An image is decoded by its content.** A real scene ships a PNG named
+  `skytex.jpg` (`assets::decode_file`).
+- **ISF's image macros** `IMG_NORM_PIXEL`, `IMG_PIXEL` and `IMG_SIZE` are
+  defined in the preamble.
+
+Measured with `strobe-bench` on llvmpipe, which runs no scripts: desktop
+failures went from 55 of 90 to 50. Most of the rest are uniforms that a
+`script.js` creates, a benchmark artefact that the corpus harness (D195)
+removes. The rest:
+- the `traveler` control modifier (9 scenes);
+- `#include` of the engine's `lib/` (2);
+- standard-library names the docs have to settle (`syn_BassExpoCurve`,
+  `syn_InputLevel`, `_loadImage`, `_applyInvertMedia`, `_flipMediaCoords`,
+  and the user-media family);
+- on ES, the implicit-conversion family (Q8).
+
+Evidence: `scene.rs` `real_synesthesia_shapes_load`, `runtime.rs`
+`names_equal_once_normalised_load_and_the_exact_name_wins`, `assets.rs`
+`an_image_is_decoded_by_its_content_not_its_extension`.
+
