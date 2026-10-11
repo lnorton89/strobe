@@ -299,6 +299,13 @@ survives export.
   verified on llvmpipe at 720p and 1440p. **Not yet:** re-checked on
   TORNADO at 2160p.
 - [ ] Owner-supplied real Shadertoy shaders through NVIDIA's compiler.
+- [~] **Real Synesthesia scenes** (65 of the owner's, T2): 47 compile on
+  native and 35 on ANGLE at commit 963b535, with failures grouped by cause in
+  [hardware/TORNADO.md](hardware/TORNADO.md). D193 and D194 fix the shape and
+  size causes (CRLF, missing `TYPE`, 0-sized passes, `MEDIA` slots,
+  multi-name globals, absolute data passes). Open: Synesthesia's user-media
+  library (8 scenes), and implicit int to float and non-macro `#if` on ANGLE
+  (12, Q8). **Not yet re-run** after D193/D194.
 
 ## P2: playlists, show control and release
 

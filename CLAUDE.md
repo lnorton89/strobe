@@ -177,9 +177,11 @@ The short list:
 - **Smoothing is frame-rate independent:**
   `alpha = 1 - (1 - PARAMS)^(dt*60)`. That equals SSF's per-frame
   behaviour at 60 fps and covers the same wall-clock time at any rate.
-- **Pass sizes are stored as fractions of the design resolution**, so a
-  scene designed at 1080p and played at 720p keeps its passes in
-  proportion.
+- **Literal pass sizes are absolute pixels, as in Synesthesia (D194).**
+  `$WIDTH`/`$HEIGHT` expressions are fractions of the design resolution
+  (D11), so they follow the output and render scale; `FIXED_SIZE`
+  overrides either way (D191). Our own scenes use expressions where they
+  want the render-scale lever.
 - **The scene library in `scenes/` is original work.** Shadertoy is
   unreachable from cloud containers (Cloudflare 403), and the community
   Synesthesia scenes found so far carry no license. Don't commit
