@@ -67,17 +67,25 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
     ui.add_space(SPACE_XS);
 
     let ui_state = &mut *model.ui;
+    let meta = model.meta.as_deref_mut();
     match model.controls.as_deref_mut() {
         Some(bank) if !bank.defs().is_empty() => {
-            groups(ui, theme, bank, ui_state);
+            groups(ui, theme, bank, meta, ui_state);
         }
-        Some(_) => widgets::empty_state(
-            ui,
-            theme,
-            Icon::Controls,
-            "This scene has no controls",
-            "It plays as authored. Auto-generated controls arrive in a later stage.",
-        ),
+        Some(_) => {
+            widgets::empty_state(
+                ui,
+                theme,
+                Icon::Controls,
+                "This scene has no controls",
+                "It plays as authored. Auto-generated controls arrive in a later stage.",
+            );
+            if let Some(meta) = meta {
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| meta_section(ui, theme, meta, ui_state));
+            }
+        }
         None => widgets::empty_state(
             ui,
             theme,
@@ -127,7 +135,13 @@ fn script_status(ui: &mut Ui, theme: &Palette, state: &ScriptState) {
     }
 }
 
-fn groups(ui: &mut Ui, theme: &Palette, bank: &mut ControlBank, state: &mut super::state::UiState) {
+fn groups(
+    ui: &mut Ui,
+    theme: &Palette,
+    bank: &mut ControlBank,
+    meta: Option<&mut ControlBank>,
+    state: &mut super::state::UiState,
+) {
     let groups = controls::group_order(bank.defs());
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
@@ -173,7 +187,60 @@ fn groups(ui: &mut Ui, theme: &Palette, bank: &mut ControlBank, state: &mut supe
                         .color(theme::rgb(theme.text_faint)),
                 );
             }
+            if let Some(meta) = meta {
+                meta_section(ui, theme, meta, state);
+            }
         });
+}
+
+/// The output-wide meta controls (master, colour, mirror, audio gains),
+/// drawn under the scene's own. They belong to the output, not the scene:
+/// they are applied after the last pass (D180), and a script reaches them
+/// with a `meta/` prefix. Collapsed by the operator, saved with the layout.
+fn meta_section(
+    ui: &mut Ui,
+    theme: &Palette,
+    meta: &mut ControlBank,
+    state: &mut super::state::UiState,
+) {
+    const NAME: &str = "Output (meta)";
+    let collapsed = state.is_collapsed(NAME);
+    ui.separator();
+    ui.horizontal(|ui| {
+        let label = if collapsed {
+            "Output (meta): show"
+        } else {
+            "Output (meta): hide"
+        };
+        if widgets::button(ui, theme, Some(Icon::ChevronRight), label)
+            .on_hover_text("Master, colour, mirror and audio gains for the whole output")
+            .clicked()
+        {
+            state.set_collapsed(NAME, !collapsed);
+        }
+        if widgets::button(ui, theme, Some(Icon::Reset), "Reset")
+            .on_hover_text("Return every output control to neutral")
+            .clicked()
+        {
+            for index in 0..meta.defs().len() {
+                meta.set_default(index);
+            }
+        }
+    });
+    if collapsed {
+        return;
+    }
+    for (group, members) in controls::group_order(meta.defs()) {
+        if let Some(name) = group {
+            ui.label(
+                egui::RichText::new(name.to_uppercase())
+                    .small()
+                    .color(theme::rgb(theme.text_faint)),
+            );
+        }
+        controls::rows(ui, theme, meta, &members);
+        ui.add_space(SPACE_XS);
+    }
 }
 
 /// What a group header's click did.
