@@ -91,7 +91,7 @@
 
 use crate::audio::AudioInput;
 use crate::cli::{AudioArg, Cli};
-use crate::commands::{self, CommandId, Focus};
+use crate::commands::{self, Bindings, CommandId, Focus};
 use crate::console::Console;
 use crate::failures;
 use crate::fault::{self, Faults};
@@ -643,6 +643,8 @@ struct Running {
     playlist_ui: PlaylistUi,
     /// MIDI, OSC, mappings, macros and the fav slots (D170 to D177).
     remote: Remote,
+    /// The keyboard shortcuts in force: the defaults plus `hotkeys` (D178).
+    bindings: Bindings,
     /// Outputs the mapper handed back this frame, kept to reuse its buffer.
     remote_out: Vec<Output>,
     /// The MAP pane's state.
@@ -774,6 +776,7 @@ impl Running {
                 now,
             ),
             remote_out: Vec::new(),
+            bindings: Bindings::default(),
             map_ui: MapUi::default(),
             pending_preset: None,
             resume_enabled: !cli.no_resume && cli.screenshot.is_none(),
@@ -821,6 +824,11 @@ impl Running {
             listen_port: cli.listen_port,
             data_dir,
         };
+        let (bindings, problems) = Bindings::from_config(&running.remote.hotkeys);
+        for problem in problems {
+            log::warn!("{problem}");
+        }
+        running.bindings = bindings;
         running.refresh_monitors(event_loop);
         log::info!("GL: {}", running.gl_summary);
         if cli.listen {
@@ -1342,7 +1350,7 @@ impl Running {
         let Some(chord) = chord_of(&key.logical_key) else {
             return;
         };
-        if let Some(command) = commands::dispatch(chord, Focus::default())
+        if let Some(command) = commands::dispatch_with(chord, Focus::default(), &self.bindings)
             && let Some(action) = command_action(command, self.blackout)
         {
             let mut actions = vec![action];
@@ -2839,6 +2847,7 @@ impl Running {
                 presets,
                 active_preset,
                 scene_name,
+                bindings: &self.bindings,
             },
         };
         let mut actions = std::mem::take(&mut self.actions);
@@ -2985,17 +2994,42 @@ fn hidden_period(budget_ms: f32) -> Duration {
 /// not tracked there, so only plain keys exist.
 fn chord_of(key: &Key) -> Option<commands::Chord> {
     use commands::{Chord, Key as K};
+    const FUNCTION: [NamedKey; 12] = [
+        NamedKey::F1,
+        NamedKey::F2,
+        NamedKey::F3,
+        NamedKey::F4,
+        NamedKey::F5,
+        NamedKey::F6,
+        NamedKey::F7,
+        NamedKey::F8,
+        NamedKey::F9,
+        NamedKey::F10,
+        NamedKey::F11,
+        NamedKey::F12,
+    ];
     match key {
         Key::Named(NamedKey::Space) => Some(Chord::plain(K::Space)),
         Key::Named(NamedKey::ArrowLeft) => Some(Chord::plain(K::Left)),
         Key::Named(NamedKey::ArrowRight) => Some(Chord::plain(K::Right)),
         Key::Named(NamedKey::Escape) => Some(Chord::plain(K::Escape)),
-        Key::Named(NamedKey::F11) => Some(Chord::plain(K::F11)),
-        Key::Character(text) if text.eq_ignore_ascii_case("b") => Some(Chord::plain(K::B)),
-        Key::Character(text) if text.eq_ignore_ascii_case("e") => Some(Chord::plain(K::E)),
-        Key::Character(text) if text.eq_ignore_ascii_case("r") => Some(Chord::plain(K::R)),
-        Key::Character(text) if text.eq_ignore_ascii_case("t") => Some(Chord::plain(K::T)),
-        Key::Character(_) | Key::Named(_) | Key::Unidentified(_) | Key::Dead(_) => None,
+        Key::Named(named) => FUNCTION
+            .iter()
+            .position(|f| f == named)
+            .and_then(|at| u8::try_from(at + 1).ok())
+            .and_then(K::function)
+            .map(Chord::plain),
+        Key::Character(text) => {
+            let mut chars = text.chars();
+            match (chars.next(), chars.next()) {
+                (Some(c), None) if c.is_ascii_digit() => {
+                    Some(Chord::plain(K::Digit(c as u8 - b'0')))
+                }
+                (Some(c), None) => K::letter(c).map(Chord::plain),
+                _ => None,
+            }
+        }
+        Key::Unidentified(_) | Key::Dead(_) => None,
     }
 }
 
@@ -3100,7 +3134,29 @@ mod tests {
             Some(commands::Chord::plain(commands::Key::B)),
             "shifted B"
         );
-        assert_eq!(key("x"), None, "unbound letter");
+        assert_eq!(
+            key("x"),
+            Some(commands::Chord::plain(commands::Key::Letter('X'))),
+            "any letter is a key; whether it is bound is the table's business"
+        );
+        assert_eq!(
+            commands::dispatch(
+                key("x").unwrap_or(commands::Chord::plain(commands::Key::Space)),
+                Focus::default()
+            ),
+            None,
+            "and an unbound one runs nothing"
+        );
+        assert_eq!(
+            chord_of(&Key::Named(NamedKey::F5)),
+            Some(commands::Chord::plain(commands::Key::Function(5))),
+            "F5"
+        );
+        assert_eq!(
+            chord_of(&Key::Named(NamedKey::F11)),
+            Some(commands::Chord::plain(commands::Key::F11)),
+            "F11 keeps its variant"
+        );
         assert_eq!(
             chord_of(&Key::Named(NamedKey::ArrowRight)),
             Some(commands::Chord::plain(commands::Key::Right)),

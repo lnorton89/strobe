@@ -364,6 +364,8 @@ pub struct RemotePanel<'a> {
     pub active_preset: Option<&'a str>,
     /// The playing scene's library name, for fav slots.
     pub scene_name: Option<&'a str>,
+    /// The keyboard shortcuts in force.
+    pub bindings: &'a crate::commands::Bindings,
 }
 
 /// A scene that did not load.

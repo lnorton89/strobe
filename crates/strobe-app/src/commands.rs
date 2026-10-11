@@ -55,6 +55,61 @@ pub enum Key {
     F,
     /// The letter T.
     T,
+    /// Any other letter, `A` to `Z`. Build it with [`Key::letter`], which
+    /// maps B, E, R, F and T to their own variants so a key has one form.
+    Letter(char),
+    /// A digit, 0 to 9.
+    Digit(u8),
+    /// A function key other than F11, 1 to 12. Build it with
+    /// [`Key::function`].
+    Function(u8),
+}
+
+impl Key {
+    /// The key for a letter (either case), or `None` for anything else.
+    pub fn letter(c: char) -> Option<Self> {
+        let c = c.to_ascii_uppercase();
+        Some(match c {
+            'B' => Self::B,
+            'E' => Self::E,
+            'R' => Self::R,
+            'F' => Self::F,
+            'T' => Self::T,
+            'A'..='Z' => Self::Letter(c),
+            _ => return None,
+        })
+    }
+
+    /// The key for function key `n`, 1 to 12.
+    pub fn function(n: u8) -> Option<Self> {
+        match n {
+            11 => Some(Self::F11),
+            1..=12 => Some(Self::Function(n)),
+            _ => None,
+        }
+    }
+
+    /// The key named `text`: a letter, a digit, `F1` to `F12`, `Space`,
+    /// `Left`, `Right`, `Esc` or `Escape` (any case).
+    pub fn parse(text: &str) -> Option<Self> {
+        let lower = text.trim().to_ascii_lowercase();
+        match lower.as_str() {
+            "space" => return Some(Self::Space),
+            "left" => return Some(Self::Left),
+            "right" => return Some(Self::Right),
+            "esc" | "escape" => return Some(Self::Escape),
+            _ => {}
+        }
+        if let Some(n) = lower.strip_prefix('f').and_then(|n| n.parse::<u8>().ok()) {
+            return Self::function(n);
+        }
+        let mut chars = lower.chars();
+        match (chars.next(), chars.next()) {
+            (Some(c), None) if c.is_ascii_digit() => Some(Self::Digit(c as u8 - b'0')),
+            (Some(c), None) => Self::letter(c),
+            _ => None,
+        }
+    }
 }
 
 /// A key with the modifiers that matter. `command` is Ctrl on Windows and
@@ -92,19 +147,45 @@ impl Chord {
         }
     }
 
+    /// The chord written as text: `Ctrl+Shift+B`, `Alt+F3`, `Space`.
+    /// `Ctrl`, `Shift`, `Alt` and `Cmd` (the same as `Ctrl`) are the
+    /// modifiers, joined to the key by `+`, in any order and any case.
+    pub fn parse(text: &str) -> Option<Self> {
+        let mut chord = Self::plain(Key::Space);
+        let mut key = None;
+        for part in text.split('+') {
+            match part.trim().to_ascii_lowercase().as_str() {
+                "ctrl" | "control" | "cmd" | "command" => chord.command = true,
+                "shift" => chord.shift = true,
+                "alt" | "option" => chord.alt = true,
+                other => {
+                    if key.is_some() {
+                        return None;
+                    }
+                    key = Some(Key::parse(other)?);
+                }
+            }
+        }
+        chord.key = key?;
+        Some(chord)
+    }
+
     /// The text for a tooltip: `Ctrl+F`, `Space`, `F11`.
     pub fn label(self) -> String {
         let key = match self.key {
-            Key::Space => "Space",
-            Key::Left => "Left",
-            Key::Right => "Right",
-            Key::Escape => "Esc",
-            Key::F11 => "F11",
-            Key::B => "B",
-            Key::E => "E",
-            Key::R => "R",
-            Key::F => "F",
-            Key::T => "T",
+            Key::Space => "Space".to_string(),
+            Key::Left => "Left".to_string(),
+            Key::Right => "Right".to_string(),
+            Key::Escape => "Esc".to_string(),
+            Key::F11 => "F11".to_string(),
+            Key::B => "B".to_string(),
+            Key::E => "E".to_string(),
+            Key::R => "R".to_string(),
+            Key::F => "F".to_string(),
+            Key::T => "T".to_string(),
+            Key::Letter(c) => c.to_string(),
+            Key::Digit(d) => d.to_string(),
+            Key::Function(n) => format!("F{n}"),
         };
         let mut text = String::new();
         if self.command {
@@ -116,7 +197,7 @@ impl Chord {
         if self.alt {
             text.push_str("Alt+");
         }
-        text.push_str(key);
+        text.push_str(&key);
         text
     }
 }
@@ -299,12 +380,80 @@ pub struct Focus {
     pub modal: bool,
 }
 
-/// The command a key press invokes, if the focus allows one.
+/// The operator's keyboard shortcut overrides (D178): the `hotkeys` table of
+/// `show-control.json`, command id to chord text, checked once at start.
+///
+/// A line that names an unknown command, writes a chord that cannot be read,
+/// or would put two commands on one chord is **left out and reported**; the
+/// command keeps its default. Nothing here can leave a command with no way
+/// to run it, or two commands on one key.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Bindings {
+    overrides: Vec<(CommandId, Chord)>,
+}
+
+impl Bindings {
+    /// Reads the table. Returns the bindings and one line per rejected entry.
+    pub fn from_config(table: &std::collections::BTreeMap<String, String>) -> (Self, Vec<String>) {
+        let mut bindings = Self::default();
+        let mut problems = Vec::new();
+        for (id, text) in table {
+            let Some(command) = CommandId::from_id(id) else {
+                problems.push(format!("hotkeys: there is no command \"{id}\""));
+                continue;
+            };
+            let Some(chord) = Chord::parse(text) else {
+                problems.push(format!(
+                    "hotkeys: \"{text}\" for {id} is not a key (try Ctrl+Shift+B, F5, Space)"
+                ));
+                continue;
+            };
+            if let Some(other) = CommandId::ALL
+                .into_iter()
+                .find(|c| *c != command && bindings.chord(*c) == chord)
+            {
+                problems.push(format!(
+                    "hotkeys: {} is already {}; {id} keeps {}",
+                    chord.label(),
+                    other.id(),
+                    command.chord().label()
+                ));
+                continue;
+            }
+            bindings.overrides.retain(|(c, _)| *c != command);
+            bindings.overrides.push((command, chord));
+        }
+        (bindings, problems)
+    }
+
+    /// The chord that runs `command`: the operator's, or the default.
+    pub fn chord(&self, command: CommandId) -> Chord {
+        self.overrides
+            .iter()
+            .find(|(c, _)| *c == command)
+            .map_or_else(|| command.chord(), |(_, chord)| *chord)
+    }
+
+    /// Whether `command` has been rebound.
+    pub fn is_custom(&self, command: CommandId) -> bool {
+        self.overrides.iter().any(|(c, _)| *c == command)
+    }
+}
+
+/// The command a key press invokes with the default shortcuts, if the focus
+/// allows one.
 pub fn dispatch(chord: Chord, focus: Focus) -> Option<CommandId> {
+    dispatch_with(chord, focus, &Bindings::default())
+}
+
+/// [`dispatch`] with the operator's overrides.
+pub fn dispatch_with(chord: Chord, focus: Focus, bindings: &Bindings) -> Option<CommandId> {
     if focus.modal || focus.text_edit {
         return None;
     }
-    let command = CommandId::ALL.into_iter().find(|c| c.chord() == chord)?;
+    let command = CommandId::ALL
+        .into_iter()
+        .find(|c| bindings.chord(*c) == chord)?;
     if focus.widget && command.yields_to_focused_widget() {
         return None;
     }
@@ -393,6 +542,134 @@ mod tests {
             ["focus_browser_search", "close_topmost_pane"],
             "which"
         );
+    }
+
+    #[test]
+    fn keys_and_chords_parse_from_the_text_a_person_writes() {
+        assert_eq!(
+            Key::parse("b"),
+            Some(Key::B),
+            "letters with their own variant"
+        );
+        assert_eq!(Key::parse("Q"), Some(Key::Letter('Q')), "other letters");
+        assert_eq!(Key::parse("7"), Some(Key::Digit(7)), "digits");
+        assert_eq!(Key::parse("F11"), Some(Key::F11), "F11 keeps its variant");
+        assert_eq!(Key::parse("f5"), Some(Key::Function(5)), "function keys");
+        assert_eq!(Key::parse("F13"), None, "no F13");
+        assert_eq!(Key::parse("Esc"), Some(Key::Escape), "esc");
+        assert_eq!(Key::parse("ab"), None, "two letters");
+        assert_eq!(Key::parse(""), None, "nothing");
+        let chord = Chord::parse("shift + Ctrl+ b").map(Chord::label);
+        assert_eq!(
+            chord.as_deref(),
+            Some("Ctrl+Shift+B"),
+            "modifiers in any order"
+        );
+        assert_eq!(Chord::parse("Ctrl+"), None, "no key");
+        assert_eq!(Chord::parse("A+B"), None, "two keys");
+        assert_eq!(Chord::parse("Hyper+A"), None, "unknown modifier");
+        for command in CommandId::ALL {
+            assert_eq!(
+                Chord::parse(&command.chord().label()),
+                Some(command.chord()),
+                "{} survives its own label",
+                command.name()
+            );
+        }
+    }
+
+    fn table(pairs: &[(&str, &str)]) -> std::collections::BTreeMap<String, String> {
+        pairs
+            .iter()
+            .map(|(a, b)| ((*a).to_string(), (*b).to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn a_rebound_command_answers_to_its_new_chord_and_not_its_old_one() {
+        let (bindings, problems) = Bindings::from_config(&table(&[("toggle_blackout", "Ctrl+B")]));
+        assert!(problems.is_empty(), "{problems:?}");
+        let new = Chord::command(Key::B);
+        assert_eq!(
+            dispatch_with(new, FREE, &bindings),
+            Some(CommandId::ToggleBlackout),
+            "new"
+        );
+        assert_eq!(
+            dispatch_with(Chord::plain(Key::B), FREE, &bindings),
+            None,
+            "the old one is free"
+        );
+        assert!(bindings.is_custom(CommandId::ToggleBlackout), "custom");
+        assert!(!bindings.is_custom(CommandId::NextScene), "others are not");
+        assert_eq!(
+            dispatch_with(Chord::plain(Key::Right), FREE, &bindings),
+            Some(CommandId::NextScene),
+            "unrelated commands are untouched"
+        );
+    }
+
+    #[test]
+    fn the_focus_rule_applies_to_rebound_keys_too() {
+        let (bindings, _) = Bindings::from_config(&table(&[("next_scene", "N")]));
+        let typing = Focus {
+            text_edit: true,
+            widget: true,
+            modal: false,
+        };
+        assert_eq!(
+            dispatch_with(Chord::plain(Key::Letter('N')), typing, &bindings),
+            None,
+            "typing"
+        );
+        let on_widget = Focus {
+            widget: true,
+            ..Focus::default()
+        };
+        assert_eq!(
+            dispatch_with(Chord::plain(Key::Letter('N')), on_widget, &bindings),
+            None,
+            "next_scene still yields to a focused widget wherever it is bound"
+        );
+    }
+
+    #[test]
+    fn bad_hotkey_lines_are_reported_and_leave_the_defaults() {
+        let (bindings, problems) = Bindings::from_config(&table(&[
+            ("no_such", "X"),
+            ("next_scene", "Ctrl+"),
+            ("prev_scene", "B"),
+            ("tap_tempo", "Shift+Q"),
+        ]));
+        assert_eq!(problems.len(), 3, "three rejected: {problems:?}");
+        assert!(
+            problems[0].contains("no_such") || problems.iter().any(|p| p.contains("no_such")),
+            "unknown id named"
+        );
+        assert_eq!(
+            bindings.chord(CommandId::PrevScene),
+            CommandId::PrevScene.chord(),
+            "a clash with blackout's B leaves prev_scene on Left"
+        );
+        assert_eq!(
+            bindings.chord(CommandId::NextScene),
+            CommandId::NextScene.chord(),
+            "unreadable chord"
+        );
+        assert_eq!(
+            bindings.chord(CommandId::TapTempo).label(),
+            "Shift+Q",
+            "the good line applied"
+        );
+    }
+
+    #[test]
+    fn swapping_two_commands_needs_a_free_chord_in_between() {
+        // Taking blackout's B for tap tempo is a clash even though tap tempo
+        // gives up T: the table is checked line by line, in order, so a swap
+        // is written as two moves through a free key.
+        let (_, problems) = Bindings::from_config(&table(&[("tap_tempo", "B")]));
+        assert_eq!(problems.len(), 1, "{problems:?}");
     }
 
     #[test]

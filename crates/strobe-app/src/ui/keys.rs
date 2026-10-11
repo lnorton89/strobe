@@ -23,7 +23,7 @@
 //! those with the same table (`App::output_key`).
 
 use super::model::{Action, Model};
-use crate::commands::{Chord, CommandId, Focus, Key, dispatch};
+use crate::commands::{Chord, CommandId, Focus, Key, dispatch_with};
 use crate::workspace::Pane;
 use egui::Context;
 
@@ -31,11 +31,13 @@ use egui::Context;
 /// is not a performance gesture.
 const MAX_PER_FRAME: usize = 8;
 
-/// Maps an egui key to the command table's key, if the table uses it.
+/// Maps an egui key to a command key: the named keys by hand, letters,
+/// digits and function keys by their name (`A`, `7`, `F5`).
 #[expect(
     clippy::wildcard_enum_match_arm,
-    reason = "egui::Key has ~150 variants and the command table uses ten; \
-              the wildcard is the point, and the test below pins the eight"
+    reason = "egui::Key has ~150 variants; the named ones are listed, every \
+              other key is read from its name and ignored unless it is a \
+              letter, a digit or a function key"
 )]
 pub fn key_from(key: egui::Key) -> Option<Key> {
     match key {
@@ -43,13 +45,7 @@ pub fn key_from(key: egui::Key) -> Option<Key> {
         egui::Key::ArrowLeft => Some(Key::Left),
         egui::Key::ArrowRight => Some(Key::Right),
         egui::Key::Escape => Some(Key::Escape),
-        egui::Key::F11 => Some(Key::F11),
-        egui::Key::B => Some(Key::B),
-        egui::Key::E => Some(Key::E),
-        egui::Key::R => Some(Key::R),
-        egui::Key::F => Some(Key::F),
-        egui::Key::T => Some(Key::T),
-        _ => None,
+        other => Key::parse(other.name()),
     }
 }
 
@@ -60,6 +56,7 @@ pub fn handle(ctx: &Context, model: &mut Model<'_>, modal_open: bool, actions: &
         widget: ctx.egui_wants_keyboard_input(),
         modal: modal_open,
     };
+    let bindings = model.remote.bindings;
     let mut commands: [Option<CommandId>; MAX_PER_FRAME] = [None; MAX_PER_FRAME];
     let mut count = 0;
     ctx.input(|input| {
@@ -83,7 +80,7 @@ pub fn handle(ctx: &Context, model: &mut Model<'_>, modal_open: bool, actions: &
                 shift: modifiers.shift,
                 alt: modifiers.alt,
             };
-            if let Some(command) = dispatch(chord, focus)
+            if let Some(command) = dispatch_with(chord, focus, bindings)
                 && let Some(slot) = commands.get_mut(count)
             {
                 *slot = Some(command);
@@ -151,8 +148,22 @@ mod tests {
     }
 
     #[test]
-    fn keys_the_table_does_not_use_are_ignored() {
-        assert_eq!(key_from(egui::Key::A), None);
-        assert_eq!(key_from(egui::Key::Enter), None);
+    fn letters_digits_and_function_keys_read_from_their_names_and_the_rest_are_ignored() {
+        assert_eq!(key_from(egui::Key::A), Some(Key::Letter('A')), "a letter");
+        assert_eq!(
+            key_from(egui::Key::B),
+            Some(Key::B),
+            "B keeps its own variant"
+        );
+        assert_eq!(key_from(egui::Key::Num7), Some(Key::Digit(7)), "a digit");
+        assert_eq!(
+            key_from(egui::Key::F5),
+            Some(Key::Function(5)),
+            "a function key"
+        );
+        assert_eq!(key_from(egui::Key::F11), Some(Key::F11), "F11");
+        assert_eq!(key_from(egui::Key::Enter), None, "enter");
+        assert_eq!(key_from(egui::Key::Tab), None, "tab");
+        assert_eq!(key_from(egui::Key::Minus), None, "punctuation");
     }
 }
