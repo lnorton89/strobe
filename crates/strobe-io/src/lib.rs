@@ -41,6 +41,35 @@
 //! every rule here is tested with no GPU, no device and no window. MIDI is
 //! tested from recorded byte sequences and OSC over loopback UDP.
 //!
+//! # Example
+//!
+//! The mapper against a control bank, with no device (the README shows the
+//! same):
+//!
+//! ```
+//! use strobe_io::{Banks, Engine, Mapping, Signal, Source, Target};
+//! use strobe_scene::control::{ControlBank, ControlDef};
+//! use strobe_scene::json::RawControl;
+//!
+//! fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     let raw: RawControl =
+//!         serde_json::from_str(r#"{ "NAME": "speed", "TYPE": "slider", "MAX": 10 }"#)?;
+//!     let mut scene = ControlBank::new(vec![ControlDef::from_raw(&raw)?])?;
+//!
+//!     let mut engine = Engine::default();
+//!     let source = Source::MidiCc { device: None, channel: 1, controller: 21 };
+//!     let mut mapping = Mapping::new(source.clone(), Target::control("speed"));
+//!     mapping.takeover = strobe_io::Takeover::Jump; // follow the fader at once
+//!     engine.mappings.push(mapping);
+//!
+//!     let mut banks = Banks { scene: Some(&mut scene), meta: None };
+//!     let mut out = Vec::new();
+//!     engine.handle(&source, Signal::Analog(0.5), &mut banks, &mut out);
+//!     assert_eq!(scene.target(0).map(|v| v[0]), Some(5.0), "through ControlBank");
+//!     Ok(())
+//! }
+//! ```
+//!
 //! [`ControlBank`]: strobe_scene::control::ControlBank
 
 pub mod config;

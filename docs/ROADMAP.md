@@ -6,7 +6,7 @@ in [DECISIONS.md](DECISIONS.md), the evidence-based gap list in
 [STATUS_AUDIT.md](STATUS_AUDIT.md), and real-hardware results in
 [hardware/T480.md](hardware/T480.md).
 
-_Last updated: 2026-10-11 (output post stage, cube maps, syn_Media stills and sequences)._
+_Last updated: 2026-10-11 (show control: MIDI, OSC, presets, macros stage 2, hotkeys)._
 
 ## Now
 
@@ -31,6 +31,7 @@ which backend proved a claim.
 | `strobe-autocontrol` | Stage 1: finds candidate literals, rewrites them to uniforms, keeps the ones whose measured effect matters, suggests audio bindings, CLI with `--context auto\|headless\|window` (D123-D126, D140) | llvmpipe, both dialects: 11 of 11 stripped library scenes and 8 of 14 Shadertoy fixtures get controls. Not in the app yet
 | `strobe-playlist` | Stage 1, pure core: model, inheritance, TOML, generator, timeline, playback clock, resume (D73-D77). **Stage 2, in the app (D150-D158):** `--playlist` and the LIST pane, precompile with progress, scenes parked at 1x1, warm-up at a quarter of the pixels, the compositor (crossfade, fade-through-black, custom GLSL), real Hold, extend, restart, skip-section and Next/Prev, NOW/NEXT and remaining time, Generate, Save, a file watcher, resume every 5 s, the wall-clock anchor | Unit tests and 4-hour soaks; stage 2 on headless GL in both dialects (`crates/strobe-app/tests/show.rs`) and under Xvfb with llvmpipe. T480 Task 14: the transition demo closed with 0 runtime compiles, transitions at 60 fps costing about 0.5 ms of GPU |
 | Brand | Parametric Flow guidelines and concept mark (lnorton89/strobe#6); the default theme in the brand palette, the window and taskbar icon, the title-bar mark, and icon PNGs and `.ico` rendered from SVG with a CI check (D190). Open: wordmark, lockups, the `.exe` resource icon | Xvfb screenshots; not yet seen on Windows |
+| `strobe-io` | Show control (D170-D179): MIDI input and OSC on two worker threads feeding one bounded queue, drained once per scene frame; the mapping model (source to target, range, curve, invert, button mode, soft takeover), learn with conflict detection, the six target states, the built-in `/strobe/...` OSC space, the Performance Macro set, `show-control.json`. Presets and fav slots in `strobe-scene`. In the app: the MAP pane, the macro strip, the preset row, cue `preset`, configurable hotkeys | Unit tests with no devices, real UDP over loopback, `tests/show.rs` on headless GL in both dialects, and the app under Xvfb with hand-built OSC datagrams and a real click on Learn. **No MIDI hardware has touched it** (the parser and the mapper are tested from recorded bytes) |
 | Scenes | Eleven original scenes over five GPU-load tiers, one scripted | llvmpipe and T480 |
 
 ### In flight
@@ -51,11 +52,14 @@ Each item names its acceptance test. Details and evidence are in
    ported, D5): Contextual Perform with the shell, the panes above,
    persistence, the keyboard model and every state in the audit
    (screenshots in [images/perform/](images/perform/)). *Left (stage 2):*
-   - a curated, persistent Performance Macro set with target resolution
-     and the unavailable, broken, learning and conflict states (D137);
+   - ~~a curated, persistent Performance Macro set with target resolution
+     and the unavailable, broken, learning and conflict states~~ (built,
+     D175; left: a range and colour editor, a shortcut and smoothing per
+     macro, pinning from the Controls pane);
    - the Playlist workspace (LIST) with real cues, NEXT and remaining
-     time, and Hold wired to it; the Editor (EDIT) and Mappings (MAP)
-     workspaces; MIDI/OSC Learn;
+     time, and Hold wired to it (the LIST pane is built, D157); the Editor
+     (EDIT) workspace and a full Mappings workspace (the MAP pane with MIDI
+     and OSC Learn is built, D177);
    - the generated-controls review panel (item 4) and "open the shader
      error in the Editor";
    - a command palette (Ctrl+K) over the command table, saved named
@@ -103,7 +107,7 @@ Each item names its acceptance test. Details and evidence are in
      inspector, multi-select edits, drag from the library, pasted Shadertoy
      URLs (D157);
    - real tags in the scene format, so Generate can pick by tag;
-   - MIDI and OSC mapping of the cue commands (the command table is ready);
+   - ~~MIDI and OSC mapping of the cue commands~~ (built: commands, `Cue` jumps and fav slots are mapping targets, and `/strobe/cmd/<id>` and `/strobe/cue/<n>` need no mapping, D173);
    - a downbeat detector, so "bars" line up with the music (D75);
    - the T480: the load time of an 80-scene show, the cost of a transition
      (two scenes at once) on an HD 4000, and VRAM with many scenes parked.
@@ -136,7 +140,43 @@ Each item names its acceptance test. Details and evidence are in
    
    *Accept:* a fixture per behaviour, on both dialects where it applies.
 7. **Presets, MIDI, OSC and hotkeys** on the shared `ControlBank`, without
-   duplicating its toggle, bang or smoothing semantics.
+   duplicating its toggle, bang or smoothing semantics. *Built (D170-D179),
+   2026-10-11:*
+   - [x] `strobe-io`: MIDI (`midir`) and OSC (`rosc`) workers, a bounded queue
+     drained once per frame, hot-plug tolerated, a mapping model with range,
+     curve, invert, button mode and soft takeover, learn with conflict
+     detection, six target states (unavailable is not an error), the built-in
+     `/strobe/...` OSC space. OSC is off until asked for and loopback-only
+     unless chosen (D172).
+   - [x] Presets (`presets/*.json` in the scene folder) and eight fav slots;
+     a cue's `preset` now applies on cue start (D176).
+   - [x] The MAP pane (devices, OSC port, mappings, learn, activity), the
+     curated Performance Macro strip (D175, D177), configurable hotkeys
+     (D178), `show-control.json` (D179).
+   - Verified: unit tests with no devices, loopback UDP, headless GL in both
+     dialects, and the app under Xvfb driven by real datagrams
+     ([STATUS_AUDIT.md](STATUS_AUDIT.md)).
+
+   *Left:*
+   - **MIDI on real hardware** (a controller on the T480): port names,
+     hot-plug timing, a device another program holds open on WinMM, message
+     rates. Nothing here has seen a controller (D171, Q23);
+   - an OSC **output** for feedback (motorised faders, TouchOSC state), and a
+     MIDI output; neither exists;
+   - Synesthesia's OSC address layout, if it is wanted (Q23);
+   - an explicit blackout on/off command (only the toggle exists);
+   - macro range and colour editors, per-macro shortcut and smoothing, a pin
+     button in the Controls pane;
+   - an in-app hotkey editor (waits for the command palette);
+   - presets for **media** (PLAN's third channel) once media is controllable,
+     and renaming a preset;
+   - a MIDI-learn flow exercised by a person on the T480 (the Learn click is
+     verified under Xvfb with OSC only).
+
+   *Accept (PLAN Phase 6):* every playlist action and control reachable from
+   MIDI and OSC. Met for OSC (built-in addresses, tested) and for MIDI by
+   mapping (the mapper does not care where a message came from, and is tested
+   from recorded bytes); **not met on hardware**.
 7b. **LAN remote from a phone or tablet** (planned, after item 7). The
    proposal and threat model are in
    [REMOTE_CONTROL_PWA_RESEARCH.md](REMOTE_CONTROL_PWA_RESEARCH.md)
@@ -257,12 +297,12 @@ never per frame.
 | 3 | Audio | Integrated (D61). The bench still uses the synthetic stand-in. |
 | 4 | Shadertoy import | The converter (D90-D95), acquisition (REST client, texture downloader, localhost listener), the Import panel, file drop and the userscript (D110-D117) are built, and stage 1 of auto-generated controls (D123-D126). Open: live-site verification (Q19), thumbnails, the Needs-work bin, batch import, and the app's review panel for generated controls. |
 | 5 | Playlists | The pure core (D73-D77) and the app integration (D150-D158) are built. Verified on the T480 (Task 14). Open: audio-event advance, the Playlist workspace's inspector, MIDI/OSC. |
-| 6 | Presets, MIDI, OSC, hotkeys | Not started. |
+| 6 | Presets, MIDI, OSC, hotkeys | Built (D170-D179): `strobe-io`, presets and fav slots, the MAP pane, macros stage 2, hotkeys. Open: a controller on the T480, OSC and MIDI output, macro editors. |
 | 7 | NDI, media input, song-change transitions | Not started, except media stills and image sequences (D186); video, webcam and NDI are open. `HARD`/`SMOOTH_TRANSITIONS` are declared but never change. |
 
 ## Known gaps in what exists
 
-- The performer-facing UI is at stage 1 plus the Playlist pane (D157): the Editor and Mappings workspaces, persistent macros and thumbnails are not built, and none of it has run on the T480.
+- The performer-facing UI is at stage 1 plus the Playlist pane (D157) and the MAP pane (D177): the Editor workspace and thumbnails are not built, a macro's range and colour have no editor, and none of it has run on the T480.
 - Context-loss recovery is verified under Xvfb with injected faults;
   real-driver behaviour on the T480 is pending (bug 1, D66).
 - The bench's `syn_Spectrum` and `syn_LevelTrail` are silent placeholders,
@@ -322,9 +362,8 @@ The app plays playlists (D150-D158). Known gaps:
   library, no pasted-URL import. Save rewrites the file from the model, so
   comments are lost.
 - **No scene tags**, so Generate matches name words (D157).
-- **Cue `preset` is ignored** (presets are Phase 6) and **`meta` overrides
-  are written to the session's meta bank** (D160), which nothing renders
-  from yet.
+- **A cue's `preset` applies** (D176); `meta` overrides and presets reach
+  the session's meta bank, which the output post stage reads (D180).
 - **Two scenes render during a transition**, doubling the cost for its
   length. Unmeasured on the T480.
 - **Loading a scene by hand unloads the playlist** (D150).

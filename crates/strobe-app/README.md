@@ -16,7 +16,8 @@ from a lost GL context.
   and `strobe-script`, plus `winit`, `egui`, `egui_glow`, `egui-winit`, `clap`,
   `image`, `log`, `thiserror` and `anyhow`.
 - **Depended on by:** nothing. It is the top of the graph.
-- Also depends on `strobe-playlist` and `strobe-shadertoy`: the playlist tick,
+- Also depends on `strobe-io` (show control, `remote.rs`: MIDI, OSC, mappings,
+  macros, fav slots; D170-D179), `strobe-playlist` and `strobe-shadertoy`: the playlist tick,
   transitions between two scenes and the Playlist pane are in the frame loop
   ([`ARCHITECTURE.md`](../../docs/ARCHITECTURE.md), "A frame" and
   "Playlists").
@@ -27,8 +28,16 @@ from a lost GL context.
   audio speed multiply the Audio panel's gains (`AudioInput::set_meta_gains`);
   and the inspector's "Output (meta)" section edits them. Blackout is separate
   and applied after the post stage (D181).
-- **Does not (yet):** MIDI, OSC or audio-event advance; `strobe-io` does not
-  exist yet. Video and webcam media are later.
+- **Show control (D170-D179).** `Remote` owns the MIDI and OSC workers and
+  the mapper; `Running::drain_remote` runs once per scene frame before the
+  scene advances and writes the live session's banks through `ControlBank`;
+  commands, cue jumps, fav slots and presets come back as `Action`s. The MAP
+  pane (`ui::map`), the macro strip (`ui::macros`), the preset row and fav
+  slots (`ui::presets`) and `commands::Bindings` (hotkeys) are the UI side.
+  `show-control.json` is written by the debounced saver, never in screenshot
+  mode.
+- **Does not (yet):** audio-event advance, MIDI or OSC output, or video and
+  webcam media.
 - The app has no `#[cfg(windows)]` code of its own, only `cfg!` values; that is
   why the Windows cross-check from Linux can exclude it (D63).
 
@@ -73,6 +82,11 @@ Flags (from the clap `Cli`):
 | `--render-scale <f>` | `1.0` | Render resolution as a fraction of the output window, 0.25 to 1.0. |
 | `--no-adaptive` | off | Turn adaptive resolution off; the scale stays where you put it. |
 | `--audio auto\|synthetic` | `auto` | Capture an input device (synthetic fallback), or always the fixed 120 BPM pattern. |
+| `--osc` | off | Listen for OSC on `127.0.0.1` for this run (the MAP pane's switch saves it). |
+| `--osc-port <n>` | `9000` | The UDP port, for this run. |
+| `--osc-all-interfaces` | off | Listen on every network interface, for this run only. OSC has no password (D172); never saved. |
+| `--no-midi` | off | Do not open MIDI input devices, for this run. |
+| `--show-control <file>` | data dir's `show-control.json` | Read mappings, macros, fav slots and hotkeys from this file. |
 | `--screenshot <path>` | none | Render `--frames` frames, write `<path>-control.png` and `<path>-output.png`, exit. |
 | `--frames <n>` | `60` | Frames before the screenshot; requires `--screenshot`. |
 | `--listen`, `--listen-port <n>` | off, `47811` | Accept shaders from the "Send to Strobe" userscript on 127.0.0.1 (the Import panel's switch does the same; the panel shows the token). |
@@ -186,8 +200,13 @@ runs are listed in [`DEBUGGING.md`](../../docs/DEBUGGING.md).
   1.0 are still unchecked. F11 on the 1440p panel, scene switching and DPI at
   150% scaling are still waiting for an interactive check.
 - Playlists are built (stage 2, D150-D158) and verified on llvmpipe only. Not
-  built: audio-event advance, the Playlist workspace's inspector, presets,
-  MIDI, OSC, hotkey mapping, Shadertoy thumbnails and the Needs-work bin, NDI.
+  built: audio-event advance, the Playlist workspace's inspector, Shadertoy
+  thumbnails and the Needs-work bin, NDI.
+- Show control (D170-D179) is built and verified under Xvfb with real OSC
+  datagrams, a real click on Learn, and headless GL for cue presets; **no MIDI
+  controller has been used**, and nothing here has run on the T480 or Windows.
+  Not built: OSC or MIDI output, a macro range and colour editor, an explicit
+  blackout on/off command, an in-app hotkey editor.
   Cube maps and `syn_Media` stills and sequences work (D185, D186), video
   and webcam do not. Script `meta/` writes land in the session's meta bank,
   which the post stage renders from (D180), checked on llvmpipe under Xvfb
