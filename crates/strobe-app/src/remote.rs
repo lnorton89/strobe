@@ -117,7 +117,10 @@ pub struct Activity {
 impl Activity {
     /// Adds a line, or folds it into the previous one when it is the same
     /// source with the same result (a fader moving).
-    pub fn note(&mut self, at: f32, text: String, result: String, source: Option<Source>) {
+    ///
+    /// Returns whether it started a new line, which is when the caller logs
+    /// it: a fader sweep is one line in the log, not hundreds.
+    pub fn note(&mut self, at: f32, text: String, result: String, source: Option<Source>) -> bool {
         if let (Some(last), Some(source)) = (self.lines.back_mut(), source.as_ref())
             && last.source.as_ref() == Some(source)
             && last.result == result
@@ -125,7 +128,7 @@ impl Activity {
             last.at = at;
             last.text = text;
             last.count = last.count.saturating_add(1);
-            return;
+            return false;
         }
         if self.lines.len() >= LOG_LINES {
             self.lines.pop_front();
@@ -137,6 +140,7 @@ impl Activity {
             count: 1,
             source,
         });
+        true
     }
 
     /// The lines, oldest first.
@@ -331,8 +335,14 @@ impl Remote {
             | Outcome::Unavailable(_)
             | Outcome::Ignored => {}
         }
-        self.activity
-            .note(at, input.describe(), outcome.label(), Some(source));
+        let text = input.describe();
+        let result = outcome.label();
+        if self
+            .activity
+            .note(at, text.clone(), result.clone(), Some(source))
+        {
+            log::info!("show control: {text}: {result}");
+        }
     }
 
     fn describe_mapping(&self, index: usize) -> String {

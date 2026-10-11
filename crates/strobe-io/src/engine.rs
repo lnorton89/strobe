@@ -96,6 +96,7 @@ impl Outcome {
         match self {
             Self::Unmapped => "unmapped".to_string(),
             Self::Applied(1) => "applied".to_string(),
+            Self::Applied(0) => "no change".to_string(),
             Self::Applied(n) => format!("applied to {n}"),
             Self::Waiting => "waiting for pickup".to_string(),
             Self::Unavailable(why) => format!("unavailable: {why}"),

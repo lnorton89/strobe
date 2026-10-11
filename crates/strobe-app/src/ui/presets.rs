@@ -42,9 +42,14 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
     let active = panel.active_preset;
     ui.horizontal(|ui| {
         label(ui, theme, "PRESET");
-        let shown = active.unwrap_or(if names.is_empty() { "none saved" } else { "choose" });
+        let shown = active.unwrap_or(if names.is_empty() {
+            "none saved"
+        } else {
+            "choose"
+        });
+        let delete_room = if active.is_some() { 34.0 } else { 0.0 };
         egui::ComboBox::from_id_salt("preset-pick")
-            .width(150.0)
+            .width((ui.available_width() - delete_room - SPACE_SM).max(80.0))
             .selected_text(shown)
             .show_ui(ui, |ui| {
                 for name in names {
@@ -56,11 +61,21 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
                     }
                 }
             });
+        if let Some(active) = active
+            && widgets::icon_button(ui, theme, Icon::Close, "Delete the active preset's file")
+                .clicked()
+        {
+            actions.push(Action::DeletePreset(active.to_string()));
+        }
+    });
+    ui.add_space(SPACE_XS);
+    ui.horizontal(|ui| {
+        let save_room = 64.0;
         let field = &mut panel.ui.preset_name;
         ui.add(
             egui::TextEdit::singleline(field)
-                .hint_text("name")
-                .desired_width(ui.available_width() - 120.0),
+                .hint_text("save as...")
+                .desired_width((ui.available_width() - save_room - SPACE_SM).max(60.0)),
         );
         let name = field.trim().to_string();
         let usable = strobe_scene::preset::valid_name(&name);
@@ -74,14 +89,9 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
         if save.clicked() {
             actions.push(Action::SavePreset(name));
         }
-        if let Some(active) = active
-            && widgets::icon_button(ui, theme, Icon::Close, "Delete the active preset's file").clicked()
-        {
-            actions.push(Action::DeletePreset(active.to_string()));
-        }
     });
     ui.add_space(SPACE_XS);
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         label(ui, theme, "FAV");
         for slot in 0..strobe_scene::preset::FAV_SLOTS {
             let fav = panel.remote.favs.get(slot);
@@ -101,14 +111,21 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
                     slot + 1
                 ),
             };
-            let response = widgets::tool_button(
-                ui,
-                theme,
-                if filled { Icon::Check } else { Icon::Close },
-                &(slot + 1).to_string(),
-                here,
-                &tip,
-            );
+            let colour = if filled {
+                theme.accent
+            } else {
+                theme.text_faint
+            };
+            let text = egui::RichText::new((slot + 1).to_string())
+                .strong()
+                .color(theme::rgb(colour));
+            let response = ui
+                .add(
+                    egui::Button::new(text)
+                        .selected(here)
+                        .min_size(egui::vec2(26.0, 24.0)),
+                )
+                .on_hover_text(tip);
             if response.clicked() {
                 actions.push(if filled {
                     Action::RecallFav(slot)
@@ -135,7 +152,7 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
 
 fn label(ui: &mut Ui, theme: &Palette, text: &str) {
     ui.add_sized(
-        [38.0, 18.0],
+        [40.0, 18.0],
         egui::Label::new(
             egui::RichText::new(text)
                 .size(10.0)
