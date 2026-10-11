@@ -226,7 +226,19 @@ impl Session {
         if let Some(harvest) = &harvest {
             session.send_script_uniforms(harvest);
         }
+        session.report_asset_problems();
         Ok(session)
+    }
+
+    /// Reports, through the failure path, any cube map or media picture
+    /// that did not load since the last call. The scene carries on without
+    /// it (a black cube, a black `syn_Media`). A media picture decoding on
+    /// its thread can fail well after load, which is why this also runs
+    /// after each frame; with nothing to say it is one empty-vector swap.
+    fn report_asset_problems(&mut self) {
+        for problem in self.player.take_asset_problems() {
+            failure::report(failures::asset_problem(&self.name, &self.dir, &problem));
+        }
     }
 
     /// The scene clock, in seconds.
@@ -334,6 +346,7 @@ impl Session {
             transitions: &self.transitions,
         });
         self.frame += 1;
+        self.report_asset_problems();
     }
 
     /// Hands the script's uniform values to the player, in the order the

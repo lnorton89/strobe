@@ -19,7 +19,7 @@ use crate::recovery::{Decision, Rebuild};
 use crate::session::LoadError;
 use std::path::Path;
 use strobe_diag::failure::{Failure, Subsystem};
-use strobe_gfx::{Backend, PlayerError};
+use strobe_gfx::{AssetProblem, Backend, PlayerError};
 use strobe_scene::SceneError;
 use strobe_script::ScriptError;
 
@@ -98,6 +98,24 @@ pub fn script_load(name: &str, error: &ScriptError) -> Failure {
         .asset("script.js")
         .message(error)
         .action("the scene runs without its script")
+}
+
+/// The failure for a scene asset that did not load: a cube map, or the
+/// `syn_Media` picture. The scene keeps playing, and the person is told
+/// what it is playing with instead.
+pub fn asset_problem(scene: &str, dir: &Path, problem: &AssetProblem) -> Failure {
+    let action = if problem.asset == "syn_Media" {
+        "the scene runs without a media picture (syn_Media is black)"
+    } else {
+        "the scene runs with a black cube map"
+    };
+    Failure::new(Subsystem::Io, "asset")
+        .scene(scene)
+        .path(dir)
+        .asset(&problem.path)
+        .detail("sampler", &problem.asset)
+        .message(&problem.message)
+        .action(action)
 }
 
 /// The short name of a backend, as the session context and the failure
@@ -265,6 +283,32 @@ mod tests {
         assert!(!text.contains("line="), "no user line:\n{text}");
         assert!(text.contains("nothing is playing"), "action:\n{text}");
         Ok(())
+    }
+
+    #[test]
+    fn a_missing_cube_map_names_the_sampler_the_file_and_what_the_scene_does() {
+        let problem = AssetProblem {
+            asset: "env".to_string(),
+            path: "sky/px.png, sky/nx.png".to_string(),
+            message: "scenes/x/sky/px.png: No such file or directory".to_string(),
+        };
+        let text = asset_problem("x", Path::new("scenes/x"), &problem).to_string();
+        for needle in [
+            "IO",
+            "scene=x",
+            "phase=asset",
+            "sampler=env",
+            "px.png",
+            "black cube map",
+        ] {
+            assert!(text.contains(needle), "missing `{needle}` in:\n{text}");
+        }
+        let media = AssetProblem {
+            asset: "syn_Media".to_string(),
+            ..problem
+        };
+        let text = asset_problem("x", Path::new("scenes/x"), &media).to_string();
+        assert!(text.contains("syn_Media is black"), "media action:\n{text}");
     }
 
     #[test]
