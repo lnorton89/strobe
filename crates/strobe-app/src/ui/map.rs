@@ -56,6 +56,10 @@ use strobe_io::target::{Resolution, State};
 use strobe_io::{ButtonMode, Curve, Macro, Mapping, OscSettings, Source, Takeover, Target};
 use strobe_scene::control::{ControlBank, ControlKind};
 
+/// Width a row keeps for its buttons (Learn, delete, a checkbox), so the
+/// name takes only what is left and the row never outgrows the pane.
+const ROW_BUTTONS: f32 = 190.0;
+
 /// Activity lines drawn (the log keeps more).
 const ACTIVITY_LINES: usize = 12;
 
@@ -390,7 +394,6 @@ fn macros_block(
     }
     let mut remove = None;
     let mut learn = None;
-    let mut shift = None;
     let ids: Vec<u32> = remote.engine.macros.all().iter().map(|m| m.id).collect();
     for (position, id) in ids.iter().copied().enumerate() {
         let Some(found) = remote.engine.macros.get(id).cloned() else {
@@ -417,32 +420,32 @@ fn macros_block(
                     {
                         remote.engine.macros.set_pinned(id, pinned);
                     }
-                    let name = egui::RichText::new(&found.name).strong().color(theme::rgb(
-                        if resolution.state == State::Resolved {
-                            theme.text
-                        } else {
-                            theme.text_muted
-                        },
-                    ));
-                    if ui
-                        .add(egui::Label::new(name).sense(egui::Sense::click()))
-                        .on_hover_text("Click for options")
-                        .clicked()
-                    {
+                    let colour = if resolution.state == State::Resolved {
+                        theme.text
+                    } else {
+                        theme.text_muted
+                    };
+                    let room = (ui.available_width() - ROW_BUTTONS).max(40.0);
+                    let galley = widgets::truncated(
+                        ui,
+                        &found.name,
+                        egui::TextStyle::Body.resolve(ui.style()),
+                        colour,
+                        room,
+                    );
+                    let (rect, response) = ui.allocate_exact_size(
+                        egui::vec2(galley.size().x, galley.size().y),
+                        egui::Sense::click(),
+                    );
+                    ui.painter().galley(rect.min, galley, theme::rgb(colour));
+                    if response.on_hover_text("Click for options").clicked() {
                         map.selected_macro = if selected { None } else { Some(id) };
                     }
-                    state_chip(ui, theme, &resolution);
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if widgets::icon_button(ui, theme, Icon::Close, "Delete this macro")
                             .clicked()
                         {
                             remove = Some(id);
-                        }
-                        if widgets::button(ui, theme, None, "Down").clicked() {
-                            shift = Some((id, 1));
-                        }
-                        if widgets::button(ui, theme, None, "Up").clicked() {
-                            shift = Some((id, -1));
                         }
                         let learning = remote.engine.is_learning_target(&Target::Macro { id });
                         if widgets::tool_button(
@@ -459,20 +462,27 @@ fn macros_block(
                         }
                     });
                 });
+                ui.horizontal_wrapped(|ui| {
+                    state_chip(ui, theme, &resolution);
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "{}  {}",
+                            found.target.badge(),
+                            found.target.label()
+                        ))
+                        .small()
+                        .color(theme::rgb(theme.text_muted)),
+                    );
+                });
                 let source_text = if sources.is_empty() {
                     "no MIDI or OSC source".to_string()
                 } else {
                     sources.join(", ")
                 };
                 ui.label(
-                    egui::RichText::new(format!(
-                        "{}  {}   {}",
-                        found.target.badge(),
-                        found.target.label(),
-                        source_text
-                    ))
-                    .small()
-                    .color(theme::rgb(theme.text_muted)),
+                    egui::RichText::new(source_text)
+                        .small()
+                        .color(theme::rgb(theme.text_muted)),
                 );
                 if !resolution.reason.is_empty() && resolution.state != State::Resolved {
                     ui.label(
@@ -496,9 +506,6 @@ fn macros_block(
             map.selected_macro = None;
         }
     }
-    if let Some((id, delta)) = shift {
-        remote.engine.macros.move_by(id, delta);
-    }
     if let Some(id) = learn {
         let target = Target::Macro { id };
         if remote.engine.is_learning_target(&target) {
@@ -515,6 +522,14 @@ fn macro_options(ui: &mut Ui, theme: &Palette, remote: &mut Remote, id: u32) {
     };
     let before = found.clone();
     widgets::section_rule(ui, theme);
+    ui.horizontal(|ui| {
+        if widgets::button(ui, theme, None, "Move earlier").clicked() {
+            remote.engine.macros.move_by(id, -1);
+        }
+        if widgets::button(ui, theme, None, "Move later").clicked() {
+            remote.engine.macros.move_by(id, 1);
+        }
+    });
     ui.horizontal(|ui| {
         ui.label(
             egui::RichText::new("Name")
@@ -912,21 +927,26 @@ fn mappings_block(
                 ui.set_width(ui.available_width());
                 let mapping = &mut remote.engine.mappings[index];
                 ui.horizontal(|ui| {
-                    state_chip(ui, theme, &resolution);
                     let title = source_title(&mapping.source);
-                    let text =
-                        egui::RichText::new(title)
-                            .strong()
-                            .color(theme::rgb(if mapping.enabled {
-                                theme.text
-                            } else {
-                                theme.text_faint
-                            }));
-                    if ui
-                        .add(egui::Label::new(text).sense(egui::Sense::click()))
-                        .on_hover_text("Click for options")
-                        .clicked()
-                    {
+                    let colour = if mapping.enabled {
+                        theme.text
+                    } else {
+                        theme.text_faint
+                    };
+                    let room = (ui.available_width() - ROW_BUTTONS).max(40.0);
+                    let galley = widgets::truncated(
+                        ui,
+                        &title,
+                        egui::TextStyle::Body.resolve(ui.style()),
+                        colour,
+                        room,
+                    );
+                    let (rect, response) = ui.allocate_exact_size(
+                        egui::vec2(galley.size().x, galley.size().y),
+                        egui::Sense::click(),
+                    );
+                    ui.painter().galley(rect.min, galley, theme::rgb(colour));
+                    if response.on_hover_text(&title).clicked() {
                         map.selected = if selected { None } else { Some(index) };
                     }
                     if just_learned {
@@ -954,15 +974,18 @@ fn mappings_block(
                             .on_hover_text("Switch this mapping off without deleting it");
                     });
                 });
-                ui.label(
-                    egui::RichText::new(format!(
-                        "-> {}  {}",
-                        mapping.target.badge(),
-                        mapping.target.label()
-                    ))
-                    .small()
-                    .color(theme::rgb(theme.text_muted)),
-                );
+                ui.horizontal_wrapped(|ui| {
+                    state_chip(ui, theme, &resolution);
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "-> {}  {}",
+                            mapping.target.badge(),
+                            mapping.target.label()
+                        ))
+                        .small()
+                        .color(theme::rgb(theme.text_muted)),
+                    );
+                });
                 if matches!(resolution.state, State::Unavailable | State::Broken)
                     && !resolution.reason.is_empty()
                 {
@@ -1182,7 +1205,7 @@ fn activity_block(ui: &mut Ui, theme: &Palette, remote: &mut Remote) {
         });
     });
     for line in remote.activity.lines().rev().take(ACTIVITY_LINES) {
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing.x = SPACE_MD;
             ui.label(
                 egui::RichText::new(format!("{:7.1}s", line.at))
