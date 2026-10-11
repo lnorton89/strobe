@@ -71,7 +71,18 @@ impl ControlDef {
         if crate::names::is_reserved(&name) {
             return Err(SceneError::ReservedName(name));
         }
-        let kind = ControlKind::parse(&name, &raw.ty)?;
+        // Real Synesthesia scenes have controls with only NAME, MIN, MAX and
+        // DEFAULT (7 in 65 on TORNADO, D193). With no TYPE, two default
+        // components make an xy pad and anything else a slider.
+        let ty = if raw.ty.trim().is_empty() {
+            match raw.default.as_ref().map(|d| d.to_vec().len()) {
+                Some(2) => "xy",
+                _ => "slider",
+            }
+        } else {
+            raw.ty.as_str()
+        };
+        let kind = ControlKind::parse(&name, ty)?;
         let dims = kind.dimensions();
 
         let (labels, values) = if matches!(kind, ControlKind::Dropdown { .. }) {

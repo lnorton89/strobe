@@ -151,6 +151,9 @@ pub enum RawMedia {
     Path(String),
     /// `"MEDIA": { "PATH": "frames", "FPS": 12 }`.
     Full(RawMediaOptions),
+    /// Synesthesia's form, `"MEDIA": [ { "FILTER": "linear", "WRAP": "clamp" } ]`:
+    /// input slots with sampler settings and no file (D193).
+    Slots(Vec<RawMediaOptions>),
 }
 
 /// The object form of `MEDIA`.
