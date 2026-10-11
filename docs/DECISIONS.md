@@ -2296,9 +2296,15 @@ what lets `cargo xtask brand --check` (in `cargo xtask ci` and CI's
 changelog job) compare bytes and fail on a source edited without
 regenerating.
 
-**The app uses them.** Both windows get the 48 px icon
-(`strobe_app::brand`, compiled in with `include_bytes!`), which is what
-the taskbar and Alt-Tab show at the T480's 150%. The title bar's mark is
+**The app uses them.** Each window gets two icons (`strobe_app::brand`,
+compiled in with `include_bytes!`): the 48 px render of `icon.svg` as
+Windows' big icon, which is what the taskbar and Alt-Tab show at the
+T480's 150%, and the 24 px render of `icon-small.svg` as the small one.
+winit's `with_window_icon` sets only the small one on Windows, which T480
+Task 15 caught (`WM_GETICON` returned no big icon). The big one needs the
+Windows-only `with_taskbar_icon`, so `strobe_gfx::with_icons` holds that
+`cfg` in a crate the Linux cross-check covers. The app stays free of
+`#[cfg(windows)]`. The title bar's mark is
 the simplified ribbon, flattened from the same six cubic segments as
 `icon-small.svg` and painted in the theme's accent: the guide's monochrome
 variant, so it follows the theme like every other UI colour.

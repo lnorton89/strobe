@@ -160,6 +160,44 @@ fn native_preference(window: Option<RawWindowHandle>) -> DisplayApiPreference {
     DisplayApiPreference::GlxThenEgl(Box::new(winit::platform::x11::register_xlib_error_hook))
 }
 
+/// Gives a window its icons: `small` for the title bar and `big` for the
+/// taskbar and Alt-Tab.
+///
+/// The split exists because of Windows. winit's `with_window_icon` sets only
+/// `ICON_SMALL` there, and the taskbar and Alt-Tab read `ICON_BIG`. Without
+/// that they fall back to the executable's icon, which is the generic one
+/// until the release embeds a resource (T480 Task 15, D190). Setting the big
+/// icon needs a Windows-only extension trait, so it lives here, in a crate
+/// the Linux cross-check covers, rather than as `#[cfg(windows)]` in the
+/// app. Elsewhere one icon serves every place, and the larger is used.
+#[must_use]
+pub fn with_icons(
+    attributes: WindowAttributes,
+    small: Option<winit::window::Icon>,
+    big: Option<winit::window::Icon>,
+) -> WindowAttributes {
+    set_icons(attributes, small, big)
+}
+
+#[cfg(target_os = "windows")]
+fn set_icons(
+    attributes: WindowAttributes,
+    small: Option<winit::window::Icon>,
+    big: Option<winit::window::Icon>,
+) -> WindowAttributes {
+    use winit::platform::windows::WindowAttributesExtWindows as _;
+    attributes.with_window_icon(small).with_taskbar_icon(big)
+}
+
+#[cfg(not(target_os = "windows"))]
+fn set_icons(
+    attributes: WindowAttributes,
+    small: Option<winit::window::Icon>,
+    big: Option<winit::window::Icon>,
+) -> WindowAttributes {
+    attributes.with_window_icon(big.or(small))
+}
+
 /// Which backend(s) to try.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum GlChoice {
