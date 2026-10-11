@@ -19,14 +19,15 @@
 //!   [x] MIDI input                        [Refresh]
 //!       [x] nanoKONTROL2                  Connected
 //! (a banner while learn is armed, or when a source is already mapped)
-//! MACROS                                              [Add...]
-//!   [pin] Speed   Resolved   CC 21 ch 1     [Learn] [Up] [Down] [x]
-//!         control: speed
-//! MAPPINGS                          [search]          [Add...]
-//!   Resolved  CC 21 ch 1 [nanoKONTROL2]               [Learn] [x]
-//!             -> speed
 //! ACTIVITY                                                   Clear
 //!   12.3s  CC 21 = 64  ch 1  [nanoKONTROL2]    applied   x37
+//! MACROS
+//!   [pin] Speed                                       [Learn] [x]
+//!         Resolved   SCENE speed
+//!         CC 21 ch 1
+//! MAPPINGS                          [search]          [Add...]
+//!   CC 21 ch 1 [nanoKONTROL2]               [on] [Learn] [x]
+//!         Resolved   -> SCENE speed
 //! ```
 //!
 //! Every row says its state in a word and an icon, never colour alone
@@ -61,7 +62,7 @@ use strobe_scene::control::{ControlBank, ControlKind};
 const ROW_BUTTONS: f32 = 190.0;
 
 /// Activity lines drawn (the log keeps more).
-const ACTIVITY_LINES: usize = 12;
+const ACTIVITY_LINES: usize = 8;
 
 /// The icon and colour that say a state.
 pub fn state_look(theme: &Palette, state: State) -> (Icon, Rgb) {
@@ -112,6 +113,9 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
             ui.add_space(SPACE_SM);
             midi_block(ui, theme, remote, actions);
             ui.add_space(SPACE_SM);
+            widgets::section(ui, theme, "Activity");
+            activity_block(ui, theme, remote);
+            ui.add_space(SPACE_SM);
             widgets::section(ui, theme, "Macros");
             macros_block(ui, theme, remote, map, &eval);
             ui.add_space(SPACE_SM);
@@ -123,9 +127,6 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
             };
             add_form(ui, theme, remote, map, &targets);
             mappings_block(ui, theme, remote, map, &eval);
-            ui.add_space(SPACE_SM);
-            widgets::section(ui, theme, "Activity");
-            activity_block(ui, theme, remote);
         });
 }
 
@@ -485,13 +486,15 @@ fn macros_block(
                         .color(theme::rgb(theme.text_muted)),
                 );
                 if !resolution.reason.is_empty() && resolution.state != State::Resolved {
+                    let sentence = if resolution.state == State::Unavailable {
+                        format!("unavailable in current scene: {}", resolution.reason)
+                    } else {
+                        resolution.reason.clone()
+                    };
                     ui.label(
-                        egui::RichText::new(format!(
-                            "unavailable in current scene: {}",
-                            resolution.reason
-                        ))
-                        .small()
-                        .color(theme::rgb(theme.text_faint)),
+                        egui::RichText::new(sentence)
+                            .small()
+                            .color(theme::rgb(theme.text_faint)),
                     );
                 }
                 if selected {

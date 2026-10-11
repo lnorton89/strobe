@@ -182,7 +182,9 @@ pub struct Remote {
     pub osc_saved: OscSettings,
     /// OSC as it is running (the saved settings plus command-line overrides).
     pub osc: OscSettings,
-    /// MIDI settings.
+    /// MIDI as the operator saved it.
+    pub midi_saved: MidiSettings,
+    /// MIDI as it is running (the saved settings plus `--no-midi`).
     pub midi: MidiSettings,
     /// The fav slots.
     pub favs: FavSlots,
@@ -258,6 +260,7 @@ impl Remote {
             engine,
             osc_saved: config.osc.clone(),
             osc,
+            midi_saved: config.midi.clone(),
             midi,
             favs: config.favs.clone(),
             hotkeys: config.hotkeys.clone(),
@@ -416,6 +419,7 @@ impl Remote {
 
     /// Applies MIDI settings.
     pub fn set_midi(&mut self, settings: MidiSettings) {
+        self.midi_saved = settings.clone();
         self.midi = settings;
         if let Some(hub) = &self.hub {
             hub.set_midi(&self.midi);
@@ -424,12 +428,17 @@ impl Remote {
 
     /// Switches one device on or off.
     pub fn set_device_enabled(&mut self, key: &str, enabled: bool) {
-        let mut settings = self.midi.clone();
-        settings.disabled_devices.retain(|d| d != key);
-        if !enabled {
-            settings.disabled_devices.push(key.to_string());
+        // The device list belongs to both the saved and the running
+        // settings; each keeps its own on/off for MIDI as a whole.
+        for settings in [&mut self.midi_saved, &mut self.midi] {
+            settings.disabled_devices.retain(|d| d != key);
+            if !enabled {
+                settings.disabled_devices.push(key.to_string());
+            }
         }
-        self.set_midi(settings);
+        if let Some(hub) = &self.hub {
+            hub.set_midi(&self.midi);
+        }
     }
 
     /// Looks at the MIDI ports again now.
@@ -528,7 +537,7 @@ impl Remote {
         ShowControl {
             version: self.snapshot.version,
             osc: self.osc_saved.clone(),
-            midi: self.midi.clone(),
+            midi: self.midi_saved.clone(),
             mappings: self.engine.mappings.clone(),
             macros: self.engine.macros.clone(),
             favs: self.favs.clone(),
@@ -540,7 +549,7 @@ impl Remote {
     /// without building a copy.
     fn changed(&self) -> bool {
         self.snapshot.osc != self.osc_saved
-            || self.snapshot.midi != self.midi
+            || self.snapshot.midi != self.midi_saved
             || self.snapshot.mappings != self.engine.mappings
             || self.snapshot.macros != self.engine.macros
             || self.snapshot.favs != self.favs
@@ -695,6 +704,27 @@ mod tests {
             !remote.osc_saved.all_interfaces && remote.osc_saved.enabled,
             "as chosen"
         );
+        std::fs::remove_dir_all(&dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn no_midi_on_the_command_line_is_not_saved() -> Result<()> {
+        let dir = dir("nomidi")?;
+        let overrides = Overrides {
+            no_midi: true,
+            read_only: true,
+            ..quiet()
+        };
+        let mut remote = Remote::new(&dir, &overrides, Instant::now());
+        assert!(!remote.midi.enabled, "off this run");
+        assert!(
+            remote.midi_saved.enabled,
+            "but saved as the operator left it"
+        );
+        assert!(!remote.changed(), "so nothing is waiting to be written");
+        remote.set_device_enabled("Thru", false);
+        assert!(remote.changed(), "a choice made in the pane is saved");
         std::fs::remove_dir_all(&dir)?;
         Ok(())
     }

@@ -2231,7 +2231,7 @@ impl Running {
                 }
                 Action::SetOsc(settings) => self.remote.set_osc(settings),
                 Action::SetMidiEnabled(enabled) => {
-                    let mut settings = self.remote.midi.clone();
+                    let mut settings = self.remote.midi_saved.clone();
                     settings.enabled = enabled;
                     self.remote.set_midi(settings);
                 }
