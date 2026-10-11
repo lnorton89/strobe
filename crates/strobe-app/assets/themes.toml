@@ -31,12 +31,36 @@
 # `id` is persisted in the preferences file. Never rename one. The first entry
 # is the default theme.
 
-# The default (UI_DESIGN section 18): a very dark blue-black, a restrained
-# amber accent, pale primary text and blue-grey secondary text. Amber marks
-# what is live or selected; red is for failures.
+# The default: the Parametric Flow brand palette (docs/branding.md section 3,
+# D190). Void, Panel, Border, Text and Muted are the brand tokens; `raised`
+# and `hover` are the two steps between Panel and Border the brand does not
+# name. Cyan marks what is live, selected or focused, and nothing else (brand
+# section 6); blue is the informational colour, so it never reads as
+# selection. Violet and magenta are left to the scenes.
 [[theme]]
 id = "strobe"
 name = "Strobe"
+mode = "dark"
+app = "#080b14"
+panel = "#101725"
+raised = "#162034"
+hover = "#1d2a42"
+border = "#253247"
+accent = "#00e5ff"
+text = "#f3f6fa"
+text_muted = "#9aa8bc"
+danger = "#ff6b7c"
+warning = "#ff9a47"
+success = "#5fd08a"
+info = "#5b9cf8"
+rainbow_span = 260
+
+# The first default (UI_DESIGN section 18 before the brand): a very dark
+# blue-black, a restrained amber accent, pale primary text and blue-grey
+# secondary text. Amber marks what is live or selected; red is for failures.
+[[theme]]
+id = "amber"
+name = "Amber"
 mode = "dark"
 app = "#090b0f"
 panel = "#10141a"

@@ -540,13 +540,15 @@ Authored semantic colours:
 
 Derive other colours.
 
-Default theme:
+Default theme (the brand palette, `docs/branding.md` section 3; D190):
 
-- very dark neutral/blue-black;
-- restrained amber accent;
-- pale primary text;
-- blue-grey secondary text;
-- semantic status colours.
+- the brand's Void / Panel / Border surfaces, a very dark blue-black;
+- the brand's Cyan as the one accent, for live, selected and focused only;
+- pale primary text (brand Text);
+- blue-grey secondary text (brand Muted);
+- semantic status colours; information in blue, never cyan.
+
+The original amber default is kept as the `amber` theme.
 
 The UI itself should not become rainbow. Scene content and data visualizations can be.
 

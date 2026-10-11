@@ -271,6 +271,7 @@ impl Layout {
     fn initial(show_output: bool, custom_title_bar: bool, window_size: Option<(u32, u32)>) -> Self {
         let control = Window::default_attributes()
             .with_title("Strobe")
+            .with_window_icon(crate::brand::window_icon())
             .with_decorations(!custom_title_bar)
             .with_min_inner_size(LogicalSize::new(720.0, 480.0));
         let control = match window_size {
@@ -288,6 +289,7 @@ impl Layout {
         Self {
             output: Window::default_attributes()
                 .with_title("Strobe Output")
+                .with_window_icon(crate::brand::window_icon())
                 .with_visible(show_output)
                 .with_inner_size(LogicalSize::new(960.0, 540.0)),
             control,

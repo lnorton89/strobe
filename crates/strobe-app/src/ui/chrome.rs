@@ -313,26 +313,59 @@ fn window_buttons(ui: &mut Ui, model: &Model<'_>, theme: &Palette, actions: &mut
     }
 }
 
-/// Paints the brand mark: a burst, which is what a strobe is.
+/// The brand mark (`docs/branding.md` section 2): the Parametric Flow
+/// ribbon, simplified as for the 32 px icon (no contours, innermost turn
+/// dropped), in the theme's accent. That is the guide's monochrome variant,
+/// so the mark follows the theme like every other colour the UI paints.
+///
+/// The curve is the six cubic segments of `assets/brand/icon-small.svg`, in
+/// that file's 512-unit space, flattened to a polyline here. Painting it is
+/// a few dozen line segments per UI pass and no allocation.
 fn paint_mark(ui: &mut Ui, theme: &Palette) {
     const SIZE: f32 = 18.0;
+    /// Where the ribbon's bounding box sits in the SVG, and its larger side.
+    const CENTRE: [f32; 2] = [238.0, 243.0];
+    const SPAN: f32 = 300.0;
+    /// Start point, then each segment's two control points and end point.
+    const START: [f32; 2] = [117.0, 269.0];
+    const SEGMENTS: [[[f32; 2]; 3]; 6] = [
+        [[93.0, 175.0], [166.0, 99.0], [252.0, 119.0]],
+        [[318.0, 135.0], [381.0, 205.0], [360.0, 273.0]],
+        [[339.0, 334.0], [260.0, 386.0], [192.0, 355.0]],
+        [[136.0, 330.0], [115.0, 273.0], [157.0, 226.0]],
+        [[202.0, 176.0], [279.0, 180.0], [322.0, 223.0]],
+        [[355.0, 258.0], [333.0, 304.0], [290.0, 322.0]],
+    ];
+    const STEPS: u8 = 8;
+
     let (rect, _) = ui.allocate_exact_size(Vec2::splat(SIZE), Sense::hover());
     let painter = ui.painter();
     let centre = rect.center();
-    let colour = theme::rgb(theme.accent);
-    painter.circle_filled(centre, 3.0, colour);
-    for step in 0..8_u32 {
-        let angle = step as f32 * std::f32::consts::FRAC_PI_4;
-        let (sin, cos) = angle.sin_cos();
-        let reach = if step % 2 == 0 { 8.5 } else { 6.5 };
-        painter.line_segment(
-            [
-                centre + Vec2::new(cos, sin) * 5.0,
-                centre + Vec2::new(cos, sin) * reach,
-            ],
-            egui::Stroke::new(1.5, colour),
-        );
+    let scale = SIZE / SPAN;
+    let to_screen =
+        |[x, y]: [f32; 2]| centre + Vec2::new((x - CENTRE[0]) * scale, (y - CENTRE[1]) * scale);
+    let stroke = egui::Stroke::new(1.6, theme::rgb(theme.accent));
+    let mut from = START;
+    for [c1, c2, to] in SEGMENTS {
+        let mut previous = to_screen(from);
+        for step in 1..=STEPS {
+            let t = f32::from(step) / f32::from(STEPS);
+            let point = to_screen(cubic(from, c1, c2, to, t));
+            painter.line_segment([previous, point], stroke);
+            previous = point;
+        }
+        from = to;
     }
+}
+
+/// A point on a cubic Bézier at `t`.
+fn cubic(p0: [f32; 2], p1: [f32; 2], p2: [f32; 2], p3: [f32; 2], t: f32) -> [f32; 2] {
+    let u = 1.0 - t;
+    let (a, b, c, d) = (u * u * u, 3.0 * u * u * t, 3.0 * u * t * t, t * t * t);
+    [
+        a * p0[0] + b * p1[0] + c * p2[0] + d * p3[0],
+        a * p0[1] + b * p1[1] + c * p2[1] + d * p3[1],
+    ]
 }
 
 /// One readout: an icon and text, as a button that opens `opens`.
