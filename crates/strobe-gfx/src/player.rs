@@ -1156,8 +1156,8 @@ fn quantise(value: f32) -> u8 {
 /// Decodes an image file into a texture. By default the bottom row comes
 /// first so `_uv` reads it upright; the scene can turn that off.
 fn load_image(gl: &Gl, path: &Path, def: &ImageDef) -> Result<Texture, PlayerError> {
-    let opened =
-        image::open(path).map_err(|e| PlayerError::Resource(format!("{}: {e}", path.display())))?;
+    let opened = crate::assets::decode_file(path)
+        .map_err(|e| PlayerError::Resource(format!("{}: {e}", path.display())))?;
     let decoded = if def.vflip { opened.flipv() } else { opened }.into_rgba8();
     let (w, h) = decoded.dimensions();
     let sampling = sampling_for(def.wrap, def.filter);

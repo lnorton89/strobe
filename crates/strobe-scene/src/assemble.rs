@@ -246,7 +246,10 @@ pub fn fragment(request: &Request<'_>) -> String {
          vec2 _xy = vec2(0.0);\nvec2 _uv = vec2(0.0);\nvec2 _uvc = vec2(0.0);\n\
          out vec4 strobe_FragColor;\n\
          #define texture2D texture\n\
-         #define texture2DLod textureLod\n",
+         #define texture2DLod textureLod\n\
+         #define IMG_NORM_PIXEL(img, uv) texture(img, uv)\n\
+         #define IMG_PIXEL(img, xy) texture(img, (xy) / vec2(textureSize(img, 0)))\n\
+         #define IMG_SIZE(img) vec2(textureSize(img, 0))\n",
     );
     out.push_str("// ---- SSF function library ----\n");
     out.push_str(strobe_ssf_lib::LIBRARY);

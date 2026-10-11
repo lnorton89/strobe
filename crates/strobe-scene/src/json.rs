@@ -53,6 +53,16 @@ pub enum RawSize {
     Expr(String),
 }
 
+/// Reads `null` as the field's default. Real scenes write
+/// `"HARD_TRANSITIONS": null` where they mean "none" (D196).
+fn null_as_default<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Default + Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Option::unwrap_or_default)
+}
+
 /// The whole file.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE", default)]
@@ -70,16 +80,22 @@ pub struct RawScene {
     /// Design height in pixels.
     pub height: Option<f32>,
     /// The controls, in UI order.
+    #[serde(deserialize_with = "null_as_default")]
     pub controls: Vec<RawControl>,
     /// Render passes, in execution order. Empty means one implicit pass.
+    #[serde(deserialize_with = "null_as_default")]
     pub passes: Vec<RawPass>,
     /// Still images bound as samplers.
+    #[serde(deserialize_with = "null_as_default")]
     pub images: Vec<RawImage>,
     /// Cube maps bound as samplers.
+    #[serde(deserialize_with = "null_as_default")]
     pub cubemaps: Vec<RawCubemap>,
     /// Uniforms that jump to a new listed value on a song change.
+    #[serde(deserialize_with = "null_as_default")]
     pub hard_transitions: Vec<RawHardTransition>,
     /// One-hot uniform families that crossfade on a song change.
+    #[serde(deserialize_with = "null_as_default")]
     pub smooth_transitions: Vec<RawSmoothTransition>,
     /// The picture behind `syn_Media`: a still image, or a folder of images
     /// played as a sequence (a Strobe extension, D186).
@@ -183,7 +199,7 @@ pub struct RawControl {
     /// Becomes the uniform name.
     pub name: String,
     /// Base type plus modifiers, e.g. `"slider smooth"`.
-    #[serde(rename = "TYPE")]
+    #[serde(rename = "TYPE", deserialize_with = "null_as_default")]
     pub ty: String,
     /// Initial value.
     pub default: Option<Components>,

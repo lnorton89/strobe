@@ -61,39 +61,43 @@ pub enum UniformValue {
     Vec3([f32; 3]),
 }
 
-/// Every control of one scene instance, by index and by normalised name.
+/// Every control of one scene instance, by index, by exact name and by
+/// normalised name.
 #[derive(Debug, Clone)]
 pub struct ControlBank {
     defs: Vec<ControlDef>,
     states: Vec<State>,
     by_name: HashMap<String, usize>,
+    by_exact: HashMap<String, usize>,
 }
 
 impl ControlBank {
     /// Builds the bank from validated definitions, each at its default.
     ///
-    /// Fails if two names normalise to the same key, since the script API
-    /// could not address them separately.
+    /// Fails only on two controls with exactly the same name. Two names
+    /// that normalise to the same key (`in_or_out` and `inOrOut`) are legal
+    /// GLSL and a real Synesthesia scene has them (D196): [`Self::find`]
+    /// prefers the exact name, and the normalised key reaches the first.
     pub fn new(defs: Vec<ControlDef>) -> Result<Self, SceneError> {
         let mut by_name = HashMap::with_capacity(defs.len());
+        let mut by_exact = HashMap::with_capacity(defs.len());
         for (index, def) in defs.iter().enumerate() {
-            let key = crate::names::normalize(&def.name);
-            if let Some(previous) = by_name.insert(key, index) {
-                let first = defs
-                    .get(previous)
-                    .map(|d| d.name.clone())
-                    .unwrap_or_default();
+            if by_exact.insert(def.name.clone(), index).is_some() {
                 return Err(SceneError::NameCollision {
-                    first,
+                    first: def.name.clone(),
                     second: def.name.clone(),
                 });
             }
+            by_name
+                .entry(crate::names::normalize(&def.name))
+                .or_insert(index);
         }
         let states = defs.iter().map(initial_state).collect();
         Ok(Self {
             defs,
             states,
             by_name,
+            by_exact,
         })
     }
 
@@ -104,7 +108,10 @@ impl ControlBank {
 
     /// The index of the control `name` matches, by the JavaScript API's rule.
     pub fn find(&self, name: &str) -> Option<usize> {
-        self.by_name.get(&crate::names::normalize(name)).copied()
+        self.by_exact
+            .get(name)
+            .or_else(|| self.by_name.get(&crate::names::normalize(name)))
+            .copied()
     }
 
     /// The target of control `index` (what the UI should show).
@@ -532,15 +539,21 @@ mod tests {
     }
 
     #[test]
-    fn colliding_names_are_a_load_error() {
-        let result = bank(&[
+    fn names_equal_once_normalised_load_and_the_exact_name_wins() -> Result<()> {
+        // D196: a real scene has `in_or_out` and `inOrOut`.
+        let b = bank(&[
             r#"{ "NAME": "rate_in", "TYPE": "slider" }"#,
             r#"{ "NAME": "rateIn", "TYPE": "slider" }"#,
+        ])?;
+        assert_eq!(b.find("rate_in"), Some(0), "exact first");
+        assert_eq!(b.find("rateIn"), Some(1), "exact second");
+        assert_eq!(b.find("RATE IN"), Some(0), "normalised reaches the first");
+        let duplicate = bank(&[
+            r#"{ "NAME": "x", "TYPE": "slider" }"#,
+            r#"{ "NAME": "x", "TYPE": "slider" }"#,
         ]);
-        assert!(
-            result.is_err(),
-            "rate_in and rateIn cannot both be addressed"
-        );
+        assert!(duplicate.is_err(), "an exact duplicate is still an error");
+        Ok(())
     }
 
     #[test]
