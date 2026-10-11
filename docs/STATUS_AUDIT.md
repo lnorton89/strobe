@@ -176,9 +176,13 @@ the topology before any broad redesign.
   `meta/master` 0.5 and `meta/invert` gave the inverted picture at half
   level; the preview and `--screenshot` output both show it, and the
   inspector shows the "Output (meta)" controls
-  (`docs/images/post/`). **Not verified:** the post stage's GPU cost on the
-  T480 or an HD 4000 (llvmpipe timings say nothing); how it looks on ANGLE
-  in the app (headless GLES 3.0 only); the guessed order and mirror
+  (`docs/images/post/`). On the T480 (Task 15, 2560x1440 fullscreen, UHD
+  620): a scene with hue, brightness and a mirror ran at 60 fps and about
+  2.9 ms of GPU, against 1.8 ms for the same scene untouched, so the stage
+  costs about **1.1 ms** native. On ANGLE it was 3.1 ms, and the picture
+  was visibly hue-shifted and mirrored. **Not verified:** an HD 4000, where
+  1.1 ms at 1440p may double (D180's fallback is to fold the stage into the
+  present blit when the output is shown), and the guessed order and mirror
   conventions against Synesthesia (Q21).
 - [x] `textureFinalPass` through an asynchronous PBO readback (D162, Q14).
   Evidence, llvmpipe, both dialects: `render.rs`
