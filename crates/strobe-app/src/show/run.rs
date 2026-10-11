@@ -860,7 +860,12 @@ impl Show {
                         log::warn!("playlist: cue {}: preset \"{name}\": {problem}", index + 1);
                     }
                 }
-                Err(problem) => log::warn!("playlist: cue {}: {problem}", index + 1),
+                Err(problem) => {
+                    // The cue was warned about at compile time; it still
+                    // gets the scene's own starting look, not bare defaults.
+                    log::warn!("playlist: cue {}: {problem}", index + 1);
+                    session.apply_startup_preset();
+                }
             },
             None => session.apply_startup_preset(),
         }

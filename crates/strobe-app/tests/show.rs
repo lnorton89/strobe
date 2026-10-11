@@ -350,3 +350,120 @@ fn a_reloaded_playlist_compiles_only_what_is_new_and_keeps_its_place() -> Result
     show.finish();
     Ok(())
 }
+
+/// One scene, `tint`, whose red channel is its `amount` control, with a
+/// `default` preset (0.5) and a `full` preset (1.0).
+fn preset_library(tag: &str) -> Result<TempLibrary> {
+    let root = std::env::temp_dir().join(format!("strobe-show-{}-{tag}", std::process::id()));
+    let dir = root.join("tint.synScene");
+    std::fs::create_dir_all(dir.join("presets"))?;
+    std::fs::write(
+        dir.join("scene.json"),
+        r#"{ "CONTROLS": [ { "NAME": "amount", "TYPE": "slider", "MIN": 0.0, "MAX": 1.0, "DEFAULT": 0.0 } ] }"#,
+    )?;
+    std::fs::write(
+        dir.join("main.glsl"),
+        "vec4 renderMain() { return vec4(amount, 0.0, 0.0, 1.0); }",
+    )?;
+    std::fs::write(
+        dir.join("presets/default.json"),
+        r#"{ "name": "default", "scene": { "amount": 0.5 } }"#,
+    )?;
+    std::fs::write(
+        dir.join("presets/full.json"),
+        r#"{ "name": "full", "scene": { "amount": 1.0 } }"#,
+    )?;
+    Ok(TempLibrary {
+        library: Library {
+            dir: root.clone(),
+            entries: vec![Entry::new("tint".to_string(), dir)],
+        },
+        root,
+    })
+}
+
+fn amount(rig: &Rig<'_>) -> Result<f32> {
+    let session = rig
+        .active
+        .as_ref()
+        .ok_or_else(|| anyhow!("nothing is playing"))?;
+    let index = session
+        .controls
+        .find("amount")
+        .ok_or_else(|| anyhow!("no amount control"))?;
+    session
+        .controls
+        .target(index)
+        .map(|values| values[0])
+        .ok_or_else(|| anyhow!("no target"))
+}
+
+#[test]
+fn a_cues_preset_is_applied_when_the_cue_starts_and_an_override_beats_it() -> Result<()> {
+    for api in BOTH {
+        let Some(headless) = context(api)? else {
+            continue;
+        };
+        let library = preset_library(&format!("presets-{api:?}"))?;
+        let mut rig = Rig::new(&headless)?;
+        let mut playlist = Playlist::new("presets");
+        playlist.defaults.duration = Some(DurationSpec::Seconds(1.0));
+        let mut section = Section::new("all");
+        // 1: the scene's own default preset (no preset named);
+        // 2: the cue's `full` preset;
+        // 3: `full`, but the cue's explicit override says 0.25;
+        // 4: a preset that does not exist (warned, plays on the defaults).
+        let mut cue = Cue::new(SceneRef::Library("tint".to_string()));
+        section.cues.push(cue.clone());
+        cue.preset = Some("full".to_string());
+        section.cues.push(cue.clone());
+        cue.overrides.insert(
+            "amount".to_string(),
+            strobe_playlist::ControlValue::Float(0.25),
+        );
+        section.cues.push(cue.clone());
+        cue.preset = Some("missing".to_string());
+        cue.overrides.clear();
+        section.cues.push(cue);
+        playlist.sections.push(section);
+
+        let mut show = Show::new(None, playlist, &library.library, None, None);
+        rig.load(&mut show)?;
+        let after_load = rig.gl.shader_compiles();
+        let mut seen: Vec<(usize, f32)> = Vec::new();
+        for _ in 0..(5 * 60) {
+            rig.frame(&mut show);
+            if let Some(current) = show.clock().current()
+                && !seen.iter().any(|(cue, _)| *cue == current)
+            {
+                // The first frame of a cue, after its settings were applied.
+                seen.push((current, amount(&rig)?));
+            }
+        }
+        let by_cue = |index: usize| seen.iter().find(|(cue, _)| *cue == index).map(|(_, a)| *a);
+        let close = |a: Option<f32>, b: f32| a.is_some_and(|a| (a - b).abs() < 1e-4);
+        assert!(
+            close(by_cue(0), 0.5),
+            "{api:?}: a cue with no preset starts from the scene's default preset: {seen:?}"
+        );
+        assert!(
+            close(by_cue(1), 1.0),
+            "{api:?}: the cue's preset is applied: {seen:?}"
+        );
+        assert!(
+            close(by_cue(2), 0.25),
+            "{api:?}: an explicit override beats the preset: {seen:?}"
+        );
+        assert!(
+            close(by_cue(3), 0.5),
+            "{api:?}: a preset that is not there falls back to the default preset: {seen:?}"
+        );
+        assert_eq!(
+            rig.gl.shader_compiles(),
+            after_load,
+            "{api:?}: applying presets compiles nothing"
+        );
+        show.finish();
+    }
+    Ok(())
+}
