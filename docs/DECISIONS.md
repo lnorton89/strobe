@@ -2655,3 +2655,36 @@ packaging work (Q12). The wordmark and lockups are still to be drawn
 **Would reopen:** a theme the owner prefers as the default, or a final
 production mark replacing the concept ribbon (then edit the two SVGs and
 run `cargo xtask brand`).
+
+### D191: a pass can opt out of scaling with `FIXED_SIZE` (2026-10-11)
+
+D11 stores pass sizes as fractions of the design resolution, so a buffer
+follows the output and the render scale. That is right for an image, and
+it is what makes render scale the main lever on old GPUs. It is wrong for
+a **simulation**: the look of a reaction-diffusion, fluid or cellular
+automaton is set by its grid, in cells. TORNADO (Task T1) showed it.
+`07-reaction-diffusion` at 2160p ran its Gray-Scott grid at 1920x1080
+instead of 960x540, and the spots came out half the size on screen. Under
+adaptive resolution the grid also changed size mid-show.
+
+`"FIXED_SIZE": true` on a pass keeps its `WIDTH` x `HEIGHT` as absolute
+pixels at the design resolution, whatever the output size or render
+scale. It is a Strobe extension, beside `FULL_PRECISION`, and defaults to
+off, so every SSF scene keeps D11's behaviour. The final pass is never
+fixed. `resize_keeping` copies a fixed pass into a target of the same
+size, so its state survives a resize exactly.
+
+The trade-off is cost: a fixed pass no longer shrinks when the render
+scale drops, so on an old GPU it costs the same at every scale. That is
+the price of a stable look. A scene author who needs both can declare a
+smaller fixed grid. `07` now declares its four simulation passes fixed at
+960x540. On llvmpipe its pattern is identical at 720p and 1440p, and
+1440p went from 65 ms to 42 ms a frame. Evidence: `scene.rs`
+`a_fixed_size_pass_keeps_its_design_pixels`, and `render.rs`
+`a_fixed_size_pass_keeps_its_grid_when_the_output_resizes` (both
+dialects: a 16x8 grid stays 16x8 after a resize, a normal pass follows to
+12x6).
+
+**Would reopen:** finding that Synesthesia treats `PASSES` sizes as
+absolute (Q24), in which case the default should flip for SSF scenes.
+

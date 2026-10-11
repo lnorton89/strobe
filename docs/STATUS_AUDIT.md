@@ -285,6 +285,21 @@ they apply, and explicit supported, degraded or unsupported claims.
 native GL and on ANGLE, missing assets fail visibly, and attribution
 survives export.
 
+## NVIDIA (TORNADO)
+
+- [x] Every library scene and the nine Shadertoy fixtures compile and
+  render on NVIDIA's own GLSL compiler and on ANGLE/D3D11 on NVIDIA, with
+  matching contact sheets (GTX 1080 Ti, driver 582.78, Task T1,
+  [hardware/TORNADO.md](hardware/TORNADO.md)). No NVIDIA-only compile
+  differences showed up on this set.
+- [x] The driver's KHR_debug output has no recompile or state warnings,
+  only buffer-usage notices (131185) and the expected screenshot readback
+  sync (131154).
+- [x] A simulation's look no longer depends on the output size (D191);
+  verified on llvmpipe at 720p and 1440p. **Not yet:** re-checked on
+  TORNADO at 2160p.
+- [ ] Owner-supplied real Shadertoy shaders through NVIDIA's compiler.
+
 ## P2: playlists, show control and release
 
 - [x] Playlist inheritance (defaults, then section, then cue), the

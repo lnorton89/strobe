@@ -66,6 +66,35 @@ GPUs.
 
 ## Results
 
+### 2026-10-11: NVIDIA GTX 1080 Ti (TORNADO), commit 862ad2e
+
+Driver 582.78, Windows 10 19045. `--context window` (hidden window), 60
+timed frames after 90 warm-up, as above. Details are in
+[hardware/TORNADO.md](hardware/TORNADO.md).
+
+1920x1080:
+
+| Scene | Native compile ms | Native mean ms | Native p95 ms | ANGLE compile ms | ANGLE mean ms | ANGLE p95 ms |
+|---|---:|---:|---:|---:|---:|---:|
+| 01-aurora-gradient | 52.0 | 0.08 | 0.09 | 28.8 | 0.07 | 0.09 |
+| 02-plasma-pulse | 19.3 | 0.09 | 0.10 | 17.3 | 0.08 | 0.09 |
+| 03-kaleido-tunnel | 23.3 | 0.12 | 0.13 | 22.0 | 0.09 | 0.10 |
+| 04-voronoi-glass | 38.0 | 0.70 | 0.78 | 44.7 | 0.53 | 0.54 |
+| 05-domain-warp | 44.2 | 0.95 | 0.99 | 106.0 | 0.77 | 1.16 |
+| 06-feedback-trails | 20.7 | 0.11 | 0.17 | 24.9 | 0.11 | 0.28 |
+| 07-reaction-diffusion | 114.8 | 0.25 | 0.30 | 96.1 | 0.17 | 0.19 |
+| 08-bloom-orbs | 102.2 | 0.50 | 0.54 | 50.7 | 0.36 | 0.38 |
+| 09-sdf-cathedral | 57.2 | 1.44 | 1.50 | 103.5 | 1.20 | 1.64 |
+| 10-volume-clouds | 49.6 | 13.33 | 13.46 | 294.4 | 11.97 | 13.52 |
+| 11-script-orbits | 25.9 | 0.13 | 0.13 | 33.3 | 0.16 | 0.13 |
+
+At 3840x2160 on native GL the costs scale with the pixel count;
+`10-volume-clouds` goes from 13.33 ms to 52.91 ms (18.9 fps), the only
+scene a 1080 Ti cannot run at 60 fps in 4K. On this card ANGLE matches or
+beats native per frame but compiles up to six times slower, so it costs
+load time, not frames. These 07 numbers predate D191 (`FIXED_SIZE`), so
+its simulation then ran at a quarter of the output's pixels at each size.
+
 ### 2026-10-09: first real GPU, ThinkPad T480 (Intel UHD 620), commit b7b0b50
 
 Intel UHD 620, driver 30.0.101.1122, Windows 11 26300, on AC power.
