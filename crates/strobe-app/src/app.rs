@@ -116,7 +116,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use strobe_diag::context;
 use strobe_diag::failure::{self, Failure, Subsystem};
-use strobe_gfx::{Compositor, GlChoice, GpuTimer, Post, SwapWindow, WindowedContext};
+use strobe_gfx::{Compositor, GlChoice, GpuTimer, MediaRequest, Post, SwapWindow, WindowedContext};
 use strobe_playlist::{Command, Playlist, ResumePoint};
 use strobe_scene::control::def::Values;
 use strobe_scene::meta::MetaValues;
@@ -612,6 +612,9 @@ struct Running {
     /// Whether this frame went through the post stage, so the present, the
     /// preview and a screenshot read its target (D180).
     posted: bool,
+    /// `--media`: a picture or folder shown behind `syn_Media` in scenes loaded
+    /// by hand.
+    media_override: Option<std::path::PathBuf>,
     /// Set after the first post-stage failure so the log gets one line.
     post_failed: bool,
     /// A scene the UI asked for, to be loaded *after* the frame that shows
@@ -733,6 +736,7 @@ impl Running {
             scan_error: scan_error.clone(),
             blackout: cli.blackout,
             posted: false,
+            media_override: cli.media.clone(),
             post_failed: false,
             pending_load: None,
             load_failure: None,
@@ -1421,7 +1425,10 @@ impl Running {
             start,
             &mut self.audio,
         ) {
-            Ok(session) => {
+            Ok(mut session) => {
+                if let Some(path) = &self.media_override {
+                    session.player.set_media(MediaRequest::for_path(path));
+                }
                 self.stack.session = Some(session);
                 self.playing = Some(index);
                 self.pending_resize = None;
