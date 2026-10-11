@@ -154,8 +154,17 @@ threads only ever hand values *to* it.
         chain of <=2:1 blits down to 64x36, glReadPixels into the next of 3
         pixel-pack buffers, a fence behind it, and the oldest buffer mapped
         only if its fence has already signalled        (strobe-gfx::readback)
-5. ScenePlayer::present (or Compositor::present while a transition runs):
-   letterboxed blit to the output window (shown only)
+4b. Meta reactivity and audio speed (live session's meta bank) multiply the
+    audio panel's gains on the analyser (AudioInput::set_meta_gains, D184),
+    set before step 3b so the frame's audio is already scaled
+4c. Output post stage (App::apply_post, strobe-gfx::post, D180): the live
+    session's meta bank is read into a Copy `MetaValues`. If every value is
+    neutral, NOTHING runs and the frame stays as step 4/3d left it. Otherwise
+    one full-screen pass reads the final frame (the compositor's mix while a
+    transition runs, else the scene's output) into Post's own RGBA8 target
+5. Post::present, or Compositor::present while a transition runs, or
+   ScenePlayer::present: letterboxed blit to the output window (shown only).
+   Blackout (D135) clears instead, after the post stage (D181)
 6. GpuTimer::end, then poll: results of earlier frames that are ready (never
    waited for) go to AdaptiveScale; a new scale triggers a resize next frame
 7. reset-status health check, at most once a second, on a robust context only
@@ -176,9 +185,18 @@ count moved), reads the audio status (at most twice a second), runs one egui
 pass over a `Model` and applies the `Action`s it returns, and paints the
 scene's output texture as the preview.
 
-Not yet in the frame, from the original design: MIDI and OSC (step 1), audio
-events that end a cue (`clock.audio_event()`), and the meta post stage
-(brightness, hue, mirror).
+**Where the post stage sits.** It is the last thing that touches pixels and it
+is after the compositor, so a crossfade between two scenes is faded as one
+picture, not twice. The compositor mixes the two scenes' frames; post then
+applies the output's master, colour and mirror to the mix. Its target is the
+same size as its source, so the preview, the letterboxed present and a
+screenshot all read the post stage's target when it ran this frame
+(`App::posted`) and the scene's or the compositor's otherwise. At neutral
+there is no pass and no extra target traffic, which is what an HD 4000
+needs. Step order inside it is documented in `strobe_gfx::post`.
+
+Not yet in the frame, from the original design: MIDI and OSC (step 1) and
+audio events that end a cue (`clock.audio_event()`).
 
 Loading a playlist is not in the frame at all. `Running::compile_show_step`
 runs once per control-window frame, after that frame is painted, and compiles
@@ -346,6 +364,16 @@ records (`failures.rs`), so the log, the console and a crash report agree.
 - **Script uniforms.** `with_extras` declares the script's uniforms in every
   program and resolves their locations at link time; `set_script_uniforms`
   copies this frame's values into a reused buffer.
+- **Cube maps.** Loaded at scene load by `assets::load_cubemap` (six faces,
+  or one strip/cross picture) into a `gl::Texture` whose target is
+  `TEXTURE_CUBE_MAP`. A cube that fails stays `None`, its sampler reads a
+  1x1 black cube, and the reason is returned by `take_asset_problems()` for
+  the host's failure path (D185).
+- **Media.** `media::Media` holds the `syn_Media` picture: a decoder thread
+  (`assets::spawn_decoder`) sends decoded pictures, `render` uploads at most
+  one per frame (`poll_media`), and `current(time)` only picks which
+  already-uploaded texture to bind. `set_media` swaps in a user-chosen file
+  once its first picture lands (D186).
 - **Sampler units.** Units are assigned in a fixed order: `syn_FinalPass`,
   `syn_Media`, `syn_Spectrum`, `syn_LevelTrail`, `strobe_ShadertoyAudio`,
   pass targets, images,
