@@ -186,11 +186,11 @@ Write like a capable creative tool, not a lifestyle brand. Prefer specific descr
 - [ ] Finalize the ribbon silhouette as a clean vector path.
 - [ ] Approve full-color, monochrome, light-background, and simplified small-size variants.
 - [ ] Test at 16, 24, 32, 64, 128, 256, and 512 px on dark and light surfaces.
-- [ ] Generate PNG and ICO assets from the canonical source.
+- [x] Generate PNG and ICO assets from the canonical source. (`cargo xtask brand`, D190)
 - [ ] Confirm app window, taskbar, installer, README, and release pages use the same mark.
 - [ ] Capture actual application screenshots and real shader output.
-- [ ] Add a documented, repeatable asset-generation command.
-- [ ] Add CI checks for required files and expected image dimensions.
+- [x] Add a documented, repeatable asset-generation command. (`cargo xtask brand`, D190)
+- [x] Add CI checks for required files and expected image dimensions. (`cargo xtask brand --check` compares every file byte for byte with a fresh render.)
 - [ ] Check text contrast and keyboard focus states in the application UI.
 - [ ] Include a static fallback for animated brand elements.
 

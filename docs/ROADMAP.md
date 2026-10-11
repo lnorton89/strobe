@@ -19,7 +19,7 @@ which backend proved a claim.
 
 | Area | What exists | Verified on |
 |---|---|---|
-| Workspace | Conventions as tests, pinned toolchain and actions, `cargo xtask ci \| changelog \| bench`, release workflow (D50-D59) | CI. The release workflow has never run on a tag |
+| Workspace | Conventions as tests, pinned toolchain and actions, `cargo xtask ci \| changelog \| bench \| symbolicate \| brand`, release workflow (D50-D59) | CI. The release workflow has never run on a tag |
 | `strobe-scene`, `strobe-ssf-lib` | SSF parsing and validation, controls runtime, shader assembly, `PASS_SOURCES` (D90), the SSF GLSL library | Headless GL 3.3 core and GLES 3.0 (llvmpipe) |
 | `strobe-gfx` | Native GL and ANGLE context providers, headless EGL, multipass and ping-pong, implicit final pass, images, GPU timer queries, robust contexts and reset status (D66) | llvmpipe; T480 native and ANGLE |
 | `strobe-bench` | Timings, frames, contact sheet; headless, window and auto contexts (D70-D72), now `strobe_gfx::offscreen` (D140) | llvmpipe; T480 ([BENCHMARKS.md](BENCHMARKS.md)) |
@@ -29,7 +29,8 @@ which backend proved a claim.
 | `strobe-diag` | Session logs, structured failures, panic reports, out-of-process minidumps, GL debug output (D40-D45) | Linux; T480 (`overflow` gives a `.dmp`, bug 2) |
 | `strobe-shadertoy` | Stage 1: id parser, both JSON shapes, dialect rewrite, converter to a scene folder, `strobe-import` (D90-D95). Stage 2: REST client, texture downloader and cache, shared import pipeline, loopback listener, `strobe-import --id` (D110, D111, D113, D114, D117) | Nine original fixtures on llvmpipe, both dialects; stage 2 against fakes and a loopback mock, never the live site |
 | `strobe-autocontrol` | Stage 1: finds candidate literals, rewrites them to uniforms, keeps the ones whose measured effect matters, suggests audio bindings, CLI with `--context auto\|headless\|window` (D123-D126, D140) | llvmpipe, both dialects: 11 of 11 stripped library scenes and 8 of 14 Shadertoy fixtures get controls. Not in the app yet
-| `strobe-playlist` | Stage 1, pure core: model, inheritance, TOML, generator, timeline, playback clock, resume (D73-D77). **Stage 2, in the app (D150-D158):** `--playlist` and the LIST pane, precompile with progress, scenes parked at 1x1, warm-up at a quarter of the pixels, the compositor (crossfade, fade-through-black, custom GLSL), real Hold, extend, restart, skip-section and Next/Prev, NOW/NEXT and remaining time, Generate, Save, a file watcher, resume every 5 s, the wall-clock anchor | Unit tests and 4-hour soaks; stage 2 on headless GL in both dialects (`crates/strobe-app/tests/show.rs`) and under Xvfb with llvmpipe. Not run on the T480 |
+| `strobe-playlist` | Stage 1, pure core: model, inheritance, TOML, generator, timeline, playback clock, resume (D73-D77). **Stage 2, in the app (D150-D158):** `--playlist` and the LIST pane, precompile with progress, scenes parked at 1x1, warm-up at a quarter of the pixels, the compositor (crossfade, fade-through-black, custom GLSL), real Hold, extend, restart, skip-section and Next/Prev, NOW/NEXT and remaining time, Generate, Save, a file watcher, resume every 5 s, the wall-clock anchor | Unit tests and 4-hour soaks; stage 2 on headless GL in both dialects (`crates/strobe-app/tests/show.rs`) and under Xvfb with llvmpipe. T480 Task 14: the transition demo closed with 0 runtime compiles, transitions at 60 fps costing about 0.5 ms of GPU |
+| Brand | Parametric Flow guidelines and concept mark (lnorton89/strobe#6); the default theme in the brand palette, the window and taskbar icon, the title-bar mark, and icon PNGs and `.ico` rendered from SVG with a CI check (D190). Open: wordmark, lockups, the `.exe` resource icon | Xvfb screenshots; not yet seen on Windows |
 | Scenes | Eleven original scenes over five GPU-load tiers, one scripted | llvmpipe and T480 |
 
 ### In flight
@@ -215,7 +216,7 @@ never per frame.
 | 2 | JavaScript API | Integrated (D62). `meta/` writes land in a meta bank (D160, no post stage reads it yet); `textureFinalPass` is an asynchronous readback (D162); late uniforms are refused (D161). |
 | 3 | Audio | Integrated (D61). The bench still uses the synthetic stand-in. |
 | 4 | Shadertoy import | The converter (D90-D95), acquisition (REST client, texture downloader, localhost listener), the Import panel, file drop and the userscript (D110-D117) are built, and stage 1 of auto-generated controls (D123-D126). Open: live-site verification (Q19), thumbnails, the Needs-work bin, batch import, and the app's review panel for generated controls. |
-| 5 | Playlists | The pure core (D73-D77) and the app integration (D150-D158) are built. Open: audio-event advance, the Playlist workspace's inspector, MIDI/OSC, T480 verification. |
+| 5 | Playlists | The pure core (D73-D77) and the app integration (D150-D158) are built. Verified on the T480 (Task 14). Open: audio-event advance, the Playlist workspace's inspector, MIDI/OSC. |
 | 6 | Presets, MIDI, OSC, hotkeys | Not started. |
 | 7 | NDI, media input, song-change transitions | Not started. `HARD`/`SMOOTH_TRANSITIONS` are declared but never change. |
 
