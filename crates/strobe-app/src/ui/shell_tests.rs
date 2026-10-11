@@ -300,6 +300,27 @@ fn sample_remote(mapped: bool) -> Result<Remote> {
         .mappings
         .push(Mapping::new(cc(7), Target::Macro { id: speed }));
     engine.arm_relearn(5);
+    // What a real run puts in the monitor: the long lines are the ones that
+    // once pushed the pane wider than its dock.
+    remote.osc_state = crate::remote::OscState::Listening("127.0.0.1:9000".parse()?);
+    remote.activity.note(
+        1.5,
+        "/strobe/control/hue_shift 0.800".into(),
+        "applied".into(),
+        None,
+    );
+    remote.activity.note(
+        2.5,
+        "/strobe/control/nope 0.500".into(),
+        "unavailable: \"nope\" is not a control of the scene that is playing".into(),
+        None,
+    );
+    remote.activity.note(
+        3.5,
+        "CC 21 = 64  ch 1  [Launchpad Mini MIDI 1]".into(),
+        "waiting for pickup".into(),
+        None,
+    );
     remote.favs.set(
         0,
         strobe_scene::preset::Fav {

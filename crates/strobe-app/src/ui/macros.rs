@@ -94,7 +94,10 @@ pub struct Strip<'a> {
 struct Card {
     found: Macro,
     resolution: Resolution,
+    /// `MIDI` or `OSC`, when a controller drives it.
     tag: Option<String>,
+    /// Which controllers, for the tooltip.
+    tip: String,
 }
 
 /// Draws the strip.
@@ -122,7 +125,12 @@ pub fn strip(ui: &mut Ui, theme: &Palette, strip: Strip<'_>, actions: &mut Vec<A
             tag: remote
                 .mappings_for_macro(found.id)
                 .next()
-                .map(|m| format!("{} {}", m.source.badge(), m.source.label())),
+                .map(|m| m.source.badge().to_string()),
+            tip: remote
+                .mappings_for_macro(found.id)
+                .map(|m| m.source.label())
+                .collect::<Vec<_>>()
+                .join(", "),
             found: found.clone(),
             resolution,
         })
@@ -279,7 +287,7 @@ fn header(ui: &mut Ui, theme: &Palette, badge: &str, name: &str, tag: Option<&st
                 .strong()
                 .color(theme::rgb(theme.accent)),
         );
-        let room = width - 52.0 - tag.map_or(0.0, |t| (t.len() as f32 * 5.0).min(70.0));
+        let room = width - 52.0 - tag.map_or(0.0, |t| t.len() as f32 * 6.0);
         let galley = widgets::truncated(
             ui,
             name,
@@ -381,6 +389,9 @@ fn cell(
             ui.close();
         }
     });
+    if !card.tip.is_empty() {
+        response.on_hover_text(format!("Driven by {}", card.tip));
+    }
     chosen
 }
 
