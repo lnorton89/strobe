@@ -27,11 +27,13 @@ use super::widgets::Tone;
 use crate::console::Console;
 use crate::import::Status;
 use crate::library::{Health, Library};
+use crate::remote::Remote;
 use crate::script::ScriptState;
 use crate::show::Show;
 use crate::show::generate::GenerateForm;
 use crate::stats::FrameStats;
 use strobe_audio::capture::{DeviceChoice, DeviceInfo};
+use strobe_io::OscSettings;
 use strobe_playlist::Generated;
 use strobe_scene::control::ControlBank;
 
@@ -116,6 +118,30 @@ pub enum Action {
     DismissFailure,
     /// Dismiss the notice banner.
     DismissNotice,
+    /// Apply these OSC settings (and save them).
+    SetOsc(OscSettings),
+    /// Open MIDI input devices at all, or none.
+    SetMidiEnabled(bool),
+    /// Use or ignore one MIDI device, by its key.
+    SetMidiDevice(String, bool),
+    /// List the MIDI ports again now.
+    RescanMidi,
+    /// Save the controls as a preset of this name in the scene folder.
+    SavePreset(String),
+    /// Recall a preset of the playing scene.
+    RecallPreset(String),
+    /// Delete a preset file of the playing scene.
+    DeletePreset(String),
+    /// Store the playing scene (and its active preset) in fav slot `n`,
+    /// counted from 0.
+    StoreFav(usize),
+    /// Empty fav slot `n`.
+    ClearFav(usize),
+    /// Recall fav slot `n`.
+    RecallFav(usize),
+    /// Run a command from the command table by its id (a macro or the MAP
+    /// pane's test button; keys, MIDI and OSC reach the same place).
+    RunCommand(String),
 }
 
 /// What the performance readouts and the adaptive toggle show.
@@ -273,6 +299,73 @@ pub struct PlaylistPanel<'a> {
     pub show: Option<&'a Show>,
 }
 
+/// What a new mapping or macro is being made of, in the MAP pane's form.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum AddKind {
+    /// A control of the playing scene.
+    #[default]
+    SceneControl,
+    /// A meta control.
+    Meta,
+    /// A transport or window command.
+    Command,
+    /// A playlist cue number.
+    Cue,
+    /// A fav slot.
+    Fav,
+    /// A preset of the playing scene.
+    Preset,
+    /// An existing Performance Macro.
+    Macro,
+}
+
+/// The MAP pane's "add" form.
+#[derive(Debug, Default, Clone)]
+pub struct AddForm {
+    /// The form is open.
+    pub open: bool,
+    /// What kind of target.
+    pub kind: AddKind,
+    /// The control, command or preset name, or the cue or slot number.
+    pub text: String,
+    /// The component for a pad or colour, from 0.
+    pub component: u8,
+    /// Make a macro for it instead of a mapping.
+    pub as_macro: bool,
+}
+
+/// What the MAP pane keeps between frames. Presentation state: none of it
+/// is saved.
+#[derive(Debug, Default)]
+pub struct MapUi {
+    /// The mapping row whose options are open.
+    pub selected: Option<usize>,
+    /// The macro row whose options are open.
+    pub selected_macro: Option<u32>,
+    /// The search box.
+    pub search: String,
+    /// The OSC port field while it is being edited.
+    pub port_text: String,
+    /// The add form.
+    pub add: AddForm,
+    /// The preset name field of the controls pane.
+    pub preset_name: String,
+}
+
+/// Show control, for the MAP pane, the macro strip and the preset row.
+pub struct RemotePanel<'a> {
+    /// The pane's own state.
+    pub ui: &'a mut MapUi,
+    /// The mapper, the devices, the fav slots and the activity log.
+    pub remote: &'a mut Remote,
+    /// The playing scene's preset names.
+    pub presets: &'a [String],
+    /// The preset last recalled or saved.
+    pub active_preset: Option<&'a str>,
+    /// The playing scene's library name, for fav slots.
+    pub scene_name: Option<&'a str>,
+}
+
 /// A scene that did not load.
 #[derive(Debug, Clone, Copy)]
 pub struct FailurePanel<'a> {
@@ -312,6 +405,8 @@ pub struct Model<'a> {
     pub scene_title: &'a str,
     /// The playing scene's controls.
     pub controls: Option<&'a mut ControlBank>,
+    /// The meta controls.
+    pub meta: Option<&'a mut ControlBank>,
     /// The live preview, once a scene has rendered.
     pub preview: Option<Preview>,
     /// The browser's preview of a scene that is not live.
@@ -353,4 +448,6 @@ pub struct Model<'a> {
     pub import: ImportPanel<'a>,
     /// The playlist pane.
     pub playlist: PlaylistPanel<'a>,
+    /// MIDI, OSC, mappings, macros, presets.
+    pub remote: RemotePanel<'a>,
 }

@@ -68,6 +68,7 @@ use strobe_gfx::{AudioTextures, Caps, FrameInputs, Mouse, Options, PlayerError, 
 use strobe_scene::assemble::ExtraType;
 use strobe_scene::control::def::Values;
 use strobe_scene::control::{ControlBank, ControlKind};
+use strobe_scene::preset::{self, Preset};
 use strobe_scene::{SceneError, SceneFolder};
 use strobe_script::ScriptInputs;
 
@@ -133,6 +134,12 @@ pub struct Session {
     pub meta: ControlBank,
     /// The compiled passes and render targets.
     pub player: ScenePlayer,
+    /// The scene's preset names (`presets/<name>.json`), read once at load so
+    /// that recalling one during a show touches no disk (D176).
+    pub preset_names: Vec<String>,
+    presets: Vec<Preset>,
+    /// The preset last recalled or saved, for storing into a fav slot.
+    pub active_preset: Option<String>,
     script: Option<ScriptRun>,
     /// Scratch for the script's uniform values, in the player's order.
     extra_values: Vec<[f32; 4]>,
@@ -217,6 +224,9 @@ impl Session {
             controls,
             meta,
             player,
+            preset_names: Vec::new(),
+            presets: Vec::new(),
+            active_preset: None,
             script,
             extra_values: Vec::new(),
             transitions,
@@ -226,7 +236,96 @@ impl Session {
         if let Some(harvest) = &harvest {
             session.send_script_uniforms(harvest);
         }
+        let (presets, problems) = preset::load_all(dir);
+        for problem in problems {
+            log::warn!("{name}: preset: {problem}");
+        }
+        for (preset_name, loaded) in presets {
+            session.preset_names.push(preset_name);
+            session.presets.push(loaded);
+        }
+        session.apply_startup_preset();
         Ok(session)
+    }
+
+    /// Whether the scene has a preset this name means.
+    pub fn has_preset(&self, name: &str) -> bool {
+        preset::find_name(&self.preset_names, name).is_some()
+    }
+
+    /// Writes preset `name` into the controls (and the meta controls, if the
+    /// preset covers them) as targets. Returns what the preset held that
+    /// this scene could not take. `Err` if there is no such preset.
+    pub fn apply_preset(&mut self, name: &str) -> Result<Vec<String>, String> {
+        let Some(index) = preset::find_name(&self.preset_names, name)
+            .and_then(|found| self.preset_names.iter().position(|n| n == found))
+        else {
+            return Err(format!("the scene has no preset called \"{name}\""));
+        };
+        let Some(found) = self.presets.get(index) else {
+            return Err(format!("the scene has no preset called \"{name}\""));
+        };
+        let problems = found.apply(&mut self.controls, &mut self.meta);
+        self.active_preset = self.preset_names.get(index).cloned();
+        Ok(problems)
+    }
+
+    /// Applies the scene's `default` preset, if it has one: the look it
+    /// starts with.
+    pub fn apply_startup_preset(&mut self) {
+        if self.has_preset(preset::STARTUP)
+            && let Ok(problems) = self.apply_preset(preset::STARTUP)
+        {
+            for problem in problems {
+                log::warn!("{}: default preset: {problem}", self.name);
+            }
+            self.active_preset = None;
+        }
+    }
+
+    /// Captures the controls as preset `name`, remembers it in memory and
+    /// returns it for the caller to write to disk.
+    pub fn capture_preset(&mut self, name: &str) -> Preset {
+        let captured = Preset::capture(name, &self.controls, &self.meta, preset::Channels::default());
+        match self
+            .preset_names
+            .iter()
+            .position(|n| n.eq_ignore_ascii_case(name))
+        {
+            Some(index) => {
+                if let (Some(slot), Some(existing)) =
+                    (self.presets.get_mut(index), self.preset_names.get_mut(index))
+                {
+                    *slot = captured.clone();
+                    *existing = name.to_string();
+                }
+            }
+            None => {
+                self.preset_names.push(name.to_string());
+                self.presets.push(captured.clone());
+            }
+        }
+        self.active_preset = Some(name.to_string());
+        captured
+    }
+
+    /// Forgets preset `name` (after its file was deleted).
+    pub fn forget_preset(&mut self, name: &str) {
+        if let Some(index) = self
+            .preset_names
+            .iter()
+            .position(|n| n.eq_ignore_ascii_case(name))
+        {
+            self.preset_names.remove(index);
+            self.presets.remove(index);
+            if self
+                .active_preset
+                .as_deref()
+                .is_some_and(|active| active.eq_ignore_ascii_case(name))
+            {
+                self.active_preset = None;
+            }
+        }
     }
 
     /// The scene clock, in seconds.

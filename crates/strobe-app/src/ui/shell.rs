@@ -48,7 +48,8 @@ use super::chrome::{self, Readouts};
 use super::model::{Action, Model};
 use super::theme::{self, PAD, RAIL_WIDTH, SPACE_SM, SPACE_XS};
 use super::{
-    browser, diagnostics, import, inspector, keys, modal, perform, playlist, settings, transport,
+    browser, diagnostics, import, inspector, keys, map, modal, perform, playlist, settings,
+    transport,
 };
 use crate::palette::Palette;
 use crate::workspace::{self, Dock, Pane};
@@ -164,6 +165,7 @@ fn pane_body(
         Pane::Diagnostics => diagnostics::show(ui, model, theme, actions),
         Pane::Settings => settings::show(ui, model, theme, actions),
         Pane::Playlist => playlist::show(ui, model, theme, actions),
+        Pane::Map => map::show(ui, model, theme, actions),
     }
 }
 
