@@ -243,11 +243,15 @@ fn apply_values(
             }
         };
         if numbers.iter().any(|x| !x.is_finite()) {
-            problems.push(format!("{what}control \"{name}\" has a value that is not a number"));
+            problems.push(format!(
+                "{what}control \"{name}\" has a value that is not a number"
+            ));
             continue;
         }
         if matches!(def.kind, ControlKind::Bang(_)) {
-            problems.push(format!("{what}control \"{name}\" is a bang and has no value"));
+            problems.push(format!(
+                "{what}control \"{name}\" is a bang and has no value"
+            ));
             continue;
         }
         bank.set(index, None, &numbers);
@@ -293,15 +297,29 @@ pub fn list(scene_dir: &Path) -> Vec<String> {
     names
 }
 
+/// The entry of `names` that `wanted` means: the same name ignoring case, or
+/// the same with each `_` read as a space (an OSC address cannot hold a
+/// space, so `/strobe/preset/Slow_Burn` reaches "Slow Burn"). An exact match
+/// wins over the underscore reading.
+pub fn find_name<'a>(names: &'a [String], wanted: &str) -> Option<&'a String> {
+    names
+        .iter()
+        .find(|candidate| candidate.eq_ignore_ascii_case(wanted))
+        .or_else(|| {
+            let spaced = wanted.replace('_', " ");
+            names
+                .iter()
+                .find(|candidate| candidate.eq_ignore_ascii_case(&spaced))
+        })
+}
+
 /// Reads the preset called `name` (case-insensitive) from `scene_dir`.
 pub fn load(scene_dir: &Path, name: &str) -> Result<Preset, PresetError> {
     if !valid_name(name) {
         return Err(PresetError::BadName(name.to_string()));
     }
-    let stem = list(scene_dir)
-        .into_iter()
-        .find(|candidate| candidate.eq_ignore_ascii_case(name))
-        .ok_or_else(|| PresetError::Missing(name.to_string()))?;
+    let names = list(scene_dir);
+    let stem = find_name(&names, name).ok_or_else(|| PresetError::Missing(name.to_string()))?;
     let path = dir_of(scene_dir).join(format!("{stem}.json"));
     let text = std::fs::read_to_string(&path).map_err(|source| PresetError::Io {
         path: path.clone(),
@@ -488,7 +506,11 @@ mod tests {
         assert!(problems.is_empty(), "{problems:?}");
         assert_eq!(value(&scene, "speed")?, vec![10.0], "clamped to MAX");
         assert_eq!(value(&scene, "on")?, vec![1.0], "toggle snaps to an end");
-        assert_eq!(value(&scene, "mode")?, vec![2.0], "dropdown clamped to its last");
+        assert_eq!(
+            value(&scene, "mode")?,
+            vec![2.0],
+            "dropdown clamped to its last"
+        );
         Ok(())
     }
 
@@ -498,7 +520,9 @@ mod tests {
         let mut meta = crate::meta::bank()?;
         let mut preset = Preset::default();
         preset.scene.insert("gone".into(), Value::One(1.0));
-        preset.scene.insert("tint".into(), Value::Many(vec![1.0, 2.0]));
+        preset
+            .scene
+            .insert("tint".into(), Value::Many(vec![1.0, 2.0]));
         preset.scene.insert("flash".into(), Value::One(1.0));
         preset.scene.insert("speed".into(), Value::One(f32::NAN));
         preset.scene.insert("mode".into(), Value::One(1.0));
@@ -558,7 +582,13 @@ mod tests {
         ] {
             assert!(!valid_name(bad), "{bad:?} must be refused");
         }
-        for good in ["slow", "Slow Burn", "a-b_c.d", "v2", "x".repeat(MAX_NAME).as_str()] {
+        for good in [
+            "slow",
+            "Slow Burn",
+            "a-b_c.d",
+            "v2",
+            "x".repeat(MAX_NAME).as_str(),
+        ] {
             assert!(valid_name(good), "{good:?} must be allowed");
         }
     }
@@ -578,16 +608,35 @@ mod tests {
         assert!(list(&dir).is_empty(), "no folder, no presets");
         let preset = Preset::capture("Slow Burn", &scene, &meta, Channels::default());
         let path = save(&dir, &preset)?;
-        assert!(path.ends_with("presets/Slow Burn.json"), "{}", path.display());
-        save(&dir, &Preset::capture("b", &scene, &meta, Channels::default()))?;
+        assert!(
+            path.ends_with("presets/Slow Burn.json"),
+            "{}",
+            path.display()
+        );
+        save(
+            &dir,
+            &Preset::capture("b", &scene, &meta, Channels::default()),
+        )?;
         assert_eq!(list(&dir), vec!["b", "Slow Burn"], "sorted without case");
         let loaded = load(&dir, "slow burn")?;
-        assert_eq!(loaded, preset, "case-insensitive load returns what was saved");
+        assert_eq!(
+            loaded, preset,
+            "case-insensitive load returns what was saved"
+        );
         // Saving over a name that differs only in case replaces that file.
-        save(&dir, &Preset::capture("SLOW BURN", &scene, &meta, Channels::default()))?;
+        save(
+            &dir,
+            &Preset::capture("SLOW BURN", &scene, &meta, Channels::default()),
+        )?;
         assert_eq!(list(&dir).len(), 2, "still two files");
-        assert!(matches!(load(&dir, "nope"), Err(PresetError::Missing(_))), "missing");
-        assert!(matches!(load(&dir, "../x"), Err(PresetError::BadName(_))), "bad name");
+        assert!(
+            matches!(load(&dir, "nope"), Err(PresetError::Missing(_))),
+            "missing"
+        );
+        assert!(
+            matches!(load(&dir, "../x"), Err(PresetError::BadName(_))),
+            "bad name"
+        );
         delete(&dir, "b")?;
         assert_eq!(list(&dir), vec!["Slow Burn"], "deleted");
         std::fs::remove_dir_all(&dir)?;
@@ -599,16 +648,39 @@ mod tests {
         let dir = temp_scene("damaged")?;
         std::fs::create_dir_all(dir_of(&dir))?;
         std::fs::write(dir_of(&dir).join("bad.json"), "{ nope")?;
-        let error = load(&dir, "bad").err().ok_or_else(|| anyhow!("should fail"))?;
+        let error = load(&dir, "bad")
+            .err()
+            .ok_or_else(|| anyhow!("should fail"))?;
         assert!(error.to_string().contains("bad.json"), "{error}");
         std::fs::remove_dir_all(&dir)?;
         Ok(())
     }
 
     #[test]
+    fn an_underscore_reads_as_a_space_but_an_exact_name_wins() {
+        let names = vec![
+            "Slow Burn".to_string(),
+            "a_b".to_string(),
+            "a b".to_string(),
+        ];
+        assert_eq!(
+            find_name(&names, "slow_burn"),
+            Some(&names[0]),
+            "underscore"
+        );
+        assert_eq!(find_name(&names, "SLOW BURN"), Some(&names[0]), "case");
+        assert_eq!(find_name(&names, "a_b"), Some(&names[1]), "exact first");
+        assert_eq!(find_name(&names, "nope"), None, "none");
+    }
+
+    #[test]
     fn a_hand_written_preset_needs_only_the_values() -> Result<()> {
         let preset = Preset::from_text(r#"{ "scene": { "speed": 3 } }"#)?;
-        assert_eq!(preset.channels, Channels::default(), "both channels by default");
+        assert_eq!(
+            preset.channels,
+            Channels::default(),
+            "both channels by default"
+        );
         assert_eq!(preset.scene.get("speed"), Some(&Value::One(3.0)), "value");
         Ok(())
     }
@@ -620,8 +692,26 @@ mod tests {
         assert_eq!(favs.iter().count(), FAV_SLOTS, "eight");
         assert_eq!(favs.get(0).map(|f| f.scene.as_str()), Some("a"), "slot 0");
         assert!(favs.get(1).is_none(), "slot 1 empty");
-        assert!(favs.set(7, Fav { scene: "z".into(), preset: Some("p".into()) }), "last slot");
-        assert!(!favs.set(8, Fav { scene: "z".into(), preset: None }), "no ninth");
+        assert!(
+            favs.set(
+                7,
+                Fav {
+                    scene: "z".into(),
+                    preset: Some("p".into())
+                }
+            ),
+            "last slot"
+        );
+        assert!(
+            !favs.set(
+                8,
+                Fav {
+                    scene: "z".into(),
+                    preset: None
+                }
+            ),
+            "no ninth"
+        );
         favs.clear(0);
         assert!(favs.get(0).is_none(), "cleared");
         let text = serde_json::to_string(&favs)?;
