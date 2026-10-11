@@ -594,6 +594,17 @@ impl Gl {
         unsafe { self.raw.uniform_4_f32(Some(location), x, y, z, w) }
     }
 
+    /// Sets a mat3 uniform on the current program, `columns` being the nine
+    /// numbers in column-major order (GL's native layout, no transpose).
+    pub fn uniform_mat3(&self, location: &glow::UniformLocation, columns: &[f32; 9]) {
+        // SAFETY: as uniform_f32; the array is exactly the nine floats one
+        // mat3 reads.
+        unsafe {
+            self.raw
+                .uniform_matrix_3_f32_slice(Some(location), false, columns)
+        }
+    }
+
     /// Sets an int (or sampler unit) uniform on the current program.
     pub fn uniform_i32(&self, location: &glow::UniformLocation, value: i32) {
         // SAFETY: as uniform_f32.
