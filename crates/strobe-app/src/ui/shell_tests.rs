@@ -423,6 +423,7 @@ fn draw(scenario: Scenario, size: (f32, f32), frames: usize) -> Result<Drawn> {
     let monitors = vec!["1: Display (1920x1080)".to_string()];
     let mut playlist_ui = PlaylistUi::default();
     let mut map_ui = MapUi::default();
+    let bindings = crate::commands::Bindings::default();
     let mut remote = sample_remote(scenario.mapped)?;
     let presets = vec!["Slow burn".to_string(), "Peak".to_string()];
     let sample_show_state = scenario
@@ -532,6 +533,7 @@ fn draw(scenario: Scenario, size: (f32, f32), frames: usize) -> Result<Drawn> {
                 presets: if scenario.playing { &presets } else { &[] },
                 active_preset: scenario.playing.then_some("Slow burn"),
                 scene_name: scenario.playing.then_some("01-aurora"),
+                bindings: &bindings,
             },
         };
         let pass = crate::ui::testing::run(

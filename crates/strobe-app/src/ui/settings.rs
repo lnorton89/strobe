@@ -57,7 +57,7 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
             appearance(ui, model, theme, actions);
             ui.add_space(SPACE_SM);
             widgets::section(ui, theme, "Keyboard");
-            keyboard(ui, theme);
+            keyboard(ui, theme, model.remote.bindings);
             ui.add_space(SPACE_SM);
             widgets::section(ui, theme, "Graphics");
             ui.label(
@@ -214,11 +214,11 @@ fn appearance(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut
     }
 }
 
-fn keyboard(ui: &mut Ui, theme: &Palette) {
+fn keyboard(ui: &mut Ui, theme: &Palette, bindings: &crate::commands::Bindings) {
     for command in CommandId::ALL {
         ui.horizontal(|ui| {
             ui.label(
-                egui::RichText::new(command.chord().label())
+                egui::RichText::new(bindings.chord(command).label())
                     .monospace()
                     .color(theme::rgb(theme.accent)),
             );
@@ -230,8 +230,11 @@ fn keyboard(ui: &mut Ui, theme: &Palette) {
         });
     }
     ui.label(
-        egui::RichText::new("Shortcuts are off while a text field has focus.")
-            .small()
-            .color(theme::rgb(theme.text_faint)),
+        egui::RichText::new(
+            "Shortcuts are off while a text field has focus. Change one under \"hotkeys\" in \
+             show-control.json (for example \"toggle_blackout\": \"Ctrl+B\"); restart to apply.",
+        )
+        .small()
+        .color(theme::rgb(theme.text_faint)),
     );
 }
