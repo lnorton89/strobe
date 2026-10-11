@@ -34,10 +34,12 @@ pub struct ScriptUniform {
 pub enum ConsoleLevel {
     /// `print`, `console.log`, `console.info`, `console.debug`.
     Log,
-    /// `console.warn`.
+    /// `console.warn`, and a name the scene does not declare: real template
+    /// scripts reference controls their scene lacks, which is the scene's
+    /// business, not a fault (TORNADO T2, D193).
     Warn,
-    /// `console.error`, and everything the host itself reports: faults,
-    /// unknown names, missing callbacks.
+    /// `console.error`, and what the host itself reports as broken: faults
+    /// and missing callbacks.
     Error,
 }
 

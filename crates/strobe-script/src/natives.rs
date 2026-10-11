@@ -314,7 +314,7 @@ fn control_write<'js>(
             });
         }
         None => state.log_once(
-            ConsoleLevel::Error,
+            ConsoleLevel::Warn,
             &format!("{function}: no {} named `{bare}`", noun(bank)),
         ),
     }
@@ -340,7 +340,7 @@ fn control_operation(shared: &Shared, function: &str, name: &str, operation: Ope
             Operation::Default => Command::Default(target, index),
         }),
         None => state.log_once(
-            ConsoleLevel::Error,
+            ConsoleLevel::Warn,
             &format!("{function}: no {} named `{bare}`", noun(bank)),
         ),
     }
@@ -362,7 +362,7 @@ fn group_operation(shared: &Shared, function: &str, name: &str, operation: Opera
             }
         }
         None => state.log_once(
-            ConsoleLevel::Error,
+            ConsoleLevel::Warn,
             &format!("{function}: no {} group named `{bare}`", noun(bank)),
         ),
     }
@@ -380,7 +380,7 @@ fn register_handler<'js>(
     let mut state = shared.state.borrow_mut();
     let Some(&source) = shared.names.sources.get(&normalize(target)) else {
         state.log_once(
-            ConsoleLevel::Error,
+            ConsoleLevel::Warn,
             &format!("{function}: no input named `{target}`"),
         );
         return;
