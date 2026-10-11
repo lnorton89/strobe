@@ -137,6 +137,19 @@ Each item names its acceptance test. Details and evidence are in
    *Accept:* a fixture per behaviour, on both dialects where it applies.
 7. **Presets, MIDI, OSC and hotkeys** on the shared `ControlBank`, without
    duplicating its toggle, bang or smoothing semantics.
+7b. **LAN remote from a phone or tablet** (planned, after item 7). The
+   proposal and threat model are in
+   [REMOTE_CONTROL_PWA_RESEARCH.md](REMOTE_CONTROL_PWA_RESEARCH.md)
+   (lnorton89/strobe#7). It is a same-origin web remote, served by Strobe on
+   an opt-in LAN listener, with pairing, per-client tokens, Host and Origin
+   checks and rate limits. Commands go over a typed WebSocket protocol into
+   a bounded channel that the app thread drains, which is the same path
+   OSC takes in item 7. So it reuses that remote command bridge and the
+   command table, and opens no second route to the show. *v1* is a LAN web
+   remote only. *Installable PWA* waits on a tested HTTPS and certificate
+   story on Android and iOS, because a LAN IP over plain HTTP is not a
+   secure context. *Accept:* Phase 0 to 2 of the research doc, including
+   real-device tests and a T480 soak with no frame-time regression.
 8. **Media and cubemaps**, then song-change transitions, then NDI out.
    *Built (D185, D186), 2026-10-11:* cube maps from six faces or a
    strip/cross picture, with a missing one reading black and reported through

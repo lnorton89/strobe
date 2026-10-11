@@ -32,7 +32,7 @@ pub use assets::{AssetProblem, MediaRequest};
 pub use caps::{Caps, FloatPrecision};
 pub use compositor::{Blend, Compositor, CompositorError};
 pub use gl::context::{Api, Headless};
-pub use gl::window::{Backend, GlChoice, SwapWindow, WindowError, WindowedContext};
+pub use gl::window::{Backend, GlChoice, SwapWindow, WindowError, WindowedContext, with_icons};
 pub use media::MEDIA_TYPE_IMAGE;
 pub use player::{AudioTextures, FrameInputs, Mouse, Options, PlayerError, ScenePlayer};
 pub use post::{Post, PostError};
