@@ -67,7 +67,7 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg"]
 # The GL stack. glow is the bindings; glutin creates the context — natively
 # (WGL / GLX / EGL / CGL) or through ANGLE's libEGL on Windows, which is the
 # same EGL code path pointed at a different library. See strobe-gfx's docs.
-glow = "0.17"
+glow = "0.18"
 glutin = { version = "0.32", default-features = false, features = ["egl", "glx", "wgl", "x11", "wayland"] }
 glutin-winit = { version = "0.5", default-features = false, features = ["egl", "glx", "wgl", "x11", "wayland"] }
 # winit's defaults minus `wayland-csd-adwaita`: Wayland client-side title
