@@ -33,6 +33,7 @@ compiles. It owns every SSF rule that can be decided without a GPU.
 | `meta` | The meta controls (master, brightness, hue, mirror...) as a `ControlBank` built by `meta::bank()`, which a script's `meta/` writes reach (D160). `MetaValues::read(&bank)` snapshots it into a plain `Copy` struct with no allocation, and `post_is_neutral()` tells the renderer's output post stage (D180) it has nothing to do. |
 | `SceneDef::media` (`MediaDef`) | The optional `MEDIA` key (a Strobe extension, D186): a still file or a folder of pictures for `syn_Media`, with `FPS`, `LOOP`, `WRAP`, `FILTER`, `VFLIP`. A path that leaves the scene folder is a validation error. `scene::is_folder_relative` is the shared path rule. |
 | `fixups` | GLSL ES rewrites for desktop-only SSF idioms; today `PASSINDEX == 0.0` becomes `float(PASSINDEX) == 0.0` (D163). |
+| `preset` | Presets (`presets/<name>.json` in the scene folder: capture, apply by name through `ControlBank`, a checked name that cannot escape the folder, `load_all`) and the eight global fav slots (D176). |
 | `names` | Name matching used by the script API (case-insensitive, ignoring `_`, `-` and spaces) and the reserved-name list. |
 | `SceneError` | Every way a scene can fail to load; messages name the control or pass at fault. |
 
