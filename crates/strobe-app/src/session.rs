@@ -128,8 +128,8 @@ pub struct Session {
     /// Live control values; the UI writes targets here.
     pub controls: ControlBank,
     /// The meta controls (master, brightness, hue, mirror...). A script's
-    /// `meta/` writes land here. Nothing in the renderer reads them yet
-    /// (there is no output post stage), so they are held, not applied (D160).
+    /// `meta/` writes land here. The output post stage reads the picture
+    /// controls from it (D180) and the audio path the gains (D184).
     pub meta: ControlBank,
     /// The compiled passes and render targets.
     pub player: ScenePlayer,

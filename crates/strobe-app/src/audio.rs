@@ -90,6 +90,11 @@ pub struct AudioInput {
     choice: DeviceChoice,
     reactivity: f32,
     speed: f32,
+    /// The meta controls' reactivity and audio speed (D184). The effective
+    /// gain is the panel's times this.
+    meta_gain: [f32; 2],
+    /// The effective gains last sent to the capture, so it is told on change.
+    pushed_gain: [f32; 2],
     /// The frame handed to the renderer; its vectors are sized once.
     frame: AudioFrame,
     trail_seconds: f32,
@@ -128,6 +133,8 @@ impl AudioInput {
             choice: DeviceChoice::default(),
             reactivity: 1.0,
             speed: 1.0,
+            meta_gain: [1.0, 1.0],
+            pushed_gain: [1.0, 1.0],
             frame: AudioFrame::silent(layout),
             trail_seconds: layout.trail_seconds,
             bpm_index: SCALARS.iter().position(|name| *name == "syn_BPM"),
@@ -196,8 +203,10 @@ impl AudioInput {
         if let Some(receiver) = &self.starting {
             match receiver.try_recv() {
                 Ok(Ok(capture)) => {
-                    capture.set_reactivity(self.reactivity);
-                    capture.set_audio_speed(self.speed);
+                    let gains = self.effective_gains();
+                    capture.set_reactivity(gains[0]);
+                    capture.set_audio_speed(gains[1]);
+                    self.pushed_gain = gains;
                     self.capture = Some(capture);
                     self.starting = None;
                 }
@@ -369,17 +378,53 @@ impl AudioInput {
     /// Sets the gain on levels and hits.
     pub fn set_reactivity(&mut self, gain: f32) {
         self.reactivity = gain.clamp(*GAIN.start(), *GAIN.end());
-        if let Some(capture) = &self.capture {
-            capture.set_reactivity(self.reactivity);
-        }
+        self.push_gains();
     }
 
     /// Sets the gain on the time clocks.
     pub fn set_speed(&mut self, gain: f32) {
         self.speed = gain.clamp(*GAIN.start(), *GAIN.end());
-        if let Some(capture) = &self.capture {
-            capture.set_audio_speed(self.speed);
+        self.push_gains();
+    }
+
+    /// Sets the meta controls' reactivity and audio speed (D184). They
+    /// multiply the audio panel's own gains, so the panel keeps working and
+    /// a script's `meta/reactivity` write scales on top of it. Called every
+    /// frame; the capture is only told when the product changes.
+    pub fn set_meta_gains(&mut self, reactivity: f32, speed: f32) {
+        let clean = |gain: f32| if gain.is_finite() { gain.max(0.0) } else { 1.0 };
+        let gains = [clean(reactivity), clean(speed)];
+        if gains != self.meta_gain {
+            self.meta_gain = gains;
+            self.push_gains();
         }
+    }
+
+    /// The gains the analyser runs with: the panel's times the meta's,
+    /// clamped to the analyser's range.
+    fn effective_gains(&self) -> [f32; 2] {
+        let clamp = |gain: f32| gain.clamp(*GAIN.start(), *GAIN.end());
+        [
+            clamp(self.reactivity * self.meta_gain[0]),
+            clamp(self.speed * self.meta_gain[1]),
+        ]
+    }
+
+    /// Sends the effective gains to the capture if they changed.
+    fn push_gains(&mut self) {
+        let gains = self.effective_gains();
+        if let Some(capture) = &self.capture
+            && gains != self.pushed_gain
+        {
+            capture.set_reactivity(gains[0]);
+            capture.set_audio_speed(gains[1]);
+        }
+        self.pushed_gain = gains;
+    }
+
+    /// The effective reactivity and speed gains, for tests and the panel.
+    pub fn effective(&self) -> [f32; 2] {
+        self.effective_gains()
     }
 
     /// Registers a tap-tempo tap. Only a live input has a tempo to set.
@@ -458,6 +503,24 @@ mod tests {
         let panel = input.panel();
         assert!((*panel.reactivity - 4.0).abs() < f32::EPSILON, "reactivity");
         assert!(panel.speed.abs() < f32::EPSILON, "speed");
+        Ok(())
+    }
+
+    #[test]
+    fn meta_gains_multiply_the_panels_and_stay_in_range() -> Result<()> {
+        let mut input = AudioInput::new(false);
+        input.set_reactivity(1.5);
+        input.set_speed(2.0);
+        input.set_meta_gains(2.0, 0.5);
+        assert_eq!(input.effective(), [3.0, 1.0], "product of panel and meta");
+        input.set_meta_gains(2.0, 9.0);
+        assert_eq!(input.effective()[1], 4.0, "clamped to the analyser's range");
+        input.set_meta_gains(f32::NAN, -1.0);
+        assert_eq!(
+            input.effective(),
+            [1.5, 0.0],
+            "NaN is neutral, negative is zero"
+        );
         Ok(())
     }
 
