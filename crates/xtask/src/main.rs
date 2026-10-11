@@ -1,10 +1,10 @@
 // ============================================================================
 // Module:       xtask (binary crate root)
 // Description:  The workspace's own tooling behind `cargo xtask`: the local
-//               CI runner, the changelog generator, the bench shortcut, and
-//               crash-dump symbolication.
+//               CI runner, the changelog generator, the bench shortcut,
+//               crash-dump symbolication, and the icon renderer.
 //
-// Dependencies: clap, anyhow; modules changelog, ci, bench, symbolicate
+// Dependencies: clap, anyhow; modules brand, changelog, ci, bench, symbolicate
 // ============================================================================
 
 //! `cargo xtask`: the repository's tooling, written in the repository's
@@ -17,6 +17,7 @@
 //! cargo xtask changelog --release v0.2.0      # write the section before tagging
 //! cargo xtask bench -- --size 1280x720        # strobe-bench, in release
 //! cargo xtask symbolicate crash-….dmp         # a crash dump as a readable stack
+//! cargo xtask brand [--check]                 # icon PNGs and .ico from the SVG sources
 //! ```
 //!
 //! The `xtask` alias in `.cargo/config.toml` is the whole installation.
@@ -38,6 +39,7 @@
 //! `crates/strobe-gfx`.
 
 mod bench;
+mod brand;
 mod changelog;
 mod ci;
 mod symbolicate;
@@ -89,6 +91,14 @@ enum Command {
     /// debug information. Needs `cargo install dump_syms minidump-stackwalk
     /// --locked`.
     Symbolicate(symbolicate::Args),
+    /// Render the application icon PNGs and `icon.ico` from the SVG
+    /// sources in `assets/brand`.
+    Brand {
+        /// Fail if a committed file differs from a fresh render instead of
+        /// writing anything.
+        #[arg(long)]
+        check: bool,
+    },
 }
 
 /// The workspace root: `crates/xtask/../..`.
@@ -116,6 +126,7 @@ fn run() -> Result<()> {
         Command::Changelog { check, release } => changelog::run(check, release.as_deref()),
         Command::Bench { args } => bench::run(&args),
         Command::Symbolicate(args) => symbolicate::run(&args),
+        Command::Brand { check } => brand::run(check),
     }
 }
 

@@ -405,7 +405,7 @@ pub struct Model<'a> {
     pub scene_title: &'a str,
     /// The playing scene's controls.
     pub controls: Option<&'a mut ControlBank>,
-    /// The meta controls.
+    /// The output-wide meta controls of the playing scene's session (D180).
     pub meta: Option<&'a mut ControlBank>,
     /// The live preview, once a scene has rendered.
     pub preview: Option<Preview>,

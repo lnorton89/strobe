@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">STROBE application icon, small sizes</title>
+  <desc id="desc">The Parametric Flow ribbon simplified for 32 px and below: no contours, the innermost turn dropped, a heavier stroke.</desc>
+  <defs>
+    <linearGradient id="spectrum" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#00E5FF"/>
+      <stop offset=".35" stop-color="#3382F6"/>
+      <stop offset=".68" stop-color="#8A55F7"/>
+      <stop offset="1" stop-color="#EC4B99"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="512" height="512" rx="96" fill="#080B14"/>
+  <g transform="translate(256 256) scale(1.22) translate(-238 -243)" fill="none" stroke="url(#spectrum)" stroke-linecap="round">
+    <path d="M117 269 C93 175 166 99 252 119 C318 135 381 205 360 273 C339 334 260 386 192 355 C136 330 115 273 157 226 C202 176 279 180 322 223 C355 258 333 304 290 322" stroke-width="44"/>
+  </g>
+</svg>

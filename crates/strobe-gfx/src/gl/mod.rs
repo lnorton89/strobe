@@ -594,6 +594,17 @@ impl Gl {
         unsafe { self.raw.uniform_4_f32(Some(location), x, y, z, w) }
     }
 
+    /// Sets a mat3 uniform on the current program, `columns` being the nine
+    /// numbers in column-major order (GL's native layout, no transpose).
+    pub fn uniform_mat3(&self, location: &glow::UniformLocation, columns: &[f32; 9]) {
+        // SAFETY: as uniform_f32; the array is exactly the nine floats one
+        // mat3 reads.
+        unsafe {
+            self.raw
+                .uniform_matrix_3_f32_slice(Some(location), false, columns)
+        }
+    }
+
     /// Sets an int (or sampler unit) uniform on the current program.
     pub fn uniform_i32(&self, location: &glow::UniformLocation, value: i32) {
         // SAFETY: as uniform_f32.
@@ -664,6 +675,94 @@ impl Gl {
         self.tex_image_1d(width, internal, fmt, ty, data);
         self.apply_sampling(glow::TEXTURE_1D, Sampling::LINEAR_CLAMP);
         Ok(texture)
+    }
+
+    /// Allocates a cube map from six `size` x `size` RGBA8 faces, in GL's
+    /// order: +X, -X, +Y, -Y, +Z, -Z. Each face is tightly packed rows,
+    /// first row as GL's `TEXTURE_CUBE_MAP_*` targets read it (the top row of
+    /// an ordinary image file). Sampling is linear, clamped on all three
+    /// axes, with a mip chain when `mipmaps` is set.
+    ///
+    /// The returned [`Texture`] owns the cube map and frees it on drop (as
+    /// for every texture, not at all once the context is lost). It is meant
+    /// to be bound with [`Self::bind_unit`] for a `samplerCube`; uploading
+    /// into it with [`Self::upload`] is not supported.
+    pub fn texture_cube(
+        &self,
+        size: i32,
+        faces: [&[u8]; 6],
+        mipmaps: bool,
+    ) -> Result<Texture, String> {
+        let expected = (size.max(0) as usize).pow(2) * Format::Rgba8.bytes_per_texel();
+        if size < 1 || faces.iter().any(|face| face.len() != expected) {
+            return Err(format!(
+                "a {size}x{size} cube map needs six faces of {expected} bytes"
+            ));
+        }
+        let raw = self.create_texture()?;
+        let texture = Texture {
+            gl: self.clone(),
+            raw,
+            target: glow::TEXTURE_CUBE_MAP,
+            width: size,
+            height: size,
+            format: Format::Rgba8,
+        };
+        self.bind_texture(glow::TEXTURE_CUBE_MAP, Some(raw));
+        let (internal, fmt, ty) = Format::Rgba8.raw();
+        for (index, face) in faces.iter().enumerate() {
+            self.tex_image_cube_face(index as u32, size, internal, fmt, ty, face);
+        }
+        let min = if mipmaps {
+            glow::LINEAR_MIPMAP_LINEAR
+        } else {
+            glow::LINEAR
+        };
+        let target = glow::TEXTURE_CUBE_MAP;
+        self.tex_parameter(target, glow::TEXTURE_WRAP_S, glow::CLAMP_TO_EDGE as i32);
+        self.tex_parameter(target, glow::TEXTURE_WRAP_T, glow::CLAMP_TO_EDGE as i32);
+        self.tex_parameter(target, glow::TEXTURE_WRAP_R, glow::CLAMP_TO_EDGE as i32);
+        self.tex_parameter(target, glow::TEXTURE_MIN_FILTER, min as i32);
+        self.tex_parameter(target, glow::TEXTURE_MAG_FILTER, glow::LINEAR as i32);
+        if mipmaps {
+            self.generate_mipmap(target);
+        }
+        Ok(texture)
+    }
+
+    fn tex_image_cube_face(
+        &self,
+        face: u32,
+        size: i32,
+        internal: i32,
+        fmt: u32,
+        ty: u32,
+        data: &[u8],
+    ) {
+        // SAFETY: current-context invariant; the caller checked that `data`
+        // is exactly size * size RGBA8 texels, which is all GL reads.
+        unsafe {
+            self.raw.tex_image_2d(
+                glow::TEXTURE_CUBE_MAP_POSITIVE_X + face,
+                0,
+                internal,
+                size,
+                size,
+                0,
+                fmt,
+                ty,
+                glow::PixelUnpackData::Slice(Some(data)),
+            )
+        }
+    }
+
+    /// Makes linear filtering blend across cube-map face edges. Desktop GL
+    /// only (GLES 3.0 always does, and rejects the enum): a per-context
+    /// state, set once.
+    pub fn enable_seamless_cube_maps(&self) {
+        // SAFETY: current-context invariant; an unsupported capability is a
+        // GL error, not undefined behaviour.
+        unsafe { self.raw.enable(glow::TEXTURE_CUBE_MAP_SEAMLESS) }
     }
 
     /// Replaces the whole contents of a texture.

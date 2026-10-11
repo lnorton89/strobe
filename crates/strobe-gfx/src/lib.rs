@@ -17,17 +17,23 @@
 //! scale.
 
 pub mod adaptive;
+pub mod assets;
 pub mod caps;
 pub mod compositor;
 pub mod gl;
+mod media;
 pub mod offscreen;
 pub mod player;
+pub mod post;
 pub mod readback;
 pub mod timing;
 
+pub use assets::{AssetProblem, MediaRequest};
 pub use caps::{Caps, FloatPrecision};
 pub use compositor::{Blend, Compositor, CompositorError};
 pub use gl::context::{Api, Headless};
 pub use gl::window::{Backend, GlChoice, SwapWindow, WindowError, WindowedContext};
+pub use media::MEDIA_TYPE_IMAGE;
 pub use player::{AudioTextures, FrameInputs, Mouse, Options, PlayerError, ScenePlayer};
+pub use post::{Post, PostError};
 pub use timing::GpuTimer;

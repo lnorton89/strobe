@@ -20,8 +20,15 @@ from a lost GL context.
   transitions between two scenes and the Playlist pane are in the frame loop
   ([`ARCHITECTURE.md`](../../docs/ARCHITECTURE.md), "A frame" and
   "Playlists").
-- **Does not (yet):** MIDI, OSC, audio-event advance or the meta post stage
-  (brightness, hue, mirror); `strobe-io` does not exist yet.
+- **The meta controls work (D180-D184).** The live session's meta bank drives
+  the output post stage (master, invert, brightness, gamma, contrast, hue,
+  saturation, mirrors) through `strobe_gfx::Post`, run in `App::apply_post`
+  after the compositor and **skipped entirely at neutral**; its reactivity and
+  audio speed multiply the Audio panel's gains (`AudioInput::set_meta_gains`);
+  and the inspector's "Output (meta)" section edits them. Blackout is separate
+  and applied after the post stage (D181).
+- **Does not (yet):** MIDI, OSC or audio-event advance; `strobe-io` does not
+  exist yet. Video and webcam media are later.
 - The app has no `#[cfg(windows)]` code of its own, only `cfg!` values; that is
   why the Windows cross-check from Linux can exclude it (D63).
 
@@ -77,6 +84,7 @@ Flags (from the clap `Cli`):
 | `--browser-query <text>` | saved | Put this in the scene browser's search field. |
 | `--preview <scene>` | none | Prepare this scene in the browser's Preview at launch, without making it live. |
 | `--blackout` | off | Start with the output blacked out. |
+| `--media <path>` | none | Show this `.png`/`.jpg` file, or a folder of them played as a sequence in name order, behind `syn_Media` in every scene loaded by hand (instead of the scene's `MEDIA`). Decoded off the frame thread (D186). A missing path is reported and the scene runs with black media. |
 | `--request-load <scene>` | none | With `--screenshot`: ask for this load through the UI path on the frame before the control capture, so the capture shows "Preparing". |
 | `--theme <id>` | saved | Use a theme for this run: `strobe`, `graphite`, `midnight`, `void`, `high-contrast`, `daylight`, or a file in `<data dir>/themes/`. |
 | `--system-title-bar` | off | Use the system's title bar for this run (D132); Settings has the saved choice. |
@@ -180,8 +188,10 @@ runs are listed in [`DEBUGGING.md`](../../docs/DEBUGGING.md).
 - Playlists are built (stage 2, D150-D158) and verified on llvmpipe only. Not
   built: audio-event advance, the Playlist workspace's inspector, presets,
   MIDI, OSC, hotkey mapping, Shadertoy thumbnails and the Needs-work bin, NDI.
-  Cubemaps and media input are placeholders. Script `meta/` writes land in
-  the session's meta bank, which nothing renders from yet (D160);
-  `textureFinalPass` is a two-frame-late asynchronous readback (D162).
+  Cube maps and `syn_Media` stills and sequences work (D185, D186), video
+  and webcam do not. Script `meta/` writes land in the session's meta bank,
+  which the post stage renders from (D180), checked on llvmpipe under Xvfb
+  only (its cost on an HD 4000 is unmeasured); meta values reset on a scene
+  change (D182). `textureFinalPass` is a two-frame-late asynchronous readback (D162).
 - Linux runs under Xvfb and Mesa only; macOS is not built (no CGL provider,
   D55).

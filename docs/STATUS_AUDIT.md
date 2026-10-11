@@ -159,9 +159,27 @@ the topology before any broad redesign.
   Evidence, llvmpipe: `strobe-script` conformance tests `meta_*` (routing,
   clamping, toggles, default, randomize, groups, unknown names) and
   `strobe-app/tests/script_meta.rs` (a session, both dialects).
-  **Limit:** nothing renders from the meta bank yet, so a script cannot
-  change brightness or hue on screen. What is verified is that the write is
-  held and clamped, not that it has an effect; see Q21.
+  (The effect on screen is the next item.)
+- [x] An output post stage applies the meta controls (D180-D184). Evidence,
+  llvmpipe, both dialects, `crates/strobe-gfx/tests/post.rs`: a neutral pass
+  through the program is the input bit for bit; `apply()` draws nothing at
+  neutral; invert, hue (red to green to blue at 1/3 and 2/3 of a turn),
+  saturation 0 (luma grey), brightness, contrast, gamma, master 0 (black,
+  even with invert) and master 0.5 on known colours; horizontal and vertical
+  mirrors exact on odd and even sizes and a true reflection of a gradient;
+  no shader compiles after the stage is built. `MetaValues` (neutral
+  detection, slots) in `strobe-scene/src/meta.rs` tests; the audio gain
+  product in `strobe-app` `audio::tests`. **In the app, Xvfb + llvmpipe,
+  native GL 3.3:** a script writing `meta/hue`, `saturation`,
+  `horizontal_mirror` and `brightness` turned the orange aurora green,
+  mirrored it left onto right and brightened it; another writing
+  `meta/master` 0.5 and `meta/invert` gave the inverted picture at half
+  level; the preview and `--screenshot` output both show it, and the
+  inspector shows the "Output (meta)" controls
+  (`docs/images/post/`). **Not verified:** the post stage's GPU cost on the
+  T480 or an HD 4000 (llvmpipe timings say nothing); how it looks on ANGLE
+  in the app (headless GLES 3.0 only); the guessed order and mirror
+  conventions against Synesthesia (Q21).
 - [x] `textureFinalPass` through an asynchronous PBO readback (D162, Q14).
   Evidence, llvmpipe, both dialects: `render.rs`
   `the_final_pass_readback_arrives_two_frames_late_and_is_black_before`,
@@ -170,8 +188,11 @@ the topology before any broad redesign.
   `resizing_restarts_the_readback_from_black`,
   `a_lost_context_makes_the_readback_inert_and_its_drops_harmless`; and
   `script_uniforms.rs` `texture_final_pass_reads_the_picture_a_few_frames_late`.
-  **Not yet:** the T480 (Intel, native and ANGLE/D3D11), where the cost and
-  the fence behaviour are unmeasured.
+  **Not yet:** the latency assertion on the T480. `script_uniforms.rs`
+  skips there because Windows has no headless EGL device (Task 14). The
+  scripted scene runs clean on Intel native, but the fence behaviour and
+  cost on Intel and ANGLE/D3D11 are unmeasured. Running these tests on the
+  window context (D140) would close this.
 - [x] A script-created uniform that appears after initial preparation is
   refused, and no shader compiles after load (D161). Evidence:
   `script_uniforms.rs`
@@ -189,10 +210,27 @@ they apply, and explicit supported, degraded or unsupported claims.
 
 ## P1: scene assets, Shadertoy and auto-generated controls
 
-- [ ] Replace the black `syn_Media` and placeholder `syn_MediaType` with a
-  documented media path.
-- [ ] Load cubemaps, and report missing or invalid assets without
-  crashing the show.
+- [x] `syn_Media` and `syn_MediaType`: a documented media path for stills
+  and image sequences (D186). Evidence, llvmpipe, both dialects,
+  `crates/strobe-gfx/tests/assets.rs`: a still read upright through
+  `syn_Media` with `syn_MediaType` 1; no media is black and type 0; a
+  3-picture sequence at 1 fps shows frame 1, 2, 3 and loops; a user-chosen
+  file replaces the scene's and a bad one reports and leaves the old picture;
+  an empty folder reports. `assets::tests` cover ordering, flipping, shrinking
+  and the decoder thread. Under Xvfb, `--media <folder>` played a two-picture
+  sequence and `--media <missing>` printed the IO failure block and ran on.
+  **Video and webcam are not built (later, ROADMAP).** **Not verified:** the
+  `MEDIA` key and `syn_MediaType` values against SSF (Q22); upload cost and
+  memory on the T480.
+- [x] Load cubemaps, and report missing or invalid assets without
+  crashing the show (D185). Evidence, llvmpipe, both dialects: a fixture
+  samples +X, -X, +Y, -Y, +Z and -Z and gets each face's colour from six
+  files and from a 4:3 cross picture; a missing cube map and a mismatched
+  one each return an `AssetProblem` naming the sampler and file, read black,
+  and raise no GL error (`assets.rs`); `failures::asset_problem` has a test
+  for the failure block. **Not verified:** cube orientation against a real
+  scene (Q22); a missing or broken `IMAGES` file still fails the whole scene
+  load, as before.
 - [x] Shadertoy conversion (stage 1, D90-D95). It covers:
   - multipass dependencies in Shadertoy order, and buffer feedback;
   - texture and buffer channels;
@@ -274,9 +312,13 @@ survives export.
     reloading` and compiles only the new scene; saving a broken one keeps
     the playing playlist and shows `line 3, column 13: "3mn" is not a
     duration ...`.
-  **Not verified:** the T480 or real Windows (load time, the cost of two
-  scenes at once on an HD 4000, VRAM), a 4-hour show with real scenes, and
-  audio-event advance (not built).
+  - on the T480 (Task 14, release, native GL): the same demo closed with 0
+    runtime compiles, loaded in about 0.27 s, and ran its transitions at
+    60 fps, with GPU rising from 0.4-0.8 ms to about 1.2-1.3 ms during each
+    ([hardware/T480.md](hardware/T480.md)).
+  **Not verified:** an HD 4000 (the cost of two scenes at once, VRAM), ANGLE
+  on the T480, a 4-hour show with real scenes, and audio-event advance (not
+  built).
 - [ ] Wire presets, MIDI, OSC and hotkeys into the shared `ControlBank`.
   Don't duplicate its toggle, bang or smoothing semantics.
 - [ ] Run a tag-triggered release, then inspect:

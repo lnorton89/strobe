@@ -127,6 +127,12 @@ pub struct Cli {
     /// Start with the output blacked out.
     #[arg(long)]
     pub blackout: bool,
+    /// Show this picture (a .png or .jpg file) or folder of pictures (an
+    /// image sequence, played in name order) behind `syn_Media` in every
+    /// scene loaded by hand, in place of the scene's own `MEDIA`. It is
+    /// decoded off the frame thread. Scenes a playlist plays keep their own.
+    #[arg(long, value_name = "PATH")]
+    pub media: Option<PathBuf>,
     /// In screenshot mode, ask for this scene to be loaded through the UI's
     /// own path on the frame before the control capture, so the capture shows
     /// the "preparing" state (the load itself still happens right after).

@@ -6,7 +6,7 @@ in [DECISIONS.md](DECISIONS.md), the evidence-based gap list in
 [STATUS_AUDIT.md](STATUS_AUDIT.md), and real-hardware results in
 [hardware/T480.md](hardware/T480.md).
 
-_Last updated: 2026-10-10 (Perform UI stage 1)._
+_Last updated: 2026-10-11 (output post stage, cube maps, syn_Media stills and sequences)._
 
 ## Now
 
@@ -19,7 +19,7 @@ which backend proved a claim.
 
 | Area | What exists | Verified on |
 |---|---|---|
-| Workspace | Conventions as tests, pinned toolchain and actions, `cargo xtask ci \| changelog \| bench`, release workflow (D50-D59) | CI. The release workflow has never run on a tag |
+| Workspace | Conventions as tests, pinned toolchain and actions, `cargo xtask ci \| changelog \| bench \| symbolicate \| brand`, release workflow (D50-D59) | CI. The release workflow has never run on a tag |
 | `strobe-scene`, `strobe-ssf-lib` | SSF parsing and validation, controls runtime, shader assembly, `PASS_SOURCES` (D90), the SSF GLSL library | Headless GL 3.3 core and GLES 3.0 (llvmpipe) |
 | `strobe-gfx` | Native GL and ANGLE context providers, headless EGL, multipass and ping-pong, implicit final pass, images, GPU timer queries, robust contexts and reset status (D66) | llvmpipe; T480 native and ANGLE |
 | `strobe-bench` | Timings, frames, contact sheet; headless, window and auto contexts (D70-D72), now `strobe_gfx::offscreen` (D140) | llvmpipe; T480 ([BENCHMARKS.md](BENCHMARKS.md)) |
@@ -29,7 +29,8 @@ which backend proved a claim.
 | `strobe-diag` | Session logs, structured failures, panic reports, out-of-process minidumps, GL debug output (D40-D45) | Linux; T480 (`overflow` gives a `.dmp`, bug 2) |
 | `strobe-shadertoy` | Stage 1: id parser, both JSON shapes, dialect rewrite, converter to a scene folder, `strobe-import` (D90-D95). Stage 2: REST client, texture downloader and cache, shared import pipeline, loopback listener, `strobe-import --id` (D110, D111, D113, D114, D117) | Nine original fixtures on llvmpipe, both dialects; stage 2 against fakes and a loopback mock, never the live site |
 | `strobe-autocontrol` | Stage 1: finds candidate literals, rewrites them to uniforms, keeps the ones whose measured effect matters, suggests audio bindings, CLI with `--context auto\|headless\|window` (D123-D126, D140) | llvmpipe, both dialects: 11 of 11 stripped library scenes and 8 of 14 Shadertoy fixtures get controls. Not in the app yet
-| `strobe-playlist` | Stage 1, pure core: model, inheritance, TOML, generator, timeline, playback clock, resume (D73-D77). **Stage 2, in the app (D150-D158):** `--playlist` and the LIST pane, precompile with progress, scenes parked at 1x1, warm-up at a quarter of the pixels, the compositor (crossfade, fade-through-black, custom GLSL), real Hold, extend, restart, skip-section and Next/Prev, NOW/NEXT and remaining time, Generate, Save, a file watcher, resume every 5 s, the wall-clock anchor | Unit tests and 4-hour soaks; stage 2 on headless GL in both dialects (`crates/strobe-app/tests/show.rs`) and under Xvfb with llvmpipe. Not run on the T480 |
+| `strobe-playlist` | Stage 1, pure core: model, inheritance, TOML, generator, timeline, playback clock, resume (D73-D77). **Stage 2, in the app (D150-D158):** `--playlist` and the LIST pane, precompile with progress, scenes parked at 1x1, warm-up at a quarter of the pixels, the compositor (crossfade, fade-through-black, custom GLSL), real Hold, extend, restart, skip-section and Next/Prev, NOW/NEXT and remaining time, Generate, Save, a file watcher, resume every 5 s, the wall-clock anchor | Unit tests and 4-hour soaks; stage 2 on headless GL in both dialects (`crates/strobe-app/tests/show.rs`) and under Xvfb with llvmpipe. T480 Task 14: the transition demo closed with 0 runtime compiles, transitions at 60 fps costing about 0.5 ms of GPU |
+| Brand | Parametric Flow guidelines and concept mark (lnorton89/strobe#6); the default theme in the brand palette, the window and taskbar icon, the title-bar mark, and icon PNGs and `.ico` rendered from SVG with a CI check (D190). Open: wordmark, lockups, the `.exe` resource icon | Xvfb screenshots; not yet seen on Windows |
 | Scenes | Eleven original scenes over five GPU-load tiers, one scripted | llvmpipe and T480 |
 
 ### In flight
@@ -116,6 +117,15 @@ Each item names its acceptance test. Details and evidence are in
    - [x] Script `meta/` control writes land in a meta `ControlBank` held by
      the session (D160). **No output post stage reads it yet**, so they
      change nothing on screen; that stage is the next piece.
+   - [x] **The output post stage reads it** (D180-D184, 2026-10-11): master,
+     invert, brightness, gamma, contrast, hue, saturation and the mirrors
+     in one program after the compositor, **no pass at all at neutral**; the
+     inspector's "Output (meta)" section; meta reactivity and audio speed
+     multiply the Audio panel's gains. Verified on llvmpipe, both dialects
+     (`crates/strobe-gfx/tests/post.rs`) and under Xvfb with a script
+     (`docs/images/post/`). **Its cost on an HD 4000 / the T480 is
+     unmeasured.** `Limit Colors` and `Alpha Channel` are not built, and
+     meta values reset on a scene change (D182).
    - [x] `textureFinalPass` through an asynchronous PBO readback, two frames
      late, never a stall (D162, Q14). Checked on llvmpipe only; the T480 and
      ANGLE/D3D11 are open.
@@ -128,6 +138,24 @@ Each item names its acceptance test. Details and evidence are in
 7. **Presets, MIDI, OSC and hotkeys** on the shared `ControlBank`, without
    duplicating its toggle, bang or smoothing semantics.
 8. **Media and cubemaps**, then song-change transitions, then NDI out.
+   *Built (D185, D186), 2026-10-11:* cube maps from six faces or a
+   strip/cross picture, with a missing one reading black and reported through
+   the failure path; `syn_Media` as a still or an image sequence (a `MEDIA`
+   key or `--media`), decoded off the frame thread and uploaded once, with
+   `syn_MediaType` 1 while it shows. Verified on llvmpipe in both dialects
+   (`crates/strobe-gfx/tests/assets.rs`) and under Xvfb. *Left:*
+   - **video and webcam input**, deliberately later: they need a decoder or
+     capture dependency the engine does not carry (nothing heavy should be
+     added for them);
+   - checking the `MEDIA` / `CUBEMAPS` / `syn_MediaType` shapes against SSF's
+     docs (Q22), and a media picker in the UI (only `--media` exists);
+   - media per playlist cue (a cue plays the scene's own `MEDIA`);
+   - the T480: the cost of uploading a long sequence, and VRAM with 192 MiB
+     of frames on shared memory.
+
+   *Accept:* a cube-map fixture where each direction returns its face, a
+   missing one failing visibly while the scene runs, and an image read
+   through `syn_Media`. Met on llvmpipe.
 9. **A real tagged release.** Inspect the zip, the ANGLE DLL provenance,
    the matching PDB archive, the SBOM, the checksums and the attestations
    (Q12).
@@ -211,13 +239,13 @@ never per frame.
 | Phase | Scope | State |
 |---|---|---|
 | 0 | Workspace, conventions, CI, GL contexts | Done. A tagged release has not been run. |
-| 1 | Renderer, SSF, controls, output window | Done, with the Perform-first UI at stage 1 (D130-D138). Images work; media and cubemaps are placeholders. |
-| 2 | JavaScript API | Integrated (D62). `meta/` writes land in a meta bank (D160, no post stage reads it yet); `textureFinalPass` is an asynchronous readback (D162); late uniforms are refused (D161). |
+| 1 | Renderer, SSF, controls, output window | Done, with the Perform-first UI at stage 1 (D130-D138). Images, cube maps and `syn_Media` stills and sequences work (D185, D186); video and webcam do not. |
+| 2 | JavaScript API | Integrated (D62). `meta/` writes land in a meta bank (D160) that the output post stage and audio gains read (D180, D184); `textureFinalPass` is an asynchronous readback (D162); late uniforms are refused (D161). |
 | 3 | Audio | Integrated (D61). The bench still uses the synthetic stand-in. |
 | 4 | Shadertoy import | The converter (D90-D95), acquisition (REST client, texture downloader, localhost listener), the Import panel, file drop and the userscript (D110-D117) are built, and stage 1 of auto-generated controls (D123-D126). Open: live-site verification (Q19), thumbnails, the Needs-work bin, batch import, and the app's review panel for generated controls. |
-| 5 | Playlists | The pure core (D73-D77) and the app integration (D150-D158) are built. Open: audio-event advance, the Playlist workspace's inspector, MIDI/OSC, T480 verification. |
+| 5 | Playlists | The pure core (D73-D77) and the app integration (D150-D158) are built. Verified on the T480 (Task 14). Open: audio-event advance, the Playlist workspace's inspector, MIDI/OSC. |
 | 6 | Presets, MIDI, OSC, hotkeys | Not started. |
-| 7 | NDI, media input, song-change transitions | Not started. `HARD`/`SMOOTH_TRANSITIONS` are declared but never change. |
+| 7 | NDI, media input, song-change transitions | Not started, except media stills and image sequences (D186); video, webcam and NDI are open. `HARD`/`SMOOTH_TRANSITIONS` are declared but never change. |
 
 ## Known gaps in what exists
 
@@ -227,11 +255,15 @@ never per frame.
 - The bench's `syn_Spectrum` and `syn_LevelTrail` are silent placeholders,
   and the bench does not run scripts. `11-script-orbits` drives controls
   instead (D62).
-- `syn_Media` is black and `syn_MediaType` is 0. Cubemaps are reserved but
-  never loaded.
-- `meta/` control writes are held, not applied: there is no output post
-  stage (D160, Q21). `textureFinalPass` is two frames late and unverified
-  on the T480 (D162, Q14).
+- `syn_Media` shows a still or an image sequence only (D186); **video and
+  webcam are later** and read as no media. Cube maps load (D185), but the
+  `MEDIA` and `CUBEMAPS` shapes and `syn_MediaType`'s values are unverified
+  against SSF (Q22). The bench has no media or cube-map scene.
+- The meta controls change the picture (the post stage, D180) but the stage's
+  cost on an old Intel GPU is unmeasured, meta values reset on a scene change
+  (D182), and `Limit Colors` and `Alpha Channel` are not built (Q21).
+  `textureFinalPass` is two frames late and unverified on the T480 (D162,
+  Q14).
 - The GLES dialect rewrites `PASSINDEX == 0.0` only (D163); the rest of the
   implicit int-to-float family is open (Q8). The base library is written
   ES-clean.
