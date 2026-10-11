@@ -72,6 +72,9 @@ jobs:
         with:
           key: changelog
       - run: cargo xtask changelog --check
+      # The icon PNGs and .ico are rendered from assets/brand/*.svg; a
+      # source edited without `cargo xtask brand` fails here.
+      - run: cargo xtask brand --check
 
   windows:
     name: windows (the shipping platform)
