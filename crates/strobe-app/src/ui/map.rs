@@ -44,9 +44,10 @@ use super::icon as icons;
 use super::model::{Action, AddKind, MapUi, Model};
 use super::theme::{self, SPACE_MD, SPACE_SM, SPACE_XS};
 use super::widgets::{self, Tone};
+use crate::color::Rgb;
 use crate::commands::CommandId;
 use crate::icon::Icon;
-use crate::palette::{Palette, Rgb};
+use crate::palette::Palette;
 use crate::remote::{Evaluated, OscState, Remote};
 use crate::workspace::Pane;
 use egui::Ui;
@@ -141,10 +142,7 @@ fn learn_banner(ui: &mut Ui, theme: &Palette, remote: &mut Remote) {
             .mappings
             .get(conflict.existing)
             .map_or_else(String::new, |m| m.target.label());
-        let message = format!(
-            "{} is already mapped to {holder}.",
-            conflict.source.label()
-        );
+        let message = format!("{} is already mapped to {holder}.", conflict.source.label());
         let mut answer = None;
         widgets::banner(ui, theme, Tone::Warning, &message, |ui| {
             if widgets::button(ui, theme, None, "Cancel").clicked() {
@@ -304,14 +302,18 @@ fn midi_block(ui: &mut Ui, theme: &Palette, remote: &Remote, actions: &mut Vec<A
         let mut enabled = remote.midi.enabled;
         if ui
             .checkbox(&mut enabled, "MIDI input")
-            .on_hover_text("Open the MIDI input devices that are plugged in. Plugging one in later works too.")
+            .on_hover_text(
+                "Open the MIDI input devices that are plugged in. Plugging one in later works too.",
+            )
             .changed()
         {
             actions.push(Action::SetMidiEnabled(enabled));
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if widgets::button(ui, theme, Some(Icon::Refresh), "Refresh")
-                .on_hover_text("Look at the MIDI ports again and retry a device that failed to open")
+                .on_hover_text(
+                    "Look at the MIDI ports again and retry a device that failed to open",
+                )
                 .clicked()
             {
                 actions.push(Action::RescanMidi);
@@ -368,7 +370,13 @@ fn midi_block(ui: &mut Ui, theme: &Palette, remote: &Remote, actions: &mut Vec<A
 
 // -------------------------------------------------------------- macros
 
-fn macros_block(ui: &mut Ui, theme: &Palette, remote: &mut Remote, map: &mut MapUi, eval: &Evaluated) {
+fn macros_block(
+    ui: &mut Ui,
+    theme: &Palette,
+    remote: &mut Remote,
+    map: &mut MapUi,
+    eval: &Evaluated,
+) {
     if remote.engine.macros.is_empty() {
         ui.label(
             egui::RichText::new(
@@ -388,14 +396,10 @@ fn macros_block(ui: &mut Ui, theme: &Palette, remote: &mut Remote, map: &mut Map
         let Some(found) = remote.engine.macros.get(id).cloned() else {
             continue;
         };
-        let resolution = eval
-            .macros
-            .get(position)
-            .cloned()
-            .unwrap_or(Resolution {
-                state: State::Unavailable,
-                reason: String::new(),
-            });
+        let resolution = eval.macros.get(position).cloned().unwrap_or(Resolution {
+            state: State::Unavailable,
+            reason: String::new(),
+        });
         let sources: Vec<String> = remote
             .mappings_for_macro(id)
             .map(|m| m.source.label())
@@ -413,13 +417,13 @@ fn macros_block(ui: &mut Ui, theme: &Palette, remote: &mut Remote, map: &mut Map
                     {
                         remote.engine.macros.set_pinned(id, pinned);
                     }
-                    let name = egui::RichText::new(&found.name)
-                        .strong()
-                        .color(theme::rgb(if resolution.state == State::Resolved {
+                    let name = egui::RichText::new(&found.name).strong().color(theme::rgb(
+                        if resolution.state == State::Resolved {
                             theme.text
                         } else {
                             theme.text_muted
-                        }));
+                        },
+                    ));
                     if ui
                         .add(egui::Label::new(name).sense(egui::Sense::click()))
                         .on_hover_text("Click for options")
@@ -440,9 +444,7 @@ fn macros_block(ui: &mut Ui, theme: &Palette, remote: &mut Remote, map: &mut Map
                         if widgets::button(ui, theme, None, "Up").clicked() {
                             shift = Some((id, -1));
                         }
-                        let learning = remote
-                            .engine
-                            .is_learning_target(&Target::Macro { id });
+                        let learning = remote.engine.is_learning_target(&Target::Macro { id });
                         if widgets::tool_button(
                             ui,
                             theme,
@@ -474,9 +476,12 @@ fn macros_block(ui: &mut Ui, theme: &Palette, remote: &mut Remote, map: &mut Map
                 );
                 if !resolution.reason.is_empty() && resolution.state != State::Resolved {
                     ui.label(
-                        egui::RichText::new(format!("unavailable in current scene: {}", resolution.reason))
-                            .small()
-                            .color(theme::rgb(theme.text_faint)),
+                        egui::RichText::new(format!(
+                            "unavailable in current scene: {}",
+                            resolution.reason
+                        ))
+                        .small()
+                        .color(theme::rgb(theme.text_faint)),
                     );
                 }
                 if selected {
@@ -554,7 +559,13 @@ fn macro_options(ui: &mut Ui, theme: &Palette, remote: &mut Remote, id: u32) {
 
 // ------------------------------------------------------------ add form
 
-fn add_form(ui: &mut Ui, theme: &Palette, remote: &mut Remote, map: &mut MapUi, targets: &Targets<'_>) {
+fn add_form(
+    ui: &mut Ui,
+    theme: &Palette,
+    remote: &mut Remote,
+    map: &mut MapUi,
+    targets: &Targets<'_>,
+) {
     ui.horizontal(|ui| {
         ui.add(
             egui::TextEdit::singleline(&mut map.search)
@@ -754,7 +765,12 @@ fn kind_label(kind: AddKind) -> &'static str {
 /// A text field for a control name, with a picker over the controls of the
 /// bank that is playing now. Typing a name the scene lacks is allowed: the
 /// mapping waits as unavailable until a scene that has it plays.
-fn control_picker(ui: &mut Ui, form: &mut super::model::AddForm, bank: Option<&ControlBank>, hint: &str) {
+fn control_picker(
+    ui: &mut Ui,
+    form: &mut super::model::AddForm,
+    bank: Option<&ControlBank>,
+    hint: &str,
+) {
     ui.horizontal(|ui| {
         ui.add(
             egui::TextEdit::singleline(&mut form.text)
@@ -768,7 +784,10 @@ fn control_picker(ui: &mut Ui, form: &mut super::model::AddForm, bank: Option<&C
                 .selected_text("or pick one")
                 .show_ui(ui, |ui| {
                     for def in bank.defs() {
-                        if ui.selectable_label(form.text == def.name, &def.name).clicked() {
+                        if ui
+                            .selectable_label(form.text == def.name, &def.name)
+                            .clicked()
+                        {
                             form.text.clone_from(&def.name);
                             form.component = 0;
                         }
@@ -823,7 +842,11 @@ fn form_target(form: &super::model::AddForm, targets: &Targets<'_>) -> Option<Ta
             component: component(targets.meta),
         }),
         AddKind::Command => Some(Target::command(text)),
-        AddKind::Cue => text.parse().ok().filter(|n| *n >= 1).map(|number| Target::Cue { number }),
+        AddKind::Cue => text
+            .parse()
+            .ok()
+            .filter(|n| *n >= 1)
+            .map(|number| Target::Cue { number }),
         AddKind::Fav => text.parse().ok().map(|slot| Target::FavSlot { slot }),
         AddKind::Preset => Some(Target::Preset {
             name: text.to_string(),
@@ -837,7 +860,9 @@ fn default_macro_name(target: &Target) -> String {
         Target::Control { name, .. } | Target::Meta { name, .. } | Target::Preset { name } => {
             name.clone()
         }
-        Target::Command { id } => CommandId::from_id(id).map_or_else(|| id.clone(), |c| c.name().to_string()),
+        Target::Command { id } => {
+            CommandId::from_id(id).map_or_else(|| id.clone(), |c| c.name().to_string())
+        }
         Target::Cue { number } => format!("Cue {number}"),
         Target::FavSlot { slot } => format!("Fav {slot}"),
         Target::Macro { id } => format!("Macro {id}"),
@@ -846,7 +871,13 @@ fn default_macro_name(target: &Target) -> String {
 
 // ------------------------------------------------------------ mappings
 
-fn mappings_block(ui: &mut Ui, theme: &Palette, remote: &mut Remote, map: &mut MapUi, eval: &Evaluated) {
+fn mappings_block(
+    ui: &mut Ui,
+    theme: &Palette,
+    remote: &mut Remote,
+    map: &mut MapUi,
+    eval: &Evaluated,
+) {
     if remote.engine.mappings.is_empty() {
         widgets::empty_state(
             ui,
@@ -883,9 +914,14 @@ fn mappings_block(ui: &mut Ui, theme: &Palette, remote: &mut Remote, map: &mut M
                 ui.horizontal(|ui| {
                     state_chip(ui, theme, &resolution);
                     let title = source_title(&mapping.source);
-                    let text = egui::RichText::new(title).strong().color(theme::rgb(
-                        if mapping.enabled { theme.text } else { theme.text_faint },
-                    ));
+                    let text =
+                        egui::RichText::new(title)
+                            .strong()
+                            .color(theme::rgb(if mapping.enabled {
+                                theme.text
+                            } else {
+                                theme.text_faint
+                            }));
                     if ui
                         .add(egui::Label::new(text).sense(egui::Sense::click()))
                         .on_hover_text("Click for options")
@@ -997,18 +1033,17 @@ fn mapping_options(ui: &mut Ui, theme: &Palette, mapping: &mut Mapping, devices:
                     {
                         mapping.source = mapping.source.for_any_device();
                     }
-                    let mut keys: Vec<&str> = devices.iter().map(String::as_str).collect();
-                    if let Some(own) = mapping.source.device()
+                    let own = mapping.source.device().map(str::to_string);
+                    let mut keys: Vec<String> = devices.to_vec();
+                    if let Some(own) = own
                         && !keys.contains(&own)
                     {
                         keys.push(own);
                     }
                     for key in keys {
-                        if ui
-                            .selectable_label(mapping.source.device() == Some(key), key)
-                            .clicked()
-                        {
-                            mapping.source = mapping.source.for_device(key);
+                        let current = mapping.source.device() == Some(key.as_str());
+                        if ui.selectable_label(current, &key).clicked() {
+                            mapping.source = mapping.source.for_device(&key);
                         }
                     }
                 });
@@ -1093,7 +1128,9 @@ fn mapping_options(ui: &mut Ui, theme: &Palette, mapping: &mut Mapping, devices:
                         .selectable_label(mapping.button == mode, mode.label())
                         .on_hover_text(match mode {
                             ButtonMode::Toggle => "Each press flips the control",
-                            ButtonMode::Momentary => "The control follows the button while it is held",
+                            ButtonMode::Momentary => {
+                                "The control follows the button while it is held"
+                            }
                         })
                         .clicked()
                     {
@@ -1112,7 +1149,9 @@ fn mapping_options(ui: &mut Ui, theme: &Palette, mapping: &mut Mapping, devices:
                 .speed(0.005)
                 .fixed_decimals(2),
         )
-        .on_hover_text("Where a fader counts as pressed when it drives a button, a command or a toggle");
+        .on_hover_text(
+            "Where a fader counts as pressed when it drives a button, a command or a toggle",
+        );
     });
     ui.add_space(SPACE_XS);
 }
@@ -1158,7 +1197,9 @@ fn activity_block(ui: &mut Ui, theme: &Palette, remote: &mut Remote) {
                     .color(theme::rgb(theme.text)),
             );
             if !line.result.is_empty() {
-                let colour = if line.result.starts_with("unmapped") || line.result.starts_with("unavailable") {
+                let colour = if line.result.starts_with("unmapped")
+                    || line.result.starts_with("unavailable")
+                {
                     theme.text_faint
                 } else {
                     theme.success

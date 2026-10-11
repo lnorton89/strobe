@@ -352,7 +352,12 @@ mod tests {
     #[test]
     fn ids_are_unique_stable_and_round_trip() {
         for (index, a) in CommandId::ALL.iter().enumerate() {
-            assert_eq!(CommandId::from_id(a.id()), Some(*a), "{} round trip", a.id());
+            assert_eq!(
+                CommandId::from_id(a.id()),
+                Some(*a),
+                "{} round trip",
+                a.id()
+            );
             assert_eq!(
                 CommandId::from_id(&a.id().to_uppercase()),
                 Some(*a),
@@ -364,8 +369,16 @@ mod tests {
             }
         }
         assert_eq!(CommandId::from_id("nope"), None, "unknown");
-        assert_eq!(CommandId::NextScene.id(), "next_scene", "the OSC docs name this");
-        assert_eq!(CommandId::ToggleBlackout.id(), "toggle_blackout", "and this");
+        assert_eq!(
+            CommandId::NextScene.id(),
+            "next_scene",
+            "the OSC docs name this"
+        );
+        assert_eq!(
+            CommandId::ToggleBlackout.id(),
+            "toggle_blackout",
+            "and this"
+        );
     }
 
     #[test]
@@ -375,7 +388,11 @@ mod tests {
             .filter(|c| !c.mappable())
             .map(CommandId::id)
             .collect();
-        assert_eq!(unmappable, ["focus_browser_search", "close_topmost_pane"], "which");
+        assert_eq!(
+            unmappable,
+            ["focus_browser_search", "close_topmost_pane"],
+            "which"
+        );
     }
 
     #[test]
