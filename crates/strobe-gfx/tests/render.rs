@@ -255,6 +255,61 @@ fn passindex_compared_with_a_float_literal_compiles_in_both_dialects() -> Result
 }
 
 #[test]
+fn a_non_constant_global_initializer_compiles_in_both_dialects() -> Result<()> {
+    // D192: real scenes open with `vec4 iMouse = vec4(MouseXY*RENDERSIZE,
+    // ...)`. GLSL ES rejects a global initializer that is not constant; the
+    // assembler moves it into main, in order, so a later global can use an
+    // earlier one. MouseXY 0.5 gives (0.5, 0.5), halved to (0.25, 0.25).
+    let json = r#"{ "CONTROLS": [ {"NAME": "MouseXY", "TYPE": "xy", "DEFAULT": [0.5, 0.5]} ] }"#;
+    let shader = "vec4 iMouse = vec4(MouseXY * RENDERSIZE, 0.0, 0.0);\n\
+                  vec2 halved = iMouse.xy / RENDERSIZE * 0.5;\n\
+                  vec4 renderMain() { return vec4(halved, 0.0, 1.0); }\n";
+    for api in BOTH {
+        for specialise_passes in [true, false] {
+            let options = Options {
+                specialise_passes,
+                ..Options::default()
+            };
+            let Some(px) = render_center(api, options, json, shader, 1)? else {
+                continue;
+            };
+            assert!(
+                near(px[0], 64) && near(px[1], 64),
+                "{api:?} specialised={specialise_passes}: 0.5 * 0.5 in both channels; got {px:?}"
+            );
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn the_output_is_opaque_and_buffer_passes_keep_their_alpha() -> Result<()> {
+    // D192: Synesthesia's `hello_world_start` returns vec4(1, 0, 0, 0) and is
+    // meant to be red. The final pass is made opaque; a buffer pass keeps
+    // its alpha, which scenes use as data (here 0.25, read back as red).
+    let json = r#"{ "PASSES": [ {"TARGET": "data"} ] }"#;
+    let shader = "vec4 renderMain() {\n\
+                  if (PASSINDEX == 0) { return vec4(0.0, 0.0, 0.0, 0.25); }\n\
+                  return vec4(texture(data, _uv).a, 0.0, 0.0, 0.0); }\n";
+    for api in BOTH {
+        for specialise_passes in [true, false] {
+            let options = Options {
+                specialise_passes,
+                ..Options::default()
+            };
+            let Some(px) = render_center(api, options, json, shader, 1)? else {
+                continue;
+            };
+            assert!(
+                near(px[0], 64) && px[3] == 255,
+                "{api:?} specialised={specialise_passes}: buffer alpha 0.25 reaches the final pass, which is opaque; got {px:?}"
+            );
+        }
+    }
+    Ok(())
+}
+
+#[test]
 fn int_passindex_comparisons_still_compile_in_both_dialects() -> Result<()> {
     // The fix-up must not disturb the int idiom (R4) or other uses.
     let json = r#"{ "PASSES": [ {"TARGET": "firstBuffer"} ] }"#;

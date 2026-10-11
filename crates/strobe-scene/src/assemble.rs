@@ -55,7 +55,8 @@
 //! implicitly and GLSL ES rejects. [`Dialect::Es300`] (the ANGLE path)
 //! therefore declares what it can (`texture2D`) and rewrites what is
 //! unambiguous without types ([`crate::fixups`]: `PASSINDEX` compared with
-//! a float literal) to keep such code compiling, but desktop GL is the
+//! a float literal, and global initializers that are not constant
+//! expressions, D192) to keep such code compiling, but desktop GL is the
 //! primary target and the rest of the implicit-conversion family is still
 //! open (Q8).
 
@@ -175,10 +176,12 @@ pub fn fragment(request: &Request<'_>) -> String {
         extra,
     } = *request;
     // Desktop-only idioms, made explicit for ES. Line count is preserved.
-    let user_code = if dialect.is_es() {
-        fixups::passindex_float_compares(user_code)
+    let (user_code, hoisted) = if dialect.is_es() {
+        let compares = fixups::passindex_float_compares(user_code);
+        let (code, hoisted) = fixups::hoist_global_initializers(&compares);
+        (Cow::Owned(code.into_owned()), hoisted)
     } else {
-        Cow::Borrowed(user_code)
+        (Cow::Borrowed(user_code), Vec::new())
     };
     let mut out = String::with_capacity(user_code.len() + strobe_ssf_lib::LIBRARY.len() + 4096);
     let es = dialect.is_es();
@@ -262,10 +265,35 @@ pub fn fragment(request: &Request<'_>) -> String {
         "void main() {\n\
          \x20   _xy = gl_FragCoord.xy;\n\
          \x20   _uv = _xy / RENDERSIZE;\n\
-         \x20   _uvc = (_xy - 0.5 * RENDERSIZE) / RENDERSIZE.y;\n\
-         \x20   strobe_FragColor = renderMain();\n\
-         }\n",
+         \x20   _uvc = (_xy - 0.5 * RENDERSIZE) / RENDERSIZE.y;\n",
     );
+    // Global initializers ES will not take, run here in source order, each
+    // under its own line of main.glsl so an error still points there (D192).
+    for hoist in &hoisted {
+        let _ = writeln!(out, "#line {} {}", hoist.line, source::USER);
+        let _ = writeln!(out, "    {}", hoist.assignment);
+    }
+    if !hoisted.is_empty() {
+        let _ = writeln!(out, "#line 5 {}", source::EPILOGUE);
+    }
+    out.push_str("    strobe_FragColor = renderMain();\n");
+    // The output is opaque, as Synesthesia's and Shadertoy's are: a final
+    // pass that returns alpha 0 still shows its colour (D192). Buffer passes
+    // keep their alpha, which scenes use as a fourth data channel.
+    let last = scene.final_pass();
+    match pass_index {
+        PassIndex::Constant(index) if index == last => {
+            out.push_str("    strobe_FragColor.a = 1.0;\n");
+        }
+        PassIndex::Constant(_) => {}
+        PassIndex::Uniform => {
+            let _ = writeln!(
+                out,
+                "    if (PASSINDEX == {last}) {{ strobe_FragColor.a = 1.0; }}"
+            );
+        }
+    }
+    out.push_str("}\n");
     out
 }
 
