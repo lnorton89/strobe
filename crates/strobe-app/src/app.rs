@@ -116,9 +116,10 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use strobe_diag::context;
 use strobe_diag::failure::{self, Failure, Subsystem};
-use strobe_gfx::{Compositor, GlChoice, GpuTimer, SwapWindow, WindowedContext};
+use strobe_gfx::{Compositor, GlChoice, GpuTimer, MediaRequest, Post, SwapWindow, WindowedContext};
 use strobe_playlist::{Command, Playlist, ResumePoint};
 use strobe_scene::control::def::Values;
+use strobe_scene::meta::MetaValues;
 use strobe_shadertoy::listener::{Listener, ListenerConfig, Token};
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalPosition};
@@ -349,6 +350,9 @@ struct Stack {
     show: Option<Show>,
     /// The transition mixer, compiled once when the context opens (D154).
     compositor: Compositor,
+    /// The output post stage (the meta controls), compiled once when the
+    /// context opens and idle unless a value is off neutral (D180).
+    post: Post,
     /// Owns GL timer queries, so it sits before the context in drop order.
     perf: Performance,
     ui: UiHost,
@@ -396,6 +400,8 @@ impl Stack {
         // compiles it again.
         let compositor = Compositor::new(gfx.gl(), gfx.caps(), [16, 16])
             .map_err(|e| format!("Could not start the transition compositor.\n{e}"))?;
+        let post = Post::new(gfx.gl(), gfx.caps(), [16, 16])
+            .map_err(|e| format!("Could not start the output post stage.\n{e}"))?;
         let ui = UiHost::new(event_loop, gfx.gl(), palette)?;
         if let Some(fullscreen) = layout.fullscreen.clone() {
             output.window().set_fullscreen(Some(fullscreen));
@@ -430,6 +436,7 @@ impl Stack {
             preview: None,
             show: None,
             compositor,
+            post,
             perf,
             ui,
             control,
@@ -460,6 +467,7 @@ impl Stack {
             preview,
             show,
             compositor,
+            post,
             mut perf,
             mut ui,
             control,
@@ -480,6 +488,7 @@ impl Stack {
             drop(session);
             drop(preview);
             drop(compositor);
+            drop(post);
             drop(perf);
             ui.abandon();
         } else {
@@ -487,6 +496,7 @@ impl Stack {
             drop(session);
             drop(preview);
             drop(compositor);
+            drop(post);
             perf.release();
             drop(perf);
             ui.destroy();
@@ -601,6 +611,14 @@ struct Running {
     scan_error: Option<String>,
     /// The output is blacked out (the shown output stays dark).
     blackout: bool,
+    /// Whether this frame went through the post stage, so the present, the
+    /// preview and a screenshot read its target (D180).
+    posted: bool,
+    /// `--media`: a picture or folder shown behind `syn_Media` in scenes loaded
+    /// by hand.
+    media_override: Option<std::path::PathBuf>,
+    /// Set after the first post-stage failure so the log gets one line.
+    post_failed: bool,
     /// A scene the UI asked for, to be loaded *after* the frame that shows
     /// "preparing" has been painted, because loading blocks.
     pending_load: Option<usize>,
@@ -719,6 +737,9 @@ impl Running {
             library_rev: 1,
             scan_error: scan_error.clone(),
             blackout: cli.blackout,
+            posted: false,
+            media_override: cli.media.clone(),
+            post_failed: false,
             pending_load: None,
             load_failure: None,
             notice: None,
@@ -1406,7 +1427,10 @@ impl Running {
             start,
             &mut self.audio,
         ) {
-            Ok(session) => {
+            Ok(mut session) => {
+                if let Some(path) = &self.media_override {
+                    session.player.set_media(MediaRequest::for_path(path));
+                }
                 self.stack.session = Some(session);
                 self.playing = Some(index);
                 self.pending_resize = None;
@@ -2270,6 +2294,13 @@ impl Running {
             // frame or two later. The budget is the same either way.
             self.stack.perf.begin();
         }
+        // The live scene's meta reactivity and audio speed scale the
+        // analyser (D184). Only the live session's: a playlist advances
+        // two or three scenes a frame, and the analyser has one gain.
+        if let Some(session) = self.stack.session.as_ref() {
+            let meta = MetaValues::read(&session.meta);
+            self.audio.set_meta_gains(meta.reactivity, meta.audio_speed);
+        }
         if show_ready {
             if let Some(report) = self.run_show(|show, env| show.frame(env, dt)) {
                 self.apply_show_report(report);
@@ -2282,6 +2313,7 @@ impl Running {
             session.advance(dt, &mut self.audio, mouse, self.local_date.now());
         }
         let composited = self.stack.show.as_ref().is_some_and(Show::composited);
+        self.posted = self.apply_post(composited);
         if self.stack.session.is_some() || composited {
             if shown {
                 gl.plain_state();
@@ -2292,6 +2324,8 @@ impl Running {
                     gl.bind_framebuffer(None);
                     gl.viewport(window[0], window[1]);
                     gl.clear([0.0, 0.0, 0.0, 1.0]);
+                } else if self.posted {
+                    self.stack.post.present(window);
                 } else if composited {
                     self.stack.compositor.present(window);
                 } else if let Some(session) = self.stack.session.as_ref() {
@@ -2323,6 +2357,10 @@ impl Running {
             let saved = if shown {
                 let pixels = gl.read_default_rgba8(window[0], window[1]);
                 shot.save(Target::Output, [size.width, size.height], pixels)
+            } else if self.posted {
+                let [w, h] = self.stack.post.size();
+                let pixels = self.stack.post.read_output();
+                shot.save_top_down(Target::Output, [w as u32, h as u32], pixels)
             } else if composited {
                 let [w, h] = self.stack.compositor.size();
                 let pixels = self.stack.compositor.read_output();
@@ -2346,6 +2384,35 @@ impl Running {
         }
         if shown {
             self.present(Surface::Output, started);
+        }
+    }
+
+    /// Runs the output post stage on the frame this tick produced (the
+    /// compositor's mix while `composited`, else the live scene's output),
+    /// reading the live session's meta controls. Returns whether it drew:
+    /// at neutral it does nothing and the frame is used as it stands (D180).
+    fn apply_post(&mut self, composited: bool) -> bool {
+        let Some(session) = self.stack.session.as_ref() else {
+            return false;
+        };
+        let values = MetaValues::read(&session.meta);
+        if values.post_is_neutral() {
+            return false;
+        }
+        let source = if composited {
+            self.stack.compositor.output_texture()
+        } else {
+            session.player.output_texture()
+        };
+        match self.stack.post.apply(source, &values) {
+            Ok(drew) => drew,
+            Err(error) => {
+                if !self.post_failed {
+                    self.post_failed = true;
+                    log::warn!("output post stage failed, showing the frame as drawn: {error}");
+                }
+                false
+            }
         }
     }
 
@@ -2387,7 +2454,16 @@ impl Running {
 
         self.advance_preview(now);
         let composited = self.stack.show.as_ref().is_some_and(Show::composited);
-        let preview = if composited {
+        let preview = if self.posted {
+            // The meta controls change the picture, so the preview shows
+            // what the output shows.
+            let texture = self.stack.post.output_texture();
+            Some(Preview {
+                texture: self.stack.ui.preview_texture(texture.raw()),
+                aspect: texture.width() as f32 / texture.height().max(1) as f32,
+                size: [texture.width(), texture.height()],
+            })
+        } else if composited {
             // The mixed frame of a running transition.
             let texture = self.stack.compositor.output_texture();
             Some(Preview {
@@ -2420,13 +2496,13 @@ impl Running {
             _ => None,
         };
         let next = self.step_target(1);
-        let (scene_title, controls, script, scene_time) = match self.stack.session.as_mut() {
+        let (scene_title, controls, meta, script, scene_time) = match self.stack.session.as_mut() {
             Some(session) => {
                 let time = session.time();
-                let (title, controls, script) = session.panel_parts();
-                (title, Some(controls), script, time)
+                let (title, controls, meta, script) = session.panel_parts();
+                (title, Some(controls), Some(meta), script, time)
             }
-            None => ("", None, None, 0.0),
+            None => ("", None, None, None, 0.0),
         };
         let entries = &self.library.entries;
         let name_of =
@@ -2457,6 +2533,7 @@ impl Running {
             playing: self.playing,
             scene_title,
             controls,
+            meta,
             preview,
             scene_preview: scene_preview_image.and_then(|(index, image)| {
                 name_of(Some(index)).map(|name| ScenePreview { index, name, image })

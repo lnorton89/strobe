@@ -59,6 +59,9 @@ is a non-blocking timer-query read (D64).
 | `offscreen::run`, `Request`, `ContextMode` | A context for work that draws nothing: an EGL device if the machine has one, else one hidden window (hidden, then tiny off-screen). Calls a job with `&Gl`, `&Caps` and a description and returns its value. Main thread, once per process. Used by `strobe-bench` and `strobe-autocontrol` (D140). |
 | `Caps` | Dialect, 1D-texture support and float-render support, decided once per context. `FloatPrecision` (`Half` default, `Full`). |
 | `ScenePlayer` | `new` / `with_extras` compile a `SceneFolder`; `render(&FrameInputs)`, `upload_audio`, `set_script_uniforms`, `resize`, `present`, `read_output`, `enable_final_pass_readback` / `final_pass_pixels`. |
+| `Post`, `PostError` (`post`) | The output post stage (D180): master, invert, brightness, gamma, contrast, hue, saturation and the two mirrors in **one program compiled once**, applied to the finished frame (after the compositor). `apply(&mut self, src, &MetaValues)` does **nothing** and returns `false` when every value is neutral; otherwise one full-screen pass into its own target (`output_texture`, `present`, `read_output`). `render` always runs the program (tests). `color_matrix(hue, saturation)` is the CPU-built 3x3, exactly the identity at neutral. |
+| `assets` (`AssetProblem`, `MediaRequest`) | CPU-side decoding with no GL: cube map faces from six files or a strip/cross picture (`load_cubemap`, D185), and the `syn_Media` decoder thread (`spawn_decoder`, D186). `ScenePlayer::take_asset_problems()` hands back what failed to load so the host can report it; the scene runs on with a black cube or black media. |
+| `ScenePlayer::set_media`, `finish_media_loading` | Show a user-chosen picture or folder behind `syn_Media` (decoded off the frame thread, one upload per frame at most, swapped in when its first picture lands); `finish_media_loading` blocks until done, for tests and the bench only. |
 | `readback::FinalPassReader` | The asynchronous 64x36 final-pass readback behind `textureFinalPass` (D162): a chain of 2:1 blits, a ring of three pixel-pack buffers with fences, the oldest collected only when already signalled. Two frames late, never a stall, nothing queried with `glGet*`. Off unless asked for. |
 | `gl::Buffer`, `gl::Fence` | Owning wrappers for pixel-pack buffers and sync objects; `Drop` skips the delete on a lost context. `Gl::shader_compiles()` counts compiles, so a test can prove none happen mid-show (D161). |
 | `Options` | `specialise_passes` (default true) and `float_precision`. |
@@ -122,6 +125,16 @@ STROBE_REQUIRE_HEADLESS_GL=1 cargo test -p strobe-gfx --test render
   dialects, buffer and double-buffered passes, `syn_FinalPass`, compile
   errors mapping to `main.glsl` lines, audio texture upload, the GPU timer
   never waiting, and reset status on a healthy context.
+- `tests/post.rs` (eight tests, both dialects): a neutral pass through the
+  post program equals its input bit for bit and `apply` draws nothing at
+  neutral; invert, master, hue, saturation, brightness, contrast, gamma and
+  both mirrors do what they say on known colours.
+- `tests/assets.rs` (nine tests, both dialects): a cube-map fixture where each
+  of +X..-Z returns its face colour (six files and a 4:3 cross), a missing and
+  a mismatched cube map reporting a problem and reading black, `syn_Media`
+  reading a still upright with `syn_MediaType` 1, an image sequence playing
+  and looping, a user-chosen file replacing the scene's, and the failure
+  cases.
 - Without an EGL device they print a skip and pass. Set
   `STROBE_REQUIRE_HEADLESS_GL=1` to make that a failure (CI's Linux job does).
 - Intel's Windows driver exposes no EGL devices, so on Windows these tests
@@ -164,8 +177,11 @@ STROBE_REQUIRE_HEADLESS_GL=1 cargo test -p strobe-gfx --test render
   `09-sdf-cathedral` at full render scale. Adaptive resolution avoids it and
   context recovery (D66) is built, but real WGL recovery is unverified; the
   cause was never confirmed.
-- Cubemaps are declared with a unit reserved but never loaded. `syn_Media` is
-  a black 1x1 texture. `textureFinalPass` data (Q14) comes from the
+- Cube maps load (D185) and `syn_Media` shows a still or an image sequence
+  (D186), verified on llvmpipe in both dialects only. Video and webcam are
+  not built (later). The post stage's GPU cost on an HD 4000 or the T480 is
+  unmeasured. `MEDIA`, `CUBEMAPS` and `syn_MediaType` follow Strobe's reading
+  of SSF, not its documentation (Q22). `textureFinalPass` data (Q14) comes from the
   asynchronous readback (D162), verified on llvmpipe in both dialects but not
   yet on the T480 or ANGLE/D3D11.
 - macOS is not built: glutin compiles its EGL backend out on Apple targets

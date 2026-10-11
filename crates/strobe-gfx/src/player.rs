@@ -34,8 +34,10 @@
 //! linked; a frame sets values through those cached locations and binds
 //! only samplers the program actually uses. Nothing allocates per frame.
 
+use crate::assets::{self, AssetProblem, MediaRequest};
 use crate::caps::{Caps, FloatPrecision};
 use crate::gl::{Format, Framebuffer, Gl, Program, Sampling, Stage, Texture, VertexArray};
+use crate::media::Media;
 use crate::readback::FinalPassReader;
 use std::path::Path;
 use std::rc::Rc;
@@ -152,9 +154,10 @@ enum Source {
     ShadertoyAudio,
     Pass(usize),
     Image(usize),
-    /// Cube maps are not loaded yet; the unit is reserved so a samplerCube
-    /// never shares a unit with a sampler2D, which GL rejects at draw time.
-    Cubemap,
+    /// A declared cube map, by its position in `SceneDef::cubemaps`. Its
+    /// unit is reserved like every other, so a samplerCube never shares a
+    /// unit with a sampler2D, which GL rejects at draw time.
+    Cubemap(usize),
 }
 
 type Loc = Option<glow::UniformLocation>;
@@ -208,6 +211,17 @@ pub struct ScenePlayer {
     level_trail: Texture,
     shadertoy_audio: Texture,
     images: Vec<Texture>,
+    /// One slot per declared cube map; `None` where it failed to load, and
+    /// the sampler then reads `black_cube`.
+    cubemaps: Vec<Option<Texture>>,
+    black_cube: Texture,
+    /// The picture behind `syn_Media` (D186).
+    media: Media,
+    /// A replacement still decoding; it takes over when its first picture
+    /// lands, so changing media never flashes black.
+    incoming: Option<Media>,
+    /// Assets that did not load, waiting to be reported ([`Self::take_asset_problems`]).
+    problems: Vec<AssetProblem>,
     audio: AudioUpload,
     /// What `strobe_Date` holds, when the host has set it; otherwise the
     /// player reads the wall clock (UTC) each frame.
@@ -360,6 +374,50 @@ impl ScenePlayer {
             .map(|image| load_image(gl, &scene.dir.join(&image.path), image))
             .collect::<Result<Vec<_>, _>>()?;
 
+        // A cube map that will not load leaves its sampler black and the
+        // scene running; the problem is handed to the host to report.
+        let mut problems = Vec::new();
+        let black_face = [0_u8, 0, 0, 255];
+        let black_cube = gl.texture_cube(1, [&black_face; 6], false).map_err(res)?;
+        if !def.cubemaps.is_empty() && !caps.dialect.is_es() {
+            gl.enable_seamless_cube_maps();
+        }
+        let cubemaps = def
+            .cubemaps
+            .iter()
+            .map(|cube| {
+                let loaded = assets::load_cubemap(&scene.dir, cube).and_then(|cut| {
+                    let [a, b, c, d, e, f] = &cut.faces;
+                    gl.texture_cube(cut.size as i32, [a, b, c, d, e, f].map(Vec::as_slice), true)
+                });
+                match loaded {
+                    Ok(texture) => Some(texture),
+                    Err(message) => {
+                        problems.push(AssetProblem {
+                            asset: cube.name.clone(),
+                            path: cube.paths.join(", "),
+                            message,
+                        });
+                        None
+                    }
+                }
+            })
+            .collect::<Vec<_>>();
+        let media = match &def.media {
+            Some(media_def) => {
+                let request = MediaRequest::from_scene(&scene.dir, media_def);
+                Media::start(request).unwrap_or_else(|message| {
+                    problems.push(AssetProblem {
+                        asset: "syn_Media".to_string(),
+                        path: media_def.path.clone(),
+                        message,
+                    });
+                    Media::none()
+                })
+            }
+            None => Media::none(),
+        };
+
         let finals = [
             new_target(gl, render_size, Format::Rgba8, Sampling::LINEAR_CLAMP).map_err(res)?,
             new_target(gl, render_size, Format::Rgba8, Sampling::LINEAR_CLAMP).map_err(res)?,
@@ -381,6 +439,11 @@ impl ScenePlayer {
             level_trail,
             shadertoy_audio,
             images,
+            cubemaps,
+            black_cube,
+            media,
+            incoming: None,
+            problems,
             audio,
             date: None,
             extras: extras.to_vec(),
@@ -394,6 +457,97 @@ impl ScenePlayer {
     /// The scene being played.
     pub fn def(&self) -> &SceneDef {
         &self.def
+    }
+
+    /// Hands over the assets that did not load since this was last called
+    /// (a cube map, or the `syn_Media` picture), so the host can report
+    /// them through its failure path. The scene keeps running without them:
+    /// a failed cube map reads black. Allocates nothing when there are none.
+    pub fn take_asset_problems(&mut self) -> Vec<AssetProblem> {
+        std::mem::take(&mut self.problems)
+    }
+
+    /// Shows `request` (a picture, or a folder of pictures) behind
+    /// `syn_Media` in place of the scene's own. It decodes on a thread of
+    /// its own; the old picture stays up until the first new one has landed.
+    /// A request that cannot start is recorded as an asset problem.
+    pub fn set_media(&mut self, request: MediaRequest) {
+        let path = request.path.display().to_string();
+        match Media::start(request) {
+            Ok(media) => self.incoming = Some(media),
+            Err(message) => self.problems.push(AssetProblem {
+                asset: "syn_Media".to_string(),
+                path,
+                message,
+            }),
+        }
+    }
+
+    /// Waits for every picture still decoding to arrive and uploads it. For
+    /// tests and the benchmark, whose frames must not depend on disk speed;
+    /// a live host never calls it.
+    pub fn finish_media_loading(&mut self) {
+        let gl = self.gl.clone();
+        if let Some(incoming) = self.incoming.as_mut() {
+            incoming.finish(&gl);
+        }
+        self.promote_incoming();
+        self.media.finish(&gl);
+        self.collect_media_failure();
+    }
+
+    /// Whether `syn_Media` has a picture to show.
+    pub fn media_ready(&self) -> bool {
+        self.media.has_picture()
+    }
+
+    /// Whether any media is still decoding.
+    pub fn media_loading(&self) -> bool {
+        self.media.loading() || self.incoming.is_some()
+    }
+
+    /// Takes at most one arrived picture for each media being loaded.
+    fn poll_media(&mut self) {
+        let gl = self.gl.clone();
+        if self.incoming.is_some() {
+            if let Some(incoming) = self.incoming.as_mut() {
+                incoming.poll(&gl);
+            }
+            self.promote_incoming();
+        }
+        self.media.poll(&gl);
+        self.collect_media_failure();
+    }
+
+    /// Swaps in the replacement media once it has something to show, or
+    /// drops it (with its failure) if it ended with nothing.
+    fn promote_incoming(&mut self) {
+        let ready = self
+            .incoming
+            .as_ref()
+            .is_some_and(|incoming| incoming.has_picture() || !incoming.loading());
+        if ready && let Some(mut incoming) = self.incoming.take() {
+            if let Some(message) = incoming.take_failure() {
+                self.problems.push(AssetProblem {
+                    asset: "syn_Media".to_string(),
+                    path: incoming.label(),
+                    message,
+                });
+            }
+            if incoming.has_picture() {
+                self.media = incoming;
+            }
+        }
+    }
+
+    fn collect_media_failure(&mut self) {
+        if let Some(message) = self.media.take_failure() {
+            self.problems.push(AssetProblem {
+                asset: "syn_Media".to_string(),
+                path: self.media.label(),
+                message,
+            });
+        }
     }
 
     /// The script-created uniforms this player was built with.
@@ -662,6 +816,7 @@ impl ScenePlayer {
 
     /// Renders every pass for one frame.
     pub fn render(&mut self, inputs: &FrameInputs<'_>) {
+        self.poll_media();
         let gl = self.gl.clone();
         gl.plain_state();
         gl.bind_vertex_array(&self.vao);
@@ -692,7 +847,7 @@ impl ScenePlayer {
             gl.use_program(&program.program);
             self.set_uniforms(&gl, program, index, size, inputs);
             for (source, unit) in &program.samplers {
-                let texture = self.sampler_texture(*source);
+                let texture = self.sampler_texture(*source, inputs.time);
                 gl.bind_unit(*unit, texture);
             }
             gl.draw_fullscreen_triangle();
@@ -753,7 +908,7 @@ impl ScenePlayer {
             gl.uniform_vec2(loc, inputs.mouse.muvc);
         }
         if let Some(loc) = &program.media_type {
-            gl.uniform_f32(loc, 0.0);
+            gl.uniform_f32(loc, self.media.media_type());
         }
         for (loc, value) in program.audio.iter().zip(inputs.audio) {
             if let Some(loc) = loc {
@@ -789,10 +944,15 @@ impl ScenePlayer {
         }
     }
 
-    fn sampler_texture(&self, source: Source) -> &Texture {
+    fn sampler_texture(&self, source: Source, time: f32) -> &Texture {
         match source {
             Source::FinalPass => &self.finals[self.final_current].texture,
-            Source::Media | Source::Cubemap => &self.black,
+            Source::Media => self.media.current(time).unwrap_or(&self.black),
+            Source::Cubemap(i) => self
+                .cubemaps
+                .get(i)
+                .and_then(Option::as_ref)
+                .unwrap_or(&self.black_cube),
             Source::Spectrum => &self.spectrum,
             Source::LevelTrail => &self.level_trail,
             Source::ShadertoyAudio => &self.shadertoy_audio,
@@ -891,8 +1051,8 @@ fn build_program(
     for (i, image) in def.images.iter().enumerate() {
         assign(&image.name, Source::Image(i));
     }
-    for cube in &def.cubemaps {
-        assign(&cube.name, Source::Cubemap);
+    for (i, cube) in def.cubemaps.iter().enumerate() {
+        assign(&cube.name, Source::Cubemap(i));
     }
 
     Ok(Compiled {
@@ -931,7 +1091,7 @@ fn describe_log(log: &str, file: &str) -> String {
 }
 
 /// Sampling state for a pass's wrap and filter settings.
-fn sampling_for(wrap: Wrap, filter: Filter) -> Sampling {
+pub(crate) fn sampling_for(wrap: Wrap, filter: Filter) -> Sampling {
     let wrap = match wrap {
         Wrap::Repeat => glow::REPEAT,
         Wrap::Clamp => glow::CLAMP_TO_EDGE,
