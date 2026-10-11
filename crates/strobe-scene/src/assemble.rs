@@ -98,7 +98,7 @@ impl Dialect {
     /// omitted) elsewhere.
     pub fn precision(self) -> &'static str {
         if self.is_es() {
-            "precision highp float;\nprecision highp int;\nprecision highp sampler2D;\n"
+            "precision highp float;\nprecision highp int;\nprecision highp sampler2D;\nprecision highp samplerCube;\n"
         } else {
             ""
         }
