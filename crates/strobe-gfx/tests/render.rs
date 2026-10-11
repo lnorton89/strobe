@@ -602,6 +602,39 @@ fn a_full_precision_pass_keeps_counting_where_half_floats_stall() -> Result<()> 
 }
 
 #[test]
+fn a_fixed_size_pass_keeps_its_grid_when_the_output_resizes() -> Result<()> {
+    // The pass writes its own RENDERSIZE; the final pass shows it. Design
+    // 64x36 with a 16x8 pass: followed in proportion (D11) it is 12x6 at the
+    // 48x27 the player is resized to, and FIXED_SIZE keeps it 16x8 (D191).
+    let shader = "vec4 renderMain() {\n\
+        if (PASSINDEX == 0) { return vec4(RENDERSIZE / 255.0, 0.0, 1.0); }\n\
+        return vec4(texture(grid, vec2(0.5)).rg, 0.0, 1.0); }";
+    for api in BOTH {
+        for (fixed, expected) in [(true, [16_u8, 8]), (false, [12, 6])] {
+            let json = format!(
+                r#"{{ "WIDTH": 64, "HEIGHT": 36, "PASSES": [ {{"TARGET": "grid",
+                     "WIDTH": 16, "HEIGHT": 8, "FILTER": "nearest", "FIXED_SIZE": {fixed}}} ] }}"#
+            );
+            let scene = folder(&json, shader)?;
+            let Some(px) = render_folder(api, Options::default(), &scene, 3, |player| {
+                if let Err(error) = player.resize_keeping([48, 27]) {
+                    eprintln!("resize failed: {error}");
+                }
+            })?
+            else {
+                return Ok(());
+            };
+            assert_eq!(
+                [px[0], px[1]],
+                expected,
+                "{api:?} FIXED_SIZE={fixed}: the pass's RENDERSIZE"
+            );
+        }
+    }
+    Ok(())
+}
+
+#[test]
 fn image_wrap_filter_and_vflip_options_are_honoured() -> Result<()> {
     let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("image-options");
     std::fs::create_dir_all(&dir)?;

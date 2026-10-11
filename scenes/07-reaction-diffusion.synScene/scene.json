@@ -5,10 +5,10 @@
   "WIDTH": 1920,
   "HEIGHT": 1080,
   "PASSES": [
-    { "TARGET": "simA", "WIDTH": 960, "HEIGHT": 540, "FLOAT": true },
-    { "TARGET": "simB", "WIDTH": 960, "HEIGHT": 540, "FLOAT": true },
-    { "TARGET": "simC", "WIDTH": 960, "HEIGHT": 540, "FLOAT": true },
-    { "TARGET": "simD", "WIDTH": 960, "HEIGHT": 540, "FLOAT": true }
+    { "TARGET": "simA", "WIDTH": 960, "HEIGHT": 540, "FLOAT": true, "FIXED_SIZE": true },
+    { "TARGET": "simB", "WIDTH": 960, "HEIGHT": 540, "FLOAT": true, "FIXED_SIZE": true },
+    { "TARGET": "simC", "WIDTH": 960, "HEIGHT": 540, "FLOAT": true, "FIXED_SIZE": true },
+    { "TARGET": "simD", "WIDTH": 960, "HEIGHT": 540, "FLOAT": true, "FIXED_SIZE": true }
   ],
   "CONTROLS": [
     { "NAME": "feed", "TYPE": "slider smooth", "MIN": 0.02, "MAX": 0.08, "DEFAULT": 0.0545, "UI_GROUP": "chemistry" },
