@@ -170,8 +170,11 @@ the topology before any broad redesign.
   `resizing_restarts_the_readback_from_black`,
   `a_lost_context_makes_the_readback_inert_and_its_drops_harmless`; and
   `script_uniforms.rs` `texture_final_pass_reads_the_picture_a_few_frames_late`.
-  **Not yet:** the T480 (Intel, native and ANGLE/D3D11), where the cost and
-  the fence behaviour are unmeasured.
+  **Not yet:** the latency assertion on the T480. `script_uniforms.rs`
+  skips there because Windows has no headless EGL device (Task 14). The
+  scripted scene runs clean on Intel native, but the fence behaviour and
+  cost on Intel and ANGLE/D3D11 are unmeasured. Running these tests on the
+  window context (D140) would close this.
 - [x] A script-created uniform that appears after initial preparation is
   refused, and no shader compiles after load (D161). Evidence:
   `script_uniforms.rs`
@@ -274,9 +277,13 @@ survives export.
     reloading` and compiles only the new scene; saving a broken one keeps
     the playing playlist and shows `line 3, column 13: "3mn" is not a
     duration ...`.
-  **Not verified:** the T480 or real Windows (load time, the cost of two
-  scenes at once on an HD 4000, VRAM), a 4-hour show with real scenes, and
-  audio-event advance (not built).
+  - on the T480 (Task 14, release, native GL): the same demo closed with 0
+    runtime compiles, loaded in about 0.27 s, and ran its transitions at
+    60 fps, with GPU rising from 0.4-0.8 ms to about 1.2-1.3 ms during each
+    ([hardware/T480.md](hardware/T480.md)).
+  **Not verified:** an HD 4000 (the cost of two scenes at once, VRAM), ANGLE
+  on the T480, a 4-hour show with real scenes, and audio-event advance (not
+  built).
 - [ ] Wire presets, MIDI, OSC and hotkeys into the shared `ControlBank`.
   Don't duplicate its toggle, bang or smoothing semantics.
 - [ ] Run a tag-triggered release, then inspect:
