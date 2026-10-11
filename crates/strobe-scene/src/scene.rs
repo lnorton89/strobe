@@ -256,7 +256,7 @@ impl SceneDef {
             }
         }
 
-        let media = raw.media.as_ref().map(media_def).transpose()?;
+        let media = raw.media.as_ref().map(media_def).transpose()?.flatten();
         let pass_sources = match &raw.pass_sources {
             None => None,
             Some(files) => {
@@ -399,14 +399,22 @@ fn image_def(raw: &RawImage) -> Result<ImageDef, SceneError> {
 
 /// Validates the `MEDIA` key. A path that leaves the scene folder is an
 /// error here, because unlike a missing file it can never become right.
-fn media_def(raw: &RawMedia) -> Result<MediaDef, SceneError> {
+/// `None` when the key names no file: Synesthesia's own form is a list of
+/// input slots with sampler settings only (`[{ "FILTER": ..., "WRAP": ... }]`),
+/// filled at run time from the user's media, so the scene loads with no
+/// picture until one is given (`--media`, D193).
+fn media_def(raw: &RawMedia) -> Result<Option<MediaDef>, SceneError> {
     let options = match raw {
         RawMedia::Path(path) => RawMediaOptions {
             path: path.clone(),
             ..RawMediaOptions::default()
         },
         RawMedia::Full(options) => options.clone(),
+        RawMedia::Slots(slots) => slots.first().cloned().unwrap_or_default(),
     };
+    if options.path.trim().is_empty() {
+        return Ok(None);
+    }
     let bad =
         |key: &str, value: String| SceneError::invalid(format!("MEDIA: unknown {key} `{value}`"));
     if !is_folder_relative(&options.path) {
@@ -421,7 +429,7 @@ fn media_def(raw: &RawMedia) -> Result<MediaDef, SceneError> {
             "MEDIA FPS must be above zero, got {fps}"
         )));
     }
-    Ok(MediaDef {
+    Ok(Some(MediaDef {
         path: options.path.clone(),
         fps,
         looping: options.looping.unwrap_or(true),
@@ -429,7 +437,7 @@ fn media_def(raw: &RawMedia) -> Result<MediaDef, SceneError> {
         filter: parse_filter(options.filter.as_deref(), Filter::Linear)
             .map_err(|v| bad("FILTER", v))?,
         vflip: options.vflip.unwrap_or(true),
-    })
+    }))
 }
 
 /// Validates one listed pass.
@@ -454,13 +462,29 @@ fn pass_def(index: usize, raw: &RawPass, design: [f32; 2]) -> Result<PassDef, Sc
         wrap,
         filter,
         full_precision: raw.full_precision.unwrap_or(false),
-        fixed: raw.fixed_size.unwrap_or(false).then(|| {
-            [
-                fixed_pixels(scale[0] * design[0]),
-                fixed_pixels(scale[1] * design[1]),
-            ]
-        }),
+        // Literal pixel sizes are absolute, as in Synesthesia (D194); `$WIDTH`
+        // and `$HEIGHT` expressions follow the output and the render scale
+        // (D11). FIXED_SIZE overrides either way (D191).
+        fixed: raw
+            .fixed_size
+            .unwrap_or_else(|| is_literal(raw.width.as_ref()) && is_literal(raw.height.as_ref()))
+            .then(|| {
+                [
+                    fixed_pixels(scale[0] * design[0]),
+                    fixed_pixels(scale[1] * design[1]),
+                ]
+            }),
     })
+}
+
+/// Whether a pass dimension is a literal number of pixels (not absent, not
+/// 0, which means the output size, and not a `$WIDTH` expression).
+fn is_literal(raw: Option<&RawSize>) -> bool {
+    match raw {
+        Some(RawSize::Pixels(px)) => *px > 0.0,
+        Some(RawSize::Expr(expr)) => expr.trim().parse::<f32>().is_ok_and(|px| px > 0.0),
+        None => false,
+    }
 }
 
 /// A `FIXED_SIZE` dimension in whole pixels. [`size_fraction`] has already
@@ -512,6 +536,10 @@ fn size_fraction(
             }
         }
     };
+    // 0 means "the output size": real scenes write it (D193).
+    if pixels == 0.0 {
+        return Ok(1.0);
+    }
     if !pixels.is_finite() || pixels < 1.0 {
         return Err(bad(pixels.to_string()));
     }
@@ -566,6 +594,54 @@ mod tests {
             "s",
         )?;
         assert_eq!(def.passes[0].scale, [0.5, 0.25], "960/1920 and 1080/4/1080");
+        Ok(())
+    }
+
+    #[test]
+    fn literal_pass_sizes_are_absolute_and_expressions_follow_the_output() -> Result<()> {
+        // D194 (Q24): real scenes declare data passes in pixels, e.g. 10x10;
+        // `$WIDTH` expressions stay relative so render scale still works.
+        let def = SceneDef::parse(
+            r#"{ "WIDTH": 1920, "HEIGHT": 1080,
+                 "PASSES": [ {"TARGET": "data", "WIDTH": 10, "HEIGHT": 10},
+                             {"TARGET": "half", "WIDTH": "$WIDTH/2", "HEIGHT": "$HEIGHT/2"},
+                             {"TARGET": "free", "WIDTH": 960, "HEIGHT": 540, "FIXED_SIZE": false},
+                             {"TARGET": "mixed", "WIDTH": 960, "HEIGHT": "$HEIGHT/2"},
+                             {"TARGET": "full"} ] }"#,
+            "s",
+        )?;
+        let fixed: Vec<Option<[i32; 2]>> = def.passes.iter().map(|p| p.fixed).collect();
+        assert_eq!(
+            fixed,
+            vec![Some([10, 10]), None, None, None, None, None],
+            "literal fixed; expressions, FIXED_SIZE false, mixed, absent and the final pass follow the output"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn real_synesthesia_shapes_load() -> Result<()> {
+        // D193, from 65 real scenes on TORNADO: a control with no TYPE, a
+        // pass sized 0x0, and MEDIA as a list of input slots with no file.
+        let def = SceneDef::parse(
+            r#"{ "WIDTH": 1920, "HEIGHT": 1080,
+                 "CONTROLS": [ {"NAME": "amount", "MIN": 0, "MAX": 2, "DEFAULT": 1},
+                               {"NAME": "spot", "DEFAULT": [0.5, 0.5]} ],
+                 "PASSES": [ {"TARGET": "full", "WIDTH": 0, "HEIGHT": 0} ],
+                 "MEDIA": [ {"FILTER": "linear", "WRAP": "clamp"} ] }"#,
+            "s",
+        )?;
+        let kinds: Vec<&str> = def.controls.iter().map(|c| c.kind.glsl_type()).collect();
+        assert_eq!(
+            kinds,
+            vec!["float", "vec2"],
+            "a slider, and an xy pad from two defaults"
+        );
+        assert_eq!(def.passes[0].scale, [1.0, 1.0], "0 means the output size");
+        assert!(
+            def.media.is_none(),
+            "slots with no file load with no picture"
+        );
         Ok(())
     }
 

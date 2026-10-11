@@ -65,6 +65,11 @@ impl SceneFolder {
         let read = |name: &str| -> Result<Option<String>, SceneError> {
             let path = dir.join(name);
             match fs::read_to_string(&path) {
+                // Windows line endings, as 50 of 64 real Synesthesia shaders
+                // have, break `\` continuations on ANGLE and double its
+                // error line numbers (TORNADO T2, D193). One newline form
+                // everywhere costs nothing on the desktop path.
+                Ok(text) if text.contains('\r') => Ok(Some(text.replace("\r\n", "\n"))),
                 Ok(text) => Ok(Some(text)),
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
                 Err(source) => Err(SceneError::Io { path, source }),
@@ -157,6 +162,24 @@ mod tests {
         let plain = folder(r#"{ "PASSES": [ {"TARGET": "a"} ] }"#, &[])?;
         assert_eq!(plain.shader_for(1), "main", "no PASS_SOURCES: main.glsl");
         assert_eq!(plain.file_for(0), "main.glsl", "for every pass");
+        Ok(())
+    }
+
+    #[test]
+    fn windows_line_endings_are_normalised_at_load() -> anyhow::Result<()> {
+        // D193: 50 of 64 real Synesthesia shaders are CRLF, which breaks `\`
+        // continuations on ANGLE and doubles its error line numbers.
+        let dir = std::env::temp_dir().join(format!("strobe-crlf-{}", std::process::id()));
+        std::fs::create_dir_all(&dir)?;
+        std::fs::write(
+            dir.join("main.glsl"),
+            "#define TWO(x) \\\r\n  (x * 2.0)\r\nvec4 renderMain() { return vec4(TWO(0.25)); }\r\n",
+        )?;
+        let loaded = SceneFolder::load(&dir);
+        std::fs::remove_dir_all(&dir)?;
+        let scene = loaded?;
+        assert!(!scene.shader.contains('\r'), "no carriage returns left");
+        assert_eq!(scene.shader.lines().count(), 3, "same lines");
         Ok(())
     }
 

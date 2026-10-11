@@ -242,8 +242,8 @@ const VALUE_TYPES: [&str; 19] = [
 /// keep their order, so one global may still use an earlier one.
 ///
 /// Only a plain declaration of one of [`VALUE_TYPES`] (optionally with a
-/// precision qualifier) is touched; `const`, `uniform`, arrays, structs and
-/// declarations of several names are left as they are. The `= expression`
+/// precision qualifier) is touched, including a declaration of several
+/// names; `const`, `uniform`, arrays and structs are left as they are. The `= expression`
 /// is blanked to spaces with its newlines kept, so no line moves.
 pub fn hoist_global_initializers(source: &str) -> (Cow<'_, str>, Vec<Hoisted>) {
     let bytes = source.as_bytes();
@@ -275,9 +275,7 @@ pub fn hoist_global_initializers(source: &str) -> (Cow<'_, str>, Vec<Hoisted>) {
                 }
             }
             b';' if depth == 0 => {
-                if let Some(hoist) = global_initializer(source, statement, i) {
-                    found.push(hoist);
-                }
+                found.extend(global_initializers(source, statement, i));
                 statement = i + 1;
             }
             _ => {}
@@ -354,71 +352,104 @@ fn next_token(bytes: &[u8], mut from: usize, end: usize) -> Option<(usize, usize
 }
 
 /// Reads the statement `source[start..end]` (its `;` at `end`) as
-/// `[precision] TYPE name = expression`, and returns where the `=` is, the
-/// end, and the assignment to hoist.
-fn global_initializer(source: &str, start: usize, end: usize) -> Option<(usize, usize, Hoisted)> {
+/// `[precision] TYPE name [= expression] [, name [= expression]]...` and
+/// returns, for each initializer, where its `=` starts, where its
+/// expression ends, and the assignment to hoist. Names and commas stay, so
+/// `float a = x, b = y;` becomes `float a , b ;` (TORNADO T2: one real
+/// scene declares five audio globals in one statement).
+fn global_initializers(source: &str, start: usize, end: usize) -> Vec<(usize, usize, Hoisted)> {
     const PRECISIONS: [&str; 3] = ["lowp", "mediump", "highp"];
     let bytes = source.as_bytes();
     let word = |(from, to): (usize, usize)| source.get(from..to).unwrap_or_default();
+    let mut out = Vec::new();
 
-    let mut token = next_token(bytes, start, end)?;
+    let Some(mut token) = next_token(bytes, start, end) else {
+        return out;
+    };
     if PRECISIONS.contains(&word(token)) {
-        token = next_token(bytes, token.1, end)?;
+        let Some(next) = next_token(bytes, token.1, end) else {
+            return out;
+        };
+        token = next;
     }
     if !VALUE_TYPES.contains(&word(token)) {
-        return None;
+        return out;
     }
-    let name = next_token(bytes, token.1, end)?;
-    if !word(name)
-        .bytes()
-        .next()
-        .is_some_and(|b| b.is_ascii_alphabetic() || b == b'_')
-    {
-        return None;
+    let mut cursor = token.1;
+    loop {
+        let Some(name) = next_token(bytes, cursor, end) else {
+            return out;
+        };
+        if !word(name)
+            .bytes()
+            .next()
+            .is_some_and(|b| b.is_ascii_alphabetic() || b == b'_')
+        {
+            return Vec::new();
+        }
+        let Some(after) = next_token(bytes, name.1, end) else {
+            return out;
+        };
+        match word(after) {
+            "," => cursor = after.1,
+            "=" if bytes.get(after.1) != Some(&b'=') => {
+                let stop = top_level_comma(bytes, after.1, end).unwrap_or(end);
+                let Some(expression) = source.get(after.1..stop) else {
+                    return Vec::new();
+                };
+                if expression.trim().is_empty() {
+                    return Vec::new();
+                }
+                let line = 1 + bytes
+                    .get(..name.0)
+                    .map_or(0, |b| b.iter().filter(|c| **c == b'\n').count());
+                let Ok(line) = u32::try_from(line) else {
+                    return Vec::new();
+                };
+                out.push((
+                    after.0,
+                    stop,
+                    Hoisted {
+                        line,
+                        assignment: format!("{} ={expression};", word(name)),
+                    },
+                ));
+                if stop == end {
+                    return out;
+                }
+                cursor = stop + 1;
+            }
+            // An array, a function prototype, or anything else: leave the
+            // whole statement alone.
+            _ => return Vec::new(),
+        }
     }
-    let equals = next_token(bytes, name.1, end)?;
-    if word(equals) != "=" || bytes.get(equals.1) == Some(&b'=') {
-        return None;
-    }
-    let expression = source.get(equals.1..end)?;
-    if expression.trim().is_empty() || has_top_level_comma(expression.as_bytes()) {
-        return None;
-    }
-    let line = 1 + bytes.get(..name.0)?.iter().filter(|b| **b == b'\n').count();
-    Some((
-        equals.0,
-        end,
-        Hoisted {
-            line: u32::try_from(line).ok()?,
-            assignment: format!("{} ={expression};", word(name)),
-        },
-    ))
 }
 
-/// Whether `expression` has a `,` outside any parentheses or brackets,
-/// which means a declaration of several names.
-fn has_top_level_comma(expression: &[u8]) -> bool {
+/// The first `,` in `bytes[from..end]` outside parentheses and brackets.
+fn top_level_comma(bytes: &[u8], from: usize, end: usize) -> Option<usize> {
     let mut depth = 0_i32;
-    let mut i = 0;
-    while let Some(&byte) = expression.get(i) {
-        let next = expression.get(i + 1).copied();
+    let mut i = from;
+    while i < end {
+        let byte = *bytes.get(i)?;
+        let next = bytes.get(i + 1).copied();
         if byte == b'/' && next == Some(b'/') {
-            i = skip_line_comment(expression, i);
+            i = skip_line_comment(bytes, i);
             continue;
         }
         if byte == b'/' && next == Some(b'*') {
-            i = skip_block_comment(expression, i);
+            i = skip_block_comment(bytes, i);
             continue;
         }
         match byte {
             b'(' | b'[' => depth += 1,
             b')' | b']' => depth -= 1,
-            b',' if depth == 0 => return true,
+            b',' if depth == 0 => return Some(i),
             _ => {}
         }
         i += 1;
     }
-    false
+    None
 }
 
 #[cfg(test)]
@@ -449,7 +480,7 @@ mod hoist_tests {
     #[test]
     fn only_plain_global_value_declarations_are_touched() {
         let source = "const float k = 2.0;\nuniform float u;\nfloat a[2] = float[](1.0, 2.0);\n\
-                      float x = 1.0, y = 2.0;\nstruct S { float f; };\n\
+                      struct S { float f; };\n\
                       void f() { float local = TIME; }\n#define Z vec2 z = vec2(1.0);\n";
         let (code, hoisted) = hoist_global_initializers(source);
         assert!(hoisted.is_empty(), "nothing to hoist: {hoisted:?}");
@@ -473,6 +504,23 @@ mod hoist_tests {
             hoisted.get(1).map(|h| h.assignment.as_str()),
             Some("r = length(\n  m);"),
             "a multi-line expression is kept verbatim"
+        );
+    }
+
+    #[test]
+    fn a_declaration_of_several_names_hoists_each_initializer() {
+        let source = "float a = mix(1.0, 2.0, syn_BassLevel), b, c = TIME;\n";
+        let (code, hoisted) = hoist_global_initializers(source);
+        assert_eq!(
+            code.replace(' ', ""),
+            "floata,b,c;\n",
+            "names and commas kept: {code}"
+        );
+        let assignments: Vec<&str> = hoisted.iter().map(|h| h.assignment.as_str()).collect();
+        assert_eq!(
+            assignments,
+            vec!["a = mix(1.0, 2.0, syn_BassLevel);", "c = TIME;"],
+            "each initializer, the call's commas untouched"
         );
     }
 
