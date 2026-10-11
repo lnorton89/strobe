@@ -212,6 +212,20 @@ Each item names its acceptance test. Details and evidence are in
 9. **A real tagged release.** Inspect the zip, the ANGLE DLL provenance,
    the matching PDB archive, the SBOM, the checksums and the attestations
    (Q12).
+10. **Modern graphics APIs (Vulkan, wgpu, DX12, Metal): research only.** The
+   plan is in [GFX_API_RESEARCH.md](GFX_API_RESEARCH.md)
+   (lnorton89/strobe#8). OpenGL 3.3 and ANGLE stay the reference and the
+   fallback. The gating risk is shader compatibility, not API coverage: Naga
+   rejects real SSF and Shadertoy GLSL (see DECISIONS on why glow and not
+   wgpu). So stage 0 comes first, and it is useful on its own: a
+   machine-readable compatibility report (compile, image checksum, frame
+   time, failure category) over the library, the Shadertoy fixtures and
+   owner-supplied local shaders, on llvmpipe, the T480 and TORNADO. Then
+   come a narrow renderer seam with GL unchanged (stage 1), and a spike
+   comparing wgpu/Naga with GLSL to SPIR-V into Vulkan on that same corpus
+   (stage 2). A backend ships only behind a flag, until the research doc's
+   acceptance matrix passes on the T480 and TORNADO. *Accept (stage 0):* the
+   report runs in CI on llvmpipe and catches a deliberately broken shader.
 
 ### Auto-generated controls (stage 1 built)
 
