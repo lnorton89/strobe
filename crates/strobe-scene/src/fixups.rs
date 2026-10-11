@@ -209,6 +209,280 @@ fn is_float_token(token: &[u8]) -> bool {
     token.contains(&b'.') || token.iter().any(|b| matches!(b, b'e' | b'E'))
 }
 
+/// One global initializer moved into `main` by
+/// [`hoist_global_initializers`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Hoisted {
+    /// The line of the user's code the declaration is on, 1-based, so the
+    /// assembler can put a `#line` before the assignment and a driver error
+    /// in it still points at `main.glsl`.
+    pub line: u32,
+    /// `name = expression;`, the expression verbatim (newlines and all).
+    pub assignment: String,
+}
+
+/// The value types a hoisted global may have. Arrays, structs and samplers
+/// are left alone.
+const VALUE_TYPES: [&str; 19] = [
+    "float", "int", "uint", "bool", "vec2", "vec3", "vec4", "ivec2", "ivec3", "ivec4", "uvec2",
+    "uvec3", "uvec4", "bvec2", "bvec3", "bvec4", "mat2", "mat3", "mat4",
+];
+
+/// Turns every global `T name = expression;` into `T name;` and returns the
+/// assignments, in source order, for the assembler to run at the top of
+/// `main`.
+///
+/// GLSL ES 3.00 requires a global's initializer to be a constant
+/// expression; desktop GLSL drivers (Mesa, NVIDIA) accept any expression.
+/// Real Synesthesia scenes rely on that: 31 of 65 on the owner's machine
+/// open with `vec4 iMouse = vec4(MouseXY*RENDERSIZE, MouseClick,
+/// MouseClick);`, which made ANGLE reject them (TORNADO T2, D192).
+/// Assigning at the top of `main` is equivalent: a global can only be read
+/// from a function, every function runs from `main`, and the assignments
+/// keep their order, so one global may still use an earlier one.
+///
+/// Only a plain declaration of one of [`VALUE_TYPES`] (optionally with a
+/// precision qualifier) is touched; `const`, `uniform`, arrays, structs and
+/// declarations of several names are left as they are. The `= expression`
+/// is blanked to spaces with its newlines kept, so no line moves.
+pub fn hoist_global_initializers(source: &str) -> (Cow<'_, str>, Vec<Hoisted>) {
+    let bytes = source.as_bytes();
+    let mut found: Vec<(usize, usize, Hoisted)> = Vec::new();
+    let mut depth = 0_usize;
+    let mut statement = 0;
+    let mut i = 0;
+    while let Some(&byte) = bytes.get(i) {
+        let next = bytes.get(i + 1).copied();
+        if byte == b'/' && next == Some(b'/') {
+            i = skip_line_comment(bytes, i);
+            continue;
+        }
+        if byte == b'/' && next == Some(b'*') {
+            i = skip_block_comment(bytes, i);
+            continue;
+        }
+        if byte == b'#' && depth == 0 && starts_line(bytes, i) {
+            i = skip_directive(bytes, i);
+            statement = i;
+            continue;
+        }
+        match byte {
+            b'{' => depth += 1,
+            b'}' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    statement = i + 1;
+                }
+            }
+            b';' if depth == 0 => {
+                if let Some(hoist) = global_initializer(source, statement, i) {
+                    found.push(hoist);
+                }
+                statement = i + 1;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    if found.is_empty() {
+        return (Cow::Borrowed(source), Vec::new());
+    }
+    let mut rewritten = String::with_capacity(source.len());
+    let mut copied = 0;
+    let mut hoisted = Vec::with_capacity(found.len());
+    for (equals, end, hoist) in found {
+        rewritten.push_str(source.get(copied..equals).unwrap_or_default());
+        for blanked in source.get(equals..end).unwrap_or_default().chars() {
+            rewritten.push(if blanked == '\n' { '\n' } else { ' ' });
+        }
+        copied = end;
+        hoisted.push(hoist);
+    }
+    rewritten.push_str(source.get(copied..).unwrap_or_default());
+    (Cow::Owned(rewritten), hoisted)
+}
+
+/// Whether only spaces or tabs precede `index` on its line.
+fn starts_line(bytes: &[u8], index: usize) -> bool {
+    let mut back = index;
+    while back > 0 {
+        match bytes.get(back - 1) {
+            Some(b' ' | b'\t') => back -= 1,
+            Some(b'\n') | None => return true,
+            Some(_) => return false,
+        }
+    }
+    true
+}
+
+/// The index of the newline ending the preprocessor directive at `start`,
+/// following `\` line continuations.
+fn skip_directive(bytes: &[u8], start: usize) -> usize {
+    let mut i = start;
+    while let Some(&byte) = bytes.get(i) {
+        if byte == b'\n' && bytes.get(i.wrapping_sub(1)) != Some(&b'\\') {
+            return i;
+        }
+        i += 1;
+    }
+    bytes.len()
+}
+
+/// The next token in `bytes[from..end]` after spaces and comments: an
+/// identifier or number as one token, anything else as one byte.
+fn next_token(bytes: &[u8], mut from: usize, end: usize) -> Option<(usize, usize)> {
+    while from < end {
+        let byte = *bytes.get(from)?;
+        let next = bytes.get(from + 1).copied();
+        if byte.is_ascii_whitespace() {
+            from += 1;
+        } else if byte == b'/' && next == Some(b'/') {
+            from = skip_line_comment(bytes, from);
+        } else if byte == b'/' && next == Some(b'*') {
+            from = skip_block_comment(bytes, from);
+        } else if is_word(byte) {
+            let mut to = from;
+            while to < end && bytes.get(to).is_some_and(|b| is_word(*b)) {
+                to += 1;
+            }
+            return Some((from, to));
+        } else {
+            return Some((from, from + 1));
+        }
+    }
+    None
+}
+
+/// Reads the statement `source[start..end]` (its `;` at `end`) as
+/// `[precision] TYPE name = expression`, and returns where the `=` is, the
+/// end, and the assignment to hoist.
+fn global_initializer(source: &str, start: usize, end: usize) -> Option<(usize, usize, Hoisted)> {
+    const PRECISIONS: [&str; 3] = ["lowp", "mediump", "highp"];
+    let bytes = source.as_bytes();
+    let word = |(from, to): (usize, usize)| source.get(from..to).unwrap_or_default();
+
+    let mut token = next_token(bytes, start, end)?;
+    if PRECISIONS.contains(&word(token)) {
+        token = next_token(bytes, token.1, end)?;
+    }
+    if !VALUE_TYPES.contains(&word(token)) {
+        return None;
+    }
+    let name = next_token(bytes, token.1, end)?;
+    if !word(name)
+        .bytes()
+        .next()
+        .is_some_and(|b| b.is_ascii_alphabetic() || b == b'_')
+    {
+        return None;
+    }
+    let equals = next_token(bytes, name.1, end)?;
+    if word(equals) != "=" || bytes.get(equals.1) == Some(&b'=') {
+        return None;
+    }
+    let expression = source.get(equals.1..end)?;
+    if expression.trim().is_empty() || has_top_level_comma(expression.as_bytes()) {
+        return None;
+    }
+    let line = 1 + bytes.get(..name.0)?.iter().filter(|b| **b == b'\n').count();
+    Some((
+        equals.0,
+        end,
+        Hoisted {
+            line: u32::try_from(line).ok()?,
+            assignment: format!("{} ={expression};", word(name)),
+        },
+    ))
+}
+
+/// Whether `expression` has a `,` outside any parentheses or brackets,
+/// which means a declaration of several names.
+fn has_top_level_comma(expression: &[u8]) -> bool {
+    let mut depth = 0_i32;
+    let mut i = 0;
+    while let Some(&byte) = expression.get(i) {
+        let next = expression.get(i + 1).copied();
+        if byte == b'/' && next == Some(b'/') {
+            i = skip_line_comment(expression, i);
+            continue;
+        }
+        if byte == b'/' && next == Some(b'*') {
+            i = skip_block_comment(expression, i);
+            continue;
+        }
+        match byte {
+            b'(' | b'[' => depth += 1,
+            b')' | b']' => depth -= 1,
+            b',' if depth == 0 => return true,
+            _ => {}
+        }
+        i += 1;
+    }
+    false
+}
+
+#[cfg(test)]
+mod hoist_tests {
+    use super::*;
+
+    #[test]
+    fn a_non_constant_global_initializer_moves_into_main() {
+        let source = "vec4 iMouse = vec4(MouseXY*RENDERSIZE, MouseClick, MouseClick);\n\
+                      vec4 renderMain() { return iMouse; }\n";
+        let (code, hoisted) = hoist_global_initializers(source);
+        assert_eq!(
+            code.lines().next().map(|l| l.replace(' ', "")),
+            Some("vec4iMouse;".to_string()),
+            "the initializer is blanked, the declaration kept"
+        );
+        assert_eq!(code.len(), source.len(), "nothing moves");
+        assert_eq!(
+            hoisted,
+            vec![Hoisted {
+                line: 1,
+                assignment: "iMouse = vec4(MouseXY*RENDERSIZE, MouseClick, MouseClick);".into()
+            }],
+            "the assignment, with its line"
+        );
+    }
+
+    #[test]
+    fn only_plain_global_value_declarations_are_touched() {
+        let source = "const float k = 2.0;\nuniform float u;\nfloat a[2] = float[](1.0, 2.0);\n\
+                      float x = 1.0, y = 2.0;\nstruct S { float f; };\n\
+                      void f() { float local = TIME; }\n#define Z vec2 z = vec2(1.0);\n";
+        let (code, hoisted) = hoist_global_initializers(source);
+        assert!(hoisted.is_empty(), "nothing to hoist: {hoisted:?}");
+        assert!(matches!(code, Cow::Borrowed(_)), "and no allocation");
+    }
+
+    #[test]
+    fn several_globals_keep_their_order_lines_and_qualifiers() {
+        let source = "// header\nhighp vec2 m = RENDERSIZE * 0.5;\n\nfloat r = length(\n  m);\n\
+                      vec4 renderMain() { return vec4(r); }\n";
+        let (code, hoisted) = hoist_global_initializers(source);
+        assert_eq!(
+            code.lines().count(),
+            source.lines().count(),
+            "line count kept"
+        );
+        assert!(code.contains("highp vec2 m "), "precision kept: {code}");
+        let lines: Vec<u32> = hoisted.iter().map(|h| h.line).collect();
+        assert_eq!(lines, vec![2, 4], "declaration lines");
+        assert_eq!(
+            hoisted.get(1).map(|h| h.assignment.as_str()),
+            Some("r = length(\n  m);"),
+            "a multi-line expression is kept verbatim"
+        );
+    }
+
+    #[test]
+    fn a_comparison_is_not_an_initializer() {
+        let (_, hoisted) = hoist_global_initializers("bool b == c;\n");
+        assert!(hoisted.is_empty(), "== is not =");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
