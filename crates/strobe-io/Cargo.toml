@@ -1,0 +1,30 @@
+[package]
+name = "strobe-io"
+description = "Show control: MIDI and OSC input on worker threads, typed events, the mapping model with learn and soft takeover. No GL."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[features]
+# The MIDI device layer (midir). On by default; everything else in the crate
+# (parsing, the mapping model, OSC) is plain std plus rosc.
+default = ["midi"]
+midi = ["dep:midir"]
+
+[dependencies]
+strobe-scene.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+thiserror.workspace = true
+log.workspace = true
+rosc.workspace = true
+midir = { workspace = true, optional = true }
+
+[dev-dependencies]
+anyhow.workspace = true
+
+[lints]
+workspace = true

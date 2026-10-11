@@ -123,8 +123,14 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
             macros::strip(
                 ui,
                 theme,
-                model.controls.as_deref_mut(),
-                &mut model.ui.panes,
+                macros::Strip {
+                    scene: model.controls.as_deref_mut(),
+                    meta: model.meta.as_deref_mut(),
+                    remote: &mut *model.remote.remote,
+                    presets: model.remote.presets,
+                    panes: &mut model.ui.panes,
+                },
+                actions,
             );
         });
 }

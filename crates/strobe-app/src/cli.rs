@@ -157,6 +157,25 @@ pub struct Cli {
     /// (Screenshot mode never resumes or saves.)
     #[arg(long)]
     pub no_resume: bool,
+    /// Listen for OSC messages on 127.0.0.1 (port 9000 unless `--osc-port`)
+    /// for this run. The MAP pane's switch turns it on for good.
+    #[arg(long)]
+    pub osc: bool,
+    /// The UDP port OSC listens on for this run.
+    #[arg(long, value_name = "PORT")]
+    pub osc_port: Option<u16>,
+    /// Let OSC listen on every network interface, not only this machine, for
+    /// this run. OSC has no password: anyone on the network can then change
+    /// scenes and black out the projector (D172). Never saved.
+    #[arg(long)]
+    pub osc_all_interfaces: bool,
+    /// Do not open MIDI input devices.
+    #[arg(long)]
+    pub no_midi: bool,
+    /// Read mappings, macros and fav slots from this file instead of
+    /// `show-control.json` in the data directory.
+    #[arg(long, value_name = "FILE")]
+    pub show_control: Option<PathBuf>,
 }
 
 /// Parses `1280x720`.
@@ -189,6 +208,19 @@ mod tests {
         assert_eq!(cli.library, PathBuf::from("scenes"), "library");
         assert_eq!(cli.gl, GlArg::Auto, "backend");
         assert!(cli.screenshot.is_none(), "no screenshot");
+        Ok(())
+    }
+
+    #[test]
+    fn osc_is_off_unless_asked_for_and_never_on_every_interface_by_default() -> Result<()> {
+        let cli = Cli::try_parse_from(["strobe"])?;
+        assert!(
+            !cli.osc && !cli.osc_all_interfaces && !cli.no_midi,
+            "all off"
+        );
+        let cli = Cli::try_parse_from(["strobe", "--osc", "--osc-port", "9100"])?;
+        assert!(cli.osc && !cli.osc_all_interfaces, "loopback unless asked");
+        assert_eq!(cli.osc_port, Some(9100), "port");
         Ok(())
     }
 

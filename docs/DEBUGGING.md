@@ -225,3 +225,70 @@ playlist "Transition demo": closed with 0 runtime shader compile(s) (...)
 - **Screenshots of a playlist**: `--frames N` counts frames after the load
   finishes, at a fixed 1/60 s step, so `--frames 360` on
   `playlists/transition-demo.toml` is 1 s into the first transition, every time.
+
+## MIDI, OSC and show control
+
+Show control (D170-D179) logs at `info`, prefixed `show control:`, `OSC:`,
+`MIDI:` and `learned`:
+
+```
+OSC: listening on 127.0.0.1:9000
+show control: /strobe/control/hue_shift 0.800: applied
+show control: /strobe/control/nope 0.500: unavailable: "nope" is not a control of the scene that is playing
+show control: /strobe/cmd/toggle_blackout 1.000: applied
+blackout on
+learned /9/fader -> macro #1
+MIDI: nanoKONTROL2 connected
+MIDI: nanoKONTROL2 disconnected          (a warning)
+```
+
+One line per *new* thing heard: a fader sweep folds into one line (the MAP
+pane's Activity shows the count). The MAP pane is the first place to look: its
+Connections block says whether OSC is listening and each MIDI device's state,
+and Activity shows the last messages and what each did.
+
+- **OSC "Cannot listen"** (`OSC: cannot listen on 127.0.0.1:9000: ... is
+  another program using port 9000?`): the port is taken. Pick another in the
+  pane, or `--osc-port`. OSC is **off** until `--osc` or the pane's switch.
+- **OSC messages do not arrive:** check the address and the port with the
+  Activity monitor. From the same machine use `127.0.0.1`. From a phone or
+  another computer the listener must be on every interface (`--osc-all-interfaces`
+  or the pane's checkbox, which logs a warning because OSC has no password,
+  D172) **and** the machine's firewall must allow UDP on that port (Windows asks
+  the first time). `--osc` alone never accepts other machines.
+- **`unmapped`** in Activity: nothing is mapped to it and, for an OSC address,
+  it is not one of the built-in `/strobe/...` addresses (the README of
+  `strobe-io` lists them) or built-ins are off. **`unavailable: ...`**: it is
+  mapped, but the control is not in the scene that is playing. Not an error.
+- **`waiting for pickup`:** the mapping uses Pickup and the fader has not yet
+  reached the control's value; move it through the value, or set the mapping's
+  Fader to Jump.
+- **A mapping shows Conflict:** two enabled mappings answer to the same
+  source. Replace or delete one.
+- **`MIDI is not available here: no MIDI service`:** on Linux there is no ALSA
+  sequencer (`/dev/snd/seq`; `sudo modprobe snd-seq`; a container usually has
+  none). On Windows a driver problem. The app carries on with OSC and the
+  keyboard. It tries again every few seconds.
+- **A MIDI device is listed but "Could not open":** on Windows another program
+  (a DAW) may hold the device; close it and press Refresh. The error text is
+  the driver's.
+- **A device was unplugged:** `MIDI: X disconnected`, and it reconnects by
+  itself when it returns, with its mappings, because they name the device by
+  its name without ALSA's `20:0` suffix or WinMM's `2- ` prefix. A mapping that
+  names a device spelled differently ("Any device" in the row's options matches
+  every device).
+- **`N input message(s) dropped (queue full)`:** the app did not drain for a
+  while (a long load). Harmless for faders, which resend; a missed button press
+  is the cost.
+- **`show-control.json` had parts that could not be read:** the log names each
+  skipped mapping (`mapping 3: unknown variant ...`); the rest loaded and the
+  original is kept beside it as `show-control.json.bak`. `--show-control
+  <file>` reads another file; screenshot mode reads it and never writes it.
+- **A hotkey does not change:** `hotkeys: ...` warnings at start name unknown
+  commands, unreadable chords and clashes. Restart to apply.
+- **Testing MIDI without a controller:** there is no virtual port in a
+  container. The parser is tested from recorded byte sequences
+  (`strobe-io/src/message.rs`); on a desktop, `aconnect`/`amidi` (Linux) or
+  loopMIDI (Windows) make a virtual port Strobe will list.
+- **Driving OSC by hand:** `strobe-io`'s README has a ten-line `python3` sender
+  that needs no library.
