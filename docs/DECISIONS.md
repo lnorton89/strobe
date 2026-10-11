@@ -2115,6 +2115,342 @@ open for them). The packing built-ins on a 3.30 context are unrelated.
 
 **Would reopen:** adopting a GLSL parser, which would replace this module.
 
+### D170: show control is one crate, `strobe-io`, that depends on `strobe-scene` and nothing that draws (2026-10-11)
+
+Phase 6 (PLAN.md section 11, ROADMAP item 7). MIDI input, OSC input, the
+mapping model, learn, soft takeover, the Performance Macro set and the saved
+file are all in `crates/strobe-io`, which depends on `strobe-scene` (for
+`ControlBank`, the script API's name matching and presets) and on `rosc` and
+`midir`. It does **not** depend on `strobe-gfx`, a window or egui, so every
+rule in it runs in a unit test with no GPU, no device and no display: over
+120 tests there and a dozen for presets in `strobe-scene`.
+
+- **Libraries.** `midir` 0.11 for MIDI (ALSA, WinMM, CoreMIDI) and `rosc` 0.11
+  for OSC 1.0. Context7 has neither, so their sources were read as fetched.
+  Both pass `cargo deny` with no new licence. **`midir` needs no C compiler on
+  Windows** (it uses the `windows` crate's WinMM bindings), so the Windows
+  cross-check builds `strobe-io` whole and needed no exclusion, unlike
+  `strobe-shadertoy`'s `net` feature (D110). The `midi` feature (on by
+  default) is still there so a build for a target without a MIDI backend can
+  drop it; the crate then reports "built without MIDI support" and carries on.
+- **Why `strobe-scene` is a dependency.** A mapping has to know that a toggle
+  flips, a bang counts presses and a dropdown rounds, and it must not know
+  those rules twice (AGENT_RESEARCH: "UI, JavaScript host, MIDI and OSC should
+  all target the same control bank"). The mapper writes `ControlBank::
+  set_normalized`, `set` and `press` and nothing else, so smoothing, `speed`
+  integration, bang envelopes and clamping are the one implementation. A test
+  pins that a mapped smoothed slider's target moves at once and its output
+  eases.
+- **Presets are in `strobe-scene`**, not here (PLAN section 3.1 puts them
+  there): they are a function of a `ControlBank` and a folder, and the playlist
+  needs them without MIDI.
+
+**Would reopen:** a target that needs a second crate to resolve (a media slot,
+a script uniform), which would want the `Scope` to grow rather than the crate
+to depend on more.
+
+### D171: two worker threads and one bounded queue, drained once per scene frame (2026-10-11)
+
+ARCHITECTURE's frame step 1 ("drain I/O events") is built. `Hub` runs a MIDI
+worker and an OSC worker; both hand typed `Event`s to the app through **one
+bounded `std::sync::mpsc::sync_channel` of 2048**, with `try_send`: a full queue
+drops the newest message and counts it (`Status::Dropped`, shown in the MAP
+pane and logged), because a stalled frame loop must never push back into a
+driver callback and a flood of fader messages is exactly what should be
+thinned. No new dependency (`crossbeam-channel` was in PLAN; std was enough).
+
+- **Drain.** `Remote::drain` runs in `scene_frame` after the resize housekeeping
+  and **before the scene advances**, takes at most 256 events, never blocks,
+  and reuses its buffers. A message that arrives mid-frame waits for the next
+  one (at most one frame, 7 ms at 144 Hz, 16 ms at 60). MIDI and OSC do not
+  go through the 30 Hz control-window redraw, which would have made a fader
+  feel laggy and stopped when the window was covered.
+- **Hot-plug.** `midir` reports nothing when a device appears or goes, so the
+  MIDI worker polls the port list once a second, opens new devices, drops the
+  ones that vanished (`DeviceLost`, logged as a warning) and opens them again
+  when they return. A device is identified by `device_key`, the port name
+  without ALSA's `20:0` suffix and WinMM's `2- ` prefix, so a mapping survives
+  a replug. A device that fails to open is recorded in its list entry and not
+  retried every second; Refresh retries. No MIDI service at all (a container,
+  a missing driver) is one `MidiUnavailable` status, retried every five
+  seconds, and nothing else.
+- **OSC thread.** One long-lived thread with a 50 ms read timeout, so a
+  rebind, a stop or a shutdown is noticed without the app ever joining a
+  blocked read. `Hub::set_osc` returns at once.
+- **Activity.** The monitor folds consecutive messages from one source with the
+  same result into one line with a count, so a sweep is one line and one log
+  line, not hundreds.
+
+**Not verifiable here:** MIDI hardware. There is no `/dev/snd/seq` in the
+cloud container and `snd-virmidi` cannot be loaded, so MIDI is tested through
+`message::parse` with recorded byte sequences (a fader sweep, a pad, a wheel, a
+patch change, clock ticks, sysex, malformed and truncated messages) and the
+worker's own code paths only compile and start (reporting "no MIDI service" in
+the container, which the test pins). What only a controller can show: the
+real ALSA/WinMM port names, hot-plug timing, and a Windows device another
+program has open. See STATUS_AUDIT.
+
+**Would reopen:** a controller whose message rate overruns 256 per frame at
+60 fps (about 15,000 a second), which would raise the cap, or a driver that
+does report hot-plug, which would replace the poll.
+
+### D172: OSC is off until asked for, binds to this machine, and a command-line flag is never saved (2026-10-11)
+
+OSC has no authentication. Anyone who can send a UDP packet to the port can
+move controls, change scene, recall a preset or **black out the projector**.
+
+- **Off by default.** `--osc`, or the MAP pane's switch (saved), turns it on.
+- **Loopback by default.** It binds `127.0.0.1:9000` (`--osc-port`, or the
+  pane). Projection rigs often *do* need LAN control (a phone running
+  TouchOSC), so every interface is available, but only by an **explicit
+  choice**: `--osc-all-interfaces`, or the pane's "All network interfaces"
+  checkbox, whose tooltip says what it means. Choosing it logs a warning and
+  the pane shows "Anyone on this network can send commands to the show."
+- **A flag is not a setting.** `--osc`, `--osc-port`, `--osc-all-interfaces`
+  and `--no-midi` change what runs *this time*. The saved settings stay as
+  the operator left them (a test pins this for OSC and for `--no-midi`, which
+  was found persisting in the first live run), so a run with
+  `--osc-all-interfaces` cannot leave the next launch open to the network. The
+  pane says "Running with command-line settings; they are not saved" while the
+  two differ. Choosing in the pane replaces both.
+- **The datagram is hostile input.** `rosc` decodes bundles recursively; a
+  64 KB packet can nest thousands deep and a release build aborts on a stack
+  overflow. `osc::nesting_ok` walks the bundle structure first, iteratively
+  and bounded (depth 4), before `rosc` sees the bytes; lying sizes, negative
+  sizes and truncation are rejected there. Also bounded: 256 messages per
+  datagram, 8 arguments, 256-byte addresses; strings and blobs are dropped, and
+  a message that had arguments but kept none is dropped whole (so
+  `/strobe/cmd/blackout "hi"` is not a bare "go"). Garbage is dropped silently:
+  logging each packet would be a way to fill a disk. Tested with a 3000-level
+  bundle, lying sizes, garbage, NaN and over-long fields.
+- **Not done:** a shared secret or an allow-list of senders. The planned LAN
+  web remote (ROADMAP item 7b) has pairing and per-client tokens and is the
+  route for an untrusted network; OSC stays a trusted-network protocol.
+
+**Would reopen:** a request for OSC across networks the operator does not
+control, which should be refused in favour of the paired remote.
+
+### D173: mappings name their targets, resolve them against the scene that is playing, and show six states (2026-10-11)
+
+UI_DESIGN section 8 and UI_IMPLEMENTATION_PLAN sections 11 to 12, as code.
+
+- **Source -> target.** A `Source` is a MIDI CC, note, pitch bend or program
+  change (device or any device, channel 1 to 16) or an exact OSC address. A
+  `Target` is a scene control, a meta control (each by name, with a component
+  for a pad or colour), a command (by the stable id in the command table), a
+  cue number, a fav slot, a preset, or a Performance Macro. Nothing is
+  stored by index, so a mapping outlives the scene it was made in.
+- **Resolution** is exact and never fuzzy: the script API's normalised name
+  (case, `_`, `-` and spaces ignored), then `group/name`, then the macro's
+  aliases in order. `spee`, `speeds` and `zoom` for `zoom_level` all fail.
+- **Six states** (a word and an icon, never colour alone): *Resolved*;
+  *Unavailable* (the control is not in the playing scene: kept, muted, says
+  which; not an error and no log line per message); *Broken* (can never work
+  as written: unknown command, fav slot 9, an XY pad with no component, a macro
+  that points at a macro); *Disabled*; *Learning*; *Conflict*.
+- **What a signal does** (engine module docs have the table): analog goes
+  through `invert`, `curve` (linear, log, exp: one-parameter exponential
+  families that are each other's inverse), then `range` as fractions of the
+  target's own range, then `set_normalized`. A button on a non-button control
+  is `toggle` (flip, or flip a slider between its range ends) or `momentary`.
+  An analog source driving a button-like target presses at `threshold` and
+  releases 0.05 below, so a shaky fader at the line does not machine-gun a
+  command (tested). Dropdown: analog picks the option, a button steps and wraps.
+  XY and colour need a component.
+- **Built-in OSC addresses** work with no mapping: `/strobe/control/<name>`,
+  `/strobe/control/<name>/<x|y|z|r|g|b>`, `/strobe/meta/<name>`,
+  `/strobe/cmd/<id>`, `/strobe/cue/<n>`, `/strobe/fav/<n>`,
+  `/strobe/preset/<name>` (`_` reads as a space), `/strobe/macro/<id or name>`.
+  This is what makes "every playlist action and control reachable from OSC"
+  true on a fresh install. Values are **normalised 0 to 1** (what TouchOSC
+  sends) and clamped; toggles follow their argument (`1`/`T` on, `0`/`F` off);
+  commands fire on `1`, `T`, an impulse or no argument and ignore `0`, and
+  keep no state, so a script sending only `1` still fires every time. A mapping
+  for an address always wins over its built-in meaning. Strobe's own
+  namespace is a choice, not Synesthesia's (Q23).
+- **Commands.** D134 asked that MIDI and OSC "map onto `CommandId` rather than
+  a second list". `CommandId` gained stable ids (`next_scene`, `toggle_hold`,
+  `toggle_blackout`...) and `mappable()` (the two presentation commands, focus
+  search and close pane, are not reachable from a controller). The mapper
+  returns the id and the app looks it up in the same table the keys use and
+  runs the same `Action`. Blackout is a toggle only; there is no explicit
+  on/off command yet.
+
+**Would reopen:** Synesthesia's real OSC addresses (Q23), or a request for
+explicit blackout on/off.
+
+### D174: soft takeover, learn, and what a conflict is (2026-10-11)
+
+- **Pickup** (the default for MIDI faders) ignores the fader until it
+  *reaches* the control's value, by landing within 0.025 of it or by crossing
+  it between two readings; from then on it drives the control. If something
+  else moves the control (the inspector, a preset, a fav slot, another
+  mapping) the fader is dropped again and must be picked up anew; "something
+  else moved it" is noticed by comparing the control's target with what the
+  mapping last wrote, so it needs no hook in the UI. The comparison is in the
+  control's own normalised terms after range, curve and invert. It applies to
+  continuous kinds only: a dropdown quantises, which would read as a foreign
+  write. **Jump** follows at once. OSC mappings learn as Jump (a sender cannot
+  be picked up).
+- **Learn.** Arm a target (Add..., or Learn on a macro card or a row); the
+  next *usable* message binds: a note off or a stray release is ignored, so a
+  pad binds on its press. Learn on an existing row replaces its **source** and
+  keeps its range, curve and the rest. A learned MIDI source remembers its
+  device; "Any device" is one click in the row's options.
+- **Conflict.** If the heard source is already mapped to something else (any
+  enabled mapping whose source would also fire: same message, same device or
+  either with no device), nothing is bound and the banner says "CC 21 ch 1 is
+  already mapped to speed" with **Replace** (remove the holder, bind the new
+  one) and **Cancel**. Binding the same source to the same target again is a
+  quiet success. Two existing rows that share a source, from a hand edit,
+  both show *Conflict* until one is changed.
+
+**Would reopen:** a fader that never engages in practice (a tolerance too
+tight for a 7-bit controller), which would widen it or add a per-mapping
+setting.
+
+### D175: Performance Macros, stage 2: a curated, pinned, ordered, saved set (2026-10-11)
+
+D137's stage 2. A `Macro` is a stable operator binding: id (never reused), name,
+a target (never another macro), aliases, `pinned`, `enabled`, an optional
+`range` that narrows what a mapping may reach, an identity colour slot. The
+set is **global to the show** and saved with the rest of show control; a scene
+change never deletes or reorders a macro, and one whose control the new scene
+lacks goes **unavailable** ("unavailable in current scene", muted) until a scene
+that has it plays. A mapping to `Macro { id }` is how a fader drives "macro
+slot 2" without caring what it is today.
+
+- **The strip** shows the pinned macros in order, scrolling sideways when they
+  do not fit, each as a card: target badge (SCENE, META, PLAYLIST, SYSTEM),
+  name, a MIDI or OSC tag with the controller on hover, the state when it is not
+  working, and a widget fitted to the target (rail, switch, trigger, dropdown,
+  swatch; a button for a command, a cue, a fav slot or a preset). The widget
+  writes the same `ControlBank` entry the inspector does. Right-click: Learn,
+  Move earlier, Move later, Unpin.
+- **With no macros at all** the strip keeps its stage 1 behaviour (the scene's
+  first controls, marked SCENE), so a new install is not an empty bar; one
+  macro and only macros show.
+- **The MAP pane** lists every macro (pinned or not) with its state, sources
+  and Learn, and edits name, aliases and on/off; *Add...* builds one from a
+  scene control, a meta control, a command, a preset (with "Pin it as a macro
+  too"). Pinning a control from the Controls pane is not built (Add... takes
+  the name, with a picker over the playing scene's controls).
+- **Not built:** the range override and the identity colour have data and
+  engine support (the range narrows a mapped fader, tested) but no editor;
+  smoothing and a shortcut per macro (UI_IMPLEMENTATION_PLAN section 11) are
+  left, though a macro can be a mapping target and so has MIDI/OSC.
+
+**Would reopen:** per-scene macro sets (a VJ who wants a different strip per
+scene), which would key the set by scene name; the global set was chosen
+because the brief says never to reorder because a scene changed.
+
+### D176: presets live in the scene folder, are read at load, and layer under a cue's overrides (2026-10-11)
+
+`presets/<name>.json` in the scene folder, in PLAN section 10's shape
+(`name`, `channels: { scene, meta }`, `scene: { control: value }`,
+`meta: {...}`), values a number or one per component, a dropdown's index.
+
+- **Capture and apply go through `ControlBank`** (`target`, `set`): a recalled
+  preset is a write of targets exactly like the inspector's. Bangs are not
+  saved; the meta `master` is not saved (PLAN: the operator's fader, not a
+  look). Apply is **by name** (the script API's match), so a preset survives a
+  scene gaining controls; a name the scene lacks, a wrong component count or a
+  NaN is *reported and skipped* and the rest applies; a control the preset does
+  not mention is left alone, so a hand-written preset can hold two values.
+- **Names are file names, so they are checked.** A preset name arrives from a
+  text field, a playlist and an OSC address: letters, digits, space, `-`, `_`,
+  `.` (not first), at most 48; and a preset is found by *listing the folder*
+  and comparing stems, never by joining the name onto a path. Tests cover
+  `..`, separators, drive prefixes, NUL and length.
+- **Read at scene load** (`Session::load`), kept in the session: recalling a
+  preset, a cue starting and the MAP pane touch no disk. A save writes one
+  small file aside and renames it, on the action's thread (a button press, not
+  a frame); the session's copy is updated in memory.
+- **`default.json`** is the scene's starting look: applied after load, and to a
+  cue that names no preset.
+- **Cue `preset`** (ignored with a warning since D153) now applies. The cue's
+  settings layer, later over earlier: scene defaults (reset), the cue's preset
+  (or `default`), the cue's explicit `overrides`. A preset the scene lacks is
+  warned about **at compile time** (not mid-show), and the cue falls back to
+  `default`. Tested on headless GL in both dialects
+  (`tests/show.rs::a_cues_preset_is_applied_...`), with zero compiles.
+- **Fav slots**: eight, global, each a scene and optionally one of its presets,
+  stored in `show-control.json`. A click recalls (loading the scene first if it
+  is not the one playing, which unloads a playlist as any manual load does,
+  D150); an empty slot stores the playing scene and its last recalled or saved
+  preset. Reachable from MIDI, OSC (`/strobe/fav/n`), the macro strip and the Controls
+  pane.
+
+**Would reopen:** a scene that wants presets that cover media (PLAN section 1.6
+lists a Media channel); there is none until media is controllable.
+
+### D177: MAP is a pane, built the way LIST is (2026-10-11)
+
+UI_DESIGN section 15 describes a Mappings *workspace*; like LIST (D157), this
+is a right-dock **pane** (`Pane::Map`, the rail's MAP entry, `--open-pane map`),
+because the shell has panes and no workspaces yet. Top to bottom: a learn or
+conflict banner; Connections (OSC switch, status chip, port, "All network
+interfaces", built-in addresses, MIDI switch, one row per device with its
+state); Activity (the last eight lines: time, what arrived, what it did,
+a count, dropped total); Macros; Mappings with search, *Add...* and per-row
+options (device, range, invert, curve, fader mode, button mode, press
+threshold). The UI never touches a socket, a device or the disk (the source
+scan still runs over it and `presets`): worker, file and scene changes go back
+as `Action`s (`SetOsc`, `SetMidiDevice`, `SavePreset`, `RecallFav`...);
+mappings and macros are edited in place, they being the mapper's own data.
+
+- **Found and fixed by the live run:** a row that cannot shrink (a monitor line
+  with a long result) makes an egui panel wider than its dock and shoves the
+  preview; headless layout tests did not see it because they had no activity.
+  Rows now truncate or wrap, and the test scenario carries the long lines.
+- **Verified** under Xvfb with real UDP datagrams (hand-built, from
+  `python3`): hue_shift 0.8 and master 0.5 on the macro strip, a control that
+  is not in the scene reported "unavailable", a command that does not exist
+  warned, `next_scene` loaded the next scene, `toggle_blackout` logged
+  `blackout on`; and a real click on a macro's Learn button followed by an OSC
+  message bound `/9/fader` to macro #1, wrote it to `show-control.json`, and
+  the next message moved the control. Screenshot:
+  `docs/images/perform/map-learning-1440x900.png`.
+
+**Would reopen:** the Mappings workspace proper (a full-width table with the
+inspector beside it) once the shell has workspaces.
+
+### D178: keyboard shortcuts are configurable by a file, and cannot be configured into a clash (2026-10-11)
+
+`hotkeys` in `show-control.json` maps a command id to a chord
+(`"toggle_blackout": "Ctrl+B"`). D134's focus rule is untouched: the same
+`dispatch` decides, now over `Bindings` (the defaults plus the overrides), so a
+text field, a modal and a focused slider still win. `Key` gained letters,
+digits and F1 to F12 (B, E, R, F, T and F11 keep their own variants, so a key
+has one form). A line that names an unknown command, cannot be read, or would
+put two commands on one chord is **left out and logged**; the command keeps its
+default, so no command is ever left unreachable. A swap is two moves through a
+free key. Read once at start; the Settings pane lists the effective
+shortcuts. **No in-app editor** (the table of commands is not built into a
+palette yet); the output window maps the same keys, with no modifiers.
+
+**Would reopen:** the command palette (UI_DESIGN section 25), which is where a
+rebinding editor belongs.
+
+### D179: `show-control.json` is tolerant, atomic, and keeps a backup of what it could not read (2026-10-11)
+
+One JSON file in the data directory (`--show-control <file>` for another):
+OSC and MIDI settings, mappings, macros, fav slots and hotkeys. Every field
+has a default; unknown keys are ignored; **one mapping that does not parse is
+skipped and named, the others load** (an unknown source kind, a typo in a
+target); a file that is not JSON loads as the defaults with the reason; and
+before the app first writes over a file that had unreadable parts it copies
+the original to `show-control.json.bak`, so a hand edit is never lost to a
+typo. It is written by the same debounced, atomic (temp file and rename)
+writer thread as the UI preferences (`prefs::Saver`), never from the paint
+path, 500 ms after the last edit and at shutdown, and **never in screenshot
+mode** (which reads a `--show-control` file but cannot write it). JSON rather
+than TOML because the preset files are JSON (PLAN section 10), and an
+externally readable tagged enum is the natural shape for a target.
+
+**Would reopen:** a sync of the file between machines, which would want a
+version and a merge story the `version` field only anticipates.
+
 ### D180: the output post stage is one program, after the compositor, and it costs nothing at neutral (2026-10-11)
 
 D160 built the meta bank and nothing read it. `strobe_gfx::post::Post` is the
