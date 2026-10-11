@@ -2487,13 +2487,13 @@ impl Running {
             _ => None,
         };
         let next = self.step_target(1);
-        let (scene_title, controls, script, scene_time) = match self.stack.session.as_mut() {
+        let (scene_title, controls, meta, script, scene_time) = match self.stack.session.as_mut() {
             Some(session) => {
                 let time = session.time();
-                let (title, controls, script) = session.panel_parts();
-                (title, Some(controls), script, time)
+                let (title, controls, meta, script) = session.panel_parts();
+                (title, Some(controls), Some(meta), script, time)
             }
-            None => ("", None, None, 0.0),
+            None => ("", None, None, None, 0.0),
         };
         let entries = &self.library.entries;
         let name_of =
@@ -2524,6 +2524,7 @@ impl Running {
             playing: self.playing,
             scene_title,
             controls,
+            meta,
             preview,
             scene_preview: scene_preview_image.and_then(|(index, image)| {
                 name_of(Some(index)).map(|name| ScenePreview { index, name, image })

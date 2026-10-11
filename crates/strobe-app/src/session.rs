@@ -274,10 +274,18 @@ impl Session {
     /// What the controls panel shows and edits, borrowed together (the
     /// controls mutably, the rest not): the scene's title, its controls,
     /// and how its script is doing, if it has one.
-    pub fn panel_parts(&mut self) -> (&str, &mut ControlBank, Option<&ScriptState>) {
+    pub fn panel_parts(
+        &mut self,
+    ) -> (
+        &str,
+        &mut ControlBank,
+        &mut ControlBank,
+        Option<&ScriptState>,
+    ) {
         (
             self.title.as_str(),
             &mut self.controls,
+            &mut self.meta,
             self.script.as_ref().map(ScriptRun::state),
         )
     }

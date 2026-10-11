@@ -271,6 +271,7 @@ fn draw(scenario: Scenario, size: (f32, f32), frames: usize) -> Result<Drawn> {
         })
         .collect();
     let mut bank = controls()?;
+    let mut meta_bank = strobe_scene::meta::bank()?;
     let console = Console::default();
     let stats = FrameStats::default();
     let mut ui_state = UiState::ephemeral();
@@ -322,6 +323,7 @@ fn draw(scenario: Scenario, size: (f32, f32), frames: usize) -> Result<Drawn> {
             playing: scenario.playing.then_some(0),
             scene_title: if scenario.playing { "Aurora Field" } else { "" },
             controls: scenario.playing.then_some(&mut bank),
+            meta: scenario.playing.then_some(&mut meta_bank),
             preview: scenario.playing.then_some(image),
             scene_preview: scenario.previewing.then_some(ScenePreview {
                 index: 2,
