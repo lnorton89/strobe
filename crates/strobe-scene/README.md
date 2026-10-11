@@ -30,7 +30,8 @@ compiles. It owns every SSF rule that can be decided without a GPU.
 | `assemble` | `assemble::fragment(&Request)` and `assemble::vertex(Dialect)` build shader text. `Dialect` is `Glsl330`, `Glsl410` or `Es300`; `PassIndex` is a constant or a uniform; `map_error_line` maps a driver's log line back to a line of `main.glsl`. |
 | `audio::SCALARS` | The one list of `syn_*` scalar audio uniform names, shared by the assembler, the analyser and the script host. |
 | `synthetic` | A deterministic 120 BPM stand-in for audio (`fill`, `bands`, `fill_textures`), a pure function of time. |
-| `meta` | The meta controls (master, brightness, hue, mirror...) as a `ControlBank` built by `meta::bank()`, which a script's `meta/` writes reach (D160). Nothing renders from it yet. |
+| `meta` | The meta controls (master, brightness, hue, mirror...) as a `ControlBank` built by `meta::bank()`, which a script's `meta/` writes reach (D160). `MetaValues::read(&bank)` snapshots it into a plain `Copy` struct with no allocation, and `post_is_neutral()` tells the renderer's output post stage (D180) it has nothing to do. |
+| `SceneDef::media` (`MediaDef`) | The optional `MEDIA` key (a Strobe extension, D186): a still file or a folder of pictures for `syn_Media`, with `FPS`, `LOOP`, `WRAP`, `FILTER`, `VFLIP`. A path that leaves the scene folder is a validation error. `scene::is_folder_relative` is the shared path rule. |
 | `fixups` | GLSL ES rewrites for desktop-only SSF idioms; today `PASSINDEX == 0.0` becomes `float(PASSINDEX) == 0.0` (D163). |
 | `names` | Name matching used by the script API (case-insensitive, ignoring `_`, `-` and spaces) and the reserved-name list. |
 | `SceneError` | Every way a scene can fail to load; messages name the control or pass at fault. |
@@ -103,8 +104,9 @@ missing driver fail rather than skip.
 
 - Done and tested headless: parsing, validation, the controls runtime and
   shader assembly ([`ROADMAP.md`](../../docs/ROADMAP.md)).
-- Cubemaps are declared and given a unit but never loaded; `syn_Media` is a
-  black 1x1 texture and `syn_MediaType` is 0 (ROADMAP "Known gaps").
+- Cube maps and `syn_Media` stills and sequences are loaded by `strobe-gfx`
+  (D185, D186); this crate only declares and validates them. The `MEDIA` key
+  and `CUBEMAPS` shape are Strobe's reading of SSF (Q22).
 - `HARD_TRANSITIONS` / `SMOOTH_TRANSITIONS` uniforms are declared and
   initialised but never change; song-change transitions are phase 7.
 - `X_STROBE`, Strobe's planned extension block, is currently ignored along

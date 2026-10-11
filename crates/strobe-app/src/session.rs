@@ -128,8 +128,8 @@ pub struct Session {
     /// Live control values; the UI writes targets here.
     pub controls: ControlBank,
     /// The meta controls (master, brightness, hue, mirror...). A script's
-    /// `meta/` writes land here. Nothing in the renderer reads them yet
-    /// (there is no output post stage), so they are held, not applied (D160).
+    /// `meta/` writes land here. The output post stage reads the picture
+    /// controls from it (D180) and the audio path the gains (D184).
     pub meta: ControlBank,
     /// The compiled passes and render targets.
     pub player: ScenePlayer,
@@ -226,7 +226,19 @@ impl Session {
         if let Some(harvest) = &harvest {
             session.send_script_uniforms(harvest);
         }
+        session.report_asset_problems();
         Ok(session)
+    }
+
+    /// Reports, through the failure path, any cube map or media picture
+    /// that did not load since the last call. The scene carries on without
+    /// it (a black cube, a black `syn_Media`). A media picture decoding on
+    /// its thread can fail well after load, which is why this also runs
+    /// after each frame; with nothing to say it is one empty-vector swap.
+    fn report_asset_problems(&mut self) {
+        for problem in self.player.take_asset_problems() {
+            failure::report(failures::asset_problem(&self.name, &self.dir, &problem));
+        }
     }
 
     /// The scene clock, in seconds.
@@ -274,10 +286,18 @@ impl Session {
     /// What the controls panel shows and edits, borrowed together (the
     /// controls mutably, the rest not): the scene's title, its controls,
     /// and how its script is doing, if it has one.
-    pub fn panel_parts(&mut self) -> (&str, &mut ControlBank, Option<&ScriptState>) {
+    pub fn panel_parts(
+        &mut self,
+    ) -> (
+        &str,
+        &mut ControlBank,
+        &mut ControlBank,
+        Option<&ScriptState>,
+    ) {
         (
             self.title.as_str(),
             &mut self.controls,
+            &mut self.meta,
             self.script.as_ref().map(ScriptRun::state),
         )
     }
@@ -326,6 +346,7 @@ impl Session {
             transitions: &self.transitions,
         });
         self.frame += 1;
+        self.report_asset_problems();
     }
 
     /// Hands the script's uniform values to the player, in the order the

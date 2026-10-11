@@ -2115,6 +2115,157 @@ open for them). The packing built-ins on a 3.30 context are unrelated.
 
 **Would reopen:** adopting a GLSL parser, which would replace this module.
 
+### D180: the output post stage is one program, after the compositor, and it costs nothing at neutral (2026-10-11)
+
+D160 built the meta bank and nothing read it. `strobe_gfx::post::Post` is the
+reader: master, invert, brightness, gamma, contrast, hue, saturation and the
+two mirrors, applied to the finished frame.
+
+- **Where.** After the last pass of the live scene, or after the compositor's
+  mix while a playlist transition runs (ARCHITECTURE, "A frame"). Applying it
+  after the mix means a crossfade fades one picture, and the output has one
+  master however many scenes are rendering.
+- **One program, compiled once.** `Post::new` runs in `Stack::open` beside the
+  compositor (D154, D152), so a context rebuild gets a new one and nothing
+  compiles during a show. A change of value is a handful of uniforms.
+- **Zero cost at rest.** `MetaValues::post_is_neutral` is true when every
+  pixel-affecting value is within 1e-4 of its default (a hue of exactly one
+  turn counts: it is no rotation). Then `App::apply_post` returns before
+  touching the stage: no draw, no target, and the present, preview and
+  screenshot keep reading the scene's or the compositor's texture. Reactivity
+  and audio speed do not count, they are not pixels. When it does run it is
+  one full-screen pass into an RGBA8 target of the source's size; the target
+  follows the source's size on the first frame after a resize (no steady-state
+  allocation, no `glGet*`).
+- **Order, per pixel.** Mirrors (exact `texelFetch`, no resample), brightness
+  `c + b`, contrast `(c - 0.5) k + 0.5`, gamma `c ^ (1/g)`, hue then
+  saturation as one 3x3 matrix, clamp, invert, master. Master is last so `0` is
+  black whatever else is set. Alpha passes through.
+- **Hue and saturation** are a CPU-built matrix (`post::color_matrix`): hue is
+  a rotation about the grey axis `(1,1,1)`, saturation mixes towards Rec. 709
+  luma. At hue 0 and saturation 1 it is the identity *exactly*, so a neutral
+  pass through the shader is bit-for-bit the input (a test, in both dialects).
+  A rotation about the grey axis is not luma-preserving, so a large hue shift
+  changes perceived brightness a little; a YIQ rotation has the same fault and
+  does not give an exact identity.
+- **Mirrors.** *Horizontal* reflects the left half onto the right; *vertical*
+  reflects the bottom half onto the top; an odd size's centre line is its own
+  mirror. Which half is kept and which axis the names mean are guesses (Q21).
+- **The preview shows what the output shows.** When the stage ran this frame
+  the control window's preview paints its target.
+
+**Would reopen:** a measured cost on the T480 that justifies folding the
+stage into the present blit when the output is shown (saving the extra target)
+at the price of the preview needing its own pass; a real Synesthesia scene
+showing a different order of operations.
+
+### D181: blackout and master are separate, and they compose (2026-10-11)
+
+Q20 asked whether blackout should gate every output. They are two things.
+**Master** (a meta control, D160) is a level in the *picture*: the post stage
+multiplies it in, so the preview, a screenshot and any future capture or NDI
+output see it, a script can drive it, and a playlist cue can set it. **Blackout**
+(D135) stays what it was: a panic key that clears only what the shown output
+window presents, leaving the scene running, its clock going and the preview
+live, so bringing it back is instant. Blackout is applied after the post stage
+(it replaces the present), so blackout over any master is dark and releasing it
+shows whatever master says. Neither writes the other.
+
+Not decided: whether blackout should gate a future NDI or capture output. That
+output does not exist; when it does it should take blackout from the same flag
+(the shown window is not its only reader), which is a decision for that stage.
+
+### D182: meta values live and die with the session, and a transition uses the live scene's (2026-10-11)
+
+`Session::meta` is per session (D160 said so). The post stage and the audio
+gains read the **live** session's, which in a playlist is `Stack::session`,
+the incoming scene during a transition. The outgoing scene's meta is ignored
+(its frame is already inside the mix), and a warming scene's too. Consequences,
+all deliberate for now: loading a scene resets the meta controls, a cue's
+`meta` overrides (D153) land in the new live session, and an operator who
+fades master to 0 and then switches scene sees master 1 again. Carrying meta
+across scenes belongs with presets and the Meta preset channel (Phase 6), where
+"master is not saved in presets" (PLAN section 9) can be decided with the rest.
+
+### D183: the Inspector shows the meta bank as "Output (meta)" (2026-10-11)
+
+`Model::meta` carries the live session's meta `ControlBank` and the inspector
+draws it under the scene's own groups, with the same rows, collapsed state
+saved with the layout, and one Reset that returns every output control to its
+default. It reuses `controls::rows`, so a slider, a toggle and a group behave
+exactly like a scene's. It is not a pane of its own: it is the same task,
+adjusting the picture, and the inspector is where the hands already are.
+
+### D184: meta reactivity and audio speed multiply the audio panel's gains (2026-10-11)
+
+The app already applied reactivity and audio speed, from the Audio panel, to the
+live analyser (`AudioInput::set_reactivity`, `set_speed`). The meta bank's two
+controls are the same gains reached another way, so they **multiply** the
+panel's rather than replace them: effective = panel x meta, clamped to the
+analyser's 0 to 4. `AudioInput::set_meta_gains` is called once per scene frame
+with the live session's values (not from `Session::advance`, which a playlist
+runs for two or three scenes a frame and which would fight over one analyser),
+and the capture is only told when the product changes. The meta range is 0 to 2
+(Strobe's, Q21); with the panel at 4 the product reaches the analyser's ceiling.
+Synthetic audio ignores both, as it ignored the panel: it is a fixed pattern.
+
+### D185: cube maps are loaded at scene load, and a bad one is black, not fatal (2026-10-11)
+
+`CUBEMAPS` entries are loaded by `strobe_gfx::assets::load_cubemap` from six
+face paths (+X, -X, +Y, -Y, +Z, -Z) or one picture: a 6:1 strip, a 1:6 strip or
+a 4:3 horizontal cross. Faces must be square, equal and at most 2048. They go
+into a `gl::Texture` of target `TEXTURE_CUBE_MAP` (`Gl::texture_cube`, one leaf
+wrapper per GL call, the owning type is the existing `Texture` with its `Drop`
+that respects the lost flag, D66), linear with a mip chain, clamped on all
+axes, with seamless filtering enabled on desktop (GLES always has it, and
+rejects the enum). Faces are used as decoded, not flipped.
+
+Unlike a missing `IMAGES` file, which fails the scene load, a missing or
+invalid cube map **keeps the scene running**: its sampler reads a 1x1 black cube
+and `ScenePlayer::take_asset_problems` returns what went wrong. The app reports
+each through `strobe_diag::failure` (`failures::asset_problem`: subsystem IO,
+phase `asset`, the sampler, the files, the action "runs with a black cube map"),
+once, from `Session::load`. A cube map is decoration in most scenes and a
+projector should not go dark for a typo; images were left as they were.
+
+Unverified (Q22): that SSF's own `CUBEMAPS` uses these key names and a face
+order, and what orientation real cross layouts have. The six-path form follows
+the data model the repository already had (`CubemapDef`, from PLAN).
+
+### D186: `syn_Media` shows a still or an image sequence, decoded off the frame thread (2026-10-11)
+
+A scene names its picture with a `MEDIA` key (a Strobe extension: SSF documents
+the key but its shape was not available to check, Q22): a path, or
+`{ PATH, FPS (24), LOOP (true), WRAP (clamp), FILTER (linear), VFLIP (true) }`.
+A **file** is a still; a **folder** is a sequence of its PNG and JPEG files in
+name order. `--media PATH` shows one in place of the scene's own for scenes
+loaded by hand (a playlist's cues keep theirs).
+
+- **Off the frame thread, uploaded once.** `assets::spawn_decoder` reads and
+  decodes on a thread of its own and sends pictures through a 3-deep channel;
+  `ScenePlayer::render` uploads at most **one** per frame (`Media::poll`, a
+  non-blocking `try_recv`), as a texture of its own. After that the frame only
+  *binds* the texture for the scene clock (`floor(TIME * FPS)`, looping or
+  holding the last). No upload, allocation or `glGet*` in steady state.
+- **Limits.** Pictures longer than 2048 on a side are shrunk; a sequence stops
+  at 192 MiB of decoded frames (reported, and the frames already loaded play).
+  Video memory on the target is shared with the system.
+- **`syn_MediaType`** is 0 with no picture showing and 1 while a still or a
+  sequence is. The SSF library only tests `> 0.5` (`_isMediaActive`), which is
+  all that is relied on; values for video and webcam are left unassigned.
+- **Changing media** (`set_media`) keeps the old picture until the new one's
+  first frame has landed, so there is no black flash; a failure leaves the old
+  picture and is reported.
+- **Failure** is an `AssetProblem` named `syn_Media`, reported like a cube
+  map's (D185), and the scene runs with black media.
+- `finish_media_loading` blocks until decoding is done, for tests and the
+  benchmark's reproducible frames. The app never calls it.
+
+**Video and webcam are not in this stage.** They need a decoder (or a capture
+dependency) the engine does not carry and the target machine may not decode in
+time; they are in the roadmap as later work. Nothing here should grow a heavy
+video dependency.
+
 ### D190: the Parametric Flow brand is the default theme, and the icons are rendered from SVG (2026-10-11)
 
 lnorton89/strobe#6 added the brand (`docs/branding.md`, `assets/brand/`).
