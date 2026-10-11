@@ -366,7 +366,7 @@ fn parse_filter(text: Option<&str>, default: Filter) -> Result<Filter, String> {
 /// Whether `path` stays inside the scene folder: relative, with no `..`,
 /// no drive or root, and no backslash (which means different things on
 /// different systems).
-fn is_folder_relative(path: &str) -> bool {
+pub fn is_folder_relative(path: &str) -> bool {
     use std::path::{Component, Path};
     !path.is_empty()
         && !path.contains(['\\', ':', '\0'])
