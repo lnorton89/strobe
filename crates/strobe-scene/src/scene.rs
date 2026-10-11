@@ -76,6 +76,9 @@ pub struct PassDef {
     pub filter: Filter,
     /// Store in 32-bit float even when the player defaults to 16-bit.
     pub full_precision: bool,
+    /// An absolute size in pixels that ignores the output size and render
+    /// scale (`FIXED_SIZE`, D191), or `None` to follow [`Self::scale`].
+    pub fixed: Option<[i32; 2]>,
 }
 
 /// An image file bound as a `sampler2D`.
@@ -220,6 +223,7 @@ impl SceneDef {
             wrap: Wrap::Clamp,
             filter: Filter::Linear,
             full_precision: false,
+            fixed: None,
         });
 
         let images = raw
@@ -450,7 +454,23 @@ fn pass_def(index: usize, raw: &RawPass, design: [f32; 2]) -> Result<PassDef, Sc
         wrap,
         filter,
         full_precision: raw.full_precision.unwrap_or(false),
+        fixed: raw.fixed_size.unwrap_or(false).then(|| {
+            [
+                fixed_pixels(scale[0] * design[0]),
+                fixed_pixels(scale[1] * design[1]),
+            ]
+        }),
     })
+}
+
+/// A `FIXED_SIZE` dimension in whole pixels. [`size_fraction`] has already
+/// refused anything below one pixel or not finite.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "a pass dimension is a few thousand pixels at most"
+)]
+fn fixed_pixels(pixels: f32) -> i32 {
+    (pixels.round() as i32).max(1)
 }
 
 /// A pass dimension as a fraction of the design dimension `full`.
@@ -546,6 +566,19 @@ mod tests {
             "s",
         )?;
         assert_eq!(def.passes[0].scale, [0.5, 0.25], "960/1920 and 1080/4/1080");
+        Ok(())
+    }
+
+    #[test]
+    fn a_fixed_size_pass_keeps_its_design_pixels() -> Result<()> {
+        let def = SceneDef::parse(
+            r#"{ "WIDTH": 1920, "HEIGHT": 1080,
+                 "PASSES": [ {"TARGET": "a", "WIDTH": 960, "HEIGHT": 540, "FIXED_SIZE": true},
+                             {"TARGET": "b", "WIDTH": "$WIDTH/3"} ] }"#,
+            "s",
+        )?;
+        assert_eq!(def.passes[0].fixed, Some([960, 540]), "absolute pixels");
+        assert_eq!(def.passes[1].fixed, None, "FIXED_SIZE defaults to off");
         Ok(())
     }
 

@@ -224,6 +224,10 @@ pub struct RawPass {
     /// defaults to, for a pass that integrates values 16 bits cannot hold
     /// (a Strobe extension).
     pub full_precision: Option<bool>,
+    /// Keep `WIDTH` x `HEIGHT` as absolute pixels, whatever the output
+    /// size or render scale (a Strobe extension, D191). For simulations,
+    /// whose look depends on their grid.
+    pub fixed_size: Option<bool>,
 }
 
 /// One image.

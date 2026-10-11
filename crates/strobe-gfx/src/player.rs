@@ -787,10 +787,12 @@ impl ScenePlayer {
                 });
                 continue;
             }
-            let size = [
+            // A FIXED_SIZE pass keeps its own grid (D191); every other pass
+            // follows the render size, and so the render scale (D11).
+            let size = pass.fixed.unwrap_or([
                 ((render_size[0] as f32 * pass.scale[0]).round() as i32).max(1),
                 ((render_size[1] as f32 * pass.scale[1]).round() as i32).max(1),
-            ];
+            ]);
             let precision = if pass.full_precision {
                 FloatPrecision::Full
             } else {
