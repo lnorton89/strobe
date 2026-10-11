@@ -58,10 +58,46 @@ copy is `C:\Users\Lawrence\documents\dev\strobe`. Agents write only under
   a fixed number of cells across, came out half the size on screen. Fixed
   by `FIXED_SIZE` passes (D191). To be re-checked here.
 
+## 65 real Synesthesia scenes (2026-10-11, commit 963b535, Task T2)
+
+These are the owner's scenes, kept local on this machine; none of them is in
+the repo. Run on 1920x1080, with a window context, at release.
+
+- **Compiles:** 47 of 65 on native, 35 of 65 on ANGLE. Before D192, ANGLE
+  managed 8. `hello_world_start` (`vec4(1,0,0,0)`) now renders red on both
+  backends.
+- **Native failures (18):**
+  - 8: the user-media library is missing (`syn_UserImage` and friends);
+  - 3: `MEDIA` written as a list of slots;
+  - 4: a control with no `TYPE`;
+  - 2: a pass sized 0;
+  - 1: the scene's own bug (it redeclares `fragColor`).
+  D193 fixes the shape problems; the media library is still to do.
+- **ANGLE-only failures (12):**
+  - 10: implicit int to float;
+  - 2: `#if` on a name that is not a macro;
+  - 1: a CRLF `\` continuation, now fixed by D193. LF copies proved it,
+    and they also fixed the error line numbers that came out as 2n-1.
+- **Speed:** the slowest at 1080p were `wet_stone_1` 37.7 ms, `kifs_walls_`
+  17.9, `wet_stone` 17.8 and `abstract_terrain_objects` 14.1. ANGLE runs
+  within about 4% of native.
+- **Scripts.** 50 scenes have `script.js`, but only 9 are non-empty. All 40
+  that pass on native loaded in the app with no crash or SCRIPT fault.
+  Script uniforms (`script_time`, `spectrum_0..3`, `BPMTri*` and others) are
+  discovered and compiled in. A template script that names 8 controls its
+  scene lacks now logs warnings (D193). No host function is missing.
+- **Answers:**
+  - Q24 is resolved as R7: pass sizes are absolute (D194).
+  - Q22: real `MEDIA` is a list of slots; no cube maps.
+  - Q21/Q23: the script API in use is listed in OPEN_QUESTIONS.
+- **D191 check:** 07 at 1080p and 2160p shows the same spot size and
+  layout.
+
 ## Pending on this machine
 
-- [ ] Re-run 07 at 1080p and 2160p after D191: the pattern should be the
-  same size on screen.
+- [x] Re-run 07 at 1080p and 2160p after D191: same size (T2).
+- [ ] Re-run the 65 scenes after D193/D194, and after the user-media
+  library lands.
 - [ ] The app fullscreen at 2560x1440 with a playlist show, transitions and
   the post stage, against the T480's numbers.
 - [ ] A larger set of real Shadertoy shaders through NVIDIA's compiler

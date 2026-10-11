@@ -2728,3 +2728,75 @@ and in both `PASSINDEX` modes.
 *before* `main` would run on desktop (impossible in GLSL), or Synesthesia's
 output turning out to honour alpha.
 
+### D193: real Synesthesia scene shapes load (2026-10-11)
+
+TORNADO's run over 65 real scenes (T2) found shapes that the SSF documentation
+and Strobe's original scenes never showed. Each now loads:
+
+- **CRLF.** 50 of 64 real `main.glsl` files have Windows line endings. On
+  ANGLE a `\` continuation ending in `\r\n` is not honoured, and error line
+  numbers came out as about 2n-1 in five scenes. `SceneFolder::load`
+  normalises `\r\n` to `\n` for every file it reads. A file without `\r` is
+  not copied.
+- **A control with no `TYPE`.** 7 controls have only `NAME`, `MIN`, `MAX`
+  and `DEFAULT`, and Strobe rejected them as type "". Now two default
+  components make an `xy` pad and anything else a `slider`.
+- **A pass sized `0`.** It means the output size (scale 1.0), instead of an
+  error.
+- **`MEDIA` as a list.** Synesthesia's own form is `"MEDIA": [ { "FILTER",
+  "WRAP" } ]`: input slots with sampler settings and no file, filled at run
+  time from the user's media. D186's guessed `MEDIA` (a path or an object)
+  still works. A slot with no path means no picture until `--media` gives
+  one.
+- **Several names in one global declaration.** `float a = x, b = y;` is
+  hoisted per initializer on ES (extends D192).
+- **A script naming a control the scene lacks** is now a console warning,
+  not an error. A real template script references eight controls its scene
+  does not declare, which is the scene's business. A missing callback stays
+  an error.
+
+Evidence: `scene.rs` `real_synesthesia_shapes_load`, `load.rs`
+`windows_line_endings_are_normalised_at_load`, `fixups::hoist_tests`
+`a_declaration_of_several_names_hoists_each_initializer`, and the two updated
+conformance tests in `strobe-script`.
+
+**Still failing on the corpus, and why:**
+- **The user-media library** (`syn_UserImage`, `_loadUserImage`,
+  `_loadUserImageAsMask`, `_exists`, `_correctImageCoords`,
+  `_invertYAxisVideo`; 8 scenes). It waits for Synesthesia's own engine files
+  (the private corpus, Task 18), so it is copied rather than guessed.
+- **On ANGLE only:** implicit int to float (10 scenes, e.g. `clamp(x, 0, 1)`
+  or `mix(2, 20, a)`), and `#if` on a name that is not a macro (2). Both
+  need types (Q8).
+
+### D194: literal pass sizes are absolute pixels, as in Synesthesia (2026-10-11)
+
+Reverses D11 for one case. Q24 asked whether SSF pass sizes are absolute. The
+65 real scenes say yes:
+- a 10x10 data pass beside a 640x360 one;
+- a halving pyramid down to 14x8 and 7x4;
+- a 3000x1500 pass in a 1920x1080 scene.
+
+Under D11 that 10x10 pass became 7x7 at 720p, so a shader reading fixed texels
+from it read the wrong ones. Now:
+
+| A pass's `WIDTH`/`HEIGHT` | Size |
+|---|---|
+| Both literal numbers | Absolute pixels |
+| `$WIDTH` / `$HEIGHT` expressions | Follow the output and the render scale (D11) |
+| Absent or `0` | Full output size |
+| Mixed (one literal, one expression) | Follow the output, conservatively |
+
+`FIXED_SIZE` (D191) overrides either way: `true` fixes, `false` follows.
+Shadertoy imports write no sizes, so they are unaffected. `08-bloom-orbs`
+now writes `$WIDTH/4` so its blur keeps shrinking with render scale, and
+`07` keeps `FIXED_SIZE`.
+
+The cost on old GPUs: a literal pass no longer shrinks when adaptive
+resolution lowers the scale. That is the faithful behaviour, and a scene
+that wants the lever uses an expression. Evidence: `scene.rs`
+`literal_pass_sizes_are_absolute_and_expressions_follow_the_output`.
+
+**Would reopen:** a Synesthesia scene that clearly expects a literal size to
+scale with the output.
+
