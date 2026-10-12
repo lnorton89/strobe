@@ -36,6 +36,8 @@
 //! - [`screenshot`]: the `--screenshot` verification mode.
 //! - [`brand`]: the window and taskbar icon (D190).
 //! - [`cli`]: the command line.
+//! - [`corpus`]: the scene-corpus compatibility harness behind
+//!   `strobe-corpus` and `cargo xtask corpus` (D195).
 
 pub mod app;
 pub mod audio;
@@ -44,6 +46,7 @@ pub mod cli;
 pub mod color;
 pub mod commands;
 pub mod console;
+pub mod corpus;
 pub mod diagnose;
 pub mod dialog;
 pub mod failures;
