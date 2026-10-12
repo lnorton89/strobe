@@ -1,0 +1,19 @@
+[package]
+name = "strobe-remote"
+description = "Versioned, transport-independent protocol for Strobe's authenticated LAN show remote."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+name = "strobe_remote"
+path = "src/lib.rs"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true
