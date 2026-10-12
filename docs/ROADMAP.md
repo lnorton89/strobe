@@ -6,7 +6,7 @@ in [DECISIONS.md](DECISIONS.md), the evidence-based gap list in
 [STATUS_AUDIT.md](STATUS_AUDIT.md), and real-hardware results in
 [hardware/T480.md](hardware/T480.md).
 
-_Last updated: 2026-10-11 (show control: MIDI, OSC, presets, macros stage 2, hotkeys)._
+_Last updated: 2026-10-12 (implementation backlog reconciled; LAN remote protocol slice in PR)._
 
 ## Now
 
@@ -47,8 +47,7 @@ which backend proved a claim.
 
 ## Next, in priority order
 
-Each item names its acceptance test. Details and evidence are in
-[STATUS_AUDIT.md](STATUS_AUDIT.md).
+Each item names its acceptance test. Evidence is in [STATUS_AUDIT.md](STATUS_AUDIT.md); the complete cross-epic register of open implementation and validation work is [IMPLEMENTATION_BACKLOG.md](IMPLEMENTATION_BACKLOG.md). Keep the roadmap short and update both documents as work lands.
 
 1. **Close out the T480 validation.** Recovery on real WGL, bug 1 at full
    scale, an audio device removed and reconnected, a 30-minute soak with
