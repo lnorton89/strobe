@@ -19,7 +19,8 @@ crates/
 ├── strobe-autocontrol  Auto-generated controls: finds tunable literals, rewrites them to uniforms, keeps those that measurably change the image
 ├── strobe-app          winit event loop, control window (egui) + output window, wiring
 ├── strobe-playlist     Playlist model, TOML, generator, timeline, playback clock (pure)
-└── strobe-io           Show control: MIDI and OSC workers, mappings, learn, soft takeover, macros (no GL)
+├── strobe-io           Show control: MIDI and OSC workers, mappings, learn, soft takeover, macros (no GL)
+└── strobe-remote       Versioned LAN remote protocol (no sockets or app state yet)
 ```
 
 (The localhost import listener stayed in `strobe-shadertoy`, D114. Presets and
