@@ -149,6 +149,8 @@ pub mod source {
     pub const USER: u32 = 1;
     /// The generated `main`.
     pub const EPILOGUE: u32 = 2;
+    /// Files `#include`d by the user's code (D198).
+    pub const INCLUDED: u32 = 3;
 }
 
 /// Everything the assembler needs for one program.

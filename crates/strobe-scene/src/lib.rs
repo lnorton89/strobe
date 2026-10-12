@@ -26,12 +26,15 @@
 //!   SSF function library, the user's code, and the `main` that calls
 //!   `renderMain`.
 //! - [`fixups`] are the GLSL ES rewrites for desktop-only SSF idioms.
+//! - [`include`] expands `#include` against the scene folder and the GLSL
+//!   library folders when a scene loads.
 //! - [`meta`] is the output-wide meta control bank (master, brightness,
 //!   hue, mirror...), an ordinary [`control::ControlBank`].
 //! - [`names`] is the name matching the JavaScript API relies on:
 //!   case-insensitive, ignoring `_`, `-` and spaces.
 //!
-//! Nothing here touches GL, the filesystem beyond [`load`], or a clock:
+//! Nothing here touches GL, the filesystem beyond [`load`] and the
+//! [`include`] it runs, or a clock:
 //! `dt` is passed in. That is what lets every rule above be tested on any
 //! machine without a window.
 
@@ -41,6 +44,7 @@ pub mod control;
 pub mod date;
 pub mod error;
 pub mod fixups;
+pub mod include;
 pub mod json;
 pub mod load;
 pub mod meta;
