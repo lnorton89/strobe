@@ -46,6 +46,14 @@ pub enum ClientMessage {
         /// One-time code; never log this field.
         code: String,
     },
+    /// Authenticate a previously paired client on a new connection.
+    ///
+    /// Adapters must compare this token in constant time where practical,
+    /// never log it, and accept it only in the message body (never a URL).
+    Authenticate {
+        /// Opaque per-client bearer token.
+        token: String,
+    },
     /// Request one allowlisted show-control operation.
     Command {
         /// Caller-generated id used to correlate the result.
@@ -103,6 +111,11 @@ pub enum ServerMessage {
         client_id: String,
         /// High-entropy bearer token. Send it only in an authenticated channel.
         token: String,
+    },
+    /// A previously paired client has authenticated successfully.
+    Authenticated {
+        /// Stable identifier for the paired client.
+        client_id: String,
     },
     /// Complete current-state snapshot, sent on connect and resynchronization.
     State {
