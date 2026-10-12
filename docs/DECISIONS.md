@@ -2832,3 +2832,65 @@ Evidence: `scene.rs` `real_synesthesia_shapes_load`, `runtime.rs`
 `names_equal_once_normalised_load_and_the_exact_name_wins`, `assets.rs`
 `an_image_is_decoded_by_its_content_not_its_extension`.
 
+### D197: `traveler` controls, the image family, and Synesthesia's older names (2026-10-12)
+
+From Synesthesia 1.25.4's own scenes (the private corpus) and its bundled docs
+and editor, which the T480 read (Task 19).
+
+- **`traveler`** (`slider traveler`, `knob traveler`, `xy traveler`) is a
+  real, current control type: the editor lists it, and 9 of 90 shipped scenes
+  use it, with `PARAMS`. The docs omit it. `Mode::Traveler` is a speed control
+  (the output integrates the control, per second, like `speed`, which the docs
+  do describe) whose rate eases toward the control with `PARAMS`, so a change
+  of speed accelerates instead of jumping. That fits the scenes, which give
+  traveler controls a `PARAMS` ("fly in/out", "spin", "automatically pan").
+  It is an inference, recorded in Q23.
+- **The image family**, which the editor lists and the docs do not describe,
+  mirrors the documented media functions for any sampler: `_textureImage`,
+  `_loadImage(img[, offset])`, `_loadImageAsMask`, `_textureImageAsMask`,
+  `_imageToMask`. `_correctImageCoords(size, uv)` is the cover fit that
+  `_correctMediaCoords` now uses, with an `ivec2` overload because scenes pass
+  `textureSize()` straight in. `syn_pass_edgeDetectSobel(pass)` wraps
+  `_edgeDetectSobel`.
+- **Older names** in real scenes: `syn_UserImage`, `_loadUserImage` and
+  `_loadUserImageAsMask` are `#define`d to `syn_Media`, `_loadMedia` and
+  `_loadMediaAsMask` (the user image was the media input before it was called
+  that). `_invertYAxisVideo(uv)` flips y. `_flipMediaCoords`,
+  `_applyMediaScale`, `_applyInvertMedia` and `_applyMediaContrast` are the
+  identity, because Strobe has no per-media flip, scale, invert or contrast
+  option yet. `_exists(tex)` is true when a sampler holds more than Strobe's
+  1x1 placeholder.
+- **Undocumented audio names**, stand-ins until their meaning is known:
+  `syn_InputLevel` is `syn_Level`, and `syn_BassExpoCurve` is
+  `syn_BassLevel * syn_BassLevel`.
+
+Evidence: `runtime.rs` `a_traveler_accelerates_toward_its_speed_and_integrates_it`,
+and the library compiling in both dialects (`render.rs`
+`the_ssf_library_compiles_in_both_dialects`). With these and D196, the
+corpus's desktop failures on llvmpipe fell from 55 to 45 of 90. All 45 are
+either uniforms a `script.js` creates (the bench runs no scripts; D195's
+harness does) or `#include` (D198).
+
+### D198: `#include` resolves against the scene and the GLSL library folders (2026-10-12)
+
+Synesthesia scenes `#include` the libraries the engine ships (`lygia` 1.1.4,
+`hg_sdf`) and the user's own `.glsl` files, per its docs (`libraries.html`).
+`strobe_scene::include` expands them when a scene loads. It looks relative to
+the including file (lygia includes with `../`), then in the scene folder,
+then in `STROBE_GLSL_PATH`, then in Synesthesia's `lib` folder and user
+`glsl` data folder when they exist. Strobe ships neither library, because
+lygia's licence forbids it, so a machine with Synesthesia installed simply
+works and any other machine points `STROBE_GLSL_PATH` at a copy.
+
+Each file is included once, which is what lygia's include guards do anyway,
+and that also stops cycles. Nesting is capped at 16 levels. A missing file
+stays as the `#include` line, so the driver's error names it. Included text
+compiles under source string 3 (`source::INCLUDED`) between `#line`
+directives, so `main.glsl` keeps its line numbers.
+
+Evidence: `include.rs` tests (relative then search path, once each, line
+numbers kept; missing left alone; only real include lines). On the corpus,
+`SkaiWalkerOG` now finds `hg_sdf.glsl`. It then fails inside it on Mesa,
+because hg_sdf's `float sgn(float x) { return (x<0)?-1:1; }` returns an int.
+NVIDIA accepts that and Mesa does not; the int-to-float family is Q8.
+
