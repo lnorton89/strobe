@@ -3,7 +3,7 @@
 // Description:  Reads a .synScene folder from disk into a validated scene plus
 //               its shader and script source.
 //
-// Dependencies: std::fs; crate::scene, crate::error
+// Dependencies: std::fs; crate::scene, crate::error, crate::include
 // ============================================================================
 
 //! Loading a scene folder.
@@ -86,6 +86,12 @@ impl SceneFolder {
             .map(|file| read(file)?.ok_or_else(|| SceneError::missing_file(dir, file)))
             .collect::<Result<Vec<_>, _>>()?;
         let script = read("script.js")?;
+        let search = crate::include::search_path();
+        let shader = crate::include::expand(shader, dir, &search);
+        let pass_shaders = pass_shaders
+            .into_iter()
+            .map(|text| crate::include::expand(text, dir, &search))
+            .collect();
         Ok(Self {
             dir: dir.to_path_buf(),
             def,
