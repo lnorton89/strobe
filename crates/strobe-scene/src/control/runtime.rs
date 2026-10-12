@@ -48,6 +48,8 @@ struct State {
     count: f32,
     /// `bang smooth`: still rising toward the peak.
     attacking: bool,
+    /// `traveler`: the rate, easing toward the target.
+    rate: Values,
 }
 
 /// A control's value as the shader sees it.
@@ -295,9 +297,9 @@ fn initial_state(def: &ControlDef) -> State {
         ControlKind::Dropdown { .. } => output[0] = dropdown_value(def, def.default[0]),
         ControlKind::Bang(Bang::Plain | Bang::Smooth) => output = def.min,
         ControlKind::Bang(Bang::Counter | Bang::CounterSmooth) => output = [0.0; MAX_DIMENSIONS],
-        ControlKind::Slider(Mode::Speed)
-        | ControlKind::Knob(Mode::Speed)
-        | ControlKind::Xy(Mode::Speed) => {
+        ControlKind::Slider(Mode::Speed | Mode::Traveler)
+        | ControlKind::Knob(Mode::Speed | Mode::Traveler)
+        | ControlKind::Xy(Mode::Speed | Mode::Traveler) => {
             output = [0.0; MAX_DIMENSIONS];
         }
         ControlKind::Slider(Mode::Plain | Mode::Smooth)
@@ -312,6 +314,7 @@ fn initial_state(def: &ControlDef) -> State {
         presses: 0,
         count: 0.0,
         attacking: false,
+        rate: def.default,
     }
 }
 
@@ -351,6 +354,14 @@ fn step(def: &ControlDef, state: &mut State, dt: f32) {
         | ControlKind::Xy(Mode::Speed) => {
             for i in 0..dims {
                 state.output[i] += state.target[i] * dt;
+            }
+        }
+        ControlKind::Slider(Mode::Traveler)
+        | ControlKind::Knob(Mode::Traveler)
+        | ControlKind::Xy(Mode::Traveler) => {
+            ease(&mut state.rate, &state.target);
+            for i in 0..dims {
+                state.output[i] += state.rate[i] * dt;
             }
         }
         ControlKind::Dropdown { smooth } => {
@@ -462,6 +473,36 @@ mod tests {
             (out(&b, 0) - 1.0).abs() < 1e-4,
             "half a second at 2/s, got {}",
             out(&b, 0)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_traveler_accelerates_toward_its_speed_and_integrates_it() -> Result<()> {
+        // D197: `slider traveler` is a speed whose rate eases with PARAMS.
+        let mut b = bank(&[
+            r#"{ "NAME": "t", "TYPE": "slider traveler", "MIN": -2, "MAX": 2, "DEFAULT": 0, "PARAMS": 0.1 }"#,
+        ])?;
+        b.set(0, None, &[2.0]);
+        b.tick(1.0 / 60.0);
+        let first = out(&b, 0);
+        assert!(
+            first > 0.0 && first < 2.0 / 60.0,
+            "the first frame moves, but slower than full speed: {first}"
+        );
+        for _ in 0..600 {
+            b.tick(1.0 / 60.0);
+        }
+        let before = out(&b, 0);
+        b.tick(1.0 / 60.0);
+        let step = out(&b, 0) - before;
+        assert!(
+            (step - 2.0 / 60.0).abs() < 1e-3,
+            "after ten seconds it travels at the full 2/s: {step}"
+        );
+        assert!(
+            ControlKind::parse("t", "toggle traveler").is_err(),
+            "only sliders, knobs and xy pads travel"
         );
         Ok(())
     }

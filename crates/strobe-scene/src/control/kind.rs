@@ -25,6 +25,10 @@ pub enum Mode {
     Smooth,
     /// Output integrates the input: the control sets a rate per second.
     Speed,
+    /// `traveler`: like [`Self::Speed`], but the rate itself eases toward
+    /// the control with `PARAMS`, so a change of speed accelerates rather
+    /// than jumps (D197). Synesthesia's editor lists it; its docs do not.
+    Traveler,
 }
 
 /// What a bang does on a press.
@@ -80,11 +84,13 @@ impl ControlKind {
         let base = words.next().ok_or_else(unknown)?;
         let mut smooth = false;
         let mut speed = false;
+        let mut traveler = false;
         let mut counter = false;
         for word in words {
             match word {
                 "smooth" => smooth = true,
                 "speed" => speed = true,
+                "traveler" => traveler = true,
                 "counter" => counter = true,
                 _ => return Err(unknown()),
             }
@@ -94,11 +100,13 @@ impl ControlKind {
             base: base.to_string(),
             modifier: modifier.to_string(),
         };
-        let mode = || match (smooth, speed) {
-            (true, true) => Err(invalid("speed")),
-            (false, true) => Ok(Mode::Speed),
-            (true, false) => Ok(Mode::Smooth),
-            (false, false) => Ok(Mode::Plain),
+        let mode = || match (smooth, speed, traveler) {
+            (false, false, true) => Ok(Mode::Traveler),
+            (_, true, true) => Err(invalid("traveler")),
+            (true, _, true) | (true, true, false) => Err(invalid("speed")),
+            (false, true, false) => Ok(Mode::Speed),
+            (true, false, false) => Ok(Mode::Smooth),
+            (false, false, false) => Ok(Mode::Plain),
         };
 
         if counter && base != "bang" {
@@ -107,6 +115,8 @@ impl ControlKind {
         let no_speed = |kind: Self| {
             if speed {
                 Err(invalid("speed"))
+            } else if traveler {
+                Err(invalid("traveler"))
             } else {
                 Ok(kind)
             }
