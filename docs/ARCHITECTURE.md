@@ -40,6 +40,8 @@ strobe-shadertoy ◀──┘  (tokenizer only)                 scoring needs a 
 
 strobe-scene ◀── strobe-io                (midir, rosc; never strobe-gfx)
 
+strobe-remote (serde protocol only; app/server integration is next)
+
 strobe-scene ◀── strobe-shadertoy         (nothing depends on it yet;
                                            dev-dependency: strobe-gfx, for
                                            the render tests only)
