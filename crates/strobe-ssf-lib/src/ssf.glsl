@@ -254,9 +254,8 @@ vec4 _diChrome(vec4 c, vec3 dark, vec3 light) { return _dichrome(c, dark, light)
 
 bool _isMediaActive() { return syn_MediaType > 0.5; }
 
-// "Cover" fit: the media fills the frame without stretching.
-vec2 _correctMediaCoords(vec2 uv) {
-    vec2 size = vec2(textureSize(syn_Media, 0));
+// "Cover" fit: a picture of `size` fills the frame without stretching.
+vec2 _correctImageCoords(vec2 size, vec2 uv) {
     float frameAspect = RENDERSIZE.x / RENDERSIZE.y;
     float mediaAspect = size.x / max(size.y, 1.0);
     vec2 c = uv - 0.5;
@@ -267,6 +266,9 @@ vec2 _correctMediaCoords(vec2 uv) {
     }
     return c + 0.5;
 }
+// Real scenes pass `textureSize(tex, 0)` straight in.
+vec2 _correctImageCoords(ivec2 size, vec2 uv) { return _correctImageCoords(vec2(size), uv); }
+vec2 _correctMediaCoords(vec2 uv) { return _correctImageCoords(vec2(textureSize(syn_Media, 0)), uv); }
 vec2 _correctMediaCoords() { return _correctMediaCoords(_uv); }
 
 vec4 _textureMedia(vec2 uv) { return texture(syn_Media, _correctMediaCoords(uv)); }
@@ -281,6 +283,40 @@ vec4 strobe_asMask(vec4 c) { return vec4(vec3(step(0.5, _luminance(c.rgb))), 1.0
 vec4 _loadMediaAsMask() { return strobe_asMask(_loadMedia()); }
 vec4 _loadMediaAsMask(vec2 offset) { return strobe_asMask(_loadMedia(offset)); }
 vec4 _textureMediaAsMask(vec2 uv) { return strobe_asMask(_textureMedia(uv)); }
+
+// The same family for any image (D197). Synesthesia's editor lists these
+// names; the docs describe only the media versions, so each mirrors its
+// media counterpart with `img` in place of syn_Media.
+vec4 _textureImage(sampler2D img, vec2 uv) { return texture(img, _correctImageCoords(vec2(textureSize(img, 0)), uv)); }
+vec4 _loadImage(sampler2D img) { return _textureImage(img, _uv); }
+vec4 _loadImage(sampler2D img, vec2 offset) { return _textureImage(img, _uv + offset); }
+vec4 _imageToMask(vec4 c) { return strobe_asMask(c); }
+vec4 _loadImageAsMask(sampler2D img) { return strobe_asMask(_loadImage(img)); }
+vec4 _loadImageAsMask(sampler2D img, vec2 offset) { return strobe_asMask(_loadImage(img, offset)); }
+vec4 _textureImageAsMask(sampler2D img, vec2 uv) { return strobe_asMask(_textureImage(img, uv)); }
+
+// Older names in real scenes (D197): the user image was the media input
+// before it was called that, and video arrives upside down relative to
+// stills.
+#define syn_UserImage syn_Media
+#define _loadUserImage _loadMedia
+#define _loadUserImageAsMask _loadMediaAsMask
+vec2 _invertYAxisVideo(vec2 uv) { return vec2(uv.x, 1.0 - uv.y); }
+// Strobe has no per-media flip or invert option yet, so these are the
+// identity they are when those options are off.
+vec2 _flipMediaCoords(vec2 uv) { return uv; }
+vec2 _applyMediaScale(vec2 uv) { return uv; }
+vec4 _applyInvertMedia(vec4 c) { return c; }
+vec4 _applyMediaContrast(vec4 c) { return c; }
+// Whether a sampler has a picture: an unbound one is Strobe's 1x1 black.
+bool _exists(sampler2D tex) { return textureSize(tex, 0).x > 1; }
+
+// Audio names real scenes use that neither Synesthesia's docs nor its
+// editor list (D197). These are stand-ins until their meaning is known:
+// the input level as the overall level, and an exponential bass curve as
+// the bass level squared.
+#define syn_InputLevel syn_Level
+#define syn_BassExpoCurve (syn_BassLevel * syn_BassLevel)
 
 // ---------------------------------------------------------------- edges
 
@@ -312,6 +348,8 @@ vec4 _edgeDetectSobel(sampler2D tex) { return _edgeDetectSobel(tex, _uv); }
 
 vec4 _edgeDetectMedia() { return _isMediaActive() ? _edgeDetect(syn_Media, _correctMediaCoords(_uv)) : vec4(0.0); }
 vec4 _edgeDetectSobelMedia() { return _isMediaActive() ? _edgeDetectSobel(syn_Media, _correctMediaCoords(_uv)) : vec4(0.0); }
+// A pass's edges, by the name real scenes use (D197).
+vec4 syn_pass_edgeDetectSobel(sampler2D pass) { return _edgeDetectSobel(pass); }
 
 // ---------------------------------------------------------------- tilt shift
 // A separable Gaussian whose radius grows with distance from blurLoc along
