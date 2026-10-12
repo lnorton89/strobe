@@ -38,6 +38,12 @@ which backend proved a claim.
 
 - **Perform UI stage 2** (see item 2): the panes built in stage 1 will also
   hold the review panel for generated controls and the Playlist workspace.
+- **LAN remote, implementation slice 1:** `strobe-remote` now defines a
+  versioned, typed, allowlisted client/server protocol with serialization
+  tests. It has no listener, pairing implementation, PWA assets, or app
+  command/state bridge yet. The next step is a separately owned network
+  service and bounded channel into the app event loop; do not let server
+  callbacks touch GL, playlist, or egui state.
 
 ## Next, in priority order
 
@@ -317,6 +323,7 @@ never per frame.
 | 4 | Shadertoy import | The converter (D90-D95), acquisition (REST client, texture downloader, localhost listener), the Import panel, file drop and the userscript (D110-D117) are built, and stage 1 of auto-generated controls (D123-D126). Open: live-site verification (Q19), thumbnails, the Needs-work bin, batch import, and the app's review panel for generated controls. |
 | 5 | Playlists | The pure core (D73-D77) and the app integration (D150-D158) are built. Verified on the T480 (Task 14). Open: audio-event advance, the Playlist workspace's inspector, MIDI/OSC. |
 | 6 | Presets, MIDI, OSC, hotkeys | Built (D170-D179): `strobe-io`, presets and fav slots, the MAP pane, macros stage 2, hotkeys. Open: a controller on the T480, OSC and MIDI output, macro editors. |
+| 7b | LAN remote / PWA | Protocol crate started in `strobe-remote`; no listener or UI integration yet. Next: secure service lifecycle, pairing/revocation, typed command bridge, mobile controller, then solve HTTPS before claiming installable PWA support. See [REMOTE_CONTROL_PWA_RESEARCH.md](REMOTE_CONTROL_PWA_RESEARCH.md). |
 | 7 | NDI, media input, song-change transitions | Not started, except media stills and image sequences (D186); video, webcam and NDI are open. `HARD`/`SMOOTH_TRANSITIONS` are declared but never change. |
 
 ## Known gaps in what exists
