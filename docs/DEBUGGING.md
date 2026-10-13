@@ -99,6 +99,25 @@ and keep their visibility (`xdotool search --name Strobe` and `xwininfo -id`
 show the output's `Map State`). Each run except the give-up one writes `target/recover/shot-output.png`
 and `-control.png`; open them to check the output is not black.
 
+## Frame rate and the `perf:` line
+
+Once a minute the app logs one line (D206):
+
+```
+perf: 59.9 fps over 60 s, 0 late of 3594 frames, worst gap 17.9 ms, gpu 2.10 ms, control 1800 redraws 2.40 ms (worst 6.1 ms, swap included)
+```
+
+- **late**: frames whose gap was over 1.5 frame budgets, so each is a
+  missed vertical blank.
+- **gpu**: the scene's mean GPU time. Late frames with a low GPU time mean
+  the time went somewhere else.
+- **control**: the control window's redraws and their cost, swap included.
+  The count drops to about 120 a minute while the fullscreen output covers
+  the control window ("control window covered" in the log).
+
+A soak should show `0 late` minute after minute. To compare with an older
+run, grep the log for `perf:`.
+
 ## GL problems
 
 1. Run with `STROBE_GL_DEBUG=1 STROBE_LOG=gl_driver=debug` and read the

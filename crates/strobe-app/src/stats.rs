@@ -92,9 +92,127 @@ impl FrameStats {
     }
 }
 
+/// How long one [`PerfWindow`] summarises.
+pub const PERF_WINDOW: Duration = Duration::from_secs(60);
+
+/// A frame counts as late when its interval is this many frame budgets.
+const LATE_FACTOR: f32 = 1.5;
+
+/// A minute of frame timings, summarised for the log.
+///
+/// TORNADO T10 ran a fullscreen show at 48 to 56 fps with the GPU busy for
+/// under 3 ms a frame, and nothing in the log said where the time went.
+/// One line a minute (frame rate, late frames, the worst gap, GPU time and
+/// the control window's whole redraw, swap included) settles that kind of
+/// question from a soak's log alone. Recording is a few additions; the
+/// line is formatted once a minute, never per frame.
+#[derive(Debug, Default)]
+pub struct PerfWindow {
+    started: Option<Instant>,
+    last_frame: Option<Instant>,
+    frames: u32,
+    late: u32,
+    worst_ms: f32,
+    gpu_sum: f32,
+    gpu_frames: u32,
+    control_frames: u32,
+    control_sum: f32,
+    control_worst: f32,
+}
+
+impl PerfWindow {
+    /// Records a scene frame starting at `now`, against a frame budget of
+    /// `budget_ms`, with the GPU time last measured.
+    pub fn frame(&mut self, now: Instant, budget_ms: f32, gpu_ms: Option<f32>) {
+        self.started.get_or_insert(now);
+        if let Some(previous) = self.last_frame {
+            let ms = now.duration_since(previous).as_secs_f32() * 1000.0;
+            self.worst_ms = self.worst_ms.max(ms);
+            if ms > budget_ms * LATE_FACTOR {
+                self.late += 1;
+            }
+        }
+        self.last_frame = Some(now);
+        self.frames += 1;
+        if let Some(gpu) = gpu_ms.filter(|g| g.is_finite()) {
+            self.gpu_sum += gpu;
+            self.gpu_frames += 1;
+        }
+    }
+
+    /// Records one control-window redraw that took `took`, swap included.
+    pub fn control(&mut self, took: Duration) {
+        let ms = took.as_secs_f32() * 1000.0;
+        self.control_frames += 1;
+        self.control_sum += ms;
+        self.control_worst = self.control_worst.max(ms);
+    }
+
+    /// The summary line when [`PERF_WINDOW`] has passed since the first
+    /// frame recorded, and the window starts over (keeping the last frame's
+    /// time so the next interval is measured across the boundary).
+    pub fn take_due(&mut self, now: Instant) -> Option<String> {
+        let started = self.started?;
+        let span = now.duration_since(started).as_secs_f32();
+        if span < PERF_WINDOW.as_secs_f32() {
+            return None;
+        }
+        let mean = |sum: f32, n: u32| if n > 0 { sum / n as f32 } else { 0.0 };
+        let line = format!(
+            "perf: {:.1} fps over {:.0} s, {} late of {} frames, worst gap {:.1} ms, \
+             gpu {:.2} ms, control {} redraws {:.2} ms (worst {:.1} ms, swap included)",
+            self.frames as f32 / span,
+            span,
+            self.late,
+            self.frames,
+            self.worst_ms,
+            mean(self.gpu_sum, self.gpu_frames),
+            self.control_frames,
+            mean(self.control_sum, self.control_frames),
+            self.control_worst,
+        );
+        *self = Self {
+            started: Some(now),
+            last_frame: self.last_frame,
+            ..Self::default()
+        };
+        Some(line)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_minute_is_summarised_once_with_late_frames_counted() {
+        let mut window = PerfWindow::default();
+        let start = Instant::now();
+        let mut at = start;
+        for i in 0..3600_u32 {
+            // Every tenth frame misses a vertical blank.
+            let gap = if i % 10 == 9 { 33_333 } else { 16_667 };
+            at += Duration::from_micros(gap);
+            window.frame(at, 16.67, Some(2.0));
+            if i % 2 == 0 {
+                window.control(Duration::from_millis(3));
+            }
+            if i < 3000 {
+                assert!(window.take_due(at).is_none(), "not a minute yet at {i}");
+            }
+        }
+        let line = window
+            .take_due(at + Duration::from_secs(1))
+            .unwrap_or_default();
+        assert!(line.contains("360 late of 3600"), "{line}");
+        assert!(line.contains("worst gap 33.3 ms"), "{line}");
+        assert!(line.contains("gpu 2.00 ms"), "{line}");
+        assert!(line.contains("control 1800 redraws 3.00 ms"), "{line}");
+        assert!(
+            window.take_due(at + Duration::from_secs(2)).is_none(),
+            "the window started over"
+        );
+    }
 
     #[test]
     fn steady_sixty_hertz_reads_sixty() {
