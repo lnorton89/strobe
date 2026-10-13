@@ -280,7 +280,7 @@
 ## Epic G — Graphics backend research
 
 ### G-01 Machine-readable shader compatibility report
-- **Status:** Open; required before backend abstraction.
+- **Status:** Met by the corpus harness (D195): `cargo xtask corpus` writes `report.json` with the driver each dialect ran on, one record per scene and dialect (status, categorised cause, first error line, compile, first-frame and per-frame times, black/white flags, an FNV-1a checksum of the final frame) and a derived `report.md`. `tests/corpus.rs` runs a working, a broken, a scripted, a bad-JSON, a throwing and a blank scene through it on CI's headless context in both dialects, so a deliberately broken shader is caught and categorised in CI. Run on TORNADO over the real corpus (T6, T18). Left: a T480 run, and the Shadertoy fixtures through the same report (they are covered by the autocontrol engine tests today).
 - **Work:** compile/render the current scene library, Shadertoy fixtures, Synesthesia corpus and owner-supplied shaders; record backend/compiler, compile result, image checksum, frame time and categorized failure; run on llvmpipe CI, T480 and TORNADO.
 - **Acceptance:** deterministic report format, a deliberately broken shader is detected in CI, and unsupported shaders are categorized rather than omitted silently.
 
