@@ -613,6 +613,7 @@ fn draw_events(
                 summary: "main.glsl:42: unknown identifier `foo`",
                 kept: scenario.playing.then_some("01-scene-0"),
             }),
+            drop_hint: None,
             notice: scenario.notice.then_some(NoticePanel {
                 tone: Tone::Info,
                 text: "The graphics context was lost and rebuilt on ANGLE in 181 ms.",

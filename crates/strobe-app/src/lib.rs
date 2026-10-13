@@ -26,6 +26,8 @@
 //!   its focus rule. All pure, all tested without a window.
 //! - [`import`]: Shadertoy import on a worker thread, the panel's state, and
 //!   the browser listener's handler.
+//! - [`intake`]: what a dropped file or folder is for, and copying a
+//!   dropped scene folder into the library.
 //! - [`library`], [`console`], [`stats`]: the data the UI shows. The console
 //!   is a view of `strobe-diag`'s log ring.
 //! - [`failures`], [`dialog`], [`gldebug`], [`diagnose`]: how errors,
@@ -57,6 +59,7 @@ pub mod generate;
 pub mod gldebug;
 pub mod icon;
 pub mod import;
+pub mod intake;
 pub mod library;
 pub mod localtime;
 pub mod motion;

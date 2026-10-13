@@ -153,6 +153,10 @@ pub fn banners(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mu
         });
         ui.add_space(SPACE_XS);
     }
+    if let Some(hint) = model.drop_hint {
+        widgets::banner(ui, theme, Tone::Info, hint, |_| {});
+        ui.add_space(SPACE_XS);
+    }
     if let Some(notice) = model.notice {
         widgets::banner(ui, theme, notice.tone, notice.text, |ui| {
             if widgets::button(ui, theme, None, "Dismiss").clicked() {
