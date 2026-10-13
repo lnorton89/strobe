@@ -3196,3 +3196,47 @@ Not checked: typing through a real window manager, and the T480.
 **Would reopen:** wanting live preview while typing. That would need a
 compile off the frame loop (a second context or a worker), not a compile on
 the UI thread.
+
+### D205: tags are Synesthesia's `TAGS`, read leniently, normalised, and written in place (2026-10-13)
+
+D157 had the generator draw on name words because no scene carried tags.
+Real Synesthesia scenes do: 83 of the 91 `scene.json` files in the private
+corpus have `"TAGS": [...]`, 79 distinct tags in all (`media`, `dark`,
+`feedback`, `raymarching`, `2d`, `3d`...). So Strobe uses that key rather
+than inventing one, and a library tagged in Synesthesia arrives tagged.
+
+- **Normalised.** Authors write `3D` and `3d`, `audio reactive` and
+  `audio-reactive`. A tag is compared and stored lowercase, with every run
+  of spaces, `-` and `_` turned into one `-`, and cut at 48 characters
+  (`strobe_scene::tags::normalize`).
+- **Read leniently.** `TAGS` is metadata, so it never fails a scene. An
+  array keeps its strings, a string is a comma list, and `null`, a number
+  or an object is no tags. The library scan reads only `TAGS` from each
+  `scene.json`, and a missing or broken file is a scene with no tags.
+- **Written in place.** The Inspector's tag field rewrites only the
+  `TAGS` value in the text, or appends the key with the file's own indent,
+  and keeps every other byte: key order, formatting, a byte-order mark. A
+  `serde_json` round trip would sort the keys of the operator's file. A
+  file that is not a JSON object is refused, not repaired. The write is
+  atomic. It is refused while the Editor holds unsaved edits to the same
+  scene, so neither write loses the other's work. Checked against the
+  corpus: every file round-trips with all other keys unchanged.
+- **Search** matches a word in the name or in any tag.
+- **Generate** gives each scene its tags, then its name words, so a
+  library nobody has tagged still generates as before. Pool words are
+  normalised like tags. The preview says why each scene is in the pool
+  (`strobe_playlist::Why`: tag, name, folder, every scene), and an empty
+  pool lists the library's most-used tags instead of a bare "nothing
+  matched".
+- **The base library is tagged** with the corpus vocabulary, plus `heavy`
+  on the two raymarched scenes and `light` on the cheapest two, so a show
+  for an old laptop can exclude by cost.
+
+**Not done:** tags in the Import pane, editing tags of a scene that is not
+playing, and exclude lists in the Generate form (the generator supports
+them; the form has one pool field).
+
+**Would reopen:** Synesthesia normalising differently (for example,
+treating `audio reactive` and `audio-reactive` as two tags), which would
+matter only if Strobe wrote scenes back for Synesthesia to read.
+

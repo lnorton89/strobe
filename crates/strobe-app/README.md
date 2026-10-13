@@ -66,7 +66,7 @@ in both GLSL dialects in a child process per scene, and writes
 | `editor` | The Editor's documents: a scene's source files as tabs, unsaved state, atomic saves, backups in the data directory, error locations and the GLSL highlighter (D204). No egui. |
 | `commands`, `command_palette` | The command table and focus rule, and what the Ctrl+K palette lists, how it ranks a query, and why an entry is unavailable. No egui. |
 | `color`, `palette`, `motion`, `icon` | The UI system ported from rustaman (D5): colour maths, themes with WCAG tests, durations and reduced motion, geometry icons. No egui. |
-| `library`, `console`, `stats` | The data the UI shows: scenes with health and search, the console, frame timings. |
+| `library`, `console`, `stats` | The data the UI shows: scenes with their tags (D205), health and search over names and tags, the console, frame timings. |
 | `import` | Shadertoy import: the worker thread that runs the converter, the panel's state, and the listener's handler (D113, D114, D116). |
 | `failures`, `dialog`, `gldebug`, `diagnose`, `screenshot` | Errors, crash dialogs, driver messages, `--diagnose` and `--screenshot`. |
 
@@ -119,7 +119,8 @@ output out, `F11` toggles fullscreen on the output window, `Ctrl+F` opens the
 scene browser's search, `Esc` closes the topmost pane (and leaves output
 fullscreen), `T` taps tempo, and `Ctrl+K` opens the command palette (D200):
 every command and pane by name, with its shortcut, or why it cannot run now.
-In the Editor (EDIT), `Ctrl+S` saves and `Ctrl+Enter` saves and reloads the
+The Inspector shows the playing scene's tags; Edit writes them into its
+`scene.json` (D205). In the Editor (EDIT), `Ctrl+S` saves and `Ctrl+Enter` saves and reloads the
 scene (D204); typing alone never changes the output.
 None fires while a text field has focus or the palette is open, and the
 arrows and Space stay with a focused slider. The control window always opens

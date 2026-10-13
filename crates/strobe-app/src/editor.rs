@@ -247,7 +247,7 @@ pub fn latest_backup(root: &Path, name: &str, file: &str) -> Option<String> {
 }
 
 /// Writes `text` to `path` through a temporary file beside it.
-fn write_atomically(path: &Path, text: &str) -> io::Result<()> {
+pub fn write_atomically(path: &Path, text: &str) -> io::Result<()> {
     let mut temporary = path.as_os_str().to_owned();
     temporary.push(".strobe-tmp");
     let temporary = PathBuf::from(temporary);

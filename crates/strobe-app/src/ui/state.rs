@@ -123,6 +123,8 @@ pub struct UiState {
     pub command_palette: super::command_palette::PaletteUi,
     /// The Editor's presentation state (go-to line, highlight cache).
     pub editor: super::editor::EditorUi,
+    /// The Inspector's tag field while it is open. Not saved.
+    pub tag_draft: Option<String>,
     theme_id: String,
     reduced_motion: bool,
     catalog: Catalog,
@@ -176,6 +178,7 @@ impl UiState {
             console_problems_only: false,
             command_palette: super::command_palette::PaletteUi::default(),
             editor: super::editor::EditorUi::default(),
+            tag_draft: None,
             last_scene: prefs.last_scene.clone(),
             theme_id: prefs.theme.clone(),
             reduced_motion: reduced,

@@ -62,6 +62,8 @@ pub enum Action {
     /// Open a scene in the Editor: the library entry by name, or the
     /// playing scene when `None` (D204).
     OpenEditor(Option<String>),
+    /// Write these tags into the playing scene's `scene.json` (D205).
+    SetSceneTags(Vec<String>),
     /// Write the Editor's unsaved files.
     EditorSave,
     /// Write them and load the scene again.

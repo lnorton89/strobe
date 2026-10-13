@@ -156,6 +156,12 @@ checked and not committed. Interaction was driven with xdotool.
 - [ ] Performance Macros as persistent bindings with the Unresolved states;
   Editor and Mappings; a command palette (stage 2). (Hold and the Playlist
   pane are built, D156 and D157.)
+- [x] Scene tags (D205): `TAGS` read leniently and normalised, written in
+  place from the Inspector, searched by the browser, and used by Generate
+  with a reason per pooled scene. Evidence: `strobe_scene::tags` tests (a
+  write keeps every other byte), the library scan test, the generator's
+  `Why` tests, a corpus round trip (91 files, other keys unchanged, local
+  only), and [images/perform/tags-1440x900.png](images/perform/tags-1440x900.png).
 - [x] The Editor (D204): tabs per source file, unsaved state, Save vs Save
   and reload, atomic saves with backups in the data directory, and "Open in
   Editor" / "Go to line" from a compile error. Evidence: `editor.rs` unit

@@ -29,7 +29,7 @@ loop ticks.
 | `DurationSpec` | The duration grammar: `90s`, `1:30`, `3m`, `1h30m`, `32 bars`, `rand(2m, 4m)`. |
 | `resolve()`, `ResolvedCue`, `identity()`, `distinct_scenes()` | Flatten cue, section, playlist and built-in defaults (180 s, timer, 2 s crossfade) into cues with nothing optional; `distinct_scenes` is the list to precompile (enabled cues, first-use order). |
 | `parse::parse`, `write::to_toml`, `file::load` / `save` | The TOML format. Errors carry line, column and the offending text, and unknown keys are errors. |
-| `generate()`, `GenerateSpec`, `LibrarySnapshot` | A section from a scene library, pure in its seed (`rng::SplitMix64`). |
+| `generate()`, `GenerateSpec`, `LibrarySnapshot` | A section from a scene library, pure in its seed (`rng::SplitMix64`). `PoolFilter::why` says which rule put a scene in the pool or kept it out (`Why`), and `Generated::pool` lists each pooled scene with its reason. |
 | `Timeline`, `TimelineConfig` | `from_playlist`, `total_runtime`, `has_open_ended`, `wall_time`, plus `schedule::Placement` for wall-clock placement. |
 | `PlaylistClock` | The state machine: `tick(dt, &BeatInfo)`, `apply(Command)` (`Next`, `Previous`, `Hold`, `Extend`, `JumpTo`, `SkipSection`, `ToggleBlackout`, ...), `drain_events()`, `transition()`, `mark_scene_failed(..)`, `resume_point()`. |
 | `ClockEvent` | `CueStarted`, `TransitionStarted`, `TransitionFinished`, `WarmUp`, `CueSkipped`, `HoldChanged`, `BlackoutChanged`, `PlaylistEnded`. |

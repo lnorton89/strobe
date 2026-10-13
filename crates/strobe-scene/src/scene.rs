@@ -186,6 +186,8 @@ pub struct SceneDef {
     pub pass_sources: Option<Vec<String>>,
     /// Provenance, when the scene says where it came from.
     pub source: Option<SceneSource>,
+    /// `TAGS`, normalised (D205); malformed tags are no tags, never an error.
+    pub tags: Vec<String>,
 }
 
 impl SceneDef {
@@ -303,6 +305,11 @@ impl SceneDef {
             media,
             pass_sources,
             source,
+            tags: raw
+                .tags
+                .as_ref()
+                .map(crate::tags::from_value)
+                .unwrap_or_default(),
         };
         def.check_names()?;
         Ok(def)

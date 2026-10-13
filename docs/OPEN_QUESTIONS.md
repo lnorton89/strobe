@@ -17,7 +17,7 @@ locally but must not be committed.
 | Q2 | What should `_mouse` / `_muv` hold when the mouse is outside the preview? | All zeros | Low priority |
 | Q3 | Is `_loadMedia(vec2 offset)`'s offset in UV units or pixels? | UV units | A scene that uses it |
 | Q4 | How does `bang smooth` shape its envelope with PARAMS? | Fast attack (≥25% of the remaining distance per 60th of a second), then exponential decay at PARAMS | Compare by eye with Synesthesia |
-| Q6 | Does Synesthesia ignore unknown `scene.json` keys? | Yes. Real scenes carry `IS_META`, `GPU`, `TAGS`, `UNIFORMS`, `LABEL` | This only matters if Strobe writes scenes back for Synesthesia |
+| Q6 | Does Synesthesia ignore unknown `scene.json` keys? | Yes. Real scenes carry `IS_META`, `GPU`, `TAGS`, `UNIFORMS`, `LABEL`. Strobe now reads and writes `TAGS` (D205), as Synesthesia's own key | This only matters if Strobe writes scenes back for Synesthesia |
 | Q7 | Do the EULA terms allow running Synesthesia's own built-in scenes in another engine? | Unknown, so Strobe doesn't do it | Read the EULA |
 | Q9 | What is the root `"UNIFORMS"` key in some community scenes? | Probably non-standard (from AI-generated scenes); ignored | Look for it in a real Synesthesia-authored scene |
 | Q10 | What exact layout do real scenes expect from `syn_Spectrum` and `syn_LevelTrail`: texel count, frequency axis of the raw channel, which end of the trail is "now", and what the waveform channel's range is? | `strobe-audio` assumes 256 texels; raw linear 0..Nyquist; juiced log 30 Hz to 16 kHz; waveform 0.5 at zero; trail index 0 = newest, channels whole/bass/mid/high. All sizes are configurable (`Layout`) | A real licensed scene that samples the textures in known ways |

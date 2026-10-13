@@ -36,6 +36,8 @@
 //!   hue, mirror...), an ordinary [`control::ControlBank`].
 //! - [`names`] is the name matching the JavaScript API relies on:
 //!   case-insensitive, ignoring `_`, `-` and spaces.
+//! - [`tags`] reads a scene's `TAGS` leniently, normalises them, and
+//!   writes them back without disturbing the rest of `scene.json`.
 //!
 //! Nothing here touches GL, the filesystem beyond [`load`] and the
 //! [`include`] it runs, or a clock:
@@ -58,6 +60,7 @@ pub mod preset;
 pub mod promote;
 pub mod scene;
 pub mod synthetic;
+pub mod tags;
 
 pub use error::SceneError;
 pub use load::SceneFolder;
