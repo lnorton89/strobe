@@ -40,10 +40,11 @@ which backend proved a claim.
   hold the review panel for generated controls and the Playlist workspace.
 - **LAN remote, implementation slice 1:** `strobe-remote` now defines a
   versioned, typed, allowlisted client/server protocol with serialization
-  tests. It has no listener, pairing implementation, PWA assets, or app
-  command/state bridge yet. The next step is a separately owned network
-  service and bounded channel into the app event loop; do not let server
-  callbacks touch GL, playlist, or egui state.
+  tests, and `strobe_remote::bridge` is the bounded command queue and
+  revisioned snapshot between a network thread and the app thread (D232).
+  It has no listener, pairing implementation or PWA assets yet. The next
+  step is a separately owned network service feeding that bridge; do not
+  let server callbacks touch GL, playlist, or egui state.
 
 ## Next, in priority order
 
@@ -340,7 +341,7 @@ never per frame.
 | 4 | Shadertoy import | The converter (D90-D95), acquisition (REST client, texture downloader, localhost listener), the Import panel, file drop and the userscript (D110-D117) are built, auto-generated controls with their review in the app (D123-D126, D202, D219), drops routed by kind (D218) and a URL on a playlist cue (D229). Open: live-site verification (Q19), the Needs-work bin, batch import. |
 | 5 | Playlists | The pure core (D73-D77), the app integration (D150-D158), cue editing with inheritance shown (D213), media per cue (D217), drag, disable, multi-select, URL import and comment-keeping save (D224, D229-D231), and audio-event advance (D226) are built. Verified on the T480 (Tasks 14, 26). Open: the downbeat detector (P-02), tuning audio events on real music. |
 | 6 | Presets, MIDI, OSC, hotkeys | Built (D170-D179): `strobe-io`, presets and fav slots, the MAP pane, macros stage 2, hotkeys, a hotkey editor (D208), OSC feedback (D209), macro reach and colour (D210), the preset media channel (D223), and a glide and a key per macro (D227, D228). Open: a controller on the T480, MIDI output. |
-| 7b | LAN remote / PWA | Protocol crate started in `strobe-remote`; no listener or UI integration yet. Next: secure service lifecycle, pairing/revocation, typed command bridge, mobile controller, then solve HTTPS before claiming installable PWA support. See [REMOTE_CONTROL_PWA_RESEARCH.md](REMOTE_CONTROL_PWA_RESEARCH.md). |
+| 7b | LAN remote / PWA | Protocol crate and app-thread bridge in `strobe-remote` (D232); no listener or UI integration yet. Next: secure service lifecycle, pairing/revocation, mobile controller, then solve HTTPS before claiming installable PWA support. See [REMOTE_CONTROL_PWA_RESEARCH.md](REMOTE_CONTROL_PWA_RESEARCH.md). |
 | 7 | NDI, media input, song-change transitions | Media stills and image sequences (D186), chosen in the Inspector, per cue and per preset (D217, D223), bounded by shrinking (D225); breakdown and drop detection feeds playlists (D226). Video, webcam and NDI are open. `HARD`/`SMOOTH_TRANSITIONS` are declared but never change. |
 
 ## Known gaps in what exists

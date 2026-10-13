@@ -20,6 +20,8 @@
 //! in `docs/REMOTE_CONTROL_PWA_RESEARCH.md`; it is not by itself a running
 //! server or an installable PWA.
 
+pub mod bridge;
+
 use serde::{Deserialize, Serialize};
 
 /// Current wire-protocol version.
@@ -100,6 +102,40 @@ pub enum RemoteCommand {
     BlackoutOff,
     /// Register a tap-tempo event.
     TapTempo,
+}
+
+impl RemoteCommand {
+    /// Every command a remote may send.
+    pub const ALL: [Self; 10] = [
+        Self::NextScene,
+        Self::PrevScene,
+        Self::ToggleHold,
+        Self::RestartCue,
+        Self::ExtendCue,
+        Self::SkipSection,
+        Self::ToggleBlackout,
+        Self::BlackoutOn,
+        Self::BlackoutOff,
+        Self::TapTempo,
+    ];
+
+    /// The command's wire name, which is also the app's command id
+    /// (`strobe_app`'s `CommandId::id`), so a remote command runs through
+    /// the same path as a key, a pad or an OSC message.
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::NextScene => "next_scene",
+            Self::PrevScene => "prev_scene",
+            Self::ToggleHold => "toggle_hold",
+            Self::RestartCue => "restart_cue",
+            Self::ExtendCue => "extend_cue",
+            Self::SkipSection => "skip_section",
+            Self::ToggleBlackout => "toggle_blackout",
+            Self::BlackoutOn => "blackout_on",
+            Self::BlackoutOff => "blackout_off",
+            Self::TapTempo => "tap_tempo",
+        }
+    }
 }
 
 /// A server-to-client message.
@@ -272,6 +308,18 @@ mod tests {
             RemoteCommand::BlackoutOff,
             "off"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn every_command_id_is_its_wire_name() -> Result<()> {
+        for command in RemoteCommand::ALL {
+            assert_eq!(
+                serde_json::to_string(&command)?,
+                format!("\"{}\"", command.id()),
+                "{command:?}"
+            );
+        }
         Ok(())
     }
 

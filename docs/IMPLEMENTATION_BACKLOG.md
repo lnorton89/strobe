@@ -238,7 +238,7 @@
 ## Epic L — LAN remote and PWA
 
 ### L-01 Finish the transport-independent protocol
-- **Status:** In progress in this PR.
+- **Status:** In progress. Command semantics are aligned with the app's command ids and tested (D232). Left: the compatibility tests across protocol versions.
 - **Work:** keep message types versioned, strict, documented and allowlisted; align command semantics with app command IDs; add compatibility tests for older/newer protocol versions.
 - **Acceptance:** unknown fields/commands fail closed; request IDs and message sizes are bounded; protocol contract is documented and tests pass in CI.
 
@@ -258,7 +258,7 @@
 - **Acceptance:** adversarial tests reject unexpected origins/hosts, oversized JSON, floods, malformed payloads and slow clients without panic, queue growth or frame stalls.
 
 ### L-05 App-thread command/state bridge
-- **Status:** Open.
+- **Status:** Bridge built (D232): `strobe_remote::bridge` gives a bounded queue (full → `Busy` at once, gone app → `Unavailable`, unanswered → `Busy` after the adapter's timeout), a reply per request, and a snapshot whose revision moves only on change. Remote command ids are tested to be mappable app `CommandId`s. Left: the app draining `AppEnd` once a frame and publishing its snapshot, which lands with the listener (L-02), since until then there is nothing to drain.
 - **Work:** bounded channel drained by app event-loop; revalidate each command on the owning thread; use existing command path; return accepted/rejected result; publish revisioned snapshots and coalesce stale state updates.
 - **Acceptance:** every command runs on app thread; playlist and no-playlist semantics are correct; full queue returns Busy; reconnect gets a complete fresh snapshot; tests show no frame-time blocking.
 

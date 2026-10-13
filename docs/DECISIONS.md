@@ -4005,3 +4005,34 @@ of U-07's list.
 
 **Would reopen:** sections reordered by hand (sections match by position),
 or a comment that should follow a moved key.
+
+### D232: the remote's bridge to the app thread is a bounded queue with a reply per request (2026-10-13)
+
+The LAN remote (epic L) needs one place where a network thread meets the
+app's event-loop thread. L-05 asks that it be bounded, never block the
+frame, answer each command, and give a reconnecting phone the whole state.
+
+- **`strobe_remote::bridge`, std only.** `bridge(capacity)` returns a
+  `Remote` (clonable, for the adapter) and an `AppEnd` (kept on the app
+  thread). Commands go over a `sync_channel` with `try_send`: a full queue
+  is `Busy` at once, so a flood costs the adapter an error, never the
+  frame memory or time. Each command carries a one-slot reply channel the
+  app answers with `try_send`, so answering never waits on the adapter;
+  `Pending::wait(timeout)` gives the adapter `Busy` if the app did not
+  answer in time and `Unavailable` if the app end is gone.
+- **The snapshot is revisioned by content.** `AppEnd::publish` bumps the
+  revision only when the state differs, so the app can publish every frame
+  and the adapter sends nothing when nothing changed; `Remote::snapshot`
+  is always the whole current state, which is what a reconnect needs.
+- **Remote commands are app commands.** `RemoteCommand::id` is the wire
+  name and the app's `CommandId` id; an app test asserts every remote
+  command maps to a mappable app command, so the remote runs exactly what
+  a key, pad or OSC message runs and the two lists cannot drift.
+- **Not wired into the app yet.** Draining `AppEnd` once a frame belongs
+  with the listener (L-02): until something can submit, a drained queue is
+  dead code. No socket is opened by this decision.
+
+**Would reopen:** an adapter on an async runtime that needs an awaitable
+reply (wrap `Pending` in the runtime's blocking task, or swap the reply
+channel for a oneshot), or a command that must be answered before the
+next frame.

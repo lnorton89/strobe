@@ -1005,4 +1005,16 @@ mod tests {
         assert_eq!(Chord::plain(Key::Space).label(), "Space");
         assert_eq!(Chord::plain(Key::F11).label(), "F11");
     }
+
+    #[test]
+    fn every_remote_command_is_a_mappable_app_command() {
+        for remote in strobe_remote::RemoteCommand::ALL {
+            let command = CommandId::from_id(remote.id());
+            assert!(
+                command.is_some_and(CommandId::mappable),
+                "{remote:?} runs the app command {:?}",
+                remote.id()
+            );
+        }
+    }
 }
