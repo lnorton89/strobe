@@ -3493,7 +3493,14 @@ impl Running {
             return;
         }
         let make_current = current_began.elapsed();
-        match self.control_pacer.observe(make_current) {
+        // A covered window redraws a few times a minute and its waits say
+        // nothing about the windowed case the pacer is for (TORNADO T16).
+        let change = if self.control_covered {
+            PaceChange::None
+        } else {
+            self.control_pacer.observe(make_current)
+        };
+        match change {
             PaceChange::None => {}
             PaceChange::Slowed if self.swap_policy.on_slowed() => {
                 log::info!(
