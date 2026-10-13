@@ -96,6 +96,82 @@ scripts included, and renders it in both dialects ([D195](DECISIONS.md)).
 | A picture matching Synesthesia's own render | Unverified | none | No side-by-side comparison with Synesthesia is recorded. |
 | Running Synesthesia's built-in scenes for a show | Unverified | [Q7](OPEN_QUESTIONS.md) | The EULA question is open. |
 
+### Every scene (C-03, TORNADO T24)
+
+One row per scene of the owner's 65, from T22's run at commit 5eaddb0 (scripts on, NVIDIA native GL 3.3 and ANGLE/D3D11), classified in T24. Names only: the scenes themselves are private.
+
+Constructs: `int2float` relies on implicit int-to-float conversion (D199); `images` declares IMAGES; `userimage` reads `syn_UserImage`; `multipass` has buffer passes; `selfread` has a pass that samples its own target (D203); `finalpass` reads `syn_FinalPass`; `media` has a MEDIA key; `if` uses `#if` on a non-macro; `inituniform` initialises a uniform; `script` has a `script.js`.
+
+| Scene | Native | ANGLE | Category | Constructs |
+|---|---|---|---|---|
+| \[sh17a\]_rainbow_twister | compile_error | compile_error | source bug | - |
+| `abstract_terrain_objects` | ok | ok | - | - |
+| `abstract_terrain_objects_dup` | ok | ok | - | - |
+| `alloy_plated_voronoi` | ok | ok | - | - |
+| `bentorus` | ok | ok | - | - |
+| `boreal` | ok | ok | - | int2float, images, userimage, finalpass |
+| `bumped_sinusoidal_warp` | ok | ok | - | images |
+| `cellular_lattice` | ok | ok | - | images |
+| `chroa_cascade_dup` | ok | ok | - | int2float, userimage, script |
+| `chroma_cascade` | ok | ok | - | int2float, userimage, script |
+| `cinders` | ok | ok | - | int2float, userimage, multipass, selfread |
+| `circuit_bending_dup` | ok | ok | unavailable asset | images, userimage, script |
+| `cosine_palette_generator` | ok | ok | - | script |
+| `cube_circle_sketch` | ok | ok | - | - |
+| `cubic_truchet_pattern` | ok | ok | - | - |
+| `curvature_-_parametric_3d` | ok | ok | - | - |
+| `curvature_-_parametric_3d_1` | ok | ok | - | - |
+| `diffusion` | ok | ok | needs user media | int2float, userimage, multipass, selfread |
+| `digital_rain` | ok | ok | - | int2float, images |
+| `dual_3d_truchet_tiles` | ok | ok | - | images, if |
+| `dust` | ok | ok | - | int2float, images, userimage, multipass, selfread |
+| `exoplanet_dup` | ok | ok | - | int2float, userimage, multipass, inituniform |
+| `extruded_truchet_pattern` | ok | ok | - | int2float, if |
+| `faux_layered_extrusion` | ok | ok | - | int2float, images |
+| `fluid_body_dup` | ok | ok | - | int2float, userimage, multipass, script |
+| `fork_materialma_deviltiger_729` | ok | ok | driver | int2float |
+| `hello_world_end` | ok | ok | - | - |
+| `hello_world_start` | ok | ok | - | - |
+| `hexagonal_interlacing` | ok | ok | - | - |
+| `hexagonal_maze_flow` | ok | ok | - | int2float, script |
+| `hexagonal_maze_flow_larry` | ok | ok | - | int2float |
+| `hyperbolic_poincare_weave` | ok | ok | - | - |
+| `industrial_complex` | ok | ok | - | images |
+| `kifs_walls_` | ok | ok | - | int2float |
+| `magnetismic` | ok | ok | - | int2float, images, multipass, selfread |
+| `mana` | ok | ok | - | int2float, userimage, multipass, script |
+| `materialmakertest2` | ok | ok | driver | - |
+| `maze_lattice` | ok | ok | - | - |
+| `menger_sponge_variation` | ok | ok | - | images |
+| `menger_variation_2` | ok | ok | - | images |
+| `neon_lit_hexagons` | ok | ok | - | images |
+| `new_scene` | compile_error | compile_error | source bug | - |
+| `new_scene_1` | ok | ok | - | - |
+| `new_scene_2` | ok | ok | - | media |
+| `noise_flow_lines` | ok | ok | - | multipass |
+| `overload` | ok | ok | - | int2float |
+| `panspermia` | ok | ok | - | int2float, userimage |
+| `quadtree_truchet` | ok | ok | - | - |
+| `rainbow_planet` | ok | ok | - | media |
+| `random_isometric_blocks` | ok | ok | - | - |
+| `raymarched_hexagonal_truchet` | ok | ok | - | - |
+| `round_voronoi_borders` | ok | ok | - | - |
+| `scorched_earth` | ok | ok | - | int2float, images, userimage, multipass, finalpass |
+| `smooth_noise_contours` | ok | ok | - | - |
+| `smooth_voronoi_contours` | ok | ok | - | - |
+| `synesthesia-uniforms-display` | ok | ok | - | images |
+| `test_card_dup` | ok | ok | - | int2float |
+| `transparent_lattice` | ok | ok | - | - |
+| `triangle_grid_contouring` | ok | ok | - | - |
+| `triangle_mesh_with_incircles` | ok | ok | - | - |
+| `vein_melter_dup` | ok | ok | - | int2float, images, userimage, multipass, script |
+| `warped_extruded_skewed_grid` | ok | ok | driver | images |
+| `welcome_scene_dup` | ok | ok | - | int2float, images, multipass, script |
+| `wet_stone` | ok | ok | - | - |
+| `wet_stone_1` | ok | ok | - | - |
+
+Per dialect: 63 ok, 2 `compile_error`. Categories: no issue 58, source bug 2, driver 3, needs user media 1, unavailable asset 1, Strobe gap 0. What the corpus exercises: int2float 23, images 18, userimage 13, multipass 11, script 9. None use cubemaps, `#include`, the `syn_Media` helpers or `textureFinalPass`.
+
 ## 4. Shadertoy import
 
 | Feature | Status | Evidence | Notes |
