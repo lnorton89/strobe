@@ -68,7 +68,12 @@ fn main() -> ExitCode {
     let cli = match cli::Cli::try_parse() {
         Ok(cli) => cli,
         Err(error) if error.use_stderr() => {
+            // On a terminal, clap's own message with the usage line; then
+            // the log and the dialog, as for any other startup failure. The
+            // log is flushed here because this path returns before `run`'s.
+            let _ = error.print();
             report_failure(&error.to_string(), false, session.log_file.as_deref());
+            strobe_diag::logger::flush(FLUSH_TIMEOUT);
             return ExitCode::FAILURE;
         }
         // --help and --version: print and stop.
