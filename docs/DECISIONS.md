@@ -4366,3 +4366,22 @@ Two are decided against:
 
 **Would reopen:** the importer accepting other hosts' textures (the cache
 would then need a size limit), or imports that take minutes.
+
+### D243: keyboard focus is a 2 px accent ring (2026-10-13)
+
+U-10 asks that keyboard focus stays visible. egui draws a focused widget
+with its `active` style. Strobe's theme gave `active` the same surface
+and the same 1 px border as `hovered`, so a focused button looked like a
+hovered one, and tabbing through the panel showed nothing reliable.
+
+- **`widgets.active.bg_stroke` is 2 px of the theme's accent.** Every
+  focused widget gets a ring. A button being pressed shows it for the
+  press, which is useful feedback in its own right.
+- **Tested per theme.** `the_focus_ring_stands_out_from_every_surface_it_can_sit_on`
+  checks the accent at 3:1 or more against the app, panel, raised and hover
+  surfaces of every theme: WCAG 2.2's bar for a focus indicator.
+- **No layout change.** A stroke does not move anything, and `expansion`
+  stays 0.
+
+**Would reopen:** a theme whose accent cannot reach 3:1 on its surfaces
+(the test fails first), or egui gaining a separate focus style.

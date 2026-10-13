@@ -103,7 +103,16 @@
 - **Acceptance:** documented results on T480 and TORNADO; no focus theft or lost fullscreen state; output assignment changes do not destroy the active scene; UI work does not cause visible render-time regression.
 
 ### U-10 UI accessibility and polish
-- **Status:** In progress.
+- **Status:** In progress. Built so far:
+  - reduced motion (the setting, or the OS);
+  - density (D220);
+  - a keyboard path to every performance command, through keys and the palette;
+  - a visible keyboard-focus ring (D243): 2 px of the accent, tested at 3:1 or more against every surface in every theme.
+
+  Left:
+  - a keyboard-only pass by a person on Windows;
+  - narrow-window behaviour;
+  - a high-contrast check.
 - **Work:** finish typography/spacing, reduced-motion support, keyboard-only paths, focus visibility, semantic names, high-contrast checks and narrow-window behaviour; test light and dark themes.
 - **Acceptance:** all core performance actions can be used without hover; blackout and active state are unmistakable; keyboard focus remains visible; existing WCAG theme tests remain green.
 
