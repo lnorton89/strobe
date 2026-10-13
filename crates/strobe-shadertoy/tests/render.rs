@@ -64,11 +64,16 @@ fn fixture_text(name: &str) -> Result<String> {
     std::fs::read_to_string(&path).with_context(|| path.display().to_string())
 }
 
-/// Converts `json`, writes it under a folder private to `tag`, and loads it.
+/// Converts `json`, writes it under a folder private to `tag` and to the
+/// running test, and loads it. Private to the test as well: tests import
+/// the same fixture in parallel, and on Windows two of them swapping one
+/// staging folder fail with "Access is denied" (AMD desktop, Task A1).
 fn import_text(json: &str, tag: &str) -> Result<(Converted, SceneFolder)> {
     let shader = Shader::from_json(json)?;
     let converted = convert(&shader, &strobe_shadertoy::Options::default())?;
-    let library = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!("scenes-{tag}"));
+    let thread = std::thread::current();
+    let test = thread.name().unwrap_or("main").replace("::", "-");
+    let library = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!("scenes-{tag}-{test}"));
     let dir = strobe_shadertoy::convert::write(&converted, &library, true)?;
     let folder = SceneFolder::load(&dir)?;
     Ok((converted, folder))

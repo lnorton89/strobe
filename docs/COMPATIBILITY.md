@@ -3,7 +3,8 @@
 This is the supported, degraded and unsupported matrix for Strobe, for
 people running it and for contributors. Every status points at its
 evidence: a decision in [DECISIONS.md](DECISIONS.md), a test, a hardware
-record ([T480](hardware/T480.md), [TORNADO](hardware/TORNADO.md)) or an
+record ([T480](hardware/T480.md), [TORNADO](hardware/TORNADO.md),
+[AMD desktop](hardware/AMD.md)) or an
 item in [STATUS_AUDIT.md](STATUS_AUDIT.md). STATUS_AUDIT.md is the
 evidence log, and it wins when this file disagrees with it. Written
 2026-10-13.
@@ -23,6 +24,7 @@ the only evidence is synthetic, it is Unverified.
 
 The machines: **T480** is a ThinkPad with Intel UHD 620 on Windows 11
 (the old-laptop reference). **TORNADO** is a GTX 1080 Ti on Windows 10.
+**AMD desktop** (DESKTOP-30KSOCM) is a Radeon RX 580 on Windows 10.
 **llvmpipe** is Mesa's software rasteriser in CI and the cloud
 container, headless or under Xvfb.
 
@@ -198,9 +200,10 @@ Per dialect: 63 ok, 2 `compile_error`. Categories: no issue 58, source bug 2, dr
 |---|---|---|---|
 | Native OpenGL 3.3 core, Intel UHD 620 (Windows 11) | Supported | [T480](hardware/T480.md) (app on the real GPU, Tasks 14, 17, 30) | Driver 30.0.101.1122. Heavy scenes need adaptive resolution at 1440p. |
 | Native OpenGL 3.3 core, NVIDIA GTX 1080 Ti (Windows 10) | Supported | [TORNADO T1](hardware/TORNADO.md), [TORNADO T18](hardware/TORNADO.md), [TORNADO T19](hardware/TORNADO.md) | Driver 582.78. |
+| Native OpenGL 3.3 core, AMD Radeon RX 580 (Windows 10) | Supported | [AMD Task A1](hardware/AMD.md) | Driver 31.0.21925.1001. All 12 scenes, both dialects, 0 KHR_debug messages. No robust context: see context loss. |
 | Intel HD 4000 (the stated GL 3.3 floor) | Unverified | [D3](DECISIONS.md) | No run on an HD 4000 is recorded ([P-03](IMPLEMENTATION_BACKLOG.md)). |
-| ANGLE, GLES 3.0 on Direct3D 11 (`--gl angle`) | Supported | [T480 Task 30](hardware/T480.md), [T480 Task 21](hardware/T480.md), [TORNADO T1](hardware/TORNADO.md), [TORNADO T18](hardware/TORNADO.md) | DLLs from a pinned Electron release ([D12](DECISIONS.md)). Compiles are slower on heavy scenes (3.2 s against 275 ms native on the T480). |
-| Context loss: rebuild, then fail over to ANGLE | Unverified | [D66](DECISIONS.md), [T480 Task 8](hardware/T480.md), `STROBE_FAULT` policy tests | Injected losses recovered on real WGL. No real driver reset has been observed. |
+| ANGLE, GLES 3.0 on Direct3D 11 (`--gl angle`) | Supported | [T480 Task 30](hardware/T480.md), [T480 Task 21](hardware/T480.md), [TORNADO T1](hardware/TORNADO.md), [TORNADO T18](hardware/TORNADO.md), [AMD Task A1](hardware/AMD.md) | DLLs from a pinned Electron release ([D12](DECISIONS.md)). Compiles are slower on heavy scenes (3.2 s against 275 ms native on the T480). |
+| Context loss: rebuild, then fail over to ANGLE | Unverified | [D66](DECISIONS.md), [T480 Task 8](hardware/T480.md), `STROBE_FAULT` policy tests, [AMD Task A1](hardware/AMD.md) | Injected losses recovered on real WGL. No real driver reset has been observed. AMD's native WGL refuses a robust context, so a reset there is not reported; ANGLE on AMD is robust. |
 | Adaptive render scale | Supported | [D64](DECISIONS.md), [T480](hardware/T480.md) | Thresholds are validated on the T480 only. |
 | Headless llvmpipe (CI, Linux) | Supported | `crates/strobe-gfx/tests/render.rs`, CI `linux` job | For tests and frames. Timings are CPU rasterisation, not GPU numbers. |
 | Windows release zip | Unverified | [T480 Task 21](hardware/T480.md), [T480 Task 22](hardware/T480.md), [Q12](OPEN_QUESTIONS.md) | Packaged by hand with the workflow's steps and run from `%TEMP%`. `release.yml` has never run from a tag ([R-05](IMPLEMENTATION_BACKLOG.md)). |
@@ -213,7 +216,7 @@ Per dialect: 63 ok, 2 `compile_error`. Categories: no issue 58, source bug 2, dr
 
 | Feature | Status | Evidence | Notes |
 |---|---|---|---|
-| Live capture from the default recording device | Supported | [D61](DECISIONS.md), [T480](hardware/T480.md) (Realtek microphone at 48 kHz), [TORNADO T19](hardware/TORNADO.md) | Windows microphone privacy settings must allow desktop apps. |
+| Live capture from the default recording device | Supported | [D61](DECISIONS.md), [T480](hardware/T480.md) (Realtek microphone at 48 kHz), [TORNADO T19](hardware/TORNADO.md), [D266](DECISIONS.md) | Windows microphone privacy settings must allow desktop apps. A device that reports buffer glitches keeps its stream (D266); on the AMD desktop it reopened 70 times a second before that fix, which is still to re-check there. |
 | Capturing what the computer plays (loopback, Stereo Mix) | Unverified | [USER_GUIDE](USER_GUIDE.md) | Output devices are listed as loopback; no run is recorded. |
 | Synthetic 120 BPM fallback | Supported | [D61](DECISIONS.md), [STATUS_AUDIT P1](STATUS_AUDIT.md) (missing and synthetic audio states) | Used when no device opens, and by the bench and tests. |
 | Device removed and reconnected | Unverified | [R-01](IMPLEMENTATION_BACKLOG.md), [T480 Task 20](hardware/T480.md) | Capture retries every 2 s by design. Never run on hardware: it waits for the owner's approval. |
