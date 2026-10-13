@@ -70,8 +70,58 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
         generate_card(ui, model, theme, actions);
     }
     cue_card(ui, model, show, theme, actions);
+    disabled_cues(ui, show, theme, actions);
     ui.add_space(SPACE_XS);
     timeline(ui, model, show, theme, actions);
+}
+
+/// The cues the playlist keeps but skips, which the timeline does not list,
+/// each with Enable (D213). Folded away until opened; absent when there
+/// are none.
+fn disabled_cues(ui: &mut Ui, show: &Show, theme: &Palette, actions: &mut Vec<Action>) {
+    let sections = &show.playlist().sections;
+    let count = sections
+        .iter()
+        .flat_map(|section| &section.cues)
+        .filter(|cue| !cue.enabled)
+        .count();
+    if count == 0 {
+        return;
+    }
+    egui::CollapsingHeader::new(
+        egui::RichText::new(format!("Disabled cues ({count})"))
+            .small()
+            .color(theme::rgb(theme.text_muted)),
+    )
+    .id_salt("disabled-cues")
+    .show(ui, |ui| {
+        for (s, section) in sections.iter().enumerate() {
+            for (c, cue) in section
+                .cues
+                .iter()
+                .enumerate()
+                .filter(|(_, cue)| !cue.enabled)
+            {
+                ui.horizontal(|ui| {
+                    if ui
+                        .small_button("Enable")
+                        .on_hover_text("Play this cue again (Save to keep the change)")
+                        .clicked()
+                    {
+                        actions.push(Action::EditCue {
+                            at: crate::show::edit::At { section: s, cue: c },
+                            edit: crate::show::edit::CueEdit::SetEnabled(true),
+                        });
+                    }
+                    ui.label(
+                        egui::RichText::new(format!("{} · {}", section.name, cue.scene.to_text()))
+                            .small()
+                            .color(theme::rgb(theme.text_faint)),
+                    );
+                });
+            }
+        }
+    });
 }
 
 /// The path field and its button. Enter in the field loads too.
@@ -332,6 +382,11 @@ fn cue_card(
                     ("Down", CueEdit::MoveDown, "One place later in its section"),
                     ("Duplicate", CueEdit::Duplicate, "A copy straight after it"),
                     ("Delete", CueEdit::Delete, "Remove this cue (Save to keep the change)"),
+                    (
+                        "Disable",
+                        CueEdit::SetEnabled(false),
+                        "Keep it in the file but skip it; it is listed under Disabled cues",
+                    ),
                 ] {
                     if widgets::button(ui, theme, None, label).on_hover_text(tip).clicked() {
                         edits.push(edit);
@@ -756,6 +811,29 @@ fn cue_row(
     let id = egui::Id::new(("cue-row", row.index));
     let fill = widgets::selection_fill(ui, theme, id, selected, response.hovered(), theme.panel);
     ui.painter().rect_filled(rect, CornerRadius::ZERO, fill);
+    // A scene dragged from the browser lands straight after this cue (D224).
+    if response
+        .dnd_hover_payload::<super::browser::LibraryDrag>()
+        .is_some()
+    {
+        let line = egui::Rect::from_min_max(
+            egui::pos2(rect.left(), rect.bottom() - 2.0),
+            rect.right_bottom(),
+        );
+        ui.painter()
+            .rect_filled(line, CornerRadius::ZERO, theme::rgb(theme.accent));
+    }
+    if let Some(dropped) = response.dnd_release_payload::<super::browser::LibraryDrag>() {
+        actions.push(Action::EditCue {
+            at: crate::show::edit::At {
+                section: row.section,
+                cue: row.cue,
+            },
+            edit: crate::show::edit::CueEdit::InsertAfter(strobe_playlist::SceneRef::Library(
+                dropped.0.clone(),
+            )),
+        });
+    }
     if is_now {
         widgets::accent_bar(
             ui,

@@ -155,6 +155,10 @@ checked and not committed. Interaction was driven with xdotool.
   software rasterisation and says nothing).
 - [x] Named layouts (D215), saved in Settings and applied from Settings or
   the palette. Evidence: `ui::state` and `command_palette` tests.
+- [x] Cue disable and re-enable from the LIST pane, and a browser scene
+  dragged onto a cue inserted after it (D224). Evidence: `show::edit`
+  tests (the edits themselves) and the shell scenarios drawing the pane.
+  Not yet: a real pointer drag, by a person or a scripted test.
 - [x] A preset's media channel (D223): saved when `syn_Media` shows
   something other than the scene's own, applied on recall and at a cue
   start under the cue's own media and the operator's. Evidence:
