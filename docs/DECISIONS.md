@@ -3956,3 +3956,26 @@ the scene by hand, which unloads a running show.
   finishing meanwhile is handled as before.
 
 **Would reopen:** wanting several URLs pasted at once into a section.
+
+### D230: Ctrl-click selects several cues, and settings go to all of them (2026-10-13)
+
+U-07's acceptance asks for an 80-cue show authored in minutes "using tags
+and multi-edit". Tags drive Generate (D205); this is the multi-edit.
+
+- **Selecting.** A click selects one cue as before. Ctrl-click (Cmd on
+  macOS) adds a cue to the selection or takes it out; the card's title
+  says "and N more (settings go to all)", and every selected row is
+  highlighted.
+- **What goes to all:** the settings that leave every cue where it is,
+  so positions stay valid while the edit runs: length, transition,
+  preset, media and disable (`edit::apply_many`). Moving, duplicating,
+  deleting and inserting stay one cue at a time and act on the first.
+- **All or nothing.** Each cue is edited in turn on a copy; a position
+  that has gone stale refuses the whole edit with one line, and the show
+  is untouched. Otherwise it is one playlist swap, as a single edit is
+  (D213).
+- **The selection** survives a setting edit, and is cleared after a
+  structural edit or a disable, which move rows in the timeline.
+
+**Would reopen:** wanting a Shift-click range, or multi-selection across a
+reload from disk.

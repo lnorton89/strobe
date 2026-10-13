@@ -252,11 +252,15 @@ fn cue_card(
         .inner_margin(theme::margin(SPACE_SM))
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
-            widgets::section(
-                ui,
-                theme,
-                &format!("Cue {}: {}", row.index + 1, row.scene),
-            );
+            let title = match model.playlist.ui.also.len() {
+                0 => format!("Cue {}: {}", row.index + 1, row.scene),
+                more => format!(
+                    "Cue {}: {} and {more} more (settings go to all)",
+                    row.index + 1,
+                    row.scene
+                ),
+            };
+            widgets::section(ui, theme, &title);
             let muted = |text: &str| {
                 egui::RichText::new(text.to_owned())
                     .small()
@@ -443,8 +447,33 @@ fn cue_card(
                 );
             }
         });
+    let also: Vec<At> = model
+        .playlist
+        .ui
+        .also
+        .iter()
+        .filter_map(|index| show.rows().get(*index))
+        .map(|row| At {
+            section: row.section,
+            cue: row.cue,
+        })
+        .collect();
     for edit in edits {
-        actions.push(Action::EditCue { at, edit });
+        let shared = matches!(
+            edit,
+            CueEdit::SetDuration(_)
+                | CueEdit::SetTransition(_)
+                | CueEdit::SetPreset(_)
+                | CueEdit::SetMedia(_)
+                | CueEdit::SetEnabled(_)
+        );
+        if shared && !also.is_empty() {
+            let mut ats = vec![at];
+            ats.extend(also.iter().copied());
+            actions.push(Action::EditCues { ats, edit });
+        } else {
+            actions.push(Action::EditCue { at, edit });
+        }
     }
     ui.add_space(SPACE_XS);
 }
@@ -826,7 +855,8 @@ fn cue_row(
     let is_now = current == Some(row.index);
     let is_next = next == Some(row.index) && !is_now;
     let failure = show.cue_failure(row.index);
-    let selected = model.playlist.ui.selected == Some(row.index);
+    let selected = model.playlist.ui.selected == Some(row.index)
+        || model.playlist.ui.also.contains(&row.index);
     let width = ui.available_width();
     let (rect, response) =
         ui.allocate_exact_size(Vec2::new(width, theme::row_height()), Sense::click());
@@ -975,7 +1005,20 @@ fn cue_row(
     };
     let response = response.on_hover_text(hover);
     if response.clicked() {
-        model.playlist.ui.selected = Some(row.index);
+        let list = &mut model.playlist.ui;
+        // Ctrl-click adds a cue to the selection or takes it out (D230).
+        if ui.input(|input| input.modifiers.command) && list.selected.is_some() {
+            if list.selected == Some(row.index) {
+                list.selected = (!list.also.is_empty()).then(|| list.also.remove(0));
+            } else if let Some(at) = list.also.iter().position(|i| *i == row.index) {
+                list.also.remove(at);
+            } else {
+                list.also.push(row.index);
+            }
+        } else {
+            list.selected = Some(row.index);
+            list.also.clear();
+        }
     }
     if response.double_clicked() && failure.is_none() {
         actions.push(Action::JumpToCue(row.index));
