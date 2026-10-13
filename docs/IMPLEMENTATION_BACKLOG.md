@@ -51,7 +51,7 @@
 - **Acceptance:** reproducible release checklist completed, archive contents reviewed, checksums verified after download, attestations validate, and the release workflow is proven on an actual tag.
 
 ### R-06 Brand completion
-- **Status:** In progress. The executable icon is embedded (D241): `strobe-app`'s build script compiles `assets/strobe.rc` with the brand `icon.ico` on Windows targets. On the T480 (Task 32) both exes carry the full six-size icon group, and Windows extracts the Strobe mark for the exe and for a shortcut to it. Left: a version resource (product name and version in the file properties, in the same `.rc`), a look at Explorer and the taskbar by a person, and the wordmark and lockups.
+- **Status:** In progress. The executable icon is embedded (D241): `strobe-app`'s build script compiles `assets/strobe.rc` with the brand `icon.ico` on Windows targets. On the T480 (Task 32) both exes carry the full six-size icon group, and Windows extracts the Strobe mark for the exe and for a shortcut to it. Each exe also carries a version block (D244): product Strobe, its own file name and description, and the workspace version as both file and product version. Left: a look at Explorer and the taskbar by a person, and the wordmark and lockups.
 - **Work:** finish wordmark and lockups; embed the executable resource icon; check title bar, taskbar, installer/archive and high-DPI rendering on Windows.
 - **Acceptance:** the same approved mark is legible in the executable, title bar, taskbar, docs and release artifacts; CI validates generated assets and no icon is missing from the packaged binary.
 
