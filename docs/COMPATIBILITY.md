@@ -249,7 +249,7 @@ Per dialect: 63 ok, 2 `compile_error`. Categories: no issue 58, source bug 2, dr
 | OSC from another machine on the LAN | Unverified | [STATUS_AUDIT P2](STATUS_AUDIT.md) | `--osc-all-interfaces` was bound, never reached from a LAN. |
 | OSC feedback output | Supported | [D209](DECISIONS.md), `feedback` tests, [T480 Task 25](hardware/T480.md) | Changes only, on `/strobe/...`. Synesthesia's output layout is not produced. Not tried with a real TouchOSC layout. |
 | MIDI input and mapping | Unverified | [D170](DECISIONS.md), [D171](DECISIONS.md), parser tests from recorded bytes | No MIDI controller has been used ([P-04](IMPLEMENTATION_BACKLOG.md)). |
-| MIDI output | Unsupported | [P-05](IMPLEMENTATION_BACKLOG.md) | |
+| MIDI feedback output (faders, LED rings, pad lights) | Unverified | [D257](DECISIONS.md), `midi_feedback` tests, `mapping.rs` `unshape_finds_the_travel_that_shape_turned_into_a_value` | Off by default. CC, pitch bend (14-bit) and note lights, for mappings on a named device. No controller has received it yet ([P-04](IMPLEMENTATION_BACKLOG.md)). |
 | Importing Synesthesia's MIDI mappings | Unsupported | [D234](DECISIONS.md), [Q23](OPEN_QUESTIONS.md) | They are internal identifiers with no export. |
 | Learn | Degraded | [D174](DECISIONS.md), [STATUS_AUDIT P2](STATUS_AUDIT.md) (Xvfb click, OSC) | Verified with OSC under Xvfb only; MIDI Learn and Windows are unverified. |
 | Macros: reach, colour, pinning, glide, key | Supported | [D210](DECISIONS.md), [D227](DECISIONS.md), [D228](DECISIONS.md), `strobe-io` `macros` and engine tests, [T480 Task 29](hardware/T480.md) | The key and the reach were checked on the T480 with posted keys. |

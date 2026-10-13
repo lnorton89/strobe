@@ -4824,3 +4824,35 @@ README banner and the social preview (branding.md sections 2 and 6).
 
 **Would reopen:** a designer's own wordmark, which would replace the
 script's output and keep the same file names.
+
+### D257: MIDI feedback undoes the mapping, and goes only to named devices (2026-10-13)
+
+P-05 had OSC feedback (D209) but no MIDI output. Motorised faders, LED
+rings and pad lights stay wrong after a preset, a cue or a randomize unless
+Strobe tells the controller.
+
+- **What is sent:** for every enabled mapping on a MIDI CC, pitch bend or
+  note from a named device whose target is a control (directly or through
+  a macro), the fader position that would put the control where it is.
+  - `Cfg::unshape` runs the mapping backwards: range, then curve
+    (`Curve::inverse`; Exp and Log invert each other), then invert, and a
+    macro's reach on top. A tested round trip holds `shape` and `unshape`
+    together for every combination.
+  - **A CC** gets `0..=127` and **pitch bend** 14 bits, which Mackie-protocol
+    motor faders use.
+  - **A note** gets a light: velocity 127 from half way, else 0.
+  - Bangs, commands, cues, fav slots, presets, actions and program changes
+    have no position and send nothing.
+- **Only to named devices.** A mapping on "any device" has no one place to
+  go, and guessing would send fader positions to a synthesiser. Output
+  ports are keyed exactly like input ports (`device_keys`), so a learned
+  mapping's device names the controller's output as well.
+- **Like OSC feedback:** changes only, at most 30 sends a second and 64
+  messages a send, after a scene or mapping change everything again,
+  through a thread with a bounded queue the frame only `try_send`s into.
+  An echoed value moves nothing, because it equals the control's target.
+- **Off by default,** behind "Send feedback" in MAP's MIDI block,
+  saved with the MIDI settings.
+
+**Would reopen:** a controller that wants its own feedback format, such as
+SysEx LED colours. That would be a per-device profile.

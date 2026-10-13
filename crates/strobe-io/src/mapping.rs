@@ -265,6 +265,25 @@ impl Cfg {
         }
         clamp01(low + y * (high - low))
     }
+
+    /// The travel that [`Self::shape`] maps to `value`, clamped to the
+    /// reachable range: what a fader must show for a control at `value`
+    /// (MIDI feedback, D257). `None` when the range is empty, so every
+    /// travel gives the same value.
+    pub fn unshape(&self, value: f32, outer: Option<[f32; 2]>) -> Option<f32> {
+        let [mut low, mut high] = self.range.map(clamp01);
+        if let Some([outer_low, outer_high]) = outer.map(|r| r.map(clamp01)) {
+            let span = outer_high - outer_low;
+            low = outer_low + low * span;
+            high = outer_low + high * span;
+        }
+        if (high - low).abs() < f32::EPSILON {
+            return None;
+        }
+        let y = clamp01((clamp01(value) - low) / (high - low));
+        let travel = self.curve.inverse(y);
+        Some(if self.invert { 1.0 - travel } else { travel })
+    }
 }
 
 fn clamp01(x: f32) -> f32 {
@@ -357,6 +376,45 @@ mod tests {
         assert!(
             near(m.shape(0.9, None), Curve::Exp.apply(0.1)),
             "invert then curve"
+        );
+    }
+
+    #[test]
+    fn unshape_finds_the_travel_that_shape_turned_into_a_value() {
+        for curve in Curve::ALL {
+            for invert in [false, true] {
+                for range in [[0.0, 1.0], [0.2, 0.7], [0.9, 0.1]] {
+                    for outer in [None, Some([0.25, 0.75])] {
+                        let mut m = mapping(1);
+                        m.curve = curve;
+                        m.invert = invert;
+                        m.range = range;
+                        let cfg = m.cfg();
+                        for step in 0..=10 {
+                            let travel = step as f32 / 10.0;
+                            let value = cfg.shape(travel, outer);
+                            let back = cfg.unshape(value, outer).unwrap_or(f32::NAN);
+                            assert!(
+                                (back - travel).abs() < 1e-3,
+                                "{curve:?} invert {invert} {range:?} {outer:?}: {travel} -> {value} -> {back}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        let mut flat = mapping(1);
+        flat.range = [0.4, 0.4];
+        assert_eq!(
+            flat.cfg().unshape(0.4, None),
+            None,
+            "an empty range has no travel"
+        );
+        let m = mapping(1);
+        assert_eq!(
+            m.cfg().unshape(1.5, None),
+            Some(1.0),
+            "a value beyond the range shows the end of the travel"
         );
     }
 

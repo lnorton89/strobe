@@ -56,6 +56,17 @@ impl Curve {
             Self::Log => (1.0 + x * span).ln() / BEND,
         }
     }
+
+    /// The travel that [`Self::apply`] maps to `y`: what a motorised fader
+    /// or an LED ring must show for a value (MIDI feedback, D257). `Exp` and
+    /// `Log` are each other's inverse.
+    pub fn inverse(self, y: f32) -> f32 {
+        match self {
+            Self::Linear => Self::Linear.apply(y),
+            Self::Exp => Self::Log.apply(y),
+            Self::Log => Self::Exp.apply(y),
+        }
+    }
 }
 
 #[cfg(test)]

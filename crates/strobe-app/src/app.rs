@@ -3205,6 +3205,11 @@ impl Running {
                     settings.enabled = enabled;
                     self.remote.set_midi(settings);
                 }
+                Action::SetMidiFeedback(on) => {
+                    let mut settings = self.remote.midi_saved.clone();
+                    settings.feedback = on;
+                    self.remote.set_midi(settings);
+                }
                 Action::SetMidiDevice(key, used) => self.remote.set_device_enabled(&key, used),
                 Action::RescanMidi => self.remote.rescan_midi(),
                 Action::SavePreset(name) => self.save_preset(&name),
@@ -3262,6 +3267,11 @@ impl Running {
             session.map(|s| &s.controls),
             session.map(|s| &s.meta),
             state,
+        );
+        self.remote.midi_feedback_frame(
+            now,
+            session.map(|s| &s.controls),
+            session.map(|s| &s.meta),
         );
     }
 

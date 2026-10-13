@@ -202,6 +202,8 @@ pub enum Action {
     SetOsc(OscSettings),
     /// Open MIDI input devices at all, or none.
     SetMidiEnabled(bool),
+    /// Send MIDI mappings' controls back to their devices (D257).
+    SetMidiFeedback(bool),
     /// Use or ignore one MIDI device, by its key.
     SetMidiDevice(String, bool),
     /// List the MIDI ports again now.
