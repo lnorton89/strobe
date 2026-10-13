@@ -2570,6 +2570,7 @@ impl Running {
             }
         }
         self.generate_job = None;
+        self.ui_state.generate_review.clear();
         self.generate_outcome = Some(outcome);
     }
 
@@ -2578,10 +2579,40 @@ impl Running {
         let Some(generate::Outcome::Done(summary)) = self.generate_outcome.take() else {
             return;
         };
-        let Some(written) = summary.written else {
+        let Some(written) = summary.written.clone() else {
             return;
         };
-        self.show_imported(&written);
+        // The review's keep, drop and range edits (D219), applied before the
+        // copy is opened.
+        let reviews = std::mem::take(&mut self.ui_state.generate_review);
+        match generate::review(&summary, &reviews, &self.library.dir) {
+            Ok(generate::Reviewed::AsWritten) => self.show_imported(&written),
+            Ok(generate::Reviewed::Rewritten) => {
+                log::info!(
+                    "generated controls: {} rewritten with {} of {} kept",
+                    written.display(),
+                    reviews.iter().filter(|r| r.keep).count(),
+                    summary.kept.len()
+                );
+                self.show_imported(&written);
+            }
+            Ok(generate::Reviewed::Discarded) => {
+                log::info!(
+                    "generated controls: none kept, {} deleted",
+                    written.display()
+                );
+                self.rescan_library();
+                self.say(
+                    Tone::Info,
+                    "No control was kept, so the copy was deleted. The original is unchanged.",
+                );
+            }
+            Err(why) => {
+                self.say(Tone::Error, format!("Could not apply the review: {why}"));
+                self.ui_state.generate_review = reviews;
+                self.generate_outcome = Some(generate::Outcome::Done(summary));
+            }
+        }
     }
 
     /// Deletes the scene the worker wrote. Only a generated folder in the

@@ -155,6 +155,11 @@ checked and not committed. Interaction was driven with xdotool.
   software rasterisation and says nothing).
 - [x] Named layouts (D215), saved in Settings and applied from Settings or
   the palette. Evidence: `ui::state` and `command_palette` tests.
+- [x] The generated-controls review keeps, drops and re-ranges each
+  control, rewriting the copy without measuring again (D219); dropping all
+  deletes the copy. Evidence: `strobe-autocontrol/tests/engine.rs::a_review_...`
+  (the reviewed copy compiles and draws the original at its defaults) and
+  `generate::tests::a_review_...`.
 - [x] Dropped files routed by kind (D218): scene folder, playlist,
   picture or picture folder, Shadertoy export; a scene from outside the
   library is copied in, never over one already there. Evidence:
