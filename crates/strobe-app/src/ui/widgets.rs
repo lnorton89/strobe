@@ -867,7 +867,7 @@ mod tests {
     fn size_of(f: impl FnOnce(&mut Ui, &Palette)) -> Vec2 {
         let ctx = egui::Context::default();
         let theme = crate::palette::fallback().clone();
-        theme::apply(&ctx, &theme);
+        theme::apply(&ctx, &theme, theme::Density::default());
         let mut size = Vec2::ZERO;
         let mut f = Some(f);
         let _ = crate::ui::testing::run(

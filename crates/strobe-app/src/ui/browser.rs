@@ -29,7 +29,7 @@
 
 use super::icon as icons;
 use super::model::{Action, Model};
-use super::theme::{self, ROW_HEIGHT, SPACE_SM, SPACE_XS};
+use super::theme::{self, SPACE_SM, SPACE_XS};
 use super::widgets;
 use crate::icon::Icon;
 use crate::library::{Health, HealthFilter};
@@ -308,10 +308,10 @@ fn list(
     let pictures = model.library.entries.iter().any(|e| e.thumbnail.is_some());
     let mut area = egui::ScrollArea::vertical().auto_shrink([false, false]);
     if let Some(row) = model.ui.browser.scroll_to.take() {
-        let centre = (row as f32 * ROW_HEIGHT - ui.available_height() / 2.0).max(0.0);
+        let centre = (row as f32 * theme::row_height() - ui.available_height() / 2.0).max(0.0);
         area = area.vertical_scroll_offset(centre);
     }
-    area.show_rows(ui, ROW_HEIGHT, visible.len(), |ui, range| {
+    area.show_rows(ui, theme::row_height(), visible.len(), |ui, range| {
         for position in range {
             let Some(&index) = visible.get(position) else {
                 continue;
@@ -341,7 +341,8 @@ fn row(
     let loading = model.loading == Some(entry.name.as_str());
 
     let width = ui.available_width();
-    let (rect, response) = ui.allocate_exact_size(Vec2::new(width, ROW_HEIGHT), Sense::click());
+    let (rect, response) =
+        ui.allocate_exact_size(Vec2::new(width, theme::row_height()), Sense::click());
     let id = egui::Id::new(("scene-row", &entry.name));
     let fill = widgets::selection_fill(ui, theme, id, selected, response.hovered(), theme.panel);
     ui.painter().rect_filled(rect, CornerRadius::ZERO, fill);
@@ -359,13 +360,15 @@ fn row(
     // The picture or the identity swatch, then name and status line.
     let colour = theme::rgb(widgets::scene_colour(theme, &entry.name));
     let text_x = if pictures {
-        const PICTURE: Vec2 = Vec2::new(56.0, 31.5);
+        // 16:9, a little shorter than the row.
+        let tall = theme::row_height() - 12.5;
+        let picture = Vec2::new(tall * 16.0 / 9.0, tall);
         let slot = Rect::from_min_size(
             egui::pos2(
                 rect.left() + theme::SPACE_SM,
-                rect.center().y - PICTURE.y / 2.0,
+                rect.center().y - picture.y / 2.0,
             ),
-            PICTURE,
+            picture,
         );
         let texture = entry
             .thumbnail
@@ -374,7 +377,7 @@ fn row(
         match texture {
             Some((id, size)) => {
                 // Fit inside the slot, centred, keeping the aspect.
-                let scale = (PICTURE.x / size[0]).min(PICTURE.y / size[1]);
+                let scale = (picture.x / size[0]).min(picture.y / size[1]);
                 let fitted = Rect::from_center_size(
                     slot.center(),
                     Vec2::new(size[0] * scale, size[1] * scale),
@@ -409,7 +412,7 @@ fn row(
     let font = egui::TextStyle::Body.resolve(ui.style());
     let name = widgets::truncated(ui, &entry.name, font, name_colour, text_width);
     ui.painter().galley(
-        egui::pos2(text_x, rect.top() + 6.0),
+        egui::pos2(text_x, rect.top() + theme::density().row_inset()),
         name,
         theme::rgb(name_colour),
     );
@@ -536,7 +539,7 @@ fn status_line(
             ),
         }
     };
-    let y = rect.bottom() - 11.0;
+    let y = rect.bottom() - theme::density().row_inset() - 5.0;
     icons::paint(
         ui.painter(),
         Rect::from_center_size(egui::pos2(x + 6.0, y), Vec2::splat(icons::DISCLOSURE)),

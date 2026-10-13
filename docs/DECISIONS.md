@@ -3682,3 +3682,31 @@ the copy is used.
 
 **Would reopen:** a person wanting to add back a candidate the engine cut
 (the review only narrows what was kept), or to rename a control.
+
+### D220: density is one window-wide setting, applied with the theme (2026-10-13)
+
+UI_DESIGN section 21 asks for a compact Perform density, chosen once and not
+by each widget. Backlog U-06 had it left.
+
+- **Two densities.** Comfortable (the default, as before) and Compact:
+  body text 12.5 instead of 13.5, small 11 instead of 11.5, item spacing
+  6x2 instead of 8x4, controls at least 20 tall instead of 24, and list
+  rows (browser, cue list) 32 instead of 44, with their thumbnails and
+  text lines placed from the density. At 1280x720 compact shows all 12
+  library scenes where comfortable shows 8.
+- **Where it lives.** `theme::Density`, set by `theme::apply` beside the
+  palette (a thread-local like the palette, read by `theme::row_height()`),
+  saved in `ui.toml` as `density`, chosen in Settings > Appearance, and
+  `--density` overrides it for a run (screenshot mode reads no saved
+  preferences, as with `--theme`). An unknown saved value falls back to
+  comfortable.
+- **Not Perform versus Edit.** The design doc pictures a different density
+  per workspace. One setting is simpler and covers the case that matters
+  (a small laptop screen). Per-workspace density can come later.
+- **Found on the way.** A macro card's rows inherited the window's minimum
+  control height, so header, value and rail did not fit the 60-point card,
+  and its slider was clipped off at both densities. Rows inside a card
+  are now as tall as their text.
+
+**Would reopen:** a third density, or a person wanting Edit roomier than
+Perform.

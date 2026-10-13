@@ -249,7 +249,7 @@ mod tests {
     fn answer_with(events: Vec<egui::Event>) -> Option<bool> {
         let ctx = egui::Context::default();
         let theme = crate::palette::fallback().clone();
-        theme::apply(&ctx, &theme);
+        theme::apply(&ctx, &theme, theme::Density::default());
         let question = replace();
         let mut answer = None;
         let _ = crate::ui::testing::run(

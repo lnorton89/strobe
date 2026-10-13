@@ -155,6 +155,12 @@ checked and not committed. Interaction was driven with xdotool.
   software rasterisation and says nothing).
 - [x] Named layouts (D215), saved in Settings and applied from Settings or
   the palette. Evidence: `ui::state` and `command_palette` tests.
+- [x] Density, Comfortable or Compact (D220), saved and chosen in Settings
+  or with `--density`; compact fits all 12 library scenes at 1280x720.
+  Evidence: shell scenarios at compact density (no overflow at any size),
+  `ui::state` round trip, `docs/images/perform/compact-browser-1280x720.png`.
+  It also fixed the macro cards, whose sliders were clipped off at both
+  densities.
 - [x] The generated-controls review keeps, drops and re-ranges each
   control, rewriting the copy without measuring again (D219); dropping all
   deletes the copy. Evidence: `strobe-autocontrol/tests/engine.rs::a_review_...`

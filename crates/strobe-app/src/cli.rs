@@ -162,6 +162,10 @@ pub struct Cli {
     /// the saved one. The Settings pane changes and saves it.
     #[arg(long, value_name = "ID")]
     pub theme: Option<String>,
+    /// Use this density (`comfortable` or `compact`) for this run instead
+    /// of the saved one (D220).
+    #[arg(long, value_name = "DENSITY")]
+    pub density: Option<String>,
     /// Draw the system's title bar instead of Strobe's for this run,
     /// whatever the saved setting says (D132).
     #[arg(long)]

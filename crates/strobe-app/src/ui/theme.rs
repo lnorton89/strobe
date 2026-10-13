@@ -40,7 +40,7 @@
 use crate::color::Rgb;
 use crate::palette::{Mode, Palette};
 use egui::{Color32, CornerRadius, Margin, Stroke, TextStyle, Vec2};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 /// The tightest gap: between an icon and its label, or a chip's inset.
@@ -67,8 +67,107 @@ pub const RADIUS: u8 = 5;
 /// The corner radius on a large surface: a modal, a drawer.
 pub const RADIUS_LG: u8 = 8;
 
-/// The height of a list row (the scene browser).
-pub const ROW_HEIGHT: f32 = 44.0;
+/// How tightly the control window is packed (UI_DESIGN section 21, D220).
+/// One setting for the whole window, never chosen widget by widget.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Density {
+    /// The default: room for a finger or a tired eye.
+    #[default]
+    Comfortable,
+    /// More on screen at once: smaller text, tighter rows. For a laptop
+    /// screen at 1280x720 with several panes open.
+    Compact,
+}
+
+impl Density {
+    /// Every density, in the order the Settings pane lists them.
+    pub const ALL: [Self; 2] = [Self::Comfortable, Self::Compact];
+
+    /// The name saved in the preferences file.
+    pub const fn key(self) -> &'static str {
+        match self {
+            Self::Comfortable => "comfortable",
+            Self::Compact => "compact",
+        }
+    }
+
+    /// The density saved as `key`; `None` for a name this build does not
+    /// know.
+    pub fn from_key(key: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|density| density.key() == key)
+    }
+
+    /// The name shown in Settings.
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Comfortable => "Comfortable",
+            Self::Compact => "Compact",
+        }
+    }
+
+    /// The height of a list row (the scene browser, the cue list).
+    pub const fn row_height(self) -> f32 {
+        match self {
+            Self::Comfortable => 44.0,
+            Self::Compact => 32.0,
+        }
+    }
+
+    /// The gap above a list row's first line and below its last.
+    pub const fn row_inset(self) -> f32 {
+        match self {
+            Self::Comfortable => 6.0,
+            Self::Compact => 2.0,
+        }
+    }
+
+    /// Body and button text size.
+    const fn body(self) -> f32 {
+        match self {
+            Self::Comfortable => 13.5,
+            Self::Compact => 12.5,
+        }
+    }
+
+    /// Small text size.
+    const fn small(self) -> f32 {
+        match self {
+            Self::Comfortable => 11.5,
+            Self::Compact => 11.0,
+        }
+    }
+
+    /// Gap between widgets in a row, and between rows.
+    const fn item_spacing(self) -> Vec2 {
+        match self {
+            Self::Comfortable => Vec2::new(SPACE_SM, SPACE_XS),
+            Self::Compact => Vec2::new(6.0, 2.0),
+        }
+    }
+
+    /// The smallest a button or field is.
+    const fn interact_height(self) -> f32 {
+        match self {
+            Self::Comfortable => 24.0,
+            Self::Compact => 20.0,
+        }
+    }
+}
+
+thread_local! {
+    /// The density in force; set with the theme by [`apply`].
+    static DENSITY: Cell<Density> = const { Cell::new(Density::Comfortable) };
+}
+
+/// The density in force.
+pub fn density() -> Density {
+    DENSITY.with(Cell::get)
+}
+
+/// The height of a list row at the density in force.
+pub fn row_height() -> f32 {
+    density().row_height()
+}
 
 /// The height of a pane's header.
 pub const PANE_HEADER: f32 = 36.0;
@@ -117,10 +216,11 @@ thread_local! {
     static ACTIVE: RefCell<Rc<Palette>> = RefCell::new(Rc::new(crate::palette::fallback().clone()));
 }
 
-/// Installs `theme` and derives egui's own style from it. Called at start-up
-/// and when the theme changes, not every frame.
-pub fn apply(ctx: &egui::Context, theme: &Palette) {
+/// Installs `theme` at `density` and derives egui's own style from them.
+/// Called at start-up and when either changes, not every frame.
+pub fn apply(ctx: &egui::Context, theme: &Palette, density: Density) {
     ACTIVE.with(|active| active.replace(Rc::new(theme.clone())));
+    DENSITY.with(|cell| cell.set(density));
 
     // egui keeps a separate `Style` for light and dark and picks between
     // them from the OS setting. The palette already decides which it is, so
@@ -133,11 +233,11 @@ pub fn apply(ctx: &egui::Context, theme: &Palette) {
     let derived = visuals(theme);
     ctx.all_styles_mut(|style| {
         style.visuals = derived.clone();
-        style.spacing.item_spacing = Vec2::new(SPACE_SM, SPACE_XS);
-        style.spacing.button_padding = Vec2::new(SPACE_SM, SPACE_XS);
+        style.spacing.item_spacing = density.item_spacing();
+        style.spacing.button_padding = density.item_spacing();
         style.spacing.menu_margin = Margin::same(as_margin(SPACE_XS));
         style.spacing.indent = SPACE_MD;
-        style.spacing.interact_size = Vec2::new(0.0, 24.0);
+        style.spacing.interact_size = Vec2::new(0.0, density.interact_height());
         // Solid scrollbars, never floating: a floating bar is invisible
         // until the pointer is already on it, so a list with rows past its
         // edge looks like it has lost them.
@@ -151,15 +251,15 @@ pub fn apply(ctx: &egui::Context, theme: &Palette) {
 
         style.text_styles.insert(
             TextStyle::Body,
-            egui::FontId::new(13.5, egui::FontFamily::Proportional),
+            egui::FontId::new(density.body(), egui::FontFamily::Proportional),
         );
         style.text_styles.insert(
             TextStyle::Button,
-            egui::FontId::new(13.5, egui::FontFamily::Proportional),
+            egui::FontId::new(density.body(), egui::FontFamily::Proportional),
         );
         style.text_styles.insert(
             TextStyle::Small,
-            egui::FontId::new(11.5, egui::FontFamily::Proportional),
+            egui::FontId::new(density.small(), egui::FontFamily::Proportional),
         );
         style.text_styles.insert(
             TextStyle::Heading,
