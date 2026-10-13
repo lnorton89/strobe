@@ -511,11 +511,18 @@ impl ScenePlayer {
 
     /// Shows `request` (a picture, or a folder of pictures) behind
     /// `syn_Media` in place of the scene's own. It decodes on a thread of
-    /// its own; the old picture stays up until the first new one has landed.
-    /// A request that cannot start is recorded as an asset problem.
+    /// its own; the old picture stays up until the first new one has landed,
+    /// unless there is none yet (a scene just loaded), when the old one is
+    /// dropped at once rather than flashed for a frame or two (T480 Task
+    /// 26). A request that cannot start is recorded as an asset problem.
     pub fn set_media(&mut self, request: MediaRequest) {
         let path = request.path.display().to_string();
+        log::info!("syn_Media: {path}");
         match Media::start(request) {
+            Ok(media) if !self.media.has_picture() => {
+                self.media = media;
+                self.incoming = None;
+            }
             Ok(media) => self.incoming = Some(media),
             Err(message) => self.problems.push(AssetProblem {
                 asset: "syn_Media".to_string(),
@@ -537,6 +544,7 @@ impl ScenePlayer {
         match wanted {
             Some(request) => self.set_media(request),
             None => {
+                log::info!("syn_Media: none");
                 self.incoming = None;
                 self.media = Media::none();
             }

@@ -354,6 +354,25 @@ structural cure in D216 (the control window on its own thread and
 context, so the shared context never switches surfaces) removes them. The
 control surface's swap interval is already 0.
 
+## Waiting for the swap on the output's side cures it (2026-10-13, commit 7a49cce, Task T15)
+
+The T14 layout, two 6-minute runs of the same build: F with
+`STROBE_FINISH_AFTER_SWAP=1` (the output calls `glFinish` right after its
+swap), N without.
+
+| | F | N |
+|---|---|---|
+| make-current | 1.2-1.7 ms | 16.1-16.4 ms |
+| control redraw | 2.3-2.7 ms at 30 Hz throughout | about 17.5 ms, slowed to 10 Hz at 0.58 s |
+| late frames a minute | 5-8 (about 0.2%) | 565-570 (about 16%) |
+| fps | 59.9-60.0 | 59.8-59.9 |
+| gpu | 0.21-0.58 ms | 0.35-0.68 ms |
+
+With the output waiting for its own flip, switching the shared context to
+the control window no longer waits for it: the control window runs at its
+full rate and the show loses almost nothing. D221 turns this on by
+itself the first time the pacer sees the wait.
+
 ## Pending on this machine
 
 - [x] Re-run 07 at 1080p and 2160p after D191: same size (T2).
@@ -374,6 +393,11 @@ control surface's swap interval is already 0.
   redraw, and the 4-minute drop does not recur.
 - [x] T13: the wait is `make_current` (16 ms), and it scales with the
   number of control redraws.
+- [x] T15: `glFinish` after the output's swap takes make-current to 1.5 ms
+  and late frames to 5-8 a minute at 30 Hz (D221).
+- [ ] T16: D221's automatic engagement on the same layout (expect the
+  "the output now waits for its own swap instead" line within a second and
+  T15 F's numbers after it).
 - [x] T14: the pacer (D216) engages at 0.56 s and holds late frames to
   about a third (568-581 a minute); the return to 30 Hz was not exercised
   because the wait never cleared.

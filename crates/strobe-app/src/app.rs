@@ -113,7 +113,9 @@ use crate::remote::{Overrides, Remote};
 use crate::screenshot::{Screenshot, Target};
 use crate::session::{self, Session};
 use crate::show::{self, Env, Phase, Show};
-use crate::stats::{ControlPacer, ControlTimes, FrameStats, PaceChange, PerfWindow};
+use crate::stats::{
+    ControlPacer, ControlTimes, FinishMode, FrameStats, PaceChange, PerfWindow, SwapPolicy,
+};
 use crate::ui::widgets::Tone;
 use crate::ui::{
     Action, CueTransport, EditorPanel, FailurePanel, GeneratePanel, ImportPanel, ListenerPanel,
@@ -558,10 +560,9 @@ struct Running {
     /// Slows the control window when switching to it waits on the output
     /// (D216).
     control_pacer: ControlPacer,
-    /// `STROBE_FINISH_AFTER_SWAP=1`: wait for the output's swap to complete
-    /// before the next window is made current. An experiment for TORNADO's
-    /// make-current wait (D216, T15), read once at startup.
-    finish_after_swap: bool,
+    /// When the output waits for its own swap, so switching to the control
+    /// window does not (D221).
+    swap_policy: SwapPolicy,
     /// What the file hovering over a window would do if dropped (D218).
     drop_hint: Option<String>,
     gl_summary: String,
@@ -835,7 +836,7 @@ impl Running {
             stats: FrameStats::default(),
             perf_log: PerfWindow::default(),
             control_pacer: ControlPacer::default(),
-            finish_after_swap: finish_after_swap(),
+            swap_policy: SwapPolicy::new(finish_mode()),
             drop_hint: None,
             gl_summary,
             audio: AudioInput::new(cli.audio == AudioArg::Auto),
@@ -3372,7 +3373,7 @@ impl Running {
         }
         if shown {
             self.present(Surface::Output, started);
-            if self.finish_after_swap {
+            if self.swap_policy.finish_now(self.control_covered) {
                 self.stack.gfx.gl().finish();
             }
         }
@@ -3433,6 +3434,13 @@ impl Running {
         let make_current = current_began.elapsed();
         match self.control_pacer.observe(make_current) {
             PaceChange::None => {}
+            PaceChange::Slowed if self.swap_policy.on_slowed() => {
+                log::info!(
+                    "control window: making it current waits {:.1} ms for the output's swap; the output now waits for its own swap instead (D221)",
+                    self.control_pacer.smoothed_ms()
+                );
+                self.control_pacer.reset();
+            }
             PaceChange::Slowed => log::info!(
                 "control window: making it current waits {:.1} ms for the output's vertical blank; redrawing at 10 Hz so the show keeps its frames",
                 self.control_pacer.smoothed_ms()
@@ -3745,15 +3753,17 @@ impl Running {
     }
 }
 
-/// Whether `STROBE_FINISH_AFTER_SWAP` asks the output to wait for its swap
-/// (D216's T15 experiment). Logged when on.
-fn finish_after_swap() -> bool {
+/// What `STROBE_FINISH_AFTER_SWAP` asks for (D221). Logged unless unset.
+fn finish_mode() -> FinishMode {
     const ENV: &str = "STROBE_FINISH_AFTER_SWAP";
-    let on = std::env::var(ENV).is_ok_and(|value| value == "1");
-    if on {
-        log::info!("{ENV}=1: the output waits for each swap to complete");
+    let value = std::env::var(ENV).ok();
+    let mode = FinishMode::from_env(value.as_deref());
+    match mode {
+        FinishMode::On => log::info!("{ENV}=1: the output waits for each swap to complete"),
+        FinishMode::Off => log::info!("{ENV}=0: the output never waits for its swap"),
+        FinishMode::Auto => {}
     }
-    on
+    mode
 }
 
 /// The Inspector's media row for `player` (D217). `cue_media` says the

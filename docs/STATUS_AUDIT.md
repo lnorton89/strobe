@@ -176,7 +176,8 @@ checked and not committed. Interaction was driven with xdotool.
   Evidence: `strobe-gfx/tests/assets.rs::choosing_none_goes_back_...`,
   `strobe-app/tests/show.rs::a_cues_media_replaces_...`, `strobe-playlist`
   parse and write round trip, `show::edit` tests; both GL dialects on
-  llvmpipe. Not yet: the Media row used by a person on the T480.
+  llvmpipe; on the T480 (Task 26) the cue, operator and scene precedence
+  held with no black flash. Not yet: the Media row clicked by a person.
 - [x] Preset rename, Replace named before it happens, Delete in two clicks
   (D214). Evidence: `strobe-scene` `preset` tests.
 - [x] Editing the selected cue in the LIST pane, with each setting's origin

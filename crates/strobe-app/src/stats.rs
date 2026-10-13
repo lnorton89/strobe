@@ -278,6 +278,81 @@ impl ControlPacer {
     pub fn smoothed_ms(&self) -> f32 {
         self.smoothed_ms
     }
+
+    /// Starts measuring again from nothing, at the normal rate.
+    pub fn reset(&mut self) {
+        *self = Self::default();
+    }
+}
+
+/// Whether the output waits for its own swap (`glFinish` after it), from
+/// `STROBE_FINISH_AFTER_SWAP` (D221).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FinishMode {
+    /// Unset: only once the pacer has seen the control window wait.
+    #[default]
+    Auto,
+    /// `1`: always.
+    On,
+    /// `0`: never; the pacer's 10 Hz is the only remedy.
+    Off,
+}
+
+impl FinishMode {
+    /// The mode `STROBE_FINISH_AFTER_SWAP`'s value asks for.
+    pub fn from_env(value: Option<&str>) -> Self {
+        match value.map(str::trim) {
+            Some("1") => Self::On,
+            Some("0") => Self::Off,
+            Some(_) | None => Self::Auto,
+        }
+    }
+}
+
+/// When the output waits for its swap (D221). TORNADO T15 found that on
+/// NVIDIA a windowed output's vsynced swap makes the next switch of the
+/// shared context to the control window wait about 16 ms, which costs the
+/// show a frame per control redraw; waiting for the swap on the output's
+/// side instead (`glFinish` right after it) took make-current to 1.5 ms and
+/// late frames from about 570 a minute to under 10, at 30 Hz. The wait
+/// costs the CPU/GPU overlap of one frame, so in `Auto` it engages only
+/// once the pacer has seen the problem, and never while a fullscreen output
+/// covers the control window (which then hardly redraws).
+#[derive(Debug, Default)]
+pub struct SwapPolicy {
+    mode: FinishMode,
+    engaged: bool,
+}
+
+impl SwapPolicy {
+    /// A policy in `mode`.
+    pub fn new(mode: FinishMode) -> Self {
+        Self {
+            mode,
+            engaged: false,
+        }
+    }
+
+    /// The pacer just slowed the control window. Returns whether this
+    /// engaged the wait instead, in which case the pacer should start over
+    /// at the normal rate; the second time, or with the mode not `Auto`, the
+    /// pacer's slowing stands.
+    pub fn on_slowed(&mut self) -> bool {
+        if self.mode == FinishMode::Auto && !self.engaged {
+            self.engaged = true;
+            return true;
+        }
+        false
+    }
+
+    /// Whether the output should wait for the swap it just made.
+    pub fn finish_now(&self, control_covered: bool) -> bool {
+        match self.mode {
+            FinishMode::On => true,
+            FinishMode::Off => false,
+            FinishMode::Auto => self.engaged && !control_covered,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -314,6 +389,32 @@ mod tests {
             resumed && !pacer.is_slow(),
             "a cheap make-current brings it back"
         );
+    }
+
+    #[test]
+    fn the_swap_wait_engages_once_on_the_first_slowdown_and_only_in_auto() {
+        assert_eq!(FinishMode::from_env(None), FinishMode::Auto, "unset");
+        assert_eq!(FinishMode::from_env(Some("1")), FinishMode::On, "1");
+        assert_eq!(FinishMode::from_env(Some(" 0 ")), FinishMode::Off, "0");
+        assert_eq!(FinishMode::from_env(Some("yes")), FinishMode::Auto, "other");
+
+        let mut auto = SwapPolicy::new(FinishMode::Auto);
+        assert!(!auto.finish_now(false), "off until the pacer sees a wait");
+        assert!(auto.on_slowed(), "the first slowdown engages it");
+        assert!(auto.finish_now(false), "then the output waits for its swap");
+        assert!(
+            !auto.finish_now(true),
+            "but not while the output covers the control window"
+        );
+        assert!(
+            !auto.on_slowed(),
+            "a second slowdown is the pacer's: the wait did not help"
+        );
+
+        let mut off = SwapPolicy::new(FinishMode::Off);
+        assert!(!off.on_slowed() && !off.finish_now(false), "off is off");
+        let on = SwapPolicy::new(FinishMode::On);
+        assert!(on.finish_now(true), "on is on, covered or not");
     }
 
     #[test]
