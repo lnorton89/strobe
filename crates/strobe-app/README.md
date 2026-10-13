@@ -43,7 +43,12 @@ from a lost GL context.
 
 ## Main types / entry points
 
-The binary entry is `src/main.rs`; everything else is in the library.
+The binary entry is `src/main.rs`; everything else is in the library. A
+second binary, `strobe-corpus` (`src/corpus_main.rs`, run with `cargo xtask
+corpus -- --library <dir>`), is the compatibility harness (D195): it loads
+every scene in a folder through `Session::load`, script included, renders it
+in both GLSL dialects in a child process per scene, and writes
+`target/corpus/report.{json,md}` (module `corpus`).
 
 | Module | What |
 |---|---|

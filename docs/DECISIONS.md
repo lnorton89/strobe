@@ -2800,6 +2800,52 @@ that wants the lever uses an expression. Evidence: `scene.rs`
 **Would reopen:** a Synesthesia scene that clearly expects a literal size to
 scale with the output.
 
+### D195: compatibility is measured by `strobe-corpus`, with the app's own load (2026-10-13)
+
+Stage 0 of `docs/GFX_API_RESEARCH.md`. `cargo xtask corpus -- --library <dir>`
+loads every scene in a folder through `Session::load`, so the script runs and
+its `setUniform` uniforms are declared before the shader compiles (D62, D161).
+It renders a few frames headless in both dialects and writes `report.json` and
+`report.md` under `target/`.
+
+Why this shape:
+- **The app's load, not a copy.** `strobe-bench` skips scripts, so it reported
+  most script-created uniforms as "undeclared". That was a bench artefact, not
+  a gap. A report that runs a different pipeline from the one that plays is
+  worse than none.
+- **A binary of strobe-app.** The xtask shells out to it, as it does for the
+  bench. `xtask` must build without the MSVC C toolchain that QuickJS needs.
+- **A child process per scene and dialect.** A driver hang is killed at
+  `--timeout`, and a driver crash becomes a `gl_error` record. A GL context
+  cannot be abandoned from a thread.
+- **Third-party corpora stay private.** The report names scenes and quotes
+  one error line each. It never copies a scene.
+
+First run on the owner's private corpus (90 real scenes, llvmpipe):
+
+| Dialect | OK | Script error | Compile error |
+|---|---:|---:|---:|
+| Desktop GL 3.3 | 85 | 2 | 3 |
+| GLES 3.0 (ANGLE dialect) | 17 | 2 | 71 |
+
+Desktop failures:
+- `syn_PrimeBang` is called from script (2);
+- `_hueSaturationContrastLEGACY` is missing from the library (1);
+- an hg_sdf-style `sgn` returns an `int` from a `float` function (1). Mesa
+  rejects it; NVIDIA accepts it;
+- a `sampler2D` is an operand of `?:` (1).
+
+GLES failures:
+- 65 are implicit int→float conversion (Q8);
+- the rest are a few library overloads that take an `int`, an initialised
+  `uniform`, and a write to a `const`.
+
+The ES column is the case for the type-aware int→float rewrite, and the first
+thing the ANGLE path needs.
+
+**Would reopen:** a failure the harness reports that the app does not have, or
+the reverse.
+
 ### D196: more real-scene shapes, from Synesthesia 1.25.4's own scenes (2026-10-11)
 
 The owner's private corpus, `lnorton89/strobe-syn-corpus` (90 scenes from
