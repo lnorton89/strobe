@@ -104,18 +104,23 @@ and `-control.png`; open them to check the output is not black.
 Once a minute the app logs one line (D206):
 
 ```
-perf: 59.9 fps over 60 s, 0 late of 3594 frames, worst gap 17.9 ms, gpu 2.10 ms, control 1800 redraws 2.40 ms (worst 6.1 ms, swap included)
+perf: 59.9 fps over 60 s, 0 late of 3594 frames, worst gap 17.9 ms, gpu 2.10 ms, control 1800 redraws 2.40 ms (worst 6.1 ms), of which swap 0.30 ms (worst 1.2 ms)
 ```
 
 - **late**: frames whose gap was over 1.5 frame budgets, so each is a
   missed vertical blank.
 - **gpu**: the scene's mean GPU time. Late frames with a low GPU time mean
   the time went somewhere else.
-- **control**: the control window's redraws and their cost, swap included.
+- **control**: the control window's redraws and their whole cost, then
+  how much of it was its buffer swap. A swap near one refresh period (16.7
+  ms at 60 Hz) means the window waited for a vertical blank, and each such
+  wait makes an output frame late (TORNADO T11).
   The count drops to about 120 a minute while the fullscreen output covers
   the control window ("control window covered" in the log).
 
-A soak should show `0 late` minute after minute. To compare with an older
+A soak should show `0 late` minute after minute. The fps in the control
+window's status bar is only as fresh as that window's last paint; while the
+fullscreen output covers it, Windows hardly repaints it, so trust the log. To compare with an older
 run, grep the log for `perf:`.
 
 ## GL problems

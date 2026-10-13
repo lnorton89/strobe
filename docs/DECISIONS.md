@@ -3274,6 +3274,17 @@ not proved, and the log could not say either way.
 window's redraw cost explaining them. Then the cause is elsewhere: the audio
 thread, the timer ring's backpressure, or the driver's flip queue.
 
+**Addendum (T11, the same day).** The perf line settled it the other way:
+fullscreen, the show ran at 59.9 fps with almost no late frames, and T10's
+48-56 was the status bar, which a covered control window rarely repaints
+(Windows sent it 0 to 2 paints a minute). The 2 Hz throttle stays, since it
+costs nothing and matters where a covered window is still painted, but it
+fixed nothing on Windows. The real cost showed up windowed: a *visible*
+control window's redraw took a full refresh for minutes and made about a
+third of the output's frames late. The perf line now times that window's
+swap on its own (`of which swap`), so the next run says whether the swap
+waits.
+
 ### D207: meta settings carry across scenes, Limit Colors is built, Alpha Channel waits for an output that carries alpha (2026-10-13)
 
 Backlog C-01 asked for the last two meta controls and for a decision on
