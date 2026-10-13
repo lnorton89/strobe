@@ -185,14 +185,72 @@ Built from a detached worktree of `origin/master` under `target\tornado\`.
 - **The proof:** with `DOUBLE_BUFFER` added to `var`, native and ANGLE
   match (0.00 at 10 and at 100 frames). Double-buffered native is
   bit-identical to single-buffered native.
-- **The fix** is D203, which needs a re-run here.
+- **The fix** is D203, confirmed in T8.
+
+## D203 confirmed, and a full re-run (2026-10-13, commit 1199b76, Task T8)
+
+- **`magnetismic`, native against ANGLE:** 0.00 mean (max 3) at both 10
+  and 100 frames. T7 measured 3.38 and 19.25. ANGLE is bit-identical to
+  T7's hand-made `DOUBLE_BUFFER` copy.
+- **Passes D203 double-buffers** (the same on both backends):
+  `cinders/backbuffer`, `diffusion/backbuffer`, `dust/backbuffer` and
+  `magnetismic/var`. ANGLE changed only for those scenes, and moved
+  towards native (`dust` 1.72 to 0.57, `cinders` 0.75 to 0.24). Native is
+  bit-identical to T6 for all 53 scenes that compile.
+- **Unchecked:** the 9 scenes the bench cannot compile never link, so
+  nothing is known for them. A text search suggests `fluid_body_dup`,
+  `mana` and `vein_melter_dup` sample their own targets too.
+- **Counts:** bench 56 and 56 of 65, as in T6, with no regressions. The
+  corpus harness, scripts on, passes 60 of the 62 top-level scenes in each
+  dialect: `circuit_bending_dup` now plays with its missing picture black
+  (D201). The 2 left are the scenes' own bugs. With the 3 scenes in
+  subfolders, 63 of 65.
+- The bench installed no logger, so D203's log line went nowhere. It now
+  logs to stderr.
+
+## Two backend differences that are the scenes' own (2026-10-13, commit 3533e8b, Task T9)
+
+Both scenes are single-pass with no feedback, and the difference is there
+from frame 1 without growing.
+
+- **`materialmakertest2`** (18.58 mean, max 239):
+  - **Cause:** Material Maker's generated code computes `pow(pow(x, y), z)`
+    with inputs that are exactly 0 on half the floor stripes. GLSL leaves
+    `pow(0, 0)` undefined. NVIDIA gives NaN, which is written as black.
+    D3D11 under ANGLE gives 0, so those stripes shade as dark grey with a
+    highlight.
+  - **Evidence:** forcing `0^0 = 0` makes the backends agree, and native
+    then equals the original ANGLE image bit for bit.
+  - **Verdict:** no fix. The value the scene "wants" is a NaN.
+- **`warped_extruded_skewed_grid`** (4.97 mean, max 250):
+  - **The blinking blocks** (about 4.4 of the 5) come from a
+    `fract(sin(dot(p, k)) * 43758.5453)` hash. `sin` of a large argument
+    differs in its low bits between NVIDIA's GL and D3D's compiler, and
+    the scale and `fract` amplify that.
+  - **About 0.5** is a `texture()` call with implicit LOD inside a
+    raymarch loop. Derivatives are undefined in non-uniform control flow,
+    so the backends pick different mip levels.
+  - **Evidence:** making both hashes constant and using `textureLod`
+    makes the backends agree exactly (0.00).
+  - **Verdict:** no fix. A precise-`sin` or `textureLod` rewrite would cost
+    performance or change filtering that other scenes rely on, and the
+    scene looks the same apart from which blocks glow.
+
+Hashes built on `fract(sin(...))` differ across GPU vendors in every
+engine. A scene that needs identical noise everywhere should use an
+integer hash.
+
+## Pending on this machine
 
 - [x] Re-run 07 at 1080p and 2160p after D191: same size (T2).
 - [x] Re-run the 65 scenes after D193/D194 (T4): 55 native, 38 ANGLE.
 - [x] Re-run them after D199, native and ANGLE, plus `cargo xtask corpus`
   (T6): 56 and 56, 62 with scripts.
 - [x] Why `magnetismic` differs between native and ANGLE (T7): a pass
-  samples its own target. Fixed by D203, which needs a re-run.
+  samples its own target. Fixed by D203, confirmed in T8.
+- [x] `materialmakertest2` and `warped_extruded_skewed_grid` differ
+  between the backends (T9): undefined behaviour in the scenes, with no
+  Strobe fix.
 - [ ] The app fullscreen at 2560x1440 with a playlist show, transitions and
   the post stage, against the T480's numbers.
 - [ ] A larger set of real Shadertoy shaders through NVIDIA's compiler
