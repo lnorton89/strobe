@@ -33,6 +33,16 @@ pub const MAX_REQUEST_ID_LEN: usize = 64;
 /// Maximum human-readable error length emitted to clients.
 pub const MAX_ERROR_LEN: usize = 160;
 
+/// The oldest client protocol version this server still speaks.
+pub const MIN_PROTOCOL_VERSION: u16 = 1;
+
+/// The largest client message [`decode_client`] reads, in bytes. Every
+/// message is a few dozen bytes; anything near this is not a client.
+pub const MAX_MESSAGE_BYTES: usize = 4096;
+
+/// The longest pairing code or token accepted, in bytes.
+pub const MAX_SECRET_LEN: usize = 128;
+
 /// A client-to-server message. Adapters must enforce a small frame-size limit
 /// before deserializing and must authenticate every command after pairing.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -236,6 +246,70 @@ pub enum ErrorCode {
     Unavailable,
 }
 
+/// The version a session runs at for a client that said `client` in its
+/// `hello`, or [`ErrorCode::VersionMismatch`] when this server does not
+/// speak it. Versions are whole: there is no partial support.
+pub fn negotiate(client: u16) -> Result<u16, ErrorCode> {
+    if (MIN_PROTOCOL_VERSION..=PROTOCOL_VERSION).contains(&client) {
+        Ok(client)
+    } else {
+        Err(ErrorCode::VersionMismatch)
+    }
+}
+
+/// Decodes one client message, as an adapter must before acting on it:
+/// at most [`MAX_MESSAGE_BYTES`], a known type with exactly its fields, a
+/// valid request id, and secrets no longer than [`MAX_SECRET_LEN`]. A
+/// `hello` from a client of another version that this version cannot parse
+/// (a newer client with new fields) is [`ErrorCode::VersionMismatch`], so
+/// the client learns why rather than seeing a malformed-request error.
+/// Every other failure is [`ErrorCode::InvalidRequest`].
+pub fn decode_client(text: &str) -> Result<ClientMessage, ErrorCode> {
+    if text.len() > MAX_MESSAGE_BYTES {
+        return Err(ErrorCode::InvalidRequest);
+    }
+    let message = match serde_json::from_str::<ClientMessage>(text) {
+        Ok(message) => message,
+        Err(_) => return Err(other_version(text).unwrap_or(ErrorCode::InvalidRequest)),
+    };
+    let valid = match &message {
+        ClientMessage::Hello { .. } | ClientMessage::Ping {} => true,
+        ClientMessage::Pair { code } => !code.is_empty() && code.len() <= MAX_SECRET_LEN,
+        ClientMessage::Authenticate { token } => !token.is_empty() && token.len() <= MAX_SECRET_LEN,
+        ClientMessage::Command { request_id, .. } => valid_request_id(request_id),
+    };
+    if valid {
+        Ok(message)
+    } else {
+        Err(ErrorCode::InvalidRequest)
+    }
+}
+
+/// `VersionMismatch` if `text` is a `hello` naming a version other than
+/// this one's, however its other fields look.
+fn other_version(text: &str) -> Option<ErrorCode> {
+    let value: serde_json::Value = serde_json::from_str(text).ok()?;
+    let is_hello = value.get("type")?.as_str()? == "hello";
+    let version = value.get("protocol_version")?.as_u64()?;
+    (is_hello && u16::try_from(version).map_or(true, |v| negotiate(v).is_err()))
+        .then_some(ErrorCode::VersionMismatch)
+}
+
+impl ServerMessage {
+    /// An error for a client, its message cut to [`MAX_ERROR_LEN`] bytes on
+    /// a character boundary.
+    pub fn error(code: ErrorCode, message: &str) -> Self {
+        let mut end = message.len().min(MAX_ERROR_LEN);
+        while !message.is_char_boundary(end) {
+            end -= 1;
+        }
+        Self::Error {
+            code,
+            message: message.get(..end).unwrap_or_default().to_owned(),
+        }
+    }
+}
+
 /// Validates an opaque request identifier before it is used in a response.
 ///
 /// IDs are restricted to printable ASCII to keep logs and UI diagnostics
@@ -361,6 +435,93 @@ mod tests {
             message,
             "a state snapshot reads back unchanged"
         );
+        Ok(())
+    }
+
+    /// Every message of protocol version 1 as a client or server sends it.
+    /// A change that breaks one of these breaks shipped clients.
+    const V1_CLIENT: [&str; 6] = [
+        r#"{"type":"hello","protocol_version":1}"#,
+        r#"{"type":"pair","code":"481-226"}"#,
+        r#"{"type":"authenticate","token":"tok_abc"}"#,
+        r#"{"type":"command","request_id":"r1","command":"blackout_on"}"#,
+        r#"{"type":"command","request_id":"r2","command":"tap_tempo"}"#,
+        r#"{"type":"ping"}"#,
+    ];
+
+    const V1_SERVER: [&str; 7] = [
+        r#"{"type":"hello","protocol_version":1,"paired":false}"#,
+        r#"{"type":"paired","client_id":"c1","token":"tok_abc"}"#,
+        r#"{"type":"authenticated","client_id":"c1"}"#,
+        r#"{"type":"state","revision":7,"current":"Aurora","next":null,"remaining_ms":null,"held":false,"blackout":true,"output_visible":true,"audio_status":"active"}"#,
+        r#"{"type":"command_result","request_id":"r1","accepted":false,"reason":"needs a playlist"}"#,
+        r#"{"type":"error","code":"version_mismatch","message":"speak version 1"}"#,
+        r#"{"type":"pong"}"#,
+    ];
+
+    #[test]
+    fn version_one_messages_still_read_and_write_byte_for_byte() -> Result<()> {
+        for text in V1_CLIENT {
+            let message = decode_client(text).map_err(|e| anyhow::anyhow!("{text}: {e:?}"))?;
+            assert_eq!(serde_json::to_string(&message)?, text, "client {text}");
+        }
+        for text in V1_SERVER {
+            let message: ServerMessage = serde_json::from_str(text)?;
+            assert_eq!(serde_json::to_string(&message)?, text, "server {text}");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn other_versions_are_told_so_and_bad_messages_are_refused() {
+        assert_eq!(negotiate(1), Ok(1), "this version");
+        assert_eq!(negotiate(0), Err(ErrorCode::VersionMismatch), "older");
+        assert_eq!(negotiate(2), Err(ErrorCode::VersionMismatch), "newer");
+        assert_eq!(
+            decode_client(r#"{"type":"hello","protocol_version":2,"features":["x"]}"#).err(),
+            Some(ErrorCode::VersionMismatch),
+            "a newer hello with new fields learns why"
+        );
+        assert_eq!(
+            decode_client(r#"{"type":"hello","protocol_version":70000}"#).err(),
+            Some(ErrorCode::VersionMismatch),
+            "a version past u16"
+        );
+        let long = format!(
+            r#"{{"type":"pair","code":"{}"}}"#,
+            "1".repeat(MAX_SECRET_LEN + 1)
+        );
+        let huge = format!(
+            r#"{{"type":"ping","pad":"{}"}}"#,
+            " ".repeat(MAX_MESSAGE_BYTES)
+        );
+        for bad in [
+            r#"{"type":"command","request_id":"has space","command":"tap_tempo"}"#,
+            r#"{"type":"command","request_id":"r","command":"run_shell"}"#,
+            r#"{"type":"authenticate","token":""}"#,
+            r#"{"type":"hello","protocol_version":1,"extra":1}"#,
+            "not json",
+            long.as_str(),
+            huge.as_str(),
+        ] {
+            assert_eq!(
+                decode_client(bad).err(),
+                Some(ErrorCode::InvalidRequest),
+                "{}",
+                bad.get(..60).unwrap_or(bad)
+            );
+        }
+    }
+
+    #[test]
+    fn error_messages_are_cut_on_a_character_boundary() -> Result<()> {
+        let long = "é".repeat(MAX_ERROR_LEN);
+        let ServerMessage::Error { message, .. } = ServerMessage::error(ErrorCode::Busy, &long)
+        else {
+            anyhow::bail!("not an error message");
+        };
+        assert!(message.len() <= MAX_ERROR_LEN, "bounded: {}", message.len());
+        assert!(message.chars().all(|c| c == 'é'), "no split character");
         Ok(())
     }
 }
