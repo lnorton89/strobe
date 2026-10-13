@@ -131,14 +131,22 @@ pub struct ServerConfig {
     pub bind: SocketAddr,
     /// What to enforce.
     pub limits: Limits,
+    /// The public name of an HTTPS reverse proxy on this computer that
+    /// forwards to the listener (L-07, D258), such as
+    /// `strobe.example.com` or `strobe.example.com:8443`. A request whose
+    /// `Host` is exactly this is accepted only from a loopback peer (the
+    /// proxy), and its socket only with the `Origin` `https://` and this
+    /// name. `None`, the default, accepts IP literals only.
+    pub proxied: Option<String>,
 }
 
 impl ServerConfig {
-    /// The default limits on `ip:port`.
+    /// The default limits on `ip:port`, no proxy.
     pub fn new(ip: IpAddr, port: u16) -> Self {
         Self {
             bind: SocketAddr::new(ip, port),
             limits: Limits::default(),
+            proxied: None,
         }
     }
 }
@@ -217,6 +225,7 @@ struct Conn {
 struct Shared {
     limits: Limits,
     addr: SocketAddr,
+    proxied: Option<String>,
     remote: Remote,
     clients: Clients,
     pairing: Mutex<Pairing>,
@@ -280,6 +289,7 @@ impl Server {
                  computer's LAN address."
                     .to_string(),
             ),
+            net::Scope::Loopback if config.proxied.is_some() => None,
             net::Scope::Loopback => Some(
                 "Listening on this computer only: a phone cannot reach it. Choose the LAN \
                  address to use a phone."
@@ -295,6 +305,7 @@ impl Server {
         let shared = Arc::new(Shared {
             limits: config.limits,
             addr,
+            proxied: config.proxied.clone(),
             remote,
             clients,
             pairing: Mutex::new(Pairing::default()),

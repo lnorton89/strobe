@@ -102,12 +102,17 @@ impl Drop for FakeApp {
 }
 
 fn rig_with(limits: Limits, clients: Clients) -> Result<Rig> {
+    rig_on(limits, clients, None)
+}
+
+fn rig_on(limits: Limits, clients: Clients, proxied: Option<&str>) -> Result<Rig> {
     capture_logs();
     let (remote, app_end) = bridge::bridge(4);
     let server = Server::start(
         ServerConfig {
             bind: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
             limits,
+            proxied: proxied.map(str::to_string),
         },
         remote,
         clients.clone(),
@@ -503,6 +508,52 @@ fn an_unexpected_host_is_refused_to_stop_dns_rebinding() -> Result<()> {
 }
 
 #[test]
+fn an_https_proxy_on_this_computer_is_accepted_by_its_name_only() -> Result<()> {
+    // The proxy's name, from loopback (the test connects from 127.0.0.1,
+    // as a proxy on this computer does): the page is served with a wss:
+    // policy and the socket opens for the https origin only (D258).
+    let proxied = rig_on(limits(), Clients::in_memory(), Some("strobe.example.com"))?;
+    let page = http(
+        proxied.addr(),
+        "GET / HTTP/1.1\r\nHost: strobe.example.com\r\n\r\n",
+    )?;
+    assert_eq!(status(&page), 200, "served through the proxy: {page:.160}");
+    assert!(
+        page.contains("connect-src 'self' wss://strobe.example.com"),
+        "the policy allows the secure socket: {page:.400}"
+    );
+    let _socket = open_as(
+        proxied.addr(),
+        "STROBE.example.com",
+        Some("https://strobe.example.com"),
+    )?;
+    for (host, origin) in [
+        ("strobe.example.com", "http://strobe.example.com"),
+        ("strobe.example.com", "https://evil.example"),
+    ] {
+        let mut socket = TcpStream::connect(proxied.addr())?;
+        socket.set_read_timeout(Some(Duration::from_secs(5)))?;
+        socket.write_all(upgrade_request(host, Some(origin)).as_bytes())?;
+        let mut answer = String::new();
+        let _ = socket.read_to_string(&mut answer);
+        assert_eq!(status(&answer), 403, "{origin} through the proxy name");
+    }
+    let other = http(
+        proxied.addr(),
+        "GET / HTTP/1.1\r\nHost: other.example.com\r\n\r\n",
+    )?;
+    assert_eq!(status(&other), 421, "any other name is still refused");
+    // Without the setting the same name is refused, proxy or not.
+    let plain = rig()?;
+    let refused = http(
+        plain.addr(),
+        "GET / HTTP/1.1\r\nHost: strobe.example.com\r\n\r\n",
+    )?;
+    assert_eq!(status(&refused), 421, "no proxy configured");
+    Ok(())
+}
+
+#[test]
 fn another_origin_cannot_open_the_socket() -> Result<()> {
     let rig = rig()?;
     let host = rig.host();
@@ -790,6 +841,7 @@ fn a_full_command_queue_is_busy_not_a_backlog() -> Result<()> {
                 command_timeout: Duration::from_millis(20),
                 ..limits()
             },
+            proxied: None,
         },
         remote,
         clients,
@@ -853,6 +905,7 @@ fn a_client_that_stops_reading_is_dropped_not_buffered() -> Result<()> {
                 idle_timeout: Duration::from_secs(60),
                 ..limits()
             },
+            proxied: None,
         },
         remote,
         clients,
@@ -977,6 +1030,7 @@ fn stopping_drops_every_client_at_once_and_frees_the_port() -> Result<()> {
         ServerConfig {
             bind: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port),
             limits: limits(),
+            proxied: None,
         },
         remote,
         clients,
@@ -1007,6 +1061,7 @@ fn a_public_or_taken_address_is_refused_with_advice() -> Result<()> {
         ServerConfig {
             bind: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
             limits: limits(),
+            proxied: None,
         },
         remote.clone(),
         Clients::in_memory(),
@@ -1020,6 +1075,7 @@ fn a_public_or_taken_address_is_refused_with_advice() -> Result<()> {
         ServerConfig {
             bind: first.addr(),
             limits: limits(),
+            proxied: None,
         },
         remote,
         Clients::in_memory(),

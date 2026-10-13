@@ -306,7 +306,8 @@ the test that holds it.
 | Network listener (opt-in, LAN only) | Unverified | [D250](DECISIONS.md), [D252](DECISIONS.md), `crates/strobe-remote/tests/server.rs` | Built and tested over loopback sockets in CI, including Host/Origin, size, flood, slow-client and idle cases. Never reached from a phone over Wi-Fi; the Windows firewall prompt not seen. Plain HTTP: trusted networks only. |
 | Pairing, tokens, rotation, revocation | Unverified | [D251](DECISIONS.md), `strobe_remote::{pairing, clients}` and `tests/server.rs` | Six-digit one-use code plus desktop approval; token digests on disk; secrets never logged (a test captures the log). No real phone has paired. |
 | Phone or tablet controller page | Unverified | [D253](DECISIONS.md), `strobe_remote::server::page` tests | One embedded file, no CDN. Checked statically and with Node's WebSocket client; no real browser has rendered it. No macros (protocol v2), no live preview. |
-| Installable PWA over HTTPS | Unsupported | [L-07](IMPLEMENTATION_BACKLOG.md), [REMOTE_CONTROL_PWA_RESEARCH.md](REMOTE_CONTROL_PWA_RESEARCH.md) | Blocked on a TLS and trust decision. |
+| HTTPS through the operator's own reverse proxy | Unverified | [D258](DECISIONS.md), `tests/server.rs` `an_https_proxy_on_this_computer_is_accepted_by_its_name_only` | `--remote-proxy NAME`. The proxy and its certificate are the operator's. Not yet tried on a phone. |
+| Installable PWA over HTTPS | Unsupported | [L-07](IMPLEMENTATION_BACKLOG.md), [D258](DECISIONS.md) | No manifest or service worker until phones pass through the proxy. |
 
 ## Keeping this file true
 

@@ -851,7 +851,8 @@ impl Running {
                 cli.remote_bind,
                 cli.remote_port,
                 cli.screenshot.is_none(),
-            ),
+            )
+            .behind_proxy(cli.remote_proxy.clone()),
             bindings: Bindings::default(),
             map_ui: MapUi::default(),
             pending_preset: None,

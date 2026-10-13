@@ -216,6 +216,39 @@ pub struct Cli {
     /// The port the LAN remote listens on.
     #[arg(long, value_name = "PORT", default_value_t = strobe_remote::server::DEFAULT_PORT)]
     pub remote_port: u16,
+    /// The public name of your own HTTPS reverse proxy on this computer,
+    /// such as `strobe.example.com` or `strobe.example.com:8443` (D258).
+    /// The remote then also answers that name, from this computer only,
+    /// and binds 127.0.0.1 unless `--remote-bind` says otherwise. The proxy
+    /// and its certificate are yours to run.
+    #[arg(long, value_name = "NAME[:PORT]", value_parser = parse_proxy_name)]
+    pub remote_proxy: Option<String>,
+}
+
+/// A host name, optionally with a port: letters, digits, `-` and `.`.
+fn parse_proxy_name(text: &str) -> Result<String, String> {
+    let (name, port) = match text.rsplit_once(':') {
+        Some((name, port)) => (name, Some(port)),
+        None => (text, None),
+    };
+    let name_ok = !name.is_empty()
+        && name.len() <= 253
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'.')
+        && !name.starts_with(['-', '.'])
+        && name.bytes().any(|b| b.is_ascii_alphabetic());
+    if !name_ok {
+        return Err(format!(
+            "\"{text}\" is not a host name (letters, digits, - and ., such as strobe.example.com)"
+        ));
+    }
+    if let Some(port) = port
+        && !port.parse::<u16>().is_ok_and(|p| p > 0)
+    {
+        return Err(format!("\"{port}\" is not a port (1 to 65535)"));
+    }
+    Ok(text.to_ascii_lowercase())
 }
 
 /// Parses `1280x720`.
@@ -416,6 +449,25 @@ mod tests {
             "address"
         );
         assert_eq!(cli.remote_port, 50000, "port");
+        let proxied = Cli::try_parse_from(["strobe", "--remote-proxy", "Strobe.Example.com:8443"])?;
+        assert_eq!(
+            proxied.remote_proxy.as_deref(),
+            Some("strobe.example.com:8443"),
+            "a proxy name, lower-cased"
+        );
+        for bad in [
+            "",
+            "192.168.1.2",
+            "evil/x",
+            "-x.com",
+            "x.com:0",
+            "x.com:http",
+        ] {
+            assert!(
+                Cli::try_parse_from(["strobe", "--remote-proxy", bad]).is_err(),
+                "{bad:?} is not a proxy name"
+            );
+        }
         assert!(
             Cli::try_parse_from(["strobe", "--remote-bind", "phone.local"]).is_err(),
             "an address, never a name"

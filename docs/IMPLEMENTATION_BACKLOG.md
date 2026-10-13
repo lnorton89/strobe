@@ -295,7 +295,7 @@
 - **Acceptance:** portrait/landscape, safe areas, keyboard accessibility, high contrast, reduced motion and stale/disconnected states tested; no live preview streaming in v1.
 
 ### L-07 PWA HTTPS and real-device validation
-- **Status:** Blocked on TLS/trust decision.
+- **Status:** The TLS decision is made (D258): HTTPS is the operator's own reverse proxy with a real certificate for a domain they own, and `--remote-proxy NAME` lets that proxy in, from this computer only, with an `https://NAME` origin and a `wss:` policy (tested). No self-signed certificate, no warning to click past. Left: Android Chrome and iOS Safari through such a proxy over Wi-Fi; only then a manifest and service worker.
 - **Work:** compare user-managed local HTTPS/reverse proxy and future certificate-enrolment options; do not tell users to bypass warnings; add manifest/service worker only once installability is genuinely supportable.
 - **Acceptance:** Android Chrome and iOS Safari tested on real devices over Wi-Fi; sleep/resume, rotation, roam, browser restart, updates and revocation tested; only then advertise installable PWA support.
 

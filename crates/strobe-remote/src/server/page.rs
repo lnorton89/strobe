@@ -60,12 +60,15 @@ fn fixed_policy() -> &'static str {
 }
 
 /// The response headers for the page, served to a request whose `Host`
-/// (already validated) was `host`.
-pub(super) fn headers(host: &str) -> Vec<String> {
+/// (already validated) was `host`, through the HTTPS proxy when `proxied`.
+pub(super) fn headers(host: &str, proxied: bool) -> Vec<String> {
     // An IPv6 literal is not a CSP host-source; 'self' covers it in
-    // browsers that map it to ws:, and IPv4 gets the explicit form.
+    // browsers that map it to ws:, and IPv4 or a proxy's name gets the
+    // explicit form.
     let connect = if host.starts_with('[') {
         "'self'".to_string()
+    } else if proxied {
+        format!("'self' wss://{host}")
     } else {
         format!("'self' ws://{host}")
     };
@@ -179,7 +182,7 @@ mod tests {
 
     #[test]
     fn the_policy_hashes_the_page_as_shipped() {
-        let headers = headers("192.168.1.20:47812");
+        let headers = headers("192.168.1.20:47812", false);
         let policy = headers
             .iter()
             .find(|h| h.starts_with("Content-Security-Policy: "))

@@ -208,6 +208,40 @@ then control the show until you revoke it. A home or venue network you
 control is fine; a public or shared Wi-Fi is not. There is no installable
 app (PWA) version yet, because that needs HTTPS.
 
+### HTTPS through your own proxy (advanced)
+
+Strobe has no certificate of its own, and it will never ask you to click
+past a browser's security warning. If you own a domain name, you can put
+the remote behind HTTPS yourself, with a reverse proxy on the same
+computer. That encrypts the traffic, so the pairing code and the phone's
+key can no longer be read off the Wi-Fi. **This has not been tried on real
+phones yet.**
+
+1. In your domain's DNS, point a name at this computer's LAN address, for
+   example `strobe.example.com` to `192.168.1.20`. Some routers refuse to
+   answer a public name with a private address ("DNS rebinding
+   protection"); allow your name there if the phone cannot find it.
+2. Run a reverse proxy that gets a real certificate for that name.
+   [Caddy](https://caddyserver.com) with a DNS-provider plugin can do it,
+   since a LAN-only address cannot pass the usual web challenge. Its
+   configuration is one block:
+
+   ```
+   strobe.example.com {
+       reverse_proxy 127.0.0.1:47812
+   }
+   ```
+
+3. Start Strobe with `--remote --remote-proxy strobe.example.com`. With no
+   `--remote-bind`, the remote then listens on `127.0.0.1` only, where the
+   proxy reaches it. Strobe accepts that name only from this computer,
+   which means only from the proxy. It accepts the socket only from the
+   page at `https://strobe.example.com`.
+4. Open `https://strobe.example.com` on the phone and pair as above.
+
+The proxy, its certificate and its renewals are yours to run: Strobe
+does not run them or check them.
+
 ## Importing from Shadertoy
 
 The **Import** pane (via LIB) takes a Shadertoy URL or id, or an exported
