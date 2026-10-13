@@ -557,6 +557,10 @@ struct Running {
     /// Slows the control window when switching to it waits on the output
     /// (D216).
     control_pacer: ControlPacer,
+    /// `STROBE_FINISH_AFTER_SWAP=1`: wait for the output's swap to complete
+    /// before the next window is made current. An experiment for TORNADO's
+    /// make-current wait (D216, T15), read once at startup.
+    finish_after_swap: bool,
     gl_summary: String,
     audio: AudioInput,
     mouse: MouseTracker,
@@ -822,6 +826,7 @@ impl Running {
             stats: FrameStats::default(),
             perf_log: PerfWindow::default(),
             control_pacer: ControlPacer::default(),
+            finish_after_swap: finish_after_swap(),
             gl_summary,
             audio: AudioInput::new(cli.audio == AudioArg::Auto),
             mouse: MouseTracker::default(),
@@ -3289,6 +3294,9 @@ impl Running {
         }
         if shown {
             self.present(Surface::Output, started);
+            if self.finish_after_swap {
+                self.stack.gfx.gl().finish();
+            }
         }
     }
 
@@ -3654,6 +3662,17 @@ impl Running {
         let mouse = strobe_gfx::Mouse::default();
         session.advance(dt, &mut self.audio, mouse, self.local_date.now());
     }
+}
+
+/// Whether `STROBE_FINISH_AFTER_SWAP` asks the output to wait for its swap
+/// (D216's T15 experiment). Logged when on.
+fn finish_after_swap() -> bool {
+    const ENV: &str = "STROBE_FINISH_AFTER_SWAP";
+    let on = std::env::var(ENV).is_ok_and(|value| value == "1");
+    if on {
+        log::info!("{ENV}=1: the output waits for each swap to complete");
+    }
+    on
 }
 
 /// The Inspector's media row for `player` (D217). `cue_media` says the
