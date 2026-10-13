@@ -373,6 +373,23 @@ the control window no longer waits for it: the control window runs at its
 full rate and the show loses almost nothing. D221 turns this on by
 itself the first time the pacer sees the wait.
 
+## D221 engages by itself (2026-10-13, commit 8bdc079, Task T16)
+
+Run A, the T14 layout with `STROBE_FINISH_AFTER_SWAP` unset, 6 minutes:
+the swap wait engaged at **0.59 s** and the control window stayed at 30 Hz
+with no later slowdown. make-current 0.27-1.16 ms, **6-14 late frames a
+minute** (13 in the start-up minute), 59.9 fps, gpu 0.28-0.52 ms: T15 F's
+result without being asked for.
+
+Run B, the output fullscreen over the control window: in its two covered
+minutes, 5-7 late frames a minute, 59.9 fps, gpu 1.4-1.5 ms. Something
+outside the test took the output out of fullscreen at 146.8 s. The
+control window's few covered redraws (3 a minute) still waited about
+16 ms each, because D221 does not wait while covered, and at 122 s that
+tripped the pacer to 10 Hz. The pacer now ignores redraws while the
+control window is covered, which also lets it come back at full rate
+when the output leaves fullscreen.
+
 ## Pending on this machine
 
 - [x] Re-run 07 at 1080p and 2160p after D191: same size (T2).
@@ -395,9 +412,10 @@ itself the first time the pacer sees the wait.
   number of control redraws.
 - [x] T15: `glFinish` after the output's swap takes make-current to 1.5 ms
   and late frames to 5-8 a minute at 30 Hz (D221).
-- [ ] T16: D221's automatic engagement on the same layout (expect the
-  "the output now waits for its own swap instead" line within a second and
-  T15 F's numbers after it).
+- [x] T16: D221 engaged by itself at 0.59 s; make-current 0.27-1.16 ms,
+  6-14 late frames a minute at 30 Hz. Covered fullscreen, the control
+  window's rare redraws still waited and tripped the pacer, which now
+  ignores redraws while covered.
 - [x] T14: the pacer (D216) engages at 0.56 s and holds late frames to
   about a third (568-581 a minute); the return to 30 Hz was not exercised
   because the wait never cleared.

@@ -3740,6 +3740,10 @@ removes it.
 **Would reopen:** a GPU-heavy scene on an affected machine missing frames
 because of the lost overlap, or T16 not engaging automatically.
 
+*Addendum (TORNADO T16):* engaged by itself at 0.59 s, 6-14 late frames
+a minute at 30 Hz. Covered, the few control redraws still waited and
+tripped the pacer; the pacer now ignores redraws while covered.
+
 *Also in this commit:* a player whose media has no picture yet replaces it
 at once when other media is chosen, so the scene's own picture no longer
 shows for a moment before `--media` (T480 Task 26), and every choice is
