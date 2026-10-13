@@ -26,9 +26,13 @@
 //! (`ScrollArea::show_rows`), so a library of thousands costs the same as a
 //! library of ten, and the filtered indices are cached until the query,
 //! the filter or the library changes.
+//!
+//! The selected scene's tags sit above the list, with the Inspector's tag
+//! row, so a scene can be tagged without playing it (D264).
 
 use super::icon as icons;
 use super::model::{Action, Model};
+use super::tags;
 use super::theme::{self, SPACE_SM, SPACE_XS};
 use super::widgets;
 use crate::icon::Icon;
@@ -62,6 +66,7 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
     }
     search_row(ui, model, theme, actions);
     filter_row(ui, model, theme);
+    selected_tags(ui, model, theme, actions);
     ui.add_space(SPACE_XS);
 
     if let Some(error) = model.scan_error {
@@ -235,6 +240,32 @@ fn filter_row(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette) {
         egui::RichText::new(format!("{shown} of {} scenes", model.library.entries.len()))
             .small()
             .color(theme::rgb(theme.text_muted)),
+    );
+}
+
+/// The selected scene's tags, and the field that edits them (D264).
+fn selected_tags(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Vec<Action>) {
+    let library = model.library;
+    let Some(entry) = model
+        .ui
+        .browser
+        .selected
+        .and_then(|index| library.entries.get(index))
+    else {
+        return;
+    };
+    ui.add_space(SPACE_XS);
+    tags::row(
+        ui,
+        theme,
+        tags::Place {
+            scene: &entry.name,
+            named: true,
+        },
+        &entry.tags,
+        &mut model.ui.browser_tag_draft,
+        |_| {},
+        actions,
     );
 }
 

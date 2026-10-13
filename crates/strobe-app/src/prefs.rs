@@ -122,6 +122,18 @@ pub struct Prefs {
     pub last_scene: String,
     /// Named pane layouts the operator saved (D215).
     pub layouts: BTreeMap<String, Layout>,
+    /// The watched drop folder (D240, D265).
+    pub watch: WatchPref,
+}
+
+/// The watched drop folder, as Settings last applied it (D265).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct WatchPref {
+    /// The folder, as typed; empty for none.
+    pub folder: String,
+    /// Whether it is watched at launch.
+    pub enabled: bool,
 }
 
 /// A named arrangement of panes (D215): which are open, in which order,
@@ -236,6 +248,7 @@ impl Prefs {
             collapsed_groups,
             last_scene: String::new(),
             layouts: BTreeMap::new(),
+            watch: WatchPref::default(),
         }
     }
 
@@ -430,6 +443,10 @@ mod tests {
     fn preferences_round_trip_through_toml() -> Result<()> {
         let mut prefs = sample();
         prefs.last_scene = "05-domain-warp".to_string();
+        prefs.watch = WatchPref {
+            folder: "D:\\VJ\\inbox".to_string(),
+            enabled: true,
+        };
         let back = Prefs::from_text(&prefs.to_text().map_err(anyhow::Error::msg)?)
             .map_err(anyhow::Error::msg)?;
         assert_eq!(back, prefs, "what was written is what is read");
@@ -460,6 +477,11 @@ mod tests {
         assert!(
             prefs.last_scene.is_empty(),
             "a file from before the field reopens nothing"
+        );
+        assert_eq!(
+            prefs.watch,
+            WatchPref::default(),
+            "a file from before the watched folder watches nothing"
         );
         assert_eq!(
             prefs.custom_title_bar,

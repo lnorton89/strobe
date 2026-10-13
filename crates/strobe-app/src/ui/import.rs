@@ -16,9 +16,14 @@
 //! scene that is already in the library (D113), it does through the shell's
 //! confirmation card ([`super::modal`]) rather than a line of buttons that
 //! is easy to miss.
+//!
+//! The scene it last imported can be tagged here, with the same row as the
+//! Inspector's, so a fresh import is findable in the library and by
+//! Generate without loading it again (D264).
 
 use super::icon as icons;
 use super::model::{Action, ImportPanel, Model};
+use super::tags;
 use super::theme::{self, SPACE_SM, SPACE_XS};
 use super::widgets::{self, Tone};
 use crate::icon::Icon;
@@ -72,9 +77,28 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
         // Opened now, so the review the worker ends in is in view.
         model.ui.panes.open(Pane::Inspector);
     }
+    if let Some(entry) = model
+        .import
+        .imported
+        .and_then(|index| model.library.entries.get(index))
+    {
+        ui.add_space(SPACE_XS);
+        tags::row(
+            ui,
+            theme,
+            tags::Place {
+                scene: &entry.name,
+                named: true,
+            },
+            &entry.tags,
+            &mut model.ui.import_tag_draft,
+            |_| {},
+            actions,
+        );
+    }
     ui.add_space(SPACE_SM);
     widgets::section(ui, theme, "Browser userscript");
-    listener(ui, theme, panel, actions);
+    listener(ui, theme, &model.import, actions);
 }
 
 /// "Generate controls" for the scene just imported (U-03, D246): the same

@@ -55,7 +55,7 @@ screen until you ask.
 | T | Tap the tempo |
 | F11 | Output fullscreen |
 | Ctrl+F | Search the library |
-| Ctrl+K | The command palette: every command by name |
+| Ctrl+K | The command palette: every command, pane, scene and preset by name |
 | Esc | Close the top pane |
 
 Settings > Keyboard changes any of them.
@@ -64,14 +64,20 @@ Settings > Keyboard changes any of them.
 
 - **LIB** lists the scenes in the library folder: `scenes\` beside
   `strobe.exe` by default, or the folder given with `--library <dir>`.
-  Search by name or tag; star favourites; double-click to play.
+  Search by name or tag; star favourites; double-click to play. The
+  selected scene's tags show above the list, and *Edit* changes them
+  without playing it. The Controls pane does the same for the playing
+  scene, and the Import pane for the scene it just imported.
 - A scene is a folder with `main.glsl` and `scene.json`, the Synesthesia
   scene format (`.synScene`). Synesthesia scenes you own can be played by
   pointing `--library` at their folder, or by dropping a scene folder on
   the window (it is copied into the library). Dropping a folder *of* scene
   folders adds them all without playing any; a banner says how many were
-  added. `strobe.exe --watch-folder <folder>` does the same for scene
-  folders copied into that folder while Strobe runs.
+  added. **Settings > Watched folder** does the same for scene folders
+  copied into a folder you choose while Strobe runs: type the folder,
+  *Apply*, and the switch turns it off and on. It is remembered, and it
+  cannot be the library folder itself. `strobe.exe --watch-folder
+  <folder>` watches one for that run only.
 - **Needs work** (a LIB filter, and a list in DIAG) shows the scenes that
   failed to load this run, each with its reason.
 - **Controls** shows the playing scene's sliders, colours and buttons.
@@ -80,6 +86,10 @@ Settings > Keyboard changes any of them.
 - **Presets** (in the Controls pane): save the current look under a name,
   recall it later or from a controller. A preset saved while a picture is
   chosen for `syn_Media` remembers it.
+- **EDIT** opens the scene's files. *Save* writes them and the show keeps
+  what it has; *Save and reload* writes them and loads the scene again.
+  If `scene.json` would not load, *Save and reload* writes nothing and
+  shows the error with a button to its line and column.
 
 ## Audio
 
@@ -128,7 +138,8 @@ repository) shows the format.
 
 - **LIST > Load** opens one, or start with `--playlist <file>`, or drop
   the `.toml` file on the window. **Generate** builds a section from your
-  library by tag and length.
+  library by tag and length. Its *Exclude* field leaves out scenes with a
+  tag (`heavy`) or a name, and the preview says which were skipped.
 - Select a cue to change its length, transition, preset or media; the
   card says where each setting comes from. Ctrl-click several cues to
   change them together. Drag a scene from LIB onto a cue to add it after.
@@ -287,7 +298,8 @@ Everything Strobe writes lives in `%LOCALAPPDATA%\strobe`:
 - **The DIAG pane** shows the GPU, the backend, frame timing and recent
   failures with their reasons, without opening a file.
 - **A scene fails to load:** a red banner names the error and offers *Open
-  in Editor* at the line; the show keeps the previous scene.
+  in Editor* at the line (and the column, on drivers that give one); the
+  show keeps the previous scene.
 - **Strobe stops:** a dialog names the log. The crash report and minidump
   are in `crashes\`. Send the `.txt`, the `.dmp` and the session log with
   a bug report; the maintainer turns the dump into function names with the

@@ -104,6 +104,23 @@ struct Scenario {
     density: crate::ui::theme::Density,
     /// The LAN remote is on, with a phone waiting for approval (D254).
     lan: bool,
+    /// The command palette is open with this typed (D262).
+    palette: Option<&'static str>,
+    /// The Editor refused a Save and reload: its `scene.json` does not
+    /// parse (D263).
+    editor_invalid: bool,
+    /// Tag fields are open: the Inspector's for the playing scene, the
+    /// browser's for its selected scene (the third) and the Import pane's
+    /// for the scene just imported (D264).
+    tagging: bool,
+    /// The LIST pane's Generate card is open with an exclusion, previewed
+    /// (D264).
+    generate: bool,
+    /// The browser has its third scene selected, so its tags show (D264).
+    browser_selected: bool,
+    /// Settings' watched folder: whether the app refused it, and its line
+    /// (D265).
+    watch: Option<(bool, &'static str)>,
     panes: &'static [Pane],
 }
 
@@ -131,6 +148,12 @@ const BASE: Scenario = Scenario {
     cue_selected: false,
     density: crate::ui::theme::Density::Comfortable,
     lan: false,
+    palette: None,
+    editor_invalid: false,
+    tagging: false,
+    generate: false,
+    browser_selected: false,
+    watch: None,
     panes: &[Pane::Inspector],
 };
 
@@ -157,6 +180,22 @@ fn scenarios() -> Vec<Scenario> {
             ..BASE
         },
         Scenario {
+            name: "settings watching a folder",
+            watch: Some((false, "Watching D:\\VJ\\Strobe inbox")),
+            panes: &[Pane::Settings],
+            ..BASE
+        },
+        Scenario {
+            name: "settings with a refused watched folder",
+            watch: Some((
+                true,
+                "D:\\VJ\\scenes is the library itself: watch a folder scenes are copied into \
+                 before they join it.",
+            )),
+            panes: &[Pane::Settings],
+            ..BASE
+        },
+        Scenario {
             name: "settings with a shortcut clash",
             clash: true,
             panes: &[Pane::Settings],
@@ -166,6 +205,37 @@ fn scenarios() -> Vec<Scenario> {
             name: "editor open with an unsaved edit",
             failed: true,
             panes: &[Pane::Editor, Pane::Inspector],
+            ..BASE
+        },
+        Scenario {
+            name: "editor refused a reload, scene.json does not parse",
+            editor_invalid: true,
+            panes: &[Pane::Editor],
+            ..BASE
+        },
+        Scenario {
+            name: "tagging in the browser and the inspector",
+            tagging: true,
+            panes: &[Pane::Browser, Pane::Inspector],
+            ..BASE
+        },
+        Scenario {
+            name: "browser with a scene selected",
+            browser_selected: true,
+            panes: &[Pane::Browser, Pane::Inspector],
+            ..BASE
+        },
+        Scenario {
+            name: "tagging the scene just imported",
+            imported: true,
+            tagging: true,
+            panes: &[Pane::Import, Pane::Inspector],
+            ..BASE
+        },
+        Scenario {
+            name: "generate with an exclusion, previewed",
+            generate: true,
+            panes: &[Pane::Playlist],
             ..BASE
         },
         Scenario {
@@ -317,6 +387,17 @@ fn scenarios() -> Vec<Scenario> {
             name: "macro strip with unavailable macros and the presets row",
             mapped: true,
             panes: &[Pane::Inspector],
+            ..BASE
+        },
+        Scenario {
+            name: "palette listing scenes and presets",
+            palette: Some("scene"),
+            panes: &[Pane::Browser, Pane::Inspector],
+            ..BASE
+        },
+        Scenario {
+            name: "palette with nothing typed",
+            palette: Some(""),
             ..BASE
         },
         Scenario {
@@ -626,6 +707,9 @@ fn draw_events(
         ui_state.panes.open(*pane);
     }
     ui_state.hotkeys.capturing = scenario.capturing;
+    if let Some(query) = scenario.palette {
+        ui_state.command_palette.open_with(query);
+    }
     if scenario.clash {
         ui_state.hotkeys.clash = Some((
             crate::commands::CommandId::TapTempo,
@@ -664,6 +748,39 @@ fn draw_events(
         playlist_ui.external_change = Some("playlists/example.toml".to_string());
         ui_state.browser.selected = Some(2);
     }
+    if let Some((failed, note)) = scenario.watch {
+        ui_state.watch.draft = if failed {
+            "D:\\VJ\\scenes".to_string()
+        } else {
+            "D:\\VJ\\Strobe inbox".to_string()
+        };
+        ui_state.watch.watching = !failed;
+        ui_state.watch.failed = failed;
+        ui_state.watch.note = note.to_string();
+    }
+    if scenario.browser_selected || scenario.tagging {
+        ui_state.browser.selected = Some(2);
+    }
+    if scenario.tagging {
+        let draft = |scene: &str| {
+            Some(crate::ui::tags::TagDraft {
+                scene: scene.to_string(),
+                text: "dark, tunnel, audio reactive, 3d".to_string(),
+            })
+        };
+        ui_state.tag_draft = draft("01-scene-0");
+        ui_state.import_tag_draft = draft("01-scene-0");
+        ui_state.browser_tag_draft = draft("03-scene-2");
+    }
+    if scenario.generate {
+        playlist_ui.generate_open = true;
+        playlist_ui.form.exclude = "tunnel, heavy".to_string();
+        let snapshot = crate::show::generate::snapshot(&library);
+        let spec = playlist_ui.form.spec().map_err(anyhow::Error::msg)?;
+        playlist_ui.excluded = crate::show::generate::excluded(&snapshot, &spec);
+        playlist_ui.preview =
+            Some(strobe_playlist::generate(&snapshot, &spec).map_err(|error| error.to_string()));
+    }
     let mut map_ui = MapUi::default();
     let bindings = crate::commands::Bindings::default();
     let mut remote = sample_remote(scenario.mapped)?;
@@ -674,6 +791,18 @@ fn draw_events(
         .transpose()?;
     let generated = scenario.generated.then(sample_generated);
     let mut editor_doc = scenario.panes.contains(&Pane::Editor).then(sample_doc);
+    if scenario.editor_invalid
+        && let Some(doc) = editor_doc.as_mut()
+    {
+        if let Some(tab) = doc.tabs.get_mut(1) {
+            tab.text = "{ \"TITLE\": \"Aurora\"\n  \"WIDTH\": 640 }".to_string();
+        }
+        doc.invalid = doc.check().err();
+        assert!(
+            doc.invalid.is_some(),
+            "the sample scene.json must not parse"
+        );
+    }
     let generate_panel = GeneratePanel {
         running: scenario.generating.then_some(("01-scene-0", 12.0)),
         outcome: generated.as_ref(),
@@ -779,6 +908,7 @@ fn draw_events(
                 busy: false,
                 drop_hover: false,
                 imported_playing: scenario.imported,
+                imported: scenario.imported.then_some(0),
                 generating: scenario.generating,
                 listener: ListenerPanel {
                     enabled: false,
@@ -1125,6 +1255,46 @@ fn the_palette_opens_panes_and_survives_an_empty_result() -> Result<()> {
     Ok(())
 }
 
+#[test]
+fn the_palette_loads_previews_and_applies_presets_by_name() -> Result<()> {
+    let drawn = draw_events(BASE, (1440.0, 900.0), palette_run("03-scene-2"))?;
+    assert_eq!(
+        drawn.all_actions,
+        vec![Action::Load(2)],
+        "a scene's name, then Enter, loads it"
+    );
+    let drawn = draw_events(BASE, (1440.0, 900.0), palette_run("preview 04"))?;
+    assert_eq!(
+        drawn.all_actions,
+        vec![Action::Preview(3)],
+        "Preview and part of the name previews it"
+    );
+    assert!(
+        drawn.open_panes.contains(&Pane::Browser),
+        "the browser opens to show the preview; open: {:?}",
+        drawn.open_panes
+    );
+    let drawn = draw_events(BASE, (1440.0, 900.0), palette_run("peak"))?;
+    assert_eq!(
+        drawn.all_actions,
+        vec![Action::RecallPreset("Peak".to_string())],
+        "a preset of the playing scene is applied"
+    );
+    let drawn = draw_events(BASE, (1440.0, 900.0), palette_run("01-scene-0"))?;
+    assert!(
+        drawn.all_actions.is_empty(),
+        "the playing scene is listed but not loaded again; got {:?}",
+        drawn.all_actions
+    );
+    let drawn = draw_events(BASE, (1440.0, 900.0), palette_run("black"))?;
+    assert_eq!(
+        drawn.all_actions,
+        vec![Action::SetBlackout(true)],
+        "an exact command still comes before every scene"
+    );
+    Ok(())
+}
+
 /// Paints `drawn` on a headless GL context and writes it to `path` as a PNG.
 /// Returns false (after saying why) when there is no headless context.
 fn shoot(drawn: &mut Drawn, size: (f32, f32), path: &std::path::Path) -> Result<bool> {
@@ -1268,8 +1438,9 @@ fn nothing_is_painted_over_blackout_at_any_size() -> Result<()> {
                 "{} at {size:?}: BLACKOUT is outside the window ({blackout:?})",
                 scenario.name
             );
-            if scenario.replace {
-                // The modal's scrim covers everything on purpose.
+            if scenario.replace || scenario.palette.is_some() {
+                // The modal's and the palette's scrims cover everything on
+                // purpose.
                 continue;
             }
             for later in drawn.shapes.iter().skip(index + 1) {

@@ -385,6 +385,152 @@ pub fn map_error_line(log_line: &str) -> Option<ErrorSite> {
     })
 }
 
+/// The 1-based column a driver log line gives, when it gives one.
+///
+/// Only Mesa does: `1:14(3): error: …` is source string 1, line 14, column
+/// 3, counted from 1. NVIDIA's `1(14) : …` and the `ERROR: 1:14: …` of
+/// ANGLE, AMD and Intel name a line only. Mesa counts the line as its
+/// preprocessor printed it, not as it was given ([`compiled_column`]), and
+/// the text it was given is the assembler's, which may have rewritten the
+/// user's ([`original_column`]).
+pub fn driver_column(log_line: &str) -> Option<u32> {
+    let trimmed = log_line.trim_start();
+    let rest = trimmed
+        .strip_prefix("ERROR:")
+        .or_else(|| trimmed.strip_prefix("WARNING:"))
+        .unwrap_or(trimmed)
+        .trim_start();
+    let digits = |s: &str| -> Option<(u32, usize)> {
+        let end = s.find(|c: char| !c.is_ascii_digit()).unwrap_or(s.len());
+        if end == 0 {
+            return None;
+        }
+        s.get(..end)?.parse().ok().map(|n| (n, end))
+    };
+    let (_, used) = digits(rest)?;
+    let rest = rest.get(used..)?.strip_prefix(':')?;
+    let (_, used) = digits(rest)?;
+    let rest = rest.get(used..)?.strip_prefix('(')?;
+    let (column, used) = digits(rest)?;
+    let closed = rest.get(used..)?.starts_with(')');
+    (closed && column > 0).then_some(column)
+}
+
+/// The text of line `line` of source string `string` in `text`, following
+/// its `#line` directives as a driver does, starting at line 1 of
+/// `first_string`. The first such line wins.
+///
+/// The assembled shader starts in [`source::PREAMBLE`], and the user's code
+/// is introduced by `#line 1 1`; a scene's own shader text (with its
+/// `#include`s expanded) starts in [`source::USER`].
+pub fn source_line(text: &str, first_string: u32, string: u32, line: u32) -> Option<&str> {
+    let mut at = (first_string, 1_u32);
+    for text_line in text.split('\n') {
+        if let Some((number, named)) = line_directive(text_line) {
+            at = (named.unwrap_or(at.0), number);
+            continue;
+        }
+        if at == (string, line) {
+            return Some(text_line.strip_suffix('\r').unwrap_or(text_line));
+        }
+        at.1 = at.1.saturating_add(1);
+    }
+    None
+}
+
+/// `#line N` or `#line N S`: the next line's number and, when given, its
+/// source string.
+fn line_directive(text_line: &str) -> Option<(u32, Option<u32>)> {
+    let rest = text_line.trim_start().strip_prefix('#')?.trim_start();
+    let rest = rest.strip_prefix("line")?;
+    if !rest.starts_with(|c: char| c.is_ascii_whitespace()) {
+        return None;
+    }
+    let mut words = rest.split_whitespace();
+    let number = words.next()?.parse().ok()?;
+    let string = match words.next() {
+        Some(word) => Some(word.parse().ok()?),
+        None => None,
+    };
+    Some((number, string))
+}
+
+/// Where Mesa's `column` falls on `compiled`, the line Mesa was given, as a
+/// 1-based byte column.
+///
+/// Mesa's compiler reads its preprocessor's output, in which every run of
+/// spaces, tabs and comments within a line is one space, leading ones
+/// included, so `    return x;` has `return` at column 2. Checked on
+/// llvmpipe (`render.rs`, the column test). Macro expansion moves columns
+/// too, and is not undone.
+pub fn compiled_column(compiled: &str, column: u32) -> u32 {
+    let bytes = compiled.as_bytes();
+    let wanted = (column.max(1) - 1) as usize;
+    let mut printed = 0_usize;
+    let mut at = 0_usize;
+    while at < bytes.len() {
+        if printed == wanted {
+            break;
+        }
+        let run = blank_run(bytes, at);
+        at += run.max(1);
+        printed += 1;
+    }
+    u32::try_from(at.min(bytes.len()) + 1).unwrap_or(u32::MAX)
+}
+
+/// How many bytes from `at` are blank to Mesa's preprocessor: spaces,
+/// tabs, `/* */` comments and a `//` comment to the end of the line.
+fn blank_run(bytes: &[u8], from: usize) -> usize {
+    let mut at = from;
+    loop {
+        match (bytes.get(at), bytes.get(at + 1)) {
+            (Some(b' ' | b'\t' | b'\r' | b'\x0b' | b'\x0c'), _) => at += 1,
+            (Some(b'/'), Some(b'/')) => at = bytes.len(),
+            (Some(b'/'), Some(b'*')) => {
+                at = bytes
+                    .get(at + 2..)
+                    .and_then(|rest| rest.windows(2).position(|w| w == b"*/"))
+                    .map_or(bytes.len(), |end| at + 2 + end + 2);
+            }
+            _ => return at - from,
+        }
+    }
+}
+
+/// Where `column` (1-based, in bytes) of `compiled`, a line as the driver
+/// compiled it, falls on `original`, the same line as the user wrote it.
+///
+/// The assembler's rewrites ([`crate::promote`], [`crate::fixups`],
+/// [`crate::directives`]) keep lines but not columns: `float x = 1;` is
+/// compiled as `float x = 1.0;`. The text both lines share at their start
+/// keeps its columns, and so does the text they share at their end, counted
+/// from the end; a column inside the stretch the rewrite changed is the
+/// start of that stretch on the user's line. The result is at most one past
+/// the end of `original`.
+pub fn original_column(original: &str, compiled: &str, column: u32) -> u32 {
+    let (a, b) = (original.as_bytes(), compiled.as_bytes());
+    let prefix = a.iter().zip(b).take_while(|(x, y)| x == y).count();
+    let room = a.len().min(b.len()) - prefix;
+    let suffix = a
+        .iter()
+        .rev()
+        .zip(b.iter().rev())
+        .take(room)
+        .take_while(|(x, y)| x == y)
+        .count();
+    let at = (column.max(1) - 1) as usize;
+    let mapped = if at < prefix {
+        at
+    } else if at >= b.len() - suffix {
+        // Counted back from the end, which the two lines share.
+        a.len().saturating_sub(b.len().saturating_sub(at))
+    } else {
+        prefix
+    };
+    u32::try_from(mapped.min(a.len()) + 1).unwrap_or(u32::MAX)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -537,5 +683,113 @@ mod tests {
         for (line, expected) in cases {
             assert_eq!(map_error_line(line), expected, "`{line}`");
         }
+    }
+
+    #[test]
+    fn only_mesas_format_gives_a_column() {
+        let cases = [
+            ("1:14(3): error: `foo' undeclared", Some(3)),
+            ("WARNING: 1:2(19): warning: unused", Some(19)),
+            ("1(14) : error C1008: undefined variable", None),
+            ("ERROR: 1:14: 'foo' : undeclared identifier", None),
+            ("1:14(0): error: no column", None),
+            ("1:14(x): error", None),
+            ("some other text", None),
+        ];
+        for (line, expected) in cases {
+            assert_eq!(driver_column(line), expected, "`{line}`");
+        }
+    }
+
+    #[test]
+    fn a_source_line_is_found_through_line_directives() {
+        let assembled = "#version 330 core\nuniform float a;\n#line 1 1\nfirst\nsecond\n\
+                         #line 1 2\nvoid main() {\n#line 2 1\n    hoisted\n}\n";
+        assert_eq!(
+            source_line(assembled, source::PREAMBLE, source::USER, 2),
+            Some("second"),
+            "the user's line 2, not the hoisted copy after it"
+        );
+        assert_eq!(
+            source_line(assembled, source::PREAMBLE, source::PREAMBLE, 2),
+            Some("uniform float a;"),
+            "the preamble counts from 1"
+        );
+        assert_eq!(
+            source_line(assembled, source::PREAMBLE, source::EPILOGUE, 1),
+            Some("void main() {"),
+            "the epilogue"
+        );
+        let user = "one\n#line 1 3\nincluded\n#line 2 1\ntwo\r\n";
+        assert_eq!(
+            source_line(user, source::USER, source::USER, 2),
+            Some("two"),
+            "an expanded include keeps the user's numbering; a CR is not text"
+        );
+        assert_eq!(
+            source_line(user, source::USER, source::USER, 9),
+            None,
+            "past the end"
+        );
+    }
+
+    #[test]
+    fn mesas_column_counts_runs_of_blanks_as_one() {
+        let line = "    float x = 1.0;  /* note */ return  y;";
+        let at = |needle: &str| line.find(needle).map_or(0, |i| i as u32 + 1);
+        assert_eq!(
+            compiled_column(line, 2),
+            at("float"),
+            "the leading spaces print as one"
+        );
+        assert_eq!(
+            compiled_column(line, 17),
+            at("return"),
+            "a comment and the spaces around it print as one"
+        );
+        assert_eq!(compiled_column(line, 1), 1, "the first column");
+        assert_eq!(
+            compiled_column(line, 99),
+            line.len() as u32 + 1,
+            "past the end is the end"
+        );
+        assert_eq!(
+            compiled_column("a // rest", 3),
+            "a // rest".len() as u32 + 1,
+            "a line comment runs to the end"
+        );
+    }
+
+    #[test]
+    fn a_rewritten_lines_column_goes_back_to_the_users_text() {
+        let original = "    float x = 1; vec4 c = vec4(nope);";
+        let compiled = "    float x = 1.0; vec4 c = vec4(nope);";
+        let nope = |line: &str| line.find("nope").map_or(0, |at| at as u32 + 1);
+        assert_eq!(
+            original_column(original, compiled, nope(compiled)),
+            nope(original),
+            "after the rewrite: counted from the shared end"
+        );
+        assert_eq!(
+            original_column(original, compiled, 5),
+            5,
+            "before the rewrite: unchanged"
+        );
+        assert_eq!(
+            original_column(original, compiled, 17),
+            16,
+            "inside the rewrite: where it starts on the user's line"
+        );
+        assert_eq!(
+            original_column("abc", "abc", 2),
+            2,
+            "an unchanged line keeps its columns"
+        );
+        assert_eq!(
+            original_column("ab", "abcdef", 6),
+            3,
+            "never past the end of the user's line"
+        );
+        assert_eq!(original_column("", "", 4), 1, "an empty line");
     }
 }

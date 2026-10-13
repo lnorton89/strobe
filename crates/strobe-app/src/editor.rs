@@ -4,7 +4,8 @@
 //               is unsaved, a safe save with timestamped backups, and where a
 //               compiler error points. Pure apart from file reads and writes.
 //
-// Dependencies: std; strobe-diag (the data directory, for backups)
+// Dependencies: std; strobe-diag (the data directory, for backups);
+//               strobe-scene (the scene.json parser)
 // ============================================================================
 
 //! The Editor workspace's data (backlog U-02, UI_DESIGN section 14, D204).
@@ -31,6 +32,15 @@
 //! directory (`backups/<scene>/<file>.<timestamp>`), keeping the newest
 //! [`KEEP_BACKUPS`], so "Restore backup" can undo a whole editing session.
 //! Backups are never written into the scene folder, which is the operator's.
+//!
+//! ## Errors point at a line and, where known, a column
+//!
+//! [`error_location`] reads `<file>.glsl:<line>[:<column>]` from a compiler
+//! message: `strobe-gfx` writes the column when the driver gives one (only
+//! Mesa does), already put back on the user's line (D263). Before Save and
+//! reload, [`check_scene_json`] parses `scene.json` as the loader will; a
+//! file that does not parse is refused with its own line and column, and
+//! nothing is written or reloaded.
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -77,6 +87,82 @@ pub struct Doc {
     pub tabs: Vec<Tab>,
     /// The tab shown.
     pub active: usize,
+    /// Why the last Save and reload was refused: `scene.json` did not
+    /// parse (D263). Cleared when that file is edited or reverted.
+    pub invalid: Option<Invalid>,
+}
+
+/// A `scene.json` that the scene loader would refuse.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Invalid {
+    /// The parser's message.
+    pub message: String,
+    /// Where it points, when it points somewhere.
+    pub at: Option<Location>,
+}
+
+/// A place in one of the scene's files.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Location {
+    /// The file, relative to the scene folder.
+    pub file: String,
+    /// The 1-based line.
+    pub line: usize,
+    /// The 1-based column, in bytes, when known.
+    pub column: Option<usize>,
+}
+
+impl Location {
+    /// "line 12" or "line 12, column 5", for a button.
+    pub fn describe(&self) -> String {
+        match self.column {
+            Some(column) => format!("line {}, column {column}", self.line),
+            None => format!("line {}", self.line),
+        }
+    }
+}
+
+/// The file the Editor validates before a reload.
+pub const SCENE_JSON: &str = "scene.json";
+
+/// Whether `text`, as `scene.json` of a scene titled `title`, is one the
+/// scene loader accepts: the same newline handling and the same parser
+/// (`strobe_scene::scene::SceneDef::parse`), so a reload that passes this
+/// check does not fail on its `scene.json`.
+///
+/// # Errors
+///
+/// The parser's message, with the line and column a JSON syntax or type
+/// error has.
+pub fn check_scene_json(text: &str, title: &str) -> Result<(), Invalid> {
+    let normalised;
+    let text = if text.contains('\r') {
+        normalised = strobe_scene::load::newlines(text);
+        normalised.as_str()
+    } else {
+        text
+    };
+    match strobe_scene::scene::SceneDef::parse(text, title) {
+        Ok(_) => Ok(()),
+        Err(error) => {
+            // Only a JSON error has a place; the rest are about a value.
+            let at = if let strobe_scene::SceneError::Json(json) = &error
+                && json.line() > 0
+            {
+                Some(Location {
+                    file: SCENE_JSON.to_owned(),
+                    line: json.line(),
+                    column: (json.column() > 0).then_some(json.column()),
+                })
+            } else {
+                None
+            };
+            Err(Invalid {
+                message: error.to_string(),
+                at,
+            })
+        }
+    }
 }
 
 impl Doc {
@@ -121,6 +207,7 @@ impl Doc {
             name: name.to_owned(),
             tabs,
             active: 0,
+            invalid: None,
         })
     }
 
@@ -139,6 +226,7 @@ impl Doc {
                 })
                 .collect(),
             active: 0,
+            invalid: None,
         }
     }
 
@@ -181,6 +269,20 @@ impl Doc {
     pub fn revert(&mut self) {
         for tab in &mut self.tabs {
             tab.text.clone_from(&tab.saved);
+        }
+        self.invalid = None;
+    }
+
+    /// Checks the `scene.json` tab as edited (D263); a scene without one is
+    /// fine, as the loader reads a missing file as `{}`.
+    ///
+    /// # Errors
+    ///
+    /// Why the loader would refuse it.
+    pub fn check(&self) -> Result<(), Invalid> {
+        match self.tab_index(SCENE_JSON).and_then(|i| self.tabs.get(i)) {
+            Some(tab) => check_scene_json(&tab.text, &self.name),
+            None => Ok(()),
         }
     }
 }
@@ -255,19 +357,22 @@ pub fn write_atomically(path: &Path, text: &str) -> io::Result<()> {
     std::fs::rename(&temporary, path)
 }
 
-/// The first `<file>.glsl:<line>` a compiler message names, as a file inside
-/// the scene and a 1-based line.
-pub fn error_location(message: &str) -> Option<(String, usize)> {
+/// The first `<file>.glsl:<line>` or `<file>.glsl:<line>:<column>` a
+/// compiler message names: a file inside the scene, a 1-based line and,
+/// when the message has one, a 1-based column on the user's line.
+pub fn error_location(message: &str) -> Option<Location> {
     let bytes = message.as_bytes();
+    let number_end = |from: usize| {
+        bytes
+            .get(from..)
+            .and_then(|rest| rest.iter().position(|b| !b.is_ascii_digit()))
+            .map_or(bytes.len(), |n| from + n)
+    };
     let mut search = 0;
     while let Some(found) = message.get(search..)?.find(".glsl:") {
         let dot = search + found;
         let digits_start = dot + ".glsl:".len();
-        let digits_end = bytes
-            .get(digits_start..)?
-            .iter()
-            .position(|b| !b.is_ascii_digit())
-            .map_or(bytes.len(), |n| digits_start + n);
+        let digits_end = number_end(digits_start);
         let start = message
             .get(..dot)?
             .rfind(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '/' | '.')))
@@ -281,7 +386,20 @@ pub fn error_location(message: &str) -> Option<(String, usize)> {
         ) && !file.is_empty()
             && line > 0
         {
-            return Some((file.to_owned(), line));
+            // `:<column>:` straight after the line, as `strobe-gfx` writes
+            // it; a driver's own `1:14(3)` after a space is not one.
+            let column = (bytes.get(digits_end) == Some(&b':'))
+                .then(|| {
+                    let end = number_end(digits_end + 1);
+                    let number = message.get(digits_end + 1..end)?.parse::<usize>().ok()?;
+                    (bytes.get(end) == Some(&b':') && number > 0).then_some(number)
+                })
+                .flatten();
+            return Some(Location {
+                file: file.to_owned(),
+                line,
+                column,
+            });
         }
         search = digits_start;
     }
@@ -296,6 +414,20 @@ pub fn line_offset(text: &str, line: usize) -> usize {
     text.match_indices('\n')
         .nth(line - 2)
         .map_or(text.len(), |(at, _)| at + 1)
+}
+
+/// The byte offset of 1-based `line` and, when given, 1-based byte
+/// `column` in `text`: never past the end of that line, and always on a
+/// character boundary.
+pub fn location_offset(text: &str, line: usize, column: Option<usize>) -> usize {
+    let start = line_offset(text, line);
+    let rest = text.get(start..).unwrap_or_default();
+    let line_len = rest.find('\n').unwrap_or(rest.len());
+    let mut at = start + column.map_or(0, |c| c.saturating_sub(1)).min(line_len);
+    while at > start && !text.is_char_boundary(at) {
+        at -= 1;
+    }
+    at
 }
 
 /// What a stretch of GLSL is, for colouring.
@@ -588,17 +720,25 @@ mod tests {
         Ok(())
     }
 
+    fn at(file: &str, line: usize, column: Option<usize>) -> Option<Location> {
+        Some(Location {
+            file: file.to_owned(),
+            line,
+            column,
+        })
+    }
+
     #[test]
     fn compiler_messages_point_at_a_file_and_line() {
         assert_eq!(
             error_location("main.glsl:42: unknown identifier `foo`"),
-            Some(("main.glsl".to_owned(), 42)),
+            at("main.glsl", 42, None),
             "the assembler's form"
         );
         assert_eq!(
             error_location("pass 1: passes/blur.glsl:7: 0:7(3): error: syntax error"),
-            Some(("passes/blur.glsl".to_owned(), 7)),
-            "a pass file"
+            at("passes/blur.glsl", 7, None),
+            "a pass file; the driver's own (3) is not on the user's line"
         );
         assert_eq!(
             error_location("(generated): 3:202(2): error"),
@@ -608,11 +748,104 @@ mod tests {
     }
 
     #[test]
+    fn a_column_is_read_when_the_message_has_one() {
+        assert_eq!(
+            error_location("pass 0: main.glsl:2:35: 1:2(34): error: `x' undeclared"),
+            at("main.glsl", 2, Some(35)),
+            "line and column, as strobe-gfx writes them"
+        );
+        assert_eq!(
+            error_location("passes/a.glsl:9:1: 1:9(1): error"),
+            at("passes/a.glsl", 9, Some(1)),
+            "a pass file at the line's start"
+        );
+        assert_eq!(
+            error_location("main.glsl:4:x: nope"),
+            at("main.glsl", 4, None),
+            "not a number"
+        );
+        assert_eq!(
+            error_location("main.glsl:4:0: nope"),
+            at("main.glsl", 4, None),
+            "columns count from 1"
+        );
+    }
+
+    #[test]
     fn a_line_number_finds_its_offset() {
         let text = "one\ntwo\nthree";
         assert_eq!(line_offset(text, 1), 0, "first line");
         assert_eq!(line_offset(text, 3), 8, "third line");
         assert_eq!(line_offset(text, 9), text.len(), "past the end");
+    }
+
+    #[test]
+    fn a_line_and_column_find_their_offset_within_the_line() {
+        let text = "one\ntw\u{e9}o\nthree";
+        assert_eq!(location_offset(text, 2, Some(2)), 5, "the w");
+        assert_eq!(location_offset(text, 2, None), 4, "no column: the start");
+        assert_eq!(
+            location_offset(text, 2, Some(40)),
+            9,
+            "past the line's end: its end, not the next line"
+        );
+        assert_eq!(
+            location_offset(text, 2, Some(4)),
+            6,
+            "inside a character: its start"
+        );
+    }
+
+    #[test]
+    fn scene_json_is_checked_as_the_loader_reads_it() -> Result<()> {
+        assert_eq!(
+            check_scene_json("{ \"TITLE\": \"x\" }", "t"),
+            Ok(()),
+            "valid"
+        );
+        assert_eq!(
+            check_scene_json("{\r\n  \"TITLE\": \"x\"\r\n}\r\n", "t"),
+            Ok(()),
+            "Windows line endings"
+        );
+        let broken = check_scene_json("{\n  \"TITLE\": \"x\"\n  \"WIDTH\": 1\n}", "t");
+        let Err(invalid) = broken else {
+            anyhow::bail!("a missing comma must be refused");
+        };
+        assert_eq!(
+            invalid.at.as_ref().map(|at| (at.file.as_str(), at.line)),
+            Some((SCENE_JSON, 3)),
+            "it points at the line after the missing comma: {invalid:?}"
+        );
+        assert!(
+            invalid.at.as_ref().and_then(|at| at.column).is_some(),
+            "with a column: {invalid:?}"
+        );
+        let bad_type = check_scene_json(
+            "{ \"CONTROLS\": [ { \"NAME\": \"a\", \"TYPE\": \"wobble\" } ] }",
+            "t",
+        );
+        assert!(
+            matches!(&bad_type, Err(Invalid { at: None, message }) if message.contains("wobble")),
+            "valid JSON the scene loader refuses: {bad_type:?}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_doc_is_checked_by_its_scene_json_tab() {
+        let mut doc = Doc::in_memory(
+            "scenes/demo",
+            "demo",
+            &[("main.glsl", "void x() {}"), ("scene.json", "{}")],
+        );
+        assert_eq!(doc.check(), Ok(()), "valid");
+        if let Some(tab) = doc.tabs.get_mut(1) {
+            tab.text = "{ oops".to_owned();
+        }
+        assert!(doc.check().is_err(), "the edited text is what is checked");
+        let shader_only = Doc::in_memory("scenes/demo", "demo", &[("main.glsl", "")]);
+        assert_eq!(shader_only.check(), Ok(()), "no scene.json reads as {{}}");
     }
 
     #[test]

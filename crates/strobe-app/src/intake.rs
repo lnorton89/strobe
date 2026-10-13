@@ -26,9 +26,11 @@
 //!   keeps running, and a banner then says how many were added, already
 //!   there or refused (D235). At most [`MAX_PACK`] scenes are taken.
 //!
-//! A **watched folder** ([`Inbox`], `--watch-folder`) takes the same route
-//! without a drop: a scene folder or a folder of scenes that appears in it
-//! is added to the library as a pack is, and nothing plays (D240).
+//! A **watched folder** ([`Inbox`], `--watch-folder` or Settings) takes the
+//! same route without a drop: a scene folder or a folder of scenes that
+//! appears in it is added to the library as a pack is, and nothing plays
+//! (D240). Launch and Settings check the folder the same way
+//! ([`check_watch_folder`], D265).
 //!
 //! Anything else is refused with a sentence saying what can be dropped.
 
@@ -351,6 +353,31 @@ fn sum(path: &Path) -> Option<Sum> {
     Some(total)
 }
 
+/// Whether `folder` can be watched for scenes to add to the library in
+/// `library` (D240, D265): it must be a folder that exists, and not the
+/// library itself, whose own new scenes (an import, a pack) would come back
+/// through the queue as "already there". Launch and Settings both ask this.
+///
+/// # Errors
+///
+/// One sentence saying why not.
+pub fn check_watch_folder(folder: &Path, library: &Path) -> Result<PathBuf, String> {
+    if folder.as_os_str().is_empty() {
+        return Err("Type the folder to watch.".to_string());
+    }
+    if !folder.is_dir() {
+        return Err(format!("{} is not a folder.", folder.display()));
+    }
+    if same_dir(folder, library) {
+        return Err(format!(
+            "{} is the library itself: watch a folder scenes are copied into before they \
+             join it.",
+            folder.display()
+        ));
+    }
+    Ok(folder.to_path_buf())
+}
+
 /// Whether two paths are the same folder (also through links or `..`).
 pub fn same_dir(a: &Path, b: &Path) -> bool {
     a == b
@@ -506,6 +533,40 @@ mod tests {
         )?;
         std::fs::write(dir.join("scene.json"), "{}")?;
         std::fs::write(dir.join("images/a.png"), b"not really")?;
+        Ok(())
+    }
+
+    #[test]
+    fn a_watched_folder_must_exist_and_not_be_the_library() -> Result<()> {
+        let scratch = Scratch::new("watch-check")?;
+        let library = scratch.0.join("scenes");
+        let inbox = scratch.0.join("inbox");
+        std::fs::create_dir_all(&library)?;
+        std::fs::create_dir_all(&inbox)?;
+        std::fs::write(scratch.0.join("file.txt"), "x")?;
+        assert_eq!(
+            check_watch_folder(&inbox, &library),
+            Ok(inbox.clone()),
+            "a folder beside the library"
+        );
+        let refused = |folder: &Path| check_watch_folder(folder, &library).err();
+        assert!(
+            refused(Path::new("")).is_some_and(|why| why.contains("Type")),
+            "nothing typed"
+        );
+        assert!(
+            refused(&scratch.0.join("missing")).is_some_and(|why| why.contains("not a folder")),
+            "a folder that does not exist"
+        );
+        assert!(
+            refused(&scratch.0.join("file.txt")).is_some_and(|why| why.contains("not a folder")),
+            "a file"
+        );
+        assert!(
+            refused(&scratch.0.join("inbox/../scenes"))
+                .is_some_and(|why| why.contains("library itself")),
+            "the library, however it is spelled"
+        );
         Ok(())
     }
 

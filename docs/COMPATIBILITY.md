@@ -50,7 +50,7 @@ container, headless or under Xvfb.
 | `CUBEMAPS` | Degraded | [D185](DECISIONS.md), `assets.rs` `six_face_files_answer_each_direction_with_their_colour`, `a_cross_picture_gives_the_same_six_faces` | Face orientation is unverified against Synesthesia ([Q22](OPEN_QUESTIONS.md)); none of the 65 real scenes uses a cube map. llvmpipe only. |
 | `MEDIA` | Supported | See section 9 | |
 | `HARD_TRANSITIONS`, `SMOOTH_TRANSITIONS` | Degraded | [ROADMAP phase 7](ROADMAP.md), [D196](DECISIONS.md) | Parsed (`null` accepted) and declared; the uniforms keep their first value. Song changes ([D237](DECISIONS.md)) drive playlists only, not these uniforms. |
-| `TAGS` | Supported | [D205](DECISIONS.md), `strobe_scene::tags` tests | Read leniently, normalised, written in place. |
+| `TAGS` | Supported | [D205](DECISIONS.md), [D264](DECISIONS.md), `strobe_scene::tags` and `ui::tags` tests | Read leniently, normalised, written in place, for any library scene. |
 | `IMAGE_PATH` | Supported | [D212](DECISIONS.md), [D222](DECISIONS.md), `ui::thumbs` and `snapshot` tests | Shown as the browser thumbnail; can be taken from the live frame. |
 | Other keys (`IS_META`, `GPU`, `UNIFORMS`, `LABEL`, `X_STROBE`) | Degraded | [Q6](OPEN_QUESTIONS.md), [Q9](OPEN_QUESTIONS.md) | Read and ignored. |
 | SSF function library (documented names) | Supported | `strobe-ssf-lib` `every_documented_function_is_defined` (63 names), `render.rs` `the_ssf_library_compiles_in_both_dialects`, [TORNADO T18](hardware/TORNADO.md) | Re-implemented from the documented behaviour. Numbers are not bit-identical to Synesthesia's. |
@@ -257,7 +257,7 @@ Per dialect: 63 ok, 2 `compile_error`. Categories: no issue 58, source bug 2, dr
 | Fav slots | Supported | [D176](DECISIONS.md), `preset` tests, [T480 Task 31](hardware/T480.md) | Recall of a filled slot over OSC on hardware is not recorded; an empty slot says so. |
 | Keyboard shortcuts and the shortcut editor | Supported | [D178](DECISIONS.md), [D208](DECISIONS.md), `commands.rs` and `ui::shell_tests`, [T480](hardware/T480.md) (Right, B) | Ctrl chords were not testable on the T480 with posted keys. |
 | Blackout on, off and toggle | Supported | [D181](DECISIONS.md), [D201](DECISIONS.md), Xvfb OSC run in [STATUS_AUDIT P2](STATUS_AUDIT.md), [T480](hardware/T480.md) (B key) | Blackout gates the shown output only; `master` fades the picture. |
-| Command palette | Supported | [D200](DECISIONS.md), `ui::shell_tests` | Not yet used by a person on Windows. |
+| Command palette | Supported | [D200](DECISIONS.md), [D262](DECISIONS.md), `command_palette` and `ui::shell_tests` | Commands, panes, layouts, library scenes (Load, Preview) and the playing scene's presets. Not yet used by a person on Windows. |
 
 ### Synesthesia's preset, meta and control behaviours (C-06)
 
