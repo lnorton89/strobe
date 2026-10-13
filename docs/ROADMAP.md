@@ -268,6 +268,14 @@ Each item names its acceptance test. Evidence is in [STATUS_AUDIT.md](STATUS_AUD
    runs it on `scenes/`. Windows has no headless EGL, and the harness falls
    back to a window context there: the T480 ran it on `scenes/` in both
    dialects (Task 30) and TORNADO on the owner's corpus (T18).
+   *Stages 1 and 2 done (D255), 2026-10-13:*
+   - **The seam** is a contract, [RENDERER_SEAM.md](RENDERER_SEAM.md), with
+     no code moved.
+   - **The spike** (`research/g03-frontends/`) rules naga out: it has no
+     combined samplers in either front end, so 0 of 51 passes go through
+     its GLSL input. glslang -> SPIR-V -> SPIRV-Cross is viable as a front
+     end: 51 of 51 to SPIR-V, HLSL and MSL for 50.
+   - **No backend is started:** that waits for a platform that needs one.
 
 ### Auto-generated controls (stage 1 built)
 

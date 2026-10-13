@@ -1,0 +1,17 @@
+# G-03 spike: does GLSL reach SPIR-V, and through it the other backends?
+# A research tool, outside the workspace and outside CI (its own
+# [workspace] table below). See README.md for what it measures and the
+# result.
+[package]
+name = "g03-frontends"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "MIT"
+
+[workspace]
+
+[dependencies]
+anyhow = "1"
+naga = { version = "30", features = ["glsl-in", "spv-in"] }
+strobe-scene = { path = "../../crates/strobe-scene" }
