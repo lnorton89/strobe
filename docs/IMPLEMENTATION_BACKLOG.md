@@ -134,7 +134,7 @@
 - **Acceptance:** publish a matrix with native/ANGLE status and failure category for every scene; no compatibility claim based only on a small synthetic corpus.
 
 ### C-04 textureFinalPass validation
-- **Status:** In progress.
+- **Status:** In progress. `strobe-bench --readback` (D245) runs the latency, cost, busy-GPU, resize and lost-context checks on any context, the window one included. It passes on llvmpipe in both dialects. Left: the run on the T480, native and ANGLE.
 - **Work:** run latency, resize, context-loss and busy-GPU tests using window-owned contexts on T480 native and ANGLE; compare GPU cost and freshness.
 - **Acceptance:** latency remains bounded and asynchronous; no synchronous GPU stall; documented behaviour across context loss and resize.
 

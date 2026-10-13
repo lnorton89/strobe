@@ -38,9 +38,15 @@
 //! headless first and falls back to the window. The context code is
 //! [`strobe_gfx::offscreen`], shared with `strobe-autocontrol` (D140).
 //!
+//! `--readback` runs the `textureFinalPass` readback checks on the same
+//! context instead (latency, cost, busy GPU, resize, lost context; see
+//! [`readback`]), so they can run on Windows, which has no headless EGL.
+//!
 //! On a machine with no GPU (CI, a cloud container) the context is Mesa's
 //! llvmpipe: absolute numbers are CPU rasterisation, but the *ranking* of
 //! scenes and the effect of a renderer change hold.
+
+mod readback;
 
 use anyhow::{Context as _, Result, anyhow};
 use clap::{Parser, ValueEnum};
@@ -110,6 +116,11 @@ struct Cli {
     /// Output folder.
     #[arg(long, default_value = "target/bench")]
     out: PathBuf,
+    /// Check the `textureFinalPass` readback on this context (latency,
+    /// cost, busy GPU, resize, lost context) instead of benchmarking the
+    /// library; writes `readback.md` (C-04).
+    #[arg(long)]
+    readback: bool,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -228,6 +239,16 @@ fn run(gl: &Gl, caps: &Caps, context: &str, size: [i32; 2], cli: &Cli) -> Result
     // scenes' doing.
     let _ = gl.error();
     std::fs::create_dir_all(&cli.out).with_context(|| format!("creating {}", cli.out.display()))?;
+    if cli.readback {
+        let (report, passed) = readback::run(gl, caps, context, size)?;
+        println!("{report}");
+        std::fs::write(cli.out.join("readback.md"), &report)?;
+        return if passed {
+            Ok(())
+        } else {
+            Err(anyhow!("the readback check failed; see readback.md"))
+        };
+    }
     let mut rows = Vec::new();
     for dir in strobe_scene::load::scan(&cli.library)? {
         let name = strobe_scene::load::folder_title(&dir);
