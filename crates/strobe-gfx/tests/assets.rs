@@ -209,6 +209,36 @@ fn a_cross_picture_gives_the_same_six_faces() -> Result<()> {
 }
 
 #[test]
+fn a_missing_image_reports_a_problem_and_reads_black() -> Result<()> {
+    // TORNADO T6: a real scene names `x.png` while its folder holds
+    // `x-01.png`. Synesthesia plays it; the picture is simply missing.
+    for api in BOTH {
+        let Some(headless) = context(api)? else {
+            continue;
+        };
+        let gl = headless.gl();
+        let caps = Caps::from_info(gl.info());
+        let scratch = Scratch::new("image-missing")?;
+        let scene = load(
+            &scratch,
+            r#"{ "IMAGES": [ { "NAME": "pic", "PATH": "images/gone.png" } ] }"#,
+            "vec4 renderMain() { return vec4(texture(pic, _uv).rgb + vec3(0.0, 0.5, 0.0), 1.0); }",
+        )?;
+        let mut player = ScenePlayer::new(gl, &caps, &scene, SIZE, Options::default())?;
+        let problems = player.take_asset_problems();
+        assert_eq!(problems.len(), 1, "{api:?}: one problem, got {problems:?}");
+        assert_eq!(problems[0].asset, "pic", "{api:?}: names the sampler");
+        assert_eq!(problems[0].path, "images/gone.png", "{api:?}: and the file");
+        let pixels = render_at(&mut player, &scene, 0.0)?;
+        assert!(
+            near(pixel(&pixels, SIZE[0], 0, 0)?, [0, 128, 0, 255]),
+            "{api:?}: the scene runs and the picture reads black"
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn a_missing_cube_map_reports_a_problem_and_reads_black() -> Result<()> {
     for api in BOTH {
         let Some(headless) = context(api)? else {

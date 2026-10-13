@@ -68,7 +68,7 @@ const IMAGE_EXTENSIONS: [&str; 3] = ["png", "jpg", "jpeg"];
 /// scene keeps running; the app reports it through the failure path.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AssetProblem {
-    /// What it was for: a cube map sampler's name, or `syn_Media`.
+    /// What it was for: an image or cube map sampler's name, or `syn_Media`.
     pub asset: String,
     /// The file or folder, as written in the scene or given by the user.
     pub path: String,
