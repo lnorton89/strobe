@@ -116,7 +116,7 @@ impl Default for Limits {
             burst: 20.0,
             tick: Duration::from_millis(100),
             handshake_timeout: Duration::from_secs(5),
-            auth_timeout: Duration::from_secs(60),
+            auth_timeout: Duration::from_secs(120),
             idle_timeout: Duration::from_secs(30),
             write_timeout: Duration::from_secs(2),
             command_timeout: Duration::from_secs(1),
