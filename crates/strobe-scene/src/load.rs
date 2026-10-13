@@ -69,7 +69,7 @@ impl SceneFolder {
                 // have, break `\` continuations on ANGLE and double its
                 // error line numbers (TORNADO T2, D193). One newline form
                 // everywhere costs nothing on the desktop path.
-                Ok(text) if text.contains('\r') => Ok(Some(text.replace("\r\n", "\n"))),
+                Ok(text) if text.contains('\r') => Ok(Some(newlines(&text))),
                 Ok(text) => Ok(Some(text)),
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
                 Err(source) => Err(SceneError::Io { path, source }),
@@ -102,6 +102,35 @@ impl SceneFolder {
     }
 }
 
+/// `text` with every line ending as one `\n`.
+///
+/// `\r\n` is Windows. A run of `\r` before a `\n` is one line ending too:
+/// 38 of the owner's 65 Synesthesia scenes end their lines `\r\r\n`
+/// (TORNADO T6). Drivers count those by the `\n`, so a `\` continuation
+/// before one breaks and editors disagree with the driver about line
+/// numbers. A `\r` with no `\n` after it (classic Mac) is a line ending of
+/// its own.
+pub fn newlines(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != '\r' {
+            out.push(c);
+            continue;
+        }
+        let mut run = 1;
+        while chars.next_if_eq(&'\r').is_some() {
+            run += 1;
+        }
+        if chars.next_if_eq(&'\n').is_some() {
+            out.push('\n');
+        } else {
+            out.extend(std::iter::repeat_n('\n', run));
+        }
+    }
+    out
+}
+
 /// A title from the folder name: `warm-tunnel.synScene` → `warm-tunnel`.
 pub fn folder_title(dir: &Path) -> String {
     let name = dir
@@ -132,6 +161,20 @@ pub fn scan(library: &Path) -> Result<Vec<PathBuf>, SceneError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_line_ending_becomes_one_newline() {
+        assert_eq!(
+            newlines("a\r\nb\r\r\nc\nd\re\r\rf"),
+            "a\nb\nc\nd\ne\n\nf",
+            "CRLF, CRCRLF, LF, CR, CR CR"
+        );
+        assert_eq!(
+            newlines("x \\\r\r\ny").lines().count(),
+            2,
+            "a continuation before CRCRLF stays one continuation"
+        );
+    }
 
     fn folder(json: &str, pass_shaders: &[&str]) -> Result<SceneFolder, SceneError> {
         Ok(SceneFolder {

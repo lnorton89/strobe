@@ -368,15 +368,36 @@ impl ScenePlayer {
         // reads it. Until the first upload it holds silence: a dark
         // spectrum row and a waveform row at its centre.
         let shadertoy_audio = shadertoy_audio_texture(gl, audio.wanted[2]).map_err(res)?;
+        // A picture or cube map that will not load leaves its sampler black
+        // and the scene running; the problem is handed to the host to
+        // report. Real scenes name files that are not there (TORNADO T6: a
+        // renamed PNG), and Synesthesia plays them.
+        let mut problems = Vec::new();
         let images = def
             .images
             .iter()
-            .map(|image| load_image(gl, &scene.dir.join(&image.path), image))
+            .map(
+                |image| match load_image(gl, &scene.dir.join(&image.path), image) {
+                    Ok(texture) => Ok(texture),
+                    Err(error) => {
+                        problems.push(AssetProblem {
+                            asset: image.name.clone(),
+                            path: image.path.clone(),
+                            message: error.to_string(),
+                        });
+                        gl.texture_2d(
+                            1,
+                            1,
+                            Format::Rgba8,
+                            Sampling::LINEAR_CLAMP,
+                            Some(&[0, 0, 0, 255]),
+                        )
+                        .map_err(res)
+                    }
+                },
+            )
             .collect::<Result<Vec<_>, _>>()?;
 
-        // A cube map that will not load leaves its sampler black and the
-        // scene running; the problem is handed to the host to report.
-        let mut problems = Vec::new();
         let black_face = [0_u8, 0, 0, 255];
         let black_cube = gl.texture_cube(1, [&black_face; 6], false).map_err(res)?;
         if !def.cubemaps.is_empty() && !caps.dialect.is_es() {

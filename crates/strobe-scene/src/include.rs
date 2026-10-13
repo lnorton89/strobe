@@ -127,7 +127,7 @@ fn expand_into(
             out.push('\n');
             continue;
         };
-        let included = included.replace("\r\n", "\n");
+        let included = crate::load::newlines(&included);
         let _ = writeln!(out, "#line 1 {}", source::INCLUDED);
         let parent = path
             .parent()

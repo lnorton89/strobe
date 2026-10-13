@@ -131,11 +131,41 @@ Built from a detached worktree of `origin/master` under `target\tornado\`.
   source has them at 243 to 593. Check this when re-running: a line offset
   from an `#include` would be a bug in the `#line` mapping.
 
+## After D199 (2026-10-13, commit bc4668e, Task T6)
+
+- **No regressions:** every scene that compiled in T4 still compiles on
+  both backends.
+- **Bench:** 56 of 65 on native (T4: 55) and 56 of 65 on ANGLE (T4: 38).
+  The two backends now fail the same 9 scenes:
+  - 7 fail only on script-created uniforms, because the bench runs no
+    scripts;
+  - 2 are the scenes' own bugs (a missing `return`, a redeclared
+    `fragColor`).
+- **`strobe-corpus` on Windows** (a hidden window, native GL 3.3 and ANGLE
+  ES 3.0) runs the scripts: 59 of the 62 top-level scenes pass in both
+  dialects. The three left:
+  - the two scene bugs;
+  - `circuit_bending_dup`, whose `images/` holds `...dup2-01.png` while
+    `scene.json` names `...dup2.png`. D201 now plays it with that picture
+    black.
+
+  With the three scenes in subfolders, 62 of 65 pass.
+- **Tiles:** 8 scenes compared across the two backends, 7 identical.
+  `magnetismic` is brighter on ANGLE, with its smoke further right. It is a
+  feedback scene with a 10x10 data pass: likely precision or format in the
+  persistent passes. Open.
+- **The halved line numbers** came from the files: 38 of the 65
+  `main.glsl` end their lines `\r\r\n`. Drivers count the `\n`; editors
+  that treat a lone `\r` as a line count double. D201 normalises every
+  line-ending form to one `\n`.
+
 ## Pending on this machine
 
 - [x] Re-run 07 at 1080p and 2160p after D191: same size (T2).
 - [x] Re-run the 65 scenes after D193/D194 (T4): 55 native, 38 ANGLE.
-- [ ] Re-run them after D199, native and ANGLE, plus `cargo xtask corpus`.
+- [x] Re-run them after D199, native and ANGLE, plus `cargo xtask corpus`
+  (T6): 56 and 56, 62 with scripts.
+- [ ] Why `magnetismic` differs between native and ANGLE.
 - [ ] The app fullscreen at 2560x1440 with a playlist show, transitions and
   the post stage, against the T480's numbers.
 - [ ] A larger set of real Shadertoy shaders through NVIDIA's compiler
