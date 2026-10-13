@@ -5017,7 +5017,7 @@ names, refused scripted scenes, or a scene the gate empties because its
 GPU rounds every rewrite differently. That last one would need the
 rewrite to keep literals as `const` where it can.
 
-## D260: Narrow windows give way in a fixed order, and two tests hold it at every size
+### D260: narrow windows give way in a fixed order, and two tests hold it at every size (2026-10-13)
 
 **Context.** The T480 resized the control window at 150% (Task 35). Below
 about 1024 pixels, which is 683 points, things collided:
