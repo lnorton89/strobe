@@ -164,6 +164,8 @@ impl GlArg {
 /// One scene's results.
 struct Row {
     name: String,
+    /// The scene has a `script.js`, which the bench does not run (C-05).
+    script: bool,
     compile_ms: f64,
     mean_ms: f64,
     p95_ms: f64,
@@ -293,8 +295,10 @@ fn bench_scene(
     options: Options,
     cli: &Cli,
 ) -> Row {
+    let script = dir.join("script.js").is_file();
     let failed = |error: String| Row {
         name: name.to_string(),
+        script,
         compile_ms: 0.0,
         mean_ms: 0.0,
         p95_ms: 0.0,
@@ -361,6 +365,7 @@ fn bench_scene(
         .unwrap_or(0.0);
     Row {
         name: name.to_string(),
+        script,
         compile_ms,
         mean_ms,
         p95_ms,
@@ -431,6 +436,16 @@ fn report(
         cli.frames,
         cli.warmup,
     );
+    let scripted = rows.iter().filter(|row| row.script).count();
+    if scripted > 0 {
+        let _ = writeln!(
+            out,
+            "**Scripts are not run.** The {scripted} scene(s) marked * have a `script.js`; \
+             here they render with their uniforms' defaults, so their times are not what \
+             they cost in the app. `cargo xtask corpus` runs scripts and reports their \
+             frame time.\n"
+        );
+    }
     let _ = writeln!(
         out,
         "| Scene | Compile ms | Mean ms | p95 ms | Max ms | FPS |"
@@ -441,16 +456,18 @@ fn report(
             Some(error) => {
                 let _ = writeln!(
                     out,
-                    "| {} | failed: {} | | | | |",
+                    "| {}{} | failed: {} | | | | |",
                     row.name,
+                    if row.script { " *" } else { "" },
                     error.replace('\n', " ")
                 );
             }
             None => {
                 let _ = writeln!(
                     out,
-                    "| {} | {:.1} | {:.2} | {:.2} | {:.2} | {:.1} |",
+                    "| {}{} | {:.1} | {:.2} | {:.2} | {:.2} | {:.1} |",
                     row.name,
+                    if row.script { " *" } else { "" },
                     row.compile_ms,
                     row.mean_ms,
                     row.p95_ms,

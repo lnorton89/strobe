@@ -4267,3 +4267,23 @@ always.
 **Would reopen:** a real scene whose edges look different from Synesthesia
 because of the repeat default, which would mean Synesthesia does not
 follow its own documentation here.
+
+### D239: the benchmark stays script-free and says so on every report (2026-10-13)
+
+C-05: `strobe-bench` renders scenes without running their `script.js`, and
+its table could be read as the scripted scene's real cost.
+
+- **Script-free by design.** The bench measures GPU work per scene at a
+  fixed resolution and is part of the Windows cross-check. Running scripts
+  would pull in QuickJS, which needs the Windows SDK to cross-compile (the
+  reason `strobe-script` and `strobe-app` are excluded there).
+- **Marked, not hidden.** `results.md` states above the table that scripts
+  are not run, counts the scenes with a `script.js`, and marks each with
+  `*`.
+- **Script cost lives in the corpus harness.** `cargo xtask corpus` runs
+  scripts with a fixed `dt` and synthetic audio, so it is reproducible, and
+  records `frame_ms` per scene (D195). That is the number to quote for a
+  scripted scene.
+
+**Would reopen:** a need to compare a script's own CPU cost across commits,
+which would belong in the corpus harness as a per-scene script time.
