@@ -52,15 +52,15 @@
 //!
 //! SSF code is desktop GLSL, and real scenes lean on it: `PASSINDEX ==
 //! 0.0` compares an `int` with a `float`, which desktop GLSL converts
-//! implicitly and GLSL ES rejects. [`Dialect::Es300`] (the ANGLE path)
-//! therefore declares what it can (`texture2D`) and rewrites what is
-//! unambiguous without types ([`crate::fixups`]: `PASSINDEX` compared with
-//! a float literal, and global initializers that are not constant
-//! expressions, D192) to keep such code compiling, but desktop GL is the
-//! primary target and the rest of the implicit-conversion family is still
-//! open (Q8).
+//! implicitly and GLSL ES rejects. Every dialect gets the conversions
+//! written out by [`crate::promote`] and `#if` on a non-macro read as 0 by
+//! [`crate::directives`] (D199). [`Dialect::Es300`] (the ANGLE path) also
+//! gets [`crate::fixups`]: global initializers that are not constant
+//! expressions move into `main` (D192), and an initialised uniform becomes
+//! a global.
 
 use crate::audio::SCALARS;
+use crate::directives::{self, Branches};
 use crate::fixups;
 use crate::promote;
 use crate::scene::SceneDef;
@@ -252,16 +252,23 @@ pub fn fragment(request: &Request<'_>) -> String {
         out.push('\n');
     }
 
-    // Desktop-only idioms, made explicit for ES, with everything above as
-    // the declarations the rewrite types against (D199). Line count is
-    // preserved.
+    // `#if` on a name that is not a macro reads as 0 on every driver, as on
+    // NVIDIA. Then the desktop-only idioms, made explicit for ES, with
+    // everything above as the declarations the rewrite types against
+    // (D199). Line count is preserved throughout.
+    let user_code = directives::undefined_names_to_zero(user_code, &out);
     let (user_code, hoisted) = if es {
-        let compares = fixups::passindex_float_compares(user_code);
-        let promoted = promote::int_to_float(&compares, &out);
-        let (code, hoisted) = fixups::hoist_global_initializers(&promoted);
+        let compares = fixups::passindex_float_compares(&user_code);
+        let uniforms = fixups::uniform_initializers(&compares, Branches::for_es(&out));
+        let promoted = promote::int_to_float(&uniforms, &out, true);
+        let (code, hoisted) = fixups::hoist_global_initializers(&promoted, Branches::for_es(&out));
         (Cow::Owned(code.into_owned()), hoisted)
     } else {
-        (Cow::Borrowed(user_code), Vec::new())
+        // Strict desktop compilers (Mesa, Apple's) reject some of the same
+        // conversions NVIDIA accepts, such as an int `return` from a float
+        // function. The explicit form is accepted by every driver.
+        let promoted = promote::int_to_float(&user_code, &out, false);
+        (Cow::Owned(promoted.into_owned()), Vec::new())
     };
 
     let _ = writeln!(out, "#line 1 {}", source::USER);
@@ -454,7 +461,7 @@ mod tests {
     }
 
     #[test]
-    fn es_gets_the_passindex_cast_and_desktop_gets_the_code_as_written() -> Result<()> {
+    fn every_dialect_gets_the_passindex_cast() -> Result<()> {
         let scene = scene()?;
         let user = "vec4 renderMain() {\n  if (PASSINDEX == 0.0) { return vec4(1.0); }\n  return vec4(0.0);\n}";
         let source = |dialect| {
@@ -472,8 +479,8 @@ mod tests {
         );
         for dialect in [Dialect::Glsl330, Dialect::Glsl410] {
             assert!(
-                source(dialect).contains("if (PASSINDEX == 0.0)"),
-                "{dialect:?}: desktop compiles it as written"
+                source(dialect).contains("if (float(PASSINDEX) == 0.0)"),
+                "{dialect:?}: the explicit form on desktop too, for strict drivers (D199)"
             );
         }
         Ok(())

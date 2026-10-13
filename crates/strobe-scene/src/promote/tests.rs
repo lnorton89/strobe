@@ -18,6 +18,7 @@ uniform vec2 RENDERSIZE;
 uniform float TIME;
 const int PASSINDEX = 0;
 uniform sampler2D syn_Media;
+uniform sampler2D syn_Spectrum;
 #define texture2D texture
 float _scale(float v, float lo, float hi) { return lo + v * (hi - lo); }
 vec3 _normalizeRGB(float r, float g, float b) { return vec3(r, g, b) / 255.0; }
@@ -26,7 +27,7 @@ float pick(float x) { return x; }
 ";
 
 fn rewrite(user: &str) -> String {
-    int_to_float(user, CONTEXT).into_owned()
+    int_to_float(user, CONTEXT, true).into_owned()
 }
 
 #[test]
@@ -200,7 +201,44 @@ fn odd_literals_are_wrapped_and_lines_never_move() {
 fn nothing_to_do_borrows() {
     let source = "float f(float x) { return x * 2.0; }";
     assert!(
-        matches!(int_to_float(source, CONTEXT), std::borrow::Cow::Borrowed(_)),
+        matches!(
+            int_to_float(source, CONTEXT, true),
+            std::borrow::Cow::Borrowed(_)
+        ),
         "an already explicit source is returned as is"
+    );
+}
+
+#[test]
+fn a_scalar_coordinate_into_an_audio_texture_gains_its_row() {
+    assert_eq!(
+        rewrite(
+            "float f(float x) { return texture(syn_Spectrum, x).r + textureLod(syn_Spectrum, x, 0).g; }"
+        ),
+        "float f(float x) { return texture(syn_Spectrum, vec2(x, 0.5)).r + textureLod(syn_Spectrum, vec2(x, 0.5), 0.0).g; }",
+        "1D on desktop, one texel tall on ES"
+    );
+    assert_eq!(
+        rewrite(
+            "float f(vec2 uv) { return texture(syn_Spectrum, uv).r + texture(syn_Media, uv.x).r; }"
+        ),
+        "float f(vec2 uv) { return texture(syn_Spectrum, uv).r + texture(syn_Media, uv.x).r; }",
+        "a 2D coordinate, or another texture, is left alone"
+    );
+}
+
+#[test]
+fn built_in_variables_and_preprocessor_branches_are_followed() {
+    assert_eq!(
+        rewrite("vec2 f() { return vec2(-1 + 2 * gl_FragCoord.x, 0.0); }"),
+        "vec2 f() { return vec2(-1.0 + 2.0 * gl_FragCoord.x, 0.0); }",
+        "gl_FragCoord is a vec4"
+    );
+    assert_eq!(
+        rewrite(
+            "float f(float x) {\n const float\n#ifdef KODELIFE\n off = .4\n#else\n off = .2\n#endif\n ;\n return x * 13 - off;\n}\n"
+        ),
+        "float f(float x) {\n const float\n#ifdef KODELIFE\n off = .4\n#else\n off = .2\n#endif\n ;\n return x * 13.0 - off;\n}\n",
+        "only the branch the preprocessor keeps is parsed"
     );
 }
