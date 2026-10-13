@@ -366,6 +366,21 @@ fn clock_audio_and_mouse_are_globals_and_shader_internals_are_not() -> Result<()
 // ---- setControl -------------------------------------------------------------
 
 #[test]
+fn syn_prime_bang_is_defined_and_never_fires() -> Result<()> {
+    // Two real scenes test it inside `update()` (Q25).
+    let script = r#"
+        function update(dt) {
+            setUniform("primed", syn_PrimeBang > 0.5 ? 1 : 0);
+        }
+    "#;
+    let mut rig = Rig::new(script, &[])?;
+    let out = rig.step();
+    assert_eq!(out.status, ScriptStatus::Running, "{:?}", out.console);
+    expect_uniform(&out, "primed", ExtraType::Float, &[0.0])?;
+    Ok(())
+}
+
+#[test]
 fn set_control_writes_raw_values_and_lands_in_the_same_frame() -> Result<()> {
     let script = r#"
         function update(dt) {
