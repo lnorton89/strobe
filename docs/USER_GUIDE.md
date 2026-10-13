@@ -131,6 +131,11 @@ repository) shows the format.
 - Select a cue to change its length, transition, preset or media; the
   card says where each setting comes from. Ctrl-click several cues to
   change them together. Drag a scene from LIB onto a cue to add it after.
+- A cue can also end on the music: `advance = "audio-drop"`,
+  `"audio-breakdown"` or `"audio-song"` (the next track started: a gap
+  between tracks, or a new tempo), alone or in a list such as
+  `["timer", "audio-song"]` for whichever comes first. They need live
+  audio. A DJ mix that keeps one tempo with no gap gives no song change.
 - **Save** writes the file. Comments you wrote in it are kept.
 - A playlist resumes where it was if Strobe is closed mid-show;
   `--no-resume` starts from the top.

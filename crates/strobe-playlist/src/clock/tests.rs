@@ -826,6 +826,38 @@ fn audio_events_advance_only_cues_that_listen_for_them() -> Result<()> {
     Ok(())
 }
 
+#[test]
+fn a_song_change_ends_a_listening_cue_but_not_during_a_transition() -> Result<()> {
+    let mut playlist = show(
+        &[100.0, 100.0, 100.0],
+        TransitionSpec::crossfade(4.0),
+        LoopMode::Stop,
+    );
+    for cue in playlist.sections.iter_mut().flat_map(|s| s.cues.iter_mut()) {
+        cue.settings.advance = Some(AdvanceMode::AudioEvent(AudioEventKind::SongChange));
+    }
+    let mut clock = clock_for(&playlist);
+    clock.tick(0.0, &BeatInfo::SILENT);
+    assert!(
+        clock.audio_event(AudioEventKind::SongChange),
+        "the next track started"
+    );
+    clock.tick(1.0, &BeatInfo::SILENT);
+    assert!(clock.transition().is_some(), "crossfading into cue 1");
+    assert!(
+        !clock.audio_event(AudioEventKind::SongChange),
+        "a second event mid-crossfade does not cut it short"
+    );
+    clock.tick(4.0, &BeatInfo::SILENT);
+    assert_eq!(current(&clock)?, 1, "cue 1 plays");
+    assert!(clock.transition().is_none(), "the crossfade finished");
+    assert!(
+        clock.audio_event(AudioEventKind::SongChange),
+        "after it, the next song moves on again"
+    );
+    Ok(())
+}
+
 // ---- failed cues ---------------------------------------------------------------
 
 #[test]

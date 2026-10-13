@@ -262,6 +262,9 @@ pub enum AudioEventKind {
     Drop,
     /// A sustained collapse of bass presence.
     Breakdown,
+    /// The next track started: a gap between tracks, or a new tempo that
+    /// holds (`strobe_audio::song`, D237).
+    SongChange,
 }
 
 /// What ends a cue.

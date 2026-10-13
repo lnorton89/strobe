@@ -62,6 +62,7 @@ use crate::library::Library;
 use crate::session::Session;
 use std::path::{Path, PathBuf};
 use strobe_audio::events::{Event, EventDetector};
+use strobe_audio::song::SongDetector;
 use strobe_diag::failure::{self, Failure, Subsystem};
 use strobe_gfx::gl::Gl;
 use strobe_gfx::{Blend, Caps, Compositor, MediaRequest, Mouse};
@@ -191,6 +192,10 @@ pub struct Show {
     /// Breakdowns and drops heard in the audio, for cues that advance on
     /// them (D226).
     structure: EventDetector,
+    /// Hears the next track start (D237).
+    song: SongDetector,
+    /// The audio source the song detector last heard; a change resets it.
+    song_source: Option<crate::audio::Source>,
     show_time: f32,
     events: Vec<ClockEvent>,
     waiting: Option<f64>,
@@ -257,6 +262,8 @@ impl Show {
             composited: false,
             reader: BeatReader::new(),
             structure: EventDetector::default(),
+            song: SongDetector::new(),
+            song_source: None,
             show_time: 0.0,
             events: Vec::with_capacity(64),
             waiting: None,
@@ -684,8 +691,10 @@ impl Show {
             let frame = env.audio.frame_at(self.show_time);
             let beat = self.reader.read(&frame.scalars, frame.downbeat);
             let [whole, bass] = frame.energy;
+            let source = env.audio.source();
             self.clock.tick(f64::from(dt), &beat);
             self.hear(dt, whole, bass);
+            self.hear_song(dt, whole, &beat, source);
         }
 
         self.events.clear();
@@ -736,13 +745,14 @@ impl Show {
         };
         let audio_only = !advance.has_timer()
             && (advance.listens_for(AudioEventKind::Drop)
-                || advance.listens_for(AudioEventKind::Breakdown));
+                || advance.listens_for(AudioEventKind::Breakdown)
+                || advance.listens_for(AudioEventKind::SongChange));
         if audio_only {
             self.notice = Some(Notice {
                 warning: true,
                 text: format!(
-                    "Cue {} waits for a drop or breakdown, but the audio is synthetic and has none. \
-                     Press Next to move on.",
+                    "Cue {} waits for a drop, a breakdown or a new song, but the audio is \
+                     synthetic and has none. Press Next to move on.",
                     index + 1
                 ),
             });
@@ -766,6 +776,37 @@ impl Show {
                 Event::Breakdown => "a breakdown",
                 Event::Drop => "a drop",
             },
+            if moved { "; the cue moves on" } else { "" }
+        );
+    }
+
+    /// Listens for the next track and hands it to the clock (D237). Only
+    /// live audio counts, and any change of source (a device lost, the
+    /// synthetic fallback, a device back) starts the detector over, so a
+    /// reconnect is never a song change.
+    fn hear_song(
+        &mut self,
+        dt: f32,
+        whole: f32,
+        beat: &strobe_playlist::BeatInfo,
+        source: crate::audio::Source,
+    ) {
+        if self.song_source != Some(source) {
+            self.song_source = Some(source);
+            self.song.reset();
+        }
+        match source {
+            crate::audio::Source::Live => {}
+            crate::audio::Source::Synthetic => return,
+        }
+        if !self.song.step(dt, whole, beat.bpm, beat.confidence) {
+            return;
+        }
+        let moved = self
+            .clock
+            .apply(Command::AudioEvent(AudioEventKind::SongChange));
+        log::info!(
+            "audio: a new song{}",
             if moved { "; the cue moves on" } else { "" }
         );
     }

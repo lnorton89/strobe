@@ -164,6 +164,7 @@ fn advance_name(mode: &AdvanceMode) -> String {
         AdvanceMode::Manual => "manual".to_string(),
         AdvanceMode::AudioEvent(AudioEventKind::Drop) => "audio-drop".to_string(),
         AdvanceMode::AudioEvent(AudioEventKind::Breakdown) => "audio-breakdown".to_string(),
+        AdvanceMode::AudioEvent(AudioEventKind::SongChange) => "audio-song".to_string(),
         // Flattened away by the caller; kept total so the match is.
         AdvanceMode::FirstOf(_) => "timer".to_string(),
     }
