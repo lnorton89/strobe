@@ -94,26 +94,11 @@ pub fn read(json: &str) -> Vec<String> {
     }
 }
 
-/// Why [`write`] refused.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum WriteError {
-    /// The text is not valid JSON.
-    #[error("scene.json is not valid JSON: {0}")]
-    Invalid(String),
-    /// Valid JSON, but not an object.
-    #[error("scene.json is not a JSON object")]
-    NotAnObject,
-}
+pub use crate::json_edit::WriteError;
 
 /// `json` with its `TAGS` set to `tags` (normalised), and nothing else
 /// changed. See the module docs.
 pub fn write(json: &str, tags: &[String]) -> Result<String, WriteError> {
-    let body = json.trim_start_matches('\u{feff}');
-    match serde_json::from_str::<Value>(body) {
-        Ok(Value::Object(_)) => {}
-        Ok(_) => return Err(WriteError::NotAnObject),
-        Err(error) => return Err(WriteError::Invalid(error.to_string())),
-    }
     let tags = normalized(tags.iter().map(String::as_str));
     let value = format!(
         "[{}]",
@@ -122,167 +107,7 @@ pub fn write(json: &str, tags: &[String]) -> Result<String, WriteError> {
             .collect::<Vec<_>>()
             .join(", ")
     );
-    let prefix = json.len() - body.len();
-    let members = scan::members(body).ok_or(WriteError::NotAnObject)?;
-    let mut out = String::with_capacity(json.len() + value.len() + 16);
-    if let Some(found) = members.members.iter().find(|m| m.key == KEY) {
-        out.push_str(json.get(..prefix + found.value.start).unwrap_or_default());
-        out.push_str(&value);
-        out.push_str(json.get(prefix + found.value.end..).unwrap_or_default());
-        return Ok(out);
-    }
-    match members.members.last() {
-        Some(last) => {
-            let first = members
-                .members
-                .first()
-                .map_or(last.key_start, |m| m.key_start);
-            let indent = indent_before(body, first);
-            let at = prefix + last.value.end;
-            out.push_str(json.get(..at).unwrap_or_default());
-            out.push_str(&format!(",\n{indent}\"{KEY}\": {value}"));
-            out.push_str(json.get(at..).unwrap_or_default());
-        }
-        None => {
-            let at = prefix + members.open + 1;
-            out.push_str(json.get(..at).unwrap_or_default());
-            out.push_str(&format!("\n  \"{KEY}\": {value}\n"));
-            let rest = json.get(at..).unwrap_or_default();
-            out.push_str(rest.trim_start());
-        }
-    }
-    Ok(out)
-}
-
-/// The spaces and tabs before byte `at` on its line; two spaces when the
-/// key shares its line with the brace.
-fn indent_before(text: &str, at: usize) -> String {
-    let line = text.get(..at).unwrap_or_default();
-    let start = line.rfind('\n').map_or(0, |n| n + 1);
-    let lead = line.get(start..).unwrap_or_default();
-    if !lead.is_empty() && lead.chars().all(|c| c == ' ' || c == '\t') {
-        lead.to_string()
-    } else {
-        "  ".to_string()
-    }
-}
-
-/// Where each top-level member of a JSON object sits in its text. Run only
-/// on text `serde_json` has already accepted as an object, so it does not
-/// re-validate; it only needs to find boundaries.
-mod scan {
-    use std::ops::Range;
-
-    /// One `"key": value` pair.
-    pub(super) struct Member {
-        /// The key, unescaped only as far as plain ASCII keys need.
-        pub(super) key: String,
-        /// Byte offset of the key's opening quote.
-        pub(super) key_start: usize,
-        /// The value's bytes.
-        pub(super) value: Range<usize>,
-    }
-
-    /// The object's members and where its `{` is.
-    pub(super) struct Members {
-        /// Byte offset of the opening brace.
-        pub(super) open: usize,
-        /// The members, in file order.
-        pub(super) members: Vec<Member>,
-    }
-
-    fn skip_ws(bytes: &[u8], mut at: usize) -> usize {
-        while bytes.get(at).is_some_and(u8::is_ascii_whitespace) {
-            at += 1;
-        }
-        at
-    }
-
-    /// The byte after the string starting at `at` (its opening quote).
-    fn skip_string(bytes: &[u8], mut at: usize) -> Option<usize> {
-        at += 1;
-        loop {
-            match bytes.get(at)? {
-                b'\\' => at += 2,
-                b'"' => return Some(at + 1),
-                _ => at += 1,
-            }
-        }
-    }
-
-    /// The byte after the value starting at `at`.
-    fn skip_value(bytes: &[u8], at: usize) -> Option<usize> {
-        match bytes.get(at)? {
-            b'"' => skip_string(bytes, at),
-            b'{' | b'[' => {
-                let mut depth = 0usize;
-                let mut i = at;
-                loop {
-                    match bytes.get(i)? {
-                        b'"' => {
-                            i = skip_string(bytes, i)?;
-                            continue;
-                        }
-                        b'{' | b'[' => depth += 1,
-                        b'}' | b']' => {
-                            depth = depth.saturating_sub(1);
-                            if depth == 0 {
-                                return Some(i + 1);
-                            }
-                        }
-                        _ => {}
-                    }
-                    i += 1;
-                }
-            }
-            _ => {
-                let mut i = at;
-                while bytes
-                    .get(i)
-                    .is_some_and(|b| !matches!(b, b',' | b'}' | b']') && !b.is_ascii_whitespace())
-                {
-                    i += 1;
-                }
-                Some(i)
-            }
-        }
-    }
-
-    /// The members of the object in `text`.
-    pub(super) fn members(text: &str) -> Option<Members> {
-        let bytes = text.as_bytes();
-        let open = skip_ws(bytes, 0);
-        if bytes.get(open) != Some(&b'{') {
-            return None;
-        }
-        let mut members = Vec::new();
-        let mut at = skip_ws(bytes, open + 1);
-        if bytes.get(at) == Some(&b'}') {
-            return Some(Members { open, members });
-        }
-        loop {
-            let key_start = at;
-            let key_end = skip_string(bytes, key_start)?;
-            let key = text.get(key_start + 1..key_end - 1)?.to_string();
-            at = skip_ws(bytes, key_end);
-            if bytes.get(at) != Some(&b':') {
-                return None;
-            }
-            let start = skip_ws(bytes, at + 1);
-            let end = skip_value(bytes, start)?;
-            members.push(Member {
-                key,
-                key_start,
-                value: start..end,
-            });
-            at = skip_ws(bytes, end);
-            match bytes.get(at)? {
-                b',' => at = skip_ws(bytes, at + 1),
-                b'}' => return Some(Members { open, members }),
-                _ => return None,
-            }
-        }
-    }
+    crate::json_edit::set_member(json, KEY, &value)
 }
 
 #[cfg(test)]

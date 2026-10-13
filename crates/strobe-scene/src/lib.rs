@@ -53,6 +53,7 @@ pub mod error;
 pub mod fixups;
 pub mod include;
 pub mod json;
+pub mod json_edit;
 pub mod load;
 pub mod meta;
 pub mod names;

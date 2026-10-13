@@ -113,6 +113,7 @@ use crate::remote::{Overrides, Remote};
 use crate::screenshot::{Screenshot, Target};
 use crate::session::{self, Session};
 use crate::show::{self, Env, Phase, Show};
+use crate::snapshot;
 use crate::stats::{
     ControlPacer, ControlTimes, FinishMode, FrameStats, PaceChange, PerfWindow, SwapPolicy,
 };
@@ -2355,6 +2356,52 @@ impl Running {
         }
     }
 
+    /// Saves the playing scene's live frame as its picture (D222): read back
+    /// once, shrunk, written as `thumbnail.jpg` and named in `scene.json`.
+    /// The scene's own output is used, before blackout and the post stage,
+    /// so the picture is the scene and not tonight's settings.
+    fn capture_thumbnail(&mut self) {
+        let Some((dir, name)) = self
+            .playing
+            .and_then(|index| self.library.entries.get(index))
+            .map(|e| (e.dir.clone(), e.name.clone()))
+        else {
+            self.say(Tone::Warning, "No scene is playing to take a picture of.");
+            return;
+        };
+        if self
+            .editor_doc
+            .as_ref()
+            .is_some_and(|doc| doc.dir == dir && doc.is_dirty())
+        {
+            self.say(
+                Tone::Warning,
+                format!("{name} has unsaved edits in the Editor: save or revert them first."),
+            );
+            return;
+        }
+        if !self.make_current(Surface::Output) {
+            return;
+        }
+        let Some(session) = self.stack.session.as_ref() else {
+            return;
+        };
+        let [w, h] = session.player.render_size();
+        let pixels = session.player.read_output();
+        match snapshot::save(&dir, [w.max(0) as u32, h.max(0) as u32], pixels) {
+            Ok(path) => {
+                log::info!("thumbnail: {} written for {name}", path.display());
+                self.ui_state.thumbs.forget(&path);
+                self.refresh_tags(&dir);
+                if self.editor_doc.as_ref().is_some_and(|doc| doc.dir == dir) {
+                    self.editor_doc = editor::Doc::open(&dir, &name).ok();
+                }
+                self.say(Tone::Info, format!("{name} has a new picture."));
+            }
+            Err(why) => self.say(Tone::Error, format!("Could not save the picture: {why}")),
+        }
+    }
+
     fn set_scene_tags(&mut self, tags: &[String]) {
         let Some(index) = self.playing else {
             self.say(Tone::Warning, "No scene is playing to tag.");
@@ -2732,6 +2779,7 @@ impl Running {
                 Action::Load(index) => self.request_load(index),
                 Action::SetSceneTags(tags) => self.set_scene_tags(&tags),
                 Action::SetMedia(path) => self.set_media(path),
+                Action::CaptureThumbnail => self.capture_thumbnail(),
                 Action::EditCue { at, edit } => self.edit_cue(at, &edit),
                 Action::ReloadPlaylistFromDisk => {
                     if let Some(path) = self.playlist_ui.external_change.take() {

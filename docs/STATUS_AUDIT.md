@@ -155,6 +155,10 @@ checked and not committed. Interaction was driven with xdotool.
   software rasterisation and says nothing).
 - [x] Named layouts (D215), saved in Settings and applied from Settings or
   the palette. Evidence: `ui::state` and `command_palette` tests.
+- [x] A scene's picture taken from its live frame (D222): `thumbnail.jpg`
+  at 320x180 and `IMAGE_PATH` set in place, the browser's cached picture
+  dropped. Evidence: `snapshot` and `json_edit` tests. Not yet: clicked by
+  a person.
 - [x] Density, Comfortable or Compact (D220), saved and chosen in Settings
   or with `--density`; compact fits all 12 library scenes at 1280x720.
   Evidence: shell scenarios at compact density (no overflow at any size),
