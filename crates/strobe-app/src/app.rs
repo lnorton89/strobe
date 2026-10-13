@@ -1899,6 +1899,7 @@ impl Running {
                 self.playlist_ui.path = path.display().to_string();
                 self.playlist_ui.status = None;
                 self.playlist_ui.dirty = false;
+                self.playlist_ui.external_change = None;
                 self.start_show(Some(path.to_path_buf()), playlist, resume);
             }
             Err(error) => {
@@ -1996,6 +1997,7 @@ impl Running {
                     show.replace_playlist(playlist, &self.library);
                     self.playlist_ui.status = Some((false, format!("Reloaded {}", path.display())));
                     self.playlist_ui.dirty = false;
+                    self.playlist_ui.external_change = None;
                 }
             }
             Err(error) => {
@@ -2024,7 +2026,47 @@ impl Running {
         else {
             return;
         };
+        if self.playlist_ui.dirty {
+            // Unsaved edits are never thrown away by a change on disk
+            // (D213): the pane asks which to keep.
+            log::info!(
+                "playlist file changed on disk with unsaved edits: keeping the edits ({})",
+                path.display()
+            );
+            self.playlist_ui.external_change = Some(path.display().to_string());
+            return;
+        }
         self.reload_playlist_file(path);
+    }
+
+    /// Makes one change to a cue of the loaded playlist (D213). The new
+    /// playlist goes through the same replace a reload does, so only new
+    /// scenes are compiled and the show keeps its place.
+    fn edit_cue(&mut self, at: crate::show::edit::At, edit: &crate::show::edit::CueEdit) {
+        let Some(show) = self.stack.show.as_mut() else {
+            return;
+        };
+        match crate::show::edit::apply(show.playlist(), at, edit) {
+            Ok((playlist, landed)) => {
+                show.replace_playlist(playlist, &self.library);
+                self.playlist_ui.dirty = true;
+                self.playlist_ui.status = None;
+                self.playlist_ui.selected = landed.and_then(|landed| {
+                    show.rows()
+                        .iter()
+                        .find(|row| row.section == landed.section && row.cue == landed.cue)
+                        .map(|row| row.index)
+                });
+                log::info!(
+                    "playlist: {edit:?} at section {} cue {}",
+                    at.section + 1,
+                    at.cue + 1
+                );
+            }
+            Err(why) => {
+                self.playlist_ui.status = Some((true, format!("Could not change the cue: {why}")));
+            }
+        }
     }
 
     /// Runs the Generate form and keeps the result as a preview.
@@ -2086,6 +2128,7 @@ impl Running {
                 show.set_source(target.clone());
                 show.accept_file();
                 self.playlist_ui.dirty = false;
+                self.playlist_ui.external_change = None;
                 self.playlist_ui.status = Some((false, format!("Saved {}", target.display())));
                 log::info!("playlist saved to {}", target.display());
             }
@@ -2547,6 +2590,14 @@ impl Running {
             match action {
                 Action::Load(index) => self.request_load(index),
                 Action::SetSceneTags(tags) => self.set_scene_tags(&tags),
+                Action::EditCue { at, edit } => self.edit_cue(at, &edit),
+                Action::ReloadPlaylistFromDisk => {
+                    if let Some(path) = self.playlist_ui.external_change.take() {
+                        self.playlist_ui.dirty = false;
+                        self.playlist_ui.external_change = None;
+                        self.reload_playlist_file(PathBuf::from(path));
+                    }
+                }
                 Action::SetHotkey {
                     command,
                     chord,

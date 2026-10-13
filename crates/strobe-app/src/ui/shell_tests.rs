@@ -77,6 +77,9 @@ struct Scenario {
     capturing: Option<crate::commands::CommandId>,
     /// The shortcut editor shows a clash (tap tempo wanted blackout's B).
     clash: bool,
+    /// A cue is selected in the LIST pane, so its card shows (D213), and
+    /// the file changed on disk under unsaved edits.
+    cue_selected: bool,
     panes: &'static [Pane],
 }
 
@@ -100,6 +103,7 @@ const BASE: Scenario = Scenario {
     generated: false,
     capturing: None,
     clash: false,
+    cue_selected: false,
     panes: &[Pane::Inspector],
 };
 
@@ -224,6 +228,13 @@ fn scenarios() -> Vec<Scenario> {
             name: "playlist loaded",
             playlist: true,
             panes: &[Pane::Playlist],
+            ..BASE
+        },
+        Scenario {
+            name: "playlist with a cue selected and a changed file",
+            playlist: true,
+            cue_selected: true,
+            panes: &[Pane::Playlist, Pane::Browser],
             ..BASE
         },
         Scenario {
@@ -545,6 +556,12 @@ fn draw_events(
     let status = Status::Idle;
     let monitors = vec!["1: Display (1920x1080)".to_string()];
     let mut playlist_ui = PlaylistUi::default();
+    if scenario.cue_selected {
+        playlist_ui.selected = Some(1);
+        playlist_ui.dirty = true;
+        playlist_ui.external_change = Some("playlists/example.toml".to_string());
+        ui_state.browser.selected = Some(2);
+    }
     let mut map_ui = MapUi::default();
     let bindings = crate::commands::Bindings::default();
     let mut remote = sample_remote(scenario.mapped)?;

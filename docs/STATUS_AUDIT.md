@@ -153,6 +153,10 @@ checked and not committed. Interaction was driven with xdotool.
 - [ ] The UI's frame cost and a Preview's GPU cost on the T480 (the layout
   pass was about 1 ms in a debug build on llvmpipe; the paint there is
   software rasterisation and says nothing).
+- [x] Editing the selected cue in the LIST pane, with each setting's origin
+  shown, and unsaved edits kept when the file changes on disk (D213).
+  Evidence: `show::edit` tests and the shell scenario. Not yet: run by a
+  person on the T480.
 - [x] Scene thumbnails from `IMAGE_PATH` in the browser (D212), decoded on
   a worker and bounded. Evidence: `ui::thumbs` tests, the library scan
   test, and [images/perform/browser-thumbnails-1440x900.png](images/perform/browser-thumbnails-1440x900.png).
