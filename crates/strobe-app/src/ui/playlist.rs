@@ -35,7 +35,7 @@
 
 use super::icon as icons;
 use super::model::{Action, Model};
-use super::theme::{self, ROW_HEIGHT, SPACE_MD, SPACE_SM, SPACE_XS};
+use super::theme::{self, SPACE_MD, SPACE_SM, SPACE_XS};
 use super::widgets::{self, Tone};
 use crate::icon::Icon;
 use crate::palette::Palette;
@@ -720,10 +720,10 @@ fn timeline(
         && let Some(index) = current
     {
         model.playlist.ui.scrolled_to = current;
-        let offset = (index as f32 * ROW_HEIGHT - ui.available_height() / 2.0).max(0.0);
+        let offset = (index as f32 * theme::row_height() - ui.available_height() / 2.0).max(0.0);
         area = area.vertical_scroll_offset(offset);
     }
-    area.show_rows(ui, ROW_HEIGHT, rows.len(), |ui, range| {
+    area.show_rows(ui, theme::row_height(), rows.len(), |ui, range| {
         for position in range {
             if let Some(row) = rows.get(position) {
                 cue_row(ui, model, show, theme, row, current, next, actions);
@@ -751,7 +751,8 @@ fn cue_row(
     let failure = show.cue_failure(row.index);
     let selected = model.playlist.ui.selected == Some(row.index);
     let width = ui.available_width();
-    let (rect, response) = ui.allocate_exact_size(Vec2::new(width, ROW_HEIGHT), Sense::click());
+    let (rect, response) =
+        ui.allocate_exact_size(Vec2::new(width, theme::row_height()), Sense::click());
     let id = egui::Id::new(("cue-row", row.index));
     let fill = widgets::selection_fill(ui, theme, id, selected, response.hovered(), theme.panel);
     ui.painter().rect_filled(rect, CornerRadius::ZERO, fill);
@@ -766,7 +767,8 @@ fn cue_row(
         );
     }
 
-    let swatch = egui::pos2(rect.left() + SPACE_MD + 3.0, rect.top() + 14.0);
+    let inset = theme::density().row_inset();
+    let swatch = egui::pos2(rect.left() + SPACE_MD + 3.0, rect.top() + inset + 8.0);
     ui.painter().circle_filled(
         swatch,
         5.0,
@@ -790,7 +792,7 @@ fn cue_row(
         text_width,
     );
     ui.painter().galley(
-        egui::pos2(text_x, rect.top() + 6.0),
+        egui::pos2(text_x, rect.top() + inset),
         name,
         theme::rgb(name_colour),
     );
@@ -827,7 +829,7 @@ fn cue_row(
         text_width,
     );
     ui.painter().galley(
-        egui::pos2(text_x, rect.bottom() - galley.size().y - 7.0),
+        egui::pos2(text_x, rect.bottom() - galley.size().y - inset - 1.0),
         galley,
         theme::rgb(detail_colour),
     );
@@ -849,14 +851,14 @@ fn cue_row(
         icons::paint(
             ui.painter(),
             Rect::from_center_size(
-                egui::pos2(right - state_width + 8.0, rect.top() + 14.0),
+                egui::pos2(right - state_width + 8.0, rect.top() + inset + 8.0),
                 Vec2::splat(icons::DISCLOSURE),
             ),
             icon,
             theme::rgb(colour),
         );
         ui.painter().text(
-            egui::pos2(right - state_width + 20.0, rect.top() + 14.0),
+            egui::pos2(right - state_width + 20.0, rect.top() + inset + 8.0),
             egui::Align2::LEFT_CENTER,
             word,
             egui::FontId::new(10.5, egui::FontFamily::Proportional),

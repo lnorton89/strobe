@@ -106,6 +106,9 @@ pub struct Prefs {
     pub custom_title_bar: bool,
     /// Reduce motion: no transitions, no overshoot.
     pub reduced_motion: bool,
+    /// How tightly the window is packed (D220): `comfortable` or
+    /// `compact`.
+    pub density: String,
     /// Panes by [`Pane::key`].
     pub panes: BTreeMap<String, PanePref>,
     /// Open panes, oldest first, by [`Pane::key`].
@@ -226,6 +229,7 @@ impl Prefs {
             theme: theme.to_string(),
             custom_title_bar,
             reduced_motion,
+            density: crate::ui::theme::Density::default().key().to_string(),
             panes: layout.panes,
             order: layout.order,
             browser,

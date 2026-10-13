@@ -80,6 +80,8 @@ struct Scenario {
     /// A cue is selected in the LIST pane, so its card shows (D213), and
     /// the file changed on disk under unsaved edits.
     cue_selected: bool,
+    /// The window's density (D220).
+    density: crate::ui::theme::Density,
     panes: &'static [Pane],
 }
 
@@ -104,12 +106,26 @@ const BASE: Scenario = Scenario {
     capturing: None,
     clash: false,
     cue_selected: false,
+    density: crate::ui::theme::Density::Comfortable,
     panes: &[Pane::Inspector],
 };
 
 fn scenarios() -> Vec<Scenario> {
     vec![
         BASE,
+        Scenario {
+            name: "compact, browser and inspector",
+            density: crate::ui::theme::Density::Compact,
+            panes: &[Pane::Browser, Pane::Inspector],
+            ..BASE
+        },
+        Scenario {
+            name: "compact playlist",
+            density: crate::ui::theme::Density::Compact,
+            playlist: true,
+            panes: &[Pane::Playlist],
+            ..BASE
+        },
         Scenario {
             name: "settings with a shortcut clash",
             clash: true,
@@ -490,7 +506,7 @@ fn draw_events(
     frames: Vec<Vec<egui::Event>>,
 ) -> Result<Drawn> {
     let ctx = egui::Context::default();
-    crate::ui::theme::apply(&ctx, crate::palette::fallback());
+    crate::ui::theme::apply(&ctx, crate::palette::fallback(), scenario.density);
     let library = Library {
         dir: PathBuf::from("scenes"),
         entries: (0..scenario.scenes)

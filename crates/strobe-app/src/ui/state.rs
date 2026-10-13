@@ -198,6 +198,7 @@ pub struct UiState {
     reduced_motion: bool,
     catalog: Catalog,
     theme_changed: bool,
+    density: super::theme::Density,
     saver: Option<Saver>,
     debounce: Debounce,
     last_fingerprint: u64,
@@ -266,6 +267,7 @@ impl UiState {
             reduced_motion: reduced,
             catalog,
             theme_changed: true,
+            density: super::theme::Density::from_key(&prefs.density).unwrap_or_default(),
             saver: None,
             debounce: Debounce::default(),
             last_fingerprint: 0,
@@ -290,6 +292,7 @@ impl UiState {
             self.collapsed_groups.clone(),
         );
         prefs.last_scene.clone_from(&self.last_scene);
+        prefs.density = self.density.key().to_string();
         prefs.layouts.clone_from(&self.layouts);
         prefs
     }
@@ -326,6 +329,19 @@ impl UiState {
     pub fn set_theme(&mut self, id: &str) {
         if self.theme_id != id {
             self.theme_id = id.to_string();
+            self.theme_changed = true;
+        }
+    }
+
+    /// How tightly the window is packed (D220).
+    pub fn density(&self) -> super::theme::Density {
+        self.density
+    }
+
+    /// Chooses a density; the style is derived again with the theme.
+    pub fn set_density(&mut self, density: super::theme::Density) {
+        if self.density != density {
+            self.density = density;
             self.theme_changed = true;
         }
     }
@@ -387,6 +403,7 @@ impl UiState {
         self.theme_id.hash(&mut hasher);
         self.custom_title_bar.hash(&mut hasher);
         self.reduced_motion.hash(&mut hasher);
+        self.density.key().hash(&mut hasher);
         self.last_scene.hash(&mut hasher);
         for (name, layout) in &self.layouts {
             name.hash(&mut hasher);
@@ -580,11 +597,24 @@ mod tests {
         state.browser.filter = HealthFilter::Failed;
         state.set_collapsed("Motion", true);
         state.set_theme("graphite");
+        state.set_density(crate::ui::theme::Density::Compact);
         let back = UiState::from_prefs(&state.to_prefs());
         assert_eq!(back.browser.query, "tunnel", "query");
         assert_eq!(back.browser.filter, HealthFilter::Failed, "filter");
         assert!(back.is_collapsed("Motion"), "collapsed group");
         assert_eq!(back.theme_id(), "graphite", "theme");
+        assert_eq!(
+            back.density(),
+            crate::ui::theme::Density::Compact,
+            "density"
+        );
+        let mut prefs = state.to_prefs();
+        prefs.density = "roomy".to_string();
+        assert_eq!(
+            UiState::from_prefs(&prefs).density(),
+            crate::ui::theme::Density::Comfortable,
+            "a density this build does not know falls back to the default"
+        );
     }
 
     #[test]

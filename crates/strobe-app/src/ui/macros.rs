@@ -299,6 +299,10 @@ fn frame(
     );
     child.set_clip_rect(inner.expand(1.0));
     child.spacing_mut().item_spacing = Vec2::new(SPACE_XS, 2.0);
+    // A row is as tall as its text here, not the window's interact height
+    // (which density sets): the header, the value and the rail must fit
+    // the card at every density, or the rail is clipped off its bottom.
+    child.spacing_mut().interact_size.y = 14.0;
     body(&mut child, inner.width());
     response
 }

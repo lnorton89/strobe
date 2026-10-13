@@ -53,7 +53,7 @@ impl UiHost {
         let painter =
             Painter::new(gl.glow(), "", None, true).map_err(|e| format!("egui painter: {e}"))?;
         let ctx = egui::Context::default();
-        super::theme::apply(&ctx, palette);
+        super::theme::apply(&ctx, palette, super::theme::Density::default());
         let input = State::new(
             ctx.clone(),
             ViewportId::ROOT,
@@ -78,10 +78,10 @@ impl UiHost {
         self.input.on_window_event(window, event)
     }
 
-    /// Re-derives egui's style from `palette`: called when the theme
-    /// changes, not every frame.
-    pub fn apply_theme(&self, palette: &crate::palette::Palette) {
-        super::theme::apply(&self.ctx, palette);
+    /// Re-derives egui's style from `palette` at `density`: called when
+    /// either changes, not every frame.
+    pub fn apply_theme(&self, palette: &crate::palette::Palette, density: super::theme::Density) {
+        super::theme::apply(&self.ctx, palette, density);
     }
 
     /// Whether a text field has keyboard focus.

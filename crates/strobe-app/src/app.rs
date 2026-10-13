@@ -746,6 +746,12 @@ impl Running {
                 log::warn!("--theme: there is no theme called \"{theme}\"");
             }
         }
+        if let Some(density) = &cli.density {
+            match crate::ui::theme::Density::from_key(density) {
+                Some(density) => ui_state.set_density(density),
+                None => log::warn!("--density: \"{density}\" is not comfortable or compact"),
+            }
+        }
         if cli.no_panes {
             ui_state.panes.close_all();
         }
@@ -3565,7 +3571,9 @@ impl Running {
         };
         let kept = playing_name;
         if self.ui_state.take_theme_change() {
-            self.stack.ui.apply_theme(self.ui_state.palette());
+            self.stack
+                .ui
+                .apply_theme(self.ui_state.palette(), self.ui_state.density());
         }
         let mut model = Model {
             ui: &mut self.ui_state,

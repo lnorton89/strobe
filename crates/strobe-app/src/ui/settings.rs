@@ -208,6 +208,24 @@ fn appearance(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut
                 .color(theme::rgb(theme.warning)),
         );
     }
+    ui.horizontal(|ui| {
+        ui.label("Density");
+        let current = model.ui.density();
+        for density in theme::Density::ALL {
+            if ui
+                .selectable_label(current == density, density.label())
+                .on_hover_text(match density {
+                    theme::Density::Comfortable => "Room to aim: the default",
+                    theme::Density::Compact => {
+                        "Smaller text and tighter rows, for a small screen with several panes open"
+                    }
+                })
+                .clicked()
+            {
+                model.ui.set_density(density);
+            }
+        }
+    });
     let mut reduced = model.ui.reduced_motion();
     if ui
         .checkbox(&mut reduced, "Reduce motion")
