@@ -62,4 +62,23 @@ cloud session. It writes only under `target\amd\`.
   11,200 reopens and 33,600 log lines in 158 s.
   - Fixed by D266: glitches are counted, not failures, and repeated quick
     failures back off.
-  - To re-check on this machine (Task A2).
+  - **Re-checked in Task A2 (commit 2e678e4):** 188 s with 0 failures, 0
+    stream errors and 0 glitches. One "capturing" line, and the stream was
+    kept. A1's glitches came from the reopen loop itself.
+  - Whether the levels follow sound is untested here. The microphone hears
+    nothing (-47 dBFS with speech playing, because output goes to
+    headphones), and the app has no input-level meter to show it. "Audio
+    live, 120 BPM" looks the same on a dead microphone.
+
+## Task A2 (commit 2e678e4)
+
+- **Tests, in parallel:** 1559 passed, 0 failed; the strobe-shadertoy
+  render tests are 14/14 with the per-test import folders. 266 GL tests
+  skip, because Windows has no EGL device.
+- **Benchmark tables:** in [BENCHMARKS.md](../BENCHMARKS.md).
+- **App on ANGLE (`--gl angle`, 71 s):**
+  - Robust context: "lose context on reset".
+  - ANGLE 2.1.25847 on D3D11 31.0.21925.1001.
+  - 05 loaded in 102 ms against 19 ms native.
+  - 60.0 fps, 0 late frames, GPU 1.69 ms.
+  - No WARN or ERROR lines.

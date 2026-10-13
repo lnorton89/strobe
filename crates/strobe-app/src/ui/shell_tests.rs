@@ -892,6 +892,7 @@ fn draw_events(
                 reactivity: &mut reactivity,
                 speed: &mut speed,
                 bpm: 128.0,
+                input_rms: 0.05,
             },
             script: script.as_ref(),
             perf: PerfPanel {
