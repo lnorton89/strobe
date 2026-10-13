@@ -4945,3 +4945,58 @@ passes that check.
 **Would reopen:** a person on the T480 finds a size or state where
 something still collides that these tests miss. The fix is then to add
 that size or state to the tests, not to special-case it.
+
+### D262: the palette lists scenes and presets after exact commands, built once per change (2026-10-13)
+
+D200 said an operator who expects scenes and presets in the palette would
+need more entry kinds, not another design (U-01). This adds them.
+
+- **What is listed.** Each library scene is two entries, `Load: <name>`
+  and `Preview: <name>`, and each preset of the playing scene is one,
+  `Apply preset: <name>`. They push the same actions as the browser's Load
+  and Preview buttons and the preset row (`Action::Load`,
+  `Action::Preview`, `Action::RecallPreset`), so the palette cannot mean
+  something different from the button. Preview opens the browser too,
+  because that is where the preview card is.
+- **The playing scene stays listed,** with "playing now" as the reason it
+  cannot be loaded or previewed, as unavailable commands are (D200).
+- **Ranking.** A scene or preset is matched on its whole title and on its
+  name alone, so `aurora` finds `Load: 01-aurora` as well as a title start
+  would. Results come in four tiers:
+  1. commands, panes and layouts whose title the query matches exactly
+     (at the title's or a word's start, no gaps);
+  2. scenes and presets;
+  3. commands matched only loosely (letters in order with gaps, or
+     mid-word);
+  4. matches on a command's category.
+
+  So `black` is still Blackout first, and `tmpo` is the scene
+  `02-tempo-drift` before Tap tempo, which has those letters only with a
+  gap. With nothing typed, every command comes first in table order.
+- **Cheap while open.** The entries are kept in the palette's state
+  (`command_palette::Listing`), built when it opens and again only when
+  what they come from changes: what can run, the library's revision, the
+  playing scene, its presets, the layouts. The comparison allocates
+  nothing. The ranking is redone only when the query changes, and the
+  match no longer builds a character vector per entry. Before this, the
+  palette rebuilt and ranked every entry every frame while open; now a
+  library of a thousand scenes costs nothing per frame for its entries.
+- **Small windows.** The card is narrower than 520 points when the window
+  is, shows fewer rows when it is short, and shortens a title rather than
+  drawing it over the reason or the shortcut. The shell tests now draw the
+  palette open in two states at every size.
+
+**Evidence:** `command_palette` tests
+(`scenes_and_presets_are_entries_found_by_their_names`,
+`scenes_rank_after_exact_command_matches_and_before_loose_ones`,
+`the_playing_scene_is_listed_but_cannot_be_loaded_again`,
+`a_listing_is_built_and_ranked_only_when_something_changed`), and
+`ui::shell_tests::the_palette_loads_previews_and_applies_presets_by_name`
+with real key events, plus the scenarios "palette listing scenes and
+presets" and "palette with nothing typed" in the overflow and overlap
+tests.
+
+**Would reopen:** a library large enough that a keystroke's ranking shows
+(it is one pass over two entries a scene), or an operator wanting presets
+of scenes that are not playing, which would need the presets of every
+scene read in advance.

@@ -159,8 +159,11 @@ checked and not committed. Interaction was driven with xdotool.
   keeps unavailable commands listed with the reason, Esc and a second Ctrl+K
   close it, and typing into it fires no shortcut. Evidence: headless egui
   tests in `ui::shell_tests` that drive the real shell with key events, and
-  the Xvfb screenshot `docs/images/perform/palette-1440x900.png`. **Not
-  yet:** used by a person on Windows.
+  the Xvfb screenshot `docs/images/perform/palette-1440x900.png`. It also
+  lists library scenes (Load, Preview) and the playing scene's presets
+  (Apply), after exact command matches (D262). Evidence: `command_palette`
+  tests and `ui::shell_tests::the_palette_loads_previews_and_applies_presets_by_name`.
+  **Not yet:** used by a person on Windows.
 - [x] Themes: every built-in theme passes the WCAG tests; the high-contrast
   and light themes were looked at.
 - [x] Every state at six window sizes fits its window, as headless egui tests

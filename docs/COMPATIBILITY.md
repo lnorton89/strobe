@@ -257,7 +257,7 @@ Per dialect: 63 ok, 2 `compile_error`. Categories: no issue 58, source bug 2, dr
 | Fav slots | Supported | [D176](DECISIONS.md), `preset` tests, [T480 Task 31](hardware/T480.md) | Recall of a filled slot over OSC on hardware is not recorded; an empty slot says so. |
 | Keyboard shortcuts and the shortcut editor | Supported | [D178](DECISIONS.md), [D208](DECISIONS.md), `commands.rs` and `ui::shell_tests`, [T480](hardware/T480.md) (Right, B) | Ctrl chords were not testable on the T480 with posted keys. |
 | Blackout on, off and toggle | Supported | [D181](DECISIONS.md), [D201](DECISIONS.md), Xvfb OSC run in [STATUS_AUDIT P2](STATUS_AUDIT.md), [T480](hardware/T480.md) (B key) | Blackout gates the shown output only; `master` fades the picture. |
-| Command palette | Supported | [D200](DECISIONS.md), `ui::shell_tests` | Not yet used by a person on Windows. |
+| Command palette | Supported | [D200](DECISIONS.md), [D262](DECISIONS.md), `command_palette` and `ui::shell_tests` | Commands, panes, layouts, library scenes (Load, Preview) and the playing scene's presets. Not yet used by a person on Windows. |
 
 ### Synesthesia's preset, meta and control behaviours (C-06)
 

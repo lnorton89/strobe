@@ -58,7 +58,7 @@
 ## Epic U — Performer UI and app workflows
 
 ### U-01 Command palette and command discovery
-- **Status:** Built (D200). Left: MIDI/OSC and the remote converging is by construction (one command table), not yet exercised from a controller; the palette lists commands and panes, not scenes or presets.
+- **Status:** Built (D200). Scenes (Load, Preview) and the playing scene's presets (Apply) are entries too, ranked after exact command matches and built only when the library or presets change (D262). Left: MIDI/OSC and the remote converging is by construction (one command table), not yet exercised from a controller.
 - **Work:** implement Ctrl+K over the existing command table; search by command name/category; show shortcut and enabled/disabled reason; preserve focus rules and avoid firing transport shortcuts while editing text.
 - **Acceptance:** keyboard, buttons, MIDI/OSC and remote transport converge on the same command semantics; palette supports navigation, execution, escape and empty results; tests cover text focus, widget focus and modal focus.
 
