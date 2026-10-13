@@ -91,6 +91,7 @@ impl AssetCache {
         let temporary = path.with_extension(format!("part-{}", std::process::id()));
         std::fs::write(&temporary, bytes)?;
         std::fs::rename(&temporary, &path).inspect_err(|_| {
+            // Best effort: the error being returned is the one that matters.
             let _ = std::fs::remove_file(&temporary);
         })
     }

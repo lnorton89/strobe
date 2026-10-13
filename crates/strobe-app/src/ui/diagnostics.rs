@@ -283,8 +283,7 @@ fn console(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Ve
             if widgets::button(ui, theme, None, "Clear").clicked() {
                 actions.push(Action::ClearConsole);
             }
-            let problems = problems_only(ui, model.ui);
-            let _ = problems;
+            problems_only(ui, model.ui);
         });
     });
     widgets::section_rule(ui, theme);
@@ -332,7 +331,7 @@ fn console(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Ve
 }
 
 /// The "problems only" switch.
-fn problems_only(ui: &mut Ui, state: &mut UiState) -> bool {
+fn problems_only(ui: &mut Ui, state: &mut UiState) {
     let theme = super::theme::palette();
     let on = state.console_problems_only;
     if widgets::tool_button(
@@ -347,5 +346,4 @@ fn problems_only(ui: &mut Ui, state: &mut UiState) -> bool {
     {
         state.console_problems_only = !on;
     }
-    state.console_problems_only
 }

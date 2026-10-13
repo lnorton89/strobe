@@ -128,7 +128,7 @@ impl Rig {
         options: ScoreOptions,
     ) -> Result<Self, ScoreError> {
         // Context creation can leave a stale error flag that is not ours.
-        let _ = gl.error();
+        gl.clear_errors();
         // A script's uniforms are declared (at zero) so a scripted scene
         // compiles without running its script (D259).
         let extras = crate::script::uniforms(folder);

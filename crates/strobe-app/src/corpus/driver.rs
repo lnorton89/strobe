@@ -143,6 +143,7 @@ pub fn run_library(
             outcome.records.push(record);
         }
     }
+    // Best effort: the work folder only holds this run's scratch files.
     let _ = std::fs::remove_dir_all(&options.work);
     Ok(outcome)
 }
@@ -158,6 +159,8 @@ fn run_worker_process(
     let stem = format!("{index:04}-{}", dialect.label());
     let result_path = options.work.join(format!("{stem}.json"));
     let stderr_path = options.work.join(format!("{stem}.err"));
+    // A stale result from an earlier run must not be read; a missing file is
+    // the normal case.
     let _ = std::fs::remove_file(&result_path);
 
     let died = |why: String| {
@@ -201,7 +204,10 @@ fn run_worker_process(
         match child.try_wait() {
             Ok(Some(status)) => break status,
             Ok(None) if Instant::now() >= deadline => {
+                // The worker is being abandoned; it may already have exited,
+                // and the record says why it stopped.
                 let _ = child.kill();
+                // Reaps the killed worker; its status is not needed.
                 let _ = child.wait();
                 let mut record = Record::failed(
                     &name,
@@ -217,7 +223,10 @@ fn run_worker_process(
             }
             Ok(None) => std::thread::sleep(POLL),
             Err(error) => {
+                // The worker is being abandoned; it may already have exited,
+                // and the record says why it stopped.
                 let _ = child.kill();
+                // Reaps the killed worker; its status is not needed.
                 let _ = child.wait();
                 return died(format!("cannot wait for the worker: {error}"));
             }

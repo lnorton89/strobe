@@ -114,19 +114,24 @@ pub struct RailOut {
 pub fn rail(
     ui: &mut Ui,
     theme: &Palette,
-    id_salt: impl std::hash::Hash,
+    id_salt: impl std::hash::Hash + std::fmt::Debug,
     width: f32,
     value: &mut f32,
     min: f32,
     max: f32,
     default: f32,
 ) -> (Response, RailOut) {
-    let (rect, response) = ui.allocate_exact_size(
-        Vec2::new(width.max(24.0), RAIL_HEIGHT),
-        Sense::click_and_drag(),
-    );
-    let response = response.on_hover_cursor(egui::CursorIcon::ResizeHorizontal);
-    let _ = id_salt;
+    // The rail's identity comes from `id_salt`, not from where it was laid
+    // out, so a drag in progress stays with its control when the rows above
+    // it change (a group collapsing, a control appearing).
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(width.max(24.0), RAIL_HEIGHT), Sense::hover());
+    let response = ui
+        .interact(
+            rect,
+            ui.id().with(("rail", id_salt)),
+            Sense::click_and_drag(),
+        )
+        .on_hover_cursor(egui::CursorIcon::ResizeHorizontal);
     let mut out = RailOut::default();
     let span = max - min;
     let usable = span.is_finite() && span.abs() > f32::EPSILON;

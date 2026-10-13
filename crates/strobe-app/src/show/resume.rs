@@ -90,6 +90,8 @@ impl ResumeWriter {
     /// the disk.
     pub fn save(&self, point: ResumePoint) {
         if let Some(sender) = &self.sender {
+            // A closed channel means the writer is gone (shutdown); the
+            // position is not needed then.
             let _ = sender.send(Message::Save(point));
         }
     }
@@ -97,6 +99,8 @@ impl ResumeWriter {
     /// Asks the thread to delete the file.
     pub fn clear(&self) {
         if let Some(sender) = &self.sender {
+            // A closed channel means the writer is gone (shutdown); nothing
+            // to clear then.
             let _ = sender.send(Message::Clear);
         }
     }
@@ -105,6 +109,8 @@ impl ResumeWriter {
     pub fn finish(mut self) {
         self.sender = None;
         if let Some(thread) = self.thread.take() {
+            // Waits for the last write; a panic in the writer already aborted
+            // the process in release builds.
             let _ = thread.join();
         }
     }

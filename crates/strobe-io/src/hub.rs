@@ -137,16 +137,22 @@ impl Hub {
     /// Applies new OSC settings: starts, moves or stops the listener.
     pub fn set_osc(&self, settings: &OscSettings) {
         let addr = settings.enabled.then(|| settings.bind_addr());
+        // A closed channel means the OSC worker has stopped (shutdown); there
+        // is nothing to apply.
         let _ = self.osc.send(OscControl::Bind(addr));
     }
 
     /// Applies new MIDI settings.
     pub fn set_midi(&self, settings: &MidiSettings) {
+        // A closed channel means the MIDI worker has stopped (shutdown);
+        // there is nothing to apply.
         let _ = self.midi.send(MidiControl::Settings(settings.clone()));
     }
 
     /// Asks the MIDI worker to look at the ports now (a "Refresh" button).
     pub fn rescan_midi(&self) {
+        // A closed channel means the MIDI worker has stopped (shutdown);
+        // there is nothing to rescan.
         let _ = self.midi.send(MidiControl::Rescan);
     }
 
@@ -170,9 +176,13 @@ impl Hub {
 
 impl Drop for Hub {
     fn drop(&mut self) {
+        // A worker that has already stopped needs no shutdown message.
         let _ = self.osc.send(OscControl::Shutdown);
+        // A worker that has already stopped needs no shutdown message.
         let _ = self.midi.send(MidiControl::Shutdown);
         for handle in self.threads.drain(..) {
+            // Waits for the workers; a panic in one already aborted the
+            // process in release builds.
             let _ = handle.join();
         }
     }

@@ -205,6 +205,8 @@ pub(crate) fn run(
                     opened_at = now;
                     shared.set_state(CaptureState::Running);
                     if let Some(tx) = first_attempt.take() {
+                        // The starter stopped waiting (its timeout passed);
+                        // capture runs on regardless.
                         let _ = tx.send(Ok(()));
                     }
                 }
@@ -225,6 +227,8 @@ pub(crate) fn run(
                     shared.set_state(CaptureState::SilentFallback);
                     next_retry = now + RETRY_EVERY;
                     if let Some(tx) = first_attempt.take() {
+                        // The starter stopped waiting (its timeout passed);
+                        // the status says why there is no device.
                         let _ = tx.send(Err(error));
                         if strict {
                             return;

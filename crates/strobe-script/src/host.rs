@@ -525,6 +525,8 @@ impl ScriptHost {
         };
         for entry in object.props::<String, Value<'js>>() {
             let Ok((name, value)) = entry else {
+                // A property that throws when read is skipped; its exception
+                // is cleared so the next call starts clean.
                 let _ = ctx.catch();
                 continue;
             };

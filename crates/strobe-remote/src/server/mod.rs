@@ -435,6 +435,8 @@ impl Server {
         };
         self.shared.stop.store(true, Ordering::SeqCst);
         for conn in lock(&self.shared.conns).iter() {
+            // The connection is refused either way; a peer that already left
+            // needs no shutdown.
             let _ = conn.stream.shutdown(Shutdown::Both);
         }
         // `accept` blocks; a connection to ourselves wakes it to see the flag.
@@ -443,7 +445,11 @@ impl Server {
         } else {
             self.shared.addr
         };
+        // Only wakes the accept loop; if nothing answers, the loop has
+        // already ended.
         let _ = TcpStream::connect_timeout(&wake, Duration::from_secs(1));
+        // Waits for the accept loop; a panic in it already aborted the
+        // process in release builds.
         let _ = accept.join();
         self.shared.pairing().close();
         log::info!("remote: stopped listening on {}", self.shared.addr);
@@ -474,16 +480,29 @@ fn accept_loop(socket: &TcpListener, shared: &Arc<Shared>) {
         };
         if net::scope(peer.ip()) == net::Scope::Public {
             log::warn!("remote: refused a connection from public address {peer}");
+            // The connection is refused either way; a peer that already left
+            // needs no shutdown.
             let _ = stream.shutdown(Shutdown::Both);
             continue;
         }
         let limits = &shared.limits;
-        let _ = stream.set_read_timeout(Some(limits.tick));
-        let _ = stream.set_write_timeout(Some(limits.write_timeout));
+        // A connection the timeouts cannot be set on could hold its thread
+        // forever on a slow or silent peer: it is not served.
+        let timeouts = stream
+            .set_read_timeout(Some(limits.tick))
+            .and_then(|()| stream.set_write_timeout(Some(limits.write_timeout)));
+        if let Err(error) = timeouts {
+            log::warn!("remote: dropped a connection from {peer}: no timeouts ({error})");
+            continue;
+        }
+        // Nagle only delays small frames; a socket that refuses this works.
         let _ = stream.set_nodelay(true);
         if shared.active.fetch_add(1, Ordering::SeqCst) >= limits.max_connections {
             shared.active.fetch_sub(1, Ordering::SeqCst);
+            // The busy reply is a courtesy: without a shorter timeout it
+            // waits the normal one.
             let _ = stream.set_write_timeout(Some(Duration::from_millis(200)));
+            // The busy reply is a courtesy to a client being turned away.
             let _ = http::respond(
                 &mut stream,
                 &http::Response::text(503, "Too many remote connections are open."),

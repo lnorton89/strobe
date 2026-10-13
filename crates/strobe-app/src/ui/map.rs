@@ -41,7 +41,6 @@
 //! the mapper's own); everything that touches a worker, a file or the
 //! scene goes back to the app as an [`Action`].
 
-use super::icon as icons;
 use super::model::{Action, AddKind, MapUi, Model};
 use super::theme::{self, SPACE_MD, SPACE_SM, SPACE_XS};
 use super::widgets::{self, Tone};
@@ -1536,7 +1535,6 @@ fn activity_block(ui: &mut Ui, theme: &Palette, remote: &mut Remote) {
     if clear {
         remote.activity.clear();
     }
-    let _ = icons::INLINE;
 }
 
 /// A macro with a default name, for tests and the add form.

@@ -237,7 +237,7 @@ fn run(gl: &Gl, caps: &Caps, context: &str, size: [i32; 2], cli: &Cli) -> Result
 
     // Context creation can leave an error flag set that is not the
     // scenes' doing.
-    let _ = gl.error();
+    gl.clear_errors();
     std::fs::create_dir_all(&cli.out).with_context(|| format!("creating {}", cli.out.display()))?;
     if cli.readback {
         let (report, passed) = readback::run(gl, caps, context, size)?;

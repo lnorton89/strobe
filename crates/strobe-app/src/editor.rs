@@ -322,6 +322,8 @@ fn backup(root: &Path, name: &str, file: &str, text: &str) -> io::Result<()> {
     let mut all = backups_in(&dir);
     while all.len() > KEEP_BACKUPS {
         let oldest = all.remove(0);
+        // Pruning old backups is best effort; a backup left behind is
+        // harmless.
         let _ = std::fs::remove_file(oldest);
     }
     Ok(())
