@@ -86,7 +86,7 @@ No mapping is needed. Values are normalised 0 to 1.
 | `/strobe/control/<name>` | float | sets the scene control across its range |
 | `/strobe/control/<name>/<x\|y\|z\|r\|g\|b>` | float | one component of a pad or colour |
 | `/strobe/meta/<name>` | float | sets the meta control |
-| `/strobe/cmd/<id>` | none, `1`, `T` | runs the command (`next_scene`, `prev_scene`, `toggle_hold`, `extend_cue`, `restart_cue`, `skip_section`, `toggle_blackout`, `toggle_fullscreen`, `tap_tempo`) |
+| `/strobe/cmd/<id>` | none, `1`, `T` | runs the command (`next_scene`, `prev_scene`, `toggle_hold`, `extend_cue`, `restart_cue`, `skip_section`, `toggle_blackout`, `blackout_on`, `blackout_off`, `toggle_fullscreen`, `tap_tempo`) |
 | `/strobe/cue/<n>` | none, `1` | jumps to cue `n`, from 1 |
 | `/strobe/fav/<n>` | none, `1` | recalls fav slot `n`, 1 to 8 |
 | `/strobe/preset/<name>` | none, `1` | recalls a preset of the playing scene (`_` reads as a space) |

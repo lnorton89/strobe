@@ -176,7 +176,6 @@ Each item names its acceptance test. Evidence is in [STATUS_AUDIT.md](STATUS_AUD
    - an OSC **output** for feedback (motorised faders, TouchOSC state), and a
      MIDI output; neither exists;
    - Synesthesia's OSC address layout, if it is wanted (Q23);
-   - an explicit blackout on/off command (only the toggle exists);
    - macro range and colour editors, per-macro shortcut and smoothing, a pin
      button in the Controls pane;
    - an in-app hotkey editor (waits for the command palette);

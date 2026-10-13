@@ -3041,3 +3041,26 @@ The screenshot is `docs/images/perform/palette-1440x900.png`.
 **Would reopen:** an operator who expects scenes and presets in it too;
 they would be more entry kinds, not a different design.
 
+### D201: explicit blackout commands, a missing picture plays black, and every line ending is one (2026-10-13)
+
+Three small rules, two of them from TORNADO T6.
+
+- **`blackout_on` and `blackout_off`** sit beside `toggle_blackout`
+  (backlog P-06):
+  - they are in the command table, the palette, OSC
+    (`/strobe/cmd/blackout_on`), MIDI mappings and the remote protocol;
+  - repeating either changes nothing, so a controller or phone that has
+    lost track of the state cannot bring the output back by accident;
+  - they have no default key, so a command's chord is now optional; the
+    operator can still bind one in `hotkeys`.
+- **A picture that will not load is black,** and the scene plays. The
+  problem is reported the way a missing cube map is (D185). A real scene
+  names `x.png` where its folder holds `x-01.png`, and Synesthesia plays it.
+- **Every line-ending form is one `\n`** when a scene or an include is read:
+  `\r\n`, a run of `\r` before `\n`, and a lone `\r`. 38 of the owner's 65
+  scenes end lines `\r\r\n`, which broke `\` continuations and made error
+  line numbers disagree with editors.
+
+**Would reopen:** a scene that depends on a missing picture failing the
+load, or that is laid out so that `\r\r\n` counts as two lines.
+

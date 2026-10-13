@@ -230,6 +230,10 @@ pub enum CommandId {
     SkipSection,
     /// Black out the output, or bring it back.
     ToggleBlackout,
+    /// Black out the output; already black stays black.
+    BlackoutOn,
+    /// Bring the output back; already showing stays showing.
+    BlackoutOff,
     /// Fullscreen the output on its monitor.
     ToggleFullscreen,
     /// Open the scene browser and focus its search field.
@@ -244,7 +248,7 @@ pub enum CommandId {
 
 impl CommandId {
     /// Every command, in the order the help text lists them.
-    pub const ALL: [CommandId; 12] = [
+    pub const ALL: [CommandId; 14] = [
         Self::PrevScene,
         Self::NextScene,
         Self::ToggleHold,
@@ -252,6 +256,8 @@ impl CommandId {
         Self::RestartCue,
         Self::SkipSection,
         Self::ToggleBlackout,
+        Self::BlackoutOn,
+        Self::BlackoutOff,
         Self::ToggleFullscreen,
         Self::FocusBrowserSearch,
         Self::CloseTopmostPane,
@@ -271,6 +277,8 @@ impl CommandId {
             Self::RestartCue => "restart_cue",
             Self::SkipSection => "skip_section",
             Self::ToggleBlackout => "toggle_blackout",
+            Self::BlackoutOn => "blackout_on",
+            Self::BlackoutOff => "blackout_off",
             Self::ToggleFullscreen => "toggle_fullscreen",
             Self::FocusBrowserSearch => "focus_browser_search",
             Self::CloseTopmostPane => "close_topmost_pane",
@@ -299,6 +307,8 @@ impl CommandId {
             | Self::RestartCue
             | Self::SkipSection
             | Self::ToggleBlackout
+            | Self::BlackoutOn
+            | Self::BlackoutOff
             | Self::ToggleFullscreen
             | Self::TapTempo => true,
         }
@@ -314,6 +324,8 @@ impl CommandId {
             Self::RestartCue => "Restart cue",
             Self::SkipSection => "Skip section",
             Self::ToggleBlackout => "Blackout",
+            Self::BlackoutOn => "Blackout on",
+            Self::BlackoutOff => "Blackout off",
             Self::ToggleFullscreen => "Fullscreen output",
             Self::FocusBrowserSearch => "Search scenes",
             Self::CloseTopmostPane => "Close pane",
@@ -332,6 +344,8 @@ impl CommandId {
             | Self::RestartCue
             | Self::SkipSection
             | Self::ToggleBlackout
+            | Self::BlackoutOn
+            | Self::BlackoutOff
             | Self::TapTempo => Category::Playback,
             Self::FocusBrowserSearch | Self::CloseTopmostPane | Self::OpenPalette => {
                 Category::Navigation
@@ -340,9 +354,11 @@ impl CommandId {
         }
     }
 
-    /// The command's default shortcut.
-    pub fn chord(self) -> Chord {
-        match self {
+    /// The command's default shortcut. The explicit blackout commands have
+    /// none: they are for controllers and the remote, where a toggle can get
+    /// out of step with the output, and a key is already on the toggle.
+    pub fn chord(self) -> Option<Chord> {
+        Some(match self {
             Self::NextScene => Chord::plain(Key::Right),
             Self::PrevScene => Chord::plain(Key::Left),
             Self::ToggleHold => Chord::plain(Key::Space),
@@ -358,7 +374,8 @@ impl CommandId {
             Self::CloseTopmostPane => Chord::plain(Key::Escape),
             Self::TapTempo => Chord::plain(Key::T),
             Self::OpenPalette => Chord::command(Key::Letter('K')),
-        }
+            Self::BlackoutOn | Self::BlackoutOff => return None,
+        })
     }
 
     /// Whether the command uses a key a focused widget (a slider, a button)
@@ -369,6 +386,8 @@ impl CommandId {
             Self::ExtendCue
             | Self::RestartCue
             | Self::ToggleBlackout
+            | Self::BlackoutOn
+            | Self::BlackoutOff
             | Self::ToggleFullscreen
             | Self::FocusBrowserSearch
             | Self::CloseTopmostPane
@@ -419,13 +438,15 @@ impl Bindings {
             };
             if let Some(other) = CommandId::ALL
                 .into_iter()
-                .find(|c| *c != command && bindings.chord(*c) == chord)
+                .find(|c| *c != command && bindings.chord(*c) == Some(chord))
             {
                 problems.push(format!(
                     "hotkeys: {} is already {}; {id} keeps {}",
                     chord.label(),
                     other.id(),
-                    command.chord().label()
+                    command
+                        .chord()
+                        .map_or_else(|| "no shortcut".to_owned(), Chord::label)
                 ));
                 continue;
             }
@@ -435,12 +456,13 @@ impl Bindings {
         (bindings, problems)
     }
 
-    /// The chord that runs `command`: the operator's, or the default.
-    pub fn chord(&self, command: CommandId) -> Chord {
+    /// The chord that runs `command`: the operator's, or the default; none
+    /// for a command with no default that the operator has not bound.
+    pub fn chord(&self, command: CommandId) -> Option<Chord> {
         self.overrides
             .iter()
             .find(|(c, _)| *c == command)
-            .map_or_else(|| command.chord(), |(_, chord)| *chord)
+            .map_or_else(|| command.chord(), |(_, chord)| Some(*chord))
     }
 
     /// Whether `command` has been rebound.
@@ -462,7 +484,7 @@ pub fn dispatch_with(chord: Chord, focus: Focus, bindings: &Bindings) -> Option<
     }
     let command = CommandId::ALL
         .into_iter()
-        .find(|c| bindings.chord(*c) == chord)?;
+        .find(|c| bindings.chord(*c) == Some(chord))?;
     if focus.widget && command.yields_to_focused_widget() {
         return None;
     }
@@ -479,32 +501,62 @@ mod tests {
         modal: false,
     };
 
+    /// Every command with a default shortcut, and the shortcut.
+    fn bound() -> Vec<(CommandId, Chord)> {
+        CommandId::ALL
+            .into_iter()
+            .filter_map(|command| command.chord().map(|chord| (command, chord)))
+            .collect()
+    }
+
     #[test]
     fn every_listed_key_invokes_its_command() {
-        for command in CommandId::ALL {
+        for (command, chord) in bound() {
             assert_eq!(
-                dispatch(command.chord(), FREE),
+                dispatch(chord, FREE),
                 Some(command),
                 "{} on {}",
                 command.name(),
-                command.chord().label()
+                chord.label()
             );
         }
     }
 
     #[test]
     fn no_shortcut_is_bound_twice() {
-        for (index, a) in CommandId::ALL.iter().enumerate() {
-            for b in CommandId::ALL.iter().skip(index + 1) {
+        let bound = bound();
+        for (index, (a, chord_a)) in bound.iter().enumerate() {
+            for (b, chord_b) in bound.iter().skip(index + 1) {
                 assert!(
-                    a.chord() != b.chord(),
+                    chord_a != chord_b,
                     "{} and {} share {}",
                     a.name(),
                     b.name(),
-                    a.chord().label()
+                    chord_a.label()
                 );
             }
         }
+    }
+
+    #[test]
+    fn only_the_explicit_blackout_commands_have_no_default_key() {
+        let unbound: Vec<&str> = CommandId::ALL
+            .into_iter()
+            .filter(|c| c.chord().is_none())
+            .map(CommandId::id)
+            .collect();
+        assert_eq!(unbound, ["blackout_on", "blackout_off"], "which");
+        let (bindings, problems) = Bindings::from_config(&table(&[("blackout_on", "Shift+B")]));
+        assert!(problems.is_empty(), "{problems:?}");
+        let shift_b = Chord {
+            shift: true,
+            ..Chord::plain(Key::B)
+        };
+        assert_eq!(
+            dispatch_with(shift_b, FREE, &bindings),
+            Some(CommandId::BlackoutOn),
+            "the operator can still give one a key"
+        );
     }
 
     #[test]
@@ -577,10 +629,10 @@ mod tests {
         assert_eq!(Chord::parse("Ctrl+"), None, "no key");
         assert_eq!(Chord::parse("A+B"), None, "two keys");
         assert_eq!(Chord::parse("Hyper+A"), None, "unknown modifier");
-        for command in CommandId::ALL {
+        for (command, chord) in bound() {
             assert_eq!(
-                Chord::parse(&command.chord().label()),
-                Some(command.chord()),
+                Chord::parse(&chord.label()),
+                Some(chord),
                 "{} survives its own label",
                 command.name()
             );
@@ -666,8 +718,11 @@ mod tests {
             "unreadable chord"
         );
         assert_eq!(
-            bindings.chord(CommandId::TapTempo).label(),
-            "Shift+Q",
+            bindings
+                .chord(CommandId::TapTempo)
+                .map(Chord::label)
+                .as_deref(),
+            Some("Shift+Q"),
             "the good line applied"
         );
     }
@@ -688,9 +743,9 @@ mod tests {
             widget: true,
             modal: false,
         };
-        for command in CommandId::ALL {
+        for (command, chord) in bound() {
             assert_eq!(
-                dispatch(command.chord(), typing),
+                dispatch(chord, typing),
                 None,
                 "{} fired while typing",
                 command.name()
@@ -704,8 +759,8 @@ mod tests {
             modal: true,
             ..Focus::default()
         };
-        for command in CommandId::ALL {
-            assert_eq!(dispatch(command.chord(), modal), None, "{}", command.name());
+        for (command, chord) in bound() {
+            assert_eq!(dispatch(chord, modal), None, "{}", command.name());
         }
     }
 
@@ -721,7 +776,9 @@ mod tests {
             CommandId::ToggleHold,
         ] {
             assert_eq!(
-                dispatch(yielded.chord(), on_a_widget),
+                yielded
+                    .chord()
+                    .and_then(|chord| dispatch(chord, on_a_widget)),
                 None,
                 "{} must not fire over a focused widget",
                 yielded.name()
@@ -734,7 +791,7 @@ mod tests {
             CommandId::CloseTopmostPane,
         ] {
             assert_eq!(
-                dispatch(live.chord(), on_a_widget),
+                live.chord().and_then(|chord| dispatch(chord, on_a_widget)),
                 Some(live),
                 "{} must stay live",
                 live.name()

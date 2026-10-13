@@ -105,6 +105,8 @@ pub fn run(command: CommandId, model: &mut Model<'_>, actions: &mut Vec<Action>)
         CommandId::ToggleBlackout => {
             actions.push(Action::SetBlackout(!model.transport.blackout));
         }
+        CommandId::BlackoutOn => actions.push(Action::SetBlackout(true)),
+        CommandId::BlackoutOff => actions.push(Action::SetBlackout(false)),
         CommandId::ToggleFullscreen => actions.push(Action::ToggleFullscreen),
         CommandId::TapTempo => actions.push(Action::TapTempo),
         CommandId::FocusBrowserSearch => {
@@ -140,7 +142,9 @@ mod tests {
             egui::Key::K,
         ];
         for command in CommandId::ALL {
-            let wanted = command.chord().key;
+            let Some(wanted) = command.chord().map(|chord| chord.key) else {
+                continue;
+            };
             assert!(
                 egui_keys.iter().any(|k| key_from(*k) == Some(wanted)),
                 "{} is bound to {wanted:?}, which no egui key maps to",

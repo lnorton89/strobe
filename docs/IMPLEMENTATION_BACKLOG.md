@@ -189,7 +189,7 @@
 - **Acceptance:** loopback and virtual-device tests verify values, rate limits and no feedback loops; outputs disabled by default and have explicit target/interface settings.
 
 ### P-06 Explicit blackout commands
-- **Status:** Open.
+- **Status:** Built (D201): `blackout_on` and `blackout_off` beside the toggle, in the command table, the palette, OSC, MIDI mappings and the remote protocol. Left: the remote server itself (L-02 on).
 - **Work:** add set-blackout-on and set-blackout-off command targets alongside toggle, expose them to OSC/MIDI mappings and the command table, and preserve safe semantics for remote clients.
 - **Acceptance:** repeated on is idempotent; repeated off is idempotent; mappings do not accidentally unblack an already blacked output; UI/remote state converges after reconnect.
 
