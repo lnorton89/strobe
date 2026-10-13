@@ -279,10 +279,11 @@ fn check(folder: &SceneFolder, generated: &Generated, options: &Options) -> Resu
         }
     }
 
-    // The rewrite is faithful and moved no line.
+    // The rewrite is faithful (the engine drops a control that is not,
+    // D259) and moved no line.
     let fidelity = report.fidelity.unwrap_or(0.0);
     assert!(
-        fidelity <= 0.002,
+        fidelity <= strobe_autocontrol::FIDELITY_LIMIT,
         "{name}: at its defaults the rewrite differs from the original by {fidelity}"
     );
     let before = Sources::from_folder(folder);
@@ -950,6 +951,315 @@ fn a_review_drops_and_re_ranges_controls_without_measuring_again() -> Result<()>
             Err(strobe_autocontrol::ChoiceError::Name(..))
         ),
         "two controls cannot share a name"
+    );
+    Ok(())
+}
+
+/// A scene folder written from `(file, text)` pairs into this test's
+/// scratch directory, then loaded.
+fn scene_from(tag: &str, files: &[(&str, &str)]) -> Result<SceneFolder> {
+    let target = scratch(tag).join(format!("{tag}.synScene"));
+    if target.exists() {
+        std::fs::remove_dir_all(&target)?;
+    }
+    std::fs::create_dir_all(&target)?;
+    for (file, text) in files {
+        std::fs::write(target.join(file), text)?;
+    }
+    if !files.iter().any(|(file, _)| *file == "scene.json") {
+        std::fs::write(target.join("scene.json"), "{}")?;
+    }
+    Ok(SceneFolder::load(&target)?)
+}
+
+// T26 finding 1: a scripted scene was refused because the uniforms its
+// script creates were undeclared. Original fixture: the script publishes a
+// float, a vec2 and a family of computed names, all read by the GLSL.
+#[test]
+fn a_scripted_scene_compiles_with_the_uniforms_its_script_creates() -> Result<()> {
+    let Some(headless) = context(Api::DesktopCore33)? else {
+        return Ok(());
+    };
+    let gl = headless.gl();
+    let caps = Caps::from_info(gl.info());
+    let folder = scene_from(
+        "scripted",
+        &[
+            (
+                "script.js",
+                "var t = 0;\n\
+                 function update(dt) {\n\
+                 \x20 t += dt * (1 + syn_BassLevel);\n\
+                 \x20 setUniform('script_time', t);\n\
+                 \x20 setUniform(\"beat_pos\", Math.sin(t), Math.cos(t));\n\
+                 \x20 for (var i = 0; i < 2; i++) { setUniform('band_' + i, syn_Level * i); }\n\
+                 }\n",
+            ),
+            (
+                "main.glsl",
+                "vec4 renderMain() {\n\
+                 \x20   float wave = sin(_uv.x * 7.0 + script_time + TIME * 0.6);\n\
+                 \x20   vec3 tint = vec3(0.9, 0.45, 0.2);\n\
+                 \x20   vec2 shift = beat_pos * 0.1 + vec2(band_0, band_1);\n\
+                 \x20   return vec4(tint * (0.5 + 0.5 * wave) + shift.x, 1.0);\n\
+                 }\n",
+            ),
+        ],
+    )?;
+    assert!(folder.script.is_some(), "the fixture has a script");
+    let names: Vec<String> = strobe_autocontrol::script::uniforms(&folder)
+        .into_iter()
+        .map(|(name, _)| name)
+        .collect();
+    assert_eq!(
+        names,
+        vec!["script_time", "beat_pos", "band_0", "band_1"],
+        "found by reading the script"
+    );
+    let generated = generate(gl, &caps, &folder, &Options::default())
+        .context("a scripted scene must not be refused")?;
+    check(&folder, &generated, &Options::default())?;
+    assert!(
+        !generated.report.kept.is_empty(),
+        "controls were generated: {}",
+        generated.report.detail()
+    );
+    // The written copy still compiles with the script's uniforms declared.
+    let mut rig = Rig::new(gl, &caps, &generated.folder, ScoreOptions::default())?;
+    let drawn = rig.render(&[])?;
+    assert!(
+        !strobe_autocontrol::score::is_black(&drawn),
+        "the rewritten scripted scene draws"
+    );
+    Ok(())
+}
+
+// T26 finding 1: two scenes whose own GLSL was broken reported "0
+// candidates". With nothing to measure the original is still compiled.
+#[test]
+fn a_broken_scene_with_no_candidates_is_an_error_not_an_empty_report() -> Result<()> {
+    let Some(headless) = context(Api::DesktopCore33)? else {
+        return Ok(());
+    };
+    let gl = headless.gl();
+    let caps = Caps::from_info(gl.info());
+    let folder = scene_from(
+        "broken-empty",
+        &[("main.glsl", "vec4 renderMain() { return vec4(nope); }\n")],
+    )?;
+    match generate(gl, &caps, &folder, &Options::default()) {
+        Err(error @ GenerateError::Original(_)) => {
+            assert!(
+                error
+                    .to_string()
+                    .contains("original scene does not compile"),
+                "the message says so: {error}"
+            );
+            Ok(())
+        }
+        other => bail!(
+            "expected the original's compile error, got {:?}",
+            other.map(|g| g.report.summary())
+        ),
+    }
+}
+
+// T26 finding 5: 28 loop bounds and 6 FAR distances were kept, and many
+// controls had a tiny effect next to the scene's strongest.
+#[test]
+fn one_quality_control_at_most_and_nothing_weak_next_to_the_strongest() -> Result<()> {
+    let Some(headless) = context(Api::DesktopCore33)? else {
+        return Ok(());
+    };
+    let gl = headless.gl();
+    let caps = Caps::from_info(gl.info());
+    let folder = scene_from(
+        "quality",
+        &[(
+            "main.glsl",
+            "#define FAR 2.0\n\
+             vec4 renderMain() {\n\
+             \x20   float a = 0.0;\n\
+             \x20   for (int i = 0; i < 20; i++) { a += 0.02; }\n\
+             \x20   float b = 0.0;\n\
+             \x20   for (int j = 0; j < 12; j++) { b += 0.03; }\n\
+             \x20   float d = min(length(_uvc) * 3.0, FAR) / FAR;\n\
+             \x20   float faint = 0.01 * sin(_uv.x * 4.0);\n\
+             \x20   vec3 base = vec3(0.9, 0.4, 0.1);\n\
+             \x20   return vec4(base * a + vec3(b * d) + faint, 1.0);\n\
+             }\n",
+        )],
+    )?;
+    let options = Options::default();
+    let generated = generate(gl, &caps, &folder, &options)?;
+    check(&folder, &generated, &options)?;
+    let report = &generated.report;
+    let quality_kept = report
+        .candidates
+        .iter()
+        .filter(|c| c.is_kept() && c.group == strobe_autocontrol::Group::Quality)
+        .count();
+    assert_eq!(
+        quality_kept,
+        1,
+        "exactly one quality control: {}",
+        report.detail()
+    );
+    assert!(
+        report
+            .candidates
+            .iter()
+            .any(|c| matches!(c.verdict, Verdict::QualityLimit { .. })),
+        "the other loops and FAR were measured and held back: {}",
+        report.detail()
+    );
+    let top = report
+        .candidates
+        .iter()
+        .filter_map(|c| c.score)
+        .fold(0.0_f32, f32::max);
+    for row in &report.candidates {
+        let Some(score) = row.score else { continue };
+        let weak = score < strobe_autocontrol::score::weak_floor(top, &options.score);
+        assert!(
+            !(weak && row.is_kept()),
+            "{:?} kept at {score}, weak next to {top}",
+            row.name
+        );
+        if weak && score >= options.score.threshold {
+            assert!(
+                matches!(row.verdict, Verdict::Weak { .. }),
+                "{:?} at {score} is weak, got {:?}",
+                row.suggested_name,
+                row.verdict
+            );
+        }
+    }
+    Ok(())
+}
+
+// T26 finding 5: two scenes kept a rewrite whose default picture was not
+// the original's. A candidate that changes the default is now dropped.
+// The fixture hands the engine a colour whose default is not its literal,
+// which is exactly what an unfaithful rewrite looks like from outside.
+#[test]
+fn a_control_that_changes_the_default_picture_is_dropped() -> Result<()> {
+    let Some(headless) = context(Api::DesktopCore33)? else {
+        return Ok(());
+    };
+    let gl = headless.gl();
+    let caps = Caps::from_info(gl.info());
+    let folder = scene_from(
+        "unfaithful",
+        &[(
+            "main.glsl",
+            "vec4 renderMain() {\n\
+             \x20   vec3 sky = vec3(0.2, 0.4, 0.9);\n\
+             \x20   vec3 sand = vec3(0.9, 0.7, 0.3);\n\
+             \x20   return vec4(mix(sky, sand, _uv.y), 1.0);\n\
+             }\n",
+        )],
+    )?;
+    let mut analysis = strobe_autocontrol::analyze(&Sources::from_folder(&folder));
+    let sabotaged = analysis
+        .candidates
+        .iter_mut()
+        .find(|c| c.name == "sand_color")
+        .ok_or_else(|| anyhow!("the sand colour is a candidate"))?;
+    sabotaged.default = vec![0.1, 0.9, 0.2];
+    let sabotaged_id = sabotaged.id;
+    let generated =
+        strobe_autocontrol::generate_from(gl, &caps, &folder, &analysis, &Options::default())?;
+    let report = &generated.report;
+    let row = report
+        .candidates
+        .iter()
+        .find(|c| c.id == sabotaged_id)
+        .ok_or_else(|| anyhow!("the sabotaged row is reported"))?;
+    assert!(
+        matches!(row.verdict, Verdict::Unfaithful { difference } if difference > strobe_autocontrol::FIDELITY_LIMIT),
+        "the colour that changes the default is dropped: {}",
+        report.detail()
+    );
+    assert_eq!(
+        report.kept,
+        vec!["sky_color".to_string()],
+        "the faithful colour stays"
+    );
+    assert!(
+        report
+            .fidelity
+            .is_some_and(|f| f <= strobe_autocontrol::FIDELITY_LIMIT),
+        "and the result is faithful: {:?}",
+        report.fidelity
+    );
+    Ok(())
+}
+
+// T26 finding 6: scenes with plain speed and colour literals got no
+// candidates. These spellings were invisible to the scan: a speed in a
+// `#define` body, `TIME / k`, a colour in a `#define` or a global `const
+// vec3`, and a speed inside a helper function.
+#[test]
+fn speeds_and_colours_in_defines_consts_and_helpers_get_controls() -> Result<()> {
+    let Some(headless) = context(Api::DesktopCore33)? else {
+        return Ok(());
+    };
+    let gl = headless.gl();
+    let caps = Caps::from_info(gl.info());
+    let folder = scene_from(
+        "misses",
+        &[(
+            "main.glsl",
+            "#define T (TIME * 0.7)\n\
+             #define GLOW_COL vec3(0.95, 0.55, 0.2)\n\
+             const vec3 DEEP = vec3(0.05, 0.1, 0.35);\n\
+             float bands(vec2 p) {\n\
+             \x20   return 0.5 + 0.5 * sin(p.y * 9.0 + TIME * 0.9);\n\
+             }\n\
+             vec4 renderMain() {\n\
+             \x20   float r = length(_uvc);\n\
+             \x20   float ring = 0.5 + 0.5 * cos(r * 12.0 - T);\n\
+             \x20   float drift = sin(_uv.x * 5.0 + TIME / 4.0);\n\
+             \x20   vec3 col = mix(DEEP, GLOW_COL, ring * bands(_uv)) + 0.1 * drift;\n\
+             \x20   return vec4(col, 1.0);\n\
+             }\n",
+        )],
+    )?;
+    let analysis = strobe_autocontrol::analyze(&Sources::from_folder(&folder));
+    let literals: Vec<&str> = analysis.candidates.iter().map(|c| c.literal()).collect();
+    for wanted in [
+        "TIME * 0.7",
+        "vec3(0.95, 0.55, 0.2)",
+        "vec3(0.05, 0.1, 0.35)",
+        "TIME * 0.9",
+        "TIME / 4.0",
+    ] {
+        assert!(
+            literals.contains(&wanted),
+            "`{wanted}` is a candidate: {literals:?}"
+        );
+    }
+    let options = Options::default();
+    let generated = generate(gl, &caps, &folder, &options)?;
+    check(&folder, &generated, &options)?;
+    controls_move_the_picture(gl, &caps, &generated, &options)?;
+    let kept: Vec<(strobe_autocontrol::Group, String)> = generated
+        .report
+        .candidates
+        .iter()
+        .filter(|c| c.is_kept())
+        .map(|c| (c.group, c.name.clone().unwrap_or_default()))
+        .collect();
+    assert!(
+        kept.iter()
+            .any(|(g, _)| *g == strobe_autocontrol::Group::Motion),
+        "a speed is kept: {kept:?}"
+    );
+    assert!(
+        kept.iter()
+            .any(|(g, _)| *g == strobe_autocontrol::Group::Colour),
+        "a colour is kept: {kept:?}"
     );
     Ok(())
 }

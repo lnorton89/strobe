@@ -1,5 +1,5 @@
 #0 const Shape Float default=[0.94] range=[0.0]..[1.88] name=trail sites=[passes/buffer_a.glsl:18:1] literal="0.94"
-#1 time scale Motion Float default=[1.3] range=[0.0]..[2.6] name=speed sites=[passes/buffer_a.glsl:31:34] literal="iTime * 1.3"
-#2 time scale Motion Float default=[1.7] range=[0.0]..[3.4] name=speed sites=[passes/buffer_a.glsl:31:52] literal="iTime * 1.7"
-#3 colour Colour Colour default=[0.9, 0.35, 0.55] range=[0.0, 0.0, 0.0]..[1.0, 1.0, 1.0] name=color sites=[passes/buffer_a.glsl:33:36] literal="vec3(0.9, 0.35, 0.55)"
+#1 time scale Motion Float default=[1.3] range=[0.0]..[2.6] name=orbit_speed role=x sites=[passes/buffer_a.glsl:31:34] literal="iTime * 1.3"
+#2 time scale Motion Float default=[1.7] range=[0.0]..[3.4] name=orbit_speed role=y sites=[passes/buffer_a.glsl:31:52] literal="iTime * 1.7"
+#3 colour Colour Colour default=[0.9, 0.35, 0.55] range=[0.0, 0.0, 0.0]..[1.0, 1.0, 1.0] name=dot_color role=x sites=[passes/buffer_a.glsl:33:36] literal="vec3(0.9, 0.35, 0.55)"
 #4 colour Colour Colour default=[0.02, 0.01, 0.05] range=[0.0, 0.0, 0.0]..[1.0, 1.0, 1.0] name=color sites=[main.glsl:30:38] literal="vec3(0.02, 0.01, 0.05)"

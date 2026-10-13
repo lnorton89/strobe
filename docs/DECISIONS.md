@@ -4894,6 +4894,129 @@ nor reversible enough for a VJ at a venue.
 and tested on both phone platforms, which would let Strobe offer HTTPS
 without a domain.
 
+### D259: generated controls after 65 community scenes: script uniforms, maths traps, names from context, one Quality control, a fidelity gate (2026-10-13)
+
+TORNADO T26 ran the engine (I-03) over the owner's 65 community scenes
+(private, not in the repo). It kept 266 controls across 49 scenes and
+found six problems. Each fix has an original fixture or unit test that
+reproduces the pattern; no third-party code was copied.
+
+- **Scripted scenes were refused** ("original does not compile"): the
+  uniforms a script creates with `setUniform` were undeclared.
+  `strobe_autocontrol::script` reads `script.js` and declares what it
+  finds through `ScenePlayer::with_extras`, at zero, in the original and
+  every rewrite alike. It is a **static approximation**, so the engine
+  needs neither `strobe-script` nor QuickJS:
+  - the type comes from the call's shape (2 to 4 numbers, or an array,
+    object or `Float32Array` literal of that many, give `vec2`..`vec4`;
+    anything else is `float`), and the first call for a name wins;
+  - a name built at run time (`'spectrum_' + i`, a template string) is a
+    prefix, and every GLSL identifier with it is declared;
+  - `uniforms.name = ...` counts too;
+  - a name the scene already declares is skipped, as the app does.
+
+  The app still learns the real uniforms by running the script, so a
+  scene the scan misreads plays correctly there; only its measurement is
+  affected. Also, **a scene whose own GLSL does not compile is an error**
+  even when it has no candidates: the original is now compiled before
+  anything else, so two scenes no longer read "0 candidates".
+- **Maths offered as controls.** Smoothstep's `3.0 - 2.0 * t`, the
+  quintic's `6.0`, `15.0`, `10.0`, and hash arithmetic (`43758.5453`,
+  `12.9898`, `78.233`, `.1031`, any non-integer of 1000 or more, anything
+  inside a `fract(..)` that holds a `sin` or `cos`) are traps beside the
+  existing ones (`analyze::context`). Named constants with a hash value are
+  mathematics too. `grad` and `rand` as function-name words no longer make
+  `gradient` opaque.
+- **Names.** 116 of 266 were a stem and a number. A name now comes from
+  context, in this order:
+  - **Speed:** the constant, the assigned variable, the user function it
+    is passed to, the helper it is in (`spokes_speed`, `rot_speed`).
+  - **Scale:** the user function (`fbm(p * 3.0)` is `fbm_scale`), the
+    assigned variable or field, the helper (`field_scale`).
+  - **Colour:** the assigned variable or field (`mat.albedo` is
+    `albedo_color`), the variable it is multiplied by (`glow_color`), the
+    function, the helper.
+  - **Loops:** `shadow_steps`, `ao_steps`, `march_steps` (a body calling
+    `map`, `sdf`, `de`, `field` or `sd*`, also in `render_main_image`),
+    `octaves` (a body calling a noise).
+
+  Names of one or two letters and words like `col` or `res` are skipped.
+  Material Maker's `p_oNNNN_` node prefix is dropped. When two kept
+  controls share a name, a **role** tells them apart before a number: the
+  ends of a `mix` are `low` and `high`, a constructor's arguments `x`..`w`,
+  a coordinate's one-component swizzle its axis, two short variables their
+  names (`color_a`, `color_b`). A plain name the scene already uses takes
+  `_amount` (`rings_amount`) before a number.
+- **Positions taken for colours.** A `vec3` is not a colour when it is
+  assigned to a geometry name (word-based: `lk`, `lp`, `ro`, `light`,
+  `light_dir`, `cam_pos`; `light_col` is still a colour), added to or
+  subtracted from a position, passed to `map`, `sd*`, `op*`, `rotate`..., or
+  anywhere in a distance function, or when two of its three components are
+  zero. A `vec4` keeps the last rule off, since its alpha marks it RGBA.
+  The engine has no signed vector control yet, so these are left alone
+  rather than made shape candidates.
+- **Too many Quality controls, and tiny ones.** A scene keeps **one**
+  Quality control, the strongest (`Verdict::QualityLimit` for the rest).
+  `FAR`, `MAX_DIST`, `tmax` and similar constants are Quality, ranged a
+  quarter to twice so a slider never draws nothing. A candidate is
+  **weak** (`Verdict::Weak`) under `min(0.05 x best, 0.01)`. That is
+  `ScoreOptions::relative`, `--relative`, under `score::WEAK_CEILING`.
+  The ceiling is T26's own figure: every tiny control it reported was
+  under 0.01, while a 2% knob next to a 40% one is still worth a slider.
+  A small moving dot can fall under it; that is the cost.
+- **Fidelity gate.** Two scenes kept a rewrite whose default picture was
+  0.020 and 0.0076 from the original. After the final rewrite the engine
+  now measures it. Over `FIDELITY_LIMIT` (0.001), plus the original's own
+  noise (two renders of it compared, for a scene that is not a pure
+  function of time), it renders each kept control alone and drops the
+  ones that change the default (`Verdict::Unfaithful`). If they are only
+  unfaithful together, it drops all of them; it never writes an unfaithful
+  scene. The scenes are not here, so the cause is not proven. These were
+  found and fixed:
+  - a `TIME * k` in a function with its own `TIME` parameter or local is
+    no longer a speed (the integrator would drop that local's offset);
+  - every probe now renders at a fixed `strobe_Date`, not the wall clock.
+
+  The likeliest remaining cause on a real GPU is the compiler. A literal
+  that becomes a uniform is no longer constant-folded, and an unrolled
+  loop becomes a dynamic one, so rounding changes. A chaotic iteration, or
+  a feedback buffer over ten frames, grows that difference. llvmpipe shows
+  0 for every scene here, so only the gate can catch it, and it does.
+- **Misses** (scenes with plain speed and colour literals that got
+  nothing). The detectors could not see:
+  - a speed in a `#define` body (`#define T (TIME * 0.3)`). It is now a
+    candidate, unless it is unparenthesised and the macro is used after
+    `/` or `%`, where the textual paste would read differently;
+  - `TIME / 4.0`, now a speed of 0.25;
+  - a colour in `#define COL vec3(..)` or a global `const vec3 COL =
+    vec3(..);`, now a colour constant, unless it is multiplied by the
+    clock (a set of frequencies) or named like geometry.
+
+  Literals in helper functions and in multipass sources were already
+  scanned; that was not the gap.
+
+**Evidence:** unit tests in `analyze/context.rs`, `analyze/expr.rs`
+(`fade_polynomials_and_hash_arithmetic_are_not_controls`,
+`positions_directions_and_sizes_are_not_colours`,
+`names_come_from_the_code_around_the_literal`,
+`time_divided_by_a_number_is_a_speed_and_a_local_time_is_not`,
+`loops_are_named_for_what_they_do`, `a_speed_inside_a_define_body_is_found`,
+`gradient_is_not_an_opaque_function_name`), `analyze/mod.rs`, `naming.rs`
+and `script.rs`, and `tests/engine.rs`
+(`a_scripted_scene_compiles_with_the_uniforms_its_script_creates`,
+`a_broken_scene_with_no_candidates_is_an_error_not_an_empty_report`,
+`one_quality_control_at_most_and_nothing_weak_next_to_the_strongest`,
+`a_control_that_changes_the_default_picture_is_dropped`,
+`speeds_and_colours_in_defines_consts_and_helpers_get_controls`). Every
+library scene with `CONTROLS` stripped, and every tunable fixture, still
+gets controls in both dialects at fidelity 0, and the engine's own check
+now holds every result to `FIDELITY_LIMIT`.
+
+**Would reopen:** a re-run of T26 on TORNADO that still shows numbered
+names, refused scripted scenes, or a scene the gate empties because its
+GPU rounds every rewrite differently. That last one would need the
+rewrite to keep literals as `const` where it can.
+
 ## D260: Narrow windows give way in a fixed order, and two tests hold it at every size
 
 **Context.** The T480 resized the control window at 150% (Task 35). Below

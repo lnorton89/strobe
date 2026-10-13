@@ -115,6 +115,10 @@ struct Cli {
     /// The least mean per-channel difference (0 to 1) that counts as visible.
     #[arg(long, default_value_t = 0.003)]
     threshold: f32,
+    /// A candidate under this fraction of the strongest one's score, and
+    /// under 0.01, is weak and not kept.
+    #[arg(long, default_value_t = 0.05)]
+    relative: f32,
     /// The most candidates to measure.
     #[arg(long, default_value_t = 40)]
     max_scored: usize,
@@ -233,6 +237,7 @@ fn main() -> Result<()> {
             size: parse_size(&cli.size)?,
             frames: cli.frames,
             threshold: cli.threshold,
+            relative: cli.relative,
             ..ScoreOptions::default()
         },
         merge: cli.force_merge,
