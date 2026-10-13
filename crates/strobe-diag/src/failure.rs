@@ -56,6 +56,8 @@ pub enum Subsystem {
     Playlist,
     /// Reading or writing files.
     Io,
+    /// The command line, before anything started.
+    Arguments,
 }
 
 impl Subsystem {
@@ -69,6 +71,7 @@ impl Subsystem {
             Self::Script => "SCRIPT",
             Self::Playlist => "PLAYLIST",
             Self::Io => "IO",
+            Self::Arguments => "ARGUMENTS",
         }
     }
 }
