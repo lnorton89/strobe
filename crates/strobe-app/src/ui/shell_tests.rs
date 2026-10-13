@@ -20,9 +20,9 @@
 
 use super::shell::{ShellState, show};
 use super::{
-    Action, AudioPanel, CueTransport, FailurePanel, ImportPanel, ListenerPanel, MapUi, Model,
-    NoticePanel, PerfPanel, PlaylistPanel, PlaylistUi, Preview, RemotePanel, ScenePreview,
-    TransportPanel, UiState,
+    Action, AudioPanel, CueTransport, FailurePanel, GeneratePanel, ImportPanel, ListenerPanel,
+    MapUi, Model, NoticePanel, PerfPanel, PlaylistPanel, PlaylistUi, Preview, RemotePanel,
+    ScenePreview, TransportPanel, UiState,
 };
 use crate::console::Console;
 use crate::import::Status;
@@ -69,6 +69,10 @@ struct Scenario {
     playlist: bool,
     /// Show control has mappings, macros and fav slots in every state.
     mapped: bool,
+    /// A generate-controls worker is running.
+    generating: bool,
+    /// A generate-controls result is waiting for review.
+    generated: bool,
     panes: &'static [Pane],
 }
 
@@ -88,12 +92,24 @@ const BASE: Scenario = Scenario {
     replace: false,
     playlist: false,
     mapped: false,
+    generating: false,
+    generated: false,
     panes: &[Pane::Inspector],
 };
 
 fn scenarios() -> Vec<Scenario> {
     vec![
         BASE,
+        Scenario {
+            name: "generating controls",
+            generating: true,
+            ..BASE
+        },
+        Scenario {
+            name: "generated controls to review",
+            generated: true,
+            ..BASE
+        },
         Scenario {
             name: "empty library",
             scenes: 0,
@@ -245,6 +261,41 @@ fn scenarios() -> Vec<Scenario> {
 
 /// Show control with the content the MAP pane and the macro strip need to
 /// show every state: nothing, or one of each.
+/// A worker's result for the review card.
+fn sample_generated() -> crate::generate::Outcome {
+    use crate::generate::{Kept, Outcome, Summary};
+    Outcome::Done(Summary {
+        scene: "Aurora Field".to_string(),
+        written: Some(PathBuf::from("scenes/01-scene-0-auto.synScene")),
+        context: "headless EGL device | llvmpipe".to_string(),
+        candidates: 9,
+        fidelity: Some(0.0),
+        kept: vec![
+            Kept {
+                name: "speed".to_string(),
+                group: "Motion".to_string(),
+                kind: "time scale".to_string(),
+                default: vec![0.5],
+                min: vec![0.0],
+                max: vec![2.0],
+                score: Some(0.21),
+                context: "float t = TIME * 0.5;".to_string(),
+            },
+            Kept {
+                name: "tint".to_string(),
+                group: "Colour".to_string(),
+                kind: "colour".to_string(),
+                default: vec![0.8, 0.3, 0.1],
+                min: vec![0.0, 0.0, 0.0],
+                max: vec![1.0, 1.0, 1.0],
+                score: Some(0.08),
+                context: "vec3 tint = vec3(0.8, 0.3, 0.1);".to_string(),
+            },
+        ],
+        suggestions: vec!["speed with syn_BassLevel: motion follows the low end".to_string()],
+    })
+}
+
 fn sample_remote(mapped: bool) -> Result<Remote> {
     use strobe_io::{Mapping, Source, Target};
     let dir = std::env::temp_dir().join(format!("strobe-shell-tests-{}", std::process::id()));
@@ -444,6 +495,12 @@ fn draw_events(
         .playlist
         .then(|| sample_show(&library))
         .transpose()?;
+    let generated = scenario.generated.then(sample_generated);
+    let generate_panel = GeneratePanel {
+        running: scenario.generating.then_some(("01-scene-0", 12.0)),
+        outcome: generated.as_ref(),
+        authored: false,
+    };
     let mut shell_state = ShellState::default();
     let mut actions = Vec::new();
     let mut all_actions = Vec::new();
@@ -550,6 +607,7 @@ fn draw_events(
                 scene_name: scenario.playing.then_some("01-aurora"),
                 bindings: &bindings,
             },
+            generate: generate_panel,
         };
         let pass = crate::ui::testing::run(
             &ctx,

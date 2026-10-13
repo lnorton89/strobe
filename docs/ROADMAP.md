@@ -98,8 +98,11 @@ Each item names its acceptance test. Evidence is in [STATUS_AUDIT.md](STATUS_AUD
    native and ANGLE, a missing asset fails visibly, and attribution
    survives.
 4. **Auto-generated controls.** *Stage 1 built* (`strobe-autocontrol`,
-   D123-D126). *Left:* the Import and Inspector review panel and the app
-   calling the engine, confirming the CLI's window context on the T480 (built,
+   D123-D126). *Stage 2 built (D202):* the app runs the engine in a worker
+   process from the Inspector or the palette, and shows the result for
+   review (open the copy or discard it). *Left:* per-control keep, drop and
+   re-range before the copy is written, the same button on the Import pane
+   after an import, confirming the CLI's window context on the T480 (built,
    D140; `--context window` matches headless on llvmpipe under Xvfb, not yet
    run on Windows), the speed control not following `st_speed`, and a
    second look at the heuristics on real community scenes. *Accept:* every

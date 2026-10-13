@@ -108,6 +108,7 @@ Flags (from the clap `Cli`):
 | `--request-load <scene>` | none | With `--screenshot`: ask for this load through the UI path on the frame before the control capture, so the capture shows "Preparing". |
 | `--theme <id>` | saved | Use a theme for this run: `strobe`, `graphite`, `midnight`, `void`, `high-contrast`, `daylight`, or a file in `<data dir>/themes/`. |
 | `--system-title-bar` | off | Use the system's title bar for this run (D132); Settings has the saved choice. |
+| `--generate-controls <scene>` | | Hidden: the app starts itself this way to generate controls in a worker (D202). Not for people. |
 | `--palette <text>` | closed | Open the command palette at launch with this text typed (screenshots). |
 | `--help`, `--version` | | Standard clap flags. |
 

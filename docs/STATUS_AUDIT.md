@@ -24,7 +24,8 @@ The Windows desktop app wires together:
 
 The benchmark uses a window context where EGL is unavailable. Every crate
 is now wired into the app: the Shadertoy importer (stage 2) and the playlist
-core (stage 2, D150-D158). `strobe-autocontrol` is not.
+core (stage 2, D150-D158), and `strobe-autocontrol` through a worker
+process (D202).
 
 For the deeper contracts, read [ARCHITECTURE.md](ARCHITECTURE.md),
 [DECISIONS.md](DECISIONS.md) and [BENCHMARKS.md](BENCHMARKS.md).
@@ -274,6 +275,16 @@ they apply, and explicit supported, degraded or unsupported claims.
   window, and says so. Native and ANGLE keep the same 7 controls in the
   same order, with a largest score difference of 0.00008.
 - [ ] A real file drop (X11 and Windows). The typed path runs the same job.
+- [x] Generate controls from the app (D202): the Inspector button or the
+  palette starts `strobe --generate-controls` as a worker. The show keeps
+  playing, and the result is reviewed and then opened or discarded. The
+  source scene is byte for byte unchanged, and the licence travels with
+  the copy. Evidence: `crates/strobe-app/tests/generate.rs` runs the real
+  executable as the app does, and the Xvfb run in
+  `docs/images/perform/generate-controls-1440x900.png` (Ctrl+K,
+  "generate", Enter: 4 controls, fidelity 0.0, about 0.2 s on llvmpipe).
+  **Not yet:** on the T480, where the worker needs a hidden window
+  context, and per-control keep or drop.
 - [ ] Thumbnails, conversion diagnostics beyond the warnings list, and the
   Needs-work bin.
 - [x] Auto-generated controls engine, stage 1 (D123-D126;

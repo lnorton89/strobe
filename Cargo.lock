@@ -3167,6 +3167,7 @@ dependencies = [
  "serde",
  "serde_json",
  "strobe-audio",
+ "strobe-autocontrol",
  "strobe-diag",
  "strobe-gfx",
  "strobe-io",

@@ -138,6 +138,19 @@ pub struct Cli {
     /// the "preparing" state (the load itself still happens right after).
     #[arg(long, value_name = "SCENE", requires = "screenshot")]
     pub request_load: Option<String>,
+    /// Run as a generate-controls worker on this scene and exit (the app
+    /// starts itself this way; D202). Not for people.
+    #[arg(long, value_name = "SCENE", hide = true)]
+    pub generate_controls: Option<PathBuf>,
+    /// The worker's library folder.
+    #[arg(long, value_name = "DIR", hide = true, requires = "generate_controls")]
+    pub generate_library: Option<PathBuf>,
+    /// The worker's result file.
+    #[arg(long, value_name = "FILE", hide = true, requires = "generate_controls")]
+    pub generate_report: Option<PathBuf>,
+    /// The worker adds to authored controls.
+    #[arg(long, hide = true, requires = "generate_controls")]
+    pub generate_merge: bool,
     /// Search text to put in the scene browser at launch.
     #[arg(long, value_name = "TEXT")]
     pub browser_query: Option<String>,

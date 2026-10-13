@@ -3064,3 +3064,58 @@ Three small rules, two of them from TORNADO T6.
 **Would reopen:** a scene that depends on a missing picture failing the
 load, or that is laid out so that `\r\r\n` counts as two lines.
 
+### D202: the app generates controls in a worker process, and the operator reviews a copy (2026-10-13)
+
+The Inspector's "Generate controls" button, and the palette command of the
+same name, start the app's own executable again as
+`strobe --generate-controls <scene> ...`. The worker:
+- opens an offscreen context (D140: an EGL device, or one hidden window on
+  Windows);
+- runs `strobe_autocontrol::generate`;
+- writes the result as `<name>-auto.synScene` with `write_scene` (a copy,
+  licence and attribution included);
+- writes a JSON summary and exits.
+
+The app polls it once a frame, never blocking, and shows the result in the
+Inspector:
+- the controls made, with group, default and range, and a bar for how much
+  each moves the picture;
+- the fidelity at their defaults;
+- the audio pairings the engine suggests;
+- two buttons: **Open** loads the copy, **Discard** deletes it.
+
+Why a process, not the app's own context:
+- **The show must not wait.** Scoring renders the scene dozens of times:
+  seconds on an HD 4000 with the output on a projector.
+- **A thread cannot do it either.** The app's context is current on the
+  main thread, and winit allows one event loop per process, so a second
+  context cannot be made there on Windows.
+- **A driver crash during scoring** ends the worker, not the show.
+- **A worker stuck for ten minutes** is stopped.
+
+Safety rules:
+- The source is never written: the engine refuses to, and the worker
+  writes only the copy.
+- Discard deletes only a `*-auto.synScene` folder directly inside the
+  library.
+- A scene with authored controls gets "Add generated controls" (merge):
+  its own controls are kept, and new ones are only added beside them.
+- The command is not mappable. A MIDI pad that starts minutes of
+  measuring mid-show is a mistake.
+
+Evidence:
+- `tests/generate.rs` runs the real executable as the app does:
+  - the source is byte for byte unchanged;
+  - controls are made;
+  - fidelity is under 1%;
+  - the licence is copied;
+  - Discard removes only the copy;
+  - authored controls are refused, then merged.
+- An Xvfb run drove it with Ctrl+K, "generate", Enter.
+
+Left (U-03): per-control keep, drop and re-range before the copy is
+written, and the same button on the Import pane.
+
+**Would reopen:** a machine where starting a second process is not allowed,
+or a need to apply generated controls to the playing scene in place.
+

@@ -65,6 +65,10 @@ pub struct Availability {
     pub playlist: bool,
     /// There is more than one scene to step through.
     pub can_step: bool,
+    /// A scene is playing.
+    pub playing: bool,
+    /// A generate-controls worker is running already.
+    pub generating: bool,
 }
 
 /// Every entry, in table order: the commands, then the panes.
@@ -95,6 +99,7 @@ fn category_name(category: Category) -> &'static str {
         Category::Navigation => "Navigation",
         Category::Playback => "Playback",
         Category::Window => "Window",
+        Category::Scene => "Scene",
     }
 }
 
@@ -112,6 +117,8 @@ fn unavailable(command: CommandId, availability: Availability) -> Option<&'stati
         CommandId::NextScene | CommandId::PrevScene if !availability.can_step => {
             Some("only one scene")
         }
+        CommandId::GenerateControls if !availability.playing => Some("no scene playing"),
+        CommandId::GenerateControls if availability.generating => Some("already measuring"),
         CommandId::ToggleHold
         | CommandId::ExtendCue
         | CommandId::RestartCue
@@ -125,7 +132,8 @@ fn unavailable(command: CommandId, availability: Availability) -> Option<&'stati
         | CommandId::FocusBrowserSearch
         | CommandId::CloseTopmostPane
         | CommandId::TapTempo
-        | CommandId::OpenPalette => None,
+        | CommandId::OpenPalette
+        | CommandId::GenerateControls => None,
     }
 }
 
@@ -224,6 +232,8 @@ mod tests {
             Availability {
                 playlist: true,
                 can_step: true,
+                playing: true,
+                generating: false,
             },
         )
     }

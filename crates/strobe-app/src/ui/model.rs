@@ -49,6 +49,16 @@ pub enum Action {
     ClosePreview,
     /// Reload the current scene from disk.
     Reload,
+    /// Generate controls for the playing scene in a worker process (D202).
+    GenerateControls,
+    /// Stop the generate worker.
+    CancelGenerate,
+    /// Load the scene the worker wrote.
+    OpenGenerated,
+    /// Delete the scene the worker wrote.
+    DiscardGenerated,
+    /// Put the worker's result away.
+    DismissGenerated,
     /// List the scene folder again.
     RescanLibrary,
     /// Step to the next scene in the library.
@@ -452,4 +462,18 @@ pub struct Model<'a> {
     pub playlist: PlaylistPanel<'a>,
     /// MIDI, OSC, mappings, macros, presets.
     pub remote: RemotePanel<'a>,
+    /// Generated controls for the playing scene.
+    pub generate: GeneratePanel<'a>,
+}
+
+/// The Inspector's "Generate controls" strip.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct GeneratePanel<'a> {
+    /// The scene a worker is measuring, and for how many seconds.
+    pub running: Option<(&'a str, f32)>,
+    /// The last worker's result, until it is opened, discarded or put away.
+    pub outcome: Option<&'a crate::generate::Outcome>,
+    /// The playing scene has controls a person wrote, so generation adds to
+    /// them.
+    pub authored: bool,
 }
