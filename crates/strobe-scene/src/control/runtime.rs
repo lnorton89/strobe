@@ -50,6 +50,10 @@ struct State {
     attacking: bool,
     /// `traveler`: the rate, easing toward the target.
     rate: Values,
+    /// A glide a macro asked for (D227): the output eases to the target
+    /// with this time constant, in seconds, whatever the control's own
+    /// smoothing, until another write or arrival ends it.
+    glide: Option<f32>,
 }
 
 /// A control's value as the shader sees it.
@@ -136,6 +140,7 @@ impl ControlBank {
         let (Some(def), Some(state)) = (self.defs.get(index), self.states.get_mut(index)) else {
             return;
         };
+        state.glide = None;
         if let ControlKind::Bang(_) = def.kind {
             state.presses = state.presses.saturating_add(1);
             return;
@@ -191,6 +196,34 @@ impl ControlBank {
             })
             .collect();
         self.set(index, dimension, &raw);
+    }
+
+    /// As [`Self::set_normalized`], with the output gliding to the new
+    /// target over about `seconds` (a time constant), even on a control
+    /// that would snap (D227). The glide lasts until the output arrives or
+    /// anything else writes the control. A speed or traveler control, a bang
+    /// and a dropdown take the write as usual.
+    pub fn set_normalized_gliding(
+        &mut self,
+        index: usize,
+        dimension: Option<usize>,
+        values: &[f32],
+        seconds: f32,
+    ) {
+        self.set_normalized(index, dimension, values);
+        let (Some(def), Some(state)) = (self.defs.get(index), self.states.get_mut(index)) else {
+            return;
+        };
+        let glides = matches!(
+            def.kind,
+            ControlKind::Slider(Mode::Plain | Mode::Smooth)
+                | ControlKind::Knob(Mode::Plain | Mode::Smooth)
+                | ControlKind::Xy(Mode::Plain | Mode::Smooth)
+                | ControlKind::Color { .. }
+        );
+        if glides && seconds.is_finite() && seconds > 0.0 {
+            state.glide = Some(seconds);
+        }
     }
 
     /// Presses a bang, or flips a toggle.
@@ -344,6 +377,7 @@ fn initial_state(def: &ControlDef) -> State {
         count: 0.0,
         attacking: false,
         rate: def.default,
+        glide: None,
     }
 }
 
@@ -361,6 +395,22 @@ fn alpha(params: f32, dt: f32) -> f32 {
 /// Advances one control by `dt`.
 fn step(def: &ControlDef, state: &mut State, dt: f32) {
     let dims = def.dims();
+    if let Some(seconds) = state.glide {
+        // A macro's glide (D227): exponential, frame-rate independent, and
+        // over once the output is within a ten-thousandth of the range.
+        let a = 1.0 - (-dt / seconds).exp();
+        let mut arrived = true;
+        for i in 0..dims {
+            state.output[i] += (state.target[i] - state.output[i]) * a;
+            let span = (def.max[i] - def.min[i]).abs().max(f32::EPSILON);
+            arrived &= (state.target[i] - state.output[i]).abs() <= span * 1e-4;
+        }
+        if arrived {
+            state.output = state.target;
+            state.glide = None;
+        }
+        return;
+    }
     let a = alpha(def.params, dt);
     let ease = |output: &mut Values, target: &Values| {
         for i in 0..dims {
@@ -700,6 +750,34 @@ mod tests {
         b.randomize(0, || 1.0);
         b.tick(1.0 / 60.0);
         assert_eq!(out(&b, 0), 0.0, "a random press is not a value");
+        Ok(())
+    }
+
+    #[test]
+    fn a_glide_eases_a_plain_slider_and_any_other_write_ends_it() -> Result<()> {
+        let mut b = bank(&[
+            r#"{ "NAME": "s", "TYPE": "slider", "MIN": 0.0, "MAX": 1.0, "DEFAULT": 0.0 }"#,
+        ])?;
+        b.set_normalized_gliding(0, None, &[1.0], 0.5);
+        b.tick(0.5);
+        let out = b.output(0).map_or(f32::NAN, |v| v[0]);
+        assert!(
+            (out - (1.0 - (-1.0_f32).exp())).abs() < 1e-4,
+            "one time constant in: {out}"
+        );
+        for _ in 0..600 {
+            b.tick(1.0 / 60.0);
+        }
+        assert_eq!(b.output(0).map(|v| v[0]), Some(1.0), "it arrives");
+        b.set_normalized_gliding(0, None, &[0.0], 2.0);
+        b.tick(0.1);
+        b.set(0, None, &[0.25]);
+        b.tick(1.0 / 60.0);
+        assert_eq!(
+            b.output(0).map(|v| v[0]),
+            Some(0.25),
+            "a plain write snaps again: the glide is over"
+        );
         Ok(())
     }
 }

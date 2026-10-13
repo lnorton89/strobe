@@ -275,6 +275,8 @@ pub struct Flat<'a> {
     pub aliases: &'a [String],
     /// The macro's usable range, if it narrowed one.
     pub range: Option<[f32; 2]>,
+    /// The macro's glide, in seconds, if it has one (D227).
+    pub glide: Option<f32>,
 }
 
 /// Looks through a macro to the target it stands for.
@@ -284,6 +286,7 @@ pub fn flatten<'a>(target: &'a Target, macros: &'a MacroSet) -> Result<Flat<'a>,
             target,
             aliases: &[],
             range: None,
+            glide: None,
         });
     };
     let Some(found) = macros.get(*id) else {
@@ -305,6 +308,7 @@ pub fn flatten<'a>(target: &'a Target, macros: &'a MacroSet) -> Result<Flat<'a>,
         target: &found.target,
         aliases: &found.aliases,
         range: found.range,
+        glide: found.glide,
     })
 }
 

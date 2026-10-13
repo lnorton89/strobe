@@ -155,6 +155,9 @@ checked and not committed. Interaction was driven with xdotool.
   software rasterisation and says nothing).
 - [x] Named layouts (D215), saved in Settings and applied from Settings or
   the palette. Evidence: `ui::state` and `command_palette` tests.
+- [x] A glide per macro (D227): a mapped fader eases even a plain slider,
+  and any other write ends the glide. Evidence: `strobe-io` engine and
+  `strobe-scene` runtime tests.
 - [x] Breakdowns and drops heard and handed to the playlist clock (D226):
   once each, none on a short dip, on silence or a reconnect, the same at
   30 and 144 fps, and through the real analyser on a kick/hiss/kick
