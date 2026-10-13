@@ -289,6 +289,10 @@ body[data-blackout="true"] .now { border-color: var(--danger); }
     ws.onopen = function () {
       heard();
       send({ type: "hello", protocol_version: PROTOCOL_VERSION });
+      // From the start, not only once paired: typing the code and waiting
+      // for the desktop's approval must not look idle to the server.
+      window.clearInterval(pingTimer);
+      pingTimer = window.setInterval(function () { send({ type: "ping" }); }, PING_MS);
     };
     ws.onmessage = function (event) {
       heard();
@@ -327,8 +331,6 @@ body[data-blackout="true"] .now { border-color: var(--danger); }
     view("show");
     connection("Connected", "live");
     enable(true);
-    window.clearInterval(pingTimer);
-    pingTimer = window.setInterval(function () { send({ type: "ping" }); }, PING_MS);
   }
 
   function handle(message) {
