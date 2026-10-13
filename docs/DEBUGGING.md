@@ -119,6 +119,11 @@ perf: 59.9 fps over 60 s, 0 late of 3594 frames, worst gap 17.9 ms, gpu 2.10 ms,
   The count drops to about 120 a minute while the fullscreen output covers
   the control window ("control window covered" in the log).
 
+If make-current sits near a refresh period, the control window is waiting
+for the output's vsynced swap. The app then slows the control window to
+10 Hz and logs `control window: making it current waits ...` (D216), and
+logs again when it recovers.
+
 A soak should show `0 late` minute after minute. The fps in the control
 window's status bar is only as fresh as that window's last paint; while the
 fullscreen output covers it, Windows hardly repaints it, so trust the log. To compare with an older

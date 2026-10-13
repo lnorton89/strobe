@@ -213,9 +213,108 @@ impl PerfWindow {
     }
 }
 
+/// Paces the control window by what making its context current costs
+/// (D216).
+///
+/// TORNADO T13 (GTX 1080 Ti, windowed) found each control redraw spending
+/// about 16 ms in `make_current`: switching the shared context to the
+/// control window waits for the output's vsynced swap to finish, and every
+/// such wait cost the show a vertical blank. When that wait settles above
+/// [`SLOW_ABOVE_MS`], the control window drops to [`SLOW_PERIOD`] until it
+/// settles below [`FAST_BELOW_MS`]; the gap between the two keeps it from
+/// flapping. The T480 (Intel) never waits there, so this never engages
+/// on it.
+#[derive(Debug, Default)]
+pub struct ControlPacer {
+    smoothed_ms: f32,
+    slow: bool,
+}
+
+/// Above this smoothed make-current cost the control window slows down.
+pub const SLOW_ABOVE_MS: f32 = 8.0;
+
+/// Below this it returns to its normal rate.
+pub const FAST_BELOW_MS: f32 = 3.0;
+
+/// The control window's period while slowed: 10 Hz.
+pub const SLOW_PERIOD: Duration = Duration::from_millis(100);
+
+/// Weight of the newest make-current sample.
+const PACER_SMOOTHING: f32 = 0.2;
+
+/// What a [`ControlPacer::observe`] changed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PaceChange {
+    /// Nothing.
+    None,
+    /// It just slowed down.
+    Slowed,
+    /// It just went back to normal.
+    Resumed,
+}
+
+impl ControlPacer {
+    /// Records one redraw's make-current time.
+    pub fn observe(&mut self, make_current: Duration) -> PaceChange {
+        let ms = make_current.as_secs_f32() * 1000.0;
+        self.smoothed_ms += (ms - self.smoothed_ms) * PACER_SMOOTHING;
+        if !self.slow && self.smoothed_ms > SLOW_ABOVE_MS {
+            self.slow = true;
+            return PaceChange::Slowed;
+        }
+        if self.slow && self.smoothed_ms < FAST_BELOW_MS {
+            self.slow = false;
+            return PaceChange::Resumed;
+        }
+        PaceChange::None
+    }
+
+    /// Whether the control window is slowed.
+    pub fn is_slow(&self) -> bool {
+        self.slow
+    }
+
+    /// The smoothed make-current cost, in milliseconds.
+    pub fn smoothed_ms(&self) -> f32 {
+        self.smoothed_ms
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_pacer_slows_on_a_sustained_wait_and_resumes_with_hysteresis() {
+        let mut pacer = ControlPacer::default();
+        let ms = Duration::from_millis;
+        assert_eq!(
+            pacer.observe(ms(16)),
+            PaceChange::None,
+            "one slow redraw is not a trend"
+        );
+        let mut slowed = false;
+        for _ in 0..10 {
+            slowed |= pacer.observe(ms(16)) == PaceChange::Slowed;
+        }
+        assert!(slowed && pacer.is_slow(), "a sustained wait slows it");
+        for _ in 0..3 {
+            assert_eq!(
+                pacer.observe(ms(5)),
+                PaceChange::None,
+                "in the gap: no flapping"
+            );
+        }
+        assert!(pacer.is_slow(), "still slow between the thresholds");
+        let mut resumed = false;
+        for _ in 0..20 {
+            resumed |= pacer.observe(ms(0)) == PaceChange::Resumed;
+        }
+        assert!(
+            resumed && !pacer.is_slow(),
+            "a cheap make-current brings it back"
+        );
+    }
 
     #[test]
     fn a_minute_is_summarised_once_with_late_frames_counted() {

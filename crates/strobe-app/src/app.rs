@@ -112,7 +112,7 @@ use crate::remote::{Overrides, Remote};
 use crate::screenshot::{Screenshot, Target};
 use crate::session::{self, Session};
 use crate::show::{self, Env, Phase, Show};
-use crate::stats::{ControlTimes, FrameStats, PerfWindow};
+use crate::stats::{ControlPacer, ControlTimes, FrameStats, PaceChange, PerfWindow};
 use crate::ui::widgets::Tone;
 use crate::ui::{
     Action, CueTransport, EditorPanel, FailurePanel, GeneratePanel, ImportPanel, ListenerPanel,
@@ -554,6 +554,9 @@ struct Running {
     stats: FrameStats,
     /// A minute of frame timings, logged as one line (T10).
     perf_log: PerfWindow,
+    /// Slows the control window when switching to it waits on the output
+    /// (D216).
+    control_pacer: ControlPacer,
     gl_summary: String,
     audio: AudioInput,
     mouse: MouseTracker,
@@ -818,6 +821,7 @@ impl Running {
             console: Console::default(),
             stats: FrameStats::default(),
             perf_log: PerfWindow::default(),
+            control_pacer: ControlPacer::default(),
             gl_summary,
             audio: AudioInput::new(cli.audio == AudioArg::Auto),
             mouse: MouseTracker::default(),
@@ -1284,6 +1288,8 @@ impl Running {
             self.stack.control.window().request_redraw();
             let period = if self.control_covered {
                 COVERED_PERIOD
+            } else if self.control_pacer.is_slow() {
+                crate::stats::SLOW_PERIOD
             } else {
                 CONTROL_PERIOD
             };
@@ -3287,6 +3293,17 @@ impl Running {
             return;
         }
         let make_current = current_began.elapsed();
+        match self.control_pacer.observe(make_current) {
+            PaceChange::None => {}
+            PaceChange::Slowed => log::info!(
+                "control window: making it current waits {:.1} ms for the output's vertical blank; redrawing at 10 Hz so the show keeps its frames",
+                self.control_pacer.smoothed_ms()
+            ),
+            PaceChange::Resumed => log::info!(
+                "control window: making it current is cheap again ({:.1} ms); back to 30 Hz",
+                self.control_pacer.smoothed_ms()
+            ),
+        }
         let now = Instant::now();
         self.console.refresh();
         self.audio.refresh_status(now);
