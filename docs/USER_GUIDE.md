@@ -55,7 +55,7 @@ screen until you ask.
 | T | Tap the tempo |
 | F11 | Output fullscreen |
 | Ctrl+F | Search the library |
-| Ctrl+K | The command palette: every command by name |
+| Ctrl+K | The command palette: every command, pane, scene and preset by name |
 | Esc | Close the top pane |
 
 Settings > Keyboard changes any of them.

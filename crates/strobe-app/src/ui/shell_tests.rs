@@ -104,6 +104,8 @@ struct Scenario {
     density: crate::ui::theme::Density,
     /// The LAN remote is on, with a phone waiting for approval (D254).
     lan: bool,
+    /// The command palette is open with this typed (D262).
+    palette: Option<&'static str>,
     panes: &'static [Pane],
 }
 
@@ -131,6 +133,7 @@ const BASE: Scenario = Scenario {
     cue_selected: false,
     density: crate::ui::theme::Density::Comfortable,
     lan: false,
+    palette: None,
     panes: &[Pane::Inspector],
 };
 
@@ -317,6 +320,17 @@ fn scenarios() -> Vec<Scenario> {
             name: "macro strip with unavailable macros and the presets row",
             mapped: true,
             panes: &[Pane::Inspector],
+            ..BASE
+        },
+        Scenario {
+            name: "palette listing scenes and presets",
+            palette: Some("scene"),
+            panes: &[Pane::Browser, Pane::Inspector],
+            ..BASE
+        },
+        Scenario {
+            name: "palette with nothing typed",
+            palette: Some(""),
             ..BASE
         },
         Scenario {
@@ -626,6 +640,9 @@ fn draw_events(
         ui_state.panes.open(*pane);
     }
     ui_state.hotkeys.capturing = scenario.capturing;
+    if let Some(query) = scenario.palette {
+        ui_state.command_palette.open_with(query);
+    }
     if scenario.clash {
         ui_state.hotkeys.clash = Some((
             crate::commands::CommandId::TapTempo,
@@ -1125,6 +1142,46 @@ fn the_palette_opens_panes_and_survives_an_empty_result() -> Result<()> {
     Ok(())
 }
 
+#[test]
+fn the_palette_loads_previews_and_applies_presets_by_name() -> Result<()> {
+    let drawn = draw_events(BASE, (1440.0, 900.0), palette_run("03-scene-2"))?;
+    assert_eq!(
+        drawn.all_actions,
+        vec![Action::Load(2)],
+        "a scene's name, then Enter, loads it"
+    );
+    let drawn = draw_events(BASE, (1440.0, 900.0), palette_run("preview 04"))?;
+    assert_eq!(
+        drawn.all_actions,
+        vec![Action::Preview(3)],
+        "Preview and part of the name previews it"
+    );
+    assert!(
+        drawn.open_panes.contains(&Pane::Browser),
+        "the browser opens to show the preview; open: {:?}",
+        drawn.open_panes
+    );
+    let drawn = draw_events(BASE, (1440.0, 900.0), palette_run("peak"))?;
+    assert_eq!(
+        drawn.all_actions,
+        vec![Action::RecallPreset("Peak".to_string())],
+        "a preset of the playing scene is applied"
+    );
+    let drawn = draw_events(BASE, (1440.0, 900.0), palette_run("01-scene-0"))?;
+    assert!(
+        drawn.all_actions.is_empty(),
+        "the playing scene is listed but not loaded again; got {:?}",
+        drawn.all_actions
+    );
+    let drawn = draw_events(BASE, (1440.0, 900.0), palette_run("black"))?;
+    assert_eq!(
+        drawn.all_actions,
+        vec![Action::SetBlackout(true)],
+        "an exact command still comes before every scene"
+    );
+    Ok(())
+}
+
 /// Paints `drawn` on a headless GL context and writes it to `path` as a PNG.
 /// Returns false (after saying why) when there is no headless context.
 fn shoot(drawn: &mut Drawn, size: (f32, f32), path: &std::path::Path) -> Result<bool> {
@@ -1268,8 +1325,9 @@ fn nothing_is_painted_over_blackout_at_any_size() -> Result<()> {
                 "{} at {size:?}: BLACKOUT is outside the window ({blackout:?})",
                 scenario.name
             );
-            if scenario.replace {
-                // The modal's scrim covers everything on purpose.
+            if scenario.replace || scenario.palette.is_some() {
+                // The modal's and the palette's scrims cover everything on
+                // purpose.
                 continue;
             }
             for later in drawn.shapes.iter().skip(index + 1) {
