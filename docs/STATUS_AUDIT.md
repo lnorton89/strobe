@@ -59,8 +59,18 @@ Linux and llvmpipe cannot prove any of these:
   the workflow's flags, run from `%TEMP%` and from another working
   directory, crashed on purpose and symbolicated with no `--symbols`
   (T480 Tasks 21 and 22). An archive from a real tagged release is R-05.
-- [ ] Run for at least 30 minutes with repeated scene switches, and
-  inspect for crashes, log growth and resource stability.
+- [x] Run for at least 30 minutes with repeated scene switches, and
+  inspect for crashes, log growth and resource stability. TORNADO T19
+  (commit 9215858): 31 minutes, a 10 s crossfade playlist over all 12
+  scenes, with 186 cues and 185 transitions, all finished.
+  - No crash, warning or error; a clean close (exit 0).
+  - Working set 145.1 to 145.6 MB over the last 20 minutes (0.2 MB per
+    10 minutes), with handles flat at 421.
+  - The log grew 2.9 KB a minute.
+  - 60 fps, with 0 to 4 late frames a minute.
+
+  Not yet: the same on the T480's iGPU, whose earlier 30-minute run (Task
+  17) held one scene.
 - [x] Keep commands, environment, logs, screenshots and failed outcomes in
   [hardware/T480.md](hardware/T480.md).
 
