@@ -2555,6 +2555,21 @@ impl Running {
                     let result = Bindings::assign(&mut self.remote.hotkeys, command, chord, steal);
                     self.hotkey_changed(command, chord, result);
                 }
+                Action::PinMacro { name, meta, pin } => {
+                    let target = if meta {
+                        strobe_io::Target::meta(&name)
+                    } else {
+                        strobe_io::Target::control(&name)
+                    };
+                    let macros = &mut self.remote.engine.macros;
+                    if pin {
+                        macros.pin(&name, target);
+                        log::info!("macros: pinned {name}");
+                    } else if let Some(id) = macros.for_target(&target).map(|m| m.id) {
+                        macros.set_pinned(id, false);
+                        log::info!("macros: unpinned {name}");
+                    }
+                }
                 Action::ResetHotkey(command) => {
                     let result = Bindings::reset(&mut self.remote.hotkeys, command);
                     self.hotkey_changed(command, command.chord(), result);

@@ -3394,3 +3394,34 @@ delivery over loopback UDP). In the app under Xvfb, with OSC on port 9100
 and feedback to 9101, a Python listener received the state at start, then
 `/strobe/control/warp` 0.5 → 0.25 after one OSC message set it.
 
+### D210: a macro's reach and colour are edited in MAP, and a control is pinned from its name (2026-10-13)
+
+Backlog U-04. D175 gave a Performance Macro a `range` (the part of its
+control's range a mapped fader reaches) and a `color` (an identity), and the
+engine already applied the range. Neither had an editor, and a macro could
+only be made from the MAP pane's add form.
+
+- **Reach** is two percentages in the macro's options in MAP, with *Full*
+  to clear it. `MacroSet::set_range` puts the ends in order, clamps them to
+  0..100%, keeps them at least 1% apart (a point would make every fader a
+  constant), and stores the full range as no range, so the file holds only
+  real changes. The card's tooltip says the reach.
+- **Colour** is one of eight swatches, or none. The index is stored, not an
+  RGB value, and drawn from the theme's series ramp, so a colour follows a
+  theme change and stays distinct from its neighbours. The card shows it as
+  a band along its top.
+- **Pin from the control.** In the Inspector, right-clicking a control's
+  name (or a bang's button), scene or meta, offers *Pin as a macro*, or
+  *Unpin the macro* when it has one. Pinning an existing macro's target
+  re-pins it instead of making a second card (`MacroSet::pin`).
+
+**Not done:** a shortcut per macro and a smoothing per macro. A control's
+own smoothing already applies to what a macro writes, and a shortcut needs
+somewhere to say what a key press means for a continuous value (jump to
+the top? toggle?), which no request has defined yet.
+
+**Evidence:** `strobe-io` `macros` tests (order, clamp, the minimum reach,
+the full range as none, colour bounds, lookup by target); the shell
+scenarios with a coloured, ranged macro at six sizes; and a screenshot of
+the strip with four macros, three of them coloured, under Xvfb.
+

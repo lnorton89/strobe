@@ -76,6 +76,15 @@ pub enum Action {
     },
     /// Put a command back on its default shortcut.
     ResetHotkey(crate::commands::CommandId),
+    /// Pin a control as a Performance Macro, or unpin its macro (D210).
+    PinMacro {
+        /// The control's name.
+        name: String,
+        /// A meta control rather than one of the scene's.
+        meta: bool,
+        /// Pin (`true`) or unpin.
+        pin: bool,
+    },
     /// Write the Editor's unsaved files.
     EditorSave,
     /// Write them and load the scene again.

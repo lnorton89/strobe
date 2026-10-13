@@ -223,8 +223,8 @@ runs are listed in [`DEBUGGING.md`](../../docs/DEBUGGING.md).
 - Show control (D170-D179) is built and verified under Xvfb with real OSC
   datagrams, a real click on Learn, and headless GL for cue presets; **no MIDI
   controller has been used**, and nothing here has run on the T480 or Windows.
-  OSC feedback is built (D209). Not built: MIDI output, a macro range and
-  colour editor. Shortcuts
+  OSC feedback (D209) and the macro range and colour editor (D210) are built.
+  Not built: MIDI output. Shortcuts
   are edited in Settings > Keyboard (D208), and blackout has explicit on and
   off commands (D201).
   Cube maps and `syn_Media` stills and sequences work (D185, D186), video

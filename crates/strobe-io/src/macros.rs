@@ -28,6 +28,14 @@
 use crate::target::Target;
 use serde::{Deserialize, Serialize};
 
+/// How many identity colours a macro can take (indices `0..COLOURS` into
+/// the theme's series ramp; the app draws them).
+pub const COLOURS: u8 = 8;
+
+/// The narrowest reach a macro's range may have, as a fraction: a range
+/// that collapses to a point would make every fader a constant.
+pub const MIN_REACH: f32 = 0.01;
+
 /// One Performance Macro.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Macro {
@@ -182,6 +190,42 @@ impl MacroSet {
         }
     }
 
+    /// Sets the part of the control's range a mapping may reach, as
+    /// fractions (D210). The ends are clamped to `0..1` and put in order,
+    /// and kept at least [`MIN_REACH`] apart; the full range is stored as
+    /// `None`, so the file holds only real changes.
+    pub fn set_range(&mut self, id: u32, range: Option<[f32; 2]>) {
+        let range = range.and_then(|[a, b]| {
+            let (a, b) = (a.clamp(0.0, 1.0), b.clamp(0.0, 1.0));
+            if !(a.is_finite() && b.is_finite()) {
+                return None;
+            }
+            let (mut low, mut high) = if a <= b { (a, b) } else { (b, a) };
+            if high - low < MIN_REACH {
+                high = (low + MIN_REACH).min(1.0);
+                low = high - MIN_REACH;
+            }
+            let full = low <= f32::EPSILON && high >= 1.0 - f32::EPSILON;
+            (!full).then_some([low, high])
+        });
+        if let Some(m) = self.get_mut(id) {
+            m.range = range;
+        }
+    }
+
+    /// Sets the identity colour, an index below [`COLOURS`]; anything
+    /// else is no colour.
+    pub fn set_color(&mut self, id: u32, color: Option<u8>) {
+        if let Some(m) = self.get_mut(id) {
+            m.color = color.filter(|c| *c < COLOURS);
+        }
+    }
+
+    /// The macro that drives `target`, if there is one.
+    pub fn for_target(&self, target: &Target) -> Option<&Macro> {
+        self.macros.iter().find(|m| m.target == *target)
+    }
+
     /// Points a macro at a different target. A macro cannot point at a
     /// macro; that is refused (returns false).
     pub fn retarget(&mut self, id: u32, target: Target) -> bool {
@@ -313,6 +357,45 @@ mod tests {
         );
         let next = set.add(Macro::new("D", Target::control("d")));
         assert!(!ids.contains(&next), "a fresh id");
+        Ok(())
+    }
+
+    #[test]
+    fn a_range_is_ordered_clamped_kept_open_and_full_is_none() -> Result<()> {
+        let mut set = MacroSet::default();
+        let id = set.add(Macro::new("Speed", Target::control("speed")));
+        let range = |set: &MacroSet| set.get(id).and_then(|m| m.range);
+        set.set_range(id, Some([0.8, 0.2]));
+        assert_eq!(range(&set), Some([0.2, 0.8]), "put in order");
+        set.set_range(id, Some([-1.0, 0.5]));
+        assert_eq!(range(&set), Some([0.0, 0.5]), "clamped");
+        set.set_range(id, Some([0.5, 0.5]));
+        let kept = range(&set).ok_or_else(|| anyhow::anyhow!("a range"))?;
+        assert!(
+            kept[1] - kept[0] >= MIN_REACH - 1e-6,
+            "never a point: {kept:?}"
+        );
+        set.set_range(id, Some([1.0, 1.0]));
+        let top = range(&set).ok_or_else(|| anyhow::anyhow!("a range"))?;
+        assert!(
+            top[1] <= 1.0 && top[1] - top[0] >= MIN_REACH - 1e-6,
+            "at the top: {top:?}"
+        );
+        set.set_range(id, Some([0.0, 1.0]));
+        assert_eq!(range(&set), None, "the full range is no range");
+        set.set_color(id, Some(3));
+        assert_eq!(set.get(id).and_then(|m| m.color), Some(3), "a colour");
+        set.set_color(id, Some(COLOURS));
+        assert_eq!(
+            set.get(id).and_then(|m| m.color),
+            None,
+            "out of the palette is none"
+        );
+        assert_eq!(
+            set.for_target(&Target::control("speed")).map(|m| m.id),
+            Some(id),
+            "found by target"
+        );
         Ok(())
     }
 

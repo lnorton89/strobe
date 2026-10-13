@@ -73,7 +73,7 @@
 - **Acceptance:** imported and existing scenes can be analysed; accepted controls visibly change the scene; defaults reproduce the original image within the engine's documented fidelity threshold; rejected suggestions do not mutate the source.
 
 ### U-04 Performance Macro editor and pinning
-- **Status:** In progress; model and strip exist.
+- **Status:** Mostly built (D210): range (reach) and colour edited in MAP, the colour on the card, pin and unpin from a control's name in the Inspector; reorder and the unresolved states were already there (D175). Left: a shortcut and smoothing per macro.
 - **Work:** edit range and colour, per-macro shortcut and smoothing, pin/unpin from Controls, reorder macros, inspect target resolution, and retain unavailable/broken/conflict states across launches.
 - **Acceptance:** macro configuration survives restart; targets resolve only through documented stable identity rules; no silent fuzzy matches; all states have UI and tests.
 
@@ -194,7 +194,7 @@
 - **Acceptance:** repeated on is idempotent; repeated off is idempotent; mappings do not accidentally unblack an already blacked output; UI/remote state converges after reconnect.
 
 ### P-07 Macro and preset completion
-- **Status:** In progress.
+- **Status:** In progress: range and colour editing and pinning are built (D210). Left: a shortcut and smoothing per macro, preset rename, the media channel.
 - **Work:** complete range/colour editing, macro shortcut/smoothing/pinning; add preset rename; add media preset channel after media-per-cue exists; validate save/recall/delete and missing-control resolution.
 - **Acceptance:** no data loss on unresolved targets; presets remain backwards-compatible; user sees what will be changed before destructive replacement.
 
