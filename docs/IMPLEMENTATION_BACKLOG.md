@@ -125,7 +125,10 @@
 - **Acceptance:** fixtures test each value and neutral no-op behaviour on GL 3.3 and GLES/ANGLE; neutral settings incur no post pass where technically possible; T480 and TORNADO GPU cost is recorded.
 
 ### C-02 GLES/SSF translation gaps
-- **Status:** Built (D199); the ANGLE/D3D11 re-run passed (TORNADO T18: 63 of 65 real scenes in both dialects, the two failures the scenes' own bugs). Left: function-like macros that mix int and float, a `sampler2D` in `?:`.
+- **Status:** Built (D199, D261); the ANGLE/D3D11 re-run passed (TORNADO T18: 63 of 65 real scenes in both dialects, the two failures the scenes' own bugs). The last two gaps are closed (D261), with original fixtures in `render.rs` that failed on ES before and pass in both dialects on llvmpipe:
+  - function-like macros that mix int and float: on ES each call is typed through its expansion, and the conversion goes into the argument, or the one call is inlined on its own line (`function_like_macros_mixing_int_and_float_compile_in_both_dialects`);
+  - a sampler in `?:`: `texture(c ? a : b, uv)` becomes `(c ? texture(a, uv) : texture(b, uv))` on every dialect (`a_sampler_chosen_with_a_ternary_compiles_in_both_dialects`). Any other sampler `?:` fails on ES with Strobe's message at the user's line (`a_sampler_choice_that_cannot_be_rewritten_fails_with_strobes_message_on_es`).
+  - Not yet run: ANGLE on the T480 or TORNADO, and the owner's corpus.
 - **Work:** expand parser-backed rewrites for implicit int-to-float conversions and non-macro conditional compilation; do not add regex-only source rewriting that can change comments or identifiers.
 - **Acceptance:** each discovered real-world failure has a minimized fixture, a stable diagnostic and native/GLES outcome; unsupported cases fail visibly rather than generating corrupt shader text.
 
