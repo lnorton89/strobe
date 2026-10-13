@@ -82,6 +82,7 @@ use raw_window_handle::{HasDisplayHandle, HasWindowHandle, RawDisplayHandle, Raw
 use std::ffi::CStr;
 use std::fmt;
 use std::num::NonZeroU32;
+use std::path::Path;
 use winit::event_loop::ActiveEventLoop;
 use winit::window::{Window, WindowAttributes};
 
@@ -226,6 +227,36 @@ pub struct WindowError {
     pub attempts: Vec<String>,
 }
 
+/// ANGLE's two DLLs, which must sit beside the executable on Windows.
+const ANGLE_DLLS: [&str; 2] = ["libEGL.dll", "libGLESv2.dll"];
+
+/// On Windows, why ANGLE may have failed: its DLLs are not beside the
+/// executable. A worktree or a fresh build has none, and EGL's own error
+/// ("could not open one") does not say so.
+fn missing_angle_dlls() -> Option<String> {
+    if !cfg!(windows) {
+        return None;
+    }
+    let exe = std::env::current_exe().ok()?;
+    angle_hint(exe.parent()?)
+}
+
+/// Names the ANGLE DLLs missing from `dir`, if any.
+fn angle_hint(dir: &Path) -> Option<String> {
+    let missing: Vec<&str> = ANGLE_DLLS
+        .into_iter()
+        .filter(|name| !dir.join(name).is_file())
+        .collect();
+    (!missing.is_empty()).then(|| {
+        format!(
+            "{} not found beside {} (the release zip ships them; \
+             scripts/fetch-angle.ps1 fetches them into target\\release)",
+            missing.join(" and "),
+            dir.display()
+        )
+    })
+}
+
 /// A window and the GL surface drawing to it.
 ///
 /// Field order is drop order: the surface goes before the window it was
@@ -278,6 +309,14 @@ impl WindowedContext {
                     return Ok(opened);
                 }
                 Err(message) => {
+                    let hint = match backend {
+                        Backend::Angle => missing_angle_dlls(),
+                        Backend::Native => None,
+                    };
+                    let message = match hint {
+                        Some(hint) => format!("{message}; {hint}"),
+                        None => message,
+                    };
                     log::warn!("GL backend {backend} unavailable: {message}");
                     attempts.push(format!("{backend}: {message}"));
                 }
@@ -588,5 +627,22 @@ mod tests {
             Backend::Angle.config_api(),
             "desktop GL versus GLES"
         );
+    }
+
+    #[test]
+    fn a_missing_angle_dll_is_named() -> anyhow::Result<()> {
+        let dir = std::env::temp_dir().join(format!("strobe-angle-{}", std::process::id()));
+        std::fs::create_dir_all(&dir)?;
+        std::fs::write(dir.join("libEGL.dll"), b"")?;
+        let hint = angle_hint(&dir);
+        assert!(
+            hint.as_deref()
+                .is_some_and(|h| h.starts_with("libGLESv2.dll not found")),
+            "names the one missing: {hint:?}"
+        );
+        std::fs::write(dir.join("libGLESv2.dll"), b"")?;
+        assert_eq!(angle_hint(&dir), None, "both there: no hint");
+        std::fs::remove_dir_all(&dir)?;
+        Ok(())
     }
 }

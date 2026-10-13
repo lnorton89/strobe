@@ -325,8 +325,8 @@ where
     }
     let Some((what, gfx, swap)) = opened else {
         return Err(OffscreenError::Window(format!(
-            "window context: could not open one.\n{}",
-            problems.join("\n")
+            "window context: could not open one ({})",
+            problems.join("; ")
         )));
     };
 
