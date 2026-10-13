@@ -309,6 +309,27 @@ swap (T13). The driver's global settings could not be read without taking
 over the desktop; the owner can see them under NVIDIA Control Panel >
 Manage 3D settings > Global.
 
+## make_current is the wait (2026-10-13, commit ca804d5, Task T13)
+
+The T12 layout with the redraw split, 4 minutes with the control window
+visible (W), then 4 with it minimised (M).
+
+| Run | minute 1 | 2 | 3 | 4 |
+|---|---|---|---|---|
+| W late frames | 1606 | 524 | 7 | 1 |
+| W make-current (ms) | 16.49 | 5.83 | 0.55 | 0.68 |
+| M late frames | 221 | 2 | 5 | 2 |
+
+Layout was 0.6-0.9 ms, paint 0.1-0.7 ms and swap 0.04-0.25 ms throughout.
+**The ~17 ms is `make_current`:** switching the shared context to the
+control window waits for the output's vsynced swap to complete. Minimised,
+the control window redraws only 1 to 5 times a minute (each still about
+16 ms in make-current) and late frames fall to 2-5 a minute, so the cost
+is the number of control redraws, not visibility. In W the wait vanished
+by itself after about 1.5 minutes, as in T11 and unlike T12: an
+intermittent driver or compositor change in how the windowed surfaces
+present, not the app's state. D216 adds a pacer for it.
+
 ## Pending on this machine
 
 - [x] Re-run 07 at 1080p and 2160p after D191: same size (T2).
@@ -327,8 +348,9 @@ Manage 3D settings > Global.
   late frames for 4 minutes.
 - [x] T12: the swap returns in 0.03 ms; the wait is elsewhere in the
   redraw, and the 4-minute drop does not recur.
-- [ ] T13: the same run with the redraw split into make-current, layout,
-  paint and swap.
+- [x] T13: the wait is `make_current` (16 ms), and it scales with the
+  number of control redraws.
+- [ ] T14: the pacer (D216) engages and holds late frames down.
 - [ ] A larger set of real Shadertoy shaders through NVIDIA's compiler
   (owner-supplied, kept local), to find NVIDIA-only acceptance.
 - [ ] The Vulkan / wgpu compiler spike from

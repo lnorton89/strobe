@@ -3554,3 +3554,34 @@ row height in the UI, and a shortcut per layout.
 changes nothing, written to the preferences, delete) and the palette test
 (a layout is an entry, found by name).
 
+### D216: the control window slows to 10 Hz while switching to it waits on the output (2026-10-13)
+
+TORNADO T11 to T13 traced late output frames, windowed on a GTX 1080 Ti,
+to the control window. Making the shared context current on the control
+window's surface waited about 16 ms for the output's vsynced swap. Each
+control redraw at 30 Hz therefore cost the show a vertical blank: 37-45% of
+output frames were late. The wait came and went by itself (gone after
+1.5 to 5 minutes in some runs, never in others), so it is the driver's or
+the compositor's choice of present path, not the app's state. The T480
+(Intel) never waits there, and a fullscreen output covering the control
+window was always fine, because a covered window is not painted.
+
+- **A pacer.** `stats::ControlPacer` smooths each redraw's make-current
+  time. Above 8 ms the control window redraws at 10 Hz; below 3 ms it
+  returns to 30 Hz. The gap keeps it from flapping. Both changes are
+  logged. Ten redraws a second still cost up to ten blanks a second in
+  that state, but a third as many, and the preview and sliders stay
+  usable. The show's frames come before the UI's smoothness.
+- **The cure is structural.** Drawing the control window from its own
+  thread, with its own shared context, would end the switching. That is a
+  large change to the frame loop (the UI model borrows the app's whole
+  state each frame), so it waits until this pacer proves too blunt on a
+  real two-screen show.
+- **Why not more.** Turning vsync off on the output would tear the
+  projector. Skipping the control window's swap would freeze the operator's
+  screen.
+
+**Would reopen:** a two-screen show (output fullscreen on a projector,
+control window visible on the laptop) still losing frames with the pacer
+engaged.
+
