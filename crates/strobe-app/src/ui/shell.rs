@@ -149,6 +149,7 @@ pub fn show(ui: &mut Ui, shell: &mut ShellState, model: &mut Model<'_>, actions:
     }
 
     command_palette::draw(ui.ctx(), &theme, model, actions);
+    browser::drag_label(ui.ctx(), &theme);
 
     if let Some(question) = modal_question
         && let Some(answer) = modal::draw(ui.ctx(), &theme, &question)

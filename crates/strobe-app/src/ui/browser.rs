@@ -320,6 +320,38 @@ fn list(
         }
     });
 }
+/// A library scene being dragged out of the browser (D224): its folder
+/// name, as a playlist names it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LibraryDrag(pub String);
+
+/// While a scene is dragged out of the browser, its name follows the
+/// pointer, so it is clear what will land.
+pub fn drag_label(ctx: &egui::Context, theme: &Palette) {
+    let Some(payload) = egui::DragAndDrop::payload::<LibraryDrag>(ctx) else {
+        return;
+    };
+    let Some(pointer) = ctx.pointer_latest_pos() else {
+        return;
+    };
+    egui::Area::new(egui::Id::new("library-drag"))
+        .order(egui::Order::Tooltip)
+        .fixed_pos(pointer + Vec2::new(12.0, 8.0))
+        .interactable(false)
+        .show(ctx, |ui| {
+            egui::Frame::new()
+                .fill(theme::rgb(theme.raised))
+                .stroke(egui::Stroke::new(1.0, theme::rgb(theme.accent)))
+                .corner_radius(CornerRadius::same(theme::RADIUS))
+                .inner_margin(theme::margin_xy(SPACE_SM, SPACE_XS))
+                .show(ui, |ui| {
+                    ui.label(
+                        egui::RichText::new(format!("+ {}", payload.0))
+                            .color(theme::rgb(theme.text)),
+                    );
+                });
+        });
+}
 
 /// One scene's row: swatch, name, health, and the verbs for a selected row.
 fn row(
@@ -341,8 +373,14 @@ fn row(
     let loading = model.loading == Some(entry.name.as_str());
 
     let width = ui.available_width();
-    let (rect, response) =
-        ui.allocate_exact_size(Vec2::new(width, theme::row_height()), Sense::click());
+    let (rect, response) = ui.allocate_exact_size(
+        Vec2::new(width, theme::row_height()),
+        Sense::click_and_drag(),
+    );
+    // A row dragged to the LIST pane becomes a cue there (D224).
+    if response.drag_started() {
+        response.dnd_set_drag_payload(LibraryDrag(entry.name.clone()));
+    }
     let id = egui::Id::new(("scene-row", &entry.name));
     let fill = widgets::selection_fill(ui, theme, id, selected, response.hovered(), theme.panel);
     ui.painter().rect_filled(rect, CornerRadius::ZERO, fill);

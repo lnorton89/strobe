@@ -3794,3 +3794,24 @@ the first two existed (D170); media was not controllable until D217.
 
 **Would reopen:** an operator wanting a preset's media to beat their own
 choice at cue starts.
+
+### D224: a browser scene drags into the cue list, and disabled cues are listed to enable (2026-10-13)
+
+Two gaps in LIST authoring (backlog U-07):
+
+- **Drag from the library.** A browser row is a drag source (egui's
+  payload drag and drop, `ui::browser::LibraryDrag` carrying the folder
+  name). While it is held, its name follows the pointer, and a cue row it
+  passes over shows an accent line along its bottom edge; released there,
+  it is `CueEdit::InsertAfter` that cue, the same edit as the card's "Add
+  <scene> after", so the show keeps its place and only a new scene
+  compiles (D213). Rows stay clickable and double-clickable; a drag starts
+  only after the pointer moves.
+- **Disabled cues.** The timeline lists only enabled cues, so a disabled
+  cue could not be selected to enable it. The card gains Disable, and a
+  folded "Disabled cues (N)" list under it names each by section and scene
+  with Enable. It is absent when nothing is disabled.
+
+**Would reopen:** dropping between sections or onto an empty playlist
+(today a drop lands after an existing cue), or several scenes dragged at
+once.
