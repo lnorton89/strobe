@@ -19,11 +19,16 @@
 //! Keys while the code has focus: Ctrl+S saves, Ctrl+Enter saves and
 //! reloads. Every other shortcut is off while typing (the focus rule in
 //! [`crate::commands`]).
+//!
+//! An error's button goes to its line and, when the compiler gave one, its
+//! column. A Save and reload refused because `scene.json` does not parse
+//! shows the parser's message here, with its line and column, and nothing
+//! reaches the show (D263).
 
 use super::model::{Action, Model};
 use super::theme::{self, SPACE_SM, SPACE_XS};
 use super::widgets::{self, Tone};
-use crate::editor::{self, Token, error_location, line_offset};
+use crate::editor::{self, Location, Token, error_location, location_offset};
 use crate::icon::Icon;
 use crate::palette::Palette;
 use crate::workspace::Pane;
@@ -33,8 +38,9 @@ use egui::{Key, Modifiers, Ui};
 /// What the Editor keeps between frames that is not a document.
 #[derive(Debug, Default)]
 pub struct EditorUi {
-    /// A line to put the cursor on, on the next frame.
-    pub goto: Option<usize>,
+    /// A line, and a column when known, to put the cursor on, on the next
+    /// frame.
+    pub goto: Option<(usize, Option<usize>)>,
     /// The last highlight, keyed by the text's hash, so typing re-colours
     /// once per change rather than once per frame.
     cache: Option<(u64, LayoutJob)>,
@@ -97,7 +103,12 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
     let error = failure
         .filter(|(scene, _)| *scene == doc.name)
         .map(|(_, summary)| summary);
-    let (word, tone) = if doc.is_dirty() {
+    let (word, tone) = if doc.invalid.is_some() {
+        (
+            "Not saved or reloaded: scene.json does not parse",
+            Tone::Error,
+        )
+    } else if doc.is_dirty() {
         ("Unsaved changes", Tone::Warning)
     } else if error.is_some() {
         (
@@ -145,18 +156,19 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
     });
     ui.add_space(SPACE_XS);
 
+    if let Some(invalid) = doc.invalid.clone() {
+        location_banner(
+            ui,
+            theme,
+            &invalid.message,
+            invalid.at.as_ref(),
+            doc,
+            model.ui,
+        );
+    }
     if let Some(summary) = error {
         let location = error_location(summary);
-        widgets::banner(ui, theme, Tone::Error, summary, |ui| {
-            if let Some((file, line)) = &location
-                && let Some(index) = doc.tab_index(file)
-                && widgets::button(ui, theme, None, &format!("Go to line {line}")).clicked()
-            {
-                doc.active = index;
-                model.ui.editor.goto = Some(*line);
-            }
-        });
-        ui.add_space(SPACE_XS);
+        location_banner(ui, theme, summary, location.as_ref(), doc, model.ui);
     }
 
     // Tabs.
@@ -175,6 +187,7 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
     ui.add_space(SPACE_SM);
 
     let active = doc.active.min(doc.tabs.len().saturating_sub(1));
+    let invalid = &mut doc.invalid;
     let Some(tab) = doc.tabs.get_mut(active) else {
         return;
     };
@@ -210,8 +223,12 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
                 .lock_focus(true)
                 .layouter(&mut layouter)
                 .show(ui);
-            if let Some(line) = goto {
-                let offset = line_offset(&tab.text, line);
+            if output.response.changed() && tab.file == editor::SCENE_JSON {
+                // The refusal was about the text before this edit.
+                *invalid = None;
+            }
+            if let Some((line, column)) = goto {
+                let offset = location_offset(&tab.text, line, column);
                 let chars = tab.text.get(..offset).map_or(0, |s| s.chars().count());
                 let mut state = output.state;
                 state
@@ -221,6 +238,28 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
                 output.response.request_focus();
             }
         });
+}
+
+/// An error banner with a button to its place, when the place is a file
+/// the Editor has open.
+fn location_banner(
+    ui: &mut Ui,
+    theme: &Palette,
+    message: &str,
+    at: Option<&Location>,
+    doc: &mut editor::Doc,
+    model_ui: &mut super::state::UiState,
+) {
+    widgets::banner(ui, theme, Tone::Error, message, |ui| {
+        if let Some(at) = at
+            && let Some(index) = doc.tab_index(&at.file)
+            && widgets::button(ui, theme, None, &format!("Go to {}", at.describe())).clicked()
+        {
+            doc.active = index;
+            model_ui.editor.goto = Some((at.line, at.column));
+        }
+    });
+    ui.add_space(SPACE_XS);
 }
 
 /// The colour of each kind of token.

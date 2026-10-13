@@ -159,8 +159,11 @@ checked and not committed. Interaction was driven with xdotool.
   keeps unavailable commands listed with the reason, Esc and a second Ctrl+K
   close it, and typing into it fires no shortcut. Evidence: headless egui
   tests in `ui::shell_tests` that drive the real shell with key events, and
-  the Xvfb screenshot `docs/images/perform/palette-1440x900.png`. **Not
-  yet:** used by a person on Windows.
+  the Xvfb screenshot `docs/images/perform/palette-1440x900.png`. It also
+  lists library scenes (Load, Preview) and the playing scene's presets
+  (Apply), after exact command matches (D262). Evidence: `command_palette`
+  tests and `ui::shell_tests::the_palette_loads_previews_and_applies_presets_by_name`.
+  **Not yet:** used by a person on Windows.
 - [x] Themes: every built-in theme passes the WCAG tests; the high-contrast
   and light themes were looked at.
 - [x] Every state at six window sizes fits its window, as headless egui tests
@@ -276,12 +279,29 @@ checked and not committed. Interaction was driven with xdotool.
   write keeps every other byte), the library scan test, the generator's
   `Why` tests, a corpus round trip (91 files, other keys unchanged, local
   only), and [images/perform/tags-1440x900.png](images/perform/tags-1440x900.png).
+- [x] Tagging any scene, and exclusions in Generate (D264): the Import pane
+  tags the scene it imported and the browser its selected scene, playing
+  or not, with the Inspector's row and one action naming the scene; the
+  Generate form's Exclude field leaves out scenes by tag or name, and the
+  preview lists them with the reason. Evidence: `ui::tags` tests (a
+  headless click on Save), `show::generate`
+  `excluded_tags_and_names_are_never_picked_and_say_why`, and four
+  `ui::shell_tests` scenarios at every size.
 - [x] The Editor (D204): tabs per source file, unsaved state, Save vs Save
   and reload, atomic saves with backups in the data directory, and "Open in
   Editor" / "Go to line" from a compile error. Evidence: `editor.rs` unit
   tests, the `ui::shell_tests` scenario "editor open with an unsaved edit",
   and [images/perform/editor-1440x900.png](images/perform/editor-1440x900.png)
   (Xvfb). Not yet: typing through a real window manager, the T480.
+- [x] Error columns and the `scene.json` check (D263): on Mesa a compile
+  error names `main.glsl:<line>:<column>` on the user's text, through the
+  assembler's rewrites and Mesa's whitespace folding, and the Editor's "Go
+  to" puts the cursor there; Save and reload refuses a `scene.json` the
+  loader would refuse, writing and reloading nothing. Evidence: the render
+  test `a_compile_error_names_the_users_column_when_the_driver_gives_one`
+  (llvmpipe), `assemble` and `editor.rs` tests, the shell scenario "editor
+  refused a reload, scene.json does not parse". Not yet: the T480, whose
+  drivers give no column.
 
 Read [UI_DESIGN.md](UI_DESIGN.md),
 [UI_IMPLEMENTATION_PLAN.md](UI_IMPLEMENTATION_PLAN.md),
@@ -431,8 +451,10 @@ they apply, and explicit supported, degraded or unsupported claims.
   frame (D212, D222); "Needs work", the LIB filter and the DIAG section
   that lists each scene that failed to load this run with its reason;
   batch import by dropping a folder of scene folders (D235, unit-tested,
-  not yet dropped by a person). **Not yet:** conversion diagnostics beyond
-  the warnings list.
+  not yet dropped by a person); a watched folder (D240) set in Settings,
+  applied live and saved, checked the same way at launch (D265; `intake`,
+  `app`, `ui::state` and `ui::settings` tests). **Not yet:** conversion
+  diagnostics beyond the warnings list.
 - [x] Auto-generated controls engine, stage 1 (D123-D126;
   [ROADMAP.md](ROADMAP.md), "Auto-generated controls"). Evidence:
   `crates/strobe-autocontrol/tests/engine.rs` on headless llvmpipe, both

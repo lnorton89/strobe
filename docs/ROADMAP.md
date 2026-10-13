@@ -83,7 +83,7 @@ Each item names its acceptance test. Evidence is in [STATUS_AUDIT.md](STATUS_AUD
      ~~"open the shader error in the Editor"~~ (built, D204);
    - ~~density~~ (built, D220; saved named layouts, D215; scene thumbnails
      from `IMAGE_PATH` or the live frame, D212 and D222; favourites, D211;
-     the command palette, Ctrl+K, D200);
+     the command palette, Ctrl+K, D200, with scenes and presets, D262);
    - on the T480 and real Windows: the custom title bar's drag, snap and
      resize and DPI behaviour, a maximised undecorated window against the
      taskbar, the UI's frame cost, and a Preview's cost (D132, D136).
@@ -413,7 +413,8 @@ never per frame.
   the same job and was (D116).
 - Built since: thumbnails (D212, D222), the "Needs work" filter and list,
   batch import of a dropped folder of scenes (D235) and a watched folder
-  (D240). Still open: a real OS drop by a person.
+  (D240), set in Settings and saved (D265). Still open: a real OS drop by
+  a person.
 - Not supported:
   - `cubemap` and `volume` inputs, and `sound` and `cubemap` passes: these
     are errors;

@@ -62,8 +62,15 @@ pub enum Action {
     /// Open a scene in the Editor: the library entry by name, or the
     /// playing scene when `None` (D204).
     OpenEditor(Option<String>),
-    /// Write these tags into the playing scene's `scene.json` (D205).
-    SetSceneTags(Vec<String>),
+    /// Write these tags into a library scene's `scene.json` (D205): the
+    /// playing one, the one just imported, or one selected in the browser
+    /// (D264).
+    SetSceneTags {
+        /// The scene's library name.
+        scene: String,
+        /// Its tags, replacing the ones it has.
+        tags: Vec<String>,
+    },
     /// Save the playing scene's live frame as its thumbnail (D222).
     CaptureThumbnail,
     /// Make the same setting edit to several cues (D230).
@@ -190,6 +197,14 @@ pub enum Action {
     CancelReplace,
     /// Start or stop the browser listener.
     SetImportListener(bool),
+    /// Watch this folder for scenes to add to the library, or stop
+    /// watching (D265). Applied at once and saved when it is applied.
+    SetWatchFolder {
+        /// The folder, as typed.
+        folder: String,
+        /// Watch it (`true`) or stop.
+        enabled: bool,
+    },
     /// Quit the app (the control window is the app, D96).
     Quit,
     /// Draw Strobe's title bar (true) or the system's (false).
@@ -327,6 +342,9 @@ pub struct ImportPanel<'a> {
     /// The playing scene is the one this pane just imported, so it may
     /// offer "Generate controls" for it (U-03, D246).
     pub imported_playing: bool,
+    /// The library entry this pane last imported, playing or not, so it can
+    /// be tagged here (D264).
+    pub imported: Option<usize>,
     /// A generate-controls worker is running.
     pub generating: bool,
 }
@@ -404,6 +422,9 @@ pub struct PlaylistUi {
     pub form: GenerateForm,
     /// The last Generate preview, or why there is none.
     pub preview: Option<Result<Generated, String>>,
+    /// The scenes the last preview's exclude field left out, and why
+    /// (D264).
+    pub excluded: Vec<(String, strobe_playlist::Why)>,
     /// The row highlighted in the timeline.
     pub selected: Option<usize>,
     /// More rows Ctrl-clicked into the selection (D230); the card's setting

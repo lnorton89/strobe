@@ -30,6 +30,7 @@ use super::controls;
 use super::icon as icons;
 use super::model::{Action, GeneratePanel, MediaFrom, MediaPanel, Model};
 use super::presets;
+use super::tags;
 use super::theme::{self, SPACE_SM, SPACE_XS};
 use super::widgets::{self, Tone};
 use crate::generate::{Kept, Outcome, Review, Summary};
@@ -71,7 +72,32 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
                 );
             }
             if let Some(entry) = model.playing.and_then(|i| model.library.entries.get(i)) {
-                tags_row(ui, theme, &entry.tags, &mut model.ui.tag_draft, actions);
+                let capture = |ui: &mut Ui| {
+                    if ui
+                        .small_button("Use frame as picture")
+                        .on_hover_text(
+                            "Save what is on screen now as this scene's picture in the library \
+                             (thumbnail.jpg in its folder)",
+                        )
+                        .clicked()
+                    {
+                        actions.push(Action::CaptureThumbnail);
+                    }
+                };
+                let mut asked = Vec::new();
+                tags::row(
+                    ui,
+                    theme,
+                    tags::Place {
+                        scene: &entry.name,
+                        named: false,
+                    },
+                    &entry.tags,
+                    &mut model.ui.tag_draft,
+                    capture,
+                    &mut asked,
+                );
+                actions.append(&mut asked);
             }
             if let Some(media) = model.media {
                 media_row(ui, theme, media, &mut model.ui.media_draft, actions);
@@ -143,71 +169,6 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
         if let Some((name, pin)) = chosen {
             actions.push(Action::PinMacro { name, meta, pin });
         }
-    }
-}
-
-/// The playing scene's tags as chips, or the field that edits them (D205).
-/// Saving writes `scene.json`; the scene is not reloaded, because tags do
-/// not change what it draws.
-fn tags_row(
-    ui: &mut Ui,
-    theme: &Palette,
-    tags: &[String],
-    draft: &mut Option<String>,
-    actions: &mut Vec<Action>,
-) {
-    let Some(text) = draft.as_mut() else {
-        ui.horizontal_wrapped(|ui| {
-            for tag in tags {
-                widgets::chip(ui, tag, theme.raised, theme.text_muted);
-            }
-            if tags.is_empty() {
-                ui.label(
-                    egui::RichText::new("No tags")
-                        .small()
-                        .color(theme::rgb(theme.text_faint)),
-                );
-            }
-            if ui
-                .small_button(if tags.is_empty() { "Add tags" } else { "Edit" })
-                .on_hover_text(
-                    "Tags find the scene in the library and pick it when generating a playlist",
-                )
-                .clicked()
-            {
-                *draft = Some(tags.join(", "));
-            }
-            if ui
-                .small_button("Use frame as picture")
-                .on_hover_text(
-                    "Save what is on screen now as this scene's picture in the library \
-                     (thumbnail.jpg in its folder)",
-                )
-                .clicked()
-            {
-                actions.push(Action::CaptureThumbnail);
-            }
-        });
-        return;
-    };
-    let mut done = false;
-    ui.horizontal(|ui| {
-        let field = ui.add(
-            egui::TextEdit::singleline(text)
-                .hint_text("dark, tunnel, audio reactive")
-                .desired_width((ui.available_width() - 120.0).max(80.0)),
-        );
-        let entered = field.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter));
-        if ui.small_button("Save").clicked() || entered {
-            actions.push(Action::SetSceneTags(strobe_scene::tags::parse_list(text)));
-            done = true;
-        }
-        if ui.small_button("Cancel").clicked() {
-            done = true;
-        }
-    });
-    if done {
-        *draft = None;
     }
 }
 

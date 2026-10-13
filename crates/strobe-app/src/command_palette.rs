@@ -1,9 +1,10 @@
 // ============================================================================
 // Module:       strobe_app::command_palette
-// Description:  What the command palette lists, how a query ranks it, and why
-//               an entry is unavailable. Pure, no egui.
+// Description:  What the command palette lists (commands, panes, layouts,
+//               scenes and presets), how a query ranks it, and why an entry
+//               is unavailable. Pure, no egui.
 //
-// Dependencies: crate::{commands, workspace}
+// Dependencies: crate::{commands, library, workspace}
 // ============================================================================
 
 //! The command palette (Ctrl+K, UI_DESIGN section 25), as data.
@@ -12,7 +13,8 @@
 //! [`crate::commands`], next to the keyboard, the buttons, MIDI, OSC and the
 //! remote. It lists every command (except the one that opens it), each with
 //! its current shortcut, plus one entry per pane, so anything reachable from
-//! the rail is reachable by typing. Running an entry goes through the same
+//! the rail is reachable by typing, and the library's scenes and the playing
+//! scene's presets. Running a command goes through the same
 //! code as its shortcut, so the palette can never mean something different
 //! from the key.
 //!
@@ -30,8 +32,26 @@
 //! is shown with the reason instead of being hidden. A palette that hides
 //! commands teaches the operator they do not exist. Choosing one does
 //! nothing but keep the palette open.
+//!
+//! ## Scenes and presets (D262)
+//!
+//! Each library scene is two entries, **Load** and **Preview**, and each
+//! preset of the playing scene is one, **Apply preset**. They are matched on
+//! their whole title and on the name alone, so `aurora` finds `Load:
+//! 01-aurora` as well as a title start would. They rank after every command
+//! whose title the query matches exactly (at the title's start or a word's,
+//! with no gaps), and before commands it matches only loosely, so `black` is
+//! still Blackout, and `aurora` is the scene even if some command happens to
+//! contain those letters in order.
+//!
+//! The list is built by [`Listing`] when the palette opens and again only
+//! when what it lists changes (the library, the playing scene, its presets,
+//! the layouts, what is available), and ranked again only when the query
+//! changes. A library of a thousand scenes costs nothing per frame while the
+//! palette sits open, and nothing at all while it is closed.
 
 use crate::commands::{Bindings, Category, CommandId};
+use crate::library::Library;
 use crate::workspace::Pane;
 
 /// What an entry does.
@@ -43,6 +63,24 @@ pub enum Target {
     Pane(Pane),
     /// Apply a saved layout, by name (D215).
     Layout(String),
+    /// Load the library scene at this index (it becomes live).
+    LoadScene(usize),
+    /// Preview the library scene at this index without changing what is
+    /// live.
+    PreviewScene(usize),
+    /// Recall this preset of the playing scene.
+    ApplyPreset(String),
+}
+
+impl Target {
+    /// Whether the entry names a scene or a preset rather than a command, a
+    /// pane or a layout; those rank after exact command matches.
+    fn is_content(&self) -> bool {
+        match self {
+            Self::LoadScene(_) | Self::PreviewScene(_) | Self::ApplyPreset(_) => true,
+            Self::Command(_) | Self::Pane(_) | Self::Layout(_) => false,
+        }
+    }
 }
 
 /// One row of the palette.
@@ -52,12 +90,34 @@ pub struct Item {
     pub target: Target,
     /// The words shown and matched.
     pub title: String,
-    /// The group shown beside it, also matched.
+    /// Where in `title` the scene's or preset's own name starts (0 for a
+    /// command), so the name alone is matched too.
+    pub name_at: usize,
+    /// The group shown beside it, also matched for commands.
     pub category: &'static str,
     /// The shortcut, as the operator has bound it.
     pub shortcut: Option<String>,
     /// Why it cannot run now, if it cannot.
     pub unavailable: Option<&'static str>,
+}
+
+impl Item {
+    /// An entry whose title is `verb` followed by `name`.
+    fn named(target: Target, verb: &str, name: &str, category: &'static str) -> Self {
+        Self {
+            target,
+            title: format!("{verb}{name}"),
+            name_at: verb.len(),
+            category,
+            shortcut: None,
+            unavailable: None,
+        }
+    }
+
+    /// The scene's or preset's name, or the whole title for a command.
+    pub fn name(&self) -> &str {
+        self.title.get(self.name_at..).unwrap_or(&self.title)
+    }
 }
 
 /// What the app's state allows right now.
@@ -73,8 +133,8 @@ pub struct Availability {
     pub generating: bool,
 }
 
-/// Every entry, in table order: the commands, the panes, then the saved
-/// layouts.
+/// Every command entry, in table order: the commands, the panes, then the
+/// saved layouts.
 pub fn items(bindings: &Bindings, availability: Availability, layouts: &[String]) -> Vec<Item> {
     let mut items: Vec<Item> = CommandId::ALL
         .into_iter()
@@ -82,6 +142,7 @@ pub fn items(bindings: &Bindings, availability: Availability, layouts: &[String]
         .map(|command| Item {
             target: Target::Command(command),
             title: command.name().to_owned(),
+            name_at: 0,
             category: category_name(command.category()),
             shortcut: bindings.chord(command).map(|chord| chord.label()),
             unavailable: unavailable(command, availability),
@@ -90,6 +151,7 @@ pub fn items(bindings: &Bindings, availability: Availability, layouts: &[String]
     items.extend(Pane::ALL.into_iter().map(|pane| Item {
         target: Target::Pane(pane),
         title: format!("Show {}", pane.title()),
+        name_at: 0,
         category: "Pane",
         shortcut: None,
         unavailable: None,
@@ -97,9 +159,42 @@ pub fn items(bindings: &Bindings, availability: Availability, layouts: &[String]
     items.extend(layouts.iter().map(|name| Item {
         target: Target::Layout(name.clone()),
         title: format!("Layout: {name}"),
+        name_at: 0,
         category: "Layout",
         shortcut: None,
         unavailable: None,
+    }));
+    items
+}
+
+/// What a scene's Load and Preview entries say when it is already live.
+const PLAYING_NOW: &str = "playing now";
+
+/// One Load and one Preview entry per library scene, in library order, then
+/// one Apply entry per preset of the playing scene (D262).
+pub fn content_items(library: &Library, playing: Option<usize>, presets: &[String]) -> Vec<Item> {
+    let mut items = Vec::with_capacity(library.entries.len() * 2 + presets.len());
+    for (index, entry) in library.entries.iter().enumerate() {
+        let live = (playing == Some(index)).then_some(PLAYING_NOW);
+        let mut load = Item::named(Target::LoadScene(index), "Load: ", &entry.name, "Scene");
+        load.unavailable = live;
+        let mut preview = Item::named(
+            Target::PreviewScene(index),
+            "Preview: ",
+            &entry.name,
+            "Scene",
+        );
+        preview.unavailable = live;
+        items.push(load);
+        items.push(preview);
+    }
+    items.extend(presets.iter().map(|name| {
+        Item::named(
+            Target::ApplyPreset(name.clone()),
+            "Apply preset: ",
+            name,
+            "Preset",
+        )
     }));
     items
 }
@@ -147,8 +242,116 @@ fn unavailable(command: CommandId, availability: Availability) -> Option<&'stati
     }
 }
 
+/// What the listing is built from this frame, borrowed from the model.
+#[derive(Clone, Copy)]
+pub struct Sources<'a> {
+    /// The keyboard shortcuts in force.
+    pub bindings: &'a Bindings,
+    /// What can run.
+    pub availability: Availability,
+    /// The scene library.
+    pub library: &'a Library,
+    /// Bumped whenever the library or its health changes.
+    pub library_rev: u64,
+    /// The library entry playing.
+    pub playing: Option<usize>,
+    /// The playing scene's presets.
+    pub presets: &'a [String],
+}
+
+/// What a listing was built from, compared each frame without allocating.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Inputs {
+    availability: Availability,
+    library_rev: u64,
+    playing: Option<usize>,
+    presets: Vec<String>,
+    layouts: Vec<String>,
+}
+
+/// What the palette lists, built once per change of what it lists and
+/// ranked once per change of the query (D262).
+#[derive(Debug, Default)]
+pub struct Listing {
+    /// What the entries were built from.
+    built_from: Option<Inputs>,
+    /// Every entry: [`items`], then [`content_items`].
+    items: Vec<Item>,
+    /// The query the ranking was made for.
+    ranked_for: Option<String>,
+    /// Indices into `items`, best first.
+    ranked: Vec<usize>,
+}
+
+impl Listing {
+    /// Forgets what it was built from, so the next [`Listing::update`]
+    /// builds afresh (on opening: the shortcuts may have changed since).
+    pub fn clear(&mut self) {
+        self.built_from = None;
+        self.ranked_for = None;
+    }
+
+    /// Brings the entries and the ranking up to date with `sources`,
+    /// `layouts` and `query`. Allocates only when one of them changed.
+    /// Returns whether the ranking was made again.
+    pub fn update<'k>(
+        &mut self,
+        sources: Sources<'_>,
+        layouts: impl Iterator<Item = &'k String> + Clone,
+        query: &str,
+    ) -> bool {
+        let fresh = self.built_from.as_ref().is_some_and(|built| {
+            built.availability == sources.availability
+                && built.library_rev == sources.library_rev
+                && built.playing == sources.playing
+                && built.presets.as_slice() == sources.presets
+                && built.layouts.iter().eq(layouts.clone())
+        });
+        if !fresh {
+            let layouts: Vec<String> = layouts.cloned().collect();
+            self.items = items(sources.bindings, sources.availability, &layouts);
+            self.items.extend(content_items(
+                sources.library,
+                sources.playing,
+                sources.presets,
+            ));
+            self.built_from = Some(Inputs {
+                availability: sources.availability,
+                library_rev: sources.library_rev,
+                playing: sources.playing,
+                presets: sources.presets.to_vec(),
+                layouts,
+            });
+            self.ranked_for = None;
+        }
+        if self.ranked_for.as_deref() == Some(query) {
+            return false;
+        }
+        self.ranked = rank(&self.items, query);
+        match self.ranked_for.as_mut() {
+            Some(text) => query.clone_into(text),
+            None => self.ranked_for = Some(query.to_owned()),
+        }
+        true
+    }
+
+    /// Every entry.
+    pub fn items(&self) -> &[Item] {
+        &self.items
+    }
+
+    /// Indices into [`Listing::items`] that match the query, best first.
+    pub fn ranked(&self) -> &[usize] {
+        &self.ranked
+    }
+}
+
 /// The indices of `items` that match `query`, best first. An empty query
 /// matches everything, in table order.
+///
+/// Commands, panes and layouts whose title the query matches exactly come
+/// first, then scenes and presets, then commands it matches only loosely,
+/// then matches on a command's category (see the module docs).
 pub fn rank(items: &[Item], query: &str) -> Vec<usize> {
     let query: Vec<char> = query
         .trim()
@@ -156,65 +359,130 @@ pub fn rank(items: &[Item], query: &str) -> Vec<usize> {
         .filter(|c| !c.is_whitespace())
         .flat_map(char::to_lowercase)
         .collect();
-    let mut scored: Vec<(u32, usize)> = items
+    let mut scored: Vec<(Tier, u32, usize)> = items
         .iter()
         .enumerate()
         .filter_map(|(index, item)| {
-            let title = score(&item.title, &query);
-            let category = score(item.category, &query).map(|s| s + CATEGORY_PENALTY);
-            let best = match (title, category) {
-                (Some(a), Some(b)) => Some(a.min(b)),
-                (Some(a), None) | (None, Some(a)) => Some(a),
-                (None, None) => None,
+            let best = if item.target.is_content() {
+                better(score(&item.title, &query), score(item.name(), &query))
+                    .map(|found| (Tier::Content, found.cost()))
+            } else {
+                let title = score(&item.title, &query).map(|found| {
+                    let tier = if found.exact() {
+                        Tier::Exact
+                    } else {
+                        Tier::Loose
+                    };
+                    (tier, found.cost())
+                });
+                let category =
+                    score(item.category, &query).map(|found| (Tier::Category, found.cost()));
+                match (title, category) {
+                    (Some(a), Some(b)) => Some(a.min(b)),
+                    (Some(a), None) | (None, Some(a)) => Some(a),
+                    (None, None) => None,
+                }
             };
-            best.map(|best| (best, index))
+            best.map(|(tier, cost)| (tier, cost, index))
         })
         .collect();
     // Stable: equal scores keep table order.
-    scored.sort_by_key(|(score, _)| *score);
-    scored.into_iter().map(|(_, index)| index).collect()
+    scored.sort_by_key(|(tier, cost, _)| (*tier, *cost));
+    scored.into_iter().map(|(_, _, index)| index).collect()
 }
 
-/// Added to a match on the category, so a title match always wins.
-const CATEGORY_PENALTY: u32 = 1000;
+/// Where a match ranks, best first.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum Tier {
+    /// A command, pane or layout title matched at a title or word start
+    /// with no gaps.
+    Exact,
+    /// A scene or preset, matched in any way.
+    Content,
+    /// A command, pane or layout title matched with gaps or mid-word.
+    Loose,
+    /// A command's category matched.
+    Category,
+}
 
-/// Lower is better; `None` when `query` is not a subsequence of `text`.
-fn score(text: &str, query: &[char]) -> Option<u32> {
-    if query.is_empty() {
-        return Some(0);
+/// How a query matched a text.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Found {
+    /// 0 at the start of the text, [`WORD_START`] at a word's start,
+    /// [`ANYWHERE`] elsewhere.
+    start: u32,
+    /// Breaks between matched characters.
+    gaps: u32,
+}
+
+/// A match that begins at the start of a word.
+const WORD_START: u32 = 100;
+
+/// A match that begins mid-word.
+const ANYWHERE: u32 = 200;
+
+impl Found {
+    /// Lower is better.
+    fn cost(self) -> u32 {
+        self.start + self.gaps.saturating_mul(10)
     }
-    let chars: Vec<char> = text.chars().flat_map(char::to_lowercase).collect();
-    let mut at = 0;
-    let mut first = None;
+
+    /// Whether the query is in the text as typed, at a title or word start.
+    fn exact(self) -> bool {
+        self.gaps == 0 && self.start <= WORD_START
+    }
+}
+
+/// The better of two matches; the first on a tie.
+fn better(a: Option<Found>, b: Option<Found>) -> Option<Found> {
+    match (a, b) {
+        (Some(a), Some(b)) if b.cost() < a.cost() => Some(b),
+        (Some(a), Some(_)) | (Some(a), None) | (None, Some(a)) => Some(a),
+        (None, None) => None,
+    }
+}
+
+/// How `query` (lowercase, no spaces) matches `text`, each character at the
+/// first place it can go; `None` when it is not a subsequence of it. Reads
+/// `text` once and allocates nothing, so ranking a large library on a
+/// keystroke stays cheap.
+fn score(text: &str, query: &[char]) -> Option<Found> {
+    let mut wanted = query.iter().peekable();
+    let mut start = None;
     let mut gaps = 0_u32;
     let mut last: Option<usize> = None;
-    for wanted in query {
-        let found = chars
-            .get(at..)?
-            .iter()
-            .position(|c| c == wanted)
-            .map(|offset| at + offset)?;
-        if first.is_none() {
-            first = Some(found);
+    let mut after_alphanumeric = false;
+    for (at, c) in text.chars().flat_map(char::to_lowercase).enumerate() {
+        let Some(&&next) = wanted.peek() else {
+            break;
+        };
+        if c == next {
+            if start.is_none() {
+                start = Some(if at == 0 {
+                    0
+                } else if after_alphanumeric {
+                    ANYWHERE
+                } else {
+                    WORD_START
+                });
+            }
+            if let Some(previous) = last
+                && at != previous + 1
+            {
+                gaps += 1;
+            }
+            last = Some(at);
+            let _ = wanted.next();
         }
-        if let Some(previous) = last
-            && found != previous + 1
-        {
-            gaps += 1;
-        }
-        last = Some(found);
-        at = found + 1;
+        after_alphanumeric = c.is_alphanumeric();
     }
-    let first = first?;
-    let word_start = first == 0 || chars.get(first - 1).is_some_and(|c| !c.is_alphanumeric());
-    let start = if first == 0 {
-        0
-    } else if word_start {
-        100
-    } else {
-        200
-    };
-    Some(start + gaps * 10)
+    if wanted.peek().is_some() {
+        return None;
+    }
+    Some(Found {
+        start: start.unwrap_or(0),
+        gaps,
+    })
 }
 
 /// The highlighted row after a move of `delta` rows, clamped to the list
@@ -384,5 +652,167 @@ mod tests {
         assert_eq!(moved(Some(2), 1, 3), Some(2), "clamped at the end");
         assert_eq!(moved(Some(0), -1, 3), Some(0), "clamped at the start");
         assert_eq!(moved(Some(9), 0, 3), Some(2), "a stale index is clamped");
+    }
+
+    fn library(names: &[&str]) -> Library {
+        Library {
+            dir: std::path::PathBuf::from("scenes"),
+            entries: names
+                .iter()
+                .map(|name| {
+                    crate::library::Entry::new((*name).to_string(), std::path::PathBuf::from(name))
+                })
+                .collect(),
+        }
+    }
+
+    fn with_content(library: &Library, playing: Option<usize>, presets: &[String]) -> Vec<Item> {
+        let mut all = everything();
+        all.extend(content_items(library, playing, presets));
+        all
+    }
+
+    #[test]
+    fn scenes_and_presets_are_entries_found_by_their_names() {
+        let library = library(&["01-aurora", "02-black-hole", "03-tunnel"]);
+        let all = with_content(&library, Some(0), &["Slow burn".to_string()]);
+        let aurora = titles(&all, "aurora");
+        assert_eq!(
+            aurora.get(..2),
+            Some(
+                &[
+                    "Load: 01-aurora".to_string(),
+                    "Preview: 01-aurora".to_string()
+                ][..]
+            ),
+            "a scene's name finds Load then Preview; got {aurora:?}"
+        );
+        assert_eq!(
+            titles(&all, "slow burn").first().map(String::as_str),
+            Some("Apply preset: Slow burn"),
+            "a preset of the playing scene"
+        );
+        assert_eq!(
+            titles(&all, "preview tun").first().map(String::as_str),
+            Some("Preview: 03-tunnel"),
+            "the verb and the name together"
+        );
+        assert!(
+            all.iter()
+                .any(|item| item.target == Target::ApplyPreset("Slow burn".to_string())),
+            "it recalls that preset"
+        );
+    }
+
+    #[test]
+    fn scenes_rank_after_exact_command_matches_and_before_loose_ones() {
+        let library = library(&["01-blackout-glow", "02-tempo-drift"]);
+        let all = with_content(&library, None, &[]);
+        let black = titles(&all, "black");
+        let scene = black.iter().position(|t| t == "Load: 01-blackout-glow");
+        assert!(
+            scene.is_some_and(|at| at > 0
+                && black
+                    .iter()
+                    .take(at)
+                    .all(|t| t.to_lowercase().starts_with("black"))),
+            "every command that starts with it comes first, then the scene; got {black:?}"
+        );
+        // Tap tempo has t, m, p, o in order, but only with a gap.
+        let tempo = titles(&all, "tmpo");
+        assert_eq!(
+            tempo.first().map(String::as_str),
+            Some("Load: 02-tempo-drift"),
+            "a scene beats a loose command match; got {tempo:?}"
+        );
+        assert!(
+            tempo.iter().any(|t| t == "Tap tempo"),
+            "the loose match is still listed; got {tempo:?}"
+        );
+        let empty = titles(&all, "");
+        assert_eq!(
+            empty.iter().position(|t| t.starts_with("Load:")),
+            Some(everything().len()),
+            "with nothing typed, every command in table order, then the scenes"
+        );
+    }
+
+    #[test]
+    fn the_playing_scene_is_listed_but_cannot_be_loaded_again() {
+        let library = library(&["01-aurora", "02-tunnel"]);
+        let content = content_items(&library, Some(1), &[]);
+        let reason = |target: Target| {
+            content
+                .iter()
+                .find(|item| item.target == target)
+                .map(|item| item.unavailable)
+        };
+        assert_eq!(
+            reason(Target::LoadScene(1)),
+            Some(Some(PLAYING_NOW)),
+            "load"
+        );
+        assert_eq!(
+            reason(Target::PreviewScene(1)),
+            Some(Some(PLAYING_NOW)),
+            "preview"
+        );
+        assert_eq!(reason(Target::LoadScene(0)), Some(None), "another scene");
+        assert_eq!(content.len(), 4, "two entries a scene, no presets");
+    }
+
+    #[test]
+    fn a_listing_is_built_and_ranked_only_when_something_changed() {
+        let library = library(&["01-aurora", "02-tunnel"]);
+        let bindings = Bindings::default();
+        let presets = vec!["Peak".to_string()];
+        let layouts = std::collections::BTreeMap::from([("Show".to_string(), ())]);
+        let sources = Sources {
+            bindings: &bindings,
+            availability: Availability::default(),
+            library: &library,
+            library_rev: 1,
+            playing: Some(0),
+            presets: &presets,
+        };
+        let mut listing = Listing::default();
+        assert!(
+            listing.update(sources, layouts.keys(), "tun"),
+            "the first update ranks"
+        );
+        assert!(
+            !listing.update(sources, layouts.keys(), "tun"),
+            "the same sources and query: nothing to do"
+        );
+        let first = listing
+            .ranked()
+            .first()
+            .and_then(|i| listing.items().get(*i))
+            .map(|item| item.title.as_str());
+        assert_eq!(first, Some("Load: 02-tunnel"), "ranked for the query");
+        assert!(
+            listing.update(sources, layouts.keys(), "aur"),
+            "a new query ranks again"
+        );
+        let moved_on = Sources {
+            library_rev: 2,
+            ..sources
+        };
+        assert!(
+            listing.update(moved_on, layouts.keys(), "aur"),
+            "a changed library builds again"
+        );
+        let other_presets = vec!["Calm".to_string()];
+        assert!(
+            listing.update(
+                Sources {
+                    presets: &other_presets,
+                    ..moved_on
+                },
+                layouts.keys(),
+                "aur"
+            ),
+            "another scene's presets build again"
+        );
     }
 }

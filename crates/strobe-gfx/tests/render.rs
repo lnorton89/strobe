@@ -526,6 +526,38 @@ fn a_compile_error_points_at_main_glsl() -> Result<()> {
     Ok(())
 }
 
+#[test]
+fn a_compile_error_names_the_users_column_when_the_driver_gives_one() -> Result<()> {
+    let Some(headless) = context(Api::DesktopCore33)? else {
+        return Ok(());
+    };
+    let gl = headless.gl();
+    let caps = Caps::from_info(gl.info());
+    // The assembler writes `1` as `1.0` before the error, so the driver's
+    // column is two bytes to the right of the user's.
+    let line = "    float x = 1; return vec4(x) + undefinedThing;";
+    let shader = format!("vec4 renderMain() {{\n{line}\n}}\n");
+    let scene = folder("{}", &shader)?;
+    let error = ScenePlayer::new(gl, &caps, &scene, [8, 8], Options::default())
+        .err()
+        .map(|e| e.to_string())
+        .unwrap_or_default();
+    let wanted = line.find("undefinedThing").map_or(0, |at| at + 1);
+    // Mesa's `1:2(C)` gives a column; other drivers name the line only.
+    if error.contains(" 1:2(") {
+        assert!(
+            error.contains(&format!("main.glsl:2:{wanted}: ")),
+            "expected main.glsl:2:{wanted}, the column on the user's line, got: {error}"
+        );
+    } else {
+        assert!(
+            error.contains("main.glsl:2: "),
+            "a driver without columns: the line alone, got: {error}"
+        );
+    }
+    Ok(())
+}
+
 /// Reads both audio textures at the middle of the frame: spectrum in red,
 /// level trail in green. Written for both dialects with one `#ifdef`,
 /// because GLES has no `sampler1D`.

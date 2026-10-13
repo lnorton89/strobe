@@ -58,12 +58,12 @@
 ## Epic U — Performer UI and app workflows
 
 ### U-01 Command palette and command discovery
-- **Status:** Built (D200). Left: MIDI/OSC and the remote converging is by construction (one command table), not yet exercised from a controller; the palette lists commands and panes, not scenes or presets.
+- **Status:** Built (D200). Scenes (Load, Preview) and the playing scene's presets (Apply) are entries too, ranked after exact command matches and built only when the library or presets change (D262). Left: MIDI/OSC and the remote converging is by construction (one command table), not yet exercised from a controller.
 - **Work:** implement Ctrl+K over the existing command table; search by command name/category; show shortcut and enabled/disabled reason; preserve focus rules and avoid firing transport shortcuts while editing text.
 - **Acceptance:** keyboard, buttons, MIDI/OSC and remote transport converge on the same command semantics; palette supports navigation, execution, escape and empty results; tests cover text focus, widget focus and modal focus.
 
 ### U-02 Editor workspace
-- **Status:** Built (D204). Left: column numbers (the editor shows lines only), validating `scene.json` before a reload, and a check on the T480.
+- **Status:** Built (D204). Errors go to their column where the driver gives one (Mesa), put back on the user's line, and Save and reload checks `scene.json` with the loader's parser first, refusing with the error and its line and column in the Editor (D263). Left: a check on the T480, whose drivers give lines only.
 - **Work:** add source tabs, dirty state, compile/validation feedback, line/column diagnostics, jump-to-error from the failure panel, safe save/backup/restore, and a clear distinction between editing a source file and changing the active runtime scene.
 - **Acceptance:** a fixture can be edited, validated, saved, reloaded and restored; compile failure keeps the last good scene live; no shader compiles are triggered from UI paint or on an unintended live frame.
 
@@ -93,7 +93,7 @@
 - **Acceptance:** author an 80-cue four-hour show in under two minutes using tags and multi-edit; inheritance is visible and deterministic; invalid edits preserve the last valid show.
 
 ### U-08 Real scene tags and generation
-- **Status:** Built (D205): Synesthesia's `TAGS` is read leniently and normalised, written in place from the Inspector, searched by the browser, and used by Generate, whose preview names each scene's reason. Left: tagging from the Import pane and for a scene that is not playing, exclude fields in the Generate form.
+- **Status:** Built (D205): Synesthesia's `TAGS` is read leniently and normalised, written in place from the Inspector, searched by the browser, and used by Generate, whose preview names each scene's reason. Since D264: any library scene is tagged by name, from the Inspector, the Import pane (the scene just imported) or the browser's selected scene, and Generate has an Exclude field whose preview says which scenes it skipped and why. Left: a person using it on a real library.
 - **Work:** define a backwards-compatible scene tag format; read/write tags; filter and generate playlists by tags rather than only filename words; define missing/unknown tag behaviour.
 - **Acceptance:** tag fixtures round-trip; old scenes remain valid; generator selection is deterministic with a seed and reports why a scene was selected/skipped.
 
@@ -166,7 +166,7 @@
 - **Acceptance:** record one successful import through the browser userscript and one API-by-ID attempt on Windows; if the external API is blocked, record the exact response and preserve the browser route as supported.
 
 ### I-02 File drop and import UX
-- **Status:** Partly done (D218). Built: a drop on either window goes where it belongs (scene folder to the library and played, `.toml` to the playlist loader, a picture or folder of pictures to `syn_Media`, `.json` to the Shadertoy import), and a banner says what the hovering file would do. Batch import (D235): a dropped folder of scene folders adds them all to the library, one a frame, none played, with a summary banner and each refusal in the log and DIAG. The Needs-work bin exists as the LIB "Needs work" filter and DIAG's list of this run's failures with reasons. Imports already record author, source and licence in the scene. A watched drop folder (D240): `--watch-folder <dir>` adds scenes that settle in it to the library through the same queue, playing none. Left: a real OS drag on Windows and X11 by a person; a Settings field for the watched folder.
+- **Status:** Partly done (D218). Built: a drop on either window goes where it belongs (scene folder to the library and played, `.toml` to the playlist loader, a picture or folder of pictures to `syn_Media`, `.json` to the Shadertoy import), and a banner says what the hovering file would do. Batch import (D235): a dropped folder of scene folders adds them all to the library, one a frame, none played, with a summary banner and each refusal in the log and DIAG. The Needs-work bin exists as the LIB "Needs work" filter and DIAG's list of this run's failures with reasons. Imports already record author, source and licence in the scene. A watched drop folder (D240): `--watch-folder <dir>` adds scenes that settle in it to the library through the same queue, playing none. Settings has the watched folder too (D265): a path, Apply and a switch, applied live, saved in `ui.toml`, and checked as at launch (a folder, and not the library itself). Left: a real OS drag on Windows and X11 by a person.
 - **Work:** test actual OS drag/drop on Windows and X11; add thumbnails, a Needs-work bin, richer conversion diagnostics, batch import and an optional watched drop folder.
 - **Acceptance:** file-drop and typed-path paths share the same import pipeline; broken imports remain visible with actionable reasons; original source, attribution and license metadata survive.
 

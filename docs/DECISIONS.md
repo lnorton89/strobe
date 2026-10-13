@@ -5142,3 +5142,217 @@ insert. A replacement never adds or removes a line.
   non-uniform branch are undefined in GLSL; compilers flatten a `?:` of two
   samples, but none is required to. The fallback is to sample both and
   choose, which costs a second fetch.
+
+### D262: the palette lists scenes and presets after exact commands, built once per change (2026-10-13)
+
+D200 said an operator who expects scenes and presets in the palette would
+need more entry kinds, not another design (U-01). This adds them.
+
+- **What is listed.** Each library scene is two entries, `Load: <name>`
+  and `Preview: <name>`, and each preset of the playing scene is one,
+  `Apply preset: <name>`. They push the same actions as the browser's Load
+  and Preview buttons and the preset row (`Action::Load`,
+  `Action::Preview`, `Action::RecallPreset`), so the palette cannot mean
+  something different from the button. Preview opens the browser too,
+  because that is where the preview card is.
+- **The playing scene stays listed,** with "playing now" as the reason it
+  cannot be loaded or previewed, as unavailable commands are (D200).
+- **Ranking.** A scene or preset is matched on its whole title and on its
+  name alone, so `aurora` finds `Load: 01-aurora` as well as a title start
+  would. Results come in four tiers:
+  1. commands, panes and layouts whose title the query matches exactly
+     (at the title's or a word's start, no gaps);
+  2. scenes and presets;
+  3. commands matched only loosely (letters in order with gaps, or
+     mid-word);
+  4. matches on a command's category.
+
+  So `black` is still Blackout first, and `tmpo` is the scene
+  `02-tempo-drift` before Tap tempo, which has those letters only with a
+  gap. With nothing typed, every command comes first in table order.
+- **Cheap while open.** The entries are kept in the palette's state
+  (`command_palette::Listing`), built when it opens and again only when
+  what they come from changes: what can run, the library's revision, the
+  playing scene, its presets, the layouts. The comparison allocates
+  nothing. The ranking is redone only when the query changes, and the
+  match no longer builds a character vector per entry. Before this, the
+  palette rebuilt and ranked every entry every frame while open; now a
+  library of a thousand scenes costs nothing per frame for its entries.
+- **Small windows.** The card is narrower than 520 points when the window
+  is, shows fewer rows when it is short, and shortens a title rather than
+  drawing it over the reason or the shortcut. The shell tests now draw the
+  palette open in two states at every size.
+
+**Evidence:** `command_palette` tests
+(`scenes_and_presets_are_entries_found_by_their_names`,
+`scenes_rank_after_exact_command_matches_and_before_loose_ones`,
+`the_playing_scene_is_listed_but_cannot_be_loaded_again`,
+`a_listing_is_built_and_ranked_only_when_something_changed`), and
+`ui::shell_tests::the_palette_loads_previews_and_applies_presets_by_name`
+with real key events, plus the scenarios "palette listing scenes and
+presets" and "palette with nothing typed" in the overflow and overlap
+tests.
+
+**Would reopen:** a library large enough that a keystroke's ranking shows
+(it is one pass over two entries a scene), or an operator wanting presets
+of scenes that are not playing, which would need the presets of every
+scene read in advance.
+
+### D263: errors carry the user's column where Mesa gives one, and a reload checks scene.json first (2026-10-13)
+
+U-02 left two things: the Editor showed lines only, and Save and reload
+wrote a broken `scene.json` and then failed the scene on it.
+
+- **A column only where the driver gives one.** Mesa writes `1:14(3)`,
+  line 14 and column 3. NVIDIA's `1(14)` and the `ERROR: 1:14:` of ANGLE,
+  AMD and Intel give a line only, so on the T480 (Intel or ANGLE) the
+  Editor still goes to the line alone. Nothing is guessed.
+- **The column is put back on the user's line, in `strobe-gfx`.** A
+  driver's column does not count the user's text, for two reasons, both
+  found on llvmpipe:
+  - Mesa counts its preprocessor's output, in which every run of spaces,
+    tabs and comments is one space, leading indentation included.
+    `    return x;` has `return` at column 2.
+    (`assemble::compiled_column`).
+  - The assembler rewrites the user's code (`promote`, `fixups`,
+    `directives`) keeping lines but not columns: `float x = 1;` compiles
+    as `float x = 1.0;`. The text the two lines share at their start keeps
+    its columns, the text they share at their end keeps its distance from
+    the end, and a column inside the rewritten stretch goes to that
+    stretch's start (`assemble::original_column`).
+
+  Only the player has both texts (`assemble::source_line` finds the line
+  through the `#line` directives in each), so `describe_log` writes
+  `main.glsl:2:35: 1:2(34): error: ...`. Everything that reads `file:line`
+  still does, and `editor::error_location` reads the column when it is
+  there. Macro expansion moves Mesa's columns too, and is not undone.
+- **Save and reload checks `scene.json` first.** The Editor's text is
+  parsed by `SceneDef::parse` after the loader's newline handling
+  (`editor::check_scene_json`), so it passes exactly when the loader's
+  parse would. If it fails, nothing is written and nothing is reloaded:
+  the scene on screen and its health are untouched. The Editor switches
+  to `scene.json` with the cursor on the parser's line and column, and
+  shows the message with a "Go to line, column" button. The refusal clears
+  when `scene.json` is edited or reverted. A JSON syntax or type error has
+  a place; a value the loader refuses (an unknown control `TYPE`) has a
+  message only.
+- **Plain Save still writes.** Save is how an operator keeps work in
+  progress, and it does not touch the show. Only Save and reload reaches
+  the show, so only it is guarded.
+
+**Evidence:** `strobe-scene` `assemble` tests
+(`only_mesas_format_gives_a_column`,
+`a_source_line_is_found_through_line_directives`,
+`mesas_column_counts_runs_of_blanks_as_one`,
+`a_rewritten_lines_column_goes_back_to_the_users_text`), the headless
+render test `a_compile_error_names_the_users_column_when_the_driver_gives_one`
+(llvmpipe: a rewritten, indented line points at the user's column),
+`editor.rs` tests (`a_column_is_read_when_the_message_has_one`,
+`a_line_and_column_find_their_offset_within_the_line`,
+`scene_json_is_checked_as_the_loader_reads_it`,
+`a_doc_is_checked_by_its_scene_json_tab`), and the shell scenario
+"editor refused a reload, scene.json does not parse" at every size.
+
+**Would reopen:** a driver other than Mesa giving columns, whose
+preprocessor may count differently; or wanting Save itself to refuse a
+broken `scene.json`.
+
+### D264: any library scene can be tagged by name, and Generate's exclusions say what they left out (2026-10-13)
+
+D205 left three things: tags in the Import pane, tags for a scene that is
+not playing, and exclude lists in the Generate form (U-08).
+
+- **One row, one action, by name.** The Inspector's tag row moved to
+  `ui::tags` and is drawn in three places: the Inspector (the playing
+  scene), the Import pane (the scene it last imported, playing or not) and
+  the browser (its selected scene, above the list). All three ask for
+  `Action::SetSceneTags { scene, tags }`, the scene named by its library
+  name, and the app writes that scene's `scene.json` with D205's in-place
+  edit. Before, the action meant "the playing scene", so a field opened on
+  one scene and saved after the show moved on would have tagged the next
+  one.
+- **A draft belongs to its scene.** Each place keeps its own draft
+  (`TagDraft { scene, text }`), and a place showing another scene does not
+  show the draft. Selecting another row or a cue change cannot carry
+  half-typed tags to a different scene.
+- **The same refusals.** A scene with unsaved Editor edits is still
+  refused (D205), and a name no longer in the library (rescanned away) is
+  refused with a notice rather than tagging whatever now has that index.
+- **The browser and the Import pane name the scene** at the start of the
+  row, on the chips' line. A label of its own above the chips overlapped
+  their row in a short drawer (the overlap test found it at 533x400).
+- **The import is found by folder once per change.** Comparing folders
+  canonicalises paths, which asks the file system, so the app caches the
+  imported scene's library index against the library revision and the
+  folder, and the frame compares only those.
+- **Exclude in the Generate form.** A new "Exclude" field takes words
+  like the pool: tags (normalised like D205's) and whole scene names, read
+  into the generator's `exclude_tags` and `exclude_names`, which
+  `strobe_playlist` already checked first. Name words count as tags there
+  too, as they do for the pool. An excluded scene is never picked, even
+  when the pool names it.
+- **Why picked, and why skipped.** The preview keeps its "Pool: tag dark
+  5" line and adds "Skipped: excluded by tag heavy 2", with each scene and
+  its reason on hover (`show::generate::excluded`). Scenes the pool simply
+  did not ask for are not listed: that would be most of a large library.
+  When the exclusions empty the pool, the error says so ("the exclude
+  field left out 3 (excluded by tag calm 3)") instead of listing the
+  library's tags.
+
+**Evidence:** `ui::tags` tests
+(`a_draft_shows_only_for_the_scene_it_was_opened_for`,
+`save_tags_the_scene_the_draft_is_for`, which clicks Save headless),
+`show::generate` test `excluded_tags_and_names_are_never_picked_and_say_why`,
+and the shell scenarios "tagging in the browser and the inspector",
+"browser with a scene selected", "tagging the scene just imported" and
+"generate with an exclusion, previewed" at every size.
+
+**Would reopen:** wanting several scenes tagged at once (a multi-select in
+the browser), or exclusions by folder.
+
+### D265: the watched folder is a setting, checked the same way at launch and in Settings (2026-10-13)
+
+D240 made the watched drop folder a run option, `--watch-folder`, and
+named a Settings field so the folder persists as the thing that would
+reopen it (I-02).
+
+- **Settings > Watched folder:** a path field, Apply, and a switch, with
+  one line saying what is watched or why not. Apply (or Enter) watches the
+  typed folder at once; the switch starts or stops the watch. Both go
+  through `Action::SetWatchFolder { folder, enabled }`. The pane never
+  touches the disk; the app checks the folder when the action arrives.
+- **One check, at launch and in Settings.** `intake::check_watch_folder`
+  refuses an empty field, a path that is not a folder (D240's only check
+  until now), and the library folder itself, however it is spelled. The
+  library's own new scenes (an import, a pack) would otherwise come back
+  through the queue as "already there" after every import. `--watch-folder`
+  now gets the same check, so a folder Settings refuses is refused at
+  launch too.
+- **Applied live.** An accepted folder replaces the running watch with a
+  fresh `Inbox`. Like D240's, it leaves alone what is already in the
+  folder. Switching off drops the watch and keeps the folder in the field
+  and in the file, so switching on again needs no typing.
+- **A refusal changes nothing but the line.** A typo in the field never
+  stops a watch that works, and nothing refused is saved.
+- **Saved with the other UI preferences.** The folder and the switch go
+  in `ui.toml` (`[watch] folder, enabled`), through the debounced saver,
+  only when the app accepts them. Typing in the field saves nothing. A file
+  from before has no `[watch]` and watches nothing.
+- **`--watch-folder` wins for its run and is not saved.** Settings shows it
+  as "Watching ... (--watch-folder, this run only)", so the command line
+  never rewrites the operator's setting. A saved folder that has gone
+  missing is not watched at launch: the reason is logged and shown in
+  Settings, and the setting stays as it was, so a drive plugged in later
+  can be switched on again.
+
+**Evidence:** `intake` test `a_watched_folder_must_exist_and_not_be_the_library`,
+`app` tests `settings_starts_stops_and_refuses_a_watched_folder` and
+`launch_watches_the_command_line_folder_first_then_the_saved_one`,
+`ui::state` test `the_watched_folder_is_saved_and_reread_but_its_field_is_not`,
+the `prefs` round trip and missing-field tests, `ui::settings` test
+`apply_and_the_switch_ask_the_app_and_change_nothing_themselves` (headless
+clicks), and the shell scenarios "settings watching a folder" and
+"settings with a refused watched folder" at every size.
+
+**Would reopen:** wanting more than one watched folder, or Shadertoy
+exports taken from it (D240's own reopen condition).

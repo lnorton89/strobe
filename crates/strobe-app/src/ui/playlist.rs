@@ -673,6 +673,13 @@ fn generate_card(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &
                         "Tags or words to pick scenes by, comma separated: a scene's TAGS, a word in \
                          its name, or its whole name. Empty is the whole library.",
                     );
+                    field(
+                        ui,
+                        "Exclude",
+                        &mut form.exclude,
+                        "Tags or words never to pick, comma separated (heavy, dark): a scene \
+                         carrying one, or named by one, is left out even if the pool asks for it.",
+                    );
                     field(ui, "Cue duration", &mut form.duration, "Each cue's length: 3m, 90s, 32 bars, rand(2m, 4m)");
                     field(ui, "No-repeat", &mut form.window, "How many recent scenes not to repeat");
                     field(ui, "Seed", &mut form.seed, "The same seed gives the same section");
@@ -711,6 +718,7 @@ fn generate_card(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &
             if changed {
                 // The preview was made from other fields.
                 state.preview = None;
+                state.excluded.clear();
             }
             ui.add_space(SPACE_XS);
             let can_add = matches!(state.preview, Some(Ok(_)));
@@ -771,6 +779,24 @@ fn preview_result(ui: &mut Ui, model: &Model<'_>, theme: &Palette) {
                 .color(theme::rgb(theme.text_muted)),
             )
             .on_hover_text(every.join("\n"));
+            let excluded = &model.playlist.ui.excluded;
+            if !excluded.is_empty() {
+                // Why the rest were skipped, so an exclusion is never a
+                // mystery (D264).
+                let each: Vec<String> = excluded
+                    .iter()
+                    .map(|(name, why)| format!("{name}: {why}"))
+                    .collect();
+                ui.label(
+                    egui::RichText::new(format!(
+                        "Skipped: {}",
+                        crate::show::generate::pool_summary(excluded)
+                    ))
+                    .small()
+                    .color(theme::rgb(theme.text_muted)),
+                )
+                .on_hover_text(each.join("\n"));
+            }
             for cue in made.section.cues.iter().take(PREVIEW_LINES) {
                 let length = cue
                     .settings

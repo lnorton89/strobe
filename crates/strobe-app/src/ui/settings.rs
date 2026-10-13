@@ -1,7 +1,8 @@
 // ============================================================================
 // Module:       strobe_app::ui::settings
 // Description:  The settings pane: output window, performance, audio,
-//               appearance, the LAN remote, and the keyboard reference.
+//               appearance, the watched folder, the LAN remote, and the
+//               keyboard reference.
 //
 // Dependencies: egui; super::{model, theme, widgets, audio}, crate::{commands,
 //               session}
@@ -17,6 +18,9 @@
 //! - **Performance**: adaptive resolution and the render scale (D64).
 //! - **Audio**: the input device, reactivity, speed and tap tempo.
 //! - **Appearance**: the theme, reduced motion, and the title bar (D132).
+//! - **Watched folder**: a folder whose new scene folders join the library,
+//!   playing none (D240). The switch and Apply act at once; the app checks
+//!   the folder as at launch, and saves it only when it is accepted (D265).
 //! - **Remote**: the LAN remote's switch, address, pairing and paired
 //!   devices (`super::lan`, D254).
 //! - **Layouts**: the open panes, their order and widths, saved under a
@@ -63,6 +67,9 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
             ui.add_space(SPACE_SM);
             widgets::section(ui, theme, "Appearance");
             appearance(ui, model, theme, actions);
+            ui.add_space(SPACE_SM);
+            widgets::section(ui, theme, "Watched folder");
+            watch_folder(ui, theme, &mut model.ui.watch, actions);
             ui.add_space(SPACE_SM);
             widgets::section(ui, theme, "Remote");
             super::lan::show(ui, theme, &mut model.lan, actions);
@@ -253,6 +260,68 @@ fn appearance(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut
 }
 
 /// Named layouts: save the panes as they are, apply or delete one (D215).
+/// The watched drop folder (D265): a path, Apply, and a switch, with the
+/// app's line saying what is watched or why not. Nothing here touches the
+/// disk: the app checks the folder when the action arrives.
+fn watch_folder(
+    ui: &mut Ui,
+    theme: &Palette,
+    watch: &mut super::state::WatchState,
+    actions: &mut Vec<Action>,
+) {
+    let mut on = watch.watching;
+    if ui
+        .checkbox(&mut on, "Watch a folder for new scenes")
+        .on_hover_text(
+            "A scene folder, or a folder of scenes, copied into it is added to the library, \
+             a scene a frame, and nothing plays. What is in it when watching starts is left \
+             alone.",
+        )
+        .changed()
+    {
+        actions.push(Action::SetWatchFolder {
+            folder: watch.draft.trim().to_string(),
+            enabled: on,
+        });
+    }
+    ui.horizontal(|ui| {
+        let field = ui.add(
+            egui::TextEdit::singleline(&mut watch.draft)
+                .hint_text("a folder beside the library")
+                .desired_width((ui.available_width() - WATCH_BUTTON).max(WATCH_FIELD)),
+        );
+        let entered = field.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter));
+        let ready = !watch.draft.trim().is_empty();
+        let apply = ui
+            .add_enabled_ui(ready, |ui| {
+                widgets::button(ui, theme, None, "Apply")
+                    .on_hover_text("Watch this folder now, and from the next launch")
+            })
+            .inner;
+        if ready && (apply.clicked() || entered) {
+            actions.push(Action::SetWatchFolder {
+                folder: watch.draft.trim().to_string(),
+                enabled: true,
+            });
+        }
+    });
+    ui.label(
+        egui::RichText::new(&watch.note)
+            .small()
+            .color(theme::rgb(if watch.failed {
+                theme.danger
+            } else {
+                theme.text_muted
+            })),
+    );
+}
+
+/// The room the watched folder's field leaves for Apply.
+const WATCH_BUTTON: f32 = 80.0;
+
+/// The narrowest the watched folder's field gets.
+const WATCH_FIELD: f32 = 80.0;
+
 fn layouts(ui: &mut Ui, theme: &Palette, state: &mut super::state::UiState) {
     ui.horizontal(|ui| {
         ui.add(
@@ -436,4 +505,111 @@ fn keyboard(
         .small()
         .color(theme::rgb(theme.text_faint)),
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use anyhow::Result;
+    use egui::{Pos2, Vec2};
+
+    /// One pass of the watched-folder section; returns where each text was
+    /// drawn.
+    fn draw(
+        ctx: &egui::Context,
+        events: Vec<egui::Event>,
+        watch: &mut super::super::state::WatchState,
+        actions: &mut Vec<Action>,
+    ) -> Vec<(String, egui::Rect)> {
+        let theme = crate::palette::fallback().clone();
+        let pass = crate::ui::testing::run(
+            ctx,
+            crate::ui::testing::input(Vec2::new(480.0, 160.0), events),
+            |ui| watch_folder(ui, &theme, watch, actions),
+        );
+        pass.shapes
+            .iter()
+            .filter_map(|clipped| {
+                let egui::Shape::Text(text) = &clipped.shape else {
+                    return None;
+                };
+                Some((
+                    text.galley.text().to_string(),
+                    clipped.shape.visual_bounding_rect(),
+                ))
+            })
+            .collect()
+    }
+
+    fn click(
+        ctx: &egui::Context,
+        at: Pos2,
+        watch: &mut super::super::state::WatchState,
+        actions: &mut Vec<Action>,
+    ) {
+        let button = |pressed| egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        let _ = draw(
+            ctx,
+            vec![egui::Event::PointerMoved(at), button(true)],
+            watch,
+            actions,
+        );
+        let _ = draw(ctx, vec![button(false)], watch, actions);
+    }
+
+    fn find(drawn: &[(String, egui::Rect)], text: &str) -> Result<Pos2> {
+        drawn
+            .iter()
+            .find(|(drawn, _)| drawn == text)
+            .map(|(_, rect)| rect.center())
+            .ok_or_else(|| anyhow::anyhow!("no {text:?} in {drawn:?}"))
+    }
+
+    #[test]
+    fn apply_and_the_switch_ask_the_app_and_change_nothing_themselves() -> Result<()> {
+        let ctx = egui::Context::default();
+        let mut watch = super::super::state::WatchState {
+            draft: "  D:/VJ/inbox ".to_string(),
+            note: "Off".to_string(),
+            ..super::super::state::WatchState::default()
+        };
+        let mut actions = Vec::new();
+        let drawn = draw(&ctx, Vec::new(), &mut watch, &mut actions);
+        click(&ctx, find(&drawn, "Apply")?, &mut watch, &mut actions);
+        assert_eq!(
+            actions,
+            vec![Action::SetWatchFolder {
+                folder: "D:/VJ/inbox".to_string(),
+                enabled: true,
+            }],
+            "Apply asks to watch the typed folder, trimmed"
+        );
+        assert!(
+            !watch.watching && !watch.enabled && watch.folder.is_empty(),
+            "the pane changes nothing itself: the app checks and saves: {watch:?}"
+        );
+        actions.clear();
+        watch.watching = true;
+        let drawn = draw(&ctx, Vec::new(), &mut watch, &mut actions);
+        click(
+            &ctx,
+            find(&drawn, "Watch a folder for new scenes")?,
+            &mut watch,
+            &mut actions,
+        );
+        assert_eq!(
+            actions,
+            vec![Action::SetWatchFolder {
+                folder: "D:/VJ/inbox".to_string(),
+                enabled: false,
+            }],
+            "unticking a watch that runs asks to stop it"
+        );
+        Ok(())
+    }
 }
