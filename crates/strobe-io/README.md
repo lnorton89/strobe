@@ -144,6 +144,7 @@ controller is the open check** (D171, Q23).
 
 - Built and tested without hardware; **no MIDI controller has been used**.
 - OSC feedback is built (D209); MIDI **output** is not.
-- OSC address layout is Strobe's own, not Synesthesia's (Q23).
-- A macro's range and colour are edited in the MAP pane (D210); a shortcut
-  and smoothing per macro are not built.
+- The OSC address layout is Strobe's own, and Synesthesia's addresses are
+  accepted as aliases where they mean the same (D234, Q23).
+- A macro's range and colour are edited in the MAP pane (D210); a macro can
+  glide (D227) and have a key, which it holds like a button (D228).

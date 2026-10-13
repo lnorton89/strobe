@@ -1,6 +1,6 @@
 # Strobe status and gap audit
 
-_Last reconciled: 2026-10-12 against the current roadmap and the comprehensive
+_Last reconciled: 2026-10-13 against the current roadmap and the comprehensive
 [implementation backlog](IMPLEMENTATION_BACKLOG.md). The evidence entries below retain their original dates and machine context; do not interpret this reconciliation date as a fresh rerun of every test._
 
 This is an implementation handoff, not a claim that every platform path
@@ -260,8 +260,8 @@ checked and not committed. Interaction was driven with xdotool.
   `ui::shell_tests` (capture fires nothing, Esc cancels, the clash row at six
   sizes). Not yet: real keys on the T480.
 - [ ] Performance Macros as persistent bindings with the Unresolved states;
-  Editor and Mappings; a command palette (stage 2). (Hold and the Playlist
-  pane are built, D156 and D157.)
+  Editor and Mappings (stage 2). (Hold and the Playlist pane are built, D156
+  and D157, and the command palette, D200.)
 - [x] Scene tags (D205): `TAGS` read leniently and normalised, written in
   place from the Inspector, searched by the browser, and used by Generate
   with a reason per pooled scene. Evidence: `strobe_scene::tags` tests (a
@@ -362,9 +362,11 @@ they apply, and explicit supported, degraded or unsupported claims.
   an empty folder reports. `assets::tests` cover ordering, flipping, shrinking
   and the decoder thread. Under Xvfb, `--media <folder>` played a two-picture
   sequence and `--media <missing>` printed the IO failure block and ran on.
-  **Video and webcam are not built (later, ROADMAP).** **Not verified:** the
-  `MEDIA` key and `syn_MediaType` values against SSF (Q22); upload cost and
-  memory on the T480.
+  **Video and webcam are not built (later, ROADMAP).** The `MEDIA` key and
+  `syn_MediaType` values are checked against SSF's documentation (TORNADO
+  T21, Q22); D238 samples chosen media as the slot says. On the T480 a
+  475 MiB loop shrinks to fit 192 MiB, loads in about 4 s and holds about
+  280 MB, flat, at 60 fps (Task 28, D225).
 - [x] Load cubemaps, and report missing or invalid assets without
   crashing the show (D185). Evidence, llvmpipe, both dialects: a fixture
   samples +X, -X, +Y, -Y, +Z and -Z and gets each face's colour from six
@@ -372,8 +374,9 @@ they apply, and explicit supported, degraded or unsupported claims.
   one each return an `AssetProblem` naming the sampler and file, read black,
   and raise no GL error (`assets.rs`); `failures::asset_problem` has a test
   for the failure block. **Not verified:** cube orientation against a real
-  scene (Q22); a missing or broken `IMAGES` file still fails the whole scene
-  load, as before.
+  scene (Q22). A missing or broken `IMAGES` file no longer fails the scene
+  load: it reads black, is reported, and the scene plays (D201; `assets.rs`
+  `a_missing_image_reports_a_problem_and_reads_black`).
 - [x] Shadertoy conversion (stage 1, D90-D95). It covers:
   - multipass dependencies in Shadertoy order, and buffer feedback;
   - texture and buffer channels;
@@ -412,8 +415,9 @@ they apply, and explicit supported, degraded or unsupported claims.
   executable as the app does, and the Xvfb run in
   `docs/images/perform/generate-controls-1440x900.png` (Ctrl+K,
   "generate", Enter: 4 controls, fidelity 0.0, about 0.2 s on llvmpipe).
-  **Not yet:** on the T480, where the worker needs a hidden window
-  context, and per-control keep or drop.
+  On the T480 the worker ran on a hidden window context and wrote the copy
+  (Task 23), and the review keeps, drops and re-ranges each control (D219).
+  **Not yet:** the button pressed by a person on the T480.
 - [ ] Thumbnails, conversion diagnostics beyond the warnings list, and the
   Needs-work bin. **Built:** thumbnails from `IMAGE_PATH` and from a live
   frame (D212, D222); "Needs work", the LIB filter and the DIAG section
@@ -429,9 +433,11 @@ they apply, and explicit supported, degraded or unsupported claims.
   structural and documented in `NO_CONTROLS`. Each kept control changes the
   image (scored, then re-checked on the finished scene), the rewrite
   reproduces the original at its defaults (fidelity 0 in all 25), a second
-  run is identical. **Not verified:** a real GPU or the T480 (llvmpipe only),
-  and the Import/Inspector review panel does not exist, so nothing in the app
-  calls the engine yet.
+  run is identical. On the T480 the engine scored on Intel through a hidden
+  window, native and ANGLE agreeing (Tasks 13 and 23), and the app's worker
+  wrote the copy there (Task 23). The app calls the engine from the
+  Inspector and the palette (D202), and the review card keeps, drops and
+  re-ranges each control (D219).
 - Preserve source and licence metadata, and make it inspectable. Never
   infer commercial rights.
 
@@ -461,8 +467,9 @@ survives export.
   library (8 scenes), and implicit int to float and non-macro `#if` on ANGLE
   (12, Q8). Re-run at 40ee040 (T4): 55 native, 38 ANGLE. **At bc4668e
   (T6, after D199): 56 native and 56 ANGLE, with no regressions; with
-  scripts running (`strobe-corpus` on Windows), 62 of 65.** The three left
-  are two scene bugs and a missing picture, which D201 now plays as black.
+  scripts running (`strobe-corpus` on Windows), 62 of 65.** The missing
+  picture now plays as black (D201), so T8 and T18 give 63 of 65 in both
+  dialects. The two left are the scenes' own bugs.
   `magnetismic` drew differently on ANGLE because a pass sampled its own
   target (T7). D203 double-buffers such passes, confirmed in T8 (native and
   ANGLE now agree, 0.00 at 100 frames). Two scenes still differ, from
@@ -505,8 +512,8 @@ survives export.
     60 fps, with GPU rising from 0.4-0.8 ms to about 1.2-1.3 ms during each
     ([hardware/T480.md](hardware/T480.md)).
   **Not verified:** an HD 4000 (the cost of two scenes at once, VRAM), ANGLE
-  on the T480, a 4-hour show with real scenes, and audio-event advance (not
-  built).
+  on the T480, a 4-hour show with real scenes, and audio-event advance on
+  real music (built, D226 and D237, and tested only on synthetic audio).
 - [~] Wire presets, MIDI, OSC and hotkeys into the shared `ControlBank`.
   Don't duplicate its toggle, bang or smoothing semantics. (D170-D179,
   2026-10-11.) **Verified, with evidence:**

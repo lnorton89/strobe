@@ -32,6 +32,10 @@ faster, and desktop GLSL is what SSF scenes are written in.
 conversions) need source fixups on the ANGLE path. That's not built
 yet; see OPEN_QUESTIONS.md.
 
+*Addendum (2026-10-13):* the fixups are built. A typed rewrite writes
+implicit int-to-float out on every dialect, ANGLE included, and the
+owner's 90-scene corpus went from 17 to 87 of 90 on GLES (D199).
+
 ### D3: GL 3.3 hardware floor (2026-10-08, owner's choice)
 
 This means Intel HD 4000 / Ivy Bridge (2012) on Windows 10. Shadertoy
@@ -4312,3 +4316,26 @@ I-02's last open piece is a drop folder that imports on its own.
 **Would reopen:** wanting Shadertoy exports from the folder too (they
 would need an import that does not play), or a Settings field so the
 folder persists.
+
+### D241: the executable's icon is a resource compiled by a build script (2026-10-13)
+
+R-06: `strobe.exe` had no icon of its own. The window set one at run time,
+but Explorer, a shortcut and the taskbar's pinned entry showed the generic
+program icon.
+
+- **`embed-resource` in `strobe-app`'s build script.** It compiles
+  `crates/strobe-app/assets/strobe.rc` (one `ICON` resource) with the
+  Windows SDK's `rc.exe` on MSVC, and does nothing for other targets. The
+  icon is the brand `assets/brand/icon.ico`, which `cargo xtask brand`
+  makes and checks, so there is one source. Its absolute path is passed as
+  a macro with forward slashes, because a backslash in an RC string is an
+  escape.
+- **Missing compiler warns, broken resource fails.** A Windows build with
+  no resource compiler still builds, with a cargo warning. A resource that
+  fails to compile fails the build, so a release cannot ship without its
+  icon unnoticed.
+- **MIT-licensed, a build dependency only:** nothing is added to the
+  binary but the resource.
+
+**Would reopen:** a version resource (file version and product name in
+Explorer's details), which would go in the same `.rc`.

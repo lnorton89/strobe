@@ -91,8 +91,10 @@ variable turns a missing driver into a failure (CI's Linux job sets it).
   [`OPEN_QUESTIONS.md`](../../docs/OPEN_QUESTIONS.md) concern the layout of
   `syn_Spectrum` / `syn_LevelTrail`, which the assembler declares, not this
   file.
-- ROADMAP's "Known gaps" notes that `_loadMedia` and friends read
-  `syn_Media`, which is a black 1x1 texture today (media input is phase 7).
-- Q8: SSF code that relies on desktop-only implicit conversions is not
-  rewritten for the GLES dialect; that is a limit of the ANGLE path, not of
-  this library, which is written ES-clean.
+- `_loadMedia` and friends read `syn_Media`, which shows a still or an
+  image sequence (D186), sampled as the scene's `MEDIA` slot says (D238).
+  With no media it is black and `syn_MediaType` is 0. Video and webcam are
+  not built.
+- R8 (was Q8): SSF code that relies on desktop-only implicit conversions is
+  rewritten by `strobe-scene`'s typed pass on every dialect (D199). This
+  library does not need it: it is written ES-clean.

@@ -32,7 +32,8 @@ compiles. It owns every SSF rule that can be decided without a GPU.
 | `synthetic` | A deterministic 120 BPM stand-in for audio (`fill`, `bands`, `fill_textures`), a pure function of time. |
 | `meta` | The meta controls (master, brightness, hue, mirror, Limit Colors...) as a `ControlBank` built by `meta::bank()`, which a script's `meta/` writes reach (D160). `MetaValues::read(&bank)` snapshots it into a plain `Copy` struct with no allocation, and `post_is_neutral()` tells the renderer's output post stage (D180) it has nothing to do. |
 | `SceneDef::media` (`MediaDef`) | The optional `MEDIA` key (a Strobe extension, D186): a still file or a folder of pictures for `syn_Media`, with `FPS`, `LOOP`, `WRAP`, `FILTER`, `VFLIP`. A path that leaves the scene folder is a validation error. `scene::is_folder_relative` is the shared path rule. |
-| `fixups` | GLSL ES rewrites for desktop-only SSF idioms; today `PASSINDEX == 0.0` becomes `float(PASSINDEX) == 0.0` (D163). |
+| `fixups` | GLSL ES rewrites for desktop-only SSF idioms: `PASSINDEX == 0.0` becomes `float(PASSINDEX) == 0.0` (D163), and `uniform T x = v;` becomes a global (D199). |
+| `promote`, `directives` | Run on every dialect (D199). `promote` is a typed pass with its own lexer and expression parser that writes implicit int-to-float out (`2` to `2.0`, `float(i)`), never moving a line; `directives` reads `#if NAME` on a name that is not a macro as `0`. |
 | `preset` | Presets (`presets/<name>.json` in the scene folder: capture, apply by name through `ControlBank`, a checked name that cannot escape the folder, `load_all`) and the eight global fav slots (D176). |
 | `tags` | A scene's `TAGS` (D205): `read` leniently (any shape, never an error), `normalize` (`3D` is `3d`, `audio reactive` is `audio-reactive`), `parse_list` for a typed field, and `write`, which replaces the value in the text and keeps every other byte. `SceneDef::tags` holds them normalised. |
 | `names` | Name matching used by the script API (case-insensitive, ignoring `_`, `-` and spaces) and the reserved-name list. |
@@ -93,8 +94,10 @@ missing driver fail rather than skip.
 - **The final pass is implicit** (D8): `PASSES` lists buffer passes, and
   `SceneDef::passes` always ends with one more, untargeted pass, so
   `PASSINDEX == passes.len() - 1` there.
-- **Pass sizes are fractions of the design resolution** (D11), so render
-  scale shrinks every buffer in proportion.
+- **Literal pass sizes are absolute pixels, as in Synesthesia** (D194).
+  `$WIDTH`/`$HEIGHT` expressions are fractions of the design resolution
+  (D11), so they follow the output and the render scale; `FIXED_SIZE`
+  overrides either way (D191).
 - **Frame-rate-independent smoothing** (D9): `alpha = 1 - (1 - PARAMS)^(dt*60)`,
   identical to SSF's per-frame step at 60 fps.
 - **`PassIndex::Constant` versus `Uniform`** (D7): one specialised program
@@ -108,14 +111,19 @@ missing driver fail rather than skip.
   shader assembly ([`ROADMAP.md`](../../docs/ROADMAP.md)).
 - Cube maps and `syn_Media` stills and sequences are loaded by `strobe-gfx`
   (D185, D186); this crate only declares and validates them. The `MEDIA` key
-  and `CUBEMAPS` shape are Strobe's reading of SSF (Q22).
+  and `CUBEMAPS` shape are checked against SSF's documentation (TORNADO T21,
+  Q22); `SceneDef::media_sampling` keeps the slot's `WRAP` and `FILTER`
+  (D238).
 - `HARD_TRANSITIONS` / `SMOOTH_TRANSITIONS` uniforms are declared and
-  initialised but never change; song-change transitions are phase 7.
+  initialised but never change. Song changes are built for playlists
+  (D237: a cue can end on `audio-song`), but they do not drive these
+  uniforms.
 - `X_STROBE`, Strobe's planned extension block, is currently ignored along
   with any other unknown key (`json.rs` says "later phases" will read it).
-- The ANGLE (GLSL ES) dialect does not rewrite desktop-only SSF idioms
-  (Q8 in [`OPEN_QUESTIONS.md`](../../docs/OPEN_QUESTIONS.md)); the shipped
-  scenes are written ES-clean.
+- Implicit int-to-float is written out on every dialect, ANGLE included
+  (D199, R8 in [`OPEN_QUESTIONS.md`](../../docs/OPEN_QUESTIONS.md)). Left:
+  a function-like macro whose body mixes int and float. The shipped scenes
+  are written ES-clean.
 - Unverified against real Synesthesia: the audio texture layout (Q1, Q10),
   `_click` (Q13), the bang-smooth envelope (Q4), among others in
   `OPEN_QUESTIONS.md`.

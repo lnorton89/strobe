@@ -1,0 +1,216 @@
+# Compatibility
+
+This is the supported, degraded and unsupported matrix for Strobe, for
+people running it and for contributors. Every status points at its
+evidence: a decision in [DECISIONS.md](DECISIONS.md), a test, a hardware
+record ([T480](hardware/T480.md), [TORNADO](hardware/TORNADO.md)) or an
+item in [STATUS_AUDIT.md](STATUS_AUDIT.md). STATUS_AUDIT.md is the
+evidence log, and it wins when this file disagrees with it. Written
+2026-10-13.
+
+## Status words
+
+| Status | Meaning |
+|---|---|
+| **Supported** | Works, and the evidence column says where that was shown. |
+| **Degraded** | Works, with a limitation stated in the notes. |
+| **Unsupported** | Not available. |
+| **Unverified** | Built, but the evidence is only synthetic (tests, llvmpipe, injected faults) or missing on the target hardware. |
+
+A type, a parser or a UI control existing is never enough for
+"Supported". Where a feature depends on real hardware or real music and
+the only evidence is synthetic, it is Unverified.
+
+The machines: **T480** is a ThinkPad with Intel UHD 620 on Windows 11
+(the old-laptop reference). **TORNADO** is a GTX 1080 Ti on Windows 10.
+**llvmpipe** is Mesa's software rasteriser in CI and the cloud
+container, headless or under Xvfb.
+
+## 1. SSF scene format
+
+| Feature | Status | Evidence | Notes |
+|---|---|---|---|
+| Scene folder (`main.glsl`, `scene.json`, optional `script.js`) | Supported | [TORNADO T18](hardware/TORNADO.md), [T480 Task 30](hardware/T480.md) | Loaded through the app's own path by `cargo xtask corpus` ([D195](DECISIONS.md)). |
+| CRLF and `\r\r\n` line endings | Supported | [D193](DECISIONS.md), [D201](DECISIONS.md), `load.rs` `windows_line_endings_are_normalised_at_load` | Every line-ending form becomes one `\n`, so error lines match editors. |
+| `CONTROLS`: `slider`, `knob`, `toggle`, `bang`, `xy`, `color`, `dropdown` | Supported | `crates/strobe-scene/src/control/kind.rs` `every_documented_type_parses`, `runtime.rs` tests, `render.rs` `a_control_value_reaches_the_shader` | `color` is `vec3` ([R2](OPEN_QUESTIONS.md)). MIN above MAX is kept ([R3](OPEN_QUESTIONS.md)). |
+| Control modifiers `smooth`, `speed`, `counter` | Supported | `runtime.rs` `smoothing_takes_the_same_wall_time_at_any_frame_rate`, `speed_integrates_the_target_per_second`, `counter_presses_between_frames_are_not_lost` | Smoothing is frame-rate independent ([D9](DECISIONS.md)). |
+| `bang smooth` envelope | Degraded | `runtime.rs` `a_smooth_bang_rises_then_falls` | The envelope shape is a guess ([Q4](OPEN_QUESTIONS.md)). |
+| `traveler` modifier | Degraded | [D197](DECISIONS.md), `runtime.rs` `a_traveler_accelerates_toward_its_speed_and_integrates_it` | Undocumented by SSF; Strobe's reading is an inference from 9 shipped scenes. |
+| A control with no `TYPE` | Supported | [D193](DECISIONS.md), `scene.rs` `real_synesthesia_shapes_load` | Two default components make an `xy`, anything else a `slider`. |
+| `PASSES`: `TARGET`, multipass, ping-pong | Supported | `render.rs` `a_buffer_pass_feeds_the_final_pass`, `a_double_buffered_pass_reads_its_previous_frame` | |
+| Pass sizes: literal `WIDTH`/`HEIGHT` | Supported | [D194](DECISIONS.md), [R7](OPEN_QUESTIONS.md), `scene.rs` `literal_pass_sizes_are_absolute_and_expressions_follow_the_output` | Literal sizes are absolute pixels, as in Synesthesia. `$WIDTH` expressions follow the output ([D11](DECISIONS.md)). |
+| `FIXED_SIZE` on a pass | Supported | [D191](DECISIONS.md), `render.rs` `a_fixed_size_pass_keeps_its_grid_when_the_output_resizes` | A Strobe extension, not SSF. |
+| `FLOAT` passes | Degraded | [D13](DECISIONS.md), `render.rs` `a_full_precision_pass_keeps_counting_where_half_floats_stall` | SSF documents 32-bit; Strobe defaults to RGBA16F for speed on integrated GPUs. 32-bit is available (`FloatPrecision::Full`), not per scene. |
+| A pass that samples its own target | Supported | [D203](DECISIONS.md), [R9](OPEN_QUESTIONS.md), [TORNADO T8](hardware/TORNADO.md) | Double-buffered automatically, so native and ANGLE agree. |
+| Implicit final pass | Supported | [D8](DECISIONS.md), [R1](OPEN_QUESTIONS.md), `render.rs` `a_buffer_pass_feeds_the_final_pass` | `renderMain` runs once more with `PASSINDEX == PASSES.len()`. |
+| `PASSINDEX` compared as int or float | Supported | [D7](DECISIONS.md), [D163](DECISIONS.md), [R4](OPEN_QUESTIONS.md), `render.rs` `passindex_compared_with_a_float_literal_compiles_in_both_dialects`, `int_passindex_comparisons_still_compile_in_both_dialects` | A compile-time constant per pass program. |
+| Desktop-only GLSL idioms on ANGLE (implicit int to float, `#if` on a non-macro, initialised uniforms) | Supported | [D199](DECISIONS.md), `render.rs` `implicit_int_to_float_and_non_macro_if_compile_in_both_dialects`, [TORNADO T18](hardware/TORNADO.md) | Left: function-like macros mixing int and float, and a `sampler2D` in `?:` ([C-02](IMPLEMENTATION_BACKLOG.md)). |
+| `#include` | Degraded | [D198](DECISIONS.md), `include.rs` tests | Strobe ships neither lygia nor hg_sdf. Works where Synesthesia is installed or `STROBE_GLSL_PATH` points at a copy. |
+| `IMAGES` | Supported | `render.rs` `image_wrap_filter_and_vflip_options_are_honoured`, `assets.rs` `a_missing_image_reports_a_problem_and_reads_black`, [D201](DECISIONS.md) | A missing picture is reported and reads black; the scene plays. Decoded by content, not extension ([D196](DECISIONS.md)). |
+| `CUBEMAPS` | Degraded | [D185](DECISIONS.md), `assets.rs` `six_face_files_answer_each_direction_with_their_colour`, `a_cross_picture_gives_the_same_six_faces` | Face orientation is unverified against Synesthesia ([Q22](OPEN_QUESTIONS.md)); none of the 65 real scenes uses a cube map. llvmpipe only. |
+| `MEDIA` | Supported | See section 9 | |
+| `HARD_TRANSITIONS`, `SMOOTH_TRANSITIONS` | Degraded | [ROADMAP phase 7](ROADMAP.md), [D196](DECISIONS.md) | Parsed (`null` accepted) and declared; the uniforms keep their first value. Song changes ([D237](DECISIONS.md)) drive playlists only, not these uniforms. |
+| `TAGS` | Supported | [D205](DECISIONS.md), `strobe_scene::tags` tests | Read leniently, normalised, written in place. |
+| `IMAGE_PATH` | Supported | [D212](DECISIONS.md), [D222](DECISIONS.md), `ui::thumbs` and `snapshot` tests | Shown as the browser thumbnail; can be taken from the live frame. |
+| Other keys (`IS_META`, `GPU`, `UNIFORMS`, `LABEL`, `X_STROBE`) | Degraded | [Q6](OPEN_QUESTIONS.md), [Q9](OPEN_QUESTIONS.md) | Read and ignored. |
+| SSF function library (documented names) | Supported | `strobe-ssf-lib` `every_documented_function_is_defined` (63 names), `render.rs` `the_ssf_library_compiles_in_both_dialects`, [TORNADO T18](hardware/TORNADO.md) | Re-implemented from the documented behaviour. Numbers are not bit-identical to Synesthesia's. |
+| Undocumented helpers used by real scenes | Degraded | [D197](DECISIONS.md), [D199](DECISIONS.md) | The image family, older names (`_loadUserImage` and family as aliases of `syn_Media`), `_ratioFix` ([Q27](OPEN_QUESTIONS.md)) are inferred. `_hueSaturationContrastLEGACY` is missing ([Q26](OPEN_QUESTIONS.md)). |
+| Scalar audio uniforms (`syn_Level`, `syn_*Hits`, `syn_*Time`, `syn_*Presence`, beat values) | Supported | `strobe_scene::audio::SCALARS`, live capture on [T480](hardware/T480.md) (script scene, 2026-10-09) and [TORNADO T19](hardware/TORNADO.md) | Strobe's own analysis; values are not compared numerically with Synesthesia's. |
+| Undocumented audio names (`syn_InputLevel`, `syn_BassExpoCurve`) | Degraded | [D197](DECISIONS.md) | Stand-ins until their meaning is known. |
+| `syn_Spectrum`, `syn_LevelTrail` textures | Unverified | `render.rs` `uploaded_audio_texels_reach_the_spectrum_and_trail_samplers` | Sampler type, texel count and channel layout are assumptions ([Q1](OPEN_QUESTIONS.md), [Q10](OPEN_QUESTIONS.md)). |
+| `syn_FinalPass` | Supported | `render.rs` `syn_final_pass_is_last_frames_output` | llvmpipe, both dialects. |
+| `textureFinalPass` (script) | Unverified | [D162](DECISIONS.md), `render.rs` readback tests, `script_uniforms.rs` `texture_final_pass_reads_the_picture_a_few_frames_late` | 64x36, two frames late, never a stall. Latency and cost unmeasured on the T480 and ANGLE/D3D11: the test skips on Windows ([Q14](OPEN_QUESTIONS.md), [C-04](IMPLEMENTATION_BACKLOG.md)). |
+| Meta controls (master, invert, brightness, gamma, contrast, hue, saturation, mirrors, Limit Colors) | Degraded | [D180](DECISIONS.md), [D207](DECISIONS.md), `crates/strobe-gfx/tests/post.rs`, [T480 Task 15](hardware/T480.md), [T480 Task 25](hardware/T480.md) | Order, ranges and mirror conventions are Strobe's guesses ([Q21](OPEN_QUESTIONS.md)). About 1.1 ms GPU at 1440p on the T480; HD 4000 unmeasured. |
+| Meta `Alpha Channel` | Unsupported | [D207](DECISIONS.md) | Waits for an output that carries alpha. |
+| `_mouse`, `_muv`, `_click` | Unverified | [Q2](OPEN_QUESTIONS.md), [Q13](OPEN_QUESTIONS.md) | The meaning of `_click` is ambiguous; the app feeds both readings. |
+
+## 2. SSF scripts (`script.js`)
+
+| Feature | Status | Evidence | Notes |
+|---|---|---|---|
+| `setup()` once, `update(dt)` each frame | Supported | `crates/strobe-script/src/conformance.rs` `setup_runs_once_and_its_control_writes_apply_on_the_first_frame`, [T480](hardware/T480.md) (`11-script-orbits`), [TORNADO T18](hardware/TORNADO.md) (scripts run) | QuickJS, built on Windows by CI's `windows` job and the T480. |
+| A top-level `transition` function | Unverified | [Q23](OPEN_QUESTIONS.md) (script API counts) | 6 real scenes define one. Strobe's host calls only `setup` and `update`. What Synesthesia calls it for is not recorded. |
+| `setUniform` uniforms, created at load | Supported | [D62](DECISIONS.md), [D161](DECISIONS.md), `script_uniforms.rs`, `conformance.rs` `uniforms_made_in_setup_are_listed_when_sealed` | The first frame's uniforms are compiled in before the show plays. |
+| A uniform first set after load | Degraded | [D161](DECISIONS.md), `script_uniforms.rs` `a_uniform_that_appears_later_is_refused_and_nothing_compiles_after_load` | Refused with one console error, never recompiled. Create every uniform in `setup()`. |
+| Legacy `uniforms` object and `inputs` reads | Supported | `conformance.rs` `deprecated_uniforms_object_is_scanned_after_update`, `deprecated_inputs_reads_the_same_values_and_is_read_only` | Both appear in real scenes ([Q23](OPEN_QUESTIONS.md)). |
+| `setControl`, `setControlNormalized`, randomize and default (control and group) | Supported | `conformance.rs` `set_control_*`, `randomize_and_default_control_and_group` | Names match ignoring case, `_`, `-` and spaces. |
+| Event handlers (`onChange`, `onOffToOn`, `onOnToOff`, `whileOn`, `whileOff`) | Supported | `conformance.rs` `every_event_type_fires_on_its_condition_across_frames` | "On" is `>= 0.5`. |
+| Writes to `meta/` controls | Supported | [D160](DECISIONS.md), `conformance.rs` `meta_*`, `crates/strobe-app/tests/script_meta.rs`, `docs/images/post/` (Xvfb) | Scripts cannot read meta values ([Q21](OPEN_QUESTIONS.md)). |
+| `syn_PrimeBang` | Degraded | [D199](DECISIONS.md), `conformance.rs` `syn_prime_bang_is_defined_and_never_fires` | Defined as 0; what fires it is unknown ([Q25](OPEN_QUESTIONS.md)). |
+| Runaway and faulting scripts | Supported | `conformance.rs` `an_endless_loop_in_update_is_interrupted_and_the_frame_returns`, `three_faulted_frames_in_a_row_disable_the_script`, `a_memory_limit_breach_faults_cleanly_and_recovers` | 4 ms a frame, 64 MiB heap; the output keeps running. |
+| Script cost in the benchmark | Unsupported | [D239](DECISIONS.md) | `strobe-bench` runs no scripts and says so. Quote the corpus harness's `frame_ms` instead. |
+
+## 3. Real Synesthesia scenes
+
+The owner's scenes are private and never committed. The counts come from
+`cargo xtask corpus`, which loads each scene the way the app does,
+scripts included, and renders it in both dialects ([D195](DECISIONS.md)).
+
+| Feature | Status | Evidence | Notes |
+|---|---|---|---|
+| The owner's 65 scenes on NVIDIA native GL 3.3 | Supported | [TORNADO T18](hardware/TORNADO.md) (commit 12a9ddf) | 63 of 65. The 2 failures are the scenes' own bugs (a function that never returns, an output declared twice). |
+| The same 65 on ANGLE/D3D11 (NVIDIA) | Supported | [TORNADO T18](hardware/TORNADO.md) | 63 of 65, the same two failures. |
+| Native and ANGLE drawing the same picture | Degraded | [TORNADO T8](hardware/TORNADO.md), [TORNADO T9](hardware/TORNADO.md), [TORNADO T18](hardware/TORNADO.md) | Two scenes differ between backends from undefined behaviour in their own code (`pow(0,0)`, `fract(sin)` hashes). Strobe does not fix those. |
+| The 65 scenes on Intel (T480) | Unverified | [T480 Task 30](hardware/T480.md) | The T480 has run only Strobe's 12 library scenes through the harness (12 of 12 in both dialects). |
+| The 90-scene corpus from Synesthesia 1.25.4 on llvmpipe | Supported | [D199](DECISIONS.md) | 87 of 90 on desktop GL and 87 of 90 on GLES. llvmpipe only. |
+| A picture matching Synesthesia's own render | Unverified | none | No side-by-side comparison with Synesthesia is recorded. |
+| Running Synesthesia's built-in scenes for a show | Unverified | [Q7](OPEN_QUESTIONS.md) | The EULA question is open. |
+
+## 4. Shadertoy import
+
+| Feature | Status | Evidence | Notes |
+|---|---|---|---|
+| Exported JSON to a scene folder (`strobe-import`, the Import pane, a dropped `.json`) | Supported | [D90](DECISIONS.md)-[D95](DECISIONS.md), `crates/strobe-shadertoy/tests/convert.rs` and `crates/strobe-shadertoy/tests/render.rs`, [T480 Task 11](hardware/T480.md), [TORNADO T1](hardware/TORNADO.md) | Nine original fixtures render on llvmpipe, Intel and NVIDIA, native and ANGLE. |
+| Buffers A to D, multipass order and feedback | Supported | [D95](DECISIONS.md), [T480 Task 11](hardware/T480.md) (four-buffer chain) | Every buffer is double-buffered, even one that never reads itself. |
+| Texture channels from local files | Supported | [D95](DECISIONS.md), fixtures | A texture not supplied is a warning, a black channel and a `pending-assets.json` entry. |
+| Audio channels (`music`, `mic`) | Unverified | [D93](DECISIONS.md), [D112](DECISIONS.md), `render.rs` `the_shadertoy_audio_texture_is_512_by_2_and_resampled_from_the_spectrum` | Not compared with Shadertoy on the same track ([Q18](OPEN_QUESTIONS.md)). |
+| `keyboard`, `video`, `webcam` channels | Degraded | [D93](DECISIONS.md) | Read black, with a warning. |
+| `cubemap` and `volume` channels, `sound` and `cubemap` passes | Unsupported | [D93](DECISIONS.md) | Import errors naming the pass and channel. |
+| `srgb` textures | Degraded | [Q16](OPEN_QUESTIONS.md) | Not decoded; the importer warns. |
+| `iDate`, `iMouse`, `iChannelTime`, `iSampleRate`, `iFrameRate` | Unverified | [D93](DECISIONS.md), [D112](DECISIONS.md), `render.rs` `strobe_date_is_the_date_the_host_set` | Semantics not checked against Shadertoy's page ([Q15](OPEN_QUESTIONS.md)). |
+| A resize | Degraded | [D91](DECISIONS.md), [ROADMAP](ROADMAP.md) | Restarts `iTime` and `iFrame`, a visible jump at a non-default speed. |
+| Import by URL or id (REST API, needs a key) | Unverified | [Q19](OPEN_QUESTIONS.md), [T480 Task 11](hardware/T480.md), `crates/strobe-shadertoy/tests/acquire.rs` (mock) | The live API answered the T480 with a Cloudflare 403. Tested only against a loopback mock. |
+| "Send to Strobe" browser userscript | Unverified | [D115](DECISIONS.md), [I-01](IMPLEMENTATION_BACKLOG.md) | Its route to the page's JSON is a guess and has never run on shadertoy.com. |
+| Local import listener (`--listen`) | Supported | [D114](DECISIONS.md), `crates/strobe-shadertoy/tests/listener.rs`, [T480 Task 11](hardware/T480.md), [T480 Task 21](hardware/T480.md) | Loopback only, token checked: 200, 409 on a re-import, 401 on a bad token. |
+| A Shadertoy URL typed on a playlist cue | Unverified | [D229](DECISIONS.md) | Uses the same import path as above, so it has the same live-site gap. |
+| Author, source and licence kept in `SOURCE` | Supported | [D95](DECISIONS.md), `crates/strobe-shadertoy/tests/golden` | Records CC BY-NC-SA 3.0 unless the author says otherwise. Not a legal determination; licences are the user's responsibility ([Q15](OPEN_QUESTIONS.md)). |
+| Generated controls for an import | Supported | [D123](DECISIONS.md)-[D126](DECISIONS.md), [D202](DECISIONS.md), [D219](DECISIONS.md), `crates/strobe-autocontrol/tests/engine.rs`, [T480 Task 23](hardware/T480.md) | Heuristics have only seen Strobe's own scenes and fixtures. Not yet clicked in the app by a person on Windows. |
+
+## 5. Graphics backends and platforms
+
+| Feature | Status | Evidence | Notes |
+|---|---|---|---|
+| Native OpenGL 3.3 core, Intel UHD 620 (Windows 11) | Supported | [T480](hardware/T480.md) (app on the real GPU, Tasks 14, 17, 30) | Driver 30.0.101.1122. Heavy scenes need adaptive resolution at 1440p. |
+| Native OpenGL 3.3 core, NVIDIA GTX 1080 Ti (Windows 10) | Supported | [TORNADO T1](hardware/TORNADO.md), [TORNADO T18](hardware/TORNADO.md), [TORNADO T19](hardware/TORNADO.md) | Driver 582.78. |
+| Intel HD 4000 (the stated GL 3.3 floor) | Unverified | [D3](DECISIONS.md) | No run on an HD 4000 is recorded ([P-03](IMPLEMENTATION_BACKLOG.md)). |
+| ANGLE, GLES 3.0 on Direct3D 11 (`--gl angle`) | Supported | [T480 Task 30](hardware/T480.md), [T480 Task 21](hardware/T480.md), [TORNADO T1](hardware/TORNADO.md), [TORNADO T18](hardware/TORNADO.md) | DLLs from a pinned Electron release ([D12](DECISIONS.md)). Compiles are slower on heavy scenes (3.2 s against 275 ms native on the T480). |
+| Context loss: rebuild, then fail over to ANGLE | Unverified | [D66](DECISIONS.md), [T480 Task 8](hardware/T480.md), `STROBE_FAULT` policy tests | Injected losses recovered on real WGL. No real driver reset has been observed. |
+| Adaptive render scale | Supported | [D64](DECISIONS.md), [T480](hardware/T480.md) | Thresholds are validated on the T480 only. |
+| Headless llvmpipe (CI, Linux) | Supported | `crates/strobe-gfx/tests/render.rs`, CI `linux` job | For tests and frames. Timings are CPU rasterisation, not GPU numbers. |
+| Windows release zip | Unverified | [T480 Task 21](hardware/T480.md), [T480 Task 22](hardware/T480.md), [Q12](OPEN_QUESTIONS.md) | Packaged by hand with the workflow's steps and run from `%TEMP%`. `release.yml` has never run from a tag ([R-05](IMPLEMENTATION_BACKLOG.md)). |
+| Crash reports and symbolication (Windows) | Supported | [T480 Task 22](hardware/T480.md), [R5](OPEN_QUESTIONS.md) | Minidump and report written by the packaged build; `cargo xtask symbolicate` named the frames. A bare `abort()` is not caught. |
+| Linux desktop app | Unverified | CI `linux` job (Xvfb smoke test), [STATUS_AUDIT P1](STATUS_AUDIT.md) | Run only under Xvfb on llvmpipe. No release artifact, no real Linux GPU, no Wayland check. |
+| macOS | Unsupported | [D55](DECISIONS.md) | No CGL context provider; CI builds the portable crates only. |
+| Vulkan, wgpu, Direct3D 12, Metal | Unsupported | [ROADMAP item 10](ROADMAP.md), [GFX_API_RESEARCH.md](GFX_API_RESEARCH.md) | Research only. |
+
+## 6. Audio
+
+| Feature | Status | Evidence | Notes |
+|---|---|---|---|
+| Live capture from the default recording device | Supported | [D61](DECISIONS.md), [T480](hardware/T480.md) (Realtek microphone at 48 kHz), [TORNADO T19](hardware/TORNADO.md) | Windows microphone privacy settings must allow desktop apps. |
+| Capturing what the computer plays (loopback, Stereo Mix) | Unverified | [USER_GUIDE](USER_GUIDE.md) | Output devices are listed as loopback; no run is recorded. |
+| Synthetic 120 BPM fallback | Supported | [D61](DECISIONS.md), [STATUS_AUDIT P1](STATUS_AUDIT.md) (missing and synthetic audio states) | Used when no device opens, and by the bench and tests. |
+| Device removed and reconnected | Unverified | [R-01](IMPLEMENTATION_BACKLOG.md), [T480 Task 20](hardware/T480.md) | Capture retries every 2 s by design. Never run on hardware: it waits for the owner's approval. |
+| Tempo estimate and beat grid | Unverified | [D20](DECISIONS.md), [D21](DECISIONS.md), `strobe-audio` `tempo` tests | Synthetic signals only. |
+| Tap tempo and nudge | Supported | `tempo.rs` `tap_tempo_averages_the_intervals`, `nudge_overrides_and_clear_restores` | Not hardware-dependent. |
+| Downbeat estimate | Unverified | [D233](DECISIONS.md), `strobe-audio` `downbeat` tests | Synthetic kicks only. Unsure means bars count from the grid's origin. |
+| Breakdowns and drops | Unverified | [D226](DECISIONS.md), `strobe-audio` `events` tests | Synthetic structure and a kick/hiss/kick signal. Thresholds are first estimates. |
+| Song changes | Unverified | [D237](DECISIONS.md), `strobe-audio` `song` tests | A gap or a new held tempo. A tempo-matched DJ mix with no gap is not heard. |
+
+## 7. Playlists
+
+| Feature | Status | Evidence | Notes |
+|---|---|---|---|
+| TOML format, sections, inheritance, generator | Supported | [D73](DECISIONS.md)-[D77](DECISIONS.md), `crates/strobe-playlist/tests/example.rs`, unit tests | |
+| Precompile at load, zero shader compiles during playback | Supported | [D151](DECISIONS.md), [D152](DECISIONS.md), `crates/strobe-app/tests/show.rs`, [T480 Task 14](hardware/T480.md), [TORNADO T19](hardware/TORNADO.md) | A scene that fails to compile is skipped and shown. |
+| Transitions: cut, crossfade, fade through black, custom GLSL | Supported | [D154](DECISIONS.md), `crates/strobe-gfx/tests/compositor.rs`, [T480 Task 14](hardware/T480.md), [TORNADO T19](hardware/TORNADO.md) | Two scenes render during a transition; cost on an HD 4000 unmeasured. |
+| 30-minute show with scene changes | Supported | [TORNADO T19](hardware/TORNADO.md), [T480 Task 17](hardware/T480.md) | Flat memory and handles. A 4-hour show has run only as the pure clock ([P-03](IMPLEMENTATION_BACKLOG.md)). |
+| Beat-locked cue ends | Unverified | [D75](DECISIONS.md), clock tests | Depends on the tempo estimate, which has not been checked on real music. |
+| Audio-event advance (`audio-drop`, `audio-breakdown`, `audio-song`) | Unverified | [D226](DECISIONS.md), [D237](DECISIONS.md), clock tests | Needs live audio; not heard on real music. Ignored during a transition. |
+| Resume after a close, and `--no-resume` | Supported | [D155](DECISIONS.md), [STATUS_AUDIT P2](STATUS_AUDIT.md) (Xvfb logs) | |
+| Wall-clock anchor | Supported | [D155](DECISIONS.md), [STATUS_AUDIT P2](STATUS_AUDIT.md) | |
+| File watcher and lenient reload | Supported | [D158](DECISIONS.md), [STATUS_AUDIT P2](STATUS_AUDIT.md) | A broken file keeps the playing playlist and names the line. |
+| Cue editing in LIST (one or several cues, drag in, disable) | Unverified | [D213](DECISIONS.md), [D224](DECISIONS.md), [D230](DECISIONS.md), `show::edit` tests | Not yet used by a person or with a real pointer drag. |
+| Save that keeps the file's comments | Supported | [D231](DECISIONS.md), `merge` and `file` tests | Falls back to canonical text when a merge would not read back exactly. |
+| A cue's `preset` and `media` | Supported | [D176](DECISIONS.md), [D217](DECISIONS.md), `tests/show.rs`, [T480 Task 26](hardware/T480.md) | Precedence for media: cue, then operator, then preset, then scene. |
+
+## 8. Show control
+
+| Feature | Status | Evidence | Notes |
+|---|---|---|---|
+| Built-in OSC input (`/strobe/control`, `/meta`, `/cmd`, `/cue`, `/fav`, `/preset`, `/macro`) | Supported | [D172](DECISIONS.md), [D173](DECISIONS.md), `crates/strobe-io/src/osc.rs` tests, [T480 Task 25](hardware/T480.md) | Off until turned on; loopback only unless chosen. |
+| Synesthesia OSC input aliases | Supported | [D234](DECISIONS.md), `osc.rs` `synesthesias_addresses_are_aliases_and_the_rest_is_ignored`, [T480 Task 31](hardware/T480.md) | `/controls/scene\|meta/<name>`, `/controls/global/<type>/<n>`, two or three values to a pad or colour, `/favslots/<n>`, `/playlist/next\|previous\|toggleplay`. Ignored: `/raw` and the other suffixes, scene-specific addresses, string arguments. |
+| OSC from another machine on the LAN | Unverified | [STATUS_AUDIT P2](STATUS_AUDIT.md) | `--osc-all-interfaces` was bound, never reached from a LAN. |
+| OSC feedback output | Supported | [D209](DECISIONS.md), `feedback` tests, [T480 Task 25](hardware/T480.md) | Changes only, on `/strobe/...`. Synesthesia's output layout is not produced. Not tried with a real TouchOSC layout. |
+| MIDI input and mapping | Unverified | [D170](DECISIONS.md), [D171](DECISIONS.md), parser tests from recorded bytes | No MIDI controller has been used ([P-04](IMPLEMENTATION_BACKLOG.md)). |
+| MIDI output | Unsupported | [P-05](IMPLEMENTATION_BACKLOG.md) | |
+| Importing Synesthesia's MIDI mappings | Unsupported | [D234](DECISIONS.md), [Q23](OPEN_QUESTIONS.md) | They are internal identifiers with no export. |
+| Learn | Degraded | [D174](DECISIONS.md), [STATUS_AUDIT P2](STATUS_AUDIT.md) (Xvfb click, OSC) | Verified with OSC under Xvfb only; MIDI Learn and Windows are unverified. |
+| Macros: reach, colour, pinning, glide, key | Supported | [D210](DECISIONS.md), [D227](DECISIONS.md), [D228](DECISIONS.md), `strobe-io` `macros` and engine tests, [T480 Task 29](hardware/T480.md) | The key and the reach were checked on the T480 with posted keys. |
+| Presets: save, recall, rename, delete, media channel | Supported | [D176](DECISIONS.md), [D214](DECISIONS.md), [D223](DECISIONS.md), `strobe-scene` `preset` tests, `tests/show.rs` | |
+| Fav slots | Supported | [D176](DECISIONS.md), `preset` tests, [T480 Task 31](hardware/T480.md) | Recall of a filled slot over OSC on hardware is not recorded; an empty slot says so. |
+| Keyboard shortcuts and the shortcut editor | Supported | [D178](DECISIONS.md), [D208](DECISIONS.md), `commands.rs` and `ui::shell_tests`, [T480](hardware/T480.md) (Right, B) | Ctrl chords were not testable on the T480 with posted keys. |
+| Blackout on, off and toggle | Supported | [D181](DECISIONS.md), [D201](DECISIONS.md), Xvfb OSC run in [STATUS_AUDIT P2](STATUS_AUDIT.md), [T480](hardware/T480.md) (B key) | Blackout gates the shown output only; `master` fades the picture. |
+| Command palette | Supported | [D200](DECISIONS.md), `ui::shell_tests` | Not yet used by a person on Windows. |
+
+## 9. Media
+
+| Feature | Status | Evidence | Notes |
+|---|---|---|---|
+| A still picture through `syn_Media` | Supported | [D186](DECISIONS.md), `crates/strobe-gfx/tests/assets.rs` `a_still_image_is_read_through_syn_media_upright`, [T480 Task 26](hardware/T480.md) | PNG or JPEG. Chosen in the Inspector, per cue, by `--media` or a drop. |
+| An image sequence (a folder) | Supported | `assets.rs` `an_image_sequence_plays_at_its_rate_and_loops`, [T480 Task 27](hardware/T480.md), [T480 Task 28](hardware/T480.md) | Decoded off the frame thread. |
+| A long sequence over 192 MiB | Supported | [D225](DECISIONS.md), [T480 Task 28](hardware/T480.md) | Shrunk as a whole to fit, not cut; below 256 px it is cut, with a message. |
+| SSF `MEDIA` slot (`[{FILTER, WRAP}]`) | Supported | [D193](DECISIONS.md), `scene.rs` `real_synesthesia_shapes_load`, [TORNADO T21](hardware/TORNADO.md) | Strobe also accepts its own path form, a divergence from SSF. |
+| The slot's `WRAP` and `FILTER` applied to chosen media | Unverified | [D238](DECISIONS.md), `scene.rs` `chosen_media_is_sampled_as_the_media_slot_says` | The settings are parsed and tested; no render test checks the sampler. |
+| `syn_MediaType` 0 (none) and 1 (image) | Supported | `assets.rs` `no_media_is_black_and_type_zero`, [TORNADO T21](hardware/TORNADO.md) | Matches SSF's documented values. |
+| Video (`syn_MediaType` 2) and webcam (3) | Unsupported | [M-04](IMPLEMENTATION_BACKLOG.md) | Deferred research. They read as no media. |
+| NDI and Spout, in or out | Unsupported | [M-06](IMPLEMENTATION_BACKLOG.md), [TORNADO T21](hardware/TORNADO.md) | NDI and Spout have no documented `syn_MediaType` value. |
+
+## 10. LAN remote
+
+| Feature | Status | Evidence | Notes |
+|---|---|---|---|
+| Protocol version 1 (`strobe-remote`) | Supported | [D236](DECISIONS.md), `crates/strobe-remote/src/lib.rs` golden tests | Library only. Bounded, strict decoding; another version gets `version_mismatch`. |
+| App-thread command and state bridge | Supported | [D232](DECISIONS.md), `crates/strobe-remote/src/bridge.rs` tests | Library only: the app does not drain it yet ([L-05](IMPLEMENTATION_BACKLOG.md)). |
+| Network listener, pairing, tokens, revocation | Unsupported | [L-02](IMPLEMENTATION_BACKLOG.md), [L-03](IMPLEMENTATION_BACKLOG.md), [L-04](IMPLEMENTATION_BACKLOG.md) | Strobe opens no remote socket. |
+| Phone or tablet controller page | Unsupported | [L-06](IMPLEMENTATION_BACKLOG.md) | |
+| Installable PWA over HTTPS | Unsupported | [L-07](IMPLEMENTATION_BACKLOG.md), [REMOTE_CONTROL_PWA_RESEARCH.md](REMOTE_CONTROL_PWA_RESEARCH.md) | Blocked on a TLS and trust decision. |
+
+## Keeping this file true
+
+- Change a row only with evidence: a test, a decision, or a hardware
+  record with its machine, backend and commit.
+- When STATUS_AUDIT.md gains or loses evidence, update the row here in
+  the same change.
+- "Works under llvmpipe" does not prove Windows driver behaviour, and a
+  synthetic signal does not prove behaviour on real music.

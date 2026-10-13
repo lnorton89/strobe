@@ -208,21 +208,30 @@ runs are listed in [`DEBUGGING.md`](../../docs/DEBUGGING.md).
 
 - Phase 1 minimal app is done ([`ROADMAP.md`](../../docs/ROADMAP.md)): two
   windows, scene browser, controls per type, console, preview. The
-  Perform-first UI in [`UI_DESIGN.md`](../../docs/UI_DESIGN.md) is not built.
+  Perform-first UI in [`UI_DESIGN.md`](../../docs/UI_DESIGN.md) is built at
+  stage 1 (D130-D138), with the Playlist pane (D157), the MAP pane (D177),
+  the Editor (D204), the command palette (D200), named layouts (D215) and
+  density (D220). Left: the full Playlist and Mappings workspaces, and the
+  title bar's drag, snap and DPI behaviour on real Windows (ROADMAP item 2).
 - Real-hardware evidence is the ThinkPad T480 (Intel UHD 620): native and
   ANGLE smoke tests, live capture, a script scene, adaptive resolution and
   `--diagnose` all ran ([`T480.md`](../../docs/hardware/T480.md)).
 - T480 bug 1 (native `make_current` failing on `09-sdf-cathedral` at full
-  scale) no longer reproduces under adaptive resolution. Context recovery
-  (D66) is verified under Xvfb only; real WGL recovery and a forced scale of
-  1.0 are still unchecked. F11 on the 1440p panel, scene switching and DPI at
+  scale) no longer reproduces under adaptive resolution, nor at a forced
+  scale of 1.0 (Task 8). Context recovery (D66) is verified under Xvfb and
+  on real WGL with injected losses: native rebuild, ANGLE fail-over and
+  give-up (T480 Task 8). A real driver reset has not been seen. F11 on the 1440p panel, scene switching and DPI at
   150% scaling are still waiting for an interactive check.
-- Playlists are built (stage 2, D150-D158) and verified on llvmpipe only. Not
-  built: audio-event advance, the Playlist workspace's inspector, Shadertoy
-  thumbnails and the Needs-work bin, NDI.
+- Playlists are built (stage 2, D150-D158), verified on llvmpipe and on the
+  T480 (the transition demo, Task 14; media per cue, Task 26). Audio-event
+  advance is built (drops and breakdowns, D226; song changes, D237) and
+  tested on synthetic audio only. Not built: the full Playlist workspace,
+  the Needs-work bin, NDI.
 - Show control (D170-D179) is built and verified under Xvfb with real OSC
   datagrams, a real click on Learn, and headless GL for cue presets; **no MIDI
-  controller has been used**, and nothing here has run on the T480 or Windows.
+  controller has been used**. On the T480: OSC in and out (Task 25), a
+  macro's key and glide (Task 29, D227, D228) and Synesthesia's OSC
+  addresses (Task 31, D234).
   OSC feedback (D209) and the macro range and colour editor (D210) are built.
   Not built: MIDI output. Shortcuts
   are edited in Settings > Keyboard (D208), and blackout has explicit on and
@@ -230,7 +239,7 @@ runs are listed in [`DEBUGGING.md`](../../docs/DEBUGGING.md).
   Cube maps and `syn_Media` stills and sequences work (D185, D186), video
   and webcam do not. Script `meta/` writes land in the session's meta bank,
   which the post stage renders from (D180), checked on llvmpipe under Xvfb
-  only (its cost on an HD 4000 is unmeasured); meta values reset on a scene
-  change (D182). `textureFinalPass` is a two-frame-late asynchronous readback (D162).
+  only (its cost on an HD 4000 is unmeasured); meta values carry over a
+  scene change (D207, replacing D182's reset). `textureFinalPass` is a two-frame-late asynchronous readback (D162).
 - Linux runs under Xvfb and Mesa only; macOS is not built (no CGL provider,
   D55).

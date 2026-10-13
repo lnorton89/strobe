@@ -6,7 +6,7 @@ in [DECISIONS.md](DECISIONS.md), the evidence-based gap list in
 [STATUS_AUDIT.md](STATUS_AUDIT.md), and real-hardware results in
 [hardware/T480.md](hardware/T480.md).
 
-_Last updated: 2026-10-12 (implementation backlog reconciled; LAN remote protocol slice in PR)._
+_Last updated: 2026-10-13 (stale claims reconciled with D199-D238 and the T480 and TORNADO records)._
 
 ## Now
 
@@ -23,12 +23,12 @@ which backend proved a claim.
 | `strobe-scene`, `strobe-ssf-lib` | SSF parsing and validation, controls runtime, shader assembly, `PASS_SOURCES` (D90), the SSF GLSL library | Headless GL 3.3 core and GLES 3.0 (llvmpipe) |
 | `strobe-gfx` | Native GL and ANGLE context providers, headless EGL, multipass and ping-pong, implicit final pass, images, GPU timer queries, robust contexts and reset status (D66) | llvmpipe; T480 native and ANGLE |
 | `strobe-bench` | Timings, frames, contact sheet; headless, window and auto contexts (D70-D72), now `strobe_gfx::offscreen` (D140) | llvmpipe; T480 ([BENCHMARKS.md](BENCHMARKS.md)) |
-| `strobe-app` | Control window (maximized) and output window on one context; the output starts hidden and the scene frame runs on its own schedule (D96); **Contextual Perform stage 1** (D130-D138): rail, custom title bar with health readouts, preview, transport (prev, next, blackout; hold shown as not wired), first-controls macros, and contextual panes for the scene browser (search, health filter, Preview apart from Load), inspector, diagnostics, import and settings, with saved layout, a focus-aware keyboard model and themes; `--diagnose`, adaptive resolution (D64), context-loss recovery with ANGLE fail-over (D66) | Xvfb (screenshots at 1280x720 and 1440x900 for every state, xdotool for keys); T480: smoke tests, recovery on real WGL (Task 8), hidden output, F11 and the close button (Task 9). The new UI has not run on the T480 or on real Windows |
+| `strobe-app` | Control window (maximized) and output window on one context; the output starts hidden and the scene frame runs on its own schedule (D96); **Contextual Perform stage 1** (D130-D138): rail, custom title bar with health readouts, preview, transport (prev, next, blackout; hold shown as not wired), first-controls macros, and contextual panes for the scene browser (search, health filter, Preview apart from Load), inspector, diagnostics, import and settings, with saved layout, a focus-aware keyboard model and themes; `--diagnose`, adaptive resolution (D64), context-loss recovery with ANGLE fail-over (D66) | Xvfb (screenshots at 1280x720 and 1440x900 for every state, xdotool for keys); T480: smoke tests, recovery on real WGL (Task 8), hidden output, F11 and the close button (Task 9), the Perform UI at 150% scaling (Task 12) |
 | `strobe-audio` | Capture with retry and synthetic fallback, analysis, spectrum and level-trail textures, tap tempo (D20-D23, D61) | T480 live mic at 48 kHz |
 | `strobe-script` | QuickJS host: events, `update`, controls, `setUniform` compiled in at load, budget and faults (D62) | Xvfb; T480 (`11-script-orbits`) |
 | `strobe-diag` | Session logs, structured failures, panic reports, out-of-process minidumps, GL debug output (D40-D45) | Linux; T480 (`overflow` gives a `.dmp`, bug 2) |
 | `strobe-shadertoy` | Stage 1: id parser, both JSON shapes, dialect rewrite, converter to a scene folder, `strobe-import` (D90-D95). Stage 2: REST client, texture downloader and cache, shared import pipeline, loopback listener, `strobe-import --id` (D110, D111, D113, D114, D117) | Nine original fixtures on llvmpipe, both dialects; stage 2 against fakes and a loopback mock, never the live site |
-| `strobe-autocontrol` | Stage 1: finds candidate literals, rewrites them to uniforms, keeps the ones whose measured effect matters, suggests audio bindings, CLI with `--context auto\|headless\|window` (D123-D126, D140) | llvmpipe, both dialects: 11 of 11 stripped library scenes and 8 of 14 Shadertoy fixtures get controls. Not in the app yet
+| `strobe-autocontrol` | Stage 1: finds candidate literals, rewrites them to uniforms, keeps the ones whose measured effect matters, suggests audio bindings, CLI with `--context auto\|headless\|window` (D123-D126, D140) | llvmpipe, both dialects: 11 of 11 stripped library scenes and 8 of 14 Shadertoy fixtures get controls. In the app through a worker process (D202); T480 Tasks 13 and 23
 | `strobe-playlist` | Stage 1, pure core: model, inheritance, TOML, generator, timeline, playback clock, resume (D73-D77). **Stage 2, in the app (D150-D158):** `--playlist` and the LIST pane, precompile with progress, scenes parked at 1x1, warm-up at a quarter of the pixels, the compositor (crossfade, fade-through-black, custom GLSL), real Hold, extend, restart, skip-section and Next/Prev, NOW/NEXT and remaining time, Generate, Save, a file watcher, resume every 5 s, the wall-clock anchor | Unit tests and 4-hour soaks; stage 2 on headless GL in both dialects (`crates/strobe-app/tests/show.rs`) and under Xvfb with llvmpipe. T480 Task 14: the transition demo closed with 0 runtime compiles, transitions at 60 fps costing about 0.5 ms of GPU |
 | Brand | Parametric Flow guidelines and concept mark (lnorton89/strobe#6); the default theme in the brand palette, the window and taskbar icon, the title-bar mark, and icon PNGs and `.ico` rendered from SVG with a CI check (D190). Open: wordmark, lockups, the `.exe` resource icon | Xvfb screenshots; not yet seen on Windows |
 | `strobe-io` | Show control (D170-D179): MIDI input and OSC on two worker threads feeding one bounded queue, drained once per scene frame; the mapping model (source to target, range, curve, invert, button mode, soft takeover), learn with conflict detection, the six target states, the built-in `/strobe/...` OSC space, the Performance Macro set, `show-control.json`. Presets and fav slots in `strobe-scene`. In the app: the MAP pane, the macro strip, the preset row, cue `preset`, configurable hotkeys | Unit tests with no devices, real UDP over loopback, `tests/show.rs` on headless GL in both dialects, and the app under Xvfb with hand-built OSC datagrams and a real click on Learn. **No MIDI hardware has touched it** (the parser and the mapper are tested from recorded bytes) |
@@ -36,8 +36,9 @@ which backend proved a claim.
 
 ### In flight
 
-- **Perform UI stage 2** (see item 2): the panes built in stage 1 will also
-  hold the review panel for generated controls and the Playlist workspace.
+- **Perform UI stage 2** (see item 2): the panes built in stage 1 hold the
+  generated-controls review (D202, D219); the full Playlist workspace is
+  still to come.
 - **LAN remote, implementation slice 1:** `strobe-remote` now defines a
   versioned, typed, allowlisted client/server protocol with serialization
   tests, and `strobe_remote::bridge` is the bounded command queue and
@@ -57,8 +58,9 @@ Each item names its acceptance test. Evidence is in [STATUS_AUDIT.md](STATUS_AUD
    *Done except the audio reconnect:* recovery (Task 8), bug 1 (Tasks 8 and
    14), and the soak (Task 17: a 30-minute fullscreen playlist, 271
    transitions, 0 runtime compiles, flat memory and handles, 60 fps, exit in
-   0.11 s). Open: the minute-6 step in memory and GPU time, and unplugging
-   and replugging the audio device.
+   0.11 s). The minute-6 step is explained, pending confirmation: it matches
+   the output leaving fullscreen, not a leak (Task 20, R-02). Open:
+   unplugging and replugging the audio device.
 2. **Perform-first UI.** *Stage 1 built* (D130-D138, rustaman's UI system
    ported, D5): Contextual Perform with the shell, the panes above,
    persistence, the keyboard model and every state in the audit
@@ -66,7 +68,8 @@ Each item names its acceptance test. Evidence is in [STATUS_AUDIT.md](STATUS_AUD
    - ~~a curated, persistent Performance Macro set with target resolution
      and the unavailable, broken, learning and conflict states~~ (built,
      D175; the range and colour editor and pinning from the Inspector are
-     built, D210; left: a shortcut and smoothing per macro);
+     built, D210; a shortcut and smoothing per macro are built, D227 and
+     D228);
    - the Playlist workspace (LIST) with real cues, NEXT and remaining
      time, and Hold wired to it (the LIST pane is built, D157); ~~the Editor
      (EDIT) workspace~~ (built, D204) and a full Mappings workspace (the MAP pane with MIDI
@@ -94,8 +97,9 @@ Each item names its acceptance test. Evidence is in [STATUS_AUDIT.md](STATUS_AUD
      acceptance test;
    - a real file drop on Windows and X11 (the typed path runs the same
      job);
-   - thumbnails and the Needs-work bin;
-   - a batch route and the watched drop folder.
+   - ~~thumbnails and the Needs-work bin~~ (built: D212, D222; the LIB
+     "Needs work" filter and DIAG's list of this run's failures);
+   - ~~a batch route and the watched drop folder~~ (built, D235, D240).
 
    *Accept:* representative single-pass and multipass imports play on
    native and ANGLE, a missing asset fails visibly, and attribution
@@ -103,11 +107,10 @@ Each item names its acceptance test. Evidence is in [STATUS_AUDIT.md](STATUS_AUD
 4. **Auto-generated controls.** *Stage 1 built* (`strobe-autocontrol`,
    D123-D126). *Stage 2 built (D202):* the app runs the engine in a worker
    process from the Inspector or the palette, and shows the result for
-   review (open the copy or discard it). *Left:* per-control keep, drop and
-   re-range before the copy is written, the same button on the Import pane
-   after an import, confirming the CLI's window context on the T480 (built,
-   D140; `--context window` matches headless on llvmpipe under Xvfb, not yet
-   run on Windows), the speed control not following `st_speed`, and a
+   review (open the copy or discard it), with keep, drop and re-range per
+   control (D219). The window context scores on the T480, native and ANGLE
+   (Tasks 13 and 23, D140). *Left:* the same button on the Import pane
+   after an import, the speed control not following `st_speed`, and a
    second look at the heuristics on real community scenes. *Accept:* every
    fixture, and every library scene with its `CONTROLS` stripped, gets a
    useful, named, grouped control set that visibly changes the image. Met
@@ -187,9 +190,11 @@ Each item names its acceptance test. Evidence is in [STATUS_AUDIT.md](STATUS_AUD
      rates. Nothing here has seen a controller (D171, Q23);
    - ~~an OSC **output** for feedback~~ (built, D209); a MIDI output (needs a
      device to test against);
-   - Synesthesia's OSC address layout, if it is wanted (Q23);
+   - ~~Synesthesia's OSC address layout~~ (built: its addresses are
+     aliases where they mean the same, D234);
    - ~~macro range and colour editors, pinning from the Controls pane~~
-     (built, D210); a shortcut and smoothing per macro;
+     (built, D210); ~~a shortcut and smoothing per macro~~ (built, D227 and
+     D228);
    - ~~an in-app hotkey editor~~ (built, D208);
    - ~~presets for **media**~~ (built, D223: PLAN's third channel, beside
      media chosen in the Inspector and per cue, D217); ~~renaming a
@@ -224,11 +229,13 @@ Each item names its acceptance test. Evidence is in [STATUS_AUDIT.md](STATUS_AUD
    - **video and webcam input**, deliberately later: they need a decoder or
      capture dependency the engine does not carry (nothing heavy should be
      added for them);
-   - checking the `MEDIA` / `CUBEMAPS` / `syn_MediaType` shapes against SSF's
-     docs (Q22); ~~a media picker in the UI~~ and ~~media per playlist
+   - ~~checking the `MEDIA` / `CUBEMAPS` / `syn_MediaType` shapes against
+     SSF's docs~~ (done in TORNADO T21, Q22; chosen media follows the slot's
+     settings, D238); ~~a media picker in the UI~~ and ~~media per playlist
      cue~~ (built, D217: the Inspector's Media row and a cue's `media` key);
-   - the T480: the cost of uploading a long sequence, and VRAM with 192 MiB
-     of frames on shared memory.
+   - ~~the T480: the cost of uploading a long sequence, and memory with
+     192 MiB of frames on shared memory~~ (measured, T480 Task 28, D225:
+     about 4 s to load, about 280 MB, flat, 60 fps).
 
    *Accept:* a cube-map fixture where each direction returns its face, a
    missing one failing visibly while the scene runs, and an image read
@@ -255,8 +262,9 @@ Each item names its acceptance test. Evidence is in [STATUS_AUDIT.md](STATUS_AUD
    included, renders it in both dialects in a child process per scene, and
    writes `target/corpus/report.{json,md}` with a cause per failure. Its
    integration test runs synthetic scenes on llvmpipe. Open: the CI job that
-   runs it on `scenes/`; Windows has no headless EGL, so the T480 and TORNADO
-   need a window-context mode.
+   runs it on `scenes/`. Windows has no headless EGL, and the harness falls
+   back to a window context there: the T480 ran it on `scenes/` in both
+   dialects (Task 30) and TORNADO on the owner's corpus (T18).
 
 ### Auto-generated controls (stage 1 built)
 
@@ -322,12 +330,13 @@ never per frame.
   stripped) and 14 Shadertoy fixtures.
 
 **Left:**
-- the Import and Inspector review panel (rename, re-range, drop, keep, live
-  previews) and the app calling `generate` with its own context;
+- ~~the Inspector review panel and the app calling `generate` with its own
+  context~~ (built: D202, D219); the same review on the Import pane,
+  renaming a control, and live previews;
 - accepting a suggested audio binding in the app, and binding a speed
   control (it is an integrator, so it is data only in GLSL);
-- verifying on a real GPU and the T480, and trying community scenes (the
-  heuristics have only seen Strobe's own library and original fixtures);
+- ~~verifying on a real GPU and the T480~~ (Tasks 13 and 23); trying
+  community scenes (the heuristics have only seen Strobe's own library and original fixtures);
 - speed controls that also follow `st_speed` and `st_audio_time` (D125);
 - vector and `xy` candidates (an offset, a centre) and dropdown candidates
   (a mode switch) are not generated.
@@ -340,32 +349,35 @@ never per frame.
 | 1 | Renderer, SSF, controls, output window | Done, with the Perform-first UI at stage 1 (D130-D138). Images, cube maps and `syn_Media` stills and sequences work (D185, D186); video and webcam do not. |
 | 2 | JavaScript API | Integrated (D62). `meta/` writes land in a meta bank (D160) that the output post stage and audio gains read (D180, D184); `textureFinalPass` is an asynchronous readback (D162); late uniforms are refused (D161). |
 | 3 | Audio | Integrated (D61). The bench still uses the synthetic stand-in. |
-| 4 | Shadertoy import | The converter (D90-D95), acquisition (REST client, texture downloader, localhost listener), the Import panel, file drop and the userscript (D110-D117) are built, auto-generated controls with their review in the app (D123-D126, D202, D219), drops routed by kind (D218) and a URL on a playlist cue (D229). Open: live-site verification (Q19), the Needs-work bin, batch import. |
+| 4 | Shadertoy import | The converter (D90-D95), acquisition (REST client, texture downloader, localhost listener), the Import panel, file drop and the userscript (D110-D117) are built, auto-generated controls with their review in the app (D123-D126, D202, D219), drops routed by kind (D218) and a URL on a playlist cue (D229). batch import and a watched folder (D235, D240). Open: live-site verification (Q19), a real OS drop by a person. |
 | 5 | Playlists | The pure core (D73-D77), the app integration (D150-D158), cue editing with inheritance shown (D213), media per cue (D217), drag, disable, multi-select, URL import and comment-keeping save (D224, D229-D231), and audio-event advance (D226, D237) are built. Verified on the T480 (Tasks 14, 26). Open: hearing the downbeat estimate (D233) and the audio events on real music. |
 | 6 | Presets, MIDI, OSC, hotkeys | Built (D170-D179): `strobe-io`, presets and fav slots, the MAP pane, macros stage 2, hotkeys, a hotkey editor (D208), OSC feedback (D209), macro reach and colour (D210), the preset media channel (D223), and a glide and a key per macro (D227, D228). Open: a controller on the T480, MIDI output. |
 | 7b | LAN remote / PWA | Protocol crate and app-thread bridge in `strobe-remote` (D232); no listener or UI integration yet. Next: secure service lifecycle, pairing/revocation, mobile controller, then solve HTTPS before claiming installable PWA support. See [REMOTE_CONTROL_PWA_RESEARCH.md](REMOTE_CONTROL_PWA_RESEARCH.md). |
-| 7 | NDI, media input, song-change transitions | Media stills and image sequences (D186), chosen in the Inspector, per cue and per preset (D217, D223), bounded by shrinking (D225); breakdown and drop detection feeds playlists (D226). Video, webcam and NDI are open. `HARD`/`SMOOTH_TRANSITIONS` are declared but never change. |
+| 7 | NDI, media input, song-change transitions | Media stills and image sequences (D186), chosen in the Inspector, per cue and per preset (D217, D223), bounded by shrinking (D225); breakdown and drop detection (D226) and song changes (D237) feed playlists. Video, webcam and NDI are open. `HARD`/`SMOOTH_TRANSITIONS` are declared but never change. |
 
 ## Known gaps in what exists
 
 - The performer-facing UI is at stage 1 plus the Playlist pane (D157), the MAP pane (D177) and the Editor (D204), with named layouts (D215) and density (D220); little of it has been used on the T480 by a person with real input.
-- Context-loss recovery is verified under Xvfb with injected faults;
-  real-driver behaviour on the T480 is pending (bug 1, D66).
+- Context-loss recovery is verified under Xvfb and on real WGL on the T480
+  with injected losses: native rebuild, ANGLE fail-over and give-up (Task 8,
+  D66). A real driver reset has not been seen there yet (bug 1).
 - The bench's `syn_Spectrum` and `syn_LevelTrail` are silent placeholders,
   and the bench does not run scripts. `11-script-orbits` drives controls
   instead (D62).
 - `syn_Media` shows a still or an image sequence only (D186); **video and
-  webcam are later** and read as no media. Cube maps load (D185), but the
-  `MEDIA` and `CUBEMAPS` shapes and `syn_MediaType`'s values are unverified
-  against SSF (Q22). The bench has no media or cube-map scene.
+  webcam are later** and read as no media. Cube maps load (D185). The
+  `MEDIA` and `CUBEMAPS` shapes and `syn_MediaType`'s values are checked
+  against SSF's documentation (TORNADO T21, Q22, D238); cube orientation is
+  not documented there. The bench has no media or cube-map scene.
 - The meta controls change the picture (the post stage, D180) but the stage's
   cost on an old Intel GPU is unmeasured, and `Alpha Channel` waits for an
   output that carries alpha (D207, Q21).
   `textureFinalPass` is two frames late and unverified on the T480 (D162,
   Q14).
-- The GLES dialect rewrites `PASSINDEX == 0.0` only (D163); the rest of the
-  implicit int-to-float family is open (Q8). The base library is written
-  ES-clean.
+- Implicit int-to-float is written out by a typed, parser-backed rewrite on
+  every dialect (D199, R8), not only `PASSINDEX == 0.0` (D163). A
+  function-like macro that mixes int and float is still left as written. The
+  base library is written ES-clean.
 - Adaptive-resolution thresholds are validated on one machine, the T480.
 - Native crash capture cannot see a bare `abort()` on Windows, which is a
   fast-fail ([DEBUGGING.md](DEBUGGING.md)).
@@ -381,16 +393,17 @@ never per frame.
   switch) and its token is shown in the panel (D114).
 - A real file drop was not exercised under Xvfb; the typed-path route runs
   the same job and was (D116).
-- Still open: thumbnails, the Needs-work bin, batch import, the watched
-  drop folder.
+- Built since: thumbnails (D212, D222), the "Needs work" filter and list,
+  batch import of a dropped folder of scenes (D235) and a watched folder
+  (D240). Still open: a real OS drop by a person.
 - Not supported:
   - `cubemap` and `volume` inputs, and `sound` and `cubemap` passes: these
     are errors;
   - `keyboard`, `video` and `webcam` inputs: they read black, with a
     warning;
   - `srgb` textures: not decoded (Q16);
-  - packing built-ins on a 3.30 context, and implicit int-to-float: neither
-    is rewritten (Q8).
+  - packing built-ins on a 3.30 context: not rewritten. Implicit
+    int-to-float is written out by D199's typed rewrite (R8).
 - A resize restarts `iTime` at `TIME` and `iFrame` at 0 (D91), which is a
   visible jump at a non-default Speed.
 - Every buffer is double-buffered, even one that never reads itself (D95).
@@ -420,5 +433,6 @@ The app plays playlists (D150-D158). Known gaps:
 - **Loading a scene by hand unloads the playlist** (D150).
 - **Context loss** reloads the playlist and compiles every scene again
   before it resumes; on a big show that is a pause the length of the load.
-- Everything here was verified on llvmpipe under Xvfb; none of it has run on
-  real Windows or the T480.
+- Everything here was verified on llvmpipe under Xvfb. On the T480: the
+  transition demo (Task 14), a 30-minute show (Task 17) and media per cue
+  (Task 26).

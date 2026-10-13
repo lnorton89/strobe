@@ -169,23 +169,30 @@ STROBE_REQUIRE_HEADLESS_GL=1 cargo test -p strobe-gfx --test render
 - Renderer, multipass, ping-pong, `syn_FinalPass`, images, audio textures and
   script uniforms work, and are tested on llvmpipe (headless Mesa) in both
   dialects ([`ROADMAP.md`](../../docs/ROADMAP.md)).
-- Real-hardware evidence is the ThinkPad T480 (Intel UHD 620) only: native
-  and ANGLE render the scene library, but `10-volume-clouds` ran at 3.8 fps
-  on native at full scale ([`T480.md`](../../docs/hardware/T480.md),
+- Real-hardware evidence is the ThinkPad T480 (Intel UHD 620) and TORNADO
+  (GTX 1080 Ti, [`TORNADO.md`](../../docs/hardware/TORNADO.md)): native and
+  ANGLE render the scene library on both. On the T480, `10-volume-clouds`
+  ran at 3.8 fps on native at full scale ([`T480.md`](../../docs/hardware/T480.md),
   [`BENCHMARKS.md`](../../docs/BENCHMARKS.md)).
 - T480 bug 1: native `make_current` failed after 13 to 16 seconds on
   `09-sdf-cathedral` at full render scale. Adaptive resolution avoids it and
-  context recovery (D66) is built, but real WGL recovery is unverified; the
-  cause was never confirmed.
+  context recovery (D66) is built. T480 Task 8 ran it on real WGL with
+  injected losses: a native rebuild, the ANGLE fail-over and the give-up.
+  A real driver reset has not been seen yet, and the cause was never
+  confirmed.
 - Cube maps load (D185) and `syn_Media` shows a still or an image sequence
-  (D186), verified on llvmpipe in both dialects only. Video and webcam are
+  (D186), verified on llvmpipe in both dialects and, for media per cue and
+  by hand, on the T480 (Tasks 26 and 27). Video and webcam are
   not built (later). The post stage's GPU cost on an HD 4000 or the T480 is
-  unmeasured. `MEDIA`, `CUBEMAPS` and `syn_MediaType` follow Strobe's reading
-  of SSF, not its documentation (Q22). `textureFinalPass` data (Q14) comes from the
+  unmeasured. `MEDIA`, `CUBEMAPS` and `syn_MediaType` are checked against
+  SSF's documentation (TORNADO T21, Q22), and chosen media is sampled as the
+  scene's `MEDIA` slot says (D238). `textureFinalPass` data (Q14) comes from the
   asynchronous readback (D162), verified on llvmpipe in both dialects but not
   yet on the T480 or ANGLE/D3D11.
 - macOS is not built: glutin compiles its EGL backend out on Apple targets
   and there is no CGL headless provider (D55).
 - The audio textures' layout is unverified against real Synesthesia (Q1,
-  Q10), and the ANGLE path rewrites only `PASSINDEX == 0.0` of the desktop-only SSF idioms (Q8, D163); see
+  Q10). Implicit int-to-float, the main desktop-only SSF idiom, is written
+  out by `strobe-scene`'s typed pass on every dialect, ANGLE included (D199,
+  R8); see
   [`OPEN_QUESTIONS.md`](../../docs/OPEN_QUESTIONS.md).

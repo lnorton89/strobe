@@ -122,8 +122,10 @@ the CI `windows` job and the T480 check it on Windows.
   an asynchronous GPU readback (D162), so it shows the picture two frames
   before the one just drawn, and **black until two frames have rendered**.
   The grid size is a Strobe choice (Q14).
-- `meta/` writes are applied to the meta bank, but nothing renders from it
-  yet, so brightness, hue and mirror do not change the picture (D160, Q21).
+- `meta/` writes are applied to the meta bank (D160), and the output post
+  stage renders from it (D180): master, invert, brightness, gamma, contrast,
+  hue, saturation and the mirrors change the picture. How each matches
+  Synesthesia's is unverified (Q21).
 - `_click` is ambiguous between `strobe-gfx` (buttons held) and this crate
   (last click and button state); the app feeds both readings (Q13).
 - The conformance tests are written per documented API surface; Q13 and Q14
