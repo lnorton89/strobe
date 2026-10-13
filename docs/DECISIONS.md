@@ -3585,6 +3585,10 @@ window was always fine, because a covered window is not painted.
 control window visible on the laptop) still losing frames with the pacer
 engaged.
 
+*Addendum (TORNADO T14):* engaged at 0.56 s and held late frames at
+568-581 a minute for 6 minutes, 36% of the unpaced figure and about one per
+control redraw, as designed.
+
 ### D217: media is chosen in the Inspector and per cue; a cue's beats the operator's beats the scene's (2026-10-13)
 
 Until now only `--media` could put a picture behind `syn_Media`, and a

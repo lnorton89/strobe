@@ -330,6 +330,30 @@ by itself after about 1.5 minutes, as in T11 and unlike T12: an
 intermittent driver or compositor change in how the windowed surfaces
 present, not the app's state. D216 adds a pacer for it.
 
+## The pacer holds late frames to a third (2026-10-13, commit 0831f43, Task T14)
+
+T13's W layout (control window visible, output windowed beside it), 6
+minutes, release build, no driver settings touched. The pacer logged its
+switch to 10 Hz at **0.56 s** and held the control window at about 9.5
+redraws a second for the whole run:
+
+| minute | 1 | 2 | 3 | 4 | 5 | 6 |
+|---|---|---|---|---|---|---|
+| late frames | 581 | 574 | 572 | 568 | 569 | 571 |
+| control redraws | 583 | 572 | 570 | 567 | 568 | 569 |
+| make-current (ms) | 16.17 | 16.34 | 16.33 | 16.32 | 16.32 | 16.36 |
+
+fps stayed at 59.9-60.0 (worst gap 41-116 ms). Late frames were about 16%
+of output frames, against T13 W's first minute of 1606 (45%): **36% of
+it, the third the pacer was designed for**, and about one late output
+frame per control redraw, as T13 predicted. The wait never cleared in this
+run (as in T12, unlike T11 and T13), so the pacer correctly never logged a
+return to 30 Hz; that path is covered by the `stats` unit tests only. The
+remaining late frames are the remaining control redraws, so only the
+structural cure in D216 (the control window on its own thread and
+context, so the shared context never switches surfaces) removes them. The
+control surface's swap interval is already 0.
+
 ## Pending on this machine
 
 - [x] Re-run 07 at 1080p and 2160p after D191: same size (T2).
@@ -350,7 +374,9 @@ present, not the app's state. D216 adds a pacer for it.
   redraw, and the 4-minute drop does not recur.
 - [x] T13: the wait is `make_current` (16 ms), and it scales with the
   number of control redraws.
-- [ ] T14: the pacer (D216) engages and holds late frames down.
+- [x] T14: the pacer (D216) engages at 0.56 s and holds late frames to
+  about a third (568-581 a minute); the return to 30 Hz was not exercised
+  because the wait never cleared.
 - [ ] A larger set of real Shadertoy shaders through NVIDIA's compiler
   (owner-supplied, kept local), to find NVIDIA-only acceptance.
 - [ ] The Vulkan / wgpu compiler spike from
