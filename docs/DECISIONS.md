@@ -3425,3 +3425,23 @@ the full range as none, colour bounds, lookup by target); the shell
 scenarios with a coloured, ranged macro at six sizes; and a screenshot of
 the strip with four macros, three of them coloured, under Xvfb.
 
+### D211: favourite scenes are a star on the browser row and a filter (2026-10-13)
+
+Backlog U-06 asks for favourites. A star sits at the right of every scene
+row in the browser, shown when the scene is a favourite, or when the row is
+hovered or selected. Clicking it stars or unstars the scene without
+selecting the row. A *Favourites* chip beside All, Ready and Needs work
+shows only the starred scenes.
+
+- **Saved with the layout**, in `ui.toml` under `[browser] favourites`, by
+  library name and sorted. A hand-edited list is sorted and de-duplicated
+  on load. A starred scene that is renamed or removed simply stops
+  matching; nothing is rewritten behind the operator's back.
+- **The star is the warning colour**, which no other element of a row
+  uses, so a favourite reads at a glance in any theme. It is an icon, so
+  it is not colour alone.
+- The filtered list is still cached; a star or unstar refilters it.
+
+**Evidence:** `library` and `ui::state` tests (the filter, toggling,
+refiltering, the save being noticed and written).
+

@@ -153,6 +153,8 @@ checked and not committed. Interaction was driven with xdotool.
 - [ ] The UI's frame cost and a Preview's GPU cost on the T480 (the layout
   pass was about 1 ms in a debug build on llvmpipe; the paint there is
   software rasterisation and says nothing).
+- [x] Favourite scenes (D211): a star per browser row and a Favourites
+  filter, saved in `ui.toml`. Evidence: `library` and `ui::state` tests.
 - [x] The macro range and colour editor, and pinning from the Inspector
   (D210). Evidence: `strobe-io` `macros` tests, the shell scenarios, and a
   strip screenshot under Xvfb. Not yet: real input on the T480.

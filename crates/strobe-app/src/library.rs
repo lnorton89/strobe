@@ -104,11 +104,13 @@ pub enum HealthFilter {
     Ready,
     /// Scenes that failed ("needs work").
     Failed,
+    /// Scenes starred as favourites (D211).
+    Favourites,
 }
 
 impl HealthFilter {
     /// Every filter, in the order the browser offers them.
-    pub const ALL: [HealthFilter; 3] = [Self::All, Self::Ready, Self::Failed];
+    pub const ALL: [HealthFilter; 4] = [Self::All, Self::Favourites, Self::Ready, Self::Failed];
 
     /// The key the preferences file stores.
     pub fn key(self) -> &'static str {
@@ -116,6 +118,7 @@ impl HealthFilter {
             Self::All => "all",
             Self::Ready => "ready",
             Self::Failed => "failed",
+            Self::Favourites => "favourites",
         }
     }
 
@@ -125,6 +128,7 @@ impl HealthFilter {
             Self::All => "All",
             Self::Ready => "Ready",
             Self::Failed => "Needs work",
+            Self::Favourites => "Favourites",
         }
     }
 
@@ -136,12 +140,13 @@ impl HealthFilter {
             .unwrap_or_default()
     }
 
-    /// Whether a scene of this health passes.
-    pub fn admits(self, health: &Health) -> bool {
+    /// Whether a scene of this health, a favourite or not, passes.
+    pub fn admits(self, health: &Health, favourite: bool) -> bool {
         match self {
             Self::All => true,
             Self::Ready => *health == Health::Ready,
             Self::Failed => matches!(health, Health::Failed(_)),
+            Self::Favourites => favourite,
         }
     }
 }
@@ -186,8 +191,14 @@ pub fn step(
 /// in one of the tags, in any order: `dark tunnel` finds a scene tagged
 /// `dark` whose name says tunnel. `broken` and `favorite`-style keywords
 /// are not special yet; the health filter covers "broken".
-pub fn matches(entry: &Entry, health: &Health, query_lower: &str, filter: HealthFilter) -> bool {
-    filter.admits(health)
+pub fn matches(
+    entry: &Entry,
+    health: &Health,
+    favourite: bool,
+    query_lower: &str,
+    filter: HealthFilter,
+) -> bool {
+    filter.admits(health, favourite)
         && query_lower.split_whitespace().all(|word| {
             entry.lower.contains(word) || entry.tags.iter().any(|tag| tag.contains(word))
         })
@@ -341,29 +352,32 @@ mod tests {
         let entry = Entry::new("05-Domain-Warp".to_string(), PathBuf::from("x"));
         let ready = Health::Ready;
         assert!(
-            matches(&entry, &ready, "", HealthFilter::All),
+            matches(&entry, &ready, false, "", HealthFilter::All),
             "empty query"
         );
         assert!(
-            matches(&entry, &ready, "warp domain", HealthFilter::All),
+            matches(&entry, &ready, false, "warp domain", HealthFilter::All),
             "any order"
         );
-        assert!(matches(&entry, &ready, "05", HealthFilter::All), "prefix");
         assert!(
-            !matches(&entry, &ready, "tunnel", HealthFilter::All),
+            matches(&entry, &ready, false, "05", HealthFilter::All),
+            "prefix"
+        );
+        assert!(
+            !matches(&entry, &ready, false, "tunnel", HealthFilter::All),
             "no match"
         );
         assert!(
-            !matches(&entry, &ready, "warp tunnel", HealthFilter::All),
+            !matches(&entry, &ready, false, "warp tunnel", HealthFilter::All),
             "all words"
         );
         let tagged = entry.with_tags(&["Dark", "audio reactive"]);
         assert!(
-            matches(&tagged, &ready, "dark warp", HealthFilter::All),
+            matches(&tagged, &ready, false, "dark warp", HealthFilter::All),
             "a tag and a name word"
         );
         assert!(
-            matches(&tagged, &ready, "reactive", HealthFilter::All),
+            matches(&tagged, &ready, false, "reactive", HealthFilter::All),
             "part of a tag"
         );
     }
@@ -395,23 +409,46 @@ mod tests {
     }
 
     #[test]
+    fn the_favourites_filter_shows_only_starred_scenes() {
+        let entry = Entry::new("a".to_string(), PathBuf::from("x"));
+        let ready = Health::Ready;
+        assert!(
+            matches(&entry, &ready, true, "", HealthFilter::Favourites),
+            "a favourite shows"
+        );
+        assert!(
+            !matches(&entry, &ready, false, "", HealthFilter::Favourites),
+            "another does not"
+        );
+        assert!(
+            matches(&entry, &ready, false, "", HealthFilter::All),
+            "All ignores the star"
+        );
+        assert_eq!(
+            HealthFilter::from_key("favourites"),
+            HealthFilter::Favourites,
+            "saved and read back by key"
+        );
+    }
+
+    #[test]
     fn the_health_filter_separates_working_from_broken() {
         let entry = Entry::new("a".to_string(), PathBuf::from("x"));
         let failed = Health::Failed("main.glsl:3".to_string());
         assert!(
-            matches(&entry, &failed, "", HealthFilter::Failed),
+            matches(&entry, &failed, false, "", HealthFilter::Failed),
             "failed shows"
         );
         assert!(
-            !matches(&entry, &failed, "", HealthFilter::Ready),
+            !matches(&entry, &failed, false, "", HealthFilter::Ready),
             "failed hidden"
         );
         assert!(
-            !matches(&entry, &Health::Unknown, "", HealthFilter::Failed),
+            !matches(&entry, &Health::Unknown, false, "", HealthFilter::Failed),
             "unknown is not failed"
         );
         assert!(
-            matches(&entry, &Health::Unknown, "", HealthFilter::All),
+            matches(&entry, &Health::Unknown, false, "", HealthFilter::All),
             "all admits unknown"
         );
     }

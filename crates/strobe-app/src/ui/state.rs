@@ -48,6 +48,8 @@ pub struct BrowserState {
     /// A row (position in the visible list) to scroll into view on the next
     /// frame, set when the keyboard moves the selection.
     pub scroll_to: Option<usize>,
+    /// Favourite scenes, by library name, sorted (D211).
+    pub favourites: Vec<String>,
     visible: Vec<usize>,
     cached: Option<Cached>,
 }
@@ -58,6 +60,7 @@ struct Cached {
     library_rev: u64,
     query: String,
     filter: HealthFilter,
+    favourites: usize,
 }
 
 impl BrowserState {
@@ -65,7 +68,10 @@ impl BrowserState {
     /// order. Recomputed only when the query, filter or library changed.
     pub fn visible(&mut self, library: &Library, health: &[Health], rev: u64) -> &[usize] {
         let fresh = self.cached.as_ref().is_some_and(|cached| {
-            cached.library_rev == rev && cached.filter == self.filter && cached.query == self.query
+            cached.library_rev == rev
+                && cached.filter == self.filter
+                && cached.query == self.query
+                && cached.favourites == self.favourites.len()
         });
         if !fresh {
             let query = self.query.trim().to_lowercase();
@@ -73,7 +79,8 @@ impl BrowserState {
             let unknown = Health::Unknown;
             for (index, entry) in library.entries.iter().enumerate() {
                 let health = health.get(index).unwrap_or(&unknown);
-                if matches(entry, health, &query, self.filter) {
+                let favourite = self.is_favourite(&entry.name);
+                if matches(entry, health, favourite, &query, self.filter) {
                     self.visible.push(index);
                 }
             }
@@ -81,6 +88,7 @@ impl BrowserState {
                 library_rev: rev,
                 query: self.query.clone(),
                 filter: self.filter,
+                favourites: self.favourites.len(),
             });
         }
         &self.visible
@@ -88,6 +96,23 @@ impl BrowserState {
 }
 
 impl BrowserState {
+    /// Whether the scene called `name` is a favourite.
+    pub fn is_favourite(&self, name: &str) -> bool {
+        self.favourites
+            .binary_search_by(|f| f.as_str().cmp(name))
+            .is_ok()
+    }
+
+    /// Makes `name` a favourite, or not. Saved with the layout.
+    pub fn toggle_favourite(&mut self, name: &str) {
+        match self.favourites.binary_search_by(|f| f.as_str().cmp(name)) {
+            Ok(at) => {
+                self.favourites.remove(at);
+            }
+            Err(at) => self.favourites.insert(at, name.to_string()),
+        }
+    }
+
     /// Moves the (fresh) visible list out so a caller can iterate it while
     /// mutating the rest of the state without copying it. Hand it back with
     /// [`Self::put_visible`].
@@ -173,6 +198,13 @@ impl UiState {
             browser: BrowserState {
                 query: prefs.browser.query.clone(),
                 filter: HealthFilter::from_key(&prefs.browser.filter),
+                favourites: {
+                    // A hand-edited file may be unsorted or repeat a name.
+                    let mut names = prefs.browser.favourites.clone();
+                    names.sort();
+                    names.dedup();
+                    names
+                },
                 ..BrowserState::default()
             },
             collapsed_groups: prefs.collapsed_groups.clone(),
@@ -206,6 +238,7 @@ impl UiState {
             BrowserPref {
                 query: self.browser.query.clone(),
                 filter: self.browser.filter.key().to_string(),
+                favourites: self.browser.favourites.clone(),
             },
             self.collapsed_groups.clone(),
         );
@@ -301,6 +334,7 @@ impl UiState {
         self.panes.hash_into(&mut hasher);
         self.browser.query.hash(&mut hasher);
         self.browser.filter.key().hash(&mut hasher);
+        self.browser.favourites.hash(&mut hasher);
         self.collapsed_groups.hash(&mut hasher);
         self.theme_id.hash(&mut hasher);
         self.custom_title_bar.hash(&mut hasher);
@@ -397,6 +431,36 @@ mod tests {
             ..BrowserState::default()
         };
         assert_eq!(browser.visible(&lib, &health, 1), &[1], "needs work");
+    }
+
+    #[test]
+    fn a_star_filters_saves_and_is_noticed() {
+        let lib = library(&["a", "b", "c"]);
+        let health = vec![Health::Unknown; 3];
+        let mut state = UiState::ephemeral();
+        let start = Instant::now();
+        state.tick(start);
+        state.browser.toggle_favourite("c");
+        state.browser.toggle_favourite("a");
+        state.browser.filter = HealthFilter::Favourites;
+        assert_eq!(
+            state.browser.visible(&lib, &health, 1),
+            &[0, 2],
+            "only the starred, in library order"
+        );
+        state.browser.toggle_favourite("a");
+        assert_eq!(
+            state.browser.visible(&lib, &health, 1),
+            &[2],
+            "unstarring refilters without a library change"
+        );
+        state.tick(start + Duration::from_millis(33));
+        assert!(state.debounce.pending(), "a star is saved");
+        assert_eq!(
+            state.to_prefs().browser.favourites,
+            ["c"],
+            "written to the preferences"
+        );
     }
 
     #[test]
