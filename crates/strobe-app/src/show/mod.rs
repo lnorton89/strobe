@@ -26,6 +26,7 @@
 
 pub mod beat;
 pub mod cache;
+pub mod edit;
 pub mod generate;
 pub mod resolve;
 pub mod resume;

@@ -117,9 +117,9 @@ Each item names its acceptance test. Evidence is in [STATUS_AUDIT.md](STATUS_AUD
    Playlist pane and generate card, the file watcher, resume every 5 s, the
    wall-clock anchor and live commands. *Left:*
    - audio-event advance (`clock.audio_event()` needs Phase 7 detection);
-   - the Playlist **workspace** proper: the selected cue's inheritance
-     inspector, multi-select edits, drag from the library, pasted Shadertoy
-     URLs (D157);
+   - the Playlist **workspace** proper: ~~the selected cue's inheritance
+     inspector and its edits~~ (built, D213); multi-select edits, drag from
+     the library, pasted Shadertoy URLs (D157);
    - ~~real tags in the scene format, so Generate can pick by tag~~ (built:
      Synesthesia's `TAGS`, D205);
    - ~~MIDI and OSC mapping of the cue commands~~ (built: commands, `Cue` jumps and fav slots are mapping targets, and `/strobe/cmd/<id>` and `/strobe/cue/<n>` need no mapping, D173);
@@ -396,10 +396,10 @@ The app plays playlists (D150-D158). Known gaps:
   fires: nothing calls `clock.audio_event()` until Phase 7 detection exists.
 - **A downbeat detector** (D75): a "bar" is counted from the beat grid's
   origin, so a beat-locked cue ends on a bar line of *that* grid.
-- **The Playlist pane is not the workspace UI_DESIGN section 13 describes**:
-  no per-cue inheritance inspector, no multi-select edit, no drag from the
-  library, no pasted-URL import. Save rewrites the file from the model, so
-  comments are lost.
+- **The Playlist pane is not yet the whole workspace UI_DESIGN section 13
+  describes**: one cue is edited at a time (D213), with no multi-select,
+  no drag from the library and no pasted-URL import. Save rewrites the
+  file from the model, so comments are lost.
 - **Tags are edited for the playing scene only** (the Inspector), and the
   Generate form has no exclude field yet (D205).
 - **A cue's `preset` applies** (D176); `meta` overrides and presets reach

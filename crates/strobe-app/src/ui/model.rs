@@ -64,6 +64,15 @@ pub enum Action {
     OpenEditor(Option<String>),
     /// Write these tags into the playing scene's `scene.json` (D205).
     SetSceneTags(Vec<String>),
+    /// Change one cue of the loaded playlist (D213).
+    EditCue {
+        /// The cue, as authored.
+        at: crate::show::edit::At,
+        /// The change.
+        edit: crate::show::edit::CueEdit,
+    },
+    /// Replace the edited playlist with its file, which changed on disk.
+    ReloadPlaylistFromDisk,
     /// Give a command this shortcut, or none (D208). `steal` takes it from
     /// a command that holds it, which is then left with none.
     SetHotkey {
@@ -333,6 +342,27 @@ pub struct PlaylistUi {
     pub status: Option<(bool, String)>,
     /// The playlist differs from its file.
     pub dirty: bool,
+    /// The selected cue's fields while they are edited (D213).
+    pub cue: CueDraft,
+    /// The playlist's file changed on disk while the playlist had unsaved
+    /// edits: the path, so the pane can offer to reload it.
+    pub external_change: Option<String>,
+}
+
+/// The cue card's fields, as typed. Refilled from the cue whenever another
+/// cue is selected or the playlist changes.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct CueDraft {
+    /// The cue these fields were filled from, and the rows' revision.
+    pub for_cue: Option<(crate::show::edit::At, u64)>,
+    /// The length, as typed (`3m`, `32 bars`); empty to inherit.
+    pub length: String,
+    /// The transition's kind.
+    pub transition: crate::show::generate::TransitionChoice,
+    /// The transition's length.
+    pub transition_length: String,
+    /// The preset's name; empty for none.
+    pub preset: String,
 }
 
 /// The LIST pane's inputs.

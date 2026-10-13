@@ -70,7 +70,9 @@ pub use model::{
     AdvanceMode, AudioEventKind, ControlValue, Cue, CueSettings, LoopMode, MetaOverrides, Playlist,
     SceneRef, Section, ShuffleSpec, TransitionKind, TransitionSpec, WallClockAnchor,
 };
-pub use resolve::{ResolvedCue, ResolvedPlaylist, distinct_scenes, identity, resolve};
+pub use resolve::{
+    Origin, ResolvedCue, ResolvedPlaylist, SettingOrigins, distinct_scenes, identity, resolve,
+};
 pub use resume::{ResumeError, ResumePoint};
 pub use schedule::{Placement, WallTime};
 pub use tempo::BeatInfo;

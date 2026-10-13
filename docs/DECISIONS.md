@@ -3475,3 +3475,37 @@ library scan test (`IMAGE_PATH` read, a path out of the folder ignored);
 [images/perform/browser-thumbnails-1440x900.png](images/perform/browser-thumbnails-1440x900.png)
 under Xvfb.
 
+### D213: the LIST pane edits the selected cue, by authored position, and never loses edits to the file (2026-10-13)
+
+Backlog U-07. The LIST pane could play, generate and save a playlist, but
+not change a cue. Selecting a cue now opens a card above the timeline:
+
+- **Length, transition and preset**, each shown with where its value
+  comes from ("set on this cue", "from the section", "from the playlist",
+  "the default"). Setting a field writes it on the cue; *Inherit*, or an
+  empty length, removes it so the level above applies again. That is the
+  inheritance inspector UI_DESIGN section 13 asks for, kept to one cue.
+- **Up, Down, Duplicate, Delete**, and **Add after** for the scene
+  selected in the browser.
+- **Edits address the cue as authored** (section, place in section;
+  `show::edit::At`), not its place in the timeline, which shuffle and
+  disabled cues make different. `show::edit::apply` is pure: it returns a
+  new playlist and the edited cue's new position, or a one-line reason,
+  and never half changes anything. The app hands the result to
+  `Show::replace_playlist`, the reload path: only scenes new to the show
+  compile, and the show keeps its place. The selection follows the cue.
+- **Unsaved edits are never lost to the file.** The watcher used to reload
+  a changed file over whatever was in memory. Now, while there are unsaved
+  edits, a change on disk is held. The pane says the file changed, Save
+  writes the edits over it, and *Use the file* takes the file's version.
+
+**Not done:** multi-select edits, dragging from the library, pasted
+Shadertoy URLs, enabling or disabling a cue from the pane (a disabled cue
+is not in the timeline, so it could not be re-enabled there), and keeping
+the file's comments on Save (D157's rewrite stands).
+
+**Evidence:** `show::edit` tests (moves within a section, duplicate,
+insert, delete with the neighbour selected, settings set and inherited
+again, a stale position refused, the original untouched); the shell
+scenario with a cue selected and a changed file, at six sizes.
+

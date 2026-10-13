@@ -88,7 +88,7 @@
 - **Acceptance:** layout and favourites persist; thumbnails never compile/render during paint; cache is bounded; browser remains usable at 1280x720 without horizontal scrolling.
 
 ### U-07 Playlist workspace authoring
-- **Status:** In progress; playback engine and LIST pane exist.
+- **Status:** In progress: the selected cue's card edits length, transition and preset with their origins shown, moves, duplicates, deletes and adds the browser's scene after it, and a file changed on disk never overwrites unsaved edits (D213). Left: multi-select, drag from the library, pasted Shadertoy URLs, enabling disabled cues, comment-preserving save.
 - **Work:** selected cue inheritance inspector; inherited versus overridden fields; multi-select editing; drag scenes from library; paste Shadertoy URLs; reorder and duplicate cues; per-cue duration/transition/preset/media; unsaved-change indication and safe reload when file watcher sees an external edit.
 - **Acceptance:** author an 80-cue four-hour show in under two minutes using tags and multi-edit; inheritance is visible and deterministic; invalid edits preserve the last valid show.
 

@@ -23,6 +23,9 @@ pub struct CueRow {
     pub index: usize,
     /// Authored section index.
     pub section: usize,
+    /// Authored index of the cue inside its section (what an edit
+    /// addresses, D213).
+    pub cue: usize,
     /// The section's name.
     pub section_name: String,
     /// The scene as written in the playlist.
@@ -41,6 +44,11 @@ pub struct CueRow {
     pub overrides: usize,
     /// The wall-clock time the cue starts, for an anchored playlist.
     pub wall: Option<String>,
+    /// Where the length and the transition came from: the cue itself, its
+    /// section, the playlist, or the built-in default.
+    pub origins: strobe_playlist::SettingOrigins,
+    /// The preset the cue names, if any.
+    pub preset: Option<String>,
 }
 
 /// The rows of `timeline`, in play order.
@@ -72,6 +80,7 @@ pub fn rows(timeline: &Timeline) -> Vec<CueRow> {
             CueRow {
                 index,
                 section: resolved.section,
+                cue: resolved.cue,
                 section_name: timeline
                     .section_name(resolved.section)
                     .unwrap_or_default()
@@ -88,6 +97,8 @@ pub fn rows(timeline: &Timeline) -> Vec<CueRow> {
                 open_ended: cue.open_ended,
                 overrides: resolved.overrides.len(),
                 wall: timeline.wall_time(index).map(|t| t.to_string()),
+                origins: resolved.origins,
+                preset: resolved.preset.clone(),
             }
         })
         .collect()
