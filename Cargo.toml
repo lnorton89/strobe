@@ -62,7 +62,7 @@ rquickjs = "0.14"
 # OpenSSL, no async runtime), SHA-256 for the asset cache's keys, and the OS
 # random source for the listener's token.
 ureq = { version = "3", default-features = false, features = ["rustls"] }
-sha2 = "0.10"
+sha2 = "0.11"
 getrandom = "0.3"
 # The LAN remote's WebSocket handshake (RFC 6455's Sec-WebSocket-Accept is a
 # SHA-1). Same RustCrypto family and `digest` version as sha2, so it adds
