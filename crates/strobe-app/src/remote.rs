@@ -397,6 +397,29 @@ impl Remote {
         at: f32,
         out: &mut Vec<Output>,
     ) {
+        // Two or three numbers to a whole pad or colour set its components
+        // (D234); anything else is one source and one signal.
+        let split = match input {
+            InputEvent::Osc(message) => self.engine.components(message),
+            InputEvent::Midi { .. } => None,
+        };
+        if let Some(parts) = split {
+            let mut last = None;
+            for (source, signal) in parts {
+                let outcome = self.engine.handle(&source, signal, banks, out);
+                last = Some((source, outcome));
+            }
+            if let Some((source, outcome)) = last {
+                let text = input.describe();
+                if self
+                    .activity
+                    .note(at, text.clone(), outcome.label(), Some(source))
+                {
+                    log::info!("show control: {text}: {}", outcome.label());
+                }
+            }
+            return;
+        }
         let Some((source, signal)) = Source::of(input) else {
             return;
         };

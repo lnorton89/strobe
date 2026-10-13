@@ -139,6 +139,12 @@ whatever you click. **Macros** are named controls that keep working across
 scenes; each can have a reach, a colour, a glide (smoothing) and a
 keyboard key that drives it while held.
 
+With OSC on, nothing needs mapping: `/strobe/control/<name>`,
+`/strobe/cmd/next_scene` and the like work at once. A TouchOSC layout
+made for Synesthesia also works for scene and meta controls (by name or as
+`/controls/global/slider/1`), fav slots and playlist next, previous and
+play; its other addresses are ignored.
+
 ## Importing from Shadertoy
 
 The **Import** pane (via LIB) takes a Shadertoy URL or id, or an exported

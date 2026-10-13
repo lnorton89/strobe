@@ -319,7 +319,40 @@ pub fn find_control(bank: &ControlBank, name: &str, aliases: &[String]) -> Optio
         .find_map(|candidate| find_one(bank, candidate))
 }
 
+/// The first character of a control named by its type and position, the
+/// way Synesthesia's global addresses name one: `@slider/1` is the scene's
+/// first slider, `@color/2` its second colour (D234).
+pub const BY_POSITION: char = '@';
+
+/// The word Synesthesia's global addresses use for a control type.
+fn kind_word(kind: &ControlKind) -> &'static str {
+    match kind {
+        ControlKind::Slider(_) => "slider",
+        ControlKind::Knob(_) => "knob",
+        ControlKind::Toggle { .. } => "toggle",
+        ControlKind::Bang(_) => "bang",
+        ControlKind::Xy(_) => "xy",
+        ControlKind::Color { .. } => "color",
+        ControlKind::Dropdown { .. } => "dropdown",
+    }
+}
+
+/// `slider/2`: the second slider of `bank`, in declaration order.
+fn find_by_position(bank: &ControlBank, spec: &str) -> Option<usize> {
+    let (word, n) = spec.split_once('/')?;
+    let n = n.parse::<usize>().ok()?.checked_sub(1)?;
+    bank.defs()
+        .iter()
+        .enumerate()
+        .filter(|(_, def)| kind_word(&def.kind).eq_ignore_ascii_case(word))
+        .nth(n)
+        .map(|(index, _)| index)
+}
+
 fn find_one(bank: &ControlBank, name: &str) -> Option<usize> {
+    if let Some(spec) = name.strip_prefix(BY_POSITION) {
+        return find_by_position(bank, spec);
+    }
     if let Some(index) = bank.find(name) {
         return Some(index);
     }

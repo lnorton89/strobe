@@ -44,6 +44,29 @@
 //! `<name>` is matched by the script API's rule (case, `_`, `-` and spaces
 //! ignored) and may be `group/name`. A mapping for an address always wins
 //! over the built-in meaning of the same address.
+//!
+//! ## Synesthesia's addresses (P-08, D234)
+//!
+//! A controller layout made for Synesthesia works unchanged for the parts
+//! that mean the same thing in Strobe. Values are normalised 0..1 there
+//! too, so these are aliases of the table above:
+//!
+//! | Synesthesia address | Strobe meaning |
+//! |---|---|
+//! | `/controls/scene/<name>[/x\|y\|r\|g\|b]` | `/strobe/control/<name>[/...]` |
+//! | `/controls/meta/<name>[/...]` | `/strobe/meta/<name>[/...]` |
+//! | `/controls/global/<type>/<n>[/...]` | the `n`th control of that type (`slider`, `knob`, `toggle`, `bang`, `xy`, `color`, `dropdown`), from 1, in the playing scene |
+//! | `/favslots/<n>` | `/strobe/fav/<n>` |
+//! | `/playlist/next`, `/playlist/previous` | `next_scene`, `prev_scene` |
+//! | `/playlist/toggleplay` | `toggle_hold` |
+//!
+//! Anything else in Synesthesia's space is ignored rather than guessed at:
+//! the `/raw`, `/default`, `/random`, `/preset` and `/lock` suffixes,
+//! scene-specific `/controls/<scenename>/...`, and everything that takes a
+//! string argument (`/scenes`, `/presets`, `/media/name`), which the
+//! decoder drops. A message carrying two or three numbers to a whole xy or
+//! colour control sets its components, as Synesthesia's do
+//! ([`crate::engine::Engine::components`]).
 
 use crate::event::{Arg, OscMessage};
 use crate::macros::MacroSet;
@@ -197,8 +220,12 @@ pub fn encode(address: &str, args: &[Arg]) -> Option<Vec<u8>> {
 }
 
 /// What the built-in address space makes of `address`, if it is one of
-/// ours. `macros` resolves a macro given by name.
+/// ours or one of Synesthesia's that means the same. `macros` resolves a
+/// macro given by name.
 pub fn builtin_target(address: &str, macros: &MacroSet) -> Option<Target> {
+    if let Some(target) = synesthesia_target(address) {
+        return Some(target);
+    }
     let rest = address.get(..PREFIX.len()).and_then(|head| {
         head.eq_ignore_ascii_case(PREFIX)
             .then(|| address.get(PREFIX.len()..))
@@ -243,15 +270,77 @@ pub fn builtin_target(address: &str, macros: &MacroSet) -> Option<Target> {
     }
 }
 
+/// The Synesthesia types `/controls/global/<type>/<n>` may name.
+const GLOBAL_TYPES: [&str; 7] = [
+    "slider", "knob", "toggle", "bang", "xy", "color", "dropdown",
+];
+
+/// What Synesthesia's address `address` means in Strobe, if it means the
+/// same thing (see the module docs).
+fn synesthesia_target(address: &str) -> Option<Target> {
+    let lower = address.to_ascii_lowercase();
+    let parts: Vec<&str> = lower.strip_prefix('/')?.split('/').collect();
+    if parts.iter().any(|part| part.is_empty()) {
+        return None;
+    }
+    let position = |n: &str| n.parse::<u32>().ok().filter(|n| *n >= 1);
+    let control = |name: &str, component: Option<&&str>| {
+        let component = match component {
+            Some(word) => Some(component_of(word)?),
+            None => None,
+        };
+        Some(Target::Control {
+            name: name.to_string(),
+            component,
+        })
+    };
+    match parts.as_slice() {
+        ["controls", "scene", name, rest @ ..] if rest.len() <= 1 => control(name, rest.first()),
+        ["controls", "meta", name, rest @ ..] if rest.len() <= 1 => {
+            let component = match rest.first() {
+                Some(word) => Some(component_of(word)?),
+                None => None,
+            };
+            Some(Target::Meta {
+                name: (*name).to_string(),
+                component,
+            })
+        }
+        ["controls", "global", kind, n, rest @ ..] if rest.len() <= 1 => {
+            let kind = if *kind == "colour" { "color" } else { kind };
+            if !GLOBAL_TYPES.contains(&kind) {
+                return None;
+            }
+            let n = position(n)?;
+            control(
+                &format!("{}{kind}/{n}", crate::target::BY_POSITION),
+                rest.first(),
+            )
+        }
+        ["favslots", n] => position(n)
+            .and_then(|n| u8::try_from(n).ok())
+            .map(|slot| Target::FavSlot { slot }),
+        ["playlist", "next"] => Some(Target::command("next_scene")),
+        ["playlist", "previous"] => Some(Target::command("prev_scene")),
+        ["playlist", "toggleplay"] => Some(Target::command("toggle_hold")),
+        _ => None,
+    }
+}
+
+/// A component word (`x`, `y`, `z`, `r`, `g`, `b`) as its index.
+fn component_of(word: &str) -> Option<u8> {
+    match word.to_ascii_lowercase().as_str() {
+        "x" | "r" => Some(0),
+        "y" | "g" => Some(1),
+        "z" | "b" => Some(2),
+        _ => None,
+    }
+}
+
 /// `tint/r` into (`tint`, component 0); anything else is all name.
 fn split_component(tail: &str) -> (String, Option<u8>) {
     if let Some((name, last)) = tail.rsplit_once('/') {
-        let component = match last.to_ascii_lowercase().as_str() {
-            "x" | "r" => Some(0),
-            "y" | "g" => Some(1),
-            "z" | "b" => Some(2),
-            _ => None,
-        };
+        let component = component_of(last);
         if component.is_some() {
             return (name.to_string(), component);
         }
@@ -466,6 +555,58 @@ mod tests {
 
     fn target(address: &str) -> Option<Target> {
         builtin_target(address, &MacroSet::default())
+    }
+
+    #[test]
+    fn synesthesias_addresses_are_aliases_and_the_rest_is_ignored() {
+        let component = |name: &str, c: u8| Target::Control {
+            name: name.into(),
+            component: Some(c),
+        };
+        assert_eq!(
+            target("/controls/scene/speed"),
+            Some(Target::control("speed")),
+            "scene control"
+        );
+        assert_eq!(
+            target("/controls/scene/tint/g"),
+            Some(component("tint", 1)),
+            "a component"
+        );
+        assert_eq!(
+            target("/controls/meta/hue"),
+            Some(Target::meta("hue")),
+            "meta"
+        );
+        assert_eq!(
+            target("/Controls/Global/Colour/2/b"),
+            Some(component("@color/2", 2)),
+            "global, any case, British colour"
+        );
+        assert_eq!(
+            target("/favslots/3"),
+            Some(Target::FavSlot { slot: 3 }),
+            "fav"
+        );
+        assert_eq!(
+            target("/playlist/toggleplay"),
+            Some(Target::command("toggle_hold")),
+            "hold"
+        );
+        for ignored in [
+            "/controls/scene/speed/default",
+            "/controls/scene/speed/raw",
+            "/controls/meta/hue/lock",
+            "/controls/hexarray/separation",
+            "/controls/global/fader/1",
+            "/controls/global/slider/0",
+            "/controls/scene//speed",
+            "/scenes/hexarray",
+            "/playlist/position",
+            "/favslots/300",
+        ] {
+            assert_eq!(target(ignored), None, "{ignored}");
+        }
     }
 
     #[test]
