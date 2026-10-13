@@ -44,6 +44,8 @@ pub(crate) struct Media {
     frames: Vec<Texture>,
     receiver: Option<Receiver<MediaMessage>>,
     failure: Option<String>,
+    /// When decoding started, for the line that says it finished.
+    started: Option<std::time::Instant>,
 }
 
 impl Media {
@@ -54,6 +56,7 @@ impl Media {
             frames: Vec::new(),
             receiver: None,
             failure: None,
+            started: None,
         }
     }
 
@@ -65,6 +68,7 @@ impl Media {
             frames: Vec::new(),
             receiver: Some(receiver),
             failure: None,
+            started: Some(std::time::Instant::now()),
         })
     }
 
@@ -151,7 +155,17 @@ impl Media {
                     }
                 }
             }
-            MediaMessage::Done => self.receiver = None,
+            MediaMessage::Done => {
+                self.receiver = None;
+                if let Some(started) = self.started {
+                    log::info!(
+                        "syn_Media: {} picture(s) of {} loaded in {:.1} s",
+                        self.frames.len(),
+                        self.label(),
+                        started.elapsed().as_secs_f32()
+                    );
+                }
+            }
             MediaMessage::Failed(message) => {
                 self.failure = Some(message);
                 self.receiver = None;

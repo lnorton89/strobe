@@ -167,8 +167,9 @@ checked and not committed. Interaction was driven with xdotool.
   signal. Evidence: `strobe-audio` `events` tests. Not yet: real music.
 - [x] A long image sequence shrinks as a whole to fit 192 MiB and plays
   complete; only below 256 px is it cut, with a message (D225). Evidence:
-  `assets` tests with a small budget. Not yet: upload time and resident
-  memory measured on the T480.
+  `assets` tests with a small budget; on the T480 (Task 28) a 475 MiB loop
+  shrank to 192 MiB, loaded in about 4 s, held flat at about 280 MB extra
+  and played at 60 fps.
 - [x] Cue disable and re-enable from the LIST pane, and a browser scene
   dragged onto a cue inserted after it (D224). Evidence: `show::edit`
   tests (the edits themselves) and the shell scenarios drawing the pane.
