@@ -4893,3 +4893,55 @@ nor reversible enough for a VJ at a venue.
 **Would reopen:** a certificate-enrolment flow that is secure, reversible
 and tested on both phone platforms, which would let Strobe offer HTTPS
 without a domain.
+
+## D260: Narrow windows give way in a fixed order, and two tests hold it at every size
+
+**Context.** The T480 resized the control window at 150% (Task 35). Below
+about 1024 pixels, which is 683 points, things collided:
+- the toolbar's buttons overlapped;
+- the title bar's readouts ran over the title;
+- the Controls drawer grew past the preview, over the transport and
+  BLACKOUT;
+- a portrait window drew the clock and BPM over the transport buttons.
+
+The headless shell tests only checked that nothing overflowed the window,
+and only at 640x480 and up, in logical points. A drawer over BLACKOUT
+passes that check.
+
+**Decision.**
+- **What gives way first.** Each strip drops its least needed part, never
+  BLACKOUT, the transport buttons or the window controls:
+  - The title bar drops the breadcrumb below 760 points and the wordmark
+    below 420. Each readout drops its text, then itself, when it would run
+    into the title. The LAN kill switch comes before every readout, so it
+    keeps its room.
+  - The toolbar shows icons, with the words in their tooltips, below 470
+    points of preview width.
+  - The transport drops BPM, then the clock, then NOW.
+  - The preview's size caption makes way for the output-hidden chip, and
+    that chip shortens with the preview.
+- **A drawer never covers the transport or the toolbar.** It opens below
+  the toolbar, is clipped to the preview, and its pane scrolls. The
+  Inspector now scrolls as one below its header (tags, media and presets
+  included). Before, only its control groups scrolled, so a short drawer
+  ran out of room above them.
+- **A docked pane cannot push into the preview.** In egui 0.36, a right
+  panel whose content is wider than its `exact_size` moves its recorded
+  left edge right by the overflow, and the central panel then draws over
+  the pane. At 1920 the monitor picker lay over the pane's header in two
+  states. Panes now draw in a child UI that cannot widen the panel. The
+  rows that were too wide now wrap: the generated-controls review, and the
+  cue card's transitions, which became a list.
+- **The tests say what Task 35 saw:**
+  - `nothing_is_painted_over_blackout_at_any_size`;
+  - `no_text_is_drawn_over_other_text_at_any_size`, which compares rows
+    of text and allows an overlap only under an opaque pane;
+  - the overflow test, now also at the T480's logical sizes (683x427,
+    533x400, 427x320 and 320x533).
+
+  `STROBE_UI_SHOTS=<dir>` paints every state at every size to PNGs on a
+  headless context, so a layout can be looked at without a window.
+
+**Would reopen:** a person on the T480 finds a size or state where
+something still collides that these tests miss. The fix is then to add
+that size or state to the tests, not to special-case it.

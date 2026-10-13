@@ -4,7 +4,8 @@
 //               in every state the audit lists. Test code only.
 //
 // Dependencies: egui (headless context); super::{shell, model, state},
-//               crate::{library, console, stats, script}
+//               crate::{library, console, stats, script}; strobe-gfx,
+//               egui_glow and image for the opt-in screenshots
 // ============================================================================
 
 //! The shell, end to end, with no GPU.
@@ -12,11 +13,18 @@
 //! egui lays out and tessellates without a window, so the states STATUS_AUDIT
 //! P1 lists (empty and loading, failure, missing audio, script fault, output
 //! hidden, a narrow window) are drawn here at 1920x1080, 1440x900, 1366x768,
-//! 1280x720, 900x600 and 640x480, and each must fit its window: the root
+//! 1280x720, 900x600 and 640x480, and at the logical sizes the T480's small
+//! windows have at 150% (U-09), and each must fit its window: the root
 //! UI's used rectangle may not exceed the screen. That is the "no horizontal
 //! scrolling" acceptance criterion (UI_IMPLEMENTATION_PLAN section 23) as an
-//! assertion rather than a screenshot. The screenshots in
-//! `docs/images/perform/` are the other half: they show it looks right.
+//! assertion rather than a screenshot. Two more say what T480 Task 35 saw go
+//! wrong cannot: nothing is painted over BLACKOUT, and no text is drawn over
+//! other text unless an opaque pane covers the first.
+//!
+//! The screenshots in `docs/images/perform/` are the other half: they show
+//! it looks right. `STROBE_UI_SHOTS=<dir> cargo test -p strobe-app --lib
+//! screenshots_when_asked` paints every state at every size on a headless
+//! GL context into that folder, for looking without a window.
 
 use super::shell::{ShellState, show};
 use super::{
@@ -47,6 +55,15 @@ const SIZES: [(f32, f32); 6] = [
     (1280.0, 720.0),
     (900.0, 600.0),
     (640.0, 480.0),
+];
+
+/// Windows the T480 measured (U-09, Task 35) in logical points: at its 150%
+/// scale, 1024x640, 800x600, 640x480 and a 480x800 portrait window.
+const SMALL_SIZES: [(f32, f32); 4] = [
+    (683.0, 427.0),
+    (533.0, 400.0),
+    (427.0, 320.0),
+    (320.0, 533.0),
 ];
 
 /// One state of the app to draw.
@@ -549,6 +566,14 @@ struct Drawn {
     shapes: Vec<egui::epaint::ClippedShape>,
     /// The panes open after the last frame.
     open_panes: Vec<Pane>,
+    /// Every frame's texture changes, for [`shoot`]; cleared on drop.
+    textures: egui::TexturesDelta,
+}
+
+impl Drop for Drawn {
+    fn drop(&mut self) {
+        self.textures.clear();
+    }
 }
 
 /// Draws `scenario` at `size` for `frames` frames.
@@ -661,6 +686,7 @@ fn draw_events(
     let mut actions = Vec::new();
     let mut all_actions = Vec::new();
     let mut shapes = Vec::new();
+    let mut textures = egui::TexturesDelta::default();
     let screen = Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(size.0, size.1));
     for events in frames {
         actions.clear();
@@ -784,10 +810,11 @@ fn draw_events(
                 port: &mut lan_port,
             },
         };
-        let pass = crate::ui::testing::run(
+        let pass = crate::ui::testing::run_keeping(
             &ctx,
             crate::ui::testing::input(screen.size(), events),
             |ui| show(ui, &mut shell_state, &mut model, &mut actions),
+            &mut textures,
         );
         shapes = pass.shapes;
         all_actions.extend(actions.iter().cloned());
@@ -802,13 +829,14 @@ fn draw_events(
         all_actions,
         shapes,
         open_panes,
+        textures,
     })
 }
 
 #[test]
 fn every_state_draws_at_every_size_without_overflowing_the_window() -> Result<()> {
     for scenario in scenarios() {
-        for size in SIZES {
+        for size in SIZES.iter().copied().chain(SMALL_SIZES) {
             // Several frames: egui lays some things out over two passes.
             let drawn = draw(scenario, size, 3)?;
             assert!(
@@ -1093,6 +1121,213 @@ fn the_palette_opens_panes_and_survives_an_empty_result() -> Result<()> {
     assert!(
         drawn.all_actions.is_empty(),
         "no match, and Enter on nothing does nothing"
+    );
+    Ok(())
+}
+
+/// Paints `drawn` on a headless GL context and writes it to `path` as a PNG.
+/// Returns false (after saying why) when there is no headless context.
+fn shoot(drawn: &mut Drawn, size: (f32, f32), path: &std::path::Path) -> Result<bool> {
+    let headless = match strobe_gfx::Headless::new(strobe_gfx::Api::DesktopCore33) {
+        Ok(headless) => headless,
+        Err(error) => {
+            strobe_gfx::skip::note(format_args!(
+                "no headless context for a screenshot ({error})"
+            ));
+            return Ok(false);
+        }
+    };
+    let gl = headless.gl();
+    let (width, height) = (size.0.round() as i32, size.1.round() as i32);
+    let target = gl
+        .texture_2d(
+            width,
+            height,
+            strobe_gfx::gl::Format::Rgba8,
+            strobe_gfx::gl::Sampling::LINEAR_CLAMP,
+            None,
+        )
+        .map_err(anyhow::Error::msg)?;
+    let fbo = gl.framebuffer(&target).map_err(anyhow::Error::msg)?;
+    let mut painter = egui_glow::Painter::new(gl.glow(), "", None, true)
+        .map_err(|e| anyhow::anyhow!("egui painter: {e}"))?;
+    let primitives = drawn.ctx.tessellate(drawn.shapes.clone(), 1.0);
+    let screen = [width as u32, height as u32];
+    gl.bind_framebuffer(Some(&fbo));
+    painter.clear(screen, [0.0, 0.0, 0.0, 1.0]);
+    painter.paint_and_update_textures(screen, 1.0, &primitives, &mut drawn.textures);
+    let pixels = gl.read_rgba8(&fbo, width, height);
+    painter.destroy();
+    let row = width as usize * 4;
+    let flipped: Vec<u8> = pixels.chunks_exact(row).rev().flatten().copied().collect();
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    image::save_buffer(
+        path,
+        &flipped,
+        width as u32,
+        height as u32,
+        image::ExtendedColorType::Rgba8,
+    )?;
+    Ok(true)
+}
+
+/// Writes every scenario at every size, and at the logical sizes a 150%
+/// display gives small windows, to the folder `STROBE_UI_SHOTS` names.
+/// Without the variable it does nothing: it is for looking, and the
+/// assertions above and below are the test.
+#[test]
+fn screenshots_when_asked() -> Result<()> {
+    let Some(dir) = std::env::var_os("STROBE_UI_SHOTS") else {
+        return Ok(());
+    };
+    let dir = PathBuf::from(dir);
+    let sizes = SIZES.iter().copied().chain(SMALL_SIZES);
+    for size in sizes {
+        for scenario in scenarios() {
+            let mut drawn = draw(scenario, size, 3)?;
+            let name = format!("{}-{}x{}.png", scenario.name, size.0, size.1);
+            if !shoot(&mut drawn, size, &dir.join(name))? {
+                return Ok(());
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Every row of text drawn in a pass with its visible rectangle (the row's
+/// ink, without the leading space a wrapped label starts with, cut by its
+/// clip), in paint order. Rows, not galleys: a label wrapped in a
+/// horizontal layout starts mid-line, and its galley's box covers whatever
+/// sits before it on the first line.
+fn texts(drawn: &Drawn) -> Vec<(usize, String, Rect)> {
+    let mut out = Vec::new();
+    for (index, clipped) in drawn.shapes.iter().enumerate() {
+        let egui::Shape::Text(text) = &clipped.shape else {
+            continue;
+        };
+        for row in &text.galley.rows {
+            if row.glyphs.is_empty() {
+                continue;
+            }
+            let rect = row
+                .rect_without_leading_space()
+                .translate(text.pos.to_vec2())
+                .intersect(clipped.clip_rect);
+            if rect.is_positive() {
+                let line: String = row.glyphs.iter().map(|g| g.chr).collect();
+                out.push((index, line, rect));
+            }
+        }
+    }
+    out
+}
+
+/// Whether `shape` is an opaque filled rectangle over all of `area`. A
+/// framed area with a shadow paints its fill inside a `Shape::Vec`.
+fn opaque_over(shape: &egui::epaint::ClippedShape, area: Rect) -> bool {
+    fn covers(shape: &egui::Shape, clip: Rect, area: Rect) -> bool {
+        if let egui::Shape::Rect(rect) = shape {
+            return rect.fill.a() == 255 && rect.rect.intersect(clip).contains_rect(area);
+        }
+        if let egui::Shape::Vec(shapes) = shape {
+            return shapes.iter().any(|inner| covers(inner, clip, area));
+        }
+        false
+    }
+    covers(&shape.shape, shape.clip_rect, area)
+}
+
+#[test]
+fn nothing_is_painted_over_blackout_at_any_size() -> Result<()> {
+    let sizes = SIZES.iter().copied().chain(SMALL_SIZES);
+    for size in sizes {
+        for scenario in scenarios() {
+            let drawn = draw(scenario, size, 3)?;
+            let Some(index) = drawn.shapes.iter().position(|clipped| {
+                matches!(&clipped.shape, egui::Shape::Text(t) if t.galley.text().starts_with("BLACKOUT"))
+            }) else {
+                // The modal question dims everything; nothing else hides it.
+                assert!(
+                    scenario.replace,
+                    "{} at {size:?} draws no BLACKOUT button",
+                    scenario.name
+                );
+                continue;
+            };
+            let Some(button) = drawn.shapes.get(index) else {
+                continue;
+            };
+            let blackout = button
+                .shape
+                .visual_bounding_rect()
+                .intersect(button.clip_rect);
+            assert!(
+                blackout.is_positive() && blackout.max.x <= size.0 && blackout.max.y <= size.1,
+                "{} at {size:?}: BLACKOUT is outside the window ({blackout:?})",
+                scenario.name
+            );
+            if scenario.replace {
+                // The modal's scrim covers everything on purpose.
+                continue;
+            }
+            for later in drawn.shapes.iter().skip(index + 1) {
+                let rect = later
+                    .shape
+                    .visual_bounding_rect()
+                    .intersect(later.clip_rect);
+                assert!(
+                    !rect.intersects(blackout.shrink(1.0)),
+                    "{} at {size:?}: {:?} is painted over BLACKOUT at {blackout:?}",
+                    scenario.name,
+                    later.shape
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn no_text_is_drawn_over_other_text_at_any_size() -> Result<()> {
+    let sizes = SIZES.iter().copied().chain(SMALL_SIZES);
+    let mut failures = Vec::new();
+    for size in sizes {
+        for scenario in scenarios() {
+            // Enough frames for a drawer to finish fading in.
+            let drawn = draw(scenario, size, 20)?;
+            let texts = texts(&drawn);
+            for (i, (ia, a, ra)) in texts.iter().enumerate() {
+                for (ib, b, rb) in texts.iter().skip(i + 1) {
+                    let overlap = ra.intersect(*rb);
+                    if !overlap.is_positive() || overlap.area() < 4.0 {
+                        continue;
+                    }
+                    // A drawer over the preview hides the preview's own
+                    // captions on purpose: an opaque fill painted between
+                    // the two texts, over their overlap, covers the first.
+                    let covered = drawn
+                        .shapes
+                        .get(ia + 1..*ib)
+                        .unwrap_or_default()
+                        .iter()
+                        .any(|between| opaque_over(between, overlap));
+                    if !covered {
+                        failures.push(format!(
+                            "{} at {size:?}: {a:?} {ra:?} overlaps {b:?} {rb:?}",
+                            scenario.name
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "{} overlaps:\n{}",
+        failures.len(),
+        failures.join("\n")
     );
     Ok(())
 }

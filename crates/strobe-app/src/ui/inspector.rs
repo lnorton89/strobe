@@ -56,85 +56,91 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
         model.ui.panes.close(Pane::Inspector);
     }
 
-    if let Some(title) = (!model.scene_title.is_empty()).then_some(model.scene_title) {
-        ui.label(
-            egui::RichText::new(title)
-                .strong()
-                .color(theme::rgb(theme.text)),
-        );
-    }
-    if let Some(entry) = model.playing.and_then(|i| model.library.entries.get(i)) {
-        tags_row(ui, theme, &entry.tags, &mut model.ui.tag_draft, actions);
-    }
-    if let Some(media) = model.media {
-        media_row(ui, theme, media, &mut model.ui.media_draft, actions);
-    }
-    if let Some(state) = model.script {
-        script_status(ui, theme, state);
-    }
-    ui.add_space(SPACE_XS);
-    if has_scene {
-        presets::show(ui, model, theme, actions);
-        generate_strip(
-            ui,
-            theme,
-            model.generate,
-            &mut model.ui.generate_review,
-            actions,
-        );
-    }
-
-    // Which controls already have a pinned macro, for the rows' pin menu
-    // (D210).
-    let (pinned_scene, pinned_meta) = pinned_names(&model.remote.remote.engine.macros);
-    let mut scene_pins = controls::Pins {
-        pinned: &pinned_scene,
-        chosen: None,
-    };
-    let mut meta_pins = controls::Pins {
-        pinned: &pinned_meta,
-        chosen: None,
-    };
-    let ui_state = &mut *model.ui;
-    let meta = model.meta.as_deref_mut();
-    match model.controls.as_deref_mut() {
-        Some(bank) if !bank.defs().is_empty() => {
-            groups(
-                ui,
-                theme,
-                bank,
-                meta,
-                ui_state,
-                &mut scene_pins,
-                &mut meta_pins,
-            );
-        }
-        Some(_) => {
-            widgets::empty_state(
-                ui,
-                theme,
-                Icon::Controls,
-                "This scene has no controls",
-                "It plays as authored. Generate controls makes a copy with some.",
-            );
-            if let Some(meta) = meta {
-                egui::ScrollArea::vertical()
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| {
-                        meta_section(ui, theme, meta, ui_state, &mut meta_pins)
-                    });
+    // Everything below the header scrolls as one, so a short window (a
+    // drawer at 150% on a small laptop, U-09) still reaches every control
+    // rather than losing them under the scene's tags and presets.
+    let mut chosen_pins = (None, None);
+    egui::ScrollArea::vertical()
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            if let Some(title) = (!model.scene_title.is_empty()).then_some(model.scene_title) {
+                ui.label(
+                    egui::RichText::new(title)
+                        .strong()
+                        .color(theme::rgb(theme.text)),
+                );
             }
-        }
-        None => widgets::empty_state(
-            ui,
-            theme,
-            Icon::Library,
-            "No scene playing",
-            "Open the scene library and load one to see its controls.",
-        ),
-    }
-    for (pins, meta) in [(scene_pins, false), (meta_pins, true)] {
-        if let Some((name, pin)) = pins.chosen {
+            if let Some(entry) = model.playing.and_then(|i| model.library.entries.get(i)) {
+                tags_row(ui, theme, &entry.tags, &mut model.ui.tag_draft, actions);
+            }
+            if let Some(media) = model.media {
+                media_row(ui, theme, media, &mut model.ui.media_draft, actions);
+            }
+            if let Some(state) = model.script {
+                script_status(ui, theme, state);
+            }
+            ui.add_space(SPACE_XS);
+            if has_scene {
+                presets::show(ui, model, theme, actions);
+                generate_strip(
+                    ui,
+                    theme,
+                    model.generate,
+                    &mut model.ui.generate_review,
+                    actions,
+                );
+            }
+
+            // Which controls already have a pinned macro, for the rows' pin
+            // menu (D210).
+            let (pinned_scene, pinned_meta) = pinned_names(&model.remote.remote.engine.macros);
+            let mut scene_pins = controls::Pins {
+                pinned: &pinned_scene,
+                chosen: None,
+            };
+            let mut meta_pins = controls::Pins {
+                pinned: &pinned_meta,
+                chosen: None,
+            };
+            let ui_state = &mut *model.ui;
+            let meta = model.meta.as_deref_mut();
+            match model.controls.as_deref_mut() {
+                Some(bank) if !bank.defs().is_empty() => {
+                    groups(
+                        ui,
+                        theme,
+                        bank,
+                        meta,
+                        ui_state,
+                        &mut scene_pins,
+                        &mut meta_pins,
+                    );
+                }
+                Some(_) => {
+                    widgets::empty_state(
+                        ui,
+                        theme,
+                        Icon::Controls,
+                        "This scene has no controls",
+                        "It plays as authored. Generate controls makes a copy with some.",
+                    );
+                    if let Some(meta) = meta {
+                        meta_section(ui, theme, meta, ui_state, &mut meta_pins);
+                    }
+                }
+                None => widgets::empty_state(
+                    ui,
+                    theme,
+                    Icon::Library,
+                    "No scene playing",
+                    "Open the scene library and load one to see its controls.",
+                ),
+            }
+            chosen_pins = (scene_pins.chosen.take(), meta_pins.chosen.take());
+        });
+    let (scene_chosen, meta_chosen) = chosen_pins;
+    for (chosen, meta) in [(scene_chosen, false), (meta_chosen, true)] {
+        if let Some((name, pin)) = chosen {
             actions.push(Action::PinMacro { name, meta, pin });
         }
     }
@@ -466,7 +472,9 @@ fn review(
             .filter_map(|k| k.score)
             .fold(f32::EPSILON, f32::max);
         for (kept, edit) in summary.kept.iter().zip(reviews.iter_mut()) {
-            ui.horizontal(|ui| {
+            // Wrapped: a row is wider than a pane at its narrowest, and an
+            // unwrapped one pushed the dock under the toolbar (U-09).
+            ui.horizontal_wrapped(|ui| {
                 ui.checkbox(&mut edit.keep, "")
                     .on_hover_text("Keep this control; untick to leave the number as it was");
                 // The bar in a fixed column, so a long colour range never
@@ -486,7 +494,8 @@ fn review(
                         kept.name
                     ));
                 } else {
-                    ui.label(
+                    whole(
+                        ui,
                         egui::RichText::new(&kept.name)
                             .monospace()
                             .color(theme::rgb(theme.text_faint)),
@@ -494,7 +503,8 @@ fn review(
                 }
                 let slider = kept.default.len() == 1 && kept.min.len() == 1;
                 if slider && edit.keep {
-                    ui.label(
+                    whole(
+                        ui,
                         egui::RichText::new(format!("{} · {:.2}", kept.group, kept.default[0]))
                             .small()
                             .color(theme::rgb(theme.text_muted)),
@@ -502,7 +512,8 @@ fn review(
                     .on_hover_text(&kept.context);
                     range_fields(ui, kept, edit);
                 } else {
-                    ui.label(
+                    whole(
+                        ui,
                         egui::RichText::new(format!("{} · {}", kept.group, range(kept)))
                             .small()
                             .color(theme::rgb(theme.text_muted)),
@@ -524,7 +535,7 @@ fn review(
             .iter()
             .zip(reviews.iter())
             .any(|(kept, edit)| Review::of(kept) != *edit);
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             let open = if edited {
                 format!("Apply and open {name}")
             } else {
@@ -549,6 +560,12 @@ fn review(
         });
     });
     ui.add_space(SPACE_XS);
+}
+
+/// A label that moves to the next line whole in a wrapped row, rather
+/// than breaking across two.
+fn whole(ui: &mut Ui, text: egui::RichText) -> egui::Response {
+    ui.add(egui::Label::new(text).wrap_mode(egui::TextWrapMode::Extend))
 }
 
 /// A kept slider's range, edited in place. The bounds stay either side of
@@ -642,54 +659,53 @@ fn groups(
     meta_pins: &mut controls::Pins<'_>,
 ) {
     let groups = controls::group_order(bank.defs());
-    egui::ScrollArea::vertical()
-        .auto_shrink([false, false])
-        .show(ui, |ui| {
-            for (group, members) in groups {
-                match group {
-                    None => controls::rows(ui, theme, bank, &members, Some(&mut *pins)),
-                    Some(name) => {
-                        let collapsed = state.is_collapsed(&name);
-                        match group_header(ui, theme, &name, collapsed, members.len()) {
-                            HeaderAction::None => {}
-                            HeaderAction::Toggle => state.set_collapsed(&name, !collapsed),
-                            HeaderAction::Default => {
-                                for &index in &members {
-                                    bank.set_default(index);
-                                }
-                            }
-                            HeaderAction::Random => {
-                                for &index in &members {
-                                    bank.randomize(index, || state.random_unit());
-                                }
+    // The pane's one scroll area is around everything below its header.
+    ui.scope(|ui| {
+        for (group, members) in groups {
+            match group {
+                None => controls::rows(ui, theme, bank, &members, Some(&mut *pins)),
+                Some(name) => {
+                    let collapsed = state.is_collapsed(&name);
+                    match group_header(ui, theme, &name, collapsed, members.len()) {
+                        HeaderAction::None => {}
+                        HeaderAction::Toggle => state.set_collapsed(&name, !collapsed),
+                        HeaderAction::Default => {
+                            for &index in &members {
+                                bank.set_default(index);
                             }
                         }
-                        if !collapsed {
-                            ui.indent(("group", &name), |ui| {
-                                controls::rows(ui, theme, bank, &members, Some(&mut *pins));
-                            });
+                        HeaderAction::Random => {
+                            for &index in &members {
+                                bank.randomize(index, || state.random_unit());
+                            }
                         }
                     }
+                    if !collapsed {
+                        ui.indent(("group", &name), |ui| {
+                            controls::rows(ui, theme, bank, &members, Some(&mut *pins));
+                        });
+                    }
                 }
-                ui.add_space(SPACE_SM);
             }
-            // Bangs are left alone by default and random; say so once, near
-            // the end, only if the scene has any.
-            let has_bang = bank
-                .defs()
-                .iter()
-                .any(|def| matches!(def.kind, ControlKind::Bang(_)));
-            if has_bang {
-                ui.label(
-                    egui::RichText::new("Default and random leave bangs alone.")
-                        .small()
-                        .color(theme::rgb(theme.text_faint)),
-                );
-            }
-            if let Some(meta) = meta {
-                meta_section(ui, theme, meta, state, meta_pins);
-            }
-        });
+            ui.add_space(SPACE_SM);
+        }
+        // Bangs are left alone by default and random; say so once, near
+        // the end, only if the scene has any.
+        let has_bang = bank
+            .defs()
+            .iter()
+            .any(|def| matches!(def.kind, ControlKind::Bang(_)));
+        if has_bang {
+            ui.label(
+                egui::RichText::new("Default and random leave bangs alone.")
+                    .small()
+                    .color(theme::rgb(theme.text_faint)),
+            );
+        }
+        if let Some(meta) = meta {
+            meta_section(ui, theme, meta, state, meta_pins);
+        }
+    });
 }
 
 /// The output-wide meta controls (master, colour, mirror, audio gains),

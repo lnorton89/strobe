@@ -124,6 +124,7 @@ pub fn show(ui: &mut Ui, shell: &mut ShellState, model: &mut Model<'_>, actions:
         }
     }
 
+    let mut below_toolbar = f32::NAN;
     let central = egui::CentralPanel::default()
         .frame(
             egui::Frame::new()
@@ -133,6 +134,9 @@ pub fn show(ui: &mut Ui, shell: &mut ShellState, model: &mut Model<'_>, actions:
         .show(ui, |ui| {
             perform::toolbar(ui, model, &theme, &arrangement, actions);
             ui.add_space(SPACE_XS);
+            // A drawer opens below the toolbar, so it never covers the
+            // output and fullscreen buttons (U-09).
+            below_toolbar = ui.cursor().top();
             perform::banners(ui, model, &theme, actions);
             perform::preview(ui, model, &theme, actions);
         });
@@ -140,7 +144,11 @@ pub fn show(ui: &mut Ui, shell: &mut ShellState, model: &mut Model<'_>, actions:
     if arrangement.overlay {
         let pane = arrangement.right.or(arrangement.left);
         if let Some((pane, w)) = pane {
-            drawer(ui, pane, w, central.response.rect, model, &theme, actions);
+            let mut surface = central.response.rect;
+            if below_toolbar.is_finite() {
+                surface.min.y = below_toolbar.clamp(surface.min.y, surface.max.y);
+            }
+            drawer(ui, pane, w, surface, model, &theme, actions);
         }
     }
 
@@ -209,7 +217,19 @@ fn dock_panel(
         .show_separator_line(false)
         .frame(frame)
         .show(ui, |ui| {
-            pane_body(pane, ui, model, theme, actions);
+            // The pane draws in a child that cannot widen the panel. A
+            // right panel whose content overflows its exact width moves its
+            // recorded left edge right by the overflow, and the preview then
+            // drew over the pane (the monitor picker over its header).
+            let rect = ui.max_rect();
+            let mut body = ui.new_child(
+                egui::UiBuilder::new()
+                    .max_rect(rect)
+                    .layout(egui::Layout::top_down(egui::Align::Min)),
+            );
+            body.set_clip_rect(rect.intersect(ui.clip_rect()));
+            pane_body(pane, &mut body, model, theme, actions);
+            ui.advance_cursor_after_rect(rect);
         })
         .response
         .rect
@@ -231,6 +251,10 @@ fn drawer(
         .fixed_pos(surface.right_top() - Vec2::new(width, 0.0))
         .constrain(false)
         .show(ui.ctx(), |ui| {
+            // Never past the preview: whatever a pane cannot fit is cut
+            // off here, not drawn over the transport strip and BLACKOUT
+            // (U-09, T480 Task 35). The panes scroll inside.
+            ui.set_clip_rect(surface.intersect(ui.clip_rect()));
             egui::Frame::new()
                 .fill(theme::rgb(theme.panel))
                 .stroke(Stroke::new(1.0, theme::rgb(theme.border)))

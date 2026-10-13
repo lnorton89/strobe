@@ -299,16 +299,16 @@ fn cue_card(
                     ui.end_row();
 
                     ui.label(muted("Transition"));
-                    ui.horizontal(|ui| {
-                        for choice in TransitionChoice::ALL {
-                            if ui
-                                .selectable_label(draft.transition == choice, choice.label())
-                                .clicked()
-                            {
-                                draft.transition = choice;
+                    // A list, not four buttons in a row: the row widened the
+                    // grid past the pane and cut off every Set (U-09).
+                    egui::ComboBox::from_id_salt("cue-transition")
+                        .selected_text(draft.transition.label())
+                        .width(120.0)
+                        .show_ui(ui, |ui| {
+                            for choice in TransitionChoice::ALL {
+                                ui.selectable_value(&mut draft.transition, choice, choice.label());
                             }
-                        }
-                    });
+                        });
                     ui.end_row();
                     ui.label("");
                     ui.add(

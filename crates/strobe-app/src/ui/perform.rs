@@ -52,15 +52,21 @@ pub fn toolbar(
         arrangement.left.is_some_and(|(p, _)| p == pane)
             || arrangement.right.is_some_and(|(p, _)| p == pane)
     };
+    // The four buttons' words need about this much; below it they are icons
+    // with the words in their tooltips, rather than drawn over each other
+    // (U-09, T480 Task 35).
+    const LABELLED: f32 = 470.0;
+    let labelled = ui.available_width() >= LABELLED;
     ui.horizontal(|ui| {
         ui.set_height(28.0);
-        if widgets::tool_button(
+        if widgets::tool_button_fitted(
             ui,
             theme,
             Icon::Library,
             "Scenes",
             shown(Pane::Browser),
             "Browse, search and preview scenes (Ctrl+F)",
+            labelled,
         )
         .clicked()
         {
@@ -69,13 +75,14 @@ pub fn toolbar(
                 .panes
                 .toggle_drawn(Pane::Browser, shown(Pane::Browser));
         }
-        if widgets::tool_button(
+        if widgets::tool_button_fitted(
             ui,
             theme,
             Icon::Controls,
             "Controls",
             shown(Pane::Inspector),
             "The playing scene's controls",
+            labelled,
         )
         .clicked()
         {
@@ -91,20 +98,21 @@ pub fn toolbar(
                 settings::monitor_picker(ui, model, actions);
             }
             let fullscreen = model.fullscreen && model.output_visible;
-            if widgets::tool_button(
+            if widgets::tool_button_fitted(
                 ui,
                 theme,
                 Icon::Fullscreen,
                 "Fullscreen",
                 fullscreen,
                 "Fullscreen on the chosen monitor; shows the output if it is hidden (F11)",
+                labelled,
             )
             .clicked()
             {
                 actions.push(Action::ToggleFullscreen);
             }
             let visible = model.output_visible;
-            if widgets::tool_button(
+            if widgets::tool_button_fitted(
                 ui,
                 theme,
                 Icon::Output,
@@ -115,6 +123,7 @@ pub fn toolbar(
                 },
                 visible,
                 "The output window starts hidden. The scene keeps rendering while it is.",
+                labelled,
             )
             .clicked()
             {
@@ -242,20 +251,31 @@ pub fn preview(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mu
             StrokeKind::Inside,
         );
     }
-    badges(ui, model, theme, rect, actions);
-    ui.painter().text(
-        rect.right_bottom() - Vec2::new(SPACE_SM, SPACE_SM),
-        Align2::RIGHT_BOTTOM,
+    let chip = badges(ui, model, theme, rect, actions);
+    // The render size in the bottom-right corner, unless a small preview
+    // puts it under the output-hidden chip (U-09).
+    let colour = theme::translucent(theme.text, 150);
+    let caption = ui.painter().layout_no_wrap(
         format!("{}x{}", image.size[0], image.size[1]),
         FontId::new(10.5, egui::FontFamily::Monospace),
-        theme::translucent(theme.text, 150),
+        colour,
     );
+    let at = rect.right_bottom() - Vec2::new(SPACE_SM, SPACE_SM) - caption.size();
+    if chip.is_none_or(|chip| !chip.intersects(Rect::from_min_size(at, caption.size()))) {
+        ui.painter().galley(at, caption, colour);
+    }
     ui.allocate_rect(area, Sense::hover());
 }
 
 /// The state badges over the picture's top-left corner and the output chip
-/// over its bottom-left.
-fn badges(ui: &mut Ui, model: &Model<'_>, theme: &Palette, rect: Rect, actions: &mut Vec<Action>) {
+/// over its bottom-left; returns the output chip's rectangle when it shows.
+fn badges(
+    ui: &mut Ui,
+    model: &Model<'_>,
+    theme: &Palette,
+    rect: Rect,
+    actions: &mut Vec<Action>,
+) -> Option<Rect> {
     let badge = egui::Rect::from_min_size(
         rect.left_top() + Vec2::splat(SPACE_SM),
         Vec2::new(rect.width() - SPACE_SM * 2.0, 24.0),
@@ -275,26 +295,35 @@ fn badges(ui: &mut Ui, model: &Model<'_>, theme: &Palette, rect: Rect, actions: 
             }
         });
     });
-    if !model.output_visible {
-        let chip = egui::Rect::from_min_size(
-            rect.left_bottom() + Vec2::new(SPACE_SM, -SPACE_SM - 24.0),
-            Vec2::new(rect.width() - SPACE_SM * 2.0, 24.0),
-        );
-        ui.scope_builder(egui::UiBuilder::new().max_rect(chip), |ui| {
-            ui.horizontal(|ui| {
-                widgets::status_chip_over(
-                    ui,
-                    Icon::Output,
-                    "Output hidden: this is the preview",
-                    theme.text,
-                    Some(theme.app),
-                );
-                if widgets::button(ui, theme, None, "Show output").clicked() {
-                    actions.push(Action::SetOutputVisible(true));
-                }
-            });
-        });
+    if model.output_visible {
+        return None;
     }
+    let chip = egui::Rect::from_min_size(
+        rect.left_bottom() + Vec2::new(SPACE_SM, -SPACE_SM - 24.0),
+        Vec2::new(rect.width() - SPACE_SM * 2.0, 24.0),
+    );
+    let used = ui.scope_builder(egui::UiBuilder::new().max_rect(chip), |ui| {
+        ui.horizontal(|ui| {
+            // Shorter in a small preview, and left to the button alone in
+            // the smallest, so the row never runs past the picture (U-09).
+            const FULL: f32 = 420.0;
+            const SHORT: f32 = 240.0;
+            let words = if rect.width() >= FULL {
+                Some("Output hidden: this is the preview")
+            } else if rect.width() >= SHORT {
+                Some("Output hidden")
+            } else {
+                None
+            };
+            if let Some(words) = words {
+                widgets::status_chip_over(ui, Icon::Output, words, theme.text, Some(theme.app));
+            }
+            if widgets::button(ui, theme, None, "Show output").clicked() {
+                actions.push(Action::SetOutputVisible(true));
+            }
+        });
+    });
+    Some(used.response.rect)
 }
 
 fn no_scene(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, area: Rect) {

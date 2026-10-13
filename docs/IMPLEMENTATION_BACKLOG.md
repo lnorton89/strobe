@@ -31,7 +31,7 @@
 - **Dependencies:** physical Windows audio device and access to the T480.
 
 ### R-02 Investigate the minute-six performance/resource step
-- **Status:** Explained, pending confirmation (T480 Task 20): not reproduced in two 10-minute runs. The before/after values match fullscreen versus windowed output exactly, so the output most likely left fullscreen. The output window now logs resizes, fullscreen state and occlusion, so a repeat names itself.
+- **Status:** Explained, pending one more run (T480 Tasks 20 and 34). It was not reproduced in two 10-minute runs, nor in 20 minutes fullscreen plus 20 windowed of a single scene (Task 34: flat from minute 4 fullscreen and from minute 1 windowed). The before/after values match fullscreen versus windowed output exactly, so the output most likely left fullscreen. The output window now logs resizes, fullscreen state and occlusion, so a repeat names itself. Left: Task 36, the same 20 minutes fullscreen on the transition-demo playlist that Task 17 played. It was queued and cancelled when the T480 was powered off.
 - **Work:** repeat the same scene-switching soak with process memory, handle counts, GPU time, scale, scene and backend sampled at a fixed interval; compare a no-switch control run and native versus ANGLE. Identify whether the step is a one-time allocation/cache or a leak/regression.
 - **Acceptance:** explain the step with evidence or file a narrowly scoped follow-up bug; no unexplained monotonic growth over the full soak.
 
@@ -51,7 +51,7 @@
 - **Acceptance:** reproducible release checklist completed, archive contents reviewed, checksums verified after download, attestations validate, and the release workflow is proven on an actual tag.
 
 ### R-06 Brand completion
-- **Status:** In progress. The executable icon is embedded (D241): `strobe-app`'s build script compiles `assets/strobe.rc` with the brand `icon.ico` on Windows targets. On the T480 (Task 32) both exes carry the full six-size icon group, and Windows extracts the Strobe mark for the exe and for a shortcut to it. Each exe also carries a version block (D244): product Strobe, its own file name and description, and the workspace version as both file and product version. The wordmark, the horizontal and stacked lockups, a one-colour mark, the README banner and the social preview are made (D256). The type is Space Grotesk outlines set by `assets/brand/tools/typeset.py`, and `cargo xtask brand` renders and checks every raster. Left: a look at Explorer and the taskbar by a person.
+- **Status:** In progress. The executable icon is embedded (D241): `strobe-app`'s build script compiles `assets/strobe.rc` with the brand `icon.ico` on Windows targets. On the T480 (Task 32) both exes carry the full six-size icon group, and Windows extracts the Strobe mark for the exe and for a shortcut to it. Each exe also carries a version block (D244): product Strobe, its own file name and description, and the workspace version as both file and product version. The T480 reads it back from both exes (Task 33). The wordmark, the horizontal and stacked lockups, a one-colour mark, the README banner and the social preview are made (D256). The type is Space Grotesk outlines set by `assets/brand/tools/typeset.py`, and `cargo xtask brand` renders and checks every raster. Left: a look at Explorer and the taskbar by a person.
 - **Work:** finish wordmark and lockups; embed the executable resource icon; check title bar, taskbar, installer/archive and high-DPI rendering on Windows.
 - **Acceptance:** the same approved mark is legible in the executable, title bar, taskbar, docs and release artifacts; CI validates generated assets and no icon is missing from the packaged binary.
 
@@ -98,7 +98,7 @@
 - **Acceptance:** tag fixtures round-trip; old scenes remain valid; generator selection is deterministic with a seed and reports why a scene was selected/skipped.
 
 ### U-09 Responsive desktop behaviour and UI performance
-- **Status:** Blocked on real Windows/window-manager validation.
+- **Status:** In progress. Narrow windows fixed (D260): the T480's resize run (Task 35) found the Controls pane over BLACKOUT, the toolbar and title bar overlapping, and the portrait transport drawn over itself. All of it reproduces and is fixed headless at the same logical sizes. Two tests now hold at every size in every state: `nothing_is_painted_over_blackout_at_any_size` and `no_text_is_drawn_over_other_text_at_any_size`. `STROBE_UI_SHOTS` paints every state as PNGs without a window. Left: on real Windows, snap, DPI changes, the maximised undecorated window and the taskbar, a second monitor and its removal; GNOME Wayland; UI frame cost on the T480.
 - **Work:** test custom title-bar drag, Aero Snap, resize, DPI changes, maximised undecorated window/taskbar interactions, multi-monitor changes, output monitor removal, and GNOME Wayland. Measure UI frame cost and separate Preview GPU cost on T480.
 - **Acceptance:** documented results on T480 and TORNADO; no focus theft or lost fullscreen state; output assignment changes do not destroy the active scene; UI work does not cause visible render-time regression.
 
@@ -109,9 +109,10 @@
   - a keyboard path to every performance command, through keys and the palette;
   - a visible keyboard-focus ring (D243): 2 px of the accent, tested at 3:1 or more against every surface in every theme.
 
+  - narrow-window behaviour (D260, U-09).
+
   Left:
   - a keyboard-only pass by a person on Windows;
-  - narrow-window behaviour;
   - a high-contrast check.
 - **Work:** finish typography/spacing, reduced-motion support, keyboard-only paths, focus visibility, semantic names, high-contrast checks and narrow-window behaviour; test light and dark themes.
 - **Acceptance:** all core performance actions can be used without hover; blackout and active state are unmistakable; keyboard focus remains visible; existing WCAG theme tests remain green.
@@ -138,7 +139,9 @@
 - **Acceptance:** publish a matrix with native/ANGLE status and failure category for every scene; no compatibility claim based only on a small synthetic corpus.
 
 ### C-04 textureFinalPass validation
-- **Status:** In progress. `strobe-bench --readback` (D245) runs the latency, cost, busy-GPU, resize and lost-context checks on any context, the window one included. It passes on llvmpipe in both dialects. Left: the run on the T480, native and ANGLE.
+- **Status:** Done. `strobe-bench --readback` (D245) runs the latency, cost, busy-GPU, resize and lost-context checks on any context, the window one included. It passes on llvmpipe in both dialects and on the T480's window context on both backends (Task 33):
+  - native and ANGLE both have exactly 2 frames of latency, and cost +0.24 and +0.23 ms a frame;
+  - with the GPU busy, ANGLE's data averages 2.3 frames old and `render()` takes 8.4 ms, which is queueing, still with no stall.
 - **Work:** run latency, resize, context-loss and busy-GPU tests using window-owned contexts on T480 native and ANGLE; compare GPU cost and freshness.
 - **Acceptance:** latency remains bounded and asynchronous; no synchronous GPU stall; documented behaviour across context loss and resize.
 

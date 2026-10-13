@@ -252,12 +252,37 @@ pub fn tool_button(
     active: bool,
     tooltip: &str,
 ) -> Response {
+    tool_button_fitted(ui, theme, icon, label, active, tooltip, true)
+}
+
+/// [`tool_button`], with its label left out when `labelled` is false: the
+/// icon alone, and the label moved into the tooltip. For a toolbar too
+/// narrow for its words (U-09).
+pub fn tool_button_fitted(
+    ui: &mut Ui,
+    theme: &Palette,
+    icon: Icon,
+    label: &str,
+    active: bool,
+    tooltip: &str,
+    labelled: bool,
+) -> Response {
     let font = TextStyle::Button.resolve(ui.style());
     let colour = if active { theme.accent } else { theme.text };
-    let galley = ui
-        .painter()
-        .layout_no_wrap(label.to_string(), font, theme::rgb(colour));
-    let width = SPACE_SM * 2.0 + icons::INLINE + SPACE_XS + galley.size().x;
+    let galley = ui.painter().layout_no_wrap(
+        if labelled {
+            label.to_string()
+        } else {
+            String::new()
+        },
+        font,
+        theme::rgb(colour),
+    );
+    let width = if labelled {
+        SPACE_SM * 2.0 + icons::INLINE + SPACE_XS + galley.size().x
+    } else {
+        SPACE_SM * 2.0 + icons::INLINE
+    };
     let (rect, response) = ui.allocate_exact_size(Vec2::new(width, 26.0), Sense::click());
     let rest = if active {
         theme.accent_soft
@@ -300,7 +325,13 @@ pub fn tool_button(
         galley,
         theme::rgb(colour),
     );
-    response.on_hover_text(tooltip)
+    response
+        .widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, active, label));
+    if labelled {
+        response.on_hover_text(tooltip)
+    } else {
+        response.on_hover_text(format!("{label}. {tooltip}"))
+    }
 }
 
 /// How a transport button is drawn.
@@ -672,8 +703,12 @@ pub fn meter(ui: &mut Ui, theme: &Palette, fraction: f32, fill: Rgb, width: f32)
 /// line of detail. A pane with nothing in it has to say so, and say what to
 /// do; a blank pane is indistinguishable from one that failed to load.
 pub fn empty_state(ui: &mut Ui, theme: &Palette, icon: Icon, title: &str, detail: &str) {
+    // The icon's top sits this far above the centre; in a short pane the
+    // centre moves down so the icon never rides up over what is above
+    // (U-09).
+    const ABOVE: f32 = 34.0 + 14.0;
     let rect = ui.available_rect_before_wrap();
-    let centre = rect.center();
+    let centre = egui::pos2(rect.center().x, rect.center().y.max(rect.top() + ABOVE));
     let painter = ui.painter();
     icons::paint(
         painter,
@@ -696,12 +731,16 @@ pub fn empty_state(ui: &mut Ui, theme: &Palette, icon: Icon, title: &str, detail
         theme::rgb(theme.text_muted),
         (rect.width() - SPACE_LG_X2).max(40.0),
     );
+    let bottom = centre.y + 12.0 + galley.size().y;
     ui.painter().galley(
         egui::pos2(centre.x - galley.size().x / 2.0, centre.y + 12.0),
         galley,
         theme::rgb(theme.text_muted),
     );
-    ui.allocate_space(rect.size());
+    ui.allocate_space(Vec2::new(
+        rect.width(),
+        rect.height().max(bottom - rect.top()),
+    ));
 }
 
 /// Twice [`theme::SPACE_LG`], the margin an empty state keeps from the pane
