@@ -69,7 +69,7 @@ container, headless or under Xvfb.
 | Feature | Status | Evidence | Notes |
 |---|---|---|---|
 | `setup()` once, `update(dt)` each frame | Supported | `crates/strobe-script/src/conformance.rs` `setup_runs_once_and_its_control_writes_apply_on_the_first_frame`, [T480](hardware/T480.md) (`11-script-orbits`), [TORNADO T18](hardware/TORNADO.md) (scripts run) | QuickJS, built on Windows by CI's `windows` job and the T480. |
-| A top-level `transition` function | Unverified | [Q23](OPEN_QUESTIONS.md) (script API counts) | 6 real scenes define one. Strobe's host calls only `setup` and `update`. What Synesthesia calls it for is not recorded. |
+| A top-level `transition` function | Supported | [TORNADO T23](hardware/TORNADO.md), [Q23](OPEN_QUESTIONS.md) | Not part of SSF's documented script lifecycle (only `setup` and `update(dt)`). The 6 real scenes that define one leave it empty and never call it, so not calling it changes nothing. |
 | `setUniform` uniforms, created at load | Supported | [D62](DECISIONS.md), [D161](DECISIONS.md), `script_uniforms.rs`, `conformance.rs` `uniforms_made_in_setup_are_listed_when_sealed` | The first frame's uniforms are compiled in before the show plays. |
 | A uniform first set after load | Degraded | [D161](DECISIONS.md), `script_uniforms.rs` `a_uniform_that_appears_later_is_refused_and_nothing_compiles_after_load` | Refused with one console error, never recompiled. Create every uniform in `setup()`. |
 | Legacy `uniforms` object and `inputs` reads | Supported | `conformance.rs` `deprecated_uniforms_object_is_scanned_after_update`, `deprecated_inputs_reads_the_same_values_and_is_read_only` | Both appear in real scenes ([Q23](OPEN_QUESTIONS.md)). |
