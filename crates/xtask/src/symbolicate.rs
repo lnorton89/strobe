@@ -182,7 +182,10 @@ fn file_symbols(dump_syms: &Path, source: &Path, store: &Path) -> Result<PathBuf
 /// The PDBs a release build leaves behind, or the unstripped binaries on a
 /// platform without PDBs.
 fn default_symbol_sources() -> Result<Vec<PathBuf>> {
+    // A packaged build is built with `--target` (release.yml), so its PDB
+    // is under the target triple, not `target/release` (T480 Task 21).
     let dirs = [
+        Path::new("target/x86_64-pc-windows-msvc/release"),
         Path::new("target/release"),
         Path::new("target/release/examples"),
     ];

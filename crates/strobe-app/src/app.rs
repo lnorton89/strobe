@@ -2620,6 +2620,15 @@ impl Running {
         if self.faults.lose_context_due(self.output_frames) {
             self.inject_loss();
         }
+        if self.faults.crash_due(self.output_frames) {
+            log::error!(
+                "{}: aborting on purpose after {} output frames",
+                fault::ENV,
+                self.output_frames
+            );
+            strobe_diag::logger::flush(Duration::from_secs(2));
+            fault::crash();
+        }
         if !self.make_current(surface) {
             return;
         }
