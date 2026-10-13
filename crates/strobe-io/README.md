@@ -28,7 +28,7 @@ test with no device.
 | Item | What |
 |---|---|
 | `message::parse`, `MidiMessage`, `device_key` | Raw MIDI bytes into note on/off, CC, pitch bend, program change; everything else (clock, sysex, aftertouch, channel-mode controllers, malformed) is `None`. `device_key` strips ALSA's `20:0` and WinMM's `2- ` so a device keeps its name across a replug. |
-| `osc::decode`, `osc::nesting_ok`, `osc::builtin_target` | A datagram into messages, bounded (bundle depth 4, 256 messages, 8 arguments); the built-in `/strobe/...` address space. |
+| `osc::decode`, `osc::nesting_ok`, `osc::builtin_target` | A datagram into messages, bounded (bundle depth 4, 256 messages, 8 arguments); the built-in `/strobe/...` address space and Synesthesia's aliases. |
 | `Hub` | `start(&midi, &osc)`, `set_osc`, `set_midi`, `rescan_midi`, `drain(max, &mut events)`. Two threads, one bounded queue, `try_send` so a driver callback never blocks (D171). |
 | `Event`, `InputEvent`, `Status`, `DeviceInfo` | What the workers deliver: input, and reports (device found or lost, listener up or failed, messages dropped). |
 | `Source`, `Signal` | Where a message came from (CC, note, pitch bend, program, OSC address; a device or any) and what it said (`Analog(0..1)` or `Button`). |
@@ -93,7 +93,20 @@ No mapping is needed. Values are normalised 0 to 1.
 | `/strobe/preset/<name>` | none, `1` | recalls a preset of the playing scene (`_` reads as a space) |
 | `/strobe/macro/<id or name>` | float | drives a Performance Macro |
 
-A mapping for an address always wins over its built-in meaning.
+A mapping for an address always wins over its built-in meaning. Two or
+three numbers sent to a whole pad or colour set its components.
+
+### Synesthesia's addresses
+
+A layout made for Synesthesia works for the parts that mean the same in
+Strobe (D234): `/controls/scene/<name>`, `/controls/meta/<name>`,
+`/controls/global/<type>/<n>` (the `n`th slider, knob, toggle, bang, xy,
+color or dropdown of the playing scene), each with `/x`, `/y`, `/r`, `/g`
+or `/b`; `/favslots/<n>`; `/playlist/next`, `/playlist/previous` and
+`/playlist/toggleplay`. The `/raw`, `/default`, `/random`, `/preset` and
+`/lock` suffixes, scene-specific `/controls/<scene>/...`, and messages with
+string arguments (`/scenes`, `/presets`, `/media`) are ignored. Feedback is
+sent on Strobe's own addresses, not Synesthesia's.
 
 ## Testing
 

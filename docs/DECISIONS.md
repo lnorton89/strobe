@@ -2283,6 +2283,10 @@ UI_DESIGN section 8 and UI_IMPLEMENTATION_PLAN sections 11 to 12, as code.
 **Would reopen:** Synesthesia's real OSC addresses (Q23), or a request for
 explicit blackout on/off.
 
+*Addendum (2026-10-13):* both happened. Explicit blackout is D201, and
+Synesthesia's addresses are accepted as aliases where they mean the same
+(D234).
+
 ### D174: soft takeover, learn, and what a conflict is (2026-10-11)
 
 - **Pickup** (the default for MIDI faders) ignores the fader until it
@@ -4097,3 +4101,51 @@ confidence-aware estimate that falls back when unsure.
 (the fixtures are synthetic: an accented kick and a chord change), music in
 three (bars stay four beats), or a scene or Synesthesia feature that wants
 the bar position as a uniform.
+
+### D234: Synesthesia's OSC addresses are aliases where they mean the same (2026-10-13)
+
+P-08 asked whether Strobe should speak Synesthesia's OSC layout. D173 chose
+`/strobe/...` before the layout could be read. TORNADO read the manual
+(T20), and the layout turned out to map almost one for one onto D173's
+targets.
+
+- **Accepted, with no mapping, when built-in OSC is on:**
+  - `/controls/scene/<name>` and `/controls/meta/<name>`, each with an
+    optional `/x`, `/y`, `/r`, `/g` or `/b`;
+  - `/controls/global/<type>/<n>`: the `n`th control of that type in the
+    playing scene, from 1, in declaration order;
+  - `/favslots/<n>`;
+  - `/playlist/next`, `/playlist/previous` and `/playlist/toggleplay`,
+    which run `next_scene`, `prev_scene` and `toggle_hold`.
+
+  Values are normalised 0 to 1 in both, so these are aliases in
+  `osc::builtin_target`, not a second engine. A user mapping on the same
+  address still wins.
+- **Global positions are a name.** `/controls/global/slider/2` becomes the
+  control target `@slider/2`, which `target::find_control` resolves
+  against the playing scene's controls of that kind. It is therefore
+  re-resolved on every scene change, as Synesthesia's global addresses
+  are, and it can also be typed into a mapping.
+- **Two or three numbers to a whole pad or colour** set its components
+  (`Engine::components`), which is how Synesthesia and TouchOSC send an xy
+  pad. The split happens only when the built-in meaning applies, never for
+  an address a mapping answers to or while learning, so those see the
+  message as sent.
+- **Ignored rather than guessed:**
+  - the `/raw`, `/default`, `/random`, `/preset` and `/lock` suffixes,
+    which would otherwise read as a group and a name;
+  - scene-specific `/controls/<scenename>/...`, since Strobe has no target
+    that applies only while a given scene plays;
+  - anything with a string argument (`/scenes`, `/presets`, `/media/name`,
+    `/playlist/select`), which the decoder drops (D172).
+
+  Each is a test case. Feedback stays on `/strobe/...`: Synesthesia's
+  output layout (names per global slot, dropdown labels) is a separate
+  feature.
+- **Not imported:** Synesthesia's MIDI mappings. They are internal
+  identifiers in `midi_mappings.json`, with no export of their own.
+
+**Would reopen:** a real Synesthesia or TouchOSC layout that relies on an
+ignored address (the suffixes and `/scenes` are the likely ones), a
+request for Synesthesia-shaped feedback, or the underscore question in Q23
+mattering (Strobe's name matching ignores `_` either way).

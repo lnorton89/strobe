@@ -422,6 +422,19 @@ NVIDIA only, and a bisect showed the T8 commit itself does the same today,
 so it is the driver varying between sessions on that scene (likely
 undefined behaviour in it), not Strobe. 198 s for the main run.
 
+## Synesthesia's OSC manual (2026-10-13, Task T20, P-08)
+
+The container cannot reach Synesthesia's docs; this machine read them
+(`manual/osc.html`, `faq/midi_osc.html` and the pages they link). The
+summary, in the agent's words, stays in `target\tornado\t20-syn-osc.md`
+on the machine. What it settled is recorded in Q23 and D234:
+- the address layout;
+- normalised values, with `/raw` for a control's own range;
+- `/controls/global/<type>/<n>` counting within a type, from 1;
+- no default ports in the docs, but the owner's install has input 6000
+  and output 9000;
+- MIDI mappings as `midi_mappings.json`, with no MIDI-only export.
+
 ## Pending on this machine
 
 - [x] Re-run 07 at 1080p and 2160p after D191: same size (T2).

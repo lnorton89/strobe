@@ -199,7 +199,7 @@
 - **Acceptance:** no data loss on unresolved targets; presets remain backwards-compatible; user sees what will be changed before destructive replacement.
 
 ### P-08 Synesthesia OSC compatibility decision
-- **Status:** Open decision.
+- **Status:** Decided and built (D234), from Synesthesia's OSC manual as read on TORNADO (T20): its input addresses that mean the same in Strobe are aliases of the built-in space (`/controls/scene|meta/<name>[/x|y|r|g|b]`, `/controls/global/<type>/<n>`, `/favslots/<n>`, `/playlist/next|previous|toggleplay`), and two or three numbers to a whole pad or colour set its components. Ignored, with tests: the `/raw` `/default` `/random` `/preset` `/lock` suffixes, scene-specific addresses, string-argument messages. Feedback stays on `/strobe/...`. Left: a real TouchOSC or Synesthesia layout against Strobe, and whether control names keep underscores in Synesthesia's addresses (the manual contradicts itself; Strobe ignores them either way).
 - **Work:** compare the built-in /strobe namespace to Synesthesia's documented OSC address layout and decide whether compatibility is a requirement; if not, document the intentional divergence.
 - **Acceptance:** decision recorded before adding aliases; tests cover every supported address and invalid payloads.
 

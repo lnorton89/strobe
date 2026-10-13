@@ -42,7 +42,7 @@
 //! | dropdown | position picks the option | steps to the next option |
 //! | command, cue, fav slot, preset | fires when it crosses the threshold | fires on press |
 
-use crate::event::{Signal, Source};
+use crate::event::{Arg, OscMessage, Signal, Source};
 use crate::macros::MacroSet;
 use crate::mapping::{ButtonMode, Cfg, Mapping, Runtime, find_conflict};
 use crate::osc;
@@ -325,6 +325,64 @@ impl Engine {
             Drive::Waiting | Drive::Idle => Outcome::Applied(0),
             Drive::Unavailable(why) => Outcome::Unavailable(why),
         }
+    }
+
+    /// A message carrying two or three numbers to a whole xy pad or colour
+    /// on a built-in address (`/controls/scene/pad 0.2 0.7`, the way
+    /// Synesthesia and TouchOSC send them), as one source and signal per
+    /// component; `None` for anything else, which [`Source::of`] reads as
+    /// one signal from the first argument.
+    ///
+    /// Only the built-in meaning is split: an address a mapping answers to,
+    /// or any message while learning, stays one event, so a mapping or a
+    /// learn sees the address as it was sent.
+    pub fn components(&self, message: &OscMessage) -> Option<Vec<(Source, Signal)>> {
+        const WORDS: [[&str; 3]; 2] = [["x", "y", "z"], ["r", "g", "b"]];
+        if !self.builtin_osc || self.learn.is_some() || !(2..=3).contains(&message.args.len()) {
+            return None;
+        }
+        let whole = Source::Osc {
+            address: message.address.clone(),
+        };
+        if self
+            .mappings
+            .iter()
+            .any(|m| m.enabled && m.source.matches(&whole))
+        {
+            return None;
+        }
+        let (Target::Control {
+            component: None, ..
+        }
+        | Target::Meta {
+            component: None, ..
+        }) = osc::builtin_target(&message.address, &self.macros)?
+        else {
+            return None;
+        };
+        let words = if message.args.len() == 3 {
+            WORDS[1]
+        } else {
+            WORDS[0]
+        };
+        message
+            .args
+            .iter()
+            .zip(words)
+            .map(|(arg, word)| {
+                let value = match *arg {
+                    Arg::Float(x) => x,
+                    Arg::Int(x) => x as f32,
+                    Arg::Bool(_) | Arg::Impulse => return None,
+                };
+                Some((
+                    Source::Osc {
+                        address: format!("{}/{word}", message.address),
+                    },
+                    Signal::Analog(value.clamp(0.0, 1.0)),
+                ))
+            })
+            .collect()
     }
 
     /// Handles one message. Control writes go straight to `banks`;
@@ -1078,6 +1136,94 @@ mod tests {
     }
 
     // -------------------------------------------------------- built-in OSC
+
+    #[test]
+    fn synesthesia_addresses_reach_the_same_controls() -> Result<()> {
+        let mut rig = Rig::new()?;
+        rig.osc("/controls/scene/speed", Signal::Analog(1.0));
+        assert!(near(rig.value("speed")?, 10.0), "scene control by name");
+        // The second slider is `glow`; the first is `speed`.
+        rig.osc("/controls/global/slider/2", Signal::Analog(1.0));
+        let glow = rig.scene.find("glow").ok_or_else(|| anyhow!("glow"))?;
+        assert!(
+            near(rig.scene.target(glow).ok_or_else(|| anyhow!("t"))?[0], 1.0),
+            "the second slider by position"
+        );
+        assert!(
+            matches!(
+                rig.osc("/controls/global/slider/3", Signal::Analog(1.0)),
+                Outcome::Unavailable(_)
+            ),
+            "there is no third slider"
+        );
+        rig.osc("/controls/global/xy/1/y", Signal::Analog(0.5));
+        let pad = rig.scene.find("pad").ok_or_else(|| anyhow!("pad"))?;
+        assert!(
+            near(rig.scene.target(pad).ok_or_else(|| anyhow!("t"))?[1], 5.0),
+            "one component of the first pad"
+        );
+        rig.osc("/playlist/next", Signal::Analog(1.0));
+        rig.osc("/favslots/2", Signal::Analog(1.0));
+        assert_eq!(
+            rig.out,
+            vec![Output::Command("next_scene".into()), Output::FavSlot(2)],
+            "commands and fav slots"
+        );
+        assert_eq!(
+            rig.osc("/controls/scene/speed/random", Signal::Analog(1.0)),
+            Outcome::Unmapped,
+            "a suffix Strobe has no meaning for is left alone"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn two_numbers_to_a_whole_pad_set_both_components() -> Result<()> {
+        let mut rig = Rig::new()?;
+        let message = OscMessage {
+            address: "/controls/scene/pad".into(),
+            args: vec![Arg::Float(0.25), Arg::Float(0.5)],
+        };
+        let parts = rig
+            .engine
+            .components(&message)
+            .ok_or_else(|| anyhow!("not split"))?;
+        assert_eq!(parts.len(), 2, "x and y: {parts:?}");
+        for (source, signal) in parts {
+            rig.send(source, signal);
+        }
+        let pad = rig.scene.find("pad").ok_or_else(|| anyhow!("pad"))?;
+        let value = rig.scene.target(pad).ok_or_else(|| anyhow!("t"))?;
+        assert!(near(value[0], 0.25) && near(value[1], 5.0), "{value:?}");
+
+        let one = OscMessage {
+            args: vec![Arg::Float(0.5)],
+            ..message.clone()
+        };
+        assert!(
+            rig.engine.components(&one).is_none(),
+            "one number is one signal"
+        );
+        let slider = OscMessage {
+            address: "/controls/scene/speed/x".into(),
+            ..message.clone()
+        };
+        assert!(
+            rig.engine.components(&slider).is_none(),
+            "an address with a component is not split again"
+        );
+        rig.engine.mappings.push(Mapping::new(
+            Source::Osc {
+                address: "/controls/scene/pad".into(),
+            },
+            Target::control("speed"),
+        ));
+        assert!(
+            rig.engine.components(&message).is_none(),
+            "a mapping on the address sees it whole"
+        );
+        Ok(())
+    }
 
     #[test]
     fn the_builtin_osc_space_drives_controls_meta_and_commands_with_no_mapping() -> Result<()> {
