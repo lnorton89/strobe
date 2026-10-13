@@ -41,8 +41,8 @@ use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
-use strobe_gfx::offscreen::{self, Request};
 use strobe_gfx::GlChoice;
+use strobe_gfx::offscreen::{self, Request};
 
 /// How often the parent looks at a running worker.
 const POLL: Duration = Duration::from_millis(5);
@@ -207,7 +207,10 @@ fn run_worker_process(
                     &name,
                     dialect,
                     Status::Timeout,
-                    &format!("no result within {} s; worker killed", options.budget.as_secs()),
+                    &format!(
+                        "no result within {} s; worker killed",
+                        options.budget.as_secs()
+                    ),
                 );
                 record.has_script = dir.join("script.js").is_file();
                 return (record, None);
