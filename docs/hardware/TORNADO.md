@@ -408,6 +408,20 @@ instead (the clamp now logs a warning). Three minutes each:
 No frames lost to the wait; it removes 98% of the late ones. No warnings
 or errors.
 
+## The corpus after a day of changes (2026-10-13, commit 12a9ddf, Task T18)
+
+`cargo xtask corpus` over the owner's private Synesthesia corpus (kept out
+of the repository), both dialects, scripts run: **63 of 65 pass native and
+63 of 65 ANGLE** (60 of 62 in the main folder, plus the three outside it).
+Against T6 the only change is `circuit_bending_dup`, which now passes in
+both: its missing picture reads black instead of failing the load. The two
+failures are the scenes' own (a function that never returns a value, and an
+output declared twice). 119 of 120 compiled results render exactly as in
+T8; `fork_materialma_deviltiger_729` renders slightly brighter on native
+NVIDIA only, and a bisect showed the T8 commit itself does the same today,
+so it is the driver varying between sessions on that scene (likely
+undefined behaviour in it), not Strobe. 198 s for the main run.
+
 ## Pending on this machine
 
 - [x] Re-run 07 at 1080p and 2160p after D191: same size (T2).
@@ -430,6 +444,8 @@ or errors.
   number of control redraws.
 - [x] T15: `glFinish` after the output's swap takes make-current to 1.5 ms
   and late frames to 5-8 a minute at 30 Hz (D221).
+- [x] T18: corpus regression check at 12a9ddf: 63/65 native and ANGLE,
+  no regressions.
 - [x] T17: on a GPU-heavy scene the wait loses nothing (7-11 late
   frames a minute against 560-573 without it).
 - [x] T16: D221 engaged by itself at 0.59 s; make-current 0.27-1.16 ms,

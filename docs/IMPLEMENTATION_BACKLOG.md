@@ -115,7 +115,7 @@
 - **Acceptance:** fixtures test each value and neutral no-op behaviour on GL 3.3 and GLES/ANGLE; neutral settings incur no post pass where technically possible; T480 and TORNADO GPU cost is recorded.
 
 ### C-02 GLES/SSF translation gaps
-- **Status:** Built (D199); waiting on an ANGLE/D3D11 re-run. Left: function-like macros that mix int and float, a `sampler2D` in `?:`.
+- **Status:** Built (D199); the ANGLE/D3D11 re-run passed (TORNADO T18: 63 of 65 real scenes in both dialects, the two failures the scenes' own bugs). Left: function-like macros that mix int and float, a `sampler2D` in `?:`.
 - **Work:** expand parser-backed rewrites for implicit int-to-float conversions and non-macro conditional compilation; do not add regex-only source rewriting that can change comments or identifiers.
 - **Acceptance:** each discovered real-world failure has a minimized fixture, a stable diagnostic and native/GLES outcome; unsupported cases fail visibly rather than generating corrupt shader text.
 
