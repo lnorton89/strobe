@@ -97,4 +97,4 @@ pub use macros::{Macro, MacroSet};
 pub use mapping::{ButtonMode, Mapping};
 pub use message::MidiMessage;
 pub use takeover::Takeover;
-pub use target::{Resolution, Scope, State, Target};
+pub use target::{ActionBank, ControlAction, Resolution, Scope, State, Target, Verb};

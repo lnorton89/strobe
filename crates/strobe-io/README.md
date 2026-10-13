@@ -103,9 +103,12 @@ Strobe (D234): `/controls/scene/<name>`, `/controls/meta/<name>`,
 `/controls/global/<type>/<n>` (the `n`th slider, knob, toggle, bang, xy,
 color or dropdown of the playing scene), each with `/x`, `/y`, `/r`, `/g`
 or `/b`; `/favslots/<n>`; `/playlist/next`, `/playlist/previous` and
-`/playlist/toggleplay`. The `/raw`, `/default`, `/random`, `/preset` and
-`/lock` suffixes, scene-specific `/controls/<scene>/...`, and messages with
-string arguments (`/scenes`, `/presets`, `/media`) are ignored. Feedback is
+`/playlist/toggleplay`. `/default` and `/random` after a control, and
+`/controls/groups/{scene|meta}/<group>/...` and
+`/controls/banks/{scene|meta}/...` with either, reset or randomize (D247).
+The `/raw`, `/preset` and `/lock` suffixes, bank `/undo`, scene-specific
+`/controls/<scene>/...`, and messages with string arguments (`/scenes`,
+`/presets`, `/media`) are ignored. Feedback is
 sent on Strobe's own addresses, not Synesthesia's.
 
 ## Testing

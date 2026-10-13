@@ -489,6 +489,12 @@ fn body(
             }
         }
         Target::Macro { .. } => {}
+        Target::Action(action) => {
+            let label = target_label_capitalised(&Target::Action(action.clone()));
+            if controls::bang_button(ui, theme, &label).clicked() {
+                actions.push(Action::ControlAction(action.clone()));
+            }
+        }
     }
     let _ = remote;
 }
@@ -592,6 +598,15 @@ fn control_body(
             }
         }
     }
+}
+
+/// A target's label with its first letter upper-cased, for a button.
+fn target_label_capitalised(target: &Target) -> String {
+    let label = target.label();
+    let mut chars = label.chars();
+    chars.next().map_or_else(String::new, |first| {
+        first.to_uppercase().chain(chars).collect()
+    })
 }
 
 #[cfg(test)]

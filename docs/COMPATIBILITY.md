@@ -183,6 +183,31 @@ scripts included, and renders it in both dialects ([D195](DECISIONS.md)).
 | Blackout on, off and toggle | Supported | [D181](DECISIONS.md), [D201](DECISIONS.md), Xvfb OSC run in [STATUS_AUDIT P2](STATUS_AUDIT.md), [T480](hardware/T480.md) (B key) | Blackout gates the shown output only; `master` fades the picture. |
 | Command palette | Supported | [D200](DECISIONS.md), `ui::shell_tests` | Not yet used by a person on Windows. |
 
+### Synesthesia's preset, meta and control behaviours (C-06)
+
+Each row is a behaviour Synesthesia documents (its manual's OSC, controls
+and presets pages, read on TORNADO in T20), classified against Strobe, with
+the test that holds it.
+
+| Behaviour | Status | Evidence | Notes |
+|---|---|---|---|
+| Meta values stay when the scene changes | Supported | [D207](DECISIONS.md), `meta.rs` `a_new_bank_carries_what_it_has_not_set_itself` | A cue's or preset's own meta values win over the carried ones. |
+| A playlist cue's preset and meta apply when the cue starts | Supported | `tests/show.rs` `a_cues_preset_is_applied_when_the_cue_starts_and_an_override_beats_it`, `the_operators_output_settings_carry_across_cues_under_a_cues_own_meta` | |
+| A preset holds the scene's, the meta and the media values | Supported | [D176](DECISIONS.md), [D223](DECISIONS.md), `preset.rs` tests | `master` is never saved: it is the operator's fader. |
+| Recalling only one part of a preset (`/presets/scene`, `/meta`, `/media`) | Degraded | [D176](DECISIONS.md), [D247](DECISIONS.md) | Which parts a preset holds is chosen when it is saved, not when it is recalled. Synesthesia's `/presets/...` addresses take a string, which the OSC decoder drops. |
+| Preset names | Degraded | `preset.rs` `find_name` | Synesthesia's are case-sensitive. Strobe ignores case and reads `_` as a space, because names also arrive in OSC addresses. |
+| Fav slots recall a scene and a preset | Supported | `preset.rs` `fav_slots_are_eight_and_a_short_file_is_padded`, [T480 Task 31](hardware/T480.md) | Eight slots. |
+| One control to its default or a random value (`.../default`, `.../random`) | Supported | [D247](DECISIONS.md), `target.rs` `default_and_random_cover_a_control_a_group_or_a_bank`, `osc.rs` `synesthesias_addresses_are_aliases_and_the_rest_is_ignored`, `engine.rs` `synesthesia_addresses_reach_the_same_controls` | Also from the Inspector's buttons. A bang is never randomized. |
+| A group or a whole bank to default or random (`/controls/groups/...`, `/controls/banks/...`) | Supported | Same tests | Scene and meta banks. A group is matched by name as controls are. |
+| A script's writes to meta controls (`setControl("meta/...")`) | Supported | [D180](DECISIONS.md), `tests/script_meta.rs` `a_script_write_to_a_meta_control_reaches_the_sessions_meta_bank` | |
+| A script's randomize and default on a control, a group and meta | Supported | `strobe-script` conformance `randomize_and_default_control_and_group`, `meta_default_randomize_and_groups_use_the_same_operations`, `randomize_is_reproducible_from_the_seed` | |
+| Audio reactivity and audio speed as meta controls | Supported | `audio.rs` `meta_gains_multiply_the_panels_and_stay_in_range` | They multiply the Audio panel's own gains and carry across scenes like any meta value. |
+| Locking a control, a group or a bank (`/lock`) | Unsupported | [D247](DECISIONS.md) | Nothing in Strobe protects a value from a preset, a cue or a randomize yet. |
+| Bank undo (`/controls/banks/.../undo`) | Unsupported | [D247](DECISIONS.md) | |
+| Back to the preset's value (`.../preset`) | Unsupported | [D247](DECISIONS.md) | |
+| Saving a new preset over OSC (`/presets/new`) | Unsupported | [D247](DECISIONS.md) | Saving is the Presets panel's, with a name a person types. |
+| Alpha Channel meta | Unsupported | [D248](DECISIONS.md) | Waits for an output that carries alpha (NDI or Spout, deferred). |
+
 ## 9. Media
 
 | Feature | Status | Evidence | Notes |

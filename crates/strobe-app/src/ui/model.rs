@@ -229,6 +229,9 @@ pub enum Action {
     /// Run a command from the command table by its id (a macro or the MAP
     /// pane's test button; keys, MIDI and OSC reach the same place).
     RunCommand(String),
+    /// Default or randomize a bank, a group or a control (Synesthesia's
+    /// `/default` and `/random`, D247).
+    ControlAction(strobe_io::ControlAction),
 }
 
 /// What the performance readouts and the adaptive toggle show.

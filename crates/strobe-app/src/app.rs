@@ -3187,6 +3187,7 @@ impl Running {
                 Action::ClearFav(slot) => self.remote.favs.clear(slot),
                 Action::RecallFav(slot) => self.recall_fav(slot),
                 Action::RunCommand(id) => self.run_command(&id),
+                Action::ControlAction(action) => self.control_action(&action),
             }
         }
     }
@@ -3274,6 +3275,31 @@ impl Running {
                 );
                 self.say(Tone::Error, format!("Preset not saved: {error}"));
             }
+        }
+    }
+
+    /// Carries out Synesthesia's default or random on a bank, a group or
+    /// a control (D247), with the UI's randomness, as the Inspector's
+    /// random button does.
+    fn control_action(&mut self, action: &strobe_io::ControlAction) {
+        let Some(session) = self.stack.session.as_mut() else {
+            log::info!(
+                "{}: no scene is playing",
+                strobe_io::Target::Action(action.clone()).label()
+            );
+            return;
+        };
+        let bank = match action.bank {
+            strobe_io::ActionBank::Scene => &mut session.controls,
+            strobe_io::ActionBank::Meta => &mut session.meta,
+        };
+        let state = &mut self.ui_state;
+        let covered = action.apply(bank, || state.random_unit());
+        if covered == 0 {
+            log::info!(
+                "{}: nothing here to act on",
+                strobe_io::Target::Action(action.clone()).label()
+            );
         }
     }
 
@@ -4032,6 +4058,7 @@ fn output_actions(outputs: &mut Vec<Output>) -> Vec<Action> {
                 actions.push(Action::RecallFav(usize::from(slot).saturating_sub(1)));
             }
             Output::Preset(name) => actions.push(Action::RecallPreset(name)),
+            Output::Action(action) => actions.push(Action::ControlAction(action)),
         }
     }
     actions
