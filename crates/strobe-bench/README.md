@@ -118,5 +118,7 @@ It has no `#[test]` functions, so `cargo test -p strobe-bench` only compiles it.
   with `N of M scenes failed: <names>`, which is what fails CI's bench step
   (D56).
 - No scripts run (so `11-script-orbits` renders as a still with default
-  controls) and the audio textures are placeholders (ROADMAP "Known gaps").
+  controls), and `results.md` says so and marks such scenes `*` (D239);
+  `cargo xtask corpus` runs scripts. The audio textures are placeholders
+  (ROADMAP "Known gaps").
 - Not built for macOS: `strobe-gfx` has no CGL provider (D55).

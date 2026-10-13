@@ -244,6 +244,17 @@ checked and not committed. Interaction was driven with xdotool.
   and the app under Xvfb sending its state to a Python listener and
   following a control set over OSC. Not yet: a real TouchOSC layout, and
   MIDI output.
+- [x] Synesthesia's OSC input addresses where they mean the same (D234):
+  `/controls/scene|meta/<name>`, `/controls/global/<type>/<n>`, two or three
+  numbers to a whole pad or colour, `/favslots/<n>`, `/playlist/...`.
+  Evidence: `strobe-io` `osc` and `engine` tests, and T480 Task 31 over
+  UDP, each address with the feedback it produced.
+- [x] Audio-structure inputs to the playlist (D226, D233, D237): breakdowns
+  and drops, a downbeat estimate that moves the bar lines when sure, and
+  song changes from a gap or a new tempo. Evidence: `strobe-audio`
+  `events`, `downbeat`, `song` and `behaviour` tests (synthetic kicks at
+  several tempos and phases), and the playlist clock's tests. Not yet: real
+  music.
 - [x] Shortcuts edited in Settings (D208): capture, a named clash moved only
   on purpose, clear, reset, live and saved. Evidence: `commands.rs` and
   `ui::shell_tests` (capture fires nothing, Esc cancels, the clash row at six
@@ -326,8 +337,9 @@ the topology before any broad redesign.
   `script_uniforms.rs`
   `a_uniform_that_appears_later_is_refused_and_nothing_compiles_after_load`
   counts compiles through `Gl::shader_compiles()` in both dialects.
-- [ ] The benchmark does not execute scripts. Keep this limitation
-  explicit.
+- [x] The benchmark does not execute scripts, and says so: `results.md`
+  states it above the table and marks each scene with a `script.js` `*`
+  (D239). Script cost is the corpus harness's `frame_ms`.
 - [x] GLES translation of desktop-only SSF idioms (R8, D199): implicit
   int-to-float, `#if` on a non-macro, initialised uniforms. Evidence:
   `render.rs` `implicit_int_to_float_and_non_macro_if_compile_in_both_dialects`

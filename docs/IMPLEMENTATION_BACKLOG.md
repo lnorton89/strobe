@@ -130,7 +130,7 @@
 - **Acceptance:** latency remains bounded and asynchronous; no synchronous GPU stall; documented behaviour across context loss and resize.
 
 ### C-05 Benchmark scripting limitation
-- **Status:** Open documentation/decision task.
+- **Status:** Decided (D239): the bench stays script-free, and `results.md` now says so above the table and marks each scene with a `script.js` (`*`), so its numbers cannot be read as script-complete. Script cost is measured by the corpus harness, which runs scripts with a fixed `dt` and synthetic audio and reports `frame_ms`.
 - **Work:** keep benchmark reports explicit that scripts are not executed; decide whether script-aware benchmarking is needed and, if so, define deterministic script time/audio inputs before implementation.
 - **Acceptance:** output cannot be mistaken for script-complete performance results; any future script mode has reproducibility tests.
 
@@ -302,7 +302,10 @@
 ## Epic D — Documentation, evidence and maintainability
 
 ### D-01 Reconcile status documents
-- **Status:** Open.
+- **Status:** Ongoing, reconciled 2026-10-13. This round:
+  - STATUS_AUDIT gained the 30-minute soak (TORNADO T19), the Synesthesia OSC addresses (T480 Task 31), the audio-structure inputs and the bench's script note, each with its evidence;
+  - L-01, L-05, M-01, M-05, P-02, P-08, C-05 and I-02 here match their decisions (D232-D239);
+  - stale "no downbeat detector" claims were removed from the crate READMEs and ROADMAP.
 - **Work:** keep ROADMAP.md the short priority view, STATUS_AUDIT.md the evidence log, and this file the cross-epic task register; remove contradictory stale claims as tasks change.
 - **Acceptance:** no task is simultaneously described as both unimplemented and verified; every checked item names its evidence location.
 
