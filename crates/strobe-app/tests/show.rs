@@ -38,7 +38,7 @@ fn context(api: Api) -> Result<Option<Headless>> {
     match Headless::new(api) {
         Ok(headless) => Ok(Some(headless)),
         Err(error) if std::env::var_os("STROBE_REQUIRE_HEADLESS_GL").is_none() => {
-            eprintln!("skipping: no headless {api:?} context ({error})");
+            strobe_gfx::skip::note(format_args!("no headless {api:?} context ({error})"));
             Ok(None)
         }
         Err(error) => Err(anyhow!("headless {api:?} context required: {error}")),

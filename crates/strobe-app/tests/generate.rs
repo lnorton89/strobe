@@ -56,7 +56,7 @@ fn have_context() -> Result<bool> {
     match Headless::new(Api::DesktopCore33) {
         Ok(_) => Ok(true),
         Err(error) if std::env::var_os("STROBE_REQUIRE_HEADLESS_GL").is_none() => {
-            eprintln!("skipping: no headless context ({error})");
+            strobe_gfx::skip::note(format_args!("no headless context ({error})"));
             Ok(false)
         }
         Err(error) => Err(anyhow!("headless context required: {error}")),

@@ -30,7 +30,7 @@ fn context(api: Api) -> Result<Option<Headless>> {
     match Headless::new(api) {
         Ok(headless) => Ok(Some(headless)),
         Err(error) if std::env::var_os("STROBE_REQUIRE_HEADLESS_GL").is_none() => {
-            eprintln!("skipping: no headless {api:?} context ({error})");
+            strobe_gfx::skip::note(format_args!("no headless {api:?} context ({error})"));
             Ok(None)
         }
         Err(error) => Err(anyhow!("headless {api:?} context required: {error}")),
@@ -513,7 +513,7 @@ fn the_gpu_timer_reports_results_without_ever_waiting() -> Result<()> {
         let gl = headless.gl();
         let caps = Caps::from_info(gl.info());
         let Some(mut timer) = GpuTimer::new(gl, &caps) else {
-            eprintln!("skipping: {api:?} has no GPU timer queries");
+            strobe_gfx::skip::note(format_args!("{api:?} has no GPU timer queries"));
             continue;
         };
         let scene = folder("{}", "vec4 renderMain() { return vec4(TIME); }")?;
