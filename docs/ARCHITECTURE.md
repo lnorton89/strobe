@@ -20,7 +20,7 @@ crates/
 ├── strobe-app          winit event loop, control window (egui) + output window, wiring
 ├── strobe-playlist     Playlist model, TOML, generator, timeline, playback clock (pure)
 ├── strobe-io           Show control: MIDI and OSC workers, mappings, learn, soft takeover, macros (no GL)
-└── strobe-remote       Versioned LAN remote protocol and app-thread bridge (no sockets)
+└── strobe-remote       LAN remote: protocol, app-thread bridge, pairing, and the opt-in listener
 ```
 
 (The localhost import listener stayed in `strobe-shadertoy`, D114. Presets and
@@ -43,7 +43,7 @@ strobe-gfx ◀── strobe-autocontrol ◀────────────�
                  (tokenizer and tab markers                     process, D202)
                   of strobe-shadertoy)
 
-strobe-remote (serde protocol + std bridge; only the app's tests use it yet)
+strobe-remote ◀── strobe-app  (serde, sha1, sha2, getrandom; depends on no Strobe crate)
 ```
 
 - `strobe-scene` knows nothing about GL, threads, or clocks: `dt` is
@@ -66,6 +66,10 @@ strobe-remote (serde protocol + std bridge; only the app's tests use it yet)
   bang and smoothing semantics have one implementation (D170). Its two worker
   threads own every blocking call and hand typed events to the app through a
   bounded queue the app drains once per frame (D171).
+- `strobe-remote` depends on no other Strobe crate and never on a window,
+  egui or `strobe-gfx`. Its listener runs on threads of its own and reaches
+  the app only through `bridge`: commands in on a bounded queue, a
+  revisioned state snapshot out (D232, D250). The app drains it in step 1c.
 - `strobe-diag` depends on no other Strobe crate, so every crate may
   depend on it (for `log` output, `context::set`, `failure::report`).
   `strobe-gfx` itself only uses the `log` facade; the app is what installs
@@ -130,6 +134,10 @@ threads only ever hand values *to* it.
     which writes the live session's scene and meta `ControlBank`s directly and
     returns commands, cue jumps, fav-slot and preset recalls, which the app
     carries out through the same `Action`s the buttons send (D171, D173)
+1c. LAN remote, only while it is on (`Running::drain_lan`, `app::lan`): take
+    up to 8 commands off `strobe_remote::bridge` (never blocks), check each
+    against the app's state, run it through its command's `Action`, answer
+    it; every 100 ms publish the state a phone shows (D254)
 2. mouse uniforms from the pointer over the output window        (app::mouse)
 3. GpuTimer::begin                                               (strobe-gfx::timing)
 3b. With a playlist loaded and compiled (Show::frame, app::show::run):

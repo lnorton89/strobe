@@ -37,6 +37,14 @@ What *is* in scope:
   or DNS-rebinding requests), or lets a crafted request write outside the
   scene library, is a real finding. So is a request that crashes the
   process, which on a projector is a denial of service.
+- **The LAN remote.** When the operator switches it on, Strobe listens on a
+  private network address for a phone's controller page (D250-D254). Driving
+  the show without a code and the desktop's approval, a token that survives
+  revocation, a page on another site or host name reaching it (cross-site
+  WebSocket hijacking, DNS rebinding), anything beyond the allowlisted show
+  commands, a secret in a log or URL, or a client that can stall the frame
+  or grow memory without bound is a real finding. Eavesdropping on the Wi-Fi
+  is not: the remote is documented as plain HTTP for trusted networks.
 - **Scene scripts and the QuickJS sandbox.** A scene may carry JavaScript
   (the Synesthesia scripting API), which Strobe runs in an embedded QuickJS
   engine. A script is meant to see only the audio features, the controls

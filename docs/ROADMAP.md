@@ -39,13 +39,15 @@ which backend proved a claim.
 - **Perform UI stage 2** (see item 2): the panes built in stage 1 hold the
   generated-controls review (D202, D219); the full Playlist workspace is
   still to come.
-- **LAN remote, implementation slice 1:** `strobe-remote` now defines a
-  versioned, typed, allowlisted client/server protocol with serialization
-  tests, and `strobe_remote::bridge` is the bounded command queue and
-  revisioned snapshot between a network thread and the app thread (D232).
-  It has no listener, pairing implementation or PWA assets yet. The next
-  step is a separately owned network service feeding that bridge; do not
-  let server callbacks touch GL, playlist, or egui state.
+- **LAN remote v1 (D250-D254), built, not yet on a phone:** an opt-in
+  listener in `strobe-remote` on its own threads, serving a one-file
+  controller page and a WebSocket with protocol v1; pairing with a one-use
+  code and desktop approval; rotating per-client tokens kept as digests,
+  revocable; Host, Origin, size, rate, idle and slow-client limits with
+  adversarial tests over real sockets; drained by the app once a frame, with
+  "Remote on" and a Stop button in the title bar. Next: real Android and iOS
+  devices over Wi-Fi, the Windows firewall prompt and the T480 soak (L-08).
+  Installable PWA still waits on HTTPS (L-07).
 
 ## Next, in priority order
 
@@ -206,7 +208,8 @@ Each item names its acceptance test. Evidence is in [STATUS_AUDIT.md](STATUS_AUD
    MIDI and OSC. Met for OSC (built-in addresses, tested) and for MIDI by
    mapping (the mapper does not care where a message came from, and is tested
    from recorded bytes); **not met on hardware**.
-7b. **LAN remote from a phone or tablet** (planned, after item 7). The
+7b. **LAN remote from a phone or tablet** (v1 built, D250-D254; real
+   devices, the firewall prompt and the T480 soak open). The
    proposal and threat model are in
    [REMOTE_CONTROL_PWA_RESEARCH.md](REMOTE_CONTROL_PWA_RESEARCH.md)
    (lnorton89/strobe#7). It is a same-origin web remote, served by Strobe on
@@ -352,7 +355,7 @@ never per frame.
 | 4 | Shadertoy import | The converter (D90-D95), acquisition (REST client, texture downloader, localhost listener), the Import panel, file drop and the userscript (D110-D117) are built, auto-generated controls with their review in the app (D123-D126, D202, D219), drops routed by kind (D218) and a URL on a playlist cue (D229). batch import and a watched folder (D235, D240). Open: live-site verification (Q19), a real OS drop by a person. |
 | 5 | Playlists | The pure core (D73-D77), the app integration (D150-D158), cue editing with inheritance shown (D213), media per cue (D217), drag, disable, multi-select, URL import and comment-keeping save (D224, D229-D231), and audio-event advance (D226, D237) are built. Verified on the T480 (Tasks 14, 26). Open: hearing the downbeat estimate (D233) and the audio events on real music. |
 | 6 | Presets, MIDI, OSC, hotkeys | Built (D170-D179): `strobe-io`, presets and fav slots, the MAP pane, macros stage 2, hotkeys, a hotkey editor (D208), OSC feedback (D209), macro reach and colour (D210), the preset media channel (D223), and a glide and a key per macro (D227, D228). Open: a controller on the T480, MIDI output. |
-| 7b | LAN remote / PWA | Protocol crate and app-thread bridge in `strobe-remote` (D232); no listener or UI integration yet. Next: secure service lifecycle, pairing/revocation, mobile controller, then solve HTTPS before claiming installable PWA support. See [REMOTE_CONTROL_PWA_RESEARCH.md](REMOTE_CONTROL_PWA_RESEARCH.md). |
+| 7b | LAN remote / PWA | LAN web remote v1 built (D232, D236, D250-D254): listener, pairing, tokens, revocation, abuse limits, the controller page, the app integration with a kill switch, and the user guide's section. Tested over loopback sockets only. Next: real phones over Wi-Fi, the Windows firewall prompt, the T480 soak; then solve HTTPS before claiming installable PWA support. See [REMOTE_CONTROL_PWA_RESEARCH.md](REMOTE_CONTROL_PWA_RESEARCH.md). |
 | 7 | NDI, media input, song-change transitions | Media stills and image sequences (D186), chosen in the Inspector, per cue and per preset (D217, D223), bounded by shrinking (D225); breakdown and drop detection (D226) and song changes (D237) feed playlists. Video, webcam and NDI are open. `HARD`/`SMOOTH_TRANSITIONS` are declared but never change. |
 
 ## Known gaps in what exists
