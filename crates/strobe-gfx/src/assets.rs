@@ -37,9 +37,12 @@
 //! and decodes it on a thread of its own and sends the frames back one at a
 //! time, so the render thread never waits on a disk or a decoder. Frames are
 //! flipped upright like scene images unless asked not to, shrunk to
-//! [`MAX_MEDIA_EDGE`] on their long side, and a sequence stops at
-//! [`MAX_MEDIA_BYTES`] of decoded pictures: video memory on an old laptop
-//! is shared with the system.
+//! [`MAX_MEDIA_EDGE`] on their long side. A sequence must fit
+//! [`MAX_MEDIA_BYTES`] of decoded pictures, since video memory on an old
+//! laptop is shared with the system: a long one is shrunk as a whole, every
+//! frame alike, until it fits ([`sequence_edge`], D225), so the loop plays
+//! complete at a lower resolution. Only below [`MIN_SEQUENCE_EDGE`] is it
+//! cut short instead.
 
 use image::RgbaImage;
 use image::imageops::{self, FilterType};
@@ -57,6 +60,11 @@ pub const MAX_MEDIA_EDGE: u32 = 2048;
 
 /// The most decoded picture data one sequence may hold, in bytes.
 pub const MAX_MEDIA_BYTES: usize = 192 * 1024 * 1024;
+
+/// The smallest long side a sequence is shrunk to so that it fits
+/// [`MAX_MEDIA_BYTES`]; below this a long sequence is cut short instead,
+/// because a postage stamp is worse than a shorter loop.
+pub const MIN_SEQUENCE_EDGE: u32 = 256;
 
 /// How many decoded frames may wait for the render thread to take them.
 const IN_FLIGHT: usize = 3;
@@ -280,10 +288,33 @@ pub fn list_sources(path: &Path) -> Result<Vec<PathBuf>, String> {
 
 /// Decodes one picture, shrinking it to [`MAX_MEDIA_EDGE`] if it is larger.
 pub fn decode_frame(path: &Path, vflip: bool) -> Result<Frame, String> {
+    decode_frame_within(path, vflip, MAX_MEDIA_EDGE)
+}
+
+/// The longest side every frame of a sequence may keep so that `count`
+/// frames like the first (`first`, width and height after the
+/// [`MAX_MEDIA_EDGE`] limit) fit `budget` bytes of RGBA, never below
+/// [`MIN_SEQUENCE_EDGE`] (D225). The first frame's own long side when they
+/// already fit.
+pub fn sequence_edge(first: (u32, u32), count: usize, budget: usize) -> u32 {
+    let long = first.0.max(first.1).max(1);
+    let frame_bytes = u64::from(first.0) * u64::from(first.1) * 4;
+    let total = frame_bytes.saturating_mul(count as u64);
+    if total <= budget as u64 || total == 0 {
+        return long;
+    }
+    // Area scales with the square of the edge.
+    let scale = (budget as f64 / total as f64).sqrt();
+    let edge = (f64::from(long) * scale).floor() as u32;
+    edge.clamp(MIN_SEQUENCE_EDGE.min(long), long)
+}
+
+/// Decodes one picture, shrinking it so its long side is at most `edge`.
+fn decode_frame_within(path: &Path, vflip: bool, edge: u32) -> Result<Frame, String> {
     let mut image = open(path)?;
     let (w, h) = image.dimensions();
-    if w.max(h) > MAX_MEDIA_EDGE {
-        let scale = MAX_MEDIA_EDGE as f32 / w.max(h) as f32;
+    if w.max(h) > edge {
+        let scale = edge as f32 / w.max(h) as f32;
         let new_w = ((w as f32 * scale).round() as u32).max(1);
         let new_h = ((h as f32 * scale).round() as u32).max(1);
         image = imageops::resize(&image, new_w, new_h, FilterType::Triangle);
@@ -308,12 +339,12 @@ pub fn spawn_decoder(request: &MediaRequest) -> Result<Receiver<MediaMessage>, S
     let vflip = request.vflip;
     std::thread::Builder::new()
         .name("strobe-media".to_string())
-        .spawn(move || decode_all(&path, vflip, &sender))
+        .spawn(move || decode_all(&path, vflip, &sender, MAX_MEDIA_BYTES))
         .map_err(|e| format!("could not start the media thread: {e}"))?;
     Ok(receiver)
 }
 
-fn decode_all(path: &Path, vflip: bool, sender: &SyncSender<MediaMessage>) {
+fn decode_all(path: &Path, vflip: bool, sender: &SyncSender<MediaMessage>, budget: usize) {
     let sources = match list_sources(path) {
         Ok(sources) => sources,
         Err(message) => {
@@ -323,8 +354,30 @@ fn decode_all(path: &Path, vflip: bool, sender: &SyncSender<MediaMessage>) {
     };
     let total = sources.len();
     let mut bytes = 0_usize;
+    let mut edge = MAX_MEDIA_EDGE;
     for (index, source) in sources.iter().enumerate() {
-        let frame = match decode_frame(source, vflip) {
+        let decoded = decode_frame_within(source, vflip, edge);
+        // The first frame sets the size the whole sequence keeps (D225).
+        let decoded = match decoded {
+            Ok(first) if index == 0 && total > 1 => {
+                let fits = sequence_edge((first.width, first.height), total, budget);
+                if fits < first.width.max(first.height) {
+                    log::info!(
+                        "syn_Media: {total} pictures of {}x{} are more than {} MiB; \
+                         every frame is shrunk to {fits} px on its long side so the loop fits",
+                        first.width,
+                        first.height,
+                        budget / (1024 * 1024)
+                    );
+                    edge = fits;
+                    decode_frame_within(source, vflip, edge)
+                } else {
+                    Ok(first)
+                }
+            }
+            other => other,
+        };
+        let frame = match decoded {
             Ok(frame) => frame,
             Err(message) => {
                 // A still that cannot be read is a failure; a bad frame
@@ -334,10 +387,10 @@ fn decode_all(path: &Path, vflip: bool, sender: &SyncSender<MediaMessage>) {
             }
         };
         bytes += frame.rgba.len();
-        if index > 0 && bytes > MAX_MEDIA_BYTES {
+        if index > 0 && bytes > budget {
             let _ = sender.send(MediaMessage::Failed(format!(
                 "sequence cut at {index} of {total} pictures: more than {} MiB of decoded frames",
-                MAX_MEDIA_BYTES / (1024 * 1024)
+                budget / (1024 * 1024)
             )));
             return;
         }
@@ -582,6 +635,75 @@ mod tests {
         assert!(
             matches!(bad.recv()?, MediaMessage::Failed(_)),
             "a missing path is reported, not panicked on"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_long_sequence_is_shrunk_to_fit_not_cut() {
+        assert_eq!(
+            sequence_edge((512, 512), 8, 8 << 20),
+            512,
+            "it fits as it is"
+        );
+        assert_eq!(
+            sequence_edge((512, 512), 8, 2 << 20),
+            256,
+            "a quarter of the bytes is half the edge"
+        );
+        assert_eq!(
+            sequence_edge((1024, 512), 100, 1 << 20),
+            MIN_SEQUENCE_EDGE,
+            "never below the floor"
+        );
+        assert_eq!(
+            sequence_edge((100, 50), 10_000, 1),
+            100,
+            "a picture already under the floor keeps its size"
+        );
+    }
+
+    /// Everything the decoder sends for `dir`, at `budget`.
+    fn decode_with(dir: &Path, budget: usize) -> Vec<MediaMessage> {
+        let (sender, receiver) = sync_channel(64);
+        decode_all(dir, false, &sender, budget);
+        drop(sender);
+        receiver.into_iter().collect()
+    }
+
+    #[test]
+    fn the_whole_loop_plays_smaller_and_only_a_too_long_one_is_cut() -> Result<()> {
+        let scratch = Scratch::new("budget")?;
+        for i in 0..8 {
+            solid(512, 512, [i * 30, 0, 0, 255]).save(scratch.0.join(format!("f{i}.png")))?;
+        }
+        let fitted = decode_with(&scratch.0, 2 << 20);
+        let frames: Vec<&Frame> = fitted
+            .iter()
+            .filter_map(|m| match m {
+                MediaMessage::Frame(frame) => Some(frame),
+                MediaMessage::Done | MediaMessage::Failed(_) => None,
+            })
+            .collect();
+        assert_eq!(frames.len(), 8, "every frame arrives");
+        assert!(
+            frames.iter().all(|f| f.width == 256 && f.height == 256),
+            "all shrunk alike to fit 2 MiB"
+        );
+        assert!(
+            matches!(fitted.last(), Some(MediaMessage::Done)),
+            "and it completes"
+        );
+
+        let cut = decode_with(&scratch.0, 1 << 20);
+        let count = cut
+            .iter()
+            .filter(|m| matches!(m, MediaMessage::Frame(_)))
+            .count();
+        assert!(count < 8, "below the floor it is cut: {count} frames");
+        assert!(
+            matches!(cut.last(), Some(MediaMessage::Failed(why)) if why.contains("sequence cut")),
+            "and says so"
         );
         Ok(())
     }
