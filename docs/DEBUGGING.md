@@ -37,7 +37,7 @@ setup, saves it beside the logs, and exits. Attach it to bug reports.
 | `STROBE_LOG_STDERR=1` | Mirror log lines to stderr. Debug builds do it anyway. The Windows release build has no console, so this is for a console build on a test laptop, and for runs under Xvfb. |
 | `STROBE_GL_DEBUG` | Driver debug output (`KHR_debug`), routed to the log under the target `gl_driver`. Unset: warnings and errors in debug builds, errors only in release. `1` or `all`: everything. `errors`, `warn`, `info` pick a level. `0` or `off` turns it off. Old Intel drivers without `KHR_debug` report that it is unavailable. `STROBE_LOG=gl_driver=debug` shows the notification-level messages too. |
 | `STROBE_FAULT` | Fault injection, to exercise context-loss recovery without a broken driver. See below. |
-| `STROBE_FINISH_AFTER_SWAP=1` | After each output swap, wait (`glFinish`) for it to complete. An experiment for the NVIDIA make-current wait (D216, TORNADO T15); off by default. |
+| `STROBE_FINISH_AFTER_SWAP` | Whether the output waits (`glFinish`) for each swap to complete, so switching the context to the control window does not (D221). Unset: only after the control window has been seen waiting (NVIDIA, windowed output), and not while a fullscreen output covers it. `1`: always. `0`: never. |
 | `STROBE_NO_CRASH_MONITOR=1` | Do not start the crash monitor process or attach the native crash handler. Use it under a debugger. |
 | `STROBE_DIAG_DIR` | Replace the base directory above. |
 | `STROBE_REQUIRE_HEADLESS_GL=1` | Make the headless-GL tests fail instead of skip when no EGL device exists. CI's Linux job sets it. |

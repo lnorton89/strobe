@@ -3710,3 +3710,37 @@ by each widget. Backlog U-06 had it left.
 
 **Would reopen:** a third density, or a person wanting Edit roomier than
 Perform.
+
+### D221: the output waits for its own swap once the control window is seen waiting (2026-10-13)
+
+D216's pacer cut TORNADO's late frames to a third by redrawing the
+control window less. T15 tested the cause directly: with the output
+calling `glFinish` right after its vsynced swap, switching the shared
+context to the control window took 1.2-1.7 ms instead of 16, the control
+window ran at 30 Hz, and late frames fell from about 568 a minute to 5-8.
+The driver was waiting for the windowed output's flip at the context
+switch; waiting for it on the output's side, where a wait is due anyway,
+removes it.
+
+- **Automatic, once.** `stats::SwapPolicy` starts off. The first time the
+  pacer would slow the control window, the policy engages the wait instead
+  and the pacer starts over at 30 Hz (logged as "the output now waits for
+  its own swap instead"). If the pacer slows again with the wait on, its 10
+  Hz stands: the wait did not help on that machine.
+- **Not everywhere.** `glFinish` after the swap costs the overlap of one
+  frame's CPU work with the GPU's. The T480 never shows the wait, so it
+  never pays. While a fullscreen output covers the control window (which
+  then hardly redraws) the wait is skipped.
+- **Overrides.** `STROBE_FINISH_AFTER_SWAP=1` forces it on and `0` off
+  (DEBUGGING.md).
+- **Still deferred.** The control window on its own thread and context
+  (D216's structural cure) is not needed for this; it stays the answer if
+  a machine shows the wait with this engaged.
+
+**Would reopen:** a GPU-heavy scene on an affected machine missing frames
+because of the lost overlap, or T16 not engaging automatically.
+
+*Also in this commit:* a player whose media has no picture yet replaces it
+at once when other media is chosen, so the scene's own picture no longer
+shows for a moment before `--media` (T480 Task 26), and every choice is
+logged as `syn_Media: <path>` or `syn_Media: none`.
