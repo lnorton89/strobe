@@ -58,6 +58,10 @@ const GENERATED_SUFFIX: &str = "-auto.synScene";
 /// One generated control, as the review shows it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Kept {
+    /// The candidate's id in the engine's analysis, for a review to name it
+    /// again (D219).
+    #[serde(default)]
+    pub candidate: usize,
     /// The control's name.
     pub name: String,
     /// The group it is listed in.
@@ -81,6 +85,9 @@ pub struct Kept {
 pub struct Summary {
     /// The scene's title.
     pub scene: String,
+    /// The scene folder that was measured (never written).
+    #[serde(default)]
+    pub source: PathBuf,
     /// The new scene folder, when one was written.
     pub written: Option<PathBuf>,
     /// Where the scoring context came from.
@@ -184,6 +191,7 @@ fn run_worker(args: &WorkerArgs) -> Result<Summary, String> {
             (Verdict::Kept { rank }, Some(name)) => Some((
                 *rank,
                 Kept {
+                    candidate: c.id,
                     name: name.clone(),
                     group: c.group.ui_name().to_owned(),
                     kind: c.kind.label().to_owned(),
@@ -208,6 +216,7 @@ fn run_worker(args: &WorkerArgs) -> Result<Summary, String> {
     kept.sort_by_key(|(rank, _)| *rank);
     Ok(Summary {
         scene: report.scene.clone(),
+        source: args.scene.clone(),
         written,
         context,
         candidates: report.candidates.len(),
@@ -333,6 +342,86 @@ impl Drop for Job {
     }
 }
 
+/// The operator's edit of one generated control in the review (D219),
+/// parallel to [`Summary::kept`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct Review {
+    /// Whether the control stays.
+    pub keep: bool,
+    /// A slider's lower bound.
+    pub min: f32,
+    /// A slider's upper bound.
+    pub max: f32,
+}
+
+impl Review {
+    /// The review of `kept` as the engine proposed it: kept, its own range.
+    pub fn of(kept: &Kept) -> Self {
+        Self {
+            keep: true,
+            min: kept.min.first().copied().unwrap_or(0.0),
+            max: kept.max.first().copied().unwrap_or(1.0),
+        }
+    }
+}
+
+/// What applying a review did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Reviewed {
+    /// Nothing was changed; the copy stands as written.
+    AsWritten,
+    /// The copy was written again with the kept controls and ranges.
+    Rewritten,
+    /// Every control was dropped, so the copy was deleted.
+    Discarded,
+}
+
+/// Applies `reviews` (one per [`Summary::kept`]) to the copy the worker
+/// wrote: written again with only the kept controls and their ranges
+/// (`strobe_autocontrol::rewrite_chosen`, no measuring), or deleted when
+/// none is kept. The measured source is read, never written.
+///
+/// # Errors
+///
+/// When the source changed since it was measured, or a file cannot be
+/// read or written; the copy is then left as it was.
+pub fn review(summary: &Summary, reviews: &[Review], library: &Path) -> Result<Reviewed, String> {
+    let Some(written) = summary.written.as_ref() else {
+        return Ok(Reviewed::AsWritten);
+    };
+    let proposed = summary.kept.iter().map(Review::of);
+    let unchanged =
+        reviews.len() == summary.kept.len() && proposed.zip(reviews).all(|(a, b)| a == *b);
+    if unchanged {
+        return Ok(Reviewed::AsWritten);
+    }
+    let choices: Vec<strobe_autocontrol::Choice> = summary
+        .kept
+        .iter()
+        .zip(reviews)
+        .filter(|(_, review)| review.keep)
+        .map(|(kept, review)| strobe_autocontrol::Choice {
+            candidate: kept.candidate,
+            name: kept.name.clone(),
+            context: kept.context.clone(),
+            min: review.min,
+            max: review.max,
+        })
+        .collect();
+    if choices.is_empty() {
+        discard(library, written).map_err(|e| e.to_string())?;
+        return Ok(Reviewed::Discarded);
+    }
+    let folder = SceneFolder::load(&summary.source)
+        .map_err(|e| format!("could not read {}: {e}", summary.source.display()))?;
+    let generated =
+        strobe_autocontrol::rewrite_chosen(&folder, &choices).map_err(|e| e.to_string())?;
+    let parent = written.parent().unwrap_or(library);
+    write_scene(&summary.source, parent, &generated, true)
+        .map_err(|e| format!("could not write the copy again: {e}"))?;
+    Ok(Reviewed::Rewritten)
+}
+
 /// Deletes a scene this module wrote. Refuses anything that is not a
 /// `*-auto.synScene` folder directly inside `library`, so a bad path can
 /// never delete a source scene.
@@ -372,11 +461,13 @@ mod tests {
     fn an_outcome_round_trips_through_json() -> Result<()> {
         let outcome = Outcome::Done(Summary {
             scene: "Plasma".to_owned(),
+            source: PathBuf::from("lib/plasma.synScene"),
             written: Some(PathBuf::from("lib/plasma-auto.synScene")),
             context: "headless EGL device | llvmpipe".to_owned(),
             candidates: 12,
             fidelity: Some(0.0),
             kept: vec![Kept {
+                candidate: 0,
                 name: "speed".to_owned(),
                 group: "Motion".to_owned(),
                 kind: "time scale".to_owned(),
@@ -425,6 +516,116 @@ mod tests {
         assert!(source.is_dir() && elsewhere.is_dir(), "neither was touched");
         discard(&library, &generated)?;
         assert!(!generated.exists(), "the generated scene is gone");
+        std::fs::remove_dir_all(&root)?;
+        Ok(())
+    }
+
+    #[test]
+    fn a_review_rewrites_the_copy_drops_it_or_leaves_it() -> Result<()> {
+        let root = std::env::temp_dir().join(format!("strobe-review-{}", std::process::id()));
+        let library = root.join("lib");
+        let source = library.join("pulse.synScene");
+        std::fs::create_dir_all(&source)?;
+        std::fs::write(source.join("scene.json"), "{}\n")?;
+        std::fs::write(
+            source.join("main.glsl"),
+            "vec4 renderMain() {\n\
+             \x20   float t = TIME * 0.5;\n\
+             \x20   float rings = 12.0;\n\
+             \x20   float d = length(_uv - 0.5);\n\
+             \x20   vec3 tint = vec3(0.9, 0.4, 0.2);\n\
+             \x20   return vec4(tint * (0.5 + 0.5 * sin(d * rings - t * 3.0)), 1.0);\n\
+             }\n",
+        )?;
+        let folder = SceneFolder::load(&source)?;
+        let candidates =
+            strobe_autocontrol::analyze(&strobe_autocontrol::source::Sources::from_folder(&folder))
+                .candidates;
+        let kept: Vec<Kept> = candidates
+            .iter()
+            .take(2)
+            .enumerate()
+            .map(|(i, c)| Kept {
+                candidate: c.id,
+                name: format!("knob_{i}"),
+                group: c.group.ui_name().to_owned(),
+                kind: c.kind.label().to_owned(),
+                default: c.default.clone(),
+                min: c.min.clone(),
+                max: c.max.clone(),
+                score: Some(0.1),
+                context: c.context.trim().to_owned(),
+            })
+            .collect();
+        anyhow::ensure!(
+            kept.len() == 2,
+            "the scene has a speed and a colour: {candidates:?}"
+        );
+        // What the worker would have written.
+        let choices: Vec<strobe_autocontrol::Choice> = kept
+            .iter()
+            .map(|k| strobe_autocontrol::Choice {
+                candidate: k.candidate,
+                name: k.name.clone(),
+                context: k.context.clone(),
+                min: k.min.first().copied().unwrap_or(0.0),
+                max: k.max.first().copied().unwrap_or(1.0),
+            })
+            .collect();
+        let generated = strobe_autocontrol::rewrite_chosen(&folder, &choices)?;
+        let written = write_scene(&source, &library, &generated, false)?;
+        let summary = Summary {
+            scene: "Pulse".to_owned(),
+            source: source.clone(),
+            written: Some(written.clone()),
+            context: String::new(),
+            candidates: candidates.len(),
+            fidelity: Some(0.0),
+            kept: kept.clone(),
+            suggestions: Vec::new(),
+        };
+        let proposed: Vec<Review> = kept.iter().map(Review::of).collect();
+        assert_eq!(
+            review(&summary, &proposed, &library).map_err(anyhow::Error::msg)?,
+            Reviewed::AsWritten,
+            "nothing edited, nothing written"
+        );
+
+        let mut edited = proposed.clone();
+        edited[1].keep = false;
+        edited[0].max = edited[0].min + 42.0;
+        assert_eq!(
+            review(&summary, &edited, &library).map_err(anyhow::Error::msg)?,
+            Reviewed::Rewritten,
+            "edited, so written again"
+        );
+        let copy = SceneFolder::load(&written)?;
+        let names: Vec<&str> = copy.def.controls.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["knob_0"], "only the kept control is left");
+        let text = std::fs::read_to_string(written.join("scene.json"))?;
+        assert!(
+            text.contains(&format!("{:?}", edited[0].max)),
+            "with its new range: {text}"
+        );
+        assert!(
+            std::fs::read_to_string(source.join("main.glsl"))?.contains("TIME * 0.5"),
+            "the source is untouched"
+        );
+
+        let none: Vec<Review> = proposed
+            .iter()
+            .map(|r| Review {
+                keep: false,
+                ..r.clone()
+            })
+            .collect();
+        assert_eq!(
+            review(&summary, &none, &library).map_err(anyhow::Error::msg)?,
+            Reviewed::Discarded,
+            "nothing kept, so the copy goes"
+        );
+        assert!(!written.exists(), "deleted");
+        assert!(source.is_dir(), "and the source stays");
         std::fs::remove_dir_all(&root)?;
         Ok(())
     }

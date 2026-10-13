@@ -32,7 +32,7 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use strobe_autocontrol::generate::{
-    GenerateError, Generated, Options, authored_controls, generate,
+    Choice, GenerateError, Generated, Options, authored_controls, generate, rewrite_chosen,
 };
 use strobe_autocontrol::output::write_scene;
 use strobe_autocontrol::report::Verdict;
@@ -792,4 +792,99 @@ fn a_scene_that_does_not_compile_is_reported_not_measured() -> Result<()> {
             other.map(|g| g.report.kept)
         ),
     }
+}
+
+#[test]
+fn a_review_drops_and_re_ranges_controls_without_measuring_again() -> Result<()> {
+    let Some(headless) = context(Api::DesktopCore33)? else {
+        return Ok(());
+    };
+    let gl = headless.gl();
+    let caps = Caps::from_info(gl.info());
+    let (name, path) = fixtures()?
+        .into_iter()
+        .find(|(name, _)| name == "voronoi_cells")
+        .ok_or_else(|| anyhow!("voronoi_cells fixture"))?;
+    let folder = import(&name, &path)?;
+    let generated = generate(gl, &caps, &folder, &Options::default())?;
+    let mut choices: Vec<Choice> = generated
+        .report
+        .candidates
+        .iter()
+        .filter(|c| matches!(c.verdict, Verdict::Kept { .. }))
+        .filter_map(|c| {
+            Some(Choice {
+                candidate: c.id,
+                name: c.name.clone()?,
+                context: c.context.clone(),
+                min: c.min.first().copied().unwrap_or(0.0),
+                max: c.max.first().copied().unwrap_or(1.0),
+            })
+        })
+        .collect();
+    if choices.len() < 2 {
+        bail!(
+            "voronoi_cells kept {} control(s); the test needs two",
+            choices.len()
+        );
+    }
+    let dropped = choices.remove(0);
+    let slider = choices
+        .iter_mut()
+        .find(|c| {
+            generated.report.candidates.iter().any(|r| {
+                r.id == c.candidate && r.value_type != strobe_autocontrol::ValueType::Colour
+            })
+        })
+        .ok_or_else(|| anyhow!("no slider left to re-range"))?;
+    slider.min = -3.0;
+    slider.max = 7.5;
+    let ranged = slider.name.clone();
+
+    let reviewed = rewrite_chosen(&folder, &choices)?;
+    assert_eq!(
+        reviewed.control_lines.len(),
+        choices.len(),
+        "one control per choice"
+    );
+    assert!(
+        !reviewed
+            .control_lines
+            .iter()
+            .any(|line| line.contains(&format!("\"{}\"", dropped.name))),
+        "the dropped control is gone"
+    );
+    let line = reviewed
+        .control_lines
+        .iter()
+        .find(|line| line.contains(&format!("\"{ranged}\"")))
+        .ok_or_else(|| anyhow!("the re-ranged control is missing"))?;
+    assert!(
+        line.contains("\"MIN\": -3.0") && line.contains("\"MAX\": 7.5"),
+        "the chosen range is written: {line}"
+    );
+
+    // It compiles and, at its defaults, still draws the original.
+    let mut rig = Rig::new(gl, &caps, &reviewed.folder, ScoreOptions::default())?;
+    let drawn = rig.render(&[])?;
+    let mut original = Rig::new(gl, &caps, &folder, ScoreOptions::default())?;
+    let expected = original.render(&[])?;
+    assert!(
+        difference(&drawn, &expected) <= 0.002,
+        "the reviewed scene draws the original at its defaults"
+    );
+
+    // A choice that no longer matches the code is refused.
+    let mut stale = choices.clone();
+    if let Some(first) = stale.first_mut() {
+        first.context = "float nothing = 0.0;".to_string();
+    }
+    assert!(
+        matches!(
+            rewrite_chosen(&folder, &stale),
+            Err(strobe_autocontrol::ChoiceError::Changed(_))
+        ),
+        "a changed source is refused, not guessed at"
+    );
+    Ok(())
 }

@@ -32,7 +32,7 @@ use super::model::{Action, GeneratePanel, MediaFrom, MediaPanel, Model};
 use super::presets;
 use super::theme::{self, SPACE_SM, SPACE_XS};
 use super::widgets::{self, Tone};
-use crate::generate::{Kept, Outcome, Summary};
+use crate::generate::{Kept, Outcome, Review, Summary};
 use crate::icon::Icon;
 use crate::palette::Palette;
 use crate::script::ScriptState;
@@ -75,7 +75,13 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
     ui.add_space(SPACE_XS);
     if has_scene {
         presets::show(ui, model, theme, actions);
-        generate_strip(ui, theme, model.generate, actions);
+        generate_strip(
+            ui,
+            theme,
+            model.generate,
+            &mut model.ui.generate_review,
+            actions,
+        );
     }
 
     // Which controls already have a pinned macro, for the rows' pin menu
@@ -334,6 +340,7 @@ fn generate_strip(
     ui: &mut Ui,
     theme: &Palette,
     panel: GeneratePanel<'_>,
+    reviews: &mut Vec<Review>,
     actions: &mut Vec<Action>,
 ) {
     if let Some((scene, seconds)) = panel.running {
@@ -352,7 +359,7 @@ fn generate_strip(
         return;
     }
     match panel.outcome {
-        Some(Outcome::Done(summary)) => review(ui, theme, summary, actions),
+        Some(Outcome::Done(summary)) => review(ui, theme, summary, reviews, actions),
         Some(Outcome::Failed { message }) => {
             widgets::banner(
                 ui,
@@ -390,9 +397,18 @@ fn generate_strip(
     }
 }
 
-/// The worker's result: what it made, how faithful the copy is, and the two
-/// ways on.
-fn review(ui: &mut Ui, theme: &Palette, summary: &Summary, actions: &mut Vec<Action>) {
+/// The worker's result: what it made, how faithful the copy is, each
+/// control to keep or drop and re-range (D219), and the two ways on.
+fn review(
+    ui: &mut Ui,
+    theme: &Palette,
+    summary: &Summary,
+    reviews: &mut Vec<Review>,
+    actions: &mut Vec<Action>,
+) {
+    if reviews.len() != summary.kept.len() {
+        *reviews = summary.kept.iter().map(Review::of).collect();
+    }
     theme::card(theme).show(ui, |ui| {
         ui.set_width(ui.available_width());
         let Some(written) = summary.written.as_ref() else {
@@ -412,9 +428,10 @@ fn review(ui: &mut Ui, theme: &Palette, summary: &Summary, actions: &mut Vec<Act
             .file_name()
             .map(|n| n.to_string_lossy().trim_end_matches(".synScene").to_owned())
             .unwrap_or_default();
+        let keeping = reviews.iter().filter(|r| r.keep).count();
         ui.label(
             egui::RichText::new(format!(
-                "{} control(s) for {}, written as {name}",
+                "{keeping} of {} control(s) kept for {}, written as {name}",
                 summary.kept.len(),
                 summary.scene
             ))
@@ -437,24 +454,38 @@ fn review(ui: &mut Ui, theme: &Palette, summary: &Summary, actions: &mut Vec<Act
             .iter()
             .filter_map(|k| k.score)
             .fold(f32::EPSILON, f32::max);
-        for kept in &summary.kept {
+        for (kept, edit) in summary.kept.iter().zip(reviews.iter_mut()) {
             ui.horizontal(|ui| {
-                // The bar first, in a fixed column, so a long colour range
-                // never runs under it.
+                ui.checkbox(&mut edit.keep, "")
+                    .on_hover_text("Keep this control; untick to leave the number as it was");
+                // The bar in a fixed column, so a long colour range never
+                // runs under it.
                 let fraction = kept.score.unwrap_or(0.0) / strongest;
                 let _ = widgets::meter(ui, theme, fraction, theme.accent, 36.0)
                     .on_hover_text("How much the picture moves with it, against the strongest");
+                let strength = if edit.keep { theme.text } else { theme.text_faint };
                 ui.label(
                     egui::RichText::new(&kept.name)
                         .monospace()
-                        .color(theme::rgb(theme.text)),
+                        .color(theme::rgb(strength)),
                 );
-                ui.label(
-                    egui::RichText::new(format!("{} · {}", kept.group, range(kept)))
-                        .small()
-                        .color(theme::rgb(theme.text_muted)),
-                )
-                .on_hover_text(&kept.context);
+                let slider = kept.default.len() == 1 && kept.min.len() == 1;
+                if slider && edit.keep {
+                    ui.label(
+                        egui::RichText::new(format!("{} · {:.2}", kept.group, kept.default[0]))
+                            .small()
+                            .color(theme::rgb(theme.text_muted)),
+                    )
+                    .on_hover_text(&kept.context);
+                    range_fields(ui, kept, edit);
+                } else {
+                    ui.label(
+                        egui::RichText::new(format!("{} · {}", kept.group, range(kept)))
+                            .small()
+                            .color(theme::rgb(theme.text_muted)),
+                    )
+                    .on_hover_text(&kept.context);
+                }
             });
         }
         for line in &summary.suggestions {
@@ -465,8 +496,25 @@ fn review(ui: &mut Ui, theme: &Palette, summary: &Summary, actions: &mut Vec<Act
             );
         }
         ui.add_space(SPACE_XS);
+        let edited = summary
+            .kept
+            .iter()
+            .zip(reviews.iter())
+            .any(|(kept, edit)| Review::of(kept) != *edit);
         ui.horizontal(|ui| {
-            if widgets::primary_button(ui, theme, &format!("Open {name}")).clicked() {
+            let open = if edited {
+                format!("Apply and open {name}")
+            } else {
+                format!("Open {name}")
+            };
+            if widgets::primary_button(ui, theme, &open)
+                .on_hover_text(if edited {
+                    "Write the copy again with the controls kept and their ranges, then open it"
+                } else {
+                    "Open the copy"
+                })
+                .clicked()
+            {
                 actions.push(Action::OpenGenerated);
             }
             if widgets::button(ui, theme, None, "Discard copy")
@@ -478,6 +526,29 @@ fn review(ui: &mut Ui, theme: &Palette, summary: &Summary, actions: &mut Vec<Act
         });
     });
     ui.add_space(SPACE_XS);
+}
+
+/// A kept slider's range, edited in place. The bounds stay either side of
+/// the default, so the control can still reach the original value.
+fn range_fields(ui: &mut Ui, kept: &Kept, edit: &mut Review) {
+    let default = kept.default.first().copied().unwrap_or(0.0);
+    let span = (edit.max - edit.min).abs().max(0.01);
+    let speed = span / 200.0;
+    ui.add(
+        egui::DragValue::new(&mut edit.min)
+            .speed(speed)
+            .range(f32::MIN..=default)
+            .max_decimals(3),
+    )
+    .on_hover_text("The lowest the control goes");
+    ui.label("–");
+    ui.add(
+        egui::DragValue::new(&mut edit.max)
+            .speed(speed)
+            .range(default..=f32::MAX)
+            .max_decimals(3),
+    )
+    .on_hover_text("The highest the control goes");
 }
 
 /// `0.5 (0–2)` for a slider, `(0.8, 0.3, 0.1)` for a colour.

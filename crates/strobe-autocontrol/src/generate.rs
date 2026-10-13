@@ -28,7 +28,7 @@
 //! count as authored.
 
 use crate::analyze::analyze;
-use crate::candidate::{Candidate, Kind};
+use crate::candidate::{Candidate, Kind, ValueType};
 use crate::naming::{Taken, assign};
 use crate::report::{CandidateReport, Report, ReportOptions, Verdict, round5};
 use crate::rewrite::{self, AudioBind, PlannedControl};
@@ -138,6 +138,101 @@ fn priority(kind: Kind) -> u8 {
         Kind::Scale => 4,
         Kind::Frequency => 5,
     }
+}
+
+/// One control a person kept when reviewing a result (D219): which
+/// candidate, under the name the engine gave it, with the range they chose.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Choice {
+    /// The candidate's `id`, as the report listed it.
+    pub candidate: usize,
+    /// The control's name, as [`generate`] named it.
+    pub name: String,
+    /// The candidate's `context` line when it was measured, to tell that
+    /// the source has not changed since.
+    pub context: String,
+    /// The lower bound to use (a slider's only; a colour has none).
+    pub min: f32,
+    /// The upper bound to use.
+    pub max: f32,
+}
+
+/// Why a review could not be applied.
+#[derive(Debug, thiserror::Error)]
+pub enum ChoiceError {
+    /// The scene's code changed after it was measured.
+    #[error("{0} has changed since its controls were measured; generate them again")]
+    Changed(String),
+    /// A generated control did not parse (a bug in this crate).
+    #[error("{0}")]
+    Generate(#[from] GenerateError),
+}
+
+/// `folder` rewritten with exactly `choices` as its new controls, listed by
+/// group in the order given, with each slider's range as chosen. No GL and
+/// no scoring: the candidates were measured already, and the analysis is a
+/// pure function of the code, so it finds them again by `id`. A choice
+/// whose candidate no longer reads as it did is refused, not guessed at.
+/// The result's report carries no fidelity; the default of every kept
+/// control is still the original literal, so the picture at defaults is the
+/// one [`generate`] verified.
+pub fn rewrite_chosen(folder: &SceneFolder, choices: &[Choice]) -> Result<Generated, ChoiceError> {
+    let sources = Sources::from_folder(folder);
+    let candidates = analyze(&sources).candidates;
+    let mut chosen: Vec<(&Candidate, &Choice)> = Vec::with_capacity(choices.len());
+    for choice in choices {
+        match candidates.get(choice.candidate) {
+            Some(candidate) if candidate.context.trim() == choice.context.trim() => {
+                chosen.push((candidate, choice));
+            }
+            Some(_) | None => return Err(ChoiceError::Changed(folder.def.title.clone())),
+        }
+    }
+    chosen.sort_by_key(|(candidate, _)| candidate.group);
+    let planned: Vec<PlannedControl> = chosen
+        .iter()
+        .map(|(candidate, choice)| PlannedControl {
+            candidate: candidate.id,
+            name: choice.name.clone(),
+            audio: None,
+        })
+        .collect();
+    let control_lines: Vec<String> = chosen
+        .iter()
+        .map(|(candidate, choice)| {
+            let mut ranged = (*candidate).clone();
+            if ranged.value_type != ValueType::Colour && choice.min < choice.max {
+                ranged.min = vec![choice.min];
+                ranged.max = vec![choice.max];
+            }
+            rewrite::control_line(&ranged, &choice.name, false)
+        })
+        .collect();
+    let rewritten = rewrite::apply(&sources, &candidates, &planned);
+    let final_folder = with_controls(rewritten.apply_to(folder), &control_lines)?;
+    let report = Report {
+        scene: folder.def.title.clone(),
+        dialect: String::new(),
+        options: ReportOptions {
+            keep: choices.len(),
+            max_scored: 0,
+            score: ScoreOptions::default(),
+            bind_audio: false,
+        },
+        fidelity: None,
+        candidates: Vec::new(),
+        kept: chosen
+            .iter()
+            .map(|(_, choice)| choice.name.clone())
+            .collect(),
+        suggestions: Vec::new(),
+    };
+    Ok(Generated {
+        report,
+        sources: rewritten,
+        control_lines,
+        folder: final_folder,
+    })
 }
 
 /// Parses control lines and appends them to a copy of `base`'s controls.

@@ -183,6 +183,9 @@ pub struct UiState {
     pub tag_draft: Option<String>,
     /// The Inspector's media path field while it is open (D217). Not saved.
     pub media_draft: Option<String>,
+    /// The generated-controls review's edits, one per proposed control
+    /// (D219). Not saved.
+    pub generate_review: Vec<crate::generate::Review>,
     /// The Settings pane's shortcut editor. Not saved.
     pub hotkeys: super::keys::HotkeyEditor,
     /// The browser's scene thumbnails (D212). Not saved.
@@ -253,6 +256,7 @@ impl UiState {
             editor: super::editor::EditorUi::default(),
             tag_draft: None,
             media_draft: None,
+            generate_review: Vec::new(),
             hotkeys: super::keys::HotkeyEditor::default(),
             thumbs: super::thumbs::Thumbs::default(),
             layouts: prefs.layouts.clone(),

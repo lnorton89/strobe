@@ -53,7 +53,10 @@ pub mod suggest;
 
 pub use analyze::{Analysis, analyze};
 pub use candidate::{Candidate, Group, Kind, Site, ValueType};
-pub use generate::{GenerateError, Generated, Options, authored_controls, generate, is_authored};
+pub use generate::{
+    Choice, ChoiceError, GenerateError, Generated, Options, authored_controls, generate,
+    is_authored, rewrite_chosen,
+};
 pub use output::{OutputError, write_scene};
 pub use report::Report;
 pub use score::ScoreOptions;

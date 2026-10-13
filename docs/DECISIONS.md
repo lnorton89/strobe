@@ -3653,3 +3653,32 @@ by one (winit sends one event each), so the last picture wins for media.
 
 **Would reopen:** a scene folder too big for the UI thread to copy, or a
 person expecting a drop of a scene to link to it rather than copy it.
+
+### D219: the generated-controls review edits the copy without measuring again (2026-10-13)
+
+The review card (D202) could only open or discard the copy the worker
+wrote. Backlog U-03 asked for keep, drop and re-range per control before
+the copy is used.
+
+- **No second measurement.** Scoring is the slow part: tens of seconds on
+  an HD 4000, and it needs its own context. The analysis that finds the
+  candidates is a pure function of the code, so
+  `strobe_autocontrol::rewrite_chosen(folder, choices)` finds them again by
+  `id`, rewrites only the chosen ones under the names the engine gave them,
+  and writes each slider's chosen range. No GL is touched, so it runs in the
+  app on the UI thread, in milliseconds.
+- **A changed source is refused.** Each choice carries the candidate's
+  context line from the measurement. If the code no longer reads the same
+  (the scene was edited in the Editor meanwhile), the review is refused
+  with "generate them again", never applied to the wrong literal.
+- **Fidelity is kept by construction.** Every kept control's default is
+  still the original literal, and a dropped one leaves the literal in the
+  code, so the picture at defaults is the one the worker verified. The range
+  fields keep the default inside the range.
+- **The card.** Each control has a keep box; a kept slider has its range
+  as two drag fields. Open becomes "Apply and open" once anything is
+  edited. Dropping every control deletes the copy (the same guarded
+  `discard`). The source scene is read, never written.
+
+**Would reopen:** a person wanting to add back a candidate the engine cut
+(the review only narrows what was kept), or to rename a control.

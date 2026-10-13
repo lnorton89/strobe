@@ -315,12 +315,14 @@ fn sample_generated() -> crate::generate::Outcome {
     use crate::generate::{Kept, Outcome, Summary};
     Outcome::Done(Summary {
         scene: "Aurora Field".to_string(),
+        source: PathBuf::from("scenes/01-scene-0.synScene"),
         written: Some(PathBuf::from("scenes/01-scene-0-auto.synScene")),
         context: "headless EGL device | llvmpipe".to_string(),
         candidates: 9,
         fidelity: Some(0.0),
         kept: vec![
             Kept {
+                candidate: 0,
                 name: "speed".to_string(),
                 group: "Motion".to_string(),
                 kind: "time scale".to_string(),
@@ -331,6 +333,7 @@ fn sample_generated() -> crate::generate::Outcome {
                 context: "float t = TIME * 0.5;".to_string(),
             },
             Kept {
+                candidate: 0,
                 name: "tint".to_string(),
                 group: "Colour".to_string(),
                 kind: "colour".to_string(),

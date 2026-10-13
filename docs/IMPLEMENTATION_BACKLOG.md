@@ -68,7 +68,7 @@
 - **Acceptance:** a fixture can be edited, validated, saved, reloaded and restored; compile failure keeps the last good scene live; no shader compiles are triggered from UI paint or on an unintended live frame.
 
 ### U-03 Generated-controls review in Import and Inspector
-- **Status:** In progress (D202): the Inspector and the palette start a worker, and the result is reviewed (controls, ranges, scores, fidelity, audio ideas) and then opened or discarded. Left: per-control keep, drop and re-range before the copy is written; the Import pane button.
+- **Status:** In progress (D202, D219): the Inspector and the palette start a worker, and the result is reviewed (controls, ranges, scores, fidelity, audio ideas), each control kept or dropped and a slider re-ranged, then applied and opened, or discarded. Left: the Import pane button.
 - **Work:** invoke generation using the app's renderer/context; display grouped proposed controls, effect scores, ranges and suggested audio bindings; allow accept/reject/edit; preserve original source and licence; do not silently rewrite the source of the user's only copy.
 - **Acceptance:** imported and existing scenes can be analysed; accepted controls visibly change the scene; defaults reproduce the original image within the engine's documented fidelity threshold; rejected suggestions do not mutate the source.
 
