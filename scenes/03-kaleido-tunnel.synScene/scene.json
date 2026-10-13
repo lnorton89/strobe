@@ -1,5 +1,6 @@
 {
   "TITLE": "Kaleido Tunnel",
+  "IMAGE_PATH": "thumbnail.jpg",
   "CREDIT": "Strobe",
   "DESCRIPTION": "A mirrored polar tunnel that lurches forward on the kick. Benchmark tier 2: polar maths, procedural texture.",
   "CONTROLS": [

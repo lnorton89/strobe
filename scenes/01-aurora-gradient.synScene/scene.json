@@ -1,5 +1,6 @@
 {
   "TITLE": "Aurora Gradient",
+  "IMAGE_PATH": "thumbnail.jpg",
   "CREDIT": "Strobe",
   "DESCRIPTION": "Slow drifting colour bands with a horizon that swells on the kick. Benchmark tier 1: trivial ALU, one pass.",
   "CONTROLS": [

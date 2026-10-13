@@ -1,5 +1,6 @@
 {
   "TITLE": "SDF Cathedral",
+  "IMAGE_PATH": "thumbnail.jpg",
   "CREDIT": "Strobe",
   "DESCRIPTION": "An endless raymarched nave of arches and pillars, soft shadows and ambient occlusion; the camera surges on the kick. Benchmark tier 4: ~100 march steps plus shadow and AO rays per pixel.",
   "CONTROLS": [

@@ -1,5 +1,6 @@
 {
   "TITLE": "Reaction Diffusion",
+  "IMAGE_PATH": "thumbnail.jpg",
   "CREDIT": "Strobe",
   "DESCRIPTION": "Gray-Scott coral grown at half resolution, four simulation steps a frame; the kick seeds new growth. Benchmark tier 3: five passes, float buffers, bandwidth-bound.",
   "WIDTH": 1920,

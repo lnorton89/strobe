@@ -37,6 +37,9 @@ pub struct Entry {
     pub lower: String,
     /// The scene's `TAGS`, normalised (`strobe_scene::tags`).
     pub tags: Vec<String>,
+    /// The scene's picture (`IMAGE_PATH`), when it names one inside its
+    /// folder (D212). Whether the file exists is found out when it is drawn.
+    pub thumbnail: Option<PathBuf>,
 }
 
 impl Entry {
@@ -48,6 +51,7 @@ impl Entry {
             dir,
             lower,
             tags: Vec::new(),
+            thumbnail: None,
         }
     }
 
@@ -57,18 +61,28 @@ impl Entry {
         self
     }
 
-    /// Reads the tags from the folder's `scene.json` again (after the
-    /// Editor or the tag field wrote it). Absent or broken is none.
+    /// Reads the tags and the picture from the folder's `scene.json` again
+    /// (at a scan, and after the Editor or the tag field wrote it). Absent
+    /// or broken is none.
     pub fn reread_tags(&mut self) {
-        self.tags = read_tags(&self.dir);
+        let text = std::fs::read_to_string(self.dir.join("scene.json")).unwrap_or_default();
+        self.tags = strobe_scene::tags::read(&text);
+        self.thumbnail = image_path(&text).map(|relative| self.dir.join(relative));
     }
 }
 
-/// The tags in `dir/scene.json`; none when it is absent or unreadable.
-pub fn read_tags(dir: &Path) -> Vec<String> {
-    std::fs::read_to_string(dir.join("scene.json"))
-        .map(|text| strobe_scene::tags::read(&text))
-        .unwrap_or_default()
+/// `IMAGE_PATH` from `scene.json` text, when it is a path inside the scene
+/// folder (`strobe_scene::scene::is_folder_relative`); a path that leaves
+/// the folder is ignored, as the scene loader ignores it.
+fn image_path(json: &str) -> Option<String> {
+    let value: serde_json::Value =
+        serde_json::from_str(json.trim_start_matches('\u{feff}')).ok()?;
+    value
+        .get("IMAGE_PATH")?
+        .as_str()
+        .map(str::trim)
+        .filter(|path| strobe_scene::scene::is_folder_relative(path))
+        .map(str::to_string)
 }
 
 /// What the app knows about whether a scene works.
@@ -397,8 +411,22 @@ mod tests {
             )?;
             std::fs::write(dir.join("scene.json"), json)?;
         }
+        std::fs::write(
+            root.join("a.synScene").join("scene.json"),
+            r#"{ "TAGS": ["Dark", "3D"], "IMAGE_PATH": "thumb.png" }"#,
+        )?;
         let library = Library::scan(&root).map_err(anyhow::Error::msg)?;
         std::fs::remove_dir_all(&root)?;
+        assert_eq!(
+            library.entries.first().and_then(|e| e.thumbnail.clone()),
+            Some(root.join("a.synScene").join("thumb.png")),
+            "IMAGE_PATH, inside the folder"
+        );
+        assert_eq!(
+            image_path(r#"{ "IMAGE_PATH": "../elsewhere.png" }"#),
+            None,
+            "a path out of the folder is ignored"
+        );
         let tags: Vec<&[String]> = library.entries.iter().map(|e| e.tags.as_slice()).collect();
         assert_eq!(
             tags,

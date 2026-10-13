@@ -302,6 +302,10 @@ fn list(
     actions: &mut Vec<Action>,
 ) {
     ui.spacing_mut().item_spacing.y = 0.0;
+    model.ui.thumbs.pump(ui.ctx());
+    // Rows keep one layout: a picture slot for all of them when any scene
+    // has a picture (D212), the colour swatch otherwise.
+    let pictures = model.library.entries.iter().any(|e| e.thumbnail.is_some());
     let mut area = egui::ScrollArea::vertical().auto_shrink([false, false]);
     if let Some(row) = model.ui.browser.scroll_to.take() {
         let centre = (row as f32 * ROW_HEIGHT - ui.available_height() / 2.0).max(0.0);
@@ -312,7 +316,7 @@ fn list(
             let Some(&index) = visible.get(position) else {
                 continue;
             };
-            row(ui, model, theme, index, actions);
+            row(ui, model, theme, index, pictures, actions);
         }
     });
 }
@@ -323,6 +327,7 @@ fn row(
     model: &mut Model<'_>,
     theme: &Palette,
     index: usize,
+    pictures: bool,
     actions: &mut Vec<Action>,
 ) {
     let Some(entry) = model.library.entries.get(index) else {
@@ -351,14 +356,50 @@ fn row(
         );
     }
 
-    // The identity swatch, then name and status line.
-    let swatch = egui::pos2(rect.left() + theme::SPACE_MD + 3.0, rect.center().y);
-    ui.painter().circle_filled(
-        swatch,
-        5.0,
-        theme::rgb(widgets::scene_colour(theme, &entry.name)),
-    );
-    let text_x = rect.left() + theme::SPACE_MD + 18.0;
+    // The picture or the identity swatch, then name and status line.
+    let colour = theme::rgb(widgets::scene_colour(theme, &entry.name));
+    let text_x = if pictures {
+        const PICTURE: Vec2 = Vec2::new(56.0, 31.5);
+        let slot = Rect::from_min_size(
+            egui::pos2(
+                rect.left() + theme::SPACE_SM,
+                rect.center().y - PICTURE.y / 2.0,
+            ),
+            PICTURE,
+        );
+        let texture = entry
+            .thumbnail
+            .as_deref()
+            .and_then(|path| model.ui.thumbs.get(path));
+        match texture {
+            Some((id, size)) => {
+                // Fit inside the slot, centred, keeping the aspect.
+                let scale = (PICTURE.x / size[0]).min(PICTURE.y / size[1]);
+                let fitted = Rect::from_center_size(
+                    slot.center(),
+                    Vec2::new(size[0] * scale, size[1] * scale),
+                );
+                ui.painter()
+                    .rect_filled(slot, CornerRadius::same(3), theme::rgb(theme.app));
+                ui.painter().image(
+                    id,
+                    fitted,
+                    Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                    egui::Color32::from_white_alpha(255),
+                );
+            }
+            None => {
+                ui.painter()
+                    .rect_filled(slot, CornerRadius::same(3), theme::rgb(theme.raised));
+                ui.painter().circle_filled(slot.center(), 5.0, colour);
+            }
+        }
+        slot.right() + SPACE_SM
+    } else {
+        let swatch = egui::pos2(rect.left() + theme::SPACE_MD + 3.0, rect.center().y);
+        ui.painter().circle_filled(swatch, 5.0, colour);
+        rect.left() + theme::SPACE_MD + 18.0
+    };
     let buttons = if selected { 142.0 } else { 0.0 };
     // The star sits just left of the buttons and always has its slot, so
     // the name does not reflow when a row is hovered (D211).

@@ -1,5 +1,6 @@
 {
   "TITLE": "Voronoi Glass",
+  "IMAGE_PATH": "thumbnail.jpg",
   "CREDIT": "Strobe",
   "DESCRIPTION": "Stained-glass cells with lit leading; cells re-colour on beat. Benchmark tier 2: 3x3 cell search per pixel.",
   "CONTROLS": [
