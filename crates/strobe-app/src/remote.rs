@@ -204,12 +204,87 @@ pub struct Remote {
     pub activity: Activity,
     /// The mapping learn last bound, for the pane to scroll to.
     pub learned: Option<usize>,
+    /// OSC feedback out (D209).
+    pub feedback: FeedbackOut,
     started: Instant,
     path: Option<PathBuf>,
     snapshot: ShowControl,
     debounce: Debounce,
     saver: Option<Saver>,
     events: Vec<Event>,
+}
+
+/// OSC feedback out (D209): what changed, sent on a thread of its own.
+#[derive(Debug, Default)]
+pub struct FeedbackOut {
+    differ: strobe_io::feedback::Differ,
+    sender: Option<strobe_io::feedback::Sender>,
+    values: Vec<strobe_io::feedback::Value>,
+    target: Option<std::net::SocketAddr>,
+    /// Why the feedback setting cannot be used, for the MAP pane.
+    pub note: Option<String>,
+}
+
+impl FeedbackOut {
+    /// Applies the settings: starts the sender the first time it has
+    /// somewhere to send (never without the workers, as in screenshot
+    /// mode), and sends everything again to a new target.
+    fn configure(&mut self, settings: &OscSettings, workers: bool) {
+        let target = match strobe_io::feedback::target(settings) {
+            Ok(target) => {
+                self.note = None;
+                target
+            }
+            Err(why) => {
+                log::warn!("OSC feedback: {why}");
+                self.note = Some(why);
+                None
+            }
+        };
+        if target == self.target {
+            return;
+        }
+        self.target = target;
+        if target.is_some() && self.sender.is_none() && workers {
+            self.sender = strobe_io::feedback::Sender::start()
+                .map_err(|e| log::warn!("OSC feedback: no thread: {e}"))
+                .ok();
+        }
+        if let Some(sender) = &self.sender {
+            sender.retarget(target);
+        }
+        self.differ.resend_all();
+    }
+
+    /// Where feedback is going, if anywhere.
+    pub fn target(&self) -> Option<std::net::SocketAddr> {
+        self.target.filter(|_| self.sender.is_some())
+    }
+
+    /// Values dropped because the sender's queue was full.
+    pub fn dropped(&self) -> u64 {
+        self.sender
+            .as_ref()
+            .map_or(0, strobe_io::feedback::Sender::dropped)
+    }
+
+    /// Once per scene frame: sends what changed, when a send is due.
+    pub fn frame(
+        &mut self,
+        now: Instant,
+        scene: Option<&strobe_scene::control::ControlBank>,
+        meta: Option<&strobe_scene::control::ControlBank>,
+        state: strobe_io::feedback::ShowState,
+    ) {
+        let Some(sender) = self.sender.as_ref().filter(|_| self.target.is_some()) else {
+            return;
+        };
+        self.differ
+            .collect(now, scene, meta, state, &mut self.values);
+        if !self.values.is_empty() {
+            sender.send(&mut self.values);
+        }
+    }
 }
 
 impl Remote {
@@ -255,6 +330,8 @@ impl Remote {
         engine.macros = config.macros.clone();
         engine.builtin_osc = osc.builtin;
         let writes = !overrides.read_only;
+        let mut feedback = FeedbackOut::default();
+        feedback.configure(&osc, overrides.workers);
         Self {
             hub,
             engine,
@@ -271,6 +348,7 @@ impl Remote {
             problems: loaded.problems,
             activity: Activity::default(),
             learned: None,
+            feedback,
             started: now,
             saver: writes.then(|| Saver::start(path.clone())),
             path: writes.then_some(path),
@@ -410,6 +488,7 @@ impl Remote {
             );
         }
         self.engine.builtin_osc = settings.builtin;
+        self.feedback.configure(&settings, self.hub.is_some());
         self.osc_saved = settings.clone();
         self.osc = settings;
         if let Some(hub) = &self.hub {

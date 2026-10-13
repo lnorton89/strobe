@@ -3350,3 +3350,36 @@ allowed, the table back to empty, labels round-trip) and `shell_tests`
 (Ctrl+B while capturing becomes tap tempo's key and fires nothing; Esc
 cancels and the next B is blackout again; the clash row at six sizes).
 
+### D209: OSC feedback sends what changed, on the listener's own addresses, from a thread of its own (2026-10-13)
+
+Backlog P-05: motorised faders and a TouchOSC layout should follow the show.
+
+- **The same addresses.** Feedback goes to `/strobe/control/<name>` (with
+  `/x`, `/y`, `/r`, `/g`, `/b` for pads and colours), `/strobe/meta/<name>`
+  (floats 0..1 across the range), `/strobe/state/blackout` and
+  `/strobe/state/cue` (ints). One TouchOSC layout both drives and follows.
+- **Only what changed, at most 30 times a second.** A value is sent when it
+  moves more than 0.001 from what was last sent, at most 64 messages per
+  send (the rest go next time). It sends a control's target, not its
+  smoothed output, so a fader is not sent a tail of tiny steps after each
+  move. Bangs are not sent. A new scene, and a new feedback target, send
+  everything once.
+- **The frame never waits.** Addresses are built when the scene's controls
+  change. The frame `try_send`s a shared address and a number to a
+  thread with a 512-slot queue, which encodes and sends. A full queue drops
+  the value and counts it; the MAP pane shows the count.
+- **Off by default**, with host and port in the MAP pane's OSC block
+  (default `127.0.0.1:9001`, TouchOSC's usual pairing with a listener on
+  9000), saved in `show-control.json`.
+- **No loop.** Feedback to this machine on the listener's own port is
+  refused with a reason. A controller that echoes what it is sent settles:
+  the echo equals the target, so nothing moves and nothing is resent.
+
+MIDI feedback is not built. It needs a device to test against (P-04).
+
+**Evidence:** `strobe-io` `feedback` tests (the first send is everything,
+then only changes, the rate, the bound, a new scene, the loop refusal, and
+delivery over loopback UDP). In the app under Xvfb, with OSC on port 9100
+and feedback to 9101, a Python listener received the state at start, then
+`/strobe/control/warp` 0.5 → 0.25 after one OSC message set it.
+

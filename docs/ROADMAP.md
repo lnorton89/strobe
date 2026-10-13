@@ -178,8 +178,8 @@ Each item names its acceptance test. Evidence is in [STATUS_AUDIT.md](STATUS_AUD
    - **MIDI on real hardware** (a controller on the T480): port names,
      hot-plug timing, a device another program holds open on WinMM, message
      rates. Nothing here has seen a controller (D171, Q23);
-   - an OSC **output** for feedback (motorised faders, TouchOSC state), and a
-     MIDI output; neither exists;
+   - ~~an OSC **output** for feedback~~ (built, D209); a MIDI output (needs a
+     device to test against);
    - Synesthesia's OSC address layout, if it is wanted (Q23);
    - macro range and colour editors, per-macro shortcut and smoothing, a pin
      button in the Controls pane;
@@ -334,7 +334,7 @@ never per frame.
 | 3 | Audio | Integrated (D61). The bench still uses the synthetic stand-in. |
 | 4 | Shadertoy import | The converter (D90-D95), acquisition (REST client, texture downloader, localhost listener), the Import panel, file drop and the userscript (D110-D117) are built, and stage 1 of auto-generated controls (D123-D126). Open: live-site verification (Q19), thumbnails, the Needs-work bin, batch import, and the app's review panel for generated controls. |
 | 5 | Playlists | The pure core (D73-D77) and the app integration (D150-D158) are built. Verified on the T480 (Task 14). Open: audio-event advance, the Playlist workspace's inspector, MIDI/OSC. |
-| 6 | Presets, MIDI, OSC, hotkeys | Built (D170-D179): `strobe-io`, presets and fav slots, the MAP pane, macros stage 2, hotkeys. Open: a controller on the T480, OSC and MIDI output, macro editors. |
+| 6 | Presets, MIDI, OSC, hotkeys | Built (D170-D179): `strobe-io`, presets and fav slots, the MAP pane, macros stage 2, hotkeys. Open: a controller on the T480, MIDI output (OSC feedback is built, D209), macro editors. |
 | 7b | LAN remote / PWA | Protocol crate started in `strobe-remote`; no listener or UI integration yet. Next: secure service lifecycle, pairing/revocation, typed command bridge, mobile controller, then solve HTTPS before claiming installable PWA support. See [REMOTE_CONTROL_PWA_RESEARCH.md](REMOTE_CONTROL_PWA_RESEARCH.md). |
 | 7 | NDI, media input, song-change transitions | Not started, except media stills and image sequences (D186); video, webcam and NDI are open. `HARD`/`SMOOTH_TRANSITIONS` are declared but never change. |
 

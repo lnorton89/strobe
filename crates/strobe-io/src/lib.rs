@@ -19,6 +19,7 @@
 //! | OSC bytes | [`osc`] | decode a datagram, bounded; the built-in `/strobe/...` address space |
 //! | events | [`event`] | what the workers deliver; [`Source`] and [`Signal`], the pair a mapping works on |
 //! | workers | [`hub`], [`midi`], [`listener`] | a MIDI thread (poll, open, hot-plug) and an OSC thread, one bounded queue |
+//! | feedback | [`feedback`] | what changed, sent back out over OSC at a capped rate on a thread of its own (D209) |
 //! | targets | [`target`] | what a mapping acts on, and the six states (resolved, unavailable, broken, disabled, learning, conflict) |
 //! | mappings | [`mapping`], [`curve`], [`takeover`] | range, curve, invert, button mode, soft takeover |
 //! | the mapper | [`engine`] | message in, `ControlBank` write or command out; learn and conflicts |
@@ -76,6 +77,7 @@ pub mod config;
 pub mod curve;
 pub mod engine;
 pub mod event;
+pub mod feedback;
 pub mod hub;
 mod listener;
 pub mod macros;

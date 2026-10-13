@@ -40,6 +40,10 @@ pub const FILE: &str = "show-control.json";
 /// The default OSC port.
 pub const DEFAULT_OSC_PORT: u16 = 9000;
 
+/// The default port OSC feedback is sent to (TouchOSC's usual pairing with
+/// a listener on 9000).
+pub const DEFAULT_FEEDBACK_PORT: u16 = 9001;
+
 /// The file format version.
 const VERSION: u32 = 1;
 
@@ -55,6 +59,12 @@ pub struct OscSettings {
     pub all_interfaces: bool,
     /// Answer the built-in `/strobe/...` addresses.
     pub builtin: bool,
+    /// Send the show's state back out (D209). Off until switched on.
+    pub feedback: bool,
+    /// Where feedback goes: a host name or address.
+    pub feedback_host: String,
+    /// The port feedback goes to.
+    pub feedback_port: u16,
 }
 
 impl Default for OscSettings {
@@ -64,6 +74,9 @@ impl Default for OscSettings {
             port: DEFAULT_OSC_PORT,
             all_interfaces: false,
             builtin: true,
+            feedback: false,
+            feedback_host: "127.0.0.1".to_string(),
+            feedback_port: DEFAULT_FEEDBACK_PORT,
         }
     }
 }
