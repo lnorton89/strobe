@@ -4476,3 +4476,76 @@ Three items left in U-03 and I-03.
 
 **Would reopen:** a speed control in an import that someone wants on real
 time whatever `st_speed` says. It would need a per-control flag.
+
+### D247: Synesthesia's default and random reach a control, a group or a bank (2026-10-13)
+
+C-06 asked for each documented preset, meta and control behaviour of
+Synesthesia to be classified, with a test. The bank already had `reset`
+and `randomize`, and the script API and the Inspector used them. OSC,
+though, ignored Synesthesia's `/default` and `/random` (D234).
+
+- **`Target::Action(ControlAction)`:** a verb (`default`, `random`), a bank
+  (`scene`, `meta`), and an optional group or control name (a name wins).
+  It resolves like any target, so it can be unavailable when no scene is
+  playing or when the group or control is not in this scene. A mapping or
+  macro can point at it, and it serialises as `"kind": "action"`.
+- **The app carries it out.** The engine fires `Output::Action` on a press,
+  and the app applies it with the UI's random source, as the Inspector's
+  random button does. A bang is never randomized, since a random press is
+  not a value.
+- **The OSC aliases:**
+  - `/controls/{scene|meta}/<name>/{default|random}`, the same after
+    `/controls/global/<type>/<n>`;
+  - `/controls/groups/{scene|meta}/<group>/{default|random}`;
+  - `/controls/banks/{scene|meta}/{default|random}`.
+- **Still ignored, now named in COMPATIBILITY.md as Unsupported:** `/lock`
+  on a control, group or bank, bank `/undo`, the `/preset` suffix,
+  `/presets/new`, and the `/presets/...` recall addresses, which carry a
+  string.
+  - **Lock** needs a value that presets, cues, scripts and randomize all
+    respect: a cross-cutting rule, not an alias.
+  - **Undo** needs a history.
+
+**Would reopen:** a controller layout that depends on lock or undo.
+
+### D248: no Alpha Channel meta until an output carries alpha (2026-10-13)
+
+C-01 lists Synesthesia's Alpha Channel meta control, which makes dark parts
+of the picture transparent for a compositor downstream. Strobe's output
+window is opaque. No output carries alpha yet: NDI and Spout are deferred
+(M-06). A control would have no visible effect, and a control that does
+nothing on a projector is worse than none.
+
+- Not added to the meta bank. COMPATIBILITY.md lists it as Unsupported.
+- It is the first thing to add with NDI or Spout output. It belongs in the
+  post stage (D207), where Limit Colors already is, writing the alpha the
+  stage now forces to 1.
+
+**Would reopen:** an output that carries alpha.
+
+### D249: a skipped GPU test is recorded, and CI counts skips apart from passes (2026-10-13)
+
+D-04 asks that a skipped Windows or GPU test is never counted as passed.
+Rust's test harness has no "skipped" result: a test that finds no GL
+context returns early and passes. It printed "skipping", but the harness
+swallows a passing test's output. A run where every shader test skipped
+read exactly like one where they all ran.
+
+- **`strobe_gfx::skip::note(reason)`** is the one way a test skips. It says
+  so on stderr, and when `STROBE_SKIP_LOG` names a file it appends
+  `test-name<TAB>reason`. The test's name comes from its thread, which the
+  harness names after it. All fifteen skip sites in four crates use it.
+- **`cargo xtask ci`** sets the log for its test step (`target/test-skips.log`,
+  fresh per run) and adds a `note` line to its summary: how many tests
+  passed by skipping, grouped by reason. On Linux
+  `STROBE_REQUIRE_HEADLESS_GL` still makes a missing context fail.
+- **CI's Windows job** sets the same variable. A step that runs even after
+  a failure writes the count and the reasons to the job summary. That job
+  has no headless EGL, so its GPU tests always skip, and now it says so on
+  the run's page.
+- **Not a failure.** The Windows runner cannot have a context, and the
+  Linux job is where shaders compile. The point is that the count is
+  visible, not that it is zero.
+
+**Would reopen:** a Windows runner with a GPU, where the Windows job should
+set `STROBE_REQUIRE_HEADLESS_GL` too.
