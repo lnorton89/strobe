@@ -290,6 +290,25 @@ each such wait makes the next output frame late. A GPU clocking up after
 minutes of load would also fit the drop. The perf line now times the
 control window's swap separately, to say which (T12).
 
+## The swap is not the wait (2026-10-13, commit 7a1ab45, Task T12)
+
+T11's run B (output windowed beside the control window) twice, back to
+back, 6 minutes each, with the swap timed on its own. Every minute of both
+runs: the control window redrew 26-29 times a second at **16.9-17.6 ms
+each**, **34-42% of output frames were late**, and fps read 59.5-59.9. The
+swap call itself returned in **0.03 ms** (worst 3.9 ms). T11's drop to
+2-3 ms after 4 minutes did not come back in either run: it was a one-off.
+
+So the control window waits for about one refresh somewhere else in its
+redraw, before the swap: making the context current on its surface, or
+egui's paint. NVIDIA's swap only queues the present, and a forced global
+"Vertical sync" in the driver's settings would override the app's swap
+interval 0 and surface the wait at the next call that needs a back buffer.
+The perf line now splits the redraw into make-current, layout, paint and
+swap (T13). The driver's global settings could not be read without taking
+over the desktop; the owner can see them under NVIDIA Control Panel >
+Manage 3D settings > Global.
+
 ## Pending on this machine
 
 - [x] Re-run 07 at 1080p and 2160p after D191: same size (T2).
@@ -306,7 +325,10 @@ control window's swap separately, to say which (T12).
 - [x] T10 again after D206 (T11): fullscreen was 60 all along (the T10
   number was a stale status bar); windowed, a visible control window cost
   late frames for 4 minutes.
-- [ ] T12: the windowed run again with the swap timed separately.
+- [x] T12: the swap returns in 0.03 ms; the wait is elsewhere in the
+  redraw, and the 4-minute drop does not recur.
+- [ ] T13: the same run with the redraw split into make-current, layout,
+  paint and swap.
 - [ ] A larger set of real Shadertoy shaders through NVIDIA's compiler
   (owner-supplied, kept local), to find NVIDIA-only acceptance.
 - [ ] The Vulkan / wgpu compiler spike from

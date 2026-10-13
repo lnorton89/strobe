@@ -112,7 +112,7 @@ use crate::remote::{Overrides, Remote};
 use crate::screenshot::{Screenshot, Target};
 use crate::session::{self, Session};
 use crate::show::{self, Env, Phase, Show};
-use crate::stats::{FrameStats, PerfWindow};
+use crate::stats::{ControlTimes, FrameStats, PerfWindow};
 use crate::ui::widgets::Tone;
 use crate::ui::{
     Action, CueTransport, EditorPanel, FailurePanel, GeneratePanel, ImportPanel, ListenerPanel,
@@ -3207,9 +3207,11 @@ impl Running {
         if size.width == 0 || size.height == 0 {
             return;
         }
+        let current_began = Instant::now();
         if !self.make_current(Surface::Control) {
             return;
         }
+        let make_current = current_began.elapsed();
         let now = Instant::now();
         self.console.refresh();
         self.audio.refresh_status(now);
@@ -3422,7 +3424,9 @@ impl Running {
         // so including it would make the number a measure of the CPU's
         // pixel throughput rather than of the UI).
         self.stats.record_ui(ran);
+        let paint_began = Instant::now();
         self.stack.ui.paint(window, crate::ui::theme::clear_color());
+        let paint = paint_began.elapsed();
         self.ui_state.tick(now);
         self.remote.persist(now);
 
@@ -3441,7 +3445,13 @@ impl Running {
         }
         let swap_began = Instant::now();
         self.present(Surface::Control, swap_began);
-        self.perf_log.control(began.elapsed(), swap_began.elapsed());
+        self.perf_log.control(ControlTimes {
+            total: began.elapsed(),
+            make_current,
+            layout: ran,
+            paint,
+            swap: swap_began.elapsed(),
+        });
         if self
             .screenshot
             .as_ref()

@@ -104,17 +104,18 @@ and `-control.png`; open them to check the output is not black.
 Once a minute the app logs one line (D206):
 
 ```
-perf: 59.9 fps over 60 s, 0 late of 3594 frames, worst gap 17.9 ms, gpu 2.10 ms, control 1800 redraws 2.40 ms (worst 6.1 ms), of which swap 0.30 ms (worst 1.2 ms)
+perf: 59.9 fps over 60 s, 0 late of 3594 frames, worst gap 17.9 ms, gpu 2.10 ms, control 1800 redraws 2.40 ms (worst 6.1 ms): make-current 0.10, layout 1.20, paint 0.80, swap 0.30 ms
 ```
 
 - **late**: frames whose gap was over 1.5 frame budgets, so each is a
   missed vertical blank.
 - **gpu**: the scene's mean GPU time. Late frames with a low GPU time mean
   the time went somewhere else.
-- **control**: the control window's redraws and their whole cost, then
-  how much of it was its buffer swap. A swap near one refresh period (16.7
-  ms at 60 Hz) means the window waited for a vertical blank, and each such
-  wait makes an output frame late (TORNADO T11).
+- **control**: the control window's redraws and their whole cost, then the
+  mean of each part: making the context current, egui's layout, egui's GL
+  paint, and the buffer swap. A part near one refresh period (16.7 ms at
+  60 Hz) is a wait for a vertical blank, and each such wait makes an output
+  frame late (TORNADO T11, T12).
   The count drops to about 120 a minute while the fullscreen output covers
   the control window ("control window covered" in the log).
 
