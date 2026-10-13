@@ -1,14 +1,14 @@
 # Strobe status and gap audit
 
-_Last audited: 2026-10-09, after the context-recovery, playlist and
-Shadertoy stage 1 merges. Started by the owner in
-[lnorton89/strobe#5](https://github.com/lnorton89/strobe/pull/5)._
+_Last reconciled: 2026-10-12 against the current roadmap and the comprehensive
+[implementation backlog](IMPLEMENTATION_BACKLOG.md). The evidence entries below retain their original dates and machine context; do not interpret this reconciliation date as a fresh rerun of every test._
 
 This is an implementation handoff, not a claim that every platform path
 is verified. "Implemented" means the code is merged and tested in CI.
 Hardware-dependent behaviour stays gated on the evidence listed here.
 Ticked items cite where the evidence is. [ROADMAP.md](ROADMAP.md) carries
-the priority order.
+the short priority order; [IMPLEMENTATION_BACKLOG.md](IMPLEMENTATION_BACKLOG.md)
+tracks every known unfinished implementation and validation task across the project.
 
 ## Current baseline
 

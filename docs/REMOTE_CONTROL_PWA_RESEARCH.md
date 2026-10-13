@@ -1,6 +1,6 @@
 # Research: LAN remote control with an installable PWA
 
-**Status:** proposal and implementation plan; no runtime code is changed by this document. Scheduled after show control (ROADMAP item 7b), whose `strobe-io` crate and app-side remote command bridge this remote should reuse.  
+**Status:** research plan plus first implementation slice. `crates/strobe-remote` now defines the typed, versioned protocol and serialization tests; the listener, pairing store, PWA, and app integration remain unimplemented. The MIDI/OSC show-control foundation (`strobe-io`) is now present, but the LAN remote still needs its own authenticated transport and app-thread command bridge.  
 **Scope:** control a running Strobe show from a phone or tablet on the same local network, without cloud accounts, a hosted service, or opening router ports.
 
 ## Executive recommendation
@@ -117,6 +117,10 @@ Keep messages small, typed, and versioned. Example conceptual messages:
 - Commands should use stable identifiers such as `next_scene`, `prev_scene`, `toggle_hold`, `restart_cue`, `extend_cue`, `skip_section`, `toggle_blackout`, and `tap_tempo`, but only enable commands that are valid in the current app state. Scene navigation without a playlist and cue navigation with a playlist need explicit semantics rather than silently doing the wrong thing.
 - Include a monotonically increasing state revision. On reconnect the client requests a fresh snapshot; revisions let the UI ignore stale updates.
 - Avoid sending the whole scene library or shader metadata by default. If scene selection is later added, expose a paginated, read-only library endpoint with bounded search.
+
+## Current implementation status
+
+The first code slice is deliberately transport-independent: `strobe-remote` defines allowlisted command enums, versioned hello/pair/authenticate messages, state snapshots, command acknowledgements, stable error codes, and bounded request-ID validation. Tests cover stable JSON names, rejection of unknown message types/fields/commands, request-ID constraints, and state round trips. It does **not** open a socket and is not yet wired into `strobe-app`; do not advertise remote control as available.
 
 ## Delivery plan
 
