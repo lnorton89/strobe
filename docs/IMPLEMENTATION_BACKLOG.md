@@ -216,7 +216,7 @@
 - **Acceptance:** media selection is asynchronous; the active scene remains live during decode; cue changes load the expected media without unbounded GPU memory; preset scene/meta/media channels behave independently.
 
 ### M-03 Image-sequence resource management
-- **Status:** Open.
+- **Status:** Partly done (D225): a sequence is bounded at 192 MiB of decoded frames and a long one is shrunk as a whole to fit (down to 256 px on its long side) instead of being cut; decoding was already off the frame thread with at most one upload a frame (D186). Left: measuring upload and resident memory on the T480.
 - **Work:** measure sequence upload and resident memory on T480/shared memory; implement bounded frame cache or streaming if full sequence residency is unsafe; test resize, loop and decode errors.
 - **Acceptance:** long sequence memory is bounded/documented; decoding stays off the frame thread; missed frames degrade gracefully.
 

@@ -3819,3 +3819,29 @@ Two gaps in LIST authoring (backlog U-07):
 **Would reopen:** dropping between sections or onto an empty playlist
 (today a drop lands after an existing cue), or several scenes dragged at
 once.
+
+### D225: a long image sequence is shrunk to fit its memory, not cut (2026-10-13)
+
+D186 bounded a sequence at 192 MiB of decoded RGBA, which on an HD 4000
+with shared memory is the right order of limit, but it enforced the bound
+by cutting: a 600-frame 1080p loop (about 5 GB decoded) played its first
+24 frames and stopped. A VJ loop that ends a second in is worse than one at
+a lower resolution.
+
+- **Shrink the whole loop alike.** The decoder reads the first frame, and
+  if that many frames of its size would pass the budget it decodes every
+  frame (the first again included) with its long side at
+  `sqrt(budget / total) x` the original (`assets::sequence_edge`), so all
+  frames are one size and the loop fits. The 600-frame 1080p loop plays
+  complete at about 386x217. Logged once, as `syn_Media: ... shrunk to N
+  px`.
+- **A floor.** Not below 256 px on the long side
+  (`MIN_SEQUENCE_EDGE`): past that a postage stamp is worse than a shorter
+  loop, so the old cut applies, with its message. Frames of mixed sizes
+  are still guarded by the same byte count.
+- **Unchanged:** decoding on its own thread, one upload a frame, the
+  2048 px edge limit on any picture.
+
+**Would reopen:** the T480 measurement showing 192 MiB itself is too much
+(or too little) for shared memory, or a streaming cache becoming worth its
+complexity for loops that would shrink too far.
