@@ -199,7 +199,8 @@ pub struct Cli {
     pub show_control: Option<PathBuf>,
     /// Watch this folder: a scene folder (or a folder of scenes) that
     /// appears in it is added to the library, and nothing plays (D240).
-    /// What is in it at launch is left alone.
+    /// What is in it at launch is left alone. For this run only, over the
+    /// one Settings keeps (D265).
     #[arg(long, value_name = "DIR")]
     pub watch_folder: Option<PathBuf>,
     /// Start the LAN remote at launch: a phone or tablet on the same

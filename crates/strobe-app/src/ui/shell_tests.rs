@@ -118,6 +118,9 @@ struct Scenario {
     generate: bool,
     /// The browser has its third scene selected, so its tags show (D264).
     browser_selected: bool,
+    /// Settings' watched folder: whether the app refused it, and its line
+    /// (D265).
+    watch: Option<(bool, &'static str)>,
     panes: &'static [Pane],
 }
 
@@ -150,6 +153,7 @@ const BASE: Scenario = Scenario {
     tagging: false,
     generate: false,
     browser_selected: false,
+    watch: None,
     panes: &[Pane::Inspector],
 };
 
@@ -172,6 +176,22 @@ fn scenarios() -> Vec<Scenario> {
         Scenario {
             name: "settings with the LAN remote on and a phone to approve",
             lan: true,
+            panes: &[Pane::Settings],
+            ..BASE
+        },
+        Scenario {
+            name: "settings watching a folder",
+            watch: Some((false, "Watching D:\\VJ\\Strobe inbox")),
+            panes: &[Pane::Settings],
+            ..BASE
+        },
+        Scenario {
+            name: "settings with a refused watched folder",
+            watch: Some((
+                true,
+                "D:\\VJ\\scenes is the library itself: watch a folder scenes are copied into \
+                 before they join it.",
+            )),
             panes: &[Pane::Settings],
             ..BASE
         },
@@ -727,6 +747,16 @@ fn draw_events(
         playlist_ui.dirty = true;
         playlist_ui.external_change = Some("playlists/example.toml".to_string());
         ui_state.browser.selected = Some(2);
+    }
+    if let Some((failed, note)) = scenario.watch {
+        ui_state.watch.draft = if failed {
+            "D:\\VJ\\scenes".to_string()
+        } else {
+            "D:\\VJ\\Strobe inbox".to_string()
+        };
+        ui_state.watch.watching = !failed;
+        ui_state.watch.failed = failed;
+        ui_state.watch.note = note.to_string();
     }
     if scenario.browser_selected || scenario.tagging {
         ui_state.browser.selected = Some(2);

@@ -158,6 +158,24 @@ impl BrowserState {
     }
 }
 
+/// The watched drop folder in Settings (D265).
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct WatchState {
+    /// The folder last applied: saved.
+    pub folder: String,
+    /// Whether it is watched at launch: saved.
+    pub enabled: bool,
+    /// The Settings field, as typed. Not saved.
+    pub draft: String,
+    /// Whether a folder is being watched now (from Settings or
+    /// `--watch-folder`). Set by the app; not saved.
+    pub watching: bool,
+    /// One line: what is watched, or why not. Set by the app; not saved.
+    pub note: String,
+    /// Whether `note` is an error.
+    pub failed: bool,
+}
+
 /// Everything about the control window's presentation that is the
 /// operator's to keep.
 pub struct UiState {
@@ -201,6 +219,8 @@ pub struct UiState {
     pub thumbs: super::thumbs::Thumbs,
     /// Named pane layouts (D215), saved.
     pub layouts: std::collections::BTreeMap<String, crate::prefs::Layout>,
+    /// The watched drop folder (D265): the folder and the switch are saved.
+    pub watch: WatchState,
     /// The Settings pane's layout name field. Not saved.
     pub layout_name: String,
     theme_id: String,
@@ -273,6 +293,13 @@ impl UiState {
             hotkeys: super::keys::HotkeyEditor::default(),
             thumbs: super::thumbs::Thumbs::default(),
             layouts: prefs.layouts.clone(),
+            watch: WatchState {
+                folder: prefs.watch.folder.clone(),
+                enabled: prefs.watch.enabled,
+                draft: prefs.watch.folder.clone(),
+                note: "Off".to_string(),
+                ..WatchState::default()
+            },
             layout_name: String::new(),
             last_scene: prefs.last_scene.clone(),
             theme_id: prefs.theme.clone(),
@@ -306,6 +333,10 @@ impl UiState {
         prefs.last_scene.clone_from(&self.last_scene);
         prefs.density = self.density.key().to_string();
         prefs.layouts.clone_from(&self.layouts);
+        prefs.watch = crate::prefs::WatchPref {
+            folder: self.watch.folder.clone(),
+            enabled: self.watch.enabled,
+        };
         prefs
     }
 
@@ -417,6 +448,8 @@ impl UiState {
         self.reduced_motion.hash(&mut hasher);
         self.density.key().hash(&mut hasher);
         self.last_scene.hash(&mut hasher);
+        self.watch.folder.hash(&mut hasher);
+        self.watch.enabled.hash(&mut hasher);
         for (name, layout) in &self.layouts {
             name.hash(&mut hasher);
             layout.order.hash(&mut hasher);
@@ -546,6 +579,40 @@ mod tests {
             state.to_prefs().browser.favourites,
             ["c"],
             "written to the preferences"
+        );
+    }
+
+    #[test]
+    fn the_watched_folder_is_saved_and_reread_but_its_field_is_not() {
+        let mut state = UiState::ephemeral();
+        let start = Instant::now();
+        state.tick(start);
+        state.watch.draft = "half typed".to_string();
+        state.tick(start + Duration::from_millis(33));
+        assert!(
+            !state.debounce.pending(),
+            "typing in the field saves nothing"
+        );
+        state.watch.folder = "D:/VJ/inbox".to_string();
+        state.watch.enabled = true;
+        state.tick(start + Duration::from_millis(66));
+        assert!(state.debounce.pending(), "an applied folder is saved");
+        let prefs = state.to_prefs();
+        assert_eq!(
+            (prefs.watch.folder.as_str(), prefs.watch.enabled),
+            ("D:/VJ/inbox", true),
+            "written to the preferences"
+        );
+        let again = UiState::from_prefs(&prefs);
+        assert_eq!(
+            (
+                again.watch.folder.as_str(),
+                again.watch.enabled,
+                again.watch.draft.as_str(),
+                again.watch.watching
+            ),
+            ("D:/VJ/inbox", true, "D:/VJ/inbox", false),
+            "read back with the field filled; watching starts only when the app checks it"
         );
     }
 
