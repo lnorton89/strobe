@@ -109,7 +109,11 @@ fn run(cli: &Cli) -> Result<()> {
                 .filter(|s| of(**s) > 0)
                 .map(|s| format!("{} {}", of(*s), s.label()))
                 .collect();
-            println!("{:<8} {total} scenes: {}", dialect.label(), counts.join(", "));
+            println!(
+                "{:<8} {total} scenes: {}",
+                dialect.label(),
+                counts.join(", ")
+            );
         }
     }
     Ok(())

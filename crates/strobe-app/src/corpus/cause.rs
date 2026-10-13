@@ -398,12 +398,16 @@ mod tests {
             "ANGLE, clamp(x, 0, 1)"
         );
         assert_eq!(
-            categorise("0:30(12): error: no matching function for call to `mix(float, int, float)'"),
+            categorise(
+                "0:30(12): error: no matching function for call to `mix(float, int, float)'"
+            ),
             "implicit_conversion",
             "Mesa, mix with an int"
         );
         assert_eq!(
-            categorise("0(30) : error C1115: unable to find compatible overloaded function \"pow(float, int)\""),
+            categorise(
+                "0(30) : error C1115: unable to find compatible overloaded function \"pow(float, int)\""
+            ),
             "implicit_conversion",
             "NVIDIA, pow with an int"
         );
@@ -422,7 +426,9 @@ mod tests {
             "Mesa"
         );
         assert_eq!(
-            categorise("0(19) : error C1115: unable to find compatible overloaded function \"warpCoords(float2)\""),
+            categorise(
+                "0(19) : error C1115: unable to find compatible overloaded function \"warpCoords(float2)\""
+            ),
             "no_function:warpCoords",
             "NVIDIA"
         );
@@ -457,7 +463,10 @@ mod tests {
             "not the `time` in an earlier warning"
         );
         assert_eq!(
-            categorise_in(log, "vec3 mixColours(float a, float b) { return vec3(a, b, 0.0); }"),
+            categorise_in(
+                log,
+                "vec3 mixColours(float a, float b) { return vec3(a, b, 0.0); }"
+            ),
             "implicit_conversion",
             "the shader defines it, so the call's argument types were wrong"
         );
@@ -476,7 +485,9 @@ mod tests {
             "float == int"
         );
         assert_eq!(
-            categorise("main.glsl:5: 1:5(7): error: initializer of type int cannot be assigned to variable of type float"),
+            categorise(
+                "main.glsl:5: 1:5(7): error: initializer of type int cannot be assigned to variable of type float"
+            ),
             "implicit_conversion",
             "float x = 1"
         );
@@ -502,7 +513,9 @@ mod tests {
     #[test]
     fn preprocessor_problems_come_before_undeclared_names() {
         assert_eq!(
-            categorise("ERROR: 0:15: 'LOW_QUALITY' : undefined macro in expression not allowed in es 300"),
+            categorise(
+                "ERROR: 0:15: 'LOW_QUALITY' : undefined macro in expression not allowed in es 300"
+            ),
             "preprocessor",
             "ANGLE, #if on a name that is not a macro"
         );

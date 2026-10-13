@@ -117,7 +117,9 @@ impl Report {
     }
 
     fn drivers_section(&self, out: &mut String) {
-        out.push_str("## Drivers\n\n| dialect | renderer | version | context |\n|---|---|---|---|\n");
+        out.push_str(
+            "## Drivers\n\n| dialect | renderer | version | context |\n|---|---|---|---|\n",
+        );
         for driver in &self.drivers {
             out.push_str(&format!(
                 "| {} | {} | {} | {} |\n",
@@ -156,7 +158,10 @@ impl Report {
     }
 
     fn failures_section(&self, out: &mut String, dialect: Dialect) {
-        let failing: Vec<&Record> = self.of(dialect).filter(|r| r.status != Status::Ok).collect();
+        let failing: Vec<&Record> = self
+            .of(dialect)
+            .filter(|r| r.status != Status::Ok)
+            .collect();
         out.push_str(&format!(
             "## Failures, {} ({} of {})\n\n",
             dialect.label(),
@@ -202,7 +207,8 @@ impl Report {
                 labels.values().map(Vec::len).sum::<usize>()
             ));
             let mut by_size: Vec<(&String, &Vec<&str>)> = labels.iter().collect();
-            by_size.sort_by_key(|(label, scenes)| (std::cmp::Reverse(scenes.len()), (*label).clone()));
+            by_size
+                .sort_by_key(|(label, scenes)| (std::cmp::Reverse(scenes.len()), (*label).clone()));
             for (label, scenes) in by_size {
                 out.push_str(&format!(
                     "- `{label}` ({}): {}\n",
@@ -495,7 +501,10 @@ mod tests {
     fn the_markdown_has_totals_categories_and_slowest() {
         let md = sample().to_markdown();
         assert!(md.contains("| ok | 2 | 1 |"), "totals per dialect:\n{md}");
-        assert!(md.contains("| timeout | 1 | 0 |"), "the timeout is counted:\n{md}");
+        assert!(
+            md.contains("| timeout | 1 | 0 |"),
+            "the timeout is counted:\n{md}"
+        );
         assert!(
             md.contains("- `undeclared:ghostName` (1): ghost"),
             "failures grouped by cause with scene names:\n{md}"
@@ -516,13 +525,22 @@ mod tests {
             md.contains("desktop, all black (1): fast"),
             "blank frames are listed:\n{md}"
         );
-        assert!(!md.contains("llvmpipe | test"), "pipes are escaped in cells:\n{md}");
+        assert!(
+            !md.contains("llvmpipe | test"),
+            "pipes are escaped in cells:\n{md}"
+        );
     }
 
     #[test]
     fn the_slowest_table_stops_at_ten() {
         let records: Vec<Record> = (0..15)
-            .map(|i| ok(&format!("scene{i:02}"), Dialect::Desktop, f64::from(i) + 1.0))
+            .map(|i| {
+                ok(
+                    &format!("scene{i:02}"),
+                    Dialect::Desktop,
+                    f64::from(i) + 1.0,
+                )
+            })
             .collect();
         let md = Report::new("lib", Settings::default(), 60, Vec::new(), records).to_markdown();
         let section = md.split("## Slowest per frame").nth(1).unwrap_or_default();
