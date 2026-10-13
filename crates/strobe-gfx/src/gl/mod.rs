@@ -391,7 +391,8 @@ impl Gl {
         (code != glow::NO_ERROR).then_some(code)
     }
 
-    /// Blocks until all submitted GL work has completed. Benchmarks only.
+    /// Blocks until all submitted GL work has completed. Benchmarks, and the
+    /// app's opt-in `STROBE_FINISH_AFTER_SWAP` experiment (D216).
     pub fn finish(&self) {
         // SAFETY: current-context invariant.
         unsafe { self.raw.finish() }
