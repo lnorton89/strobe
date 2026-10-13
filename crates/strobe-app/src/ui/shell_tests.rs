@@ -109,6 +109,15 @@ struct Scenario {
     /// The Editor refused a Save and reload: its `scene.json` does not
     /// parse (D263).
     editor_invalid: bool,
+    /// Tag fields are open: the Inspector's for the playing scene, the
+    /// browser's for its selected scene (the third) and the Import pane's
+    /// for the scene just imported (D264).
+    tagging: bool,
+    /// The LIST pane's Generate card is open with an exclusion, previewed
+    /// (D264).
+    generate: bool,
+    /// The browser has its third scene selected, so its tags show (D264).
+    browser_selected: bool,
     panes: &'static [Pane],
 }
 
@@ -138,6 +147,9 @@ const BASE: Scenario = Scenario {
     lan: false,
     palette: None,
     editor_invalid: false,
+    tagging: false,
+    generate: false,
+    browser_selected: false,
     panes: &[Pane::Inspector],
 };
 
@@ -179,6 +191,31 @@ fn scenarios() -> Vec<Scenario> {
             name: "editor refused a reload, scene.json does not parse",
             editor_invalid: true,
             panes: &[Pane::Editor],
+            ..BASE
+        },
+        Scenario {
+            name: "tagging in the browser and the inspector",
+            tagging: true,
+            panes: &[Pane::Browser, Pane::Inspector],
+            ..BASE
+        },
+        Scenario {
+            name: "browser with a scene selected",
+            browser_selected: true,
+            panes: &[Pane::Browser, Pane::Inspector],
+            ..BASE
+        },
+        Scenario {
+            name: "tagging the scene just imported",
+            imported: true,
+            tagging: true,
+            panes: &[Pane::Import, Pane::Inspector],
+            ..BASE
+        },
+        Scenario {
+            name: "generate with an exclusion, previewed",
+            generate: true,
+            panes: &[Pane::Playlist],
             ..BASE
         },
         Scenario {
@@ -691,6 +728,29 @@ fn draw_events(
         playlist_ui.external_change = Some("playlists/example.toml".to_string());
         ui_state.browser.selected = Some(2);
     }
+    if scenario.browser_selected || scenario.tagging {
+        ui_state.browser.selected = Some(2);
+    }
+    if scenario.tagging {
+        let draft = |scene: &str| {
+            Some(crate::ui::tags::TagDraft {
+                scene: scene.to_string(),
+                text: "dark, tunnel, audio reactive, 3d".to_string(),
+            })
+        };
+        ui_state.tag_draft = draft("01-scene-0");
+        ui_state.import_tag_draft = draft("01-scene-0");
+        ui_state.browser_tag_draft = draft("03-scene-2");
+    }
+    if scenario.generate {
+        playlist_ui.generate_open = true;
+        playlist_ui.form.exclude = "tunnel, heavy".to_string();
+        let snapshot = crate::show::generate::snapshot(&library);
+        let spec = playlist_ui.form.spec().map_err(anyhow::Error::msg)?;
+        playlist_ui.excluded = crate::show::generate::excluded(&snapshot, &spec);
+        playlist_ui.preview =
+            Some(strobe_playlist::generate(&snapshot, &spec).map_err(|error| error.to_string()));
+    }
     let mut map_ui = MapUi::default();
     let bindings = crate::commands::Bindings::default();
     let mut remote = sample_remote(scenario.mapped)?;
@@ -818,6 +878,7 @@ fn draw_events(
                 busy: false,
                 drop_hover: false,
                 imported_playing: scenario.imported,
+                imported: scenario.imported.then_some(0),
                 generating: scenario.generating,
                 listener: ListenerPanel {
                     enabled: false,

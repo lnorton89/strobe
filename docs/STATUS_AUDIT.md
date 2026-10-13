@@ -279,6 +279,14 @@ checked and not committed. Interaction was driven with xdotool.
   write keeps every other byte), the library scan test, the generator's
   `Why` tests, a corpus round trip (91 files, other keys unchanged, local
   only), and [images/perform/tags-1440x900.png](images/perform/tags-1440x900.png).
+- [x] Tagging any scene, and exclusions in Generate (D264): the Import pane
+  tags the scene it imported and the browser its selected scene, playing
+  or not, with the Inspector's row and one action naming the scene; the
+  Generate form's Exclude field leaves out scenes by tag or name, and the
+  preview lists them with the reason. Evidence: `ui::tags` tests (a
+  headless click on Save), `show::generate`
+  `excluded_tags_and_names_are_never_picked_and_say_why`, and four
+  `ui::shell_tests` scenarios at every size.
 - [x] The Editor (D204): tabs per source file, unsaved state, Save vs Save
   and reload, atomic saves with backups in the data directory, and "Open in
   Editor" / "Go to line" from a compile error. Evidence: `editor.rs` unit

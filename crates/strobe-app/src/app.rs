@@ -630,6 +630,10 @@ struct Running {
     import: import::Service,
     /// The import panel's state.
     import_state: import::State,
+    /// The library entry the Import pane last imported, for its tag row
+    /// (D264), with the library revision and folder it was found for, so
+    /// the folders are compared only when one of them changes.
+    imported_entry: Option<(u64, PathBuf, Option<usize>)>,
     /// The browser listener, while it is switched on (D114).
     listener: Option<Listener>,
     /// The listener's token, once one has been made.
@@ -915,6 +919,7 @@ impl Running {
             rebuild: None,
             import,
             import_state: import::State::default(),
+            imported_entry: None,
             listener: None,
             import_token: None,
             listener_note: "Off".to_string(),
@@ -2184,12 +2189,20 @@ impl Running {
 
     /// Runs the Generate form and keeps the result as a preview.
     fn generate_preview(&mut self) {
-        let result = self.playlist_ui.form.spec().and_then(|spec| {
-            let snapshot = show::generate::snapshot(&self.library);
-            strobe_playlist::generate(&snapshot, &spec)
-                .map_err(|e| show::generate::explain(&e, &self.library))
-        });
+        let (result, excluded) = match self.playlist_ui.form.spec() {
+            Ok(spec) => {
+                let snapshot = show::generate::snapshot(&self.library);
+                // Which scenes the exclude field left out, for the preview
+                // to say (D264).
+                let excluded = show::generate::excluded(&snapshot, &spec);
+                let made = strobe_playlist::generate(&snapshot, &spec)
+                    .map_err(|e| show::generate::explain(&e, &self.library, &excluded));
+                (made, excluded)
+            }
+            Err(error) => (Err(error), Vec::new()),
+        };
         self.playlist_ui.preview = Some(result);
+        self.playlist_ui.excluded = excluded;
     }
 
     /// Adds the previewed section to the playlist (starting one if none is
@@ -2617,17 +2630,43 @@ impl Running {
         }
     }
 
-    fn set_scene_tags(&mut self, tags: &[String]) {
-        let Some(index) = self.playing else {
-            self.say(Tone::Warning, "No scene is playing to tag.");
-            return;
+    /// The library entry the Import pane last imported. Its folder is
+    /// looked for in the library only when the import or the library
+    /// changed, because comparing folders asks the file system.
+    fn imported_entry(&mut self) -> Option<usize> {
+        let Some(last) = self.import_state.last.as_deref() else {
+            self.imported_entry = None;
+            return None;
         };
+        if let Some((rev, dir, index)) = &self.imported_entry
+            && *rev == self.library_rev
+            && dir == last
+        {
+            return *index;
+        }
+        let index = self
+            .library
+            .entries
+            .iter()
+            .position(|entry| same_folder(&entry.dir, last));
+        self.imported_entry = Some((self.library_rev, last.to_path_buf(), index));
+        index
+    }
+
+    /// Writes `tags` into the `scene.json` of the library scene called
+    /// `scene`, playing or not (D205, D264).
+    fn set_scene_tags(&mut self, scene: &str, tags: &[String]) {
         let Some((dir, name)) = self
             .library
             .entries
-            .get(index)
+            .iter()
+            .find(|e| e.name == scene)
             .map(|e| (e.dir.clone(), e.name.clone()))
         else {
+            self.say(
+                Tone::Warning,
+                format!("{scene} is no longer in the library, so it was not tagged."),
+            );
             return;
         };
         if self
@@ -3023,7 +3062,7 @@ impl Running {
         for action in actions.drain(..) {
             match action {
                 Action::Load(index) => self.request_load(index),
-                Action::SetSceneTags(tags) => self.set_scene_tags(&tags),
+                Action::SetSceneTags { scene, tags } => self.set_scene_tags(&scene, &tags),
                 Action::SetMedia(path) => self.set_media(path),
                 Action::CaptureThumbnail => self.capture_thumbnail(),
                 Action::ImportCueAfter { at, text } => {
@@ -3974,6 +4013,7 @@ impl Running {
                 .as_ref()
                 .is_some_and(|session| same_folder(&session.dir, last))
         });
+        let imported = self.imported_entry();
         let (
             scene_title,
             controls,
@@ -4081,6 +4121,7 @@ impl Running {
                 busy: self.import_state.in_flight > 0,
                 drop_hover: self.import_state.drop_hover,
                 imported_playing,
+                imported,
                 generating: self.generate_job.is_some(),
                 listener: ListenerPanel {
                     enabled: self.listener.is_some(),

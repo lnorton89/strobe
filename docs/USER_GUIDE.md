@@ -64,7 +64,10 @@ Settings > Keyboard changes any of them.
 
 - **LIB** lists the scenes in the library folder: `scenes\` beside
   `strobe.exe` by default, or the folder given with `--library <dir>`.
-  Search by name or tag; star favourites; double-click to play.
+  Search by name or tag; star favourites; double-click to play. The
+  selected scene's tags show above the list, and *Edit* changes them
+  without playing it. The Controls pane does the same for the playing
+  scene, and the Import pane for the scene it just imported.
 - A scene is a folder with `main.glsl` and `scene.json`, the Synesthesia
   scene format (`.synScene`). Synesthesia scenes you own can be played by
   pointing `--library` at their folder, or by dropping a scene folder on
@@ -132,7 +135,8 @@ repository) shows the format.
 
 - **LIST > Load** opens one, or start with `--playlist <file>`, or drop
   the `.toml` file on the window. **Generate** builds a section from your
-  library by tag and length.
+  library by tag and length. Its *Exclude* field leaves out scenes with a
+  tag (`heavy`) or a name, and the preview says which were skipped.
 - Select a cue to change its length, transition, preset or media; the
   card says where each setting comes from. Ctrl-click several cues to
   change them together. Drag a scene from LIB onto a cue to add it after.

@@ -5059,3 +5059,56 @@ render test `a_compile_error_names_the_users_column_when_the_driver_gives_one`
 **Would reopen:** a driver other than Mesa giving columns, whose
 preprocessor may count differently; or wanting Save itself to refuse a
 broken `scene.json`.
+
+### D264: any library scene can be tagged by name, and Generate's exclusions say what they left out (2026-10-13)
+
+D205 left three things: tags in the Import pane, tags for a scene that is
+not playing, and exclude lists in the Generate form (U-08).
+
+- **One row, one action, by name.** The Inspector's tag row moved to
+  `ui::tags` and is drawn in three places: the Inspector (the playing
+  scene), the Import pane (the scene it last imported, playing or not) and
+  the browser (its selected scene, above the list). All three ask for
+  `Action::SetSceneTags { scene, tags }`, the scene named by its library
+  name, and the app writes that scene's `scene.json` with D205's in-place
+  edit. Before, the action meant "the playing scene", so a field opened on
+  one scene and saved after the show moved on would have tagged the next
+  one.
+- **A draft belongs to its scene.** Each place keeps its own draft
+  (`TagDraft { scene, text }`), and a place showing another scene does not
+  show the draft. Selecting another row or a cue change cannot carry
+  half-typed tags to a different scene.
+- **The same refusals.** A scene with unsaved Editor edits is still
+  refused (D205), and a name no longer in the library (rescanned away) is
+  refused with a notice rather than tagging whatever now has that index.
+- **The browser and the Import pane name the scene** at the start of the
+  row, on the chips' line. A label of its own above the chips overlapped
+  their row in a short drawer (the overlap test found it at 533x400).
+- **The import is found by folder once per change.** Comparing folders
+  canonicalises paths, which asks the file system, so the app caches the
+  imported scene's library index against the library revision and the
+  folder, and the frame compares only those.
+- **Exclude in the Generate form.** A new "Exclude" field takes words
+  like the pool: tags (normalised like D205's) and whole scene names, read
+  into the generator's `exclude_tags` and `exclude_names`, which
+  `strobe_playlist` already checked first. Name words count as tags there
+  too, as they do for the pool. An excluded scene is never picked, even
+  when the pool names it.
+- **Why picked, and why skipped.** The preview keeps its "Pool: tag dark
+  5" line and adds "Skipped: excluded by tag heavy 2", with each scene and
+  its reason on hover (`show::generate::excluded`). Scenes the pool simply
+  did not ask for are not listed: that would be most of a large library.
+  When the exclusions empty the pool, the error says so ("the exclude
+  field left out 3 (excluded by tag calm 3)") instead of listing the
+  library's tags.
+
+**Evidence:** `ui::tags` tests
+(`a_draft_shows_only_for_the_scene_it_was_opened_for`,
+`save_tags_the_scene_the_draft_is_for`, which clicks Save headless),
+`show::generate` test `excluded_tags_and_names_are_never_picked_and_say_why`,
+and the shell scenarios "tagging in the browser and the inspector",
+"browser with a scene selected", "tagging the scene just imported" and
+"generate with an exclusion, previewed" at every size.
+
+**Would reopen:** wanting several scenes tagged at once (a multi-select in
+the browser), or exclusions by folder.
