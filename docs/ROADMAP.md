@@ -185,8 +185,9 @@ Each item names its acceptance test. Evidence is in [STATUS_AUDIT.md](STATUS_AUD
    - ~~macro range and colour editors, pinning from the Controls pane~~
      (built, D210); a shortcut and smoothing per macro;
    - ~~an in-app hotkey editor~~ (built, D208);
-   - presets for **media** (PLAN's third channel; media is now chosen in
-     the Inspector and per cue, D217); ~~renaming a preset~~ (built, D214);
+   - ~~presets for **media**~~ (built, D223: PLAN's third channel, beside
+     media chosen in the Inspector and per cue, D217); ~~renaming a
+     preset~~ (built, D214);
    - a MIDI-learn flow exercised by a person on the T480 (the Learn click is
      verified under Xvfb with OSC only).
 

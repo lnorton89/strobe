@@ -155,6 +155,12 @@ checked and not committed. Interaction was driven with xdotool.
   software rasterisation and says nothing).
 - [x] Named layouts (D215), saved in Settings and applied from Settings or
   the palette. Evidence: `ui::state` and `command_palette` tests.
+- [x] A preset's media channel (D223): saved when `syn_Media` shows
+  something other than the scene's own, applied on recall and at a cue
+  start under the cue's own media and the operator's. Evidence:
+  `strobe-scene` `preset` tests (relative inside the scene, off in old
+  files), `tests/show.rs::a_cues_media_replaces_...` (cue 4 the preset's,
+  cue 5 the cue's over the preset's).
 - [x] A scene's picture taken from its live frame (D222): `thumbnail.jpg`
   at 320x180 and `IMAGE_PATH` set in place, the browser's cached picture
   dropped. Evidence: `snapshot` and `json_edit` tests. Not yet: clicked by

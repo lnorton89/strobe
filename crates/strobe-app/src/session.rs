@@ -291,6 +291,19 @@ impl Session {
         Ok(problems)
     }
 
+    /// The media preset `name` shows, when its media channel is on (D223).
+    pub fn preset_media(&self, name: &str) -> Option<PathBuf> {
+        let found = preset::find_name(&self.preset_names, name)?;
+        let index = self.preset_names.iter().position(|n| n == found)?;
+        self.presets.get(index)?.media_path(&self.dir)
+    }
+
+    /// The media the scene's `default` preset shows, if it has one with
+    /// its media channel on.
+    pub fn startup_media(&self) -> Option<PathBuf> {
+        self.preset_media(preset::STARTUP)
+    }
+
     /// Applies the scene's `default` preset, if it has one: the look it
     /// starts with.
     pub fn apply_startup_preset(&mut self) {
@@ -307,12 +320,18 @@ impl Session {
     /// Captures the controls as preset `name`, remembers it in memory and
     /// returns it for the caller to write to disk.
     pub fn capture_preset(&mut self, name: &str) -> Preset {
+        // What syn_Media shows goes in too, unless it is the scene's own
+        // (D223).
+        let media = (!self.player.media_is_scenes_own())
+            .then(|| self.player.media_request().map(|r| r.path.clone()))
+            .flatten();
         let captured = Preset::capture(
             name,
             &self.controls,
             &self.meta,
             preset::Channels::default(),
-        );
+        )
+        .with_media(&self.dir, media.as_deref());
         match self
             .preset_names
             .iter()

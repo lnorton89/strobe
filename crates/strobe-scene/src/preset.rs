@@ -26,6 +26,11 @@
 //! no value and are never saved. The meta `master` is never saved either
 //! (PLAN section 9: it is the operator's fader, not part of a look).
 //!
+//! A third channel, `media` (D223), is on only in a preset saved while
+//! `syn_Media` showed something other than the scene's own `MEDIA`; it
+//! then names that picture or folder. The host applies it, since a preset
+//! knows nothing of the renderer.
+//!
 //! **Applying is by name** (the same normalised match the script API uses),
 //! so a preset keeps working when a scene gains or reorders controls. A name
 //! the scene no longer has is *reported and skipped*, never an error: the
@@ -104,6 +109,10 @@ pub struct Channels {
     /// The meta controls.
     #[serde(default = "yes")]
     pub meta: bool,
+    /// What `syn_Media` shows (D223). Off unless the preset was saved
+    /// with media chosen, so a preset from before it never touches media.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub media: bool,
 }
 
 fn yes() -> bool {
@@ -115,6 +124,7 @@ impl Default for Channels {
         Self {
             scene: true,
             meta: true,
+            media: false,
         }
     }
 }
@@ -144,6 +154,11 @@ pub struct Preset {
     /// Meta controls by name.
     #[serde(default)]
     pub meta: BTreeMap<String, Value>,
+    /// The picture or folder behind `syn_Media` when the media channel is
+    /// on: relative to the scene folder when it is inside it, else as it
+    /// was chosen (D223).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub media: Option<String>,
 }
 
 impl Preset {
@@ -167,7 +182,32 @@ impl Preset {
             } else {
                 BTreeMap::new()
             },
+            media: None,
         }
+    }
+
+    /// This preset with `media` (what `syn_Media` showed when it was saved)
+    /// on its media channel, or the channel off for `None` (D223). A path
+    /// inside `scene_dir` is kept relative, so the scene folder can move.
+    #[must_use]
+    pub fn with_media(mut self, scene_dir: &Path, media: Option<&Path>) -> Self {
+        self.channels.media = media.is_some();
+        self.media = media.map(|path| {
+            path.strip_prefix(scene_dir)
+                .unwrap_or(path)
+                .to_string_lossy()
+                .replace('\\', "/")
+        });
+        self
+    }
+
+    /// The media this preset shows, resolved against `scene_dir`, when its
+    /// media channel is on.
+    pub fn media_path(&self, scene_dir: &Path) -> Option<PathBuf> {
+        if !self.channels.media {
+            return None;
+        }
+        self.media.as_deref().map(|path| scene_dir.join(path))
     }
 
     /// Writes the preset's values into `scene` and `meta` as targets.
@@ -621,6 +661,7 @@ mod tests {
         let only_scene = Channels {
             scene: true,
             meta: false,
+            media: false,
         };
         let preset = Preset::capture("x", &scene, &meta, only_scene);
         assert!(preset.meta.is_empty(), "meta not captured");
@@ -630,6 +671,41 @@ mod tests {
         let mut scene = scene_bank()?;
         with_meta.apply(&mut scene, &mut meta);
         assert_eq!(value(&meta, "hue")?, vec![0.0], "meta channel off");
+        Ok(())
+    }
+
+    #[test]
+    fn media_is_kept_relative_inside_the_scene_and_off_in_old_files() -> Result<()> {
+        let scene = scene_bank()?;
+        let meta = crate::meta::bank()?;
+        let dir = Path::new("/lib/glow.synScene");
+        let inside = Preset::capture("a", &scene, &meta, Channels::default())
+            .with_media(dir, Some(&dir.join("loops/rain")));
+        assert!(inside.channels.media, "the channel is on");
+        assert_eq!(inside.media.as_deref(), Some("loops/rain"), "relative");
+        assert_eq!(
+            inside.media_path(Path::new("/moved/glow.synScene")),
+            Some(PathBuf::from("/moved/glow.synScene/loops/rain")),
+            "so the folder can move"
+        );
+        let elsewhere = Preset::capture("b", &scene, &meta, Channels::default())
+            .with_media(dir, Some(Path::new("/media/sky.png")));
+        assert_eq!(
+            elsewhere.media_path(dir),
+            Some(PathBuf::from("/media/sky.png")),
+            "a path outside the scene stays as chosen"
+        );
+        let round = Preset::from_text(&inside.to_text()?)?;
+        assert_eq!(round, inside, "round trip");
+
+        let old = Preset::from_text(r#"{ "name": "old", "scene": { "speed": 0.2 } }"#)?;
+        assert!(!old.channels.media, "an old preset has no media channel");
+        assert_eq!(old.media_path(dir), None, "and shows no media");
+        let none = Preset::capture("c", &scene, &meta, Channels::default()).with_media(dir, None);
+        assert!(
+            !none.to_text()?.contains("media"),
+            "nothing about media is written without it"
+        );
         Ok(())
     }
 

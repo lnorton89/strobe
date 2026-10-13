@@ -861,16 +861,6 @@ impl Show {
         let Some(cue) = self.clock.timeline().cues().get(index) else {
             return;
         };
-        // The cue's own media, then the operator's, then the scene's (D217).
-        // Asking for what already shows starts nothing, so a cue that
-        // restarts its scene does not reload its pictures.
-        let chosen = match &cue.resolved.media {
-            Some(path) => Some(self.base.join(path)),
-            None => media.map(Path::to_path_buf),
-        };
-        session
-            .player
-            .choose_media(chosen.map(MediaRequest::for_path));
         // Settings layer, later over earlier: the scene's defaults, then its
         // `default` preset (or the cue's own preset, which replaces it), then
         // the cue's explicit overrides. Presets were read when the scene was
@@ -891,6 +881,21 @@ impl Show {
             },
             None => session.apply_startup_preset(),
         }
+        // The cue's own media, then the operator's, then the preset's, then
+        // the scene's (D217, D223). Asking for what already shows starts
+        // nothing, so a cue that restarts its scene does not reload its
+        // pictures.
+        let preset_media = match cue.resolved.preset.as_deref() {
+            Some(name) => session.preset_media(name),
+            None => session.startup_media(),
+        };
+        let chosen = match &cue.resolved.media {
+            Some(path) => Some(self.base.join(path)),
+            None => media.map(Path::to_path_buf).or(preset_media),
+        };
+        session
+            .player
+            .choose_media(chosen.map(MediaRequest::for_path));
         for problem in resolve::apply_overrides(&mut session.controls, &cue.resolved.overrides) {
             log::warn!("playlist: cue {}: {problem}", index + 1);
         }
