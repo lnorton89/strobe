@@ -21,8 +21,8 @@
 use super::shell::{ShellState, show};
 use super::{
     Action, AudioPanel, CueTransport, EditorPanel, FailurePanel, GeneratePanel, ImportPanel,
-    ListenerPanel, MapUi, Model, NoticePanel, PerfPanel, PlaylistPanel, PlaylistUi, Preview,
-    RemotePanel, ScenePreview, TransportPanel, UiState,
+    LanPanel, ListenerPanel, MapUi, Model, NoticePanel, PerfPanel, PlaylistPanel, PlaylistUi,
+    Preview, RemotePanel, ScenePreview, TransportPanel, UiState,
 };
 use crate::console::Console;
 use crate::import::Status;
@@ -82,6 +82,8 @@ struct Scenario {
     cue_selected: bool,
     /// The window's density (D220).
     density: crate::ui::theme::Density,
+    /// The LAN remote is on, with a phone waiting for approval (D254).
+    lan: bool,
     panes: &'static [Pane],
 }
 
@@ -107,6 +109,7 @@ const BASE: Scenario = Scenario {
     clash: false,
     cue_selected: false,
     density: crate::ui::theme::Density::Comfortable,
+    lan: false,
     panes: &[Pane::Inspector],
 };
 
@@ -124,6 +127,12 @@ fn scenarios() -> Vec<Scenario> {
             density: crate::ui::theme::Density::Compact,
             playlist: true,
             panes: &[Pane::Playlist],
+            ..BASE
+        },
+        Scenario {
+            name: "settings with the LAN remote on and a phone to approve",
+            lan: true,
+            panes: &[Pane::Settings],
             ..BASE
         },
         Scenario {
@@ -308,6 +317,44 @@ fn scenarios() -> Vec<Scenario> {
 /// show every state: nothing, or one of each.
 /// A scene open in the Editor, with an unsaved edit, built in memory (no
 /// files are read).
+/// The LAN remote: off with one paired phone, or on with a code showing,
+/// a phone waiting for approval and two paired.
+fn sample_lan(on: bool) -> crate::lan::LanView {
+    use strobe_remote::clients::ClientInfo;
+    let phone = |id: &str, label: &str| ClientInfo {
+        id: id.to_string(),
+        label: label.to_string(),
+        paired_at: 0,
+        last_seen: 0,
+    };
+    if !on {
+        return crate::lan::LanView {
+            note: "Off".to_string(),
+            clients: vec![(phone("c00000001", "iPhone at 192.168.1.23"), false)],
+            ..crate::lan::LanView::default()
+        };
+    }
+    crate::lan::LanView {
+        running: true,
+        url: Some("http://192.168.1.20:47812/".to_string()),
+        warning: None,
+        note: "On: http://192.168.1.20:47812/".to_string(),
+        failed: false,
+        code: Some(("481 226".to_string(), 103)),
+        requests: vec![strobe_remote::pairing::Request {
+            id: 1,
+            label: "Android at 192.168.1.31".to_string(),
+            since: std::time::Instant::now(),
+            decision: strobe_remote::pairing::Decision::Waiting,
+        }],
+        clients: vec![
+            (phone("c00000001", "iPhone at 192.168.1.23"), true),
+            (phone("c00000002", "iPad at 192.168.1.24"), false),
+        ],
+        connections: 2,
+    }
+}
+
 fn sample_doc() -> crate::editor::Doc {
     let shader = "// Aurora\n#define BANDS 4\nvec4 renderMain() {\n    float t = TIME * 0.5;\n    \
                   vec3 c = vec3(0.2, 0.5, 0.9) * (0.5 + 0.5 * sin(_uv.x * 6.0 + t));\n    \
@@ -597,6 +644,9 @@ fn draw_events(
         outcome: generated.as_ref(),
         authored: false,
     };
+    let lan_view = sample_lan(scenario.lan);
+    let mut lan_address = String::new();
+    let mut lan_port = "47812".to_string();
     let mut shell_state = ShellState::default();
     let mut actions = Vec::new();
     let mut all_actions = Vec::new();
@@ -715,6 +765,11 @@ fn draw_events(
             editor: EditorPanel {
                 doc: editor_doc.as_mut(),
                 playing_dir: None,
+            },
+            lan: LanPanel {
+                view: &lan_view,
+                address: &mut lan_address,
+                port: &mut lan_port,
             },
         };
         let pass = crate::ui::testing::run(

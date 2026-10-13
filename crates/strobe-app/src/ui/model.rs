@@ -229,6 +229,23 @@ pub enum Action {
     /// Run a command from the command table by its id (a macro or the MAP
     /// pane's test button; keys, MIDI and OSC reach the same place).
     RunCommand(String),
+    /// Start or stop the LAN remote (D254). Stop drops every phone at once.
+    SetLanRemote(bool),
+    /// Show a pairing code for a phone to type.
+    OpenRemotePairing,
+    /// Withdraw the pairing code.
+    CloseRemotePairing,
+    /// Approve or deny a phone that typed the code.
+    DecideRemotePairing {
+        /// The request.
+        id: u64,
+        /// Approve (`true`) or deny.
+        approve: bool,
+    },
+    /// Revoke one paired device, by its id.
+    RevokeRemoteClient(String),
+    /// Revoke every paired device.
+    RevokeAllRemoteClients,
 }
 
 /// What the performance readouts and the adaptive toggle show.
@@ -276,6 +293,16 @@ pub struct ListenerPanel<'a> {
     pub failed: bool,
     /// The token to paste into the userscript, once the listener has one.
     pub token: Option<&'a str>,
+}
+
+/// The LAN remote, for Settings and the title bar.
+pub struct LanPanel<'a> {
+    /// What it is doing, made by the app this frame.
+    pub view: &'a crate::lan::LanView,
+    /// The address field.
+    pub address: &'a mut String,
+    /// The port field.
+    pub port: &'a mut String,
 }
 
 /// The import panel's inputs.
@@ -613,6 +640,8 @@ pub struct Model<'a> {
     pub generate: GeneratePanel<'a>,
     /// The Editor's open scene.
     pub editor: EditorPanel<'a>,
+    /// The LAN remote.
+    pub lan: LanPanel<'a>,
 }
 
 /// The Editor pane's inputs.

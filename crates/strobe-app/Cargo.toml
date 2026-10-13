@@ -29,6 +29,7 @@ strobe-playlist.workspace = true
 strobe-io.workspace = true
 strobe-autocontrol.workspace = true
 strobe-shadertoy = { workspace = true, features = ["net"] }
+strobe-remote.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 image.workspace = true
@@ -45,11 +46,6 @@ winit.workspace = true
 
 [build-dependencies]
 embed-resource.workspace = true
-
-[dev-dependencies]
-# Only for the test that keeps the remote protocol's commands aligned with
-# the app's; the app takes it as a dependency when the listener lands (L-02).
-strobe-remote.workspace = true
 
 [lints]
 workspace = true
