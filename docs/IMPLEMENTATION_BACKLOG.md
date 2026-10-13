@@ -157,7 +157,15 @@
 - **Acceptance:** all library scenes with controls stripped and every tunable fixture produce reviewable controls; structural fixtures can legitimately report no useful controls; accepted defaults preserve the original render; no generated loop control can hang the GPU.
 
 ### I-04 Import pipeline reliability
-- **Status:** In progress.
+- **Status:** Audited (D242). Already covered, with tests:
+  - imports run one at a time on a bounded queue, and a full queue refuses;
+  - a re-import asks Replace or Cancel, and the listener answers 409;
+  - a failed import loads nothing;
+  - the listener token and the REST key print as `***`, and the key is redacted from every URL and error;
+  - downloads land under a temporary name and are renamed into place, and HTML, empty and oversized bodies are refused;
+  - one failed texture reads black without failing the import, and an unreachable host stops the rest.
+
+  Decided not to build: cache eviction, since the cache only ever holds Shadertoy's finite texture set, and cancelling a running job, since each one is bounded by its timeouts.
 - **Work:** verify texture cache eviction and corrupt downloads, duplicate imports, missing assets, cancellation, concurrent import attempts, listener token handling, and import destination collisions.
 - **Acceptance:** import errors do not replace the currently playing scene unless explicitly confirmed; credentials are not logged; repeated imports have deterministic replace/cancel behaviour.
 
