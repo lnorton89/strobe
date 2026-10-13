@@ -3280,6 +3280,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "strobe-remote"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "strobe-scene"
 version = "0.1.0"
 dependencies = [
