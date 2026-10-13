@@ -73,6 +73,9 @@ struct Scenario {
     generating: bool,
     /// A generate-controls result is waiting for review.
     generated: bool,
+    /// The playing scene was just imported, so Import offers to generate
+    /// controls for it (D246).
+    imported: bool,
     /// The shortcut editor waits for a key for this command.
     capturing: Option<crate::commands::CommandId>,
     /// The shortcut editor shows a clash (tap tempo wanted blackout's B).
@@ -103,6 +106,7 @@ const BASE: Scenario = Scenario {
     mapped: false,
     generating: false,
     generated: false,
+    imported: false,
     capturing: None,
     clash: false,
     cue_selected: false,
@@ -232,6 +236,12 @@ fn scenarios() -> Vec<Scenario> {
         },
         Scenario {
             name: "import",
+            panes: &[Pane::Import, Pane::Inspector],
+            ..BASE
+        },
+        Scenario {
+            name: "just imported, offering controls",
+            imported: true,
             panes: &[Pane::Import, Pane::Inspector],
             ..BASE
         },
@@ -692,6 +702,8 @@ fn draw_events(
                 replace_title: scenario.replace.then_some("fractal-tunnel"),
                 busy: false,
                 drop_hover: false,
+                imported_playing: scenario.imported,
+                generating: scenario.generating,
                 listener: ListenerPanel {
                     enabled: false,
                     state: "Off",

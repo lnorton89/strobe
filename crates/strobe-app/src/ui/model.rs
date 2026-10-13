@@ -292,6 +292,11 @@ pub struct ImportPanel<'a> {
     pub drop_hover: bool,
     /// The browser listener.
     pub listener: ListenerPanel<'a>,
+    /// The playing scene is the one this pane just imported, so it may
+    /// offer "Generate controls" for it (U-03, D246).
+    pub imported_playing: bool,
+    /// A generate-controls worker is running.
+    pub generating: bool,
 }
 
 /// A texture of the scene's output, for a preview.

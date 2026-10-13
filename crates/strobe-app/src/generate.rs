@@ -348,6 +348,9 @@ impl Drop for Job {
 pub struct Review {
     /// Whether the control stays.
     pub keep: bool,
+    /// The control's name, which the operator may change (D246). Checked
+    /// when applied: a name the scene cannot declare is refused there.
+    pub name: String,
     /// A slider's lower bound.
     pub min: f32,
     /// A slider's upper bound.
@@ -359,6 +362,7 @@ impl Review {
     pub fn of(kept: &Kept) -> Self {
         Self {
             keep: true,
+            name: kept.name.clone(),
             min: kept.min.first().copied().unwrap_or(0.0),
             max: kept.max.first().copied().unwrap_or(1.0),
         }
@@ -402,7 +406,7 @@ pub fn review(summary: &Summary, reviews: &[Review], library: &Path) -> Result<R
         .filter(|(_, review)| review.keep)
         .map(|(kept, review)| strobe_autocontrol::Choice {
             candidate: kept.candidate,
-            name: kept.name.clone(),
+            name: review.name.trim().to_string(),
             context: kept.context.clone(),
             min: review.min,
             max: review.max,
@@ -611,6 +615,32 @@ mod tests {
             std::fs::read_to_string(source.join("main.glsl"))?.contains("TIME * 0.5"),
             "the source is untouched"
         );
+
+        // A rename is written under the new name (D246); one the scene
+        // cannot declare is refused with the reason, and the copy stays.
+        edited[0].name = " pulse_rate ".to_owned();
+        assert_eq!(
+            review(&summary, &edited, &library).map_err(anyhow::Error::msg)?,
+            Reviewed::Rewritten,
+            "renamed, so written again"
+        );
+        let copy = SceneFolder::load(&written)?;
+        let names: Vec<&str> = copy.def.controls.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(
+            names,
+            ["pulse_rate"],
+            "the control has its new name, trimmed"
+        );
+        edited[0].name = "vec2".to_owned();
+        let refused = review(&summary, &edited, &library);
+        assert!(
+            refused
+                .as_ref()
+                .is_err_and(|why| why.contains("cannot be a control's name")),
+            "a GLSL type is refused: {refused:?}"
+        );
+        assert!(written.is_dir(), "a refused rename leaves the copy");
+        edited[0].name = kept[0].name.clone();
 
         let none: Vec<Review> = proposed
             .iter()

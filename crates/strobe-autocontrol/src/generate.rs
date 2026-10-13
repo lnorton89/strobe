@@ -146,7 +146,8 @@ fn priority(kind: Kind) -> u8 {
 pub struct Choice {
     /// The candidate's `id`, as the report listed it.
     pub candidate: usize,
-    /// The control's name, as [`generate`] named it.
+    /// The control's name: as [`generate`] named it, or as the person
+    /// renamed it in the review (checked like a generated name).
     pub name: String,
     /// The candidate's `context` line when it was measured, to tell that
     /// the source has not changed since.
@@ -163,6 +164,10 @@ pub enum ChoiceError {
     /// The scene's code changed after it was measured.
     #[error("{0} has changed since its controls were measured; generate them again")]
     Changed(String),
+    /// A control's name cannot be declared in this scene: not a GLSL
+    /// identifier, reserved, already used by the scene, or given twice.
+    #[error("{0} cannot be a control's name here: {1}")]
+    Name(String, &'static str),
     /// A generated control did not parse (a bug in this crate).
     #[error("{0}")]
     Generate(#[from] GenerateError),
@@ -179,6 +184,26 @@ pub enum ChoiceError {
 pub fn rewrite_chosen(folder: &SceneFolder, choices: &[Choice]) -> Result<Generated, ChoiceError> {
     let sources = Sources::from_folder(folder);
     let candidates = analyze(&sources).candidates;
+    // A renamed control has to meet the rules the engine's own names meet
+    // (D246): the measured source is the original, so nothing generated is
+    // in it yet, and each name claimed is taken for the next.
+    let mut taken = Taken::of(folder, &sources);
+    for choice in choices {
+        let name = choice.name.as_str();
+        if !strobe_scene::names::is_glsl_identifier(name) {
+            return Err(ChoiceError::Name(
+                name.to_string(),
+                "use letters, digits and _, not starting with a digit",
+            ));
+        }
+        if !taken.is_free(name) {
+            return Err(ChoiceError::Name(
+                name.to_string(),
+                "the scene, SSF or GLSL already uses it, or another control has it",
+            ));
+        }
+        taken.claim(name);
+    }
     let mut chosen: Vec<(&Candidate, &Choice)> = Vec::with_capacity(choices.len());
     for choice in choices {
         match candidates.get(choice.candidate) {

@@ -306,6 +306,9 @@ pub struct State {
     pub in_flight: usize,
     /// A file is being dragged over the window.
     pub drop_hover: bool,
+    /// The folder of the last scene this pane imported and loaded, so the
+    /// pane can offer to generate controls for it (U-03, D246).
+    pub last: Option<PathBuf>,
 }
 
 /// What finishing a job means for the library.

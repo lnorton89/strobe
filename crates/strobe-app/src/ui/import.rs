@@ -67,9 +67,40 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
         }
     });
     status_line(ui, theme, panel.status, panel.busy);
+    if generate_offer(ui, theme, panel.imported_playing, panel.generating) {
+        actions.push(Action::GenerateControls);
+        // Opened now, so the review the worker ends in is in view.
+        model.ui.panes.open(Pane::Inspector);
+    }
     ui.add_space(SPACE_SM);
     widgets::section(ui, theme, "Browser userscript");
     listener(ui, theme, panel, actions);
+}
+
+/// "Generate controls" for the scene just imported (U-03, D246): the same
+/// worker as the Inspector's button, whose review then shows there. Only
+/// while that scene is the one playing, since the worker measures it.
+/// Whether it was clicked.
+fn generate_offer(ui: &mut Ui, theme: &Palette, imported_playing: bool, generating: bool) -> bool {
+    if !imported_playing {
+        return false;
+    }
+    ui.add_space(SPACE_XS);
+    if generating {
+        ui.label(
+            egui::RichText::new("Measuring it for controls; the result appears in the Inspector.")
+                .small()
+                .color(theme::rgb(theme.text_muted)),
+        );
+        return false;
+    }
+    widgets::button(ui, theme, Some(Icon::Controls), "Generate controls for it")
+        .on_hover_text(
+            "Measure the imported scene's literal numbers in the background and write a copy, \
+             <name>-auto, with the strongest ones as controls, to review in the Inspector. \
+             The import itself is not changed.",
+        )
+        .clicked()
 }
 
 fn status_line(ui: &mut Ui, theme: &Palette, status: &Status, busy: bool) {
