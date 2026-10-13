@@ -289,6 +289,109 @@ fn implicit_int_to_float_and_non_macro_if_compile_in_both_dialects() -> Result<(
 }
 
 #[test]
+fn function_like_macros_mixing_int_and_float_compile_in_both_dialects() -> Result<()> {
+    // C-02, D261: a function-like macro hides the int from the D199 pass,
+    // so GLSL ES rejected `S(0, 1, x)`. ES types each call through its
+    // expansion: an argument edit (`S`, `H`, `ROT`), or the call inlined
+    // when the body needs one (`sat`) or a parameter is both an index and a
+    // factor (`TAP`). Desktop is left as written. The values check the
+    // meaning is desktop's.
+    let shader = "#define S(a, b, t) smoothstep(a, b, t)\n\
+                  #define ROT(a) mat2(cos(a), -sin(a), sin(a), cos(a))\n\
+                  #define sat(x) clamp(x, 0, 1)\n\
+                  #define H(n) fract(n * 0.5)\n\
+                  const float w[2] = float[2](0.25, 0.375);\n\
+                  #define TAP(i) (w[i] * i)\n\
+                  vec4 renderMain() {\n\
+                      float r = S(0, 1, 0.5);\n\
+                      float g = sat(2.5) * TAP(1);\n\
+                      float b = (ROT(0) * vec2(H(1), 0.0)).x * 0.5;\n\
+                      return vec4(r, g, b, 1.0);\n\
+                  }\n";
+    for api in BOTH {
+        let Some(px) = render_center(api, Options::default(), "{}", shader, 1)? else {
+            continue;
+        };
+        assert!(
+            near(px[0], 128) && near(px[1], 96) && near(px[2], 64),
+            "{api:?}: 0.5, 0.375 and 0.25; got {px:?}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn a_sampler_chosen_with_a_ternary_compiles_in_both_dialects() -> Result<()> {
+    // C-02, D261: GLSL forbids a sampler as an operand of `?:`, and Mesa
+    // and ANGLE enforce it on both dialects. The call moves inside the
+    // choice. Each pass writes one colour, and the final pass must read the
+    // buffer the condition picks.
+    let json = r#"{ "PASSES": [ {"TARGET": "bufA"}, {"TARGET": "bufB"} ] }"#;
+    let shader = "#define PICK(i, p) texture(i == 0 ? bufA : bufB, p)\n\
+                  vec4 renderMain() {\n\
+                      if (PASSINDEX == 0) { return vec4(0.25, 0.0, 0.0, 1.0); }\n\
+                      if (PASSINDEX == 1) { return vec4(0.0, 0.5, 0.0, 1.0); }\n\
+                      int pick = int(TIME) + 1;\n\
+                      vec4 a = texture(pick == 0 ? bufA : bufB, _uv);\n\
+                      vec4 b = textureLod((pick == 1) ? bufA\n\
+                                                      : bufB, _uv, 0);\n\
+                  #ifdef GL_ES\n\
+                      vec4 c = PICK(pick - 1, _uv);\n\
+                  #else\n\
+                      vec4 c = texture(bufA, _uv);\n\
+                  #endif\n\
+                      return vec4(b.r, a.g, c.r, 1.0);\n\
+                  }\n";
+    for api in BOTH {
+        let Some(px) = render_center(api, Options::default(), json, shader, 1)? else {
+            continue;
+        };
+        assert!(
+            near(px[0], 64) && near(px[1], 128) && near(px[2], 64),
+            "{api:?}: bufA's 0.25, bufB's 0.5, and bufA's 0.25 through a macro; got {px:?}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn a_sampler_choice_that_cannot_be_rewritten_fails_with_strobes_message_on_es() -> Result<()> {
+    // Two choices in one call are not rewritten. GLSL ES rejects them
+    // everywhere, so the ES program fails with Strobe's explanation at the
+    // user's line, not only the driver's (D261).
+    let Some(headless) = context(Api::Gles30)? else {
+        return Ok(());
+    };
+    let gl = headless.gl();
+    let caps = Caps::from_info(gl.info());
+    let scene = SceneFolder {
+        dir: PathBuf::from("."),
+        def: SceneDef::parse(
+            r#"{ "PASSES": [ {"TARGET": "bufA"}, {"TARGET": "bufB"} ] }"#,
+            "test",
+        )?,
+        shader:
+            "vec4 mixed(sampler2D a, sampler2D b) { return texture(a, _uv) + texture(b, _uv); }\n\
+                 vec4 renderMain() {\n\
+                     bool c = TIME > 1.0;\n\
+                     return mixed(c ? bufA : bufB, c ? bufB : bufA);\n\
+                 }\n"
+            .to_string(),
+        pass_shaders: Vec::new(),
+        script: None,
+    };
+    let error = ScenePlayer::new(gl, &caps, &scene, [8, 8], Options::default())
+        .err()
+        .map(|e| e.to_string())
+        .unwrap_or_default();
+    assert!(
+        error.contains("main.glsl:4") && error.contains("strobe: a sampler is chosen with ?:"),
+        "expected Strobe's message at main.glsl:4, got: {error}"
+    );
+    Ok(())
+}
+
+#[test]
 fn a_pass_that_reads_itself_sees_its_previous_frame_in_both_dialects() -> Result<()> {
     // D203: a single-buffered pass sampling its own target is a feedback
     // loop GL leaves undefined (NVIDIA: last frame; ANGLE/D3D11: zeros;

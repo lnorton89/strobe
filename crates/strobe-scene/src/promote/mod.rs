@@ -35,28 +35,61 @@
 //!   An integer division is wrapped, not rewritten, so `1/2` stays `0` as it
 //!   is on desktop.
 //!
+//! ## Function-like macros (ES only, D261)
+//!
+//! On the ES dialect a call to a function-like macro is typed through its
+//! expansion ([`expand`]): `#define S(a, b, t) smoothstep(a, b, t)` called
+//! as `S(0, 1., x)` needs `0.0`, and the edit lands in the argument at the
+//! call site. When the expansion needs an edit in the macro's body, or two
+//! uses of one parameter disagree, that one call is replaced by its
+//! expansion with the conversions written in, on the same line. Desktop
+//! output never changes for a macro: desktop GLSL converts on its own.
+//!
+//! ## A sampler chosen with `?:` (every dialect, D261)
+//!
+//! GLSL forbids a sampler as an operand of `?:`; NVIDIA accepts it, Mesa
+//! and ANGLE do not. `texture(c ? a : b, uv)` is rewritten as
+//! `(c ? texture(a, uv) : texture(b, uv))` for any built-in or user
+//! function ([`select`]), which keeps the meaning on every driver. A
+//! sampler `?:` anywhere else is returned in [`Promoted::unsupported`].
+//!
 //! ## What it will not do
 //!
-//! It never edits against a type it does not know. A macro with arguments,
-//! a name it cannot resolve, or code it cannot parse makes the surrounding
-//! expression [`types::Ty::Unknown`], and a function body it cannot parse
-//! keeps its text unchanged. A missed conversion leaves a scene failing as
-//! it did; a wrong one could break a scene that compiled. Edits are
-//! insertions only, so no line moves and driver errors still map to the
+//! It never edits against a type it does not know. A desktop macro with
+//! arguments, a name it cannot resolve, or code it cannot parse makes the
+//! surrounding expression [`types::Ty::Unknown`], and a function body it
+//! cannot parse keeps its text unchanged. A missed conversion leaves a
+//! scene failing as it did; a wrong one could break a scene that compiled.
+//! Edits never add or remove a line, so driver errors still map to the
 //! right line of `main.glsl`.
 //!
-//! It runs for the ES dialect only. Desktop drivers accept the implicit
-//! forms (NVIDIA is lax beyond the spec; Mesa is strict about `return`),
-//! and the desktop path is the one the corpus already passes.
+//! It runs on every dialect (D199): strict desktop compilers (Mesa,
+//! Apple's) reject some of the same implicit forms, such as an `int`
+//! returned from a `float` function.
 
+mod expand;
 mod lex;
+mod select;
 mod types;
 
 use crate::directives::Branches;
 use lex::{Define, Kind, Token, lex, lex_with};
 use std::borrow::Cow;
+use std::cell::Cell;
 use std::collections::HashMap;
 use types::{Builtin, Scalar, Ty, builtin_function, builtin_type, is_qualifier};
+
+/// The rewritten user code and what the rewrite could not handle.
+#[derive(Debug)]
+pub struct Promoted<'a> {
+    /// The user's code with every conversion written out, or the input
+    /// itself when nothing needed converting.
+    pub code: Cow<'a, str>,
+    /// 1-based lines of the user's code where a sampler is an operand of
+    /// `?:` somewhere other than a function argument. GLSL ES rejects that
+    /// form and the rewrite does not attempt it.
+    pub unsupported: Vec<u32>,
+}
 
 /// Rewrites `user` so every implicit int→float conversion is explicit.
 /// `context` is the source that precedes it in the program (the generated
@@ -64,10 +97,20 @@ use types::{Builtin, Scalar, Ty, builtin_function, builtin_type, is_qualifier};
 /// never edited. `es` says whether the driver defines `GL_ES`. Returns
 /// `user` unchanged when nothing needs converting.
 pub fn int_to_float<'a>(user: &'a str, context: &str, es: bool) -> Cow<'a, str> {
+    rewrite(user, context, es).code
+}
+
+/// [`int_to_float`], plus the places it could not make valid for GLSL ES.
+/// With `es`, calls to function-like macros are typed through their
+/// expansions as well (D261).
+pub fn rewrite<'a>(user: &'a str, context: &str, es: bool) -> Promoted<'a> {
     let mut branches = Branches::dialect(es);
     let context_lexed = lex_with(context, &mut branches);
     let user_lexed = lex_with(user, &mut branches);
-    let mut symbols = Symbols::default();
+    let mut symbols = Symbols {
+        expand: es,
+        ..Symbols::default()
+    };
     for (name, ty) in [
         ("gl_FragCoord", Ty::vector(Scalar::Float, 4)),
         ("gl_PointCoord", Ty::vector(Scalar::Float, 2)),
@@ -79,6 +122,9 @@ pub fn int_to_float<'a>(user: &'a str, context: &str, es: bool) -> Cow<'a, str> 
     for define in context_lexed.defines.iter().chain(&user_lexed.defines) {
         symbols.add_macro(define);
     }
+    for name in context_lexed.undefs.iter().chain(&user_lexed.undefs) {
+        symbols.undefine(name);
+    }
     let context_source = Source {
         text: context,
         tokens: &context_lexed.tokens,
@@ -89,11 +135,22 @@ pub fn int_to_float<'a>(user: &'a str, context: &str, es: bool) -> Cow<'a, str> 
     };
     collect(&context_source, &mut symbols);
     collect(&user_source, &mut symbols);
-    let edits = infer(&user_source, &symbols);
-    if edits.is_empty() {
-        return Cow::Borrowed(user);
-    }
-    Cow::Owned(apply(user, edits))
+    let (edits, selects) = infer(&user_source, &symbols);
+    let mut unsupported: Vec<u32> = selects
+        .iter()
+        .filter_map(|&offset| {
+            let before = user.get(..offset)?;
+            u32::try_from(before.matches('\n').count() + 1).ok()
+        })
+        .collect();
+    unsupported.sort_unstable();
+    unsupported.dedup();
+    let code = if edits.is_empty() {
+        Cow::Borrowed(user)
+    } else {
+        Cow::Owned(apply(user, edits))
+    };
+    Promoted { code, unsupported }
 }
 
 /// Text and its tokens.
@@ -203,8 +260,16 @@ struct Sig {
 enum Macro {
     /// An object-like macro: its replacement text, typed on use.
     Object(String),
-    /// A function-like macro: its result is not followed.
-    Function,
+    /// A function-like macro: its definition, when the walker can follow
+    /// it (see [`expand`]); `None` when it cannot.
+    Function(Option<FnMacro>),
+}
+
+/// A function-like macro the walker can expand.
+#[derive(Clone, Debug)]
+struct FnMacro {
+    params: Vec<String>,
+    body: String,
 }
 
 /// Everything declared at global scope.
@@ -214,16 +279,39 @@ struct Symbols {
     functions: HashMap<String, Vec<Sig>>,
     structs: HashMap<String, Vec<(String, Ty)>>,
     macros: HashMap<String, Macro>,
+    /// Whether calls to function-like macros are typed through their
+    /// expansions: the ES dialect only.
+    expand: bool,
+    /// How many macro calls have been expanded so far, against a budget
+    /// that keeps nested macros from costing exponential time.
+    expansions: Cell<usize>,
 }
 
 impl Symbols {
     fn add_macro(&mut self, define: &Define<'_>) {
         let entry = if define.function_like {
-            Macro::Function
+            // A macro defined twice (or `#undef`ed, below) is not followed:
+            // which definition a call sees depends on where it is. Nor is a
+            // body that stringizes or pastes.
+            let followable = !self.macros.contains_key(define.name)
+                && !define.body.contains('#')
+                && define.params.iter().all(|p| is_identifier(p));
+            Macro::Function(followable.then(|| FnMacro {
+                params: define.params.iter().map(|p| (*p).to_owned()).collect(),
+                body: define.body.to_owned(),
+            }))
         } else {
             Macro::Object(define.body.to_owned())
         };
         self.macros.insert(define.name.to_owned(), entry);
+    }
+
+    /// An `#undef`: a function-like macro of that name is no longer
+    /// followed, as a call may come before or after it.
+    fn undefine(&mut self, name: &str) {
+        if let Some(entry @ Macro::Function(Some(_))) = self.macros.get_mut(name) {
+            *entry = Macro::Function(None);
+        }
     }
 
     fn add_function(&mut self, name: &str, sig: Sig) {
@@ -486,9 +574,19 @@ fn collect(source: &Source<'_>, symbols: &mut Symbols) {
     }
 }
 
-/// Every conversion `source` needs.
-fn infer(source: &Source<'_>, symbols: &Symbols) -> Vec<Edit> {
+/// `true` for a GLSL identifier.
+fn is_identifier(text: &str) -> bool {
+    text.bytes()
+        .next()
+        .is_some_and(|b| b.is_ascii_alphabetic() || b == b'_')
+        && text.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+}
+
+/// Every conversion `source` needs, and the byte offsets of the sampler
+/// `?:` it could not rewrite.
+fn infer(source: &Source<'_>, symbols: &Symbols) -> (Vec<Edit>, Vec<usize>) {
     let mut edits = Vec::new();
+    let mut selects = Vec::new();
     let mut at = 0;
     while at < source.tokens.len() {
         let (item, next) = next_item(source, symbols, at);
@@ -506,6 +604,7 @@ fn infer(source: &Source<'_>, symbols: &Symbols) -> Vec<Edit> {
                     });
                     if parsed.is_ok() {
                         edits.append(&mut walker.edits);
+                        selects.extend(walker.select_offsets());
                     }
                 }
             }
@@ -526,39 +625,85 @@ fn infer(source: &Source<'_>, symbols: &Symbols) -> Vec<Edit> {
                 walker.scopes.push(scope);
                 if walker.statements().is_ok() {
                     edits.append(&mut walker.edits);
+                    selects.extend(walker.select_offsets());
                 }
             }
             Item::Function { body: None, .. } | Item::Struct { .. } | Item::Skip => {}
         }
         at = next.max(at + 1);
     }
-    edits
+    (edits, selects)
 }
 
-/// One insertion into the user's text.
-#[derive(Debug, PartialEq, Eq)]
+/// [`Edit::order`] of text that closes something (`)`, `.0`).
+const CLOSE: u8 = 0;
+/// [`Edit::order`] of text that opens something (`float(`).
+const OPEN: u8 = 1;
+/// [`Edit::order`] of a replacement of `at..end`.
+const REPLACE: u8 = 2;
+
+/// One change to the user's text: an insertion, or the replacement of
+/// whole tokens.
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct Edit {
     /// Byte offset.
     at: usize,
-    /// 0 for text that closes something (`)`, `.0`), 1 for text that opens
-    /// (`float(`), so a closer and an opener at the same offset nest.
+    /// [`CLOSE`], [`OPEN`] or [`REPLACE`]: at one offset, closers come
+    /// first, then openers, then a replacement, so they nest.
     order: u8,
+    /// End of the replaced bytes; `at` for an insertion.
+    end: usize,
     text: String,
 }
 
-/// Applies `edits` to `text`.
-fn apply(text: &str, mut edits: Vec<Edit>) -> String {
+impl Edit {
+    /// Inserts `text` at `at`.
+    fn insert(at: usize, order: u8, text: String) -> Self {
+        Self {
+            at,
+            order,
+            end: at,
+            text,
+        }
+    }
+
+    /// Replaces bytes `at..end`, which cover whole tokens, with `text`.
+    fn replace(at: usize, end: usize, text: String) -> Self {
+        Self {
+            at,
+            order: REPLACE,
+            end,
+            text,
+        }
+    }
+}
+
+/// `edits` in the order they apply, duplicates removed.
+fn sorted(mut edits: Vec<Edit>) -> Vec<Edit> {
     edits.sort_by_key(|edit| (edit.at, edit.order));
     edits.dedup();
+    edits
+}
+
+/// Applies `edits` to `text`.
+fn apply(text: &str, edits: Vec<Edit>) -> String {
+    let edits = sorted(edits);
     let extra: usize = edits.iter().map(|edit| edit.text.len()).sum();
     let mut out = String::with_capacity(text.len() + extra);
     let mut copied = 0;
     for edit in edits {
+        // An edit inside a replaced range is part of the replacement.
+        if edit.at < copied {
+            continue;
+        }
         if let Some(chunk) = text.get(copied..edit.at) {
             out.push_str(chunk);
             copied = edit.at;
         }
         out.push_str(&edit.text);
+        if edit.order == REPLACE {
+            copied = edit.end.max(copied);
+        }
     }
     out.push_str(text.get(copied..).unwrap_or_default());
     out
@@ -624,6 +769,11 @@ struct Walker<'s> {
     edits: Vec<Edit>,
     ret: Ty,
     depth: u32,
+    /// The function-like macros being expanded around this walk, which
+    /// the preprocessor does not expand again inside it.
+    expanding: Vec<String>,
+    /// Token ranges of the sampler `?:` not rewritten (yet) by [`select`].
+    selects: Vec<(usize, usize)>,
 }
 
 impl<'s> Walker<'s> {
@@ -637,7 +787,17 @@ impl<'s> Walker<'s> {
             edits: Vec::new(),
             ret: Ty::Void,
             depth: 0,
+            expanding: Vec::new(),
+            selects: Vec::new(),
         }
+    }
+
+    /// The byte offsets of the sampler `?:` left unrewritten.
+    fn select_offsets(&self) -> Vec<usize> {
+        self.selects
+            .iter()
+            .filter_map(|&(start, _)| self.source.tokens.get(start).map(|t| t.start))
+            .collect()
     }
 
     fn word(&self) -> Option<&'s str> {
@@ -930,6 +1090,9 @@ impl<'s> Walker<'s> {
         let no = self.assignment()?;
         let (yes, no) = self.balance(yes, no);
         let ty = if yes.ty == no.ty { yes.ty } else { Ty::Unknown };
+        if matches!(ty, Ty::Sampler(_)) {
+            self.selects.push((condition.start, no.end));
+        }
         let literals = match (yes.literals, no.literals) {
             (Some(mut a), Some(b)) => {
                 a.extend(b);
@@ -1197,20 +1360,31 @@ impl<'s> Walker<'s> {
     }
 
     fn call(&mut self, start: usize, name: &str) -> Parsed<Expr> {
+        if let Some(expanded) = self.expand_macro(start, name) {
+            return Ok(expanded);
+        }
+        let mark = self.edits.len();
         let resolved = self.callee(name, 0);
         let args = self.arguments()?;
         let end = self.at;
+        let samplers: Vec<(usize, usize)> = args
+            .iter()
+            .filter(|arg| matches!(arg.ty, Ty::Sampler(_)))
+            .map(|arg| (arg.start, arg.end))
+            .collect();
         let ty = match resolved {
             Callee::Opaque => Ty::Unknown,
             Callee::Named(name) => {
-                if let Some(rule) = builtin_function(&name) {
+                let ty = if let Some(rule) = builtin_function(&name) {
                     self.one_dimensional(rule, &args);
                     self.builtin(rule, args)
                 } else if let Some(overloads) = self.symbols.functions.get(&name) {
                     self.user_call(overloads, args)
                 } else {
                     Ty::Unknown
-                }
+                };
+                self.distribute(start, end, &samplers, mark);
+                ty
             }
         };
         Ok(Expr {
@@ -1225,7 +1399,11 @@ impl<'s> Walker<'s> {
     fn callee(&self, name: &str, depth: u32) -> Callee {
         match self.symbols.macros.get(name) {
             None => Callee::Named(name.to_owned()),
-            Some(Macro::Function) => Callee::Opaque,
+            // Inside its own expansion a macro's name is not expanded again.
+            Some(Macro::Function(_)) if self.expanding.iter().any(|n| n == name) => {
+                Callee::Named(name.to_owned())
+            }
+            Some(Macro::Function(_)) => Callee::Opaque,
             Some(Macro::Object(body)) => {
                 let body = body.trim();
                 let is_name = !body.is_empty()
@@ -1328,7 +1506,7 @@ impl<'s> Walker<'s> {
     fn variable(&self, name: &str, depth: u32) -> Ty {
         if let Some(entry) = self.symbols.macros.get(name) {
             return match entry {
-                Macro::Function => Ty::Unknown,
+                Macro::Function(_) => Ty::Unknown,
                 Macro::Object(body) => self.macro_type(name, body, depth),
             };
         }
@@ -1360,6 +1538,7 @@ impl<'s> Walker<'s> {
         }
         let mut walker = Walker::new(source, self.symbols, 0, lexed.tokens.len());
         walker.scopes = self.scopes.clone();
+        walker.expanding = self.expanding.clone();
         walker.depth = MAX_DEPTH.saturating_sub(50).max(self.depth);
         match walker.macro_expression(depth + 1) {
             Ok(ty) => ty,
@@ -1426,11 +1605,8 @@ impl<'s> Walker<'s> {
             text.bytes().all(|b| b.is_ascii_digit()) && (text == "0" || !text.starts_with('0'));
         if plain {
             if let Some(token) = self.source.tokens.get(index) {
-                self.edits.push(Edit {
-                    at: token.end,
-                    order: 0,
-                    text: ".0".to_owned(),
-                });
+                self.edits
+                    .push(Edit::insert(token.end, CLOSE, ".0".to_owned()));
             }
         } else {
             self.wrap(index, index + 1, "float");
@@ -1481,16 +1657,10 @@ impl<'s> Walker<'s> {
         ) else {
             return;
         };
-        self.edits.push(Edit {
-            at: first.start,
-            order: 1,
-            text: open.to_owned(),
-        });
-        self.edits.push(Edit {
-            at: last.end,
-            order: 0,
-            text: close.to_owned(),
-        });
+        self.edits
+            .push(Edit::insert(first.start, OPEN, open.to_owned()));
+        self.edits
+            .push(Edit::insert(last.end, CLOSE, close.to_owned()));
     }
 }
 

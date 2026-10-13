@@ -391,9 +391,11 @@ never per frame.
   `textureFinalPass` is two frames late and unverified on the T480 (D162,
   Q14).
 - Implicit int-to-float is written out by a typed, parser-backed rewrite on
-  every dialect (D199, R8), not only `PASSINDEX == 0.0` (D163). A
-  function-like macro that mixes int and float is still left as written. The
-  base library is written ES-clean.
+  every dialect (D199, R8), not only `PASSINDEX == 0.0` (D163). On ES it
+  also types function-like macro calls through their expansions, and on
+  every dialect a sampler chosen with `?:` inside a call is moved outside
+  it (D261); both are checked on llvmpipe only, not yet on ANGLE hardware
+  or the owner's corpus. The base library is written ES-clean.
 - Adaptive-resolution thresholds are validated on one machine, the T480.
 - Native crash capture cannot see a bare `abort()` on Windows, which is a
   fast-fail ([DEBUGGING.md](DEBUGGING.md)).
