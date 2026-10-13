@@ -109,7 +109,7 @@ fn have_context(api: Api) -> Result<bool> {
     match Headless::new(api) {
         Ok(_) => Ok(true),
         Err(error) if !require_gl() => {
-            eprintln!("skipping: no headless {api:?} context ({error})");
+            strobe_gfx::skip::note(format_args!("no headless {api:?} context ({error})"));
             Ok(false)
         }
         Err(error) => Err(anyhow!("headless {api:?} context required: {error}")),

@@ -117,11 +117,11 @@ fn window_scores_the_same_as_headless() -> Result<()> {
         if required("STROBE_REQUIRE_HEADLESS_GL") {
             bail!("headless context required: {}", stderr(&headless));
         }
-        eprintln!("skipping: no headless context ({})", stderr(&headless));
+        strobe_gfx::skip::note(format_args!("no headless context ({})", stderr(&headless)));
         return Ok(());
     }
     if !has_display() && !required("STROBE_REQUIRE_WINDOW_GL") {
-        eprintln!("skipping: no display server for a window context");
+        strobe_gfx::skip::note(format_args!("no display server for a window context"));
         return Ok(());
     }
     let window = run(

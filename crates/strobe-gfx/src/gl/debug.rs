@@ -509,7 +509,7 @@ mod tests {
         match Headless::new(Api::DesktopCore33) {
             Ok(headless) => Ok(Some(headless)),
             Err(error) if std::env::var_os("STROBE_REQUIRE_HEADLESS_GL").is_none() => {
-                eprintln!("skipping: no headless context ({error})");
+                crate::skip::note(format_args!("no headless context ({error})"));
                 Ok(None)
             }
             Err(error) => Err(anyhow!("headless context required: {error}")),

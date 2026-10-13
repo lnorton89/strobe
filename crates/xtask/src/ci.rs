@@ -40,6 +40,11 @@
 //! letting every shader test skip itself and report success. Pass
 //! `--allow-gl-skip` to opt out on a machine that cannot have one.
 //! Elsewhere the variable is left alone, as in CI's Windows and macOS jobs.
+//!
+//! The test step also sets `STROBE_SKIP_LOG` (D249), and every GPU test
+//! that skips for want of a context writes a line there
+//! (`strobe_gfx::skip`). The summary then says how many tests skipped and
+//! why, so a run where they skipped never reads as one where they ran.
 
 use crate::{brand, changelog};
 use anyhow::{Context as _, Result, bail};
@@ -54,6 +59,9 @@ const WINDOWS_TARGET: &str = "x86_64-pc-windows-msvc";
 /// The environment variable that turns a missing headless GL driver from a
 /// skip into a failure.
 const REQUIRE_GL: &str = "STROBE_REQUIRE_HEADLESS_GL";
+
+/// The file GPU tests record their skips in (`strobe_gfx::skip::LOG_VAR`).
+const SKIP_LOG: &str = "STROBE_SKIP_LOG";
 
 /// Options for `cargo xtask ci`.
 #[derive(ClapArgs, Debug)]
@@ -74,7 +82,7 @@ enum Action {
     /// variables.
     Cargo {
         args: Vec<&'static str>,
-        env: Vec<(&'static str, &'static str)>,
+        env: Vec<(&'static str, String)>,
     },
     /// The in-process changelog check.
     Changelog,
@@ -133,6 +141,7 @@ pub(crate) fn run(args: &Args) -> Result<()> {
             }
         }
     }
+    report_skips(&skip_log()?);
     let not_run = total.saturating_sub(results.len());
     if let Some(why) = failure {
         if not_run > 0 {
@@ -144,12 +153,55 @@ pub(crate) fn run(args: &Args) -> Result<()> {
     Ok(())
 }
 
+/// Where the test step's skips are written: `target/test-skips.log` at
+/// the workspace root, absolute, since each test runs in its own crate's
+/// folder.
+fn skip_log() -> Result<std::path::PathBuf> {
+    Ok(crate::workspace_root()?
+        .join("target")
+        .join("test-skips.log"))
+}
+
+/// Says how many tests skipped and why, from the log the GPU tests wrote
+/// (`test\treason` per line). Nothing when none skipped. A skipped test
+/// passed the harness, so this is the only place the difference shows.
+fn report_skips(log: &std::path::Path) {
+    let Ok(text) = std::fs::read_to_string(log) else {
+        return;
+    };
+    let mut by_reason: std::collections::BTreeMap<String, std::collections::BTreeSet<String>> =
+        std::collections::BTreeMap::new();
+    for line in text.lines().filter(|line| !line.trim().is_empty()) {
+        let (test, reason) = line.split_once('\t').unwrap_or((line, ""));
+        // The error text after the reason's first parenthesis varies by
+        // driver; the reason before it is what groups.
+        let reason = reason.split(" (").next().unwrap_or(reason).to_owned();
+        by_reason.entry(reason).or_default().insert(test.to_owned());
+    }
+    let tests: std::collections::BTreeSet<&String> = by_reason.values().flatten().collect();
+    if tests.is_empty() {
+        return;
+    }
+    println!(
+        "    note     {} test(s) passed by skipping, not by running (see {}):",
+        tests.len(),
+        log.display()
+    );
+    for (reason, tests) in &by_reason {
+        println!("               {:>3} {reason}", tests.len());
+    }
+}
+
 /// The ordered list of steps for this machine.
 fn plan(args: &Args) -> Result<Vec<Step>> {
-    let mut test_env: Vec<(&'static str, &'static str)> = Vec::new();
+    let mut test_env: Vec<(&'static str, String)> = Vec::new();
     if cfg!(target_os = "linux") && !args.allow_gl_skip && std::env::var_os(REQUIRE_GL).is_none() {
-        test_env.push((REQUIRE_GL, "1"));
+        test_env.push((REQUIRE_GL, "1".to_owned()));
     }
+    let skip_log = skip_log()?;
+    // A fresh log per run; a missing one is already fresh.
+    let _ = std::fs::remove_file(&skip_log);
+    test_env.push((SKIP_LOG, skip_log.display().to_string()));
 
     let mut steps = vec![
         Step {

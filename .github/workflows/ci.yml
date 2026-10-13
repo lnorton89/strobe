@@ -95,8 +95,33 @@ jobs:
           key: windows
       - name: Clippy
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      # The runner has no headless EGL, so the GPU tests skip and pass.
+      # They record each skip (D249), and the next step counts them into
+      # the job summary, so a skip is never read as a pass.
       - name: Test
+        shell: bash
+        env:
+          STROBE_SKIP_LOG: ${{ github.workspace }}/target/test-skips.log
         run: cargo test --workspace --all-features
+      - name: Report skipped GPU tests
+        if: always()
+        shell: bash
+        run: |
+          log=target/test-skips.log
+          if [ ! -s "$log" ]; then
+            echo "No test skipped." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          count=$(cut -f1 "$log" | sort -u | wc -l | tr -d ' ')
+          {
+            echo "### ${count} test(s) passed by skipping, not by running"
+            echo
+            echo "| Reason | Skips |"
+            echo "|---|---|"
+            cut -f2 "$log" | sed 's/ (.*//' | sort | uniq -c | while read -r n reason; do
+              echo "| ${reason} | ${n} |"
+            done
+          } | tee -a "$GITHUB_STEP_SUMMARY"
       # Release is where `panic = "abort"`, LTO and one codegen unit apply,
       # and those change what compiles.
       - name: Build release binary

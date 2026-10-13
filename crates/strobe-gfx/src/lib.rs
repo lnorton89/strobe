@@ -26,6 +26,7 @@ pub mod offscreen;
 pub mod player;
 pub mod post;
 pub mod readback;
+pub mod skip;
 pub mod timing;
 
 pub use assets::{AssetProblem, MediaRequest};
