@@ -44,6 +44,7 @@ pub mod audio;
 pub mod brand;
 pub mod cli;
 pub mod color;
+pub mod command_palette;
 pub mod commands;
 pub mod console;
 pub mod corpus;

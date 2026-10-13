@@ -52,6 +52,7 @@
 pub mod audio;
 pub mod browser;
 pub mod chrome;
+pub mod command_palette;
 pub mod controls;
 pub mod diagnostics;
 pub mod host;

@@ -116,6 +116,8 @@ pub struct UiState {
     /// The diagnostics console shows only warnings and errors. Not saved:
     /// an operator who left it on would miss the info lines next time.
     pub console_problems_only: bool,
+    /// The command palette. Not saved: it always starts closed.
+    pub command_palette: super::command_palette::PaletteUi,
     theme_id: String,
     reduced_motion: bool,
     catalog: Catalog,
@@ -167,6 +169,7 @@ impl UiState {
             collapsed_groups: prefs.collapsed_groups.clone(),
             custom_title_bar: prefs.custom_title_bar,
             console_problems_only: false,
+            command_palette: super::command_palette::PaletteUi::default(),
             theme_id: prefs.theme.clone(),
             reduced_motion: reduced,
             catalog,

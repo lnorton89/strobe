@@ -48,8 +48,8 @@ use super::chrome::{self, Readouts};
 use super::model::{Action, Model};
 use super::theme::{self, PAD, RAIL_WIDTH, SPACE_SM, SPACE_XS};
 use super::{
-    browser, diagnostics, import, inspector, keys, map, modal, perform, playlist, settings,
-    transport,
+    browser, command_palette, diagnostics, import, inspector, keys, map, modal, perform, playlist,
+    settings, transport,
 };
 use crate::palette::Palette;
 use crate::workspace::{self, Dock, Pane};
@@ -78,7 +78,18 @@ struct Splitter {
 pub fn show(ui: &mut Ui, shell: &mut ShellState, model: &mut Model<'_>, actions: &mut Vec<Action>) {
     let theme = theme::palette();
     let modal_question = import::replace_question(model);
-    keys::handle(ui.ctx(), model, modal_question.is_some(), actions);
+    if modal_question.is_some() {
+        // The question outranks the palette; it is the one modal.
+        model.ui.command_palette.close();
+    }
+    // The palette owns the keyboard while it is open, as the modal does.
+    let palette_open = model.ui.command_palette.open;
+    keys::handle(
+        ui.ctx(),
+        model,
+        modal_question.is_some() || palette_open,
+        actions,
+    );
 
     let width = ui.ctx().content_rect().width();
     let arrangement = workspace::arrange(&model.ui.panes, width, RAIL_WIDTH);
@@ -134,6 +145,8 @@ pub fn show(ui: &mut Ui, shell: &mut ShellState, model: &mut Model<'_>, actions:
     for splitter in splitters.into_iter().flatten() {
         splitter_handle(ui, splitter, model, &theme);
     }
+
+    command_palette::draw(ui.ctx(), &theme, model, actions);
 
     if let Some(question) = modal_question
         && let Some(answer) = modal::draw(ui.ctx(), &theme, &question)

@@ -238,11 +238,13 @@ pub enum CommandId {
     CloseTopmostPane,
     /// Tap the tempo.
     TapTempo,
+    /// Open the command palette, or close it.
+    OpenPalette,
 }
 
 impl CommandId {
     /// Every command, in the order the help text lists them.
-    pub const ALL: [CommandId; 11] = [
+    pub const ALL: [CommandId; 12] = [
         Self::PrevScene,
         Self::NextScene,
         Self::ToggleHold,
@@ -254,6 +256,7 @@ impl CommandId {
         Self::FocusBrowserSearch,
         Self::CloseTopmostPane,
         Self::TapTempo,
+        Self::OpenPalette,
     ];
 
     /// The command's stable id, the name mappings, OSC addresses
@@ -272,6 +275,7 @@ impl CommandId {
             Self::FocusBrowserSearch => "focus_browser_search",
             Self::CloseTopmostPane => "close_topmost_pane",
             Self::TapTempo => "tap_tempo",
+            Self::OpenPalette => "open_palette",
         }
     }
 
@@ -287,7 +291,7 @@ impl CommandId {
     /// middle of a show is a mistake waiting to happen.
     pub fn mappable(self) -> bool {
         match self {
-            Self::FocusBrowserSearch | Self::CloseTopmostPane => false,
+            Self::FocusBrowserSearch | Self::CloseTopmostPane | Self::OpenPalette => false,
             Self::NextScene
             | Self::PrevScene
             | Self::ToggleHold
@@ -314,6 +318,7 @@ impl CommandId {
             Self::FocusBrowserSearch => "Search scenes",
             Self::CloseTopmostPane => "Close pane",
             Self::TapTempo => "Tap tempo",
+            Self::OpenPalette => "Command palette",
         }
     }
 
@@ -328,7 +333,9 @@ impl CommandId {
             | Self::SkipSection
             | Self::ToggleBlackout
             | Self::TapTempo => Category::Playback,
-            Self::FocusBrowserSearch | Self::CloseTopmostPane => Category::Navigation,
+            Self::FocusBrowserSearch | Self::CloseTopmostPane | Self::OpenPalette => {
+                Category::Navigation
+            }
             Self::ToggleFullscreen => Category::Window,
         }
     }
@@ -350,6 +357,7 @@ impl CommandId {
             Self::FocusBrowserSearch => Chord::command(Key::F),
             Self::CloseTopmostPane => Chord::plain(Key::Escape),
             Self::TapTempo => Chord::plain(Key::T),
+            Self::OpenPalette => Chord::command(Key::Letter('K')),
         }
     }
 
@@ -364,7 +372,8 @@ impl CommandId {
             | Self::ToggleFullscreen
             | Self::FocusBrowserSearch
             | Self::CloseTopmostPane
-            | Self::TapTempo => false,
+            | Self::TapTempo
+            | Self::OpenPalette => false,
         }
     }
 }
@@ -539,7 +548,7 @@ mod tests {
             .collect();
         assert_eq!(
             unmappable,
-            ["focus_browser_search", "close_topmost_pane"],
+            ["focus_browser_search", "close_topmost_pane", "open_palette"],
             "which"
         );
     }
