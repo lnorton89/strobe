@@ -14,11 +14,16 @@
 //!
 //! | Detector | Finds | Becomes |
 //! |---|---|---|
-//! | `consts` | top-level `#define N 0.3`, `const float N = 0.3;` | a float (or, as a loop bound, an integer) |
-//! | `expr::time_scales` | `TIME * k`, `iTime * k`, either order | `speed`, an integrating control |
+//! | `consts` | top-level `#define N 0.3`, `const float N = 0.3;`, and `vec3` colour constants | a float (or, as a loop bound, an integer), or a `color` |
+//! | `expr::time_scales` | `TIME * k`, `iTime * k`, either order, and `TIME / k` | `speed`, an integrating control |
+//! | `expr::define_time_scales` | the same inside a `#define` body | `speed` |
 //! | `expr::loops` | `for (..; i < 64; ..)` | a capped integer, `Quality` |
 //! | `expr::colours` | `vec3(r, g, b)` in `0..1` | a `color` |
 //! | `expr::scales` | `uv * 3.0`, `p *= 2.0`, `sin(x * 10.0)` | a float, `Shape` |
+//!
+//! `context` answers what the detectors share about a literal's
+//! surroundings: its name and role from the code around it, and the traps
+//! that are mathematics (fade polynomials, hashes) or geometry (D259).
 //!
 //! A pattern is only a candidate here; whether it matters is decided later
 //! by measuring (the scoring stage). Candidates found at the same place in
@@ -30,6 +35,7 @@
 //! source order, ids from 0.
 
 mod consts;
+mod context;
 mod expr;
 
 use crate::candidate::{Candidate, Group, Kind, Rewrite, Site, ValueType, float_range, loop_range};
@@ -51,6 +57,8 @@ struct Hit {
     value_type: ValueType,
     /// A readable base name.
     name: String,
+    /// What tells it apart from a sibling with the same name.
+    role: Option<String>,
     group: Group,
     /// Hits with the same key are one candidate.
     key: String,
@@ -102,6 +110,11 @@ pub fn analyze(sources: &Sources) -> Analysis {
 /// A candidate from its first hit.
 fn candidate_from(id: usize, hit: &Hit, site: Site, scan: &Scan<'_>) -> Candidate {
     let (min, max) = match hit.value_type {
+        // A distance that trades cost for reach (`FAR`) never goes to 0,
+        // where nothing would be drawn: a quarter to twice, like a loop.
+        ValueType::Float if hit.group == Group::Quality && hit.value[0] > 0.0 => {
+            (vec![hit.value[0] / 4.0], vec![hit.value[0] * 2.0])
+        }
         ValueType::Float => {
             let (lo, hi) = float_range(hit.value[0]);
             (vec![lo], vec![hi])
@@ -121,6 +134,7 @@ fn candidate_from(id: usize, hit: &Hit, site: Site, scan: &Scan<'_>) -> Candidat
         min,
         max,
         name: hit.name.clone(),
+        role: hit.role.clone(),
         context: scan.line_text(hit.span.0),
         sites: vec![site],
     }
@@ -154,6 +168,7 @@ fn file_hits(scan: &Scan<'_>) -> Vec<Hit> {
         hits.push(hit);
     }
 
+    hits.extend(expr::define_time_scales(scan));
     hits.extend(expr::colours(scan));
     hits.extend(expr::scales(scan));
     hits.extend(named.iter().filter_map(named_hit));
@@ -161,8 +176,47 @@ fn file_hits(scan: &Scan<'_>) -> Vec<Hit> {
     resolve_overlaps(hits)
 }
 
+/// The hit for a named colour constant (`#define COL vec3(..)`, `const
+/// vec3 COL = vec3(..);`), if it is a good candidate.
+fn named_colour_hit(named: &consts::Named, rgb: [f32; 3]) -> Option<Hit> {
+    let readable_name = readable(&named.name);
+    if !named.safe
+        || named.time_used
+        || named.uses == 0
+        || !expr::colour_values_ok(rgb)
+        || expr::mostly_zero(rgb)
+        || context::is_geometry_name(&readable_name)
+    {
+        return None;
+    }
+    let (kind, rewrite) = match named.form {
+        consts::Form::Define => (Kind::Define, Rewrite::DefineBody),
+        consts::Form::Const => (Kind::Const, Rewrite::ConstStatement),
+    };
+    Some(Hit {
+        kind,
+        rewrite,
+        span: named.span,
+        literal: named.literal.clone(),
+        value: rgb.to_vec(),
+        value_type: ValueType::Colour,
+        name: expr::colour_name(context::specific(&named.name)),
+        role: None,
+        group: Group::Colour,
+        key: format!(
+            "{}:{}={}",
+            kind.label().replace(' ', "_"),
+            named.name,
+            named.literal
+        ),
+    })
+}
+
 /// The hit for a named constant, if it is a good candidate.
 fn named_hit(named: &consts::Named) -> Option<Hit> {
+    if let Some(rgb) = named.rgb {
+        return named_colour_hit(named, rgb);
+    }
     if !named.safe
         || named.time_used
         || named.uses == 0
@@ -210,13 +264,26 @@ fn named_hit(named: &consts::Named) -> Option<Hit> {
         value: vec![named.value],
         value_type,
         name,
+        role: None,
         group,
         key,
     })
 }
 
-/// The group a plain float constant belongs to, judged by its name.
+/// The group a plain float constant belongs to, judged by its name. A far
+/// clip or march distance (`FAR`, `MAX_DIST`) trades cost for reach, so it
+/// is Quality (D259).
 fn group_for_name(snake: &str) -> Group {
+    const QUALITY: [&str; 8] = [
+        "max_dist",
+        "maxdist",
+        "tmax",
+        "t_max",
+        "draw_dist",
+        "zfar",
+        "far_plane",
+        "max_depth",
+    ];
     const MOTION: [&str; 7] = [
         "speed", "rate", "tempo", "velocity", "spin", "flow", "drift",
     ];
@@ -224,7 +291,9 @@ fn group_for_name(snake: &str) -> Group {
         "col", "color", "colour", "tint", "hue", "sat", "bright", "glow", "fade", "alpha",
         "contrast", "exposure",
     ];
-    if MOTION.iter().any(|word| snake.contains(word)) {
+    if snake.split('_').any(|word| word == "far") || QUALITY.iter().any(|q| snake.contains(q)) {
+        Group::Quality
+    } else if MOTION.iter().any(|word| snake.contains(word)) {
         Group::Motion
     } else if COLOUR.iter().any(|word| snake.contains(word)) {
         Group::Colour
@@ -390,7 +459,7 @@ vec4 renderMain() {
             got,
             vec![(
                 Kind::TimeScale,
-                "speed".to_string(),
+                "rate".to_string(),
                 "TIME * RATE".to_string()
             )],
             "one speed control, and the define is not offered twice"
@@ -512,6 +581,68 @@ vec4 renderMain() { float t = TIME * 0.3; return vec4(t); }
             "only the author's tab is scanned: {:?}",
             summary(&analysis)
         );
+        Ok(())
+    }
+
+    // T26 misses: colours kept in a `#define` or a global `const vec3`.
+    #[test]
+    fn colour_constants_are_candidates() -> Result<()> {
+        let code = "\
+#define FOG_COL vec3(0.5, 0.6, 0.7)
+const vec3 SKY = vec3(0.2, 0.4, 0.9);
+#define FREQS vec3(0.5, 0.3, 0.2)
+#define LIGHT_POS vec3(0.3, 0.8, 0.4)
+vec4 renderMain() {
+    vec3 c = mix(SKY, FOG_COL, _uv.y) + sin(TIME * FREQS) + LIGHT_POS;
+    return vec4(c, 1.0);
+}
+";
+        let analysis = analyse_one(code)?;
+        let got: Vec<(Kind, ValueType, String, String)> = analysis
+            .candidates
+            .iter()
+            .map(|c| {
+                (
+                    c.kind,
+                    c.value_type,
+                    c.name.clone(),
+                    c.literal().to_string(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            got,
+            vec![
+                (
+                    Kind::Define,
+                    ValueType::Colour,
+                    "fog_col".to_string(),
+                    "vec3(0.5, 0.6, 0.7)".to_string()
+                ),
+                (
+                    Kind::Const,
+                    ValueType::Colour,
+                    "sky_color".to_string(),
+                    "vec3(0.2, 0.4, 0.9)".to_string()
+                ),
+            ],
+            "a colour define and a colour const; frequencies and a light position are not colours"
+        );
+        Ok(())
+    }
+
+    // T26: six FAR controls were offered as shape knobs.
+    #[test]
+    fn a_far_distance_is_quality_and_never_reaches_zero() -> Result<()> {
+        let code = "#define FAR 40.0\nvec4 renderMain() { float t = min(_uv.x * 50.0, FAR); return vec4(t); }\n";
+        let analysis = analyse_one(code)?;
+        let far = analysis
+            .candidates
+            .iter()
+            .find(|c| c.name == "far")
+            .ok_or_else(|| anyhow::anyhow!("FAR is a candidate: {:?}", summary(&analysis)))?;
+        assert_eq!(far.group, Group::Quality, "a draw distance is Quality");
+        assert_eq!((far.min[0], far.max[0]), (10.0, 80.0), "a quarter to twice");
         Ok(())
     }
 

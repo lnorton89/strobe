@@ -205,6 +205,9 @@ fn run_worker(args: &WorkerArgs) -> Result<Summary, String> {
             (
                 Verdict::Kept { .. }
                 | Verdict::Cut { .. }
+                | Verdict::Weak { .. }
+                | Verdict::QualityLimit { .. }
+                | Verdict::Unfaithful { .. }
                 | Verdict::Dead
                 | Verdict::Broken { .. }
                 | Verdict::DoesNotCompile { .. }

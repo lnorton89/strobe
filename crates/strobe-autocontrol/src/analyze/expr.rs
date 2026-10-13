@@ -18,10 +18,15 @@
 //! named in its comments and pinned by tests at the bottom.
 
 use super::Hit;
-use super::consts::{Named, Num, parse_number};
+use super::consts::{Named, Num, is_hash_value, parse_number};
+use super::context::{
+    call_chain, enclosing_function, function_span, helper, in_fade_polynomial, in_hash,
+    is_geometry_function, is_geometry_name, role, specific, user_call,
+};
 use crate::candidate::{Group, Kind, Rewrite, ValueType};
-use crate::naming::readable;
+use crate::naming::{is_glsl_word, readable};
 use crate::source::Scan;
+use strobe_shadertoy::glsl::{self, Kind as TokKind};
 
 /// Identifiers that mean "the scene clock".
 const TIME_IDENTS: [&str; 2] = ["TIME", "iTime"];
@@ -41,8 +46,9 @@ const COORDS: [&str; 11] = [
     "uvs",
 ];
 
-/// Calls whose vector arguments are directions or weights, not colours.
-const NOT_COLOUR_CALLS: [&str; 8] = [
+/// Calls whose vector arguments are directions, weights or hash input,
+/// not colours.
+const NOT_COLOUR_CALLS: [&str; 9] = [
     "dot",
     "cross",
     "normalize",
@@ -51,66 +57,19 @@ const NOT_COLOUR_CALLS: [&str; 8] = [
     "length",
     "distance",
     "faceforward",
-];
-
-/// Variable names that hold geometry; a `vec3` assigned to one is not a
-/// colour.
-const GEOMETRY_NAMES: [&str; 22] = [
-    "ro",
-    "rd",
-    "dir",
-    "direction",
-    "pos",
-    "position",
-    "p",
-    "n",
-    "normal",
-    "l",
-    "lightdir",
-    "light_dir",
-    "offset",
-    "size",
-    "k",
-    "h",
-    "e",
-    "off",
-    "axis",
-    "up",
-    "origin",
-    "target",
-];
-
-/// Names that say nothing about what a value is, so they do not make a good
-/// control name.
-const GENERIC_NAMES: [&str; 22] = [
-    "uv",
-    "p",
-    "q",
-    "st",
-    "pos",
-    "coord",
-    "col",
-    "color",
-    "colour",
-    "c",
-    "d",
-    "t",
-    "x",
-    "y",
-    "r",
-    "v",
-    "res",
-    "result",
-    "ret",
-    "o",
-    "frag_color",
-    "out_color",
+    "fract",
 ];
 
 /// Substrings of function names whose bodies are number-theory, not art:
 /// scaling a coordinate in a hash changes the noise, not the picture.
-const OPAQUE_FUNCTIONS: [&str; 9] = [
-    "hash", "rand", "noise", "fbm", "permute", "mod289", "dither", "random", "grad",
+const OPAQUE_FUNCTIONS: [&str; 7] = [
+    "hash", "noise", "fbm", "permute", "mod289", "dither", "random",
+];
+
+/// Words in the name of a function a march loop calls to measure the
+/// scene (`map`, `getDist`, `sceneSDF`, `distanceField`).
+const MARCH_CALLS: [&str; 8] = [
+    "map", "sdf", "de", "df", "scene", "field", "dist", "distance",
 ];
 
 /// A `for` loop of the form `for (T i = a; i < BOUND; ...)`.
@@ -121,6 +80,8 @@ pub(super) struct Loop {
     /// Whether the loop body indexes something with the loop variable
     /// (`w[i]`): the bound may then be an array size.
     pub indexes_with_var: bool,
+    /// The loop body's significant tokens, `[start, end)`.
+    pub body: (usize, usize),
 }
 
 /// Finds the simple counted loops in the scan.
@@ -177,17 +138,67 @@ pub(super) fn loops(scan: &Scan<'_>) -> Vec<Loop> {
         found.push(Loop {
             bound,
             indexes_with_var,
+            body: (body, end),
         });
     }
     found
 }
 
-/// `steps` in the entry point; `<function>_steps` in a helper, so a scene's
-/// shadow loop and its march loop get different names.
-fn loop_name(scan: &Scan<'_>, bound: usize) -> String {
-    match enclosing_function(scan, bound) {
-        Some("renderMain" | "mainImage" | "main") | None => "steps".to_string(),
-        Some(function) => format!("{}_steps", readable(function)),
+/// A loop's name, from what its function is called and what its body calls
+/// (D259):
+///
+/// - in a function named for shadows or occlusion, `shadow_steps` or
+///   `ao_steps`; named for marching or tracing, `march_steps`;
+/// - a body that calls `map`, `sdf`, `de`, `field` or an `sd*` function is a
+///   ray march: `march_steps` (also in `render_main_image` and the like);
+///   one that calls a noise is a sum of `octaves`;
+/// - otherwise `steps` in an entry point and `<function>_steps` in a
+///   helper.
+fn loop_name(scan: &Scan<'_>, found: &Loop) -> String {
+    let function = enclosing_function(scan, found.bound).map(readable);
+    let words: Vec<&str> = function
+        .as_deref()
+        .map(|f| f.split('_').collect())
+        .unwrap_or_default();
+    let has = |list: &[&str]| words.iter().any(|w| list.contains(w));
+    if has(&["shadow", "shadows", "softshadow", "shade"]) {
+        return "shadow_steps".to_string();
+    }
+    if has(&["ao", "occlusion", "ambient"]) {
+        return "ao_steps".to_string();
+    }
+    if has(&[
+        "march",
+        "raymarch",
+        "trace",
+        "raytrace",
+        "intersect",
+        "cast",
+    ]) {
+        return "march_steps".to_string();
+    }
+    let (start, end) = found.body;
+    let calls = |test: &dyn Fn(&str) -> bool| {
+        (start..end).any(|j| scan.is_any_ident(j) && scan.is(j + 1, "(") && test(scan.t(j)))
+    };
+    // A built-in `distance` is not a distance field.
+    if calls(&|name| {
+        let snake = readable(name);
+        !is_glsl_word(name)
+            && (snake.split('_').any(|word| MARCH_CALLS.contains(&word))
+                || snake.split('_').next() == Some("sd"))
+    }) {
+        return "march_steps".to_string();
+    }
+    if calls(&|name| {
+        let snake = readable(name);
+        snake.split('_').any(|word| word.ends_with("noise"))
+    }) {
+        return "octaves".to_string();
+    }
+    match helper(scan, found.bound) {
+        Some(function) => format!("{function}_steps"),
+        None => "steps".to_string(),
     }
 }
 
@@ -213,7 +224,8 @@ pub(super) fn loop_hit(scan: &Scan<'_>, found: &Loop) -> Option<Hit> {
         } else {
             ValueType::Int
         },
-        name: loop_name(scan, bound),
+        name: loop_name(scan, found),
+        role: None,
         group: Group::Quality,
         key: format!("loop:{}", scan.origin(start)),
     })
@@ -227,7 +239,7 @@ struct Factor {
     named: Option<String>,
 }
 
-/// The factor at `k`: a nonzero number, or a named constant.
+/// The factor at `k`: a nonzero number, or a named float constant.
 fn factor(scan: &Scan<'_>, k: usize, named: &[Named]) -> Option<Factor> {
     if scan.is_number(k) {
         let Num { value, .. } = parse_number(scan.t(k))?;
@@ -238,7 +250,9 @@ fn factor(scan: &Scan<'_>, k: usize, named: &[Named]) -> Option<Factor> {
         });
     }
     if scan.is_any_ident(k) {
-        let constant = named.iter().find(|n| n.name == scan.t(k))?;
+        let constant = named
+            .iter()
+            .find(|n| n.name == scan.t(k) && n.rgb.is_none())?;
         return (constant.value != 0.0).then(|| Factor {
             value: constant.value,
             text: constant.name.clone(),
@@ -254,11 +268,55 @@ fn divides_into(scan: &Scan<'_>, i: usize) -> bool {
     i > 0 && (scan.is(i - 1, "/") || scan.is(i - 1, "%") || scan.is(i - 1, "."))
 }
 
-/// `TIME * k` and `k * TIME`, with the name of the constant when `k` is one.
+/// Words that declare the identifier after them.
+const DECLARING: [&str; 9] = [
+    "float", "int", "in", "out", "inout", "highp", "mediump", "lowp", "const",
+];
+
+/// Whether the function around token `at` declares its own `clock` (a
+/// parameter or local called `TIME`): then `TIME * k` there is not the
+/// scene clock, and an integrator would change the picture (D259).
+fn clock_shadowed(scan: &Scan<'_>, at: usize, clock: &str) -> bool {
+    let Some((open, close)) = function_span(scan, at) else {
+        return false;
+    };
+    (open..close).any(|j| scan.is_ident(j, clock) && j > 0 && DECLARING.contains(&scan.t(j - 1)))
+}
+
+/// Words that already say a name is a rate.
+const MOTION_WORDS: [&str; 8] = [
+    "speed", "rate", "tempo", "velocity", "spin", "flow", "drift", "freq",
+];
+
+/// A speed control's name: the constant it came from, or the variable the
+/// product is assigned to, the function it is passed to, the helper it is
+/// in, in that order (`float spokes = .. iTime * 0.3` is `spokes_speed`,
+/// `p *= rot(TIME * 0.3)` is `rot_speed`); `speed` when none says anything.
+fn speed_name(scan: &Scan<'_>, at: usize, constant: Option<&str>) -> String {
+    let rate = |name: String| {
+        if MOTION_WORDS.iter().any(|word| name.contains(word)) {
+            name
+        } else {
+            format!("{name}_speed")
+        }
+    };
+    if let Some(name) = constant.and_then(specific) {
+        return rate(name);
+    }
+    assigned_name(scan, at)
+        .and_then(|n| specific(&n))
+        .or_else(|| user_call(scan, at))
+        .or_else(|| helper(scan, at))
+        .map_or_else(|| "speed".to_string(), rate)
+}
+
+/// `TIME * k`, `k * TIME` and `TIME / k`, with the name of the constant
+/// when `k` is one.
 ///
 /// Traps avoided: `a / TIME * k` and `a / k * TIME` (the factor is not a
 /// unit with `TIME`), `TIME *= ...`, a member named `TIME`, a zero
-/// factor, and anything at global scope.
+/// factor, a function with its own `TIME` parameter or local, and
+/// anything at global scope.
 pub(super) fn time_scales(scan: &Scan<'_>, named: &[Named]) -> Vec<(Hit, Option<String>)> {
     let mut found = Vec::new();
     for i in 0..scan.len() {
@@ -270,21 +328,26 @@ pub(super) fn time_scales(scan: &Scan<'_>, named: &[Named]) -> Vec<(Hit, Option<
                 && TIME_IDENTS.contains(&scan.t(at))
                 && !(at > 0 && scan.is(at - 1, "."))
         };
-        // `TIME * k`
-        let (clock, k, first, last) = if is_time(i) && scan.op(i + 1) == "*" {
-            (scan.t(i), i + 2, i, i + 2)
-        // `k * TIME`
+        // `TIME * k`, `TIME / k`, `k * TIME`
+        let (clock, k, first, last, divided) = if is_time(i) && scan.op(i + 1) == "*" {
+            (scan.t(i), i + 2, i, i + 2, false)
+        } else if is_time(i) && scan.op(i + 1) == "/" && scan.is_number(i + 2) {
+            (scan.t(i), i + 2, i, i + 2, true)
         } else if scan.op(i + 1) == "*" && is_time(i + 2) {
-            (scan.t(i + 2), i, i, i + 2)
+            (scan.t(i + 2), i, i, i + 2, false)
         } else {
             continue;
         };
-        if divides_into(scan, first) {
+        if divides_into(scan, first) || clock_shadowed(scan, i, clock) {
             continue;
         }
-        let Some(f) = factor(scan, k, named) else {
+        let Some(mut f) = factor(scan, k, named) else {
             continue;
         };
+        if divided {
+            f.value = 1.0 / f.value;
+            f.text = format!("/{}", f.text);
+        }
         let (start, end) = (scan.start(first), scan.end(last));
         found.push((
             Hit {
@@ -294,7 +357,8 @@ pub(super) fn time_scales(scan: &Scan<'_>, named: &[Named]) -> Vec<(Hit, Option<
                 literal: scan.text.get(start..end).unwrap_or("").to_string(),
                 value: vec![f.value],
                 value_type: ValueType::Float,
-                name: "speed".to_string(),
+                name: speed_name(scan, first, f.named.as_deref()),
+                role: role(scan, first),
                 group: Group::Motion,
                 key: format!("speed:{clock}:{}", f.text),
             },
@@ -304,39 +368,25 @@ pub(super) fn time_scales(scan: &Scan<'_>, named: &[Named]) -> Vec<(Hit, Option<
     found
 }
 
-/// The identifier of the enclosing top-level function, if the token is in one.
-fn enclosing_function<'a>(scan: &Scan<'a>, i: usize) -> Option<&'a str> {
-    let open = (0..i)
-        .rev()
-        .find(|j| scan.is(*j, "{") && scan.brace_depth(*j) == 0)?;
-    if open == 0 || !scan.is(open - 1, ")") {
-        return None;
-    }
-    let mut depth = 0_u32;
-    for j in (0..open).rev() {
-        if scan.is(j, ")") {
-            depth += 1;
-        } else if scan.is(j, "(") {
-            depth -= 1;
-            if depth == 0 {
-                return (j > 0 && scan.is_any_ident(j - 1)).then(|| scan.t(j - 1));
-            }
-        }
-    }
-    None
-}
-
 /// Whether token `i` is inside a function whose name says it is a hash or
-/// a noise: scaling its coordinate is number theory, not a control.
+/// a noise: scaling its coordinate is number theory, not a control. `rand`
+/// and `grad` count only as the start of a word, so `gradient` and `brand`
+/// are not opaque.
 fn in_opaque_function(scan: &Scan<'_>, i: usize) -> bool {
     enclosing_function(scan, i).is_some_and(|name| {
         let lower = name.to_ascii_lowercase();
+        let snake = readable(name);
         OPAQUE_FUNCTIONS.iter().any(|word| lower.contains(word))
+            || snake.split('_').any(|word| {
+                word.starts_with("rand")
+                    || (word.starts_with("grad") && !word.starts_with("gradient"))
+            })
     })
 }
 
 /// The identifier a statement assigns to, if it has the form
-/// `[type] name = ...` or `name op= ...`.
+/// `[type] name = ...` or `name op= ...`. For `name.field = ...` it is the
+/// field, unless the field is a swizzle (`col.rgb = ...` assigns `col`).
 pub(super) fn assigned_name(scan: &Scan<'_>, i: usize) -> Option<String> {
     let mut at = scan.statement_start(i);
     while matches!(scan.t(at), "const" | "highp" | "mediump" | "lowp") {
@@ -351,29 +401,20 @@ pub(super) fn assigned_name(scan: &Scan<'_>, i: usize) -> Option<String> {
     if matches!(scan.op(at + 1), "=" | "+=" | "-=" | "*=" | "/=") {
         return Some(scan.t(at).to_string());
     }
-    if scan.is(at + 1, ".") && scan.is_any_ident(at + 2) && scan.op(at + 3) == "=" {
-        return Some(scan.t(at).to_string());
+    if scan.is(at + 1, ".")
+        && scan.is_any_ident(at + 2)
+        && matches!(scan.op(at + 3), "=" | "+=" | "-=" | "*=" | "/=")
+    {
+        let field = scan.t(at + 2);
+        let swizzle = field.len() <= 4 && field.chars().all(|c| "xyzwrgbastpq".contains(c));
+        return Some(if swizzle { scan.t(at) } else { field }.to_string());
     }
     None
 }
 
 /// The name of the function call that directly encloses token `i`.
 fn enclosing_call<'a>(scan: &Scan<'a>, i: usize) -> Option<&'a str> {
-    let mut depth = 0_u32;
-    for j in (0..i).rev() {
-        if scan.is(j, ";") || scan.is(j, "{") || scan.is(j, "}") {
-            return None;
-        }
-        if scan.is(j, ")") {
-            depth += 1;
-        } else if scan.is(j, "(") {
-            if depth == 0 {
-                return (j > 0 && scan.is_any_ident(j - 1)).then(|| scan.t(j - 1));
-            }
-            depth -= 1;
-        }
-    }
-    None
+    call_chain(scan, i).first().map(|(name, _)| *name)
 }
 
 /// `vec3(r, g, b)` and `vec4(r, g, b, a)` of literals in `0..1`.
@@ -421,9 +462,10 @@ pub(super) fn colours(scan: &Scan<'_>) -> Vec<Hit> {
             continue;
         }
         let rgb = [values[0], values[1], values[2]];
-        let binary = rgb.iter().all(|c| *c == 0.0 || *c == 1.0);
-        let grey = rgb[0] == rgb[1] && rgb[1] == rgb[2];
-        if binary || grey {
+        // A `vec4` keeps its alpha, so it is an RGBA colour even when two of
+        // its colour components are zero; a mostly-zero `vec3` is an axis.
+        let axis = width == 3 && mostly_zero(rgb);
+        if !colour_values_ok(rgb) || axis || values.iter().any(|v| is_hash_value(f64::from(*v))) {
             continue;
         }
         if scan.is_ident(scan.statement_start(i), "const") {
@@ -432,12 +474,8 @@ pub(super) fn colours(scan: &Scan<'_>) -> Vec<Hit> {
         if enclosing_call(scan, i).is_some_and(|call| NOT_COLOUR_CALLS.contains(&call)) {
             continue;
         }
-        let assigned = assigned_name(scan, i);
-        let lower = assigned.as_deref().map(readable);
-        if lower
-            .as_deref()
-            .is_some_and(|name| GEOMETRY_NAMES.contains(&name))
-        {
+        let assigned = assigned_name(scan, i).map(|name| readable(&name));
+        if assigned.as_deref().is_some_and(is_geometry_name) || in_geometry(scan, i) {
             continue;
         }
         let (start, end) = if width == 3 {
@@ -445,16 +483,13 @@ pub(super) fn colours(scan: &Scan<'_>) -> Vec<Hit> {
         } else {
             (scan.start(i + 2), scan.end(i + 6))
         };
-        let name = match lower.as_deref() {
-            Some(name) if !GENERIC_NAMES.contains(&name) => {
-                if name.ends_with("col") || name.ends_with("color") || name.ends_with("colour") {
-                    name.to_string()
-                } else {
-                    format!("{name}_color")
-                }
-            }
-            Some(_) | None => "color".to_string(),
-        };
+        let close = scan.matching(i + 1).unwrap_or(i + 1);
+        let base = assigned
+            .as_deref()
+            .and_then(specific)
+            .or_else(|| multiplicand(scan, i, close))
+            .or_else(|| user_call(scan, i))
+            .or_else(|| helper(scan, i));
         found.push(Hit {
             kind: Kind::Colour,
             rewrite: Rewrite::Value,
@@ -462,12 +497,87 @@ pub(super) fn colours(scan: &Scan<'_>) -> Vec<Hit> {
             literal: scan.text.get(start..end).unwrap_or("").to_string(),
             value: rgb.to_vec(),
             value_type: ValueType::Colour,
-            name,
+            name: colour_name(base),
+            // `vec3 a = ..; vec3 b = ..;` mixed later: the short names are
+            // at least the two ends' roles.
+            role: role(scan, i).or_else(|| {
+                assigned
+                    .filter(|name| name.chars().count() <= 2)
+                    .filter(|name| name.chars().all(|c| c.is_ascii_alphabetic()))
+            }),
             group: Group::Colour,
             key: format!("colour:{:.4},{:.4},{:.4}", rgb[0], rgb[1], rgb[2]),
         });
     }
     found
+}
+
+/// Whether three components can be a colour: all in `0..1`, not an axis
+/// or mask (every component 0 or 1), and not a grey.
+pub(super) fn colour_values_ok(rgb: [f32; 3]) -> bool {
+    let in_range = rgb.iter().all(|c| (0.0..=1.0).contains(c));
+    let binary = rgb.iter().all(|c| *c == 0.0 || *c == 1.0);
+    let grey = rgb[0] == rgb[1] && rgb[1] == rgb[2];
+    in_range && !binary && !grey
+}
+
+/// Whether two of three components are zero: in a `vec3` that is a
+/// direction or an offset along one axis more often than a colour (D259).
+pub(super) fn mostly_zero(rgb: [f32; 3]) -> bool {
+    rgb.iter().filter(|c| **c == 0.0).count() >= 2
+}
+
+/// A colour control's name from a base: `fog_col` and `sky_color` stay as
+/// they are, `glow` becomes `glow_color`, and no base gives `color`.
+pub(super) fn colour_name(base: Option<String>) -> String {
+    match base {
+        Some(name)
+            if name.ends_with("col") || name.ends_with("color") || name.ends_with("colour") =>
+        {
+            name
+        }
+        Some(name) => format!("{name}_color"),
+        None => "color".to_string(),
+    }
+}
+
+/// The variable a constructor at `i` (closing at `close`) is multiplied by,
+/// when it says something: `glow * vec3(..)` or `vec3(..) * glow` is the
+/// glow's colour.
+fn multiplicand(scan: &Scan<'_>, i: usize, close: usize) -> Option<String> {
+    let before = (i >= 2 && scan.is(i - 1, "*") && scan.is_any_ident(i - 2))
+        .then(|| i - 2)
+        .filter(|at| !(*at > 0 && scan.is(at - 1, ".")));
+    let after = (scan.is(close + 1, "*")
+        && scan.is_any_ident(close + 2)
+        && !scan.is(close + 3, "(")
+        && !scan.is(close + 3, "."))
+    .then_some(close + 2);
+    before
+        .or(after)
+        .and_then(|at| specific(scan.t(at)))
+        .filter(|name| !is_geometry_name(name))
+}
+
+/// Whether the constructor at `i` sits in geometry: added to or
+/// subtracted from a position (`p - vec3(..)`, `ro + vec3(..)`), passed
+/// to a distance or transform function (`sdBox(p, vec3(..))`), or anywhere
+/// in a distance function (`map`, `sdf`, `sd*`).
+fn in_geometry(scan: &Scan<'_>, i: usize) -> bool {
+    let close = scan.matching(i + 1).unwrap_or(i + 1);
+    let is_position = |at: usize| {
+        scan.is_any_ident(at)
+            && !scan.is(at + 1, "(")
+            && (COORDS.contains(&scan.t(at)) || is_geometry_name(&readable(scan.t(at))))
+    };
+    let signed = |at: usize| scan.is(at, "+") || scan.is(at, "-");
+    let before = i >= 2 && signed(i - 1) && is_position(i - 2);
+    let after = signed(close + 1) && is_position(close + 2);
+    let call = call_chain(scan, i)
+        .iter()
+        .any(|(name, _)| is_geometry_function(name));
+    let function = enclosing_function(scan, i).is_some_and(is_geometry_function);
+    before || after || call || function
 }
 
 /// Whether a scale value is worth offering.
@@ -533,6 +643,8 @@ struct Product {
     number: usize,
     after: usize,
     compound: bool,
+    /// The first token of the coordinate expression.
+    coordinate: usize,
 }
 
 /// `X * N`, `N * X` and `X *= N` anchored at token `i`, where X is a
@@ -550,6 +662,7 @@ fn products(
                     number: end + 1,
                     after: end + 2,
                     compound: false,
+                    coordinate: i,
                 });
             }
             "*=" if scan.is_number(end + 2) => {
@@ -557,6 +670,7 @@ fn products(
                     number: end + 2,
                     after: end + 3,
                     compound: true,
+                    coordinate: i,
                 });
             }
             _ => {}
@@ -569,6 +683,7 @@ fn products(
         number: i,
         after,
         compound: false,
+        coordinate: i + 2,
     })
 }
 
@@ -650,22 +765,44 @@ fn scale_hit(scan: &Scan<'_>, product: &Product, kind: Kind) -> Option<Hit> {
     if scan.brace_depth(number) == 0 || in_opaque_function(scan, number) {
         return None;
     }
+    // Mathematics, not art: fade polynomials and hash arithmetic (D259).
+    if in_fade_polynomial(scan, number) || in_hash(scan, number) {
+        return None;
+    }
     let num = parse_number(scan.t(number))?;
     if !scale_value_ok(num.value, scan.is(product.after, "-")) {
         return None;
     }
     let (start, end) = (scan.start(number), scan.end(number));
-    let assigned = assigned_name(scan, number).map(|n| readable(&n));
-    let specific = assigned
-        .as_deref()
-        .filter(|name| !GENERIC_NAMES.contains(name));
-    let name = match (kind, product.compound, specific) {
+    // The function the product is passed to (`fbm(p * 3.0)`), the
+    // variable it is assigned to, or the helper it is in, says what it
+    // scales.
+    let assigned = || assigned_name(scan, number).and_then(|n| specific(&n));
+    let context = match kind {
+        Kind::Frequency => assigned()
+            .or_else(|| user_call(scan, number))
+            .or_else(|| helper(scan, number)),
+        Kind::Define
+        | Kind::Const
+        | Kind::TimeScale
+        | Kind::LoopBound
+        | Kind::Colour
+        | Kind::Scale => user_call(scan, number)
+            .or_else(assigned)
+            .or_else(|| helper(scan, number)),
+    };
+    let name = match (kind, product.compound, context) {
         (Kind::Frequency, _, Some(name)) => format!("{name}_freq"),
         (Kind::Frequency, _, None) => "freq".to_string(),
         (_, true, _) => "zoom".to_string(),
         (_, false, Some(name)) => format!("{name}_scale"),
         (_, false, None) => "scale".to_string(),
     };
+    // A one-component swizzle (`uv.x * 3.0`) tells a scale apart from its
+    // sibling on the other axis; otherwise the enclosing constructor or mix.
+    let swizzle = (scan.is(product.coordinate + 1, ".")
+        && matches!(scan.t(product.coordinate + 2), "x" | "y" | "z" | "w"))
+    .then(|| scan.t(product.coordinate + 2).to_string());
     Some(Hit {
         kind,
         rewrite: Rewrite::Value,
@@ -674,9 +811,160 @@ fn scale_hit(scan: &Scan<'_>, product: &Product, kind: Kind) -> Option<Hit> {
         value: vec![num.value as f32],
         value_type: ValueType::Float,
         name,
+        role: swizzle.or_else(|| role(scan, number)),
         group: Group::Shape,
         key: format!("scale:{}", scan.origin(start)),
     })
+}
+
+/// `TIME * k`, `k * TIME` and `TIME / k` inside a `#define` body
+/// (`#define T (TIME * 0.3)`), which the expression scan never sees because
+/// a directive is one token (D259).
+///
+/// The site is a span inside the directive, rewritten to the speed
+/// control's output like any other. A macro pastes text, so when the
+/// product is not inside parentheses in the body, a use after `/` or `%`
+/// would read differently once the product is one identifier; such a
+/// macro is skipped. So is a function-like macro with its own `TIME`
+/// parameter.
+pub(super) fn define_time_scales(scan: &Scan<'_>) -> Vec<Hit> {
+    let mut found = Vec::new();
+    for d in 0..scan.len() {
+        if scan.kind(d) != Some(TokKind::Directive) {
+            continue;
+        }
+        let Some(tok) = scan.tok(d) else {
+            continue;
+        };
+        let Some(("define", body)) = glsl::split_directive(tok.text) else {
+            continue;
+        };
+        let body_start = tok.start + (tok.text.len() - body.len());
+        let mut at = body_start;
+        let tokens: Vec<(TokKind, &str, usize, usize)> = glsl::lex_directive_body(body)
+            .into_iter()
+            .map(|token| {
+                let start = at;
+                at += token.text.len();
+                (token.kind, token.text, start, at)
+            })
+            .filter(|(kind, ..)| {
+                !matches!(
+                    kind,
+                    TokKind::Space | TokKind::LineComment | TokKind::BlockComment
+                )
+            })
+            .collect();
+        let Some((TokKind::Ident, macro_name, _, name_end)) = tokens.first().copied() else {
+            continue;
+        };
+        // A function-like macro's parameters come first; one called like
+        // the clock shadows it.
+        let mut first_body = 1;
+        let mut parameters: Vec<&str> = Vec::new();
+        if tokens.get(1).is_some_and(|t| t.1 == "(" && t.2 == name_end) {
+            let Some(close) = tokens.iter().position(|t| t.1 == ")") else {
+                continue;
+            };
+            parameters = tokens
+                .get(2..close)
+                .unwrap_or(&[])
+                .iter()
+                .filter(|t| t.0 == TokKind::Ident)
+                .map(|t| t.1)
+                .collect();
+            first_body = close + 1;
+        }
+        let text = |k: usize| tokens.get(k).map_or("", |t| t.1);
+        let kind = |k: usize| tokens.get(k).map(|t| t.0);
+        let is_clock = |k: usize| {
+            kind(k) == Some(TokKind::Ident)
+                && TIME_IDENTS.contains(&text(k))
+                && !parameters.contains(&text(k))
+                && !(k > first_body && text(k - 1) == ".")
+        };
+        let number = |k: usize| {
+            (kind(k) == Some(TokKind::Number))
+                .then(|| parse_number(text(k)))
+                .flatten()
+                .filter(|num| num.value != 0.0)
+        };
+        let mut depth = 0_i32;
+        for k in first_body..tokens.len() {
+            match text(k) {
+                "(" => depth += 1,
+                ")" => depth -= 1,
+                _ => {}
+            }
+            let (clock, first, last, value, divided) =
+                if is_clock(k) && text(k + 1) == "*" && number(k + 2).is_some() {
+                    (text(k), k, k + 2, number(k + 2), false)
+                } else if is_clock(k) && text(k + 1) == "/" && number(k + 2).is_some() {
+                    (text(k), k, k + 2, number(k + 2), true)
+                } else if number(k).is_some() && text(k + 1) == "*" && is_clock(k + 2) {
+                    (text(k + 2), k, k + 2, number(k), false)
+                } else {
+                    continue;
+                };
+            let Some(value) = value else {
+                continue;
+            };
+            if k > first_body && matches!(text(k - 1), "/" | "%" | ".") {
+                continue;
+            }
+            // `*`/`/` bind tighter than anything after them, but a use of
+            // an unparenthesised product after `/` or `%` would not.
+            let bare = depth == 0;
+            if bare && macro_used_after_division(scan, macro_name) {
+                continue;
+            }
+            let (Some(start), Some(end)) = (
+                tokens.get(first).map(|t| t.2),
+                tokens.get(last).map(|t| t.3),
+            ) else {
+                continue;
+            };
+            let number_at = if is_clock(k) { last } else { k };
+            let factor_text = if divided {
+                format!("/{}", text(number_at))
+            } else {
+                text(number_at).to_string()
+            };
+            let value = if divided {
+                (1.0 / value.value) as f32
+            } else {
+                value.value as f32
+            };
+            let name = specific(macro_name).map_or_else(
+                || "speed".to_string(),
+                |name| {
+                    if MOTION_WORDS.iter().any(|word| name.contains(word)) {
+                        name
+                    } else {
+                        format!("{name}_speed")
+                    }
+                },
+            );
+            found.push(Hit {
+                kind: Kind::TimeScale,
+                rewrite: Rewrite::Integrator,
+                span: (start, end),
+                literal: scan.text.get(start..end).unwrap_or("").to_string(),
+                value: vec![value],
+                value_type: ValueType::Float,
+                name,
+                role: None,
+                group: Group::Motion,
+                key: format!("speed:{clock}:{factor_text}"),
+            });
+        }
+    }
+    found
+}
+
+/// Whether `name` is used anywhere right after a `/` or `%`.
+fn macro_used_after_division(scan: &Scan<'_>, name: &str) -> bool {
+    (1..scan.len()).any(|i| scan.is_ident(i, name) && (scan.is(i - 1, "/") || scan.is(i - 1, "%")))
 }
 
 #[cfg(test)]
@@ -896,6 +1184,208 @@ mod tests {
             scale_literals(&in_main("vec2 a = uv * 2.0;")),
             vec!["2.0"],
             "a plain doubling is a real zoom"
+        );
+    }
+
+    fn names(hits: &[Hit]) -> Vec<(String, Option<String>)> {
+        hits.iter()
+            .map(|h| (h.name.clone(), h.role.clone()))
+            .collect()
+    }
+
+    fn named(name: &str, role: Option<&str>) -> (String, Option<String>) {
+        (name.to_string(), role.map(str::to_string))
+    }
+
+    // T26: fade polynomials and hash constants were offered as controls.
+    #[test]
+    fn fade_polynomials_and_hash_arithmetic_are_not_controls() {
+        for body in [
+            "vec2 q = fract(uv); q = q * q * (3.0 - 2.0 * q);",
+            "vec2 q = fract(uv); q = q * q * q * (q * (q * 6.0 - 15.0) + 10.0);",
+            "float h = fract(sin(uv.x * 12.9898 + uv.y * 78.233) * 43758.5453);",
+            "float h = fract(sin(dot(uv, vec2(12.9898, 78.233))) * 43758.5453);",
+            "float h = fract(sin(p.x * 3.7 + p.y * 1.3) * 951.135);",
+            "vec3 p3 = fract(vec3(uv.xyx) * vec3(0.1031, 0.1030, 0.0973));",
+            "vec2 w = uv * 43758.5453;",
+        ] {
+            let code = in_main(body);
+            assert!(
+                scale_literals(&code).is_empty() && colour_literals(&code).is_empty(),
+                "`{body}` is mathematics, not a knob"
+            );
+        }
+        assert_eq!(
+            scale_literals(&in_main("vec2 a = uv * 3.0 - 2.0;")),
+            vec!["3.0"],
+            "a scale followed by an offset is still a scale"
+        );
+    }
+
+    // T26: light and camera positions were classified as colours.
+    #[test]
+    fn positions_directions_and_sizes_are_not_colours() {
+        for body in [
+            "vec3 lk = vec3(0.2, 0.5, 0.3);",
+            "vec3 lp = vec3(0.3, 0.6, 0.2);",
+            "vec3 lightDir = vec3(0.3, 0.8, 0.5);",
+            "vec3 light = vec3(0.4, 0.7, 0.2);",
+            "vec3 camPos = vec3(0.4, 0.7, 0.2);",
+            "vec3 d = p - vec3(0.2, 0.3, 0.4);",
+            "float b = sdBox(p, vec3(0.3, 0.5, 0.2));",
+            "vec3 c = vec3(0.0, 0.0, 0.5);",
+        ] {
+            assert!(
+                colour_literals(&in_main(body)).is_empty(),
+                "`{body}` is geometry, not a colour"
+            );
+        }
+        assert!(
+            colour_literals("float map(vec3 p) { vec3 c = vec3(0.2, 0.4, 0.3); return c.x; }")
+                .is_empty(),
+            "a vec3 in a distance function is geometry"
+        );
+        assert_eq!(
+            colour_literals(&in_main("vec3 lightCol = vec3(1.0, 0.9, 0.7);")),
+            vec!["vec3(1.0, 0.9, 0.7)"],
+            "a light's colour is a colour"
+        );
+    }
+
+    // T26: 116 of 266 names were a stem and a number.
+    #[test]
+    fn names_come_from_the_code_around_the_literal() {
+        let code = "\
+float field(vec3 p) { vec3 q = fract(p * 0.7); return length(q); }
+vec4 renderMain() {
+    float n = fbm(_uv * 3.0);
+    vec2 orbit = vec2(cos(TIME * 1.3), sin(TIME * 1.7));
+    _uv *= rot(TIME * 0.2);
+    float spokes = cos(n + TIME * 0.3);
+    vec3 col = mix(vec3(0.9, 0.4, 0.1), vec3(0.1, 0.2, 0.6), n);
+    col += glow * vec3(0.9, 0.5, 0.2);
+    mat.albedo = vec3(0.8, 0.3, 0.2);
+    float wave = sin(_uv.x * 9.0) * sin(_uv.y * 7.0);
+    return vec4(col, 1.0);
+}
+";
+        let scan = Scan::new("f.glsl", code);
+        let named_time = time_scales(&scan, &[]);
+        let speeds: Vec<(String, Option<String>)> = named_time
+            .iter()
+            .map(|(h, _)| (h.name.clone(), h.role.clone()))
+            .collect();
+        assert_eq!(
+            speeds,
+            vec![
+                named("orbit_speed", Some("x")),
+                named("orbit_speed", Some("y")),
+                named("rot_speed", None),
+                named("spokes_speed", None),
+            ],
+            "the assigned variable or the function it is passed to"
+        );
+        assert_eq!(
+            names(&colours(&scan)),
+            vec![
+                named("color", Some("low")),
+                named("color", Some("high")),
+                named("glow_color", None),
+                named("albedo_color", None),
+            ],
+            "a mix's ends, a multiplier, a field"
+        );
+        assert_eq!(
+            names(&scales(&scan)),
+            vec![
+                named("field_scale", None),
+                named("fbm_scale", None),
+                named("wave_freq", Some("x")),
+                named("wave_freq", Some("y")),
+            ],
+            "the helper, the function the coordinate goes to, and the axis"
+        );
+    }
+
+    #[test]
+    fn time_divided_by_a_number_is_a_speed_and_a_local_time_is_not() {
+        let code = in_main("float a = TIME / 4.0; float b = x / TIME / 2.0;");
+        let scan = Scan::new("f.glsl", &code);
+        let hits = time_scales(&scan, &[]);
+        assert_eq!(hits.len(), 1, "only the plain quotient");
+        assert!(
+            hits.first()
+                .is_some_and(|(hit, _)| (hit.value[0] - 0.25).abs() < 1e-6),
+            "TIME / 4.0 runs at a quarter speed"
+        );
+        let shadowed = "float wave(vec2 p, float TIME) { return sin(p.x + TIME * 3.0); }\n\
+                        vec4 renderMain() { return vec4(wave(_uv, TIME + 2.0)); }\n";
+        assert!(
+            time_literals(shadowed).is_empty(),
+            "a parameter called TIME is not the clock"
+        );
+    }
+
+    #[test]
+    fn loops_are_named_for_what_they_do() {
+        let code = "\
+float softShadow(vec3 ro, vec3 rd) { float r = 1.0; for (int i = 0; i < 24; i++) { r *= 0.9; } return r; }
+vec4 render_main_image() { float t = 0.0; for (int i = 0; i < 80; i++) { t += map(vec3(t)); } return vec4(t); }
+float clouds(vec2 p) { float v = 0.0; for (int i = 0; i < 6; i++) { v += noise(p); p *= 2.0; } return v; }
+float glow(vec2 p) { float v = 0.0; for (int i = 0; i < 9; i++) { v += 0.1; } return v; }
+";
+        let scan = Scan::new("f.glsl", code);
+        let found: Vec<String> = loops(&scan)
+            .iter()
+            .filter_map(|l| loop_hit(&scan, l))
+            .map(|h| h.name)
+            .collect();
+        assert_eq!(
+            found,
+            vec!["shadow_steps", "march_steps", "octaves", "glow_steps"],
+            "shadow, march, octaves, and a helper's own name"
+        );
+    }
+
+    // T26 misses: a speed or a colour inside a `#define`.
+    #[test]
+    fn a_speed_inside_a_define_body_is_found() {
+        let found = |code: &str| -> Vec<String> {
+            define_time_scales(&Scan::new("f.glsl", code))
+                .into_iter()
+                .map(|h| format!("{} {}", h.literal, h.name))
+                .collect()
+        };
+        assert_eq!(
+            found("#define T (TIME * 0.3)\nvec4 renderMain() { return vec4(1.0 / T); }\n"),
+            vec!["TIME * 0.3 speed"],
+            "parenthesised: safe after a division"
+        );
+        assert_eq!(
+            found("#define SPIN iTime*0.5\nvec4 renderMain() { return vec4(sin(SPIN)); }\n"),
+            vec!["iTime*0.5 spin"],
+            "bare, and never divided by"
+        );
+        assert!(
+            found("#define T TIME*0.3\nvec4 renderMain() { return vec4(1.0 / T); }\n").is_empty(),
+            "bare and divided by: the paste would change"
+        );
+        assert!(
+            found("#define W(TIME) (TIME * 2.0)\nvec4 renderMain() { return vec4(W(1.0)); }\n")
+                .is_empty(),
+            "a parameter called TIME"
+        );
+    }
+
+    #[test]
+    fn gradient_is_not_an_opaque_function_name() {
+        let code = "vec3 gradient(vec2 uv) { return vec3(fract(uv.x * 3.0)); }\n\
+                    float rand2(vec2 p) { return fract(p.x * 3.0); }\n\
+                    float hash12(vec2 p) { return fract(p.x * 5.0); }\n";
+        assert_eq!(
+            scale_literals(code),
+            vec!["3.0"],
+            "`gradient` draws; `rand2` and `hash12` are number theory"
         );
     }
 }

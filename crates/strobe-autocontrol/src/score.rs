@@ -59,6 +59,11 @@ pub struct ScoreOptions {
     pub dt: f32,
     /// The least mean difference (0..1) that counts as visible.
     pub threshold: f32,
+    /// The fraction of the strongest candidate's score under which another
+    /// is weak (D259), if it is also under [`WEAK_CEILING`]: next to a
+    /// knob that repaints the screen, one that moves a pixel is noise on
+    /// the panel.
+    pub relative: f32,
 }
 
 impl Default for ScoreOptions {
@@ -69,6 +74,7 @@ impl Default for ScoreOptions {
             capture: 2,
             dt: 0.2,
             threshold: 0.003,
+            relative: 0.05,
         }
     }
 }
@@ -86,6 +92,20 @@ pub enum ScoreError {
     #[error("GL error 0x{0:x}")]
     Gl(u32),
 }
+
+/// A candidate at or above this score (one percent of full scale) is never
+/// weak, however strong the scene's best is: T26's tiny-effect controls
+/// were all under it (D259).
+pub const WEAK_CEILING: f32 = 0.01;
+
+/// The score under which a candidate is weak next to the scene's `best`.
+pub fn weak_floor(best: f32, options: &ScoreOptions) -> f32 {
+    (best * options.relative).min(WEAK_CEILING)
+}
+
+/// The date every probe renders at (`strobe_Date`: year, month 0..11, day,
+/// seconds since midnight), so a scene that shows the time is deterministic.
+const FIXED_DATE: [f32; 4] = [2026.0, 0.0, 1.0, 43_200.0];
 
 /// A rendered probe: the captured frames, RGBA8, top row first.
 pub type Frames = Vec<Vec<u8>>;
@@ -109,7 +129,14 @@ impl Rig {
     ) -> Result<Self, ScoreError> {
         // Context creation can leave a stale error flag that is not ours.
         let _ = gl.error();
-        let player = ScenePlayer::new(gl, caps, folder, options.size, Options::default())?;
+        // A script's uniforms are declared (at zero) so a scripted scene
+        // compiles without running its script (D259).
+        let extras = crate::script::uniforms(folder);
+        let mut player =
+            ScenePlayer::with_extras(gl, caps, folder, options.size, Options::default(), &extras)?;
+        // The wall clock would make a scene that reads the date render
+        // differently from one probe to the next.
+        player.set_date(FIXED_DATE);
         Ok(Self {
             gl: gl.clone(),
             player,
@@ -309,6 +336,7 @@ mod tests {
             min: vec![min],
             max: vec![max],
             name: "x".to_string(),
+            role: None,
             context: String::new(),
             sites: Vec::new(),
         }

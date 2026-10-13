@@ -33,6 +33,26 @@ pub enum Verdict {
         /// Position by measured effect.
         rank: usize,
     },
+    /// Visible, but under [`crate::score::weak_floor`]: a small fraction of
+    /// the strongest candidate's score and under one percent of full scale.
+    /// Next to the strongest it is noise on the panel (D259).
+    Weak {
+        /// Position by measured effect.
+        rank: usize,
+    },
+    /// A loop count or draw distance when a stronger one was already kept:
+    /// a scene gets one Quality control (D259).
+    QualityLimit {
+        /// Position by measured effect.
+        rank: usize,
+    },
+    /// With it at its default the rewritten scene did not draw the
+    /// original, so it was dropped rather than ship an unfaithful scene
+    /// (D259).
+    Unfaithful {
+        /// The mean image difference from the original, `0..1`.
+        difference: f32,
+    },
     /// Its effect on the picture was below the visibility threshold.
     Dead,
     /// A nudge turned a lit picture black.
@@ -169,6 +189,9 @@ impl Verdict {
         match self {
             Self::Kept { rank } => format!("KEPT #{rank}"),
             Self::Cut { rank } => format!("cut (rank {rank})"),
+            Self::Weak { rank } => format!("weak (rank {rank})"),
+            Self::QualityLimit { rank } => format!("one quality control already (rank {rank})"),
+            Self::Unfaithful { difference } => format!("unfaithful ({difference:.5})"),
             Self::Dead => "dead".to_string(),
             Self::Broken { reason } => format!("broken ({reason:?})"),
             Self::DoesNotCompile { .. } => "does not compile".to_string(),
@@ -207,6 +230,15 @@ impl Report {
             count(&|v| matches!(v, Verdict::Cut { .. })),
             count(&|v| matches!(v, Verdict::DoesNotCompile { .. })),
         );
+        let weak = count(&|v| matches!(v, Verdict::Weak { .. }));
+        let limited = count(&|v| matches!(v, Verdict::QualityLimit { .. }));
+        let unfaithful = count(&|v| matches!(v, Verdict::Unfaithful { .. }));
+        if weak + limited + unfaithful > 0 {
+            let _ = writeln!(
+                out,
+                "  also not kept: {weak} weak next to the strongest, {limited} over the one-quality-control limit, {unfaithful} unfaithful at defaults"
+            );
+        }
         for c in self.kept_candidates() {
             let _ = writeln!(
                 out,
