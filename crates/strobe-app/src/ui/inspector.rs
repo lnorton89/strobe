@@ -28,10 +28,11 @@
 
 use super::controls;
 use super::icon as icons;
-use super::model::{Action, Model};
+use super::model::{Action, GeneratePanel, Model};
 use super::presets;
 use super::theme::{self, SPACE_SM, SPACE_XS};
 use super::widgets::{self, Tone};
+use crate::generate::{Kept, Outcome, Summary};
 use crate::icon::Icon;
 use crate::palette::Palette;
 use crate::script::ScriptState;
@@ -68,6 +69,7 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
     ui.add_space(SPACE_XS);
     if has_scene {
         presets::show(ui, model, theme, actions);
+        generate_strip(ui, theme, model.generate, actions);
     }
 
     let ui_state = &mut *model.ui;
@@ -82,7 +84,7 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
                 theme,
                 Icon::Controls,
                 "This scene has no controls",
-                "It plays as authored. Auto-generated controls arrive in a later stage.",
+                "It plays as authored. Generate controls makes a copy with some.",
             );
             if let Some(meta) = meta {
                 egui::ScrollArea::vertical()
@@ -97,6 +99,178 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
             "No scene playing",
             "Open the scene library and load one to see its controls.",
         ),
+    }
+}
+
+/// "Generate controls": the button, the worker's progress, or its result
+/// for review (D202). The worker runs in its own process, so the show keeps
+/// playing; the result is a new scene, and the source is never changed.
+fn generate_strip(
+    ui: &mut Ui,
+    theme: &Palette,
+    panel: GeneratePanel<'_>,
+    actions: &mut Vec<Action>,
+) {
+    if let Some((scene, seconds)) = panel.running {
+        widgets::banner(
+            ui,
+            theme,
+            Tone::Info,
+            &format!("Measuring {scene} for controls ({seconds:.0} s). The show keeps playing."),
+            |ui| {
+                if widgets::button(ui, theme, None, "Cancel").clicked() {
+                    actions.push(Action::CancelGenerate);
+                }
+            },
+        );
+        ui.add_space(SPACE_XS);
+        return;
+    }
+    match panel.outcome {
+        Some(Outcome::Done(summary)) => review(ui, theme, summary, actions),
+        Some(Outcome::Failed { message }) => {
+            widgets::banner(
+                ui,
+                theme,
+                Tone::Error,
+                &format!("No controls generated: {message}"),
+                |ui| {
+                    if widgets::button(ui, theme, None, "Dismiss").clicked() {
+                        actions.push(Action::DismissGenerated);
+                    }
+                },
+            );
+            ui.add_space(SPACE_XS);
+        }
+        None => {
+            let (label, tip) = if panel.authored {
+                (
+                    "Add generated controls",
+                    "Measure the scene's literal numbers in the background and write a copy,                      <name>-auto, with the strongest ones added beside the controls it has.                      This scene is not changed.",
+                )
+            } else {
+                (
+                    "Generate controls",
+                    "Measure the scene's literal numbers in the background and write a copy,                      <name>-auto, with the strongest ones as controls. This scene is not changed.",
+                )
+            };
+            if widgets::button(ui, theme, Some(Icon::Controls), label)
+                .on_hover_text(tip)
+                .clicked()
+            {
+                actions.push(Action::GenerateControls);
+            }
+            ui.add_space(SPACE_XS);
+        }
+    }
+}
+
+/// The worker's result: what it made, how faithful the copy is, and the two
+/// ways on.
+fn review(ui: &mut Ui, theme: &Palette, summary: &Summary, actions: &mut Vec<Action>) {
+    theme::card(theme).show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        let Some(written) = summary.written.as_ref() else {
+            ui.label(
+                egui::RichText::new(format!(
+                    "No useful controls in {}: {} literal(s) measured, none moved the picture enough.",
+                    summary.scene, summary.candidates
+                ))
+                .color(theme::rgb(theme.text)),
+            );
+            if widgets::button(ui, theme, None, "Dismiss").clicked() {
+                actions.push(Action::DismissGenerated);
+            }
+            return;
+        };
+        let name = written
+            .file_name()
+            .map(|n| n.to_string_lossy().trim_end_matches(".synScene").to_owned())
+            .unwrap_or_default();
+        ui.label(
+            egui::RichText::new(format!(
+                "{} control(s) for {}, written as {name}",
+                summary.kept.len(),
+                summary.scene
+            ))
+            .strong()
+            .color(theme::rgb(theme.text)),
+        );
+        let faithful = summary
+            .fidelity
+            .map_or_else(|| "not measured".to_owned(), |f| format!("{:.1}% off", f * 100.0));
+        ui.label(
+            egui::RichText::new(format!(
+                "At their defaults the copy matches the original ({faithful}). This scene is unchanged."
+            ))
+            .small()
+            .color(theme::rgb(theme.text_muted)),
+        );
+        ui.add_space(SPACE_XS);
+        let strongest = summary
+            .kept
+            .iter()
+            .filter_map(|k| k.score)
+            .fold(f32::EPSILON, f32::max);
+        for kept in &summary.kept {
+            ui.horizontal(|ui| {
+                // The bar first, in a fixed column, so a long colour range
+                // never runs under it.
+                let fraction = kept.score.unwrap_or(0.0) / strongest;
+                let _ = widgets::meter(ui, theme, fraction, theme.accent, 36.0)
+                    .on_hover_text("How much the picture moves with it, against the strongest");
+                ui.label(
+                    egui::RichText::new(&kept.name)
+                        .monospace()
+                        .color(theme::rgb(theme.text)),
+                );
+                ui.label(
+                    egui::RichText::new(format!("{} · {}", kept.group, range(kept)))
+                        .small()
+                        .color(theme::rgb(theme.text_muted)),
+                )
+                .on_hover_text(&kept.context);
+            });
+        }
+        for line in &summary.suggestions {
+            ui.label(
+                egui::RichText::new(format!("Audio idea: {line}"))
+                    .small()
+                    .color(theme::rgb(theme.text_faint)),
+            );
+        }
+        ui.add_space(SPACE_XS);
+        ui.horizontal(|ui| {
+            if widgets::primary_button(ui, theme, &format!("Open {name}")).clicked() {
+                actions.push(Action::OpenGenerated);
+            }
+            if widgets::button(ui, theme, None, "Discard copy")
+                .on_hover_text("Delete the copy. The original scene is not touched.")
+                .clicked()
+            {
+                actions.push(Action::DiscardGenerated);
+            }
+        });
+    });
+    ui.add_space(SPACE_XS);
+}
+
+/// `0.5 (0–2)` for a slider, `(0.8, 0.3, 0.1)` for a colour.
+fn range(kept: &Kept) -> String {
+    let join = |values: &[f32]| {
+        values
+            .iter()
+            .map(|v| format!("{v:.2}"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    match (
+        kept.default.as_slice(),
+        kept.min.as_slice(),
+        kept.max.as_slice(),
+    ) {
+        ([value], [min], [max]) => format!("{value:.2} ({min:.2}–{max:.2})"),
+        (values, _, _) => format!("({})", join(values)),
     }
 }
 

@@ -105,6 +105,8 @@ pub fn draw(ctx: &Context, theme: &Palette, model: &mut Model<'_>, actions: &mut
     let availability = Availability {
         playlist: model.transport.cue.is_some(),
         can_step: model.transport.can_step,
+        playing: model.controls.is_some(),
+        generating: model.generate.running.is_some(),
     };
     let all = items(model.remote.bindings, availability);
     let just_opened = std::mem::take(&mut model.ui.command_palette.just_opened);

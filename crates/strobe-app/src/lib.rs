@@ -52,6 +52,7 @@ pub mod diagnose;
 pub mod dialog;
 pub mod failures;
 pub mod fault;
+pub mod generate;
 pub mod gldebug;
 pub mod icon;
 pub mod import;

@@ -21,8 +21,9 @@ anywhere. The same scene always gives the same controls (D126).
   tab-marker constants only), `strobe-gfx` (`ScenePlayer` for scoring, and
   `offscreen` for the CLI's context), `strobe-ssf-lib` (library identifiers a control
   must not shadow), plus serde, serde_json, thiserror, clap, anyhow, log.
-- **Used by:** the `strobe-autocontrol` binary here. The app does not call it
-  yet; the review panel is not built.
+- **Used by:** the `strobe-autocontrol` binary here, and the app's "Generate
+  controls" (D202). The app runs it in a worker process of its own executable
+  (`strobe_app::generate`), so the show never waits on scoring.
 - **Does not:**
   - touch the frame loop: scoring runs at import time only;
   - edit a scene in place: the result is a new folder;
@@ -162,8 +163,9 @@ STROBE_REQUIRE_HEADLESS_GL=1 STROBE_REQUIRE_WINDOW_GL=1 \
 
 - **Verified:** llvmpipe (Mesa) on desktop GL 3.3 core and GLES 3.0. Not a real
   GPU, not the T480, not ANGLE itself.
-- **No app integration.** There is no Import or Inspector review panel and the
-  app does not call `generate`.
+- **The app's review is open-or-discard.** The Inspector shows what was made
+  (D202), but a control cannot yet be dropped or re-ranged before the copy is
+  written.
 - **Window mode on Windows is unverified.** `--context window` agrees with
   `--context headless` byte for byte on llvmpipe under Xvfb, but it has not
   run on the T480 yet (the check is in `docs/hardware/T480.md`).

@@ -95,6 +95,7 @@ use crate::commands::{self, Bindings, CommandId, Focus};
 use crate::console::Console;
 use crate::failures;
 use crate::fault::{self, Faults};
+use crate::generate;
 use crate::gldebug;
 use crate::import::{self, Input, Outcome};
 use crate::library::{Health, Library};
@@ -109,9 +110,9 @@ use crate::show::{self, Env, Phase, Show};
 use crate::stats::FrameStats;
 use crate::ui::widgets::Tone;
 use crate::ui::{
-    Action, CueTransport, FailurePanel, ImportPanel, ListenerPanel, MapUi, Model, NoticePanel,
-    PerfPanel, PlaylistPanel, PlaylistUi, Preview, RemotePanel, ScenePreview, ShellState,
-    TransportPanel, UiHost, UiState, shell,
+    Action, CueTransport, FailurePanel, GeneratePanel, ImportPanel, ListenerPanel, MapUi, Model,
+    NoticePanel, PerfPanel, PlaylistPanel, PlaylistUi, Preview, RemotePanel, ScenePreview,
+    ShellState, TransportPanel, UiHost, UiState, shell,
 };
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -597,6 +598,10 @@ struct Running {
     listen_port: u16,
     /// Strobe's data directory: the token, the API key, the texture cache.
     data_dir: std::path::PathBuf,
+    /// The generate-controls worker, while one runs (D202).
+    generate_job: Option<generate::Job>,
+    /// Its result, until the operator opens, discards or dismisses it.
+    generate_outcome: Option<generate::Outcome>,
 
     /// Presentation state (panes, the browser query, the theme), persisted.
     ui_state: UiState,
@@ -824,6 +829,8 @@ impl Running {
             listener_failed: false,
             listen_port: cli.listen_port,
             data_dir,
+            generate_job: None,
+            generate_outcome: None,
         };
         let (bindings, problems) = Bindings::from_config(&running.remote.hotkeys);
         for problem in problems {
@@ -1212,6 +1219,7 @@ impl Running {
             self.refresh_monitors(event_loop);
         }
         self.drain_imports();
+        self.poll_generate();
         if now >= self.next_output {
             if self.output_visible {
                 self.stack.output.window().request_redraw();
@@ -2027,6 +2035,100 @@ impl Running {
         }
     }
 
+    /// Starts a worker that generates controls for the playing scene (D202).
+    /// The show keeps running: the worker has its own process and context.
+    fn start_generate(&mut self) {
+        if self.generate_job.is_some() {
+            return;
+        }
+        let Some(session) = self.stack.session.as_ref() else {
+            return;
+        };
+        let merge = session
+            .controls
+            .defs()
+            .iter()
+            .any(strobe_autocontrol::is_authored);
+        let dir = session.dir.clone();
+        let exe = match std::env::current_exe() {
+            Ok(exe) => exe,
+            Err(error) => {
+                self.say(Tone::Error, format!("Cannot generate controls: {error}"));
+                return;
+            }
+        };
+        match generate::Job::spawn(&exe, &dir, &self.library.dir, merge) {
+            Ok(job) => {
+                log::info!(
+                    "generate controls for {} started (merge {merge})",
+                    dir.display()
+                );
+                self.generate_outcome = None;
+                self.generate_job = Some(job);
+            }
+            Err(error) => {
+                self.say(Tone::Error, format!("Cannot generate controls: {error}"));
+            }
+        }
+    }
+
+    /// Takes the worker's result once it has one (non-blocking).
+    fn poll_generate(&mut self) {
+        let Some(job) = self.generate_job.as_mut() else {
+            return;
+        };
+        let Some(outcome) = job.poll() else {
+            return;
+        };
+        match &outcome {
+            generate::Outcome::Done(summary) => log::info!(
+                "generate controls for {}: {} control(s) from {} candidate(s), fidelity {:?}, {}",
+                summary.scene,
+                summary.kept.len(),
+                summary.candidates,
+                summary.fidelity,
+                summary
+                    .written
+                    .as_ref()
+                    .map_or_else(|| "nothing written".to_owned(), |p| p.display().to_string())
+            ),
+            generate::Outcome::Failed { message } => {
+                log::warn!("generate controls for {}: {message}", job.scene);
+            }
+        }
+        self.generate_job = None;
+        self.generate_outcome = Some(outcome);
+    }
+
+    /// Loads the scene the worker wrote.
+    fn open_generated(&mut self) {
+        let Some(generate::Outcome::Done(summary)) = self.generate_outcome.take() else {
+            return;
+        };
+        let Some(written) = summary.written else {
+            return;
+        };
+        self.show_imported(&written);
+    }
+
+    /// Deletes the scene the worker wrote. Only a generated folder in the
+    /// library can be deleted ([`generate::discard`]).
+    fn discard_generated(&mut self) {
+        let Some(generate::Outcome::Done(summary)) = self.generate_outcome.take() else {
+            return;
+        };
+        let Some(written) = summary.written else {
+            return;
+        };
+        match generate::discard(&self.library.dir, &written) {
+            Ok(()) => {
+                log::info!("discarded {}", written.display());
+                self.rescan_library();
+            }
+            Err(error) => self.say(Tone::Error, format!("Could not discard it: {error}")),
+        }
+    }
+
     /// Rescans the library and loads the scene at `dir`, so a finished
     /// import is on screen without another click. Runs on the main thread:
     /// the scene's shaders are compiled here, never on the worker.
@@ -2122,6 +2224,16 @@ impl Running {
                         self.request_load(index);
                     }
                 }
+                Action::GenerateControls => self.start_generate(),
+                Action::CancelGenerate => {
+                    if let Some(mut job) = self.generate_job.take() {
+                        job.stop();
+                        log::info!("generate controls for {}: cancelled", job.scene);
+                    }
+                }
+                Action::OpenGenerated => self.open_generated(),
+                Action::DiscardGenerated => self.discard_generated(),
+                Action::DismissGenerated => self.generate_outcome = None,
                 Action::Preview(index) => self.pending_preview = Some(index),
                 Action::ClosePreview => self.close_preview(),
                 Action::RescanLibrary => self.rescan_library(),
@@ -2752,6 +2864,13 @@ impl Running {
             _ => None,
         };
         let next = self.step_target(1);
+        let authored = self.stack.session.as_ref().is_some_and(|session| {
+            session
+                .controls
+                .defs()
+                .iter()
+                .any(strobe_autocontrol::is_authored)
+        });
         let (scene_title, controls, meta, script, scene_time, presets, active_preset, scene_name) =
             match self.stack.session.as_mut() {
                 Some(session) => {
@@ -2861,6 +2980,14 @@ impl Running {
                 active_preset,
                 scene_name,
                 bindings: &self.bindings,
+            },
+            generate: GeneratePanel {
+                running: self
+                    .generate_job
+                    .as_ref()
+                    .map(|job| (job.scene.as_str(), job.elapsed().as_secs_f32())),
+                outcome: self.generate_outcome.as_ref(),
+                authored,
             },
         };
         let mut actions = std::mem::take(&mut self.actions);
@@ -3062,9 +3189,10 @@ fn command_action(command: CommandId, blackout: bool) -> Option<Action> {
         CommandId::BlackoutOff => Some(Action::SetBlackout(false)),
         CommandId::ToggleFullscreen => Some(Action::ToggleFullscreen),
         CommandId::TapTempo => Some(Action::TapTempo),
-        CommandId::FocusBrowserSearch | CommandId::CloseTopmostPane | CommandId::OpenPalette => {
-            None
-        }
+        CommandId::FocusBrowserSearch
+        | CommandId::CloseTopmostPane
+        | CommandId::OpenPalette
+        | CommandId::GenerateControls => None,
     }
 }
 
@@ -3191,6 +3319,7 @@ mod tests {
                 CommandId::FocusBrowserSearch
                     | CommandId::CloseTopmostPane
                     | CommandId::OpenPalette
+                    | CommandId::GenerateControls
             );
             assert_eq!(
                 action.is_none(),

@@ -21,6 +21,7 @@ strobe-script = { path = "crates/strobe-script" }
 strobe-diag = { path = "crates/strobe-diag" }
 strobe-playlist = { path = "crates/strobe-playlist" }
 strobe-io = { path = "crates/strobe-io" }
+strobe-autocontrol = { path = "crates/strobe-autocontrol" }
 # Without its `net` feature (the HTTP client, which needs C for ring): a
 # crate that only converts or analyses shaders must not pull a C compiler
 # into the Windows cross-check. The app opts in.

@@ -117,6 +117,7 @@ pub fn run(command: CommandId, model: &mut Model<'_>, actions: &mut Vec<Action>)
             let _ = model.ui.panes.close_topmost();
         }
         CommandId::OpenPalette => model.ui.command_palette.toggle(),
+        CommandId::GenerateControls => actions.push(Action::GenerateControls),
     }
 }
 

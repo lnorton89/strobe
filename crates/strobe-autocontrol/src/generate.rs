@@ -118,9 +118,14 @@ pub struct Generated {
 pub fn authored_controls(def: &SceneDef) -> Vec<String> {
     def.controls
         .iter()
-        .filter(|c| !(c.name.starts_with("st_") && c.group.as_deref() == Some("Strobe")))
+        .filter(|c| is_authored(c))
         .map(|c| c.name.clone())
         .collect()
+}
+
+/// Whether a person wrote `control`, rather than an import adding it.
+pub fn is_authored(control: &ControlDef) -> bool {
+    !(control.name.starts_with("st_") && control.group.as_deref() == Some("Strobe"))
 }
 
 /// Which candidates to try first when there are too many to try all.

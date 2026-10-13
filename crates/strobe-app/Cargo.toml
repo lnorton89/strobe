@@ -26,6 +26,7 @@ strobe-audio.workspace = true
 strobe-script.workspace = true
 strobe-playlist.workspace = true
 strobe-io.workspace = true
+strobe-autocontrol.workspace = true
 strobe-shadertoy = { workspace = true, features = ["net"] }
 anyhow.workspace = true
 clap.workspace = true

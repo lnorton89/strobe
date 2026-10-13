@@ -211,6 +211,8 @@ pub enum Category {
     Playback,
     /// The output window.
     Window,
+    /// The playing scene itself.
+    Scene,
 }
 
 /// A command the keyboard can invoke.
@@ -244,11 +246,13 @@ pub enum CommandId {
     TapTempo,
     /// Open the command palette, or close it.
     OpenPalette,
+    /// Generate controls for the playing scene in the background (D202).
+    GenerateControls,
 }
 
 impl CommandId {
     /// Every command, in the order the help text lists them.
-    pub const ALL: [CommandId; 14] = [
+    pub const ALL: [CommandId; 15] = [
         Self::PrevScene,
         Self::NextScene,
         Self::ToggleHold,
@@ -263,6 +267,7 @@ impl CommandId {
         Self::CloseTopmostPane,
         Self::TapTempo,
         Self::OpenPalette,
+        Self::GenerateControls,
     ];
 
     /// The command's stable id, the name mappings, OSC addresses
@@ -284,6 +289,7 @@ impl CommandId {
             Self::CloseTopmostPane => "close_topmost_pane",
             Self::TapTempo => "tap_tempo",
             Self::OpenPalette => "open_palette",
+            Self::GenerateControls => "generate_controls",
         }
     }
 
@@ -299,7 +305,12 @@ impl CommandId {
     /// middle of a show is a mistake waiting to happen.
     pub fn mappable(self) -> bool {
         match self {
-            Self::FocusBrowserSearch | Self::CloseTopmostPane | Self::OpenPalette => false,
+            // A pad that starts minutes of measuring mid-show is a mistake
+            // waiting to happen.
+            Self::FocusBrowserSearch
+            | Self::CloseTopmostPane
+            | Self::OpenPalette
+            | Self::GenerateControls => false,
             Self::NextScene
             | Self::PrevScene
             | Self::ToggleHold
@@ -331,6 +342,7 @@ impl CommandId {
             Self::CloseTopmostPane => "Close pane",
             Self::TapTempo => "Tap tempo",
             Self::OpenPalette => "Command palette",
+            Self::GenerateControls => "Generate controls",
         }
     }
 
@@ -351,6 +363,7 @@ impl CommandId {
                 Category::Navigation
             }
             Self::ToggleFullscreen => Category::Window,
+            Self::GenerateControls => Category::Scene,
         }
     }
 
@@ -374,7 +387,7 @@ impl CommandId {
             Self::CloseTopmostPane => Chord::plain(Key::Escape),
             Self::TapTempo => Chord::plain(Key::T),
             Self::OpenPalette => Chord::command(Key::Letter('K')),
-            Self::BlackoutOn | Self::BlackoutOff => return None,
+            Self::BlackoutOn | Self::BlackoutOff | Self::GenerateControls => return None,
         })
     }
 
@@ -392,7 +405,8 @@ impl CommandId {
             | Self::FocusBrowserSearch
             | Self::CloseTopmostPane
             | Self::TapTempo
-            | Self::OpenPalette => false,
+            | Self::OpenPalette
+            | Self::GenerateControls => false,
         }
     }
 }
@@ -539,13 +553,17 @@ mod tests {
     }
 
     #[test]
-    fn only_the_explicit_blackout_commands_have_no_default_key() {
+    fn the_commands_with_no_default_key_are_the_explicit_ones() {
         let unbound: Vec<&str> = CommandId::ALL
             .into_iter()
             .filter(|c| c.chord().is_none())
             .map(CommandId::id)
             .collect();
-        assert_eq!(unbound, ["blackout_on", "blackout_off"], "which");
+        assert_eq!(
+            unbound,
+            ["blackout_on", "blackout_off", "generate_controls"],
+            "which"
+        );
         let (bindings, problems) = Bindings::from_config(&table(&[("blackout_on", "Shift+B")]));
         assert!(problems.is_empty(), "{problems:?}");
         let shift_b = Chord {
@@ -600,7 +618,12 @@ mod tests {
             .collect();
         assert_eq!(
             unmappable,
-            ["focus_browser_search", "close_topmost_pane", "open_palette"],
+            [
+                "focus_browser_search",
+                "close_topmost_pane",
+                "open_palette",
+                "generate_controls"
+            ],
             "which"
         );
     }

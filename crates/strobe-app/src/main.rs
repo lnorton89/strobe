@@ -48,7 +48,7 @@ use anyhow::{Context as _, Result};
 use clap::Parser as _;
 use std::process::ExitCode;
 use std::time::Duration;
-use strobe_app::{app, cli, diagnose, dialog, library};
+use strobe_app::{app, cli, diagnose, dialog, generate, library};
 use strobe_diag::failure::{self, Failure, Subsystem};
 use winit::event_loop::EventLoop;
 
@@ -79,6 +79,15 @@ fn main() -> ExitCode {
         diagnose::run();
         return ExitCode::SUCCESS;
     }
+    if let Some(args) = generate_worker(&cli) {
+        let wrote = generate::worker(&args);
+        strobe_diag::logger::flush(FLUSH_TIMEOUT);
+        return if wrote {
+            ExitCode::SUCCESS
+        } else {
+            ExitCode::FAILURE
+        };
+    }
     // 5. Held until `main` returns; dropping it detaches the handler.
     let _crash_capture = strobe_diag::crash::start_monitor();
 
@@ -98,6 +107,27 @@ fn main() -> ExitCode {
 }
 
 /// Why a run ended in failure, and whether the windows had opened by then.
+/// The worker's arguments, when this process is a generate-controls worker
+/// (D202).
+fn generate_worker(cli: &cli::Cli) -> Option<generate::WorkerArgs> {
+    let scene = cli.generate_controls.clone()?;
+    let library = cli
+        .generate_library
+        .clone()
+        .or_else(|| scene.parent().map(std::path::Path::to_path_buf))
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    let report = cli
+        .generate_report
+        .clone()
+        .unwrap_or_else(|| scene.with_extension("generate.json"));
+    Some(generate::WorkerArgs {
+        scene,
+        library,
+        report,
+        merge: cli.generate_merge,
+    })
+}
+
 struct Stopped {
     error: anyhow::Error,
     after_start: bool,
