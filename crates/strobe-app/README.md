@@ -223,8 +223,9 @@ runs are listed in [`DEBUGGING.md`](../../docs/DEBUGGING.md).
 - Show control (D170-D179) is built and verified under Xvfb with real OSC
   datagrams, a real click on Learn, and headless GL for cue presets; **no MIDI
   controller has been used**, and nothing here has run on the T480 or Windows.
-  Not built: OSC or MIDI output, a macro range and colour editor, an explicit
-  blackout on/off command, an in-app hotkey editor.
+  Not built: OSC or MIDI output, a macro range and colour editor. Shortcuts
+  are edited in Settings > Keyboard (D208), and blackout has explicit on and
+  off commands (D201).
   Cube maps and `syn_Media` stills and sequences work (D185, D186), video
   and webcam do not. Script `meta/` writes land in the session's meta bank,
   which the post stage renders from (D180), checked on llvmpipe under Xvfb

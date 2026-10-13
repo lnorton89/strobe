@@ -2261,6 +2261,40 @@ impl Running {
         log::info!("tags: {name} is now [{}]", tags.join(", "));
     }
 
+    /// Applies a shortcut change at once (D208): the bindings are rebuilt
+    /// from the table, which the remote's saver writes to
+    /// `show-control.json`. A refusal (another command holds the key) is
+    /// handed to the Settings pane to ask about.
+    fn hotkey_changed(
+        &mut self,
+        command: CommandId,
+        chord: Option<commands::Chord>,
+        result: Result<(), CommandId>,
+    ) {
+        match result {
+            Ok(()) => {
+                let (bindings, problems) = Bindings::from_config(&self.remote.hotkeys);
+                for problem in problems {
+                    log::warn!("{problem}");
+                }
+                self.bindings = bindings;
+                self.ui_state.hotkeys.clash = None;
+                log::info!(
+                    "hotkeys: {} is now {}",
+                    command.id(),
+                    self.bindings
+                        .chord(command)
+                        .map_or_else(|| commands::UNBOUND.to_owned(), commands::Chord::label)
+                );
+            }
+            Err(holder) => {
+                if let Some(chord) = chord {
+                    self.ui_state.hotkeys.clash = Some((command, chord, holder));
+                }
+            }
+        }
+    }
+
     /// Reads the tags of the library entry in `dir` again, and tells the
     /// browser to refilter.
     fn refresh_tags(&mut self, dir: &Path) {
@@ -2513,6 +2547,18 @@ impl Running {
             match action {
                 Action::Load(index) => self.request_load(index),
                 Action::SetSceneTags(tags) => self.set_scene_tags(&tags),
+                Action::SetHotkey {
+                    command,
+                    chord,
+                    steal,
+                } => {
+                    let result = Bindings::assign(&mut self.remote.hotkeys, command, chord, steal);
+                    self.hotkey_changed(command, chord, result);
+                }
+                Action::ResetHotkey(command) => {
+                    let result = Bindings::reset(&mut self.remote.hotkeys, command);
+                    self.hotkey_changed(command, command.chord(), result);
+                }
                 Action::Reload => {
                     if let Some(index) = self.playing {
                         self.request_load(index);

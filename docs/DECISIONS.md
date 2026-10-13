@@ -3317,3 +3317,36 @@ D192 lets undo the forced alpha.
 This supersedes D182's reset; D182's other half (a transition reads the
 live scene's meta) stands.
 
+### D208: shortcuts are edited in Settings, a clash is named and moved only on purpose (2026-10-13)
+
+D178 put shortcut overrides in `show-control.json`'s `hotkeys` table, read
+once at start. Backlog U-05 asked for an editor that captures a key, shows
+conflicts and defaults, resets, and saves.
+
+- **Capture.** Settings > Keyboard lists every command with its shortcut
+  (custom ones in another colour). Change waits for the next key; Esc
+  cancels. While it waits, every shortcut is off (the same rule as the
+  palette and a modal), so the key being captured never also runs its
+  command.
+- **A clash is a question.** If another command holds the key, nothing
+  changes; the row says "Ctrl+B is Toggle blackout" and offers *Move it
+  here* (the other command is left with no shortcut, visibly) or *Keep it
+  there*. A key is never moved silently.
+- **"none" is a value.** A command can be cleared, and the table writes
+  `"none"`. `Bindings::from_config` applies the `none` lines first, so a
+  moved key reads the same whatever order the file lists the lines in.
+  Before this, a table could not express a swap.
+- **Defaults stay out of the file.** Choosing a command's default chord, or
+  Reset, removes its line. Reset is refused, with the holder named, when
+  another command has taken that key meanwhile.
+- **Live.** The bindings are rebuilt from the table at once, and the remote
+  config's saver writes the file. No restart.
+- Keys the table cannot hold (anything but letters, digits, F1 to F12,
+  Space, the arrows and Esc) are ignored while capturing, and Esc cannot
+  be captured, since it cancels. A file can still bind Esc.
+
+**Evidence:** `commands.rs` tests (assign, steal, reset refused and then
+allowed, the table back to empty, labels round-trip) and `shell_tests`
+(Ctrl+B while capturing becomes tap tempo's key and fires nothing; Esc
+cancels and the next B is blackout again; the clash row at six sizes).
+

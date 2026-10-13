@@ -183,7 +183,7 @@ Each item names its acceptance test. Evidence is in [STATUS_AUDIT.md](STATUS_AUD
    - Synesthesia's OSC address layout, if it is wanted (Q23);
    - macro range and colour editors, per-macro shortcut and smoothing, a pin
      button in the Controls pane;
-   - an in-app hotkey editor (waits for the command palette);
+   - ~~an in-app hotkey editor~~ (built, D208);
    - presets for **media** (PLAN's third channel) once media is controllable,
      and renaming a preset;
    - a MIDI-learn flow exercised by a person on the T480 (the Learn click is

@@ -153,6 +153,10 @@ checked and not committed. Interaction was driven with xdotool.
 - [ ] The UI's frame cost and a Preview's GPU cost on the T480 (the layout
   pass was about 1 ms in a debug build on llvmpipe; the paint there is
   software rasterisation and says nothing).
+- [x] Shortcuts edited in Settings (D208): capture, a named clash moved only
+  on purpose, clear, reset, live and saved. Evidence: `commands.rs` and
+  `ui::shell_tests` (capture fires nothing, Esc cancels, the clash row at six
+  sizes). Not yet: real keys on the T480.
 - [ ] Performance Macros as persistent bindings with the Unresolved states;
   Editor and Mappings; a command palette (stage 2). (Hold and the Playlist
   pane are built, D156 and D157.)
