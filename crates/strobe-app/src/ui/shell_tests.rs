@@ -20,9 +20,9 @@
 
 use super::shell::{ShellState, show};
 use super::{
-    Action, AudioPanel, CueTransport, FailurePanel, GeneratePanel, ImportPanel, ListenerPanel,
-    MapUi, Model, NoticePanel, PerfPanel, PlaylistPanel, PlaylistUi, Preview, RemotePanel,
-    ScenePreview, TransportPanel, UiState,
+    Action, AudioPanel, CueTransport, EditorPanel, FailurePanel, GeneratePanel, ImportPanel,
+    ListenerPanel, MapUi, Model, NoticePanel, PerfPanel, PlaylistPanel, PlaylistUi, Preview,
+    RemotePanel, ScenePreview, TransportPanel, UiState,
 };
 use crate::console::Console;
 use crate::import::Status;
@@ -100,6 +100,12 @@ const BASE: Scenario = Scenario {
 fn scenarios() -> Vec<Scenario> {
     vec![
         BASE,
+        Scenario {
+            name: "editor open with an unsaved edit",
+            failed: true,
+            panes: &[Pane::Editor, Pane::Inspector],
+            ..BASE
+        },
         Scenario {
             name: "generating controls",
             generating: true,
@@ -261,6 +267,26 @@ fn scenarios() -> Vec<Scenario> {
 
 /// Show control with the content the MAP pane and the macro strip need to
 /// show every state: nothing, or one of each.
+/// A scene open in the Editor, with an unsaved edit, built in memory (no
+/// files are read).
+fn sample_doc() -> crate::editor::Doc {
+    let shader = "// Aurora\n#define BANDS 4\nvec4 renderMain() {\n    float t = TIME * 0.5;\n    \
+                  vec3 c = vec3(0.2, 0.5, 0.9) * (0.5 + 0.5 * sin(_uv.x * 6.0 + t));\n    \
+                  return vec4(c, 1.0);\n}\n";
+    let mut doc = crate::editor::Doc::in_memory(
+        "scenes/02-scene-1",
+        "02-scene-1",
+        &[
+            ("main.glsl", shader),
+            ("scene.json", "{ \"TITLE\": \"Aurora\" }"),
+        ],
+    );
+    if let Some(tab) = doc.tabs.first_mut() {
+        tab.text.push_str("// edited\n");
+    }
+    doc
+}
+
 /// A worker's result for the review card.
 fn sample_generated() -> crate::generate::Outcome {
     use crate::generate::{Kept, Outcome, Summary};
@@ -496,6 +522,7 @@ fn draw_events(
         .then(|| sample_show(&library))
         .transpose()?;
     let generated = scenario.generated.then(sample_generated);
+    let mut editor_doc = scenario.panes.contains(&Pane::Editor).then(sample_doc);
     let generate_panel = GeneratePanel {
         running: scenario.generating.then_some(("01-scene-0", 12.0)),
         outcome: generated.as_ref(),
@@ -608,6 +635,10 @@ fn draw_events(
                 bindings: &bindings,
             },
             generate: generate_panel,
+            editor: EditorPanel {
+                doc: editor_doc.as_mut(),
+                playing_dir: None,
+            },
         };
         let pass = crate::ui::testing::run(
             &ctx,

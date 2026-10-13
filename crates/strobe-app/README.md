@@ -63,6 +63,7 @@ in both GLSL dialects in a child process per scene, and writes
 | `recovery`, `fault` | The context-loss policy (a pure state machine) and `STROBE_FAULT` injection. |
 | `ui` | The control window: a shell, panes and widgets as a function of a `Model` that returns `Action`s (D120, D130-D138). |
 | `workspace`, `prefs`, `commands` | The pane model and how it fits a window, the saved UI preferences (`ui.toml`), and the keyboard command table with its focus rule. Pure. |
+| `editor` | The Editor's documents: a scene's source files as tabs, unsaved state, atomic saves, backups in the data directory, error locations and the GLSL highlighter (D204). No egui. |
 | `commands`, `command_palette` | The command table and focus rule, and what the Ctrl+K palette lists, how it ranks a query, and why an entry is unavailable. No egui. |
 | `color`, `palette`, `motion`, `icon` | The UI system ported from rustaman (D5): colour maths, themes with WCAG tests, durations and reduced motion, geometry icons. No egui. |
 | `library`, `console`, `stats` | The data the UI shows: scenes with health and search, the console, frame timings. |
@@ -118,6 +119,8 @@ output out, `F11` toggles fullscreen on the output window, `Ctrl+F` opens the
 scene browser's search, `Esc` closes the topmost pane (and leaves output
 fullscreen), `T` taps tempo, and `Ctrl+K` opens the command palette (D200):
 every command and pane by name, with its shortcut, or why it cannot run now.
+In the Editor (EDIT), `Ctrl+S` saves and `Ctrl+Enter` saves and reloads the
+scene (D204); typing alone never changes the output.
 None fires while a text field has focus or the palette is open, and the
 arrows and Space stay with a focused slider. The control window always opens
 maximized (D65) unless `--window-size` is given.

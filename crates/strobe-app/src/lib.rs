@@ -50,6 +50,7 @@ pub mod console;
 pub mod corpus;
 pub mod diagnose;
 pub mod dialog;
+pub mod editor;
 pub mod failures;
 pub mod fault;
 pub mod generate;

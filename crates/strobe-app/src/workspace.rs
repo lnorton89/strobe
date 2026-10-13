@@ -57,6 +57,8 @@ pub enum Pane {
     Playlist,
     /// Mappings: MIDI and OSC, learn, macros and the activity monitor.
     Map,
+    /// The scene's source files: edit, save, reload (U-02).
+    Editor,
 }
 
 /// Which side of the work surface a pane docks to.
@@ -70,7 +72,7 @@ pub enum Dock {
 
 impl Pane {
     /// Every pane, in a fixed order that indexes the arrays below.
-    pub const ALL: [Pane; 7] = [
+    pub const ALL: [Pane; 8] = [
         Pane::Browser,
         Pane::Import,
         Pane::Inspector,
@@ -78,6 +80,7 @@ impl Pane {
         Pane::Settings,
         Pane::Playlist,
         Pane::Map,
+        Pane::Editor,
     ];
 
     fn index(self) -> usize {
@@ -89,13 +92,14 @@ impl Pane {
             Self::Settings => 4,
             Self::Playlist => 5,
             Self::Map => 6,
+            Self::Editor => 7,
         }
     }
 
     /// The dock this pane lives in.
     pub fn dock(self) -> Dock {
         match self {
-            Self::Browser | Self::Import => Dock::Left,
+            Self::Browser | Self::Import | Self::Editor => Dock::Left,
             Self::Inspector | Self::Diagnostics | Self::Settings | Self::Playlist | Self::Map => {
                 Dock::Right
             }
@@ -112,6 +116,7 @@ impl Pane {
             Self::Settings => "Settings",
             Self::Playlist => "Playlist",
             Self::Map => "Mappings",
+            Self::Editor => "Editor",
         }
     }
 
@@ -125,6 +130,7 @@ impl Pane {
             Self::Settings => "settings",
             Self::Playlist => "playlist",
             Self::Map => "map",
+            Self::Editor => "editor",
         }
     }
 
@@ -141,6 +147,7 @@ impl Pane {
             Self::Diagnostics | Self::Settings => 300.0,
             Self::Playlist => 340.0,
             Self::Map => 380.0,
+            Self::Editor => 420.0,
         }
     }
 
@@ -152,6 +159,7 @@ impl Pane {
             Self::Diagnostics | Self::Settings => 380.0,
             Self::Playlist => 440.0,
             Self::Map => 460.0,
+            Self::Editor => 580.0,
         }
     }
 
@@ -163,6 +171,7 @@ impl Pane {
             Self::Diagnostics | Self::Settings => 640.0,
             Self::Playlist => 720.0,
             Self::Map => 760.0,
+            Self::Editor => 1100.0,
         }
     }
 }
@@ -185,10 +194,10 @@ pub const NARROW: f32 = 1000.0;
 /// Which panes are open, how wide, and in what order they were opened.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Panes {
-    open: [bool; 7],
-    width: [f32; 7],
+    open: [bool; 8],
+    width: [f32; 8],
     /// When each pane was last opened, on a counter; larger is newer.
-    stamp: [u64; 7],
+    stamp: [u64; 8],
     clock: u64,
 }
 
@@ -197,9 +206,9 @@ impl Default for Panes {
     /// browser closed until asked for.
     fn default() -> Self {
         let mut panes = Self {
-            open: [false; 7],
+            open: [false; 8],
             width: Pane::ALL.map(Pane::default_width),
-            stamp: [0; 7],
+            stamp: [0; 8],
             clock: 0,
         };
         panes.open(Pane::Inspector);
@@ -246,7 +255,7 @@ impl Panes {
 
     /// Closes every pane, for a larger preview.
     pub fn close_all(&mut self) {
-        self.open = [false; 7];
+        self.open = [false; 8];
     }
 
     /// The pane showing in `dock` when there is room: the most recently

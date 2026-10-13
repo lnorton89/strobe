@@ -55,6 +55,7 @@ pub mod chrome;
 pub mod command_palette;
 pub mod controls;
 pub mod diagnostics;
+pub mod editor;
 pub mod host;
 pub mod icon;
 pub mod import;
@@ -81,9 +82,9 @@ pub mod widgets;
 
 pub use host::UiHost;
 pub use model::{
-    Action, AddForm, AddKind, AudioPanel, CueTransport, FailurePanel, GeneratePanel, ImportPanel,
-    ListenerPanel, MapUi, Model, NoticePanel, PerfPanel, PlaylistPanel, PlaylistUi, Preview,
-    RemotePanel, ScenePreview, TransportPanel,
+    Action, AddForm, AddKind, AudioPanel, CueTransport, EditorPanel, FailurePanel, GeneratePanel,
+    ImportPanel, ListenerPanel, MapUi, Model, NoticePanel, PerfPanel, PlaylistPanel, PlaylistUi,
+    Preview, RemotePanel, ScenePreview, TransportPanel,
 };
 pub use shell::ShellState;
 pub use state::UiState;

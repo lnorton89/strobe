@@ -121,6 +121,8 @@ pub struct UiState {
     pub last_scene: String,
     /// The command palette. Not saved: it always starts closed.
     pub command_palette: super::command_palette::PaletteUi,
+    /// The Editor's presentation state (go-to line, highlight cache).
+    pub editor: super::editor::EditorUi,
     theme_id: String,
     reduced_motion: bool,
     catalog: Catalog,
@@ -173,6 +175,7 @@ impl UiState {
             custom_title_bar: prefs.custom_title_bar,
             console_problems_only: false,
             command_palette: super::command_palette::PaletteUi::default(),
+            editor: super::editor::EditorUi::default(),
             last_scene: prefs.last_scene.clone(),
             theme_id: prefs.theme.clone(),
             reduced_motion: reduced,
