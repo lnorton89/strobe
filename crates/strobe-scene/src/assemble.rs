@@ -260,8 +260,16 @@ pub fn fragment(request: &Request<'_>) -> String {
     let (user_code, hoisted) = if es {
         let compares = fixups::passindex_float_compares(&user_code);
         let uniforms = fixups::uniform_initializers(&compares, Branches::for_es(&out));
-        let promoted = promote::int_to_float(&uniforms, &out, true);
-        let (code, hoisted) = fixups::hoist_global_initializers(&promoted, Branches::for_es(&out));
+        let promoted = promote::rewrite(&uniforms, &out, true);
+        // A sampler chosen with `?:` that the rewrite could not move into
+        // a call fails on every ES driver; say so in Strobe's words, at the
+        // user's line, rather than leave the driver's message alone (D261).
+        for line in &promoted.unsupported {
+            let _ = writeln!(out, "#line {line} {}", source::USER);
+            out.push_str(UNSUPPORTED_SELECT);
+        }
+        let (code, hoisted) =
+            fixups::hoist_global_initializers(&promoted.code, Branches::for_es(&out));
         (Cow::Owned(code.into_owned()), hoisted)
     } else {
         // Strict desktop compilers (Mesa, Apple's) reject some of the same
@@ -313,6 +321,11 @@ pub fn fragment(request: &Request<'_>) -> String {
     out.push_str("}\n");
     out
 }
+
+/// The `#error` an ES program gets for each sampler `?:` that
+/// [`promote::rewrite`] could not move into a call. It holds no quotes, which
+/// some preprocessors read as an unterminated literal.
+pub const UNSUPPORTED_SELECT: &str = "#error strobe: a sampler is chosen with ?: here, which GLSL ES does not allow. Strobe rewrites it only as the one such argument of a function call, as in texture(c ? a : b, uv)\n";
 
 /// The full-screen-triangle vertex shader every pass shares.
 ///

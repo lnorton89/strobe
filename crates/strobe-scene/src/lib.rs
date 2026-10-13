@@ -27,7 +27,8 @@
 //!   `renderMain`.
 //! - [`fixups`] are the GLSL ES rewrites for desktop-only SSF idioms, and
 //!   [`promote`] is the type-aware one: every implicit int→float
-//!   conversion, written out.
+//!   conversion, written out, through function-like macros on ES, and a
+//!   sampler chosen with `?:` moved outside its call.
 //! - [`directives`] reads an `#if` on a name that is not a macro as `0`,
 //!   on every driver, as NVIDIA's compiler does.
 //! - [`include`] expands `#include` against the scene folder and the GLSL

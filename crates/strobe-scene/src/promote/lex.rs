@@ -2,7 +2,7 @@
 // Module:       strobe_scene::promote::lex
 // Description:  A GLSL tokenizer that keeps byte offsets, skips comments and
 //               preprocessor lines, and records object-like and function-like
-//               `#define`s.
+//               `#define`s and `#undef`s.
 //
 // Dependencies: none
 // ============================================================================
@@ -49,6 +49,9 @@ pub(super) struct Define<'a> {
     pub name: &'a str,
     /// `true` for `#define NAME(args) ...`.
     pub function_like: bool,
+    /// A function-like macro's parameter names, trimmed, as written: an
+    /// empty list for `NAME()`. Empty for an object-like macro.
+    pub params: Vec<&'a str>,
     /// The replacement text, trimmed, without a trailing `//` comment.
     pub body: &'a str,
 }
@@ -60,6 +63,8 @@ pub(super) struct Lexed<'a> {
     pub tokens: Vec<Token>,
     /// The `#define`s, in order.
     pub defines: Vec<Define<'a>>,
+    /// The names of the `#undef`s, in order.
+    pub undefs: Vec<&'a str>,
 }
 
 /// Operators of three and two bytes, longest first.
@@ -105,11 +110,12 @@ pub(super) fn lex_with<'a>(text: &'a str, branches: &mut Branches) -> Lexed<'a> 
             let end = directive_end(bytes, at);
             let directive = text.get(at + 1..end).unwrap_or_default();
             let active = branches.active();
-            if !branches.follow(directive)
-                && active
-                && let Some(define) = parse_define(directive)
-            {
-                out.defines.push(define);
+            if !branches.follow(directive) && active {
+                if let Some(define) = parse_define(directive) {
+                    out.defines.push(define);
+                } else if let Some(name) = parse_undef(directive) {
+                    out.undefs.push(name);
+                }
             }
             at = end;
             continue;
@@ -189,10 +195,17 @@ fn parse_define(directive: &str) -> Option<Define<'_>> {
     let name = rest.get(..name_len).filter(|name| !name.is_empty())?;
     let after = rest.get(name_len..)?;
     let function_like = after.starts_with('(');
-    let body = if function_like {
-        after.find(')').and_then(|close| after.get(close + 1..))?
+    let (params, body) = if function_like {
+        let close = after.find(')')?;
+        let list = after.get(1..close)?.trim();
+        let params = if list.is_empty() {
+            Vec::new()
+        } else {
+            list.split(',').map(str::trim).collect()
+        };
+        (params, after.get(close + 1..)?)
     } else {
-        after
+        (Vec::new(), after)
     };
     let body = body
         .find("//")
@@ -200,8 +213,23 @@ fn parse_define(directive: &str) -> Option<Define<'_>> {
     Some(Define {
         name,
         function_like,
+        params,
         body: body.trim(),
     })
+}
+
+/// Reads `undef NAME` from a directive's text after the `#`.
+fn parse_undef(directive: &str) -> Option<&str> {
+    let rest = directive.trim_start().strip_prefix("undef")?;
+    if !rest.starts_with([' ', '\t']) {
+        return None;
+    }
+    let rest = rest.trim_start();
+    let name_len = rest
+        .bytes()
+        .position(|b| !(b.is_ascii_alphanumeric() || b == b'_'))
+        .unwrap_or(rest.len());
+    rest.get(..name_len).filter(|name| !name.is_empty())
 }
 
 /// The end of an identifier.
@@ -281,7 +309,7 @@ mod tests {
 
     #[test]
     fn comments_and_directives_are_skipped_and_defines_kept() {
-        let text = "#define N 4 // count\n#define R(a) mat2(a)\n  # if N\nx /* 1 */ += 2; // 3\n";
+        let text = "#define N 4 // count\n#define R(a, b ) mat2(a)\n#undef Q\n  # if N\nx /* 1 */ += 2; // 3\n";
         let lexed = lex(text);
         assert_eq!(
             kinds(text),
@@ -299,16 +327,19 @@ mod tests {
                 Define {
                     name: "N",
                     function_like: false,
+                    params: Vec::new(),
                     body: "4"
                 },
                 Define {
                     name: "R",
                     function_like: true,
+                    params: vec!["a", "b"],
                     body: "mat2(a)"
                 },
             ],
-            "both defines, the comment cut off"
+            "both defines, the parameters trimmed and the comment cut off"
         );
+        assert_eq!(lexed.undefs, vec!["Q"], "the #undef is recorded");
     }
 
     #[test]

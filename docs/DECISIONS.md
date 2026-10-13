@@ -4945,3 +4945,72 @@ passes that check.
 **Would reopen:** a person on the T480 finds a size or state where
 something still collides that these tests miss. The fix is then to add
 that size or state to the tests, not to special-case it.
+
+### D261: GLSL ES sees through function-like macros, and a sampler `?:` becomes a `?:` of calls (2026-10-13)
+
+D199 left two forms that desktop GLSL compiles and GLSL ES rejects (C-02).
+Both are closed in `strobe_scene::promote`, tested with original fixtures
+that failed on ES before and now pass in both dialects on llvmpipe:
+- `render.rs` `function_like_macros_mixing_int_and_float_compile_in_both_dialects`;
+- `render.rs` `a_sampler_chosen_with_a_ternary_compiles_in_both_dialects`;
+- the rewriter's unit tests in `promote/tests.rs`.
+
+**Function-like macros, on ES only.** `#define S(a, b, t) smoothstep(a, b, t)`
+called as `S(0, 1., x)` hid the int from the D199 pass, which typed a macro
+call as unknown. Now each call is typed through the expansion the
+preprocessor would make (`promote::expand`), with every token remembering
+whether it came from the body or from which use of which argument:
+- **When every conversion lands in an argument and every use of a parameter
+  agrees,** it is made at the call site: `S(0.0, 1., x)`, `ROT(1.0)`. The
+  `#define` and the call's shape are unchanged.
+- **Otherwise the one call is replaced by its expansion** with the
+  conversions in it, on the same lines. This covers a body that mixes types
+  (`#define sat(x) clamp(x, 0, 1)` called with a float) and a parameter
+  used both as an index and as a factor. The body itself is never edited,
+  because another call may need it as written (`sat(i)` with an int).
+- **Not followed, so left as D199 left them:** a macro defined twice or
+  `#undef`ed; a body with `#` or `##`; the wrong number of arguments; a body
+  that is not an expression; an inlining that would let the preprocessor
+  expand a self-referencing name it would have left alone. A budget of
+  20,000 expansions per program keeps nested calls from costing exponential
+  time.
+
+Why not expand every macro before the pass? It would rewrite every call in
+every ES scene, including the many that already compile, and error messages
+would show expansions instead of the user's code. Typing through the
+expansion edits only the calls that need it, and most of those keep their
+text.
+
+Desktop output does not change for a macro. Desktop GLSL converts on its
+own, and the corpus passes there.
+
+**A sampler in `?:`, on every dialect.** GLSL forbids an opaque type as an
+operand of `?:`. NVIDIA accepts `texture(i == 0 ? a : b, uv)`; Mesa rejects
+it on desktop as well as ES, and so does ANGLE. The call moves inside:
+`(i == 0 ? texture(a, uv) : texture(b, uv))`. That is the same value on
+every driver: only one branch runs, so the other arguments are still
+evaluated once. Details:
+- It applies to built-in and user functions alike, through parentheses
+  and nested choices.
+- Conversions already found in the call are kept in each copy.
+- The replacement is one line, followed by the newlines the call spanned.
+- It runs on desktop too, because Mesa (llvmpipe) rejects the
+  original there, and the rewritten form is valid on every driver.
+
+**Anything else is reported, not guessed.** Two choices in one call, a choice
+that is not an argument, or (on desktop) one inside a function-like macro
+is left as written. On ES, where it cannot compile, the assembler adds
+`assemble::UNSUPPORTED_SELECT` as an `#error` at the user's line. The error
+then reads `main.glsl:N: ... strobe: a sampler is chosen with ?: here ...`
+instead of only the driver's wording
+(`a_sampler_choice_that_cannot_be_rewritten_fails_with_strobes_message_on_es`).
+Desktop gets no `#error`, since NVIDIA may still compile it.
+
+Edits can now replace whole tokens (`promote::Edit::replace`) as well as
+insert. A replacement never adds or removes a line.
+
+**Would reopen:**
+- a scene that compiled on ES before this and does not after;
+- a desktop frame that changes for a scene without a sampler `?:`;
+- an ANGLE run on the T480 or TORNADO, or the owner's corpus, that shows
+  either rewrite rejected.
