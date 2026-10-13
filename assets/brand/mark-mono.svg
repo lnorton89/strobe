@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="322" height="320" viewBox="0 0 322 320" role="img" aria-labelledby="title desc" color="#080B14">
+  <title id="title">STROBE mark, one colour</title>
+  <desc id="desc">The Parametric Flow ribbon in a single colour: currentColor, near-black unless a page sets it.</desc>
+  <defs>
+
+  </defs>
+<g transform="translate(0 0) scale(1) translate(-76 -82)">
+  <g fill="none" stroke="currentColor" stroke-linecap="round">
+    <g stroke-width="5" opacity=".55">
+      <path d="M136 283 C112 193 181 120 252 136 C313 150 363 213 345 269 C326 320 258 366 201 340 C153 318 132 275 169 235 C209 191 272 193 308 229 C335 255 318 292 283 307 C241 325 202 300 207 266 C212 237 248 222 272 242"/>
+      <path d="M100 256 C76 158 160 82 255 103 C331 121 398 200 375 277 C352 341 264 402 183 365 C124 337 98 271 145 216"/>
+    </g>
+    <path d="M117 269 C93 175 166 99 252 119 C318 135 381 205 360 273 C339 334 260 386 192 355 C136 330 115 273 157 226 C202 176 279 180 322 223 C355 258 333 304 290 322 C241 343 190 307 197 264 C204 221 251 207 282 232 C306 252 298 283 274 295" stroke-width="24"/>
+  </g>
+</g>
+</svg>

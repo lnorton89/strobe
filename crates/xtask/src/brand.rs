@@ -1,7 +1,8 @@
 // ============================================================================
 // Module:       xtask::brand
-// Description:  `cargo xtask brand`: renders the application icon PNGs and
-//               the Windows .ico from the vector sources in assets/brand.
+// Description:  `cargo xtask brand`: renders the application icon PNGs, the
+//               Windows .ico, the banner, the lockups and the social
+//               preview from the vector sources in assets/brand.
 //
 // Dependencies: anyhow, resvg (usvg + tiny-skia), std::fs
 // ============================================================================
@@ -18,7 +19,10 @@
 //!   the guide says a shrunken master turns to mush below 32 px;
 //! - larger sizes come from `icon.svg`;
 //! - `icon.ico` packs the Windows sizes as PNG entries, which every Windows
-//!   since Vista reads.
+//!   since Vista reads;
+//! - the banner, the social preview and the two lockups are rendered at
+//!   their own aspect ratio ([`PICTURES`]). Their type is outlines already
+//!   (`assets/brand/tools/typeset.py`), so no font is read here either.
 //!
 //! `--check` renders everything in memory and fails if a committed file is
 //! missing or differs, so a source edited without regenerating is a CI
@@ -43,6 +47,24 @@ const SMALL_MAX: u32 = 32;
 /// scaling, plus the 256 Explorer uses for large icons.
 const ICO_SIZES: [u32; 6] = [16, 24, 32, 48, 64, 256];
 
+/// Non-square pictures rendered at their own aspect ratio (D256): source,
+/// output and width in pixels. The README banner and the social preview at
+/// the sizes GitHub uses, and each lockup for places that take no SVG.
+const PICTURES: [(&str, &str, u32); 3] = [
+    ("banner.svg", "banner.png", 1280),
+    ("lockup-horizontal.svg", "lockup-horizontal.png", 960),
+    ("lockup-stacked.svg", "lockup-stacked.png", 640),
+];
+
+/// The social preview: an SVG overlay drawn over a real render, a frame of
+/// a library scene from `strobe-bench` (the guide wants real output, not a
+/// mockup). Decoding the render here keeps resvg free of raster decoders.
+const SOCIAL: (&str, &str, &str) = (
+    "social-preview.svg",
+    "social-render.png",
+    "social-preview.png",
+);
+
 /// Renders every derivative and writes it, or with `check`, compares it to
 /// what is committed.
 pub(crate) fn run(check: bool) -> Result<()> {
@@ -61,6 +83,15 @@ pub(crate) fn run(check: bool) -> Result<()> {
         outputs.push((format!("icon-{size}.png"), png));
     }
     outputs.push(("icon.ico".to_string(), ico(&ico_entries)?));
+    for (source, output, width) in PICTURES {
+        let tree = load(&dir.join(source))?;
+        outputs.push((output.to_string(), render_wide(&tree, width)?));
+    }
+    let (overlay, render, output) = SOCIAL;
+    outputs.push((
+        output.to_string(),
+        render_over(&load(&dir.join(overlay))?, &dir.join(render))?,
+    ));
 
     let mut stale = Vec::new();
     for (name, bytes) in &outputs {
@@ -111,6 +142,62 @@ fn render(tree: &resvg::usvg::Tree, size: u32) -> Result<Vec<u8>> {
     pixmap
         .encode_png()
         .with_context(|| format!("encoding the {size} px PNG"))
+}
+
+/// Renders a tree `width` pixels wide at its own aspect ratio, with a
+/// transparent background wherever the source draws nothing.
+fn render_wide(tree: &resvg::usvg::Tree, width: u32) -> Result<Vec<u8>> {
+    let source = tree.size();
+    #[expect(
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "picture sizes are a few thousand pixels at most, exact in f32"
+    )]
+    let (scale, height) = {
+        let scale = width as f32 / source.width();
+        (scale, (source.height() * scale).round().max(1.0) as u32)
+    };
+    let mut pixmap = resvg::tiny_skia::Pixmap::new(width, height)
+        .ok_or_else(|| anyhow!("could not allocate a {width}x{height} pixmap"))?;
+    resvg::render(
+        tree,
+        resvg::tiny_skia::Transform::from_scale(scale, scale),
+        &mut pixmap.as_mut(),
+    );
+    pixmap
+        .encode_png()
+        .with_context(|| format!("encoding the {width}x{height} PNG"))
+}
+
+/// Draws `overlay` over the PNG at `background`, at the background's size,
+/// which must be the overlay's own.
+fn render_over(overlay: &resvg::usvg::Tree, background: &Path) -> Result<Vec<u8>> {
+    let data = fs::read(background).with_context(|| format!("reading {}", background.display()))?;
+    let mut pixmap = resvg::tiny_skia::Pixmap::decode_png(&data)
+        .with_context(|| format!("decoding {}", background.display()))?;
+    let size = overlay.size();
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "picture sizes are a few thousand pixels at most, exact in f32"
+    )]
+    let (width, height) = (pixmap.width() as f32, pixmap.height() as f32);
+    if (width - size.width()).abs() > 0.5 || (height - size.height()).abs() > 0.5 {
+        bail!(
+            "{} is {width}x{height}, but the overlay is {}x{}",
+            background.display(),
+            size.width(),
+            size.height()
+        );
+    }
+    resvg::render(
+        overlay,
+        resvg::tiny_skia::Transform::identity(),
+        &mut pixmap.as_mut(),
+    );
+    pixmap
+        .encode_png()
+        .with_context(|| format!("encoding over {}", background.display()))
 }
 
 /// Packs PNG images into an ICO container.
