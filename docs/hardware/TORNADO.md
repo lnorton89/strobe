@@ -390,6 +390,24 @@ tripped the pacer to 10 Hz. The pacer now ignores redraws while the
 control window is covered, which also lets it come back at full rate
 when the output leaves fullscreen.
 
+## The swap wait costs nothing on a heavy scene (2026-10-13, commit c480514, Task T17)
+
+D221's risk is that `glFinish` after the swap loses the CPU/GPU overlap
+of one frame. volume-clouds (the heaviest library scene) at render scale
+1.0 in an 1860x1046 output, partly over the control window, which stayed
+partly visible: the GPU at **12.6-15.2 ms a frame**, 75-90% of the budget.
+`--render-scale` above 1.0 is clamped to 1.0, so the window was made large
+instead (the clamp now logs a warning). Three minutes each:
+
+| Run | late frames a minute | fps | make-current | gpu |
+|---|---|---|---|---|
+| H1, auto | 7-11 | 59.8-59.9 | 0.25-0.28 ms | 12.9-14.9 ms |
+| H2, forced on | 2-6 | 59.8-59.9 | 0.26-0.30 ms | 12.6-14.4 ms |
+| H0, forced off | 560-573 | 59.9 | about 16.3 ms (10 Hz) | 13.3-15.2 ms |
+
+No frames lost to the wait; it removes 98% of the late ones. No warnings
+or errors.
+
 ## Pending on this machine
 
 - [x] Re-run 07 at 1080p and 2160p after D191: same size (T2).
@@ -412,6 +430,8 @@ when the output leaves fullscreen.
   number of control redraws.
 - [x] T15: `glFinish` after the output's swap takes make-current to 1.5 ms
   and late frames to 5-8 a minute at 30 Hz (D221).
+- [x] T17: on a GPU-heavy scene the wait loses nothing (7-11 late
+  frames a minute against 560-573 without it).
 - [x] T16: D221 engaged by itself at 0.59 s; make-current 0.27-1.16 ms,
   6-14 late frames a minute at 30 Hz. Covered fullscreen, the control
   window's rare redraws still waited and tripped the pacer, which now
