@@ -112,8 +112,9 @@ Each item names its acceptance test. Evidence is in [STATUS_AUDIT.md](STATUS_AUD
    review (open the copy or discard it), with keep, drop and re-range per
    control (D219). The window context scores on the T480, native and ANGLE
    (Tasks 13 and 23, D140). ~~the same button on the Import pane after an import~~,
-   ~~the speed control not following `st_speed`~~ (both D246), and a
-   second look at the heuristics on real community scenes. *Accept:* every
+   ~~the speed control not following `st_speed`~~ (both D246), ~~a
+   second look at the heuristics on real community scenes~~ (T26's
+   findings fixed in D259), and a re-run of T26 on TORNADO. *Accept:* every
    fixture, and every library scene with its `CONTROLS` stripped, gets a
    useful, named, grouped control set that visibly changes the image. Met
    on llvmpipe for all 11 library scenes and for the fixtures with anything
@@ -346,8 +347,9 @@ never per frame.
   and renaming a control~~ (D246), and live previews;
 - accepting a suggested audio binding in the app, and binding a speed
   control (it is an integrator, so it is data only in GLSL);
-- ~~verifying on a real GPU and the T480~~ (Tasks 13 and 23); trying
-  community scenes (the heuristics have only seen Strobe's own library and original fixtures);
+- ~~verifying on a real GPU and the T480~~ (Tasks 13 and 23); ~~trying
+  community scenes~~ (TORNADO T26 ran the owner's 65; its six findings are
+  fixed in D259); a re-run of T26 to confirm;
 - ~~speed controls that also follow `st_speed` and `st_audio_time`
   (D125)~~ (D246: they tick at the import clock's rate);
 - vector and `xy` candidates (an offset, a centre) and dropdown candidates

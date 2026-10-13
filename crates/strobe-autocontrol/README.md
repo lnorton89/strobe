@@ -35,12 +35,13 @@ anywhere. The same scene always gives the same controls (D126).
 
 | Item | What it does |
 |---|---|
-| `analyze(&Sources) -> Analysis` | Pure. Finds `Candidate`s: `#define`/`const` values, `TIME`/`iTime` multipliers, loop bounds, `vec3` colours, coordinate scales and frequencies |
+| `analyze(&Sources) -> Analysis` | Pure. Finds `Candidate`s: `#define`/`const` values (numbers and `vec3` colours), `TIME`/`iTime` multipliers and divisors (also inside a `#define` body), loop bounds, `vec3` colours, coordinate scales and frequencies; names each from its context, with a role (`low`/`high`, `x`/`y`) for telling siblings apart |
+| `script::uniforms(&SceneFolder)` | The uniforms `script.js` creates with `setUniform`, found by a static scan and declared at zero so a scripted scene compiles without running its script (D259) |
 | `Candidate`, `Site`, `Kind`, `Group` | Where a literal is (file, line, column, byte span, text), what it was doing, its suggested name, group and range |
 | `rewrite::apply`, `control_line` | Replaces chosen sites by uniform expressions without moving a line; writes the matching `CONTROLS` entry |
 | `score::Rig`, `measure` | Compiles once; renders a probe with chosen controls moved; mean image difference; black detection |
-| `generate(&Gl, &Caps, &SceneFolder, &Options) -> Generated` | The whole pipeline: analyse, score, keep, name, rewrite, verify |
-| `Report` | Every candidate with score and verdict (`Kept`, `Cut`, `Dead`, `Broken`, `DoesNotCompile`, `NotScored`), the kept names, `fidelity`, and the audio `suggestions`; `to_json`, `summary`, `detail` |
+| `generate(&Gl, &Caps, &SceneFolder, &Options) -> Generated` | The whole pipeline: compile the original, analyse, score, keep, name, rewrite, verify against `FIDELITY_LIMIT` and drop any control that changes the default picture; `generate_from` takes the analysis instead |
+| `Report` | Every candidate with score and verdict (`Kept`, `Cut`, `Weak`, `QualityLimit`, `Unfaithful`, `Dead`, `Broken`, `DoesNotCompile`, `NotScored`), the kept names, `fidelity`, and the audio `suggestions`; `to_json`, `summary`, `detail` |
 | `write_scene` | Copies the source folder, overwrites the rewritten GLSL, splices `CONTROLS` into `scene.json` as text, renames into place |
 | `suggest::suggest` | Shape to bass, colour to highs, speed to loudness; never quality |
 | `naming::assign` | Unique snake_case names that avoid controls, reserved names, GLSL words and identifiers in the code |
@@ -64,7 +65,7 @@ cargo run --release -p strobe-autocontrol -- scenes/12-warm.synScene
 #   --analyze-only     list the candidates found by static analysis; needs no GPU
 #   --audio-bindings   write the suggested audio mappings into the GLSL (amounts default to 0)
 #   --api desktop|gles measure in GL 3.3 core (default) or GLES 3.0; with --context window the backend decides
-#   --size WxH, --frames N, --threshold F, --max-scored N
+#   --size WxH, --frames N, --threshold F, --relative F, --max-scored N
 ```
 
 On a machine with no EGL device (Intel on Windows) `--context auto` opens a
@@ -97,10 +98,18 @@ How a literal becomes a control:
 | Found | Becomes | Range |
 |---|---|---|
 | `#define GLOW 0.7`, `const float K = 1.5;` | `glow`, `k_amount` slider | `[0, 2x]`, symmetric if negative |
-| `TIME * 0.3`, `iTime * k` | `speed`, a `slider speed` that replaces the whole product | `[0, 2k]` |
-| `for (.. i < 64 ..)` | `steps` (`soft_shadow_steps` in a helper), integer | `[n/4, 2n]`, never over 256 unless already |
-| `vec3(0.9, 0.4, 0.1)` | `color` / `fog_col`, a `color` | 0..1 |
-| `uv * 3.0`, `p *= 2.0`, `sin(x * 10.0)` | `scale` / `zoom` / `freq` slider | `[0, 2x]` |
+| `#define FAR 40.0`, `MAX_DIST`, `tmax` | `far`, a Quality slider | `[x/4, 2x]` |
+| `TIME * 0.3`, `iTime * k`, `TIME / 4.0`, `#define T (TIME * 0.3)` | `spokes_speed` (the assigned variable, the function, the helper; else `speed`), a `slider speed` that replaces the whole product | `[0, 2k]` |
+| `for (.. i < 64 ..)` | `march_steps` (body calls `map`/`sd*`), `shadow_steps`, `ao_steps`, `octaves` (body calls a noise), else `steps` or `<helper>_steps`, integer | `[n/4, 2n]`, never over 256 unless already |
+| `vec3(0.9, 0.4, 0.1)`, `#define COL vec3(..)`, `const vec3 COL = vec3(..);` | `fog_col`, `glow_color` (`glow * vec3(..)`), `ramp_color_low`/`_high` (a `mix`'s ends), else `color`, a `color` | 0..1 |
+| `uv * 3.0`, `p *= 2.0`, `sin(x * 10.0)` | `fbm_scale` (`fbm(p * 3.0)`), `zoom`, `wave_freq_x`, else `scale` / `freq` slider | `[0, 2x]` |
+
+Never offered (D124, D259): fade-polynomial coefficients (`3.0 - 2.0 * t`,
+`6.0`/`15.0`/`10.0`), hash arithmetic (`43758.5453`, `12.9898`, anything in a
+`fract(sin(..))`), and `vec3`s that are positions, directions or sizes
+(`lk`, `light_dir`, `p - vec3(..)`, `sdBox(p, vec3(..))`, two zero
+components). A scene keeps at most one Quality control, and a candidate
+under `min(0.05 x best, 0.01)` is weak and not kept.
 
 ## Testing
 
@@ -118,7 +127,9 @@ STROBE_REQUIRE_HEADLESS_GL=1 STROBE_REQUIRE_WINDOW_GL=1 \
   its false-positive traps (`* 2.0 - 1.0`, `vec3(0.5)`, `dot(c, vec3(..))`,
   `a / TIME * k`, `case MODE`, array sizes, hash functions), naming, the
   rewrite (every kind, line preservation across a multi-line span), the
-  scene.json splice, ranges and the loop cap.
+  scene.json splice, ranges and the loop cap; T26's patterns (D259):
+  fade and hash traps, geometry `vec3`s, names and roles from context,
+  speeds in `#define` bodies, colour constants, and the script scan.
 - **`tests/golden.rs`** pins the candidates found in five converted fixtures
   and the exact rewritten GLSL, byte for byte. No GPU.
 - **`tests/engine.rs`** runs headless in both dialects (it skips without EGL,
@@ -131,8 +142,12 @@ STROBE_REQUIRE_HEADLESS_GL=1 STROBE_REQUIRE_WINDOW_GL=1 \
   covers the authored-controls guard and merge, the writer (the source is
   untouched, supporting files and `SOURCE` come along), the opt-in audio
   binding being inert at 0, a candidate that breaks the compile being dropped,
-  and a scene that does not compile at all. It writes a results table to
-  `target/tmp/`.
+  and a scene that does not compile at all (with or without candidates).
+  From T26 (D259): a scripted scene compiles with its script's uniforms,
+  one Quality control at most and no weak one is kept, a control that
+  changes the default picture is dropped, and speeds and colours in
+  `#define`s, `const vec3`s and helpers get controls. It writes a results
+  table to `target/tmp/`.
 - **`tests/window.rs`** spawns the real binary (winit allows one event loop
   per process, on the main thread, which a test thread is not). It scores one
   scene with `--context headless` and `--context window` and requires the
@@ -154,7 +169,12 @@ STROBE_REQUIRE_HEADLESS_GL=1 STROBE_REQUIRE_WINDOW_GL=1 \
 - **Speed is an integrator (D125).** `TIME * k` becomes a `slider speed`
   output, so moving it does not jump the phase.
 - **Measured, not guessed (D126).** One compile, two nudges per candidate,
-  fixed frames and synthetic audio, scores rounded to five decimals.
+  fixed frames, a fixed date and synthetic audio, scores rounded to five
+  decimals.
+- **Faithful or nothing (D259).** The finished scene at its defaults must
+  draw the original within `FIDELITY_LIMIT` (0.001, plus the original's own
+  render-to-render noise); a control that does not is dropped and reported
+  `Unfaithful`.
 - **The library takes a context, only the CLI picks one (D140).** `generate`
   is given `&Gl` and `&Caps`, so the app can score on its own context. The CLI
   uses `strobe_gfx::offscreen`, shared with the bench.
@@ -175,8 +195,26 @@ STROBE_REQUIRE_HEADLESS_GL=1 STROBE_REQUIRE_WINDOW_GL=1 \
   run at the defaults, where that rate is 1.
 - **Not generated:** `xy` pads (a centre, an offset), dropdowns (a mode
   switch), toggles, or anything in a `const` statement that shares its line.
-- **Heuristics are tuned on Strobe's own library and original fixtures.**
-  Community scenes will show what they miss.
+- **Community scenes (T26, D259).** One run over the owner's 65 scenes
+  found refused scripted scenes, maths offered as knobs, numbered names,
+  positions taken for colours, too many Quality controls, two unfaithful
+  rewrites and some misses. All six are addressed with original fixtures;
+  a re-run on TORNADO is the remaining check.
+- **Script uniforms are a static scan** of `script.js`: a uniform whose
+  name or type only the running script knows (a name from a variable, a
+  value that is an array in a variable) may be declared with the wrong
+  type or not at all, and the scene is then refused as before. Script
+  uniforms are zero while scoring, so a control whose effect depends on
+  the script's values is measured without them.
+- **Unfaithful on a real GPU.** The likeliest cause of T26's two unfaithful
+  scenes is compiler rounding (a literal folded as a constant versus read
+  from a uniform), which llvmpipe does not show. The gate drops such
+  controls; it cannot keep them.
+- **Signed vectors are not generated:** a light position or a box size is
+  left alone rather than offered as a Shape control.
+- **Weak small-footprint knobs.** A candidate under 1% of full scale that
+  is also under a twentieth of the strongest is not kept, so a small
+  orbiting dot's speed can be lost next to a background colour.
 - **Audio bindings** are suggestions; only float and colour sites can be
   written into GLSL, and a speed suggestion is data.
 - **A 10-frame window** can miss an effect that only appears later.
