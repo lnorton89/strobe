@@ -25,7 +25,9 @@
 //!   header for the context's dialect, the standard and audio uniforms, the
 //!   SSF function library, the user's code, and the `main` that calls
 //!   `renderMain`.
-//! - [`fixups`] are the GLSL ES rewrites for desktop-only SSF idioms.
+//! - [`fixups`] are the GLSL ES rewrites for desktop-only SSF idioms, and
+//!   [`promote`] is the type-aware one: every implicit int→float
+//!   conversion, written out.
 //! - [`include`] expands `#include` against the scene folder and the GLSL
 //!   library folders when a scene loads.
 //! - [`meta`] is the output-wide meta control bank (master, brightness,
@@ -50,6 +52,7 @@ pub mod load;
 pub mod meta;
 pub mod names;
 pub mod preset;
+pub mod promote;
 pub mod scene;
 pub mod synthetic;
 
