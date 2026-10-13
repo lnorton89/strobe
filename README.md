@@ -112,14 +112,14 @@ under Xvfb with `--screenshot`; more states are in
 
 ## Scene library
 
-`scenes/` holds ten original scenes plus a scripted one. They're the base
-library, and also the benchmark set, written to span five tiers of GPU load: from a
-trivial gradient, through feedback, voronoi, domain warping, a
-four-step reaction-diffusion simulation and a bloom pipeline, up to a
-raymarched cathedral and volumetric clouds. An eleventh scene,
-`11-script-orbits`, is the scripted one: a `script.js` physics loop
-drives it, which the benchmark does not run (it renders the scene with its
-controls at their defaults).
+`scenes/` holds twelve original scenes. Ten are the base library and the
+benchmark set, written to span five tiers of GPU load: from a trivial
+gradient, through feedback, voronoi, domain warping, a four-step
+reaction-diffusion simulation and a bloom pipeline, up to a raymarched
+cathedral and volumetric clouds. `11-script-orbits` is the scripted one: a
+`script.js` physics loop drives it, which the benchmark does not run (it
+renders the scene with its controls at their defaults). `12-silicon-atlas`
+is an animated, fictional GPU circuit board (lnorton89/strobe#11).
 
 ![The base scene library](docs/images/contact-sheet.png)
 
