@@ -190,6 +190,7 @@ mod tests {
         MidiSettings {
             enabled: false,
             disabled_devices: Vec::new(),
+            feedback: false,
         }
     }
 

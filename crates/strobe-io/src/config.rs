@@ -102,6 +102,9 @@ pub struct MidiSettings {
     pub enabled: bool,
     /// Device keys the operator switched off.
     pub disabled_devices: Vec<String>,
+    /// Send each MIDI mapping's control back to its device, for motorised
+    /// faders, LED rings and pad lights (D257). Off by default.
+    pub feedback: bool,
 }
 
 impl Default for MidiSettings {
@@ -109,6 +112,7 @@ impl Default for MidiSettings {
         Self {
             enabled: true,
             disabled_devices: Vec::new(),
+            feedback: false,
         }
     }
 }

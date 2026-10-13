@@ -37,6 +37,7 @@ test with no device.
 | `Engine` | `handle(&source, signal, &mut banks, &mut out)`: writes the two `ControlBank`s directly and returns commands, cue jumps, fav and preset recalls as `Output`. `arm_new`, `arm_relearn`, `conflict`, `resolve_conflict` are learn (D174). |
 | `Macro`, `MacroSet` | The curated, ordered, pinned set; a macro is a mapping target and a stable binding (D175). |
 | `feedback::Differ`, `feedback::Sender`, `feedback::target` | OSC feedback (D209): what changed since the last send at most 30 times a second, on the listener's own addresses; a thread with a bounded queue that encodes and sends; the setting checked so it cannot loop into the listener. |
+| `midi_feedback::MidiDiffer`, `midi_feedback::Sender` | MIDI feedback (D257): each MIDI mapping's control as the CC, pitch bend or pad light that shows it, the mapping's range, curve and invert undone; changes only, 30 times a second, to named devices, through a thread that owns the output ports. |
 | `ShowControl` | `show-control.json`: OSC and MIDI settings, mappings, macros, fav slots, hotkeys. Tolerant of hand edits (D179). |
 
 ## Usage
@@ -146,7 +147,8 @@ controller is the open check** (D171, Q23).
 ## Status and known gaps
 
 - Built and tested without hardware; **no MIDI controller has been used**.
-- OSC feedback is built (D209); MIDI **output** is not.
+- OSC feedback (D209) and MIDI feedback (D257) are built; neither has
+  driven a real controller yet.
 - The OSC address layout is Strobe's own, and Synesthesia's addresses are
   accepted as aliases where they mean the same (D234, Q23).
 - A macro's range and colour are edited in the MAP pane (D210); a macro can

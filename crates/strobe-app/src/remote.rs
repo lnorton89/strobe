@@ -206,6 +206,8 @@ pub struct Remote {
     pub learned: Option<usize>,
     /// OSC feedback out (D209).
     pub feedback: FeedbackOut,
+    /// MIDI feedback out (D257).
+    pub midi_feedback: MidiFeedbackOut,
     started: Instant,
     path: Option<PathBuf>,
     snapshot: ShowControl,
@@ -287,7 +289,71 @@ impl FeedbackOut {
     }
 }
 
+/// MIDI feedback out (D257): each MIDI mapping's control sent back to its
+/// device, on a thread of its own.
+#[derive(Debug, Default)]
+pub struct MidiFeedbackOut {
+    differ: strobe_io::midi_feedback::MidiDiffer,
+    sender: Option<strobe_io::midi_feedback::Sender>,
+    out: Vec<strobe_io::midi_feedback::MidiOut>,
+}
+
+impl MidiFeedbackOut {
+    /// Starts or stops the sender to match the setting (never without the
+    /// workers), and sends everything again when it starts.
+    fn configure(&mut self, settings: &MidiSettings, workers: bool) {
+        let wanted = settings.enabled && settings.feedback && workers;
+        match (wanted, self.sender.is_some()) {
+            (true, false) => {
+                self.sender = strobe_io::midi_feedback::Sender::start()
+                    .map_err(|e| log::warn!("MIDI feedback: no thread: {e}"))
+                    .ok();
+                self.differ.resend_all();
+            }
+            (false, true) => self.sender = None,
+            (true, true) | (false, false) => {}
+        }
+    }
+
+    /// Whether feedback is being sent.
+    pub fn running(&self) -> bool {
+        self.sender.is_some()
+    }
+
+    /// Messages dropped because the sender's queue was full.
+    pub fn dropped(&self) -> u64 {
+        self.sender
+            .as_ref()
+            .map_or(0, strobe_io::midi_feedback::Sender::dropped)
+    }
+}
+
 impl Remote {
+    /// Once per scene frame: sends each MIDI mapping's control back to its
+    /// device, when feedback is on and a send is due (D257).
+    pub fn midi_feedback_frame(
+        &mut self,
+        now: Instant,
+        scene: Option<&strobe_scene::control::ControlBank>,
+        meta: Option<&strobe_scene::control::ControlBank>,
+    ) {
+        let out = &mut self.midi_feedback;
+        let Some(sender) = out.sender.as_ref() else {
+            return;
+        };
+        out.differ.collect(
+            now,
+            &self.engine.mappings,
+            &self.engine.macros,
+            scene,
+            meta,
+            &mut out.out,
+        );
+        if !out.out.is_empty() {
+            sender.send(&mut out.out);
+        }
+    }
+
     /// Reads the file, applies the overrides and starts the workers.
     pub fn new(data_dir: &Path, overrides: &Overrides, now: Instant) -> Self {
         let path = overrides
@@ -332,6 +398,8 @@ impl Remote {
         let writes = !overrides.read_only;
         let mut feedback = FeedbackOut::default();
         feedback.configure(&osc, overrides.workers);
+        let mut midi_feedback = MidiFeedbackOut::default();
+        midi_feedback.configure(&midi, overrides.workers);
         Self {
             hub,
             engine,
@@ -349,6 +417,7 @@ impl Remote {
             activity: Activity::default(),
             learned: None,
             feedback,
+            midi_feedback,
             started: now,
             saver: writes.then(|| Saver::start(path.clone())),
             path: writes.then_some(path),
@@ -526,6 +595,7 @@ impl Remote {
         if let Some(hub) = &self.hub {
             hub.set_midi(&self.midi);
         }
+        self.midi_feedback.configure(&self.midi, self.hub.is_some());
     }
 
     /// Switches one device on or off.

@@ -84,6 +84,8 @@ pub mod macros;
 pub mod mapping;
 pub mod message;
 mod midi;
+pub mod midi_feedback;
+mod midi_out;
 pub mod osc;
 pub mod takeover;
 pub mod target;

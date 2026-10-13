@@ -419,6 +419,30 @@ fn midi_block(ui: &mut Ui, theme: &Palette, remote: &Remote, actions: &mut Vec<A
                 .color(theme::rgb(theme.text_muted)),
         );
     }
+    let mut feedback = remote.midi.feedback;
+    if ui
+        .add_enabled(
+            remote.midi.enabled,
+            egui::Checkbox::new(&mut feedback, "Send feedback"),
+        )
+        .on_hover_text(
+            "Send each mapped control back to its device, so motorised faders, LED rings and \
+             pad lights show the show. Only for mappings on a named device.",
+        )
+        .changed()
+    {
+        actions.push(Action::SetMidiFeedback(feedback));
+    }
+    if remote.midi_feedback.running() && remote.midi_feedback.dropped() > 0 {
+        ui.label(
+            egui::RichText::new(format!(
+                "{} feedback message(s) dropped: the devices did not keep up",
+                remote.midi_feedback.dropped()
+            ))
+            .small()
+            .color(theme::rgb(theme.text_muted)),
+        );
+    }
     if remote.midi.enabled && remote.devices.is_empty() && remote.midi_note.is_none() {
         ui.label(
             egui::RichText::new("No MIDI input devices found.")

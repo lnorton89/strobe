@@ -176,9 +176,38 @@ pub fn device_key(port_name: &str) -> String {
     name.to_string()
 }
 
+/// The keys of a list of ports, in order: each port's [`device_key`], and
+/// a second port with the same key gets ` #2`, a third ` #3`. Input and
+/// output ports are keyed alike, so a mapping's device names both.
+pub fn device_keys<'a>(port_names: impl IntoIterator<Item = &'a str>) -> Vec<String> {
+    let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    port_names
+        .into_iter()
+        .map(|name| {
+            let base = device_key(name);
+            let count = seen.entry(base.clone()).or_insert(0);
+            *count += 1;
+            if *count == 1 {
+                base
+            } else {
+                format!("{base} #{count}")
+            }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_second_port_with_the_same_key_is_numbered() {
+        assert_eq!(
+            device_keys(["2- Launchpad Mini", "Launchpad Mini 24:0", "nanoKONTROL2"]),
+            vec!["Launchpad Mini", "Launchpad Mini #2", "nanoKONTROL2"],
+            "keys in order, the repeat numbered"
+        );
+    }
 
     #[test]
     fn recorded_bytes_from_a_controller_parse_to_the_right_messages() {

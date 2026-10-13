@@ -41,7 +41,7 @@ use std::sync::mpsc::Receiver;
 mod device {
     use super::{MidiControl, MidiSettings, Receiver, Tx};
     use crate::event::{DeviceInfo, Event, InputEvent, Status};
-    use crate::message::{device_key, parse};
+    use crate::message::{device_keys, parse};
     use midir::{MidiInput, MidiInputConnection, MidiInputPort};
     use std::collections::{HashMap, HashSet};
     use std::sync::Arc;
@@ -181,21 +181,18 @@ mod device {
             let Some(scanner) = self.scanner.as_ref() else {
                 return Vec::new();
             };
-            let mut seen: HashMap<String, usize> = HashMap::new();
-            let mut present = Vec::new();
-            for port in scanner.ports() {
-                let name = scanner.port_name(&port).unwrap_or_default();
-                let base = device_key(&name);
-                let count = seen.entry(base.clone()).or_insert(0);
-                *count += 1;
-                let key = if *count == 1 {
-                    base
-                } else {
-                    format!("{base} #{count}")
-                };
-                present.push(Present { key, name, port });
-            }
-            present
+            let ports = scanner.ports();
+            let names: Vec<String> = ports
+                .iter()
+                .map(|port| scanner.port_name(port).unwrap_or_default())
+                .collect();
+            let keys = device_keys(names.iter().map(String::as_str));
+            ports
+                .into_iter()
+                .zip(names)
+                .zip(keys)
+                .map(|((port, name), key)| Present { key, name, port })
+                .collect()
         }
 
         fn connect(&self, device: &Present) -> Result<MidiInputConnection<()>, String> {
