@@ -36,7 +36,11 @@
 //!   texture, one egui pass, paint, swap. It has vsync off so two vsynced
 //!   swaps cannot halve the output rate. The throttle matters on an old
 //!   laptop, where egui's tessellation and the extra swap are a real cost
-//!   and 30 Hz is plenty for sliders.
+//!   and 30 Hz is plenty for sliders. While the fullscreen output covers
+//!   it, it redraws at 2 Hz instead (`update_covered`, TORNADO T10).
+//! - **A perf line** is logged once a minute (`stats::PerfWindow`): frame
+//!   rate, late frames, the worst gap, GPU time and the control window's
+//!   redraw cost, so a soak's log alone says where frames went.
 //!
 //! The scene is never rendered inside the control window's redraw, so a slow
 //! control window cannot slow the show down. The control window's preview
@@ -108,7 +112,7 @@ use crate::remote::{Overrides, Remote};
 use crate::screenshot::{Screenshot, Target};
 use crate::session::{self, Session};
 use crate::show::{self, Env, Phase, Show};
-use crate::stats::FrameStats;
+use crate::stats::{FrameStats, PerfWindow};
 use crate::ui::widgets::Tone;
 use crate::ui::{
     Action, CueTransport, EditorPanel, FailurePanel, GeneratePanel, ImportPanel, ListenerPanel,
@@ -138,6 +142,11 @@ use winit::window::{Fullscreen, Window, WindowAttributes, WindowId};
 const OUTPUT_PERIOD: Duration = Duration::from_micros(6_944);
 /// Time between control-window repaints: 30 Hz.
 const CONTROL_PERIOD: Duration = Duration::from_millis(33);
+
+/// How often the control window redraws while the fullscreen output covers
+/// it (see [`Running::update_covered`]): enough to keep its state moving,
+/// too seldom for its swap to cost the show a vertical blank.
+const COVERED_PERIOD: Duration = Duration::from_millis(500);
 /// How long a window size must hold still before the scene is resized.
 const RESIZE_SETTLE: Duration = Duration::from_millis(150);
 /// How often the monitor list is re-read.
@@ -543,6 +552,8 @@ struct Running {
     playing: Option<usize>,
     console: Console,
     stats: FrameStats,
+    /// A minute of frame timings, logged as one line (T10).
+    perf_log: PerfWindow,
     gl_summary: String,
     audio: AudioInput,
     mouse: MouseTracker,
@@ -568,6 +579,12 @@ struct Running {
     /// When the next scene frame is due, shown or hidden.
     next_output: Instant,
     next_control: Instant,
+    /// The control window has shown it is above the output (it gained focus
+    /// or the pointer reached it) since the output last went fullscreen.
+    control_on_top: bool,
+    /// The fullscreen output covers the control window, so it redraws at
+    /// [`COVERED_PERIOD`] (TORNADO T10).
+    control_covered: bool,
     actions: Vec<Action>,
 
     screenshot: Option<Screenshot>,
@@ -800,6 +817,7 @@ impl Running {
             playing: None,
             console: Console::default(),
             stats: FrameStats::default(),
+            perf_log: PerfWindow::default(),
             gl_summary,
             audio: AudioInput::new(cli.audio == AudioArg::Auto),
             mouse: MouseTracker::default(),
@@ -813,6 +831,8 @@ impl Running {
             output_monitor: None,
             last_monitor_refresh: now,
             output_visible: cli.show_output,
+            control_on_top: true,
+            control_covered: false,
             next_output: now,
             next_control: now,
             actions: Vec::new(),
@@ -1262,13 +1282,53 @@ impl Running {
         }
         if now >= self.next_control {
             self.stack.control.window().request_redraw();
-            self.next_control = now + CONTROL_PERIOD;
+            let period = if self.control_covered {
+                COVERED_PERIOD
+            } else {
+                CONTROL_PERIOD
+            };
+            self.next_control = now + period;
         }
         self.next_output.min(self.next_control)
     }
 
+    /// Decides whether the output covers the control window: it is shown,
+    /// fullscreen, on the control window's monitor, and the control window
+    /// has not come above it since. Focus alone does not say: the app hands
+    /// focus back to the control window when the output is shown, and F11
+    /// in the control window then puts the output over it with the focus
+    /// left where it was. winit reports no occlusion on Windows.
+    ///
+    /// TORNADO T10 ran 48 to 56 fps in exactly that state with the GPU idle;
+    /// the unsynced swap of a covered window is the suspect, and a covered
+    /// window has nothing to show anyway.
+    fn update_covered(&mut self) {
+        let output = self.stack.output.window();
+        let covered = self.output_visible
+            && !self.control_on_top
+            && output.fullscreen().is_some()
+            && output.current_monitor().is_some_and(|monitor| {
+                self.stack.control.window().current_monitor().as_ref() == Some(&monitor)
+            });
+        if covered != self.control_covered {
+            self.control_covered = covered;
+            log::info!(
+                "control window {}",
+                if covered {
+                    "covered by the fullscreen output: redrawing at 2 Hz"
+                } else {
+                    "in view: redrawing at 30 Hz"
+                }
+            );
+            if !covered {
+                self.next_control = Instant::now();
+            }
+        }
+    }
+
     fn refresh_monitors(&mut self, event_loop: &ActiveEventLoop) {
         self.last_monitor_refresh = Instant::now();
+        self.update_covered();
         // The time zone's offset can change (daylight saving); looking it
         // up may read the zone database, so it is done here, never per frame.
         self.local_date.refresh();
@@ -1346,6 +1406,11 @@ impl Running {
                     self.stack.output.window().fullscreen().is_some()
                 );
                 self.stack.gfx.resize(&self.stack.output);
+                if self.stack.output.window().fullscreen().is_some() {
+                    // Going fullscreen puts the output on top.
+                    self.control_on_top = false;
+                }
+                self.update_covered();
             }
         } else if is_output && let WindowEvent::Occluded(occluded) = &event {
             log::info!("output window occluded: {occluded}");
@@ -1372,6 +1437,26 @@ impl Running {
             // known (`ui::keys`); the output window has no UI, so its keys
             // are mapped here with the same command table.
             self.output_key(key);
+        }
+        if self.rebuild.is_none() {
+            let raised = if matches!(event, WindowEvent::Focused(true)) {
+                Some(is_control)
+            } else if is_control
+                && matches!(
+                    event,
+                    WindowEvent::CursorMoved { .. } | WindowEvent::MouseInput { .. }
+                )
+            {
+                Some(true)
+            } else {
+                None
+            };
+            if let Some(on_top) = raised
+                && on_top != self.control_on_top
+            {
+                self.control_on_top = on_top;
+                self.update_covered();
+            }
         }
         if is_control && self.rebuild.is_none() {
             let window = self.stack.control.window();
@@ -2861,6 +2946,14 @@ impl Running {
             }
         }
         let measured = self.stats.begin(started);
+        self.perf_log.frame(
+            started,
+            self.stack.perf.budget_ms(),
+            self.stack.perf.gpu_ms(),
+        );
+        if let Some(line) = self.perf_log.take_due(started) {
+            log::info!("{line}");
+        }
         let dt = if self.screenshot.is_some() {
             SCREENSHOT_DT
         } else {
@@ -3024,6 +3117,7 @@ impl Running {
     }
 
     fn redraw_control(&mut self) {
+        let began = Instant::now();
         let size = self.stack.control.window().inner_size();
         if size.width == 0 || size.height == 0 {
             return;
@@ -3261,6 +3355,7 @@ impl Running {
             }
         }
         self.present(Surface::Control, Instant::now());
+        self.perf_log.control(began.elapsed());
         if self
             .screenshot
             .as_ref()

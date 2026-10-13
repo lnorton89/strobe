@@ -3240,3 +3240,35 @@ them; the form has one pool field).
 treating `audio reactive` and `audio-reactive` as two tags), which would
 matter only if Strobe wrote scenes back for Synesthesia to read.
 
+### D206: a covered control window redraws at 2 Hz, and a perf line is logged every minute (2026-10-13)
+
+TORNADO T10 ran a fullscreen show at 48 to 56 fps with the GPU busy for
+under 3 ms a frame. The output window is the only vsynced one (the control
+window has vsync off, so two vsynced swaps cannot halve the rate), but the
+control window was fully covered by the fullscreen output on the same
+monitor. On Windows, an unsynced swap of a covered window can still wait
+for the compositor, and a 30 Hz control window doing that would cost about
+every other output frame its vertical blank. That fits the numbers. It is
+not proved, and the log could not say either way.
+
+- **A perf line every minute** (`stats::PerfWindow`): frame rate, frames
+  later than 1.5 frame budgets, the worst gap, mean GPU time, and the
+  control window's redraw count and mean and worst cost, swap included.
+  Recording is a few additions a frame; the line is formatted once a
+  minute. A soak's log now says where frames went.
+- **A covered control window redraws at 2 Hz.** Covered means: the output
+  is shown, fullscreen, on the control window's monitor, and the control
+  window has not come above it since. Focus cannot decide this. The app
+  hands focus back to the control window when the output is shown, and F11
+  in the control window then puts the output over it with the focus left
+  where it was. winit reports no occlusion on Windows. So the control window
+  counts as on top again when it gains focus or the pointer reaches it, and
+  then redraws at 30 Hz at once.
+- **Nothing a show needs waits on the control window.** MIDI, OSC and the
+  remote are drained in the scene frame, not the control redraw, and so are
+  cues and the playlist clock.
+
+**Would reopen:** the perf line showing the late frames without the control
+window's redraw cost explaining them. Then the cause is elsewhere: the audio
+thread, the timer ring's backpressure, or the driver's flip queue.
+

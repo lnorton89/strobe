@@ -240,6 +240,32 @@ Hashes built on `fract(sin(...))` differ across GPU vendors in every
 engine. A scene that needs identical noise everywhere should use an
 integer hash.
 
+## Fullscreen show soak at 2560x1440 (2026-10-13, Task T10)
+
+The transition demo playlist ran as a 10-minute fullscreen show on the
+2560x1440 panel (release build, native GL, the GTX 1080 Ti).
+
+| | Result |
+|---|---|
+| Show | 140 cues and 104 transitions in 11.6 min, all finished; no shader compiled after load |
+| Warnings | Only the expected `ghost-scene` skip (once per loop), and one audio buffer error at about 3 min that recovered by itself |
+| Fullscreen | F11 at 15 s; no resize after that, and no occlusion lines (winit reports none on Windows) |
+| Memory | Flat: working set 144-145 MB, private 290-305 MB with no trend |
+| GPU | 1.8-2.8 ms a frame (the T480: 1.9-2.6 ms) |
+| Frame rate | **48-56 fps** from the status bar every 30 s, once 26 just after the audio error |
+| Close | 0.15 s, no process left |
+
+The frame rate is the finding: the GPU is nearly idle, so the time goes
+elsewhere, and the log had nothing to say where. Strobe's output window is
+the only vsynced one, and the control window (vsync off, 30 Hz) was fully
+covered by the fullscreen output on the same monitor. An unsynced swap on a
+covered window can still wait for the compositor's vertical blank on
+NVIDIA, which at 30 Hz would cost about every other output frame its blank.
+That is the suspect, not yet proved. D206 adds what proves or clears it: a
+`perf:` log line every minute (late frames, the worst gap, the control
+window's redraw cost with its swap), and a 2 Hz control window while the
+output covers it.
+
 ## Pending on this machine
 
 - [x] Re-run 07 at 1080p and 2160p after D191: same size (T2).
@@ -251,8 +277,10 @@ integer hash.
 - [x] `materialmakertest2` and `warped_extruded_skewed_grid` differ
   between the backends (T9): undefined behaviour in the scenes, with no
   Strobe fix.
-- [ ] The app fullscreen at 2560x1440 with a playlist show, transitions and
-  the post stage, against the T480's numbers.
+- [x] The app fullscreen at 2560x1440 with a playlist show and transitions
+  (T10): clean and flat, but 48-56 fps with the GPU idle.
+- [ ] T10 again after D206: does the `perf:` line show late frames, and does
+  the covered control window's 2 Hz redraw bring the show to 60?
 - [ ] A larger set of real Shadertoy shaders through NVIDIA's compiler
   (owner-supplied, kept local), to find NVIDIA-only acceptance.
 - [ ] The Vulkan / wgpu compiler spike from
