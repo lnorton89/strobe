@@ -108,6 +108,10 @@ const MAX_LINE: usize = 240;
 
 /// The label for `message`: one of the forms in the module docs.
 pub fn categorise(message: &str) -> String {
+    // The first error only: a driver log lists candidates and follow-on
+    // errors after it, and a name quoted in a later line is not this
+    // error's subject.
+    let message = first_error_text(message);
     let lower = message.to_lowercase();
 
     if let Some(ty) = between(message, "unknown type `", "`") {
@@ -187,11 +191,7 @@ pub fn kind(label: &str) -> &str {
 /// The first line of `message` that reports an error, trimmed and capped.
 /// Falls back to the first non-empty line.
 pub fn first_error_line(message: &str) -> String {
-    let lines = || message.lines().map(str::trim).filter(|line| !line.is_empty());
-    let line = lines()
-        .find(|line| line.to_lowercase().contains("error"))
-        .or_else(|| lines().next())
-        .unwrap_or("(no message)");
+    let line = first_error_text(message);
     if line.chars().count() > MAX_LINE {
         let mut cut: String = line.chars().take(MAX_LINE).collect();
         cut.push('…');
@@ -199,6 +199,21 @@ pub fn first_error_line(message: &str) -> String {
     } else {
         line.to_string()
     }
+}
+
+/// The first line of `message` that reports an error, trimmed; the first
+/// non-empty line when none says "error".
+fn first_error_text(message: &str) -> &str {
+    let lines = || {
+        message
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+    };
+    lines()
+        .find(|line| line.to_lowercase().contains("error"))
+        .or_else(|| lines().next())
+        .unwrap_or("(no message)")
 }
 
 /// Whether the message is about the preprocessor.
@@ -234,6 +249,8 @@ fn mentions_conversion(lower: &str) -> bool {
         "cannot be assigned",
         "incompatible types",
         "mismatched types",
+        "must have the same type",
+        "could not implicitly",
     ]
     .iter()
     .any(|needle| lower.contains(needle))
@@ -425,6 +442,48 @@ mod tests {
             categorise_in(message, "vec4 renderMain() { return vec4(warp(_uv, 2)); }"),
             "no_function:warp",
             "a call is not a definition"
+        );
+    }
+
+    #[test]
+    fn only_the_first_error_decides_the_subject() {
+        let log = "pass 0: main.glsl:3: 1:3(1): warning: 'time' is shadowed\n\
+                   main.glsl:20: 1:20(7): error: no matching function for call to \
+                   `mixColours(float, int)'; candidates are:\n\
+                   main.glsl:2: 1:2(1): vec3 mixColours(float, float)";
+        assert_eq!(
+            categorise(log),
+            "no_function:mixColours",
+            "not the `time` in an earlier warning"
+        );
+        assert_eq!(
+            categorise_in(log, "vec3 mixColours(float a, float b) { return vec3(a, b, 0.0); }"),
+            "implicit_conversion",
+            "the shader defines it, so the call's argument types were wrong"
+        );
+        assert_eq!(
+            categorise("main.glsl:9: 1:9(4): error: no function with name 'palette'"),
+            "no_function:palette",
+            "Mesa's other wording"
+        );
+    }
+
+    #[test]
+    fn mesa_wordings_for_a_conversion_and_a_missing_include() {
+        assert_eq!(
+            categorise("main.glsl:77: 1:77(6): error: operands of `==' must have the same type"),
+            "implicit_conversion",
+            "float == int"
+        );
+        assert_eq!(
+            categorise("main.glsl:5: 1:5(7): error: initializer of type int cannot be assigned to variable of type float"),
+            "implicit_conversion",
+            "float x = 1"
+        );
+        assert_eq!(
+            categorise("main.glsl:4: 1:4(1): preprocessor error: include \"lib.glsl\" not found"),
+            "preprocessor",
+            "an #include the engine does not provide"
         );
     }
 
