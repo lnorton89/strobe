@@ -566,6 +566,9 @@ struct Running {
     swap_policy: SwapPolicy,
     /// What the file hovering over a window would do if dropped (D218).
     drop_hint: Option<String>,
+    /// A Shadertoy import that becomes a cue after this one when it lands
+    /// (D229).
+    pending_cue_import: Option<(crate::show::edit::At, String)>,
     gl_summary: String,
     audio: AudioInput,
     mouse: MouseTracker,
@@ -847,6 +850,7 @@ impl Running {
             control_pacer: ControlPacer::default(),
             swap_policy: SwapPolicy::new(finish_mode()),
             drop_hint: None,
+            pending_cue_import: None,
             gl_summary,
             audio: AudioInput::new(cli.audio == AudioArg::Auto),
             mouse: MouseTracker::default(),
@@ -2256,9 +2260,25 @@ impl Running {
         while let Some(done) = self.import.try_next() {
             let failed = done.result.as_ref().err().map(ToString::to_string);
             let label = done.input.label();
-            match self.import_state.finished(done) {
-                Outcome::Imported(dir) => self.show_imported(&dir),
-                Outcome::Unchanged => {
+            // Only the import the cue card asked for becomes a cue.
+            let for_cue = match (&self.pending_cue_import, &done.input) {
+                (Some((_, wanted)), Input::Text(text)) if text == wanted => {
+                    self.pending_cue_import.take().map(|(at, _)| at)
+                }
+                _ => None,
+            };
+            match (self.import_state.finished(done), for_cue) {
+                (Outcome::Imported(dir), Some(at)) => self.cue_from_import(at, &dir),
+                (Outcome::Exists(dir), Some(at)) => {
+                    // Wanted for a cue: the copy already in the library
+                    // will do, so there is nothing to ask.
+                    self.import_state.prompt = None;
+                    self.import_state.status = import::Status::Idle;
+                    self.cue_from_import(at, &dir);
+                }
+                (Outcome::Imported(dir), None) => self.show_imported(&dir),
+                (Outcome::Exists(_), None) => {}
+                (Outcome::Unchanged, _) => {
                     // "Already in the library" is a question, not a failure.
                     if let Some(message) = failed.filter(|_| self.import_state.prompt.is_none()) {
                         failure::report(
@@ -2271,6 +2291,31 @@ impl Running {
                 }
             }
         }
+    }
+
+    /// Adds the imported (or already present) scene at `dir` as a cue after
+    /// `at` (D229). The library is rescanned so the cue's name resolves;
+    /// nothing is loaded by hand, so the show keeps playing.
+    fn cue_from_import(&mut self, at: crate::show::edit::At, dir: &Path) {
+        self.rescan_library();
+        let name = self
+            .library
+            .entries
+            .iter()
+            .find(|e| e.dir == dir)
+            .map(|e| e.name.clone())
+            .or_else(|| dir.file_name().map(|n| n.to_string_lossy().into_owned()));
+        let Some(name) = name else {
+            return;
+        };
+        log::info!(
+            "playlist: {name} imported and added after cue {}",
+            at.cue + 1
+        );
+        self.edit_cue(
+            at,
+            &crate::show::edit::CueEdit::InsertAfter(strobe_playlist::SceneRef::Library(name)),
+        );
     }
 
     /// Opens `name` (a library entry), or the playing scene, in the Editor
@@ -2818,6 +2863,10 @@ impl Running {
                 Action::SetSceneTags(tags) => self.set_scene_tags(&tags),
                 Action::SetMedia(path) => self.set_media(path),
                 Action::CaptureThumbnail => self.capture_thumbnail(),
+                Action::ImportCueAfter { at, text } => {
+                    self.pending_cue_import = Some((at, text.clone()));
+                    self.submit_import(Input::Text(text), false);
+                }
                 Action::MacroKey { id, down } => self.macro_key(id, down),
                 Action::EditCue { at, edit } => self.edit_cue(at, &edit),
                 Action::ReloadPlaylistFromDisk => {

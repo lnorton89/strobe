@@ -66,6 +66,14 @@ pub enum Action {
     SetSceneTags(Vec<String>),
     /// Save the playing scene's live frame as its thumbnail (D222).
     CaptureThumbnail,
+    /// Import a Shadertoy shader (a URL, an id or a file) and add it as a
+    /// cue after this one (D229).
+    ImportCueAfter {
+        /// The cue it goes after.
+        at: crate::show::edit::At,
+        /// What was typed.
+        text: String,
+    },
     /// A macro's key went down or up (D228).
     MacroKey {
         /// The macro.
@@ -384,6 +392,8 @@ pub struct CueDraft {
     pub preset: String,
     /// The cue's media path; empty for none (D217).
     pub media: String,
+    /// A Shadertoy URL or id to import and add after the cue (D229).
+    pub shadertoy: String,
 }
 
 /// Where the picture behind `syn_Media` comes from (D217).

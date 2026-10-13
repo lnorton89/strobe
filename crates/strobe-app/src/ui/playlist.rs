@@ -413,6 +413,28 @@ fn cue_card(
                     }
                 }
             });
+            ui.horizontal(|ui| {
+                ui.add(
+                    egui::TextEdit::singleline(&mut draft.shadertoy)
+                        .hint_text("Shadertoy URL or id")
+                        .desired_width(180.0),
+                );
+                let text = draft.shadertoy.trim();
+                if ui
+                    .add_enabled(!text.is_empty(), egui::Button::new("Import after"))
+                    .on_hover_text(
+                        "Import this shader into the library and add it as a cue after this one; \
+                         one already in the library is used as it is",
+                    )
+                    .clicked()
+                {
+                    actions.push(Action::ImportCueAfter {
+                        at,
+                        text: text.to_string(),
+                    });
+                    draft.shadertoy.clear();
+                }
+            });
             if let Some(why) = &problem {
                 ui.label(
                     egui::RichText::new(why)
