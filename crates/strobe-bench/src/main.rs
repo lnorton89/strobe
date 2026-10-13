@@ -5,7 +5,7 @@
 //               a results table.
 //
 // Dependencies: clap, anyhow, image; strobe-gfx (contexts, player),
-//               strobe-scene (loading, controls)
+//               strobe-scene (loading, controls), strobe-diag (stderr log)
 // ============================================================================
 
 //! `strobe-bench`: the performance baseline.
@@ -174,6 +174,14 @@ struct Row {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
+    // The renderer says things worth seeing in a benchmark run (a pass
+    // double-buffered because it reads itself, D203; an asset that would
+    // not load). To stderr only, filtered by `STROBE_LOG`; no session file.
+    let _ = strobe_diag::logger::init_with(strobe_diag::logger::LoggerConfig {
+        filter: strobe_diag::filter::Filter::from_env(),
+        dir: None,
+        stderr: true,
+    });
     let size = parse_size(&cli.size)?;
     let request = Request {
         mode: cli.context.mode(),
