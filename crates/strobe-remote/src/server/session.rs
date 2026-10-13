@@ -1,0 +1,670 @@
+// ============================================================================
+// Module:       strobe_remote::server::session
+// Description:  One connection: the HTTP checks (Host, route, Origin), the
+//               page, the WebSocket upgrade, then the v1 protocol with its
+//               pairing, authentication, rate limit and timers.
+//
+// Dependencies: crate (protocol, bridge, clients, pairing); super::{http, ws,
+//               page, net, Shared}
+// ============================================================================
+
+//! A connection's life (L-02, L-03, L-04).
+//!
+//! The protocol, once the socket is up:
+//!
+//! ```text
+//! client: hello {protocol_version}
+//! server: hello {protocol_version, paired: false}
+//! client: authenticate {token}          | client: pair {code}
+//! server: authenticated {client_id}     |   (operator approves on the desktop)
+//!         paired {client_id, token}     | server: paired {client_id, token}
+//!           (the rotated token)         |         authenticated {client_id}
+//!         state {...}                   |         state {...}
+//! client: command {request_id, command}  -> server: command_result {...}
+//! client: ping                           -> server: pong
+//!                                           server: state {...} whenever it changes
+//! ```
+//!
+//! A `paired` message after `authenticated` is a token rotation (D251): the
+//! client replaces the token it keeps.
+//!
+//! Every client message goes through [`crate::decode_client`] and costs one
+//! token of a per-connection bucket ([`super::Limits::rate_per_second`],
+//! [`super::Limits::burst`]); an empty bucket closes the connection with
+//! 1008. So do five failed pairing or authentication attempts on one
+//! connection. A connection that is not authenticated within
+//! [`super::Limits::auth_timeout`], or sends nothing for
+//! [`super::Limits::idle_timeout`], is closed.
+
+use super::http::{self, Head, HeadError, Response};
+use super::ws::{self, Message, Reader, close};
+use super::{Shared, net, page};
+use crate::bridge::Answer;
+use crate::pairing::{Decision, Refusal};
+use crate::{ClientMessage, ErrorCode, PROTOCOL_VERSION, ServerMessage, decode_client, negotiate};
+use std::io;
+use std::net::{SocketAddr, TcpStream};
+use std::sync::LazyLock;
+use std::time::Instant;
+
+/// Failed pairing or authentication attempts one connection may make.
+const MAX_FAILURES: u32 = 5;
+
+/// Serves one connection to the end.
+pub(super) fn serve(mut stream: TcpStream, shared: &Shared, conn: u64, peer: SocketAddr) {
+    let deadline = Instant::now() + shared.limits.handshake_timeout;
+    let head = match http::read_head(&mut stream, deadline) {
+        Ok(head) => head,
+        Err(HeadError::Closed) => return,
+        Err(HeadError::TooLarge) => {
+            let _ = http::respond(
+                &mut stream,
+                &Response::text(431, "The request is too large."),
+            );
+            return;
+        }
+        Err(HeadError::TooSlow) => return,
+        Err(HeadError::Malformed(why)) => {
+            let _ = http::respond(&mut stream, &Response::text(400, why));
+            return;
+        }
+        Err(HeadError::Io(error)) => {
+            log::debug!("remote: reading a request from {peer} failed: {error}");
+            return;
+        }
+    };
+    if let Err(refusal) = route(&mut stream, shared, &head) {
+        let _ = http::respond(&mut stream, &refusal);
+        return;
+    }
+    if head.path() == "/ws" {
+        let label = label(&head, peer);
+        let leftover = head.leftover;
+        Session::new(stream, shared, conn, peer, label, leftover).run();
+    }
+}
+
+/// Checks the request and serves the page, or answers the upgrade. A
+/// refusal is returned to be written; `Ok` with `/ws` means the socket is
+/// now a WebSocket.
+fn route(stream: &mut TcpStream, shared: &Shared, head: &Head) -> Result<(), Response<'static>> {
+    let Some(host) = head
+        .header("host")
+        .filter(|host| net::host_matches(host, shared.addr))
+    else {
+        return Err(Response::text(
+            421,
+            "Open the remote at the address Strobe shows (an IP address, not a name).",
+        ));
+    };
+    if head.header("content-length").is_some_and(|l| l != "0") || head.has("transfer-encoding") {
+        return Err(Response::text(400, "Requests here have no body."));
+    }
+    match head.path() {
+        "/" | "/index.html" => {
+            let head_only = head.method == "HEAD";
+            if head.method != "GET" && !head_only {
+                return Err(Response::text(405, "GET only."));
+            }
+            let headers = page::headers(host);
+            let _ = http::respond(
+                stream,
+                &Response {
+                    status: 200,
+                    content_type: "text/html; charset=utf-8",
+                    headers: &headers,
+                    body: page::HTML.as_bytes(),
+                    head_only,
+                },
+            );
+            Ok(())
+        }
+        "/ws" => upgrade(stream, head, host),
+        _ => Err(Response::text(404, "Not here.")),
+    }
+}
+
+/// Validates a WebSocket upgrade and answers it with 101.
+fn upgrade(stream: &mut TcpStream, head: &Head, host: &str) -> Result<(), Response<'static>> {
+    if head.method != "GET" {
+        return Err(Response::text(405, "GET only."));
+    }
+    let origin_ok = head
+        .header("origin")
+        .is_some_and(|origin| origin.eq_ignore_ascii_case(&format!("http://{host}")));
+    if !origin_ok {
+        log::warn!("remote: refused a WebSocket from another origin");
+        return Err(Response::text(
+            403,
+            "Only Strobe's own remote page may connect here.",
+        ));
+    }
+    if !head.lists("connection", "upgrade") || !head.lists("upgrade", "websocket") {
+        return Err(Response::text(
+            426,
+            "This address takes WebSocket upgrades.",
+        ));
+    }
+    if head.header("sec-websocket-version") != Some("13") {
+        return Err(Response {
+            headers: VERSION_HEADER.as_slice(),
+            ..Response::text(426, "WebSocket version 13 only.")
+        });
+    }
+    let Some(key) = head
+        .header("sec-websocket-key")
+        .filter(|k| ws::valid_key(k))
+    else {
+        return Err(Response::text(
+            400,
+            "A valid Sec-WebSocket-Key is required.",
+        ));
+    };
+    let response = format!(
+        "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\
+         Sec-WebSocket-Accept: {}\r\n\r\n",
+        ws::accept_key(key)
+    );
+    use io::Write as _;
+    stream
+        .write_all(response.as_bytes())
+        .and_then(|()| stream.flush())
+        .map_err(|_| Response::text(400, "The upgrade could not be written."))
+}
+
+/// The header a 426 for a wrong version carries.
+static VERSION_HEADER: LazyLock<Vec<String>> =
+    LazyLock::new(|| vec!["Sec-WebSocket-Version: 13".to_string()]);
+
+/// What the desktop calls a phone: its kind from the User-Agent (never the
+/// whole string) and its address.
+fn label(head: &Head, peer: SocketAddr) -> String {
+    let agent = head.header("user-agent").unwrap_or_default();
+    let kind = [
+        ("iPhone", "iPhone"),
+        ("iPad", "iPad"),
+        ("Android", "Android"),
+        ("Macintosh", "Mac"),
+        ("Windows", "Windows"),
+        ("CrOS", "Chromebook"),
+        ("Linux", "Linux"),
+    ]
+    .iter()
+    .find(|(needle, _)| agent.contains(needle))
+    .map_or("Device", |(_, kind)| kind);
+    format!("{kind} at {}", peer.ip())
+}
+
+/// After a close frame: stops sending, then reads and discards what the
+/// client still sends for a moment. Closing with unread data makes the
+/// system reset the connection, and a reset can destroy the close frame
+/// (with its reason, "revoked" say) before the phone reads it.
+fn linger(stream: &mut TcpStream) {
+    /// Read at most this much.
+    const BYTES: usize = 64 * 1024;
+    /// For at most this long.
+    const TIME: std::time::Duration = std::time::Duration::from_millis(250);
+    use io::Read as _;
+    let _ = stream.shutdown(std::net::Shutdown::Write);
+    let until = Instant::now() + TIME;
+    let mut sink = [0_u8; 4096];
+    let mut total = 0;
+    while total < BYTES && Instant::now() < until {
+        match stream.read(&mut sink) {
+            Ok(0) => break,
+            Ok(read) => total += read,
+            Err(error) if http::timed_out(&error) => {}
+            Err(_) => break,
+        }
+    }
+}
+
+/// Where the protocol stands on this connection.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Phase {
+    /// Waiting for `hello`.
+    Hello,
+    /// Said hello; must pair or authenticate.
+    Unauthenticated,
+    /// Gave the right code; the operator has not answered.
+    Approval(u64),
+    /// A paired client.
+    Authenticated(String),
+}
+
+/// A token bucket.
+#[derive(Debug)]
+struct Bucket {
+    tokens: f64,
+    last: Instant,
+}
+
+/// Why the session ends.
+enum End {
+    /// Send this close frame first.
+    Close(u16, &'static str),
+    /// The socket is gone; just stop.
+    Gone,
+}
+
+struct Session<'a> {
+    stream: TcpStream,
+    shared: &'a Shared,
+    conn: u64,
+    peer: SocketAddr,
+    label: String,
+    reader: Reader,
+    phase: Phase,
+    bucket: Bucket,
+    failures: u32,
+    heard: Instant,
+    since_auth_wait: Instant,
+    sent_revision: Option<u64>,
+}
+
+impl<'a> Session<'a> {
+    fn new(
+        stream: TcpStream,
+        shared: &'a Shared,
+        conn: u64,
+        peer: SocketAddr,
+        label: String,
+        leftover: Vec<u8>,
+    ) -> Self {
+        let now = Instant::now();
+        Self {
+            stream,
+            shared,
+            conn,
+            peer,
+            label,
+            reader: Reader::new(shared.limits.max_message, leftover),
+            phase: Phase::Hello,
+            bucket: Bucket {
+                tokens: shared.limits.burst,
+                last: now,
+            },
+            failures: 0,
+            heard: now,
+            since_auth_wait: now,
+            sent_revision: None,
+        }
+    }
+
+    fn run(mut self) {
+        let end = loop {
+            if let Err(end) = self.step() {
+                break end;
+            }
+        };
+        if let Phase::Approval(id) = self.phase {
+            self.shared.pairing().forget(id);
+        }
+        if let End::Close(code, reason) = end
+            && ws::write_close(&mut self.stream, code, reason).is_ok()
+        {
+            linger(&mut self.stream);
+        }
+        let _ = self.stream.shutdown(std::net::Shutdown::Both);
+    }
+
+    /// One read (or tick), then the timers and the state push.
+    fn step(&mut self) -> Result<(), End> {
+        if self.shared.stopping() {
+            return Err(End::Close(close::GOING_AWAY, "the remote was switched off"));
+        }
+        if self.shared.revoked(self.conn) {
+            return Err(End::Close(close::POLICY, "revoked on the desktop"));
+        }
+        match self.reader.read(&mut self.stream) {
+            Ok(Some(message)) => {
+                self.heard = Instant::now();
+                self.spend()?;
+                self.message(message)?;
+            }
+            Ok(None) => {}
+            Err(error) => {
+                if let ws::WsError::Io(io) = &error {
+                    log::debug!("remote: reading from {} failed: {io}", self.peer);
+                }
+                return Err(match error.close_code() {
+                    Some(code) => {
+                        log::info!("remote: {} closed: {}", self.peer, error.reason());
+                        End::Close(code, error.reason())
+                    }
+                    None => End::Gone,
+                });
+            }
+        }
+        self.timers()?;
+        self.push_state()
+    }
+
+    /// Takes one token from the bucket, or ends a flooding connection.
+    fn spend(&mut self) -> Result<(), End> {
+        let limits = &self.shared.limits;
+        let now = Instant::now();
+        let elapsed = now
+            .saturating_duration_since(self.bucket.last)
+            .as_secs_f64();
+        self.bucket.last = now;
+        self.bucket.tokens =
+            (self.bucket.tokens + elapsed * limits.rate_per_second).min(limits.burst);
+        if self.bucket.tokens < 1.0 {
+            log::warn!("remote: {} sent too many messages; dropped", self.peer);
+            let _ = self.send(&ServerMessage::error(ErrorCode::Busy, "too many messages"));
+            return Err(End::Close(close::POLICY, "too many messages"));
+        }
+        self.bucket.tokens -= 1.0;
+        Ok(())
+    }
+
+    fn timers(&mut self) -> Result<(), End> {
+        let limits = &self.shared.limits;
+        let now = Instant::now();
+        if now.saturating_duration_since(self.heard) >= limits.idle_timeout {
+            return Err(End::Close(close::GOING_AWAY, "idle"));
+        }
+        match self.phase.clone() {
+            Phase::Hello | Phase::Unauthenticated => {
+                if now.saturating_duration_since(self.since_auth_wait) >= limits.auth_timeout {
+                    return Err(End::Close(close::POLICY, "pair or authenticate first"));
+                }
+            }
+            Phase::Approval(id) => {
+                let decision = self.shared.pairing().decision(id, now);
+                match decision {
+                    Decision::Waiting => {}
+                    Decision::Approved => {
+                        self.shared.pairing().forget(id);
+                        self.approved()?;
+                    }
+                    Decision::Denied | Decision::Expired => {
+                        self.shared.pairing().forget(id);
+                        self.phase = Phase::Unauthenticated;
+                        self.since_auth_wait = now;
+                        let why = if decision == Decision::Denied {
+                            "declined on the desktop"
+                        } else {
+                            "not approved in time; ask for a new code"
+                        };
+                        log::info!("remote: pairing for {} {why}", self.peer);
+                        self.send(&ServerMessage::error(ErrorCode::PairingRejected, why))?;
+                    }
+                }
+            }
+            Phase::Authenticated(_) => {}
+        }
+        Ok(())
+    }
+
+    /// The operator approved: issue the client's token.
+    fn approved(&mut self) -> Result<(), End> {
+        match self.shared.clients.pair(&self.label) {
+            Ok((client_id, token)) => {
+                log::info!("remote: {} paired as client {client_id}", self.peer);
+                self.send(&ServerMessage::Paired {
+                    client_id: client_id.clone(),
+                    token: token.expose().to_string(),
+                })?;
+                self.authenticated(client_id)
+            }
+            Err(error) => {
+                log::warn!("remote: could not pair {}: {error}", self.peer);
+                self.phase = Phase::Unauthenticated;
+                self.since_auth_wait = Instant::now();
+                self.send(&ServerMessage::error(
+                    ErrorCode::PairingRejected,
+                    &format!("the desktop could not save the pairing: {error}"),
+                ))
+            }
+        }
+    }
+
+    /// Enters the authenticated phase and sends the whole state.
+    fn authenticated(&mut self, client_id: String) -> Result<(), End> {
+        self.shared.set_client(self.conn, &client_id);
+        self.send(&ServerMessage::Authenticated {
+            client_id: client_id.clone(),
+        })?;
+        self.phase = Phase::Authenticated(client_id);
+        self.sent_revision = None;
+        self.push_state()
+    }
+
+    /// Sends the snapshot if its revision moved since the last one sent.
+    fn push_state(&mut self) -> Result<(), End> {
+        if !matches!(self.phase, Phase::Authenticated(_)) {
+            return Ok(());
+        }
+        let (revision, snapshot) = self.shared.remote.snapshot();
+        if self.sent_revision == Some(revision) {
+            return Ok(());
+        }
+        self.send(&snapshot.to_message(revision))?;
+        self.sent_revision = Some(revision);
+        Ok(())
+    }
+
+    /// Writes one message; a write that fails or times out drops the client.
+    fn send(&mut self, message: &ServerMessage) -> Result<(), End> {
+        let text = serde_json::to_string(message).map_err(|_| End::Gone)?;
+        ws::write_text(&mut self.stream, &text).map_err(|error| {
+            if http::timed_out(&error) {
+                log::warn!("remote: {} is not reading; dropped", self.peer);
+            }
+            End::Gone
+        })
+    }
+
+    /// A failed pairing or authentication attempt; too many end it.
+    fn failed(&mut self, code: ErrorCode, why: &str) -> Result<(), End> {
+        self.failures += 1;
+        self.send(&ServerMessage::error(code, why))?;
+        if self.failures >= MAX_FAILURES {
+            log::warn!("remote: {} failed {MAX_FAILURES} times; dropped", self.peer);
+            return Err(End::Close(close::POLICY, "too many failed attempts"));
+        }
+        Ok(())
+    }
+
+    fn message(&mut self, message: Message) -> Result<(), End> {
+        match message {
+            Message::Text(text) => self.text(&text),
+            Message::Ping(payload) => {
+                ws::write_pong(&mut self.stream, &payload).map_err(|_| End::Gone)
+            }
+            Message::Pong => Ok(()),
+            Message::Close(code) => {
+                log::debug!("remote: {} closed the connection ({code:?})", self.peer);
+                Err(End::Close(close::NORMAL, "bye"))
+            }
+        }
+    }
+
+    fn text(&mut self, text: &str) -> Result<(), End> {
+        let message = match decode_client(text) {
+            Ok(message) => message,
+            Err(code) => {
+                let fatal = self.phase == Phase::Hello;
+                self.send(&ServerMessage::error(
+                    code,
+                    "that message was not understood",
+                ))?;
+                return if fatal || code == ErrorCode::VersionMismatch {
+                    Err(End::Close(close::POLICY, "say hello first"))
+                } else {
+                    Ok(())
+                };
+            }
+        };
+        match (self.phase.clone(), message) {
+            (_, ClientMessage::Ping {}) => self.send(&ServerMessage::Pong {}),
+            (Phase::Hello, ClientMessage::Hello { protocol_version }) => {
+                match negotiate(protocol_version) {
+                    Ok(_) => {
+                        self.phase = Phase::Unauthenticated;
+                        self.send(&ServerMessage::Hello {
+                            protocol_version: PROTOCOL_VERSION,
+                            paired: false,
+                        })
+                    }
+                    Err(code) => {
+                        let _ = self.send(&ServerMessage::error(
+                            code,
+                            &format!("this Strobe speaks protocol version {PROTOCOL_VERSION}"),
+                        ));
+                        Err(End::Close(close::POLICY, "version mismatch"))
+                    }
+                }
+            }
+            (Phase::Hello, _) => {
+                let _ = self.send(&ServerMessage::error(
+                    ErrorCode::InvalidRequest,
+                    "say hello first",
+                ));
+                Err(End::Close(close::POLICY, "say hello first"))
+            }
+            (Phase::Unauthenticated, ClientMessage::Authenticate { token }) => {
+                match self.shared.clients.authenticate(&token) {
+                    Some(auth) => {
+                        log::info!(
+                            "remote: client {} connected from {}",
+                            auth.client_id,
+                            self.peer
+                        );
+                        let client_id = auth.client_id.clone();
+                        self.shared.set_client(self.conn, &client_id);
+                        self.send(&ServerMessage::Authenticated {
+                            client_id: client_id.clone(),
+                        })?;
+                        if let Some(next) = auth.rotated {
+                            self.send(&ServerMessage::Paired {
+                                client_id: client_id.clone(),
+                                token: next.expose().to_string(),
+                            })?;
+                        }
+                        self.phase = Phase::Authenticated(client_id);
+                        self.sent_revision = None;
+                        self.push_state()
+                    }
+                    None => {
+                        log::info!("remote: {} sent a token that is not valid", self.peer);
+                        self.failed(ErrorCode::Unauthorized, "not paired, or revoked")
+                    }
+                }
+            }
+            (Phase::Unauthenticated, ClientMessage::Pair { code }) => {
+                let attempt =
+                    self.shared
+                        .pairing()
+                        .try_code(&code, self.label.clone(), Instant::now());
+                match attempt {
+                    Ok(id) => {
+                        log::info!(
+                            "remote: {} gave the pairing code; waiting for approval",
+                            self.peer
+                        );
+                        self.phase = Phase::Approval(id);
+                        Ok(())
+                    }
+                    Err(refusal) => {
+                        let why = match refusal {
+                            Refusal::NotOpen => {
+                                "pairing is not open on the desktop, or the code expired"
+                            }
+                            Refusal::Wrong(_) => "wrong code",
+                            Refusal::Burned => "too many wrong codes; open pairing again",
+                            Refusal::Full => "too many devices are waiting for approval",
+                        };
+                        log::info!(
+                            "remote: refused a pairing code from {}: {refusal:?}",
+                            self.peer
+                        );
+                        self.failed(ErrorCode::PairingRejected, why)
+                    }
+                }
+            }
+            (Phase::Unauthenticated | Phase::Approval(_), ClientMessage::Command { .. }) => self
+                .send(&ServerMessage::error(
+                    ErrorCode::Unauthorized,
+                    "pair this device first",
+                )),
+            (
+                Phase::Authenticated(_),
+                ClientMessage::Command {
+                    request_id,
+                    command,
+                },
+            ) => {
+                let reply = match self.shared.remote.submit(&request_id, command) {
+                    Ok(pending) => pending.wait(self.shared.limits.command_timeout),
+                    Err(code) => Err(code),
+                };
+                let result = match reply {
+                    Ok(Answer::Accepted) => (true, None),
+                    Ok(Answer::Rejected(reason)) => (false, Some(reason)),
+                    Err(ErrorCode::Busy) => (false, Some("Strobe is busy; try again".to_string())),
+                    Err(ErrorCode::Unavailable) => {
+                        let _ = self.send(&ServerMessage::error(
+                            ErrorCode::Unavailable,
+                            "the remote was switched off",
+                        ));
+                        return Err(End::Close(close::GOING_AWAY, "the remote was switched off"));
+                    }
+                    Err(other) => (false, Some(format!("{other:?}"))),
+                };
+                self.send(&ServerMessage::CommandResult {
+                    request_id,
+                    accepted: result.0,
+                    reason: result.1,
+                })?;
+                self.push_state()
+            }
+            (
+                Phase::Unauthenticated | Phase::Approval(_) | Phase::Authenticated(_),
+                ClientMessage::Hello { .. },
+            )
+            | (
+                Phase::Approval(_) | Phase::Authenticated(_),
+                ClientMessage::Pair { .. } | ClientMessage::Authenticate { .. },
+            ) => self.send(&ServerMessage::error(
+                ErrorCode::InvalidRequest,
+                "not now: this connection is past that step",
+            )),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn head(agent: &str) -> Head {
+        Head {
+            method: "GET".into(),
+            target: "/ws".into(),
+            headers: vec![("user-agent".into(), agent.into())],
+            leftover: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn a_device_is_named_by_kind_and_address_only() {
+        let peer = SocketAddr::from(([192, 168, 1, 23], 50000));
+        assert_eq!(
+            label(
+                &head("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Secret/1.0"),
+                peer
+            ),
+            "iPhone at 192.168.1.23",
+            "an iPhone"
+        );
+        assert_eq!(
+            label(&head("Mozilla/5.0 (Linux; Android 14; Pixel 8)"), peer),
+            "Android at 192.168.1.23",
+            "Android before Linux"
+        );
+        assert_eq!(label(&head(""), peer), "Device at 192.168.1.23", "unknown");
+    }
+}
