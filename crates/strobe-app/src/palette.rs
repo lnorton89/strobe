@@ -764,6 +764,27 @@ mod tests {
     }
 
     #[test]
+    fn the_focus_ring_stands_out_from_every_surface_it_can_sit_on() {
+        // A focused widget is drawn with egui's `active` style, whose border
+        // is the accent (U-10). WCAG 2.2 asks 3:1 for a focus indicator.
+        for theme in catalog().themes() {
+            for (label, surface) in [
+                ("app", theme.app),
+                ("panel", theme.panel),
+                ("raised", theme.raised),
+                ("hover", theme.hover),
+            ] {
+                let ratio = theme.accent.contrast(surface);
+                assert!(
+                    ratio >= 3.0,
+                    "{}: the focus ring is {ratio:.2}:1 against {label}",
+                    theme.name
+                );
+            }
+        }
+    }
+
+    #[test]
     fn every_theme_yields_a_usable_series_ramp() {
         for theme in catalog().themes() {
             // The realistic worst case is a modern many-core desktop.

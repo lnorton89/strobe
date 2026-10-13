@@ -394,6 +394,13 @@ fn visuals(theme: &Palette) -> egui::Visuals {
     }
     visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0, rgb(theme.text_muted));
     visuals.widgets.active.fg_stroke = Stroke::new(1.0, rgb(theme.text));
+    // Keyboard focus. egui draws a focused widget with the `active` style,
+    // which otherwise looks just like `hovered`, so a person tabbing through
+    // the panel could not see where they were (U-10). A 2 px accent ring,
+    // at least 3:1 against every surface
+    // (`the_focus_ring_stands_out_from_every_surface_it_can_sit_on`). A
+    // pressed button shows it for the press, which is feedback too.
+    visuals.widgets.active.bg_stroke = Stroke::new(2.0, rgb(theme.accent));
 
     visuals
 }
