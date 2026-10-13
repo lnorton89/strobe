@@ -128,14 +128,20 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           key: macos
+      # Excluding strobe-gfx is not enough: cargo still builds it for a crate
+      # that depends on it. strobe-autocontrol does (it renders to measure),
+      # and strobe-shadertoy's tests do (they render the fixtures), so the
+      # first is excluded and the second is checked without its tests.
       - name: Clippy (portable crates)
-        run: cargo clippy --workspace --exclude strobe-gfx --exclude strobe-bench --exclude strobe-app --all-targets --all-features -- -D warnings
+        run: cargo clippy --workspace --exclude strobe-gfx --exclude strobe-bench --exclude strobe-app --exclude strobe-autocontrol --exclude strobe-shadertoy --all-targets --all-features -- -D warnings
+      - name: Clippy (strobe-shadertoy without its rendering tests)
+        run: cargo clippy -p strobe-shadertoy --lib --bins --all-features -- -D warnings
       # The renderer tests in strobe-gfx self-skip without an EGL driver,
       # which a Mac runner does not have, so once strobe-gfx builds here
       # they will pass by skipping rather than prove anything; the Linux
       # job is where shaders are compiled.
       - name: Test (portable crates)
-        run: cargo test --workspace --exclude strobe-gfx --exclude strobe-bench --exclude strobe-app --all-features
+        run: cargo test --workspace --exclude strobe-gfx --exclude strobe-bench --exclude strobe-app --exclude strobe-autocontrol --exclude strobe-shadertoy --all-features
       - name: Clippy (whole workspace, informational)
         continue-on-error: true
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
