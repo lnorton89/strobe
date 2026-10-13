@@ -61,12 +61,13 @@ use crate::audio::AudioInput;
 use crate::library::Library;
 use crate::session::Session;
 use std::path::{Path, PathBuf};
+use strobe_audio::events::{Event, EventDetector};
 use strobe_diag::failure::{self, Failure, Subsystem};
 use strobe_gfx::gl::Gl;
 use strobe_gfx::{Blend, Caps, Compositor, MediaRequest, Mouse};
 use strobe_playlist::{
-    ClockConfig, ClockEvent, ClockState, Command, Playlist, PlaylistClock, ResumePoint, SceneRef,
-    SkipReason, Timeline, TimelineConfig, TransitionKind,
+    AudioEventKind, ClockConfig, ClockEvent, ClockState, Command, Playlist, PlaylistClock,
+    ResumePoint, SceneRef, SkipReason, Timeline, TimelineConfig, TransitionKind,
 };
 
 /// The size a parked scene's targets are cut down to.
@@ -187,6 +188,9 @@ pub struct Show {
     blend: Option<Blend>,
     composited: bool,
     reader: BeatReader,
+    /// Breakdowns and drops heard in the audio, for cues that advance on
+    /// them (D226).
+    structure: EventDetector,
     show_time: f32,
     events: Vec<ClockEvent>,
     waiting: Option<f64>,
@@ -252,6 +256,7 @@ impl Show {
             blend: None,
             composited: false,
             reader: BeatReader::new(),
+            structure: EventDetector::default(),
             show_time: 0.0,
             events: Vec::with_capacity(64),
             waiting: None,
@@ -676,10 +681,11 @@ impl Show {
         }
         self.show_time += dt;
         if !self.pace_anchor(env, dt) {
-            let beat = self
-                .reader
-                .read(&env.audio.frame_at(self.show_time).scalars);
+            let frame = env.audio.frame_at(self.show_time);
+            let beat = self.reader.read(&frame.scalars);
+            let [whole, bass] = frame.energy;
             self.clock.tick(f64::from(dt), &beat);
+            self.hear(dt, whole, bass);
         }
 
         self.events.clear();
@@ -713,6 +719,57 @@ impl Show {
         report
     }
 
+    /// Says so when cue `index` can end only on an audio event and there is
+    /// no live audio to hear it in: it would wait until a person moves on.
+    fn warn_if_deaf(&mut self, index: usize, env: &Env<'_>) {
+        if env.audio.source() == crate::audio::Source::Live {
+            return;
+        }
+        let Some(advance) = self
+            .clock
+            .timeline()
+            .cues()
+            .get(index)
+            .map(|cue| &cue.resolved.advance)
+        else {
+            return;
+        };
+        let audio_only = !advance.has_timer()
+            && (advance.listens_for(AudioEventKind::Drop)
+                || advance.listens_for(AudioEventKind::Breakdown));
+        if audio_only {
+            self.notice = Some(Notice {
+                warning: true,
+                text: format!(
+                    "Cue {} waits for a drop or breakdown, but the audio is synthetic and has none. \
+                     Press Next to move on.",
+                    index + 1
+                ),
+            });
+        }
+    }
+
+    /// Listens for a breakdown or a drop and hands it to the clock, which
+    /// moves on only if the playing cue advances on that event (D226).
+    fn hear(&mut self, dt: f32, whole: f32, bass: f32) {
+        let Some(event) = self.structure.step(dt, whole, bass) else {
+            return;
+        };
+        let kind = match event {
+            Event::Breakdown => AudioEventKind::Breakdown,
+            Event::Drop => AudioEventKind::Drop,
+        };
+        let moved = self.clock.apply(Command::AudioEvent(kind));
+        log::info!(
+            "audio: {} heard{}",
+            match event {
+                Event::Breakdown => "a breakdown",
+                Event::Drop => "a drop",
+            },
+            if moved { "; the cue moves on" } else { "" }
+        );
+    }
+
     /// While the show waits for its anchor, counts the wait down and starts
     /// the schedule when it is over. Returns whether the clock is held back.
     fn pace_anchor(&mut self, env: &Env<'_>, dt: f32) -> bool {
@@ -739,6 +796,7 @@ impl Show {
                     self.cue_scene(index).unwrap_or("?")
                 );
                 self.begin_cue(index, env);
+                self.warn_if_deaf(index, env);
             }
             ClockEvent::TransitionStarted { id, from, to } => {
                 let blend = self.blend_for(to);

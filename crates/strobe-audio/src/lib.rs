@@ -42,6 +42,7 @@ pub mod analyzer;
 pub mod bands;
 #[cfg(feature = "capture")]
 pub mod capture;
+pub mod events;
 pub mod frame;
 pub mod offline;
 mod onset;

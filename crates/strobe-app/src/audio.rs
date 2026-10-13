@@ -262,6 +262,8 @@ impl AudioInput {
             (Source::Live, Some(capture)) => capture.snapshot_into(&mut self.frame),
             (Source::Live | Source::Synthetic, _) => {
                 strobe_scene::synthetic::fill(time, &mut self.frame.scalars);
+                // The synthetic track has no song structure (D226).
+                self.frame.energy = [0.0; 2];
                 strobe_scene::synthetic::fill_textures(
                     time,
                     &mut self.frame.spectrum,

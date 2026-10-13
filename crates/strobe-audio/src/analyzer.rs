@@ -175,6 +175,8 @@ struct Pending {
     hit: [f32; CHANNELS],
     /// Beats detected since the last analyze.
     beats: u32,
+    /// Raw RMS of the whole signal and the bass band, from the latest hop.
+    energy: [f32; 2],
 }
 
 /// The audio analyser.
@@ -537,6 +539,7 @@ impl Analyzer {
             flux[0] += f;
         }
         rms[0] = rms[0].sqrt();
+        self.pending.energy = [rms[0], rms.get(1).copied().unwrap_or(0.0)];
 
         let rms_decay = decay(self.hop_dt, RMS_PEAK_TAU);
         let flux_decay = decay(self.hop_dt, FLUX_PEAK_TAU);
@@ -687,6 +690,11 @@ impl Analyzer {
         let phase = |period: f32| ((beats / f64::from(period)).fract()) as f32;
         let channel = |values: &[f32; CHANNELS], c: usize| values.get(c).copied().unwrap_or(0.0);
 
+        self.frame.energy = if self.starved > STARVE_AFTER {
+            [0.0; 2]
+        } else {
+            self.pending.energy
+        };
         for (slot, signal) in self.frame.scalars.iter_mut().zip(&self.signals) {
             *slot = match *signal {
                 Signal::Level(c) => channel(&self.out_level, c),

@@ -97,6 +97,12 @@ pub struct AudioFrame {
     /// row 0 is the spectrum in the browser analyser's decibel mapping,
     /// row 1 is the waveform with 128 at zero.
     pub shadertoy: Vec<u8>,
+    /// The latest hop's RMS of the whole signal and of the bass band,
+    /// **not** normalised to a recent peak, 0 when no audio arrives. The
+    /// scalars adapt to the music within seconds, which would lift a long
+    /// breakdown back up; song-structure events compare these raw values
+    /// with their own averages instead (`events`, D226). Not a uniform.
+    pub energy: [f32; 2],
 }
 
 impl AudioFrame {
@@ -112,6 +118,7 @@ impl AudioFrame {
                 vec![128; layout.shadertoy_width],
             ]
             .concat(),
+            energy: [0.0; 2],
         }
     }
 
