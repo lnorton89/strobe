@@ -3845,3 +3845,38 @@ a lower resolution.
 **Would reopen:** the T480 measurement showing 192 MiB itself is too much
 (or too little) for shared memory, or a streaming cache becoming worth its
 complexity for loops that would shrink too far.
+
+### D226: breakdowns and drops come from raw energy, with hysteresis and gaps (2026-10-13)
+
+The playlist format has had `advance = "audio-drop"` and
+`"audio-breakdown"` since stage 1, and the clock acts on the events, but
+nothing produced them (backlog P-01).
+
+- **Raw energy, not the scalars.** The `syn_*Level` scalars are normalised
+  to a peak that decays over 10 s, so a long breakdown is lifted back up to
+  a full-looking level; a detector on them would call false drops in every
+  long quiet passage. `AudioFrame::energy` now carries the latest hop's RMS
+  of the whole signal and of the bass, un-normalised (zero when no audio
+  arrives and for the synthetic track). Every test is a ratio between a
+  short (0.4 s) and a long (20 s) average, so input gain does not matter.
+- **Breakdown:** the short bass under 40% of the long bass for 2 s, while
+  there is sound and the track has had bass. **Drop:** after a breakdown,
+  whole and bass back to 80% of what they were before it; the long
+  averages are frozen during the breakdown so it cannot become the new
+  normal.
+- **What it refuses.** A short dip (one bar) is not a breakdown. Silence
+  (RMS under -80 dBFS for 0.25 s: a device unplugged, a paused player)
+  reports nothing and the averages restart when sound returns, with 8 s of
+  quiet before anything is reported, so a reconnect is not a drop. Two
+  events of one kind are 8 s apart; a drop may follow its own breakdown
+  sooner. Frame steps over 0.5 s are skipped.
+- **The show** feeds the detector every frame from the frame it already
+  reads for the beat, and calls `Command::AudioEvent`; the clock moves on
+  only if the playing cue listens for it. Each event is logged, with
+  whether the cue moved. A cue that can end only on audio, played with
+  synthetic audio, raises a notice saying to press Next.
+- **Thresholds are first estimates.** They pass synthetic structure and the
+  real analyser on a kick/hiss/kick signal; real sets will tune them.
+
+**Would reopen:** real music calling breakdowns in verses or missing
+obvious drops, which would also argue for P-02's bar-aware timing.

@@ -164,7 +164,7 @@
 ## Epic P — Playlist, audio timing and show control
 
 ### P-01 Audio-event advance
-- **Status:** Open.
+- **Status:** Built (D226), pending real music: `strobe_audio::events` hears breakdowns and drops in the analyser's raw energies and the show hands them to the clock; a cue that can end only on audio says so when the audio is synthetic. Left: tuning the thresholds on real sets (a person, or recorded tracks we may use).
 - **Work:** connect Phase 7 audio hit/event detection to playlist clock advancement with hysteresis and minimum intervals; allow per-show selection of event types and safe fallback when audio is absent.
 - **Acceptance:** synthetic fixtures deterministically exercise events; no double advance on one transient; no accidental advance during device reconnect; show continues with a clear status when audio is unavailable.
 
