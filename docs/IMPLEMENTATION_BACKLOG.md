@@ -36,12 +36,12 @@
 - **Acceptance:** explain the step with evidence or file a narrowly scoped follow-up bug; no unexplained monotonic growth over the full soak.
 
 ### R-03 Packaged release smoke test
-- **Status:** Open.
+- **Status:** Run on the T480 (Task 21). It found one bug, the library path depending on the working directory, now fixed. Left: a re-run on the fix, and an archive built by `release.yml` itself (Q12).
 - **Work:** build the release archive from a clean checkout; install/run outside the development tree; test first-run data directories, audio, import listener, scripts, diagnostics, native GL and ANGLE; confirm clean shutdown and upgrade/relaunch behaviour.
 - **Acceptance:** attach exact commands, archive hash, OS/GPU/driver, logs and screenshots to hardware/T480.md; test does not depend on Cargo or developer-only DLLs.
 
 ### R-04 Crash diagnostics and symbolication in packaged build
-- **Status:** In progress; minidump creation and matching PDB symbolication work on the T480 development build.
+- **Status:** In progress. Minidump creation and PDB symbolication work on the T480 development build. `STROBE_FAULT=crash@N` now crashes the real app on purpose, and xtask finds the packaged PDB. Left: the drill on a packaged `strobe.exe`.
 - **Work:** reproduce the crash demo from the packaged release, check diagnostic directory permissions and dump retention, verify matching PDB archive and symbolicate using the shipped build ID.
 - **Acceptance:** a packaged-build dump symbolicates to useful function and source locations; secrets and tokens are absent from diagnostic output.
 
