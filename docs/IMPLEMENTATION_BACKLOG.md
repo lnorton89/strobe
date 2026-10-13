@@ -307,7 +307,7 @@
 - **Acceptance:** no task is simultaneously described as both unimplemented and verified; every checked item names its evidence location.
 
 ### D-02 User-facing install and troubleshooting guide
-- **Status:** Open.
+- **Status:** Written (`docs/USER_GUIDE.md`): install from the release zip, first run, keys, scenes, audio and Windows microphone privacy, output, media, playlists, controllers, Shadertoy licences, graphics backends, and where logs and crash reports are. Left: a person without a toolchain following it on a clean machine (the acceptance).
 - **Work:** document clean Windows installation, ANGLE DLL provenance, audio permissions/devices, shader imports and license responsibility, diagnostics location, recovery and common GPU-driver issues.
 - **Acceptance:** a person without a Rust toolchain can install, launch, import a scene, choose audio, fullscreen output and collect diagnostics using only the guide.
 

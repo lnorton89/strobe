@@ -228,7 +228,9 @@ cargo run --release -p strobe-app -- --diagnose                # GPU and driver 
 cargo run --release -p strobe-bench -- --size 1280x720          # render and time every scene
 ```
 
-`strobe --help` lists every flag. The output window starts hidden; *Show
+Running the Windows release, without building anything, is covered in
+[`docs/USER_GUIDE.md`](docs/USER_GUIDE.md). `strobe --help` lists every
+flag. The output window starts hidden; *Show
 output* or F11 puts it on the projector. Keys: Left and Right step the
 scene, Space holds, B blacks out, T taps tempo, Ctrl+K opens the palette.
 Settings > Keyboard rebinds any of them.
