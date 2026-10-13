@@ -1,5 +1,5 @@
 // ============================================================================
-// Module:       strobe_remote
+// Module:       strobe_remote (library crate root)
 // Description:  Versioned, transport-independent messages for LAN show control.
 //
 // Dependencies: serde, serde_json
@@ -62,7 +62,11 @@ pub enum ClientMessage {
         command: RemoteCommand,
     },
     /// Keep a connection alive without requesting any state change.
-    Ping,
+    ///
+    /// An empty struct, not a unit variant: serde's `deny_unknown_fields`
+    /// does not apply to a unit variant of an internally tagged enum, so
+    /// `Ping` would accept `{"type":"ping","anything":...}`.
+    Ping {},
 }
 
 /// Commands intentionally exposed to a paired phone or tablet.
@@ -152,8 +156,8 @@ pub enum ServerMessage {
         /// Short human-readable explanation.
         message: String,
     },
-    /// Response to a ping.
-    Pong,
+    /// Response to a ping (an empty struct, for the reason on `Ping`).
+    Pong {},
 }
 
 /// Audio state as displayed by the remote.
@@ -203,49 +207,75 @@ pub fn valid_request_id(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use anyhow::Result;
 
     #[test]
-    fn command_messages_round_trip_as_stable_snake_case() {
+    fn command_messages_round_trip_as_stable_snake_case() -> Result<()> {
         let message = ClientMessage::Command {
             request_id: "phone-42".to_owned(),
             command: RemoteCommand::ToggleBlackout,
         };
-        let json = serde_json::to_string(&message).unwrap_or_default();
+        let json = serde_json::to_string(&message)?;
         assert_eq!(
-            json,
-            r#"{"type":"command","request_id":"phone-42","command":"toggle_blackout"}"#
+            json, r#"{"type":"command","request_id":"phone-42","command":"toggle_blackout"}"#,
+            "the wire form is stable snake_case"
         );
         assert_eq!(
-            serde_json::from_str::<ClientMessage>(&json),
-            Ok(message)
+            serde_json::from_str::<ClientMessage>(&json)?,
+            message,
+            "and reads back as the same message"
         );
+        Ok(())
     }
 
     #[test]
     fn unknown_message_types_and_fields_are_rejected() {
-        assert!(serde_json::from_str::<ClientMessage>(r#"{"type":"exec","code":"x"}"#).is_err());
-        assert!(serde_json::from_str::<ClientMessage>(
-            r#"{"type":"ping","unexpected":true}"#
-        )
-        .is_err());
+        assert!(
+            serde_json::from_str::<ClientMessage>(r#"{"type":"exec","code":"x"}"#).is_err(),
+            "an unknown message type fails"
+        );
+        assert!(
+            serde_json::from_str::<ClientMessage>(
+                r#"{"type":"hello","protocol_version":1,"unexpected":true}"#
+            )
+            .is_err(),
+            "an unknown field fails"
+        );
+        assert!(
+            serde_json::from_str::<ClientMessage>(r#"{"type":"ping","unexpected":true}"#).is_err(),
+            "an unknown field on a message with no fields fails too"
+        );
+        assert!(
+            matches!(
+                serde_json::from_str::<ClientMessage>(r#"{"type":"ping"}"#),
+                Ok(ClientMessage::Ping {})
+            ),
+            "a plain ping still parses"
+        );
     }
 
     #[test]
     fn unknown_commands_are_rejected() {
-        assert!(serde_json::from_str::<RemoteCommand>(r#""run_shell""#).is_err());
+        assert!(
+            serde_json::from_str::<RemoteCommand>(r#""run_shell""#).is_err(),
+            "only allowlisted commands parse"
+        );
     }
 
     #[test]
     fn request_ids_are_bounded_printable_ascii() {
-        assert!(valid_request_id("phone-42"));
-        assert!(!valid_request_id(""));
-        assert!(!valid_request_id("contains space"));
-        assert!(!valid_request_id("line\nbreak"));
-        assert!(!valid_request_id(&"x".repeat(MAX_REQUEST_ID_LEN + 1)));
+        assert!(valid_request_id("phone-42"), "an ordinary id");
+        assert!(!valid_request_id(""), "empty");
+        assert!(!valid_request_id("contains space"), "a space");
+        assert!(!valid_request_id("line\nbreak"), "a control character");
+        assert!(
+            !valid_request_id(&"x".repeat(MAX_REQUEST_ID_LEN + 1)),
+            "too long"
+        );
     }
 
     #[test]
-    fn state_messages_round_trip() {
+    fn state_messages_round_trip() -> Result<()> {
         let message = ServerMessage::State {
             revision: 7,
             current: Some("Aurora".to_owned()),
@@ -256,7 +286,12 @@ mod tests {
             output_visible: true,
             audio_status: AudioStatus::Active,
         };
-        let json = serde_json::to_string(&message).unwrap_or_default();
-        assert_eq!(serde_json::from_str::<ServerMessage>(&json), Ok(message));
+        let json = serde_json::to_string(&message)?;
+        assert_eq!(
+            serde_json::from_str::<ServerMessage>(&json)?,
+            message,
+            "a state snapshot reads back unchanged"
+        );
+        Ok(())
     }
 }
