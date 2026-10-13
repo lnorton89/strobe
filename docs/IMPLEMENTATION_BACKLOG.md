@@ -226,7 +226,7 @@
 - **Acceptance:** proposal includes binary size, supported formats, device removal/reconnect, latency, GPU upload cost and license review; implementation starts only after a decision.
 
 ### M-05 Song-change transitions
-- **Status:** Open.
+- **Status:** Built (D237), pending real music: `strobe_audio::song` hears a new track as a gap (0.8-10 s of silence after 30 s of music, then 1.5 s of sound) or a new tempo held 8 s at confidence 0.6 (double and half time are the same tempo), at most one per 30 s. A cue ends on it with `advance = "audio-song"` (alone or in a list with the timer). Only live audio counts, and any change of audio source resets the detector, so a reconnect is never a song. Any audio event during a transition is ignored, so a crossfade is never cut short by a second. Manual next works as always. Tests: gap, breath, stop, octave flip, unsure tempo, too-short tempo, spacing, reset, nonsense input, the mid-transition guard and the file round trip. Left: real sets; a tempo-matched DJ mix with no gap is not heard (a cue's timer or a person covers it).
 - **Work:** define song-change detection source and confidence, transition interaction with playlist anchors and audio-event advance, and manual override behaviour.
 - **Acceptance:** deterministic tests for no audio, low confidence, track boundary and manual override; no double transition with a cue transition already in progress.
 

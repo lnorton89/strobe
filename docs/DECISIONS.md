@@ -4203,3 +4203,44 @@ any listener exists.
 **Would reopen:** a second protocol version, which would raise
 `PROTOCOL_VERSION` and keep version 1's goldens for as long as
 `MIN_PROTOCOL_VERSION` allows it.
+
+### D237: a song change is a gap or a new tempo that holds, and only live, steady audio counts (2026-10-13)
+
+M-05 asked for song-change transitions, safe with no audio, low confidence
+and reconnects, and never a second transition on top of one in progress.
+
+- **Two cues, both conservative.** `strobe_audio::song::SongDetector`
+  reports a new song when either holds:
+  - *a gap*: the raw level under -80 dBFS for 0.8 to 10 s, after at least
+    30 s of music, then sound again for 1.5 s. A breath is shorter, a stop
+    is longer, and a start after a stop is not a change;
+  - *a new tempo*: at tempo confidence 0.6 or more, a reading over 4 % from
+    the settled tempo that stays within 2 % of itself for 8 s. Double and
+    half time count as the same tempo, since the estimator flips octaves,
+    and the first tempo heard settles without an event.
+
+  Changes are at least 30 s apart. A new song's tempo is learned again
+  quietly.
+- **Not heard:** a DJ mix that holds one tempo through the change with no
+  gap. Spectral novelty could hear it, but it also hears every breakdown
+  and drop, which D226 already reports as their own events. The cue's
+  timer or a person covers that case; the user guide says so.
+- **Only live, steady audio.** The show feeds the detector only from live
+  capture, and any change of `AudioInput::source()` resets it. A device
+  lost means the synthetic fallback, and the device back means live again;
+  either is a reset, so a reconnect cannot pass for a gap. A cue that
+  waits only on audio events gets D226's notice on synthetic audio, which
+  now names a new song too.
+- **The file says `audio-song`.** `AudioEventKind::SongChange` joins drop
+  and breakdown, and can stand alone or sit in a `FirstOf` list with the
+  timer. It works with anchors as the other events do: an event ends the
+  cue, and the schedule carries on from there.
+- **No event during a transition.** `PlaylistClock::audio_event` ignores
+  every audio event while a transition runs. The cue coming in has only
+  just started, and acting would cut the crossfade short with another.
+  This is a change for drops and breakdowns too, in the same direction.
+  Manual next and jumps are unchanged.
+
+**Would reopen:** real sets where the gap or the tempo rules misfire (the
+thresholds are first estimates), a DJ-mix case worth spectral novelty, or a
+player whose gaps are under 0.8 s.

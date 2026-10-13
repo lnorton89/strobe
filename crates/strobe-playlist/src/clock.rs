@@ -625,8 +625,13 @@ impl PlaylistClock {
     }
 
     /// An audio event happened. If the active cue's advance mode listens
-    /// for it, goes to the next cue.
+    /// for it, goes to the next cue. Ignored while a transition runs: the
+    /// cue it brings in has only just started, and an event then would
+    /// cut that transition short with another (D237).
     pub fn audio_event(&mut self, kind: AudioEventKind) -> bool {
+        if self.transition().is_some() {
+            return false;
+        }
         let listens = self
             .current_cue()
             .is_some_and(|cue| cue.resolved.advance.listens_for(kind));

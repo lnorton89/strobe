@@ -49,6 +49,7 @@ pub mod offline;
 mod onset;
 mod signal;
 mod smoothing;
+pub mod song;
 mod spectrum;
 mod tempo;
 

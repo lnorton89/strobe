@@ -21,7 +21,8 @@
 //!
 //! - a duration may also be a bare number of seconds (`duration = 90`);
 //! - `advance` is `"timer"`, `"manual"`, `"audio-drop"`,
-//!   `"audio-breakdown"`, or an array of those meaning "whichever first";
+//!   `"audio-breakdown"`, `"audio-song"`, or an array of those meaning
+//!   "whichever first";
 //! - a transition `{ kind = "crossfade" }` with no duration gets
 //!   [`DEFAULT_TRANSITION_SECONDS`]; `{ kind = "shader", path = "x.glsl" }`
 //!   names a custom transition;
@@ -306,10 +307,11 @@ impl Reader<'_> {
                 "manual" => Ok(AdvanceMode::Manual),
                 "audio-drop" => Ok(AdvanceMode::AudioEvent(AudioEventKind::Drop)),
                 "audio-breakdown" => Ok(AdvanceMode::AudioEvent(AudioEventKind::Breakdown)),
+                "audio-song" => Ok(AdvanceMode::AudioEvent(AudioEventKind::SongChange)),
                 other => Err(self.error(
                     start + 1,
                     format!(
-                        "\"{other}\" is not an advance mode (expected timer, manual, audio-drop, audio-breakdown, or a list of those)"
+                        "\"{other}\" is not an advance mode (expected timer, manual, audio-drop, audio-breakdown, audio-song, or a list of those)"
                     ),
                 )),
             }
@@ -756,6 +758,19 @@ cues = [
             cue.and_then(|c| c.settings.advance.clone()),
             Some(AdvanceMode::AudioEvent(AudioEventKind::Breakdown)),
             "single event"
+        );
+        let song = parse("[defaults]\nadvance = [\"timer\", \"audio-song\"]\n")?;
+        assert_eq!(
+            song.defaults.advance,
+            Some(AdvanceMode::FirstOf(vec![
+                AdvanceMode::Timer,
+                AdvanceMode::AudioEvent(AudioEventKind::SongChange)
+            ])),
+            "a song change"
+        );
+        assert!(
+            crate::write::to_toml(&song).contains("\"audio-song\""),
+            "and it is written back"
         );
         Ok(())
     }
