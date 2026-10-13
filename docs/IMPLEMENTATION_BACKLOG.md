@@ -147,7 +147,7 @@
 - **Acceptance:** record one successful import through the browser userscript and one API-by-ID attempt on Windows; if the external API is blocked, record the exact response and preserve the browser route as supported.
 
 ### I-02 File drop and import UX
-- **Status:** Partly done (D218). Built: a drop on either window goes where it belongs (scene folder to the library and played, `.toml` to the playlist loader, a picture or folder of pictures to `syn_Media`, `.json` to the Shadertoy import), and a banner says what the hovering file would do. Left: a real OS drag on Windows and X11 by a person, the Needs-work bin, batch import, a watched drop folder, and attribution metadata.
+- **Status:** Partly done (D218). Built: a drop on either window goes where it belongs (scene folder to the library and played, `.toml` to the playlist loader, a picture or folder of pictures to `syn_Media`, `.json` to the Shadertoy import), and a banner says what the hovering file would do. Batch import (D235): a dropped folder of scene folders adds them all to the library, one a frame, none played, with a summary banner and each refusal in the log and DIAG. The Needs-work bin exists as the LIB "Needs work" filter and DIAG's list of this run's failures with reasons. Imports already record author, source and licence in the scene. Left: a real OS drag on Windows and X11 by a person, and a watched drop folder.
 - **Work:** test actual OS drag/drop on Windows and X11; add thumbnails, a Needs-work bin, richer conversion diagnostics, batch import and an optional watched drop folder.
 - **Acceptance:** file-drop and typed-path paths share the same import pipeline; broken imports remain visible with actionable reasons; original source, attribution and license metadata survive.
 
