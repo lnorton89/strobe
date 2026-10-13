@@ -238,7 +238,7 @@
 ## Epic L — LAN remote and PWA
 
 ### L-01 Finish the transport-independent protocol
-- **Status:** In progress. Command semantics are aligned with the app's command ids and tested (D232). Left: the compatibility tests across protocol versions.
+- **Status:** Done (D232, D236): command semantics aligned with the app's command ids; `negotiate` and `decode_client` bound and validate every client message (4 KiB, request ids, 128-byte secrets) and tell a client of another version `version_mismatch` even when its `hello` has fields this version does not know; every version-1 message is a golden test, read and written byte for byte.
 - **Work:** keep message types versioned, strict, documented and allowlisted; align command semantics with app command IDs; add compatibility tests for older/newer protocol versions.
 - **Acceptance:** unknown fields/commands fail closed; request IDs and message sizes are bounded; protocol contract is documented and tests pass in CI.
 

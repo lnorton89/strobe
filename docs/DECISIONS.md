@@ -4176,3 +4176,30 @@ would switch scenes a hundred times.
 **Would reopen:** packs large enough that a scene a frame is too slow
 (500 scenes take about 8 s at 60 fps), nested packs (only one level is
 read), or a watched drop folder, which would feed the same queue.
+
+### D236: the remote protocol's version is whole, and a stranger's hello is told why (2026-10-13)
+
+L-01 asked for versioned, bounded messages and compatibility tests before
+any listener exists.
+
+- **Versions are whole numbers, negotiated once.** `negotiate(client)`
+  accepts `MIN_PROTOCOL_VERSION..=PROTOCOL_VERSION` (both 1 today) and
+  otherwise answers `version_mismatch`. There are no feature flags inside a
+  version: a change to any message's shape is a new version.
+- **One decode for every adapter.** `decode_client` refuses more than
+  4 KiB before parsing, then any unknown type or field (D232's strictness),
+  an invalid request id, and an empty or over-128-byte pairing code or
+  token. Each of these is `invalid_request`.
+- **A newer client hears "version", not "malformed".** A `hello` that does
+  not parse because a newer protocol added fields is read leniently for its
+  `protocol_version` alone. If that version is not spoken here, the answer
+  is `version_mismatch`, so the phone can say "update Strobe" instead of
+  failing obscurely.
+- **Version 1 is frozen by golden tests.** Every client and server message
+  shape is written out as JSON in the tests, and each must read and
+  re-serialise byte for byte. Changing one is breaking a shipped client,
+  and the test says so.
+
+**Would reopen:** a second protocol version, which would raise
+`PROTOCOL_VERSION` and keep version 1's goldens for as long as
+`MIN_PROTOCOL_VERSION` allows it.

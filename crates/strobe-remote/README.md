@@ -32,6 +32,7 @@ same command path a key, a pad or an OSC message uses (D172, D232).
 | `ErrorCode`, `AudioStatus` | Stable codes and short states for a small screen. |
 | `RemoteCommand::ALL`, `RemoteCommand::id` | Every command and its wire name, which is the app's `CommandId` id. |
 | `bridge::bridge(capacity)` | `(Remote, AppEnd)`: a bounded command queue with a reply per request (`Pending::wait`), and a revisioned `Snapshot`. A full queue is `Busy` at once; a gone app is `Unavailable`. |
+| `negotiate`, `decode_client`, `ServerMessage::error` | The adapter's side of every message: the session version (1 to `PROTOCOL_VERSION`), a bounded and validated decode (`MAX_MESSAGE_BYTES` 4096, `MAX_SECRET_LEN` 128) that answers another version's `hello` with `version_mismatch`, and errors cut to `MAX_ERROR_LEN`. |
 | `valid_request_id` | Bounded printable-ASCII request ids. |
 | `PROTOCOL_VERSION` | `1`. |
 
