@@ -480,6 +480,15 @@ impl ScenePlayer {
         &self.def
     }
 
+    /// Whether buffer pass `pass` has two targets: because the scene asked
+    /// for `DOUBLE_BUFFER`, or because its program samples its own output
+    /// (D203). `false` for the final pass and an index out of range.
+    pub fn is_double_buffered(&self, pass: usize) -> bool {
+        self.passes
+            .get(pass)
+            .is_some_and(|state| state.targets.len() == 2)
+    }
+
     /// Hands over the assets that did not load since this was last called
     /// (a cube map, or the `syn_Media` picture), so the host can report
     /// them through its failure path. The scene keeps running without them:
@@ -821,7 +830,29 @@ impl ScenePlayer {
             };
             let format = self.caps.pass_format(pass.float, precision);
             let sampling = sampling_for(pass.wrap, pass.filter);
-            let count = if pass.double_buffer { 2 } else { 1 };
+            // A pass whose program samples its own target reads what it is
+            // writing, which GL leaves undefined: NVIDIA returns the previous
+            // frame, D3D11 under ANGLE returns zeros (TORNADO T7). Double
+            // buffering gives every driver NVIDIA's answer, which is also
+            // what DOUBLE_BUFFER means (D203). The sampler list is the
+            // linked program's active samplers, so a pass that only names
+            // its target on a branch the driver removed is not affected.
+            let reads_itself = program
+                .samplers
+                .iter()
+                .any(|(source, _)| *source == Source::Pass(index));
+            if reads_itself && !pass.double_buffer {
+                log::info!(
+                    "pass {} samples its own output; double-buffered so it reads the previous \
+                     frame on every driver (D203)",
+                    pass.target.as_deref().unwrap_or("?")
+                );
+            }
+            let count = if pass.double_buffer || reads_itself {
+                2
+            } else {
+                1
+            };
             let targets = (0..count)
                 .map(|_| new_target(&self.gl, size, format, sampling))
                 .collect::<Result<Vec<_>, _>>()

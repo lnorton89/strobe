@@ -289,6 +289,48 @@ fn implicit_int_to_float_and_non_macro_if_compile_in_both_dialects() -> Result<(
 }
 
 #[test]
+fn a_pass_that_reads_itself_sees_its_previous_frame_in_both_dialects() -> Result<()> {
+    // D203: a single-buffered pass sampling its own target is a feedback
+    // loop GL leaves undefined (NVIDIA: last frame; ANGLE/D3D11: zeros;
+    // TORNADO T7). The player double-buffers it, so four frames of "+0.25"
+    // accumulate to 1.0 everywhere.
+    let json = r#"{ "PASSES": [ {"TARGET": "acc", "FLOAT": true, "WIDTH": 4, "HEIGHT": 4} ] }"#;
+    let shader = "vec4 renderMain() {\n\
+                      if (PASSINDEX == 0) { return texture(acc, _uv) + vec4(0.25); }\n\
+                      return vec4(texture(acc, _uv).rgb * 0.5, 1.0);\n\
+                  }\n";
+    for api in BOTH {
+        let Some(px) = render_center(api, Options::default(), json, shader, 4)? else {
+            continue;
+        };
+        assert!(
+            near(px[0], 128),
+            "{api:?}: four frames of +0.25 make 1.0, halved to 0.5; got {px:?}"
+        );
+        // llvmpipe happens to read the old contents through a feedback loop,
+        // so the value alone cannot tell; the buffering can.
+        let Some(headless) = context(api)? else {
+            continue;
+        };
+        let gl = headless.gl();
+        let caps = Caps::from_info(gl.info());
+        let scene = folder(json, shader)?;
+        let player = ScenePlayer::new(gl, &caps, &scene, [32, 18], Options::default())?;
+        assert!(
+            player.is_double_buffered(0),
+            "{api:?}: the self-reading pass got a second target"
+        );
+        let plain = folder(json, "vec4 renderMain() { return vec4(0.5); }")?;
+        let player = ScenePlayer::new(gl, &caps, &plain, [32, 18], Options::default())?;
+        assert!(
+            !player.is_double_buffered(0),
+            "{api:?}: a pass that does not read itself keeps one"
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn a_non_constant_global_initializer_compiles_in_both_dialects() -> Result<()> {
     // D192: real scenes open with `vec4 iMouse = vec4(MouseXY*RENDERSIZE,
     // ...)`. GLSL ES rejects a global initializer that is not constant; the
