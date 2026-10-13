@@ -70,6 +70,7 @@ machine.
 | [`strobe-autocontrol`](crates/strobe-autocontrol/README.md) | Auto-generated controls: finds the literals that shape a scene, rewrites them to uniforms, keeps those that measurably change the image; `strobe-autocontrol` writes `<name>-auto.synScene` |
 | [`strobe-playlist`](crates/strobe-playlist/README.md) | Playlist model, TOML I/O, generator, timeline, playback clock |
 | [`strobe-io`](crates/strobe-io/README.md) | Show control: MIDI and OSC workers, the mapping model with learn and soft takeover, Performance Macros, `show-control.json`; no GL |
+| [`strobe-remote`](crates/strobe-remote/README.md) | The LAN remote's wire protocol (typed, versioned, allowlisted messages); protocol only, no socket yet |
 | [`strobe-bench`](crates/strobe-bench/README.md) | Benchmark: renders `scenes/`, times each, writes frames and a contact sheet |
 | [`strobe-conventions`](crates/strobe-conventions/README.md) | The house rules as tests: file headers, the `unsafe` boundary, the toolchain pin |
 | [`xtask`](crates/xtask/README.md) | `cargo xtask ci`, `changelog` and `bench` |
