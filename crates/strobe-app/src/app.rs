@@ -731,6 +731,14 @@ impl Running {
         scan_error: Option<String>,
     ) -> Result<Self, String> {
         let render_scale = session::clamp_scale(cli.render_scale);
+        if render_scale != cli.render_scale {
+            log::warn!(
+                "--render-scale {} is outside {:.2}..={:.2}; using {render_scale}",
+                cli.render_scale,
+                session::RENDER_SCALE.start(),
+                session::RENDER_SCALE.end()
+            );
+        }
         // Screenshot mode never reads or writes the saved layout, so a
         // capture depends on neither, and a capture never changes it.
         let mut ui_state = if cli.screenshot.is_some() {

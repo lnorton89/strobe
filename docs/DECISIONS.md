@@ -3744,6 +3744,11 @@ because of the lost overlap, or T16 not engaging automatically.
 a minute at 30 Hz. Covered, the few control redraws still waited and
 tripped the pacer; the pacer now ignores redraws while covered.
 
+*Addendum (TORNADO T17):* on volume-clouds with the GPU at 75-90% of the
+frame, auto had 7-11 late frames a minute, forced on 2-6, forced off
+560-573, all at 59.8-59.9 fps: the lost overlap costs nothing measurable,
+so the reopen condition above did not occur.
+
 *Also in this commit:* a player whose media has no picture yet replaces it
 at once when other media is chosen, so the scene's own picture no longer
 shows for a moment before `--media` (T480 Task 26), and every choice is
