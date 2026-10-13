@@ -18,7 +18,7 @@
 
 use crate::error::PlaylistError;
 use crate::model::Playlist;
-use crate::{parse, write};
+use crate::{merge, parse, write};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -31,9 +31,23 @@ pub fn load(path: &Path) -> Result<Playlist, PlaylistError> {
     Ok(parse::parse(&text)?)
 }
 
-/// Writes `playlist` to `path`, atomically.
+/// Writes `playlist` to `path`, atomically. Over an existing file, the
+/// file's comments and layout are kept wherever the content still matches
+/// ([`merge::keep_layout`], D231); if that text would not read back to
+/// exactly `playlist`, the canonical text is written instead.
 pub fn save(playlist: &Playlist, path: &Path) -> Result<(), PlaylistError> {
-    write_atomic(path, &write::to_toml(playlist))
+    let fresh = write::to_toml(playlist);
+    let text = match fs::read_to_string(path) {
+        Ok(original) => {
+            let merged = merge::keep_layout(&original, &fresh);
+            match parse::parse(&merged) {
+                Ok(read) if read == *playlist => merged,
+                Ok(_) | Err(_) => fresh,
+            }
+        }
+        Err(_) => fresh,
+    };
+    write_atomic(path, &text)
 }
 
 /// Writes `text` to `path` by way of a sibling temporary file.
@@ -82,6 +96,26 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn saving_over_a_commented_file_keeps_its_comments() -> Result<()> {
+        let scratch = Scratch::new("comments")?;
+        let path = scratch.0.join("show.toml");
+        fs::write(
+            &path,
+            "# Friday.\nname = \"show\"\n\n[[sections]]\nname = \"s\"\ncues = [\n  # opener\n  { scene = \"a\" },\n]\n",
+        )?;
+        let mut playlist = load(&path)?;
+        if let Some(section) = playlist.sections.first_mut() {
+            section.cues.push(Cue::new(SceneRef::Library("b".into())));
+        }
+        save(&playlist, &path)?;
+        let text = fs::read_to_string(&path)?;
+        assert!(text.starts_with("# Friday."), "the header stays: {text}");
+        assert!(text.contains("# opener"), "the cue's comment stays: {text}");
+        assert_eq!(load(&path)?, playlist, "and it reads back to the edit");
+        Ok(())
     }
 
     #[test]
