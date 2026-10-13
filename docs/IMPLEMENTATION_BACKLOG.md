@@ -119,7 +119,7 @@
 ## Epic C — SSF, scripting and shader compatibility
 
 ### C-01 Finish meta controls
-- **Status:** Mostly done (D207): Limit Colors built; meta values carry across scenes under a cue's or preset's own values. Left: Alpha Channel, with an output that carries alpha (NDI/Spout); the order and conventions against Synesthesia (Q21); the stage's cost on an HD 4000.
+- **Status:** Mostly done (D207): Limit Colors built; meta values carry across scenes under a cue's or preset's own values. Alpha Channel is deferred to an output that carries alpha (D248, with M-06). Left: the order and conventions against Synesthesia (Q21), which needs Synesthesia itself; the stage's cost on an HD 4000.
 - **Work:** implement Limit Colors and Alpha Channel; decide and implement whether meta values persist across scene changes; document reset/persistence semantics; validate order and mirror conventions against Synesthesia references where available.
 - **Acceptance:** fixtures test each value and neutral no-op behaviour on GL 3.3 and GLES/ANGLE; neutral settings incur no post pass where technically possible; T480 and TORNADO GPU cost is recorded.
 
@@ -144,7 +144,7 @@
 - **Acceptance:** output cannot be mistaken for script-complete performance results; any future script mode has reproducibility tests.
 
 ### C-06 Meta/control/preset compatibility matrix
-- **Status:** In progress.
+- **Status:** Done (D247): COMPATIBILITY.md's "Synesthesia's preset, meta and control behaviours" classifies 16 documented behaviours with a test each. Built for it: default and random on a control, a group or a bank, over OSC and as a mapping target. Left as Unsupported, with reasons: lock, bank undo, the `/preset` suffix, `/presets/new`, and recalling one part of a preset.
 - **Work:** verify presets and meta controls across scene changes, reset, script writes, audio gains, fav slots and playlist cue changes; clarify whether scene/meta/media channels are independently recallable and persistent.
 - **Acceptance:** each documented Synesthesia behaviour is classified supported, intentionally degraded or unsupported with a fixture.
 
@@ -337,7 +337,16 @@
 - **Acceptance:** no feature is described as supported solely because a type or UI control exists; evidence links to fixtures or hardware logs.
 
 ### D-04 CI coverage and non-flaky hardware gates
-- **Status:** In progress.
+- **Status:** Skips are counted (D249): every GPU test that skips records it through `strobe_gfx::skip`, `cargo xtask ci` prints how many passed by skipping and why, and CI's Windows job writes the same to its summary. Coverage of the listed areas:
+  - protocol: `strobe-remote` golden messages;
+  - command semantics: `strobe-io` and `commands.rs`;
+  - parser rewrites: `promote` and the converter;
+  - importer security: path, size and host limits;
+  - generated controls;
+  - asset errors;
+  - no runtime compiles: the show and playlist tests.
+
+  The hardware gates stay manual, with their artifacts in `hardware/T480.md` and `TORNADO.md`. Left: nothing in code; a GPU runner would let the Windows job require a context.
 - **Work:** ensure deterministic unit/integration tests cover protocol, command semantics, parser rewrites, importer security, generated controls, asset errors and no-runtime-compiles; keep hardware tests as explicit manual gates with artifacts.
 - **Acceptance:** CI is reproducible; platform-only tests clearly report skip reasons; skipped Windows/GPU tests are not counted as passed.
 
