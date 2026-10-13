@@ -4437,3 +4437,42 @@ native and ANGLE were unmeasured.
 
 **Would reopen:** a Windows CI runner with a GPU, where these could become
 gated tests.
+
+### D246: generated controls can be renamed, imports offer them, and speed controls follow st_speed (2026-10-13)
+
+Three items left in U-03 and I-03.
+
+- **Rename in the review.** `Review` carries the control's name, edited in a
+  text field while the control is kept. `rewrite_chosen` checks every
+  chosen name with the rules the engine applies to its own (`Taken::is_free`
+  on the measured source):
+  - a GLSL identifier;
+  - not reserved, `st_` or `syn_`;
+  - not an existing control, image, pass target or identifier in the
+    scene, SSF or GLSL;
+  - not given twice.
+
+  A refused name is `ChoiceError::Name` with the reason. The app then keeps
+  the review open with its edits, so the name can be fixed.
+- **Import pane.** Once a scene imported from the pane is the one playing,
+  the pane offers "Generate controls for it". It starts the same worker as
+  the Inspector's button and opens the Inspector, where the review shows.
+  Nothing new runs; the pane only gets a second door to D202.
+- **Speed controls follow the import's clock (supersedes D125's cost).** A
+  speed control made from an `iTime * k` term integrated at real time. The
+  rest of the shader's `iTime` runs at `st_speed * mix(1, 0.3 + 2 * bass,
+  st_audio_time)`, so dragging `st_speed` sped up half the picture. Now
+  `ControlBank::tick_at(dt, rate)` integrates speed-mode controls at `rate`
+  times their value. Smoothing, travelers' easing and glides stay on real
+  time.
+  - **The rate:** the app passes
+    `strobe_shadertoy::convert::clock_rate`, computed on the CPU from the two
+    controls and `syn_BassLevel`. It returns `None`, so the rate is 1, for a
+    scene with no `st_speed`.
+  - **One formula:** a test holds it equal to the clock pass's GLSL.
+  - **No phase jumps:** a speed control is still an integrator, so dragging
+    `st_speed` changes the pace, not the phase. That keeps D125's reason for
+    integrators.
+
+**Would reopen:** a speed control in an import that someone wants on real
+time whatever `st_speed` says. It would need a per-control flag.

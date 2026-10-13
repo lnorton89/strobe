@@ -335,6 +335,14 @@ pub(super) fn pass_file(plan: &Plan, pass: &PlannedPass, shader: &Shader) -> Gen
     }
 }
 
+/// `strobe_rate()`'s pace at silence with `st_audio_time` at 1, and how
+/// much the bass adds: `0.3 + 2.0 * syn_BassLevel`. The GLSL spells the
+/// numbers out; [`super::clock_rate`] uses these, and a test holds the two
+/// together.
+pub(super) const BASS_FLOOR: f32 = 0.3;
+/// See [`BASS_FLOOR`].
+pub(super) const BASS_GAIN: f32 = 2.0;
+
 /// The clock pass: a one-texel float buffer holding
 /// `(clock, TIME, dt, start frame + 1)`.
 ///
