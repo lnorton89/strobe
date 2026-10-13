@@ -152,6 +152,8 @@ pub struct UiState {
     pub tag_draft: Option<String>,
     /// The Settings pane's shortcut editor. Not saved.
     pub hotkeys: super::keys::HotkeyEditor,
+    /// The browser's scene thumbnails (D212). Not saved.
+    pub thumbs: super::thumbs::Thumbs,
     theme_id: String,
     reduced_motion: bool,
     catalog: Catalog,
@@ -214,6 +216,7 @@ impl UiState {
             editor: super::editor::EditorUi::default(),
             tag_draft: None,
             hotkeys: super::keys::HotkeyEditor::default(),
+            thumbs: super::thumbs::Thumbs::default(),
             last_scene: prefs.last_scene.clone(),
             theme_id: prefs.theme.clone(),
             reduced_motion: reduced,

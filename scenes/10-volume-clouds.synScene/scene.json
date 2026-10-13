@@ -1,5 +1,6 @@
 {
   "TITLE": "Volume Clouds",
+  "IMAGE_PATH": "thumbnail.jpg",
   "CREDIT": "Strobe",
   "DESCRIPTION": "Flying low over a sunset cloud deck, raymarched through 3D fractal noise with light marched toward the sun. Benchmark tier 5: the heaviest scene in the library.",
   "CONTROLS": [

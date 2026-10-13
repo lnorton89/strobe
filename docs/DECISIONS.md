@@ -3445,3 +3445,33 @@ shows only the starred scenes.
 **Evidence:** `library` and `ui::state` tests (the filter, toggling,
 refiltering, the save being noticed and written).
 
+### D212: the browser shows a scene's own picture, decoded off the UI thread (2026-10-13)
+
+Backlog U-06 asks for thumbnails. Synesthesia scenes already carry one:
+`IMAGE_PATH` in `scene.json` (90 of the 91 corpus scenes set it). So the
+browser shows that picture. It does not render scenes to make one, which
+would need a GL context and seconds per scene, and which can come later for
+scenes without a picture.
+
+- **Read at the scan.** The library reads `IMAGE_PATH` with the tags, from
+  the same parse. A path that leaves the scene folder is ignored, by the
+  same rule the loader uses (`is_folder_relative`).
+- **Decoded on a worker.** `ui::thumbs::Thumbs` queues a picture the first
+  time its row is drawn. A thread decodes it and shrinks it to fit 160x90,
+  and the UI uploads at most 8 a frame. The browser is virtualised, so only
+  rows on screen are asked for. A picture that will not decode is
+  remembered as missing, and tried once a run.
+- **Bounded:** at most 256 textures. Past that, the least recently drawn
+  goes and is asked for again if it scrolls back.
+- **One layout.** When any scene in the library has a picture, every row
+  gets a 16:9 slot. A scene without one shows its colour swatch in the
+  slot. A library with no pictures keeps the compact swatch rows.
+- **Our scenes have pictures now:** a 320x180 JPEG of each, rendered by
+  `strobe-bench` (under 30 KB each).
+
+**Evidence:** `ui::thumbs` tests (a picture arrives shrunk with its aspect
+kept; a broken file is remembered; the bound evicts the oldest); the
+library scan test (`IMAGE_PATH` read, a path out of the folder ignored);
+[images/perform/browser-thumbnails-1440x900.png](images/perform/browser-thumbnails-1440x900.png)
+under Xvfb.
+

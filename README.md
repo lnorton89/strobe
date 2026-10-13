@@ -78,7 +78,7 @@ in a worker process, so the show keeps playing.
 - **A command palette** (Ctrl+K).
 - **A scene editor:** Save and reload, with the last good scene kept playing
   if the edit fails to compile.
-- **Tag search.**
+- **Tag search, favourites and scene thumbnails** in the browser.
 
 **Stays up on bad hardware.**
 - **The floor is OpenGL 3.3**, roughly a 2012 Intel HD 4000.

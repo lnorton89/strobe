@@ -153,6 +153,9 @@ checked and not committed. Interaction was driven with xdotool.
 - [ ] The UI's frame cost and a Preview's GPU cost on the T480 (the layout
   pass was about 1 ms in a debug build on llvmpipe; the paint there is
   software rasterisation and says nothing).
+- [x] Scene thumbnails from `IMAGE_PATH` in the browser (D212), decoded on
+  a worker and bounded. Evidence: `ui::thumbs` tests, the library scan
+  test, and [images/perform/browser-thumbnails-1440x900.png](images/perform/browser-thumbnails-1440x900.png).
 - [x] Favourite scenes (D211): a star per browser row and a Favourites
   filter, saved in `ui.toml`. Evidence: `library` and `ui::state` tests.
 - [x] The macro range and colour editor, and pinning from the Inspector

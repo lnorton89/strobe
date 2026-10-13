@@ -1,5 +1,6 @@
 {
   "TITLE": "Feedback Trails",
+  "IMAGE_PATH": "thumbnail.jpg",
   "CREDIT": "Strobe",
   "DESCRIPTION": "Shapes stamped on the beat smear outward through a rotating, zooming feedback loop of the previous frame. Benchmark tier 2: texture bandwidth via syn_FinalPass.",
   "CONTROLS": [

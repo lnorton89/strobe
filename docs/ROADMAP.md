@@ -72,8 +72,9 @@ Each item names its acceptance test. Evidence is in [STATUS_AUDIT.md](STATUS_AUD
      and OSC Learn is built, D177);
    - the generated-controls review panel (item 4; started, D202);
      ~~"open the shader error in the Editor"~~ (built, D204);
-   - saved named layouts, density, scene thumbnails and favourites (the
-     command palette, Ctrl+K, is built: D200);
+   - saved named layouts and density (scene thumbnails from `IMAGE_PATH`
+     and favourites are built, D211 and D212; the command palette, Ctrl+K,
+     is built: D200);
    - on the T480 and real Windows: the custom title bar's drag, snap and
      resize and DPI behaviour, a maximised undecorated window against the
      taskbar, the UI's frame cost, and a Preview's cost (D132, D136).
@@ -340,7 +341,7 @@ never per frame.
 
 ## Known gaps in what exists
 
-- The performer-facing UI is at stage 1 plus the Playlist pane (D157) and the MAP pane (D177) and the Editor (D204): thumbnails are not built, and none of it has run on the T480 with real input.
+- The performer-facing UI is at stage 1 plus the Playlist pane (D157) and the MAP pane (D177) and the Editor (D204): named layouts and density are not built, and none of it has run on the T480 with real input.
 - Context-loss recovery is verified under Xvfb with injected faults;
   real-driver behaviour on the T480 is pending (bug 1, D66).
 - The bench's `syn_Spectrum` and `syn_LevelTrail` are silent placeholders,

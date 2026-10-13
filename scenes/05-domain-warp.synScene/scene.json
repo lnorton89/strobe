@@ -1,5 +1,6 @@
 {
   "TITLE": "Domain Warp",
+  "IMAGE_PATH": "thumbnail.jpg",
   "CREDIT": "Strobe",
   "DESCRIPTION": "Three nested layers of fractal noise warping each other: marbled smoke. Benchmark tier 3: heavy ALU, ~60 noise lookups per pixel.",
   "CONTROLS": [
