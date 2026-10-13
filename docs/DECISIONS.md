@@ -4412,3 +4412,28 @@ product name and version, and so did Windows' crash and error dialogs.
 **Would reopen:** a reason to declare DPI awareness, long paths or
 supported OS versions in a manifest. That would be a `1 24 "strobe.manifest"`
 line in the same body.
+
+### D245: the readback checks also run on a window context, through the bench (2026-10-13)
+
+C-04: `strobe-gfx`'s readback tests pin the `textureFinalPass` ring on a
+headless EGL context. Windows' Intel driver has no such context, so on
+the T480 they skip, and the ring's fence behaviour and cost on Intel
+native and ANGLE were unmeasured.
+
+- **`strobe-bench --readback`** runs five checks on whatever context the
+  bench opens, including `--context window --gl native|angle`. They are
+  latency (exactly two frames old once filled), cost, busy GPU (never
+  newer than two frames, never backwards, no stall in `render()`),
+  resize, and a lost context. It writes `readback.md` and exits non-zero
+  when a correctness check fails.
+- **Cost is a measurement, not a verdict.** Two players, readback off and
+  on, render alternately frame by frame, so other load on the machine
+  falls on both. On a GPU the blits and the fence should be microseconds.
+  llvmpipe rasterises the downsample on the CPU and pays several
+  milliseconds (+6 to +9 ms at 640x360 here). No one threshold fits both,
+  so the row flags anything over 1 ms for a person to judge.
+- **In the bench, not in a test.** Window mode must run on the main
+  thread, once per process (D140), and a test harness gives neither.
+
+**Would reopen:** a Windows CI runner with a GPU, where these could become
+gated tests.
