@@ -1296,12 +1296,24 @@ impl Running {
             self.import_state.drop_hover = false;
             self.dropped(path);
         }
-        if matches!(event, WindowEvent::Resized(_)) {
+        if let WindowEvent::Resized(size) = &event {
             if is_control {
                 self.stack.gfx.resize(&self.stack.control);
             } else if is_output {
+                // A soak run once saw GPU time and memory step down at
+                // minute 6 with nothing logged (T480 Task 17); the likeliest
+                // cause is the output leaving fullscreen, so say when it
+                // changes.
+                log::info!(
+                    "output window resized to {}x{}, fullscreen {}",
+                    size.width,
+                    size.height,
+                    self.stack.output.window().fullscreen().is_some()
+                );
                 self.stack.gfx.resize(&self.stack.output);
             }
+        } else if is_output && let WindowEvent::Occluded(occluded) = &event {
+            log::info!("output window occluded: {occluded}");
         } else if matches!(event, WindowEvent::RedrawRequested) {
             if is_output {
                 self.redraw_output();
