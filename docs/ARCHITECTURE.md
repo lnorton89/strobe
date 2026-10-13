@@ -426,7 +426,9 @@ void main() { _xy/_uv/_uvc setup; strobe_FragColor = renderMain(); }
 ```
 
 `map_error_line` reads Mesa, NVIDIA and ANGLE/AMD/Intel log formats, so
-an error points at `main.glsl:N`.
+an error points at `main.glsl:N`. Where the driver gives a column (Mesa
+only), `driver_column`, `compiled_column` and `original_column` put it
+back on the user's line, and the error reads `main.glsl:N:C` (D263).
 
 ## Playlists (`strobe-playlist`)
 
