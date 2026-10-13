@@ -3934,3 +3934,25 @@ without a controller (or with one key short).
 
 **Would reopen:** a person wanting a key to toggle a macro rather than
 hold it, or a key on a command and a macro at once.
+
+### D229: a Shadertoy URL on the cue card imports and becomes the next cue (2026-10-13)
+
+U-07 asked for pasted Shadertoy URLs in the playlist. The Import pane
+already imports a URL, id or exported file, but a finished import loads
+the scene by hand, which unloads a running show.
+
+- **"Import after"** on the selected cue's card takes a URL, an id or a
+  file path and queues it on the same import worker
+  (`Action::ImportCueAfter`). The app remembers the cue and the exact text.
+- **When that import lands** the library is rescanned and the new scene is
+  inserted after the cue (`CueEdit::InsertAfter`, the same edit as the
+  card's other add buttons), without loading it, so the show keeps
+  playing and only the new scene compiles (D213).
+- **Already in the library** is not a question here: the import outcome
+  now names the existing folder (`import::Outcome::Exists`), and for a cue
+  that copy is used as it is, without the replace prompt. From the Import
+  pane the prompt is unchanged.
+- **Only the import the card asked for** becomes a cue: another import
+  finishing meanwhile is handled as before.
+
+**Would reopen:** wanting several URLs pasted at once into a section.

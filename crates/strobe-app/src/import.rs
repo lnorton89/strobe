@@ -313,6 +313,10 @@ pub struct State {
 pub enum Outcome {
     /// A scene was written at this folder: rescan and load it.
     Imported(PathBuf),
+    /// The scene is already in the library, at this folder; the panel
+    /// asks whether to replace it. A caller that only needs the scene (a
+    /// cue being added, D229) can use it as it is.
+    Exists(PathBuf),
     /// Nothing changed in the library.
     Unchanged,
 }
@@ -364,13 +368,13 @@ impl State {
                 self.prompt = None;
                 Outcome::Imported(imported.dir)
             }
-            Err(ImportError::Exists { title, .. }) => {
+            Err(ImportError::Exists { title, dir, .. }) => {
                 self.status = Status::Failed(format!("\"{title}\" is already in the library."));
                 self.prompt = Some(ReplacePrompt {
                     input: done.input,
                     title,
                 });
-                Outcome::Unchanged
+                Outcome::Exists(dir)
             }
             Err(error) => {
                 self.status = Status::Failed(error.to_string());
@@ -579,7 +583,11 @@ mod tests {
             input: input.clone(),
             result: exists,
         });
-        assert_eq!(outcome, Outcome::Unchanged, "nothing to load");
+        assert_eq!(
+            outcome,
+            Outcome::Exists(PathBuf::from("d")),
+            "nothing written; the existing folder named"
+        );
         assert_eq!(
             state.prompt.as_ref().map(|p| p.title.as_str()),
             Some("Tunnel"),
