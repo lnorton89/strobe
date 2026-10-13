@@ -2768,6 +2768,23 @@ impl Running {
             self.apply(&mut actions);
         }
         self.remote_out = outputs;
+        let cue = self
+            .stack
+            .show
+            .as_ref()
+            .and_then(|show| show.clock().current())
+            .and_then(|index| u32::try_from(index + 1).ok());
+        let state = strobe_io::feedback::ShowState {
+            blackout: self.blackout,
+            cue,
+        };
+        let session = self.stack.session.as_ref();
+        self.remote.feedback.frame(
+            now,
+            session.map(|s| &s.controls),
+            session.map(|s| &s.meta),
+            state,
+        );
     }
 
     /// Runs a command from the command table by its id (a mapping, a macro

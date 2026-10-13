@@ -184,7 +184,7 @@
 - **Acceptance:** record exact controller, connection method, OS and results; unplug/replug does not require restart; UI reports unavailable devices without losing saved mappings.
 
 ### P-05 MIDI/OSC feedback outputs
-- **Status:** Open.
+- **Status:** OSC built (D209): changes only, 30 Hz cap, a sender thread with a bounded queue, off by default, the loop into the listener refused; tested over loopback and in the app. Left: MIDI output (needs a device, P-04), and a check against a real TouchOSC layout.
 - **Work:** add optional MIDI output and OSC output for state feedback to motorised faders/TouchOSC; define subscription and rate limiting; avoid echo loops when output returns to input.
 - **Acceptance:** loopback and virtual-device tests verify values, rate limits and no feedback loops; outputs disabled by default and have explicit target/interface settings.
 

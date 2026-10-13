@@ -381,6 +381,10 @@ pub struct MapUi {
     pub search: String,
     /// The OSC port field while it is being edited.
     pub port_text: String,
+    /// The feedback host field while it is being edited.
+    pub feedback_host_text: String,
+    /// The feedback port field while it is being edited.
+    pub feedback_port_text: String,
     /// The add form.
     pub add: AddForm,
     /// The preset name field of the controls pane.

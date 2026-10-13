@@ -36,6 +36,7 @@ test with no device.
 | `Mapping`, `Curve`, `Takeover`, `ButtonMode` | Source to target with range, curve, invert, button mode, pickup, threshold. |
 | `Engine` | `handle(&source, signal, &mut banks, &mut out)`: writes the two `ControlBank`s directly and returns commands, cue jumps, fav and preset recalls as `Output`. `arm_new`, `arm_relearn`, `conflict`, `resolve_conflict` are learn (D174). |
 | `Macro`, `MacroSet` | The curated, ordered, pinned set; a macro is a mapping target and a stable binding (D175). |
+| `feedback::Differ`, `feedback::Sender`, `feedback::target` | OSC feedback (D209): what changed since the last send at most 30 times a second, on the listener's own addresses; a thread with a bounded queue that encodes and sends; the setting checked so it cannot loop into the listener. |
 | `ShowControl` | `show-control.json`: OSC and MIDI settings, mappings, macros, fav slots, hotkeys. Tolerant of hand edits (D179). |
 
 ## Usage
@@ -129,7 +130,6 @@ controller is the open check** (D171, Q23).
 ## Status and known gaps
 
 - Built and tested without hardware; **no MIDI controller has been used**.
-- No OSC or MIDI **output** (feedback to motorised faders or TouchOSC).
+- OSC feedback is built (D209); MIDI **output** is not.
 - OSC address layout is Strobe's own, not Synesthesia's (Q23).
-- Blackout is a toggle only; there is no explicit on or off command.
 - A macro's range and colour have data and engine support but no editor.

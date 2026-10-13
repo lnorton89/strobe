@@ -290,6 +290,7 @@ fn osc_block(
     {
         changed = true;
     }
+    feedback_row(ui, theme, remote, map, &mut settings, &mut changed);
     if remote.osc != remote.osc_saved {
         ui.label(
             egui::RichText::new("Running with command-line settings; they are not saved.")
@@ -299,6 +300,83 @@ fn osc_block(
     }
     if changed {
         actions.push(Action::SetOsc(settings));
+    }
+}
+
+/// OSC feedback out (D209): on or off, host and port, and where it is going.
+fn feedback_row(
+    ui: &mut Ui,
+    theme: &Palette,
+    remote: &Remote,
+    map: &mut MapUi,
+    settings: &mut OscSettings,
+    changed: &mut bool,
+) {
+    ui.horizontal(|ui| {
+        if ui
+            .checkbox(&mut settings.feedback, "Send feedback")
+            .on_hover_text(
+                "Send the controls, meta, blackout and cue back out on the same /strobe/... \
+                 addresses, so a TouchOSC layout or motorised faders follow the show. \
+                 Only changes are sent, at most 30 times a second.",
+            )
+            .changed()
+        {
+            *changed = true;
+        }
+        let host = ui.add(
+            egui::TextEdit::singleline(&mut map.feedback_host_text)
+                .desired_width(110.0)
+                .hint_text("127.0.0.1"),
+        );
+        if !host.has_focus() {
+            map.feedback_host_text.clone_from(&settings.feedback_host);
+        }
+        if host.lost_focus() && map.feedback_host_text.trim() != settings.feedback_host {
+            settings.feedback_host = map.feedback_host_text.trim().to_string();
+            *changed = true;
+        }
+        ui.label(
+            egui::RichText::new(":")
+                .small()
+                .color(theme::rgb(theme.text_muted)),
+        );
+        let port = ui.add(
+            egui::TextEdit::singleline(&mut map.feedback_port_text)
+                .desired_width(56.0)
+                .hint_text("9001"),
+        );
+        if !port.has_focus() {
+            map.feedback_port_text = settings.feedback_port.to_string();
+        }
+        if port.lost_focus()
+            && let Ok(number) = map.feedback_port_text.trim().parse::<u16>()
+            && number != settings.feedback_port
+        {
+            settings.feedback_port = number;
+            *changed = true;
+        }
+    });
+    if let Some(why) = &remote.feedback.note {
+        ui.label(
+            egui::RichText::new(why)
+                .small()
+                .color(theme::rgb(theme.danger)),
+        );
+    } else if let Some(to) = remote.feedback.target() {
+        let dropped = remote.feedback.dropped();
+        let text = if dropped > 0 {
+            format!(
+                "Sending to {to} ({dropped} values dropped: the network is slower than the show)"
+            )
+        } else {
+            format!("Sending to {to}")
+        };
+        ui.label(
+            egui::RichText::new(text)
+                .small()
+                .color(theme::rgb(theme.text_muted)),
+        );
     }
 }
 
