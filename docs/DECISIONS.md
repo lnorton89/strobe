@@ -3744,3 +3744,29 @@ because of the lost overlap, or T16 not engaging automatically.
 at once when other media is chosen, so the scene's own picture no longer
 shows for a moment before `--media` (T480 Task 26), and every choice is
 logged as `syn_Media: <path>` or `syn_Media: none`.
+
+### D222: a scene's picture is taken from its live frame, by the operator (2026-10-13)
+
+The browser shows `IMAGE_PATH` (D212), and an imported or new scene has
+none. Backlog U-06 left "a picture for a scene that has none".
+
+- **The operator chooses the moment.** "Use frame as picture" beside the
+  tags in the Inspector reads the playing scene's own output back once
+  (before blackout and the post stage, so the picture is the scene and not
+  tonight's settings), shrinks it to fit 320x180, and writes
+  `thumbnail.jpg` in the scene folder. A scene's look depends on time and
+  audio; an automatic capture at a fixed time would often catch a dull or
+  black frame, and rendering every scene offscreen to make pictures would
+  compile them all.
+- **`scene.json` is edited in place.** `IMAGE_PATH` is set with
+  `strobe_scene::json_edit::set_member`, the text-preserving writer the
+  tags already used, now its own module. An older picture the scene named
+  stays on disk; only the name moves. Both files go through a temporary
+  name and a rename.
+- **The browser sees it at once.** The entry rereads `scene.json`, and the
+  thumbnail cache forgets that path so the new picture is decoded again.
+- **Refused** while the Editor holds unsaved edits to the same scene, as
+  tagging is.
+
+**Would reopen:** a library of hundreds of scenes without pictures, where
+an offscreen batch (the generate worker's approach, D202) earns its cost.

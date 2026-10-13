@@ -112,6 +112,12 @@ impl Thumbs {
         }
     }
 
+    /// Drops what is known of `path`, so a picture written again is read
+    /// again (D222).
+    pub fn forget(&mut self, path: &Path) {
+        self.slots.remove(path);
+    }
+
     /// How many pictures are kept as textures.
     pub fn len(&self) -> usize {
         self.slots

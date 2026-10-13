@@ -64,6 +64,8 @@ pub enum Action {
     OpenEditor(Option<String>),
     /// Write these tags into the playing scene's `scene.json` (D205).
     SetSceneTags(Vec<String>),
+    /// Save the playing scene's live frame as its thumbnail (D222).
+    CaptureThumbnail,
     /// Show this picture or folder of pictures behind `syn_Media`, or give
     /// each scene its own back with `None` (D217).
     SetMedia(Option<std::path::PathBuf>),

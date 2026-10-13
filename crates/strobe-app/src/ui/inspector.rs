@@ -171,6 +171,16 @@ fn tags_row(
             {
                 *draft = Some(tags.join(", "));
             }
+            if ui
+                .small_button("Use frame as picture")
+                .on_hover_text(
+                    "Save what is on screen now as this scene's picture in the library \
+                     (thumbnail.jpg in its folder)",
+                )
+                .clicked()
+            {
+                actions.push(Action::CaptureThumbnail);
+            }
         });
         return;
     };
