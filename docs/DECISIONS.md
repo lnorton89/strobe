@@ -4339,3 +4339,30 @@ program icon.
 
 **Would reopen:** a version resource (file version and product name in
 Explorer's details), which would go in the same `.rc`.
+
+### D242: the import pipeline needs no cache eviction and no cancel (2026-10-13)
+
+I-04 listed reliability concerns for Shadertoy import. An audit found
+almost all of them already met and tested (the backlog entry lists each).
+Two are decided against:
+
+- **No cache eviction.** The texture cache keys files by the SHA-256 of
+  the URL, and the only URLs it accepts are Shadertoy's own `/media/...`
+  textures (`fetch` refuses anything else). That is a finite set, tens of
+  files and a few megabytes in all, so the cache cannot grow without
+  bound. Deleting the folder is always safe; it refills on the next
+  import.
+- **No cancel.** A job is bounded:
+  - one REST request with its timeout;
+  - at most four texture downloads of 10 s each, and none after the host
+    proves unreachable;
+  - then conversion, which takes milliseconds.
+
+  The queue is bounded too, and an import never replaces the playing scene
+  without the Replace answer. A Cancel button would save at most about
+  forty seconds in the worst case. It would cost a cancellation path
+  through `ureq` and the converter, and it would add a half-written-folder
+  case that the rename-into-place design avoids today.
+
+**Would reopen:** the importer accepting other hosts' textures (the cache
+would then need a size limit), or imports that take minutes.
