@@ -31,7 +31,7 @@
 - **Dependencies:** physical Windows audio device and access to the T480.
 
 ### R-02 Investigate the minute-six performance/resource step
-- **Status:** Open; recent 30-minute soak was stable overall, but a step in memory and GPU timing was observed around minute six.
+- **Status:** Explained, pending confirmation (T480 Task 20): not reproduced in two 10-minute runs. The before/after values match fullscreen versus windowed output exactly, so the output most likely left fullscreen. The output window now logs resizes, fullscreen state and occlusion, so a repeat names itself.
 - **Work:** repeat the same scene-switching soak with process memory, handle counts, GPU time, scale, scene and backend sampled at a fixed interval; compare a no-switch control run and native versus ANGLE. Identify whether the step is a one-time allocation/cache or a leak/regression.
 - **Acceptance:** explain the step with evidence or file a narrowly scoped follow-up bug; no unexplained monotonic growth over the full soak.
 
@@ -115,7 +115,7 @@
 - **Acceptance:** fixtures test each value and neutral no-op behaviour on GL 3.3 and GLES/ANGLE; neutral settings incur no post pass where technically possible; T480 and TORNADO GPU cost is recorded.
 
 ### C-02 GLES/SSF translation gaps
-- **Status:** In progress.
+- **Status:** Built (D199); waiting on an ANGLE/D3D11 re-run. Left: function-like macros that mix int and float, a `sampler2D` in `?:`.
 - **Work:** expand parser-backed rewrites for implicit int-to-float conversions and non-macro conditional compilation; do not add regex-only source rewriting that can change comments or identifiers.
 - **Acceptance:** each discovered real-world failure has a minimized fixture, a stable diagnostic and native/GLES outcome; unsupported cases fail visibly rather than generating corrupt shader text.
 

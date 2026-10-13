@@ -52,7 +52,8 @@
 mod lex;
 mod types;
 
-use lex::{Define, Kind, Token, lex};
+use crate::directives::Branches;
+use lex::{Define, Kind, Token, lex, lex_with};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use types::{Builtin, Scalar, Ty, builtin_function, builtin_type, is_qualifier};
@@ -60,11 +61,21 @@ use types::{Builtin, Scalar, Ty, builtin_function, builtin_type, is_qualifier};
 /// Rewrites `user` so every implicit int→float conversion is explicit.
 /// `context` is the source that precedes it in the program (the generated
 /// preamble and the SSF library): its declarations are known, and it is
-/// never edited. Returns `user` unchanged when nothing needs converting.
-pub fn int_to_float<'a>(user: &'a str, context: &str) -> Cow<'a, str> {
-    let context_lexed = lex(context);
-    let user_lexed = lex(user);
+/// never edited. `es` says whether the driver defines `GL_ES`. Returns
+/// `user` unchanged when nothing needs converting.
+pub fn int_to_float<'a>(user: &'a str, context: &str, es: bool) -> Cow<'a, str> {
+    let mut branches = Branches::dialect(es);
+    let context_lexed = lex_with(context, &mut branches);
+    let user_lexed = lex_with(user, &mut branches);
     let mut symbols = Symbols::default();
+    for (name, ty) in [
+        ("gl_FragCoord", Ty::vector(Scalar::Float, 4)),
+        ("gl_PointCoord", Ty::vector(Scalar::Float, 2)),
+        ("gl_FragDepth", Ty::FLOAT),
+        ("gl_FrontFacing", Ty::BOOL),
+    ] {
+        symbols.globals.insert(name.to_owned(), ty);
+    }
     for define in context_lexed.defines.iter().chain(&user_lexed.defines) {
         symbols.add_macro(define);
     }
@@ -594,6 +605,10 @@ const MULTIPLICATIVE: [&str; 3] = ["*", "/", "%"];
 const ASSIGNMENT: [&str; 11] = [
     "=", "+=", "-=", "*=", "/=", "%=", "<<=", ">>=", "&=", "^=", "|=",
 ];
+
+/// The audio textures the documentation calls 1D samplers, which the ES
+/// preamble declares as 2D textures one texel tall.
+const ONE_DIMENSIONAL: [&str; 2] = ["syn_Spectrum", "syn_LevelTrail"];
 
 /// How deep expressions and macro expansions may nest before the walker
 /// gives up.
@@ -1189,6 +1204,7 @@ impl<'s> Walker<'s> {
             Callee::Opaque => Ty::Unknown,
             Callee::Named(name) => {
                 if let Some(rule) = builtin_function(&name) {
+                    self.one_dimensional(rule, &args);
                     self.builtin(rule, args)
                 } else if let Some(overloads) = self.symbols.functions.get(&name) {
                     self.user_call(overloads, args)
@@ -1422,7 +1438,43 @@ impl<'s> Walker<'s> {
     }
 
     /// Wraps tokens `start..end` in `constructor(...)`.
+    /// `texture(syn_Spectrum, x)`: the audio textures are 1D on desktop and
+    /// 2D one texel tall on ES (Q1), so a scalar coordinate becomes
+    /// `vec2(x, 0.5)` (`ivec2(x, 0)` for `texelFetch`).
+    fn one_dimensional(&mut self, rule: Builtin, args: &[Expr]) {
+        let (Some(sampler), Some(coordinate)) = (args.first(), args.get(1)) else {
+            return;
+        };
+        let named = sampler.end == sampler.start + 1
+            && self
+                .source
+                .word(sampler.start)
+                .is_some_and(|name| ONE_DIMENSIONAL.contains(&name));
+        if !named || !coordinate.ty.is_scalar() || sampler.ty != Ty::Sampler(2) {
+            return;
+        }
+        let (open, close) = match rule {
+            Builtin::Texture(_) if coordinate.ty.is_float() => ("vec2(", ", 0.5)"),
+            Builtin::Fetch if coordinate.ty.is_integer() => ("ivec2(", ", 0)"),
+            Builtin::Texture(_)
+            | Builtin::Fetch
+            | Builtin::FloatWise
+            | Builtin::MixedWise
+            | Builtin::FloatScalar
+            | Builtin::Cross
+            | Builtin::TextureSize
+            | Builtin::BoolScalar
+            | Builtin::BoolWise => return,
+        };
+        self.wrap_with(coordinate.start, coordinate.end, open, close);
+    }
+
     fn wrap(&mut self, start: usize, end: usize, constructor: &str) {
+        self.wrap_with(start, end, &format!("{constructor}("), ")");
+    }
+
+    /// Puts `open` before tokens `start..end` and `close` after them.
+    fn wrap_with(&mut self, start: usize, end: usize, open: &str, close: &str) {
         let (Some(first), Some(last)) = (
             self.source.tokens.get(start),
             end.checked_sub(1).and_then(|i| self.source.tokens.get(i)),
@@ -1432,12 +1484,12 @@ impl<'s> Walker<'s> {
         self.edits.push(Edit {
             at: first.start,
             order: 1,
-            text: format!("{constructor}("),
+            text: open.to_owned(),
         });
         self.edits.push(Edit {
             at: last.end,
             order: 0,
-            text: ")".to_owned(),
+            text: close.to_owned(),
         });
     }
 }

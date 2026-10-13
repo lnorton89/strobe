@@ -13,7 +13,10 @@
 //! byte range it came from. Comments and whitespace are dropped.
 //! Preprocessor lines are dropped too: their tokens are not GLSL. `#define`
 //! is kept aside, because a macro's name appears in the code and the pass
-//! needs to know what type it stands for.
+//! needs to know what type it stands for. Of each `#if` group one branch
+//! is kept (see [`lex_with`]).
+
+use crate::directives::Branches;
 
 /// What a token is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -65,8 +68,17 @@ const LONG_PUNCT: [&str; 21] = [
     "^^", "<<", ">>", "&=", "|=", "^=",
 ];
 
-/// Splits `text` into tokens.
+/// Splits `text` into tokens, with no macros defined beforehand and every
+/// undecided branch kept.
 pub(super) fn lex(text: &str) -> Lexed<'_> {
+    lex_with(text, &mut Branches::default())
+}
+
+/// Splits `text` into tokens, following `branches` through its
+/// conditionals: of each `#if` group only the branch [`Branches`] keeps is
+/// tokenized. Two branches of one group often declare the same thing
+/// twice, which would not parse.
+pub(super) fn lex_with<'a>(text: &'a str, branches: &mut Branches) -> Lexed<'a> {
     let bytes = text.as_bytes();
     let mut out = Lexed::default();
     let mut at = 0;
@@ -91,13 +103,22 @@ pub(super) fn lex(text: &str) -> Lexed<'_> {
         }
         if byte == b'#' && line_start {
             let end = directive_end(bytes, at);
-            if let Some(define) = text.get(at + 1..end).and_then(parse_define) {
+            let directive = text.get(at + 1..end).unwrap_or_default();
+            let active = branches.active();
+            if !branches.follow(directive)
+                && active
+                && let Some(define) = parse_define(directive)
+            {
                 out.defines.push(define);
             }
             at = end;
             continue;
         }
         line_start = false;
+        if !branches.active() {
+            at = line_end(bytes, at);
+            continue;
+        }
         let (kind, end) = if byte.is_ascii_digit()
             || (byte == b'.' && bytes.get(at + 1).is_some_and(u8::is_ascii_digit))
         {
@@ -287,6 +308,23 @@ mod tests {
                 },
             ],
             "both defines, the comment cut off"
+        );
+    }
+
+    #[test]
+    fn one_branch_of_each_conditional_is_kept() {
+        let text = "#ifdef KODE\na\n#else\nb\n#endif\n#if 0\nc\n#elif defined(X)\nd\n#else\ne\n#endif\n#if FOO > 1\nf\n#else\ng\n#endif\n";
+        let mut branches = Branches::new(["X".to_owned()]);
+        let lexed = lex_with(text, &mut branches);
+        let words: Vec<&str> = lexed
+            .tokens
+            .iter()
+            .filter_map(|t| text.get(t.start..t.end))
+            .collect();
+        assert_eq!(
+            words,
+            vec!["b", "d", "f"],
+            "decided branches follow the preprocessor, an undecided one keeps the first"
         );
     }
 

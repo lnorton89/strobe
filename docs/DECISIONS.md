@@ -2940,3 +2940,72 @@ numbers kept; missing left alone; only real include lines). On the corpus,
 because hg_sdf's `float sgn(float x) { return (x<0)?-1:1; }` returns an int.
 NVIDIA accepts that and Mesa does not; the int-to-float family is Q8.
 
+### D199: implicit int→float is written out, by a typed pass, on every dialect (2026-10-13)
+
+Q8 said the remaining GLSL ES failures needed a parser. On the owner's
+90-scene corpus they were 65 of 73 ES failures (D195). `strobe_scene::promote`
+is that pass. It does not use a GLSL parser crate, because none handles
+SSF's macros. It has its own lexer and a small expression parser that types
+every subexpression against everything the program declares:
+- the generated preamble;
+- the SSF library;
+- the user's globals, structs, functions and overloads;
+- object-like macros, typed from their bodies;
+- built-in variables.
+
+Where desktop GLSL would convert an `int` to a `float`, it writes the
+conversion out:
+- **Where:** operands of `+ - * /` and comparisons, assignments,
+  initializers, `return`, ternary branches, float built-in arguments, and
+  user-function arguments when exactly one overload is reachable.
+- **Literals:** `2` → `2.0`. A literal-only expression built with `+ - *`
+  is converted literal by literal.
+- **Everything else is wrapped:** `float(i)`, `vec2(p)`. An integer division
+  is wrapped, never rewritten, so `1/2` stays 0 as it is on desktop.
+- **Never** against a type it does not know, such as a function-like macro's
+  result or an unresolvable name. A body it cannot parse keeps its text.
+- **Lines never move,** so driver errors still point at `main.glsl`.
+
+It runs on **every** dialect. Mesa and Apple's compilers reject some of the
+same forms NVIDIA accepts, such as an `int` returned from a `float` function
+(`hg_sdf`'s `sgn`). The explicit form is valid everywhere. Evidence that it
+keeps desktop's meaning:
+- every desktop scene in the corpus drew a bit-identical frame with and
+  without it, except 8 scenes whose frames differ run to run anyway;
+- `render.rs` `implicit_int_to_float_and_non_macro_if_compile_in_both_dialects`
+  checks the values on both dialects.
+
+Two smaller rules came out of the same corpus work (TORNADO T4/T5):
+- **`#if NAME` on a name that is not a macro** reads `NAME` as `0` on every
+  dialect, as NVIDIA's compiler and the C preprocessor do
+  (`strobe_scene::directives`).
+- **`uniform T x = v;`** becomes the global `T x = v;` on ES. Nothing sets
+  such a uniform, so it always holds `v`.
+
+The rewrites follow `#if` groups (`directives::Branches`), so a
+`#ifdef KODELIFE` block that is never compiled is neither parsed nor
+hoisted. Before this, D192's hoist assigned to a control's uniform from
+inside such a block.
+
+Corpus after this and the library additions below, on llvmpipe:
+
+| Dialect | Before (D195) | After |
+|---|---:|---:|
+| Desktop GL 3.3 | 85 / 90 | 87 / 90 |
+| GLES 3.0 | 17 / 90 | 87 / 90 |
+
+Library additions, from TORNADO T5's call sites:
+- `syn_pass_edgeDetectSobel` returns `float`, as Synesthesia documents;
+- the one-argument `_correctImageCoords(size)`;
+- `_ratioFix` (Q27);
+- `_invertImage`, an identity like the other media options;
+- `syn_PrimeBang` as a script global (Q25).
+
+Left:
+- `_hueSaturationContrastLEGACY` (Q26);
+- a `sampler2D` as an operand of `?:`, which Mesa rejects on both dialects;
+- a function-like macro whose body mixes int and float, which needs macro
+  expansion.
+
+**Would reopen:** a scene that compiled before this and does not after, or
+whose desktop frame changes.

@@ -145,8 +145,10 @@ Each item names its acceptance test. Evidence is in [STATUS_AUDIT.md](STATUS_AUD
      ANGLE/D3D11 are open.
    - [x] No shader compiles after load: a late `setUniform` is refused
      (D161).
-   - [~] GLES rewrite for `PASSINDEX == 0.0` (D163). Other implicit
-     `int` to `float` conversions need a parser (Q8).
+   - [x] Implicit `int` to `float` written out by a typed rewrite on every
+     dialect, `#if` on a non-macro read as 0, and initialised uniforms on
+     ES (D163, D199). The owner's 90-scene corpus: 87/90 on desktop and
+     87/90 on GLES, up from 85 and 17 (D195).
    
    *Accept:* a fixture per behaviour, on both dialects where it applies.
 7. **Presets, MIDI, OSC and hotkeys** on the shared `ControlBank`, without

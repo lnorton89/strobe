@@ -255,6 +255,40 @@ fn passindex_compared_with_a_float_literal_compiles_in_both_dialects() -> Result
 }
 
 #[test]
+fn implicit_int_to_float_and_non_macro_if_compile_in_both_dialects() -> Result<()> {
+    // D199: desktop GLSL converts int to float implicitly and real scenes
+    // rely on it everywhere; GLSL ES needs every conversion written out.
+    // The values check that the rewrite keeps desktop's meaning: `1 / 2` is
+    // an integer division (0), and `#if` on a global reads it as 0.
+    let shader = "#define STEPS 4\n\
+                  float TUBE = 3.0;\n\
+                  float half_of(float x) { return x / 2; }\n\
+                  float sgn(float x) { return (x < 0) ? -1 : 1; }\n\
+                  vec4 renderMain() {\n\
+                      float s = 0;\n\
+                      for (int i = 0; i < STEPS; i++) { s += i * 0.0625; }\n\
+                      float r = s + 1 / 2;\n\
+                      float g = clamp(half_of(1), 0, 1) * sgn(3);\n\
+                  #if TUBE == 0\n\
+                      float b = max(0, 0.25);\n\
+                  #else\n\
+                      float b = 1;\n\
+                  #endif\n\
+                      return vec4(r, g, b, 1);\n\
+                  }\n";
+    for api in BOTH {
+        let Some(px) = render_center(api, Options::default(), "{}", shader, 1)? else {
+            continue;
+        };
+        assert!(
+            near(px[0], 96) && near(px[1], 128) && near(px[2], 64),
+            "{api:?}: 0.375, 0.5 and 0.25; got {px:?}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn a_non_constant_global_initializer_compiles_in_both_dialects() -> Result<()> {
     // D192: real scenes open with `vec4 iMouse = vec4(MouseXY*RENDERSIZE,
     // ...)`. GLSL ES rejects a global initializer that is not constant; the

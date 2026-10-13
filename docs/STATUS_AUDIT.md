@@ -204,10 +204,13 @@ the topology before any broad redesign.
   counts compiles through `Gl::shader_compiles()` in both dialects.
 - [ ] The benchmark does not execute scripts. Keep this limitation
   explicit.
-- [ ] Expand the GLES translation tests for desktop-only SSF idioms (Q8).
-  Done for `PASSINDEX == 0.0` (D163, `render.rs`
-  `passindex_compared_with_a_float_literal_compiles_in_both_dialects`);
-  the other implicit int-to-float cases need a parser.
+- [x] GLES translation of desktop-only SSF idioms (R8, D199): implicit
+  int-to-float, `#if` on a non-macro, initialised uniforms. Evidence:
+  `render.rs` `implicit_int_to_float_and_non_macro_if_compile_in_both_dialects`
+  checks values on both dialects; the owner's 90-scene corpus compiles 87
+  on GLES (17 before) and every deterministic desktop frame is
+  bit-identical with the rewrite on (llvmpipe). **Not yet:** re-run on
+  ANGLE/D3D11 on TORNADO or the T480.
 
 *Acceptance:* a fixture per behaviour, tests on both shader dialects where
 they apply, and explicit supported, degraded or unsupported claims.
@@ -305,7 +308,8 @@ survives export.
   size causes (CRLF, missing `TYPE`, 0-sized passes, `MEDIA` slots,
   multi-name globals, absolute data passes). Open: Synesthesia's user-media
   library (8 scenes), and implicit int to float and non-macro `#if` on ANGLE
-  (12, Q8). **Not yet re-run** after D193/D194.
+  (12, Q8). Re-run at 40ee040 (T4): 55 native, 38 ANGLE. D199 addresses the
+  ANGLE causes and the library gaps T4 found; **not yet re-run** after it.
 
 ## P2: playlists, show control and release
 

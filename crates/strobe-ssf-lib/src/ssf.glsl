@@ -268,6 +268,12 @@ vec2 _correctImageCoords(vec2 size, vec2 uv) {
 }
 // Real scenes pass `textureSize(tex, 0)` straight in.
 vec2 _correctImageCoords(ivec2 size, vec2 uv) { return _correctImageCoords(vec2(size), uv); }
+// The one-argument form real scenes call is for this pixel (TORNADO T5).
+vec2 _correctImageCoords(vec2 size) { return _correctImageCoords(size, _uv); }
+vec2 _correctImageCoords(ivec2 size) { return _correctImageCoords(vec2(size), _uv); }
+// Given the frame-to-image size ratios per axis, the one to divide both by
+// so the image covers the frame, as `_correctImageCoords` does (Q27).
+float _ratioFix(float widthRatio, float heightRatio) { return max(widthRatio, heightRatio); }
 vec2 _correctMediaCoords(vec2 uv) { return _correctImageCoords(vec2(textureSize(syn_Media, 0)), uv); }
 vec2 _correctMediaCoords() { return _correctMediaCoords(_uv); }
 
@@ -307,6 +313,7 @@ vec2 _invertYAxisVideo(vec2 uv) { return vec2(uv.x, 1.0 - uv.y); }
 vec2 _flipMediaCoords(vec2 uv) { return uv; }
 vec2 _applyMediaScale(vec2 uv) { return uv; }
 vec4 _applyInvertMedia(vec4 c) { return c; }
+vec4 _invertImage(vec4 c) { return c; }
 vec4 _applyMediaContrast(vec4 c) { return c; }
 // Whether a sampler has a picture: an unbound one is Strobe's 1x1 black.
 bool _exists(sampler2D tex) { return textureSize(tex, 0).x > 1; }
@@ -348,8 +355,9 @@ vec4 _edgeDetectSobel(sampler2D tex) { return _edgeDetectSobel(tex, _uv); }
 
 vec4 _edgeDetectMedia() { return _isMediaActive() ? _edgeDetect(syn_Media, _correctMediaCoords(_uv)) : vec4(0.0); }
 vec4 _edgeDetectSobelMedia() { return _isMediaActive() ? _edgeDetectSobel(syn_Media, _correctMediaCoords(_uv)) : vec4(0.0); }
-// A pass's edges, by the name real scenes use (D197).
-vec4 syn_pass_edgeDetectSobel(sampler2D pass) { return _edgeDetectSobel(pass); }
+// A pass's edges, by the name real scenes use (D197). Synesthesia documents
+// it as returning a float, and real scenes assign it to one (TORNADO T5).
+float syn_pass_edgeDetectSobel(sampler2D pass) { return _edgeDetectSobel(pass).r; }
 
 // ---------------------------------------------------------------- tilt shift
 // A separable Gaussian whose radius grows with distance from blurLoc along

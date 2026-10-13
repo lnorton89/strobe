@@ -30,6 +30,7 @@
 //! or any other use, is left alone, so the int idiom keeps compiling and
 //! the program's one `PASSINDEX` constant still folds the branch away.
 
+use crate::directives::Branches;
 use std::borrow::Cow;
 
 /// The identifier being rewritten.
@@ -246,7 +247,10 @@ const VALUE_TYPES: [&str; 19] = [
 /// including a declaration of several names; `const`, `uniform` and arrays
 /// are left as they are. The `= expression` is blanked to spaces with its
 /// newlines kept, so no line moves.
-pub fn hoist_global_initializers(source: &str) -> (Cow<'_, str>, Vec<Hoisted>) {
+pub fn hoist_global_initializers(
+    source: &str,
+    mut branches: Branches,
+) -> (Cow<'_, str>, Vec<Hoisted>) {
     let bytes = source.as_bytes();
     let structs = struct_names(source);
     let mut found: Vec<(usize, usize, Hoisted)> = Vec::new();
@@ -263,8 +267,20 @@ pub fn hoist_global_initializers(source: &str) -> (Cow<'_, str>, Vec<Hoisted>) {
             i = skip_block_comment(bytes, i);
             continue;
         }
-        if byte == b'#' && depth == 0 && starts_line(bytes, i) {
-            i = skip_directive(bytes, i);
+        if byte == b'#' && starts_line(bytes, i) {
+            let end = skip_directive(bytes, i);
+            branches.follow(source.get(i + 1..end).unwrap_or_default());
+            i = end;
+            statement = i;
+            continue;
+        }
+        if !branches.active() {
+            // Indentation first, so an indented `#endif` is still seen.
+            i = if matches!(byte, b' ' | b'\t' | b'\r' | b'\n') {
+                i + 1
+            } else {
+                skip_line_comment(bytes, i)
+            };
             statement = i;
             continue;
         }
@@ -482,6 +498,117 @@ fn top_level_comma(bytes: &[u8], from: usize, end: usize) -> Option<usize> {
     None
 }
 
+/// Turns `uniform T name = value;` into the global `T name = value;`.
+///
+/// Desktop GLSL lets a uniform carry an initial value; GLSL ES rejects it
+/// (TORNADO T4: a real scene declares `uniform vec2 mousePos = ...;`).
+/// Nothing sets such a uniform (it is neither a control nor one of the
+/// generated uniforms, which never have initializers), so it always holds
+/// its initial value, which is exactly what a global with that initializer
+/// holds. The keyword is blanked to spaces, so nothing moves, and
+/// [`hoist_global_initializers`] then handles a value that is not a
+/// constant expression.
+pub fn uniform_initializers(source: &str, branches: Branches) -> Cow<'_, str> {
+    let bytes = source.as_bytes();
+    let mut keywords = Vec::new();
+    for (start, end) in top_level_statements(source, branches) {
+        let Some((first, after)) = next_token(bytes, start, end) else {
+            continue;
+        };
+        if bytes.get(first..after) != Some(b"uniform") {
+            continue;
+        }
+        if has_initializer(bytes, after, end) {
+            keywords.push(first);
+        }
+    }
+    if keywords.is_empty() {
+        return Cow::Borrowed(source);
+    }
+    let mut out = String::with_capacity(source.len());
+    let mut copied = 0;
+    for keyword in keywords {
+        out.push_str(source.get(copied..keyword).unwrap_or_default());
+        out.push_str("       ");
+        copied = keyword + "uniform".len();
+    }
+    out.push_str(source.get(copied..).unwrap_or_default());
+    Cow::Owned(out)
+}
+
+/// The `start..end` ranges of every statement at brace depth 0, each
+/// ending at its `;`. Comments and directives are skipped.
+fn top_level_statements(source: &str, mut branches: Branches) -> Vec<(usize, usize)> {
+    let bytes = source.as_bytes();
+    let mut statements = Vec::new();
+    let mut depth = 0_usize;
+    let mut statement = 0;
+    let mut i = 0;
+    while let Some(&byte) = bytes.get(i) {
+        let next = bytes.get(i + 1).copied();
+        if byte == b'/' && next == Some(b'/') {
+            i = skip_line_comment(bytes, i);
+            continue;
+        }
+        if byte == b'/' && next == Some(b'*') {
+            i = skip_block_comment(bytes, i);
+            continue;
+        }
+        if byte == b'#' && starts_line(bytes, i) {
+            let end = skip_directive(bytes, i);
+            branches.follow(source.get(i + 1..end).unwrap_or_default());
+            i = end;
+            statement = i;
+            continue;
+        }
+        if !branches.active() {
+            // Indentation first, so an indented `#endif` is still seen.
+            i = if matches!(byte, b' ' | b'\t' | b'\r' | b'\n') {
+                i + 1
+            } else {
+                skip_line_comment(bytes, i)
+            };
+            statement = i;
+            continue;
+        }
+        match byte {
+            b'{' => depth += 1,
+            b'}' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    statement = i + 1;
+                }
+            }
+            b';' if depth == 0 => {
+                statements.push((statement, i));
+                statement = i + 1;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    statements
+}
+
+/// Whether `bytes[from..end]` holds an `=` that is not part of `==`,
+/// `<=`, `>=` or `!=`.
+fn has_initializer(bytes: &[u8], from: usize, end: usize) -> bool {
+    let mut at = from;
+    while let Some((start, stop)) = next_token(bytes, at, end) {
+        if bytes.get(start) == Some(&b'=') {
+            let before = start.checked_sub(1).and_then(|i| bytes.get(i));
+            let after = bytes.get(start + 1);
+            let compound =
+                matches!(before, Some(b'=' | b'<' | b'>' | b'!')) || after == Some(&b'=');
+            if !compound {
+                return true;
+            }
+        }
+        at = stop;
+    }
+    false
+}
+
 #[cfg(test)]
 mod hoist_tests {
     use super::*;
@@ -490,7 +617,7 @@ mod hoist_tests {
     fn a_non_constant_global_initializer_moves_into_main() {
         let source = "vec4 iMouse = vec4(MouseXY*RENDERSIZE, MouseClick, MouseClick);\n\
                       vec4 renderMain() { return iMouse; }\n";
-        let (code, hoisted) = hoist_global_initializers(source);
+        let (code, hoisted) = hoist_global_initializers(source, Branches::default());
         assert_eq!(
             code.lines().next().map(|l| l.replace(' ', "")),
             Some("vec4iMouse;".to_string()),
@@ -512,7 +639,7 @@ mod hoist_tests {
         let source = "const float k = 2.0;\nuniform float u;\nfloat a[2] = float[](1.0, 2.0);\n\
                       struct S { float f; };\n\
                       void f() { float local = TIME; }\n#define Z vec2 z = vec2(1.0);\n";
-        let (code, hoisted) = hoist_global_initializers(source);
+        let (code, hoisted) = hoist_global_initializers(source, Branches::default());
         assert!(hoisted.is_empty(), "nothing to hoist: {hoisted:?}");
         assert!(matches!(code, Cow::Borrowed(_)), "and no allocation");
     }
@@ -521,7 +648,7 @@ mod hoist_tests {
     fn several_globals_keep_their_order_lines_and_qualifiers() {
         let source = "// header\nhighp vec2 m = RENDERSIZE * 0.5;\n\nfloat r = length(\n  m);\n\
                       vec4 renderMain() { return vec4(r); }\n";
-        let (code, hoisted) = hoist_global_initializers(source);
+        let (code, hoisted) = hoist_global_initializers(source, Branches::default());
         assert_eq!(
             code.lines().count(),
             source.lines().count(),
@@ -540,7 +667,7 @@ mod hoist_tests {
     #[test]
     fn a_declaration_of_several_names_hoists_each_initializer() {
         let source = "float a = mix(1.0, 2.0, syn_BassLevel), b, c = TIME;\n";
-        let (code, hoisted) = hoist_global_initializers(source);
+        let (code, hoisted) = hoist_global_initializers(source, Branches::default());
         assert_eq!(
             code.replace(' ', ""),
             "floata,b,c;\n",
@@ -558,7 +685,7 @@ mod hoist_tests {
     fn a_global_of_a_user_struct_type_is_hoisted() {
         let source = "struct ring { float r; float w; };\n\
                       ring white = ring(1.0, syn_BassLevel);\n";
-        let (_, hoisted) = hoist_global_initializers(source);
+        let (_, hoisted) = hoist_global_initializers(source, Branches::default());
         assert_eq!(
             hoisted.first().map(|h| h.assignment.as_str()),
             Some("white = ring(1.0, syn_BassLevel);"),
@@ -568,7 +695,7 @@ mod hoist_tests {
 
     #[test]
     fn a_comparison_is_not_an_initializer() {
-        let (_, hoisted) = hoist_global_initializers("bool b == c;\n");
+        let (_, hoisted) = hoist_global_initializers("bool b == c;\n", Branches::default());
         assert!(hoisted.is_empty(), "== is not =");
     }
 }
@@ -662,6 +789,60 @@ mod tests {
             fix("if (PASSINDEX == 0.0) a(); else if (PASSINDEX == 1.0) b();"),
             "if (float(PASSINDEX) == 0.0) a(); else if (float(PASSINDEX) == 1.0) b();",
             "both"
+        );
+    }
+}
+
+#[cfg(test)]
+mod uniform_tests {
+    use super::*;
+
+    #[test]
+    fn a_uniform_with_a_value_becomes_a_global_in_place() {
+        let source = "uniform vec2 mousePos = vec2(0.5, 0.5);\nuniform float plain;\n";
+        assert_eq!(
+            uniform_initializers(source, Branches::default()),
+            "        vec2 mousePos = vec2(0.5, 0.5);\nuniform float plain;\n",
+            "only the initialised uniform loses its keyword, column for column"
+        );
+    }
+
+    #[test]
+    fn uniforms_without_values_and_locals_are_left_alone() {
+        let source =
+            "uniform float a;\nvoid f() { uniform_thing = 1; }\n// uniform float b = 1.0;\n";
+        assert!(
+            matches!(
+                uniform_initializers(source, Branches::default()),
+                Cow::Borrowed(_)
+            ),
+            "nothing to rewrite"
+        );
+    }
+}
+
+#[cfg(test)]
+mod branch_tests {
+    use super::*;
+
+    #[test]
+    fn a_dead_branch_is_neither_hoisted_nor_rewritten() {
+        let source = "#ifdef KODELIFE\nfloat beam = 3.5 * x;\nuniform float u = 1.0;\n  #endif\nfloat live = 2.0 * x;\n";
+        let (_, hoisted) = hoist_global_initializers(source, Branches::default());
+        assert_eq!(
+            hoisted
+                .iter()
+                .map(|h| h.assignment.as_str())
+                .collect::<Vec<_>>(),
+            vec!["live = 2.0 * x;"],
+            "the KODELIFE block is never compiled; assigning its names would hit the controls' uniforms"
+        );
+        assert!(
+            matches!(
+                uniform_initializers(source, Branches::default()),
+                Cow::Borrowed(_)
+            ),
+            "nor is its uniform rewritten"
         );
     }
 }
