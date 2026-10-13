@@ -3509,3 +3509,26 @@ insert, delete with the neighbour selected, settings set and inherited
 again, a stale position refused, the original untouched); the shell
 scenario with a cue selected and a changed file, at six sizes.
 
+### D214: presets can be renamed, and replacing or deleting one asks first (2026-10-13)
+
+Backlog P-07: "add preset rename", and "the user sees what will be changed
+before destructive replacement".
+
+- **Rename** renames the active preset to the name typed in the save
+  field. `preset::rename` writes the new file whole before removing the old
+  one, so a crash leaves at least one copy. It refuses a name another
+  preset has (a change of case only is allowed), because a rename must
+  never replace anything. The fav slots that recall the preset on this
+  scene follow it. A playlist cue that names the old preset is **not**
+  rewritten (the playlist is the operator's file); the notice says so, and
+  that cue warns at compile time as any missing preset does.
+- **Save says Replace** when the typed name is an existing preset, and its
+  tooltip names the preset it will overwrite.
+- **Delete is two clicks.** The first arms the button and a warning line
+  appears; the second deletes. The arming is dropped as soon as another
+  preset becomes active.
+
+**Evidence:** `strobe-scene` `preset` tests (rename moves the file and its
+name, refuses to replace, allows a change of case, reports a missing
+preset; fav slots of that scene follow and others do not).
+

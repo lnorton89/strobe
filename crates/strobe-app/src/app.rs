@@ -2788,6 +2788,7 @@ impl Running {
                 Action::SavePreset(name) => self.save_preset(&name),
                 Action::RecallPreset(name) => self.recall_preset(&name),
                 Action::DeletePreset(name) => self.delete_preset(&name),
+                Action::RenamePreset { from, to } => self.rename_preset(&from, &to),
                 Action::StoreFav(slot) => self.store_fav(slot),
                 Action::ClearFav(slot) => self.remote.favs.clear(slot),
                 Action::RecallFav(slot) => self.recall_fav(slot),
@@ -2930,6 +2931,29 @@ impl Running {
             Err(error) => {
                 self.say(Tone::Error, format!("Preset not deleted: {error}"));
             }
+        }
+    }
+
+    /// Renames a preset of the playing scene, and the fav slots that recall
+    /// it (P-07). A playlist cue that names the old preset is not rewritten;
+    /// the notice says so.
+    fn rename_preset(&mut self, from: &str, to: &str) {
+        let Some(session) = self.stack.session.as_mut() else {
+            return;
+        };
+        match strobe_scene::preset::rename(&session.dir, from, to) {
+            Ok(_) => {
+                session.rename_preset(from, to);
+                let followed = self.remote.favs.rename_preset(&session.name, from, to);
+                log::info!("preset \"{from}\" renamed to \"{to}\" ({followed} fav slot(s) follow)");
+                self.say(
+                    Tone::Info,
+                    format!(
+                        "Renamed \"{from}\" to \"{to}\". {followed} fav slot(s) follow it; a playlist cue that names the old preset does not."
+                    ),
+                );
+            }
+            Err(error) => self.say(Tone::Error, format!("Preset not renamed: {error}")),
         }
     }
 

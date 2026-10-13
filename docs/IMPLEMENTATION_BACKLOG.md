@@ -194,7 +194,7 @@
 - **Acceptance:** repeated on is idempotent; repeated off is idempotent; mappings do not accidentally unblack an already blacked output; UI/remote state converges after reconnect.
 
 ### P-07 Macro and preset completion
-- **Status:** In progress: range and colour editing and pinning are built (D210). Left: a shortcut and smoothing per macro, preset rename, the media channel.
+- **Status:** In progress: range and colour editing and pinning (D210), preset rename and confirmation before replace or delete (D214) are built. Left: a shortcut and smoothing per macro, the media channel.
 - **Work:** complete range/colour editing, macro shortcut/smoothing/pinning; add preset rename; add media preset channel after media-per-cue exists; validate save/recall/delete and missing-control resolution.
 - **Acceptance:** no data loss on unresolved targets; presets remain backwards-compatible; user sees what will be changed before destructive replacement.
 
