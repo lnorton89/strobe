@@ -1,6 +1,6 @@
 # Research: LAN remote control with an installable PWA
 
-**Status:** research plan plus first implementation slice. `crates/strobe-remote` now defines the typed, versioned protocol and serialization tests; the listener, pairing store, PWA, and app integration remain unimplemented. The MIDI/OSC show-control foundation (`strobe-io`) is now present, but the LAN remote still needs its own authenticated transport and app-thread command bridge.  
+**Status:** LAN web remote v1 built (D250 to D254): `crates/strobe-remote` has the protocol, the app-thread bridge, pairing and paired clients, and an opt-in listener serving the controller page; the app drains it once a frame and shows "Remote on" with a Stop button. Not yet tested on real phones, the Windows firewall prompt or the T480; PWA installation still waits on HTTPS (L-07).  
 **Scope:** control a running Strobe show from a phone or tablet on the same local network, without cloud accounts, a hosted service, or opening router ports.
 
 ## Executive recommendation
@@ -120,7 +120,7 @@ Keep messages small, typed, and versioned. Example conceptual messages:
 
 ## Current implementation status
 
-The first code slice is deliberately transport-independent: `strobe-remote` defines allowlisted command enums, versioned hello/pair/authenticate messages, state snapshots, command acknowledgements, stable error codes, and bounded request-ID validation. Tests cover stable JSON names, rejection of unknown message types/fields/commands, request-ID constraints, and state round trips. It does **not** open a socket and is not yet wired into `strobe-app`; do not advertise remote control as available.
+Phase 1 is built (D250 to D254): an opt-in listener on its own threads, with our own small HTTP and WebSocket and `sha1` the only new crate; pairing with a one-use six-digit code and explicit desktop approval; 256-bit per-client tokens kept as digests, rotated on every authentication and revocable; Host (IP literal only) and Origin checks; message, connection, rate, idle and slow-client limits; and the one-file controller page under a hash-based CSP. Adversarial tests run over real sockets in CI (`crates/strobe-remote/tests/server.rs`). What is **not** done: real Android and iOS devices on Wi-Fi, the Windows firewall prompt, the T480 soak, Performance Macros (protocol v2), a QR code, and everything in Phase 2.
 
 ## Delivery plan
 

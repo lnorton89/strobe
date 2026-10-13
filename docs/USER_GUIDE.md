@@ -155,6 +155,59 @@ made for Synesthesia also works for scene and meta controls (by name or as
 `/controls/global/slider/1`), fav slots and playlist next, previous and
 play; its other addresses are ignored.
 
+## Remote control from a phone
+
+A phone or tablet on the same Wi-Fi can run the show: Next and Previous,
+Hold, Restart, +30 s, Skip section, Tap tempo and Blackout, with the
+current and next scene and the cue's time left. It is a web page that
+Strobe serves itself; there is nothing to install, and no account or
+internet connection is involved. **It has not yet been tried on real
+phones**; please report what you find.
+
+**It is off until you switch it on**, and it never switches itself on at
+launch.
+
+1. Open **SET** (Settings), find **Remote**, and press **Start remote**. Leave
+   *Address* empty to use this computer's address on its network, or type
+   one of its own addresses. Strobe refuses a public internet address.
+   To start it with Strobe instead, add `--remote` to the shortcut's
+   *Target* (and `--remote-bind 192.168.1.20` or `--remote-port 47812` if
+   you need them).
+2. **Windows Firewall** asks, the first time, whether Strobe may accept
+   connections. Allow it on **private networks only**, never public ones.
+   If you dismissed the prompt, allow `strobe.exe` for private networks in
+   *Windows Security > Firewall & network protection > Allow an app through
+   firewall*. Your network must also be set to *Private* in Windows'
+   network settings.
+3. The section shows an address such as `http://192.168.1.20:47812/`.
+   Type it into the phone's browser exactly as shown: a name instead of
+   the numbers is refused, on purpose.
+4. Press **Pair a device**. A six-digit code shows for two minutes. Type it
+   on the phone and press *Pair*.
+5. Strobe shows *"iPhone at 192.168.1.23 wants to control the show"*.
+   Press **Approve** if that is your phone, **Deny** if it is not. The phone
+   is paired and keeps working after both restart; it does not need the
+   code again.
+
+**The title bar shows "Remote on"** with the number of connected phones
+whenever it is listening, and a **Stop remote** button beside it. Stop
+drops every phone at once. **Revoke** (or **Revoke all**) under *Paired
+devices* makes a phone pair again; a connected one is dropped at once.
+Revoking works with the remote off too.
+
+On the phone, Blackout sends "black out" or "bring it back" according to
+what the screen last showed, never a plain toggle. If the connection
+drops (the phone slept, the Wi-Fi roamed) the page says so, disables its
+buttons and reconnects by itself. *Forget this device* on the page
+removes its pairing from that browser.
+
+**Use it only on a network you trust.** The remote is plain HTTP, not
+HTTPS: someone on the same Wi-Fi who is watching the traffic can see the
+pairing code as you type it and the phone's key as it is issued, and could
+then control the show until you revoke it. A home or venue network you
+control is fine; a public or shared Wi-Fi is not. There is no installable
+app (PWA) version yet, because that needs HTTPS.
+
 ## Importing from Shadertoy
 
 The **Import** pane (via LIB) takes a Shadertoy URL or id, or an exported
@@ -194,6 +247,7 @@ Everything Strobe writes lives in `%LOCALAPPDATA%\strobe`:
 | `crashes\` | A report (`.txt`) and a minidump (`.dmp`) per crash. |
 | `ui.toml` | Window and pane layout, theme, density, favourites. |
 | `show-control.json` | MIDI and OSC settings, mappings, macros, keys. |
+| `remote-clients.json` | Phones paired with the remote (no usable keys: only their fingerprints). Deleting it un-pairs every phone. |
 | `backups\` | The Editor's copies of files before it saved over them. |
 
 - **The DIAG pane** shows the GPU, the backend, frame timing and recent

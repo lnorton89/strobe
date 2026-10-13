@@ -138,7 +138,7 @@ A Cargo workspace of fifteen crates. The rules that matter:
 | [`strobe-shadertoy`](crates/strobe-shadertoy/README.md) | Shadertoy import: URL and id parsing, the converter to a scene folder, the REST client, texture cache, the loopback listener, and `strobe-import`. |
 | [`strobe-autocontrol`](crates/strobe-autocontrol/README.md) | Control generation: finds candidate literals, rewrites them to uniforms, renders to score each one, keeps those that matter. Also the `strobe-autocontrol` binary. |
 | [`strobe-diag`](crates/strobe-diag/README.md) | Logging, the session context, structured failures, the panic hook and out-of-process crash capture with minidumps. |
-| [`strobe-remote`](crates/strobe-remote/README.md) | The LAN remote's typed, versioned wire protocol and the bounded bridge to the app thread. No server yet, and the app does not use it. |
+| [`strobe-remote`](crates/strobe-remote/README.md) | The LAN remote: the typed, versioned wire protocol, the bounded bridge to the app thread, pairing and paired clients, and the opt-in listener that serves the phone's controller page (plain HTTP, trusted networks only). |
 | [`strobe-bench`](crates/strobe-bench/README.md) | Renders every scene in `scenes/`, times it, and writes frames, a contact sheet and `results.md`. |
 | [`strobe-conventions`](crates/strobe-conventions/README.md) | The house rules as tests: file headers, the `unsafe` boundary, the toolchain pin. |
 | [`xtask`](crates/xtask/README.md) | `cargo xtask ci`, `changelog`, `bench`, `corpus`, `symbolicate`, `brand`. |
