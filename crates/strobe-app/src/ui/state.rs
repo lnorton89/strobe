@@ -180,7 +180,12 @@ pub struct UiState {
     /// The Editor's presentation state (go-to line, highlight cache).
     pub editor: super::editor::EditorUi,
     /// The Inspector's tag field while it is open. Not saved.
-    pub tag_draft: Option<String>,
+    pub tag_draft: Option<super::tags::TagDraft>,
+    /// The Import pane's tag field for the scene just imported (D264). Not
+    /// saved.
+    pub import_tag_draft: Option<super::tags::TagDraft>,
+    /// The browser's tag field for its selected scene (D264). Not saved.
+    pub browser_tag_draft: Option<super::tags::TagDraft>,
     /// The Inspector's media path field while it is open (D217). Not saved.
     pub media_draft: Option<String>,
     /// The generated-controls review's edits, one per proposed control
@@ -260,6 +265,8 @@ impl UiState {
             command_palette: super::command_palette::PaletteUi::default(),
             editor: super::editor::EditorUi::default(),
             tag_draft: None,
+            import_tag_draft: None,
+            browser_tag_draft: None,
             media_draft: None,
             generate_review: Vec::new(),
             macro_keys_held: Vec::new(),

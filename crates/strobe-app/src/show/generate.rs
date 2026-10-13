@@ -26,6 +26,14 @@
 //! `audio-reactive`). A word that equals a whole scene name picks that
 //! scene. An empty pool is the whole library. The preview says which rule
 //! put each scene in the pool (`strobe_playlist::Why`).
+//!
+//! ## Exclusions (D264)
+//!
+//! The "exclude" box takes words the same way, read into the filter's
+//! `exclude_tags` and `exclude_names`. A scene carrying any of them (a tag
+//! or a name word) or named by one is never picked, even when the pool
+//! names it: exclusions are checked first. [`excluded`] lists the scenes
+//! they left out, each with its reason, for the preview to say so.
 
 use crate::library::Library;
 use strobe_playlist::{
@@ -82,6 +90,8 @@ pub struct GenerateForm {
     pub target: String,
     /// Tags or scene names, separated by commas or spaces. Empty is all.
     pub pool: String,
+    /// Tags or scene names never to pick, separated the same way (D264).
+    pub exclude: String,
     /// The duration rule each cue draws from: `3m`, `rand(2m, 4m)`, `32 bars`.
     pub duration: String,
     /// The transition rule.
@@ -100,6 +110,7 @@ impl Default for GenerateForm {
             section_name: "Generated".to_string(),
             target: "30m".to_string(),
             pool: String::new(),
+            exclude: String::new(),
             duration: "rand(2m, 4m)".to_string(),
             transition: TransitionChoice::Inherit,
             transition_length: "4s".to_string(),
@@ -150,16 +161,14 @@ impl GenerateForm {
                 }]
             }
         };
-        let words: Vec<&str> = self
-            .pool
-            .split([',', ' ', ';'])
-            .map(str::trim)
-            .filter(|word| !word.is_empty())
-            .collect();
+        let words = field_words(&self.pool);
+        let exclude = field_words(&self.exclude);
         let mut spec = GenerateSpec::new(name, target, seed);
         spec.pool = PoolFilter {
             names: words.iter().map(|word| word.to_lowercase()).collect(),
             tags: strobe_scene::tags::normalized(words.iter().copied()),
+            exclude_names: exclude.iter().map(|word| word.to_lowercase()).collect(),
+            exclude_tags: strobe_scene::tags::normalized(exclude.iter().copied()),
             ..PoolFilter::default()
         };
         spec.duration = duration;
@@ -167,6 +176,32 @@ impl GenerateForm {
         spec.no_repeat_window = window;
         Ok(spec)
     }
+}
+
+/// The words of a pool or exclude field: separated by commas, spaces or
+/// semicolons.
+fn field_words(text: &str) -> Vec<&str> {
+    text.split([',', ' ', ';'])
+        .map(str::trim)
+        .filter(|word| !word.is_empty())
+        .collect()
+}
+
+/// The scenes `spec`'s exclusions leave out of `library`, by name, each
+/// with the exclusion that did it, in name order (D264). Scenes the pool
+/// simply does not ask for are not listed.
+pub fn excluded(library: &LibrarySnapshot, spec: &GenerateSpec) -> Vec<(String, Why)> {
+    let mut out: Vec<(String, Why)> = library
+        .scenes
+        .iter()
+        .filter_map(|scene| match spec.pool.why(scene) {
+            why @ (Why::ExcludedName | Why::ExcludedTag(_)) => Some((scene.name.clone(), why)),
+            Why::Everything | Why::Name | Why::Folder(_) | Why::Tag(_) | Why::NoMatch => None,
+        })
+        .collect();
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    out.dedup_by(|a, b| a.0 == b.0);
+    out
 }
 
 /// A duration field that must come out as plain seconds (a target or a
@@ -211,9 +246,15 @@ pub fn snapshot(library: &Library) -> LibrarySnapshot {
 }
 
 /// The generator's error as the dialog says it: an empty pool lists the
-/// tags the library does have.
-pub fn explain(error: &GenerateError, library: &Library) -> String {
+/// tags the library does have, or, when the exclude field emptied it, what
+/// it left out (`excluded`, from [`excluded`]).
+pub fn explain(error: &GenerateError, library: &Library, excluded: &[(String, Why)]) -> String {
     match error {
+        GenerateError::EmptyPool if !excluded.is_empty() => format!(
+            "No scene is left to pick: the exclude field left out {} ({})",
+            excluded.len(),
+            pool_summary(excluded)
+        ),
         GenerateError::EmptyPool => {
             let counts = tag_counts(library);
             if counts.is_empty() {
@@ -243,7 +284,8 @@ pub fn explain(error: &GenerateError, library: &Library) -> String {
 }
 
 /// One line saying why the pool holds what it holds: `tag dark 5, by name
-/// 2`, most common reason first.
+/// 2`, most common reason first. Given the [`excluded`] list, it says why
+/// those were left out the same way: `excluded by tag heavy 2`.
 pub fn pool_summary(pool: &[(String, Why)]) -> String {
     let mut counts: Vec<(String, usize)> = Vec::new();
     for (_, why) in pool {
@@ -404,7 +446,7 @@ mod tests {
             "tag calm 2, by name 1",
             "most common reason first"
         );
-        let empty = explain(&GenerateError::EmptyPool, &library);
+        let empty = explain(&GenerateError::EmptyPool, &library, &[]);
         assert!(
             empty.contains("calm (2), 2d (1)"),
             "an empty pool lists the library's tags: {empty}"
@@ -419,6 +461,70 @@ mod tests {
                 ("dark".to_string(), 1)
             ],
             "most used first, then by name"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn excluded_tags_and_names_are_never_picked_and_say_why() -> Result<()> {
+        let mut library = library();
+        library.entries = vec![
+            Entry::new("01-aurora-gradient".into(), PathBuf::from("a")).with_tags(&["calm"]),
+            Entry::new("09-sdf-cathedral".into(), PathBuf::from("c")).with_tags(&["calm", "Heavy"]),
+            Entry::new("05-domain-warp".into(), PathBuf::from("w")).with_tags(&["calm"]),
+        ];
+        let snap = snapshot(&library);
+        let form = GenerateForm {
+            pool: "calm".into(),
+            exclude: "HEAVY, 05-domain-warp".into(),
+            ..GenerateForm::default()
+        };
+        let spec = form.spec().map_err(|e| anyhow!(e))?;
+        let made = strobe_playlist::generate(&snap, &spec).map_err(|e| anyhow!("{e}"))?;
+        let picked: Vec<&str> = made.pool.iter().map(|(name, _)| name.as_str()).collect();
+        assert_eq!(
+            picked,
+            ["01-aurora-gradient"],
+            "the pool asked for calm; heavy and the named scene are left out"
+        );
+        assert!(
+            made.section
+                .cues
+                .iter()
+                .all(|cue| cue.scene.to_string().contains("aurora")),
+            "no cue plays an excluded scene"
+        );
+        let left_out = excluded(&snap, &spec);
+        assert_eq!(
+            left_out
+                .iter()
+                .map(|(name, why)| format!("{name}: {why}"))
+                .collect::<Vec<_>>(),
+            [
+                "05-domain-warp: excluded by name",
+                "09-sdf-cathedral: excluded by tag heavy"
+            ],
+            "each with its reason, in name order"
+        );
+        assert_eq!(
+            pool_summary(&left_out),
+            "excluded by name 1, excluded by tag heavy 1",
+            "the preview's one line"
+        );
+
+        let everything = GenerateForm {
+            exclude: "calm".into(),
+            ..GenerateForm::default()
+        };
+        let spec = everything.spec().map_err(|e| anyhow!(e))?;
+        let error = strobe_playlist::generate(&snap, &spec)
+            .err()
+            .ok_or_else(|| anyhow!("excluding every scene must fail"))?;
+        let message = explain(&error, &library, &excluded(&snap, &spec));
+        assert!(
+            message.contains("exclude field left out 3")
+                && message.contains("excluded by tag calm 3"),
+            "an empty pool caused by the exclusions says so: {message}"
         );
         Ok(())
     }

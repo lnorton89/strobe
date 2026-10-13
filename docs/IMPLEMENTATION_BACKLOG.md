@@ -93,7 +93,7 @@
 - **Acceptance:** author an 80-cue four-hour show in under two minutes using tags and multi-edit; inheritance is visible and deterministic; invalid edits preserve the last valid show.
 
 ### U-08 Real scene tags and generation
-- **Status:** Built (D205): Synesthesia's `TAGS` is read leniently and normalised, written in place from the Inspector, searched by the browser, and used by Generate, whose preview names each scene's reason. Left: tagging from the Import pane and for a scene that is not playing, exclude fields in the Generate form.
+- **Status:** Built (D205): Synesthesia's `TAGS` is read leniently and normalised, written in place from the Inspector, searched by the browser, and used by Generate, whose preview names each scene's reason. Since D264: any library scene is tagged by name, from the Inspector, the Import pane (the scene just imported) or the browser's selected scene, and Generate has an Exclude field whose preview says which scenes it skipped and why. Left: a person using it on a real library.
 - **Work:** define a backwards-compatible scene tag format; read/write tags; filter and generate playlists by tags rather than only filename words; define missing/unknown tag behaviour.
 - **Acceptance:** tag fixtures round-trip; old scenes remain valid; generator selection is deterministic with a seed and reports why a scene was selected/skipped.
 

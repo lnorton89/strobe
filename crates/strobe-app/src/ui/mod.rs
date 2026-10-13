@@ -36,7 +36,8 @@
 //! - The shell: [`shell`] composes [`chrome`] (title bar, readouts, rail,
 //!   resize handles), [`perform`] (toolbar, banners, preview) and
 //!   [`transport`] with [`macros`].
-//! - The panes: [`browser`], [`inspector`] (with [`controls`] and [`presets`]),
+//! - The panes: [`browser`], [`inspector`] (with [`controls`] and [`presets`];
+//!   [`tags`] is the tag row it shares with the browser and import),
 //!   [`diagnostics`], [`import`], [`settings`] (with [`audio`]), [`playlist`]
 //!   and [`map`].
 //! - [`keys`] turns key events into commands under the focus rule.
@@ -75,6 +76,7 @@ pub mod shell;
 #[cfg(test)]
 mod shell_tests;
 pub mod state;
+pub mod tags;
 #[cfg(test)]
 mod testing;
 pub mod theme;
@@ -97,7 +99,8 @@ mod tests {
     /// is where colours are made. `motion` is not here either: it is the
     /// one module allowed to animate. `icon` holds the painting of the
     /// geometry and `state` has no drawing at all.
-    const DRAWING_MODULES: [(&str, &str); 20] = [
+    const DRAWING_MODULES: [(&str, &str); 21] = [
+        ("tags", include_str!("tags.rs")),
         ("audio", include_str!("audio.rs")),
         ("browser", include_str!("browser.rs")),
         ("chrome", include_str!("chrome.rs")),
