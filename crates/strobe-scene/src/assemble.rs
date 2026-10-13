@@ -62,6 +62,7 @@
 
 use crate::audio::SCALARS;
 use crate::fixups;
+use crate::promote;
 use crate::scene::SceneDef;
 use std::borrow::Cow;
 use std::fmt::Write as _;
@@ -177,14 +178,6 @@ pub fn fragment(request: &Request<'_>) -> String {
         pass_index,
         extra,
     } = *request;
-    // Desktop-only idioms, made explicit for ES. Line count is preserved.
-    let (user_code, hoisted) = if dialect.is_es() {
-        let compares = fixups::passindex_float_compares(user_code);
-        let (code, hoisted) = fixups::hoist_global_initializers(&compares);
-        (Cow::Owned(code.into_owned()), hoisted)
-    } else {
-        (Cow::Borrowed(user_code), Vec::new())
-    };
     let mut out = String::with_capacity(user_code.len() + strobe_ssf_lib::LIBRARY.len() + 4096);
     let es = dialect.is_es();
 
@@ -258,6 +251,18 @@ pub fn fragment(request: &Request<'_>) -> String {
     if !strobe_ssf_lib::LIBRARY.ends_with('\n') {
         out.push('\n');
     }
+
+    // Desktop-only idioms, made explicit for ES, with everything above as
+    // the declarations the rewrite types against (D199). Line count is
+    // preserved.
+    let (user_code, hoisted) = if es {
+        let compares = fixups::passindex_float_compares(user_code);
+        let promoted = promote::int_to_float(&compares, &out);
+        let (code, hoisted) = fixups::hoist_global_initializers(&promoted);
+        (Cow::Owned(code.into_owned()), hoisted)
+    } else {
+        (Cow::Borrowed(user_code), Vec::new())
+    };
 
     let _ = writeln!(out, "#line 1 {}", source::USER);
     out.push_str(&user_code);
