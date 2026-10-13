@@ -9,6 +9,7 @@ publish = false
 # Two binaries: the app, and the corpus harness (D195). Plain `cargo run -p
 # strobe-app` must keep meaning the app.
 default-run = "strobe"
+build = "build.rs"
 
 [[bin]]
 name = "strobe"
@@ -41,6 +42,9 @@ serde.workspace = true
 serde_json.workspace = true
 toml.workspace = true
 winit.workspace = true
+
+[build-dependencies]
+embed-resource.workspace = true
 
 [dev-dependencies]
 # Only for the test that keeps the remote protocol's commands aligned with
