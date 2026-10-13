@@ -2370,6 +2370,30 @@ impl Running {
         }
     }
 
+    /// A macro's key went down or up (D228): the mapper drives the macro
+    /// as a momentary button would, and anything that asks for an action
+    /// (a macro on a command or a preset) is carried out.
+    fn macro_key(&mut self, id: u32, down: bool) {
+        let mut outputs = Vec::new();
+        let outcome = {
+            let (scene, meta) = match self.stack.session.as_mut() {
+                Some(session) => (Some(&mut session.controls), Some(&mut session.meta)),
+                None => (None, None),
+            };
+            let mut banks = Banks { scene, meta };
+            self.remote
+                .engine
+                .macro_key(id, down, &mut banks, &mut outputs)
+        };
+        if let strobe_io::Outcome::Unavailable(why) = outcome {
+            log::debug!("macro key: {why}");
+        }
+        let mut actions = output_actions(&mut outputs);
+        if !actions.is_empty() {
+            self.apply(&mut actions);
+        }
+    }
+
     /// Saves the playing scene's live frame as its picture (D222): read back
     /// once, shrunk, written as `thumbnail.jpg` and named in `scene.json`.
     /// The scene's own output is used, before blackout and the post stage,
@@ -2794,6 +2818,7 @@ impl Running {
                 Action::SetSceneTags(tags) => self.set_scene_tags(&tags),
                 Action::SetMedia(path) => self.set_media(path),
                 Action::CaptureThumbnail => self.capture_thumbnail(),
+                Action::MacroKey { id, down } => self.macro_key(id, down),
                 Action::EditCue { at, edit } => self.edit_cue(at, &edit),
                 Action::ReloadPlaylistFromDisk => {
                     if let Some(path) = self.playlist_ui.external_change.take() {
@@ -3023,19 +3048,7 @@ impl Running {
             self.remote.drain(&mut banks, now, &mut outputs);
         }
         if !outputs.is_empty() {
-            let mut actions: Vec<Action> = Vec::with_capacity(outputs.len());
-            for output in outputs.drain(..) {
-                match output {
-                    Output::Command(id) => actions.push(Action::RunCommand(id)),
-                    Output::Cue(number) => {
-                        actions.push(Action::JumpToCue(number.saturating_sub(1) as usize));
-                    }
-                    Output::FavSlot(slot) => {
-                        actions.push(Action::RecallFav(usize::from(slot).saturating_sub(1)));
-                    }
-                    Output::Preset(name) => actions.push(Action::RecallPreset(name)),
-                }
-            }
+            let mut actions = output_actions(&mut outputs);
             self.apply(&mut actions);
         }
         self.remote_out = outputs;
@@ -3827,6 +3840,26 @@ impl Running {
         let mouse = strobe_gfx::Mouse::default();
         session.advance(dt, &mut self.audio, mouse, self.local_date.now());
     }
+}
+
+/// The actions the mapper's outputs ask for: commands, cues, fav slots and
+/// presets, carried out by the same actions the buttons send. Drains
+/// `outputs`.
+fn output_actions(outputs: &mut Vec<Output>) -> Vec<Action> {
+    let mut actions: Vec<Action> = Vec::with_capacity(outputs.len());
+    for output in outputs.drain(..) {
+        match output {
+            Output::Command(id) => actions.push(Action::RunCommand(id)),
+            Output::Cue(number) => {
+                actions.push(Action::JumpToCue(number.saturating_sub(1) as usize));
+            }
+            Output::FavSlot(slot) => {
+                actions.push(Action::RecallFav(usize::from(slot).saturating_sub(1)));
+            }
+            Output::Preset(name) => actions.push(Action::RecallPreset(name)),
+        }
+    }
+    actions
 }
 
 /// What `STROBE_FINISH_AFTER_SWAP` asks for (D221). Logged unless unset.

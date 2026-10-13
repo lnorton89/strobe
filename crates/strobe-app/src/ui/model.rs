@@ -66,6 +66,13 @@ pub enum Action {
     SetSceneTags(Vec<String>),
     /// Save the playing scene's live frame as its thumbnail (D222).
     CaptureThumbnail,
+    /// A macro's key went down or up (D228).
+    MacroKey {
+        /// The macro.
+        id: u32,
+        /// Down, or up.
+        down: bool,
+    },
     /// Show this picture or folder of pictures behind `syn_Media`, or give
     /// each scene its own back with `None` (D217).
     SetMedia(Option<std::path::PathBuf>),
@@ -472,6 +479,10 @@ pub struct MapUi {
     /// The preset whose delete button was clicked once: the second click
     /// deletes (P-07).
     pub delete_armed: Option<String>,
+    /// The macro waiting for its key to be pressed (D228).
+    pub key_capture: Option<u32>,
+    /// Why the last key offered to a macro was refused.
+    pub key_problem: Option<String>,
 }
 
 /// Show control, for the MAP pane, the macro strip and the preset row.

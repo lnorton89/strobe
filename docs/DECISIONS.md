@@ -3909,3 +3909,28 @@ control snaps, and the picture jumps.
 
 **Would reopen:** a person wanting the glide to shape a toggle as a fade,
 or per-direction (attack and release) times.
+
+### D228: a macro can have a key, which it holds like a button (2026-10-13)
+
+The last of U-04 and P-07: a keyboard shortcut per macro, for an operator
+without a controller (or with one key short).
+
+- **Held, not toggled.** Down drives the macro as a momentary button
+  mapping would: the top of its reach while held, the bottom when let go,
+  through its glide (D227) if it has one. With a reach of 50-100% and a
+  glide of 0.3 s, a key is a "bump"; a toggle follows the key and a bang
+  fires on the press. `Engine::macro_key` does it through the same `drive`
+  as every mapping, with a button state per macro.
+- **Commands keep their keys.** The keyboard handler gives a key to a
+  command first; only a key no command claims reaches the macros, and not
+  while a text field or a modal has the keyboard. The MAP pane's "Set"
+  captures the next key (Esc cancels) and refuses one a command holds,
+  naming it. One key drives one macro: giving it to another takes it away.
+- **A release reaches what the press drove.** The handler remembers which
+  macro each held key started, by key, so letting go after a modifier
+  changed still lets the macro down.
+- **Saved** with the macro (`key`, the chord's text) in
+  `show-control.json`.
+
+**Would reopen:** a person wanting a key to toggle a macro rather than
+hold it, or a key on a command and a macro at once.

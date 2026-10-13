@@ -112,11 +112,14 @@ pub fn handle(ctx: &Context, model: &mut Model<'_>, modal_open: bool, actions: &
     let bindings = model.remote.bindings;
     let mut commands: [Option<CommandId>; MAX_PER_FRAME] = [None; MAX_PER_FRAME];
     let mut count = 0;
+    // Keys that are no command, pressed or let go, for the macros (D228).
+    let mut loose: [Option<(Chord, bool)>; MAX_PER_FRAME] = [None; MAX_PER_FRAME];
+    let mut loose_count = 0;
     ctx.input(|input| {
         for event in &input.events {
             let egui::Event::Key {
                 key,
-                pressed: true,
+                pressed,
                 repeat: false,
                 modifiers,
                 ..
@@ -133,16 +136,70 @@ pub fn handle(ctx: &Context, model: &mut Model<'_>, modal_open: bool, actions: &
                 shift: modifiers.shift,
                 alt: modifiers.alt,
             };
-            if let Some(command) = dispatch_with(chord, focus, bindings)
-                && let Some(slot) = commands.get_mut(count)
-            {
-                *slot = Some(command);
-                count += 1;
+            let command = if *pressed {
+                dispatch_with(chord, focus, bindings)
+            } else {
+                None
+            };
+            match command {
+                Some(command) => {
+                    if let Some(slot) = commands.get_mut(count) {
+                        *slot = Some(command);
+                        count += 1;
+                    }
+                }
+                None => {
+                    if let Some(slot) = loose.get_mut(loose_count) {
+                        *slot = Some((chord, *pressed));
+                        loose_count += 1;
+                    }
+                }
             }
         }
     });
     for command in commands.into_iter().flatten() {
         run(command, model, actions);
+    }
+    if !focus.text_edit && !focus.modal {
+        for (chord, pressed) in loose.into_iter().flatten() {
+            macro_key(model, chord, pressed, actions);
+        }
+    }
+}
+
+/// A key that is no command, pressed or let go: the macro whose key it is
+/// goes up while it is held (D228). A release reaches the macro its press
+/// drove, whatever modifiers changed meanwhile.
+fn macro_key(model: &mut Model<'_>, chord: Chord, pressed: bool, actions: &mut Vec<Action>) {
+    let held = &mut model.ui.macro_keys_held;
+    if !pressed {
+        held.retain(|(key, id)| {
+            let released = *key == chord.key;
+            if released {
+                actions.push(Action::MacroKey {
+                    id: *id,
+                    down: false,
+                });
+            }
+            !released
+        });
+        return;
+    }
+    if held.iter().any(|(key, _)| *key == chord.key) {
+        return;
+    }
+    let found = model
+        .remote
+        .remote
+        .engine
+        .macros
+        .all()
+        .iter()
+        .find(|m| m.enabled && m.key.as_deref().and_then(Chord::parse) == Some(chord))
+        .map(|m| m.id);
+    if let Some(id) = found {
+        held.push((chord.key, id));
+        actions.push(Action::MacroKey { id, down: true });
     }
 }
 

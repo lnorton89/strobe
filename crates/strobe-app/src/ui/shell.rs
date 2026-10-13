@@ -85,7 +85,7 @@ pub fn show(ui: &mut Ui, shell: &mut ShellState, model: &mut Model<'_>, actions:
     // The palette owns the keyboard while it is open, as the modal does.
     let palette_open = model.ui.command_palette.open;
     // Capturing a new shortcut owns the keyboard too (D208).
-    let capturing = model.ui.hotkeys.capturing.is_some();
+    let capturing = model.ui.hotkeys.capturing.is_some() || model.remote.ui.key_capture.is_some();
     keys::handle(
         ui.ctx(),
         model,

@@ -70,6 +70,11 @@ pub struct Macro {
     /// smoothing decides.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub glide: Option<f32>,
+    /// A keyboard key that drives it while held (D228), as the app writes
+    /// a chord (`Shift+F5`, `Q`). Down is the top of its reach, up the
+    /// bottom.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
 }
 
 fn yes() -> bool {
@@ -89,6 +94,7 @@ impl Macro {
             range: None,
             color: None,
             glide: None,
+            key: None,
         }
     }
 }
@@ -231,6 +237,26 @@ impl MacroSet {
             .map(|seconds| seconds.min(MAX_GLIDE));
         if let Some(m) = self.get_mut(id) {
             m.glide = glide;
+        }
+    }
+
+    /// Sets or clears macro `id`'s key. A key another macro holds is taken
+    /// from it, so one key never drives two macros.
+    pub fn set_key(&mut self, id: u32, key: Option<String>) {
+        let key = key.map(|k| k.trim().to_string()).filter(|k| !k.is_empty());
+        if let Some(wanted) = key.as_deref() {
+            for other in self.macros.iter_mut().filter(|m| m.id != id) {
+                if other
+                    .key
+                    .as_deref()
+                    .is_some_and(|k| k.eq_ignore_ascii_case(wanted))
+                {
+                    other.key = None;
+                }
+            }
+        }
+        if let Some(m) = self.get_mut(id) {
+            m.key = key;
         }
     }
 
