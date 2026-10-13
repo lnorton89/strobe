@@ -68,7 +68,11 @@ Settings > Keyboard changes any of them.
 - A scene is a folder with `main.glsl` and `scene.json`, the Synesthesia
   scene format (`.synScene`). Synesthesia scenes you own can be played by
   pointing `--library` at their folder, or by dropping a scene folder on
-  the window (it is copied into the library).
+  the window (it is copied into the library). Dropping a folder *of* scene
+  folders adds them all without playing any; a banner says how many were
+  added.
+- **Needs work** (a LIB filter, and a list in DIAG) shows the scenes that
+  failed to load this run, each with its reason.
 - **Controls** shows the playing scene's sliders, colours and buttons.
   *Use frame as picture* saves the current frame as the scene's library
   picture.

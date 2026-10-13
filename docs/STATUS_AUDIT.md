@@ -393,7 +393,12 @@ they apply, and explicit supported, degraded or unsupported claims.
   **Not yet:** on the T480, where the worker needs a hidden window
   context, and per-control keep or drop.
 - [ ] Thumbnails, conversion diagnostics beyond the warnings list, and the
-  Needs-work bin.
+  Needs-work bin. **Built:** thumbnails from `IMAGE_PATH` and from a live
+  frame (D212, D222); "Needs work", the LIB filter and the DIAG section
+  that lists each scene that failed to load this run with its reason;
+  batch import by dropping a folder of scene folders (D235, unit-tested,
+  not yet dropped by a person). **Not yet:** conversion diagnostics beyond
+  the warnings list.
 - [x] Auto-generated controls engine, stage 1 (D123-D126;
   [ROADMAP.md](ROADMAP.md), "Auto-generated controls"). Evidence:
   `crates/strobe-autocontrol/tests/engine.rs` on headless llvmpipe, both

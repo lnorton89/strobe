@@ -20,11 +20,19 @@
 //!   Inspector's Choose would (D217);
 //! - **a scene folder** (one with a `main.glsl`) is played: from where it is
 //!   if it is already in the library, else after [`copy_scene`] has copied
-//!   it in.
+//!   it in;
+//! - **a folder of scene folders** (a pack) adds every scene in it to the
+//!   library and plays none of them: one is copied a frame, so the show
+//!   keeps running, and a banner then says how many were added, already
+//!   there or refused (D235). At most [`MAX_PACK`] scenes are taken.
 //!
 //! Anything else is refused with a sentence saying what can be dropped.
 
+use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
+
+/// The most scenes taken from one dropped folder of scenes.
+pub const MAX_PACK: usize = 500;
 
 /// The most files a dropped scene folder may hold to be copied.
 pub const MAX_SCENE_FILES: usize = 2000;
@@ -46,6 +54,8 @@ pub enum Dropped {
     /// A scene folder (the dropped folder, or a dropped `scene.json` or
     /// `main.glsl`'s folder).
     Scene(PathBuf),
+    /// A folder of scene folders, in name order.
+    Pack(Vec<PathBuf>),
     /// Nothing Strobe opens; the sentence says what can be dropped.
     Unknown(String),
 }
@@ -56,6 +66,10 @@ pub fn classify(path: &Path) -> Dropped {
     if path.is_dir() {
         if is_scene(path) {
             return Dropped::Scene(path.to_path_buf());
+        }
+        let scenes = pack(path);
+        if !scenes.is_empty() {
+            return Dropped::Pack(scenes);
         }
         return match strobe_gfx::assets::list_sources(path) {
             Ok(_) => Dropped::Media,
@@ -101,8 +115,29 @@ pub fn hint(kind: &Dropped) -> String {
         Dropped::Scene(_) => {
             "Drop to play this scene (one from outside the library is copied in first).".to_string()
         }
+        Dropped::Pack(scenes) => match scenes.len() {
+            1 => "Drop to add the scene in this folder to the library.".to_string(),
+            n => format!("Drop to add the {n} scenes in this folder to the library."),
+        },
         Dropped::Unknown(why) => why.clone(),
     }
+}
+
+/// The scene folders directly inside `dir` (not following links), in name
+/// order, at most [`MAX_PACK`].
+fn pack(dir: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut scenes: Vec<PathBuf> = entries
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+        .map(|entry| entry.path())
+        .filter(|path| is_scene(path))
+        .collect();
+    scenes.sort();
+    scenes.truncate(MAX_PACK);
+    scenes
 }
 
 /// Whether `dir` is a scene folder.
@@ -172,6 +207,93 @@ pub fn copy_scene(from: &Path, library: &Path) -> Result<PathBuf, String> {
             }
             Err(error)
         }
+    }
+}
+
+/// Whether two paths are the same folder (also through links or `..`).
+pub fn same_dir(a: &Path, b: &Path) -> bool {
+    a == b
+        || matches!(
+            (std::fs::canonicalize(a), std::fs::canonicalize(b)),
+            (Ok(x), Ok(y)) if x == y
+        )
+}
+
+/// A dropped folder of scenes being added to the library, one scene a
+/// [`Pack::step`] (D235).
+#[derive(Debug, Default)]
+pub struct Pack {
+    queue: VecDeque<PathBuf>,
+    added: usize,
+    already: usize,
+    refused: Vec<(PathBuf, String)>,
+}
+
+impl Pack {
+    /// A pack of these scene folders.
+    pub fn new(scenes: Vec<PathBuf>) -> Self {
+        Self {
+            queue: scenes.into(),
+            ..Self::default()
+        }
+    }
+
+    /// Adds more scenes to the queue (a second folder dropped meanwhile).
+    pub fn extend(&mut self, scenes: Vec<PathBuf>) {
+        self.queue.extend(scenes);
+    }
+
+    /// Takes the next scene: skips it if `known` says the library has it or
+    /// the library has a scene of that name, else copies it in. Returns
+    /// whether any are left.
+    pub fn step(&mut self, library: &Path, known: impl Fn(&Path) -> bool) -> bool {
+        let Some(dir) = self.queue.pop_front() else {
+            return false;
+        };
+        let taken = dir
+            .file_name()
+            .is_some_and(|name| library.join(name).exists());
+        if known(&dir) || taken {
+            self.already += 1;
+        } else {
+            match copy_scene(&dir, library) {
+                Ok(_) => self.added += 1,
+                Err(why) => self.refused.push((dir, why)),
+            }
+        }
+        !self.queue.is_empty()
+    }
+
+    /// How many were copied in.
+    pub fn added(&self) -> usize {
+        self.added
+    }
+
+    /// The scenes that could not be copied, and why.
+    pub fn refused(&self) -> &[(PathBuf, String)] {
+        &self.refused
+    }
+
+    /// One sentence for the banner, once the queue is empty.
+    pub fn summary(&self) -> String {
+        let scenes = |n: usize| {
+            if n == 1 {
+                "1 scene".to_string()
+            } else {
+                format!("{n} scenes")
+            }
+        };
+        let mut parts = vec![format!("Added {} to the library", scenes(self.added))];
+        if self.already > 0 {
+            parts.push(format!("{} already there", self.already));
+        }
+        if !self.refused.is_empty() {
+            parts.push(format!(
+                "{} could not be added (see the log)",
+                self.refused.len()
+            ));
+        }
+        format!("{}.", parts.join("; "))
     }
 }
 
@@ -318,6 +440,53 @@ mod tests {
         assert!(
             again.as_ref().is_err_and(|why| why.contains("already has")),
             "a second copy is refused, not merged: {again:?}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_folder_of_scenes_is_a_pack_and_lands_one_scene_a_step() -> Result<()> {
+        let scratch = Scratch::new("pack")?;
+        let drop = scratch.0.join("pack");
+        for name in ["b.synScene", "a.synScene", "c.synScene"] {
+            scene(&drop.join(name))?;
+        }
+        std::fs::create_dir_all(drop.join("not-a-scene"))?;
+        std::fs::write(drop.join("readme.txt"), "x")?;
+        let library = scratch.0.join("library");
+        scene(&library.join("c.synScene"))?;
+
+        let Dropped::Pack(scenes) = classify(&drop) else {
+            anyhow::bail!("not a pack: {:?}", classify(&drop));
+        };
+        let names: Vec<_> = scenes.iter().filter_map(|p| p.file_name()).collect();
+        assert_eq!(
+            names,
+            ["a.synScene", "b.synScene", "c.synScene"],
+            "scenes only, in name order"
+        );
+        assert!(
+            hint(&Dropped::Pack(scenes.clone())).contains("3 scenes"),
+            "the banner counts them"
+        );
+
+        let mut pack = Pack::new(scenes);
+        let mut steps = 1;
+        while pack.step(&library, |_| false) {
+            steps += 1;
+        }
+        assert_eq!(steps, 3, "one scene a step");
+        assert!(library.join("a.synScene/main.glsl").is_file(), "a landed");
+        assert!(library.join("b.synScene/main.glsl").is_file(), "b landed");
+        assert_eq!(pack.added(), 2, "two added");
+        assert_eq!(
+            pack.summary(),
+            "Added 2 scenes to the library; 1 already there.",
+            "c was there by name"
+        );
+        assert!(
+            !pack.step(&library, |_| false),
+            "an empty pack does nothing"
         );
         Ok(())
     }

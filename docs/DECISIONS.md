@@ -4149,3 +4149,30 @@ targets.
 ignored address (the suffixes and `/scenes` are the likely ones), a
 request for Synesthesia-shaped feedback, or the underscore question in Q23
 mattering (Strobe's name matching ignores `_` either way).
+
+### D235: a dropped folder of scenes is added to the library a scene a frame, and none is played (2026-10-13)
+
+I-02 asked for batch import. D218 handles one dropped scene folder by
+copying it in and playing it; dropping a pack of a hundred scenes that way
+would switch scenes a hundred times.
+
+- **A folder whose subfolders are scenes is a pack.** `intake::classify`
+  gives `Dropped::Pack` for a folder with no `main.glsl` of its own and at
+  least one scene folder directly inside it (links not followed, name
+  order, at most 500). It takes precedence over "a folder of pictures", so
+  a pack that also holds a cover picture is still a pack.
+- **One scene a frame, from `schedule`.** `intake::Pack::step` copies the
+  next scene with D218's `copy_scene` (same file, size and link limits).
+  The copy runs on the UI thread, and one scene at a time keeps each
+  frame's share to one small folder, so the show keeps playing with no
+  worker or channel to manage. A second pack dropped meanwhile joins the
+  queue.
+- **Nothing plays.** A scene the library already has (the same folder, or
+  one of the same name) is counted as already there and not copied.
+  Refusals go to the log and DIAG through `failure::report`. At the end
+  the library is rescanned once, and a banner says "Added N scenes to the
+  library; M already there; K could not be added (see the log)".
+
+**Would reopen:** packs large enough that a scene a frame is too slow
+(500 scenes take about 8 s at 60 fps), nested packs (only one level is
+read), or a watched drop folder, which would feed the same queue.

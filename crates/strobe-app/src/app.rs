@@ -569,6 +569,8 @@ struct Running {
     /// A Shadertoy import that becomes a cue after this one when it lands
     /// (D229).
     pending_cue_import: Option<(crate::show::edit::At, String)>,
+    /// A dropped folder of scenes still being added (D235).
+    pack: Option<intake::Pack>,
     gl_summary: String,
     audio: AudioInput,
     mouse: MouseTracker,
@@ -851,6 +853,7 @@ impl Running {
             swap_policy: SwapPolicy::new(finish_mode()),
             drop_hint: None,
             pending_cue_import: None,
+            pack: None,
             gl_summary,
             audio: AudioInput::new(cli.audio == AudioArg::Auto),
             mouse: MouseTracker::default(),
@@ -1296,6 +1299,7 @@ impl Running {
             self.refresh_monitors(event_loop);
         }
         self.drain_imports();
+        self.step_pack();
         self.poll_generate();
         if now >= self.next_output {
             if self.output_visible {
@@ -2236,6 +2240,13 @@ impl Running {
             }
             intake::Dropped::Media => self.set_media(Some(path.to_path_buf())),
             intake::Dropped::Scene(dir) => self.dropped_scene(&dir),
+            intake::Dropped::Pack(scenes) => {
+                log::info!("adding {} scenes to the library", scenes.len());
+                match self.pack.as_mut() {
+                    Some(pack) => pack.extend(scenes),
+                    None => self.pack = Some(intake::Pack::new(scenes)),
+                }
+            }
             intake::Dropped::Unknown(why) => {
                 log::warn!("dropped {}: {why}", path.display());
                 self.say(Tone::Warning, why);
@@ -2246,14 +2257,12 @@ impl Running {
     /// Plays a dropped scene folder: from where it is if the library has
     /// it, else copied into the library first, the way an import lands.
     fn dropped_scene(&mut self, dir: &std::path::Path) {
-        let same = |a: &std::path::Path, b: &std::path::Path| {
-            a == b
-                || matches!(
-                    (std::fs::canonicalize(a), std::fs::canonicalize(b)),
-                    (Ok(x), Ok(y)) if x == y
-                )
-        };
-        if let Some(index) = self.library.entries.iter().position(|e| same(&e.dir, dir)) {
+        if let Some(index) = self
+            .library
+            .entries
+            .iter()
+            .position(|e| intake::same_dir(&e.dir, dir))
+        {
             self.load(index);
             return;
         }
@@ -2272,6 +2281,41 @@ impl Running {
                 self.say(Tone::Warning, format!("Could not add the scene: {why}."));
             }
         }
+    }
+
+    /// Adds the next scene of a dropped folder of scenes to the library,
+    /// one a frame so the show keeps running; when the last is done,
+    /// rescans and says how it went (D235).
+    fn step_pack(&mut self) {
+        let Some(pack) = self.pack.as_mut() else {
+            return;
+        };
+        let entries = &self.library.entries;
+        if pack.step(&self.library.dir, |dir| {
+            entries.iter().any(|e| intake::same_dir(&e.dir, dir))
+        }) {
+            return;
+        }
+        let Some(pack) = self.pack.take() else {
+            return;
+        };
+        for (dir, why) in pack.refused() {
+            failure::report(
+                Failure::new(Subsystem::Io, "drop")
+                    .path(dir)
+                    .message(why)
+                    .action("the scene was not added to the library"),
+            );
+        }
+        if pack.added() > 0 {
+            self.rescan_library();
+        }
+        let tone = if pack.refused().is_empty() {
+            Tone::Info
+        } else {
+            Tone::Warning
+        };
+        self.say(tone, pack.summary());
     }
 
     /// Queues an import on the worker. Never blocks.
