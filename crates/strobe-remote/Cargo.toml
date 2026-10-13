@@ -1,6 +1,6 @@
 [package]
 name = "strobe-remote"
-description = "Versioned, transport-independent protocol for Strobe's authenticated LAN show remote."
+description = "Strobe's LAN show remote: the versioned protocol, the app-thread bridge, and the opt-in listener with pairing, tokens and the controller page."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -14,6 +14,13 @@ path = "src/lib.rs"
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
+# The listener (D250): the OS random source for pairing codes and tokens,
+# SHA-256 for stored token hashes and the page's CSP hashes, SHA-1 for the
+# WebSocket handshake, and the log facade.
+getrandom.workspace = true
+sha2.workspace = true
+sha1.workspace = true
+log.workspace = true
 
 [dev-dependencies]
 anyhow.workspace = true
