@@ -337,7 +337,8 @@ fn pinned_names(macros: &strobe_io::MacroSet) -> (Vec<String>, Vec<String>) {
             | strobe_io::Target::Cue { .. }
             | strobe_io::Target::FavSlot { .. }
             | strobe_io::Target::Preset { .. }
-            | strobe_io::Target::Macro { .. } => {}
+            | strobe_io::Target::Macro { .. }
+            | strobe_io::Target::Action(_) => {}
         }
     }
     (scene, meta)

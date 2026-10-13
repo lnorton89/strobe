@@ -87,6 +87,98 @@ pub enum Target {
         /// The macro's id.
         id: u32,
     },
+    /// Synesthesia's default and random actions on a bank, a group of it
+    /// or one control (C-06, D247).
+    Action(ControlAction),
+}
+
+/// What a [`ControlAction`] does to each control it covers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Verb {
+    /// Back to the control's default.
+    Default,
+    /// A random point in the control's range (a bang is left alone).
+    Random,
+}
+
+/// The bank a [`ControlAction`] works on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ActionBank {
+    /// The playing scene's controls.
+    Scene,
+    /// The meta controls.
+    Meta,
+}
+
+/// Synesthesia's `/default` and `/random` (C-06, D247): every control of
+/// `bank`, the controls of one `group` in it, or one control `name`d (a
+/// name wins over a group).
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ControlAction {
+    /// What to do.
+    pub verb: Verb,
+    /// Which bank.
+    pub bank: ActionBank,
+    /// A `UI_GROUP`, matched as names are (case, `_`, `-` and spaces
+    /// ignored); none for the whole bank.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
+    /// One control, found as any target's control is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+impl ControlAction {
+    /// The controls of `bank` this covers, in declaration order: one, a
+    /// group's, or all. Empty when the name or group is not there.
+    pub fn indices(&self, bank: &ControlBank) -> Vec<usize> {
+        if let Some(name) = &self.name {
+            return find_one(bank, name).into_iter().collect();
+        }
+        let group = self.group.as_deref().map(normalize);
+        bank.defs()
+            .iter()
+            .enumerate()
+            .filter(|(_, def)| match &group {
+                Some(group) => def.group.as_deref().map(normalize).as_ref() == Some(group),
+                None => true,
+            })
+            .map(|(index, _)| index)
+            .collect()
+    }
+
+    /// Carries the action out on `bank` (the one [`Self::bank`] names),
+    /// with `unit` supplying randomness in `0..1`. Returns how many
+    /// controls it covered.
+    pub fn apply(&self, bank: &mut ControlBank, mut unit: impl FnMut() -> f32) -> usize {
+        let indices = self.indices(bank);
+        for &index in &indices {
+            match self.verb {
+                Verb::Default => bank.reset(index),
+                Verb::Random => bank.randomize(index, &mut unit),
+            }
+        }
+        indices.len()
+    }
+
+    /// A short phrase: `random meta`, `default scene group color`.
+    fn label(&self) -> String {
+        let verb = match self.verb {
+            Verb::Default => "default",
+            Verb::Random => "random",
+        };
+        let bank = match self.bank {
+            ActionBank::Scene => "scene",
+            ActionBank::Meta => "meta",
+        };
+        match (&self.name, &self.group) {
+            (Some(name), _) => format!("{verb} {bank}: {name}"),
+            (None, Some(group)) => format!("{verb} {bank} group {group}"),
+            (None, None) => format!("{verb} {bank}"),
+        }
+    }
 }
 
 impl Target {
@@ -119,6 +211,10 @@ impl Target {
             Self::Cue { .. } => "PLAYLIST",
             Self::Command { .. } | Self::FavSlot { .. } | Self::Preset { .. } => "SYSTEM",
             Self::Macro { .. } => "MACRO",
+            Self::Action(action) => match action.bank {
+                ActionBank::Scene => "SCENE",
+                ActionBank::Meta => "META",
+            },
         }
     }
 
@@ -136,6 +232,7 @@ impl Target {
             Self::FavSlot { slot } => format!("fav slot {slot}"),
             Self::Preset { name } => format!("preset: {name}"),
             Self::Macro { id } => format!("macro #{id}"),
+            Self::Action(action) => action.label(),
         }
     }
 
@@ -389,7 +486,8 @@ pub fn locate_control(
         | Target::Cue { .. }
         | Target::FavSlot { .. }
         | Target::Preset { .. }
-        | Target::Macro { .. } => {
+        | Target::Macro { .. }
+        | Target::Action(_) => {
             return Err(Resolution::broken("this target is not a control"));
         }
     };
@@ -485,6 +583,27 @@ pub fn resolve(target: &Target, scope: &Scope<'_>) -> Resolution {
             }
         }
         Target::Macro { .. } => Resolution::broken("a macro cannot point at a macro"),
+        Target::Action(action) => {
+            let bank = match action.bank {
+                ActionBank::Scene => scope.scene,
+                ActionBank::Meta => scope.meta,
+            };
+            let Some(bank) = bank else {
+                return Resolution::unavailable(match action.bank {
+                    ActionBank::Scene => "no scene is playing",
+                    ActionBank::Meta => "the meta controls are not available",
+                });
+            };
+            if !action.indices(bank).is_empty() {
+                Resolution::resolved()
+            } else if let Some(name) = &action.name {
+                Resolution::unavailable(format!("\"{name}\" is not a control here"))
+            } else if let Some(group) = &action.group {
+                Resolution::unavailable(format!("there is no group \"{group}\" here"))
+            } else {
+                Resolution::unavailable("the bank has no controls")
+            }
+        }
     }
 }
 
@@ -730,6 +849,88 @@ mod tests {
     }
 
     #[test]
+    fn default_and_random_cover_a_control_a_group_or_a_bank() -> Result<()> {
+        let action = |verb, bank, group: Option<&str>, name: Option<&str>| ControlAction {
+            verb,
+            bank,
+            group: group.map(str::to_string),
+            name: name.map(str::to_string),
+        };
+        let f = Fixture::new()?;
+        let resolved = |a: ControlAction, playing| f.resolve(&Target::Action(a), playing).state;
+        assert_eq!(
+            resolved(
+                action(Verb::Random, ActionBank::Scene, Some("motion"), None),
+                true
+            ),
+            State::Resolved,
+            "a group, by the name rule"
+        );
+        assert_eq!(
+            resolved(
+                action(Verb::Random, ActionBank::Scene, Some("colour"), None),
+                true
+            ),
+            State::Unavailable,
+            "no such group here"
+        );
+        assert_eq!(
+            resolved(
+                action(Verb::Default, ActionBank::Scene, None, Some("zoom level")),
+                true
+            ),
+            State::Resolved,
+            "one control"
+        );
+        assert_eq!(
+            resolved(action(Verb::Default, ActionBank::Scene, None, None), false),
+            State::Unavailable,
+            "no scene playing"
+        );
+        assert_eq!(
+            resolved(action(Verb::Default, ActionBank::Meta, None, None), false),
+            State::Resolved,
+            "the meta bank is always there"
+        );
+
+        // Carried out: a group moves only its own controls; a bank goes
+        // back to its defaults; a bang is never randomized.
+        let mut scene = scene()?;
+        let speed = scene.find("speed").ok_or_else(|| anyhow!("speed"))?;
+        let zoom = scene.find("zoom_level").ok_or_else(|| anyhow!("zoom"))?;
+        let before = *scene.target(zoom).ok_or_else(|| anyhow!("zoom target"))?;
+        let moved =
+            action(Verb::Random, ActionBank::Scene, Some("Motion"), None).apply(&mut scene, || 0.9);
+        assert_eq!(moved, 1, "the Motion group has one control");
+        let speed_target = scene.target(speed).ok_or_else(|| anyhow!("speed target"))?[0];
+        assert!(
+            speed_target > 0.8,
+            "speed went to 0.9 of its range: {speed_target}"
+        );
+        assert_eq!(
+            scene.target(zoom),
+            Some(&before),
+            "a control outside the group is untouched"
+        );
+        let all = action(Verb::Default, ActionBank::Scene, None, None).apply(&mut scene, || 0.5);
+        assert_eq!(all, 4, "every control of the bank");
+        let speed_target = scene.target(speed).ok_or_else(|| anyhow!("speed target"))?[0];
+        assert!(
+            speed_target.abs() < 1e-6,
+            "back to its default: {speed_target}"
+        );
+        let mut bangs = bank(&[r#"{ "NAME": "hit", "TYPE": "bang" }"#])?;
+        let hit_before = *bangs.target(0).ok_or_else(|| anyhow!("hit"))?;
+        action(Verb::Random, ActionBank::Scene, None, None).apply(&mut bangs, || 0.7);
+        assert_eq!(
+            bangs.target(0),
+            Some(&hit_before),
+            "a bang is not randomized"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn presets_resolve_against_the_playing_scenes_list() -> Result<()> {
         let f = Fixture::new()?;
         let preset = |name: &str| Target::Preset { name: name.into() };
@@ -820,6 +1021,12 @@ mod tests {
                 name: "slow".into(),
             },
             Target::Macro { id: 7 },
+            Target::Action(ControlAction {
+                verb: Verb::Random,
+                bank: ActionBank::Meta,
+                group: Some("color".into()),
+                name: None,
+            }),
         ];
         for target in targets {
             let text = serde_json::to_string(&target)?;

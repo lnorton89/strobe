@@ -1147,6 +1147,7 @@ fn default_macro_name(target: &Target) -> String {
         Target::Cue { number } => format!("Cue {number}"),
         Target::FavSlot { slot } => format!("Fav {slot}"),
         Target::Macro { id } => format!("Macro {id}"),
+        Target::Action(_) => target.label(),
     }
 }
 

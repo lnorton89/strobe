@@ -69,6 +69,10 @@ pub enum Output {
     FavSlot(u8),
     /// Recall this preset of the playing scene.
     Preset(String),
+    /// Default or randomize a bank, a group or a control (D247); the app
+    /// carries it out with [`crate::ControlAction::apply`], since the
+    /// randomness is the app's.
+    Action(crate::ControlAction),
 }
 
 /// What one message amounted to, for the activity monitor.
@@ -497,6 +501,9 @@ fn drive(
         Target::FavSlot { slot } => fire(cfg, runtime, signal, out, || Output::FavSlot(*slot)),
         Target::Preset { name } => fire(cfg, runtime, signal, out, || Output::Preset(name.clone())),
         Target::Macro { .. } => Drive::Unavailable("a macro cannot point at a macro".to_string()),
+        Target::Action(action) => {
+            fire(cfg, runtime, signal, out, || Output::Action(action.clone()))
+        }
     }
 }
 
@@ -1169,8 +1176,21 @@ mod tests {
             vec![Output::Command("next_scene".into()), Output::FavSlot(2)],
             "commands and fav slots"
         );
+        // Default and random go out for the app to carry out (D247).
+        rig.out.clear();
+        rig.osc("/controls/scene/speed/random", Signal::Analog(1.0));
         assert_eq!(
-            rig.osc("/controls/scene/speed/random", Signal::Analog(1.0)),
+            rig.out,
+            vec![Output::Action(crate::ControlAction {
+                verb: crate::Verb::Random,
+                bank: crate::ActionBank::Scene,
+                group: None,
+                name: Some("speed".into()),
+            })],
+            "random on one control"
+        );
+        assert_eq!(
+            rig.osc("/controls/scene/speed/lock", Signal::Analog(1.0)),
             Outcome::Unmapped,
             "a suffix Strobe has no meaning for is left alone"
         );

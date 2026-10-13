@@ -59,9 +59,13 @@
 //! | `/favslots/<n>` | `/strobe/fav/<n>` |
 //! | `/playlist/next`, `/playlist/previous` | `next_scene`, `prev_scene` |
 //! | `/playlist/toggleplay` | `toggle_hold` |
+//! | `/controls/{scene\|meta}/<name>/{default\|random}`, and the same after `/controls/global/<type>/<n>` | that control to its default, or a random value (D247) |
+//! | `/controls/groups/{scene\|meta}/<group>/{default\|random}` | every control of that `UI_GROUP` |
+//! | `/controls/banks/{scene\|meta}/{default\|random}` | every control of the bank |
 //!
 //! Anything else in Synesthesia's space is ignored rather than guessed at:
-//! the `/raw`, `/default`, `/random`, `/preset` and `/lock` suffixes,
+//! the `/raw`, `/preset` and `/lock` suffixes, `/controls/banks/.../undo`
+//! and `.../lock`,
 //! scene-specific `/controls/<scenename>/...`, and everything that takes a
 //! string argument (`/scenes`, `/presets`, `/media/name`), which the
 //! decoder drops. A message carrying two or three numbers to a whole xy or
@@ -70,7 +74,7 @@
 
 use crate::event::{Arg, OscMessage};
 use crate::macros::MacroSet;
-use crate::target::Target;
+use crate::target::{ActionBank, ControlAction, Target, Verb};
 use strobe_scene::names::normalize;
 
 /// The deepest bundle nesting accepted (a bundle in a bundle in a bundle).
@@ -294,7 +298,45 @@ fn synesthesia_target(address: &str) -> Option<Target> {
             component,
         })
     };
+    let action = |verb: &str, bank: ActionBank, group: Option<&str>, name: Option<String>| {
+        let verb = match verb {
+            "default" => Verb::Default,
+            "random" => Verb::Random,
+            _ => return None,
+        };
+        Some(Target::Action(ControlAction {
+            verb,
+            bank,
+            group: group.map(str::to_string),
+            name,
+        }))
+    };
+    let bank_of = |word: &str| match word {
+        "scene" => Some(ActionBank::Scene),
+        "meta" => Some(ActionBank::Meta),
+        _ => None,
+    };
     match parts.as_slice() {
+        // Default and random (D247): a control, a group, a whole bank.
+        ["controls", "scene", name, verb @ ("default" | "random")] => {
+            action(verb, ActionBank::Scene, None, Some((*name).to_string()))
+        }
+        ["controls", "meta", name, verb @ ("default" | "random")] => {
+            action(verb, ActionBank::Meta, None, Some((*name).to_string()))
+        }
+        ["controls", "global", kind, n, verb @ ("default" | "random")] => {
+            let kind = if *kind == "colour" { "color" } else { kind };
+            if !GLOBAL_TYPES.contains(&kind) {
+                return None;
+            }
+            let n = position(n)?;
+            let name = format!("{}{kind}/{n}", crate::target::BY_POSITION);
+            action(verb, ActionBank::Scene, None, Some(name))
+        }
+        ["controls", "banks", bank, verb] => action(verb, bank_of(bank)?, None, None),
+        ["controls", "groups", bank, group, verb] => {
+            action(verb, bank_of(bank)?, Some(group), None)
+        }
         ["controls", "scene", name, rest @ ..] if rest.len() <= 1 => control(name, rest.first()),
         ["controls", "meta", name, rest @ ..] if rest.len() <= 1 => {
             let component = match rest.first() {
@@ -593,9 +635,45 @@ mod tests {
             Some(Target::command("toggle_hold")),
             "hold"
         );
+        let act = |verb, bank, group: Option<&str>, name: Option<&str>| {
+            Some(Target::Action(ControlAction {
+                verb,
+                bank,
+                group: group.map(str::to_string),
+                name: name.map(str::to_string),
+            }))
+        };
+        assert_eq!(
+            target("/controls/scene/speed/default"),
+            act(Verb::Default, ActionBank::Scene, None, Some("speed")),
+            "one control to its default"
+        );
+        assert_eq!(
+            target("/controls/meta/hue/random"),
+            act(Verb::Random, ActionBank::Meta, None, Some("hue")),
+            "one meta control, random"
+        );
+        assert_eq!(
+            target("/controls/global/slider/2/random"),
+            act(Verb::Random, ActionBank::Scene, None, Some("@slider/2")),
+            "a global control"
+        );
+        assert_eq!(
+            target("/controls/groups/meta/color/random"),
+            act(Verb::Random, ActionBank::Meta, Some("color"), None),
+            "a group, as Synesthesia's manual shows"
+        );
+        assert_eq!(
+            target("/controls/banks/scene/default"),
+            act(Verb::Default, ActionBank::Scene, None, None),
+            "a whole bank"
+        );
         for ignored in [
-            "/controls/scene/speed/default",
             "/controls/scene/speed/raw",
+            "/controls/banks/scene/undo",
+            "/controls/banks/meta/lock",
+            "/controls/banks/media/default",
+            "/controls/groups/scene/color/lock",
             "/controls/meta/hue/lock",
             "/controls/hexarray/separation",
             "/controls/global/fader/1",
