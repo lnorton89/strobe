@@ -164,7 +164,9 @@ checked and not committed. Interaction was driven with xdotool.
   at a time. Evidence: `show::edit` tests. Not yet: clicked by a person.
 - [x] A key per macro (D228): held, the macro goes to the top of its reach,
   let go to the bottom; a key a command holds is refused; one key drives
-  one macro. Evidence: `strobe-io` engine test, the shell's key test.
+  one macro. Evidence: `strobe-io` engine test, the shell's key test, and
+  on the T480 (Task 29) with posted key messages: 0.8 on press and 0.2 on
+  release within 18 ms.
 - [x] A glide per macro (D227): a mapped fader eases even a plain slider,
   and any other write ends the glide. Evidence: `strobe-io` engine and
   `strobe-scene` runtime tests.
