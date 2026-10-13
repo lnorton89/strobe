@@ -4753,3 +4753,41 @@ D232 left the bridge undrained until a listener existed.
 **Would reopen:** a command that must be answered within the frame, or the
 T480 soak showing a cost in the frame (none is expected: an empty
 `try_recv` and, ten times a second, a comparison).
+
+### D255: no second backend; naga cannot take SSF, glslang and SPIRV-Cross could (2026-10-13)
+
+G-02 and G-03. The question was whether Strobe's GLSL can reach a
+Vulkan, D3D12 or Metal backend, through wgpu/naga or through
+glslang -> SPIR-V. A tool in `research/g03-frontends/` (outside the
+workspace and CI) assembles every pass as the GL path does and runs each
+route.
+
+**The corpus:** 26 scenes and 51 passes, the library plus the 14 Shadertoy
+fixtures, in the desktop dialect only, since SPIR-V needs ES 3.10.
+
+- **naga is ruled out.**
+  - Its GLSL front end accepts only `#version` 440/450 and wants every
+    uniform in a block with a binding. Even with both done by hand it stops
+    at the first `uniform sampler2D`: combined image samplers are not
+    implemented. That gives 0 of 51.
+  - Its SPIR-V front end fails on loading a combined sampled image. That
+    gives 11 of 51, exactly the passes that sample nothing.
+  - Every feedback, buffer, picture and media scene samples, so this is
+    structural, not a list of fixes. It is D1's reason, now measured.
+- **glslang and SPIRV-Cross would work as a front end:** 51 of 51 to GL
+  SPIR-V, and 50 of 51 to Vulkan SPIR-V (one Shadertoy fixture overloads
+  with mismatched precision). From that SPIR-V, HLSL and MSL for all 50.
+  - Costs: two C++ dependencies, and about 40 ms per pass on top of the
+    driver's own compile.
+  - Fidelity and frame time cannot be measured until a renderer exists
+    behind it.
+- **So no second backend is started, and the seam is a document.**
+  `docs/RENDERER_SEAM.md` lists, stage by stage, what a backend must
+  provide and where GL leaks into the app today: `&Gl` in five modules,
+  `ResetStatus`, `egui_glow`, and the GLSL dialect. It moves no code and
+  adds no trait. An interface written before its second implementation
+  is a guess, and a guess on the frame path costs every frame. G-04 stays
+  deferred until a platform needs it.
+
+**Would reopen:** macOS dropping OpenGL, a target with no GL or ANGLE, or
+naga gaining combined samplers. Rerun the tool to check the last.

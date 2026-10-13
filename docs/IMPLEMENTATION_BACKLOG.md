@@ -302,12 +302,16 @@
 - **Acceptance:** deterministic report format, a deliberately broken shader is detected in CI, and unsupported shaders are categorized rather than omitted silently.
 
 ### G-02 Renderer seam design
-- **Status:** Open; do not over-abstract before G-01.
+- **Status:** Done as a contract (D255): [RENDERER_SEAM.md](RENDERER_SEAM.md) lists what a backend must provide at each stage and where GL leaks into the app today. No trait or code moved: the GL path and its benchmarks are unchanged, and the trait waits for a second implementation (G-04).
 - **Work:** define only the scene/pass-boundary contract required for device/context creation, scene preparation, frame render, resize, diagnostics, timing and device-loss recovery; keep GL implementation and GL 3.3 floor intact.
 - **Acceptance:** current GL path remains behaviourally unchanged and benchmark baselines are comparable; no per-frame allocation or synchronous readback introduced.
 
 ### G-03 wgpu/Naga versus direct GLSL-to-SPIR-V spike
-- **Status:** Open.
+- **Status:** Done, with a written go/no-go (D255, `research/g03-frontends/README.md`), on 26 scenes and 51 pass sources:
+  - **naga: no-go.** Its GLSL front end has no combined samplers, and its SPIR-V front end fails on loading them, so 0 of 51 pass the GLSL route and only the 11 passes that sample no texture pass the SPIR-V one.
+  - **glslang -> SPIR-V -> SPIRV-Cross: viable as a front end.** 51 of 51 to GL SPIR-V, 50 of 51 to Vulkan SPIR-V, and HLSL and MSL from all 50.
+
+  Not measured, because no second renderer exists: image fidelity and frame time on another API. Left: the same run over the owner's 65 scenes on TORNADO.
 - **Work:** run both candidates over the exact same corpus; report GLSL construct failures, image fidelity, load/compile time, frame time, binary size, dependency and maintenance cost; include Vulkan and platform path considerations for DX12/Metal/MoltenVK.
 - **Acceptance:** written go/no-go based on corpus results; no production backend enabled by default until the full compatibility and hardware matrix passes.
 
