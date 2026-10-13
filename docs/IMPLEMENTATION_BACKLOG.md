@@ -63,7 +63,7 @@
 - **Acceptance:** keyboard, buttons, MIDI/OSC and remote transport converge on the same command semantics; palette supports navigation, execution, escape and empty results; tests cover text focus, widget focus and modal focus.
 
 ### U-02 Editor workspace
-- **Status:** Open.
+- **Status:** Built (D204). Left: column numbers (the editor shows lines only), validating `scene.json` before a reload, and a check on the T480.
 - **Work:** add source tabs, dirty state, compile/validation feedback, line/column diagnostics, jump-to-error from the failure panel, safe save/backup/restore, and a clear distinction between editing a source file and changing the active runtime scene.
 - **Acceptance:** a fixture can be edited, validated, saved, reloaded and restored; compile failure keeps the last good scene live; no shader compiles are triggered from UI paint or on an unintended live frame.
 

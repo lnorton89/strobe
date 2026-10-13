@@ -93,6 +93,7 @@ use crate::audio::AudioInput;
 use crate::cli::{AudioArg, Cli};
 use crate::commands::{self, Bindings, CommandId, Focus};
 use crate::console::Console;
+use crate::editor;
 use crate::failures;
 use crate::fault::{self, Faults};
 use crate::generate;
@@ -110,10 +111,11 @@ use crate::show::{self, Env, Phase, Show};
 use crate::stats::FrameStats;
 use crate::ui::widgets::Tone;
 use crate::ui::{
-    Action, CueTransport, FailurePanel, GeneratePanel, ImportPanel, ListenerPanel, MapUi, Model,
-    NoticePanel, PerfPanel, PlaylistPanel, PlaylistUi, Preview, RemotePanel, ScenePreview,
-    ShellState, TransportPanel, UiHost, UiState, shell,
+    Action, CueTransport, EditorPanel, FailurePanel, GeneratePanel, ImportPanel, ListenerPanel,
+    MapUi, Model, NoticePanel, PerfPanel, PlaylistPanel, PlaylistUi, Preview, RemotePanel,
+    ScenePreview, ShellState, TransportPanel, UiHost, UiState, shell,
 };
+use crate::workspace::Pane;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use strobe_diag::context;
@@ -602,6 +604,11 @@ struct Running {
     generate_job: Option<generate::Job>,
     /// Its result, until the operator opens, discards or dismisses it.
     generate_outcome: Option<generate::Outcome>,
+    /// The scene open in the Editor (D204).
+    editor_doc: Option<editor::Doc>,
+    /// The scene folder the Editor last opened by itself, so a folder that
+    /// cannot be read is tried once, not every frame.
+    editor_auto: Option<PathBuf>,
 
     /// Presentation state (panes, the browser query, the theme), persisted.
     ui_state: UiState,
@@ -831,6 +838,8 @@ impl Running {
             data_dir,
             generate_job: None,
             generate_outcome: None,
+            editor_doc: None,
+            editor_auto: None,
         };
         let (bindings, problems) = Bindings::from_config(&running.remote.hotkeys);
         for problem in problems {
@@ -2051,6 +2060,108 @@ impl Running {
         }
     }
 
+    /// Opens `name` (a library entry), or the playing scene, in the Editor
+    /// (D204). An Editor holding unsaved edits to another scene keeps them
+    /// and says so, rather than throwing them away.
+    fn open_editor(&mut self, name: Option<&str>) {
+        let target = match name {
+            Some(name) => self
+                .library
+                .entries
+                .iter()
+                .find(|e| e.name == name)
+                .map(|e| (e.dir.clone(), e.name.clone())),
+            None => self
+                .stack
+                .session
+                .as_ref()
+                .map(|s| (s.dir.clone(), s.name.clone())),
+        };
+        let Some((dir, scene)) = target else {
+            self.say(Tone::Warning, "There is no scene to open in the Editor.");
+            return;
+        };
+        self.ui_state.panes.open(Pane::Editor);
+        if let Some(doc) = self.editor_doc.as_ref() {
+            if doc.dir == dir {
+                return;
+            }
+            if doc.is_dirty() {
+                self.say(
+                    Tone::Warning,
+                    format!(
+                        "{} has unsaved edits in the Editor: save or revert them before opening {scene}.",
+                        doc.name
+                    ),
+                );
+                return;
+            }
+        }
+        match editor::Doc::open(&dir, &scene) {
+            Ok(doc) => {
+                log::info!("editor: opened {} ({} files)", scene, doc.tabs.len());
+                self.editor_doc = Some(doc);
+            }
+            Err(error) => self.say(Tone::Error, format!("Could not open {scene}: {error}")),
+        }
+    }
+
+    /// Writes the Editor's unsaved files. Returns whether everything was
+    /// written.
+    fn editor_save(&mut self) -> bool {
+        let Some(doc) = self.editor_doc.as_mut() else {
+            return false;
+        };
+        match doc.save(&editor::backup_root()) {
+            Ok(count) => {
+                if count > 0 {
+                    log::info!("editor: saved {count} file(s) of {}", doc.name);
+                }
+                true
+            }
+            Err(error) => {
+                let name = doc.name.clone();
+                self.say(Tone::Error, format!("Could not save {name}: {error}"));
+                false
+            }
+        }
+    }
+
+    /// Loads the Editor's scene again, the way Reload does: a scene that
+    /// does not compile leaves the last good one playing.
+    fn editor_reload(&mut self) {
+        let Some(dir) = self.editor_doc.as_ref().map(|doc| doc.dir.clone()) else {
+            return;
+        };
+        match self.library.entries.iter().position(|e| e.dir == dir) {
+            Some(index) => self.request_load(index),
+            None => self.say(
+                Tone::Warning,
+                "Saved. The scene is not in the library, so it was not reloaded.",
+            ),
+        }
+    }
+
+    /// Puts the active file's newest backup in the Editor, unsaved.
+    fn editor_restore_backup(&mut self) {
+        let Some(doc) = self.editor_doc.as_mut() else {
+            return;
+        };
+        let Some(tab) = doc.tabs.get_mut(doc.active) else {
+            return;
+        };
+        match editor::latest_backup(&editor::backup_root(), &doc.name, &tab.file) {
+            Some(text) => tab.text = text,
+            None => {
+                let message = format!(
+                    "{} has no backup yet: one is taken before its first save.",
+                    tab.file
+                );
+                self.say(Tone::Info, message);
+            }
+        }
+    }
+
     /// Starts a worker that generates controls for the playing scene (D202).
     /// The show keeps running: the worker has its own process and context.
     fn start_generate(&mut self) {
@@ -2240,6 +2351,21 @@ impl Running {
                         self.request_load(index);
                     }
                 }
+                Action::OpenEditor(name) => self.open_editor(name.as_deref()),
+                Action::EditorSave => {
+                    let _ = self.editor_save();
+                }
+                Action::EditorSaveReload => {
+                    if self.editor_save() {
+                        self.editor_reload();
+                    }
+                }
+                Action::EditorRevert => {
+                    if let Some(doc) = self.editor_doc.as_mut() {
+                        doc.revert();
+                    }
+                }
+                Action::EditorRestoreBackup => self.editor_restore_backup(),
                 Action::GenerateControls => self.start_generate(),
                 Action::CancelGenerate => {
                     if let Some(mut job) = self.generate_job.take() {
@@ -2888,7 +3014,17 @@ impl Running {
             }
             _ => None,
         };
+        // An Editor shown with nothing in it opens the scene on screen.
+        if self.editor_doc.is_none()
+            && self.ui_state.panes.is_open(Pane::Editor)
+            && let Some(dir) = self.stack.session.as_ref().map(|s| s.dir.clone())
+            && self.editor_auto.as_ref() != Some(&dir)
+        {
+            self.editor_auto = Some(dir);
+            self.open_editor(None);
+        }
         let next = self.step_target(1);
+        let playing_dir = self.stack.session.as_ref().map(|s| s.dir.clone());
         let authored = self.stack.session.as_ref().is_some_and(|session| {
             session
                 .controls
@@ -3013,6 +3149,10 @@ impl Running {
                     .map(|job| (job.scene.as_str(), job.elapsed().as_secs_f32())),
                 outcome: self.generate_outcome.as_ref(),
                 authored,
+            },
+            editor: EditorPanel {
+                doc: self.editor_doc.as_mut(),
+                playing_dir: playing_dir.as_deref(),
             },
         };
         let mut actions = std::mem::take(&mut self.actions);

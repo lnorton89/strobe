@@ -153,6 +153,12 @@ checked and not committed. Interaction was driven with xdotool.
 - [ ] Performance Macros as persistent bindings with the Unresolved states;
   Editor and Mappings; a command palette (stage 2). (Hold and the Playlist
   pane are built, D156 and D157.)
+- [x] The Editor (D204): tabs per source file, unsaved state, Save vs Save
+  and reload, atomic saves with backups in the data directory, and "Open in
+  Editor" / "Go to line" from a compile error. Evidence: `editor.rs` unit
+  tests, the `ui::shell_tests` scenario "editor open with an unsaved edit",
+  and [images/perform/editor-1440x900.png](images/perform/editor-1440x900.png)
+  (Xvfb). Not yet: typing through a real window manager, the T480.
 
 Read [UI_DESIGN.md](UI_DESIGN.md),
 [UI_IMPLEMENTATION_PLAN.md](UI_IMPLEMENTATION_PLAN.md),

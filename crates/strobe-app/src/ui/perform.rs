@@ -138,6 +138,12 @@ pub fn banners(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mu
             ),
         };
         widgets::banner(ui, theme, Tone::Error, &message, |ui| {
+            if widgets::button(ui, theme, None, "Open in Editor").clicked() {
+                if let Some((_, line)) = crate::editor::error_location(failure.summary) {
+                    model.ui.editor.goto = Some(line);
+                }
+                actions.push(Action::OpenEditor(Some(failure.scene.to_owned())));
+            }
             if widgets::button(ui, theme, None, "Dismiss").clicked() {
                 actions.push(Action::DismissFailure);
             }

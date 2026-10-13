@@ -3155,3 +3155,44 @@ This resolves Q5 (now R9).
 **Would reopen:** a scene that wants the D3D11 behaviour (reading zeros from
 itself), which no driver promises.
 
+### D204: the Editor edits files; only "Save and reload" reaches the show (2026-10-13)
+
+The EDIT workspace (backlog U-02, UI_DESIGN section 14) opens one scene's
+sources as tabs: `main.glsl`, `passes/*.glsl`, `scene.json` and `script.js`.
+GLSL is highlighted, and lines do not wrap, so the line numbers in an error
+match the lines on screen.
+
+- **Editing is not playing.** Typing compiles nothing and changes nothing on
+  the output. **Save** (Ctrl+S) writes the files, and the show keeps the
+  scene it has. **Save and reload** (Ctrl+Enter) writes them and loads the
+  scene again through the Reload button's path, so a scene that fails to
+  compile leaves the last good one playing (D66's rule). A status line says
+  which of these is true: unsaved, error, or ready. The reason is the old
+  laptop mid-show: a compile per keystroke is a stall per keystroke.
+- **Saves are atomic.** The file is written beside itself as
+  `<file>.strobe-tmp` and renamed into place.
+- **Backups go to the data directory, never the scene folder.** Before the
+  first save of a file in a session, its on-disk text is copied to
+  `backups/<scene>/<file>.<timestamp>`, keeping the newest 10. **Restore
+  backup** puts the newest one in the editor, unsaved, so the operator
+  decides. The scene folder is the operator's, and a library synced or
+  shipped elsewhere should not grow our files.
+- **The error is one click from its line.** The failure banner on PLAY gets
+  "Open in Editor", and the Editor's own banner "Go to line N". Both read
+  `<file>.glsl:<line>` from the compiler message (`editor::error_location`).
+- **The playing scene opens itself** when the Editor pane is open and empty,
+  once per scene, so opening EDIT during a show lands on what is on screen.
+  A scene that is open but not on screen is labelled so.
+- **An unsaved document is never replaced.** Opening another scene while
+  one has unsaved changes is refused, with a notice, rather than dropping
+  the work or prompting mid-show.
+
+**Evidence:** `editor.rs` unit tests (load, dirty state, atomic save, one
+backup per session, the cap of 10, revert, error locations, the
+highlighter), the shell scenario "editor open with an unsaved edit" at six
+window sizes, and `docs/images/perform/editor-1440x900.png` (Xvfb, llvmpipe).
+Not checked: typing through a real window manager, and the T480.
+
+**Would reopen:** wanting live preview while typing. That would need a
+compile off the frame loop (a second context or a worker), not a compile on
+the UI thread.

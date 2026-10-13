@@ -67,11 +67,11 @@ Each item names its acceptance test. Evidence is in [STATUS_AUDIT.md](STATUS_AUD
      D175; left: a range and colour editor, a shortcut and smoothing per
      macro, pinning from the Controls pane);
    - the Playlist workspace (LIST) with real cues, NEXT and remaining
-     time, and Hold wired to it (the LIST pane is built, D157); the Editor
-     (EDIT) workspace and a full Mappings workspace (the MAP pane with MIDI
+     time, and Hold wired to it (the LIST pane is built, D157); ~~the Editor
+     (EDIT) workspace~~ (built, D204) and a full Mappings workspace (the MAP pane with MIDI
      and OSC Learn is built, D177);
-   - the generated-controls review panel (item 4) and "open the shader
-     error in the Editor";
+   - the generated-controls review panel (item 4; started, D202);
+     ~~"open the shader error in the Editor"~~ (built, D204);
    - saved named layouts, density, scene thumbnails and favourites (the
      command palette, Ctrl+K, is built: D200);
    - on the T480 and real Windows: the custom title bar's drag, snap and
@@ -338,7 +338,7 @@ never per frame.
 
 ## Known gaps in what exists
 
-- The performer-facing UI is at stage 1 plus the Playlist pane (D157) and the MAP pane (D177): the Editor workspace and thumbnails are not built, a macro's range and colour have no editor, and none of it has run on the T480.
+- The performer-facing UI is at stage 1 plus the Playlist pane (D157) and the MAP pane (D177) and the Editor (D204): thumbnails are not built, a macro's range and colour have no editor, and none of it has run on the T480.
 - Context-loss recovery is verified under Xvfb with injected faults;
   real-driver behaviour on the T480 is pending (bug 1, D66).
 - The bench's `syn_Spectrum` and `syn_LevelTrail` are silent placeholders,

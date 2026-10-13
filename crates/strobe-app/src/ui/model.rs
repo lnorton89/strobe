@@ -59,6 +59,17 @@ pub enum Action {
     DiscardGenerated,
     /// Put the worker's result away.
     DismissGenerated,
+    /// Open a scene in the Editor: the library entry by name, or the
+    /// playing scene when `None` (D204).
+    OpenEditor(Option<String>),
+    /// Write the Editor's unsaved files.
+    EditorSave,
+    /// Write them and load the scene again.
+    EditorSaveReload,
+    /// Throw away the Editor's unsaved edits.
+    EditorRevert,
+    /// Put the active file's backup text in the Editor.
+    EditorRestoreBackup,
     /// List the scene folder again.
     RescanLibrary,
     /// Step to the next scene in the library.
@@ -464,6 +475,17 @@ pub struct Model<'a> {
     pub remote: RemotePanel<'a>,
     /// Generated controls for the playing scene.
     pub generate: GeneratePanel<'a>,
+    /// The Editor's open scene.
+    pub editor: EditorPanel<'a>,
+}
+
+/// The Editor pane's inputs.
+#[derive(Debug, Default)]
+pub struct EditorPanel<'a> {
+    /// The scene open in the Editor, if any.
+    pub doc: Option<&'a mut crate::editor::Doc>,
+    /// The folder of the scene on screen.
+    pub playing_dir: Option<&'a std::path::Path>,
 }
 
 /// The Inspector's "Generate controls" strip.
