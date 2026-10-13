@@ -123,7 +123,9 @@ arrows and Space stay with a focused slider. The control window always opens
 maximized (D65) unless `--window-size` is given.
 
 UI preferences (open panes and their widths, the browser's query and filter,
-the theme, reduced motion, the title-bar choice) are saved to `ui.toml` in the
+the theme, reduced motion, the title-bar choice, and the last scene loaded,
+which the next launch reopens unless `--scene` or `--playlist` says
+otherwise) are saved to `ui.toml` in the
 data directory (D133), debounced and off the UI thread. Screenshot mode never
 reads or writes it.
 

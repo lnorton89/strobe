@@ -111,6 +111,9 @@ pub struct Prefs {
     pub browser: BrowserPref,
     /// Inspector groups the operator collapsed, by group name.
     pub collapsed_groups: Vec<String>,
+    /// The library folder name of the scene last loaded, reopened at the
+    /// next launch; empty for none.
+    pub last_scene: String,
 }
 
 /// Whether the custom title bar is on by default here (D132): on Windows
@@ -169,6 +172,7 @@ impl Prefs {
                 .collect(),
             browser,
             collapsed_groups,
+            last_scene: String::new(),
         }
     }
 
@@ -382,7 +386,8 @@ mod tests {
 
     #[test]
     fn preferences_round_trip_through_toml() -> Result<()> {
-        let prefs = sample();
+        let mut prefs = sample();
+        prefs.last_scene = "05-domain-warp".to_string();
         let back = Prefs::from_text(&prefs.to_text().map_err(anyhow::Error::msg)?)
             .map_err(anyhow::Error::msg)?;
         assert_eq!(back, prefs, "what was written is what is read");
@@ -410,6 +415,10 @@ mod tests {
         let prefs = Prefs::from_text("theme = \"void\"\n").map_err(anyhow::Error::msg)?;
         assert_eq!(prefs.theme, "void", "the field that was there");
         assert_eq!(prefs.browser, BrowserPref::default(), "default browser");
+        assert!(
+            prefs.last_scene.is_empty(),
+            "a file from before the field reopens nothing"
+        );
         assert_eq!(
             prefs.custom_title_bar,
             default_custom_title_bar(),

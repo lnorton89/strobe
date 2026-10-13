@@ -116,6 +116,9 @@ pub struct UiState {
     /// The diagnostics console shows only warnings and errors. Not saved:
     /// an operator who left it on would miss the info lines next time.
     pub console_problems_only: bool,
+    /// The library folder name of the scene last loaded, reopened at the
+    /// next launch (T480 Task 21).
+    pub last_scene: String,
     /// The command palette. Not saved: it always starts closed.
     pub command_palette: super::command_palette::PaletteUi,
     theme_id: String,
@@ -170,6 +173,7 @@ impl UiState {
             custom_title_bar: prefs.custom_title_bar,
             console_problems_only: false,
             command_palette: super::command_palette::PaletteUi::default(),
+            last_scene: prefs.last_scene.clone(),
             theme_id: prefs.theme.clone(),
             reduced_motion: reduced,
             catalog,
@@ -185,7 +189,7 @@ impl UiState {
 
     /// The saved form of this state.
     pub fn to_prefs(&self) -> Prefs {
-        Prefs::from_parts(
+        let mut prefs = Prefs::from_parts(
             &self.panes,
             &self.theme_id,
             self.custom_title_bar,
@@ -195,7 +199,9 @@ impl UiState {
                 filter: self.browser.filter.key().to_string(),
             },
             self.collapsed_groups.clone(),
-        )
+        );
+        prefs.last_scene.clone_from(&self.last_scene);
+        prefs
     }
 
     /// Opens the named panes, for `--open-pane`. Unknown names are returned
@@ -290,6 +296,7 @@ impl UiState {
         self.theme_id.hash(&mut hasher);
         self.custom_title_bar.hash(&mut hasher);
         self.reduced_motion.hash(&mut hasher);
+        self.last_scene.hash(&mut hasher);
         hasher.finish()
     }
 
