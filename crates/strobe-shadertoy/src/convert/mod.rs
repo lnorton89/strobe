@@ -78,6 +78,28 @@ pub const TAB_MARKER_SUFFIX: &str = " ----";
 /// `renderMain` follows it.
 pub const ENTRY_MARKER: &str = "// ---- Strobe entry (generated) ----";
 
+/// The rate an imported scene's clock runs at, the CPU twin of the clock
+/// pass's `strobe_rate()`: `st_speed * mix(1, 0.3 + 2 * bass,
+/// st_audio_time)`, from the two controls' current values and
+/// `syn_BassLevel`. `None` when `controls` has no `st_speed`, i.e. the
+/// scene is not a Shadertoy import.
+///
+/// The app ticks the scene's controls with it (D246), so a speed control
+/// the auto-control engine made from an `iTime * k` term (D125) runs at the
+/// same pace as `iTime` and follows `st_speed` like the rest of the shader.
+pub fn clock_rate(controls: &strobe_scene::control::ControlBank, bass: f32) -> Option<f32> {
+    let value = |name: &str| {
+        controls
+            .find(name)
+            .and_then(|index| controls.output(index))
+            .and_then(|values| values.first().copied())
+    };
+    let speed = value(names::SPEED)?;
+    let audio_time = value(names::AUDIO_TIME).unwrap_or(0.0);
+    let bass_pace = shim::BASS_FLOOR + shim::BASS_GAIN * bass;
+    Some(speed * (1.0 + (bass_pace - 1.0) * audio_time))
+}
+
 /// The first line of the clock pass file, which holds no author code.
 pub const CLOCK_MARKER: &str = "// ---- Strobe clock pass (generated) ----";
 
@@ -380,4 +402,59 @@ pub fn convert(shader: &Shader, options: &Options) -> Result<Converted, ConvertE
         pending_assets: plan.pending,
         rewrites,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use anyhow::Result;
+    use strobe_scene::control::ControlBank;
+    use strobe_scene::scene::SceneDef;
+
+    fn bank(json: &str) -> Result<ControlBank> {
+        Ok(ControlBank::new(SceneDef::parse(json, "test")?.controls)?)
+    }
+
+    #[test]
+    fn the_cpu_rate_is_the_clock_pass_rate() -> Result<()> {
+        // The GLSL spells the numbers out; these are what clock_rate uses.
+        let glsl = format!(
+            "st_speed * mix(1.0, {:.1} + {:.1} * syn_BassLevel, st_audio_time)",
+            shim::BASS_FLOOR,
+            shim::BASS_GAIN
+        );
+        assert!(
+            shim::clock_file().contains(&glsl),
+            "the clock pass computes {glsl}"
+        );
+        let mut controls = bank(
+            r#"{ "CONTROLS": [
+                { "NAME": "st_speed", "TYPE": "slider", "MIN": 0, "MAX": 3, "DEFAULT": 1 },
+                { "NAME": "st_audio_time", "TYPE": "slider", "MIN": 0, "MAX": 1, "DEFAULT": 0 }
+            ] }"#,
+        )?;
+        assert_eq!(clock_rate(&controls, 0.9), Some(1.0), "defaults: real time");
+        let (speed, audio) = (
+            controls
+                .find("st_speed")
+                .ok_or_else(|| anyhow::anyhow!("st_speed"))?,
+            controls
+                .find("st_audio_time")
+                .ok_or_else(|| anyhow::anyhow!("st_audio_time"))?,
+        );
+        controls.set(speed, None, &[2.0]);
+        controls.set(audio, None, &[1.0]);
+        controls.tick(0.0);
+        let rate = clock_rate(&controls, 0.5).ok_or_else(|| anyhow::anyhow!("a rate"))?;
+        assert!(
+            (rate - 2.0 * (0.3 + 2.0 * 0.5)).abs() < 1e-5,
+            "2 x the bass pace, got {rate}"
+        );
+        assert_eq!(
+            clock_rate(&bank(r#"{ "CONTROLS": [] }"#)?, 0.5),
+            None,
+            "not an import: no rate"
+        );
+        Ok(())
+    }
 }

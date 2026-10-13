@@ -493,7 +493,14 @@ impl Session {
             );
             self.send_script_uniforms(&harvest);
         }
-        self.controls.tick(dt);
+        // A Shadertoy import's speed controls run at its clock's rate, so a
+        // generated one follows st_speed as iTime does (D246); any other
+        // scene ticks at 1. An exact-name lookup: no allocation a frame.
+        let bass = audio.scalar("syn_BassLevel").unwrap_or(0.0);
+        match strobe_shadertoy::convert::clock_rate(&self.controls, bass) {
+            Some(rate) => self.controls.tick_at(dt, rate),
+            None => self.controls.tick(dt),
+        }
         self.meta.tick(dt);
         self.player.set_date(date);
         self.player.upload_audio(&AudioTextures {

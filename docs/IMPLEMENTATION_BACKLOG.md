@@ -68,7 +68,7 @@
 - **Acceptance:** a fixture can be edited, validated, saved, reloaded and restored; compile failure keeps the last good scene live; no shader compiles are triggered from UI paint or on an unintended live frame.
 
 ### U-03 Generated-controls review in Import and Inspector
-- **Status:** In progress (D202, D219): the Inspector and the palette start a worker, and the result is reviewed (controls, ranges, scores, fidelity, audio ideas), each control kept or dropped and a slider re-ranged, then applied and opened, or discarded. Left: the Import pane button.
+- **Status:** In progress (D202, D219): the Inspector and the palette start a worker, and the result is reviewed (controls, ranges, scores, fidelity, audio ideas), each control kept or dropped and a slider re-ranged, then applied and opened, or discarded. Built since (D246): a control can be renamed in the review, and the name is checked as the engine checks its own; the Import pane offers "Generate controls for it" once an imported scene is playing, and opens the Inspector, where the review appears. Left: a person using it on a real import.
 - **Work:** invoke generation using the app's renderer/context; display grouped proposed controls, effect scores, ranges and suggested audio bindings; allow accept/reject/edit; preserve original source and licence; do not silently rewrite the source of the user's only copy.
 - **Acceptance:** imported and existing scenes can be analysed; accepted controls visibly change the scene; defaults reproduce the original image within the engine's documented fidelity threshold; rejected suggestions do not mutate the source.
 
@@ -161,7 +161,7 @@
 - **Acceptance:** file-drop and typed-path paths share the same import pipeline; broken imports remain visible with actionable reasons; original source, attribution and license metadata survive.
 
 ### I-03 Auto-control engine integration and heuristic tuning
-- **Status:** In progress; connected to the app (D202). Left: heuristic tuning on real scenes and the `st_speed` check.
+- **Status:** In progress; connected to the app (D202). The `st_speed` check is done (D246): a generated speed control used to ignore `st_speed`, and now ticks at the import clock's rate, so it follows it as `iTime` does. Left: heuristic tuning on real community scenes, which need the owner's corpus (TORNADO).
 - **Work:** connect the engine to Import/Inspector; confirm the speed control does not incorrectly follow st_speed; tune candidate naming/grouping/ranges on real community scenes; preserve deterministic output; allow user review before audio bindings are enabled.
 - **Acceptance:** all library scenes with controls stripped and every tunable fixture produce reviewable controls; structural fixtures can legitimately report no useful controls; accepted defaults preserve the original render; no generated loop control can hang the GPU.
 

@@ -325,13 +325,25 @@ impl ControlBank {
 
     /// Advances every output by `dt` seconds.
     pub fn tick(&mut self, dt: f32) {
+        self.tick_at(dt, 1.0);
+    }
+
+    /// Advances every output by `dt` seconds, with `speed` controls
+    /// integrating at `rate` times their value instead of once (D246). A
+    /// Shadertoy import passes its clock's rate, so a speed control that
+    /// replaced an `iTime * k` term keeps following `st_speed` and
+    /// `st_audio_time` as `iTime` does; everything else passes 1. Smoothing
+    /// and glides stay on real time. A rate that is not a finite number
+    /// counts as 1, and a negative one as 0.
+    pub fn tick_at(&mut self, dt: f32, rate: f32) {
         let dt = if dt.is_finite() {
             dt.clamp(0.0, 1.0)
         } else {
             0.0
         };
+        let rate = if rate.is_finite() { rate.max(0.0) } else { 1.0 };
         for (def, state) in self.defs.iter().zip(self.states.iter_mut()) {
-            step(def, state, dt);
+            step(def, state, dt, rate);
         }
     }
 
@@ -393,7 +405,7 @@ fn alpha(params: f32, dt: f32) -> f32 {
 }
 
 /// Advances one control by `dt`.
-fn step(def: &ControlDef, state: &mut State, dt: f32) {
+fn step(def: &ControlDef, state: &mut State, dt: f32, rate: f32) {
     let dims = def.dims();
     if let Some(seconds) = state.glide {
         // A macro's glide (D227): exponential, frame-rate independent, and
@@ -432,7 +444,7 @@ fn step(def: &ControlDef, state: &mut State, dt: f32) {
         | ControlKind::Knob(Mode::Speed)
         | ControlKind::Xy(Mode::Speed) => {
             for i in 0..dims {
-                state.output[i] += state.target[i] * dt;
+                state.output[i] += state.target[i] * dt * rate;
             }
         }
         ControlKind::Slider(Mode::Traveler)
@@ -552,6 +564,43 @@ mod tests {
             (out(&b, 0) - 1.0).abs() < 1e-4,
             "half a second at 2/s, got {}",
             out(&b, 0)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_rate_scales_speed_controls_and_nothing_else() -> Result<()> {
+        let mut b = bank(&[
+            r#"{ "NAME": "s", "TYPE": "slider speed", "MIN": -2, "MAX": 2 }"#,
+            r#"{ "NAME": "m", "TYPE": "slider smooth", "MIN": 0, "MAX": 1 }"#,
+        ])?;
+        b.set(0, None, &[2.0]);
+        b.set(1, None, &[1.0]);
+        let mut plain = b.clone();
+        for _ in 0..30 {
+            b.tick_at(1.0 / 60.0, 1.5);
+            plain.tick(1.0 / 60.0);
+        }
+        assert!(
+            (out(&b, 0) - 1.5).abs() < 1e-4,
+            "half a second at 2/s and rate 1.5, got {}",
+            out(&b, 0)
+        );
+        assert!(
+            (out(&b, 1) - out(&plain, 1)).abs() < 1e-6,
+            "smoothing stays on real time"
+        );
+        let mut odd = b.clone();
+        let before = out(&odd, 0);
+        odd.tick_at(1.0 / 60.0, -3.0);
+        assert!(
+            (out(&odd, 0) - before).abs() < 1e-6,
+            "a negative rate holds still"
+        );
+        odd.tick_at(1.0 / 60.0, f32::NAN);
+        assert!(
+            (out(&odd, 0) - before - 2.0 / 60.0).abs() < 1e-4,
+            "a rate that is not a number counts as 1"
         );
         Ok(())
     }
