@@ -17,6 +17,8 @@
 //! - **Performance**: adaptive resolution and the render scale (D64).
 //! - **Audio**: the input device, reactivity, speed and tap tempo.
 //! - **Appearance**: the theme, reduced motion, and the title bar (D132).
+//! - **Layouts**: the open panes, their order and widths, saved under a
+//!   name and put back in one click (D215).
 //! - **Keyboard**: the command table, as data, so what is advertised here
 //!   is what exists, and the shortcut editor (D208): Change waits for a key,
 //!   a key another command holds is named and moved only on a second click,
@@ -59,6 +61,9 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
             ui.add_space(SPACE_SM);
             widgets::section(ui, theme, "Appearance");
             appearance(ui, model, theme, actions);
+            ui.add_space(SPACE_SM);
+            widgets::section(ui, theme, "Layouts");
+            layouts(ui, theme, model.ui);
             ui.add_space(SPACE_SM);
             widgets::section(ui, theme, "Keyboard");
             keyboard(
@@ -221,6 +226,58 @@ fn appearance(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut
         .changed()
     {
         actions.push(Action::SetCustomTitleBar(custom));
+    }
+}
+
+/// Named layouts: save the panes as they are, apply or delete one (D215).
+fn layouts(ui: &mut Ui, theme: &Palette, state: &mut super::state::UiState) {
+    ui.horizontal(|ui| {
+        ui.add(
+            egui::TextEdit::singleline(&mut state.layout_name)
+                .hint_text("Prep, Show, Debug...")
+                .desired_width((ui.available_width() - 150.0).max(80.0)),
+        );
+        let name = state.layout_name.trim().to_string();
+        let replacing = state.layouts.contains_key(&name);
+        let label = if replacing { "Replace" } else { "Save current" };
+        let save = ui
+            .add_enabled_ui(!name.is_empty(), |ui| {
+                widgets::button(ui, theme, None, label).on_hover_text(if replacing {
+                    "Replace this layout with the panes as they are now"
+                } else {
+                    "Save the open panes, their order and widths under this name"
+                })
+            })
+            .inner;
+        if save.clicked() && state.save_layout(&name) {
+            state.layout_name.clear();
+        }
+    });
+    if state.layouts.is_empty() {
+        ui.label(
+            egui::RichText::new("No saved layouts.")
+                .small()
+                .color(theme::rgb(theme.text_faint)),
+        );
+        return;
+    }
+    let names: Vec<String> = state.layouts.keys().cloned().collect();
+    for name in names {
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new(&name).color(theme::rgb(theme.text)));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.small_button("Delete").clicked() {
+                    state.delete_layout(&name);
+                }
+                if ui
+                    .small_button("Apply")
+                    .on_hover_text("Open these panes, in this order, at these widths")
+                    .clicked()
+                {
+                    state.apply_layout(&name);
+                }
+            });
+        });
     }
 }
 

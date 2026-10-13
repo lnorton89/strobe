@@ -3532,3 +3532,25 @@ before destructive replacement".
 name, refuses to replace, allows a change of case, reports a missing
 preset; fav slots of that scene follow and others do not).
 
+### D215: named layouts save the panes, and the palette applies them (2026-10-13)
+
+Backlog U-06 asks for named layouts. A layout is what the pane model
+already saves at quit: which panes are open, in which order, and every
+pane's width (`prefs::Layout`, the same code `ui.toml` uses, now shared).
+
+- **Settings > Layouts** saves the panes as they are under a name (*Replace*
+  when the name exists), and lists the saved ones with *Apply* and
+  *Delete*. They are kept in `ui.toml` under `[layouts]`.
+- **The command palette** lists each one as *Layout: name*, so Ctrl+K and
+  a few letters switch from a prep layout to a show layout.
+- Applying a layout changes only the panes. It does not change the scene,
+  the output or anything a show depends on, and the workspace fits it to
+  the window as it fits any pane change.
+
+**Not done:** density (compact and comfortable rows), which touches every
+row height in the UI, and a shortcut per layout.
+
+**Evidence:** the `ui::state` test (save, apply in order, an unknown name
+changes nothing, written to the preferences, delete) and the palette test
+(a layout is an entry, found by name).
+

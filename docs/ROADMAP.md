@@ -72,7 +72,7 @@ Each item names its acceptance test. Evidence is in [STATUS_AUDIT.md](STATUS_AUD
      and OSC Learn is built, D177);
    - the generated-controls review panel (item 4; started, D202);
      ~~"open the shader error in the Editor"~~ (built, D204);
-   - saved named layouts and density (scene thumbnails from `IMAGE_PATH`
+   - density (saved named layouts are built, D215; scene thumbnails from `IMAGE_PATH`
      and favourites are built, D211 and D212; the command palette, Ctrl+K,
      is built: D200);
    - on the T480 and real Windows: the custom title bar's drag, snap and

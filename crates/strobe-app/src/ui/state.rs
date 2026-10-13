@@ -95,6 +95,37 @@ impl BrowserState {
     }
 }
 
+impl UiState {
+    /// Saves the panes as they are now under `name` (D215), replacing a
+    /// layout of that name. A blank name is refused.
+    pub fn save_layout(&mut self, name: &str) -> bool {
+        let name = name.trim();
+        if name.is_empty() {
+            return false;
+        }
+        self.layouts
+            .insert(name.to_string(), crate::prefs::Layout::capture(&self.panes));
+        true
+    }
+
+    /// Puts the panes as layout `name` had them. Returns whether there was
+    /// one.
+    pub fn apply_layout(&mut self, name: &str) -> bool {
+        match self.layouts.get(name) {
+            Some(layout) => {
+                self.panes = layout.to_panes();
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Forgets layout `name`.
+    pub fn delete_layout(&mut self, name: &str) {
+        self.layouts.remove(name);
+    }
+}
+
 impl BrowserState {
     /// Whether the scene called `name` is a favourite.
     pub fn is_favourite(&self, name: &str) -> bool {
@@ -154,6 +185,10 @@ pub struct UiState {
     pub hotkeys: super::keys::HotkeyEditor,
     /// The browser's scene thumbnails (D212). Not saved.
     pub thumbs: super::thumbs::Thumbs,
+    /// Named pane layouts (D215), saved.
+    pub layouts: std::collections::BTreeMap<String, crate::prefs::Layout>,
+    /// The Settings pane's layout name field. Not saved.
+    pub layout_name: String,
     theme_id: String,
     reduced_motion: bool,
     catalog: Catalog,
@@ -217,6 +252,8 @@ impl UiState {
             tag_draft: None,
             hotkeys: super::keys::HotkeyEditor::default(),
             thumbs: super::thumbs::Thumbs::default(),
+            layouts: prefs.layouts.clone(),
+            layout_name: String::new(),
             last_scene: prefs.last_scene.clone(),
             theme_id: prefs.theme.clone(),
             reduced_motion: reduced,
@@ -246,6 +283,7 @@ impl UiState {
             self.collapsed_groups.clone(),
         );
         prefs.last_scene.clone_from(&self.last_scene);
+        prefs.layouts.clone_from(&self.layouts);
         prefs
     }
 
@@ -343,6 +381,15 @@ impl UiState {
         self.custom_title_bar.hash(&mut hasher);
         self.reduced_motion.hash(&mut hasher);
         self.last_scene.hash(&mut hasher);
+        for (name, layout) in &self.layouts {
+            name.hash(&mut hasher);
+            layout.order.hash(&mut hasher);
+            for (key, pane) in &layout.panes {
+                key.hash(&mut hasher);
+                pane.open.hash(&mut hasher);
+                pane.width.to_bits().hash(&mut hasher);
+            }
+        }
         hasher.finish()
     }
 
@@ -464,6 +511,37 @@ mod tests {
             ["c"],
             "written to the preferences"
         );
+    }
+
+    #[test]
+    fn a_layout_is_saved_applied_and_written_to_the_preferences() {
+        let mut state = UiState::ephemeral();
+        state.panes.close_all();
+        state.panes.open(Pane::Browser);
+        state.panes.open(Pane::Inspector);
+        assert!(!state.save_layout("  "), "a blank name is refused");
+        assert!(state.save_layout("Prep"), "saved");
+        state.panes.close_all();
+        state.panes.open(Pane::Diagnostics);
+        assert!(state.apply_layout("Prep"), "applied");
+        assert!(
+            state.panes.is_open(Pane::Browser) && state.panes.is_open(Pane::Inspector),
+            "the saved panes are back"
+        );
+        assert!(!state.panes.is_open(Pane::Diagnostics), "and only those");
+        assert_eq!(
+            state.panes.open_order(),
+            vec![Pane::Browser, Pane::Inspector],
+            "in their order"
+        );
+        let prefs = state.to_prefs();
+        assert!(prefs.layouts.contains_key("Prep"), "written to ui.toml");
+        assert!(
+            !state.apply_layout("Nope"),
+            "an unknown name changes nothing"
+        );
+        state.delete_layout("Prep");
+        assert!(state.layouts.is_empty(), "deleted");
     }
 
     #[test]

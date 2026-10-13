@@ -35,12 +35,14 @@ use crate::commands::{Bindings, Category, CommandId};
 use crate::workspace::Pane;
 
 /// What an entry does.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Target {
     /// Run a command.
     Command(CommandId),
     /// Open a pane.
     Pane(Pane),
+    /// Apply a saved layout, by name (D215).
+    Layout(String),
 }
 
 /// One row of the palette.
@@ -71,8 +73,9 @@ pub struct Availability {
     pub generating: bool,
 }
 
-/// Every entry, in table order: the commands, then the panes.
-pub fn items(bindings: &Bindings, availability: Availability) -> Vec<Item> {
+/// Every entry, in table order: the commands, the panes, then the saved
+/// layouts.
+pub fn items(bindings: &Bindings, availability: Availability, layouts: &[String]) -> Vec<Item> {
     let mut items: Vec<Item> = CommandId::ALL
         .into_iter()
         .filter(|command| *command != CommandId::OpenPalette)
@@ -88,6 +91,13 @@ pub fn items(bindings: &Bindings, availability: Availability) -> Vec<Item> {
         target: Target::Pane(pane),
         title: format!("Show {}", pane.title()),
         category: "Pane",
+        shortcut: None,
+        unavailable: None,
+    }));
+    items.extend(layouts.iter().map(|name| Item {
+        target: Target::Layout(name.clone()),
+        title: format!("Layout: {name}"),
+        category: "Layout",
         shortcut: None,
         unavailable: None,
     }));
@@ -235,7 +245,23 @@ mod tests {
                 playing: true,
                 generating: false,
             },
+            &["Show".to_string()],
         )
+    }
+
+    #[test]
+    fn a_saved_layout_is_an_entry_found_by_its_name() {
+        let all = everything();
+        assert_eq!(
+            titles(&all, "layout").first().map(String::as_str),
+            Some("Layout: Show"),
+            "found"
+        );
+        assert!(
+            all.iter()
+                .any(|item| item.target == Target::Layout("Show".to_string())),
+            "it applies that layout"
+        );
     }
 
     #[test]
@@ -311,7 +337,7 @@ mod tests {
 
     #[test]
     fn unavailable_commands_stay_listed_with_a_reason() {
-        let items = items(&Bindings::default(), Availability::default());
+        let items = items(&Bindings::default(), Availability::default(), &[]);
         let reason = |command: CommandId| {
             items
                 .iter()
@@ -339,7 +365,7 @@ mod tests {
         )]);
         let (bindings, problems) = Bindings::from_config(&table);
         assert!(problems.is_empty(), "{problems:?}");
-        let items = items(&bindings, Availability::default());
+        let items = items(&bindings, Availability::default(), &[]);
         let blackout = items
             .iter()
             .find(|item| item.target == Target::Command(CommandId::ToggleBlackout))
