@@ -480,9 +480,7 @@ impl PlaylistClock {
                 let beats_back = over * bpm / 60.0;
                 // A downbeat exactly at the computed end counts as "after" it,
                 // hence the epsilon: 8 beats from a downbeat ends on the next.
-                self.lock_bar = Some(crate::tempo::bar_of(
-                    beat.beats - beats_back - DOWNBEAT_EPSILON_BEATS,
-                ));
+                self.lock_bar = Some(beat.bar_at(beat.beats - beats_back - DOWNBEAT_EPSILON_BEATS));
                 self.lock_waited = over;
             }
             Some(bar) => {

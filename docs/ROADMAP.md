@@ -127,7 +127,8 @@ Each item names its acceptance test. Evidence is in [STATUS_AUDIT.md](STATUS_AUD
    - ~~real tags in the scene format, so Generate can pick by tag~~ (built:
      Synesthesia's `TAGS`, D205);
    - ~~MIDI and OSC mapping of the cue commands~~ (built: commands, `Cue` jumps and fav slots are mapping targets, and `/strobe/cmd/<id>` and `/strobe/cue/<n>` need no mapping, D173);
-   - a downbeat detector, so "bars" line up with the music (D75);
+   - ~~a downbeat detector, so "bars" line up with the music~~ (built,
+     D233; not yet heard on real music);
    - the T480: the load time of an 80-scene show, the cost of a transition
      (two scenes at once) on an HD 4000, and VRAM with many scenes parked.
 
@@ -339,7 +340,7 @@ never per frame.
 | 2 | JavaScript API | Integrated (D62). `meta/` writes land in a meta bank (D160) that the output post stage and audio gains read (D180, D184); `textureFinalPass` is an asynchronous readback (D162); late uniforms are refused (D161). |
 | 3 | Audio | Integrated (D61). The bench still uses the synthetic stand-in. |
 | 4 | Shadertoy import | The converter (D90-D95), acquisition (REST client, texture downloader, localhost listener), the Import panel, file drop and the userscript (D110-D117) are built, auto-generated controls with their review in the app (D123-D126, D202, D219), drops routed by kind (D218) and a URL on a playlist cue (D229). Open: live-site verification (Q19), the Needs-work bin, batch import. |
-| 5 | Playlists | The pure core (D73-D77), the app integration (D150-D158), cue editing with inheritance shown (D213), media per cue (D217), drag, disable, multi-select, URL import and comment-keeping save (D224, D229-D231), and audio-event advance (D226) are built. Verified on the T480 (Tasks 14, 26). Open: the downbeat detector (P-02), tuning audio events on real music. |
+| 5 | Playlists | The pure core (D73-D77), the app integration (D150-D158), cue editing with inheritance shown (D213), media per cue (D217), drag, disable, multi-select, URL import and comment-keeping save (D224, D229-D231), and audio-event advance (D226) are built. Verified on the T480 (Tasks 14, 26). Open: hearing the downbeat estimate (D233) and the audio events on real music. |
 | 6 | Presets, MIDI, OSC, hotkeys | Built (D170-D179): `strobe-io`, presets and fav slots, the MAP pane, macros stage 2, hotkeys, a hotkey editor (D208), OSC feedback (D209), macro reach and colour (D210), the preset media channel (D223), and a glide and a key per macro (D227, D228). Open: a controller on the T480, MIDI output. |
 | 7b | LAN remote / PWA | Protocol crate and app-thread bridge in `strobe-remote` (D232); no listener or UI integration yet. Next: secure service lifecycle, pairing/revocation, mobile controller, then solve HTTPS before claiming installable PWA support. See [REMOTE_CONTROL_PWA_RESEARCH.md](REMOTE_CONTROL_PWA_RESEARCH.md). |
 | 7 | NDI, media input, song-change transitions | Media stills and image sequences (D186), chosen in the Inspector, per cue and per preset (D217, D223), bounded by shrinking (D225); breakdown and drop detection feeds playlists (D226). Video, webcam and NDI are open. `HARD`/`SMOOTH_TRANSITIONS` are declared but never change. |
@@ -400,8 +401,10 @@ The app plays playlists (D150-D158). Known gaps:
 - **Audio-event advance** (`drop`, `breakdown`) fires from
   `strobe_audio::events` (D226), tested on synthetic structure and the real
   analyser, not yet on real music.
-- **A downbeat detector** (D75): a "bar" is counted from the beat grid's
-  origin, so a beat-locked cue ends on a bar line of *that* grid.
+- **The downbeat estimate** (D233) moves the bar lines a beat-locked cue
+  ends on to the beat it hears as "one", once it is sure; while unsure
+  (even kicks, the first eight bars) bars count from the grid's origin
+  (D75). Tested on synthetic kicks, not yet on real music.
 - **The Playlist pane** edits one cue or several (D213, D230), takes scenes
   dragged from the library and Shadertoy URLs (D224, D229), and its save
   keeps a hand-written file's comments (D231). Not yet timed against the

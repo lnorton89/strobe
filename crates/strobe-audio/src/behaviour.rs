@@ -615,3 +615,56 @@ fn works_at_other_sample_rates() -> Result<()> {
     }
     Ok(())
 }
+
+#[test]
+fn a_louder_kick_on_one_is_found_as_the_downbeat_at_every_phase() -> Result<()> {
+    let seconds = 40.0;
+    for phase in 0..4_usize {
+        // A kick every beat at 120 BPM, and a second kick on every fourth
+        // beat starting `phase` beats in.
+        let mut signal = fixtures::kicks(120.0, seconds, RATE);
+        let delay = phase * RATE as usize / 2;
+        let accents = fixtures::kicks(30.0, seconds, RATE);
+        for (slot, accent) in signal.iter_mut().skip(delay).zip(accents) {
+            *slot += accent;
+        }
+        let mut analyzer = Analyzer::new(RATE);
+        // The grid beat a fifth of a beat after each accented kick of the
+        // last ten seconds.
+        let mut downbeats = Vec::new();
+        offline::run(&mut analyzer, &signal, FPS, |time, frame| {
+            let since = time - 0.2 - 0.5 * phase as f32 - 0.1;
+            let bar = since / 2.0;
+            if time > seconds - 10.0 && bar.fract() < 1.0 / FPS / 2.0 && since > 0.0 {
+                let beat = frame.scalar("syn_BeatTime").unwrap_or(f32::NAN);
+                downbeats.push((beat.floor() as i64, frame.downbeat));
+            }
+        });
+        assert!(downbeats.len() >= 4, "phase {phase}: sampled {downbeats:?}");
+        for (beat, [offset, confidence]) in downbeats {
+            assert!(
+                confidence > 0.5,
+                "phase {phase}: sure by now, got {confidence}"
+            );
+            assert_eq!(
+                (beat - offset as i64).rem_euclid(4),
+                0,
+                "phase {phase}: the accented kick is on grid beat {beat}, offset {offset}"
+            );
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn even_kicks_report_no_downbeat_at_any_tempo() {
+    for bpm in [97.0, 120.0, 123.5, 128.0, 140.0, 174.0] {
+        let signal = fixtures::kicks(bpm, 40.0, RATE);
+        let frame = fixtures::last_frame(&signal, RATE, FPS);
+        assert!(
+            frame.downbeat[1] < 0.1,
+            "{bpm} BPM, every beat alike: {:?}",
+            frame.downbeat
+        );
+    }
+}

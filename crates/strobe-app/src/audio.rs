@@ -264,6 +264,7 @@ impl AudioInput {
                 strobe_scene::synthetic::fill(time, &mut self.frame.scalars);
                 // The synthetic track has no song structure (D226).
                 self.frame.energy = [0.0; 2];
+                self.frame.downbeat = [0.0; 2];
                 strobe_scene::synthetic::fill_textures(
                     time,
                     &mut self.frame.spectrum,

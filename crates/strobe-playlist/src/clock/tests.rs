@@ -74,6 +74,7 @@ impl Grid {
             bpm: self.bpm,
             confidence: self.confidence,
             beats: self.start + t * f64::from(self.bpm) / 60.0,
+            downbeat: 0.0,
         }
     }
 }
@@ -1126,6 +1127,36 @@ fn a_downbeat_exactly_at_the_computed_end_ends_the_cue_there() -> Result<()> {
 }
 
 #[test]
+fn a_known_downbeat_moves_the_bar_line_the_cue_ends_on() -> Result<()> {
+    // As the test above (grid 0 at the start, 8 beats end at 4 s on grid
+    // beat 8), but bars start on grid beats 4n + 1: the cue waits for
+    // beat 9, half a second later.
+    let mut clock = beat_show();
+    let mut now = 0.0;
+    let mut ended = None;
+    while now < 10.0 && ended.is_none() {
+        now += DT;
+        let beat = BeatInfo {
+            bpm: 120.0,
+            confidence: 0.9,
+            beats: now * 2.0,
+            downbeat: 1.0,
+        };
+        clock.tick(DT, &beat);
+        ended = clock
+            .drain_events()
+            .find(|e| matches!(e, ClockEvent::CueStarted { index: 1, .. }))
+            .map(|_| now);
+    }
+    let ended = ended.ok_or_else(|| anyhow!("the cue never ended"))?;
+    assert!(
+        (4.5 - 1e-9..=4.5 + DT + 1e-9).contains(&ended),
+        "should end on the shifted downbeat at 4.5 s, ended at {ended}"
+    );
+    Ok(())
+}
+
+#[test]
 fn without_confidence_a_beat_cue_ends_on_time_at_the_fallback_tempo() -> Result<()> {
     let grid = Grid {
         start: 1.0,
@@ -1164,6 +1195,7 @@ fn a_stalled_grid_cannot_strand_the_show() -> Result<()> {
         bpm: 120.0,
         confidence: 0.9,
         beats: 1.0 + 0.0 * t,
+        downbeat: 0.0,
     };
     let mut clock = beat_show();
     let mut now = 0.0;

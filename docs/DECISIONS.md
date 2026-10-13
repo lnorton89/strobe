@@ -787,6 +787,10 @@ until one exists.
 **Would reopen:** real tracks showing the six-beat timeout or the 0.5
 threshold are wrong, or a downbeat detector landing in `strobe-audio`.
 
+*Addendum (2026-10-13):* the downbeat estimate landed (D233). `BeatInfo`
+gained `downbeat`, and bars start at `4n + downbeat`; it is 0 (the grid's
+origin, as above) whenever the estimate is unsure.
+
 ### D76: the scene clock and the wall clock are separate, and time is always an argument (2026-10-09)
 
 `PlaylistClock` advances by `dt`, stops while held, and answers from its own
@@ -4036,3 +4040,60 @@ frame, answer each command, and give a reconnecting phone the whole state.
 reply (wrap `Pending` in the runtime's blocking task, or swap the reply
 channel for a oneshot), or a command that must be answered before the
 next frame.
+
+### D233: the downbeat is the beat with the most bass and the most change, and unsure means none (2026-10-13)
+
+D75 counted bars from wherever the beat grid began, so a "32 bars" cue
+ended on a bar line the music did not have. P-02 asked for a
+confidence-aware estimate that falls back when unsure.
+
+- **Two cues per beat.** `strobe_audio::downbeat::Downbeat` scores each
+  beat of the grid by its *accent* (the mean raw bass energy over the
+  beat's span) and its *change* (how far the four band levels rose from
+  the previous beat, in log terms, each band past a 22 % dead zone). Each
+  is divided by its running mean (the change's floored at 0.3) and the sum
+  goes to slot `beat mod 4`. A harder kick or a sub drop on "one", or a
+  chord or bass change at the bar line, both point at the same slot.
+- **What was tried and why it changed.** Each of these, in turn, gave
+  even kicks a confident wrong answer on the synthetic fixture:
+  - a peak, or a narrow window around the beat, because the hop
+    alignment and the grid's wobble vary it from beat to beat;
+  - sampling the latest hop once a frame, because the hop-to-kick
+    alignment repeats only every eight beats;
+  - counting falls in the change as well as rises, which credits the beat
+    after an accent equally;
+  - decaying per beat or comparing mid-bar, which favours the slot scored
+    last;
+  - the change normalised by its own near-zero mean on steady music.
+
+  So the estimator is fed every hop from the analyser, slots decay once a
+  bar, and they are compared only after the fourth slot of a bar.
+- **Confidence is the lead, past noise.** It is
+  `(lead - 0.12) / (0.4 - 0.12)` clamped, where the lead is the best slot's
+  margin over the runner-up as a fraction of the best. It is 0 for eight
+  beats of warm-up (the running means) plus sixteen of evidence. Even kicks
+  at 97, 120, 123.5, 128, 140 and 174 BPM give 0. Kicks on one and three
+  tie two slots and give near 0. Both are the honest answer.
+- **Hysteresis and reset.** A new leader takes over after leading two bars
+  in a row, so a one-bar fill does not move every bar line; a new track's
+  bars are followed within about eight bars (slot memory). The estimate
+  resets when the grid loses its lock (silence), and it is fed only while
+  the published tempo confidence is above 0.3.
+- **In the counter's numbering.** The playlist clock counts bars on
+  `syn_BeatTime`, which in the live analyser is the count of detected
+  beats, not the grid's position. The estimate is made on the grid and
+  converted by the counter's lead over the grid at the last detected beat,
+  so `AudioFrame::downbeat = [offset, confidence]` means "a bar starts when
+  `syn_BeatTime` reaches `4n + offset`". It is not a uniform: no SSF scene
+  reads it, and Synesthesia documents no such value.
+- **The clock uses it only when sure.** `BeatInfo::downbeat` (bars start at
+  `4n + downbeat`) is set by the app at confidence 0.5 or more and is 0
+  otherwise, so an unsure estimate is exactly D75's behaviour. An estimate
+  that moves while a cue waits for its bar line can end that cue up to
+  three beats early or late, once; the wait's six-beat timeout still
+  bounds it.
+
+**Would reopen:** recorded music where the estimate is confidently wrong
+(the fixtures are synthetic: an accented kick and a chord change), music in
+three (bars stay four beats), or a scene or Synesthesia feature that wants
+the bar position as a uniform.
