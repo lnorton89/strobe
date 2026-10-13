@@ -75,11 +75,30 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
         generate_strip(ui, theme, model.generate, actions);
     }
 
+    // Which controls already have a pinned macro, for the rows' pin menu
+    // (D210).
+    let (pinned_scene, pinned_meta) = pinned_names(&model.remote.remote.engine.macros);
+    let mut scene_pins = controls::Pins {
+        pinned: &pinned_scene,
+        chosen: None,
+    };
+    let mut meta_pins = controls::Pins {
+        pinned: &pinned_meta,
+        chosen: None,
+    };
     let ui_state = &mut *model.ui;
     let meta = model.meta.as_deref_mut();
     match model.controls.as_deref_mut() {
         Some(bank) if !bank.defs().is_empty() => {
-            groups(ui, theme, bank, meta, ui_state);
+            groups(
+                ui,
+                theme,
+                bank,
+                meta,
+                ui_state,
+                &mut scene_pins,
+                &mut meta_pins,
+            );
         }
         Some(_) => {
             widgets::empty_state(
@@ -92,7 +111,9 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
             if let Some(meta) = meta {
                 egui::ScrollArea::vertical()
                     .auto_shrink([false, false])
-                    .show(ui, |ui| meta_section(ui, theme, meta, ui_state));
+                    .show(ui, |ui| {
+                        meta_section(ui, theme, meta, ui_state, &mut meta_pins)
+                    });
             }
         }
         None => widgets::empty_state(
@@ -102,6 +123,11 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
             "No scene playing",
             "Open the scene library and load one to see its controls.",
         ),
+    }
+    for (pins, meta) in [(scene_pins, false), (meta_pins, true)] {
+        if let Some((name, pin)) = pins.chosen {
+            actions.push(Action::PinMacro { name, meta, pin });
+        }
     }
 }
 
@@ -158,6 +184,33 @@ fn tags_row(
     if done {
         *draft = None;
     }
+}
+
+/// The names of the scene controls and meta controls that a pinned macro
+/// drives as a whole (not one component).
+fn pinned_names(macros: &strobe_io::MacroSet) -> (Vec<String>, Vec<String>) {
+    let mut scene = Vec::new();
+    let mut meta = Vec::new();
+    for found in macros.pinned() {
+        match &found.target {
+            strobe_io::Target::Control {
+                name,
+                component: None,
+            } => scene.push(name.clone()),
+            strobe_io::Target::Meta {
+                name,
+                component: None,
+            } => meta.push(name.clone()),
+            strobe_io::Target::Control { .. }
+            | strobe_io::Target::Meta { .. }
+            | strobe_io::Target::Command { .. }
+            | strobe_io::Target::Cue { .. }
+            | strobe_io::Target::FavSlot { .. }
+            | strobe_io::Target::Preset { .. }
+            | strobe_io::Target::Macro { .. } => {}
+        }
+    }
+    (scene, meta)
 }
 
 /// "Generate controls": the button, the worker's progress, or its result
@@ -377,6 +430,8 @@ fn groups(
     bank: &mut ControlBank,
     meta: Option<&mut ControlBank>,
     state: &mut super::state::UiState,
+    pins: &mut controls::Pins<'_>,
+    meta_pins: &mut controls::Pins<'_>,
 ) {
     let groups = controls::group_order(bank.defs());
     egui::ScrollArea::vertical()
@@ -384,7 +439,7 @@ fn groups(
         .show(ui, |ui| {
             for (group, members) in groups {
                 match group {
-                    None => controls::rows(ui, theme, bank, &members),
+                    None => controls::rows(ui, theme, bank, &members, Some(&mut *pins)),
                     Some(name) => {
                         let collapsed = state.is_collapsed(&name);
                         match group_header(ui, theme, &name, collapsed, members.len()) {
@@ -403,7 +458,7 @@ fn groups(
                         }
                         if !collapsed {
                             ui.indent(("group", &name), |ui| {
-                                controls::rows(ui, theme, bank, &members);
+                                controls::rows(ui, theme, bank, &members, Some(&mut *pins));
                             });
                         }
                     }
@@ -424,7 +479,7 @@ fn groups(
                 );
             }
             if let Some(meta) = meta {
-                meta_section(ui, theme, meta, state);
+                meta_section(ui, theme, meta, state, meta_pins);
             }
         });
 }
@@ -438,6 +493,7 @@ fn meta_section(
     theme: &Palette,
     meta: &mut ControlBank,
     state: &mut super::state::UiState,
+    pins: &mut controls::Pins<'_>,
 ) {
     const NAME: &str = "Output (meta)";
     let collapsed = state.is_collapsed(NAME);
@@ -474,7 +530,7 @@ fn meta_section(
                     .color(theme::rgb(theme.text_faint)),
             );
         }
-        controls::rows(ui, theme, meta, &members);
+        controls::rows(ui, theme, meta, &members, Some(&mut *pins));
         ui.add_space(SPACE_XS);
     }
 }

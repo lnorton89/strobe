@@ -381,6 +381,9 @@ fn sample_remote(mapped: bool) -> Result<Remote> {
         .mappings
         .push(Mapping::new(cc(6), Target::control("tint")));
     let speed = engine.macros.pin("Speed", Target::control("speed"));
+    // A colour and a reach, so the card's band is drawn at every size (D210).
+    engine.macros.set_color(speed, Some(2));
+    engine.macros.set_range(speed, Some([0.2, 0.8]));
     engine.macros.pin("Hue", Target::meta("hue"));
     engine.macros.pin("Glow", Target::control("glow"));
     engine.macros.pin("Next", Target::command("next_scene"));

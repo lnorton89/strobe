@@ -49,7 +49,7 @@ use crate::icon::Icon;
 use crate::palette::Palette;
 use crate::remote::Remote;
 use crate::workspace::{Pane, Panes};
-use egui::{CornerRadius, Sense, Stroke, StrokeKind, Ui, UiBuilder, Vec2};
+use egui::{CornerRadius, Rect, Sense, Stroke, StrokeKind, Ui, UiBuilder, Vec2};
 use strobe_io::target::{Flat, State, flatten, locate_control};
 use strobe_io::{Macro, Resolution, Target};
 use strobe_scene::control::{ControlBank, ControlKind};
@@ -218,7 +218,7 @@ fn legacy(ui: &mut Ui, theme: &Palette, bank: Option<&mut ControlBank>, panes: &
             let Some(name) = bank.defs().get(index).map(|d| d.name.clone()) else {
                 continue;
             };
-            frame(ui, theme, |ui, width| {
+            frame(ui, theme, None, |ui, width| {
                 header(ui, theme, "SCENE", &name, None, width);
                 control_body(ui, theme, bank, index, None, width, panes);
             });
@@ -247,8 +247,20 @@ fn placeholder(ui: &mut Ui, theme: &Palette, text: &str) {
     );
 }
 
-/// A card's frame; `body` draws inside it with the inner width.
-fn frame(ui: &mut Ui, theme: &Palette, body: impl FnOnce(&mut Ui, f32)) -> egui::Response {
+/// A macro's identity colour `index` (below `strobe_io::macros::COLOURS`),
+/// from the theme's series ramp, so it follows the theme (D210).
+pub fn macro_colour(theme: &Palette, index: u8) -> crate::color::Rgb {
+    theme.series(usize::from(index), usize::from(strobe_io::macros::COLOURS))
+}
+
+/// A card's frame; `body` draws inside it with the inner width. A macro
+/// with a colour gets a band of it along the top.
+fn frame(
+    ui: &mut Ui,
+    theme: &Palette,
+    colour: Option<crate::color::Rgb>,
+    body: impl FnOnce(&mut Ui, f32),
+) -> egui::Response {
     let (rect, response) =
         ui.allocate_exact_size(Vec2::new(CELL_WIDTH, STRIP_HEIGHT), Sense::click());
     let painter = ui.painter();
@@ -263,6 +275,19 @@ fn frame(ui: &mut Ui, theme: &Palette, body: impl FnOnce(&mut Ui, f32)) -> egui:
         Stroke::new(1.0, theme::rgb(theme.border)),
         StrokeKind::Inside,
     );
+    if let Some(colour) = colour {
+        let band = Rect::from_min_size(rect.min, Vec2::new(rect.width(), 3.0));
+        painter.rect_filled(
+            band,
+            CornerRadius {
+                nw: theme::RADIUS,
+                ne: theme::RADIUS,
+                sw: 0,
+                se: 0,
+            },
+            theme::rgb(colour),
+        );
+    }
     let inner = rect.shrink2(Vec2::new(SPACE_SM, SPACE_XS + 1.0));
     // A child that is *not* merged back into the row: a widget that is
     // wider than its cell must overflow into the clip, not push the next
@@ -328,7 +353,8 @@ fn cell(
     let learning = remote
         .engine
         .is_learning_target(&Target::Macro { id: found.id });
-    let response = frame(ui, theme, |ui, width| {
+    let colour = found.color.map(|index| macro_colour(theme, index));
+    let response = frame(ui, theme, colour, |ui, width| {
         let badge = match &flat {
             Ok(flat) => flat.target.badge(),
             Err(_) => found.target.badge(),
@@ -389,8 +415,20 @@ fn cell(
             ui.close();
         }
     });
-    if !card.tip.is_empty() {
-        response.on_hover_text(format!("Driven by {}", card.tip));
+    let reach = found.range.map(|[low, high]| {
+        format!(
+            "; a fader reaches {:.0}% to {:.0}% of the range",
+            low * 100.0,
+            high * 100.0
+        )
+    });
+    if !card.tip.is_empty() || reach.is_some() {
+        let driven = if card.tip.is_empty() {
+            "No source yet".to_owned()
+        } else {
+            format!("Driven by {}", card.tip)
+        };
+        response.on_hover_text(format!("{driven}{}", reach.unwrap_or_default()));
     }
     chosen
 }

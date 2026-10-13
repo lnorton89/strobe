@@ -237,9 +237,61 @@ pub fn decimals(min: f32, max: f32) -> usize {
     }
 }
 
+/// Pinning a control as a Performance Macro from its row (D210): the
+/// name's context menu offers it.
+pub struct Pins<'a> {
+    /// The bank's controls that already have a pinned macro, by name.
+    pub pinned: &'a [String],
+    /// What was chosen this frame: a control's name, and pin (`true`) or
+    /// unpin.
+    pub chosen: Option<(String, bool)>,
+}
+
+/// Gives `response` (a control's name or button) the pin menu.
+fn pin_menu(response: &Response, def: &ControlDef, pins: &mut Option<&mut Pins<'_>>) {
+    let Some(pins) = pins.as_deref_mut() else {
+        return;
+    };
+    let pinned = pins.pinned.contains(&def.name);
+    response.context_menu(|ui| {
+        let (label, pin) = if pinned {
+            ("Unpin the macro", false)
+        } else {
+            ("Pin as a macro", true)
+        };
+        if ui.button(label).clicked() {
+            pins.chosen = Some((def.name.clone(), pin));
+            ui.close();
+        }
+    });
+}
+
+/// A control's name, which right-clicks to the pin menu.
+fn name_label(
+    ui: &mut Ui,
+    theme: &Palette,
+    def: &ControlDef,
+    pins: &mut Option<&mut Pins<'_>>,
+) -> Response {
+    let response = ui.add(
+        egui::Label::new(egui::RichText::new(&def.name).color(theme::rgb(theme.text)))
+            .sense(Sense::click()),
+    );
+    pin_menu(&response, def, pins);
+    response
+}
+
 /// Draws every control in `members` (indices into the bank). Group headers
-/// are the inspector's business; this draws the rows.
-pub fn rows(ui: &mut Ui, theme: &Palette, bank: &mut ControlBank, members: &[usize]) {
+/// are the inspector's business; this draws the rows. With `pins`, a
+/// control's name offers to pin it as a macro.
+pub fn rows(
+    ui: &mut Ui,
+    theme: &Palette,
+    bank: &mut ControlBank,
+    members: &[usize],
+    mut pins: Option<&mut Pins<'_>>,
+) {
+    let pins = &mut pins;
     for &index in members {
         let Some(def) = bank.defs().get(index).cloned() else {
             continue;
@@ -248,13 +300,19 @@ pub fn rows(ui: &mut Ui, theme: &Palette, bank: &mut ControlBank, members: &[usi
         let output = bank.output(index).copied().unwrap_or_default();
         ui.push_id(index, |ui| match def.kind {
             ControlKind::Slider(_) | ControlKind::Knob(_) => {
-                slider_row(ui, theme, bank, index, &def, target[0]);
+                slider_row(ui, theme, bank, index, &def, target[0], pins);
             }
-            ControlKind::Toggle { .. } => toggle_row(ui, theme, bank, index, &def, target[0]),
-            ControlKind::Bang(kind) => bang_row(ui, theme, bank, index, &def, kind, output[0]),
-            ControlKind::Xy(_) => xy_row(ui, theme, bank, index, &def, target),
-            ControlKind::Color { .. } => color_row(ui, bank, index, &def, target),
-            ControlKind::Dropdown { .. } => dropdown_row(ui, bank, index, &def, target[0]),
+            ControlKind::Toggle { .. } => {
+                toggle_row(ui, theme, bank, index, &def, target[0], pins);
+            }
+            ControlKind::Bang(kind) => {
+                bang_row(ui, theme, bank, index, &def, kind, output[0], pins);
+            }
+            ControlKind::Xy(_) => xy_row(ui, theme, bank, index, &def, target, pins),
+            ControlKind::Color { .. } => color_row(ui, theme, bank, index, &def, target, pins),
+            ControlKind::Dropdown { .. } => {
+                dropdown_row(ui, theme, bank, index, &def, target[0], pins);
+            }
         });
         ui.add_space(SPACE_XS);
     }
@@ -295,6 +353,7 @@ fn slider_row(
     index: usize,
     def: &ControlDef,
     v: f32,
+    pins: &mut Option<&mut Pins<'_>>,
 ) {
     let (min, max, default) = (def.min[0], def.max[0], def.default[0]);
     if (max - min).abs() < f32::EPSILON {
@@ -305,7 +364,7 @@ fn slider_row(
     let places = decimals(min, max);
     let modified = (value - default).abs() > (max - min).abs() * 0.001;
     ui.horizontal(|ui| {
-        let label = ui.label(egui::RichText::new(&def.name).color(theme::rgb(theme.text)));
+        let label = name_label(ui, theme, def, pins);
         describe(label, def);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             // Reserve the reset button's slot whether or not it is shown, so
@@ -346,6 +405,7 @@ fn toggle_row(
     index: usize,
     def: &ControlDef,
     v: f32,
+    pins: &mut Option<&mut Pins<'_>>,
 ) {
     let on = def.normalize(0, v) >= 0.5;
     let response = ui
@@ -369,7 +429,7 @@ fn toggle_row(
                     egui::StrokeKind::Outside,
                 );
             }
-            ui.label(egui::RichText::new(&def.name).color(theme::rgb(theme.text)));
+            name_label(ui, theme, def, pins);
             ui.label(
                 egui::RichText::new(if on { "ON" } else { "OFF" })
                     .small()
@@ -384,6 +444,10 @@ fn toggle_row(
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one call site; a row's whole context, as its siblings take"
+)]
 fn bang_row(
     ui: &mut Ui,
     theme: &Palette,
@@ -392,9 +456,11 @@ fn bang_row(
     def: &ControlDef,
     kind: Bang,
     output: f32,
+    pins: &mut Option<&mut Pins<'_>>,
 ) {
     ui.horizontal(|ui| {
         let response = bang_button(ui, theme, &def.name);
+        pin_menu(&response, def, pins);
         if describe(response, def).clicked() {
             bank.press(index);
         }
@@ -463,10 +529,11 @@ fn xy_row(
     index: usize,
     def: &ControlDef,
     v: [f32; 3],
+    pins: &mut Option<&mut Pins<'_>>,
 ) {
     let modified = def.default[0] != v[0] || def.default[1] != v[1];
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(&def.name).color(theme::rgb(theme.text)));
+        name_label(ui, theme, def, pins);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if modified && reset_button(ui, theme).clicked() {
                 bank.set_default(index);
@@ -536,17 +603,33 @@ fn xy_row(
     painter.circle_filled(at, 5.0, theme::rgb(theme.accent));
 }
 
-fn color_row(ui: &mut Ui, bank: &mut ControlBank, index: usize, def: &ControlDef, v: [f32; 3]) {
+fn color_row(
+    ui: &mut Ui,
+    theme: &Palette,
+    bank: &mut ControlBank,
+    index: usize,
+    def: &ControlDef,
+    v: [f32; 3],
+    pins: &mut Option<&mut Pins<'_>>,
+) {
     ui.horizontal(|ui| {
         let mut rgb = v;
         if describe(ui.color_edit_button_rgb(&mut rgb), def).changed() {
             bank.set(index, None, &rgb);
         }
-        ui.label(&def.name);
+        name_label(ui, theme, def, pins);
     });
 }
 
-fn dropdown_row(ui: &mut Ui, bank: &mut ControlBank, index: usize, def: &ControlDef, v: f32) {
+fn dropdown_row(
+    ui: &mut Ui,
+    theme: &Palette,
+    bank: &mut ControlBank,
+    index: usize,
+    def: &ControlDef,
+    v: f32,
+    pins: &mut Option<&mut Pins<'_>>,
+) {
     let selected = (v.round().max(0.0) as usize).min(def.labels.len().saturating_sub(1));
     let current = def.labels.get(selected).cloned().unwrap_or_default();
     ui.horizontal(|ui| {
@@ -560,7 +643,7 @@ fn dropdown_row(ui: &mut Ui, bank: &mut ControlBank, index: usize, def: &Control
                 }
             });
         describe(response.response, def);
-        ui.label(&def.name);
+        name_label(ui, theme, def, pins);
     });
 }
 

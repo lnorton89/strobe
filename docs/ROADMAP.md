@@ -64,8 +64,8 @@ Each item names its acceptance test. Evidence is in [STATUS_AUDIT.md](STATUS_AUD
    (screenshots in [images/perform/](images/perform/)). *Left (stage 2):*
    - ~~a curated, persistent Performance Macro set with target resolution
      and the unavailable, broken, learning and conflict states~~ (built,
-     D175; left: a range and colour editor, a shortcut and smoothing per
-     macro, pinning from the Controls pane);
+     D175; the range and colour editor and pinning from the Inspector are
+     built, D210; left: a shortcut and smoothing per macro);
    - the Playlist workspace (LIST) with real cues, NEXT and remaining
      time, and Hold wired to it (the LIST pane is built, D157); ~~the Editor
      (EDIT) workspace~~ (built, D204) and a full Mappings workspace (the MAP pane with MIDI
@@ -181,8 +181,8 @@ Each item names its acceptance test. Evidence is in [STATUS_AUDIT.md](STATUS_AUD
    - ~~an OSC **output** for feedback~~ (built, D209); a MIDI output (needs a
      device to test against);
    - Synesthesia's OSC address layout, if it is wanted (Q23);
-   - macro range and colour editors, per-macro shortcut and smoothing, a pin
-     button in the Controls pane;
+   - ~~macro range and colour editors, pinning from the Controls pane~~
+     (built, D210); a shortcut and smoothing per macro;
    - ~~an in-app hotkey editor~~ (built, D208);
    - presets for **media** (PLAN's third channel) once media is controllable,
      and renaming a preset;
@@ -334,13 +334,13 @@ never per frame.
 | 3 | Audio | Integrated (D61). The bench still uses the synthetic stand-in. |
 | 4 | Shadertoy import | The converter (D90-D95), acquisition (REST client, texture downloader, localhost listener), the Import panel, file drop and the userscript (D110-D117) are built, and stage 1 of auto-generated controls (D123-D126). Open: live-site verification (Q19), thumbnails, the Needs-work bin, batch import, and the app's review panel for generated controls. |
 | 5 | Playlists | The pure core (D73-D77) and the app integration (D150-D158) are built. Verified on the T480 (Task 14). Open: audio-event advance, the Playlist workspace's inspector, MIDI/OSC. |
-| 6 | Presets, MIDI, OSC, hotkeys | Built (D170-D179): `strobe-io`, presets and fav slots, the MAP pane, macros stage 2, hotkeys. Open: a controller on the T480, MIDI output (OSC feedback is built, D209), macro editors. |
+| 6 | Presets, MIDI, OSC, hotkeys | Built (D170-D179): `strobe-io`, presets and fav slots, the MAP pane, macros stage 2, hotkeys. Open: a controller on the T480, MIDI output (OSC feedback is built, D209), a shortcut and smoothing per macro (the range and colour editor is built, D210). |
 | 7b | LAN remote / PWA | Protocol crate started in `strobe-remote`; no listener or UI integration yet. Next: secure service lifecycle, pairing/revocation, typed command bridge, mobile controller, then solve HTTPS before claiming installable PWA support. See [REMOTE_CONTROL_PWA_RESEARCH.md](REMOTE_CONTROL_PWA_RESEARCH.md). |
 | 7 | NDI, media input, song-change transitions | Not started, except media stills and image sequences (D186); video, webcam and NDI are open. `HARD`/`SMOOTH_TRANSITIONS` are declared but never change. |
 
 ## Known gaps in what exists
 
-- The performer-facing UI is at stage 1 plus the Playlist pane (D157) and the MAP pane (D177) and the Editor (D204): thumbnails are not built, a macro's range and colour have no editor, and none of it has run on the T480.
+- The performer-facing UI is at stage 1 plus the Playlist pane (D157) and the MAP pane (D177) and the Editor (D204): thumbnails are not built, and none of it has run on the T480 with real input.
 - Context-loss recovery is verified under Xvfb with injected faults;
   real-driver behaviour on the T480 is pending (bug 1, D66).
 - The bench's `syn_Spectrum` and `syn_LevelTrail` are silent placeholders,

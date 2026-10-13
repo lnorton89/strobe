@@ -153,6 +153,9 @@ checked and not committed. Interaction was driven with xdotool.
 - [ ] The UI's frame cost and a Preview's GPU cost on the T480 (the layout
   pass was about 1 ms in a debug build on llvmpipe; the paint there is
   software rasterisation and says nothing).
+- [x] The macro range and colour editor, and pinning from the Inspector
+  (D210). Evidence: `strobe-io` `macros` tests, the shell scenarios, and a
+  strip screenshot under Xvfb. Not yet: real input on the T480.
 - [x] OSC feedback out (D209). Evidence: `strobe-io` `feedback` tests,
   and the app under Xvfb sending its state to a Python listener and
   following a control set over OSC. Not yet: a real TouchOSC layout, and

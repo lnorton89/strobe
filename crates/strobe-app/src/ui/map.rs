@@ -646,11 +646,92 @@ fn macro_options(ui: &mut Ui, theme: &Palette, remote: &mut Remote, id: u32) {
                 .collect();
         }
     });
+    // Reach: the part of the control's range a fader or knob covers (D210).
+    let [mut low, mut high] = found.range.unwrap_or([0.0, 1.0]);
+    ui.horizontal(|ui| {
+        ui.label(
+            egui::RichText::new("Reach")
+                .small()
+                .color(theme::rgb(theme.text_muted)),
+        )
+        .on_hover_text(
+            "The part of the control's range a mapped fader or knob covers: a fader's bottom \
+             is the low end and its top the high end.",
+        );
+        ui.add(percent(&mut low));
+        ui.label(
+            egui::RichText::new("to")
+                .small()
+                .color(theme::rgb(theme.text_muted)),
+        );
+        ui.add(percent(&mut high));
+        if found.range.is_some() && ui.small_button("Full").clicked() {
+            low = 0.0;
+            high = 1.0;
+        }
+    });
+    let range = Some([low, high]);
+    // Colour: an identity for the card, from the theme's series.
+    let mut colour = found.color;
+    ui.horizontal(|ui| {
+        ui.label(
+            egui::RichText::new("Colour")
+                .small()
+                .color(theme::rgb(theme.text_muted)),
+        );
+        if ui
+            .selectable_label(colour.is_none(), "none")
+            .on_hover_text("The theme's accent")
+            .clicked()
+        {
+            colour = None;
+        }
+        for index in 0..strobe_io::macros::COLOURS {
+            let fill = super::macros::macro_colour(theme, index);
+            let (rect, response) =
+                ui.allocate_exact_size(egui::vec2(16.0, 16.0), egui::Sense::click());
+            ui.painter()
+                .rect_filled(rect, egui::CornerRadius::same(4), theme::rgb(fill));
+            if colour == Some(index) {
+                ui.painter().rect_stroke(
+                    rect.expand(2.0),
+                    egui::CornerRadius::same(5),
+                    egui::Stroke::new(1.5, theme::rgb(theme.text)),
+                    egui::StrokeKind::Outside,
+                );
+            }
+            if response.clicked() {
+                colour = Some(index);
+            }
+        }
+    });
     if found != before {
         remote.engine.macros.rename(id, &found.name);
         remote.engine.macros.set_enabled(id, found.enabled);
         remote.engine.macros.set_aliases(id, found.aliases);
     }
+    if range != Some(before.range.unwrap_or([0.0, 1.0])) {
+        remote.engine.macros.set_range(id, range);
+    }
+    if colour != before.color {
+        remote.engine.macros.set_color(id, colour);
+    }
+}
+
+/// A fraction edited as a percentage.
+fn percent(value: &mut f32) -> egui::DragValue<'_> {
+    egui::DragValue::new(value)
+        .range(0.0..=1.0)
+        .speed(0.005)
+        .custom_formatter(|v, _| format!("{:.0}%", v * 100.0))
+        .custom_parser(|text| {
+            text.trim()
+                .trim_end_matches('%')
+                .trim()
+                .parse::<f64>()
+                .ok()
+                .map(|v| v / 100.0)
+        })
 }
 
 // ------------------------------------------------------------ add form
