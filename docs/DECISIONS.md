@@ -4791,3 +4791,36 @@ fixtures, in the desktop dialect only, since SPIR-V needs ES 3.10.
 
 **Would reopen:** macOS dropping OpenGL, a target with no GL or ANGLE, or
 naga gaining combined samplers. Rerun the tool to check the last.
+
+### D256: the wordmark is Space Grotesk set as outlines, and the lockups use the icon's ribbon (2026-10-13)
+
+R-06 still needed the wordmark, the two lockups, a one-colour mark, the
+README banner and the social preview (branding.md sections 2 and 6).
+
+- **Type as outlines.** `cargo xtask brand` renders with no system fonts,
+  on purpose, so the output never depends on the machine.
+  `assets/brand/tools/typeset.py` sets the type into SVG paths with
+  fontTools: STROBE in Space Grotesk Medium tracked at 0.14 em, and SHADER
+  VISUALIZER at 22% of that size, tracked at 0.32 em, in Muted.
+  - Space Grotesk is the guide's typeface and is SIL OFL 1.1. Outlines in a
+    logo are allowed. The font file is not committed; the script's header
+    says where to fetch it.
+  - The script also writes the lockups, the mono mark, the banner and the
+    social-preview overlay, so their geometry comes from one place: the
+    wordmark's cap height is the unit, as the guide's clear-space rule asks.
+- **The lockups use the production ribbon.** They take the application
+  icon's heavy ribbon and two contours, without the tile. `mark.svg`'s
+  fine contours are 2.3 px at 512 and vanish at the 180 px minimum width
+  of a horizontal lockup.
+- **The social preview is a real render.** The guide asks for real output,
+  not a mockup. The background is `12-silicon-atlas` from `strobe-bench`,
+  committed as `social-render.png`. `xtask brand` decodes it with
+  tiny-skia and draws the SVG overlay on top, so resvg still needs no raster
+  decoders and no new dependency.
+- **Checked like the icons.** `banner.png`, both lockup PNGs and
+  `social-preview.png` are in `xtask brand --check`, so CI fails if a
+  source changes without its rasters.
+- **The README header** is now the banner.
+
+**Would reopen:** a designer's own wordmark, which would replace the
+script's output and keep the same file names.

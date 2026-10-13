@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/brand/icon-128.png" width="96" height="96" alt="The Strobe ribbon mark">
+<img src="assets/brand/banner.png" alt="Strobe, shader visualizer: the ribbon mark beside the wordmark">
 
 # Strobe
 

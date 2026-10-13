@@ -10,6 +10,26 @@ for using it are in [the brand guidelines](../../docs/branding.md).
 | `mark.svg` | The concept ribbon mark with its fine contours. It is a design starting point, not the final production mark. |
 | `icon.svg` | The application icon for 48 px and up: the ribbon with two contours, on the dark tile. |
 | `icon-small.svg` | The application icon for 32 px and below: no contours, the innermost turn dropped, a heavier stroke (guide section 2: "do not merely shrink the detailed master"). |
+| `mark-mono.svg` | The production ribbon in one colour, `currentColor` (near-black unless a page sets it), for print and low-colour use. |
+| `social-render.png` | A real frame for the social preview: `12-silicon-atlas` from `strobe-bench --size 1280x640 --frames 3 --warmup 120`. |
+
+### Written by `tools/typeset.py` (edit the script, not these)
+
+The type is Space Grotesk Medium (SIL Open Font License 1.1, copyright
+2020 The Space Grotesk Project Authors) set as outlines, so nothing here
+needs a font to render. The font itself is not in the repository; the
+script's header says where to fetch it.
+
+| File | What it is |
+|---|---|
+| `wordmark.svg` | STROBE, tracked, in Text (`#F3F6FA`), for dark backgrounds. |
+| `lockup-horizontal.svg` | The ribbon left of STROBE and SHADER VISUALIZER. |
+| `lockup-stacked.svg` | The ribbon above STROBE, SHADER VISUALIZER below. |
+| `banner.svg` | The horizontal lockup on a dark field with one quiet glow, 1280x320. |
+| `social-preview.svg` | The overlay for the social preview: a fading band, the ribbon and STROBE. |
+
+The lockups use the application icon's heavy ribbon without its tile, not
+the fine-contour `mark.svg`, whose 2.3 px strokes vanish at lockup sizes.
 
 ## Generated (never edit by hand)
 
@@ -20,6 +40,8 @@ render. Both `cargo xtask ci` and CI run the check.
 - `icon-16.png`, `icon-24.png`, `icon-32.png`: from `icon-small.svg`.
 - `icon-48.png`, `icon-64.png`, `icon-128.png`, `icon-256.png`, `icon-512.png`: from `icon.svg`.
 - `icon.ico`: 16, 24, 32, 48, 64 and 256, stored as PNG entries.
+- `banner.png` (1280 wide), `lockup-horizontal.png` (960) and `lockup-stacked.png` (640): from their SVGs, at their own aspect ratio.
+- `social-preview.png`: `social-preview.svg` drawn over `social-render.png`, 1280x640.
 
 The app compiles `icon-48.png` in as the window and taskbar icon
 (`strobe_app::brand`). The title bar draws the small ribbon as vector
@@ -27,11 +49,7 @@ geometry in the theme's accent (D190).
 
 ## Still to make
 
-- `mark-mono.svg`
-- `wordmark.svg`
-- `lockup-horizontal.svg`, `lockup-stacked.svg`
-- `banner.png`, `social-preview.png`
-- the icon embedded as a Windows `.exe` resource (with the release packaging, Q12)
+- A look at the icon in Explorer and on the taskbar by a person, on Windows (R-06).
 
 ## Color tokens
 
