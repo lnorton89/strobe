@@ -554,6 +554,42 @@ survives export.
   held by another program on WinMM, message rates), Windows or the T480 for any
   of it, OSC from another machine (`--osc-all-interfaces` was only bound, never
   reached from a LAN), and a person's use of Learn with a controller.
+- [~] LAN remote v1 (D250-D254, 2026-10-13). **Verified, with evidence:**
+  - the listener over real loopback sockets in CI
+    (`crates/strobe-remote/tests/server.rs`, 17 tests): the page and its
+    CSP; a foreign `Host` (421) and `Origin` (403); pairing only with the
+    code and an Approve, denial, a replayed code, five wrong guesses burning
+    the code; token rotation, revocation dropping open connections, paired
+    clients surviving a restart; oversized, malformed, unmasked, binary and
+    non-UTF-8 frames; a flood (1008); a full command queue answered busy
+    with nothing queued beyond its capacity; a client that stops reading
+    dropped; the connection limit (503); idle, unpaired and half-sent
+    requests timed out; stop dropping every client at once and freeing the
+    port; a public address refused and a taken port explained; and a log
+    capture finding no code or token in any log line;
+  - interoperability with a real WebSocket implementation: Node 22's
+    built-in client (undici) fetched the page, paired, ran `blackout_on` and
+    saw the state change, re-authenticated with a rotated token, and was
+    refused without an `Origin` (a scratch server on loopback, 2026-10-13);
+  - **the running app** under Xvfb with llvmpipe (`--remote --remote-bind
+    127.0.0.1`, a paired client seeded in `remote-clients.json`), driven by
+    Node's WebSocket client: the log has `remote: listening on
+    127.0.0.1:47820`, `client c0000abcd connected`, `blackout on` with
+    `remote: ran blackout_on`, `remote: refused toggle_hold: needs a
+    playlist; load one on the desktop`, `remote: ran next_scene` with
+    `Loaded 01-aurora-gradient`, and `blackout off`; the phone side received
+    `authenticated`, a rotated token, and a state message after each change
+    (revisions 1 to 4). The title bar's "Remote on" and Stop remote are in
+    [`remote-on-1440x900.png`](images/perform/remote-on-1440x900.png);
+  - the app side: `strobe_app::lan` tests (nothing listens until started,
+    refusals for playlist commands, start, publish and stop), the
+    `--remote` flags, and the shell drawn with the remote on and a phone
+    waiting at every size without overflow (`shell_tests`);
+  - `cargo deny` clean with `sha1` 0.10 added.
+  **Not verified:** any phone or tablet (Android Chrome, iOS Safari) over
+  Wi-Fi, the page rendered in a real browser, the Windows firewall prompt,
+  Windows at all, multiple phones, Wi-Fi loss and sleep, and the T480 soak
+  for frame time, idle CPU and memory (L-08).
 - [ ] Run a tag-triggered release, then inspect:
   - the zip and the ANGLE DLL provenance;
   - the matching PDB archive;
