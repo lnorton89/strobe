@@ -138,11 +138,12 @@ fn run(cli: cli::Cli) -> Result<(), Stopped> {
         error,
         after_start: false,
     };
-    let (library, scan_error) = match library::Library::scan(&cli.library) {
+    let library_dir = library::resolve(&cli.library);
+    let (library, scan_error) = match library::Library::scan(&library_dir) {
         Ok(library) => (library, None),
         Err(error) => (
             library::Library {
-                dir: cli.library.clone(),
+                dir: library_dir.clone(),
                 entries: Vec::new(),
             },
             Some(error),

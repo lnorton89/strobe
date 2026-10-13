@@ -174,6 +174,29 @@ pub struct Library {
     pub entries: Vec<Entry>,
 }
 
+/// The library folder `path` names. A relative path that is not a folder
+/// under the current directory is looked for beside the program, so a
+/// packaged build finds its bundled `scenes` whatever folder it is started
+/// from (a terminal, a shortcut, `PATH`; T480 Task 21). A path found in
+/// neither place is returned unchanged, and the scan reports it.
+pub fn resolve(path: &Path) -> PathBuf {
+    let beside = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(Path::to_path_buf));
+    resolve_with(path, beside.as_deref())
+}
+
+/// [`resolve`] with the program's folder given.
+pub fn resolve_with(path: &Path, program_dir: Option<&Path>) -> PathBuf {
+    if path.is_absolute() || path.is_dir() {
+        return path.to_path_buf();
+    }
+    match program_dir.map(|dir| dir.join(path)) {
+        Some(candidate) if candidate.is_dir() => candidate,
+        Some(_) | None => path.to_path_buf(),
+    }
+}
+
 impl Library {
     /// Lists the scenes under `dir`.
     pub fn scan(dir: &Path) -> Result<Self, String> {
@@ -206,6 +229,33 @@ impl Library {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_relative_library_is_found_beside_the_program() -> anyhow::Result<()> {
+        let root = std::env::temp_dir().join(format!("strobe-resolve-{}", std::process::id()));
+        let program = root.join("app");
+        std::fs::create_dir_all(program.join("bundled-scenes-for-test"))?;
+        let found = resolve_with(Path::new("bundled-scenes-for-test"), Some(&program));
+        assert_eq!(
+            found,
+            program.join("bundled-scenes-for-test"),
+            "not under the current directory, so beside the program"
+        );
+        let missing = resolve_with(Path::new("nowhere-at-all"), Some(&program));
+        assert_eq!(
+            missing,
+            PathBuf::from("nowhere-at-all"),
+            "found nowhere: unchanged, for the scan to report"
+        );
+        let absolute = root.join("elsewhere");
+        assert_eq!(
+            resolve_with(&absolute, Some(&program)),
+            absolute,
+            "an absolute path is taken as given"
+        );
+        std::fs::remove_dir_all(&root)?;
+        Ok(())
+    }
 
     fn library(names: &[&str]) -> Library {
         Library {
