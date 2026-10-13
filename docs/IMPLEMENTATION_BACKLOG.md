@@ -83,7 +83,7 @@
 - **Acceptance:** duplicate/conflicting shortcuts are surfaced and resolved explicitly; text entry cannot accidentally trigger a show command.
 
 ### U-06 Named layouts, density, favourites and scene thumbnails
-- **Status:** Open.
+- **Status:** In progress: favourites are built (D211). Left: thumbnails, named layouts, density.
 - **Work:** save/rename/delete named pane layouts; density options; scene favourites and tags; generate/cache thumbnails off the frame thread; show loading/failed states and invalidation when a scene changes.
 - **Acceptance:** layout and favourites persist; thumbnails never compile/render during paint; cache is bounded; browser remains usable at 1280x720 without horizontal scrolling.
 

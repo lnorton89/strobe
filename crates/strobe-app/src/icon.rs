@@ -123,6 +123,8 @@ pub enum Icon {
     Audio,
     /// The control inspector: three faders.
     Controls,
+    /// A favourite: a five-pointed star.
+    Star,
 }
 
 /// One stroked part of an icon, in grid space.
@@ -292,6 +294,18 @@ impl Icon {
                 Seg::Open(&[(9.5, 6.0), (9.5, 12.5)]),
                 Seg::Open(&[(12.5, 9.5), (12.5, 12.5)]),
             ],
+            Self::Star => &[Seg::Closed(&[
+                (8.0, 2.4),
+                (9.5, 6.4),
+                (13.7, 6.5),
+                (10.4, 9.2),
+                (11.5, 13.3),
+                (8.0, 10.9),
+                (4.5, 13.3),
+                (5.6, 9.2),
+                (2.3, 6.5),
+                (6.5, 6.4),
+            ])],
             Self::Controls => &[
                 Seg::Open(&[(4.0, 2.5), (4.0, 13.5)]),
                 Seg::Circle(4.0, 10.0, 1.7),
@@ -349,7 +363,7 @@ mod tests {
     /// Every icon the enum names, so a new variant is drawn by the tests
     /// below without anyone remembering to add it. Kept in declaration
     /// order: the check below reads each entry's discriminant.
-    const ALL: [Icon; 32] = [
+    const ALL: [Icon; 33] = [
         Icon::Perform,
         Icon::Library,
         Icon::Playlist,
@@ -382,6 +396,7 @@ mod tests {
         Icon::Fullscreen,
         Icon::Audio,
         Icon::Controls,
+        Icon::Star,
     ];
 
     // `ALL` names each icon exactly once, checked when the tests are

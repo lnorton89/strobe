@@ -217,6 +217,7 @@ fn filter_row(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette) {
                 HealthFilter::All => "Every scene",
                 HealthFilter::Ready => "Scenes that have loaded successfully this run",
                 HealthFilter::Failed => "Scenes that failed to load: they need work",
+                HealthFilter::Favourites => "Scenes you starred",
             };
             if widgets::tool_button(ui, theme, filter_icon(filter), filter.label(), active, tip)
                 .clicked()
@@ -242,6 +243,7 @@ fn filter_icon(filter: HealthFilter) -> Icon {
         HealthFilter::All => Icon::Library,
         HealthFilter::Ready => Icon::Check,
         HealthFilter::Failed => Icon::Warning,
+        HealthFilter::Favourites => Icon::Star,
     }
 }
 
@@ -358,7 +360,10 @@ fn row(
     );
     let text_x = rect.left() + theme::SPACE_MD + 18.0;
     let buttons = if selected { 142.0 } else { 0.0 };
-    let text_width = (rect.right() - text_x - SPACE_SM - buttons).max(40.0);
+    // The star sits just left of the buttons and always has its slot, so
+    // the name does not reflow when a row is hovered (D211).
+    const STAR: f32 = 20.0;
+    let text_width = (rect.right() - text_x - SPACE_SM - buttons - STAR - SPACE_XS).max(40.0);
     let name_colour = if playing { theme.accent } else { theme.text };
     let font = egui::TextStyle::Body.resolve(ui.style());
     let name = widgets::truncated(ui, &entry.name, font, name_colour, text_width);
@@ -384,6 +389,40 @@ fn row(
     }
     if response.double_clicked() && !playing {
         actions.push(Action::Load(index));
+    }
+
+    let favourite = model.ui.browser.is_favourite(&entry.name);
+    let star = Rect::from_center_size(
+        egui::pos2(
+            rect.right() - buttons - SPACE_SM - STAR / 2.0,
+            rect.center().y,
+        ),
+        Vec2::splat(STAR),
+    );
+    let star_response = ui.interact(star, id.with("star"), Sense::click());
+    if favourite || response.hovered() || star_response.hovered() || selected {
+        let colour = if favourite {
+            theme.warning
+        } else if star_response.hovered() {
+            theme.text_muted
+        } else {
+            theme.text_faint
+        };
+        icons::paint(
+            ui.painter(),
+            Rect::from_center_size(star.center(), Vec2::splat(icons::DISCLOSURE + 2.0)),
+            Icon::Star,
+            theme::rgb(colour),
+        );
+    }
+    let star_response = star_response.on_hover_text(if favourite {
+        "Remove from favourites"
+    } else {
+        "Add to favourites"
+    });
+    if star_response.clicked() {
+        let name = entry.name.clone();
+        model.ui.browser.toggle_favourite(&name);
     }
 
     if selected {

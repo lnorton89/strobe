@@ -80,6 +80,8 @@ pub struct BrowserPref {
     pub query: String,
     /// The health filter, by [`crate::library::HealthFilter::key`].
     pub filter: String,
+    /// Favourite scenes, by library name (D211).
+    pub favourites: Vec<String>,
 }
 
 impl Default for BrowserPref {
@@ -87,6 +89,7 @@ impl Default for BrowserPref {
         Self {
             query: String::new(),
             filter: "all".to_string(),
+            favourites: Vec::new(),
         }
     }
 }
@@ -379,6 +382,7 @@ mod tests {
             BrowserPref {
                 query: "tunnel".to_string(),
                 filter: "failed".to_string(),
+                favourites: vec!["05-domain-warp".to_string()],
             },
             vec!["Motion".to_string()],
         )
