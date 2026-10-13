@@ -68,6 +68,11 @@ impl Media {
         })
     }
 
+    /// What this media was asked for; `None` for no media.
+    pub(crate) fn request(&self) -> Option<&MediaRequest> {
+        self.request.as_ref()
+    }
+
     /// The path this media was asked for, for messages.
     pub(crate) fn label(&self) -> String {
         self.request

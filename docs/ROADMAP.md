@@ -185,8 +185,8 @@ Each item names its acceptance test. Evidence is in [STATUS_AUDIT.md](STATUS_AUD
    - ~~macro range and colour editors, pinning from the Controls pane~~
      (built, D210); a shortcut and smoothing per macro;
    - ~~an in-app hotkey editor~~ (built, D208);
-   - presets for **media** (PLAN's third channel) once media is controllable,
-     and renaming a preset;
+   - presets for **media** (PLAN's third channel; media is now chosen in
+     the Inspector and per cue, D217); ~~renaming a preset~~ (built, D214);
    - a MIDI-learn flow exercised by a person on the T480 (the Learn click is
      verified under Xvfb with OSC only).
 
@@ -218,8 +218,8 @@ Each item names its acceptance test. Evidence is in [STATUS_AUDIT.md](STATUS_AUD
      capture dependency the engine does not carry (nothing heavy should be
      added for them);
    - checking the `MEDIA` / `CUBEMAPS` / `syn_MediaType` shapes against SSF's
-     docs (Q22), and a media picker in the UI (only `--media` exists);
-   - media per playlist cue (a cue plays the scene's own `MEDIA`);
+     docs (Q22); ~~a media picker in the UI~~ and ~~media per playlist
+     cue~~ (built, D217: the Inspector's Media row and a cue's `media` key);
    - the T480: the cost of uploading a long sequence, and VRAM with 192 MiB
      of frames on shared memory.
 

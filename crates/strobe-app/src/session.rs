@@ -133,6 +133,8 @@ pub struct PanelParts<'a> {
     pub presets: &'a [String],
     /// The preset last recalled or saved.
     pub active_preset: Option<&'a str>,
+    /// The player, for what `syn_Media` shows (D217).
+    pub player: &'a ScenePlayer,
 }
 
 /// One loaded, compiled scene.
@@ -441,6 +443,7 @@ impl Session {
             script: self.script.as_ref().map(ScriptRun::state),
             presets: &self.preset_names,
             active_preset: self.active_preset.as_deref(),
+            player: &self.player,
         }
     }
 

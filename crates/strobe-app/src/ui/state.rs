@@ -181,6 +181,8 @@ pub struct UiState {
     pub editor: super::editor::EditorUi,
     /// The Inspector's tag field while it is open. Not saved.
     pub tag_draft: Option<String>,
+    /// The Inspector's media path field while it is open (D217). Not saved.
+    pub media_draft: Option<String>,
     /// The Settings pane's shortcut editor. Not saved.
     pub hotkeys: super::keys::HotkeyEditor,
     /// The browser's scene thumbnails (D212). Not saved.
@@ -250,6 +252,7 @@ impl UiState {
             command_palette: super::command_palette::PaletteUi::default(),
             editor: super::editor::EditorUi::default(),
             tag_draft: None,
+            media_draft: None,
             hotkeys: super::keys::HotkeyEditor::default(),
             thumbs: super::thumbs::Thumbs::default(),
             layouts: prefs.layouts.clone(),

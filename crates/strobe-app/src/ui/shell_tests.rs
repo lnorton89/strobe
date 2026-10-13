@@ -593,6 +593,13 @@ fn draw_events(
             playing: scenario.playing.then_some(0),
             scene_title: if scenario.playing { "Aurora Field" } else { "" },
             controls: scenario.playing.then_some(&mut bank),
+            media: scenario.playing.then_some(crate::ui::MediaPanel {
+                showing: Some(std::path::Path::new("loops/rain")),
+                from: crate::ui::MediaFrom::Chosen,
+                loading: false,
+                read: true,
+                chosen: true,
+            }),
             meta: scenario.playing.then_some(&mut meta_bank),
             preview: scenario.playing.then_some(image),
             scene_preview: scenario.previewing.then_some(ScenePreview {

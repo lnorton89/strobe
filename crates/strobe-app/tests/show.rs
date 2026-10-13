@@ -145,6 +145,7 @@ impl<'a> Rig<'a> {
             start_time: 0.0,
             mouse: Mouse::default(),
             date: [2026.0, 9.0, 10.0, 0.0],
+            media: None,
         }
     }
 
@@ -543,6 +544,95 @@ fn the_operators_output_settings_carry_across_cues_under_a_cues_own_meta() -> Re
             cue(2),
             Some((2, 0.0, 0.5)),
             "{api:?}: a cue's own meta wins, the rest carries: {seen:?}"
+        );
+        show.finish();
+    }
+    Ok(())
+}
+
+/// A library with one scene, `pic`, that shows `syn_Media` and names
+/// `own.png` as its own; `chosen.png` sits beside it for a cue to name.
+fn media_library(tag: &str) -> Result<TempLibrary> {
+    let root = std::env::temp_dir().join(format!("strobe-show-{}-{tag}", std::process::id()));
+    let dir = root.join("pic.synScene");
+    std::fs::create_dir_all(&dir)?;
+    std::fs::write(dir.join("scene.json"), r#"{ "MEDIA": "own.png" }"#)?;
+    std::fs::write(
+        dir.join("main.glsl"),
+        "vec4 renderMain() { return texture(syn_Media, _uv); }",
+    )?;
+    image::RgbaImage::from_pixel(4, 4, image::Rgba([255, 0, 0, 255])).save(dir.join("own.png"))?;
+    image::RgbaImage::from_pixel(4, 4, image::Rgba([0, 255, 0, 255]))
+        .save(root.join("chosen.png"))?;
+    Ok(TempLibrary {
+        library: Library {
+            dir: root.clone(),
+            entries: vec![Entry::new("pic".to_string(), dir)],
+        },
+        root,
+    })
+}
+
+#[test]
+fn a_cues_media_replaces_the_scenes_own_and_the_next_cue_gets_it_back() -> Result<()> {
+    for api in BOTH {
+        let Some(headless) = context(api)? else {
+            continue;
+        };
+        let library = media_library(&format!("media-{api:?}"))?;
+        let chosen = library.root.join("chosen.png");
+        let mut rig = Rig::new(&headless)?;
+        let mut playlist = Playlist::new("media");
+        playlist.defaults.duration = Some(DurationSpec::Seconds(1.0));
+        let mut section = Section::new("all");
+        // 1: the scene's own; 2: the cue's; 3: the scene's own again. The
+        // same scene throughout, so cues 2 and 3 restart the live session.
+        let cue = Cue::new(SceneRef::Library("pic".to_string()));
+        section.cues.push(cue.clone());
+        let mut named = cue.clone();
+        named.media = Some(chosen.clone());
+        section.cues.push(named);
+        section.cues.push(cue);
+        playlist.sections.push(section);
+
+        let mut show = Show::new(None, playlist, &library.library, None, None);
+        rig.load(&mut show)?;
+        let after_load = rig.gl.shader_compiles();
+        let mut seen: Vec<(usize, Option<PathBuf>)> = Vec::new();
+        for _ in 0..(4 * 60) {
+            rig.frame(&mut show);
+            if let Some(current) = show.clock().current()
+                && !seen.iter().any(|(cue, _)| *cue == current)
+            {
+                let showing = rig
+                    .active
+                    .as_ref()
+                    .and_then(|session| session.player.media_request())
+                    .map(|request| request.path.clone());
+                seen.push((current, showing));
+            }
+        }
+        let by_cue = |index: usize| {
+            seen.iter()
+                .find(|(cue, _)| *cue == index)
+                .and_then(|(_, path)| path.clone())
+        };
+        let own = library.library.entries[0].dir.join("own.png");
+        assert_eq!(
+            by_cue(0),
+            Some(own.clone()),
+            "{api:?}: the scene's own first: {seen:?}"
+        );
+        assert_eq!(by_cue(1), Some(chosen), "{api:?}: then the cue's: {seen:?}");
+        assert_eq!(
+            by_cue(2),
+            Some(own),
+            "{api:?}: then the scene's own again: {seen:?}"
+        );
+        assert_eq!(
+            rig.gl.shader_compiles(),
+            after_load,
+            "{api:?}: changing media compiles nothing"
         );
         show.finish();
     }

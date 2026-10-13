@@ -3585,3 +3585,39 @@ window was always fine, because a covered window is not painted.
 control window visible on the laptop) still losing frames with the pacer
 engaged.
 
+### D217: media is chosen in the Inspector and per cue; a cue's beats the operator's beats the scene's (2026-10-13)
+
+Until now only `--media` could put a picture behind `syn_Media`, and a
+playlist cue always played its scene's own `MEDIA` (backlog M-02).
+
+- **Inspector.** A Media row under the tags says what shows, by file name
+  (the full path on hover), and where it comes from: the scene's own, named
+  by this cue, or chosen. Choose opens a path field (a picture, or a folder
+  of pictures as a sequence); Scene's own clears the choice. The row is
+  hidden for a scene whose shaders never read `syn_Media` or
+  `syn_MediaType` (`ScenePlayer::reads_media`), unless media was chosen
+  anyway. A path that does not exist is refused with a notice, not sent to
+  the decoder.
+- **The operator's choice lasts the run.** It shows in the live scene, in
+  every scene loaded by hand, and in each cue that names no media of its
+  own, as `--media` did for hand loads. It is not saved: a picture chosen
+  for one night should not appear at the next launch.
+- **A cue's `media` key.** `media = "loops/rain"` in a cue (relative to the
+  playlist file) shows that picture for the cue. It is not inherited from
+  the section or playlist, because media belongs to the look, like the
+  preset. The LIST cue card edits it (`CueEdit::SetMedia`); the file writer
+  keeps it.
+- **Precedence: cue, then operator, then scene.** A choice made while a cue
+  with its own media plays is kept for later cues and said so in a notice.
+- **Choosing is idempotent.** `ScenePlayer::choose_media(None | Some)`
+  compares with what shows or is on its way and does nothing when they
+  match, so a cue that restarts its scene, or every cue of a show with one
+  chosen loop, does not decode the pictures again. The old picture stays up
+  until the new one lands (D186). Going back to no media drops the textures
+  at once (black, `syn_MediaType` 0).
+- **Left:** the preset media channel (PLAN's third channel). It needs a
+  rule for a preset recalled while a cue names media, and is backlog M-02's
+  remainder.
+
+**Would reopen:** an operator wanting their chosen media remembered across
+launches, or a cue wanting media inherited from its section.

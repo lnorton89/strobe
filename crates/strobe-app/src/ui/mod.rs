@@ -84,8 +84,8 @@ pub mod widgets;
 pub use host::UiHost;
 pub use model::{
     Action, AddForm, AddKind, AudioPanel, CueTransport, EditorPanel, FailurePanel, GeneratePanel,
-    ImportPanel, ListenerPanel, MapUi, Model, NoticePanel, PerfPanel, PlaylistPanel, PlaylistUi,
-    Preview, RemotePanel, ScenePreview, TransportPanel,
+    ImportPanel, ListenerPanel, MapUi, MediaFrom, MediaPanel, Model, NoticePanel, PerfPanel,
+    PlaylistPanel, PlaylistUi, Preview, RemotePanel, ScenePreview, TransportPanel,
 };
 pub use shell::ShellState;
 pub use state::UiState;

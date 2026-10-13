@@ -116,8 +116,8 @@ use crate::stats::{ControlPacer, ControlTimes, FrameStats, PaceChange, PerfWindo
 use crate::ui::widgets::Tone;
 use crate::ui::{
     Action, CueTransport, EditorPanel, FailurePanel, GeneratePanel, ImportPanel, ListenerPanel,
-    MapUi, Model, NoticePanel, PerfPanel, PlaylistPanel, PlaylistUi, Preview, RemotePanel,
-    ScenePreview, ShellState, TransportPanel, UiHost, UiState, shell,
+    MapUi, MediaFrom, MediaPanel, Model, NoticePanel, PerfPanel, PlaylistPanel, PlaylistUi,
+    Preview, RemotePanel, ScenePreview, ShellState, TransportPanel, UiHost, UiState, shell,
 };
 use crate::workspace::Pane;
 use std::path::{Path, PathBuf};
@@ -1602,7 +1602,9 @@ impl Running {
         ) {
             Ok(mut session) => {
                 if let Some(path) = &self.media_override {
-                    session.player.set_media(MediaRequest::for_path(path));
+                    session
+                        .player
+                        .choose_media(Some(MediaRequest::for_path(path)));
                 }
                 // The operator's output settings carry over (D207).
                 if let Some(old) = self.stack.session.as_ref() {
@@ -1807,6 +1809,7 @@ impl Running {
                 start_time: self.start_time,
                 mouse,
                 date,
+                media: self.media_override.as_deref(),
             };
             f(&mut show, &mut env)
         };
@@ -2251,6 +2254,54 @@ impl Running {
     /// Writes `tags` into the playing scene's `scene.json`, changing
     /// nothing else in it (D205). Refused while the Editor holds unsaved
     /// edits to the same scene, so neither write loses the other.
+    /// Shows `path` behind `syn_Media` in the live scene and in every one
+    /// loaded after it, by hand or by a cue that names no media of its own;
+    /// `None` gives each scene its own back (D217). Not saved: the choice
+    /// lasts the run, like `--media`.
+    fn set_media(&mut self, path: Option<std::path::PathBuf>) {
+        let path = match path.map(std::path::absolute).transpose() {
+            Ok(path) => path,
+            Err(error) => {
+                self.say(
+                    Tone::Warning,
+                    format!("That media path cannot be used: {error}"),
+                );
+                return;
+            }
+        };
+        if let Some(path) = &path
+            && !path.exists()
+        {
+            self.say(Tone::Warning, format!("{} was not found.", path.display()));
+            return;
+        }
+        match &path {
+            Some(path) => log::info!("media: {} chosen for syn_Media", path.display()),
+            None => log::info!("media: each scene shows its own again"),
+        }
+        self.media_override = path;
+        if self
+            .stack
+            .show
+            .as_ref()
+            .is_some_and(Show::live_cue_has_media)
+        {
+            self.say(
+                Tone::Info,
+                "This cue names its own media; your choice shows in cues that do not.",
+            );
+            return;
+        }
+        if !self.make_current(Surface::Output) {
+            return;
+        }
+        if let Some(session) = self.stack.session.as_mut() {
+            session
+                .player
+                .choose_media(self.media_override.as_ref().map(MediaRequest::for_path));
+        }
+    }
+
     fn set_scene_tags(&mut self, tags: &[String]) {
         let Some(index) = self.playing else {
             self.say(Tone::Warning, "No scene is playing to tag.");
@@ -2596,6 +2647,7 @@ impl Running {
             match action {
                 Action::Load(index) => self.request_load(index),
                 Action::SetSceneTags(tags) => self.set_scene_tags(&tags),
+                Action::SetMedia(path) => self.set_media(path),
                 Action::EditCue { at, edit } => self.edit_cue(at, &edit),
                 Action::ReloadPlaylistFromDisk => {
                     if let Some(path) = self.playlist_ui.external_change.take() {
@@ -3380,24 +3432,41 @@ impl Running {
                 .iter()
                 .any(strobe_autocontrol::is_authored)
         });
-        let (scene_title, controls, meta, script, scene_time, presets, active_preset, scene_name) =
-            match self.stack.session.as_mut() {
-                Some(session) => {
-                    let time = session.time();
-                    let parts = session.panel_parts();
-                    (
-                        parts.title,
-                        Some(parts.controls),
-                        Some(parts.meta),
-                        parts.script,
-                        time,
-                        parts.presets,
-                        parts.active_preset,
-                        Some(parts.name),
-                    )
-                }
-                None => ("", None, None, None, 0.0, &[][..], None, None),
-            };
+        let cue_media = self
+            .stack
+            .show
+            .as_ref()
+            .is_some_and(Show::live_cue_has_media);
+        let chosen_media = self.media_override.is_some();
+        let (
+            scene_title,
+            controls,
+            meta,
+            script,
+            scene_time,
+            presets,
+            active_preset,
+            scene_name,
+            media,
+        ) = match self.stack.session.as_mut() {
+            Some(session) => {
+                let time = session.time();
+                let parts = session.panel_parts();
+                let media = media_panel(parts.player, cue_media, chosen_media);
+                (
+                    parts.title,
+                    Some(parts.controls),
+                    Some(parts.meta),
+                    parts.script,
+                    time,
+                    parts.presets,
+                    parts.active_preset,
+                    Some(parts.name),
+                    Some(media),
+                )
+            }
+            None => ("", None, None, None, 0.0, &[][..], None, None, None),
+        };
         let entries = &self.library.entries;
         let name_of =
             |index: Option<usize>| index.and_then(|i| entries.get(i)).map(|e| e.name.as_str());
@@ -3427,6 +3496,7 @@ impl Running {
             playing: self.playing,
             scene_title,
             controls,
+            media,
             meta,
             preview,
             scene_preview: scene_preview_image.and_then(|(index, image)| {
@@ -3583,6 +3653,25 @@ impl Running {
         self.preview_clock = now;
         let mouse = strobe_gfx::Mouse::default();
         session.advance(dt, &mut self.audio, mouse, self.local_date.now());
+    }
+}
+
+/// The Inspector's media row for `player` (D217). `cue_media` says the
+/// playing cue names its own; `chosen` that the operator picked one.
+fn media_panel(player: &strobe_gfx::ScenePlayer, cue_media: bool, chosen: bool) -> MediaPanel<'_> {
+    let from = if player.media_is_scenes_own() {
+        MediaFrom::Scene
+    } else if cue_media {
+        MediaFrom::Cue
+    } else {
+        MediaFrom::Chosen
+    };
+    MediaPanel {
+        showing: player.media_request().map(|request| request.path.as_path()),
+        from,
+        loading: player.media_loading(),
+        read: player.reads_media(),
+        chosen,
     }
 }
 

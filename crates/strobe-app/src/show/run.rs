@@ -63,7 +63,7 @@ use crate::session::Session;
 use std::path::{Path, PathBuf};
 use strobe_diag::failure::{self, Failure, Subsystem};
 use strobe_gfx::gl::Gl;
-use strobe_gfx::{Blend, Caps, Compositor, Mouse};
+use strobe_gfx::{Blend, Caps, Compositor, MediaRequest, Mouse};
 use strobe_playlist::{
     ClockConfig, ClockEvent, ClockState, Command, Playlist, PlaylistClock, ResumePoint, SceneRef,
     SkipReason, Timeline, TimelineConfig, TransitionKind,
@@ -105,6 +105,9 @@ pub struct Env<'a> {
     /// `strobe_Date` in local time; its fourth element is seconds since
     /// local midnight.
     pub date: [f32; 4],
+    /// The media the operator chose for `syn_Media` (D217), shown in a cue
+    /// that names none of its own; `None` leaves each scene its own.
+    pub media: Option<&'a Path>,
 }
 
 /// How far loading has got.
@@ -409,6 +412,14 @@ impl Show {
     /// show (D152).
     pub fn runtime_compiles(&self) -> u64 {
         self.runtime_compiles
+    }
+
+    /// Whether the cue playing names its own `media` (D217), which the
+    /// operator's choice does not replace.
+    pub fn live_cue_has_media(&self) -> bool {
+        self.clock
+            .current_cue()
+            .is_some_and(|cue| cue.resolved.media.is_some())
     }
 
     /// The warming scene's cue, while one is warming.
@@ -824,7 +835,7 @@ impl Show {
         let Some(mut session) = self.cache.take(&scene) else {
             return;
         };
-        self.prepare(&mut session, index, env.start_time);
+        self.prepare(&mut session, index, env.start_time, env.media);
         let size = warm_size(env.full_size);
         if let Err(error) = session.player.resize(size) {
             log::warn!("playlist: could not warm up {scene}: {error}");
@@ -841,14 +852,25 @@ impl Show {
         self.warming = Some(Warm { scene, session });
     }
 
-    /// Restarts a session's clock and applies a cue's control settings.
-    fn prepare(&self, session: &mut Session, index: usize, start_time: f32) {
+    /// Restarts a session's clock and applies a cue's control settings and
+    /// media.
+    fn prepare(&self, session: &mut Session, index: usize, start_time: f32, media: Option<&Path>) {
         session.restart_clock(start_time);
         resolve::reset_controls(&mut session.controls);
         resolve::reset_controls(&mut session.meta);
         let Some(cue) = self.clock.timeline().cues().get(index) else {
             return;
         };
+        // The cue's own media, then the operator's, then the scene's (D217).
+        // Asking for what already shows starts nothing, so a cue that
+        // restarts its scene does not reload its pictures.
+        let chosen = match &cue.resolved.media {
+            Some(path) => Some(self.base.join(path)),
+            None => media.map(Path::to_path_buf),
+        };
+        session
+            .player
+            .choose_media(chosen.map(MediaRequest::for_path));
         // Settings layer, later over earlier: the scene's defaults, then its
         // `default` preset (or the cue's own preset, which replaces it), then
         // the cue's explicit overrides. Presets were read when the scene was
@@ -892,10 +914,11 @@ impl Show {
         };
         // The same scene again (a restart, or two cues in a row): keep the
         // session, give it the cue's settings.
+        let media = env.media;
         if self.active_scene.as_ref() == Some(&scene)
             && let Some(session) = env.active.as_mut()
         {
-            self.prepare_active(session, index, env.start_time);
+            self.prepare_active(session, index, env.start_time, media);
             return;
         }
         // A transition that was still running is over.
@@ -915,7 +938,7 @@ impl Show {
                 }
             },
             None => self.cache.take(&scene).and_then(|mut session| {
-                self.prepare(&mut session, index, env.start_time);
+                self.prepare(&mut session, index, env.start_time, media);
                 match session.player.resize(env.full_size) {
                     Ok(()) => Some(session),
                     Err(error) => {
@@ -946,13 +969,19 @@ impl Show {
         }
     }
 
-    fn prepare_active(&self, session: &mut Session, index: usize, start_time: f32) {
+    fn prepare_active(
+        &self,
+        session: &mut Session,
+        index: usize,
+        start_time: f32,
+        media: Option<&Path>,
+    ) {
         // Keep the picture (a restart should not flash black), start the
         // clock over and apply the cue's settings. The output settings carry
         // over as they do between scenes (D207); one copy per cue, not per
         // frame.
         let before = session.meta.clone();
-        self.prepare(session, index, start_time);
+        self.prepare(session, index, start_time, media);
         session.meta.carry_unchanged_from(&before);
     }
 

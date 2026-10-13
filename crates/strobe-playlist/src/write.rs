@@ -111,6 +111,9 @@ fn cue_pairs(cue: &Cue) -> Vec<(String, String)> {
     if let Some(preset) = &cue.preset {
         pairs.push(("preset".to_string(), quote(preset)));
     }
+    if let Some(media) = &cue.media {
+        pairs.push(("media".to_string(), quote(&media.to_string_lossy())));
+    }
     pairs.extend(settings_pairs(&cue.settings));
     if !cue.overrides.is_empty() {
         pairs.push(("overrides".to_string(), value_table(&cue.overrides)));
@@ -329,6 +332,7 @@ mod tests {
             .push(Cue::new(SceneRef::Library("warm-tunnel".into())));
         let mut cue = Cue::new(SceneRef::Library("voronoi-geode".into()));
         cue.preset = Some("slow".into());
+        cue.media = Some(PathBuf::from("media/loop"));
         morning.cues.push(cue);
         let mut cue = Cue::new(SceneRef::Path(PathBuf::from("scenes/ink.synScene")));
         cue.settings.duration = Some(DurationSpec::Bars(32));
