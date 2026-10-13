@@ -266,6 +266,30 @@ That is the suspect, not yet proved. D206 adds what proves or clears it: a
 window's redraw cost with its swap), and a 2 Hz control window while the
 output covers it.
 
+## The perf line, fullscreen and windowed (2026-10-13, commit 14b1ea5, Task T11)
+
+**Run A, output fullscreen over the control window, 6 min:** after the
+first minute every `perf:` line read **59.9 fps with 2 to 3 late frames a
+minute** (under 0.1%). The first minute's 196 late frames include start-up
+and the 8 s before fullscreen. The status bar still said 56 fps at the end:
+it is painted by the control window, and Windows hardly repaints a covered
+window. The control window redrew **0 to 2 times a minute**, whatever it
+asked for. So **T10's 48-56 fps was a stale status bar, not the show**:
+the show was at 60. The `control window covered` line was logged as
+designed, but on Windows the 2 Hz throttle changes nothing, because the
+paints were not arriving anyway.
+
+**Run B, output windowed beside the control window (one monitor), 6 min:**
+for 4 minutes the control window redrew about 25 times a second at **about
+18 ms each** (worst 450 ms), and **about 37% of output frames were late**,
+though the fps column still read 59.5-59.9. Then, with nothing in the log
+to mark it, the redraws fell to 2-3.5 ms and the late frames to 117, then
+4, a minute. An 18 ms redraw is one refresh: the control window waiting
+for a vertical blank somewhere, although its swap interval is 0, and
+each such wait makes the next output frame late. A GPU clocking up after
+minutes of load would also fit the drop. The perf line now times the
+control window's swap separately, to say which (T12).
+
 ## Pending on this machine
 
 - [x] Re-run 07 at 1080p and 2160p after D191: same size (T2).
@@ -279,8 +303,10 @@ output covers it.
   Strobe fix.
 - [x] The app fullscreen at 2560x1440 with a playlist show and transitions
   (T10): clean and flat, but 48-56 fps with the GPU idle.
-- [ ] T10 again after D206: does the `perf:` line show late frames, and does
-  the covered control window's 2 Hz redraw bring the show to 60?
+- [x] T10 again after D206 (T11): fullscreen was 60 all along (the T10
+  number was a stale status bar); windowed, a visible control window cost
+  late frames for 4 minutes.
+- [ ] T12: the windowed run again with the swap timed separately.
 - [ ] A larger set of real Shadertoy shaders through NVIDIA's compiler
   (owner-supplied, kept local), to find NVIDIA-only acceptance.
 - [ ] The Vulkan / wgpu compiler spike from

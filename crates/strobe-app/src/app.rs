@@ -3424,8 +3424,9 @@ impl Running {
                 Err(e) => self.failure = Some(e),
             }
         }
-        self.present(Surface::Control, Instant::now());
-        self.perf_log.control(began.elapsed());
+        let swap_began = Instant::now();
+        self.present(Surface::Control, swap_began);
+        self.perf_log.control(began.elapsed(), swap_began.elapsed());
         if self
             .screenshot
             .as_ref()
