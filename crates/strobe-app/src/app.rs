@@ -792,6 +792,11 @@ impl Running {
         if let Some(query) = &cli.palette {
             ui_state.command_palette.open_with(query);
         }
+        let inbox = watch_at_launch(
+            cli.watch_folder.as_deref(),
+            &mut ui_state.watch,
+            &library.dir,
+        );
         let stack = Stack::open(
             event_loop,
             cli.gl.choice(),
@@ -874,18 +879,7 @@ impl Running {
             drop_hint: None,
             pending_cue_import: None,
             pack: None,
-            inbox: cli.watch_folder.clone().and_then(|dir| {
-                if dir.is_dir() {
-                    log::info!("watching {} for new scenes", dir.display());
-                    Some(intake::Inbox::new(dir))
-                } else {
-                    log::warn!(
-                        "--watch-folder {}: not a folder; not watching",
-                        dir.display()
-                    );
-                    None
-                }
-            }),
+            inbox,
             inbox_polled: Instant::now(),
             gl_summary,
             audio: AudioInput::new(cli.audio == AudioArg::Auto),
@@ -3251,6 +3245,28 @@ impl Running {
                     }
                 }
                 Action::CancelReplace => self.import_state.cancel_replace(),
+                Action::SetWatchFolder { folder, enabled } => {
+                    match watch_change(
+                        &folder,
+                        enabled,
+                        &mut self.ui_state.watch,
+                        &self.library.dir,
+                    ) {
+                        WatchChange::Start(inbox) => {
+                            log::info!("watching {} for new scenes", inbox.dir().display());
+                            self.inbox = Some(inbox);
+                            self.inbox_polled = Instant::now();
+                        }
+                        WatchChange::Stop => {
+                            if let Some(inbox) = self.inbox.take() {
+                                log::info!("stopped watching {}", inbox.dir().display());
+                            }
+                        }
+                        WatchChange::Keep => {
+                            log::warn!("watched folder not changed: {}", self.ui_state.watch.note);
+                        }
+                    }
+                }
                 Action::SetImportListener(on) => {
                     if on {
                         self.start_listener();
@@ -4479,6 +4495,95 @@ fn record_gl_facts(gfx: &WindowedContext) {
     context::set("gl.robust", gfx.robust());
 }
 
+/// The watched drop folder at launch (D240, D265): `--watch-folder` for
+/// this run when it is given, else the folder Settings saved if it is
+/// switched on. Either is checked as Settings checks it
+/// ([`intake::check_watch_folder`]), and Settings shows the outcome.
+fn watch_at_launch(
+    cli: Option<&Path>,
+    watch: &mut crate::ui::state::WatchState,
+    library: &Path,
+) -> Option<intake::Inbox> {
+    let (folder, from_cli) = match cli {
+        Some(folder) => (folder.to_path_buf(), true),
+        None if watch.enabled => (PathBuf::from(watch.folder.trim()), false),
+        None => return None,
+    };
+    match intake::check_watch_folder(&folder, library) {
+        Ok(dir) => {
+            log::info!("watching {} for new scenes", dir.display());
+            watch.watching = true;
+            watch.failed = false;
+            watch.note = if from_cli {
+                watch.draft = dir.display().to_string();
+                format!("Watching {} (--watch-folder, this run only)", dir.display())
+            } else {
+                format!("Watching {}", dir.display())
+            };
+            Some(intake::Inbox::new(dir))
+        }
+        Err(why) => {
+            let source = if from_cli {
+                "--watch-folder"
+            } else {
+                "the watched folder in Settings"
+            };
+            log::warn!("{source}: {why} Not watching.");
+            watch.watching = false;
+            watch.failed = true;
+            watch.note = format!("Not watching: {why}");
+            None
+        }
+    }
+}
+
+/// What a change to the watched folder in Settings comes to (D265).
+enum WatchChange {
+    /// Watch this folder, replacing any watch.
+    Start(intake::Inbox),
+    /// Stop watching.
+    Stop,
+    /// The folder was refused; whatever was watched stays watched.
+    Keep,
+}
+
+/// Applies Settings' watched folder to `watch` (the saved folder and
+/// switch, and the line Settings shows) and says what the app must do. A
+/// folder is checked as at launch, and a refused one changes nothing but
+/// the line, so a typo never stops a watch that works.
+fn watch_change(
+    folder: &str,
+    enabled: bool,
+    watch: &mut crate::ui::state::WatchState,
+    library: &Path,
+) -> WatchChange {
+    let folder = folder.trim();
+    if !enabled {
+        // The folder stays saved, so switching it back on needs no typing.
+        watch.enabled = false;
+        watch.watching = false;
+        watch.failed = false;
+        watch.note = "Off".to_string();
+        return WatchChange::Stop;
+    }
+    match intake::check_watch_folder(Path::new(folder), library) {
+        Ok(dir) => {
+            folder.clone_into(&mut watch.folder);
+            folder.clone_into(&mut watch.draft);
+            watch.enabled = true;
+            watch.watching = true;
+            watch.failed = false;
+            watch.note = format!("Watching {}", dir.display());
+            WatchChange::Start(intake::Inbox::new(dir))
+        }
+        Err(why) => {
+            watch.failed = true;
+            watch.note = why;
+            WatchChange::Keep
+        }
+    }
+}
+
 /// Whether two paths name the same folder, resolving links and relative
 /// parts when both exist, and comparing as written otherwise.
 fn same_folder(a: &Path, b: &Path) -> bool {
@@ -4492,6 +4597,121 @@ fn same_folder(a: &Path, b: &Path) -> bool {
 mod tests {
     use super::*;
     use anyhow::Result;
+
+    /// A scratch folder with a library and an inbox beside it, removed on
+    /// drop.
+    struct WatchScratch(PathBuf);
+
+    impl WatchScratch {
+        fn new(tag: &str) -> Result<Self> {
+            let dir =
+                std::env::temp_dir().join(format!("strobe-app-watch-{}-{tag}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(dir.join("scenes"))?;
+            std::fs::create_dir_all(dir.join("inbox"))?;
+            Ok(Self(dir))
+        }
+    }
+
+    impl Drop for WatchScratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn settings_starts_stops_and_refuses_a_watched_folder() -> Result<()> {
+        let scratch = WatchScratch::new("settings")?;
+        let library = scratch.0.join("scenes");
+        let inbox = scratch.0.join("inbox");
+        let mut watch = crate::ui::state::WatchState::default();
+        let typed = format!("  {}  ", inbox.display());
+        let started = watch_change(&typed, true, &mut watch, &library);
+        assert!(
+            matches!(&started, WatchChange::Start(found) if found.dir() == inbox),
+            "a folder beside the library is watched"
+        );
+        assert_eq!(
+            (
+                watch.folder.as_str(),
+                watch.enabled,
+                watch.watching,
+                watch.failed
+            ),
+            (inbox.to_str().unwrap_or_default(), true, true, false),
+            "saved trimmed, and shown as watching: {watch:?}"
+        );
+        let refused = watch_change(&library.display().to_string(), true, &mut watch, &library);
+        assert!(
+            matches!(refused, WatchChange::Keep),
+            "the library itself is refused, and the watch that works stays"
+        );
+        assert!(
+            watch.failed && watch.note.contains("library itself"),
+            "Settings says why: {watch:?}"
+        );
+        assert_eq!(
+            (watch.folder.as_str(), watch.enabled),
+            (inbox.to_str().unwrap_or_default(), true),
+            "a refusal saves nothing"
+        );
+        let missing = watch_change("no/such/folder", true, &mut watch, &library);
+        assert!(
+            matches!(missing, WatchChange::Keep) && watch.note.contains("not a folder"),
+            "a folder that is not there: {watch:?}"
+        );
+        let stopped = watch_change(&typed, false, &mut watch, &library);
+        assert!(matches!(stopped, WatchChange::Stop), "switched off");
+        assert!(
+            !watch.enabled && !watch.watching && !watch.failed,
+            "saved off: {watch:?}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn launch_watches_the_command_line_folder_first_then_the_saved_one() -> Result<()> {
+        let scratch = WatchScratch::new("launch")?;
+        let library = scratch.0.join("scenes");
+        let inbox = scratch.0.join("inbox");
+        let mut off = crate::ui::state::WatchState::default();
+        assert!(
+            watch_at_launch(None, &mut off, &library).is_none() && !off.watching,
+            "nothing asked for, nothing watched"
+        );
+        let mut saved = crate::ui::state::WatchState {
+            folder: inbox.display().to_string(),
+            enabled: true,
+            ..crate::ui::state::WatchState::default()
+        };
+        let found = watch_at_launch(None, &mut saved, &library);
+        assert!(
+            found.is_some_and(|inbox_watch| inbox_watch.dir() == inbox) && saved.watching,
+            "the saved folder, switched on: {saved:?}"
+        );
+        let mut cli = crate::ui::state::WatchState::default();
+        let found = watch_at_launch(Some(&inbox), &mut cli, &library);
+        assert!(
+            found.is_some() && cli.note.contains("this run only") && !cli.enabled,
+            "--watch-folder is watched but not saved: {cli:?}"
+        );
+        let mut library_itself = crate::ui::state::WatchState::default();
+        assert!(
+            watch_at_launch(Some(&library), &mut library_itself, &library).is_none()
+                && library_itself.failed,
+            "launch refuses what Settings refuses: {library_itself:?}"
+        );
+        let mut gone = crate::ui::state::WatchState {
+            folder: scratch.0.join("gone").display().to_string(),
+            enabled: true,
+            ..crate::ui::state::WatchState::default()
+        };
+        assert!(
+            watch_at_launch(None, &mut gone, &library).is_none() && gone.failed && gone.enabled,
+            "a saved folder that has gone is not watched, and stays saved: {gone:?}"
+        );
+        Ok(())
+    }
 
     #[test]
     fn hidden_frames_follow_the_monitor_refresh() -> Result<()> {

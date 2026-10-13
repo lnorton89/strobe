@@ -409,7 +409,8 @@ never per frame.
   the same job and was (D116).
 - Built since: thumbnails (D212, D222), the "Needs work" filter and list,
   batch import of a dropped folder of scenes (D235) and a watched folder
-  (D240). Still open: a real OS drop by a person.
+  (D240), set in Settings and saved (D265). Still open: a real OS drop by
+  a person.
 - Not supported:
   - `cubemap` and `volume` inputs, and `sound` and `cubemap` passes: these
     are errors;

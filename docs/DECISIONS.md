@@ -5112,3 +5112,50 @@ and the shell scenarios "tagging in the browser and the inspector",
 
 **Would reopen:** wanting several scenes tagged at once (a multi-select in
 the browser), or exclusions by folder.
+
+### D265: the watched folder is a setting, checked the same way at launch and in Settings (2026-10-13)
+
+D240 made the watched drop folder a run option, `--watch-folder`, and
+named a Settings field so the folder persists as the thing that would
+reopen it (I-02).
+
+- **Settings > Watched folder:** a path field, Apply, and a switch, with
+  one line saying what is watched or why not. Apply (or Enter) watches the
+  typed folder at once; the switch starts or stops the watch. Both go
+  through `Action::SetWatchFolder { folder, enabled }`. The pane never
+  touches the disk; the app checks the folder when the action arrives.
+- **One check, at launch and in Settings.** `intake::check_watch_folder`
+  refuses an empty field, a path that is not a folder (D240's only check
+  until now), and the library folder itself, however it is spelled. The
+  library's own new scenes (an import, a pack) would otherwise come back
+  through the queue as "already there" after every import. `--watch-folder`
+  now gets the same check, so a folder Settings refuses is refused at
+  launch too.
+- **Applied live.** An accepted folder replaces the running watch with a
+  fresh `Inbox`. Like D240's, it leaves alone what is already in the
+  folder. Switching off drops the watch and keeps the folder in the field
+  and in the file, so switching on again needs no typing.
+- **A refusal changes nothing but the line.** A typo in the field never
+  stops a watch that works, and nothing refused is saved.
+- **Saved with the other UI preferences.** The folder and the switch go
+  in `ui.toml` (`[watch] folder, enabled`), through the debounced saver,
+  only when the app accepts them. Typing in the field saves nothing. A file
+  from before has no `[watch]` and watches nothing.
+- **`--watch-folder` wins for its run and is not saved.** Settings shows it
+  as "Watching ... (--watch-folder, this run only)", so the command line
+  never rewrites the operator's setting. A saved folder that has gone
+  missing is not watched at launch: the reason is logged and shown in
+  Settings, and the setting stays as it was, so a drive plugged in later
+  can be switched on again.
+
+**Evidence:** `intake` test `a_watched_folder_must_exist_and_not_be_the_library`,
+`app` tests `settings_starts_stops_and_refuses_a_watched_folder` and
+`launch_watches_the_command_line_folder_first_then_the_saved_one`,
+`ui::state` test `the_watched_folder_is_saved_and_reread_but_its_field_is_not`,
+the `prefs` round trip and missing-field tests, `ui::settings` test
+`apply_and_the_switch_ask_the_app_and_change_nothing_themselves` (headless
+clicks), and the shell scenarios "settings watching a folder" and
+"settings with a refused watched folder" at every size.
+
+**Would reopen:** wanting more than one watched folder, or Shadertoy
+exports taken from it (D240's own reopen condition).
