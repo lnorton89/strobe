@@ -155,6 +155,10 @@ checked and not committed. Interaction was driven with xdotool.
   software rasterisation and says nothing).
 - [x] Named layouts (D215), saved in Settings and applied from Settings or
   the palette. Evidence: `ui::state` and `command_palette` tests.
+- [x] Saving over a hand-written playlist keeps its comments and layout
+  where the content still matches, a cue's comment travels with the cue,
+  and a merge that would not read back exactly falls back to the canonical
+  text (D231). Evidence: `merge` and `file` tests.
 - [x] Several cues edited at once (D230): a length, transition, preset,
   media or disable goes to every Ctrl-clicked cue; structure stays one cue
   at a time. Evidence: `show::edit` tests. Not yet: clicked by a person.

@@ -3979,3 +3979,29 @@ and multi-edit". Tags drive Generate (D205); this is the multi-edit.
 
 **Would reopen:** wanting a Shift-click range, or multi-selection across a
 reload from disk.
+
+### D231: a save keeps the file's comments where the content still matches (2026-10-13)
+
+The LIST pane edits the playlist as a model and the writer lays it out
+canonically (stage 1's choice: deterministic bytes, clean diffs). Over a
+hand-written file that dropped every comment the author wrote, the last
+of U-07's list.
+
+- **Merge, then verify.** `merge::keep_layout(original, fresh)` parses
+  both with `toml_edit` (already in the lock file through `toml`) and
+  keeps the original document, changing only what differs: a value that
+  is the same keeps its exact text (`90` stays `90`); a changed value
+  takes the new text inside the old comments; new keys and sections are
+  added canonically; removed ones go with their comments.
+- **Cues are matched by content, not index.** In an array, an element
+  equal to one further on is kept whole; one for the same scene with
+  other settings is the same cue edited (its comment stays); an element
+  that is new is inserted bare. So inserting, deleting or moving a cue
+  never leaves a comment on the wrong cue.
+- **The show is never at risk.** `file::save` parses the merged text and
+  uses it only if it reads back to exactly the model being saved;
+  otherwise it writes the canonical text, as before. A new file is
+  written canonically.
+
+**Would reopen:** sections reordered by hand (sections match by position),
+or a comment that should follow a moved key.

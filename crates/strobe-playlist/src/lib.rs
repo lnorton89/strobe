@@ -47,6 +47,7 @@ pub mod duration;
 pub mod error;
 pub mod file;
 pub mod generate;
+pub mod merge;
 pub mod model;
 pub mod parse;
 pub mod resolve;
