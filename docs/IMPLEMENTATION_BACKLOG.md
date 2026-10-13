@@ -36,12 +36,12 @@
 - **Acceptance:** explain the step with evidence or file a narrowly scoped follow-up bug; no unexplained monotonic growth over the full soak.
 
 ### R-03 Packaged release smoke test
-- **Status:** Run on the T480 (Task 21). It found one bug, the library path depending on the working directory, now fixed. Left: a re-run on the fix, and an archive built by `release.yml` itself (Q12).
+- **Status:** Run on the T480 (Tasks 21 and 22). The one bug it found, the library path depending on the working directory, is fixed and verified on the packaged build. Left: an archive built by `release.yml` itself from a tag (Q12, R-05).
 - **Work:** build the release archive from a clean checkout; install/run outside the development tree; test first-run data directories, audio, import listener, scripts, diagnostics, native GL and ANGLE; confirm clean shutdown and upgrade/relaunch behaviour.
 - **Acceptance:** attach exact commands, archive hash, OS/GPU/driver, logs and screenshots to hardware/T480.md; test does not depend on Cargo or developer-only DLLs.
 
 ### R-04 Crash diagnostics and symbolication in packaged build
-- **Status:** In progress. Minidump creation and PDB symbolication work on the T480 development build. `STROBE_FAULT=crash@N` now crashes the real app on purpose, and xtask finds the packaged PDB. Left: the drill on a packaged `strobe.exe`.
+- **Status:** Done on the T480 (Task 22): `STROBE_FAULT=crash@120` on the packaged `strobe.exe` wrote a minidump and report, and `cargo xtask symbolicate` with no `--symbols` found the packaged PDB and named `strobe_app::fault::recurse() [fault.rs : 170]`. Left: the same on an archive downloaded from a release (R-05), and an audit of the report text for secrets.
 - **Work:** reproduce the crash demo from the packaged release, check diagnostic directory permissions and dump retention, verify matching PDB archive and symbolicate using the shipped build ID.
 - **Acceptance:** a packaged-build dump symbolicates to useful function and source locations; secrets and tokens are absent from diagnostic output.
 

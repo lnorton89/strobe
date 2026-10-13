@@ -55,7 +55,10 @@ Linux and llvmpipe cannot prove any of these:
   virtualisation).
 - [x] Symbolicate that dump with the matching PDB. Verified on the T480
   (R5): function names and `file:line`, via `cargo xtask symbolicate`.
-- [ ] Test the packaged release executable separately (Q12).
+- [x] Test the packaged release executable separately (Q12): built with
+  the workflow's flags, run from `%TEMP%` and from another working
+  directory, crashed on purpose and symbolicated with no `--symbols`
+  (T480 Tasks 21 and 22). An archive from a real tagged release is R-05.
 - [ ] Run for at least 30 minutes with repeated scene switches, and
   inspect for crashes, log growth and resource stability.
 - [x] Keep commands, environment, logs, screenshots and failed outcomes in
