@@ -26,6 +26,12 @@
 //!                        SilentFallback --retry timer--> Recovering
 //! ```
 //!
+//! A stream that fails soon after it opened is reopened later each time
+//! ([`reopen_delay`]): at once the first time, then after a growing pause
+//! up to [`RETRY_EVERY`], so a device that keeps failing costs a few opens
+//! a second at most instead of one every pass (D266). Glitches the stream
+//! survives are not failures; they are summed and logged once a minute.
+//!
 //! In `Recovering` and `SilentFallback` the analyser keeps running with no
 //! samples, so levels decay to silence instead of freezing, and frames keep
 //! being published. The render loop never learns the difference except
@@ -49,6 +55,30 @@ const POLL: Duration = Duration::from_millis(10);
 
 /// How long to wait before trying a failed device again.
 const RETRY_EVERY: Duration = Duration::from_secs(2);
+
+/// A stream that ran this long before failing is treated as having worked:
+/// the next reopen is immediate again.
+const STABLE_AFTER: Duration = Duration::from_secs(5);
+
+/// The first pause after a stream fails quickly; it doubles each time.
+const FIRST_BACKOFF: Duration = Duration::from_millis(100);
+
+/// How often the count of survived stream glitches is logged.
+const GLITCH_REPORT: Duration = Duration::from_secs(60);
+
+/// How long to wait before reopening a device whose stream failed after
+/// `quick_failures` failures in a row that each came within
+/// [`STABLE_AFTER`] of opening: none for the first, then
+/// [`FIRST_BACKOFF`] doubling up to [`RETRY_EVERY`].
+pub(crate) fn reopen_delay(quick_failures: u32) -> Duration {
+    if quick_failures == 0 {
+        return Duration::ZERO;
+    }
+    let doublings = quick_failures.saturating_sub(1).min(16);
+    FIRST_BACKOFF
+        .saturating_mul(1_u32 << doublings)
+        .min(RETRY_EVERY)
+}
 
 /// Sample rate of the silent analyser used while no device is open.
 const FALLBACK_RATE: u32 = 48_000;
@@ -102,6 +132,13 @@ pub(crate) fn run(
     // missing is retried every two seconds, and saying so every time would
     // bury the rest of the log (and the UI console).
     let mut warned: Option<String> = None;
+    // When the live stream opened, and how many streams in a row failed
+    // soon after opening (for the reopen backoff).
+    let mut opened_at = Instant::now();
+    let mut quick_failures: u32 = 0;
+    // Survived glitches since the last report.
+    let mut glitches: u64 = 0;
+    let mut glitch_report = Instant::now() + GLITCH_REPORT;
 
     while !shared.stop.load(Ordering::Acquire) {
         let now = Instant::now();
@@ -120,9 +157,32 @@ pub(crate) fn run(
             .as_ref()
             .is_some_and(|l| l.failed.load(Ordering::Acquire))
         {
-            log::warn!("audio device failed; recovering");
+            if now.duration_since(opened_at) < STABLE_AFTER {
+                quick_failures = quick_failures.saturating_add(1);
+            } else {
+                quick_failures = 0;
+            }
+            let delay = reopen_delay(quick_failures);
+            if quick_failures <= 1 {
+                log::warn!("audio device failed; recovering");
+            } else {
+                log::debug!(
+                    "audio device failed again ({quick_failures} in a row); reopening in {} ms",
+                    delay.as_millis()
+                );
+            }
             live = None;
-            next_retry = now;
+            next_retry = now + delay;
+        }
+        if let Some(active) = live.as_ref() {
+            glitches += active.glitches.swap(0, Ordering::Relaxed);
+        }
+        if now >= glitch_report {
+            if glitches > 0 {
+                log::info!("audio: {glitches} buffer glitch(es) in the last minute, stream kept");
+            }
+            glitches = 0;
+            glitch_report = now + GLITCH_REPORT;
         }
 
         if live.is_none() && now >= next_retry {
@@ -142,6 +202,7 @@ pub(crate) fn run(
                         status.last_error = None;
                     }
                     live = Some(opened);
+                    opened_at = now;
                     shared.set_state(CaptureState::Running);
                     if let Some(tx) = first_attempt.take() {
                         let _ = tx.send(Ok(()));
@@ -213,4 +274,47 @@ fn publish(shared: &Shared, frame: &AudioFrame, spare: &mut Option<Arc<AudioFram
         None => Arc::new(frame.clone()),
     };
     *spare = Some(shared.latest.swap(next));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use anyhow::Result;
+
+    #[test]
+    fn a_first_failure_reopens_at_once_and_repeats_back_off_to_the_retry_period() -> Result<()> {
+        assert_eq!(
+            reopen_delay(0),
+            Duration::ZERO,
+            "a stream that worked reopens at once"
+        );
+        assert_eq!(
+            reopen_delay(1),
+            FIRST_BACKOFF,
+            "the first quick failure waits a little"
+        );
+        assert_eq!(
+            reopen_delay(2),
+            FIRST_BACKOFF * 2,
+            "each further quick failure doubles the pause"
+        );
+        assert_eq!(
+            reopen_delay(6),
+            RETRY_EVERY,
+            "the pause stops at the retry period"
+        );
+        assert_eq!(
+            reopen_delay(u32::MAX),
+            RETRY_EVERY,
+            "a device failing forever is tried every retry period, never overflowing"
+        );
+        // At the cap, a device that fails at once is opened about once per
+        // RETRY_EVERY, not once per 10 ms pass.
+        let per_minute = 60.0 / reopen_delay(100).as_secs_f32();
+        assert!(
+            per_minute <= 30.0,
+            "{per_minute} reopens a minute at the cap"
+        );
+        Ok(())
+    }
 }

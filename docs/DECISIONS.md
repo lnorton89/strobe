@@ -5356,3 +5356,35 @@ clicks), and the shell scenarios "settings watching a folder" and
 
 **Would reopen:** wanting more than one watched folder, or Shadertoy
 exports taken from it (D240's own reopen condition).
+
+### D266: an audio stream error is a failure only when the stream stops, and reopening backs off (2026-10-13)
+
+**Context.** On the AMD desktop (Task A1) the microphone reported WASAPI
+buffer glitches (`ErrorKind::Xrun`). The capture stream's error callback
+marked the stream failed on any error, and the worker reopened at once:
+11,200 reopens and 33,600 log lines in 158 s, and live audio was
+unusable. cpal 0.18 says three error kinds leave the stream running:
+- a glitch (`Xrun`);
+- a reroute of the default device that it already followed
+  (`DeviceChanged`);
+- a refused real-time promotion (`RealtimeDenied`).
+
+**Decision.**
+- **Those three are counted,** in `Opened::glitches`. The worker logs the
+  count once a minute at info, as "N buffer glitch(es) in the last
+  minute, stream kept".
+- **Every other kind marks the stream failed,** including kinds cpal adds
+  later (`capture::device::is_fatal`).
+- **Repeated quick failures back off.** A stream that fails within 5 s of
+  opening counts as a quick failure. The first reopen is immediate, as
+  before; after that it waits 100 ms, doubling up to the 2 s retry period
+  (`worker::reopen_delay`).
+  - Only the first failure of a run is a warning; the rest are debug.
+  - A stream that ran 5 s before failing resets the count.
+- Tests: `a_glitch_a_followed_reroute_and_a_refused_priority_are_not_failures`
+  and `a_first_failure_reopens_at_once_and_repeats_back_off_to_the_retry_period`.
+
+**Would reopen:** a backend that reports a fatal condition as one of the
+three surviving kinds. The symptom would be silent levels with a "stream
+kept" line. Task A2 re-runs the app on the AMD desktop to confirm the
+loop is gone and the levels move.
