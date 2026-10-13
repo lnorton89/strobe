@@ -473,6 +473,30 @@ is no SSF index page). Recorded in Q22:
 - **Passes:** `FLOAT` passes are documented as 32-bit; Strobe's default
   stays 16-bit (D13).
 
+## The corpus after D233-D238 (2026-10-13, commit 5eaddb0, Task T22)
+
+`cargo xtask corpus`, scripts on, both dialects, 3 frames at 160x90:
+- **The owner's 65 scenes:** 63 of 65 per dialect, the same two scene
+  bugs as T18. No status changed among the 130 pairs.
+- **The repository's 12 scenes:** 12 of 12 on both dialects.
+- **Final frames against T18:** 120 of 120 identical, plus 6 of 6 for the
+  extras. That includes `fork_materialma_deviltiger_729`, which matched
+  this time in the same Windows session, as T18 predicted. Today's audio,
+  OSC and media changes touched no frame.
+- **Load time:** one scene's ANGLE compile takes 8.6 s (11 ms native), as
+  in T18; it matters for a show's load time.
+
+## Synesthesia's script documentation (2026-10-13, Task T23)
+
+`ssf/script.html` documents two lifecycle functions, both optional:
+`setup()` once at load, and `update(dt)` each frame before the shader.
+The six real scenes that define `transition()` give it no parameters and
+an empty body, and never call it; it looks like an old template stub. The
+documented API (`setUniform`, the `uniforms` and `inputs` objects,
+`setControl`/`setControlNormalized` with `{dimension, bank}`, randomize and
+default, the five events, `textureFinalPass`, `print`, `printGlobalKeys`)
+is all in Strobe's host (`strobe-script`'s conformance tests).
+
 ## Pending on this machine
 
 - [x] Re-run 07 at 1080p and 2160p after D191: same size (T2).
