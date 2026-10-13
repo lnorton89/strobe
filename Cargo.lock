@@ -3218,6 +3218,7 @@ dependencies = [
  "anyhow",
  "clap",
  "image",
+ "strobe-diag",
  "strobe-gfx",
  "strobe-scene",
 ]
