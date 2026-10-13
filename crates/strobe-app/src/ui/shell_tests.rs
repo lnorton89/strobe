@@ -414,6 +414,7 @@ fn sample_remote(mapped: bool) -> Result<Remote> {
     // A colour and a reach, so the card's band is drawn at every size (D210).
     engine.macros.set_color(speed, Some(2));
     engine.macros.set_range(speed, Some([0.2, 0.8]));
+    engine.macros.set_key(speed, Some("Q".to_string()));
     engine.macros.pin("Hue", Target::meta("hue"));
     engine.macros.pin("Glow", Target::control("glow"));
     engine.macros.pin("Next", Target::command("next_scene"));
@@ -822,6 +823,50 @@ fn palette_run(text: &str) -> Vec<Vec<egui::Event>> {
         vec![press(egui::Key::Enter, egui::Modifiers::NONE)],
         Vec::new(),
     ]
+}
+
+/// A key let go.
+fn release(key: egui::Key) -> egui::Event {
+    egui::Event::Key {
+        key,
+        physical_key: None,
+        pressed: false,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    }
+}
+
+#[test]
+fn a_macro_key_drives_its_macro_while_held() -> Result<()> {
+    let drawn = draw_events(
+        Scenario {
+            mapped: true,
+            ..BASE
+        },
+        (1440.0, 900.0),
+        vec![
+            vec![press(egui::Key::Q, egui::Modifiers::NONE)],
+            Vec::new(),
+            vec![release(egui::Key::Q)],
+        ],
+    )?;
+    let keys: Vec<&Action> = drawn
+        .all_actions
+        .iter()
+        .filter(|a| matches!(a, Action::MacroKey { .. }))
+        .collect();
+    assert!(
+        matches!(
+            keys.as_slice(),
+            [
+                Action::MacroKey { down: true, .. },
+                Action::MacroKey { down: false, .. }
+            ]
+        ),
+        "down then up: {:?}",
+        drawn.all_actions
+    );
+    Ok(())
 }
 
 #[test]

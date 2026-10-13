@@ -138,6 +138,8 @@ pub struct Engine {
     pub builtin_osc: bool,
     learn: Option<Armed>,
     conflict: Option<Conflict>,
+    /// Each macro key's button state (D228), by macro id.
+    keys: Vec<(u32, Runtime)>,
 }
 
 impl Default for Engine {
@@ -148,6 +150,7 @@ impl Default for Engine {
             builtin_osc: true,
             learn: None,
             conflict: None,
+            keys: Vec::new(),
         }
     }
 }
@@ -285,6 +288,44 @@ impl Engine {
     }
 
     // ------------------------------------------------------------ mapping
+
+    /// Macro `id`'s own key went down or up (D228): drives the macro as a
+    /// momentary button mapping would, the top of its reach while held and
+    /// the bottom when let go, through its glide if it has one. A toggle
+    /// follows the key and a bang fires on the press.
+    pub fn macro_key(
+        &mut self,
+        id: u32,
+        down: bool,
+        banks: &mut Banks<'_>,
+        out: &mut Vec<Output>,
+    ) -> Outcome {
+        let target = Target::Macro { id };
+        let flat = match flatten(&target, &self.macros) {
+            Ok(flat) => flat,
+            Err(resolution) => return Outcome::Unavailable(resolution.reason),
+        };
+        let at = match self.keys.iter().position(|(key, _)| *key == id) {
+            Some(at) => at,
+            None => {
+                self.keys.push((id, Runtime::default()));
+                self.keys.len() - 1
+            }
+        };
+        let Some((_, runtime)) = self.keys.get_mut(at) else {
+            return Outcome::Unmapped;
+        };
+        let cfg = Cfg {
+            takeover: Takeover::Jump,
+            button: ButtonMode::Momentary,
+            ..Cfg::default()
+        };
+        match drive(&cfg, runtime, &flat, Signal::Button(down), banks, out) {
+            Drive::Applied => Outcome::Applied(1),
+            Drive::Waiting | Drive::Idle => Outcome::Applied(0),
+            Drive::Unavailable(why) => Outcome::Unavailable(why),
+        }
+    }
 
     /// Handles one message. Control writes go straight to `banks`;
     /// everything else is appended to `out`.
@@ -699,6 +740,42 @@ mod tests {
             rig.engine.macros.get(id).and_then(|m| m.glide),
             None,
             "a non-positive glide is none"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_macro_key_drives_to_the_top_of_its_reach_while_held() -> Result<()> {
+        let mut rig = Rig::new()?;
+        let id = rig
+            .engine
+            .macros
+            .add(Macro::new("Speed", Target::control("speed")));
+        rig.engine.macros.set_range(id, Some([0.2, 0.8]));
+        let mut banks = Banks {
+            scene: Some(&mut rig.scene),
+            meta: Some(&mut rig.meta),
+        };
+        let down = rig.engine.macro_key(id, true, &mut banks, &mut rig.out);
+        assert_eq!(down, Outcome::Applied(1), "the press drives it");
+        assert!(near(rig.value("speed")?, 8.0), "the top of the reach");
+        let mut banks = Banks {
+            scene: Some(&mut rig.scene),
+            meta: Some(&mut rig.meta),
+        };
+        rig.engine.macro_key(id, false, &mut banks, &mut rig.out);
+        assert!(near(rig.value("speed")?, 2.0), "and the bottom on release");
+
+        let other = rig
+            .engine
+            .macros
+            .add(Macro::new("Glow", Target::control("glow")));
+        rig.engine.macros.set_key(id, Some("Q".into()));
+        rig.engine.macros.set_key(other, Some("q".into()));
+        assert_eq!(
+            rig.engine.macros.get(id).and_then(|m| m.key.clone()),
+            None,
+            "one key drives one macro: the second takes it"
         );
         Ok(())
     }

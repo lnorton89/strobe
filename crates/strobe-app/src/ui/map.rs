@@ -103,6 +103,7 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
     let presets = panel.presets;
     let remote = &mut *panel.remote;
     let map = &mut *panel.ui;
+    let bindings = panel.bindings;
     egui::ScrollArea::vertical()
         .id_salt("map-scroll")
         .auto_shrink([false, false])
@@ -117,7 +118,7 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
             activity_block(ui, theme, remote);
             ui.add_space(SPACE_SM);
             widgets::section(ui, theme, "Macros");
-            macros_block(ui, theme, remote, map, &eval);
+            macros_block(ui, theme, remote, map, &eval, bindings);
             ui.add_space(SPACE_SM);
             widgets::section(ui, theme, "Mappings");
             let targets = Targets {
@@ -459,6 +460,7 @@ fn macros_block(
     remote: &mut Remote,
     map: &mut MapUi,
     eval: &Evaluated,
+    bindings: &crate::commands::Bindings,
 ) {
     if remote.engine.macros.is_empty() {
         ui.label(
@@ -577,6 +579,7 @@ fn macros_block(
                 }
                 if selected {
                     macro_options(ui, theme, remote, id);
+                    macro_key_row(ui, theme, remote, map, id, bindings);
                 }
             });
         });
@@ -594,6 +597,83 @@ fn macros_block(
         } else {
             remote.engine.arm_new(target);
         }
+    }
+}
+
+/// A macro's keyboard key (D228): shown, captured from the next key
+/// pressed, or cleared. A key a command holds is refused, so a shortcut
+/// never stops working because a macro took it.
+fn macro_key_row(
+    ui: &mut Ui,
+    theme: &Palette,
+    remote: &mut Remote,
+    map: &mut MapUi,
+    id: u32,
+    bindings: &crate::commands::Bindings,
+) {
+    use super::keys::{Capture, captured};
+    use crate::commands::{Chord, CommandId};
+    let current = remote.engine.macros.get(id).and_then(|m| m.key.clone());
+    let capturing = map.key_capture == Some(id);
+    if capturing {
+        match captured(ui.ctx()) {
+            Capture::Waiting => {}
+            Capture::Cancel => map.key_capture = None,
+            Capture::Chord(chord) => {
+                map.key_capture = None;
+                let holder = CommandId::ALL
+                    .into_iter()
+                    .find(|command| bindings.chord(*command) == Some(chord));
+                match holder {
+                    Some(command) => {
+                        map.key_problem = Some(format!(
+                            "{} is the shortcut for {}; choose another key, or change that \
+                             shortcut in Settings.",
+                            chord.label(),
+                            command.name()
+                        ));
+                    }
+                    None => {
+                        map.key_problem = None;
+                        remote.engine.macros.set_key(id, Some(chord.label()));
+                    }
+                }
+            }
+        }
+    }
+    ui.horizontal(|ui| {
+        ui.label(
+            egui::RichText::new("Key")
+                .small()
+                .color(theme::rgb(theme.text_muted)),
+        )
+        .on_hover_text(
+            "Held, the macro goes to the top of its reach; let go, to the bottom. \
+             Through its glide, if it has one.",
+        );
+        let shown = if capturing {
+            "press a key (Esc cancels)".to_string()
+        } else {
+            current
+                .as_deref()
+                .and_then(Chord::parse)
+                .map_or_else(|| "none".to_string(), Chord::label)
+        };
+        ui.label(egui::RichText::new(shown).monospace());
+        if !capturing && ui.small_button("Set").clicked() {
+            map.key_capture = Some(id);
+            map.key_problem = None;
+        }
+        if current.is_some() && !capturing && ui.small_button("Clear").clicked() {
+            remote.engine.macros.set_key(id, None);
+        }
+    });
+    if let Some(problem) = &map.key_problem {
+        ui.label(
+            egui::RichText::new(problem)
+                .small()
+                .color(theme::rgb(theme.warning)),
+        );
     }
 }
 

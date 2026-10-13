@@ -73,7 +73,7 @@
 - **Acceptance:** imported and existing scenes can be analysed; accepted controls visibly change the scene; defaults reproduce the original image within the engine's documented fidelity threshold; rejected suggestions do not mutate the source.
 
 ### U-04 Performance Macro editor and pinning
-- **Status:** Mostly built (D210): range (reach) and colour edited in MAP, the colour on the card, pin and unpin from a control's name in the Inspector; reorder and the unresolved states were already there (D175). Left: a shortcut per macro (smoothing is built as a glide, D227).
+- **Status:** Mostly built (D210): range (reach) and colour edited in MAP, the colour on the card, pin and unpin from a control's name in the Inspector; reorder and the unresolved states were already there (D175). A glide (D227) and a key (D228) per macro are built too.
 - **Work:** edit range and colour, per-macro shortcut and smoothing, pin/unpin from Controls, reorder macros, inspect target resolution, and retain unavailable/broken/conflict states across launches.
 - **Acceptance:** macro configuration survives restart; targets resolve only through documented stable identity rules; no silent fuzzy matches; all states have UI and tests.
 
@@ -194,7 +194,7 @@
 - **Acceptance:** repeated on is idempotent; repeated off is idempotent; mappings do not accidentally unblack an already blacked output; UI/remote state converges after reconnect.
 
 ### P-07 Macro and preset completion
-- **Status:** In progress: range and colour editing and pinning (D210), preset rename and confirmation before replace or delete (D214), the preset media channel (D223) and a glide per macro (D227) are built. Left: a keyboard shortcut per macro.
+- **Status:** In progress: range and colour editing and pinning (D210), preset rename and confirmation before replace or delete (D214), the preset media channel (D223), a glide per macro (D227) and a key per macro (D228) are built. Left: a person using them with a real controller.
 - **Work:** complete range/colour editing, macro shortcut/smoothing/pinning; add preset rename; add media preset channel after media-per-cue exists; validate save/recall/delete and missing-control resolution.
 - **Acceptance:** no data loss on unresolved targets; presets remain backwards-compatible; user sees what will be changed before destructive replacement.
 

@@ -155,6 +155,9 @@ checked and not committed. Interaction was driven with xdotool.
   software rasterisation and says nothing).
 - [x] Named layouts (D215), saved in Settings and applied from Settings or
   the palette. Evidence: `ui::state` and `command_palette` tests.
+- [x] A key per macro (D228): held, the macro goes to the top of its reach,
+  let go to the bottom; a key a command holds is refused; one key drives
+  one macro. Evidence: `strobe-io` engine test, the shell's key test.
 - [x] A glide per macro (D227): a mapped fader eases even a plain slider,
   and any other write ends the glide. Evidence: `strobe-io` engine and
   `strobe-scene` runtime tests.

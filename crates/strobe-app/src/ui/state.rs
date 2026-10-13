@@ -186,6 +186,10 @@ pub struct UiState {
     /// The generated-controls review's edits, one per proposed control
     /// (D219). Not saved.
     pub generate_review: Vec<crate::generate::Review>,
+    /// Macro keys held down, by key and macro id, so a release reaches the
+    /// macro its press drove whatever modifiers changed meanwhile (D228).
+    /// Not saved.
+    pub macro_keys_held: Vec<(crate::commands::Key, u32)>,
     /// The Settings pane's shortcut editor. Not saved.
     pub hotkeys: super::keys::HotkeyEditor,
     /// The browser's scene thumbnails (D212). Not saved.
@@ -258,6 +262,7 @@ impl UiState {
             tag_draft: None,
             media_draft: None,
             generate_review: Vec::new(),
+            macro_keys_held: Vec::new(),
             hotkeys: super::keys::HotkeyEditor::default(),
             thumbs: super::thumbs::Thumbs::default(),
             layouts: prefs.layouts.clone(),
