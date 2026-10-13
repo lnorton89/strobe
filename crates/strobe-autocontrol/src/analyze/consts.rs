@@ -63,6 +63,9 @@ pub(super) struct Named {
     pub time_used: bool,
     /// How many times the name is used outside its definition.
     pub uses: usize,
+    /// The components when the constant is a `vec3` of literals (then
+    /// `value` is the first of them).
+    pub rgb: Option<[f32; 3]>,
 }
 
 /// A parsed numeric literal.
@@ -127,6 +130,39 @@ const MATH_VALUES: [f64; 9] = [
     1.618_034,
 ];
 
+/// Constants of well-known hash functions: the sine hash
+/// (`fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453)`), the
+/// `vec2(127.1, 311.7)` family, and Dave Hoskins' hash-without-sine
+/// (`.1031, .1030, .0973, .1099`, `33.33`, `19.19`).
+const HASH_VALUES: [f64; 19] = [
+    43_758.545_3,
+    12.989_8,
+    78.233,
+    127.1,
+    311.7,
+    269.5,
+    183.3,
+    419.2,
+    371.9,
+    113.5,
+    271.9,
+    124.6,
+    0.103_1,
+    0.103_0,
+    0.097_3,
+    0.109_9,
+    33.33,
+    19.19,
+    23.140_692_632_779_26,
+];
+
+/// Whether `value` is one of the [`HASH_VALUES`].
+pub(super) fn is_hash_value(value: f64) -> bool {
+    HASH_VALUES
+        .iter()
+        .any(|h| (value.abs() - h).abs() <= 1e-6 * h.max(1.0))
+}
+
 /// Whether a constant looks like mathematics rather than a knob.
 pub(super) fn is_math_constant(name: &str, value: f64) -> bool {
     let upper = name.to_ascii_uppercase();
@@ -134,6 +170,7 @@ pub(super) fn is_math_constant(name: &str, value: f64) -> bool {
         || value.abs() < 1e-3
         || value.abs() >= 1e6
         || MATH_VALUES.iter().any(|m| (value.abs() - m).abs() < 2e-3)
+        || is_hash_value(value)
 }
 
 /// Every top-level named constant in the scan, with its safety decided.
@@ -194,8 +231,19 @@ pub(super) fn find(scan: &Scan<'_>) -> Vec<Named> {
         if unsafe_use {
             named.safe = false;
         }
+        // A vector constant multiplied by the clock is a set of
+        // frequencies, not a colour.
+        if named.rgb.is_some() && used_with_clock(scan, &named.name) {
+            named.time_used = true;
+        }
     }
     found
+}
+
+/// Whether `name` is used next to `TIME` or `iTime` (`TIME * FREQS`).
+fn used_with_clock(scan: &Scan<'_>, name: &str) -> bool {
+    let clock = |i: usize| scan.is_ident(i, "TIME") || scan.is_ident(i, "iTime");
+    (0..scan.len()).any(|i| scan.is_ident(i, name) && ((i >= 2 && clock(i - 2)) || clock(i + 2)))
 }
 
 /// `#define NAME <number>` at token `i`, if that is what it is.
@@ -228,6 +276,27 @@ fn parse_define(scan: &Scan<'_>, i: usize, body: &str) -> Option<Named> {
         return None;
     }
     let rest = &sig[1..];
+    // `#define COL vec3(0.9, 0.4, 0.1)`: a colour constant.
+    let texts: Vec<(Kind, &str)> = rest.iter().map(|(kind, text, ..)| (*kind, *text)).collect();
+    if let (Some(rgb), Some(first), Some(last)) = (literal_vec3(&texts), rest.first(), rest.last())
+    {
+        return Some(Named {
+            name: name.to_string(),
+            value: rgb[0],
+            is_float: true,
+            form: Form::Define,
+            span: (first.2, last.3),
+            literal: body
+                .get(first.2 - body_start..last.3 - body_start)
+                .unwrap_or("")
+                .to_string(),
+            safe: true,
+            loop_bound: false,
+            time_used: false,
+            uses: 0,
+            rgb: Some(rgb),
+        });
+    }
     let (open, rest) = match rest.first() {
         Some((Kind::Punct, "(", ..)) => (true, &rest[1..]),
         _ => (false, rest),
@@ -266,16 +335,77 @@ fn parse_define(scan: &Scan<'_>, i: usize, body: &str) -> Option<Named> {
         loop_bound: false,
         time_used: false,
         uses: 0,
+        rgb: None,
     })
 }
 
-/// `const float|int NAME = <number>;` starting at `i`, at the top level and
-/// alone on its line.
+/// The three components of `vec3(r, g, b)` written with literal numbers
+/// and nothing else, given as `(kind, text)` significant tokens.
+fn literal_vec3(tokens: &[(Kind, &str)]) -> Option<[f32; 3]> {
+    let [
+        (Kind::Ident, "vec3"),
+        (Kind::Punct, "("),
+        (Kind::Number, r),
+        (Kind::Punct, ","),
+        (Kind::Number, g),
+        (Kind::Punct, ","),
+        (Kind::Number, b),
+        (Kind::Punct, ")"),
+    ] = tokens
+    else {
+        return None;
+    };
+    let value = |text: &str| parse_number(text).map(|num| num.value as f32);
+    Some([value(r)?, value(g)?, value(b)?])
+}
+
+/// `const vec3 NAME = vec3(r, g, b);` starting at `i`, at the top level
+/// and alone on its line: a colour constant.
+fn parse_const_colour(scan: &Scan<'_>, i: usize) -> Option<Named> {
+    if !scan.is_ident(i + 1, "vec3") || !scan.is_any_ident(i + 2) || !scan.is(i + 3, "=") {
+        return None;
+    }
+    let texts: Vec<(Kind, &str)> = (i + 4..i + 12)
+        .map(|j| (scan.kind(j).unwrap_or(Kind::Space), scan.t(j)))
+        .collect();
+    let rgb = literal_vec3(&texts)?;
+    if !scan.is(i + 12, ";") {
+        return None;
+    }
+    let start = scan.start(i);
+    let end = scan.end(i + 12);
+    let tail = scan.rest_of_line(end).trim();
+    let clean =
+        scan.line_head(start).trim().is_empty() && (tail.is_empty() || tail.starts_with("//"));
+    Some(Named {
+        name: scan.t(i + 2).to_string(),
+        value: rgb[0],
+        is_float: true,
+        form: Form::Const,
+        span: (start, end),
+        literal: scan
+            .text
+            .get(scan.start(i + 4)..scan.end(i + 11))
+            .unwrap_or("")
+            .to_string(),
+        safe: clean,
+        loop_bound: false,
+        time_used: false,
+        uses: 0,
+        rgb: Some(rgb),
+    })
+}
+
+/// `const float|int NAME = <number>;` (or a `const vec3` colour) starting
+/// at `i`, at the top level and alone on its line.
 fn parse_const(scan: &Scan<'_>, i: usize) -> Option<Named> {
     if scan.brace_depth(i) != 0 || scan.paren_depth(i) != 0 || scan.statement_start(i) != i {
         return None;
     }
     let ty = scan.t(i + 1);
+    if ty == "vec3" {
+        return parse_const_colour(scan, i);
+    }
     if ty != "float" && ty != "int" {
         return None;
     }
@@ -308,6 +438,7 @@ fn parse_const(scan: &Scan<'_>, i: usize) -> Option<Named> {
         loop_bound: false,
         time_used: false,
         uses: 0,
+        rgb: None,
     })
 }
 

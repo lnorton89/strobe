@@ -79,19 +79,41 @@ pub fn snake_case(name: &str) -> String {
 /// Prefixes that belong to Strobe or GL, not to what a value means.
 const NOISE_PREFIXES: [&str; 4] = ["strobe_", "gl_", "st_", "syn_"];
 
-/// [`snake_case`] with the Strobe and GL prefixes dropped, so the converter's
-/// `strobe_gl_FragColor` reads as `frag_color`.
+/// The rest of `text` after a Material Maker node prefix (`p_o12345_`, or
+/// `o12345_`): the node's number says nothing about what a value does.
+fn strip_node_prefix(text: &str) -> Option<&str> {
+    let after_p = text.strip_prefix("p_").unwrap_or(text);
+    let digits = after_p.strip_prefix('o')?;
+    let count = digits.chars().take_while(char::is_ascii_digit).count();
+    if count == 0 {
+        return None;
+    }
+    digits
+        .get(count..)?
+        .strip_prefix('_')
+        .filter(|rest| !rest.is_empty())
+}
+
+/// [`snake_case`] with the Strobe and GL prefixes and Material Maker's node
+/// prefixes dropped, so the converter's `strobe_gl_FragColor` reads as
+/// `frag_color` and `p_o4511_scale` as `scale`.
 pub fn readable(name: &str) -> String {
     let mut text = snake_case(name);
     loop {
         let stripped = NOISE_PREFIXES
             .iter()
-            .find_map(|prefix| text.strip_prefix(prefix).filter(|rest| !rest.is_empty()));
+            .find_map(|prefix| text.strip_prefix(prefix).filter(|rest| !rest.is_empty()))
+            .or_else(|| strip_node_prefix(&text));
         match stripped {
             Some(rest) => text = rest.to_string(),
             None => return text,
         }
     }
+}
+
+/// Whether `name` is a GLSL keyword, type or built-in function.
+pub fn is_glsl_word(name: &str) -> bool {
+    GLSL_WORDS.split_whitespace().any(|word| word == name)
 }
 
 /// Every name a new control must avoid.
@@ -128,6 +150,17 @@ impl Taken {
         for (_, text) in sources.iter() {
             taken.idents.extend(glsl::identifiers(text));
         }
+        // A uniform the script creates is declared in every pass too.
+        if let Some(script) = folder.script.as_deref() {
+            for found in crate::script::scan(script) {
+                match found.name {
+                    crate::script::UniformName::Exact(name) => {
+                        taken.idents.insert(name);
+                    }
+                    crate::script::UniformName::Prefix(_) => {}
+                }
+            }
+        }
         taken
             .idents
             .extend(GLSL_WORDS.split_whitespace().map(str::to_string));
@@ -150,6 +183,13 @@ impl Taken {
         self.idents.insert(name.to_string());
     }
 }
+
+/// Endings that already say what a control is, so a taken name is numbered
+/// rather than given `_amount`.
+const KIND_WORDS: [&str; 11] = [
+    "color", "col", "colour", "speed", "scale", "freq", "steps", "zoom", "octaves", "amount",
+    "tint",
+];
 
 /// A base name made legal: letters, digits and `_`, not starting with a
 /// digit, at least three characters.
@@ -179,7 +219,44 @@ fn sanitize(base: &str) -> String {
 /// several controls is numbered from 1 (`color_1`, `color_2`). A name that
 /// is not free gets the next free number after `_1` instead.
 pub fn assign(bases: &[String], taken: &mut Taken) -> Vec<String> {
-    let cleaned: Vec<String> = bases.iter().map(|base| sanitize(base)).collect();
+    let plain: Vec<(String, Option<String>)> =
+        bases.iter().map(|base| (base.clone(), None)).collect();
+    assign_with_roles(&plain, taken)
+}
+
+/// [`assign`], where a base wanted by several controls is told apart by
+/// each one's role before falling back to a number (D259): two colours
+/// mixed by a ramp become `ramp_color_low` and `ramp_color_high`, the two
+/// speeds of an orbit `orbit_speed_x` and `orbit_speed_y`. A role is used
+/// only when every control sharing the base has one and no two of them
+/// share it.
+pub fn assign_with_roles(bases: &[(String, Option<String>)], taken: &mut Taken) -> Vec<String> {
+    let cleaned: Vec<String> = bases.iter().map(|(base, _)| sanitize(base)).collect();
+    let cleaned: Vec<String> = cleaned
+        .iter()
+        .enumerate()
+        .map(|(index, base)| {
+            let sharing: Vec<usize> = (0..cleaned.len())
+                .filter(|other| cleaned.get(*other) == Some(base))
+                .collect();
+            if sharing.len() < 2 {
+                return base.clone();
+            }
+            let roles: Vec<Option<&String>> = sharing
+                .iter()
+                .map(|other| bases.get(*other).and_then(|(_, role)| role.as_ref()))
+                .collect();
+            let distinct = roles.iter().all(Option::is_some)
+                && roles
+                    .iter()
+                    .enumerate()
+                    .all(|(a, role)| roles.iter().skip(a + 1).all(|other| other != role));
+            match bases.get(index).and_then(|(_, role)| role.as_ref()) {
+                Some(role) if distinct => format!("{base}_{role}"),
+                Some(_) | None => base.clone(),
+            }
+        })
+        .collect();
     let mut names = Vec::with_capacity(cleaned.len());
     for (index, base) in cleaned.iter().enumerate() {
         let shared = cleaned.iter().filter(|other| *other == base).count() > 1;
@@ -188,11 +265,21 @@ pub fn assign(bases: &[String], taken: &mut Taken) -> Vec<String> {
             .take(index)
             .filter(|other| *other == base)
             .count();
-        let first = if shared {
+        let mut first = if shared {
             format!("{base}_{}", earlier + 1)
         } else {
             base.clone()
         };
+        // A plain name the scene already uses (`#define RINGS 9.0` beside a
+        // variable `rings`) says what it is with `_amount` before it takes
+        // a number (D259); a name that already ends in what it is (`zoom`,
+        // `fog_color`) is numbered.
+        if !shared && !taken.is_free(&first) && !KIND_WORDS.iter().any(|w| first.ends_with(w)) {
+            let amount = format!("{first}_amount");
+            if taken.is_free(&amount) {
+                first = amount;
+            }
+        }
         let mut name = first.clone();
         let mut number = 2;
         while !taken.is_free(&name) {
@@ -259,11 +346,63 @@ mod tests {
     }
 
     #[test]
+    fn material_maker_node_prefixes_are_dropped() {
+        for (input, expected) in [
+            ("p_o12345_scale", "scale"),
+            ("p_o7_color_a", "color_a"),
+            ("o42_amount", "amount"),
+            ("p_other", "p_other"),
+            ("o_ring", "o_ring"),
+            ("p_o12345_", "p_o12345"),
+        ] {
+            assert_eq!(readable(input), expected, "`{input}`");
+        }
+    }
+
+    #[test]
+    fn a_shared_base_is_told_apart_by_role_before_a_number() {
+        let mut taken = Taken::default();
+        let role = |base: &str, role: Option<&str>| (base.to_string(), role.map(str::to_string));
+        let names = assign_with_roles(
+            &[
+                role("ramp_color", Some("low")),
+                role("speed", Some("x")),
+                role("ramp_color", Some("high")),
+                role("speed", Some("y")),
+                role("scale", Some("x")),
+                role("scale", None),
+                role("zoom", Some("x")),
+            ],
+            &mut taken,
+        );
+        assert_eq!(
+            names,
+            vec![
+                "ramp_color_low",
+                "speed_x",
+                "ramp_color_high",
+                "speed_y",
+                "scale_1",
+                "scale_2",
+                "zoom"
+            ],
+            "roles when every sharer has a distinct one, numbers otherwise, nothing when unshared"
+        );
+    }
+
+    #[test]
     fn a_taken_name_gets_a_number_instead() {
         let mut taken = Taken::default();
         taken.claim("zoom");
         let names = assign(&["zoom".to_string()], &mut taken);
         assert_eq!(names, vec!["zoom_2"], "zoom is in use");
+        taken.claim("rings");
+        let names = assign(&["rings".to_string()], &mut taken);
+        assert_eq!(
+            names,
+            vec!["rings_amount"],
+            "a taken plain name says what it is before taking a number"
+        );
     }
 
     #[test]

@@ -164,6 +164,11 @@ pub struct Candidate {
     /// A readable base name from the identifier or context. It is not yet
     /// unique; [`crate::naming`] makes the final names.
     pub name: String,
+    /// What tells this candidate apart from another with the same `name`
+    /// in the same expression (`low`/`high` for the ends of a `mix`, `x`/`y`
+    /// for a vector's components). [`crate::naming`] uses it before a number.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
     /// The text of the line the first site is on, trimmed, for reports.
     pub context: String,
     /// Where the literal is, first site first.

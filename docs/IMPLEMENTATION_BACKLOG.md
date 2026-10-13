@@ -168,7 +168,15 @@
 - **Acceptance:** file-drop and typed-path paths share the same import pipeline; broken imports remain visible with actionable reasons; original source, attribution and license metadata survive.
 
 ### I-03 Auto-control engine integration and heuristic tuning
-- **Status:** In progress; connected to the app (D202). The `st_speed` check is done (D246): a generated speed control used to ignore `st_speed`, and now ticks at the import clock's rate, so it follows it as `iTime` does. Left: heuristic tuning on real community scenes, which need the owner's corpus (TORNADO).
+- **Status:** In progress; connected to the app (D202). The `st_speed` check is done (D246): a generated speed control used to ignore `st_speed`, and now ticks at the import clock's rate, so it follows it as `iTime` does. Heuristic tuning on real community scenes: TORNADO T26 ran the engine over the owner's 65 scenes (266 controls kept in 49). It found six problems, all now addressed with original fixtures (D259):
+  - scripted scenes refused for undeclared `setUniform` uniforms, now declared from a static scan of `script.js`; a scene whose own GLSL is broken is now an error, not "0 candidates";
+  - fade-polynomial and hash constants offered as knobs, now traps;
+  - 116 of 266 names were a stem and a number; names now come from the assigned variable or field, the function, the helper or the loop's body, with roles (`low`/`high`, `x`/`y`) before numbers, and `p_oNNNN_` prefixes are dropped;
+  - position and direction `vec3`s taken for colours, now left alone;
+  - 28 loop bounds and 6 `FAR`s kept, now one Quality control a scene, and tiny controls next to a strong one are cut; two scenes' rewrites changed the default picture (0.020, 0.0076), now a fidelity gate drops the offending controls;
+  - misses: speeds in `#define` bodies, `TIME / k`, and colours in `#define`s and `const vec3`s, now found.
+
+  Left: a re-run of T26 on TORNADO to confirm on the real scenes and a real GPU.
 - **Work:** connect the engine to Import/Inspector; confirm the speed control does not incorrectly follow st_speed; tune candidate naming/grouping/ranges on real community scenes; preserve deterministic output; allow user review before audio bindings are enabled.
 - **Acceptance:** all library scenes with controls stripped and every tunable fixture produce reviewable controls; structural fixtures can legitimately report no useful controls; accepted defaults preserve the original render; no generated loop control can hang the GPU.
 

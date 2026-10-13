@@ -84,7 +84,7 @@ fn the_candidates_found_in_each_converted_fixture_are_pinned() -> Result<()> {
                 .collect();
             let _ = writeln!(
                 text,
-                "#{} {} {} {:?} default={:?} range={:?}..{:?} name={} sites=[{}] literal={:?}",
+                "#{} {} {} {:?} default={:?} range={:?}..{:?} name={}{} sites=[{}] literal={:?}",
                 c.id,
                 c.kind.label(),
                 c.group.ui_name(),
@@ -93,6 +93,9 @@ fn the_candidates_found_in_each_converted_fixture_are_pinned() -> Result<()> {
                 c.min,
                 c.max,
                 c.name,
+                c.role
+                    .as_deref()
+                    .map_or_else(String::new, |role| format!(" role={role}")),
                 sites.join(" "),
                 c.literal()
             );
