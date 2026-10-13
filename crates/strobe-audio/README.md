@@ -27,6 +27,7 @@ live capture from an audio device.
 | `AudioFrame`, `Layout` | One snapshot: `scalars` (in `SCALARS` order, `scalar(name)` looks one up), `spectrum`, `level_trail` and `shadertoy` buffers. `Layout` sizes the textures (default 256 / 256 / 512). |
 | `Band`, `BandLayout`, `BAND_COUNT` | The four bands: Bass, Mid, MidHigh, High. |
 | `BPM_MIN`, `BPM_MAX`, `BPM_DEFAULT` | 50, 220 and 120. |
+| `AudioFrame::downbeat`, `downbeat::Downbeat` | `[offset, confidence]`: a bar starts when `syn_BeatTime` reaches `4n + offset`. Confidence 0 means no estimate (D233). Not a uniform. |
 | `offline::run` | Drives an `Analyzer` over a finished buffer at a fixed frame rate, calling back per frame. Used by tests and the tuning example. |
 | `capture::Capture` | (feature `capture`) `start` fails if no device opens; `start_resilient` always returns a handle, serves silence and retries every 2 s. `latest()` is one wait-free load; `state()`, `status()`, `select_device`, `tap`, `nudge_bpm`, `set_reactivity` and `set_audio_speed` are safe to call from a UI thread. |
 | `capture::list_devices`, `DeviceChoice`, `DeviceInfo` | Device listing and selection. Windows output devices are listed as `DeviceKind::Loopback`. |
@@ -116,5 +117,7 @@ avoids that.
 - Texture layout and channel meanings are assumptions (Q10 and Q1 in
   [`OPEN_QUESTIONS.md`](../../docs/OPEN_QUESTIONS.md)): 256 texels, raw
   linear 0 to Nyquist, juiced log 30 Hz to 16 kHz, trail index 0 newest.
-- There is no downbeat detector. The beat grid is phase-locked to detected
-  beats, so a "bar" is counted from the grid's origin (D75).
+- The downbeat estimate (`downbeat`, D233) says which beat starts a bar
+  from each beat's bass energy and band-profile rise, with a confidence
+  that stays near zero when every beat sounds alike. Tested on synthetic
+  kicks at several tempos and phases, not yet on real music.

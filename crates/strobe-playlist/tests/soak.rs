@@ -253,6 +253,7 @@ fn disturbed_run(seed: u64) -> Result<(Tally, f64)> {
             bpm: 124.0,
             confidence,
             beats: grid_start + now * 124.0 / 60.0,
+            downbeat: 0.0,
         };
 
         // Live controls, roughly one every ten seconds.

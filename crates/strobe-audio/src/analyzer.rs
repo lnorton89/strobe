@@ -43,6 +43,7 @@ use realfft::num_complex::Complex;
 use realfft::{RealFftPlanner, RealToComplex};
 
 use crate::bands::{BAND_COUNT, BandLayout};
+use crate::downbeat::{BANDS, Downbeat};
 use crate::frame::{AudioFrame, Layout};
 use crate::onset::BeatPicker;
 use crate::signal::Signal;
@@ -139,6 +140,10 @@ const CURVED_TIME_GAIN: f32 = 4.0;
 /// highs are left out so a hat pattern at 8th or 16th notes does not pull
 /// the estimate to double time.
 const ONSET_WEIGHTS: [f32; BAND_COUNT] = [0.6, 0.3, 0.1, 0.0];
+
+/// The published tempo confidence below which the beat grid is not fed to
+/// the downbeat estimate: the grid is still finding the beat.
+const DOWNBEAT_MIN_TEMPO_CONFIDENCE: f32 = 0.3;
 
 /// Tempo smoothing time constant for the published BPM.
 const BPM_TAU: f32 = 0.4;
@@ -262,6 +267,17 @@ pub struct Analyzer {
     rng: u32,
     /// Beat-locked phase.
     grid: BeatGrid,
+    /// Which grid beat starts a bar (D233).
+    downbeat: Downbeat,
+    /// The beat counter minus the grid's beat number at the last detected
+    /// beat: turns the estimate's grid offset into the counter's, which is
+    /// what `syn_BeatTime` and the playlist clock count.
+    counter_lead: i64,
+    /// Whether hops feed the downbeat estimate (the grid is following).
+    downbeat_live: bool,
+    /// Hops run so far in this `analyze` call, to place each hop on the
+    /// grid between frames.
+    frame_hops: u32,
     /// Published tempo.
     bpm: f32,
     /// Published confidence.
@@ -351,6 +367,10 @@ impl Analyzer {
             random: Logistic::at(0.0),
             rng: 0x9E37_79B9,
             grid: BeatGrid::default(),
+            downbeat: Downbeat::new(),
+            counter_lead: 0,
+            downbeat_live: false,
+            frame_hops: 0,
             bpm: BPM_DEFAULT,
             confidence: Follower::default(),
             gate: 0.0,
@@ -464,6 +484,7 @@ impl Analyzer {
         } else {
             0.0
         };
+        self.frame_hops = 0;
         let hops = self.consume_hops();
         if hops == 0 {
             self.starved += dt;
@@ -581,6 +602,21 @@ impl Analyzer {
         if self.picker.step(hit[1], self.hop_dt, gap) {
             self.pending.beats += 1;
         }
+
+        // The downbeat estimate hears every hop, not a frame's latest: the
+        // hops' alignment to the beat drifts over several beats, and a
+        // once-a-frame sample of it reads as an accent on some beats. It
+        // takes the raw bass energy (the hits are clamped to 1, so a harder
+        // kick would read the same) and the four band levels.
+        if self.downbeat_live {
+            let ahead = self.frame_hops as f32 * self.hop_dt * self.bpm / 60.0;
+            let bands: [f32; BANDS] = std::array::from_fn(|band| {
+                self.pending.level.get(band + 1).copied().unwrap_or(0.0)
+            });
+            self.downbeat
+                .observe(self.grid.beats() + f64::from(ahead), rms[1], bands);
+        }
+        self.frame_hops += 1;
     }
 
     /// Advances levels, hits, beats, clocks and the beat grid by `dt`.
@@ -609,8 +645,12 @@ impl Analyzer {
             self.grid.advance(dt, self.bpm);
         } else {
             self.grid.unlock();
+            self.downbeat.reset();
             self.tempo.silence();
         }
+        // Only a grid that follows the music says anything about bars; the
+        // next frame's hops feed the estimate if this one's does.
+        self.downbeat_live = active && self.confidence.value > DOWNBEAT_MIN_TEMPO_CONFIDENCE;
         self.bpm += (self.tempo.bpm() - self.bpm) * blend(dt, BPM_TAU);
         let confidence_target = if active { self.tempo.confidence() } else { 0.0 };
         self.confidence
@@ -628,6 +668,7 @@ impl Analyzer {
             let value = self.next_random();
             self.random.retarget(value);
             self.grid.on_beat(self.bpm);
+            self.counter_lead = self.beat_count as i64 - self.grid.beats().round() as i64;
         } else {
             self.on_beat *= decay(dt, ONBEAT_TAU);
         }
@@ -695,6 +736,10 @@ impl Analyzer {
         } else {
             self.pending.energy
         };
+        self.frame.downbeat = self.downbeat.estimate().map_or([0.0; 2], |bar| {
+            let offset = (i64::from(bar.offset) + self.counter_lead).rem_euclid(4);
+            [offset as f32, bar.confidence]
+        });
         for (slot, signal) in self.frame.scalars.iter_mut().zip(&self.signals) {
             *slot = match *signal {
                 Signal::Level(c) => channel(&self.out_level, c),

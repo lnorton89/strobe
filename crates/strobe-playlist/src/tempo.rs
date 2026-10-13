@@ -36,6 +36,10 @@ pub struct BeatInfo {
     /// reaches `4n`. It only has to be continuous and increasing in normal
     /// running; a reset to a smaller value is tolerated.
     pub beats: f64,
+    /// Where bars start: bar `n` begins when `beats` reaches
+    /// `4n + downbeat`. 0 counts bars from the grid's zero, which is what a
+    /// grid with no confident downbeat estimate gets (D75, D233).
+    pub downbeat: f64,
 }
 
 impl BeatInfo {
@@ -45,6 +49,7 @@ impl BeatInfo {
         bpm: 120.0,
         confidence: 0.0,
         beats: 0.0,
+        downbeat: 0.0,
     };
 
     /// The tempo to use for beat-counted lengths: the live BPM when its
@@ -70,7 +75,18 @@ impl BeatInfo {
 
     /// The bar the grid position is in.
     pub fn bar(&self) -> i64 {
-        bar_of(self.beats)
+        self.bar_at(self.beats)
+    }
+
+    /// The bar a grid position falls in, counted from the downbeat. A
+    /// non-finite downbeat counts from the grid's zero.
+    pub fn bar_at(&self, beats: f64) -> i64 {
+        let downbeat = if self.downbeat.is_finite() {
+            self.downbeat
+        } else {
+            0.0
+        };
+        bar_of(beats - downbeat)
     }
 }
 
@@ -94,6 +110,7 @@ mod tests {
             bpm,
             confidence,
             beats: 10.0,
+            downbeat: 0.0,
         }
     }
 
@@ -144,5 +161,26 @@ mod tests {
         assert_eq!(bar_of(4.0), 1, "downbeat of bar 1");
         assert_eq!(bar_of(-0.5), -1, "before the grid");
         assert_eq!(BeatInfo::SILENT.bar(), 0, "silent grid");
+    }
+
+    #[test]
+    fn bars_start_on_the_downbeat() {
+        let at = |beats: f64, downbeat: f64| BeatInfo {
+            beats,
+            downbeat,
+            ..beat(120.0, 1.0)
+        };
+        assert_eq!(
+            at(4.5, 1.0).bar(),
+            0,
+            "beat 4 is still bar 0 when bars start on 1"
+        );
+        assert_eq!(at(5.0, 1.0).bar(), 1, "beat 5 starts bar 1");
+        assert_eq!(at(0.5, 1.0).bar(), -1, "before the first downbeat");
+        assert_eq!(
+            at(5.0, f64::NAN).bar(),
+            1,
+            "a broken downbeat counts from zero"
+        );
     }
 }

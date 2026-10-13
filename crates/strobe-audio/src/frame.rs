@@ -103,6 +103,11 @@ pub struct AudioFrame {
     /// breakdown back up; song-structure events compare these raw values
     /// with their own averages instead (`events`, D226). Not a uniform.
     pub energy: [f32; 2],
+    /// The downbeat: `[offset, confidence]`, where a bar starts when the
+    /// beat counter `syn_BeatTime` reaches `4n + offset`, and confidence is
+    /// 0 to 1. Confidence 0 means no estimate; bars are then counted from
+    /// the counter's zero (`downbeat`, D233). Not a uniform.
+    pub downbeat: [f32; 2],
 }
 
 impl AudioFrame {
@@ -119,6 +124,7 @@ impl AudioFrame {
             ]
             .concat(),
             energy: [0.0; 2],
+            downbeat: [0.0; 2],
         }
     }
 

@@ -682,7 +682,7 @@ impl Show {
         self.show_time += dt;
         if !self.pace_anchor(env, dt) {
             let frame = env.audio.frame_at(self.show_time);
-            let beat = self.reader.read(&frame.scalars);
+            let beat = self.reader.read(&frame.scalars, frame.downbeat);
             let [whole, bass] = frame.energy;
             self.clock.tick(f64::from(dt), &beat);
             self.hear(dt, whole, bass);

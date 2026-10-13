@@ -169,7 +169,7 @@
 - **Acceptance:** synthetic fixtures deterministically exercise events; no double advance on one transient; no accidental advance during device reconnect; show continues with a clear status when audio is unavailable.
 
 ### P-02 Downbeat and bar detector
-- **Status:** Open.
+- **Status:** Built (D233), pending real music: `strobe_audio::downbeat` scores each beat by its bass energy and band-profile rise, folds the scores into four slots, and reports the leading slot with a confidence (its lead past a noise allowance), after eight beats of warm-up and four bars of evidence, with two bars of hysteresis; it resets when the grid loses its lock. The app moves the clock's bar lines to it at confidence 0.5 or more and counts from the grid's origin otherwise, so a low-confidence estimate falls back to the old behaviour. Synthetic fixtures: an accented "one" found at all four phases with confidence 1; even kicks at 97-174 BPM give 0; a one-bar fill does not move the bar; a new track's bars are followed. Left: recorded music we may use, and measuring the error there.
 - **Work:** research and implement a confidence-aware downbeat/bar estimate; define behaviour when BPM confidence is low, tempo changes, or beat phase drifts. Do not pretend raw tap tempo is a downbeat detector.
 - **Acceptance:** recorded/synthetic fixtures with known tempo and phase quantify error; bar-locked transitions remain bounded and fall back to time-based transitions when confidence is insufficient.
 
