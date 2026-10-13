@@ -202,6 +202,20 @@ pub struct Cli {
     /// What is in it at launch is left alone.
     #[arg(long, value_name = "DIR")]
     pub watch_folder: Option<PathBuf>,
+    /// Start the LAN remote at launch: a phone or tablet on the same
+    /// network opens the address Strobe shows and pairs with a code and the
+    /// desktop's approval (D250). Off by default; Settings can switch it on
+    /// for this run too. Plain HTTP: use it on a network you trust.
+    #[arg(long)]
+    pub remote: bool,
+    /// The address the LAN remote listens on, for this run. Without it,
+    /// this computer's LAN address. A public address is refused; `0.0.0.0`
+    /// (every interface) is allowed with a warning.
+    #[arg(long, value_name = "IP")]
+    pub remote_bind: Option<std::net::IpAddr>,
+    /// The port the LAN remote listens on.
+    #[arg(long, value_name = "PORT", default_value_t = strobe_remote::server::DEFAULT_PORT)]
+    pub remote_port: u16,
 }
 
 /// Parses `1280x720`.
@@ -378,6 +392,34 @@ mod tests {
             "path"
         );
         assert!(cli.no_resume, "no resume");
+        Ok(())
+    }
+
+    #[test]
+    fn the_lan_remote_is_off_unless_asked_for() -> Result<()> {
+        let cli = Cli::try_parse_from(["strobe"])?;
+        assert!(!cli.remote, "no socket by default");
+        assert_eq!(cli.remote_bind, None, "the LAN address unless named");
+        assert_eq!(cli.remote_port, 47812, "the default port");
+        let cli = Cli::try_parse_from([
+            "strobe",
+            "--remote",
+            "--remote-bind",
+            "192.168.1.20",
+            "--remote-port",
+            "50000",
+        ])?;
+        assert!(cli.remote, "on");
+        assert_eq!(
+            cli.remote_bind.map(|ip| ip.to_string()).as_deref(),
+            Some("192.168.1.20"),
+            "address"
+        );
+        assert_eq!(cli.remote_port, 50000, "port");
+        assert!(
+            Cli::try_parse_from(["strobe", "--remote-bind", "phone.local"]).is_err(),
+            "an address, never a name"
+        );
         Ok(())
     }
 

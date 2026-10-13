@@ -440,6 +440,16 @@ impl AudioInput {
         }
     }
 
+    /// Whether a live capture is the active source.
+    pub fn is_live(&self) -> bool {
+        self.source == Source::Live
+    }
+
+    /// Whether capture was asked for (`--audio synthetic` says no).
+    pub fn can_capture(&self) -> bool {
+        self.wants_capture
+    }
+
     /// What the audio panel shows and edits this frame.
     pub fn panel(&mut self) -> AudioPanel<'_> {
         let bpm = self.bpm();

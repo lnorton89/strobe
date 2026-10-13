@@ -104,6 +104,7 @@ use crate::generate;
 use crate::gldebug;
 use crate::import::{self, Input, Outcome};
 use crate::intake;
+use crate::lan::{self, Lan, Situation};
 use crate::library::{Health, Library};
 use crate::localtime::LocalDate;
 use crate::mouse::{Button, MouseTracker};
@@ -119,9 +120,10 @@ use crate::stats::{
 };
 use crate::ui::widgets::Tone;
 use crate::ui::{
-    Action, CueTransport, EditorPanel, FailurePanel, GeneratePanel, ImportPanel, ListenerPanel,
-    MapUi, MediaFrom, MediaPanel, Model, NoticePanel, PerfPanel, PlaylistPanel, PlaylistUi,
-    Preview, RemotePanel, ScenePreview, ShellState, TransportPanel, UiHost, UiState, shell,
+    Action, CueTransport, EditorPanel, FailurePanel, GeneratePanel, ImportPanel, LanPanel,
+    ListenerPanel, MapUi, MediaFrom, MediaPanel, Model, NoticePanel, PerfPanel, PlaylistPanel,
+    PlaylistUi, Preview, RemotePanel, ScenePreview, ShellState, TransportPanel, UiHost, UiState,
+    shell,
 };
 use crate::workspace::Pane;
 use std::path::{Path, PathBuf};
@@ -131,6 +133,7 @@ use strobe_diag::failure::{self, Failure, Subsystem};
 use strobe_gfx::{Compositor, GlChoice, GpuTimer, MediaRequest, Post, SwapWindow, WindowedContext};
 use strobe_io::{Banks, Output};
 use strobe_playlist::{Command, Playlist, ResumePoint};
+use strobe_remote::bridge::Answer;
 use strobe_scene::control::def::Values;
 use strobe_scene::meta::MetaValues;
 use strobe_shadertoy::listener::{Listener, ListenerConfig, Token};
@@ -691,6 +694,8 @@ struct Running {
     playlist_ui: PlaylistUi,
     /// MIDI, OSC, mappings, macros and the fav slots (D170 to D177).
     remote: Remote,
+    /// The LAN remote: off until asked for (D250 to D254).
+    lan: Lan,
     /// The keyboard shortcuts in force: the defaults plus `hotkeys` (D178).
     bindings: Bindings,
     /// Outputs the mapper handed back this frame, kept to reuse its buffer.
@@ -841,6 +846,12 @@ impl Running {
                 now,
             ),
             remote_out: Vec::new(),
+            lan: Lan::new(
+                data_dir.clone(),
+                cli.remote_bind,
+                cli.remote_port,
+                cli.screenshot.is_none(),
+            ),
             bindings: Bindings::default(),
             map_ui: MapUi::default(),
             pending_preset: None,
@@ -924,6 +935,9 @@ impl Running {
         if cli.listen {
             running.start_listener();
         }
+        if cli.remote {
+            running.lan.start();
+        }
         if let Some(error) = scan_error {
             failure::report(
                 Failure::new(Subsystem::Io, "scan")
@@ -975,8 +989,10 @@ impl Running {
         self.quit || self.screenshot.as_ref().is_some_and(Screenshot::finished)
     }
 
-    fn shutdown(self) {
-        // Stop accepting browser requests before the windows go.
+    fn shutdown(mut self) {
+        // Drop the phones and stop accepting browser requests before the
+        // windows go.
+        self.lan.stop();
         drop(self.listener);
         // Write the layout if a change is still waiting, off the UI thread.
         self.ui_state.finish();
@@ -3168,6 +3184,18 @@ impl Running {
                         self.stop_listener();
                     }
                 }
+                Action::SetLanRemote(on) => {
+                    if on {
+                        self.lan.start();
+                    } else {
+                        self.lan.stop();
+                    }
+                }
+                Action::OpenRemotePairing => self.lan.open_pairing(),
+                Action::CloseRemotePairing => self.lan.close_pairing(),
+                Action::DecideRemotePairing { id, approve } => self.lan.decide(id, approve),
+                Action::RevokeRemoteClient(id) => self.lan.revoke(&id),
+                Action::RevokeAllRemoteClients => self.lan.revoke_all(),
                 Action::SetOsc(settings) => self.remote.set_osc(settings),
                 Action::SetMidiEnabled(enabled) => {
                     let mut settings = self.remote.midi_saved.clone();
@@ -3230,6 +3258,88 @@ impl Running {
             session.map(|s| &s.controls),
             session.map(|s| &s.meta),
             state,
+        );
+    }
+
+    /// Step 1c of the frame: runs the LAN remote's commands and publishes
+    /// what a phone shows (D254). Never waits: commands are taken with
+    /// `try`, at most [`lan::MAX_PER_FRAME`] of them, each checked against
+    /// what the app is doing now and run through the same action a key or
+    /// an OSC message runs, then answered. Nothing happens while the remote
+    /// is off.
+    fn drain_lan(&mut self, now: Instant) {
+        if !self.lan.running() {
+            return;
+        }
+        let ready = self
+            .stack
+            .show
+            .as_ref()
+            .is_some_and(|show| show.phase() == Phase::Ready);
+        let step = self
+            .step_target(1)
+            .filter(|next| Some(*next) != self.playing);
+        let situation = Situation {
+            playlist: self.stack.show.is_some(),
+            ready,
+            can_step: step.is_some(),
+        };
+        for _ in 0..lan::MAX_PER_FRAME {
+            let Some(incoming) = self.lan.next_command() else {
+                break;
+            };
+            let command = incoming.command;
+            let action = CommandId::from_id(command.id())
+                .filter(|c| c.mappable())
+                .and_then(|c| command_action(c, self.blackout));
+            let answer = match (lan::refusal(command, situation), action) {
+                (None, Some(action)) => {
+                    let mut actions = vec![action];
+                    self.apply(&mut actions);
+                    log::info!("remote: ran {}", command.id());
+                    Answer::Accepted
+                }
+                (Some(reason), _) => {
+                    log::info!("remote: refused {}: {reason}", command.id());
+                    Answer::Rejected(reason.to_string())
+                }
+                (None, None) => Answer::Rejected("not available here".to_string()),
+            };
+            incoming.answer(answer);
+        }
+        if !self.lan.publish_due(now) {
+            return;
+        }
+        let entries = &self.library.entries;
+        let playing_name = self
+            .playing
+            .and_then(|i| entries.get(i))
+            .map(|e| e.name.as_str());
+        let (current, next, remaining, held) = match self.stack.show.as_ref() {
+            Some(show) => {
+                let transport = show_transport(show, playing_name, 0.0, self.blackout);
+                (
+                    transport.now,
+                    transport.next,
+                    transport.cue.and_then(|cue| cue.remaining),
+                    transport.cue.is_some_and(|cue| cue.held),
+                )
+            }
+            None => (
+                playing_name,
+                step.and_then(|i| entries.get(i)).map(|e| e.name.as_str()),
+                None,
+                false,
+            ),
+        };
+        self.lan.publish(
+            current,
+            next,
+            remaining,
+            held,
+            self.blackout,
+            self.output_visible,
+            lan::audio_status(self.audio.is_live(), self.audio.can_capture()),
         );
     }
 
@@ -3509,6 +3619,7 @@ impl Running {
         let window = [size.width as i32, size.height as i32];
         self.settle_resize([size.width, size.height], started);
         self.drain_remote(started);
+        self.drain_lan(started);
 
         let gl = self.stack.gfx.gl().clone();
         let mut change = None;
@@ -3770,6 +3881,7 @@ impl Running {
             self.open_editor(None);
         }
         let next = self.step_target(1);
+        let lan_view = self.lan.view();
         let playing_dir = self.stack.session.as_ref().map(|s| s.dir.clone());
         let authored = self.stack.session.as_ref().is_some_and(|session| {
             session
@@ -3920,6 +4032,11 @@ impl Running {
             editor: EditorPanel {
                 doc: self.editor_doc.as_mut(),
                 playing_dir: playing_dir.as_deref(),
+            },
+            lan: LanPanel {
+                view: &lan_view,
+                address: &mut self.lan.address,
+                port: &mut self.lan.port,
             },
         };
         let mut actions = std::mem::take(&mut self.actions);

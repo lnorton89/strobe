@@ -1,7 +1,7 @@
 // ============================================================================
 // Module:       strobe_app::ui::settings
 // Description:  The settings pane: output window, performance, audio,
-//               appearance, and the keyboard reference.
+//               appearance, the LAN remote, and the keyboard reference.
 //
 // Dependencies: egui; super::{model, theme, widgets, audio}, crate::{commands,
 //               session}
@@ -17,6 +17,8 @@
 //! - **Performance**: adaptive resolution and the render scale (D64).
 //! - **Audio**: the input device, reactivity, speed and tap tempo.
 //! - **Appearance**: the theme, reduced motion, and the title bar (D132).
+//! - **Remote**: the LAN remote's switch, address, pairing and paired
+//!   devices (`super::lan`, D254).
 //! - **Layouts**: the open panes, their order and widths, saved under a
 //!   name and put back in one click (D215).
 //! - **Keyboard**: the command table, as data, so what is advertised here
@@ -61,6 +63,9 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
             ui.add_space(SPACE_SM);
             widgets::section(ui, theme, "Appearance");
             appearance(ui, model, theme, actions);
+            ui.add_space(SPACE_SM);
+            widgets::section(ui, theme, "Remote");
+            super::lan::show(ui, theme, &mut model.lan, actions);
             ui.add_space(SPACE_SM);
             widgets::section(ui, theme, "Layouts");
             layouts(ui, theme, model.ui);

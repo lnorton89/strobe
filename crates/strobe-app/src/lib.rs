@@ -60,6 +60,7 @@ pub mod gldebug;
 pub mod icon;
 pub mod import;
 pub mod intake;
+pub mod lan;
 pub mod library;
 pub mod localtime;
 pub mod motion;
