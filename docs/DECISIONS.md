@@ -3119,3 +3119,39 @@ written, and the same button on the Import pane.
 **Would reopen:** a machine where starting a second process is not allowed,
 or a need to apply generated controls to the playing scene in place.
 
+### D203: a pass that samples its own target is double-buffered (2026-10-13)
+
+GL leaves reading a texture while rendering into it undefined, and drivers
+answer differently:
+- **NVIDIA** returns the previous contents.
+- **llvmpipe** also returns the previous contents.
+- **D3D11 under ANGLE** returns zeros: it cannot bind one texture as both
+  shader input and render target, so it unbinds the input.
+
+Real scenes rely on NVIDIA's answer. `magnetismic` keeps an accumulator in a
+single-buffered 10x10 pass, and on ANGLE it drifted to a mean of 19 levels
+from native by frame 100 (TORNADO T7). With `DOUBLE_BUFFER` set, native and
+ANGLE matched, and double-buffered native was bit-identical to
+single-buffered native. So the faithful answer is "the previous frame", on
+every driver.
+
+The player now decides this when it allocates targets: a buffer pass whose
+**linked program** has its own target as an active sampler gets two targets
+and swaps them, exactly as `DOUBLE_BUFFER` does, and the log says so once. It
+reads the linked program's active samplers, so a pass that names its target
+only on a branch the compiler removed (`PASSINDEX` folds in each pass's own
+program) keeps one target.
+- **Cost:** one more texture the size of that pass.
+- **Effect on other passes:** they still read the frame just written, as
+  before.
+- **Evidence:** `render.rs`
+  `a_pass_that_reads_itself_sees_its_previous_frame_in_both_dialects`.
+  It checks the values, and checks the buffering through
+  `ScenePlayer::is_double_buffered`, because llvmpipe's own answer happens
+  to be NVIDIA's and the values alone cannot catch a regression there.
+
+This resolves Q5 (now R9).
+
+**Would reopen:** a scene that wants the D3D11 behaviour (reading zeros from
+itself), which no driver promises.
+

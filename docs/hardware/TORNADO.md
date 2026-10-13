@@ -159,13 +159,40 @@ Built from a detached worktree of `origin/master` under `target\tornado\`.
   that treat a lone `\r` as a line count double. D201 normalises every
   line-ending form to one `\n`.
 
-## Pending on this machine
+## magnetismic, native against ANGLE (2026-10-13, commit 54a9b19, Task T7)
+
+- **The scene.** Pass `var` is 10x10, `FLOAT`, single-buffered. It reads
+  its own target and adds `syn_Intensity`: an accumulator. Every pass reads
+  `var` to speed up its clock.
+- **The difference grows with frames.** Mean difference per 8-bit channel,
+  native against ANGLE:
+
+  | Frame | Mean difference |
+  |---:|---:|
+  | 1 | 0.00 |
+  | 2 | 0.44 |
+  | 10 | 3.38 |
+  | 60 | 10.35 |
+  | 100 | 19.25 |
+
+  - **Formats do not matter:** 16F and 32F give the same gap.
+  - **ANGLE's accumulator never grows:** its 16F and 32F runs stay
+    identical.
+- **The cause** is a feedback loop, which GL leaves undefined. NVIDIA reads
+  the previous contents, so the value accumulates. D3D11 cannot bind one
+  texture as both shader input and render target, so ANGLE reads zeros and
+  the picture barely moves.
+- **The proof:** with `DOUBLE_BUFFER` added to `var`, native and ANGLE
+  match (0.00 at 10 and at 100 frames). Double-buffered native is
+  bit-identical to single-buffered native.
+- **The fix** is D203, which needs a re-run here.
 
 - [x] Re-run 07 at 1080p and 2160p after D191: same size (T2).
 - [x] Re-run the 65 scenes after D193/D194 (T4): 55 native, 38 ANGLE.
 - [x] Re-run them after D199, native and ANGLE, plus `cargo xtask corpus`
   (T6): 56 and 56, 62 with scripts.
-- [ ] Why `magnetismic` differs between native and ANGLE.
+- [x] Why `magnetismic` differs between native and ANGLE (T7): a pass
+  samples its own target. Fixed by D203, which needs a re-run.
 - [ ] The app fullscreen at 2560x1440 with a playlist show, transitions and
   the post stage, against the T480's numbers.
 - [ ] A larger set of real Shadertoy shaders through NVIDIA's compiler

@@ -329,8 +329,9 @@ survives export.
   (T6, after D199): 56 native and 56 ANGLE, with no regressions; with
   scripts running (`strobe-corpus` on Windows), 62 of 65.** The three left
   are two scene bugs and a missing picture, which D201 now plays as black.
-  Open: `magnetismic` draws visibly differently on ANGLE (a feedback scene
-  with a 10x10 data pass).
+  `magnetismic` drew differently on ANGLE because a pass sampled its own
+  target (T7). D203 double-buffers such passes; **not yet re-run** on
+  TORNADO.
 
 ## P2: playlists, show control and release
 
