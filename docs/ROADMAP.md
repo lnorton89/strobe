@@ -119,7 +119,8 @@ Each item names its acceptance test. Evidence is in [STATUS_AUDIT.md](STATUS_AUD
    - the Playlist **workspace** proper: the selected cue's inheritance
      inspector, multi-select edits, drag from the library, pasted Shadertoy
      URLs (D157);
-   - real tags in the scene format, so Generate can pick by tag;
+   - ~~real tags in the scene format, so Generate can pick by tag~~ (built:
+     Synesthesia's `TAGS`, D205);
    - ~~MIDI and OSC mapping of the cue commands~~ (built: commands, `Cue` jumps and fav slots are mapping targets, and `/strobe/cmd/<id>` and `/strobe/cue/<n>` need no mapping, D173);
    - a downbeat detector, so "bars" line up with the music (D75);
    - the T480: the load time of an 80-scene show, the cost of a transition
@@ -127,7 +128,7 @@ Each item names its acceptance test. Evidence is in [STATUS_AUDIT.md](STATUS_AUD
 
    *Accept:* a 4-hour, 80-cue show authored from tags in under two minutes,
    then a 4-hour soak with zero runtime compiles. Met in part: authoring
-   from name words is a card away, and zero compiles after load is asserted
+   from tags (D205) is a card away, and zero compiles after load is asserted
    by tests and logged by every run; the 4-hour soak has only run as the pure
    clock (strobe-playlist), not with real scenes on real hardware.
 6. **SSF and script gaps.** *Partly done (D160-D163), 2026-10-10.*
@@ -397,7 +398,8 @@ The app plays playlists (D150-D158). Known gaps:
   no per-cue inheritance inspector, no multi-select edit, no drag from the
   library, no pasted-URL import. Save rewrites the file from the model, so
   comments are lost.
-- **No scene tags**, so Generate matches name words (D157).
+- **Tags are edited for the playing scene only** (the Inspector), and the
+  Generate form has no exclude field yet (D205).
 - **A cue's `preset` applies** (D176); `meta` overrides and presets reach
   the session's meta bank, which the output post stage reads (D180).
 - **Two scenes render during a transition**, doubling the cost for its

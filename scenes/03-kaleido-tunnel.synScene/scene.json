@@ -7,5 +7,6 @@
     { "NAME": "center", "TYPE": "xy smooth", "MIN": [-0.5, -0.5], "MAX": [0.5, 0.5], "DEFAULT": [0.0, 0.0], "UI_GROUP": "shape" },
     { "NAME": "spin", "TYPE": "slider speed", "MIN": -1.0, "MAX": 1.0, "DEFAULT": 0.15, "UI_GROUP": "motion" },
     { "NAME": "palette_step", "TYPE": "bang counter smooth", "PARAMS": 0.05, "UI_GROUP": "colour" }
-  ]
+  ],
+  "TAGS": ["2d", "tunnel", "kaleidoscope", "psychedelic"]
 }

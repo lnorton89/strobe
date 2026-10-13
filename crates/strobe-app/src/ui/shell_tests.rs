@@ -465,7 +465,16 @@ fn draw_events(
     let library = Library {
         dir: PathBuf::from("scenes"),
         entries: (0..scenario.scenes)
-            .map(|i| Entry::new(format!("{:02}-scene-{i}", i + 1), PathBuf::from("x")))
+            .map(|i| {
+                let entry = Entry::new(format!("{:02}-scene-{i}", i + 1), PathBuf::from("x"));
+                // The playing scene carries tags, so the Inspector's chips
+                // are measured at every size.
+                if i == 0 {
+                    entry.with_tags(&["dark", "tunnel", "audio reactive", "3d", "raymarching"])
+                } else {
+                    entry
+                }
+            })
             .collect(),
     };
     let health: Vec<Health> = (0..scenario.scenes)

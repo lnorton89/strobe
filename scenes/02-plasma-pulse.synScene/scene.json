@@ -7,5 +7,6 @@
     { "NAME": "scale", "TYPE": "slider smooth", "MIN": 1.0, "MAX": 12.0, "DEFAULT": 5.0, "PARAMS": 0.05, "UI_GROUP": "shape" },
     { "NAME": "invert", "TYPE": "toggle smooth", "DEFAULT": 0.0, "UI_GROUP": "colour" },
     { "NAME": "flash", "TYPE": "bang smooth", "PARAMS": 0.1, "UI_GROUP": "colour" }
-  ]
+  ],
+  "TAGS": ["2d", "colorful", "plasma", "retro", "light"]
 }

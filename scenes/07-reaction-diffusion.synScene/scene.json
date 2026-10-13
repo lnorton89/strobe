@@ -15,5 +15,6 @@
     { "NAME": "kill", "TYPE": "slider smooth", "MIN": 0.045, "MAX": 0.07, "DEFAULT": 0.062, "UI_GROUP": "chemistry" },
     { "NAME": "reseed", "TYPE": "bang", "UI_GROUP": "chemistry" },
     { "NAME": "ink", "TYPE": "color", "DEF_COLOR": [0.95, 0.45, 0.2], "UI_GROUP": "colour" }
-  ]
+  ],
+  "TAGS": ["2d", "simulation", "reaction-diffusion", "feedback"]
 }

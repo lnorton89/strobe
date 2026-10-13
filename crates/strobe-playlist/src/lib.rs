@@ -63,7 +63,8 @@ pub use clock::{
 pub use duration::{BEATS_PER_BAR, DurationError, DurationSpec, Length};
 pub use error::{ParseError, PlaylistError};
 pub use generate::{
-    GenerateError, GenerateSpec, Generated, LibraryScene, LibrarySnapshot, PoolFilter, generate,
+    GenerateError, GenerateSpec, Generated, LibraryScene, LibrarySnapshot, PoolFilter, Why,
+    generate,
 };
 pub use model::{
     AdvanceMode, AudioEventKind, ControlValue, Cue, CueSettings, LoopMode, MetaOverrides, Playlist,

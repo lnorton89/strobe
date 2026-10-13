@@ -105,31 +105,93 @@ pub struct PoolFilter {
     pub exclude_tags: Vec<String>,
 }
 
+/// Why a scene is in the pool or not: the first rule that decided it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Why {
+    /// No include list was given, so every scene is in.
+    Everything,
+    /// Its name is in `names`.
+    Name,
+    /// It is in this folder from `folders`.
+    Folder(String),
+    /// It carries this tag from `tags`.
+    Tag(String),
+    /// Its name is in `exclude_names`.
+    ExcludedName,
+    /// It carries this tag from `exclude_tags`.
+    ExcludedTag(String),
+    /// No include list matched it.
+    NoMatch,
+}
+
+impl Why {
+    /// Whether the scene is in the pool.
+    pub fn admitted(&self) -> bool {
+        match self {
+            Self::Everything | Self::Name | Self::Folder(_) | Self::Tag(_) => true,
+            Self::ExcludedName | Self::ExcludedTag(_) | Self::NoMatch => false,
+        }
+    }
+}
+
+impl std::fmt::Display for Why {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Everything => f.write_str("every scene"),
+            Self::Name => f.write_str("by name"),
+            Self::Folder(folder) => write!(f, "in {folder}"),
+            Self::Tag(tag) => write!(f, "tag {tag}"),
+            Self::ExcludedName => f.write_str("excluded by name"),
+            Self::ExcludedTag(tag) => write!(f, "excluded by tag {tag}"),
+            Self::NoMatch => f.write_str("matches nothing asked for"),
+        }
+    }
+}
+
 impl PoolFilter {
     /// Whether `scene` is in the pool.
     pub fn admits(&self, scene: &LibraryScene) -> bool {
-        let has_tag = |wanted: &[String]| {
-            scene
-                .tags
+        self.why(scene).admitted()
+    }
+
+    /// Why `scene` is in the pool or not. Exclusions are checked first, then
+    /// names, folders and tags in that order; for a tag, the first of the
+    /// filter's tags the scene carries is named.
+    pub fn why(&self, scene: &LibraryScene) -> Why {
+        let tag_in = |wanted: &[String]| {
+            wanted
                 .iter()
-                .any(|tag| wanted.iter().any(|w| w.eq_ignore_ascii_case(tag)))
+                .find(|w| scene.tags.iter().any(|tag| w.eq_ignore_ascii_case(tag)))
+                .cloned()
         };
-        let included = (self.names.is_empty() && self.folders.is_empty() && self.tags.is_empty())
-            || self
-                .names
-                .iter()
-                .any(|name| name.eq_ignore_ascii_case(&scene.name))
-            || self
-                .folders
-                .iter()
-                .any(|folder| in_folder(&scene.folder, folder))
-            || has_tag(&self.tags);
-        let excluded = self
+        if self
             .exclude_names
             .iter()
             .any(|name| name.eq_ignore_ascii_case(&scene.name))
-            || has_tag(&self.exclude_tags);
-        included && !excluded
+        {
+            return Why::ExcludedName;
+        }
+        if let Some(tag) = tag_in(&self.exclude_tags) {
+            return Why::ExcludedTag(tag);
+        }
+        if self.names.is_empty() && self.folders.is_empty() && self.tags.is_empty() {
+            return Why::Everything;
+        }
+        if self
+            .names
+            .iter()
+            .any(|name| name.eq_ignore_ascii_case(&scene.name))
+        {
+            return Why::Name;
+        }
+        if let Some(folder) = self
+            .folders
+            .iter()
+            .find(|folder| in_folder(&scene.folder, folder))
+        {
+            return Why::Folder(folder.clone());
+        }
+        tag_in(&self.tags).map_or(Why::NoMatch, Why::Tag)
     }
 }
 
@@ -198,6 +260,8 @@ pub struct Generated {
     pub pool_size: usize,
     /// The no-repeat window actually used (see the module docs).
     pub effective_window: usize,
+    /// Each scene in the pool, by name, and why it is there.
+    pub pool: Vec<(String, Why)>,
 }
 
 /// Why nothing was generated.
@@ -296,6 +360,10 @@ pub fn generate(
         estimated_seconds: total,
         pool_size: pool.len(),
         effective_window: window,
+        pool: pool
+            .iter()
+            .map(|scene| (scene.name.clone(), spec.pool.why(scene)))
+            .collect(),
     })
 }
 
@@ -632,6 +700,69 @@ mod tests {
             })?,
             vec!["aurora", "embers", "geode", "moire"],
             "include by tag or name, then exclude by tag and name"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn every_scene_has_a_reason_and_the_section_reports_its_pool() -> Result<()> {
+        let filter = PoolFilter {
+            tags: vec!["calm".into(), "3d".into()],
+            names: vec!["moire".into()],
+            exclude_tags: vec!["dark".into()],
+            exclude_names: vec!["bloom".into()],
+            ..PoolFilter::default()
+        };
+        let lib = library();
+        let why = |name: &str| {
+            lib.scenes
+                .iter()
+                .find(|s| s.name == name)
+                .map(|s| filter.why(s))
+        };
+        assert_eq!(
+            why("aurora"),
+            Some(Why::Tag("calm".into())),
+            "first tag named"
+        );
+        assert_eq!(why("lattice"), Some(Why::Tag("3d".into())), "another tag");
+        assert_eq!(why("moire"), Some(Why::Name), "by name");
+        assert_eq!(why("bloom"), Some(Why::ExcludedName), "excluded by name");
+        assert_eq!(
+            why("ink"),
+            Some(Why::ExcludedTag("dark".into())),
+            "an exclusion wins over a matching tag"
+        );
+        assert_eq!(why("kaleido"), Some(Why::NoMatch), "nothing asked for");
+        assert_eq!(
+            PoolFilter::default().why(&LibraryScene::new("x", &[])),
+            Why::Everything,
+            "an empty filter takes everything"
+        );
+
+        let mut spec = GenerateSpec::new("S", 600.0, 3);
+        spec.pool = filter;
+        let made = generate(&lib, &spec)?;
+        let reasons: Vec<String> = made
+            .pool
+            .iter()
+            .map(|(name, why)| format!("{name}: {why}"))
+            .collect();
+        assert_eq!(
+            reasons,
+            [
+                "aurora: tag calm",
+                "embers: tag calm",
+                "geode: tag calm",
+                "lattice: tag 3d",
+                "moire: by name"
+            ],
+            "the pool, sorted, each with its reason"
+        );
+        assert_eq!(
+            made.pool.len(),
+            made.pool_size,
+            "one reason per pooled scene"
         );
         Ok(())
     }

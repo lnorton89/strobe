@@ -16,19 +16,25 @@
 //! the spec and the seed), and the pane shows the preview before anything is
 //! added to the playlist.
 //!
-//! ## The pool, without tags
+//! ## The pool: tags, then name words
 //!
-//! The scene format has no tag metadata yet, so the "pool" box takes words
-//! and [`snapshot`] gives every scene its **name words as tags**
-//! (`05-domain-warp` is tagged `domain` and `warp`; numbers and words under
-//! three letters are not tags). A word that equals a whole scene name picks
-//! that scene. An empty pool is the whole library. When real tags exist the
-//! snapshot is the only thing that changes.
+//! The "pool" box takes words. [`snapshot`] gives every scene its `TAGS`
+//! from `scene.json` (D205) and then its **name words** as further tags
+//! (`05-domain-warp` is also `domain` and `warp`; numbers and words under
+//! three letters are not), so a library nobody has tagged still generates.
+//! Pool words are normalised like tags (`3D` is `3d`, `audio_reactive` is
+//! `audio-reactive`). A word that equals a whole scene name picks that
+//! scene. An empty pool is the whole library. The preview says which rule
+//! put each scene in the pool (`strobe_playlist::Why`).
 
 use crate::library::Library;
 use strobe_playlist::{
-    DurationSpec, GenerateSpec, LibraryScene, LibrarySnapshot, PoolFilter, TransitionSpec,
+    DurationSpec, GenerateError, GenerateSpec, LibraryScene, LibrarySnapshot, PoolFilter,
+    TransitionSpec, Why,
 };
+
+/// How many of the library's tags an empty-pool message lists.
+const TAGS_SHOWN: usize = 12;
 
 /// Fewest letters in a name word for it to count as a tag.
 const MIN_TAG_LETTERS: usize = 3;
@@ -144,16 +150,16 @@ impl GenerateForm {
                 }]
             }
         };
-        let words: Vec<String> = self
+        let words: Vec<&str> = self
             .pool
             .split([',', ' ', ';'])
-            .map(|word| word.trim().to_lowercase())
+            .map(str::trim)
             .filter(|word| !word.is_empty())
             .collect();
         let mut spec = GenerateSpec::new(name, target, seed);
         spec.pool = PoolFilter {
-            names: words.clone(),
-            tags: words,
+            names: words.iter().map(|word| word.to_lowercase()).collect(),
+            tags: strobe_scene::tags::normalized(words.iter().copied()),
             ..PoolFilter::default()
         };
         spec.duration = duration;
@@ -176,24 +182,97 @@ fn parse_seconds(field: &str, text: &str) -> Result<f64, String> {
     }
 }
 
-/// The library as the generator sees it, with name words as tags.
+/// The library as the generator sees it: each scene's tags, then its name
+/// words (see the module docs).
 pub fn snapshot(library: &Library) -> LibrarySnapshot {
     LibrarySnapshot {
         scenes: library
             .entries
             .iter()
-            .map(|entry| LibraryScene {
-                name: entry.name.clone(),
-                tags: entry
+            .map(|entry| {
+                let mut tags = entry.tags.clone();
+                for word in entry
                     .lower
                     .split(|c: char| !c.is_alphabetic())
                     .filter(|word| word.chars().count() >= MIN_TAG_LETTERS)
-                    .map(str::to_string)
-                    .collect(),
-                folder: String::new(),
+                {
+                    if !tags.iter().any(|tag| tag == word) {
+                        tags.push(word.to_string());
+                    }
+                }
+                LibraryScene {
+                    name: entry.name.clone(),
+                    tags,
+                    folder: String::new(),
+                }
             })
             .collect(),
     }
+}
+
+/// The generator's error as the dialog says it: an empty pool lists the
+/// tags the library does have.
+pub fn explain(error: &GenerateError, library: &Library) -> String {
+    match error {
+        GenerateError::EmptyPool => {
+            let counts = tag_counts(library);
+            if counts.is_empty() {
+                "No scene matches the pool, and no scene in the library has tags: use words from \
+                 scene names, or leave the pool empty for the whole library"
+                    .to_string()
+            } else {
+                let listed: Vec<String> = counts
+                    .iter()
+                    .take(TAGS_SHOWN)
+                    .map(|(tag, count)| format!("{tag} ({count})"))
+                    .collect();
+                let more = counts.len().saturating_sub(TAGS_SHOWN);
+                let tail = if more > 0 {
+                    format!(", and {more} more")
+                } else {
+                    String::new()
+                };
+                format!(
+                    "No scene matches the pool. Tags in this library: {}{tail}",
+                    listed.join(", ")
+                )
+            }
+        }
+        GenerateError::BadTarget | GenerateError::TooManyCues => error.to_string(),
+    }
+}
+
+/// One line saying why the pool holds what it holds: `tag dark 5, by name
+/// 2`, most common reason first.
+pub fn pool_summary(pool: &[(String, Why)]) -> String {
+    let mut counts: Vec<(String, usize)> = Vec::new();
+    for (_, why) in pool {
+        let label = why.to_string();
+        match counts.iter_mut().find(|(known, _)| *known == label) {
+            Some((_, count)) => *count += 1,
+            None => counts.push((label, 1)),
+        }
+    }
+    counts.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    counts
+        .iter()
+        .map(|(label, count)| format!("{label} {count}"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// The library's tags, most used first (then by name), for saying what a
+/// pool could have asked for when it matched nothing.
+pub fn tag_counts(library: &Library) -> Vec<(String, usize)> {
+    let mut counts: Vec<(String, usize)> = Vec::new();
+    for tag in library.entries.iter().flat_map(|entry| &entry.tags) {
+        match counts.iter_mut().find(|(known, _)| known == tag) {
+            Some((_, count)) => *count += 1,
+            None => counts.push((tag.clone(), 1)),
+        }
+    }
+    counts.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    counts
 }
 
 #[cfg(test)]
@@ -263,6 +342,83 @@ mod tests {
         assert_eq!(
             made.pool_size, 1,
             "only the warp scene is tagged warp; the other word is no exact name"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn real_tags_come_first_and_pool_words_are_normalised() -> Result<()> {
+        let mut library = library();
+        library.entries = vec![
+            Entry::new("01-aurora-gradient".into(), PathBuf::from("a")).with_tags(&["Calm", "2D"]),
+            Entry::new("09-sdf-cathedral".into(), PathBuf::from("c")).with_tags(&[
+                "3D",
+                "dark",
+                "audio reactive",
+            ]),
+            Entry::new("05-domain-warp".into(), PathBuf::from("w")).with_tags(&["calm"]),
+        ];
+        let snap = snapshot(&library);
+        let tags: Vec<&[String]> = snap.scenes.iter().map(|s| s.tags.as_slice()).collect();
+        assert_eq!(
+            tags.first().copied(),
+            Some(
+                &[
+                    "calm".to_string(),
+                    "2d".into(),
+                    "aurora".into(),
+                    "gradient".into()
+                ][..]
+            ),
+            "tags, then name words not already there"
+        );
+        let pool = |words: &str| -> Result<Vec<String>> {
+            let form = GenerateForm {
+                pool: words.into(),
+                ..GenerateForm::default()
+            };
+            let spec = form.spec().map_err(|e| anyhow!(e))?;
+            let made = strobe_playlist::generate(&snap, &spec).map_err(|e| anyhow!("{e}"))?;
+            Ok(made
+                .pool
+                .iter()
+                .map(|(name, why)| format!("{name}: {why}"))
+                .collect())
+        };
+        assert_eq!(
+            pool("CALM")?,
+            ["01-aurora-gradient: tag calm", "05-domain-warp: tag calm"],
+            "a tag in any case"
+        );
+        assert_eq!(
+            pool("audio_reactive, 3D")?,
+            ["09-sdf-cathedral: tag audio-reactive"],
+            "spellings normalise; the first of the pool's tags the scene carries is named"
+        );
+        assert_eq!(
+            pool_summary(&[
+                ("a".into(), Why::Tag("calm".into())),
+                ("b".into(), Why::Name),
+                ("c".into(), Why::Tag("calm".into())),
+            ]),
+            "tag calm 2, by name 1",
+            "most common reason first"
+        );
+        let empty = explain(&GenerateError::EmptyPool, &library);
+        assert!(
+            empty.contains("calm (2), 2d (1)"),
+            "an empty pool lists the library's tags: {empty}"
+        );
+        assert_eq!(
+            tag_counts(&library),
+            [
+                ("calm".to_string(), 2),
+                ("2d".to_string(), 1),
+                ("3d".to_string(), 1),
+                ("audio-reactive".to_string(), 1),
+                ("dark".to_string(), 1)
+            ],
+            "most used first, then by name"
         );
         Ok(())
     }

@@ -105,6 +105,10 @@ pub struct RawScene {
     pub pass_sources: Option<Vec<String>>,
     /// Where an imported scene came from (a Strobe extension).
     pub source: Option<RawSource>,
+    /// Labels for finding and generating (`["dark", "tunnel"]`). Kept as
+    /// raw JSON: [`crate::tags::from_value`] reads any shape without
+    /// failing the scene.
+    pub tags: Option<serde_json::Value>,
 }
 
 /// The `SOURCE` block: provenance for a scene converted from elsewhere.

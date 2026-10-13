@@ -6,5 +6,6 @@
     { "NAME": "density", "TYPE": "slider smooth", "MIN": 2.0, "MAX": 20.0, "DEFAULT": 7.0, "PARAMS": 0.05, "UI_GROUP": "shape" },
     { "NAME": "edge", "TYPE": "knob", "MIN": 0.0, "MAX": 0.2, "DEFAULT": 0.06, "UI_GROUP": "shape" },
     { "NAME": "lead_color", "TYPE": "color", "DEF_COLOR": [0.05, 0.04, 0.03], "UI_GROUP": "colour" }
-  ]
+  ],
+  "TAGS": ["2d", "geometric", "cells", "colorful"]
 }

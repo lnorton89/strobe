@@ -7,5 +7,6 @@
     { "NAME": "sun", "TYPE": "xy smooth", "MIN": [-1.0, 0.0], "MAX": [1.0, 1.0], "DEFAULT": [0.2, 0.12], "UI_GROUP": "light" },
     { "NAME": "steps", "TYPE": "dropdown", "LABELS": ["low", "medium", "high"], "VALUES": [32, 56, 80], "DEFAULT": 1, "UI_GROUP": "quality" },
     { "NAME": "speed", "TYPE": "slider", "MIN": 0.0, "MAX": 3.0, "DEFAULT": 1.0, "UI_GROUP": "motion" }
-  ]
+  ],
+  "TAGS": ["3d", "raymarching", "clouds", "realistic", "heavy"]
 }

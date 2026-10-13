@@ -4,21 +4,23 @@
 //               the browser and found by name for --scene, plus each
 //               scene's health and the browser's search and filter.
 //
-// Dependencies: strobe-scene (load::scan, folder_title)
+// Dependencies: strobe-scene (load::scan, folder_title, tags)
 // ============================================================================
 
 //! The scene library.
 //!
-//! A library is a folder of scene folders. Scanning only lists them (a
-//! folder containing `main.glsl`); a scene is read and compiled when it is
-//! selected, so a broken scene never stops the browser from listing.
+//! A library is a folder of scene folders. Scanning lists them (a folder
+//! containing `main.glsl`) and reads each one's `TAGS` (D205); a scene is
+//! read and compiled when it is selected, so a broken scene never stops the
+//! browser from listing. Reading tags cannot fail a scan: a missing or
+//! broken `scene.json` is a scene with no tags.
 //!
 //! ## Health and search
 //!
 //! A scan only lists folders, so a scene's [`Health`] is what the app has
 //! *seen*: unknown until it is loaded, ready after it loads, failed (with
 //! the first line of the error) after it does not. The browser filters by
-//! it ([`HealthFilter`]) and searches names ([`matches`]); both are cheap
+//! it ([`HealthFilter`]) and searches names and tags ([`matches`]); both are cheap
 //! enough to run when the query changes and cached by the browser until it
 //! does.
 
@@ -33,14 +35,40 @@ pub struct Entry {
     pub dir: PathBuf,
     /// `name` lowercased once, so searching does not allocate per entry.
     pub lower: String,
+    /// The scene's `TAGS`, normalised (`strobe_scene::tags`).
+    pub tags: Vec<String>,
 }
 
 impl Entry {
-    /// An entry for the scene folder `dir` called `name`.
+    /// An entry for the scene folder `dir` called `name`, with no tags.
     pub fn new(name: String, dir: PathBuf) -> Self {
         let lower = name.to_lowercase();
-        Self { name, dir, lower }
+        Self {
+            name,
+            dir,
+            lower,
+            tags: Vec::new(),
+        }
     }
+
+    /// This entry with these tags.
+    pub fn with_tags(mut self, tags: &[&str]) -> Self {
+        self.tags = strobe_scene::tags::normalized(tags.iter().copied());
+        self
+    }
+
+    /// Reads the tags from the folder's `scene.json` again (after the
+    /// Editor or the tag field wrote it). Absent or broken is none.
+    pub fn reread_tags(&mut self) {
+        self.tags = read_tags(&self.dir);
+    }
+}
+
+/// The tags in `dir/scene.json`; none when it is absent or unreadable.
+pub fn read_tags(dir: &Path) -> Vec<String> {
+    std::fs::read_to_string(dir.join("scene.json"))
+        .map(|text| strobe_scene::tags::read(&text))
+        .unwrap_or_default()
 }
 
 /// What the app knows about whether a scene works.
@@ -154,15 +182,15 @@ pub fn step(
 /// Whether `entry` passes the search `query_lower` (already lowercased and
 /// trimmed; empty matches everything) and the health `filter`.
 ///
-/// The query is a list of words, all of which must appear in the name, in
-/// any order. `broken` and `favorite`-style keywords are not special yet
-/// (UI_DESIGN section 12 lists them for when scenes carry metadata); the
-/// health filter covers "broken".
+/// The query is a list of words, all of which must appear in the name or
+/// in one of the tags, in any order: `dark tunnel` finds a scene tagged
+/// `dark` whose name says tunnel. `broken` and `favorite`-style keywords
+/// are not special yet; the health filter covers "broken".
 pub fn matches(entry: &Entry, health: &Health, query_lower: &str, filter: HealthFilter) -> bool {
     filter.admits(health)
-        && query_lower
-            .split_whitespace()
-            .all(|word| entry.lower.contains(word))
+        && query_lower.split_whitespace().all(|word| {
+            entry.lower.contains(word) || entry.tags.iter().any(|tag| tag.contains(word))
+        })
 }
 
 /// The scenes found under one folder.
@@ -204,7 +232,11 @@ impl Library {
             strobe_scene::load::scan(dir).map_err(|e| format!("library {}: {e}", dir.display()))?;
         let entries = folders
             .into_iter()
-            .map(|folder| Entry::new(strobe_scene::load::folder_title(&folder), folder))
+            .map(|folder| {
+                let mut entry = Entry::new(strobe_scene::load::folder_title(&folder), folder);
+                entry.reread_tags();
+                entry
+            })
             .collect();
         Ok(Self {
             dir: dir.to_path_buf(),
@@ -325,6 +357,41 @@ mod tests {
             !matches(&entry, &ready, "warp tunnel", HealthFilter::All),
             "all words"
         );
+        let tagged = entry.with_tags(&["Dark", "audio reactive"]);
+        assert!(
+            matches(&tagged, &ready, "dark warp", HealthFilter::All),
+            "a tag and a name word"
+        );
+        assert!(
+            matches(&tagged, &ready, "reactive", HealthFilter::All),
+            "part of a tag"
+        );
+    }
+
+    #[test]
+    fn a_scan_reads_tags_and_a_broken_scene_json_is_no_tags() -> anyhow::Result<()> {
+        let root = std::env::temp_dir().join(format!("strobe-lib-tags-{}", std::process::id()));
+        for (name, json) in [
+            ("a.synScene", r#"{ "TAGS": ["Dark", "3D"] }"#),
+            ("b.synScene", "{ broken"),
+        ] {
+            let dir = root.join(name);
+            std::fs::create_dir_all(&dir)?;
+            std::fs::write(
+                dir.join("main.glsl"),
+                "vec4 renderMain(void) { return vec4(1.0); }",
+            )?;
+            std::fs::write(dir.join("scene.json"), json)?;
+        }
+        let library = Library::scan(&root).map_err(anyhow::Error::msg)?;
+        std::fs::remove_dir_all(&root)?;
+        let tags: Vec<&[String]> = library.entries.iter().map(|e| e.tags.as_slice()).collect();
+        assert_eq!(
+            tags,
+            [&["dark".to_string(), "3d".to_string()][..], &[][..]],
+            "read and normalised; broken is none"
+        );
+        Ok(())
     }
 
     #[test]

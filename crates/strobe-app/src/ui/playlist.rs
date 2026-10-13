@@ -300,8 +300,8 @@ fn generate_card(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &
                         ui,
                         "Pool",
                         &mut form.pool,
-                        "Words to pick scenes by, comma separated: a scene's name, or a word in it \
-                         (there are no tags yet, so name words stand in). Empty is the whole library.",
+                        "Tags or words to pick scenes by, comma separated: a scene's TAGS, a word in \
+                         its name, or its whole name. Empty is the whole library.",
                     );
                     field(ui, "Cue duration", &mut form.duration, "Each cue's length: 3m, 90s, 32 bars, rand(2m, 4m)");
                     field(ui, "No-repeat", &mut form.window, "How many recent scenes not to repeat");
@@ -387,6 +387,20 @@ fn preview_result(ui: &mut Ui, model: &Model<'_>, theme: &Palette) {
                 .small()
                 .color(theme::rgb(theme.success)),
             );
+            let every: Vec<String> = made
+                .pool
+                .iter()
+                .map(|(name, why)| format!("{name}: {why}"))
+                .collect();
+            ui.label(
+                egui::RichText::new(format!(
+                    "Pool: {}",
+                    crate::show::generate::pool_summary(&made.pool)
+                ))
+                .small()
+                .color(theme::rgb(theme.text_muted)),
+            )
+            .on_hover_text(every.join("\n"));
             for cue in made.section.cues.iter().take(PREVIEW_LINES) {
                 let length = cue
                     .settings

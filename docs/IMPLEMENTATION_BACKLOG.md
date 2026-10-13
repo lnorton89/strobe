@@ -93,7 +93,7 @@
 - **Acceptance:** author an 80-cue four-hour show in under two minutes using tags and multi-edit; inheritance is visible and deterministic; invalid edits preserve the last valid show.
 
 ### U-08 Real scene tags and generation
-- **Status:** Open.
+- **Status:** Built (D205): Synesthesia's `TAGS` is read leniently and normalised, written in place from the Inspector, searched by the browser, and used by Generate, whose preview names each scene's reason. Left: tagging from the Import pane and for a scene that is not playing, exclude fields in the Generate form.
 - **Work:** define a backwards-compatible scene tag format; read/write tags; filter and generate playlists by tags rather than only filename words; define missing/unknown tag behaviour.
 - **Acceptance:** tag fixtures round-trip; old scenes remain valid; generator selection is deterministic with a seed and reports why a scene was selected/skipped.
 

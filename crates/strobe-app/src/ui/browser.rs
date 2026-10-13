@@ -132,7 +132,7 @@ fn search_row(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut
                     egui::TextEdit::singleline(&mut model.ui.browser.query)
                         .id(id)
                         .frame(egui::Frame::NONE)
-                        .hint_text("Search scenes   Ctrl+F")
+                        .hint_text("Search names and tags   Ctrl+F")
                         .desired_width(ui.available_width() - clear_width - SPACE_SM),
                 );
                 if !model.ui.browser.query.is_empty() {
@@ -373,6 +373,11 @@ fn row(
 
     if let Health::Failed(reason) = health {
         response.clone().on_hover_text(reason);
+    } else if response.hovered() && !entry.tags.is_empty() {
+        // Built only while hovered: a row never allocates per frame.
+        response
+            .clone()
+            .on_hover_text(format!("Tags: {}", entry.tags.join(", ")));
     }
     if response.clicked() {
         model.ui.browser.selected = Some(index);

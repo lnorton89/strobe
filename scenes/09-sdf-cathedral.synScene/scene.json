@@ -7,5 +7,6 @@
     { "NAME": "look", "TYPE": "xy smooth", "MIN": [-1.0, -0.5], "MAX": [1.0, 0.5], "DEFAULT": [0.0, 0.05], "UI_GROUP": "camera" },
     { "NAME": "light_color", "TYPE": "color smooth", "DEF_COLOR": [1.0, 0.8, 0.55], "UI_GROUP": "light" },
     { "NAME": "shadows", "TYPE": "toggle", "DEFAULT": 1.0, "UI_GROUP": "quality" }
-  ]
+  ],
+  "TAGS": ["3d", "raymarching", "dark", "architecture", "heavy"]
 }

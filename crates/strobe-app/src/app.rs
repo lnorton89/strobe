@@ -1939,7 +1939,8 @@ impl Running {
     fn generate_preview(&mut self) {
         let result = self.playlist_ui.form.spec().and_then(|spec| {
             let snapshot = show::generate::snapshot(&self.library);
-            strobe_playlist::generate(&snapshot, &spec).map_err(|e| e.to_string())
+            strobe_playlist::generate(&snapshot, &spec)
+                .map_err(|e| show::generate::explain(&e, &self.library))
         });
         self.playlist_ui.preview = Some(result);
     }
@@ -2106,6 +2107,77 @@ impl Running {
         }
     }
 
+    /// Writes `tags` into the playing scene's `scene.json`, changing
+    /// nothing else in it (D205). Refused while the Editor holds unsaved
+    /// edits to the same scene, so neither write loses the other.
+    fn set_scene_tags(&mut self, tags: &[String]) {
+        let Some(index) = self.playing else {
+            self.say(Tone::Warning, "No scene is playing to tag.");
+            return;
+        };
+        let Some((dir, name)) = self
+            .library
+            .entries
+            .get(index)
+            .map(|e| (e.dir.clone(), e.name.clone()))
+        else {
+            return;
+        };
+        if self
+            .editor_doc
+            .as_ref()
+            .is_some_and(|doc| doc.dir == dir && doc.is_dirty())
+        {
+            self.say(
+                Tone::Warning,
+                format!(
+                    "{name} has unsaved edits in the Editor: save or revert them, then tag it."
+                ),
+            );
+            return;
+        }
+        let path = dir.join("scene.json");
+        let text = match std::fs::read_to_string(&path) {
+            Ok(text) => text,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => "{}\n".to_string(),
+            Err(error) => {
+                self.say(
+                    Tone::Error,
+                    format!("Could not read {name}'s scene.json: {error}"),
+                );
+                return;
+            }
+        };
+        let written = match strobe_scene::tags::write(&text, tags)
+            .map_err(|e| e.to_string())
+            .and_then(|out| editor::write_atomically(&path, &out).map_err(|e| e.to_string()))
+        {
+            Ok(()) => true,
+            Err(error) => {
+                self.say(Tone::Error, format!("Could not tag {name}: {error}"));
+                false
+            }
+        };
+        if !written {
+            return;
+        }
+        self.refresh_tags(&dir);
+        if self.editor_doc.as_ref().is_some_and(|doc| doc.dir == dir) {
+            // Not dirty (checked above): show what is now on disk.
+            self.editor_doc = editor::Doc::open(&dir, &name).ok();
+        }
+        log::info!("tags: {name} is now [{}]", tags.join(", "));
+    }
+
+    /// Reads the tags of the library entry in `dir` again, and tells the
+    /// browser to refilter.
+    fn refresh_tags(&mut self, dir: &Path) {
+        if let Some(entry) = self.library.entries.iter_mut().find(|e| e.dir == dir) {
+            entry.reread_tags();
+            self.library_rev += 1;
+        }
+    }
+
     /// Writes the Editor's unsaved files. Returns whether everything was
     /// written.
     fn editor_save(&mut self) -> bool {
@@ -2116,6 +2188,8 @@ impl Running {
             Ok(count) => {
                 if count > 0 {
                     log::info!("editor: saved {count} file(s) of {}", doc.name);
+                    let dir = doc.dir.clone();
+                    self.refresh_tags(&dir);
                 }
                 true
             }
@@ -2346,6 +2420,7 @@ impl Running {
         for action in actions.drain(..) {
             match action {
                 Action::Load(index) => self.request_load(index),
+                Action::SetSceneTags(tags) => self.set_scene_tags(&tags),
                 Action::Reload => {
                     if let Some(index) = self.playing {
                         self.request_load(index);
