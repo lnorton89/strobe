@@ -203,7 +203,7 @@ fn socket_name_for_this_process() -> String {
         text
     } else {
         log::info!(
-            "crash monitor socket {text} is {} bytes, over AF_UNIX's {SUN_PATH_LIMIT}; using the temp directory",
+            "crash monitor socket {text} is {} bytes, not under the {SUN_PATH_LIMIT} kept for AF_UNIX; using the temp directory",
             text.len()
         );
         long_form(&std::env::temp_dir())
