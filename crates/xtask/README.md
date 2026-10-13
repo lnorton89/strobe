@@ -39,6 +39,7 @@ cargo xtask changelog                         # regenerate CHANGELOG.md
 cargo xtask changelog --check                 # what CI runs; compares released sections
 cargo xtask changelog --release v0.2.0        # write a release's section before tagging
 cargo xtask bench -- --size 1280x720          # strobe-bench, in release
+cargo xtask corpus -- --library scenes        # compatibility report (D195)
 cargo xtask symbolicate crash-….dmp           # a crash dump as a readable stack
 cargo xtask brand                             # icon PNGs and .ico from assets/brand/*.svg
 cargo xtask brand --check                     # what CI runs; fails on a stale render

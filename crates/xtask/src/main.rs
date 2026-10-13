@@ -4,7 +4,8 @@
 //               CI runner, the changelog generator, the bench shortcut,
 //               crash-dump symbolication, and the icon renderer.
 //
-// Dependencies: clap, anyhow; modules brand, changelog, ci, bench, symbolicate
+// Dependencies: clap, anyhow; modules brand, changelog, ci, bench, corpus,
+//               symbolicate
 // ============================================================================
 
 //! `cargo xtask`: the repository's tooling, written in the repository's
@@ -16,6 +17,7 @@
 //! cargo xtask changelog --check               # what CI runs
 //! cargo xtask changelog --release v0.2.0      # write the section before tagging
 //! cargo xtask bench -- --size 1280x720        # strobe-bench, in release
+//! cargo xtask corpus -- --library scenes     # compatibility report over a scene folder
 //! cargo xtask symbolicate crash-….dmp         # a crash dump as a readable stack
 //! cargo xtask brand [--check]                 # icon PNGs and .ico from the SVG sources
 //! ```
@@ -42,6 +44,7 @@ mod bench;
 mod brand;
 mod changelog;
 mod ci;
+mod corpus;
 mod symbolicate;
 
 use anyhow::{Context as _, Result, anyhow};
@@ -87,6 +90,15 @@ enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
+    /// Measure a folder of scenes: load each the way the app does (script
+    /// included), compile and render it in both GLSL dialects, and write
+    /// `target/corpus/report.{json,md}` (D195). Arguments after `--` go to
+    /// strobe-corpus, e.g. `cargo xtask corpus -- --library scenes`.
+    Corpus {
+        /// Arguments forwarded to strobe-corpus.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
     /// Turn a crash minidump into a readable stack with the build's own
     /// debug information. Needs `cargo install dump_syms minidump-stackwalk
     /// --locked`.
@@ -125,6 +137,7 @@ fn run() -> Result<()> {
         Command::Ci(args) => ci::run(&args),
         Command::Changelog { check, release } => changelog::run(check, release.as_deref()),
         Command::Bench { args } => bench::run(&args),
+        Command::Corpus { args } => corpus::run(&args),
         Command::Symbolicate(args) => symbolicate::run(&args),
         Command::Brand { check } => brand::run(check),
     }

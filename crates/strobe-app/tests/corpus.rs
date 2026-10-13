@@ -381,7 +381,11 @@ fn the_command_line_writes_both_files_and_json_only_writes_one() -> Result<()> {
         .get("records")
         .and_then(serde_json::Value::as_array)
         .ok_or_else(|| anyhow!("report.json has no records array"))?;
-    assert_eq!(records.len(), 1, "--filter blank keeps one scene, one dialect");
+    assert_eq!(
+        records.len(),
+        1,
+        "--filter blank keeps one scene, one dialect"
+    );
     assert!(out.join("report.md").is_file(), "markdown by default");
 
     std::fs::remove_file(out.join("report.md"))?;

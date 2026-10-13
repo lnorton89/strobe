@@ -28,6 +28,7 @@ macOS and Linux later. Performance is a feature, not a polish step.
 cargo xtask ci                                            # everything CI runs; stops at the first failure
 cargo xtask changelog [--check | --release vX.Y.Z]       # CHANGELOG.md is generated; never hand-edit it
 cargo xtask bench -- --size 1280x720                      # strobe-bench in release; args forwarded
+cargo xtask corpus -- --library <dir>                     # load+compile+render every scene (scripts too), both dialects
 cargo xtask symbolicate <crash.dmp>                       # minidump -> stack with function names and file:line
 cargo xtask brand [--check]                               # icon PNGs + .ico from assets/brand/*.svg
 cargo test --workspace                                    # everything

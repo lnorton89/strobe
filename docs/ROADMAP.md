@@ -236,6 +236,13 @@ Each item names its acceptance test. Evidence is in [STATUS_AUDIT.md](STATUS_AUD
    (stage 2). A backend ships only behind a flag, until the research doc's
    acceptance matrix passes on the T480 and TORNADO. *Accept (stage 0):* the
    report runs in CI on llvmpipe and catches a deliberately broken shader.
+   *Stage 0 built (D195), 2026-10-13:* `cargo xtask corpus` (the
+   `strobe-corpus` binary) loads every scene the way the app does, script
+   included, renders it in both dialects in a child process per scene, and
+   writes `target/corpus/report.{json,md}` with a cause per failure. Its
+   integration test runs synthetic scenes on llvmpipe. Open: the CI job that
+   runs it on `scenes/`; Windows has no headless EGL, so the T480 and TORNADO
+   need a window-context mode.
 
 ### Auto-generated controls (stage 1 built)
 
