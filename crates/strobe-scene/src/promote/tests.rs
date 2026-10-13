@@ -9,7 +9,7 @@
 //! The rewrite, case by case. The GL tests in `assemble` and the corpus
 //! harness compile its output; these pin down the text.
 
-use super::int_to_float;
+use super::{int_to_float, rewrite as report};
 
 /// A stand-in for the generated preamble: a few uniforms and library
 /// overloads, as the real context provides them.
@@ -28,6 +28,10 @@ float pick(float x) { return x; }
 
 fn rewrite(user: &str) -> String {
     int_to_float(user, CONTEXT, true).into_owned()
+}
+
+fn desktop(user: &str) -> String {
+    int_to_float(user, CONTEXT, false).into_owned()
 }
 
 #[test]
@@ -132,12 +136,17 @@ fn macros_are_typed_from_their_replacement() {
         "#define STEPS 64\n#define EPS 0.001\nfloat f(float x) { return x / float(STEPS) + EPS; }",
         "an int macro is wrapped where it meets a float"
     );
+    let source =
+        "#define S(a, b, t) smoothstep(a, b, t)\nfloat f(float x) { return S(0, 1, x) * 2; }";
     assert_eq!(
-        rewrite(
-            "#define S(a, b, t) smoothstep(a, b, t)\nfloat f(float x) { return S(0, 1, x) * 2; }"
-        ),
-        "#define S(a, b, t) smoothstep(a, b, t)\nfloat f(float x) { return S(0, 1, x) * 2; }",
-        "a function-like macro's result is unknown, so nothing beside it changes"
+        desktop(source),
+        source,
+        "on desktop a function-like macro's result is unknown, so nothing beside it changes"
+    );
+    assert_eq!(
+        rewrite(source),
+        "#define S(a, b, t) smoothstep(a, b, t)\nfloat f(float x) { return S(0.0, 1.0, x) * 2.0; }",
+        "on ES the call is typed through its expansion (D261)"
     );
 }
 
@@ -241,4 +250,172 @@ fn built_in_variables_and_preprocessor_branches_are_followed() {
         "float f(float x) {\n const float\n#ifdef KODELIFE\n off = .4\n#else\n off = .2\n#endif\n ;\n return x * 13.0 - off;\n}\n",
         "only the branch the preprocessor keeps is parsed"
     );
+}
+
+#[test]
+fn a_function_like_macro_converts_its_arguments_at_the_call_on_es() {
+    let cases = [
+        (
+            "#define S(a, b, t) smoothstep(a, b, t)\nfloat f(float x) { return S(0, 1., x); }",
+            "#define S(a, b, t) smoothstep(a, b, t)\nfloat f(float x) { return S(0.0, 1., x); }",
+            "a literal passed straight to a float built-in",
+        ),
+        (
+            "#define ROT(a) mat2(cos(a), -sin(a), sin(a), cos(a))\nvec2 f(vec2 p) { return ROT(1) * p; }",
+            "#define ROT(a) mat2(cos(a), -sin(a), sin(a), cos(a))\nvec2 f(vec2 p) { return ROT(1.0) * p; }",
+            "four uses of one parameter that agree, and the result typed as a mat2",
+        ),
+        (
+            "#define S(a, b, t) smoothstep(a, b, t)\n#define H(n) fract(sin(n) * 43758.5453)\nfloat f() { return S(0, 1, H(3)); }",
+            "#define S(a, b, t) smoothstep(a, b, t)\n#define H(n) fract(sin(n) * 43758.5453)\nfloat f() { return S(0.0, 1.0, H(3.0)); }",
+            "a macro call inside another's argument",
+        ),
+    ];
+    for (source, expected, what) in cases {
+        assert_eq!(rewrite(source), expected, "ES: {what}");
+        assert_eq!(desktop(source), source, "desktop is untouched: {what}");
+    }
+}
+
+#[test]
+fn a_call_whose_macro_body_needs_a_conversion_is_inlined_on_its_lines() {
+    let source = "#define sat(x) clamp(x, 0, 1)\n\
+                  float f(float v, int i) { int k = sat(i); return sat(v); }\n\
+                  float g(float v) {\n  return sat(\n    v);\n}\n";
+    let out = rewrite(source);
+    assert_eq!(
+        out,
+        "#define sat(x) clamp(x, 0, 1)\n\
+         float f(float v, int i) { int k = sat(i); return  clamp ( v , 0.0 , 1.0 ) ; }\n\
+         float g(float v) {\n  return  clamp ( v , 0.0 , 1.0 ) \n;\n}\n",
+        "the int call is left alone, each float call becomes its expansion, and the body is never edited"
+    );
+    assert_eq!(
+        out.lines().count(),
+        source.lines().count(),
+        "a call over two lines still covers two"
+    );
+    assert_eq!(desktop(source), source, "desktop is untouched");
+}
+
+#[test]
+fn a_parameter_used_as_an_int_and_a_float_is_inlined() {
+    assert_eq!(
+        rewrite("float w[4];\n#define TAP(i) (w[i] * i)\nfloat f() { return TAP(2); }"),
+        "float w[4];\n#define TAP(i) (w[i] * i)\nfloat f() { return  ( w [ 2 ] * 2.0 ) ; }",
+        "the index stays 2, the factor becomes 2.0"
+    );
+}
+
+#[test]
+fn macros_the_walker_cannot_follow_are_left_alone() {
+    for (source, what) in [
+        (
+            "#define S(a) sin(a)\n#undef S\n#define S(a) cos(a)\nfloat f() { return S(1) * 2; }",
+            "a macro undefined and defined again",
+        ),
+        (
+            "#define C(a, b) a ## b\nfloat f() { return sin(C(1, 2)) * 2; }",
+            "token pasting",
+        ),
+        (
+            "#define abs(x) abs((x) * 1)\nfloat f(float v) { return abs(v) * 2; }",
+            "a body that needs editing and names its own macro",
+        ),
+        (
+            "#define S(a, b, t) smoothstep(a, b, t)\nfloat f(float x) { return S(0, x) * 2; }",
+            "the wrong number of arguments",
+        ),
+    ] {
+        assert_eq!(rewrite(source), source, "{what}");
+    }
+}
+
+#[test]
+fn a_sampler_chosen_with_a_ternary_moves_the_call_inside() {
+    let cases = [
+        (
+            "vec4 f(int i, vec2 uv) { return texture(i == 0 ? syn_Media : syn_Spectrum, uv); }",
+            "vec4 f(int i, vec2 uv) { return (i == 0 ? texture ( syn_Media , uv ) : texture ( syn_Spectrum , uv )); }",
+            "the plain shape",
+        ),
+        (
+            "vec4 f(float x, vec2 uv) { return textureLod(x > 0 ? syn_Media : syn_Spectrum, uv, 0); }",
+            "vec4 f(float x, vec2 uv) { return (x > 0.0 ? textureLod ( syn_Media , uv , 0.0 ) : textureLod ( syn_Spectrum , uv , 0.0 )); }",
+            "conversions in the condition and the other arguments are kept",
+        ),
+        (
+            "vec4 f(int i, vec2 uv) { return texture((i == 0) ? syn_Media : (i == 1 ? syn_Spectrum : syn_Media), uv); }",
+            "vec4 f(int i, vec2 uv) { return (( i == 0 ) ? texture ( syn_Media , uv ) : (i == 1 ? texture ( syn_Spectrum , uv ) : texture ( syn_Media , uv ))); }",
+            "nested and parenthesised choices",
+        ),
+        (
+            "vec4 tap(sampler2D s, vec2 p) { return texture(s, p); }\nvec4 f(bool b, vec2 uv) { return tap(b ? syn_Media : syn_Spectrum, uv * 2); }",
+            "vec4 tap(sampler2D s, vec2 p) { return texture(s, p); }\nvec4 f(bool b, vec2 uv) { return (b ? tap ( syn_Media , uv * 2.0 ) : tap ( syn_Spectrum , uv * 2.0 )); }",
+            "a user function",
+        ),
+    ];
+    for (source, expected, what) in cases {
+        assert_eq!(rewrite(source), expected, "ES: {what}");
+        assert_eq!(
+            desktop(source),
+            expected,
+            "desktop, where Mesa rejects it too: {what}"
+        );
+        assert!(
+            report(source, CONTEXT, true).unsupported.is_empty(),
+            "nothing left to report: {what}"
+        );
+    }
+    let source = "vec4 f(int i, vec2 uv) {\n    return texture(\n        i == 0 ? syn_Media : syn_Spectrum,\n        uv).r * vec4(1);\n}\n";
+    let out = rewrite(source);
+    assert_eq!(
+        out,
+        "vec4 f(int i, vec2 uv) {\n    return (i == 0 ? texture ( syn_Media , uv ) : texture ( syn_Spectrum , uv ))\n\n.r * vec4(1);\n}\n",
+        "a call over three lines"
+    );
+    assert_eq!(out.lines().count(), source.lines().count(), "no line moves");
+}
+
+#[test]
+fn a_sampler_choice_inside_a_macro_is_rewritten_on_es_and_reported_on_desktop() {
+    let source = "#define TAP(s, p) texture(s, p)\nvec4 f(bool c, vec2 uv) { return TAP(c ? syn_Media : syn_Spectrum, uv); }";
+    let es = report(source, CONTEXT, true);
+    assert_eq!(
+        es.code,
+        "#define TAP(s, p) texture(s, p)\nvec4 f(bool c, vec2 uv) { return  (c ? texture ( syn_Media , uv ) : texture ( syn_Spectrum , uv )) ; }",
+        "ES inlines the macro and moves the call inside"
+    );
+    assert!(es.unsupported.is_empty(), "ES: nothing to report");
+    let desktop = report(source, CONTEXT, false);
+    assert_eq!(desktop.code, source, "desktop leaves the macro alone");
+    assert_eq!(desktop.unsupported, vec![2], "and reports the line");
+}
+
+#[test]
+fn two_sampler_choices_in_one_call_are_reported_not_rewritten() {
+    let source = "vec4 two(sampler2D a, sampler2D b) { return texture(a, vec2(0.5)) + texture(b, vec2(0.5)); }\n\
+                  vec4 f(bool c) {\n\
+                    return two(c ? syn_Media : syn_Spectrum, c ? syn_Spectrum : syn_Media);\n\
+                  }\n";
+    let out = report(source, CONTEXT, true);
+    assert_eq!(out.code, source, "left as written");
+    assert_eq!(out.unsupported, vec![3], "one line, reported once");
+}
+
+#[test]
+fn deeply_nested_macro_calls_stay_cheap() {
+    let mut call = "x".to_owned();
+    for _ in 0..14 {
+        call = format!("cube({call})");
+    }
+    let source =
+        format!("#define cube(v) ((v) * (v) * (v))\nfloat f(float x) {{ return {call} * 2; }}\n");
+    let started = std::time::Instant::now();
+    let out = rewrite(&source);
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(5),
+        "3^14 typings are cut off by the expansion budget"
+    );
+    assert_eq!(out.lines().count(), source.lines().count(), "no line moves");
 }
