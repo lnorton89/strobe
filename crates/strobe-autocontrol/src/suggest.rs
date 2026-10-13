@@ -131,6 +131,7 @@ mod tests {
             min: vec![0.0],
             max: vec![2.0],
             name: "x".to_string(),
+            role: None,
             context: String::new(),
             sites: Vec::new(),
         }

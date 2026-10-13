@@ -30,6 +30,8 @@
 //! - [`score`] is the only part that needs a GL context. It compiles the
 //!   rewritten scene once and measures each control by rendering fixed
 //!   frames with its value nudged.
+//! - [`script`] reads `script.js` for the uniforms it creates, so a
+//!   scripted scene compiles without running its script (D259).
 //! - [`generate`] runs all of it and returns a [`report::Report`] plus the
 //!   rewritten scene; [`output`] writes that as a new scene folder.
 //! - [`suggest`] proposes audio mappings for the strongest controls.
@@ -48,14 +50,15 @@ pub mod output;
 pub mod report;
 pub mod rewrite;
 pub mod score;
+pub mod script;
 pub mod source;
 pub mod suggest;
 
 pub use analyze::{Analysis, analyze};
 pub use candidate::{Candidate, Group, Kind, Site, ValueType};
 pub use generate::{
-    Choice, ChoiceError, GenerateError, Generated, Options, authored_controls, generate,
-    is_authored, rewrite_chosen,
+    Choice, ChoiceError, FIDELITY_LIMIT, GenerateError, Generated, Options, authored_controls,
+    generate, generate_from, is_authored, rewrite_chosen,
 };
 pub use output::{OutputError, write_scene};
 pub use report::Report;
