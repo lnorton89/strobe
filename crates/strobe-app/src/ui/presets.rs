@@ -61,16 +61,38 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
                     }
                 }
             });
-        if let Some(active) = active
-            && widgets::icon_button(ui, theme, Icon::Close, "Delete the active preset's file")
-                .clicked()
-        {
-            actions.push(Action::DeletePreset(active.to_string()));
+        if let Some(active) = active {
+            // Deleting is two clicks: the first arms it and says so (P-07).
+            let armed = panel.ui.delete_armed.as_deref() == Some(active);
+            let tip = if armed {
+                "Click again to delete this preset's file"
+            } else {
+                "Delete the active preset's file (asks for a second click)"
+            };
+            if widgets::icon_button(ui, theme, Icon::Close, tip).clicked() {
+                if armed {
+                    actions.push(Action::DeletePreset(active.to_string()));
+                    panel.ui.delete_armed = None;
+                } else {
+                    panel.ui.delete_armed = Some(active.to_string());
+                }
+            }
+        }
+        if panel.ui.delete_armed.as_deref() != active {
+            panel.ui.delete_armed = None;
         }
     });
+    if panel.ui.delete_armed.is_some() {
+        ui.label(
+            egui::RichText::new("Click the cross again to delete the preset.")
+                .small()
+                .color(theme::rgb(theme.warning)),
+        );
+    }
     ui.add_space(SPACE_XS);
     ui.horizontal(|ui| {
-        let save_room = 64.0;
+        let can_rename = active.is_some();
+        let save_room = if can_rename { 140.0 } else { 72.0 };
         let field = &mut panel.ui.preset_name;
         ui.add(
             egui::TextEdit::singleline(field)
@@ -79,15 +101,42 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
         );
         let name = field.trim().to_string();
         let usable = strobe_scene::preset::valid_name(&name);
+        // Saving over an existing name says so before it happens (P-07).
+        let existing = names.iter().find(|n| n.eq_ignore_ascii_case(&name));
+        let (label, tip) = match existing {
+            Some(existing) => (
+                "Replace",
+                format!("Replace the preset \"{existing}\" with the controls as they are now"),
+            ),
+            None => (
+                "Save",
+                "Save the controls as a new preset of this scene".to_string(),
+            ),
+        };
         let save = ui
             .add_enabled_ui(usable, |ui| {
-                widgets::button(ui, theme, None, "Save").on_hover_text(
-                    "Save the controls as a preset of this scene. A preset with the same name is replaced.",
-                )
+                widgets::button(ui, theme, None, label).on_hover_text(tip)
             })
             .inner;
         if save.clicked() {
-            actions.push(Action::SavePreset(name));
+            actions.push(Action::SavePreset(name.clone()));
+        }
+        if let Some(active) = active {
+            let can = usable && existing.is_none_or(|e| e.eq_ignore_ascii_case(active))
+                && name != active;
+            let rename = ui
+                .add_enabled_ui(can, |ui| {
+                    widgets::button(ui, theme, None, "Rename").on_hover_text(format!(
+                        "Rename \"{active}\" to the name typed here; fav slots that recall it follow"
+                    ))
+                })
+                .inner;
+            if rename.clicked() {
+                actions.push(Action::RenamePreset {
+                    from: active.to_string(),
+                    to: name,
+                });
+            }
         }
     });
     ui.add_space(SPACE_XS);

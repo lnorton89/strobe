@@ -153,6 +153,8 @@ checked and not committed. Interaction was driven with xdotool.
 - [ ] The UI's frame cost and a Preview's GPU cost on the T480 (the layout
   pass was about 1 ms in a debug build on llvmpipe; the paint there is
   software rasterisation and says nothing).
+- [x] Preset rename, Replace named before it happens, Delete in two clicks
+  (D214). Evidence: `strobe-scene` `preset` tests.
 - [x] Editing the selected cue in the LIST pane, with each setting's origin
   shown, and unsaved edits kept when the file changes on disk (D213).
   Evidence: `show::edit` tests and the shell scenario. Not yet: run by a

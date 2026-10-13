@@ -334,6 +334,29 @@ impl Session {
         captured
     }
 
+    /// Renames preset `from` to `to` in memory (after its file was renamed).
+    pub fn rename_preset(&mut self, from: &str, to: &str) {
+        if let Some(index) = self
+            .preset_names
+            .iter()
+            .position(|n| n.eq_ignore_ascii_case(from))
+        {
+            if let Some(name) = self.preset_names.get_mut(index) {
+                *name = to.to_string();
+            }
+            if let Some(preset) = self.presets.get_mut(index) {
+                preset.name = to.to_string();
+            }
+            if self
+                .active_preset
+                .as_deref()
+                .is_some_and(|active| active.eq_ignore_ascii_case(from))
+            {
+                self.active_preset = Some(to.to_string());
+            }
+        }
+    }
+
     /// Forgets preset `name` (after its file was deleted).
     pub fn forget_preset(&mut self, name: &str) {
         if let Some(index) = self

@@ -74,6 +74,9 @@ pub enum PresetError {
     /// No preset has this name in the scene.
     #[error("the scene has no preset called \"{0}\"")]
     Missing(String),
+    /// A rename would replace another preset.
+    #[error("the scene already has a preset called \"{0}\"")]
+    Exists(String),
     /// A file could not be read, written or listed.
     #[error("{path}: {source}")]
     Io {
@@ -385,6 +388,51 @@ pub fn delete(scene_dir: &Path, name: &str) -> Result<(), PresetError> {
     std::fs::remove_file(&path).map_err(|source| PresetError::Io { path, source })
 }
 
+/// Renames preset `from` to `to` (P-07). The new file is written whole
+/// before the old one is removed, so a crash leaves at least one copy.
+/// Refused when another preset already has the new name (a change of case
+/// only is allowed): a rename never replaces anything.
+pub fn rename(scene_dir: &Path, from: &str, to: &str) -> Result<PathBuf, PresetError> {
+    let to = to.trim();
+    if !valid_name(to) {
+        return Err(PresetError::BadName(to.to_string()));
+    }
+    let names = list(scene_dir);
+    let old = find_name(&names, from)
+        .cloned()
+        .ok_or_else(|| PresetError::Missing(from.to_string()))?;
+    if !old.eq_ignore_ascii_case(to) && find_name(&names, to).is_some() {
+        return Err(PresetError::Exists(to.to_string()));
+    }
+    let mut preset = load(scene_dir, &old)?;
+    preset.name = to.to_string();
+    let dir = dir_of(scene_dir);
+    let path = dir.join(format!("{to}.json"));
+    let temp = dir.join(format!("{to}.json.tmp"));
+    let text = preset.to_text().map_err(|source| PresetError::Json {
+        path: path.clone(),
+        source,
+    })?;
+    let io = |path: &Path| {
+        let path = path.to_path_buf();
+        move |source| PresetError::Io { path, source }
+    };
+    std::fs::write(&temp, text).map_err(io(&temp))?;
+    let old_path = dir.join(format!("{old}.json"));
+    if old.eq_ignore_ascii_case(to) {
+        // A change of case: on a case-insensitive filesystem the old file
+        // *is* the new one, so it is replaced in place, never removed.
+        std::fs::rename(&temp, &old_path).map_err(io(&old_path))?;
+        if old != to {
+            std::fs::rename(&old_path, &path).map_err(io(&path))?;
+        }
+    } else {
+        std::fs::rename(&temp, &path).map_err(io(&path))?;
+        std::fs::remove_file(&old_path).map_err(io(&old_path))?;
+    }
+    Ok(path)
+}
+
 /// One fav slot: a scene, and which of its presets to recall with it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Fav {
@@ -438,6 +486,24 @@ impl FavSlots {
     /// Every slot in order, filled or not.
     pub fn iter(&self) -> impl Iterator<Item = Option<&Fav>> {
         (0..FAV_SLOTS).map(|slot| self.get(slot))
+    }
+
+    /// Points every slot that recalls `scene` with preset `from` at `to`
+    /// instead, after a rename. Returns how many changed.
+    pub fn rename_preset(&mut self, scene: &str, from: &str, to: &str) -> usize {
+        let mut changed = 0;
+        for fav in self.slots.iter_mut().flatten() {
+            if fav.scene == scene
+                && fav
+                    .preset
+                    .as_deref()
+                    .is_some_and(|p| p.eq_ignore_ascii_case(from))
+            {
+                fav.preset = Some(to.to_string());
+                changed += 1;
+            }
+        }
+        changed
     }
 
     /// Makes the list exactly [`FAV_SLOTS`] long, whatever a file held.
@@ -613,6 +679,73 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir)?;
         Ok(dir)
+    }
+
+    #[test]
+    fn a_rename_moves_the_file_never_replaces_and_follows_the_favs() -> Result<()> {
+        let dir = temp_scene("rename")?;
+        let scene = scene_bank()?;
+        let meta = crate::meta::bank()?;
+        for name in ["Slow Burn", "Peak"] {
+            save(
+                &dir,
+                &Preset::capture(name, &scene, &meta, Channels::default()),
+            )?;
+        }
+        rename(&dir, "slow burn", "Warm Up")?;
+        assert_eq!(list(&dir), vec!["Peak", "Warm Up"], "moved");
+        assert_eq!(
+            load(&dir, "warm up")?.name,
+            "Warm Up",
+            "the file says its new name"
+        );
+        assert!(
+            matches!(rename(&dir, "Warm Up", "peak"), Err(PresetError::Exists(_))),
+            "a rename never replaces another preset"
+        );
+        rename(&dir, "Warm Up", "WARM UP")?;
+        assert_eq!(
+            list(&dir),
+            vec!["Peak", "WARM UP"],
+            "a change of case is allowed"
+        );
+        assert!(
+            matches!(rename(&dir, "nope", "x"), Err(PresetError::Missing(_))),
+            "missing"
+        );
+
+        let mut favs = FavSlots::default();
+        favs.set(
+            0,
+            Fav {
+                scene: "05".into(),
+                preset: Some("Slow Burn".into()),
+            },
+        );
+        favs.set(
+            1,
+            Fav {
+                scene: "06".into(),
+                preset: Some("Slow Burn".into()),
+            },
+        );
+        assert_eq!(
+            favs.rename_preset("05", "slow burn", "Warm Up"),
+            1,
+            "one slot"
+        );
+        assert_eq!(
+            favs.get(0).and_then(|f| f.preset.clone()).as_deref(),
+            Some("Warm Up"),
+            "this scene's slot follows"
+        );
+        assert_eq!(
+            favs.get(1).and_then(|f| f.preset.clone()).as_deref(),
+            Some("Slow Burn"),
+            "another scene's slot does not"
+        );
+        std::fs::remove_dir_all(&dir)?;
+        Ok(())
     }
 
     #[test]

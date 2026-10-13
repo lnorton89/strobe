@@ -185,6 +185,13 @@ pub enum Action {
     RecallPreset(String),
     /// Delete a preset file of the playing scene.
     DeletePreset(String),
+    /// Rename a preset of the playing scene (P-07).
+    RenamePreset {
+        /// Its name now.
+        from: String,
+        /// The new name.
+        to: String,
+    },
     /// Store the playing scene (and its active preset) in fav slot `n`,
     /// counted from 0.
     StoreFav(usize),
@@ -428,6 +435,9 @@ pub struct MapUi {
     pub add: AddForm,
     /// The preset name field of the controls pane.
     pub preset_name: String,
+    /// The preset whose delete button was clicked once: the second click
+    /// deletes (P-07).
+    pub delete_armed: Option<String>,
 }
 
 /// Show control, for the MAP pane, the macro strip and the preset row.
