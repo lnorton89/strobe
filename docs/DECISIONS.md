@@ -4385,3 +4385,30 @@ hovered one, and tabbing through the panel showed nothing reliable.
 
 **Would reopen:** a theme whose accent cannot reach 3:1 on its surfaces
 (the test fails first), or egui gaining a separate focus style.
+
+### D244: each executable carries a version block from Cargo's version (2026-10-13)
+
+R-06: the T480 found that `strobe.exe` and `strobe-corpus.exe` had an icon
+but no `VERSIONINFO`. As a result, Properties > Details showed an empty
+product name and version, and so did Windows' crash and error dialogs.
+
+- **Two scripts, one body.** `assets/strobe-common.rc` holds the icon and
+  the version block. `strobe.rc` and `strobe-corpus.rc` each define
+  `FILE_NAME` and `FILE_DESCRIPTION` and include it. `embed_resource`
+  names its output after the script's stem, so one script compiled twice
+  with different macros would collide. `compile_for` links each script
+  only into its own binary.
+- **The numbers come from Cargo.** The build script passes
+  `CARGO_PKG_VERSION_{MAJOR,MINOR,PATCH}` and `CARGO_PKG_VERSION` as
+  macros. The release workflow already refuses a tag that disagrees with
+  the workspace version, so the file version always matches the release.
+- **No SDK header.** The `FILEOS`/`FILETYPE` values are written as numbers
+  instead of `winver.h` names. That way the scripts also compile with
+  `llvm-rc`, which is how they were checked off Windows.
+- **No manifest yet.** winit sets DPI awareness at run time, and nothing
+  in the app uses common controls. A manifest would be a second resource
+  to keep in step for no visible change.
+
+**Would reopen:** a reason to declare DPI awareness, long paths or
+supported OS versions in a manifest. That would be a `1 24 "strobe.manifest"`
+line in the same body.

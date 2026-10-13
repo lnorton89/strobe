@@ -1,0 +1,5 @@
+// strobe-corpus.exe's resources: the shared icon and version block, named
+// for the corpus harness. See strobe-common.rc.
+#define FILE_NAME "strobe-corpus.exe"
+#define FILE_DESCRIPTION "Strobe scene corpus harness"
+#include "strobe-common.rc"

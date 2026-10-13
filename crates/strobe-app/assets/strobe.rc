@@ -1,4 +1,5 @@
-// The Windows resources of strobe.exe: its icon, the one Explorer, the
-// taskbar and the Start menu show. ICON_PATH is defined by build.rs as the
-// absolute path of assets/brand/icon.ico (made by `cargo xtask brand`).
-1 ICON ICON_PATH
+// strobe.exe's resources: the shared icon and version block, named for
+// the app. See strobe-common.rc.
+#define FILE_NAME "strobe.exe"
+#define FILE_DESCRIPTION "Strobe"
+#include "strobe-common.rc"
