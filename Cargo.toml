@@ -63,7 +63,7 @@ rquickjs = "0.14"
 # random source for the listener's token.
 ureq = { version = "3", default-features = false, features = ["rustls"] }
 sha2 = "0.10"
-getrandom = "0.3"
+getrandom = "0.4"
 # The LAN remote's WebSocket handshake (RFC 6455's Sec-WebSocket-Accept is a
 # SHA-1). Same RustCrypto family and `digest` version as sha2, so it adds
 # one crate and no new transitive ones (D250).
