@@ -3282,8 +3282,8 @@ costs nothing and matters where a covered window is still painted, but it
 fixed nothing on Windows. The real cost showed up windowed: a *visible*
 control window's redraw took a full refresh for minutes and made about a
 third of the output's frames late. The perf line now times that window's
-swap on its own (`of which swap`), so the next run says whether the swap
-waits.
+swap on its own, and after T12 found the swap returning in 0.03 ms, splits
+the whole redraw into make-current, layout, paint and swap.
 
 ### D207: meta settings carry across scenes, Limit Colors is built, Alpha Channel waits for an output that carries alpha (2026-10-13)
 

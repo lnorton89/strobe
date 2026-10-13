@@ -118,8 +118,26 @@ pub struct PerfWindow {
     control_frames: u32,
     control_sum: f32,
     control_worst: f32,
-    swap_sum: f32,
-    swap_worst: f32,
+    /// Per part of a control redraw, in [`ControlTimes`]' order: summed
+    /// milliseconds.
+    part_sums: [f32; 4],
+}
+
+/// Where one control-window redraw spent its time (TORNADO T12: the swap
+/// itself returned in 0.03 ms while the redraw took 17.5 ms, so the wait is
+/// elsewhere; this says where).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ControlTimes {
+    /// The whole redraw.
+    pub total: Duration,
+    /// Making the context current on the control window's surface.
+    pub make_current: Duration,
+    /// The egui pass: building and laying out the widgets.
+    pub layout: Duration,
+    /// egui's GL paint, up to the swap.
+    pub paint: Duration,
+    /// The buffer swap.
+    pub swap: Duration,
 }
 
 impl PerfWindow {
@@ -142,17 +160,20 @@ impl PerfWindow {
         }
     }
 
-    /// Records one control-window redraw that took `took`, of which `swap`
-    /// was the buffer swap (TORNADO T11 saw 18 ms redraws with vsync off on
-    /// that window; this says whether the swap is what waits).
-    pub fn control(&mut self, took: Duration, swap: Duration) {
-        let ms = took.as_secs_f32() * 1000.0;
-        let swap_ms = swap.as_secs_f32() * 1000.0;
+    /// Records one control-window redraw and where its time went.
+    pub fn control(&mut self, times: ControlTimes) {
+        let ms = |d: Duration| d.as_secs_f32() * 1000.0;
         self.control_frames += 1;
-        self.control_sum += ms;
-        self.control_worst = self.control_worst.max(ms);
-        self.swap_sum += swap_ms;
-        self.swap_worst = self.swap_worst.max(swap_ms);
+        self.control_sum += ms(times.total);
+        self.control_worst = self.control_worst.max(ms(times.total));
+        for (sum, part) in self.part_sums.iter_mut().zip([
+            times.make_current,
+            times.layout,
+            times.paint,
+            times.swap,
+        ]) {
+            *sum += ms(part);
+        }
     }
 
     /// The summary line when [`PERF_WINDOW`] has passed since the first
@@ -167,8 +188,8 @@ impl PerfWindow {
         let mean = |sum: f32, n: u32| if n > 0 { sum / n as f32 } else { 0.0 };
         let line = format!(
             "perf: {:.1} fps over {:.0} s, {} late of {} frames, worst gap {:.1} ms, \
-             gpu {:.2} ms, control {} redraws {:.2} ms (worst {:.1} ms), of which swap {:.2} ms \
-             (worst {:.1} ms)",
+             gpu {:.2} ms, control {} redraws {:.2} ms (worst {:.1} ms): make-current {:.2}, \
+             layout {:.2}, paint {:.2}, swap {:.2} ms",
             self.frames as f32 / span,
             span,
             self.late,
@@ -178,8 +199,10 @@ impl PerfWindow {
             self.control_frames,
             mean(self.control_sum, self.control_frames),
             self.control_worst,
-            mean(self.swap_sum, self.control_frames),
-            self.swap_worst,
+            mean(self.part_sums[0], self.control_frames),
+            mean(self.part_sums[1], self.control_frames),
+            mean(self.part_sums[2], self.control_frames),
+            mean(self.part_sums[3], self.control_frames),
         );
         *self = Self {
             started: Some(now),
@@ -205,7 +228,13 @@ mod tests {
             at += Duration::from_micros(gap);
             window.frame(at, 16.67, Some(2.0));
             if i % 2 == 0 {
-                window.control(Duration::from_millis(3), Duration::from_millis(1));
+                window.control(ControlTimes {
+                    total: Duration::from_millis(3),
+                    make_current: Duration::from_micros(500),
+                    layout: Duration::from_micros(1000),
+                    paint: Duration::from_micros(500),
+                    swap: Duration::from_millis(1),
+                });
             }
             if i < 3000 {
                 assert!(window.take_due(at).is_none(), "not a minute yet at {i}");
@@ -218,7 +247,10 @@ mod tests {
         assert!(line.contains("worst gap 33.3 ms"), "{line}");
         assert!(line.contains("gpu 2.00 ms"), "{line}");
         assert!(line.contains("control 1800 redraws 3.00 ms"), "{line}");
-        assert!(line.contains("of which swap 1.00 ms"), "{line}");
+        assert!(
+            line.contains("make-current 0.50, layout 1.00, paint 0.50, swap 1.00 ms"),
+            "{line}"
+        );
         assert!(
             window.take_due(at + Duration::from_secs(2)).is_none(),
             "the window started over"
