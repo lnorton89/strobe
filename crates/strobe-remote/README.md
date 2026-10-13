@@ -7,16 +7,18 @@ design, threat model and remaining work are in
 [`REMOTE_CONTROL_PWA_RESEARCH.md`](../../docs/REMOTE_CONTROL_PWA_RESEARCH.md)
 (ROADMAP item 7b).
 
-This crate is **protocol only**. It opens no socket, owns no app state and
-never touches the renderer. A future network adapter authenticates and
-validates each message, then puts the command on the app's bounded command
-queue, the same path OSC uses (D172), so the app thread runs it.
+This crate is **protocol and bridge only**. It opens no socket, owns no app
+state and never touches the renderer. A future network adapter authenticates
+and validates each message, then hands the command to `bridge::Remote`; the
+app takes it off `bridge::AppEnd` on its own thread and runs it through the
+same command path a key, a pad or an OSC message uses (D172, D232).
 
 ## Role in the workspace
 
 - **Depends on:** `serde`, `serde_json`.
-- **Depended on by:** nothing yet. The listener, pairing and token storage,
-  the app-thread bridge and the controller page are still open
+- **Depended on by:** `strobe-app`'s tests only, which keep the command list
+  aligned with the app's command ids. The listener, pairing and token
+  storage, and the controller page are still open
   ([`IMPLEMENTATION_BACKLOG.md`](../../docs/IMPLEMENTATION_BACKLOG.md), epic L).
 - **Never depends on:** `strobe-gfx`, `strobe-app`, a window, or a socket.
 
@@ -28,6 +30,8 @@ queue, the same path OSC uses (D172), so the app thread runs it.
 | `RemoteCommand` | The allowlist: no scene loading, files, scripts, shaders or settings. |
 | `ServerMessage` | `hello`, `paired`, `authenticated`, a revisioned `state` snapshot, `command_result`, `error`, `pong`. |
 | `ErrorCode`, `AudioStatus` | Stable codes and short states for a small screen. |
+| `RemoteCommand::ALL`, `RemoteCommand::id` | Every command and its wire name, which is the app's `CommandId` id. |
+| `bridge::bridge(capacity)` | `(Remote, AppEnd)`: a bounded command queue with a reply per request (`Pending::wait`), and a revisioned `Snapshot`. A full queue is `Busy` at once; a gone app is `Unavailable`. |
 | `valid_request_id` | Bounded printable-ASCII request ids. |
 | `PROTOCOL_VERSION` | `1`. |
 

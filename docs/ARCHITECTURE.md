@@ -20,7 +20,7 @@ crates/
 ├── strobe-app          winit event loop, control window (egui) + output window, wiring
 ├── strobe-playlist     Playlist model, TOML, generator, timeline, playback clock (pure)
 ├── strobe-io           Show control: MIDI and OSC workers, mappings, learn, soft takeover, macros (no GL)
-└── strobe-remote       Versioned LAN remote protocol (no sockets or app state yet)
+└── strobe-remote       Versioned LAN remote protocol and app-thread bridge (no sockets)
 ```
 
 (The localhost import listener stayed in `strobe-shadertoy`, D114. Presets and
@@ -43,7 +43,7 @@ strobe-gfx ◀── strobe-autocontrol ◀────────────�
                  (tokenizer and tab markers                     process, D202)
                   of strobe-shadertoy)
 
-strobe-remote (serde protocol only; nothing uses it yet)
+strobe-remote (serde protocol + std bridge; only the app's tests use it yet)
 ```
 
 - `strobe-scene` knows nothing about GL, threads, or clocks: `dt` is

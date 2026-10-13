@@ -42,5 +42,10 @@ serde_json.workspace = true
 toml.workspace = true
 winit.workspace = true
 
+[dev-dependencies]
+# Only for the test that keeps the remote protocol's commands aligned with
+# the app's; the app takes it as a dependency when the listener lands (L-02).
+strobe-remote.workspace = true
+
 [lints]
 workspace = true
