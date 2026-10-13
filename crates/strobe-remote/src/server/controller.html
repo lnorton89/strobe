@@ -1,0 +1,489 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex">
+<link rel="icon" href="data:,">
+<title>Strobe remote</title>
+<style>
+:root {
+  --void: #080b14;
+  --panel: #101725;
+  --raised: #182133;
+  --border: #3a4a63;
+  --text: #f3f6fa;
+  --muted: #b4c0d0;
+  --accent: #00e5ff;
+  --on-accent: #001418;
+  --good: #4ade80;
+  --warn: #fbbf24;
+  --danger: #ff5a6e;
+  --on-danger: #1a0004;
+  --focus: #00e5ff;
+  --radius: 12px;
+  --gap: 12px;
+  --pad-top: max(12px, env(safe-area-inset-top));
+  --pad-right: max(16px, env(safe-area-inset-right));
+  --pad-bottom: max(12px, env(safe-area-inset-bottom));
+  --pad-left: max(16px, env(safe-area-inset-left));
+  --speed: 120ms;
+}
+@media (prefers-contrast: more) {
+  :root {
+    --void: #000;
+    --panel: #000;
+    --raised: #000;
+    --border: #fff;
+    --text: #fff;
+    --muted: #fff;
+    --accent: #5ff;
+    --warn: #ff0;
+    --danger: #f66;
+  }
+  button, .badge, .card { border-width: 2px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  :root { --speed: 0ms; }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+body {
+  margin: 0;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: var(--void);
+  color: var(--text);
+  font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  padding: var(--pad-top) var(--pad-right) var(--pad-bottom) var(--pad-left);
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+  -webkit-tap-highlight-color: transparent;
+}
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap);
+}
+h1 { font-size: 1.1rem; letter-spacing: 0.2em; margin: 0; }
+h2 { font-size: 1.2rem; margin: 0 0 8px; }
+p { margin: 0; }
+main { flex: 1; display: flex; flex-direction: column; gap: var(--gap); }
+section[hidden] { display: none; }
+.pill {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+.pill::before { content: "\25CF\00A0"; }
+body[data-conn="live"] .pill { color: var(--good); border-color: var(--good); }
+body[data-conn="stale"] .pill,
+body[data-conn="offline"] .pill { color: var(--warn); border-color: var(--warn); }
+body[data-conn="off"] .pill { color: var(--danger); border-color: var(--danger); }
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+}
+.label { color: var(--muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.08em; }
+.big { font-size: 1.5rem; font-weight: 650; overflow-wrap: anywhere; margin-bottom: 8px; }
+.next { overflow-wrap: anywhere; margin-bottom: 8px; }
+.time { font-size: 1.5rem; font-variant-numeric: tabular-nums; }
+.badges { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.badge {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px 10px;
+  font-size: 0.9rem;
+}
+.badge[data-level="good"] { border-color: var(--good); }
+.badge[data-level="warn"] { border-color: var(--warn); color: var(--warn); }
+.badge[data-level="bad"] { border-color: var(--danger); color: var(--danger); font-weight: 650; }
+.controls { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap); }
+button {
+  font: inherit;
+  color: var(--text);
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  min-height: 56px;
+  padding: 10px 12px;
+  touch-action: manipulation;
+  transition: background var(--speed), transform var(--speed);
+}
+button:active:not(:disabled) { transform: scale(0.97); background: var(--border); }
+button:focus-visible, input:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+button:disabled { opacity: 0.45; }
+button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+button.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); font-weight: 650; }
+.blackout {
+  width: 100%;
+  min-height: 72px;
+  font-size: 1.2rem;
+  font-weight: 700;
+  background: var(--danger);
+  color: var(--on-danger);
+  border-color: var(--danger);
+}
+.blackout[aria-pressed="true"] { background: var(--void); color: var(--danger); border: 3px solid var(--danger); }
+button.link { background: none; border: none; min-height: 44px; color: var(--muted); text-decoration: underline; }
+form { display: flex; flex-direction: column; gap: 8px; }
+input {
+  font: inherit;
+  font-size: 1.8rem;
+  letter-spacing: 0.25em;
+  text-align: center;
+  color: var(--text);
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px;
+  min-height: 56px;
+}
+.message { min-height: 1.4em; color: var(--warn); }
+.result { min-height: 1.4em; color: var(--muted); }
+footer { color: var(--muted); font-size: 0.8rem; }
+body[data-blackout="true"] .now { border-color: var(--danger); }
+@media (orientation: landscape) and (min-width: 600px) {
+  #show:not([hidden]) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+    gap: var(--gap);
+    align-items: start;
+  }
+  #show .side { display: flex; flex-direction: column; gap: var(--gap); }
+}
+@media (orientation: portrait), (max-width: 599px) {
+  #show:not([hidden]) { display: flex; flex-direction: column; gap: var(--gap); }
+  #show .side { display: flex; flex-direction: column; gap: var(--gap); }
+}
+@media (forced-colors: active) {
+  .pill::before { content: ""; }
+  button[aria-pressed="true"] { border-width: 4px; }
+}
+</style>
+</head>
+<body data-conn="connecting">
+<header>
+  <h1>STROBE</h1>
+  <p id="conn" class="pill" role="status" aria-live="polite">Connecting</p>
+</header>
+<main>
+  <section id="pair" class="card" hidden aria-labelledby="pair-title">
+    <h2 id="pair-title">Pair this device</h2>
+    <p>On the Strobe desktop, open Settings, find Remote and press <strong>Pair a device</strong>. Type the six-digit code it shows.</p>
+    <form id="pair-form" novalidate>
+      <label for="code" class="label">Pairing code</label>
+      <input id="code" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="9" spellcheck="false" aria-describedby="pair-message">
+      <button type="submit" class="primary">Pair</button>
+    </form>
+    <p id="pair-message" class="message" role="alert"></p>
+  </section>
+  <section id="wait" class="card" hidden aria-labelledby="wait-title">
+    <h2 id="wait-title">Waiting for approval</h2>
+    <p>Approve this device on the Strobe desktop. This page continues by itself.</p>
+  </section>
+  <section id="show" hidden aria-label="Show control">
+    <div class="side">
+      <div class="card now">
+        <p class="label">Now</p>
+        <p id="current" class="big">Nothing playing</p>
+        <p class="label">Next</p>
+        <p id="next" class="next">Unknown</p>
+        <p class="label">Cue time left</p>
+        <p id="remaining" class="time">No timed cue</p>
+      </div>
+      <ul class="badges" aria-label="Status">
+        <li id="badge-hold" class="badge">Running</li>
+        <li id="badge-output" class="badge">Output</li>
+        <li id="badge-audio" class="badge">Audio</li>
+      </ul>
+    </div>
+    <div class="side">
+      <button id="blackout" class="blackout" type="button" data-command="blackout_on" aria-pressed="false">Blackout</button>
+      <div class="controls">
+        <button type="button" data-command="prev_scene">Previous</button>
+        <button type="button" data-command="next_scene" class="primary">Next</button>
+        <button id="hold" type="button" data-command="toggle_hold" aria-pressed="false">Hold</button>
+        <button type="button" data-command="restart_cue">Restart cue</button>
+        <button type="button" data-command="extend_cue">Add 30 s</button>
+        <button type="button" data-command="skip_section">Skip section</button>
+        <button type="button" data-command="tap_tempo">Tap tempo</button>
+      </div>
+      <p id="result" class="result" role="status" aria-live="polite"></p>
+      <button id="forget" type="button" class="link">Forget this device</button>
+    </div>
+  </section>
+</main>
+<footer>Plain HTTP on your local network. Use it only on a network you trust.</footer>
+<script>
+"use strict";
+(function () {
+  var TOKEN_KEY = "strobe.remote.token";
+  var PROTOCOL_VERSION = 1;
+  var PING_MS = 5000;
+  var STALE_MS = 12000;
+  var BACKOFF = [1, 2, 4, 8, 10];
+  var AUDIO = {
+    active: ["Audio live", "good"],
+    missing: ["No audio input", "warn"],
+    synthetic: ["Synthetic audio", ""],
+    unknown: ["Audio unknown", ""]
+  };
+
+  var socket = null;
+  var live = false;
+  var retry = 0;
+  var retryTimer = 0;
+  var pingTimer = 0;
+  var lastHeard = 0;
+  var nextRequest = 1;
+  var revision = -1;
+  var blackout = false;
+
+  function $(id) { return document.getElementById(id); }
+
+  var tokens = {
+    get: function () { try { return window.localStorage.getItem(TOKEN_KEY); } catch (e) { return null; } },
+    set: function (value) { try { window.localStorage.setItem(TOKEN_KEY, value); } catch (e) { /* kept for this page only */ } },
+    clear: function () { try { window.localStorage.removeItem(TOKEN_KEY); } catch (e) { /* nothing stored */ } }
+  };
+
+  function view(name) {
+    ["pair", "wait", "show"].forEach(function (id) { $(id).hidden = id !== name; });
+  }
+
+  function connection(text, kind) {
+    $("conn").textContent = text;
+    document.body.setAttribute("data-conn", kind);
+  }
+
+  function enable(on) {
+    var buttons = document.querySelectorAll("button[data-command]");
+    for (var i = 0; i < buttons.length; i++) { buttons[i].disabled = !on; }
+  }
+
+  function send(message) {
+    if (!socket || socket.readyState !== 1) { return false; }
+    socket.send(JSON.stringify(message));
+    return true;
+  }
+
+  function heard() { lastHeard = Date.now(); }
+
+  function connect() {
+    window.clearTimeout(retryTimer);
+    if (socket) { return; }
+    connection(retry ? "Reconnecting" : "Connecting", "connecting");
+    var url = (window.location.protocol === "https:" ? "wss://" : "ws://") + window.location.host + "/ws";
+    var ws;
+    try { ws = new WebSocket(url); } catch (e) { later(); return; }
+    socket = ws;
+    ws.onopen = function () {
+      heard();
+      send({ type: "hello", protocol_version: PROTOCOL_VERSION });
+      // From the start, not only once paired: typing the code and waiting
+      // for the desktop's approval must not look idle to the server.
+      window.clearInterval(pingTimer);
+      pingTimer = window.setInterval(function () { send({ type: "ping" }); }, PING_MS);
+    };
+    ws.onmessage = function (event) {
+      heard();
+      var message;
+      try { message = JSON.parse(event.data); } catch (e) { return; }
+      if (message && typeof message.type === "string") { handle(message); }
+    };
+    ws.onclose = function (event) {
+      if (socket !== ws) { return; }
+      socket = null;
+      closed(event.code, event.reason || "");
+    };
+  }
+
+  function later() {
+    var wait = BACKOFF[Math.min(retry, BACKOFF.length - 1)];
+    retry += 1;
+    connection("Disconnected. Retrying in " + wait + " s", "offline");
+    retryTimer = window.setTimeout(connect, wait * 1000);
+  }
+
+  function closed(code, reason) {
+    live = false;
+    window.clearInterval(pingTimer);
+    enable(false);
+    if (code === 1008 && /revoked/i.test(reason)) {
+      tokens.clear();
+      $("pair-message").textContent = "This device was revoked on the desktop. Pair it again to use it.";
+    }
+    later();
+  }
+
+  function started() {
+    live = true;
+    retry = 0;
+    view("show");
+    connection("Connected", "live");
+    enable(true);
+  }
+
+  function handle(message) {
+    switch (message.type) {
+      case "hello":
+        revision = -1;
+        var token = tokens.get();
+        if (token) {
+          send({ type: "authenticate", token: token });
+        } else {
+          view("pair");
+          connection("Not paired", "connecting");
+        }
+        break;
+      case "paired":
+        if (typeof message.token === "string") { tokens.set(message.token); }
+        $("pair-message").textContent = "";
+        if (!live) { started(); }
+        break;
+      case "authenticated":
+        started();
+        break;
+      case "state":
+        render(message);
+        break;
+      case "command_result":
+        $("result").textContent = message.accepted ? "Done" : ("Not done: " + (message.reason || "refused"));
+        break;
+      case "error":
+        error(message.code, message.message || "");
+        break;
+      case "pong":
+        break;
+      default:
+        break;
+    }
+  }
+
+  function error(code, text) {
+    switch (code) {
+      case "unauthorized":
+        tokens.clear();
+        live = false;
+        enable(false);
+        view("pair");
+        connection("Not paired", "connecting");
+        $("pair-message").textContent = "This device is not paired (or was revoked). Pair it again.";
+        break;
+      case "pairing_rejected":
+        view("pair");
+        $("pair-message").textContent = text || "That code was not accepted.";
+        break;
+      case "version_mismatch":
+        connection("Update needed", "off");
+        $("pair-message").textContent = "This page and Strobe speak different versions. Reload the page.";
+        break;
+      case "unavailable":
+        connection("Remote switched off", "off");
+        break;
+      default:
+        $("result").textContent = text || code;
+        break;
+    }
+  }
+
+  function minutes(ms) {
+    var seconds = Math.max(0, Math.round(ms / 1000));
+    var m = Math.floor(seconds / 60);
+    var s = seconds % 60;
+    return m + ":" + (s < 10 ? "0" : "") + s;
+  }
+
+  function badge(id, text, level) {
+    var element = $(id);
+    element.textContent = text;
+    element.setAttribute("data-level", level);
+  }
+
+  function render(state) {
+    if (typeof state.revision !== "number" || state.revision <= revision) { return; }
+    revision = state.revision;
+    $("current").textContent = state.current || "Nothing playing";
+    $("next").textContent = state.next || "Unknown";
+    $("remaining").textContent = state.remaining_ms == null ? "No timed cue" : minutes(state.remaining_ms);
+    var hold = $("hold");
+    hold.setAttribute("aria-pressed", state.held ? "true" : "false");
+    hold.textContent = state.held ? "Resume" : "Hold";
+    badge("badge-hold", state.held ? "Held" : "Running", state.held ? "warn" : "");
+    badge("badge-output", state.output_visible ? "Output shown" : "Output hidden", state.output_visible ? "good" : "");
+    var audio = AUDIO[state.audio_status] || AUDIO.unknown;
+    badge("badge-audio", audio[0], audio[1]);
+    blackout = !!state.blackout;
+    var button = $("blackout");
+    button.setAttribute("aria-pressed", blackout ? "true" : "false");
+    button.setAttribute("data-command", blackout ? "blackout_off" : "blackout_on");
+    button.textContent = blackout ? "Blacked out. Restore output" : "Blackout";
+    document.body.setAttribute("data-blackout", blackout ? "true" : "false");
+  }
+
+  document.addEventListener("click", function (event) {
+    var target = event.target;
+    var button = target && target.closest ? target.closest("button[data-command]") : null;
+    if (!button || button.disabled || !live) { return; }
+    var id = "r" + nextRequest;
+    nextRequest += 1;
+    if (send({ type: "command", request_id: id, command: button.getAttribute("data-command") })) {
+      $("result").textContent = "Sent";
+    }
+  });
+
+  $("pair-form").addEventListener("submit", function (event) {
+    event.preventDefault();
+    var digits = $("code").value.replace(/[^0-9]/g, "");
+    if (digits.length !== 6) {
+      $("pair-message").textContent = "The code has six digits.";
+      return;
+    }
+    if (send({ type: "pair", code: digits })) {
+      $("code").value = "";
+      $("pair-message").textContent = "";
+      view("wait");
+    } else {
+      $("pair-message").textContent = "Not connected to Strobe yet. Wait a moment and try again.";
+    }
+  });
+
+  $("forget").addEventListener("click", function () {
+    tokens.clear();
+    if (socket) { socket.close(1000, "forgotten"); }
+    view("pair");
+  });
+
+  window.setInterval(function () {
+    if (socket && socket.readyState === 1 && lastHeard && Date.now() - lastHeard > STALE_MS) {
+      connection("No answer. Reconnecting", "stale");
+      enable(false);
+      var stale = socket;
+      socket = null;
+      live = false;
+      window.clearInterval(pingTimer);
+      try { stale.close(); } catch (e) { /* already closing */ }
+      later();
+    }
+  }, 1000);
+
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "visible" && !socket) { retry = 0; connect(); }
+  });
+  window.addEventListener("online", function () { if (!socket) { retry = 0; connect(); } });
+
+  enable(false);
+  connect();
+}());
+</script>
+</body>
+</html>

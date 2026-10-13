@@ -226,9 +226,10 @@ the test that holds it.
 | Feature | Status | Evidence | Notes |
 |---|---|---|---|
 | Protocol version 1 (`strobe-remote`) | Supported | [D236](DECISIONS.md), `crates/strobe-remote/src/lib.rs` golden tests | Library only. Bounded, strict decoding; another version gets `version_mismatch`. |
-| App-thread command and state bridge | Supported | [D232](DECISIONS.md), `crates/strobe-remote/src/bridge.rs` tests | Library only: the app does not drain it yet ([L-05](IMPLEMENTATION_BACKLOG.md)). |
-| Network listener, pairing, tokens, revocation | Unsupported | [L-02](IMPLEMENTATION_BACKLOG.md), [L-03](IMPLEMENTATION_BACKLOG.md), [L-04](IMPLEMENTATION_BACKLOG.md) | Strobe opens no remote socket. |
-| Phone or tablet controller page | Unsupported | [L-06](IMPLEMENTATION_BACKLOG.md) | |
+| App-thread command and state bridge | Supported | [D232](DECISIONS.md), [D254](DECISIONS.md), `crates/strobe-remote/src/bridge.rs` and `strobe_app::lan` tests | Drained once a frame with `try` only; commands checked against the app's state, then run as their own `Action`. Frame cost not yet measured on the T480. |
+| Network listener (opt-in, LAN only) | Unverified | [D250](DECISIONS.md), [D252](DECISIONS.md), `crates/strobe-remote/tests/server.rs` | Built and tested over loopback sockets in CI, including Host/Origin, size, flood, slow-client and idle cases. Never reached from a phone over Wi-Fi; the Windows firewall prompt not seen. Plain HTTP: trusted networks only. |
+| Pairing, tokens, rotation, revocation | Unverified | [D251](DECISIONS.md), `strobe_remote::{pairing, clients}` and `tests/server.rs` | Six-digit one-use code plus desktop approval; token digests on disk; secrets never logged (a test captures the log). No real phone has paired. |
+| Phone or tablet controller page | Unverified | [D253](DECISIONS.md), `strobe_remote::server::page` tests | One embedded file, no CDN. Checked statically and with Node's WebSocket client; no real browser has rendered it. No macros (protocol v2), no live preview. |
 | Installable PWA over HTTPS | Unsupported | [L-07](IMPLEMENTATION_BACKLOG.md), [REMOTE_CONTROL_PWA_RESEARCH.md](REMOTE_CONTROL_PWA_RESEARCH.md) | Blocked on a TLS and trust decision. |
 
 ## Keeping this file true

@@ -103,6 +103,8 @@ pub struct Readouts {
     /// appears only when there is something to say.
     script: String,
     script_level: Level,
+    /// Empty while the LAN remote is off.
+    remote: String,
 }
 
 /// How a readout is coloured: the state it reports, besides its words.
@@ -150,6 +152,19 @@ impl Readouts {
             .to_string();
         self.audio = audio_text(model);
         self.output = output_text(model);
+        self.remote.clear();
+        let lan = model.lan.view;
+        if lan.running {
+            self.remote = format!(
+                "Remote on  {} connected{}",
+                lan.connections,
+                if lan.requests.is_empty() {
+                    ""
+                } else {
+                    "  pairing request"
+                }
+            );
+        }
         self.script.clear();
         match model.script {
             Some(ScriptState::Faulted { .. }) => {
@@ -430,8 +445,40 @@ fn health(
     compact: bool,
     actions: &mut Vec<Action>,
 ) {
-    let _ = actions;
     let text = !compact;
+
+    // The LAN remote: always visible while it listens, with its kill
+    // switch beside it (L-08, D254). Drawn first, so it sits nearest the
+    // window controls.
+    if !readouts.remote.is_empty() {
+        let stop = if compact {
+            widgets::icon_button(ui, theme, Icon::Close, "Stop the LAN remote")
+        } else {
+            widgets::button(ui, theme, Some(Icon::Close), "Stop remote")
+                .on_hover_text("Stops listening and drops every phone at once.")
+        };
+        if stop.clicked() {
+            actions.push(Action::SetLanRemote(false));
+        }
+        let waiting = !model.lan.view.requests.is_empty();
+        if readout(
+            ui,
+            theme,
+            if waiting {
+                Icon::Warning
+            } else {
+                Icon::Mapping
+            },
+            &readouts.remote,
+            if waiting { Level::Warn } else { Level::Good },
+            "The LAN remote is listening. Click for its settings, pairing and paired devices.",
+            true,
+        )
+        .clicked()
+        {
+            model.ui.panes.open(Pane::Settings);
+        }
+    }
 
     let output_level = if model.output_visible {
         Level::Good

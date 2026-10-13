@@ -1,26 +1,37 @@
 // ============================================================================
 // Module:       strobe_remote (library crate root)
-// Description:  Versioned, transport-independent messages for LAN show control.
+// Description:  Strobe's LAN show remote: the versioned protocol, the
+//               app-thread bridge, pairing and paired clients, and the
+//               opt-in listener that serves the controller page.
 //
-// Dependencies: serde, serde_json
+// Dependencies: serde, serde_json, getrandom, sha2, sha1, log
 // ============================================================================
 
-//! Typed protocol shared by Strobe's LAN remote server and its clients.
+//! Typed protocol shared by Strobe's LAN remote server and its clients, and
+//! the server itself.
 //!
-//! This crate deliberately does not open sockets, own app state, or depend on
-//! the renderer. The network adapter must authenticate and validate a message,
-//! then enqueue its command for the app's event-loop thread. It must never
-//! call renderer or playlist objects directly.
+//! - The **protocol** (this file): allowlisted, versioned messages. There is
+//!   no arbitrary command, path, URL, script, or shader payload. Unknown
+//!   message types and commands fail deserialization instead of being
+//!   ignored (D236).
+//! - The **bridge** ([`bridge`], D232): the bounded queue and revisioned
+//!   snapshot where a network thread meets the app's event-loop thread. The
+//!   listener never calls renderer or playlist objects; the app runs each
+//!   command on its own thread through its ordinary command path.
+//! - **Pairing** ([`pairing`]), **paired clients** ([`clients`]) and their
+//!   **secrets** ([`secret`]) (D251).
+//! - The **listener** ([`server`], D250, D252, D253): opt-in, bound to a
+//!   chosen private address, serving one embedded page and one WebSocket on
+//!   threads of its own.
 //!
-//! The protocol is intentionally allowlisted. There is no arbitrary command,
-//! path, URL, script, or shader payload. Unknown message types and commands
-//! fail deserialization instead of being ignored.
-//!
-//! The crate is the first implementation slice for the LAN remote described
-//! in `docs/REMOTE_CONTROL_PWA_RESEARCH.md`; it is not by itself a running
-//! server or an installable PWA.
+//! This is a plain-HTTP LAN remote for trusted networks. It is not an
+//! installable PWA: that waits on a TLS decision (backlog L-07).
 
 pub mod bridge;
+pub mod clients;
+pub mod pairing;
+pub mod secret;
+pub mod server;
 
 use serde::{Deserialize, Serialize};
 

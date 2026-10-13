@@ -4549,3 +4549,207 @@ read exactly like one where they all ran.
 
 **Would reopen:** a Windows runner with a GPU, where the Windows job should
 set `STROBE_REQUIRE_HEADLESS_GL` too.
+
+### D250: the LAN remote speaks its own small HTTP and WebSocket on std threads, with sha1 the only new crate (2026-10-13)
+
+L-02 asked for the smallest maintained server stack that serves an embedded
+page and a WebSocket carrying protocol version 1 (D236), on threads of its
+own, opt-in, bounded both ways, and stopped at once.
+
+- **Compared.** axum or hyper on tokio: an async runtime and roughly sixty
+  crates for one page and one socket, a runtime to own and shut down, and a
+  reply path that would have to cross from async code to the blocking bridge
+  (D232). `tiny_http` plus `tungstenite`: no runtime, but `tungstenite`
+  brings `http`, `httparse`, `bytes`, `rand` (with its ChaCha stack),
+  `data-encoding` and `utf-8`, and its blocking reader treats a read timeout
+  as an error to recover from rather than a tick. Our own subset: the
+  request-head reader the Shadertoy listener already proved (D114), plus the
+  RFC 6455 framing a 4 KiB JSON protocol needs.
+- **Chosen: our own, in `strobe_remote::server`.** About 600 lines across
+  `http.rs`, `ws.rs` and `session.rs`, std only except **`sha1` 0.10** for
+  the handshake's `Sec-WebSocket-Accept`. It is RustCrypto's, the same family
+  and `digest` 0.10 as the `sha2` already in the tree, so it adds one crate
+  and no transitive ones (0.11 would have pulled `digest` 0.11). Base64 for
+  the accept key is twenty lines tested against RFC 4648's vectors.
+  `getrandom`, `sha2` and `log` were already workspace dependencies.
+  `cargo deny check` is clean. A real client interoperates: Node 22's
+  built-in WebSocket (undici) paired, sent a command and was refused without
+  an Origin, against the listener on loopback.
+- **Strict rather than general.** One request per connection, `GET` only, no
+  bodies, an 8 KiB head that must arrive within 5 s; client frames masked,
+  reserved bits clear, control frames short and whole, text UTF-8, binary
+  refused (1003), and a frame over the limit refused from its header (1009)
+  before one payload byte is read. Fragmentation is supported (the RFC
+  requires it) up to the same limit.
+- **Threads.** One accept thread and one per connection, at most eight in
+  all. A connection reads with a 100 ms timeout, so it wakes every tick to
+  push a changed snapshot, check its timers, and notice a stop or a revoke;
+  its reader keeps a partial frame between ticks. The frame loop never waits
+  on any of it: the app end of the bridge only `try`s.
+- **No outbound queue.** A connection sends the latest snapshot when the
+  bridge's revision moved (many changes between two ticks are one message)
+  and the replies to the one message it is handling, each with a 2 s write
+  timeout. A client that stops reading is dropped, never buffered for.
+- **Stop is immediate.** `Server::stop` (and drop) shuts every connection's
+  socket at once, then wakes and joins the accept thread, which frees the
+  port; connection threads end within a tick. Stopping twice is harmless.
+  A close frame the server sends itself (revoked, idle, a flood) is followed
+  by a short linger that reads what the client still sends, so the close
+  arrives rather than a reset.
+- **The two HTTP readers stay separate.** The import listener reads bodies
+  and blocks; this one reads with a deadline and hands the bytes after the
+  head to the WebSocket reader. Sharing 150 lines would make one crate
+  depend on the other, or add a crate for them.
+
+**Would reopen:** TLS (L-07), which would need `rustls` and probably a
+maintained server rather than more hand-written protocol; or a protocol that
+outgrows 4 KiB messages and a few a second.
+
+### D251: pairing is a one-use code plus the operator's approval, and tokens are kept as digests and rotate (2026-10-13)
+
+L-03 asked for a short-lived code, attempt limits, desktop approval,
+per-client tokens persisted safely, revocation, rotation and redaction.
+
+- **The code.** Six digits from the OS random source, uniform (rejection
+  sampling), shown as `123 456` for 120 s. One successful use: the next phone
+  needs a new code. Five wrong codes in all, across every connection, burn
+  it; a connection with five failed attempts of any kind is dropped. Guessing
+  is 5 in a million per code the operator chooses to open, with the operator
+  watching.
+- **The approval.** A right code pairs nothing: it puts a request (`iPhone at
+  192.168.1.23`, from the User-Agent's device word and the peer address,
+  never the whole User-Agent) in front of the operator with Approve and Deny.
+  Undecided, it expires after 90 s; at most four wait. The protocol needs no
+  new message for this: the phone waits for `paired` or `pairing_rejected`.
+- **The token.** 32 random bytes as 64 hex characters, sent once in the
+  `paired` message body. The desktop keeps only its SHA-256, in
+  `remote-clients.json` (owner-only on Unix, written to a temporary file and
+  renamed), so the file is not a credential. A damaged file is set aside as
+  `.bad` and every phone pairs again. At most 32 clients are kept.
+- **Rotation on every authentication.** After `authenticated` the server
+  sends `paired` again with a new token, and the phone replaces its own. The
+  old token keeps working only until the new one is first used, so a phone
+  that lost the connection before saving the new token is not locked out,
+  and a copied token dies the next time the real phone connects. At most two
+  tokens per client are valid at once. This is a use of version 1's `paired`
+  message, not a new shape (D236).
+- **Revocation.** One or all, from Settings, with the listener on or off. An
+  open connection of a revoked client is closed (1008, "revoked") on its next
+  tick, and the page forgets its token.
+- **Redaction.** `Token`, the pairing state and the stored records print
+  `***` in `Debug`; `Token` implements neither `Serialize` nor `Display`. The
+  log names client ids and addresses only. A test captures every log line of
+  a full pairing, a wrong guess, a rotation and a forged token, and finds none
+  of the codes or tokens in it. No secret is ever in a URL: the page reads
+  nothing from the address bar and keeps its token in `localStorage`.
+- **Restart.** Paired clients survive (the file); a code and waiting requests
+  do not.
+
+**Would reopen:** a phone browser that cannot keep `localStorage` across
+restarts (the person would pair each time), or TLS (L-07), which would let
+the token live in a secure context.
+
+### D252: the remote binds a private address it is told or finds, and trusts only its own Host and Origin (2026-10-13)
+
+L-04 asked for DNS-rebinding and cross-site WebSocket protection, limits,
+and a refusal or warning for a public bind.
+
+- **The bind.** The operator's address, or this computer's LAN address,
+  found by a UDP "connect" to a documentation address (`192.0.2.1`), which
+  sends nothing and only picks the route. A public address is refused with
+  advice; `0.0.0.0` is allowed with a warning on the desktop; loopback is
+  allowed with "a phone cannot reach it". A connection *from* a public
+  address is closed unread whatever was bound, so a port forward on a router
+  does not expose the show. Carrier-grade NAT space (100.64/10, which VPN
+  meshes use too) counts as private.
+- **Host is an IP literal and this listener's port.** A host name is refused
+  (421), `.local` names included. That is what stops DNS rebinding: the
+  attacker's page sends its own name. The cost is that a phone must open the
+  address Strobe shows, which Settings shows and copies.
+- **Origin is exactly `http://` plus that Host** on the upgrade; anything
+  else, `null` or none is 403. A token alone is not enough: another site's
+  page could otherwise drive a socket with a stolen token.
+- **Limits.** Eight connections, 4 KiB messages, 10 messages a second with
+  bursts of 20 (an empty bucket closes with 1008 after a `busy` error), 30 s
+  with nothing heard (the page pings every 5 s from the moment it
+  connects), 120 s (the code's lifetime) to pair or authenticate, 5 s for
+  the request head, 2 s per write, 1 s for the app's answer. No CORS header
+  of any kind.
+- **Residual risk, stated.** This is plain HTTP. Anyone who can watch the
+  Wi-Fi can read the pairing code as it is typed, the token as it is issued
+  and every command, and can replay a token until the real phone next
+  connects (D251). It is for networks the operator trusts. The user guide
+  says so, and nothing claims HTTPS or a PWA (L-07).
+- **Firewall.** Strobe never changes firewall rules. Windows asks the first
+  time it listens; the guide says to allow private networks only.
+
+**Would reopen:** a need for host names (mDNS), which would need an explicit
+allowlist the operator types; or TLS.
+
+### D253: the controller page is one embedded file under a hash-based CSP, with explicit blackout and no macros yet (2026-10-13)
+
+L-06 asked for a touch-first page with no CDN or telemetry.
+
+- **One file**, `crates/strobe-remote/src/server/controller.html`, compiled
+  in with `include_str!`: markup, one `<style>`, one `<script>`, and nothing
+  fetched from anywhere (a test greps the source for URLs, `src=`, `fetch(`
+  and the like). The CSP allows exactly that script and style by their
+  SHA-256, computed from the embedded file once, so an edit can never be
+  served under a stale policy and `unsafe-inline` is not needed.
+  `frame-ancestors 'none'`, `X-Frame-Options: DENY`, `no-store`,
+  `no-referrer`.
+- **What it shows:** now, next and the cue's time left, Hold, output shown
+  or hidden, audio status, and a connection pill (Connecting, Connected, Not
+  paired, Disconnected with the retry time, No answer, Remote switched off).
+  Controls are disabled whenever the connection is not live.
+- **Blackout is explicit.** The big button sends `blackout_on` or
+  `blackout_off` according to the last state it saw, never the toggle, so a
+  press on a stale screen cannot bring the output back by accident.
+- **Reconnect** with backoff of 1, 2, 4, 8 and 10 s, at once when the page
+  becomes visible again or the browser comes back online, and a stale state
+  after 12 s without a word (the page pings every 5 s).
+- **Accessibility:** a `lang`, a labelled code field, `aria-live` status,
+  `aria-pressed` on Hold and Blackout so state is not colour alone, a 3 px
+  focus ring, `prefers-contrast: more`, `forced-colors`,
+  `prefers-reduced-motion`, safe-area insets with `viewport-fit=cover`, and
+  portrait and landscape layouts. Tests check each is present; no real
+  browser has rendered it yet.
+- **Left out:** Performance Macros (protocol version 1 has no macro command;
+  adding one is version 2 under D236, and the research note wants macros
+  only once their target states can be reported), any live preview, a QR
+  code (the address is short, and a QR encoder is another dependency for
+  the desktop), and a manifest or service worker (L-07).
+
+**Would reopen:** protocol version 2 (macros, scene selection), or real
+devices showing the layout fails somewhere.
+
+### D254: the app drains the remote once a frame, publishes at 10 Hz, and never starts it by itself (2026-10-13)
+
+D232 left the bridge undrained until a listener existed.
+
+- **Off unless asked.** `--remote` (with `--remote-bind` and
+  `--remote-port`) or Settings' Start starts it for this run. The switch is
+  never saved, so no launch opens a socket by itself; the address and port
+  fields are not saved either. The paired-client list is read once, the
+  first time the control window asks for it.
+- **Step 1c of the frame**, after show control: up to eight commands are
+  taken with `try`. Each is checked against what the app is doing now
+  (`lan::refusal`: Hold, Restart, Extend and Skip need a ready playlist; Next
+  and Previous need a playlist that has finished preparing, or another scene
+  in the library), then run through the same `Action` its key or OSC address
+  runs, then answered. A refusal is the phone's message ("needs a playlist;
+  load one on the desktop").
+- **State at 10 Hz.** Current and next names (cut to 120 characters, the
+  strings replaced only when they change), time left rounded up to whole
+  seconds so a running cue is one message a second, Hold, blackout, output
+  and audio. The bridge's revision moves only on a change (D232).
+- **Visible and killable.** While it listens the title bar shows "Remote on"
+  with the connection count, warns when a phone waits for approval, and has
+  a Stop button beside it; Stop drops every phone at once (D250). Settings'
+  Remote section holds the address, the pairing code with its countdown,
+  Approve and Deny, and the paired devices with Revoke and Revoke all. Bind
+  failures go to the failure report and the section.
+
+**Would reopen:** a command that must be answered within the frame, or the
+T480 soak showing a cost in the frame (none is expected: an empty
+`try_recv` and, ten times a second, a comparison).

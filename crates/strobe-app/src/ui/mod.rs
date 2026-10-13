@@ -61,6 +61,7 @@ pub mod icon;
 pub mod import;
 pub mod inspector;
 pub mod keys;
+pub mod lan;
 pub mod macros;
 pub mod map;
 pub mod modal;
@@ -84,8 +85,8 @@ pub mod widgets;
 pub use host::UiHost;
 pub use model::{
     Action, AddForm, AddKind, AudioPanel, CueTransport, EditorPanel, FailurePanel, GeneratePanel,
-    ImportPanel, ListenerPanel, MapUi, MediaFrom, MediaPanel, Model, NoticePanel, PerfPanel,
-    PlaylistPanel, PlaylistUi, Preview, RemotePanel, ScenePreview, TransportPanel,
+    ImportPanel, LanPanel, ListenerPanel, MapUi, MediaFrom, MediaPanel, Model, NoticePanel,
+    PerfPanel, PlaylistPanel, PlaylistUi, Preview, RemotePanel, ScenePreview, TransportPanel,
 };
 pub use shell::ShellState;
 pub use state::UiState;
@@ -96,7 +97,7 @@ mod tests {
     /// is where colours are made. `motion` is not here either: it is the
     /// one module allowed to animate. `icon` holds the painting of the
     /// geometry and `state` has no drawing at all.
-    const DRAWING_MODULES: [(&str, &str); 19] = [
+    const DRAWING_MODULES: [(&str, &str); 20] = [
         ("audio", include_str!("audio.rs")),
         ("browser", include_str!("browser.rs")),
         ("chrome", include_str!("chrome.rs")),
@@ -116,6 +117,7 @@ mod tests {
         ("widgets", include_str!("widgets.rs")),
         ("icon", include_str!("icon.rs")),
         ("keys", include_str!("keys.rs")),
+        ("lan", include_str!("lan.rs")),
     ];
 
     /// The lines a source scan should not read: comments explain the rules,

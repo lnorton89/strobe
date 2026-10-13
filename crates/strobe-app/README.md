@@ -38,6 +38,10 @@ from a lost GL context.
   slots (`ui::presets`) and `commands::Bindings` (hotkeys) are the UI side.
   `show-control.json` is written by the debounced saver, never in screenshot
   mode.
+- **LAN remote (D250-D254).** `lan::Lan` owns the `strobe-remote` listener
+  while it runs; `Running::drain_lan` takes its commands once per scene frame
+  (never waiting) and publishes the state at 10 Hz. Settings' Remote section
+  (`ui::lan`) and the title bar's "Remote on" with its Stop button are the UI.
 - **Does not (yet):** audio-event advance, MIDI or OSC output, or video and
   webcam media.
 - The app has no `#[cfg(windows)]` code of its own, only `cfg!` values; that is
@@ -69,6 +73,7 @@ in both GLSL dialects in a child process per scene, and writes
 | `commands`, `command_palette` | The command table and focus rule, and what the Ctrl+K palette lists, how it ranks a query, and why an entry is unavailable. No egui. |
 | `color`, `palette`, `motion`, `icon` | The UI system ported from rustaman (D5): colour maths, themes with WCAG tests, durations and reduced motion, geometry icons. No egui. |
 | `library`, `console`, `stats` | The data the UI shows: scenes with their tags (D205), health and search over names and tags, the console, frame timings. |
+| `lan` | The LAN remote as the app holds it: the `strobe_remote::server` listener, the app end of its bridge, which commands may run now (`refusal`), the 10 Hz state publish, and what Settings and the title bar show (D254). |
 | `import` | Shadertoy import: the worker thread that runs the converter, the panel's state, and the listener's handler (D113, D114, D116). |
 | `failures`, `dialog`, `gldebug`, `diagnose`, `screenshot` | Errors, crash dialogs, driver messages, `--diagnose` and `--screenshot`. |
 
@@ -98,6 +103,7 @@ Flags (from the clap `Cli`):
 | `--show-control <file>` | data dir's `show-control.json` | Read mappings, macros, fav slots and hotkeys from this file. |
 | `--screenshot <path>` | none | Render `--frames` frames, write `<path>-control.png` and `<path>-output.png`, exit. |
 | `--frames <n>` | `60` | Frames before the screenshot; requires `--screenshot`. |
+| `--remote`, `--remote-bind <ip>`, `--remote-port <n>` | off, LAN address, `47812` | Start the LAN remote for this run (Settings' Remote section does the same; never saved). A public address is refused (D250-D254). |
 | `--listen`, `--listen-port <n>` | off, `47811` | Accept shaders from the "Send to Strobe" userscript on 127.0.0.1 (the Import panel's switch does the same; the panel shows the token). |
 | `--no-texture-download` | off | Do not download textures on import; they read black and are listed in `images/pending-assets.json`. |
 | `--diagnose` | off | Print a machine/build/GL/audio report, save it beside the logs, exit. |
