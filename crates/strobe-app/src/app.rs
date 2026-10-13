@@ -1621,10 +1621,16 @@ impl Running {
             &mut self.audio,
         ) {
             Ok(mut session) => {
-                if let Some(path) = &self.media_override {
+                // The operator's media, else the default preset's, else the
+                // scene's own (D217, D223).
+                let media = self
+                    .media_override
+                    .clone()
+                    .or_else(|| session.startup_media());
+                if media.is_some() {
                     session
                         .player
-                        .choose_media(Some(MediaRequest::for_path(path)));
+                        .choose_media(media.map(MediaRequest::for_path));
                 }
                 // The operator's output settings carry over (D207).
                 if let Some(old) = self.stack.session.as_ref() {
@@ -3099,6 +3105,13 @@ impl Running {
                 log::info!("preset \"{name}\" recalled on {}", session.name);
                 for problem in problems {
                     log::warn!("preset \"{name}\": {problem}");
+                }
+                // Recalled by hand, its media shows whatever else was
+                // chosen (D223).
+                if let Some(path) = session.preset_media(name) {
+                    session
+                        .player
+                        .choose_media(Some(MediaRequest::for_path(path)));
                 }
             }
             Err(problem) => {

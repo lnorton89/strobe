@@ -564,6 +564,13 @@ fn media_library(tag: &str) -> Result<TempLibrary> {
     image::RgbaImage::from_pixel(4, 4, image::Rgba([255, 0, 0, 255])).save(dir.join("own.png"))?;
     image::RgbaImage::from_pixel(4, 4, image::Rgba([0, 255, 0, 255]))
         .save(root.join("chosen.png"))?;
+    // A preset whose media channel names a picture inside the scene (D223).
+    image::RgbaImage::from_pixel(4, 4, image::Rgba([0, 0, 255, 255])).save(dir.join("alt.png"))?;
+    std::fs::create_dir_all(dir.join("presets"))?;
+    std::fs::write(
+        dir.join("presets/alt.json"),
+        r#"{ "name": "alt", "channels": { "scene": true, "meta": true, "media": true }, "media": "alt.png" }"#,
+    )?;
     Ok(TempLibrary {
         library: Library {
             dir: root.clone(),
@@ -585,21 +592,27 @@ fn a_cues_media_replaces_the_scenes_own_and_the_next_cue_gets_it_back() -> Resul
         let mut playlist = Playlist::new("media");
         playlist.defaults.duration = Some(DurationSpec::Seconds(1.0));
         let mut section = Section::new("all");
-        // 1: the scene's own; 2: the cue's; 3: the scene's own again. The
-        // same scene throughout, so cues 2 and 3 restart the live session.
+        // 1: the scene's own; 2: the cue's; 3: the scene's own again; 4: the
+        // cue's preset's (D223); 5: the cue's media beats its preset's. The
+        // same scene throughout, so later cues restart the live session.
         let cue = Cue::new(SceneRef::Library("pic".to_string()));
         section.cues.push(cue.clone());
         let mut named = cue.clone();
         named.media = Some(chosen.clone());
-        section.cues.push(named);
-        section.cues.push(cue);
+        section.cues.push(named.clone());
+        section.cues.push(cue.clone());
+        let mut preset = cue;
+        preset.preset = Some("alt".to_string());
+        section.cues.push(preset.clone());
+        preset.media = Some(chosen.clone());
+        section.cues.push(preset);
         playlist.sections.push(section);
 
         let mut show = Show::new(None, playlist, &library.library, None, None);
         rig.load(&mut show)?;
         let after_load = rig.gl.shader_compiles();
         let mut seen: Vec<(usize, Option<PathBuf>)> = Vec::new();
-        for _ in 0..(4 * 60) {
+        for _ in 0..(6 * 60) {
             rig.frame(&mut show);
             if let Some(current) = show.clock().current()
                 && !seen.iter().any(|(cue, _)| *cue == current)
@@ -623,11 +636,22 @@ fn a_cues_media_replaces_the_scenes_own_and_the_next_cue_gets_it_back() -> Resul
             Some(own.clone()),
             "{api:?}: the scene's own first: {seen:?}"
         );
-        assert_eq!(by_cue(1), Some(chosen), "{api:?}: then the cue's: {seen:?}");
+        assert_eq!(
+            by_cue(1),
+            Some(chosen.clone()),
+            "{api:?}: then the cue's: {seen:?}"
+        );
         assert_eq!(
             by_cue(2),
             Some(own),
             "{api:?}: then the scene's own again: {seen:?}"
+        );
+        let alt = library.library.entries[0].dir.join("alt.png");
+        assert_eq!(by_cue(3), Some(alt), "{api:?}: then the preset's: {seen:?}");
+        assert_eq!(
+            by_cue(4),
+            Some(chosen),
+            "{api:?}: and the cue's beats its preset's: {seen:?}"
         );
         assert_eq!(
             rig.gl.shader_compiles(),

@@ -3770,3 +3770,27 @@ none. Backlog U-06 left "a picture for a scene that has none".
 
 **Would reopen:** a library of hundreds of scenes without pictures, where
 an offscreen batch (the generate worker's approach, D202) earns its cost.
+
+### D223: a preset can carry media, and ranks below the operator's choice (2026-10-13)
+
+PLAN section 10 gives presets three channels: scene, meta and media. Only
+the first two existed (D170); media was not controllable until D217.
+
+- **Saved only when it means something.** `Session::capture_preset`
+  records what `syn_Media` shows when that is not the scene's own `MEDIA`
+  (a cue's, the operator's, or a preset's), turning the preset's `media`
+  channel on. Otherwise the channel stays off and nothing about media is
+  written, so presets saved before this, and presets of scenes nobody chose
+  media for, never touch it.
+- **Portable.** A picture inside the scene folder is stored relative to it;
+  one elsewhere is stored as chosen.
+- **Order at a cue start or a load by hand:** the cue's own `media`, then
+  the operator's choice (D217), then the preset's (the cue's preset, or
+  the scene's `default` one), then the scene's own. The operator's choice
+  is a live override for the night and a preset is part of the scene's
+  authored look, so the override wins, as it already did over `MEDIA`.
+- **Recalled by hand, it applies.** Recalling a preset in the MAP pane or
+  from a controller is the latest instruction, so its media shows at once.
+
+**Would reopen:** an operator wanting a preset's media to beat their own
+choice at cue starts.

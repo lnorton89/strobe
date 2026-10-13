@@ -211,7 +211,7 @@
 - **Acceptance:** fixtures cover each documented shape; supported, degraded and unsupported forms are written down; malformed assets fail visibly without crashing the show.
 
 ### M-02 Media picker and playlist media
-- **Status:** Partly done (D217). Built: the Inspector's Media row (what shows, where it comes from, Choose / Scene's own), a cue's `media` key edited from the LIST cue card, the precedence cue > operator > scene, and choosing again for what already shows starts nothing. Left: the preset media channel.
+- **Status:** Done (D217, D223): the Inspector's Media row (what shows, where it comes from, Choose / Scene's own), a cue's `media` key edited from the LIST cue card, a preset's media channel, the precedence cue > operator > preset > scene, and choosing again for what already shows starts nothing. Verified on the T480 (Task 26).
 - **Work:** add media selection to the UI; support scene media and cue overrides; include media in preset channel semantics; handle missing paths and replacement safely.
 - **Acceptance:** media selection is asynchronous; the active scene remains live during decode; cue changes load the expected media without unbounded GPU memory; preset scene/meta/media channels behave independently.
 
