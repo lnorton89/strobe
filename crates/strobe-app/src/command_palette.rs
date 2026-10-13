@@ -76,7 +76,7 @@ pub fn items(bindings: &Bindings, availability: Availability) -> Vec<Item> {
             target: Target::Command(command),
             title: command.name().to_owned(),
             category: category_name(command.category()),
-            shortcut: Some(bindings.chord(command).label()),
+            shortcut: bindings.chord(command).map(|chord| chord.label()),
             unavailable: unavailable(command, availability),
         })
         .collect();
@@ -119,6 +119,8 @@ fn unavailable(command: CommandId, availability: Availability) -> Option<&'stati
         | CommandId::NextScene
         | CommandId::PrevScene
         | CommandId::ToggleBlackout
+        | CommandId::BlackoutOn
+        | CommandId::BlackoutOff
         | CommandId::ToggleFullscreen
         | CommandId::FocusBrowserSearch
         | CommandId::CloseTopmostPane

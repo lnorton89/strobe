@@ -218,9 +218,13 @@ fn keyboard(ui: &mut Ui, theme: &Palette, bindings: &crate::commands::Bindings) 
     for command in CommandId::ALL {
         ui.horizontal(|ui| {
             ui.label(
-                egui::RichText::new(bindings.chord(command).label())
-                    .monospace()
-                    .color(theme::rgb(theme.accent)),
+                egui::RichText::new(
+                    bindings
+                        .chord(command)
+                        .map_or_else(|| "none".to_owned(), crate::commands::Chord::label),
+                )
+                .monospace()
+                .color(theme::rgb(theme.accent)),
             );
             ui.label(
                 egui::RichText::new(command.name())

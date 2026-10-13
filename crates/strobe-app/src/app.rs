@@ -3058,6 +3058,8 @@ fn command_action(command: CommandId, blackout: bool) -> Option<Action> {
         CommandId::RestartCue => Some(Action::RestartCue),
         CommandId::SkipSection => Some(Action::SkipSection),
         CommandId::ToggleBlackout => Some(Action::SetBlackout(!blackout)),
+        CommandId::BlackoutOn => Some(Action::SetBlackout(true)),
+        CommandId::BlackoutOff => Some(Action::SetBlackout(false)),
         CommandId::ToggleFullscreen => Some(Action::ToggleFullscreen),
         CommandId::TapTempo => Some(Action::TapTempo),
         CommandId::FocusBrowserSearch | CommandId::CloseTopmostPane | CommandId::OpenPalette => {
@@ -3207,6 +3209,18 @@ mod tests {
             Some(Action::SetBlackout(false)),
             "on to off"
         );
+        for blackout in [false, true] {
+            assert_eq!(
+                command_action(CommandId::BlackoutOn, blackout),
+                Some(Action::SetBlackout(true)),
+                "on stays on, whatever the state (blackout={blackout})"
+            );
+            assert_eq!(
+                command_action(CommandId::BlackoutOff, blackout),
+                Some(Action::SetBlackout(false)),
+                "off stays off, whatever the state (blackout={blackout})"
+            );
+        }
     }
 
     #[test]

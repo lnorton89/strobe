@@ -92,6 +92,12 @@ pub enum RemoteCommand {
     SkipSection,
     /// Toggle output blackout immediately.
     ToggleBlackout,
+    /// Black out the output; already black stays black. A phone that lost
+    /// its connection cannot know the current state, so it sends this
+    /// rather than a toggle that could bring the output back.
+    BlackoutOn,
+    /// Bring the output back; already showing stays showing.
+    BlackoutOff,
     /// Register a tap-tempo event.
     TapTempo,
 }
@@ -252,6 +258,21 @@ mod tests {
             ),
             "a plain ping still parses"
         );
+    }
+
+    #[test]
+    fn explicit_blackout_commands_have_stable_names() -> Result<()> {
+        assert_eq!(
+            serde_json::to_string(&RemoteCommand::BlackoutOn)?,
+            r#""blackout_on""#,
+            "on"
+        );
+        assert_eq!(
+            serde_json::from_str::<RemoteCommand>(r#""blackout_off""#)?,
+            RemoteCommand::BlackoutOff,
+            "off"
+        );
+        Ok(())
     }
 
     #[test]
