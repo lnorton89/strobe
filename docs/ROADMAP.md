@@ -109,8 +109,8 @@ Each item names its acceptance test. Evidence is in [STATUS_AUDIT.md](STATUS_AUD
    process from the Inspector or the palette, and shows the result for
    review (open the copy or discard it), with keep, drop and re-range per
    control (D219). The window context scores on the T480, native and ANGLE
-   (Tasks 13 and 23, D140). *Left:* the same button on the Import pane
-   after an import, the speed control not following `st_speed`, and a
+   (Tasks 13 and 23, D140). ~~the same button on the Import pane after an import~~,
+   ~~the speed control not following `st_speed`~~ (both D246), and a
    second look at the heuristics on real community scenes. *Accept:* every
    fixture, and every library scene with its `CONTROLS` stripped, gets a
    useful, named, grouped control set that visibly changes the image. Met
@@ -331,13 +331,14 @@ never per frame.
 
 **Left:**
 - ~~the Inspector review panel and the app calling `generate` with its own
-  context~~ (built: D202, D219); the same review on the Import pane,
-  renaming a control, and live previews;
+  context~~ (built: D202, D219); ~~the same review from the Import pane
+  and renaming a control~~ (D246), and live previews;
 - accepting a suggested audio binding in the app, and binding a speed
   control (it is an integrator, so it is data only in GLSL);
 - ~~verifying on a real GPU and the T480~~ (Tasks 13 and 23); trying
   community scenes (the heuristics have only seen Strobe's own library and original fixtures);
-- speed controls that also follow `st_speed` and `st_audio_time` (D125);
+- ~~speed controls that also follow `st_speed` and `st_audio_time`
+  (D125)~~ (D246: they tick at the import clock's rate);
 - vector and `xy` candidates (an offset, a centre) and dropdown candidates
   (a mode switch) are not generated.
 

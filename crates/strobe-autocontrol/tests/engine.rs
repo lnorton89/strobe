@@ -886,5 +886,62 @@ fn a_review_drops_and_re_ranges_controls_without_measuring_again() -> Result<()>
         ),
         "a changed source is refused, not guessed at"
     );
+
+    // A control renamed in the review (D246) is written under its new name
+    // everywhere, and the scene still compiles and draws the original.
+    let mut renamed = choices.clone();
+    let Some(first) = renamed.first_mut() else {
+        bail!("no choice to rename");
+    };
+    let old = std::mem::replace(&mut first.name, "cell_glow".to_string());
+    let reviewed = rewrite_chosen(&folder, &renamed)?;
+    assert!(
+        reviewed
+            .control_lines
+            .iter()
+            .any(|line| line.contains("\"cell_glow\"")),
+        "the new name is the control's"
+    );
+    assert!(
+        !reviewed
+            .control_lines
+            .iter()
+            .any(|line| line.contains(&format!("\"{old}\""))),
+        "the old name is gone"
+    );
+    let mut rig = Rig::new(gl, &caps, &reviewed.folder, ScoreOptions::default())?;
+    let drawn = rig.render(&[])?;
+    assert!(
+        difference(&drawn, &expected) <= 0.002,
+        "the renamed scene compiles and draws the original at its defaults"
+    );
+
+    // Names that cannot be declared are refused with the reason.
+    // Not an identifier, a GLSL type, an SSF uniform, and a function the
+    // scene itself defines.
+    for bad in ["2fast", "vec3", "TIME", "renderMain"] {
+        let mut wrong = choices.clone();
+        if let Some(first) = wrong.first_mut() {
+            first.name = bad.to_string();
+        }
+        assert!(
+            matches!(
+                rewrite_chosen(&folder, &wrong),
+                Err(strobe_autocontrol::ChoiceError::Name(..))
+            ),
+            "{bad} is refused as a control name"
+        );
+    }
+    let mut twice = choices.clone();
+    if let [first, second, ..] = twice.as_mut_slice() {
+        second.name = first.name.clone();
+    }
+    assert!(
+        matches!(
+            rewrite_chosen(&folder, &twice),
+            Err(strobe_autocontrol::ChoiceError::Name(..))
+        ),
+        "two controls cannot share a name"
+    );
     Ok(())
 }

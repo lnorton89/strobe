@@ -2388,7 +2388,10 @@ impl Running {
                     self.import_state.status = import::Status::Idle;
                     self.cue_from_import(at, &dir);
                 }
-                (Outcome::Imported(dir), None) => self.show_imported(&dir),
+                (Outcome::Imported(dir), None) => {
+                    self.import_state.last = Some(dir.clone());
+                    self.show_imported(&dir);
+                }
                 (Outcome::Exists(_), None) => {}
                 (Outcome::Unchanged, _) => {
                     // "Already in the library" is a question, not a failure.
@@ -3784,6 +3787,13 @@ impl Running {
             .as_ref()
             .is_some_and(Show::live_cue_has_media);
         let chosen_media = self.media_override.is_some();
+        // Before the session is borrowed for the panels below.
+        let imported_playing = self.import_state.last.as_deref().is_some_and(|last| {
+            self.stack
+                .session
+                .as_ref()
+                .is_some_and(|session| same_folder(&session.dir, last))
+        });
         let (
             scene_title,
             controls,
@@ -3890,6 +3900,8 @@ impl Running {
                     .map(|prompt| prompt.title.as_str()),
                 busy: self.import_state.in_flight > 0,
                 drop_hover: self.import_state.drop_hover,
+                imported_playing,
+                generating: self.generate_job.is_some(),
                 listener: ListenerPanel {
                     enabled: self.listener.is_some(),
                     state: &self.listener_note,
@@ -4238,6 +4250,15 @@ fn record_gl_facts(gfx: &WindowedContext) {
     context::set(context::GL_VERSION, &info.version);
     context::set(context::GL_BACKEND, failures::backend_label(gfx.backend()));
     context::set("gl.robust", gfx.robust());
+}
+
+/// Whether two paths name the same folder, resolving links and relative
+/// parts when both exist, and comparing as written otherwise.
+fn same_folder(a: &Path, b: &Path) -> bool {
+    match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => a == b,
+    }
 }
 
 #[cfg(test)]

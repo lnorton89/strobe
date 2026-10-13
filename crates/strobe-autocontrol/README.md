@@ -163,14 +163,16 @@ STROBE_REQUIRE_HEADLESS_GL=1 STROBE_REQUIRE_WINDOW_GL=1 \
 
 - **Verified:** llvmpipe (Mesa) on desktop GL 3.3 core and GLES 3.0. Not a real
   GPU, not the T480, not ANGLE itself.
-- **The app's review is open-or-discard.** The Inspector shows what was made
-  (D202), but a control cannot yet be dropped or re-ranged before the copy is
-  written.
+- **The app's review** (D202, D219, D246) keeps or drops each control,
+  re-ranges a slider and renames a control before the copy is written again;
+  a name is checked against the scene the way generated names are.
 - **Window mode on Windows is unverified.** `--context window` agrees with
   `--context headless` byte for byte on llvmpipe under Xvfb, but it has not
   run on the T480 yet (the check is in `docs/hardware/T480.md`).
-- **Speed controls bypass `st_speed` and `st_audio_time`** on the terms they
-  replace in a Shadertoy import (D125).
+- **Speed controls follow `st_speed` and `st_audio_time`** in a Shadertoy
+  import because the app ticks them at the clock's rate
+  (`strobe_shadertoy::convert::clock_rate`, D246). Tools that score scenes
+  run at the defaults, where that rate is 1.
 - **Not generated:** `xy` pads (a centre, an offset), dropdowns (a mode
   switch), toggles, or anything in a `const` statement that shares its line.
 - **Heuristics are tuned on Strobe's own library and original fixtures.**

@@ -473,12 +473,24 @@ fn review(
                 let fraction = kept.score.unwrap_or(0.0) / strongest;
                 let _ = widgets::meter(ui, theme, fraction, theme.accent, 36.0)
                     .on_hover_text("How much the picture moves with it, against the strongest");
-                let strength = if edit.keep { theme.text } else { theme.text_faint };
-                ui.label(
-                    egui::RichText::new(&kept.name)
-                        .monospace()
-                        .color(theme::rgb(strength)),
-                );
+                if edit.keep {
+                    // Renamable while kept (D246); checked when applied.
+                    ui.add(
+                        egui::TextEdit::singleline(&mut edit.name)
+                            .font(egui::TextStyle::Monospace)
+                            .desired_width(110.0),
+                    )
+                    .on_hover_text(format!(
+                        "The control's name in the copy (proposed: {}). Letters, digits and _.",
+                        kept.name
+                    ));
+                } else {
+                    ui.label(
+                        egui::RichText::new(&kept.name)
+                            .monospace()
+                            .color(theme::rgb(theme.text_faint)),
+                    );
+                }
                 let slider = kept.default.len() == 1 && kept.min.len() == 1;
                 if slider && edit.keep {
                     ui.label(
