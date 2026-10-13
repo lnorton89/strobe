@@ -32,6 +32,9 @@ use serde::{Deserialize, Serialize};
 /// the theme's series ramp; the app draws them).
 pub const COLOURS: u8 = 8;
 
+/// The longest glide a macro may have, in seconds (D227).
+pub const MAX_GLIDE: f32 = 10.0;
+
 /// The narrowest reach a macro's range may have, as a fraction: a range
 /// that collapses to a point would make every fader a constant.
 pub const MIN_REACH: f32 = 0.01;
@@ -61,6 +64,12 @@ pub struct Macro {
     /// An identity colour, as an index into the theme's accents.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<u8>,
+    /// How long, in seconds, the control takes to follow the macro (D227):
+    /// a time constant, so a jumpy fader or a key still moves the picture
+    /// smoothly. `None` writes straight through, as the control's own
+    /// smoothing decides.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub glide: Option<f32>,
 }
 
 fn yes() -> bool {
@@ -79,6 +88,7 @@ impl Macro {
             enabled: true,
             range: None,
             color: None,
+            glide: None,
         }
     }
 }
@@ -210,6 +220,17 @@ impl MacroSet {
         });
         if let Some(m) = self.get_mut(id) {
             m.range = range;
+        }
+    }
+
+    /// Sets or clears macro `id`'s glide, in seconds; zero, negative and
+    /// non-finite clear it, and it is capped at [`MAX_GLIDE`].
+    pub fn set_glide(&mut self, id: u32, glide: Option<f32>) {
+        let glide = glide
+            .filter(|seconds| seconds.is_finite() && *seconds > 0.0)
+            .map(|seconds| seconds.min(MAX_GLIDE));
+        if let Some(m) = self.get_mut(id) {
+            m.glide = glide;
         }
     }
 

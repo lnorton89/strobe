@@ -671,6 +671,27 @@ fn macro_options(ui: &mut Ui, theme: &Palette, remote: &mut Remote, id: u32) {
         }
     });
     let range = Some([low, high]);
+    // Glide: how long the control takes to follow (D227).
+    let mut glide = found.glide.unwrap_or(0.0);
+    ui.horizontal(|ui| {
+        ui.label(
+            egui::RichText::new("Glide")
+                .small()
+                .color(theme::rgb(theme.text_muted)),
+        )
+        .on_hover_text(
+            "How long the control takes to follow a fader, knob or key: a jumpy fader then \
+             moves the picture smoothly. 0 follows at once.",
+        );
+        ui.add(
+            egui::DragValue::new(&mut glide)
+                .speed(0.01)
+                .range(0.0..=strobe_io::macros::MAX_GLIDE)
+                .max_decimals(2)
+                .suffix(" s"),
+        );
+    });
+    let glide = (glide > 0.0).then_some(glide);
     // Colour: an identity for the card, from the theme's series.
     let mut colour = found.color;
     ui.horizontal(|ui| {
@@ -715,6 +736,9 @@ fn macro_options(ui: &mut Ui, theme: &Palette, remote: &mut Remote, id: u32) {
     }
     if colour != before.color {
         remote.engine.macros.set_color(id, colour);
+    }
+    if glide != before.glide {
+        remote.engine.macros.set_glide(id, glide);
     }
 }
 

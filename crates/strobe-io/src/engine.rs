@@ -389,7 +389,7 @@ fn drive(
                 BankId::Meta => banks.meta.as_deref_mut(),
             };
             match bank {
-                Some(bank) => drive_control(cfg, runtime, flat.range, signal, bank, found),
+                Some(bank) => drive_control(cfg, runtime, *flat, signal, bank, found),
                 None => Drive::Unavailable("the bank went away".to_string()),
             }
         }
@@ -419,11 +419,12 @@ fn fire(
 fn drive_control(
     cfg: &Cfg,
     runtime: &mut Runtime,
-    outer: Option<[f32; 2]>,
+    flat: Flat<'_>,
     signal: Signal,
     bank: &mut ControlBank,
     found: ControlRef,
 ) -> Drive {
+    let outer = flat.range;
     let index = found.index;
     let Some(def) = bank.defs().get(index) else {
         return Drive::Idle;
@@ -511,7 +512,12 @@ fn drive_control(
             } else {
                 wanted
             };
-            bank.set_normalized(index, found.component, &[value]);
+            match flat.glide {
+                Some(seconds) => {
+                    bank.set_normalized_gliding(index, found.component, &[value], seconds);
+                }
+                None => bank.set_normalized(index, found.component, &[value]),
+            }
             Drive::Applied
         }
     }
@@ -666,6 +672,33 @@ mod tests {
         assert!(
             output > 0.0 && output < 0.5,
             "the output eases toward it: {output}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_macro_with_a_glide_eases_even_a_plain_slider() -> Result<()> {
+        let mut rig = Rig::new()?;
+        let id = rig
+            .engine
+            .macros
+            .add(Macro::new("Speed", Target::control("speed")));
+        rig.engine.macros.set_glide(id, Some(0.5));
+        rig.map(7, Target::Macro { id }).takeover = Takeover::Jump;
+        rig.cc(7, 127);
+        let i = rig.scene.find("speed").ok_or_else(|| anyhow!("speed"))?;
+        assert!(near(rig.value("speed")?, 10.0), "the target is set at once");
+        rig.scene.tick(0.1);
+        let output = rig.scene.output(i).ok_or_else(|| anyhow!("output"))?[0];
+        assert!(
+            output > 5.0 && output < 6.0,
+            "a plain slider glides from 5 toward 10: {output}"
+        );
+        rig.engine.macros.set_glide(id, Some(-1.0));
+        assert_eq!(
+            rig.engine.macros.get(id).and_then(|m| m.glide),
+            None,
+            "a non-positive glide is none"
         );
         Ok(())
     }

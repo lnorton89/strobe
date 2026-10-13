@@ -3880,3 +3880,27 @@ nothing produced them (backlog P-01).
 
 **Would reopen:** real music calling breakdowns in verses or missing
 obvious drops, which would also argue for P-02's bar-aware timing.
+
+### D227: a macro can glide, and the glide belongs to the write, not the control (2026-10-13)
+
+Backlog U-04 and P-07 asked for smoothing per macro. A cheap MIDI fader
+steps in 1/127ths and a key or a button jumps from one end to the other;
+a scene's own `slider smooth` eases that, but a plain `slider` or a meta
+control snaps, and the picture jumps.
+
+- **`Macro::glide`**, in seconds (a time constant, capped at 10 s, edited
+  as "Glide" in the MAP pane's macro options). The engine passes it with
+  the write (`target::Flat::glide`), and `ControlBank::set_normalized_gliding`
+  sets the target as usual and marks the control as gliding.
+- **The glide is the write's.** While it lasts, the output eases with
+  `1 - exp(-dt / glide)` whatever the control's own smoothing, frame-rate
+  independent. It ends when the output arrives (within a ten-thousandth of
+  the range) or when anything else writes the control (the Inspector, a
+  script, a preset, another mapping), which then behaves exactly as it
+  always did. So a macro's feel never leaks into the rest of the app.
+- **Where it does not apply:** a bang, a toggle, a dropdown, and speed or
+  traveler controls take a macro's write as before. Their meaning is the
+  jump, or they already integrate.
+
+**Would reopen:** a person wanting the glide to shape a toggle as a fade,
+or per-direction (attack and release) times.
