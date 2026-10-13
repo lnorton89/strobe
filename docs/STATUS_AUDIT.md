@@ -330,8 +330,10 @@ survives export.
   scripts running (`strobe-corpus` on Windows), 62 of 65.** The three left
   are two scene bugs and a missing picture, which D201 now plays as black.
   `magnetismic` drew differently on ANGLE because a pass sampled its own
-  target (T7). D203 double-buffers such passes; **not yet re-run** on
-  TORNADO.
+  target (T7). D203 double-buffers such passes, confirmed in T8 (native and
+  ANGLE now agree, 0.00 at 100 frames). Two scenes still differ, from
+  undefined behaviour in their own code (`pow(0,0)`, `fract(sin)` hashes;
+  T9). Strobe does not fix those.
 
 ## P2: playlists, show control and release
 
