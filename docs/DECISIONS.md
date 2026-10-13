@@ -5137,3 +5137,8 @@ insert. A replacement never adds or removes a line.
 - a desktop frame that changes for a scene without a sampler `?:`;
 - an ANGLE run on the T480 or TORNADO, or the owner's corpus, that shows
   either rewrite rejected.
+- a scene whose choice varies across pixels and whose rewritten `texture`
+  calls then sample the wrong mip level. Implicit derivatives inside a
+  non-uniform branch are undefined in GLSL; compilers flatten a `?:` of two
+  samples, but none is required to. The fallback is to sample both and
+  choose, which costs a second fetch.
