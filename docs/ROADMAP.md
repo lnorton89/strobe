@@ -142,8 +142,9 @@ Each item names its acceptance test. Evidence is in [STATUS_AUDIT.md](STATUS_AUD
      multiply the Audio panel's gains. Verified on llvmpipe, both dialects
      (`crates/strobe-gfx/tests/post.rs`) and under Xvfb with a script
      (`docs/images/post/`). **Its cost on an HD 4000 / the T480 is
-     unmeasured.** `Limit Colors` and `Alpha Channel` are not built, and
-     meta values reset on a scene change (D182).
+     unmeasured.** `Limit Colors` is built and meta values carry across
+     scenes (D207); `Alpha Channel` waits for an output that carries alpha
+     (NDI, Phase 7).
    - [x] `textureFinalPass` through an asynchronous PBO readback, two frames
      late, never a stall (D162, Q14). Checked on llvmpipe only; the T480 and
      ANGLE/D3D11 are open.
@@ -350,8 +351,8 @@ never per frame.
   `MEDIA` and `CUBEMAPS` shapes and `syn_MediaType`'s values are unverified
   against SSF (Q22). The bench has no media or cube-map scene.
 - The meta controls change the picture (the post stage, D180) but the stage's
-  cost on an old Intel GPU is unmeasured, meta values reset on a scene change
-  (D182), and `Limit Colors` and `Alpha Channel` are not built (Q21).
+  cost on an old Intel GPU is unmeasured, and `Alpha Channel` waits for an
+  output that carries alpha (D207, Q21).
   `textureFinalPass` is two frames late and unverified on the T480 (D162,
   Q14).
 - The GLES dialect rewrites `PASSINDEX == 0.0` only (D163); the rest of the

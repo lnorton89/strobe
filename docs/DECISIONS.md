@@ -2513,6 +2513,8 @@ output does not exist; when it does it should take blackout from the same flag
 
 ### D182: meta values live and die with the session, and a transition uses the live scene's (2026-10-11)
 
+*The reset half is superseded by D207: meta values now carry across scenes.*
+
 `Session::meta` is per session (D160 said so). The post stage and the audio
 gains read the **live** session's, which in a playlist is `Stack::session`,
 the incoming scene during a transition. The outgoing scene's meta is ignored
@@ -3271,4 +3273,47 @@ not proved, and the log could not say either way.
 **Would reopen:** the perf line showing the late frames without the control
 window's redraw cost explaining them. Then the cause is elsewhere: the audio
 thread, the timer ring's backpressure, or the driver's flip queue.
+
+### D207: meta settings carry across scenes, Limit Colors is built, Alpha Channel waits for an output that carries alpha (2026-10-13)
+
+Backlog C-01 asked for the last two meta controls and for a decision on
+whether meta values persist across scene changes. D182 had them reset with
+each session.
+
+**They carry.** D182 meant an operator who faded master to 0 and changed
+scene got the full picture back at once, and a hue or mirror set "for the
+room" vanished at every playlist cue. Synesthesia calls these controls
+output-wide, and its presets never save master, "the operator's fader".
+So when a scene goes live, by a load or a cue, each meta control the
+incoming scene has **not** set itself takes the outgoing scene's state,
+target and output (so nothing re-smooths): `ControlBank::carry_unchanged_from`.
+"Set itself" means moved from its default by the scene's default preset, the
+cue's preset, the cue's `meta` overrides or the script's first frame, and
+those still win. A cue that restarts the same scene keeps its settings the
+same way. Cost: one bank copy per cue change, never per frame.
+- **The cost of the rule:** a preset or cue that sets a meta control
+  explicitly *to its default* (hue 0, say) looks unset and does not reset
+  the operator's value. Resetting is the Inspector's Reset or the meta
+  reset command. Distinguishing "set to the default" from "unset" would
+  need a flag per control, and no real playlist needs that yet.
+- **A context rebuild (D66) still resets meta.** The old session is gone
+  by then.
+
+**Limit Colors** is three meta controls: `limit_colors` (a toggle),
+`limit_low` and `limit_high` (colours, black and white by default). When
+on, the post stage maps each pixel's Rec. 709 luma onto `mix(low, high,
+luma)`, after hue and saturation and before invert and master. Off is
+neutral, so it costs no pass. Evidence: `post.rs`
+`limit_colors_maps_luma_onto_the_two_colours` (both dialects) and the
+`meta.rs` tests. The order is Strobe's guess (Q21).
+
+**Alpha Channel is not built.** D192 makes the final pass opaque, because
+an output window shows whatever alpha it is given and real scenes return
+alpha 0. A control that let alpha through would change nothing anyone can
+see until an output carries alpha (NDI or Spout, Phase 7), so it would be
+a control that lies. It is built with that output, and it is the one thing
+D192 lets undo the forced alpha.
+
+This supersedes D182's reset; D182's other half (a transition reads the
+live scene's meta) stands.
 

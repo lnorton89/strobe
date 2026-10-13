@@ -206,6 +206,13 @@ the topology before any broad redesign.
   1.1 ms at 1440p may double (D180's fallback is to fold the stage into the
   present blit when the output is shown), and the guessed order and mirror
   conventions against Synesthesia (Q21).
+- [x] Limit Colors, and meta settings carrying across scenes (D207).
+  Evidence, llvmpipe, both dialects: `post.rs`
+  `limit_colors_maps_luma_onto_the_two_colours`; `meta.rs`
+  `a_new_bank_carries_what_it_has_not_set_itself`; `tests/show.rs`
+  `the_operators_output_settings_carry_across_cues_under_a_cues_own_meta`
+  (master 0 and a hue survive two cues, and a cue's own hue wins). Not
+  built: Alpha Channel (no output carries alpha yet).
 - [x] `textureFinalPass` through an asynchronous PBO readback (D162, Q14).
   Evidence, llvmpipe, both dialects: `render.rs`
   `the_final_pass_readback_arrives_two_frames_late_and_is_black_before`,

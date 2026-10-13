@@ -261,6 +261,35 @@ impl ControlBank {
         }
     }
 
+    /// Takes `from`'s state (target and output, so nothing re-smooths) for
+    /// every control still at its default target here that `from` has with
+    /// an identical definition. A control already moved here keeps its
+    /// value. Returns how many were taken.
+    ///
+    /// This is the meta hand-over (D207): a scene going live keeps the
+    /// output-wide settings the operator had, except what its own preset,
+    /// cue or script set. Called once per scene change, never per frame.
+    pub fn carry_unchanged_from(&mut self, from: &ControlBank) -> usize {
+        let mut taken = 0;
+        for (def, state) in self.defs.iter().zip(self.states.iter_mut()) {
+            if state.target != initial_state(def).target {
+                continue;
+            }
+            let theirs = from
+                .by_exact
+                .get(&def.name)
+                .filter(|&&i| from.defs.get(i) == Some(def))
+                .and_then(|&i| from.states.get(i));
+            if let Some(theirs) = theirs
+                && theirs != state
+            {
+                *state = theirs.clone();
+                taken += 1;
+            }
+        }
+        taken
+    }
+
     /// Advances every output by `dt` seconds.
     pub fn tick(&mut self, dt: f32) {
         let dt = if dt.is_finite() {

@@ -110,7 +110,7 @@
 ## Epic C — SSF, scripting and shader compatibility
 
 ### C-01 Finish meta controls
-- **Status:** In progress.
+- **Status:** Mostly done (D207): Limit Colors built; meta values carry across scenes under a cue's or preset's own values. Left: Alpha Channel, with an output that carries alpha (NDI/Spout); the order and conventions against Synesthesia (Q21); the stage's cost on an HD 4000.
 - **Work:** implement Limit Colors and Alpha Channel; decide and implement whether meta values persist across scene changes; document reset/persistence semantics; validate order and mirror conventions against Synesthesia references where available.
 - **Acceptance:** fixtures test each value and neutral no-op behaviour on GL 3.3 and GLES/ANGLE; neutral settings incur no post pass where technically possible; T480 and TORNADO GPU cost is recorded.
 

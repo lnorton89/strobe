@@ -467,3 +467,84 @@ fn a_cues_preset_is_applied_when_the_cue_starts_and_an_override_beats_it() -> Re
     }
     Ok(())
 }
+
+/// The live session's meta value `name`, as a target.
+fn meta(rig: &Rig<'_>, name: &str) -> Result<f32> {
+    let session = rig
+        .active
+        .as_ref()
+        .ok_or_else(|| anyhow!("nothing is playing"))?;
+    let index = session
+        .meta
+        .find(name)
+        .ok_or_else(|| anyhow!("no meta `{name}`"))?;
+    session
+        .meta
+        .target(index)
+        .map(|values| values[0])
+        .ok_or_else(|| anyhow!("no target"))
+}
+
+#[test]
+fn the_operators_output_settings_carry_across_cues_under_a_cues_own_meta() -> Result<()> {
+    for api in BOTH {
+        let Some(headless) = context(api)? else {
+            continue;
+        };
+        let library = TempLibrary::new(&format!("meta-{api:?}"))?;
+        let mut rig = Rig::new(&headless)?;
+        let mut playlist = Playlist::new("meta");
+        playlist.defaults.duration = Some(DurationSpec::Seconds(1.0));
+        let mut section = Section::new("all");
+        section
+            .cues
+            .push(Cue::new(SceneRef::Library("red".to_string())));
+        let mut green = Cue::new(SceneRef::Library("green".to_string()));
+        green.settings.transition = Some(TransitionSpec::cut());
+        section.cues.push(green);
+        // The third cue sets its own hue; master still carries.
+        let mut blue = Cue::new(SceneRef::Library("blue".to_string()));
+        blue.settings.transition = Some(TransitionSpec::cut());
+        let mut values = std::collections::BTreeMap::new();
+        values.insert("hue".to_string(), strobe_playlist::ControlValue::Float(0.5));
+        blue.settings.meta = Some(strobe_playlist::MetaOverrides { values });
+        section.cues.push(blue);
+        playlist.sections.push(section);
+
+        let mut show = Show::new(None, playlist, &library.library, None, None);
+        rig.load(&mut show)?;
+        rig.frame(&mut show);
+        // The operator fades the output out and shifts the hue during cue 1.
+        if let Some(session) = rig.active.as_mut() {
+            for (name, value) in [("master", 0.0), ("hue", 0.25)] {
+                let index = session
+                    .meta
+                    .find(name)
+                    .ok_or_else(|| anyhow!("no meta `{name}`"))?;
+                session.meta.set(index, None, &[value]);
+            }
+        }
+        let mut seen: Vec<(usize, f32, f32)> = Vec::new();
+        for _ in 0..(4 * 60) {
+            rig.frame(&mut show);
+            if let Some(current) = show.clock().current()
+                && !seen.iter().any(|(cue, ..)| *cue == current)
+            {
+                seen.push((current, meta(&rig, "master")?, meta(&rig, "hue")?));
+            }
+        }
+        let cue = |index: usize| seen.iter().find(|(c, ..)| *c == index).copied();
+        assert_eq!(
+            cue(1),
+            Some((1, 0.0, 0.25)),
+            "{api:?}: the next scene keeps master and hue: {seen:?}"
+        );
+        assert_eq!(
+            cue(2),
+            Some((2, 0.0, 0.5)),
+            "{api:?}: a cue's own meta wins, the rest carries: {seen:?}"
+        );
+        show.finish();
+    }
+    Ok(())
+}

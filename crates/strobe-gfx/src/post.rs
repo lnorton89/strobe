@@ -43,8 +43,11 @@
 //! 5. **Hue and saturation**: one 3x3 matrix ([`color_matrix`]) built on the
 //!    CPU. Hue is a rotation about the grey axis `(1, 1, 1)`; saturation
 //!    mixes towards Rec. 709 luma. The result is clamped to `0..1`.
-//! 6. **Invert**: `1 - c`.
-//! 7. **Master**: `c * m`, last, so `0` is black whatever else is set. Alpha
+//! 6. **Limit colors**, when on: the luma (Rec. 709) of the result picks a
+//!    colour between *low* and *high*, `mix(low, high, luma)`, so the
+//!    picture becomes a two-colour gradient map.
+//! 7. **Invert**: `1 - c`.
+//! 8. **Master**: `c * m`, last, so `0` is black whatever else is set. Alpha
 //!    passes through untouched.
 //!
 //! The order, the hue method and which half a mirror keeps are Strobe's
@@ -129,6 +132,8 @@ struct Locations {
     color: Option<glow::UniformLocation>,
     tone: Option<glow::UniformLocation>,
     invert: Option<glow::UniformLocation>,
+    limit_low: Option<glow::UniformLocation>,
+    limit_high: Option<glow::UniformLocation>,
 }
 
 /// The post program and the target it renders into.
@@ -167,6 +172,8 @@ impl Post {
             color: gl.uniform_location(&program, "u_color"),
             tone: gl.uniform_location(&program, "u_tone"),
             invert: gl.uniform_location(&program, "u_invert"),
+            limit_low: gl.uniform_location(&program, "u_limit_low"),
+            limit_high: gl.uniform_location(&program, "u_limit_high"),
         };
         let vao = gl.vertex_array().map_err(PostError::Resource)?;
         let (target, fbo) = new_target(gl, size)?;
@@ -246,6 +253,14 @@ impl Post {
         if let Some(loc) = &self.at.invert {
             gl.uniform_f32(loc, f32::from(u8::from(values.invert)));
         }
+        if let Some(loc) = &self.at.limit_low {
+            let [r, g, b] = values.limit_low;
+            gl.uniform_vec4(loc, [r, g, b, f32::from(u8::from(values.limit_colors))]);
+        }
+        if let Some(loc) = &self.at.limit_high {
+            let [r, g, b] = values.limit_high;
+            gl.uniform_vec4(loc, [r, g, b, 0.0]);
+        }
         gl.draw_fullscreen_triangle();
         gl.bind_framebuffer(None);
         Ok(())
@@ -315,6 +330,8 @@ fn fragment_source(dialect: Dialect) -> String {
          uniform mat3 u_color;\n\
          uniform vec4 u_tone;\n\
          uniform float u_invert;\n\
+         uniform vec4 u_limit_low;\n\
+         uniform vec4 u_limit_high;\n\
          out vec4 frag;\n\
          void main() {{\n\
          \x20   ivec2 size = ivec2(u_size);\n\
@@ -326,6 +343,7 @@ fn fragment_source(dialect: Dialect) -> String {
          \x20   c = (c - 0.5) * u_tone.y + 0.5;\n\
          \x20   c = pow(max(c, vec3(0.0)), vec3(u_tone.z));\n\
          \x20   c = clamp(u_color * c, 0.0, 1.0);\n\
+         \x20   if (u_limit_low.w > 0.5) c = mix(u_limit_low.rgb, u_limit_high.rgb, dot(c, vec3(0.2126, 0.7152, 0.0722)));\n\
          \x20   if (u_invert > 0.5) c = 1.0 - c;\n\
          \x20   frag = vec4(c * u_tone.w, texel.a);\n\
          }}\n",

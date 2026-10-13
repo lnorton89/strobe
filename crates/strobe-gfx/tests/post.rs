@@ -344,3 +344,33 @@ fn a_size_change_reallocates_the_target_and_apply_runs_only_when_needed() -> Res
     }
     Ok(())
 }
+
+#[test]
+fn limit_colors_maps_luma_onto_the_two_colours() -> Result<()> {
+    let values = with(|v| {
+        v.limit_colors = true;
+        v.limit_low = [0.0, 0.0, 1.0];
+        v.limit_high = [1.0, 1.0, 0.0];
+    });
+    for api in BOTH {
+        for (input, expected, what) in [
+            ([0, 0, 0, 255], [0, 0, 255, 255], "black becomes low"),
+            (
+                [255, 255, 255, 255],
+                [255, 255, 0, 255],
+                "white becomes high",
+            ),
+            (
+                [128, 128, 128, 77],
+                [128, 128, 127, 77],
+                "grey is halfway, alpha kept",
+            ),
+        ] {
+            let Some(px) = one_pixel(api, input, &values)? else {
+                continue;
+            };
+            assert!(near(px, expected), "{api:?}: {what}: {px:?}");
+        }
+    }
+    Ok(())
+}
