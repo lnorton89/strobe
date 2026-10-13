@@ -129,7 +129,11 @@
 - **Acceptance:** each discovered real-world failure has a minimized fixture, a stable diagnostic and native/GLES outcome; unsupported cases fail visibly rather than generating corrupt shader text.
 
 ### C-03 Synesthesia corpus compatibility
-- **Status:** In progress.
+- **Status:** Done (TORNADO T22, T24): COMPATIBILITY.md section 3 lists all 65 owner scenes with their native and ANGLE status, failure category and the constructs each uses.
+  - 63 of 65 in both dialects.
+  - The two failures are source bugs in the scenes themselves.
+  - Of the rest, 3 are driver differences from undefined behaviour, 1 needs a user image, 1 names a picture that is missing locally, and none is a Strobe gap.
+  - Int-to-float (23 scenes) and non-macro `#if` (2) pass on ANGLE since D199.
 - **Work:** rerun the 65 owner-supplied scenes after D193/D194; resolve or document remaining failures for user-media scenes, implicit int-to-float, and non-macro #if on ANGLE; distinguish source incompatibility from unavailable local assets.
 - **Acceptance:** publish a matrix with native/ANGLE status and failure category for every scene; no compatibility claim based only on a small synthetic corpus.
 
