@@ -74,6 +74,17 @@ const READOUT_PERIOD: f64 = 0.25;
 /// Below this window width the readouts shrink to icons with tooltips.
 const COMPACT_WIDTH: f32 = 1180.0;
 
+/// Below this width the breadcrumb goes and every readout is an icon, the
+/// LAN and audio ones included (U-09: at 150% a 1024-pixel window is 683
+/// points, and its readouts ran over the title).
+const NARROW_WIDTH: f32 = 760.0;
+
+/// Below this width the wordmark goes too, leaving the mark.
+const TINY_WIDTH: f32 = 420.0;
+
+/// The GPU meter's room, beside its readout.
+const METER_ROOM: f32 = 40.0;
+
 // Relations between constants, so checked when the crate is compiled.
 const _: () = {
     assert!(
@@ -248,6 +259,7 @@ pub fn title_bar(
     let custom = model.ui.custom_title_bar;
     let width = ui.ctx().content_rect().width();
     let compact = width < COMPACT_WIDTH;
+    let narrow = width < NARROW_WIDTH;
     readouts.refresh(model, ui.input(|i| i.time));
 
     egui::Panel::top("title-bar")
@@ -269,17 +281,21 @@ pub fn title_bar(
             ui.horizontal_centered(|ui| {
                 paint_mark(ui, theme);
                 ui.add_space(SPACE_XS);
-                ui.label(
-                    egui::RichText::new("STROBE")
-                        .strong()
-                        .color(theme::rgb(theme.text)),
-                );
-                ui.add_space(SPACE_SM);
-                ui.label(
-                    egui::RichText::new(crumb(model))
-                        .small()
-                        .color(theme::rgb(theme.text_muted)),
-                );
+                if width >= TINY_WIDTH {
+                    ui.label(
+                        egui::RichText::new("STROBE")
+                            .strong()
+                            .color(theme::rgb(theme.text)),
+                    );
+                }
+                if !narrow {
+                    ui.add_space(SPACE_SM);
+                    ui.label(
+                        egui::RichText::new(crumb(model))
+                            .small()
+                            .color(theme::rgb(theme.text_muted)),
+                    );
+                }
 
                 // Right to left: the window controls against the edge, then
                 // the readouts. Laid out before the middle so the middle is
@@ -289,7 +305,7 @@ pub fn title_bar(
                         window_buttons(ui, model, theme, actions);
                         ui.add_space(SPACE_SM);
                     }
-                    health(ui, model, readouts, theme, compact, actions);
+                    health(ui, model, readouts, theme, (compact, narrow), actions);
                 });
             });
         });
@@ -392,7 +408,7 @@ fn readout(
     level: Level,
     tooltip: &str,
     show_text: bool,
-) -> egui::Response {
+) -> Option<egui::Response> {
     let colour = match level {
         Level::Quiet => theme.text_muted,
         Level::Good => theme.success,
@@ -404,12 +420,22 @@ fn readout(
         .painter()
         .layout_no_wrap(text.to_string(), font, theme::rgb(theme.text_muted));
     let glyph = icons::INLINE - 1.0;
+    let icon_only = SPACE_XS * 2.0 + glyph;
+    // Laid out right to left against the title: a readout that would run
+    // into it drops its text, and with no room even for its icon it is
+    // left out (U-09). The window controls and the LAN kill switch come
+    // before every readout, so they always have their room.
+    let room = ui.available_width();
+    let show_text = show_text && icon_only + galley.size().x + SPACE_XS <= room;
+    if icon_only > room {
+        return None;
+    }
     let text_width = if show_text {
         galley.size().x + SPACE_XS
     } else {
         0.0
     };
-    let size = Vec2::new(SPACE_XS * 2.0 + glyph + text_width, 24.0);
+    let size = Vec2::new(icon_only + text_width, 24.0);
     let (rect, response) = ui.allocate_exact_size(size, Sense::click());
     let fill = widgets::hover_fill(ui, response.id, response.hovered(), theme.app, theme.hover);
     let painter = ui.painter();
@@ -433,7 +459,7 @@ fn readout(
             theme::rgb(theme.text_muted),
         );
     }
-    response.on_hover_text(tooltip)
+    Some(response.on_hover_text(tooltip))
 }
 
 /// The health readouts, drawn right to left.
@@ -442,10 +468,13 @@ fn health(
     model: &mut Model<'_>,
     readouts: &Readouts,
     theme: &Palette,
-    compact: bool,
+    (compact, narrow): (bool, bool),
     actions: &mut Vec<Action>,
 ) {
     let text = !compact;
+    // The readouts that keep their text in a compact bar lose it too in a
+    // narrow one.
+    let always = !narrow;
 
     // The LAN remote: always visible while it listens, with its kill
     // switch beside it (L-08, D254). Drawn first, so it sits nearest the
@@ -472,9 +501,9 @@ fn health(
             &readouts.remote,
             if waiting { Level::Warn } else { Level::Good },
             "The LAN remote is listening. Click for its settings, pairing and paired devices.",
-            true,
+            always,
         )
-        .clicked()
+        .is_some_and(|r| r.clicked())
         {
             model.ui.panes.open(Pane::Settings);
         }
@@ -494,7 +523,7 @@ fn health(
         "Output window. Click to open Settings.",
         text,
     )
-    .clicked()
+    .is_some_and(|r| r.clicked())
     {
         model.ui.panes.open(Pane::Settings);
     }
@@ -516,9 +545,9 @@ fn health(
         &readouts.audio,
         audio_level(model),
         &audio_tip,
-        true,
+        always,
     )
-    .clicked()
+    .is_some_and(|r| r.clicked())
     {
         model.ui.panes.open(Pane::Settings);
     }
@@ -531,9 +560,9 @@ fn health(
             &readouts.script,
             readouts.script_level,
             "The scene's script.js is not running cleanly. Open Controls for the message.",
-            true,
+            always,
         )
-        .clicked()
+        .is_some_and(|r| r.clicked())
     {
         model.ui.panes.open(Pane::Inspector);
     }
@@ -548,7 +577,7 @@ fn health(
             model.gl_summary,
             true,
         )
-        .clicked()
+        .is_some_and(|r| r.clicked())
     {
         model.ui.panes.open(Pane::Diagnostics);
     }
@@ -562,7 +591,7 @@ fn health(
         "Render scale. Click to change it in Settings.",
         text,
     )
-    .clicked()
+    .is_some_and(|r| r.clicked())
     {
         model.ui.panes.open(Pane::Settings);
     }
@@ -586,11 +615,11 @@ fn health(
         "GPU time against the frame budget. Click for diagnostics.",
         text,
     )
-    .clicked()
+    .is_some_and(|r| r.clicked())
     {
         model.ui.panes.open(Pane::Diagnostics);
     }
-    if text && model.perf.has_timer {
+    if text && model.perf.has_timer && ui.available_width() >= METER_ROOM {
         widgets::meter(ui, theme, ratio, heat, 36.0);
     }
 
@@ -601,9 +630,9 @@ fn health(
         &readouts.fps,
         Level::Quiet,
         "Output frame rate. Click for diagnostics.",
-        true,
+        always,
     )
-    .clicked()
+    .is_some_and(|r| r.clicked())
     {
         model.ui.panes.open(Pane::Diagnostics);
     }

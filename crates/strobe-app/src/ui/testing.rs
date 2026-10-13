@@ -12,9 +12,10 @@
 //! applied or cleared, or dropping it panics (it is how egui catches an
 //! integration that forgets to upload its font atlas). A test has nothing to
 //! upload to, so every test pass goes through [`run`], which clears them and
-//! hands back only what a test looks at.
+//! hands back only what a test looks at. A test that paints the pass
+//! ([`run_keeping`]) takes the deltas instead and applies them.
 
-use egui::{Context, RawInput, Rect, Ui, Vec2, epaint::ClippedShape};
+use egui::{Context, RawInput, Rect, TexturesDelta, Ui, Vec2, epaint::ClippedShape};
 
 /// What one pass produced.
 pub(super) struct Pass {
@@ -34,8 +35,22 @@ pub(super) fn input(size: Vec2, events: Vec<egui::Event>) -> RawInput {
 
 /// Runs one pass of `add_contents` with `raw_input`.
 pub(super) fn run(ctx: &Context, raw_input: RawInput, add_contents: impl FnMut(&mut Ui)) -> Pass {
+    let mut textures = TexturesDelta::default();
+    let pass = run_keeping(ctx, raw_input, add_contents, &mut textures);
+    textures.clear();
+    pass
+}
+
+/// [`run`], appending the pass's texture changes to `textures` (for a test
+/// that paints the result) instead of dropping them.
+pub(super) fn run_keeping(
+    ctx: &Context,
+    raw_input: RawInput,
+    add_contents: impl FnMut(&mut Ui),
+    textures: &mut TexturesDelta,
+) -> Pass {
     let mut output = ctx.run_ui(raw_input, add_contents);
-    output.textures_delta.clear();
+    textures.append(std::mem::take(&mut output.textures_delta));
     Pass {
         shapes: output.shapes,
     }

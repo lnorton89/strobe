@@ -76,6 +76,14 @@ const _: () = assert!(
 /// previous, next, the scene, blackout (UI_RESEARCH_ADDENDUM section 9).
 const NARROW: f32 = 900.0;
 
+/// The room kept for the NOW name before the clock and BPM are drawn.
+const CUE_ROOM: f32 = 72.0;
+
+/// The clock and BPM readings' font.
+fn reading_font() -> egui::FontId {
+    egui::FontId::monospace(15.0)
+}
+
 /// `mm:ss` for a number of seconds; `--:--` for nonsense.
 pub fn clock(seconds: f32) -> String {
     if !seconds.is_finite() || seconds < 0.0 {
@@ -212,13 +220,6 @@ fn transport_row(
             } else {
                 "-- BPM".to_string()
             };
-            ui.label(
-                egui::RichText::new(bpm)
-                    .monospace()
-                    .size(15.0)
-                    .color(theme::rgb(theme.text)),
-            );
-            ui.add_space(SPACE_SM);
             let (time, tip) = match t.cue {
                 Some(cue) => (
                     cue_time(&cue),
@@ -230,15 +231,40 @@ fn transport_row(
                     "Time since the scene started. (There is no playlist, so this is not a cue's remaining time.)",
                 ),
             };
-            ui.label(
-                egui::RichText::new(time)
-                    .monospace()
-                    .size(15.0)
-                    .color(theme::rgb(theme.text)),
-            )
-            .on_hover_text(tip);
-            ui.add_space(SPACE_SM);
-            cue_text(ui, model, theme, narrow);
+            // In a narrow strip the readings give way, BPM first, so they
+            // are never drawn over the buttons and NOW (U-09, T480 Task 35:
+            // a 480-pixel portrait window). The title bar reads BPM too.
+            let width = |ui: &Ui, text: &str| {
+                ui.painter()
+                    .layout_no_wrap(text.to_owned(), reading_font(), theme::rgb(theme.text))
+                    .size()
+                    .x
+                    + SPACE_SM
+            };
+            let time_width = width(ui, &time);
+            let show_bpm = ui.available_width() >= width(ui, &bpm) + time_width + CUE_ROOM;
+            if show_bpm {
+                ui.label(
+                    egui::RichText::new(bpm)
+                        .font(reading_font())
+                        .color(theme::rgb(theme.text)),
+                );
+                ui.add_space(SPACE_SM);
+            }
+            if ui.available_width() >= time_width + CUE_ROOM {
+                ui.label(
+                    egui::RichText::new(time)
+                        .font(reading_font())
+                        .color(theme::rgb(theme.text)),
+                )
+                .on_hover_text(tip);
+                ui.add_space(SPACE_SM);
+            }
+            // Too little room for a name to show: leave NOW out rather
+            // than draw an ellipsis.
+            if ui.available_width() >= CUE_ROOM {
+                cue_text(ui, model, theme, narrow);
+            }
         });
     });
 }

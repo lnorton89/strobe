@@ -128,6 +128,14 @@ checked and not committed. Interaction was driven with xdotool.
 - [x] Contextual Perform topology at 1280x720, 1440x900 and 1920x1080: rail,
   preview, title-bar readouts, transport, macros, optional panes
   (`perform-1440x900.png`, `perform-1280x720.png`).
+- [x] Narrow windows at the T480's 150% sizes (Task 35 found the drawer
+  over BLACKOUT, overlapping toolbar and title bar, and a garbled portrait
+  transport; D260 fixes them). Evidence: in every scenario at every size,
+  including 683x427, 533x400, 427x320 and 320x533 points,
+  `nothing_is_painted_over_blackout_at_any_size` and
+  `no_text_is_drawn_over_other_text_at_any_size` pass, and so does the
+  overflow test. Headless PNGs (`STROBE_UI_SHOTS`) were read by eye. Not
+  yet re-checked on the T480 itself.
 - [x] 1280x720: the browser and the inspector do not both open; the preview
   stays about 880 x 495 with the strip and macros visible
   (`browser-preview-1280x720.png`).
