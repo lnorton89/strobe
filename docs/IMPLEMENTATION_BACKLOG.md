@@ -78,7 +78,7 @@
 - **Acceptance:** macro configuration survives restart; targets resolve only through documented stable identity rules; no silent fuzzy matches; all states have UI and tests.
 
 ### U-05 Hotkey editor
-- **Status:** Open; configurable bindings exist but no full editor.
+- **Status:** Built (D208): capture in Settings > Keyboard, clashes named and moved only on a second click, clear to none, reset to default, applied live and saved. Left: a check on the T480 with real keys (the agent's posted keys carry no Ctrl).
 - **Work:** capture a shortcut, detect conflicts, show defaults, reset a binding and save it. Use the same focus and command table as the palette.
 - **Acceptance:** duplicate/conflicting shortcuts are surfaced and resolved explicitly; text entry cannot accidentally trigger a show command.
 

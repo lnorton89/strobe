@@ -27,6 +27,59 @@ use crate::commands::{Chord, CommandId, Focus, Key, dispatch_with};
 use crate::workspace::Pane;
 use egui::Context;
 
+/// The Settings pane's shortcut editor between frames (D208). Not saved.
+#[derive(Debug, Default)]
+pub struct HotkeyEditor {
+    /// The command waiting for its new key: every shortcut is off until a
+    /// key is pressed or Esc cancels.
+    pub capturing: Option<CommandId>,
+    /// The last assignment the app refused: this command wanted this chord,
+    /// which that command holds. The pane offers to move it.
+    pub clash: Option<(CommandId, Chord, CommandId)>,
+}
+
+/// What the shortcut editor saw this frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Capture {
+    /// No key yet.
+    Waiting,
+    /// This chord was pressed.
+    Chord(Chord),
+    /// Esc: give up.
+    Cancel,
+}
+
+/// The first key pressed this frame, for the shortcut editor. Keys the
+/// command table cannot hold are skipped.
+pub fn captured(ctx: &Context) -> Capture {
+    ctx.input(|input| {
+        for event in &input.events {
+            let egui::Event::Key {
+                key,
+                pressed: true,
+                repeat: false,
+                modifiers,
+                ..
+            } = event
+            else {
+                continue;
+            };
+            if *key == egui::Key::Escape {
+                return Capture::Cancel;
+            }
+            if let Some(key) = key_from(*key) {
+                return Capture::Chord(Chord {
+                    key,
+                    command: modifiers.command,
+                    shift: modifiers.shift,
+                    alt: modifiers.alt,
+                });
+            }
+        }
+        Capture::Waiting
+    })
+}
+
 /// The most key presses handled in one frame; a held-down burst beyond this
 /// is not a performance gesture.
 const MAX_PER_FRAME: usize = 8;

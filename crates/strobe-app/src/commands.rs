@@ -422,16 +422,22 @@ pub struct Focus {
     pub modal: bool,
 }
 
+/// The chord text that means "no shortcut" in the `hotkeys` table.
+pub const UNBOUND: &str = "none";
+
 /// The operator's keyboard shortcut overrides (D178): the `hotkeys` table of
-/// `show-control.json`, command id to chord text, checked once at start.
+/// `show-control.json`, command id to chord text (or [`UNBOUND`]), read at
+/// start and again whenever the Settings editor changes it (D208).
 ///
 /// A line that names an unknown command, writes a chord that cannot be read,
 /// or would put two commands on one chord is **left out and reported**; the
-/// command keeps its default. Nothing here can leave a command with no way
-/// to run it, or two commands on one key.
+/// command keeps its default. Lines that unbind are applied first, so a
+/// table that moves a key from one command to another reads the same
+/// whatever order its lines are in. Nothing here puts two commands on one
+/// key; a command loses its key only when a line says so.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Bindings {
-    overrides: Vec<(CommandId, Chord)>,
+    overrides: Vec<(CommandId, Option<Chord>)>,
 }
 
 impl Bindings {
@@ -439,17 +445,26 @@ impl Bindings {
     pub fn from_config(table: &std::collections::BTreeMap<String, String>) -> (Self, Vec<String>) {
         let mut bindings = Self::default();
         let mut problems = Vec::new();
+        let mut chords = Vec::new();
         for (id, text) in table {
             let Some(command) = CommandId::from_id(id) else {
                 problems.push(format!("hotkeys: there is no command \"{id}\""));
                 continue;
             };
+            if text.trim().eq_ignore_ascii_case(UNBOUND) {
+                bindings.overrides.retain(|(c, _)| *c != command);
+                bindings.overrides.push((command, None));
+                continue;
+            }
             let Some(chord) = Chord::parse(text) else {
                 problems.push(format!(
-                    "hotkeys: \"{text}\" for {id} is not a key (try Ctrl+Shift+B, F5, Space)"
+                    "hotkeys: \"{text}\" for {id} is not a key (try Ctrl+Shift+B, F5, Space, or none)"
                 ));
                 continue;
             };
+            chords.push((id, command, chord));
+        }
+        for (id, command, chord) in chords {
             if let Some(other) = CommandId::ALL
                 .into_iter()
                 .find(|c| *c != command && bindings.chord(*c) == Some(chord))
@@ -465,18 +480,75 @@ impl Bindings {
                 continue;
             }
             bindings.overrides.retain(|(c, _)| *c != command);
-            bindings.overrides.push((command, chord));
+            bindings.overrides.push((command, Some(chord)));
         }
         (bindings, problems)
     }
 
     /// The chord that runs `command`: the operator's, or the default; none
-    /// for a command with no default that the operator has not bound.
+    /// for a command with no default that the operator has not bound, or
+    /// one the operator unbound.
     pub fn chord(&self, command: CommandId) -> Option<Chord> {
         self.overrides
             .iter()
             .find(|(c, _)| *c == command)
-            .map_or_else(|| command.chord(), |(_, chord)| Some(*chord))
+            .map_or_else(|| command.chord(), |(_, chord)| *chord)
+    }
+
+    /// The command other than `except` that answers to `chord`, if any.
+    pub fn holder(&self, chord: Chord, except: CommandId) -> Option<CommandId> {
+        CommandId::ALL
+            .into_iter()
+            .find(|c| *c != except && self.chord(*c) == Some(chord))
+    }
+
+    /// Writes `command`'s shortcut into the operator's `table`: `chord`, or
+    /// no shortcut for `None`. A chord equal to the default removes the
+    /// line, so the file holds only real changes.
+    ///
+    /// If another command already answers to `chord`, nothing is written and
+    /// that command is returned, unless `steal`, which leaves the other
+    /// command with no shortcut (written as [`UNBOUND`]): the operator saw
+    /// the clash and chose. Nothing is ever moved silently.
+    pub fn assign(
+        table: &mut std::collections::BTreeMap<String, String>,
+        command: CommandId,
+        chord: Option<Chord>,
+        steal: bool,
+    ) -> Result<(), CommandId> {
+        let (current, _) = Self::from_config(table);
+        if let Some(chord) = chord
+            && let Some(other) = current.holder(chord, command)
+        {
+            if !steal {
+                return Err(other);
+            }
+            Self::write(table, other, None);
+        }
+        Self::write(table, command, chord);
+        Ok(())
+    }
+
+    /// Puts `command` back on its default shortcut. Refused, with the
+    /// holder, if another command has taken that key meanwhile.
+    pub fn reset(
+        table: &mut std::collections::BTreeMap<String, String>,
+        command: CommandId,
+    ) -> Result<(), CommandId> {
+        Self::assign(table, command, command.chord(), false)
+    }
+
+    fn write(
+        table: &mut std::collections::BTreeMap<String, String>,
+        command: CommandId,
+        chord: Option<Chord>,
+    ) {
+        if chord == command.chord() {
+            table.remove(command.id());
+        } else {
+            let text = chord.map_or_else(|| UNBOUND.to_owned(), Chord::label);
+            table.insert(command.id().to_owned(), text);
+        }
     }
 
     /// Whether `command` has been rebound.
@@ -751,10 +823,101 @@ mod tests {
     }
 
     #[test]
-    fn swapping_two_commands_needs_a_free_chord_in_between() {
+    fn assigning_a_taken_key_names_the_holder_until_the_operator_steals_it() {
+        let mut table = table(&[]);
+        let tap_on_b = Bindings::assign(
+            &mut table,
+            CommandId::TapTempo,
+            Some(Chord::plain(Key::B)),
+            false,
+        );
+        assert_eq!(
+            tap_on_b,
+            Err(CommandId::ToggleBlackout),
+            "B is blackout's: the clash is named, nothing written"
+        );
+        assert!(table.is_empty(), "nothing written: {table:?}");
+
+        assert_eq!(
+            Bindings::assign(
+                &mut table,
+                CommandId::TapTempo,
+                Some(Chord::plain(Key::B)),
+                true
+            ),
+            Ok(()),
+            "stolen on purpose"
+        );
+        let (bindings, problems) = Bindings::from_config(&table);
+        assert!(
+            problems.is_empty(),
+            "the written table reads clean: {problems:?}"
+        );
+        assert_eq!(
+            dispatch_with(Chord::plain(Key::B), FREE, &bindings),
+            Some(CommandId::TapTempo),
+            "B taps tempo now"
+        );
+        assert_eq!(
+            bindings.chord(CommandId::ToggleBlackout),
+            None,
+            "blackout lost its key, visibly"
+        );
+        assert_eq!(
+            table.get("toggle_blackout").map(String::as_str),
+            Some(UNBOUND),
+            "written as none"
+        );
+
+        assert_eq!(
+            Bindings::reset(&mut table, CommandId::ToggleBlackout),
+            Err(CommandId::TapTempo),
+            "blackout cannot have B back while tap tempo holds it"
+        );
+        assert_eq!(
+            Bindings::reset(&mut table, CommandId::TapTempo),
+            Ok(()),
+            "tap tempo returns to T"
+        );
+        assert_eq!(
+            Bindings::reset(&mut table, CommandId::ToggleBlackout),
+            Ok(()),
+            "now blackout can"
+        );
+        assert!(
+            table.is_empty(),
+            "back to defaults, nothing in the file: {table:?}"
+        );
+    }
+
+    #[test]
+    fn every_label_reads_back_as_its_chord() {
+        for command in CommandId::ALL {
+            if let Some(chord) = command.chord() {
+                assert_eq!(
+                    Chord::parse(&chord.label()),
+                    Some(chord),
+                    "{}",
+                    command.name()
+                );
+            }
+        }
+        for text in ["Ctrl+Shift+F5", "Alt+7", "Shift+Q", "Esc", "Left"] {
+            let chord = Chord::parse(text);
+            assert_eq!(
+                chord.map(Chord::label).as_deref(),
+                Some(text),
+                "{text} round-trips"
+            );
+        }
+    }
+
+    #[test]
+    fn taking_a_held_key_needs_its_holder_to_let_go() {
         // Taking blackout's B for tap tempo is a clash even though tap tempo
-        // gives up T: the table is checked line by line, in order, so a swap
-        // is written as two moves through a free key.
+        // gives up T: blackout still holds B. The table has to say that
+        // blackout lets go (`"none"`), which is what the editor's "Move it
+        // here" writes (D208).
         let (_, problems) = Bindings::from_config(&table(&[("tap_tempo", "B")]));
         assert_eq!(problems.len(), 1, "{problems:?}");
     }

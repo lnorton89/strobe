@@ -18,16 +18,20 @@
 //! - **Audio**: the input device, reactivity, speed and tap tempo.
 //! - **Appearance**: the theme, reduced motion, and the title bar (D132).
 //! - **Keyboard**: the command table, as data, so what is advertised here
-//!   is what exists.
+//!   is what exists, and the shortcut editor (D208): Change waits for a key,
+//!   a key another command holds is named and moved only on a second click,
+//!   and Reset returns the default. Changes apply at once and are saved
+//!   under `hotkeys` in `show-control.json`.
 //!
 //! The render-scale slider edits a working value and only commits when the
 //! drag ends, because every change reallocates every render target.
 
 use super::audio;
+use super::keys::{self, HotkeyEditor};
 use super::model::{Action, Model};
 use super::theme::{self, SPACE_SM, SPACE_XS};
 use super::widgets;
-use crate::commands::CommandId;
+use crate::commands::{Bindings, Chord, CommandId};
 use crate::icon::Icon;
 use crate::palette::Palette;
 use crate::session::RENDER_SCALE;
@@ -57,7 +61,13 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
             appearance(ui, model, theme, actions);
             ui.add_space(SPACE_SM);
             widgets::section(ui, theme, "Keyboard");
-            keyboard(ui, theme, model.remote.bindings);
+            keyboard(
+                ui,
+                theme,
+                model.remote.bindings,
+                &mut model.ui.hotkeys,
+                actions,
+            );
             ui.add_space(SPACE_SM);
             widgets::section(ui, theme, "Graphics");
             ui.label(
@@ -214,29 +224,134 @@ fn appearance(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut
     }
 }
 
-fn keyboard(ui: &mut Ui, theme: &Palette, bindings: &crate::commands::Bindings) {
+fn keyboard(
+    ui: &mut Ui,
+    theme: &Palette,
+    bindings: &Bindings,
+    editor: &mut HotkeyEditor,
+    actions: &mut Vec<Action>,
+) {
+    if let Some(command) = editor.capturing {
+        match keys::captured(ui.ctx()) {
+            keys::Capture::Chord(chord) => {
+                editor.capturing = None;
+                actions.push(Action::SetHotkey {
+                    command,
+                    chord: Some(chord),
+                    steal: false,
+                });
+            }
+            keys::Capture::Waiting => {}
+            keys::Capture::Cancel => editor.capturing = None,
+        }
+    }
     for command in CommandId::ALL {
         ui.horizontal(|ui| {
-            ui.label(
-                egui::RichText::new(
-                    bindings
-                        .chord(command)
-                        .map_or_else(|| "none".to_owned(), crate::commands::Chord::label),
-                )
-                .monospace()
-                .color(theme::rgb(theme.accent)),
+            let capturing = editor.capturing == Some(command);
+            let label = if capturing {
+                "press a key".to_owned()
+            } else {
+                bindings
+                    .chord(command)
+                    .map_or_else(|| "none".to_owned(), Chord::label)
+            };
+            let custom = bindings.chord(command) != command.chord();
+            let colour = if capturing {
+                theme.warning
+            } else if custom {
+                theme.info
+            } else {
+                theme.accent
+            };
+            ui.add_sized(
+                [110.0, 18.0],
+                egui::Label::new(
+                    egui::RichText::new(label)
+                        .monospace()
+                        .color(theme::rgb(colour)),
+                ),
             );
             ui.label(
                 egui::RichText::new(command.name())
                     .small()
                     .color(theme::rgb(theme.text_muted)),
             );
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if capturing {
+                    if ui.small_button("Cancel").clicked() {
+                        editor.capturing = None;
+                    }
+                    return;
+                }
+                if custom
+                    && ui
+                        .small_button("Reset")
+                        .on_hover_text(command.chord().map_or_else(
+                            || "Back to no shortcut".to_owned(),
+                            |c| format!("Back to {}", c.label()),
+                        ))
+                        .clicked()
+                {
+                    actions.push(Action::ResetHotkey(command));
+                }
+                if bindings.chord(command).is_some()
+                    && ui
+                        .small_button("Clear")
+                        .on_hover_text("No shortcut for this command")
+                        .clicked()
+                {
+                    actions.push(Action::SetHotkey {
+                        command,
+                        chord: None,
+                        steal: false,
+                    });
+                }
+                if ui
+                    .small_button("Change")
+                    .on_hover_text("Then press the new key; Esc cancels")
+                    .clicked()
+                {
+                    editor.capturing = Some(command);
+                    editor.clash = None;
+                }
+            });
         });
+        if let Some((wanted, chord, holder)) = editor.clash
+            && wanted == command
+        {
+            let mut done = false;
+            ui.horizontal_wrapped(|ui| {
+                ui.label(
+                    egui::RichText::new(format!("{} is {}.", chord.label(), holder.name()))
+                        .small()
+                        .color(theme::rgb(theme.warning)),
+                );
+                if ui
+                    .small_button("Move it here")
+                    .on_hover_text(format!("{} will have no shortcut", holder.name()))
+                    .clicked()
+                {
+                    actions.push(Action::SetHotkey {
+                        command,
+                        chord: Some(chord),
+                        steal: true,
+                    });
+                    done = true;
+                }
+                if ui.small_button("Keep it there").clicked() {
+                    done = true;
+                }
+            });
+            if done {
+                editor.clash = None;
+            }
+        }
     }
+    ui.add_space(SPACE_XS);
     ui.label(
         egui::RichText::new(
-            "Shortcuts are off while a text field has focus. Change one under \"hotkeys\" in \
-             show-control.json (for example \"toggle_blackout\": \"Ctrl+B\"); restart to apply.",
+            "Shortcuts are off while a text field has focus. Changes apply at once and are \
+             saved to show-control.json.",
         )
         .small()
         .color(theme::rgb(theme.text_faint)),

@@ -64,6 +64,18 @@ pub enum Action {
     OpenEditor(Option<String>),
     /// Write these tags into the playing scene's `scene.json` (D205).
     SetSceneTags(Vec<String>),
+    /// Give a command this shortcut, or none (D208). `steal` takes it from
+    /// a command that holds it, which is then left with none.
+    SetHotkey {
+        /// The command.
+        command: crate::commands::CommandId,
+        /// The new chord; `None` for no shortcut.
+        chord: Option<crate::commands::Chord>,
+        /// Take the chord from its holder.
+        steal: bool,
+    },
+    /// Put a command back on its default shortcut.
+    ResetHotkey(crate::commands::CommandId),
     /// Write the Editor's unsaved files.
     EditorSave,
     /// Write them and load the scene again.

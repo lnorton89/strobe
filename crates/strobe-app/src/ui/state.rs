@@ -125,6 +125,8 @@ pub struct UiState {
     pub editor: super::editor::EditorUi,
     /// The Inspector's tag field while it is open. Not saved.
     pub tag_draft: Option<String>,
+    /// The Settings pane's shortcut editor. Not saved.
+    pub hotkeys: super::keys::HotkeyEditor,
     theme_id: String,
     reduced_motion: bool,
     catalog: Catalog,
@@ -179,6 +181,7 @@ impl UiState {
             command_palette: super::command_palette::PaletteUi::default(),
             editor: super::editor::EditorUi::default(),
             tag_draft: None,
+            hotkeys: super::keys::HotkeyEditor::default(),
             last_scene: prefs.last_scene.clone(),
             theme_id: prefs.theme.clone(),
             reduced_motion: reduced,

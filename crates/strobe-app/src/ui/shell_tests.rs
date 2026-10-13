@@ -73,6 +73,10 @@ struct Scenario {
     generating: bool,
     /// A generate-controls result is waiting for review.
     generated: bool,
+    /// The shortcut editor waits for a key for this command.
+    capturing: Option<crate::commands::CommandId>,
+    /// The shortcut editor shows a clash (tap tempo wanted blackout's B).
+    clash: bool,
     panes: &'static [Pane],
 }
 
@@ -94,12 +98,20 @@ const BASE: Scenario = Scenario {
     mapped: false,
     generating: false,
     generated: false,
+    capturing: None,
+    clash: false,
     panes: &[Pane::Inspector],
 };
 
 fn scenarios() -> Vec<Scenario> {
     vec![
         BASE,
+        Scenario {
+            name: "settings with a shortcut clash",
+            clash: true,
+            panes: &[Pane::Settings],
+            ..BASE
+        },
         Scenario {
             name: "editor open with an unsaved edit",
             failed: true,
@@ -497,6 +509,14 @@ fn draw_events(
     for pane in scenario.panes {
         ui_state.panes.open(*pane);
     }
+    ui_state.hotkeys.capturing = scenario.capturing;
+    if scenario.clash {
+        ui_state.hotkeys.clash = Some((
+            crate::commands::CommandId::TapTempo,
+            crate::commands::Chord::plain(crate::commands::Key::B),
+            crate::commands::CommandId::ToggleBlackout,
+        ));
+    }
     let mut scale = 1.0_f32;
     let mut reactivity = 1.0_f32;
     let mut speed = 1.0_f32;
@@ -755,6 +775,50 @@ fn palette_run(text: &str) -> Vec<Vec<egui::Event>> {
         vec![press(egui::Key::Enter, egui::Modifiers::NONE)],
         Vec::new(),
     ]
+}
+
+#[test]
+fn a_key_pressed_while_capturing_rebinds_and_fires_nothing() -> Result<()> {
+    let scenario = Scenario {
+        capturing: Some(crate::commands::CommandId::TapTempo),
+        panes: &[Pane::Settings],
+        ..BASE
+    };
+    let drawn = draw_events(
+        scenario,
+        (1440.0, 900.0),
+        vec![
+            vec![press(egui::Key::B, egui::Modifiers::COMMAND)],
+            Vec::new(),
+        ],
+    )?;
+    assert_eq!(
+        drawn.all_actions,
+        vec![Action::SetHotkey {
+            command: crate::commands::CommandId::TapTempo,
+            chord: Some(crate::commands::Chord::command(crate::commands::Key::B)),
+            steal: false,
+        }],
+        "Ctrl+B becomes tap tempo's new key; nothing else runs"
+    );
+    let cancelled = draw_events(
+        Scenario {
+            capturing: Some(crate::commands::CommandId::TapTempo),
+            panes: &[Pane::Settings],
+            ..BASE
+        },
+        (1440.0, 900.0),
+        vec![
+            vec![press(egui::Key::Escape, egui::Modifiers::NONE)],
+            vec![press(egui::Key::B, egui::Modifiers::NONE)],
+        ],
+    )?;
+    assert_eq!(
+        cancelled.all_actions,
+        vec![Action::SetBlackout(true)],
+        "Esc cancels without closing a pane; the next B is blackout again"
+    );
+    Ok(())
 }
 
 #[test]
