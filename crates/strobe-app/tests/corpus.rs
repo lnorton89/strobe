@@ -32,10 +32,8 @@ struct Library(PathBuf);
 
 impl Library {
     fn new(name: &str) -> Result<Self> {
-        let dir = std::env::temp_dir().join(format!(
-            "strobe-corpus-test-{}-{name}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("strobe-corpus-test-{}-{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir)?;
         Ok(Self(dir))
@@ -187,13 +185,20 @@ fn check_records(records: &[Record], dialect: Dialect) -> Result<()> {
     let throws = find(records, "script-throws", dialect)?;
     assert_eq!(throws.status, Status::ScriptError, "{label}: {throws:?}");
     assert!(
-        throws.error.as_deref().is_some_and(|e| e.contains("refusing to start")),
+        throws
+            .error
+            .as_deref()
+            .is_some_and(|e| e.contains("refusing to start")),
         "{label}: the script's own message: {:?}",
         throws.error
     );
 
     let blank = find(records, "blank", dialect)?;
-    assert_eq!(blank.status, Status::Ok, "{label}: a black frame still compiles");
+    assert_eq!(
+        blank.status,
+        Status::Ok,
+        "{label}: a black frame still compiles"
+    );
     assert_eq!(blank.all_black, Some(true), "{label}: and is flagged black");
     Ok(())
 }
@@ -262,7 +267,10 @@ fn six_synthetic_scenes_through_worker_processes() -> Result<()> {
     }
     assert_eq!(outcome.drivers.len(), 2, "a driver line per dialect");
     assert!(
-        outcome.drivers.iter().all(|d| !d.renderer.is_empty() && d.renderer != "unavailable"),
+        outcome
+            .drivers
+            .iter()
+            .all(|d| !d.renderer.is_empty() && d.renderer != "unavailable"),
         "the driver is recorded: {:?}",
         outcome.drivers
     );
@@ -282,7 +290,10 @@ fn six_synthetic_scenes_through_worker_processes() -> Result<()> {
         "json",
         "script_error",
     ] {
-        assert!(markdown.contains(needle), "report.md mentions {needle}:\n{markdown}");
+        assert!(
+            markdown.contains(needle),
+            "report.md mentions {needle}:\n{markdown}"
+        );
     }
     Ok(())
 }
@@ -331,7 +342,9 @@ fn a_worker_that_cannot_start_is_a_gl_error_not_the_end_of_the_run() -> Result<(
 fn an_empty_library_is_an_error_naming_the_folder() -> Result<()> {
     let library = Library::new("empty")?;
     let result = driver::run_library(&options(&library.0, &library.0.join(".work")), |_| {});
-    let error = result.err().ok_or_else(|| anyhow!("an empty library succeeded"))?;
+    let error = result
+        .err()
+        .ok_or_else(|| anyhow!("an empty library succeeded"))?;
     assert!(
         error.to_string().contains("no scene folders"),
         "the message says what is missing: {error}"
@@ -361,19 +374,22 @@ fn the_command_line_writes_both_files_and_json_only_writes_one() -> Result<()> {
         Ok(())
     };
 
-    run(&["--filter", "ok"])?;
+    run(&["--filter", "blank"])?;
     let json: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(out.join("report.json"))?)?;
     let records = json
         .get("records")
         .and_then(serde_json::Value::as_array)
         .ok_or_else(|| anyhow!("report.json has no records array"))?;
-    assert_eq!(records.len(), 1, "--filter ok keeps one scene, one dialect");
+    assert_eq!(records.len(), 1, "--filter blank keeps one scene, one dialect");
     assert!(out.join("report.md").is_file(), "markdown by default");
 
     std::fs::remove_file(out.join("report.md"))?;
     run(&["--json-only"])?;
-    assert!(!out.join("report.md").exists(), "--json-only writes no markdown");
+    assert!(
+        !out.join("report.md").exists(),
+        "--json-only writes no markdown"
+    );
     assert!(out.join("report.json").is_file(), "but the JSON");
     Ok(())
 }

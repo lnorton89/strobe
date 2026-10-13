@@ -104,8 +104,7 @@ pub fn run_scene(
                     failed
                 }
                 None => {
-                    let mut failed =
-                        Record::failed(&name, dialect, Status::CompileError, &message);
+                    let mut failed = Record::failed(&name, dialect, Status::CompileError, &message);
                     failed.cause = Some(cause::categorise_in(&message, &shader_text(dir)));
                     failed
                 }
@@ -189,8 +188,8 @@ fn read_back(session: &Session, record: &mut Record) {
     }
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     let (mut black, mut white) = (true, true);
-    for texel in pixels.chunks_exact(4) {
-        for &channel in texel.iter().take(3) {
+    for texel in pixels.as_chunks::<4>().0 {
+        for &channel in &texel[..3] {
             black &= channel == 0;
             white &= channel == 255;
             hash ^= u64::from(channel);
