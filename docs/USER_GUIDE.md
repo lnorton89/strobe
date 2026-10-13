@@ -218,3 +218,5 @@ Everything Strobe writes lives in `%LOCALAPPDATA%\strobe`:
 - [DEBUGGING.md](DEBUGGING.md): logs, `STROBE_LOG`, GL debug output, crash
   symbolication.
 - [ROADMAP.md](ROADMAP.md): what is built and what is next.
+- [COMPATIBILITY.md](COMPATIBILITY.md): what works, what is degraded and
+  what is not, with evidence.

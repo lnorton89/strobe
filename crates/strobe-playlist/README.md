@@ -117,8 +117,8 @@ cargo test -p strobe-playlist
   progress, warm-up, the compositor (cut, crossfade, fade-through-black,
   custom GLSL), the Playlist pane and generate card, a file watcher, cue
   commands from the UI and keyboard, `resume_point()` saved every 5 s and
-  `sync_to_wall_clock` at start-up. Verified on llvmpipe and headless GL;
-  not on real hardware. Still to do: hotkeys beyond the table, MIDI and OSC
+  `sync_to_wall_clock` at start-up. Verified on llvmpipe and headless GL,
+  and on the T480 (Tasks 14, 17 and 26). Still to do: hotkeys beyond the table, MIDI and OSC
   mapping, audio-event advance, a downbeat detector (all since built).
 - The app uses this crate's `restore_lenient` for hot reloads and `restore`
   (with the identity check) for the resume file; `mark_scene_failed` for scenes
@@ -126,7 +126,9 @@ cargo test -p strobe-playlist
   transport strip.
 - `BeatInfo::downbeat` says which grid beat starts a bar; the app sets it
   from `strobe-audio`'s estimate when that is confident and leaves it 0
-  otherwise, which counts bars from the grid's origin (D75, D233). Audio-event advance modes depend on
-  phase 7 detection calling `clock.audio_event()`.
+  otherwise, which counts bars from the grid's origin (D75, D233). The
+  audio-event advance modes are built: the app calls `clock.audio_event()`
+  for drops and breakdowns (D226) and song changes (D237), tested on
+  synthetic audio and not yet on real music.
 - `[shuffle]` supplies the seed for `rand(a, b)` durations and generator
   defaults; it does not reorder authored cues at run time (D73).

@@ -51,7 +51,7 @@
 - **Acceptance:** reproducible release checklist completed, archive contents reviewed, checksums verified after download, attestations validate, and the release workflow is proven on an actual tag.
 
 ### R-06 Brand completion
-- **Status:** In progress.
+- **Status:** In progress. The executable icon is embedded (D241): `strobe-app`'s build script compiles `assets/strobe.rc` with the brand `icon.ico` on Windows targets. Left: seeing it in Explorer and the taskbar on the T480 from a CI-built release, the wordmark and lockups.
 - **Work:** finish wordmark and lockups; embed the executable resource icon; check title bar, taskbar, installer/archive and high-DPI rendering on Windows.
 - **Acceptance:** the same approved mark is legible in the executable, title bar, taskbar, docs and release artifacts; CI validates generated assets and no icon is missing from the packaged binary.
 
@@ -315,7 +315,7 @@
 - **Acceptance:** a person without a Rust toolchain can install, launch, import a scene, choose audio, fullscreen output and collect diagnostics using only the guide.
 
 ### D-03 Feature/compatibility matrix
-- **Status:** In progress.
+- **Status:** Written: [COMPATIBILITY.md](COMPATIBILITY.md), ten sections, every row Supported, Degraded, Unsupported or Unverified with its evidence (126 rows on 2026-10-13). Keep it in step with STATUS_AUDIT.md, which wins on conflict.
 - **Work:** publish supported/degraded/unsupported matrix for SSF, Shadertoy, scripts, media, GL/ANGLE, Windows release, MIDI/OSC and remote; include evidence and platform limitations.
 - **Acceptance:** no feature is described as supported solely because a type or UI control exists; evidence links to fixtures or hardware logs.
 

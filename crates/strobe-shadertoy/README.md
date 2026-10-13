@@ -141,26 +141,35 @@ STROBE_REQUIRE_HEADLESS_GL=1 cargo test -p strobe-shadertoy   # fail instead of 
 - **Token-level dialect rewriting (D94).** It renames the `texture2D`
   family and strips `precision`, `#version`, `#extension` and uniform
   redeclarations. It aliases user-defined built-ins under `GL_ES`. It
-  stops where types begin: implicit int-to-float is not rewritten (Q8).
+  stops where types begin: implicit int-to-float is not rewritten here.
+  `strobe-scene`'s typed pass writes it out when the scene is assembled,
+  on every dialect (D199).
 - **Output rules (D95).** The output is byte-identical for the same input,
   and the write is atomic.
 
 ## Status and known gaps
 
-- **Not built:** fetching by id (path B, the REST API with a key), the
-  userscript with its localhost listener (path A), the asset downloader,
-  the app's Import UI, thumbnails, the Needs-work bin, and
-  the review panel for generated controls (the engine is
-  `strobe-autocontrol`).
+- **Built (D110-D117):** fetching by id (path B, the REST API with a key),
+  the userscript with its localhost listener (path A), the asset
+  downloader, and the app's Import panel. None has touched shadertoy.com:
+  the REST API answered the T480 with a Cloudflare 403, and the
+  userscript's route to the page's JSON is unverified on the live site
+  (Q19). The review panel for generated controls is in the app's Inspector
+  (D202, D219; the engine is `strobe-autocontrol`). **Not built:** the
+  Needs-work bin.
 - **Unsupported inputs:** `cubemap` and `volume` inputs, and `sound` and
   `cubemap` passes, are errors. `keyboard`, `video` and `webcam` read
   black, with a warning. `srgb` textures are not decoded (Q16).
-- **Audio:** the audio texture is resampled from the 256-texel spectrum,
-  not the browser-matched `AudioFrame::shadertoy` (Q18).
-- **`iDate`:** it falls back to the UTC wall clock until the app feeds
-  local time (Q15).
+- **Audio:** the app supplies the browser-matched `AudioFrame::shadertoy`
+  slice, and the player uploads it as given (D112). The bench and tests,
+  with no slice, resample the 256-texel spectrum. A comparison against
+  Shadertoy with the same track is still open (Q18).
+- **`iDate`:** the app feeds local time (D112). The bench and tests use
+  the player's UTC default, so frames stay a pure function of time (Q15).
 - **Resize:** a resize restarts `iTime` at `TIME` and `iFrame` at 0, which
   is a visible jump at a non-default Speed.
 - **Verified so far:** all nine fixtures render on llvmpipe in both
-  dialects. Whether strict desktop drivers need the `GL_ES` built-in alias
-  is open (Q17); run the `legacy` fixture on the T480.
+  dialects, and on the T480 (Task 11) and TORNADO (T1), native and ANGLE.
+  Strict desktop drivers accept a shader that defines a built-in such as
+  `tanh`: the `legacy` fixture compiled on the T480 on both backends (R6,
+  was Q17).

@@ -240,6 +240,9 @@ in the user data directory (`%LOCALAPPDATA%\strobe` on Windows). See
 [`docs/DEBUGGING.md`](docs/DEBUGGING.md) for logs, `STROBE_LOG` and crash
 symbolication.
 
+[`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md): what works, what is
+degraded and what is not, with evidence.
+
 ### Developing
 
 ```bash
