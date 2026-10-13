@@ -130,6 +130,11 @@ pub fn selection_fill(
     }
 }
 
+/// The height of a [`nav_item`], with or without its label.
+pub fn nav_item_height(show_label: bool) -> f32 {
+    if show_label { 50.0 } else { 38.0 }
+}
+
 /// A navigation-rail entry: an icon over a short label, and an accent bar
 /// when active. A disabled entry (a workspace that is not built yet) is
 /// drawn faint and says why in its tooltip. With `show_label` false only the
@@ -143,7 +148,7 @@ pub fn nav_item(
     enabled: bool,
     show_label: bool,
 ) -> Response {
-    let height = if show_label { 50.0 } else { 38.0 };
+    let height = nav_item_height(show_label);
     let width = ui.available_width();
     let sense = if enabled {
         Sense::click()

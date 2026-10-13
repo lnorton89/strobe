@@ -31,7 +31,12 @@
 - **Dependencies:** physical Windows audio device and access to the T480.
 
 ### R-02 Investigate the minute-six performance/resource step
-- **Status:** Explained, pending one more run (T480 Tasks 20 and 34). It was not reproduced in two 10-minute runs, nor in 20 minutes fullscreen plus 20 windowed of a single scene (Task 34: flat from minute 4 fullscreen and from minute 1 windowed). The before/after values match fullscreen versus windowed output exactly, so the output most likely left fullscreen. The output window now logs resizes, fullscreen state and occlusion, so a repeat names itself. Left: Task 36, the same 20 minutes fullscreen on the transition-demo playlist that Task 17 played. It was queued and cancelled when the T480 was powered off.
+- **Status:** Done, retired (T480 Tasks 20, 34 and 36). Task 17's step was not reproduced in four runs:
+  - two 10-minute runs (Task 20);
+  - 20 minutes fullscreen plus 20 windowed of a single scene (Task 34);
+  - 20 minutes fullscreen on the same transition-demo playlist (Task 36). There, GPU time was 3.21-3.27 ms from minute 2 on (3.22 ms at minutes 5, 6 and 7), private bytes were within 0.4 MB after a 45 MB start-up release, handles held at 417, and there were 0 late frames.
+
+  The before/after values of Task 17 match fullscreen against windowed output exactly, so the output had left fullscreen. The output window now logs resizes, fullscreen state and occlusion, so if it ever happens again the log says which.
 - **Work:** repeat the same scene-switching soak with process memory, handle counts, GPU time, scale, scene and backend sampled at a fixed interval; compare a no-switch control run and native versus ANGLE. Identify whether the step is a one-time allocation/cache or a leak/regression.
 - **Acceptance:** explain the step with evidence or file a narrowly scoped follow-up bug; no unexplained monotonic growth over the full soak.
 
@@ -98,7 +103,7 @@
 - **Acceptance:** tag fixtures round-trip; old scenes remain valid; generator selection is deterministic with a seed and reports why a scene was selected/skipped.
 
 ### U-09 Responsive desktop behaviour and UI performance
-- **Status:** In progress. Narrow windows fixed (D260): the T480's resize run (Task 35) found the Controls pane over BLACKOUT, the toolbar and title bar overlapping, and the portrait transport drawn over itself. All of it reproduces and is fixed headless at the same logical sizes. Two tests now hold at every size in every state: `nothing_is_painted_over_blackout_at_any_size` and `no_text_is_drawn_over_other_text_at_any_size`. `STROBE_UI_SHOTS` paints every state as PNGs without a window. Left: on real Windows, snap, DPI changes, the maximised undecorated window and the taskbar, a second monitor and its removal; GNOME Wayland; UI frame cost on the T480.
+- **Status:** In progress. Narrow windows fixed (D260), and re-checked on the T480 (Task 38): BLACKOUT is visible at every size, no text overlaps, and the one leftover (the rail's SET entry half under the transport at 1024x640) is fixed. The T480's resize run (Task 35) had found the Controls pane over BLACKOUT, the toolbar and title bar overlapping, and the portrait transport drawn over itself. All of it reproduces and is fixed headless at the same logical sizes. Two tests now hold at every size in every state: `nothing_is_painted_over_blackout_at_any_size` and `no_text_is_drawn_over_other_text_at_any_size`. `STROBE_UI_SHOTS` paints every state as PNGs without a window. Left: on real Windows, snap, DPI changes, the maximised undecorated window and the taskbar, a second monitor and its removal; GNOME Wayland; UI frame cost on the T480.
 - **Work:** test custom title-bar drag, Aero Snap, resize, DPI changes, maximised undecorated window/taskbar interactions, multi-monitor changes, output monitor removal, and GNOME Wayland. Measure UI frame cost and separate Preview GPU cost on T480.
 - **Acceptance:** documented results on T480 and TORNADO; no focus theft or lost fullscreen state; output assignment changes do not destroy the active scene; UI work does not cause visible render-time regression.
 

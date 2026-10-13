@@ -815,26 +815,39 @@ pub fn nav_rail(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, arrangement
                 .inner_margin(theme::margin_xy(SPACE_XS, SPACE_SM)),
         )
         .show(ui, |ui| {
-            let labels = arrangement.rail_labels;
             let last = RAIL.len() - 1;
-            for (index, (icon, label, pane, tooltip)) in RAIL.iter().enumerate() {
-                if index == last {
-                    continue;
-                }
-                rail_entry(
-                    ui,
-                    model,
-                    theme,
-                    *icon,
-                    label,
-                    *pane,
-                    tooltip,
-                    labels,
-                    &shown,
-                    nothing_shown,
-                );
-                ui.add_space(SPACE_XS);
-            }
+            // A short window (T480 Task 38: 1024x640 at 150%) has no room for
+            // every entry: labels go first, then the upper entries scroll, so
+            // none is ever drawn under the transport strip or under SET at
+            // the bottom.
+            let room = ui.available_height();
+            let fits =
+                |labels: bool| RAIL.len() as f32 * (rail_item_height(labels) + SPACE_XS) <= room;
+            let labels = arrangement.rail_labels && fits(true);
+            let upper_room = (room - rail_item_height(labels) - SPACE_XS).max(0.0);
+            egui::ScrollArea::vertical()
+                .max_height(upper_room)
+                .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
+                .show(ui, |ui| {
+                    for (index, (icon, label, pane, tooltip)) in RAIL.iter().enumerate() {
+                        if index == last {
+                            continue;
+                        }
+                        rail_entry(
+                            ui,
+                            model,
+                            theme,
+                            *icon,
+                            label,
+                            *pane,
+                            tooltip,
+                            labels,
+                            &shown,
+                            nothing_shown,
+                        );
+                        ui.add_space(SPACE_XS);
+                    }
+                });
             ui.with_layout(Layout::bottom_up(Align::Min), |ui| {
                 if let Some((icon, label, pane, tooltip)) = RAIL.get(last) {
                     rail_entry(
@@ -852,6 +865,11 @@ pub fn nav_rail(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, arrangement
                 }
             });
         });
+}
+
+/// The height of one rail entry, as `widgets::nav_item` draws it.
+fn rail_item_height(labels: bool) -> f32 {
+    widgets::nav_item_height(labels)
 }
 
 #[expect(
