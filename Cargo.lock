@@ -3165,6 +3165,7 @@ dependencies = [
  "image",
  "log",
  "serde",
+ "serde_json",
  "strobe-audio",
  "strobe-diag",
  "strobe-gfx",
