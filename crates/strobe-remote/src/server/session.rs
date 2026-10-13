@@ -73,7 +73,7 @@ pub(super) fn serve(mut stream: TcpStream, shared: &Shared, conn: u64, peer: Soc
             return;
         }
     };
-    if let Err(refusal) = route(&mut stream, shared, &head) {
+    if let Err(refusal) = route(&mut stream, shared, &head, peer) {
         let _ = http::respond(&mut stream, &refusal);
         return;
     }
@@ -87,16 +87,26 @@ pub(super) fn serve(mut stream: TcpStream, shared: &Shared, conn: u64, peer: Soc
 /// Checks the request and serves the page, or answers the upgrade. A
 /// refusal is returned to be written; `Ok` with `/ws` means the socket is
 /// now a WebSocket.
-fn route(stream: &mut TcpStream, shared: &Shared, head: &Head) -> Result<(), Response<'static>> {
-    let Some(host) = head
-        .header("host")
-        .filter(|host| net::host_matches(host, shared.addr))
-    else {
+fn route(
+    stream: &mut TcpStream,
+    shared: &Shared,
+    head: &Head,
+    peer: SocketAddr,
+) -> Result<(), Response<'static>> {
+    let header = head.header("host");
+    // Through the operator's own HTTPS proxy (D258): its exact name, from
+    // this computer only, so no other machine can claim it.
+    let proxied = match (header, shared.proxied.as_deref()) {
+        (Some(host), Some(name)) => host.eq_ignore_ascii_case(name) && peer.ip().is_loopback(),
+        (Some(_) | None, None) | (None, Some(_)) => false,
+    };
+    let Some(host) = header.filter(|host| proxied || net::host_matches(host, shared.addr)) else {
         return Err(Response::text(
             421,
             "Open the remote at the address Strobe shows (an IP address, not a name).",
         ));
     };
+    let scheme = if proxied { "https" } else { "http" };
     if head.header("content-length").is_some_and(|l| l != "0") || head.has("transfer-encoding") {
         return Err(Response::text(400, "Requests here have no body."));
     }
@@ -106,7 +116,7 @@ fn route(stream: &mut TcpStream, shared: &Shared, head: &Head) -> Result<(), Res
             if head.method != "GET" && !head_only {
                 return Err(Response::text(405, "GET only."));
             }
-            let headers = page::headers(host);
+            let headers = page::headers(host, proxied);
             let _ = http::respond(
                 stream,
                 &Response {
@@ -119,19 +129,19 @@ fn route(stream: &mut TcpStream, shared: &Shared, head: &Head) -> Result<(), Res
             );
             Ok(())
         }
-        "/ws" => upgrade(stream, head, host),
+        "/ws" => upgrade(stream, head, &format!("{scheme}://{host}")),
         _ => Err(Response::text(404, "Not here.")),
     }
 }
 
 /// Validates a WebSocket upgrade and answers it with 101.
-fn upgrade(stream: &mut TcpStream, head: &Head, host: &str) -> Result<(), Response<'static>> {
+fn upgrade(stream: &mut TcpStream, head: &Head, own: &str) -> Result<(), Response<'static>> {
     if head.method != "GET" {
         return Err(Response::text(405, "GET only."));
     }
     let origin_ok = head
         .header("origin")
-        .is_some_and(|origin| origin.eq_ignore_ascii_case(&format!("http://{host}")));
+        .is_some_and(|origin| origin.eq_ignore_ascii_case(own));
     if !origin_ok {
         log::warn!("remote: refused a WebSocket from another origin");
         return Err(Response::text(

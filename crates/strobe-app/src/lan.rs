@@ -139,6 +139,8 @@ pub struct Lan {
     pub address: String,
     /// The port field.
     pub port: String,
+    /// The operator's HTTPS reverse proxy's public name (D258), if any.
+    proxied: Option<String>,
     note: String,
     failed: bool,
     published: Option<Instant>,
@@ -156,11 +158,21 @@ impl Lan {
             persist,
             address: bind.map(|ip| ip.to_string()).unwrap_or_default(),
             port: port.to_string(),
+            proxied: None,
             note: "Off".to_string(),
             failed: false,
             published: None,
             snapshot: Snapshot::default(),
         }
+    }
+
+    /// Also answers the operator's HTTPS proxy at `name` (D258); with no
+    /// address given, the listener then binds 127.0.0.1, where the proxy
+    /// reaches it.
+    #[must_use]
+    pub fn behind_proxy(mut self, name: Option<String>) -> Self {
+        self.proxied = name;
+        self
     }
 
     /// Whether the listener is running.
@@ -202,7 +214,9 @@ impl Lan {
             return Err("the port must be 1 to 65535".to_string());
         }
         let text = self.address.trim();
-        let ip = if text.is_empty() {
+        let ip = if text.is_empty() && self.proxied.is_some() {
+            IpAddr::from([127, 0, 0, 1])
+        } else if text.is_empty() {
             net::lan_address().ok_or_else(|| {
                 "this computer has no LAN address right now (is Wi-Fi or Ethernet connected?); \
                  type one in the address field"
@@ -226,13 +240,20 @@ impl Lan {
         let clients = self.clients();
         let started = target.and_then(|(ip, port)| {
             let (remote, app_end) = bridge::bridge(QUEUE);
-            Server::start(ServerConfig::new(ip, port), remote, clients)
+            let config = ServerConfig {
+                proxied: self.proxied.clone(),
+                ..ServerConfig::new(ip, port)
+            };
+            Server::start(config, remote, clients)
                 .map(|server| (server, app_end))
                 .map_err(|error| error.to_string())
         });
         match started {
             Ok((server, app_end)) => {
-                self.note = format!("On: {}", server.url());
+                self.note = match &self.proxied {
+                    Some(name) => format!("On: https://{name} (through your proxy)"),
+                    None => format!("On: {}", server.url()),
+                };
                 self.failed = false;
                 self.server = Some(server);
                 self.app_end = Some(app_end);

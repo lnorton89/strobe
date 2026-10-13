@@ -1,6 +1,6 @@
 # Research: LAN remote control with an installable PWA
 
-**Status:** LAN web remote v1 built (D250 to D254): `crates/strobe-remote` has the protocol, the app-thread bridge, pairing and paired clients, and an opt-in listener serving the controller page; the app drains it once a frame and shows "Remote on" with a Stop button. Not yet tested on real phones, the Windows firewall prompt or the T480; PWA installation still waits on HTTPS (L-07).  
+**Status:** LAN web remote v1 built (D250 to D254): `crates/strobe-remote` has the protocol, the app-thread bridge, pairing and paired clients, and an opt-in listener serving the controller page; the app drains it once a frame and shows "Remote on" with a Stop button. Not yet tested on real phones, the Windows firewall prompt or the T480; PWA installation still waits on HTTPS (L-07). The HTTPS route is decided (D258): the operator's own reverse proxy, which `--remote-proxy` lets in. It is untried on phones.  
 **Scope:** control a running Strobe show from a phone or tablet on the same local network, without cloud accounts, a hosted service, or opening router ports.
 
 ## Executive recommendation

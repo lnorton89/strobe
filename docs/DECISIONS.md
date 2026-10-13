@@ -4856,3 +4856,40 @@ Strobe tells the controller.
 
 **Would reopen:** a controller that wants its own feedback format, such as
 SysEx LED colours. That would be a per-device profile.
+
+### D258: HTTPS for the remote is the operator's own proxy, which Strobe lets in by name (2026-10-13)
+
+L-07 was blocked on how a phone gets a secure context. REMOTE_CONTROL_PWA_RESEARCH.md
+ruled out the easy wrong answers:
+
+- a self-signed certificate means teaching people to click past a
+  warning, which this project will not do;
+- an HTTPS page elsewhere talking into the LAN runs into mixed content,
+  Local Network Access and origin problems.
+
+Enrolling a local certificate authority on every phone is neither simple
+nor reversible enough for a VJ at a venue.
+
+- **The supported path is the operator's own HTTPS reverse proxy.** A
+  domain they own points at the LAN address. A proxy on the same computer
+  (Caddy, with a DNS-01 plugin) holds a real certificate that phones
+  already trust, and forwards to the listener.
+- **Strobe changes only enough to let it in.** `--remote-proxy NAME[:PORT]`
+  sets `ServerConfig::proxied`. A request whose `Host` is exactly that name
+  is accepted only from a loopback peer, that is the proxy. The page then
+  gets a `wss:` connect policy, and the socket opens only for the origin
+  `https://NAME`.
+  - Every other `Host` is still refused (D252), and without the option the
+    name is refused too. A tested case covers all of this.
+  - With no `--remote-bind` the listener then binds `127.0.0.1`, so the
+    plain-HTTP port is not on the LAN at all.
+  - `X-Forwarded-For` is not trusted, so the approval prompt shows the
+    proxy's address, not the phone's.
+- **Plain HTTP stays the default**, for trusted networks only, as
+  USER_GUIDE.md already warned. There is still no manifest and no service
+  worker: installability is claimed only after Android Chrome and iOS
+  Safari pass on real devices through the proxy.
+
+**Would reopen:** a certificate-enrolment flow that is secure, reversible
+and tested on both phone platforms, which would let Strobe offer HTTPS
+without a domain.
