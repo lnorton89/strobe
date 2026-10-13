@@ -289,6 +289,8 @@ impl Listener {
         self.stop.store(true, Ordering::SeqCst);
         // `accept` blocks; a connection to ourselves wakes it to see the flag.
         let _ = TcpStream::connect_timeout(&self.addr, Duration::from_secs(1));
+        // Waits for the listener; a panic in it already aborted the process
+        // in release builds.
         let _ = thread.join();
     }
 }
@@ -308,11 +310,19 @@ fn accept_loop(socket: &TcpListener, stop: &AtomicBool, shared: &Arc<Shared>) {
             continue;
         };
         let timeout = Some(shared.config.io_timeout);
-        let _ = stream.set_read_timeout(timeout);
-        let _ = stream.set_write_timeout(timeout);
+        // A connection the timeouts cannot be set on could hold its thread
+        // forever on a slow or silent peer: it is not served.
+        let timeouts = stream
+            .set_read_timeout(timeout)
+            .and_then(|()| stream.set_write_timeout(timeout));
+        if let Err(error) = timeouts {
+            log::warn!("listener: dropped a connection: no timeouts ({error})");
+            continue;
+        }
         if shared.active.fetch_add(1, Ordering::SeqCst) >= MAX_CONNECTIONS {
             shared.active.fetch_sub(1, Ordering::SeqCst);
             let busy = json!({"status": "busy", "error": "too many connections"});
+            // The busy reply is a courtesy to a client being turned away.
             let _ = respond(&mut stream, 503, &busy, None);
             continue;
         }
@@ -367,6 +377,7 @@ fn serve(mut stream: TcpStream, shared: &Shared) {
             rejection.body_unread,
         ),
     };
+    // The browser may have gone; the import's outcome is logged regardless.
     let _ = respond(&mut stream, status, &body, allow);
     if unread {
         drain(&mut stream);

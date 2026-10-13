@@ -326,6 +326,8 @@ impl Drop for Capture {
     fn drop(&mut self) {
         self.shared.stop.store(true, Ordering::Release);
         if let Some(thread) = self.thread.take() {
+            // Waits for the worker to stop; a panic in it already aborted the
+            // process in release builds.
             let _ = thread.join();
         }
     }

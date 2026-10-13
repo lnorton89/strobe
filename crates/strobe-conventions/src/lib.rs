@@ -1,7 +1,8 @@
 // ============================================================================
 // Module:       strobe_conventions (library crate root)
 // Description:  The workspace's house rules as tests: file headers, the unsafe
-//               boundary, the pinned toolchain, and pinned workflow actions.
+//               boundary, the pinned toolchain, pinned workflow actions, and
+//               discarded results that say why.
 //
 // Dependencies: anyhow, std::fs (walks every crate's sources at test time)
 // ============================================================================
@@ -25,11 +26,14 @@
 //!
 //! - [`actions`] — every workflow pins its actions to full commit SHAs
 //!   with a version comment, and declares its token permissions.
+//! - [`discarded`] — outside tests, a result thrown away with `let _ =` or
+//!   `.ok();` carries a comment saying why (D267).
 //!
 //! The walking and path arithmetic shared by the Rust-source rules is in
 //! [`sources`].
 
 pub mod actions;
+pub mod discarded;
 pub mod header;
 pub mod sources;
 pub mod toolchain;

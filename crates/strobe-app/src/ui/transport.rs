@@ -47,7 +47,6 @@
 //!   It is outlined in the danger colour, fills when on, and says
 //!   `BLACKOUT ON` in words.
 
-use super::icon as icons;
 use super::macros;
 use super::model::{Action, CueTransport, Model};
 use super::theme::{self, SPACE_MD, SPACE_SM, SPACE_XS};
@@ -354,7 +353,6 @@ fn cue_text(ui: &mut Ui, model: &Model<'_>, theme: &Palette, narrow: bool) {
             theme::rgb(theme.text_muted),
         );
     }
-    let _ = icons::INLINE;
     response.on_hover_text(if t.cue.is_some() {
         "The playlist's current and next cue. Open LIST for the whole timeline."
     } else {

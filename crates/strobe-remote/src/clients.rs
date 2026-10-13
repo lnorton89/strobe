@@ -184,13 +184,19 @@ impl Clients {
                 }
                 Ok(_) | Err(_) => {
                     let aside = path.with_extension("json.bad");
-                    let _ = std::fs::rename(&path, &aside);
+                    // The message says what really happened to the bad file:
+                    // if it could not be moved, the next save overwrites it.
+                    let fate = match std::fs::rename(&path, &aside) {
+                        Ok(()) => format!("was moved to {}", aside.display()),
+                        Err(error) => format!(
+                            "could not be moved aside ({error}) and will be replaced at the next save"
+                        ),
+                    };
                     (
                         Vec::new(),
                         Some(format!(
-                            "{} could not be read and was moved to {}; every remote must pair again",
+                            "{} could not be read and {fate}; every remote must pair again",
                             path.display(),
-                            aside.display()
                         )),
                     )
                 }
@@ -292,7 +298,11 @@ impl Clients {
         }
         record.last_seen = now_secs();
         let client_id = record.id.clone();
-        let rotated = Token::generate().ok();
+        // Without the OS random source there is no next token; the current
+        // one stays valid and rotation is tried again at the next connect.
+        let rotated = Token::generate()
+            .map_err(|error| log::warn!("remote: no new token this time ({error})"))
+            .ok();
         record.next_sha256 = rotated.as_ref().map(Token::digest);
         match store.save() {
             Ok(()) => Some(Authenticated { client_id, rotated }),

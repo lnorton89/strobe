@@ -78,8 +78,8 @@ pub fn run_scene(
 
     // Context creation can leave an error flag set that is not the
     // scene's doing, and an earlier scene's reports are not this one's.
-    let _ = gl.error();
-    let _ = capture::take();
+    gl.clear_errors();
+    drop(capture::take());
     let mut audio = AudioInput::new(false);
 
     let started = Instant::now();

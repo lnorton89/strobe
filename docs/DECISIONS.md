@@ -5388,3 +5388,59 @@ unusable. cpal 0.18 says three error kinds leave the stream running:
 three surviving kinds. The symptom would be silent levels with a "stream
 kept" line. Task A2 re-runs the app on the AMD desktop to confirm the
 loop is gone and the levels move.
+
+### D267: a result thrown away outside tests says why, and the ones that could not were fixed (2026-10-13)
+
+**Context.** A reader of `strobe-gfx/src/assets.rs` asked why its error
+paths end in `let _ = sender.send(...)`. Those discards are sound: the
+error is delivered as `MediaMessage::Failed`, and only a send to a
+receiver that is already gone (the scene was replaced) is dropped. But the
+pattern was everywhere, and an audit found 145 places outside tests that
+discarded a value, with nothing to tell a deliberate discard from an
+accident.
+
+**Fixed, because the discard lost something:**
+- **Shadertoy re-import.** If moving the new scene in failed, the old
+  scene's restore was ignored, and could leave it under a hidden
+  `.<name>.replaced` name. It now returns `WriteError::NotRestored`,
+  naming where the old scene is.
+- **LAN remote client list.** A damaged list was "moved to ….bad" even
+  when the move failed. The message now says what really happened.
+- **Token rotation.** A failed rotation (no OS random source) is now
+  logged.
+- **Generated controls.** A `scene.json` that exists but cannot be read
+  was treated as missing and replaced, losing its other fields. It is now
+  an error.
+- **Editor.** Re-reading the open scene after Strobe wrote a thumbnail or
+  tags blanked the Editor silently on failure. It now keeps the previous
+  text and says why (`reopen_editor`).
+- **Connection timeouts.** The LAN remote's and the Shadertoy listener's
+  connection threads served a socket whose timeouts could not be set,
+  where a silent peer could hold the thread forever. Such a connection is
+  now dropped with a warning.
+- **Crash-monitor threads.** A crash-monitor watchdog or a system-facts
+  probe that could not start now says so.
+- **GL error clearing.** `let _ = gl.error()` cleared one GL error flag
+  where a driver may hold several. `Gl::clear_errors` clears them all,
+  bounded.
+- **Dead suppressions.** `let _ = x;` hid an unused parameter in five
+  places and an unused import in two; they are removed.
+  - One hid a contract that was not kept: `controls::rail` documented that
+    `id_salt` identifies the control, but its id came from its position,
+    so a drag could jump to a neighbour when rows above changed. It now
+    uses `id_salt`.
+
+**The rule (`strobe_conventions::discarded`).** Outside tests, a
+statement that throws a result away (`let _ = …` or a trailing `….ok();`
+that is not assigned) carries a `//` comment, on the line or directly
+above, saying why there is nothing to do. `write!` and `writeln!` are
+exempt: they cannot fail into a `String`, and to a stream they are
+best-effort diagnostics. The 80 deliberate discards now each say why:
+- a receiver that has already gone;
+- best-effort cleanup;
+- a crash handler that must not fail;
+- a courtesy reply on a connection that ends anyway;
+- a join on a thread whose panic already aborted the process.
+
+**Would reopen:** a discard whose stated reason turns out false. The fix
+is to handle that error, not to reword the comment.

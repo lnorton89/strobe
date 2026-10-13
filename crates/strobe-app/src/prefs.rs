@@ -394,6 +394,8 @@ impl Saver {
             std::thread::sleep(Duration::from_millis(5));
         }
         if worker.is_finished() {
+            // The writer has finished (checked above); a panic in it already
+            // aborted the process in release builds.
             let _ = worker.join();
         } else {
             log::warn!("the preferences writer did not finish in time");

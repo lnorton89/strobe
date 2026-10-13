@@ -364,6 +364,8 @@ fn writer_loop(
             handle(Message::Line(note.into()), file.as_mut(), stderr);
         }
         if let Some(file) = file.as_mut() {
+            // The logger cannot log its own failure; the next write tries
+            // again.
             file.flush().ok();
         }
     }
@@ -381,8 +383,11 @@ fn handle(message: Message, file: Option<&mut BufWriter<File>>, stderr: bool) {
         }
         Message::Flush(ack) => {
             if let Some(file) = file {
+                // The logger cannot log its own failure; the next write tries
+                // again.
                 file.flush().ok();
             }
+            // The flusher stopped waiting; the flush happened anyway.
             ack.send(()).ok();
         }
     }

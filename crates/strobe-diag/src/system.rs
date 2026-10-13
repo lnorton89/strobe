@@ -48,12 +48,15 @@ pub fn probe_in_background() {
     if CACHE.get().is_some() {
         return;
     }
-    std::thread::Builder::new()
+    let spawned = std::thread::Builder::new()
         .name("strobe-sysinfo".to_string())
         .spawn(|| {
             info();
-        })
-        .ok();
+        });
+    if let Err(error) = spawned {
+        // The facts are then gathered on first use instead, on the caller.
+        log::warn!("system facts: no background probe ({error})");
+    }
 }
 
 /// The probe result if it has finished; never blocks.

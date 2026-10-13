@@ -83,6 +83,7 @@ fn write_atomically(path: &Path, bytes: &[u8]) -> Result<(), String> {
         .and_then(|mut file| file.write_all(bytes).and_then(|()| file.sync_all()))
         .and_then(|()| std::fs::rename(&temporary, path));
     written.map_err(|error| {
+        // Best effort: the error being returned is the one that matters.
         let _ = std::fs::remove_file(&temporary);
         format!("could not write {}: {error}", path.display())
     })

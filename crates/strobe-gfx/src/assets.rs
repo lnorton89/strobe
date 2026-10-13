@@ -348,6 +348,8 @@ fn decode_all(path: &Path, vflip: bool, sender: &SyncSender<MediaMessage>, budge
     let sources = match list_sources(path) {
         Ok(sources) => sources,
         Err(message) => {
+            // The receiver is gone (the scene was replaced): there is nobody
+            // left to tell.
             let _ = sender.send(MediaMessage::Failed(message));
             return;
         }
@@ -388,6 +390,8 @@ fn decode_all(path: &Path, vflip: bool, sender: &SyncSender<MediaMessage>, budge
         };
         bytes += frame.rgba.len();
         if index > 0 && bytes > budget {
+            // The receiver is gone (the scene was replaced): there is nobody
+            // left to tell.
             let _ = sender.send(MediaMessage::Failed(format!(
                 "sequence cut at {index} of {total} pictures: more than {} MiB of decoded frames",
                 budget / (1024 * 1024)
@@ -398,6 +402,8 @@ fn decode_all(path: &Path, vflip: bool, sender: &SyncSender<MediaMessage>, budge
             return;
         }
     }
+    // The receiver is gone (the scene was replaced): there is nobody left to
+    // tell.
     let _ = sender.send(MediaMessage::Done);
 }
 

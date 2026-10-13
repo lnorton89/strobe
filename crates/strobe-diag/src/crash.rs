@@ -194,6 +194,7 @@ fn socket_name_for_this_process() -> String {
     }
     let file = format!("strobe-crash-{pid}.sock");
     let dir = paths::sockets_dir();
+    // If it cannot be made, binding the socket below fails and says so.
     fs::create_dir_all(&dir).ok();
     let path = long_form(&dir).join(&file);
     let text = path.to_string_lossy().into_owned();
@@ -303,21 +304,27 @@ fn run_monitor(name: &str) {
         write_stderr(&format!("strobe crash monitor: server stopped: {error}"));
     }
     if !cfg!(target_os = "linux") {
+        // Best effort: a stale socket file is removed again before the next
+        // bind.
         fs::remove_file(name).ok();
     }
 }
 
 /// Stops a monitor whose app never showed up.
 fn spawn_watchdog(shutdown: Arc<AtomicBool>, connected: Arc<AtomicBool>) {
-    std::thread::Builder::new()
+    let spawned = std::thread::Builder::new()
         .name("strobe-monitor-watchdog".to_string())
         .spawn(move || {
             std::thread::sleep(MONITOR_PATIENCE);
             if !connected.load(Ordering::SeqCst) {
                 shutdown.store(true, Ordering::SeqCst);
             }
-        })
-        .ok();
+        });
+    if let Err(error) = spawned {
+        // The monitor still stops when the app disconnects; only an app
+        // that never connects leaves it running until it is killed.
+        write_stderr(&format!("strobe crash monitor: no watchdog: {error}"));
+    }
 }
 
 #[derive(Debug, Default)]
@@ -342,6 +349,8 @@ impl MonitorHandler {
     fn finish(&self, result: Result<MinidumpBinary, minidumper::Error>) {
         let (dump, dump_error) = match result {
             Ok(mut binary) => {
+                // The crash path must not fail; a short dump is still read,
+                // and its error is reported below.
                 binary.file.flush().ok();
                 (Some(binary.path), None)
             }
@@ -393,6 +402,8 @@ impl MonitorHandler {
 
 fn append(path: &Path, text: &str) {
     if let Ok(mut file) = OpenOptions::new().append(true).open(path) {
+        // The crash path must not fail; the report file exists and has what
+        // was written before.
         file.write_all(text.as_bytes()).ok();
     }
 }
@@ -482,7 +493,10 @@ impl Drop for MonitorHandle {
     /// the T480: a screenshot run finished in 5.5 s and exited after 60.
     fn drop(&mut self) {
         if !self.is_connected() {
+            // The monitor is abandoned (crash capture is off, logged above);
+            // it may already have exited.
             self.child.kill().ok();
+            // Reaps the monitor; its status is not needed.
             self.child.wait().ok();
         }
     }
@@ -513,6 +527,8 @@ pub fn start_monitor() -> Option<MonitorHandle> {
         Ok(handler) => handler,
         Err(error) => {
             log::warn!("native crash capture off: cannot attach handler: {error}");
+            // The monitor is abandoned (crash capture is off, logged above);
+            // it may already have exited.
             child.kill().ok();
             return None;
         }
@@ -611,17 +627,22 @@ fn on_crash(client: &OnceLock<Client>, crash: &CrashContext) -> CrashEventResult
     let Some(client) = client.get() else {
         return CrashEventResult::Handled(false);
     };
+    // Inside the crash handler: nothing can be done if the monitor has gone,
+    // and the dump is still asked for.
     client.send_message(KIND_CRASH_INFO, describe(crash)).ok();
     if let Some(pairs) = context::try_snapshot() {
+        // Inside the crash handler: each message is best effort.
         client.send_message(KIND_CONTEXT, encode_pairs(&pairs)).ok();
     }
     let failures: Vec<String> = failure::try_recent(FAILURE_TAIL)
         .iter()
         .map(ToString::to_string)
         .collect();
+    // Inside the crash handler: each message is best effort.
     client
         .send_message(KIND_FAILURES, failures.join(&FAILURE_SEPARATOR.to_string()))
         .ok();
+    // Inside the crash handler: each message is best effort.
     client
         .send_message(
             KIND_LOG,
@@ -629,6 +650,7 @@ fn on_crash(client: &OnceLock<Client>, crash: &CrashContext) -> CrashEventResult
         )
         .ok();
     if let Some(path) = panic_hook::last_report() {
+        // Inside the crash handler: each message is best effort.
         client
             .send_message(KIND_PANIC_REPORT, path.to_string_lossy().as_bytes())
             .ok();

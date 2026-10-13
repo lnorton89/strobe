@@ -399,7 +399,7 @@ fn cell(
             return;
         }
         let Ok(flat) = flat else { return };
-        body(ui, theme, &flat, reach, remote, panes, width, actions);
+        body(ui, theme, &flat, reach, panes, width, actions);
     });
     response.context_menu(|ui| {
         if ui.button("Learn a MIDI or OSC source").clicked() {
@@ -438,16 +438,11 @@ fn cell(
 }
 
 /// The widget for a macro whose target is found.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "one call site; the arguments are the card's whole context"
-)]
 fn body(
     ui: &mut Ui,
     theme: &Palette,
     flat: &Flat<'_>,
     reach: Reach<'_>,
-    remote: &Remote,
     panes: &mut Panes,
     width: f32,
     actions: &mut Vec<Action>,
@@ -496,7 +491,6 @@ fn body(
             }
         }
     }
-    let _ = remote;
 }
 
 /// The widget for one control, sized for a card. `component` picks one
