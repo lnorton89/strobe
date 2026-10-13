@@ -120,12 +120,20 @@ fn fixtures() -> Result<Vec<(String, PathBuf)>> {
     Ok(found)
 }
 
-/// Converts a fixture, writes it under `tag`, and loads the folder.
+/// Converts a fixture, writes it into a library of this test's own, and
+/// loads the folder.
 fn import(name: &str, path: &Path) -> Result<SceneFolder> {
     let text = std::fs::read_to_string(path).with_context(|| path.display().to_string())?;
     let shader = Shader::from_json(&text)?;
     let converted = convert(&shader, &strobe_shadertoy::Options::default())?;
-    let library = scratch(&format!("import-{name}"));
+    // One library per test: tests run in parallel, and two of them writing
+    // the same fixture into one folder (`write` replaces it) let one read
+    // it half rewritten. That was CI run 255's "st_clock undeclared".
+    let test = std::thread::current()
+        .name()
+        .unwrap_or("test")
+        .replace(|c: char| !c.is_ascii_alphanumeric(), "_");
+    let library = scratch(&format!("import-{test}-{name}"));
     let dir = strobe_shadertoy::convert::write(&converted, &library, true)?;
     Ok(SceneFolder::load(&dir)?)
 }
