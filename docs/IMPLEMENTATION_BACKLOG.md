@@ -25,7 +25,7 @@
 ## Epic R — Reliability, Windows, release
 
 ### R-01 Audio device removal and reconnection
-- **Status:** Open; live capture works, device lifecycle does not have complete real-hardware evidence. The AMD desktop (Task A1) found a reopen loop: any stream error, a WASAPI buffer glitch included, reopened the device at once, 70 times a second. Fixed by D266: glitches are counted and the stream kept, and repeated quick failures back off from 100 ms to 2 s. To re-check there.
+- **Status:** Open; live capture works, device lifecycle does not have complete real-hardware evidence. The AMD desktop (Task A1) found a reopen loop: any stream error, a WASAPI buffer glitch included, reopened the device at once, 70 times a second. Fixed by D266: glitches are counted and the stream kept, and repeated quick failures back off from 100 ms to 2 s. Re-checked there (Task A2): 188 s with no reopen and no glitch.
 - **Work:** unplug/replug the selected input during playback; exercise default-device changes, device disappearance during capture, retry timing, switching to synthetic fallback and returning to live input. Keep the UI status truthful and avoid blocking the render thread.
 - **Acceptance:** record logs and observed UI transitions in hardware/T480.md; output keeps rendering throughout; no panic, deadlock, stale device handle or repeated unbounded retry; a device returning can be selected/reopened without restarting Strobe.
 - **Dependencies:** physical Windows audio device and access to the T480.

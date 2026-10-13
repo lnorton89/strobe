@@ -216,7 +216,7 @@ Per dialect: 63 ok, 2 `compile_error`. Categories: no issue 58, source bug 2, dr
 
 | Feature | Status | Evidence | Notes |
 |---|---|---|---|
-| Live capture from the default recording device | Supported | [D61](DECISIONS.md), [T480](hardware/T480.md) (Realtek microphone at 48 kHz), [TORNADO T19](hardware/TORNADO.md), [D266](DECISIONS.md) | Windows microphone privacy settings must allow desktop apps. A device that reports buffer glitches keeps its stream (D266); on the AMD desktop it reopened 70 times a second before that fix, which is still to re-check there. |
+| Live capture from the default recording device | Supported | [D61](DECISIONS.md), [T480](hardware/T480.md) (Realtek microphone at 48 kHz), [TORNADO T19](hardware/TORNADO.md), [D266](DECISIONS.md) | Windows microphone privacy settings must allow desktop apps. A device that reports buffer glitches keeps its stream (D266). On the AMD desktop it reopened 70 times a second before that fix; after it, 188 s ran with no reopen and no glitch (Task A2). |
 | Capturing what the computer plays (loopback, Stereo Mix) | Unverified | [USER_GUIDE](USER_GUIDE.md) | Output devices are listed as loopback; no run is recorded. |
 | Synthetic 120 BPM fallback | Supported | [D61](DECISIONS.md), [STATUS_AUDIT P1](STATUS_AUDIT.md) (missing and synthetic audio states) | Used when no device opens, and by the bench and tests. |
 | Device removed and reconnected | Unverified | [R-01](IMPLEMENTATION_BACKLOG.md), [T480 Task 20](hardware/T480.md) | Capture retries every 2 s by design. Never run on hardware: it waits for the owner's approval. |

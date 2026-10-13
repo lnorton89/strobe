@@ -467,6 +467,7 @@ impl AudioInput {
             reactivity: &mut self.reactivity,
             speed: &mut self.speed,
             bpm,
+            input_rms: self.frame.energy[0],
         }
     }
 }
