@@ -850,6 +850,21 @@ impl Running {
                     .action("the scene list is empty"),
             );
         }
+        // Reopen the scene of the last session (T480 Task 21), unless the
+        // command line chose one, a playlist will, or this is a screenshot
+        // (whose state is never the operator's).
+        let reopen = (cli.scene.is_none() && cli.playlist.is_none() && cli.screenshot.is_none())
+            .then(|| running.ui_state.last_scene.clone())
+            .filter(|name| !name.is_empty());
+        if let Some(name) = reopen {
+            match running.library.entries.iter().position(|e| e.name == name) {
+                Some(index) => {
+                    log::info!("reopening {name}, the scene of the last session");
+                    running.load(index);
+                }
+                None => log::info!("the last session's scene {name} is not in the library"),
+            }
+        }
         if let Some(query) = cli.scene.as_deref() {
             match running.library.find(query) {
                 Some(index) => running.load(index),
@@ -1491,6 +1506,7 @@ impl Running {
                 }
                 self.stack.session = Some(session);
                 self.playing = Some(index);
+                self.ui_state.last_scene.clone_from(&entry.name);
                 self.pending_resize = None;
                 self.load_failure = None;
                 self.set_health(index, Health::Ready);
