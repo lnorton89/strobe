@@ -64,6 +64,9 @@ pub enum Action {
     OpenEditor(Option<String>),
     /// Write these tags into the playing scene's `scene.json` (D205).
     SetSceneTags(Vec<String>),
+    /// Show this picture or folder of pictures behind `syn_Media`, or give
+    /// each scene its own back with `None` (D217).
+    SetMedia(Option<std::path::PathBuf>),
     /// Change one cue of the loaded playlist (D213).
     EditCue {
         /// The cue, as authored.
@@ -370,6 +373,35 @@ pub struct CueDraft {
     pub transition_length: String,
     /// The preset's name; empty for none.
     pub preset: String,
+    /// The cue's media path; empty for none (D217).
+    pub media: String,
+}
+
+/// Where the picture behind `syn_Media` comes from (D217).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MediaFrom {
+    /// The scene's own `MEDIA`, or nothing for a scene without one.
+    Scene,
+    /// The playing cue's `media`.
+    Cue,
+    /// The operator's choice.
+    Chosen,
+}
+
+/// The Inspector's media row.
+#[derive(Debug, Clone, Copy)]
+pub struct MediaPanel<'a> {
+    /// What shows, or is on its way; `None` for nothing.
+    pub showing: Option<&'a std::path::Path>,
+    /// Where that comes from.
+    pub from: MediaFrom,
+    /// Whether it is still decoding.
+    pub loading: bool,
+    /// Whether the scene reads `syn_Media` at all.
+    pub read: bool,
+    /// Whether the operator has chosen media, which shows wherever a cue
+    /// names none.
+    pub chosen: bool,
 }
 
 /// The LIST pane's inputs.
@@ -495,6 +527,8 @@ pub struct Model<'a> {
     pub scene_title: &'a str,
     /// The playing scene's controls.
     pub controls: Option<&'a mut ControlBank>,
+    /// What the playing scene shows behind `syn_Media` (D217).
+    pub media: Option<MediaPanel<'a>>,
     /// The output-wide meta controls of the playing scene's session (D180).
     pub meta: Option<&'a mut ControlBank>,
     /// The live preview, once a scene has rendered.

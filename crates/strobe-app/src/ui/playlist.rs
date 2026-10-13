@@ -191,6 +191,7 @@ fn cue_card(
             .map(|t| t.duration.to_string())
             .unwrap_or_else(|| "4s".to_string());
         draft.preset = row.preset.clone().unwrap_or_default();
+        draft.media = row.media.clone().unwrap_or_default();
     }
     let mut edits: Vec<CueEdit> = Vec::new();
     let mut problem: Option<String> = None;
@@ -306,6 +307,21 @@ fn cue_card(
                     );
                     if ui.small_button("Set").clicked() {
                         edits.push(CueEdit::SetPreset(Some(draft.preset.clone())));
+                    }
+                    ui.end_row();
+
+                    ui.label(muted("Media"));
+                    ui.add(
+                        egui::TextEdit::singleline(&mut draft.media)
+                            .hint_text("the scene's own")
+                            .desired_width(120.0),
+                    )
+                    .on_hover_text(
+                        "A picture or folder of pictures shown behind syn_Media while this cue \
+                         plays; a relative path is looked for beside the playlist",
+                    );
+                    if ui.small_button("Set").clicked() {
+                        edits.push(CueEdit::SetMedia(Some(draft.media.clone())));
                     }
                     ui.end_row();
                 });

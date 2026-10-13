@@ -49,6 +49,8 @@ pub struct CueRow {
     pub origins: strobe_playlist::SettingOrigins,
     /// The preset the cue names, if any.
     pub preset: Option<String>,
+    /// The media the cue names, as written, if any (D217).
+    pub media: Option<String>,
 }
 
 /// The rows of `timeline`, in play order.
@@ -99,6 +101,10 @@ pub fn rows(timeline: &Timeline) -> Vec<CueRow> {
                 wall: timeline.wall_time(index).map(|t| t.to_string()),
                 origins: resolved.origins,
                 preset: resolved.preset.clone(),
+                media: resolved
+                    .media
+                    .as_ref()
+                    .map(|path| path.display().to_string()),
             }
         })
         .collect()

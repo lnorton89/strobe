@@ -53,6 +53,9 @@ pub enum CueEdit {
     SetTransition(Option<TransitionSpec>),
     /// The scene preset it loads, or `None` for the scene's own start.
     SetPreset(Option<String>),
+    /// The picture or folder it shows behind `syn_Media`, or `None` for the
+    /// scene's own (D217).
+    SetMedia(Option<String>),
     /// Whether it plays.
     SetEnabled(bool),
 }
@@ -121,6 +124,14 @@ pub fn apply(
                 .map(str::trim)
                 .filter(|name| !name.is_empty())
                 .map(str::to_string);
+            same
+        }
+        CueEdit::SetMedia(media) => {
+            cue_at(section, at.cue)?.media = media
+                .as_deref()
+                .map(str::trim)
+                .filter(|path| !path.is_empty())
+                .map(std::path::PathBuf::from);
             same
         }
         CueEdit::SetEnabled(enabled) => {
@@ -240,6 +251,24 @@ mod tests {
         let (preset, _) = apply(&base, at(0, 1), &CueEdit::SetPreset(Some("  ".into())))
             .map_err(|e| anyhow!(e))?;
         assert_eq!(cue(&preset).preset, None, "a blank preset is none");
+        let (media, _) = apply(
+            &base,
+            at(0, 1),
+            &CueEdit::SetMedia(Some(" loops/rain ".into())),
+        )
+        .map_err(|e| anyhow!(e))?;
+        assert_eq!(
+            cue(&media).media.as_deref(),
+            Some(std::path::Path::new("loops/rain")),
+            "media, trimmed"
+        );
+        let (none, _) = apply(&media, at(0, 1), &CueEdit::SetMedia(Some(String::new())))
+            .map_err(|e| anyhow!(e))?;
+        assert_eq!(
+            cue(&none).media,
+            None,
+            "a blank media path is the scene's own"
+        );
         let (off, _) =
             apply(&base, at(0, 1), &CueEdit::SetEnabled(false)).map_err(|e| anyhow!(e))?;
         assert!(!cue(&off).enabled, "disabled");

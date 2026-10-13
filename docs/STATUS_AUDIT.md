@@ -155,6 +155,13 @@ checked and not committed. Interaction was driven with xdotool.
   software rasterisation and says nothing).
 - [x] Named layouts (D215), saved in Settings and applied from Settings or
   the palette. Evidence: `ui::state` and `command_palette` tests.
+- [x] Choosing `syn_Media` in the Inspector and per cue (D217): a cue's
+  media replaces the scene's own and the next cue gets it back, with no
+  compile; choosing nothing returns a scene to its own picture or to black.
+  Evidence: `strobe-gfx/tests/assets.rs::choosing_none_goes_back_...`,
+  `strobe-app/tests/show.rs::a_cues_media_replaces_...`, `strobe-playlist`
+  parse and write round trip, `show::edit` tests; both GL dialects on
+  llvmpipe. Not yet: the Media row used by a person on the T480.
 - [x] Preset rename, Replace named before it happens, Delete in two clicks
   (D214). Evidence: `strobe-scene` `preset` tests.
 - [x] Editing the selected cue in the LIST pane, with each setting's origin

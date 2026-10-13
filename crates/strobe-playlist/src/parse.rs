@@ -27,7 +27,10 @@
 //!   names a custom transition;
 //! - `anchor = "09:00"` (or `"09:00:30"`);
 //! - control values are numbers, booleans, strings, `[x, y]` (a vec2) or
-//!   `[r, g, b]` (a colour).
+//!   `[r, g, b]` (a colour);
+//! - a cue's `media = "loops/rain"` shows that picture or folder of
+//!   pictures behind `syn_Media` instead of the scene's own (D217); a blank
+//!   one means none was set.
 
 use crate::duration::DurationSpec;
 use crate::error::{ParseError, line_column, snippet};
@@ -118,6 +121,7 @@ struct RawSection {
 struct RawCue {
     scene: Spanned<String>,
     preset: Option<Spanned<String>>,
+    media: Option<Spanned<String>>,
     duration: Option<Spanned<Value>>,
     advance: Option<Spanned<Value>>,
     transition: Option<Spanned<RawTransition>>,
@@ -227,6 +231,12 @@ impl Reader<'_> {
         Ok(Cue {
             scene: SceneRef::parse(scene_text),
             preset: raw.preset.as_ref().map(|preset| preset.get_ref().clone()),
+            media: raw
+                .media
+                .as_ref()
+                .map(|media| media.get_ref().trim())
+                .filter(|media| !media.is_empty())
+                .map(PathBuf::from),
             settings,
             overrides,
             enabled: raw.enabled.as_ref().is_none_or(|flag| *flag.get_ref()),
@@ -527,7 +537,7 @@ name = "Morning"
 defaults = { duration = "rand(2m, 4m)" }
 cues = [
   { scene = "warm-tunnel" },
-  { scene = "voronoi-geode", preset = "slow" },
+  { scene = "voronoi-geode", preset = "slow", media = "loops/rain" },
   { scene = "ink-drift", duration = "32 bars", transition = { kind = "cut" } },
 ]
 
@@ -568,6 +578,17 @@ cues = [
             "32 bars"
         );
         assert_eq!(ink.settings.transition, Some(TransitionSpec::cut()), "cut");
+        let geode = playlist
+            .sections
+            .first()
+            .and_then(|s| s.cues.get(1))
+            .ok_or_else(|| anyhow!("no voronoi-geode cue"))?;
+        assert_eq!(
+            geode.media.as_deref(),
+            Some(std::path::Path::new("loops/rain")),
+            "the cue's media"
+        );
+        assert_eq!(ink.media, None, "no media unless asked");
         let lattice = playlist
             .sections
             .get(1)

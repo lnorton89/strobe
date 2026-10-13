@@ -29,6 +29,7 @@ use crate::model::{
     TransitionSpec, WallClockAnchor,
 };
 use std::collections::{BTreeMap, HashSet};
+use std::path::PathBuf;
 
 /// The duration a cue gets when nothing above it says.
 fn builtin_duration() -> DurationSpec {
@@ -83,6 +84,9 @@ pub struct ResolvedCue {
     pub scene: SceneRef,
     /// The scene preset to load, if any.
     pub preset: Option<String>,
+    /// The cue's own `syn_Media` source, as written (relative to the
+    /// playlist file), if any.
+    pub media: Option<PathBuf>,
     /// How long the cue lasts.
     pub duration: DurationSpec,
     /// What ends it.
@@ -154,6 +158,7 @@ pub fn resolve_cue(playlist: &Playlist, section: usize, cue: usize) -> Option<Re
         enabled: cue_ref.enabled,
         scene: cue_ref.scene.clone(),
         preset: cue_ref.preset.clone(),
+        media: cue_ref.media.clone(),
         duration,
         advance,
         transition,

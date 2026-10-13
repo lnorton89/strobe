@@ -220,6 +220,11 @@ pub struct ScenePlayer {
     /// A replacement still decoding; it takes over when its first picture
     /// lands, so changing media never flashes black.
     incoming: Option<Media>,
+    /// The scene's own `MEDIA`, resolved, for [`Self::choose_media`] to go
+    /// back to.
+    scene_media: Option<MediaRequest>,
+    /// Whether any pass reads `syn_Media` or `syn_MediaType`.
+    reads_media: bool,
     /// Assets that did not load, waiting to be reported ([`Self::take_asset_problems`]).
     problems: Vec<AssetProblem>,
     audio: AudioUpload,
@@ -356,6 +361,8 @@ impl ScenePlayer {
                 .iter()
                 .any(|program| program.samplers.iter().any(|(source, _)| *source == wanted))
         };
+        let reads_media =
+            samples(Source::Media) || programs.iter().any(|program| program.media_type.is_some());
         let audio = AudioUpload {
             wanted: [
                 samples(Source::Spectrum),
@@ -424,10 +431,13 @@ impl ScenePlayer {
                 }
             })
             .collect::<Vec<_>>();
-        let media = match &def.media {
-            Some(media_def) => {
-                let request = MediaRequest::from_scene(&scene.dir, media_def);
-                Media::start(request).unwrap_or_else(|message| {
+        let scene_media = def
+            .media
+            .as_ref()
+            .map(|media_def| MediaRequest::from_scene(&scene.dir, media_def));
+        let media = match (&def.media, &scene_media) {
+            (Some(media_def), Some(request)) => {
+                Media::start(request.clone()).unwrap_or_else(|message| {
                     problems.push(AssetProblem {
                         asset: "syn_Media".to_string(),
                         path: media_def.path.clone(),
@@ -436,7 +446,7 @@ impl ScenePlayer {
                     Media::none()
                 })
             }
-            None => Media::none(),
+            (None, _) | (_, None) => Media::none(),
         };
 
         let finals = [
@@ -464,6 +474,8 @@ impl ScenePlayer {
             black_cube,
             media,
             incoming: None,
+            scene_media,
+            reads_media,
             problems,
             audio,
             date: None,
@@ -511,6 +523,46 @@ impl ScenePlayer {
                 message,
             }),
         }
+    }
+
+    /// Shows `choice` behind `syn_Media`, or the scene's own media when it
+    /// is `None` (no media at all if the scene has none). Asking for what is
+    /// already showing or on its way does nothing, so a host can call this
+    /// at every cue without restarting a decode (D217).
+    pub fn choose_media(&mut self, choice: Option<MediaRequest>) {
+        let wanted = choice.or_else(|| self.scene_media.clone());
+        if wanted.as_ref() == self.media_request() {
+            return;
+        }
+        match wanted {
+            Some(request) => self.set_media(request),
+            None => {
+                self.incoming = None;
+                self.media = Media::none();
+            }
+        }
+    }
+
+    /// What `syn_Media` shows, or is about to: the replacement still
+    /// decoding if there is one, else the current picture's source. `None`
+    /// when the scene shows no media.
+    pub fn media_request(&self) -> Option<&MediaRequest> {
+        match &self.incoming {
+            Some(incoming) => incoming.request(),
+            None => self.media.request(),
+        }
+    }
+
+    /// Whether the scene's shaders read `syn_Media` (or `syn_MediaType`) at
+    /// all, so a host knows whether choosing media would show anywhere.
+    pub fn reads_media(&self) -> bool {
+        self.reads_media
+    }
+
+    /// Whether `syn_Media` shows the scene's own `MEDIA` (or nothing, for a
+    /// scene without one), as opposed to a source chosen in its place.
+    pub fn media_is_scenes_own(&self) -> bool {
+        self.media_request() == self.scene_media.as_ref()
     }
 
     /// Waits for every picture still decoding to arrive and uploads it. For

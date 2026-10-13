@@ -453,6 +453,66 @@ fn a_user_chosen_file_replaces_the_scenes_media_and_a_bad_one_reports() -> Resul
 }
 
 #[test]
+fn choosing_none_goes_back_to_the_scenes_own_media_or_to_nothing() -> Result<()> {
+    for api in BOTH {
+        let Some(headless) = context(api)? else {
+            continue;
+        };
+        let gl = headless.gl();
+        let caps = Caps::from_info(gl.info());
+        let scratch = Scratch::new("restore")?;
+        scratch.picture("own.png", &solid(4, [255, 0, 0, 255]))?;
+        scratch.picture("chosen.png", &solid(4, [0, 255, 0, 255]))?;
+        let chosen = MediaRequest::for_path(scratch.path().join("chosen.png"));
+
+        let scene = load(&scratch, r#"{ "MEDIA": "own.png" }"#, MEDIA_SHADER)?;
+        let mut player = ScenePlayer::new(gl, &caps, &scene, [4, 4], Options::default())?;
+        player.finish_media_loading();
+        assert!(player.media_is_scenes_own(), "{api:?}: starts on its own");
+        player.choose_media(Some(chosen.clone()));
+        player.finish_media_loading();
+        assert!(
+            !player.media_is_scenes_own(),
+            "{api:?}: chosen in its place"
+        );
+        assert_eq!(
+            player.media_request(),
+            Some(&chosen),
+            "{api:?}: the chosen source is the one showing"
+        );
+        player.choose_media(Some(chosen.clone()));
+        assert!(
+            !player.media_loading(),
+            "{api:?}: asking again for what shows starts nothing"
+        );
+        player.choose_media(None);
+        player.finish_media_loading();
+        let px = pixel(&render_at(&mut player, &scene, 0.0)?, 4, 2, 2)?;
+        assert!(
+            near(px, [255, 0, 128, 255]),
+            "{api:?}: the scene's own picture is back: {px:?}"
+        );
+
+        let bare = Scratch::new("restore-bare")?;
+        let plain = load(&bare, "{}", MEDIA_SHADER)?;
+        let mut player = ScenePlayer::new(gl, &caps, &plain, [4, 4], Options::default())?;
+        player.choose_media(Some(chosen.clone()));
+        player.finish_media_loading();
+        assert!(
+            player.media_ready(),
+            "{api:?}: a scene without media takes one"
+        );
+        player.choose_media(None);
+        let px = pixel(&render_at(&mut player, &plain, 0.0)?, 4, 2, 2)?;
+        assert!(
+            near(px, [0, 0, 0, 255]),
+            "{api:?}: and goes back to black, type 0: {px:?}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn a_media_folder_with_nothing_in_it_is_a_problem_not_a_crash() -> Result<()> {
     for api in BOTH {
         let Some(headless) = context(api)? else {

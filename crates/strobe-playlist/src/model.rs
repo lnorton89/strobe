@@ -112,6 +112,11 @@ pub struct Cue {
     pub scene: SceneRef,
     /// A named preset of the scene to load, if any.
     pub preset: Option<String>,
+    /// A picture, or a folder of pictures, shown behind `syn_Media` in
+    /// place of the scene's own while the cue plays (D217). A relative path
+    /// is looked for beside the playlist file. Not inherited: media belongs
+    /// to the look, like the preset.
+    pub media: Option<PathBuf>,
     /// Inheritable settings this cue overrides.
     pub settings: CueSettings,
     /// Scene control values to apply when the cue starts, by control name.
@@ -127,6 +132,7 @@ impl Cue {
         Self {
             scene,
             preset: None,
+            media: None,
             settings: CueSettings::default(),
             overrides: BTreeMap::new(),
             enabled: true,

@@ -28,7 +28,7 @@
 
 use super::controls;
 use super::icon as icons;
-use super::model::{Action, GeneratePanel, Model};
+use super::model::{Action, GeneratePanel, MediaFrom, MediaPanel, Model};
 use super::presets;
 use super::theme::{self, SPACE_SM, SPACE_XS};
 use super::widgets::{self, Tone};
@@ -65,6 +65,9 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
     }
     if let Some(entry) = model.playing.and_then(|i| model.library.entries.get(i)) {
         tags_row(ui, theme, &entry.tags, &mut model.ui.tag_draft, actions);
+    }
+    if let Some(media) = model.media {
+        media_row(ui, theme, media, &mut model.ui.media_draft, actions);
     }
     if let Some(state) = model.script {
         script_status(ui, theme, state);
@@ -184,6 +187,117 @@ fn tags_row(
     if done {
         *draft = None;
     }
+}
+
+/// What the playing scene shows behind `syn_Media`, where that comes from,
+/// and the field that chooses another (D217). A scene whose shaders never
+/// read `syn_Media` gets no row unless media was chosen anyway.
+fn media_row(
+    ui: &mut Ui,
+    theme: &Palette,
+    media: MediaPanel<'_>,
+    draft: &mut Option<String>,
+    actions: &mut Vec<Action>,
+) {
+    if !media.read && !media.chosen && draft.is_none() {
+        return;
+    }
+    let Some(text) = draft.as_mut() else {
+        ui.horizontal_wrapped(|ui| {
+            ui.label(
+                egui::RichText::new("Media")
+                    .small()
+                    .color(theme::rgb(theme.text_muted)),
+            );
+            let (what, hover) = media_words(media);
+            let mut label =
+                egui::RichText::new(what)
+                    .small()
+                    .color(theme::rgb(if media.showing.is_some() {
+                        theme.text
+                    } else {
+                        theme.text_faint
+                    }));
+            if media.loading {
+                label = label.italics();
+            }
+            ui.label(label).on_hover_text(hover);
+            if !media.read {
+                ui.label(
+                    egui::RichText::new("(this scene does not read it)")
+                        .small()
+                        .color(theme::rgb(theme.text_faint)),
+                );
+            }
+            if ui
+                .small_button("Choose")
+                .on_hover_text("Show a picture, or a folder of pictures, behind syn_Media")
+                .clicked()
+            {
+                *draft = Some(
+                    media
+                        .showing
+                        .filter(|_| media.from == MediaFrom::Chosen)
+                        .map(|path| path.display().to_string())
+                        .unwrap_or_default(),
+                );
+            }
+            if media.chosen
+                && ui
+                    .small_button("Scene's own")
+                    .on_hover_text("Give each scene its own media back")
+                    .clicked()
+            {
+                actions.push(Action::SetMedia(None));
+            }
+        });
+        return;
+    };
+    let mut done = false;
+    ui.horizontal(|ui| {
+        let field = ui.add(
+            egui::TextEdit::singleline(text)
+                .hint_text("A picture, or a folder of pictures")
+                .desired_width((ui.available_width() - 120.0).max(80.0)),
+        );
+        let entered = field.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter));
+        let path = text.trim();
+        if (ui.small_button("Use").clicked() || entered) && !path.is_empty() {
+            actions.push(Action::SetMedia(Some(std::path::PathBuf::from(path))));
+            done = true;
+        }
+        if ui.small_button("Cancel").clicked() {
+            done = true;
+        }
+    });
+    if done {
+        *draft = None;
+    }
+}
+
+/// The media row's words: what shows, and a hover line saying where it
+/// comes from.
+fn media_words(media: MediaPanel<'_>) -> (String, String) {
+    let Some(path) = media.showing else {
+        return (
+            "None".to_string(),
+            "Nothing shows behind syn_Media".to_string(),
+        );
+    };
+    let name = path.file_name().map_or_else(
+        || path.display().to_string(),
+        |n| n.to_string_lossy().into_owned(),
+    );
+    let from = match media.from {
+        MediaFrom::Scene => "the scene's own",
+        MediaFrom::Cue => "named by this cue",
+        MediaFrom::Chosen => "chosen",
+    };
+    let state = if media.loading { ", loading" } else { "" };
+    (
+        format!("{name} ({from}{state})"),
+        path.display().to_string(),
+    )
 }
 
 /// The names of the scene controls and meta controls that a pinned macro
