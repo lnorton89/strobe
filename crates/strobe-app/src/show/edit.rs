@@ -142,6 +142,32 @@ pub fn apply(
     Ok((next, landed))
 }
 
+/// `playlist` with the setting `edit` made to every cue in `ats` (the
+/// LIST pane's multi-selection, D230). Only edits that leave every cue
+/// where it is can be made to several at once: a length, a transition, a
+/// preset, media, or disabling. `Err` says why not, and nothing changes.
+pub fn apply_many(playlist: &Playlist, ats: &[At], edit: &CueEdit) -> Result<Playlist, String> {
+    match edit {
+        CueEdit::SetDuration(_)
+        | CueEdit::SetTransition(_)
+        | CueEdit::SetPreset(_)
+        | CueEdit::SetMedia(_)
+        | CueEdit::SetEnabled(_) => {}
+        CueEdit::MoveUp
+        | CueEdit::MoveDown
+        | CueEdit::Duplicate
+        | CueEdit::Delete
+        | CueEdit::InsertAfter(_) => {
+            return Err("that edit is made to one cue at a time".to_string());
+        }
+    }
+    let mut next = playlist.clone();
+    for at in ats {
+        next = apply(&next, *at, edit)?.0;
+    }
+    Ok(next)
+}
+
 /// The cue at `index` in `section`.
 fn cue_at(section: &mut strobe_playlist::Section, index: usize) -> Result<&mut Cue, String> {
     section
@@ -222,6 +248,29 @@ mod tests {
         let (empty, landed) = apply(&base, at(1, 0), &CueEdit::Delete).map_err(|e| anyhow!(e))?;
         assert!(names(&empty, 1).is_empty(), "a section can be emptied");
         assert_eq!(landed, None, "nothing left to select there");
+        Ok(())
+    }
+
+    #[test]
+    fn a_setting_goes_to_every_selected_cue_and_a_move_is_refused() -> Result<()> {
+        let base = playlist();
+        let three = DurationSpec::parse("3m").map_err(|e| anyhow!("{e}"))?;
+        let picked = [at(0, 0), at(0, 2), at(1, 0)];
+        let set = apply_many(&base, &picked, &CueEdit::SetDuration(Some(three.clone())))
+            .map_err(|e| anyhow!(e))?;
+        let duration = |s: usize, c: usize| set.sections[s].cues[c].settings.duration.clone();
+        assert_eq!(duration(0, 0), Some(three.clone()), "first");
+        assert_eq!(duration(0, 1), None, "the one not picked is untouched");
+        assert_eq!(duration(0, 2), Some(three.clone()), "third");
+        assert_eq!(duration(1, 0), Some(three), "and the other section's");
+        assert!(
+            apply_many(&base, &picked, &CueEdit::Delete).is_err(),
+            "structure changes one cue at a time"
+        );
+        assert!(
+            apply_many(&base, &[at(0, 0), at(7, 0)], &CueEdit::SetEnabled(false)).is_err(),
+            "a stale position refuses the whole edit"
+        );
         Ok(())
     }
 

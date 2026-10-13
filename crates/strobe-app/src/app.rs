@@ -2098,6 +2098,9 @@ impl Running {
                 show.replace_playlist(playlist, &self.library);
                 self.playlist_ui.dirty = true;
                 self.playlist_ui.status = None;
+                // Rows may have moved; a multi-selection would point at
+                // the wrong ones.
+                self.playlist_ui.also.clear();
                 self.playlist_ui.selected = landed.and_then(|landed| {
                     show.rows()
                         .iter()
@@ -2112,6 +2115,30 @@ impl Running {
             }
             Err(why) => {
                 self.playlist_ui.status = Some((true, format!("Could not change the cue: {why}")));
+            }
+        }
+    }
+
+    /// Makes one setting edit to several cues (D230). The selection stays.
+    fn edit_cues(&mut self, ats: &[crate::show::edit::At], edit: &crate::show::edit::CueEdit) {
+        let Some(show) = self.stack.show.as_mut() else {
+            return;
+        };
+        match crate::show::edit::apply_many(show.playlist(), ats, edit) {
+            Ok(playlist) => {
+                show.replace_playlist(playlist, &self.library);
+                self.playlist_ui.dirty = true;
+                self.playlist_ui.status = None;
+                if matches!(edit, crate::show::edit::CueEdit::SetEnabled(false)) {
+                    // The disabled cues leave the timeline; so does the
+                    // selection that named them.
+                    self.playlist_ui.also.clear();
+                    self.playlist_ui.selected = None;
+                }
+                log::info!("playlist: {edit:?} on {} cues", ats.len());
+            }
+            Err(why) => {
+                self.playlist_ui.status = Some((true, format!("Could not change the cues: {why}")));
             }
         }
     }
@@ -2869,6 +2896,7 @@ impl Running {
                 }
                 Action::MacroKey { id, down } => self.macro_key(id, down),
                 Action::EditCue { at, edit } => self.edit_cue(at, &edit),
+                Action::EditCues { ats, edit } => self.edit_cues(&ats, &edit),
                 Action::ReloadPlaylistFromDisk => {
                     if let Some(path) = self.playlist_ui.external_change.take() {
                         self.playlist_ui.dirty = false;

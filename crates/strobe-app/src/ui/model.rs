@@ -66,6 +66,13 @@ pub enum Action {
     SetSceneTags(Vec<String>),
     /// Save the playing scene's live frame as its thumbnail (D222).
     CaptureThumbnail,
+    /// Make the same setting edit to several cues (D230).
+    EditCues {
+        /// The cues, as authored.
+        ats: Vec<crate::show::edit::At>,
+        /// The change.
+        edit: crate::show::edit::CueEdit,
+    },
     /// Import a Shadertoy shader (a URL, an id or a file) and add it as a
     /// cue after this one (D229).
     ImportCueAfter {
@@ -362,6 +369,9 @@ pub struct PlaylistUi {
     pub preview: Option<Result<Generated, String>>,
     /// The row highlighted in the timeline.
     pub selected: Option<usize>,
+    /// More rows Ctrl-clicked into the selection (D230); the card's setting
+    /// edits go to these too.
+    pub also: Vec<usize>,
     /// The current cue the list last scrolled to, so it scrolls once per
     /// cue rather than fighting a person who scrolled away.
     pub scrolled_to: Option<usize>,
