@@ -22,6 +22,7 @@
 //! | `lose-context@60,200` | Two losses, after 60 and after 200 output frames. A bare number after a `lose-context` item adds another frame. |
 //! | `fail-rebuild:native` | Rebuilding on the native backend fails (every time). |
 //! | `fail-rebuild:angle` | Rebuilding on ANGLE fails (every time). |
+//! | `crash@300` | After 300 output frames the process overflows its stack, so a packaged build's crash capture (minidump, report, notifier) can be checked without a debugger (R-04). A stack overflow, not `abort`: on Windows `abort` is `__fastfail`, which no handler sees. |
 //!
 //! Frames count presented output frames over the whole run, across
 //! rebuilds, and each `lose-context` frame fires once. Examples:
@@ -49,6 +50,8 @@ pub struct Faults {
     lose_at: Vec<u64>,
     /// Backends whose rebuild fails.
     fail_rebuild: Vec<Backend>,
+    /// The output-frame count at which the process aborts.
+    crash_at: Option<u64>,
 }
 
 impl Faults {
@@ -92,11 +95,14 @@ impl Faults {
                     }
                 });
                 after_lose = false;
+            } else if let Some(frame) = item.strip_prefix("crash@") {
+                faults.crash_at = Some(frame_number(frame, item)?);
+                after_lose = false;
             } else if after_lose && item.bytes().all(|b| b.is_ascii_digit()) {
                 faults.lose_at.push(frame_number(item, item)?);
             } else {
                 return Err(format!(
-                    "unrecognised item `{item}`; expected lose-context@<frame>[,<frame>...] or fail-rebuild:<native|angle>"
+                    "unrecognised item `{item}`; expected lose-context@<frame>[,<frame>...], fail-rebuild:<native|angle> or crash@<frame>"
                 ));
             }
         }
@@ -107,7 +113,7 @@ impl Faults {
 
     /// Whether no fault is configured.
     pub fn is_empty(&self) -> bool {
-        self.lose_at.is_empty() && self.fail_rebuild.is_empty()
+        self.lose_at.is_empty() && self.fail_rebuild.is_empty() && self.crash_at.is_none()
     }
 
     /// Whether the context should die now, with `frames` output frames
@@ -116,6 +122,12 @@ impl Faults {
         let due = self.lose_at.iter().take_while(|at| **at <= frames).count();
         self.lose_at.drain(..due);
         due > 0
+    }
+
+    /// Whether the process should abort now, with `frames` output frames
+    /// presented so far.
+    pub fn crash_due(&self, frames: u64) -> bool {
+        self.crash_at.is_some_and(|at| frames >= at)
     }
 
     /// Whether rebuilding on `backend` should fail.
@@ -136,8 +148,33 @@ impl Faults {
         for backend in &self.fail_rebuild {
             parts.push(format!("rebuilding on {backend} fails"));
         }
+        if let Some(frame) = self.crash_at {
+            parts.push(format!("abort after output frame {frame}"));
+        }
         parts.join("; ")
     }
+}
+
+/// Overflows the stack, as `crash_demo overflow` does: the crash every
+/// platform's handler sees (`abort` is `__fastfail` on Windows, which none
+/// does). Only `crash@N` calls it.
+pub fn crash() -> ! {
+    let depth = recurse(0);
+    // Unreachable in practice; the opaque condition keeps the optimiser
+    // from proving that, so the recursion is real.
+    log::error!("the stack survived {depth} frames");
+    std::process::exit(101)
+}
+
+/// Recurses until the stack is gone.
+fn recurse(depth: u64) -> u64 {
+    let pad = [depth as u8; 4096];
+    let deeper = if std::hint::black_box(true) {
+        recurse(depth + 1)
+    } else {
+        0
+    };
+    deeper + u64::from(std::hint::black_box(pad)[0])
 }
 
 fn frame_number(text: &str, item: &str) -> Result<u64, String> {
@@ -227,6 +264,21 @@ mod tests {
     fn a_late_check_still_fires_a_loss_that_was_passed() -> Result<()> {
         let mut faults = Faults::parse("lose-context@60").map_err(anyhow::Error::msg)?;
         assert!(faults.lose_context_due(75), "passed frames count");
+        Ok(())
+    }
+
+    #[test]
+    fn crash_is_parsed_and_fires_at_its_frame() -> anyhow::Result<()> {
+        let faults = Faults::parse("crash@300").map_err(anyhow::Error::msg)?;
+        assert!(!faults.is_empty(), "configured");
+        assert!(!faults.crash_due(299), "not before");
+        assert!(faults.crash_due(300), "at the frame");
+        assert!(
+            faults.describe().contains("abort after output frame 300"),
+            "described: {}",
+            faults.describe()
+        );
+        assert!(Faults::parse("crash@soon").is_err(), "a frame number");
         Ok(())
     }
 }

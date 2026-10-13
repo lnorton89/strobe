@@ -77,6 +77,7 @@ reported.
 | `lose-context@60` | After 60 scene frames (shown or hidden output) the context dies: every `make_current`, on both windows, fails with an injected error until the context is rebuilt, and the `Gl` is marked lost, as if the driver had reset. |
 | `lose-context@60,120` | Two losses, at frames 60 and 120. |
 | `fail-rebuild:native` / `fail-rebuild:angle` | Rebuilding on that backend fails. |
+| `crash@300` | After 300 output frames the app overflows its stack on purpose: the crash drill for the **real app**, packaged or not. It writes `crash-*.dmp` and `.txt` like `crash_demo overflow`. |
 
 A malformed value is logged and ignored. Under Xvfb with Mesa (where
 "ANGLE" is the EGL/GLES backend):
@@ -168,6 +169,12 @@ STROBE_DIAG_DIR=target/diag cargo run --release -p strobe-diag --example crash_d
 | `overflow` | `.txt` and `.dmp` |
 | `panic-abort-profile` | one stem shared by the panic report and the dump |
 | `ok` | a session log only |
+
+The same drill on the app itself, for a packaged build (R-04): run
+`strobe.exe` with `STROBE_FAULT=crash@300` and it overflows its stack
+after 300 output frames, writing the same `.dmp` and `.txt`. A packaged
+build's PDB is under `target/x86_64-pc-windows-msvc/release`, which
+`cargo xtask symbolicate` searches first.
 
 On the laptop, `overflow` should produce its files within a few seconds.
 An agent driving the laptop runs inside the Claude desktop app's MSIX
