@@ -2742,6 +2742,37 @@ impl Running {
         }
     }
 
+    /// Checks the Editor's `scene.json` before a Save and reload (D263). A
+    /// file the loader would refuse is kept in the Editor with the reason,
+    /// and nothing is written or reloaded, so the scene playing is untouched
+    /// and no failure is recorded against it.
+    fn editor_check(&mut self) -> bool {
+        let Some(doc) = self.editor_doc.as_mut() else {
+            return false;
+        };
+        match doc.check() {
+            Ok(()) => {
+                doc.invalid = None;
+                true
+            }
+            Err(invalid) => {
+                log::warn!(
+                    "editor: {}'s scene.json does not parse, so it was not saved or reloaded: {}",
+                    doc.name,
+                    invalid.message
+                );
+                if let Some(index) = doc.tab_index(editor::SCENE_JSON) {
+                    doc.active = index;
+                }
+                if let Some(at) = &invalid.at {
+                    self.ui_state.editor.goto = Some((at.line, at.column));
+                }
+                doc.invalid = Some(invalid);
+                false
+            }
+        }
+    }
+
     /// Loads the Editor's scene again, the way Reload does: a scene that
     /// does not compile leaves the last good one playing.
     fn editor_reload(&mut self) {
@@ -3046,7 +3077,7 @@ impl Running {
                     let _ = self.editor_save();
                 }
                 Action::EditorSaveReload => {
-                    if self.editor_save() {
+                    if self.editor_check() && self.editor_save() {
                         self.editor_reload();
                     }
                 }

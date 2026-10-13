@@ -285,6 +285,15 @@ checked and not committed. Interaction was driven with xdotool.
   tests, the `ui::shell_tests` scenario "editor open with an unsaved edit",
   and [images/perform/editor-1440x900.png](images/perform/editor-1440x900.png)
   (Xvfb). Not yet: typing through a real window manager, the T480.
+- [x] Error columns and the `scene.json` check (D263): on Mesa a compile
+  error names `main.glsl:<line>:<column>` on the user's text, through the
+  assembler's rewrites and Mesa's whitespace folding, and the Editor's "Go
+  to" puts the cursor there; Save and reload refuses a `scene.json` the
+  loader would refuse, writing and reloading nothing. Evidence: the render
+  test `a_compile_error_names_the_users_column_when_the_driver_gives_one`
+  (llvmpipe), `assemble` and `editor.rs` tests, the shell scenario "editor
+  refused a reload, scene.json does not parse". Not yet: the T480, whose
+  drivers give no column.
 
 Read [UI_DESIGN.md](UI_DESIGN.md),
 [UI_IMPLEMENTATION_PLAN.md](UI_IMPLEMENTATION_PLAN.md),

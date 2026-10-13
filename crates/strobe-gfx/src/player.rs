@@ -332,9 +332,12 @@ impl ScenePlayer {
                         &def,
                         extras,
                         &vertex,
-                        &source,
+                        Fragment {
+                            source: &source,
+                            user_code: scene.shader_for(index),
+                            file: scene.file_for(index),
+                        },
                         index,
-                        scene.file_for(index),
                     )?);
                     if !specialise {
                         shared = Some(Rc::clone(&compiled));
@@ -1125,21 +1128,32 @@ impl ScenePlayer {
     }
 }
 
+/// One pass's fragment shader: what the driver compiles, and what the user
+/// wrote, for error messages.
+#[derive(Clone, Copy)]
+struct Fragment<'a> {
+    /// The assembled shader.
+    source: &'a str,
+    /// The pass's code as the scene holds it (includes expanded).
+    user_code: &'a str,
+    /// The file it came from, relative to the scene folder.
+    file: &'a str,
+}
+
 /// Compiles and links one pass program and resolves its locations.
 fn build_program(
     gl: &Gl,
     def: &SceneDef,
     extras: &[(String, ExtraType)],
     vertex: &crate::gl::Shader,
-    source: &str,
+    fragment: Fragment<'_>,
     pass: usize,
-    file: &str,
 ) -> Result<Compiled, PlayerError> {
     let fragment = gl
-        .compile(Stage::Fragment, source)
+        .compile(Stage::Fragment, fragment.source)
         .map_err(|log| PlayerError::Program {
             pass,
-            message: describe_log(&log, file),
+            message: describe_log(&log, fragment),
         })?;
     let program = gl
         .link(vertex, &fragment)
@@ -1200,17 +1214,36 @@ fn build_program(
 }
 
 /// A driver log with user-code locations rewritten as `file:N`, `file`
-/// being the pass's shader (`main.glsl`, or its `PASS_SOURCES` entry).
-fn describe_log(log: &str, file: &str) -> String {
+/// being the pass's shader (`main.glsl`, or its `PASS_SOURCES` entry), or
+/// `file:N:C` when the driver gives a column (Mesa does). The column is put
+/// back on the user's line, since the assembler's rewrites move columns
+/// but never lines ([`assemble::original_column`]); it is left out when
+/// either line cannot be found.
+fn describe_log(log: &str, fragment: Fragment<'_>) -> String {
+    let file = fragment.file;
     log.lines()
         .filter(|line| !line.trim().is_empty())
         .map(|line| match assemble::map_error_line(line) {
-            Some(ErrorSite::User(n)) => format!("{file}:{n}: {}", line.trim()),
+            Some(ErrorSite::User(n)) => match user_column(line, n, fragment) {
+                Some(column) => format!("{file}:{n}:{column}: {}", line.trim()),
+                None => format!("{file}:{n}: {}", line.trim()),
+            },
             Some(ErrorSite::Generated) => format!("(generated): {}", line.trim()),
             None => line.trim().to_string(),
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// The column on the user's line `line` that the driver's log line points
+/// at, when the driver names a column.
+fn user_column(log_line: &str, line: u32, fragment: Fragment<'_>) -> Option<u32> {
+    use assemble::source;
+    let column = assemble::driver_column(log_line)?;
+    let compiled = assemble::source_line(fragment.source, source::PREAMBLE, source::USER, line)?;
+    let original = assemble::source_line(fragment.user_code, source::USER, source::USER, line)?;
+    let column = assemble::compiled_column(compiled, column);
+    Some(assemble::original_column(original, compiled, column))
 }
 
 /// Sampling state for a pass's wrap and filter settings.

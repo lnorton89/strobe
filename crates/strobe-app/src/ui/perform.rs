@@ -148,8 +148,8 @@ pub fn banners(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mu
         };
         widgets::banner(ui, theme, Tone::Error, &message, |ui| {
             if widgets::button(ui, theme, None, "Open in Editor").clicked() {
-                if let Some((_, line)) = crate::editor::error_location(failure.summary) {
-                    model.ui.editor.goto = Some(line);
+                if let Some(at) = crate::editor::error_location(failure.summary) {
+                    model.ui.editor.goto = Some((at.line, at.column));
                 }
                 actions.push(Action::OpenEditor(Some(failure.scene.to_owned())));
             }

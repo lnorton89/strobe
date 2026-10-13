@@ -5000,3 +5000,62 @@ tests.
 (it is one pass over two entries a scene), or an operator wanting presets
 of scenes that are not playing, which would need the presets of every
 scene read in advance.
+
+### D263: errors carry the user's column where Mesa gives one, and a reload checks scene.json first (2026-10-13)
+
+U-02 left two things: the Editor showed lines only, and Save and reload
+wrote a broken `scene.json` and then failed the scene on it.
+
+- **A column only where the driver gives one.** Mesa writes `1:14(3)`,
+  line 14 and column 3. NVIDIA's `1(14)` and the `ERROR: 1:14:` of ANGLE,
+  AMD and Intel give a line only, so on the T480 (Intel or ANGLE) the
+  Editor still goes to the line alone. Nothing is guessed.
+- **The column is put back on the user's line, in `strobe-gfx`.** A
+  driver's column does not count the user's text, for two reasons, both
+  found on llvmpipe:
+  - Mesa counts its preprocessor's output, in which every run of spaces,
+    tabs and comments is one space, leading indentation included.
+    `    return x;` has `return` at column 2.
+    (`assemble::compiled_column`).
+  - The assembler rewrites the user's code (`promote`, `fixups`,
+    `directives`) keeping lines but not columns: `float x = 1;` compiles
+    as `float x = 1.0;`. The text the two lines share at their start keeps
+    its columns, the text they share at their end keeps its distance from
+    the end, and a column inside the rewritten stretch goes to that
+    stretch's start (`assemble::original_column`).
+
+  Only the player has both texts (`assemble::source_line` finds the line
+  through the `#line` directives in each), so `describe_log` writes
+  `main.glsl:2:35: 1:2(34): error: ...`. Everything that reads `file:line`
+  still does, and `editor::error_location` reads the column when it is
+  there. Macro expansion moves Mesa's columns too, and is not undone.
+- **Save and reload checks `scene.json` first.** The Editor's text is
+  parsed by `SceneDef::parse` after the loader's newline handling
+  (`editor::check_scene_json`), so it passes exactly when the loader's
+  parse would. If it fails, nothing is written and nothing is reloaded:
+  the scene on screen and its health are untouched. The Editor switches
+  to `scene.json` with the cursor on the parser's line and column, and
+  shows the message with a "Go to line, column" button. The refusal clears
+  when `scene.json` is edited or reverted. A JSON syntax or type error has
+  a place; a value the loader refuses (an unknown control `TYPE`) has a
+  message only.
+- **Plain Save still writes.** Save is how an operator keeps work in
+  progress, and it does not touch the show. Only Save and reload reaches
+  the show, so only it is guarded.
+
+**Evidence:** `strobe-scene` `assemble` tests
+(`only_mesas_format_gives_a_column`,
+`a_source_line_is_found_through_line_directives`,
+`mesas_column_counts_runs_of_blanks_as_one`,
+`a_rewritten_lines_column_goes_back_to_the_users_text`), the headless
+render test `a_compile_error_names_the_users_column_when_the_driver_gives_one`
+(llvmpipe: a rewritten, indented line points at the user's column),
+`editor.rs` tests (`a_column_is_read_when_the_message_has_one`,
+`a_line_and_column_find_their_offset_within_the_line`,
+`scene_json_is_checked_as_the_loader_reads_it`,
+`a_doc_is_checked_by_its_scene_json_tab`), and the shell scenario
+"editor refused a reload, scene.json does not parse" at every size.
+
+**Would reopen:** a driver other than Mesa giving columns, whose
+preprocessor may count differently; or wanting Save itself to refuse a
+broken `scene.json`.

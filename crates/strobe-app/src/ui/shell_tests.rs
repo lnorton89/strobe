@@ -106,6 +106,9 @@ struct Scenario {
     lan: bool,
     /// The command palette is open with this typed (D262).
     palette: Option<&'static str>,
+    /// The Editor refused a Save and reload: its `scene.json` does not
+    /// parse (D263).
+    editor_invalid: bool,
     panes: &'static [Pane],
 }
 
@@ -134,6 +137,7 @@ const BASE: Scenario = Scenario {
     density: crate::ui::theme::Density::Comfortable,
     lan: false,
     palette: None,
+    editor_invalid: false,
     panes: &[Pane::Inspector],
 };
 
@@ -169,6 +173,12 @@ fn scenarios() -> Vec<Scenario> {
             name: "editor open with an unsaved edit",
             failed: true,
             panes: &[Pane::Editor, Pane::Inspector],
+            ..BASE
+        },
+        Scenario {
+            name: "editor refused a reload, scene.json does not parse",
+            editor_invalid: true,
+            panes: &[Pane::Editor],
             ..BASE
         },
         Scenario {
@@ -691,6 +701,18 @@ fn draw_events(
         .transpose()?;
     let generated = scenario.generated.then(sample_generated);
     let mut editor_doc = scenario.panes.contains(&Pane::Editor).then(sample_doc);
+    if scenario.editor_invalid
+        && let Some(doc) = editor_doc.as_mut()
+    {
+        if let Some(tab) = doc.tabs.get_mut(1) {
+            tab.text = "{ \"TITLE\": \"Aurora\"\n  \"WIDTH\": 640 }".to_string();
+        }
+        doc.invalid = doc.check().err();
+        assert!(
+            doc.invalid.is_some(),
+            "the sample scene.json must not parse"
+        );
+    }
     let generate_panel = GeneratePanel {
         running: scenario.generating.then_some(("01-scene-0", 12.0)),
         outcome: generated.as_ref(),
