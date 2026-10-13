@@ -435,6 +435,44 @@ on the machine. What it settled is recorded in Q23 and D234:
   and output 9000;
 - MIDI mappings as `midi_mappings.json`, with no MIDI-only export.
 
+## A 30-minute soak with a scene change every 10 s (2026-10-13, commit 9215858, Task T19)
+
+The release build ran a playlist over all 12 library scenes (10 s cues
+with 2 s crossfades, looping), on live audio, with the output shown, for
+31 minutes, then closed through a window message.
+
+| | first | last 20 minutes | end |
+|---|---|---|---|
+| working set | rising to 145 MB | 145.1-145.6 MB (+0.2 MB per 10 min) | 145.6 MB |
+| private bytes | 250-288 MB as scenes change | no trend (+0.12 MB per 10 min) | |
+| handles | 421 | 421 | 421 |
+
+- **Cues:** 186 started and 185 transitions ran, each scene about 15
+  times, the scripted one included. No shader compiled after loading.
+- **Log:** no warning or error; 90.8 KB at the end, 2.9 KB a minute.
+- **Exit:** a clean close in 0.14 s, code 0, with nothing in `crashes\`.
+- **Frames:** 59.9-60 fps, with 0-4 late frames a minute.
+- **Pacer:** the control window's pacer went to 10 Hz once and came back
+  to 30 Hz 0.6 s later. This is the first time the way back (D216) has
+  been seen.
+
+## Synesthesia's media documentation (2026-10-13, Task T21, M-01)
+
+Read from `ssf/json.html`, `ssf/standard_uniforms.html`,
+`ssf/functions.html`, `manual/controls.html` and `faq/video.html` (there
+is no SSF index page). Recorded in Q22:
+- **`MEDIA`** is one slot with `WRAP` (default `repeat`) and `FILTER`
+  (default `linear`) only; the operator picks the file.
+- **`syn_MediaType`** is 0 none, 1 image, 2 video, 3 webcam. NDI and Spout
+  have no documented value.
+- **`IMAGES`** is `{NAME, PATH}`.
+- **`CUBEMAPS`** is `{NAME, PATHS}` in GL face order, with no orientation
+  stated.
+- **Undocumented:** the helpers real scenes use (`_loadUserImage`,
+  `_ratioFix`, `_exists`).
+- **Passes:** `FLOAT` passes are documented as 32-bit; Strobe's default
+  stays 16-bit (D13).
+
 ## Pending on this machine
 
 - [x] Re-run 07 at 1080p and 2160p after D191: same size (T2).
