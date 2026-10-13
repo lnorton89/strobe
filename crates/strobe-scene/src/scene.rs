@@ -179,6 +179,11 @@ pub struct SceneDef {
     pub transition_uniforms: Vec<TransitionUniform>,
     /// The scene's own `syn_Media` picture, if it names one.
     pub media: Option<MediaDef>,
+    /// How media the operator chooses is sampled: the `MEDIA` slot's
+    /// `WRAP` and `FILTER`, which default to repeat and linear as SSF
+    /// documents (M-01). A scene with media of its own samples the chosen
+    /// media as it does its own.
+    pub media_sampling: (Wrap, Filter),
     /// One shader file per pass (the final pass last), relative to the
     /// scene folder, when the scene sets `PASS_SOURCES`. `None` means every
     /// pass runs `main.glsl`, as in SSF. When present it has exactly
@@ -259,6 +264,7 @@ impl SceneDef {
         }
 
         let media = raw.media.as_ref().map(media_def).transpose()?.flatten();
+        let media_sampling = media_sampling(raw.media.as_ref())?;
         let pass_sources = match &raw.pass_sources {
             None => None,
             Some(files) => {
@@ -303,6 +309,7 @@ impl SceneDef {
             cubemaps,
             transition_uniforms,
             media,
+            media_sampling,
             pass_sources,
             source,
             tags: raw
@@ -448,6 +455,23 @@ fn media_def(raw: &RawMedia) -> Result<Option<MediaDef>, SceneError> {
             .map_err(|v| bad("FILTER", v))?,
         vflip: options.vflip.unwrap_or(true),
     }))
+}
+
+/// How the operator's media is sampled in a scene whose `MEDIA` key is
+/// `raw` (see [`SceneDef::media_sampling`]).
+fn media_sampling(raw: Option<&RawMedia>) -> Result<(Wrap, Filter), SceneError> {
+    let (options, wrap) = match raw {
+        None => return Ok((Wrap::Repeat, Filter::Linear)),
+        Some(RawMedia::Path(_)) => (RawMediaOptions::default(), Wrap::Clamp),
+        Some(RawMedia::Full(options)) => (options.clone(), Wrap::Clamp),
+        Some(RawMedia::Slots(slots)) => (slots.first().cloned().unwrap_or_default(), Wrap::Repeat),
+    };
+    let bad =
+        |key: &str, value: String| SceneError::invalid(format!("MEDIA: unknown {key} `{value}`"));
+    Ok((
+        parse_wrap(options.wrap.as_deref(), wrap).map_err(|v| bad("WRAP", v))?,
+        parse_filter(options.filter.as_deref(), Filter::Linear).map_err(|v| bad("FILTER", v))?,
+    ))
 }
 
 /// Validates one listed pass.
@@ -766,6 +790,36 @@ mod tests {
             "s",
         );
         assert!(bad.is_err(), "an unknown image wrap is an error");
+        Ok(())
+    }
+
+    #[test]
+    fn chosen_media_is_sampled_as_the_media_slot_says() -> Result<()> {
+        let sampling = |json: &str| SceneDef::parse(json, "s").map(|def| def.media_sampling);
+        assert_eq!(
+            sampling("{}")?,
+            (Wrap::Repeat, Filter::Linear),
+            "SSF's defaults with no MEDIA key"
+        );
+        assert_eq!(
+            sampling(r#"{ "MEDIA": [ { "WRAP": "mirror", "FILTER": "mipmap" } ] }"#)?,
+            (Wrap::Mirror, Filter::Mipmap),
+            "Synesthesia's slot form"
+        );
+        assert_eq!(
+            sampling(r#"{ "MEDIA": [ {} ] }"#)?,
+            (Wrap::Repeat, Filter::Linear),
+            "an empty slot"
+        );
+        assert_eq!(
+            sampling(r#"{ "MEDIA": "pics/a.png" }"#)?,
+            (Wrap::Clamp, Filter::Linear),
+            "as the scene's own picture"
+        );
+        assert!(
+            sampling(r#"{ "MEDIA": [ { "WRAP": "spiral" } ] }"#).is_err(),
+            "an unknown wrap in a slot is an error"
+        );
         Ok(())
     }
 

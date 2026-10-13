@@ -537,7 +537,16 @@ impl ScenePlayer {
     /// already showing or on its way does nothing, so a host can call this
     /// at every cue without restarting a decode (D217).
     pub fn choose_media(&mut self, choice: Option<MediaRequest>) {
-        let wanted = choice.or_else(|| self.scene_media.clone());
+        // The operator's media is sampled as the scene's `MEDIA` slot says.
+        let (wrap, filter) = self.def.media_sampling;
+        let wanted = match choice {
+            Some(request) => Some(MediaRequest {
+                wrap,
+                filter,
+                ..request
+            }),
+            None => self.scene_media.clone(),
+        };
         if wanted.as_ref() == self.media_request() {
             return;
         }

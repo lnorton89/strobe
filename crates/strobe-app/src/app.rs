@@ -3324,6 +3324,7 @@ impl Running {
     /// applies its preset.
     fn recall_fav(&mut self, slot: usize) {
         let Some(fav) = self.remote.favs.get(slot).cloned() else {
+            log::info!("fav slot {} is empty: nothing recalled", slot + 1);
             self.say(Tone::Info, format!("Fav slot {} is empty.", slot + 1));
             return;
         };

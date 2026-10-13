@@ -206,7 +206,7 @@
 ## Epic M — Media and transitions
 
 ### M-01 SSF media/cubemap specification audit
-- **Status:** Open.
+- **Status:** Audited against SSF's documentation (TORNADO T21, Q22; D238). Matches: `IMAGES {NAME, PATH}`, `CUBEMAPS {NAME, PATHS}` in GL face order, `syn_MediaType` 0 none / 1 image, `MEDIA` as a slot with `WRAP`/`FILTER`. Fixed: media the operator chooses is now sampled with the slot's `WRAP`/`FILTER`, defaulting to repeat/linear as SSF documents (it was always clamp). Divergences kept: Strobe's own `MEDIA` path form (a scene's own picture or sequence); video (2), webcam (3), NDI and Spout are not inputs (M-04). Left: cube-face orientation against a real Synesthesia render (undocumented); the undocumented user-media helpers (`_loadUserImage` and family) that eight real scenes use.
 - **Work:** compare MEDIA, CUBEMAPS and syn_MediaType handling against authoritative SSF docs and representative scenes; verify cubemap orientation and image slot semantics.
 - **Acceptance:** fixtures cover each documented shape; supported, degraded and unsupported forms are written down; malformed assets fail visibly without crashing the show.
 
