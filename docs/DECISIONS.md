@@ -4244,3 +4244,26 @@ and reconnects, and never a second transition on top of one in progress.
 **Would reopen:** real sets where the gap or the tempo rules misfire (the
 thresholds are first estimates), a DJ-mix case worth spectral novelty, or a
 player whose gaps are under 0.8 s.
+
+### D238: chosen media is sampled as the scene's MEDIA slot says (2026-10-13)
+
+M-01 audited Strobe's media and cube-map handling against SSF's own
+documentation, which TORNADO read (T21). Almost everything already matched
+(Q22). One thing did not: SSF's `MEDIA` key is a slot whose only settings
+are `WRAP` (default `repeat`) and `FILTER` (default `linear`), and they
+apply to whatever media the operator puts in it. Strobe accepted the slot
+(D193) but dropped its settings, and sampled chosen media with clamp
+always.
+
+- **`SceneDef::media_sampling`** is the slot's `WRAP` and `FILTER` (repeat
+  and linear when absent or when the scene has no `MEDIA` key, as SSF
+  says).
+- **`Player::choose_media`** applies it to the operator's request. A scene
+  with a picture of its own (Strobe's path form) samples chosen media as
+  it samples its own: clamp unless it says otherwise.
+- **An unknown `WRAP` or `FILTER` in a slot** is a load error, as it is
+  everywhere else in `scene.json`.
+
+**Would reopen:** a real scene whose edges look different from Synesthesia
+because of the repeat default, which would mean Synesthesia does not
+follow its own documentation here.
