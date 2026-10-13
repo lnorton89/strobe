@@ -80,6 +80,10 @@ Settings > Keyboard changes any of them.
 - **Presets** (in the Controls pane): save the current look under a name,
   recall it later or from a controller. A preset saved while a picture is
   chosen for `syn_Media` remembers it.
+- **EDIT** opens the scene's files. *Save* writes them and the show keeps
+  what it has; *Save and reload* writes them and loads the scene again.
+  If `scene.json` would not load, *Save and reload* writes nothing and
+  shows the error with a button to its line and column.
 
 ## Audio
 
@@ -287,7 +291,8 @@ Everything Strobe writes lives in `%LOCALAPPDATA%\strobe`:
 - **The DIAG pane** shows the GPU, the backend, frame timing and recent
   failures with their reasons, without opening a file.
 - **A scene fails to load:** a red banner names the error and offers *Open
-  in Editor* at the line; the show keeps the previous scene.
+  in Editor* at the line (and the column, on drivers that give one); the
+  show keeps the previous scene.
 - **Strobe stops:** a dialog names the log. The crash report and minidump
   are in `crashes\`. Send the `.txt`, the `.dmp` and the session log with
   a bug report; the maintainer turns the dump into function names with the
