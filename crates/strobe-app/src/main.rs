@@ -72,7 +72,12 @@ fn main() -> ExitCode {
             // the log and the dialog, as for any other startup failure. The
             // log is flushed here because this path returns before `run`'s.
             let _ = error.print();
-            report_failure(&error.to_string(), false, session.log_file.as_deref());
+            report_failure(
+                Subsystem::Arguments,
+                &error.to_string(),
+                false,
+                session.log_file.as_deref(),
+            );
             strobe_diag::logger::flush(FLUSH_TIMEOUT);
             return ExitCode::FAILURE;
         }
@@ -102,6 +107,7 @@ fn main() -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(Stopped { error, after_start }) => {
             report_failure(
+                Subsystem::Context,
                 &format!("{error:#}"),
                 after_start,
                 session.log_file.as_deref(),
@@ -175,14 +181,19 @@ fn run(cli: cli::Cli) -> Result<(), Stopped> {
 /// Records a failure and shows it where the person will see it. A failure
 /// after the windows opened (a context that could not be recovered, say)
 /// is the app stopping, not a failed start, and the record says which.
-fn report_failure(message: &str, after_start: bool, log_file: Option<&std::path::Path>) {
+fn report_failure(
+    subsystem: Subsystem,
+    message: &str,
+    after_start: bool,
+    log_file: Option<&std::path::Path>,
+) {
     let (phase, action) = if after_start {
         ("run", "Strobe stopped")
     } else {
         ("startup", "Strobe did not start")
     };
     failure::report(
-        Failure::new(Subsystem::Context, phase)
+        Failure::new(subsystem, phase)
             .message(message)
             .action(action),
     );
