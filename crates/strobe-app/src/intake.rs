@@ -26,10 +26,15 @@
 //!   keeps running, and a banner then says how many were added, already
 //!   there or refused (D235). At most [`MAX_PACK`] scenes are taken.
 //!
+//! A **watched folder** ([`Inbox`], `--watch-folder`) takes the same route
+//! without a drop: a scene folder or a folder of scenes that appears in it
+//! is added to the library as a pack is, and nothing plays (D240).
+//!
 //! Anything else is refused with a sentence saying what can be dropped.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 /// The most scenes taken from one dropped folder of scenes.
 pub const MAX_PACK: usize = 500;
@@ -208,6 +213,142 @@ pub fn copy_scene(from: &Path, library: &Path) -> Result<PathBuf, String> {
             Err(error)
         }
     }
+}
+
+/// A watched folder: scenes that appear in it go to the library (D240).
+///
+/// Polled every [`Inbox::EVERY`] seconds from the frame loop: one
+/// `read_dir` and, for an entry not yet taken, a bounded walk that sums its
+/// files. An entry is taken once its sum (files, bytes, newest time) is the
+/// same on two polls in a row, so a folder still being copied in is left
+/// until the copy has finished. What was there when watching began is
+/// never taken: turning the watch on does not import the folder's past.
+#[derive(Debug)]
+pub struct Inbox {
+    dir: PathBuf,
+    since: f32,
+    /// Entries already taken, or there at the start, or not scenes.
+    done: HashSet<PathBuf>,
+    /// Entries seen on the last poll, with their sums.
+    seen: HashMap<PathBuf, Sum>,
+}
+
+/// What a folder holds, enough to tell that it stopped changing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Sum {
+    files: u64,
+    bytes: u64,
+    newest: Option<SystemTime>,
+}
+
+impl Inbox {
+    /// Seconds between polls.
+    pub const EVERY: f32 = 2.0;
+
+    /// The most files walked to sum one entry; past it the entry is not a
+    /// scene a person dropped there.
+    const MAX_WALK: u64 = 10_000;
+
+    /// Watches `dir`, leaving alone what is in it now.
+    pub fn new(dir: PathBuf) -> Self {
+        let done = entries(&dir).into_iter().collect();
+        Self {
+            dir,
+            since: 0.0,
+            done,
+            seen: HashMap::new(),
+        }
+    }
+
+    /// The watched folder.
+    pub fn dir(&self) -> &Path {
+        &self.dir
+    }
+
+    /// Counts `dt`; every [`Inbox::EVERY`] seconds, polls and returns the
+    /// scene folders that have settled since the last poll (a folder of
+    /// scenes gives its scenes), in name order.
+    pub fn poll(&mut self, dt: f32) -> Vec<PathBuf> {
+        if dt.is_finite() && dt > 0.0 {
+            self.since += dt;
+        }
+        if self.since < Self::EVERY {
+            return Vec::new();
+        }
+        self.since = 0.0;
+        self.check()
+    }
+
+    /// One poll, now.
+    fn check(&mut self) -> Vec<PathBuf> {
+        let mut taken = Vec::new();
+        let mut seen = HashMap::new();
+        for entry in entries(&self.dir) {
+            if self.done.contains(&entry) {
+                continue;
+            }
+            let Some(sum) = sum(&entry) else {
+                continue;
+            };
+            if self.seen.get(&entry) != Some(&sum) {
+                seen.insert(entry, sum);
+                continue;
+            }
+            match classify(&entry) {
+                Dropped::Scene(dir) => taken.push(dir),
+                Dropped::Pack(scenes) => taken.extend(scenes),
+                Dropped::Shadertoy | Dropped::Playlist | Dropped::Media | Dropped::Unknown(_) => {
+                    log::info!(
+                        "watched folder: {} is not a scene; left alone",
+                        entry.display()
+                    );
+                }
+            }
+            self.done.insert(entry);
+        }
+        self.seen = seen;
+        taken
+    }
+}
+
+/// The entries directly inside `dir`, in name order.
+fn entries(dir: &Path) -> Vec<PathBuf> {
+    let mut paths: Vec<PathBuf> = std::fs::read_dir(dir)
+        .map(|read| read.filter_map(Result::ok).map(|e| e.path()).collect())
+        .unwrap_or_default();
+    paths.sort();
+    paths
+}
+
+/// The files under `path` (or `path` itself), summed; `None` past
+/// [`Inbox::MAX_WALK`] files or when nothing can be read.
+fn sum(path: &Path) -> Option<Sum> {
+    let mut total = Sum {
+        files: 0,
+        bytes: 0,
+        newest: None,
+    };
+    let mut stack = vec![path.to_path_buf()];
+    while let Some(next) = stack.pop() {
+        let meta = std::fs::symlink_metadata(&next).ok()?;
+        if meta.is_dir() {
+            stack.extend(
+                std::fs::read_dir(&next)
+                    .ok()?
+                    .filter_map(Result::ok)
+                    .map(|e| e.path()),
+            );
+            continue;
+        }
+        total.files += 1;
+        total.bytes += meta.len();
+        let modified = meta.modified().ok();
+        total.newest = total.newest.max(modified);
+        if total.files > Inbox::MAX_WALK {
+            return None;
+        }
+    }
+    Some(total)
 }
 
 /// Whether two paths are the same folder (also through links or `..`).
@@ -488,6 +629,40 @@ mod tests {
             !pack.step(&library, |_| false),
             "an empty pack does nothing"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn a_watched_folder_takes_new_scenes_once_they_settle_and_leaves_the_old() -> Result<()> {
+        let scratch = Scratch::new("inbox")?;
+        let inbox_dir = scratch.0.join("inbox");
+        scene(&inbox_dir.join("old.synScene"))?;
+        let mut inbox = Inbox::new(inbox_dir.clone());
+
+        scene(&inbox_dir.join("new.synScene"))?;
+        std::fs::write(inbox_dir.join("notes.txt"), "x")?;
+        assert!(inbox.check().is_empty(), "first sight: not yet settled");
+        // Still being copied: it changes between polls.
+        std::fs::write(inbox_dir.join("new.synScene/more.glsl"), "// more")?;
+        assert!(inbox.check().is_empty(), "it changed: wait again");
+        let taken = inbox.check();
+        assert_eq!(
+            taken,
+            vec![inbox_dir.join("new.synScene")],
+            "settled: taken, and the old scene and the note are not"
+        );
+        assert!(inbox.check().is_empty(), "taken once");
+
+        let pack = inbox_dir.join("pack");
+        scene(&pack.join("a.synScene"))?;
+        scene(&pack.join("b.synScene"))?;
+        inbox.check();
+        assert_eq!(
+            inbox.check(),
+            vec![pack.join("a.synScene"), pack.join("b.synScene")],
+            "a folder of scenes gives its scenes"
+        );
+        assert!(inbox.poll(0.5).is_empty(), "polls only every two seconds");
         Ok(())
     }
 }

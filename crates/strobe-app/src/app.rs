@@ -571,6 +571,10 @@ struct Running {
     pending_cue_import: Option<(crate::show::edit::At, String)>,
     /// A dropped folder of scenes still being added (D235).
     pack: Option<intake::Pack>,
+    /// The watched folder, if one was given (D240).
+    inbox: Option<intake::Inbox>,
+    /// When the inbox was last polled.
+    inbox_polled: Instant,
     gl_summary: String,
     audio: AudioInput,
     mouse: MouseTracker,
@@ -854,6 +858,19 @@ impl Running {
             drop_hint: None,
             pending_cue_import: None,
             pack: None,
+            inbox: cli.watch_folder.clone().and_then(|dir| {
+                if dir.is_dir() {
+                    log::info!("watching {} for new scenes", dir.display());
+                    Some(intake::Inbox::new(dir))
+                } else {
+                    log::warn!(
+                        "--watch-folder {}: not a folder; not watching",
+                        dir.display()
+                    );
+                    None
+                }
+            }),
+            inbox_polled: Instant::now(),
             gl_summary,
             audio: AudioInput::new(cli.audio == AudioArg::Auto),
             mouse: MouseTracker::default(),
@@ -1299,6 +1316,7 @@ impl Running {
             self.refresh_monitors(event_loop);
         }
         self.drain_imports();
+        self.poll_inbox(now);
         self.step_pack();
         self.poll_generate();
         if now >= self.next_output {
@@ -2280,6 +2298,29 @@ impl Running {
                 );
                 self.say(Tone::Warning, format!("Could not add the scene: {why}."));
             }
+        }
+    }
+
+    /// Takes the scenes that have settled in the watched folder into the
+    /// pack queue (D240).
+    fn poll_inbox(&mut self, now: Instant) {
+        let Some(inbox) = self.inbox.as_mut() else {
+            return;
+        };
+        let dt = now.duration_since(self.inbox_polled).as_secs_f32();
+        self.inbox_polled = now;
+        let scenes = inbox.poll(dt);
+        if scenes.is_empty() {
+            return;
+        }
+        log::info!(
+            "watched folder: {} new scene(s) in {}",
+            scenes.len(),
+            inbox.dir().display()
+        );
+        match self.pack.as_mut() {
+            Some(pack) => pack.extend(scenes),
+            None => self.pack = Some(intake::Pack::new(scenes)),
         }
     }
 

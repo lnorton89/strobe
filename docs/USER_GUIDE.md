@@ -70,7 +70,8 @@ Settings > Keyboard changes any of them.
   pointing `--library` at their folder, or by dropping a scene folder on
   the window (it is copied into the library). Dropping a folder *of* scene
   folders adds them all without playing any; a banner says how many were
-  added.
+  added. `strobe.exe --watch-folder <folder>` does the same for scene
+  folders copied into that folder while Strobe runs.
 - **Needs work** (a LIB filter, and a list in DIAG) shows the scenes that
   failed to load this run, each with its reason.
 - **Controls** shows the playing scene's sliders, colours and buttons.

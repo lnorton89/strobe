@@ -197,6 +197,11 @@ pub struct Cli {
     /// `show-control.json` in the data directory.
     #[arg(long, value_name = "FILE")]
     pub show_control: Option<PathBuf>,
+    /// Watch this folder: a scene folder (or a folder of scenes) that
+    /// appears in it is added to the library, and nothing plays (D240).
+    /// What is in it at launch is left alone.
+    #[arg(long, value_name = "DIR")]
+    pub watch_folder: Option<PathBuf>,
 }
 
 /// Parses `1280x720`.
@@ -373,6 +378,17 @@ mod tests {
             "path"
         );
         assert!(cli.no_resume, "no resume");
+        Ok(())
+    }
+
+    #[test]
+    fn a_watched_folder_is_off_unless_named() -> Result<()> {
+        assert!(
+            Cli::try_parse_from(["strobe"])?.watch_folder.is_none(),
+            "off by default"
+        );
+        let cli = Cli::try_parse_from(["strobe", "--watch-folder", "inbox"])?;
+        assert_eq!(cli.watch_folder, Some(PathBuf::from("inbox")), "named");
         Ok(())
     }
 
