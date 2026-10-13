@@ -4287,3 +4287,28 @@ its table could be read as the scripted scene's real cost.
 
 **Would reopen:** a need to compare a script's own CPU cost across commits,
 which would belong in the corpus harness as a per-scene script time.
+
+### D240: a watched folder feeds the pack queue, by polling, and plays nothing (2026-10-13)
+
+I-02's last open piece is a drop folder that imports on its own.
+
+- **`--watch-folder <dir>`, off by default.** It is a run option, not a
+  setting yet: a folder that imports by itself should be chosen on
+  purpose.
+- **Polled, like the playlist watcher.** `intake::Inbox` polls every 2 s
+  from the frame loop, with no watcher crate or thread (the reason the
+  playlist watch polls, D158). Each poll is one `read_dir`, plus a bounded
+  walk (10,000 files) of each entry not yet taken.
+- **Settled before taken.** An entry is taken when its file count, bytes
+  and newest time are the same on two polls in a row, so a folder still
+  being copied waits. What was in the folder when watching began is never
+  taken.
+- **Into D235's queue.** A scene folder, or a folder of scenes, joins the
+  pack queue: copied into the library a scene a frame, already-there
+  skipped, nothing played, one banner at the end. Anything else (a
+  `.json`, pictures, a playlist) is logged and left, because an import
+  that started playing would change the show unasked.
+
+**Would reopen:** wanting Shadertoy exports from the folder too (they
+would need an import that does not play), or a Settings field so the
+folder persists.
