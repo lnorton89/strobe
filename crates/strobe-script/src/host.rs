@@ -215,6 +215,10 @@ impl Globals {
                 object: handle,
             });
         }
+        // `syn_PrimeBang` is read by real scripts as a trigger (Q25). What
+        // fires it in Synesthesia is not known yet, so it never fires here:
+        // a script that tests it keeps running instead of throwing.
+        globals.set("syn_PrimeBang", 0.0_f64)?;
         let mut mouse = Vec::new();
         for (name, keys) in [
             ("_mouse", &["x", "y", "z", "w"][..]),
