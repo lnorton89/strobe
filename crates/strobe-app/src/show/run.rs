@@ -926,7 +926,7 @@ impl Show {
                 }
             }),
         };
-        let Some(session) = incoming else {
+        let Some(mut session) = incoming else {
             log::error!(
                 "playlist: cue {} has no scene to play; skipping it",
                 index + 1
@@ -934,6 +934,11 @@ impl Show {
             self.clock.mark_failed(index);
             return;
         };
+        // The operator's output settings carry over, under whatever the
+        // cue, its preset or the scene's script set (D207).
+        if let Some(live) = env.active.as_ref() {
+            session.meta.carry_unchanged_from(&live.meta);
+        }
         let previous = env.active.replace(session);
         let previous_scene = self.active_scene.replace(scene);
         if let (Some(session), Some(scene)) = (previous, previous_scene) {
@@ -943,8 +948,12 @@ impl Show {
 
     fn prepare_active(&self, session: &mut Session, index: usize, start_time: f32) {
         // Keep the picture (a restart should not flash black), start the
-        // clock over and apply the cue's settings.
+        // clock over and apply the cue's settings. The output settings carry
+        // over as they do between scenes (D207); one copy per cue, not per
+        // frame.
+        let before = session.meta.clone();
         self.prepare(session, index, start_time);
+        session.meta.carry_unchanged_from(&before);
     }
 
     /// Returns a session to the cache, its targets cut down to nothing.

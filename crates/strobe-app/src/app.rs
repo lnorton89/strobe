@@ -1598,6 +1598,13 @@ impl Running {
                 if let Some(path) = &self.media_override {
                     session.player.set_media(MediaRequest::for_path(path));
                 }
+                // The operator's output settings carry over (D207).
+                if let Some(old) = self.stack.session.as_ref() {
+                    let taken = session.meta.carry_unchanged_from(&old.meta);
+                    if taken > 0 {
+                        log::info!("meta: {taken} output setting(s) carried over");
+                    }
+                }
                 self.stack.session = Some(session);
                 self.playing = Some(index);
                 self.ui_state.last_scene.clone_from(&entry.name);

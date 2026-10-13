@@ -23,11 +23,13 @@ from a lost GL context.
   "Playlists").
 - **The meta controls work (D180-D184).** The live session's meta bank drives
   the output post stage (master, invert, brightness, gamma, contrast, hue,
-  saturation, mirrors) through `strobe_gfx::Post`, run in `App::apply_post`
+  saturation, mirrors, Limit Colors) through `strobe_gfx::Post`, run in `App::apply_post`
   after the compositor and **skipped entirely at neutral**; its reactivity and
   audio speed multiply the Audio panel's gains (`AudioInput::set_meta_gains`);
-  and the inspector's "Output (meta)" section edits them. Blackout is separate
-  and applied after the post stage (D181).
+  and the inspector's "Output (meta)" section edits them. They carry across
+  scene changes and cues, under whatever the new scene's preset, cue or
+  script sets (D207). Blackout is separate and applied after the post stage
+  (D181).
 - **Show control (D170-D179).** `Remote` owns the MIDI and OSC workers and
   the mapper; `Running::drain_remote` runs once per scene frame before the
   scene advances and writes the live session's banks through `ControlBank`;

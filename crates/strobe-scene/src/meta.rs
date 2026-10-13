@@ -12,7 +12,9 @@
 //! In Synesthesia the meta controls sit beside a scene's own controls and
 //! apply to the whole output rather than to one scene: master level,
 //! invert, brightness, gamma, contrast, hue, saturation, vertical and
-//! horizontal mirror, reactivity and audio speed (`docs/PLAN.md` §1.6). A
+//! horizontal mirror, reactivity, audio speed and Limit Colors (a toggle
+//! and two colours; `docs/PLAN.md` §1.6). Alpha Channel waits for an output
+//! that carries alpha (D207). A
 //! script reaches them by a `meta/` prefix or `bank: "meta"` on
 //! `setControl` and its relatives.
 //!
@@ -26,7 +28,7 @@
 //! **Who reads them.** [`MetaValues::read`] snapshots the bank into a plain
 //! `Copy` struct each frame without allocating. The renderer's output post
 //! stage (`strobe_gfx::post`, D180) applies master, invert, brightness,
-//! gamma, contrast, hue, saturation and the two mirrors; the audio path
+//! gamma, contrast, hue, saturation, Limit Colors and the two mirrors; the audio path
 //! applies reactivity and audio speed (D184). See D160, D180 and Q21 for
 //! what is unverified (the ranges below are Strobe's choice, not
 //! Synesthesia's).
@@ -53,7 +55,10 @@ const DEFINITIONS: &str = r#"[
     { "NAME": "vertical_mirror", "TYPE": "toggle", "DEFAULT": 0, "UI_GROUP": "mirror" },
     { "NAME": "horizontal_mirror", "TYPE": "toggle", "DEFAULT": 0, "UI_GROUP": "mirror" },
     { "NAME": "reactivity", "TYPE": "slider", "MIN": 0.0, "MAX": 2.0, "DEFAULT": 1.0, "UI_GROUP": "audio" },
-    { "NAME": "audio_speed", "TYPE": "slider", "MIN": 0.0, "MAX": 2.0, "DEFAULT": 1.0, "UI_GROUP": "audio" }
+    { "NAME": "audio_speed", "TYPE": "slider", "MIN": 0.0, "MAX": 2.0, "DEFAULT": 1.0, "UI_GROUP": "audio" },
+    { "NAME": "limit_colors", "TYPE": "toggle", "DEFAULT": 0, "UI_GROUP": "limit colors" },
+    { "NAME": "limit_low", "TYPE": "color", "DEF_COLOR": [0.0, 0.0, 0.0], "UI_GROUP": "limit colors" },
+    { "NAME": "limit_high", "TYPE": "color", "DEF_COLOR": [1.0, 1.0, 1.0], "UI_GROUP": "limit colors" }
 ]"#;
 
 /// Positions in [`DEFINITIONS`], which is a fixed list; a test pins each to
@@ -70,6 +75,9 @@ mod slot {
     pub(super) const HORIZONTAL_MIRROR: usize = 8;
     pub(super) const REACTIVITY: usize = 9;
     pub(super) const AUDIO_SPEED: usize = 10;
+    pub(super) const LIMIT_COLORS: usize = 11;
+    pub(super) const LIMIT_LOW: usize = 12;
+    pub(super) const LIMIT_HIGH: usize = 13;
 }
 
 /// How far from its neutral value a number may be and still count as
@@ -105,6 +113,13 @@ pub struct MetaValues {
     pub reactivity: f32,
     /// Gain on audio clocks (applied by the audio path).
     pub audio_speed: f32,
+    /// Remap the picture's luma onto a gradient from `limit_low` to
+    /// `limit_high` (Synesthesia's "Limit Colors", a two-colour remap).
+    pub limit_colors: bool,
+    /// The colour luma 0 becomes.
+    pub limit_low: [f32; 3],
+    /// The colour luma 1 becomes.
+    pub limit_high: [f32; 3],
 }
 
 impl Default for MetaValues {
@@ -121,6 +136,9 @@ impl Default for MetaValues {
             horizontal_mirror: false,
             reactivity: 1.0,
             audio_speed: 1.0,
+            limit_colors: false,
+            limit_low: [0.0; 3],
+            limit_high: [1.0; 3],
         }
     }
 }
@@ -136,6 +154,13 @@ impl MetaValues {
                 .unwrap_or(fallback)
         };
         let flag = |index: usize| value(index, 0.0) >= 0.5;
+        let colour = |index: usize, fallback: [f32; 3]| {
+            bank.output(index)
+                .and_then(|values| values.get(..3))
+                .and_then(|rgb| <[f32; 3]>::try_from(rgb).ok())
+                .filter(|rgb| rgb.iter().all(|c| c.is_finite()))
+                .unwrap_or(fallback)
+        };
         let neutral = Self::default();
         Self {
             master: value(slot::MASTER, neutral.master),
@@ -149,6 +174,9 @@ impl MetaValues {
             horizontal_mirror: flag(slot::HORIZONTAL_MIRROR),
             reactivity: value(slot::REACTIVITY, neutral.reactivity),
             audio_speed: value(slot::AUDIO_SPEED, neutral.audio_speed),
+            limit_colors: flag(slot::LIMIT_COLORS),
+            limit_low: colour(slot::LIMIT_LOW, neutral.limit_low),
+            limit_high: colour(slot::LIMIT_HIGH, neutral.limit_high),
         }
     }
 
@@ -165,6 +193,7 @@ impl MetaValues {
             && near(self.saturation, 1.0)
             && !self.vertical_mirror
             && !self.horizontal_mirror
+            && !self.limit_colors
     }
 }
 
@@ -187,7 +216,7 @@ mod tests {
     #[test]
     fn the_definitions_validate_and_names_are_distinct() -> Result<()> {
         let bank = bank()?;
-        assert_eq!(bank.defs().len(), 11, "the documented set");
+        assert_eq!(bank.defs().len(), 14, "the documented set");
         for name in [
             "Master",
             "Vertical Mirror",
@@ -214,6 +243,9 @@ mod tests {
             (slot::HORIZONTAL_MIRROR, "horizontal_mirror"),
             (slot::REACTIVITY, "reactivity"),
             (slot::AUDIO_SPEED, "audio_speed"),
+            (slot::LIMIT_COLORS, "limit_colors"),
+            (slot::LIMIT_LOW, "limit_low"),
+            (slot::LIMIT_HIGH, "limit_high"),
         ] {
             assert_eq!(bank.find(name), Some(slot), "`{name}` sits at slot {slot}");
         }
@@ -249,6 +281,58 @@ mod tests {
         assert!(!values.horizontal_mirror, "the other mirror is untouched");
         assert_eq!(values.master, 0.5, "master");
         assert!(!values.post_is_neutral(), "something changed");
+        Ok(())
+    }
+
+    #[test]
+    fn a_new_bank_carries_what_it_has_not_set_itself() -> Result<()> {
+        let mut live = bank()?;
+        let set = |bank: &mut ControlBank, name: &str, value: f32| -> Result<()> {
+            let index = bank.find(name).ok_or_else(|| anyhow!("no `{name}`"))?;
+            bank.set(index, None, &[value]);
+            Ok(())
+        };
+        set(&mut live, "master", 0.0)?;
+        set(&mut live, "hue", 0.3)?;
+        set(&mut live, "saturation", 1.5)?;
+        live.tick(1.0);
+
+        let mut incoming = bank()?;
+        // The incoming scene's preset or cue asked for its own saturation.
+        set(&mut incoming, "saturation", 0.5)?;
+        let taken = incoming.carry_unchanged_from(&live);
+        incoming.tick(1.0 / 60.0);
+        let values = MetaValues::read(&incoming);
+        assert_eq!(taken, 2, "master and hue");
+        assert_eq!(values.master, 0.0, "a faded-out master stays out");
+        assert_eq!(
+            values.hue, 0.3,
+            "the operator's hue carries, already smoothed"
+        );
+        assert_eq!(values.saturation, 0.5, "what the new scene set wins");
+        Ok(())
+    }
+
+    #[test]
+    fn limit_colors_reads_its_two_colours_and_only_counts_when_on() -> Result<()> {
+        let mut bank = bank()?;
+        let low = bank
+            .find("Limit Low")
+            .ok_or_else(|| anyhow!("no limit_low"))?;
+        bank.set(low, None, &[0.2, 0.0, 0.4]);
+        bank.tick(1.0);
+        let values = MetaValues::read(&bank);
+        assert_eq!(values.limit_low, [0.2, 0.0, 0.4], "the colour is read");
+        assert!(
+            values.post_is_neutral(),
+            "a colour alone changes nothing while the toggle is off"
+        );
+        let on = bank
+            .find("limit colors")
+            .ok_or_else(|| anyhow!("no toggle"))?;
+        bank.set(on, None, &[1.0]);
+        bank.tick(1.0);
+        assert!(!MetaValues::read(&bank).post_is_neutral(), "on is a change");
         Ok(())
     }
 
