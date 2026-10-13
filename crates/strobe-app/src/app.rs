@@ -103,6 +103,7 @@ use crate::fault::{self, Faults};
 use crate::generate;
 use crate::gldebug;
 use crate::import::{self, Input, Outcome};
+use crate::intake;
 use crate::library::{Health, Library};
 use crate::localtime::LocalDate;
 use crate::mouse::{Button, MouseTracker};
@@ -561,6 +562,8 @@ struct Running {
     /// before the next window is made current. An experiment for TORNADO's
     /// make-current wait (D216, T15), read once at startup.
     finish_after_swap: bool,
+    /// What the file hovering over a window would do if dropped (D218).
+    drop_hint: Option<String>,
     gl_summary: String,
     audio: AudioInput,
     mouse: MouseTracker,
@@ -827,6 +830,7 @@ impl Running {
             perf_log: PerfWindow::default(),
             control_pacer: ControlPacer::default(),
             finish_after_swap: finish_after_swap(),
+            drop_hint: None,
             gl_summary,
             audio: AudioInput::new(cli.audio == AudioArg::Auto),
             mouse: MouseTracker::default(),
@@ -1394,12 +1398,15 @@ impl Running {
         }
         let is_control = id == self.stack.control.window().id();
         let is_output = id == self.stack.output.window().id();
-        if matches!(event, WindowEvent::HoveredFile(_)) {
+        if let WindowEvent::HoveredFile(path) = &event {
             self.import_state.drop_hover = true;
+            self.drop_hint = Some(intake::hint(&intake::classify(path)));
         } else if matches!(event, WindowEvent::HoveredFileCancelled) {
             self.import_state.drop_hover = false;
+            self.drop_hint = None;
         } else if let WindowEvent::DroppedFile(path) = &event {
             self.import_state.drop_hover = false;
+            self.drop_hint = None;
             self.dropped(path);
         }
         if let WindowEvent::Resized(size) = &event {
@@ -2160,23 +2167,57 @@ impl Running {
 
     // ------------------------------------------------------ Shadertoy import
 
-    /// A file dropped on a window: queue it if it is a `.json` export.
+    /// A file or folder dropped on a window, sent where it belongs
+    /// (`intake::classify`, D218): the import worker, the playlist loader,
+    /// `syn_Media`, or the library.
     fn dropped(&mut self, path: &std::path::Path) {
-        let is_json = path
-            .extension()
-            .is_some_and(|ext| ext.eq_ignore_ascii_case("json"));
-        if is_json {
-            log::info!("dropped {}", path.display());
-            self.submit_import(Input::Text(path.display().to_string()), false);
-        } else {
-            let name = path.file_name().map_or_else(
-                || path.display().to_string(),
-                |n| n.to_string_lossy().into_owned(),
-            );
-            log::warn!("dropped {name}: only exported Shadertoy .json files can be imported");
-            self.import_state.status = import::Status::Failed(format!(
-                "Only an exported Shadertoy .json file can be imported, not {name}."
-            ));
+        let kind = intake::classify(path);
+        log::info!("dropped {} ({kind:?})", path.display());
+        match kind {
+            intake::Dropped::Shadertoy => {
+                self.submit_import(Input::Text(path.display().to_string()), false);
+            }
+            intake::Dropped::Playlist => {
+                self.ui_state.panes.open(Pane::Playlist);
+                self.load_playlist(path);
+            }
+            intake::Dropped::Media => self.set_media(Some(path.to_path_buf())),
+            intake::Dropped::Scene(dir) => self.dropped_scene(&dir),
+            intake::Dropped::Unknown(why) => {
+                log::warn!("dropped {}: {why}", path.display());
+                self.say(Tone::Warning, why);
+            }
+        }
+    }
+
+    /// Plays a dropped scene folder: from where it is if the library has
+    /// it, else copied into the library first, the way an import lands.
+    fn dropped_scene(&mut self, dir: &std::path::Path) {
+        let same = |a: &std::path::Path, b: &std::path::Path| {
+            a == b
+                || matches!(
+                    (std::fs::canonicalize(a), std::fs::canonicalize(b)),
+                    (Ok(x), Ok(y)) if x == y
+                )
+        };
+        if let Some(index) = self.library.entries.iter().position(|e| same(&e.dir, dir)) {
+            self.load(index);
+            return;
+        }
+        match intake::copy_scene(dir, &self.library.dir) {
+            Ok(landed) => {
+                log::info!("copied {} into the library", landed.display());
+                self.show_imported(&landed);
+            }
+            Err(why) => {
+                failure::report(
+                    Failure::new(Subsystem::Io, "drop")
+                        .path(dir)
+                        .message(&why)
+                        .action("nothing was added to the library"),
+                );
+                self.say(Tone::Warning, format!("Could not add the scene: {why}."));
+            }
         }
     }
 
@@ -3520,6 +3561,7 @@ impl Running {
                 tone: n.tone,
                 text: &n.text,
             }),
+            drop_hint: self.drop_hint.as_deref(),
             transport,
             console: &self.console,
             stats: &self.stats,

@@ -147,7 +147,7 @@
 - **Acceptance:** record one successful import through the browser userscript and one API-by-ID attempt on Windows; if the external API is blocked, record the exact response and preserve the browser route as supported.
 
 ### I-02 File drop and import UX
-- **Status:** Open.
+- **Status:** Partly done (D218). Built: a drop on either window goes where it belongs (scene folder to the library and played, `.toml` to the playlist loader, a picture or folder of pictures to `syn_Media`, `.json` to the Shadertoy import), and a banner says what the hovering file would do. Left: a real OS drag on Windows and X11 by a person, the Needs-work bin, batch import, a watched drop folder, and attribution metadata.
 - **Work:** test actual OS drag/drop on Windows and X11; add thumbnails, a Needs-work bin, richer conversion diagnostics, batch import and an optional watched drop folder.
 - **Acceptance:** file-drop and typed-path paths share the same import pipeline; broken imports remain visible with actionable reasons; original source, attribution and license metadata survive.
 

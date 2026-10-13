@@ -155,6 +155,10 @@ checked and not committed. Interaction was driven with xdotool.
   software rasterisation and says nothing).
 - [x] Named layouts (D215), saved in Settings and applied from Settings or
   the palette. Evidence: `ui::state` and `command_palette` tests.
+- [x] Dropped files routed by kind (D218): scene folder, playlist,
+  picture or picture folder, Shadertoy export; a scene from outside the
+  library is copied in, never over one already there. Evidence:
+  `intake` tests. Not yet: a real OS drag on Windows or X11 by a person.
 - [x] Choosing `syn_Media` in the Inspector and per cue (D217): a cue's
   media replaces the scene's own and the next cue gets it back, with no
   compile; choosing nothing returns a scene to its own picture or to black.

@@ -542,6 +542,8 @@ pub struct Model<'a> {
     pub failure: Option<FailurePanel<'a>>,
     /// A notice to show.
     pub notice: Option<NoticePanel<'a>>,
+    /// What the file hovering over the window would do if dropped (D218).
+    pub drop_hint: Option<&'a str>,
     /// The transport strip.
     pub transport: TransportPanel<'a>,
     /// Console lines.

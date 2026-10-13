@@ -3625,3 +3625,31 @@ playlist cue always played its scene's own `MEDIA` (backlog M-02).
 
 **Would reopen:** an operator wanting their chosen media remembered across
 launches, or a cue wanting media inherited from its section.
+
+### D218: a drop goes where it belongs, decided from the path alone (2026-10-13)
+
+A drop used to be a Shadertoy import or a refusal. Now `intake::classify`
+reads the path (and, for a folder, what is in it) and the app routes it:
+
+- **a scene folder** (one with `main.glsl`, or a dropped `scene.json` or
+  `main.glsl` standing for its folder): played. One already in the library
+  plays from where it is; one from elsewhere is copied in first
+  (`intake::copy_scene`), as Synesthesia's import does, then the library is
+  rescanned and it loads, the same path a finished Shadertoy import takes.
+  A name the library already has is refused, never merged or overwritten.
+  The copy is bounded (2000 files, 256 MB), refuses symbolic links, and a
+  copy that fails part-way is removed. It runs on the UI thread because
+  scenes are small; the bound is what keeps a mistaken drop of a big folder
+  from freezing the window.
+- **a `.toml` file**: loaded as a playlist, with the LIST pane opened.
+- **a picture, or a folder of pictures**: shown behind `syn_Media`, exactly
+  as the Inspector's Choose does (D217).
+- **any other `.json`**: the Shadertoy import, as before.
+- **anything else**: a notice saying what can be dropped.
+
+While a file hovers, a banner above the preview says what dropping it will
+do, so a drop is never a surprise. Several files dropped at once arrive one
+by one (winit sends one event each), so the last picture wins for media.
+
+**Would reopen:** a scene folder too big for the UI thread to copy, or a
+person expecting a drop of a scene to link to it rather than copy it.

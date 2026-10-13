@@ -40,7 +40,10 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
             .color(theme::rgb(theme.text)),
     );
     if panel.drop_hover {
-        ui.colored_label(theme::rgb(theme.accent), "Drop the .json file to import it");
+        ui.colored_label(
+            theme::rgb(theme.accent),
+            "Drop an exported .json to import it",
+        );
     }
     ui.add_space(SPACE_XS);
     ui.horizontal(|ui| {
