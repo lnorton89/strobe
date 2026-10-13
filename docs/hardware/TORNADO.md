@@ -93,11 +93,49 @@ the repo. Run on 1920x1080, with a window context, at release.
 - **D191 check:** 07 at 1080p and 2160p shows the same spot size and
   layout.
 
+## The 65 scenes again (2026-10-13, commit 40ee040, Tasks T4 and T5)
+
+The same scenes at release with a window context, after D193 to D198.
+Built from a detached worktree of `origin/master` under `target\tornado\`.
+
+- **Compiles:** 55 of 65 on native (49 at T3) and 38 of 65 on ANGLE (no
+  change). Newly passing on native: boreal, cinders, diffusion, dust,
+  exoplanet_dup and panspermia. Their tiles look right, except diffusion,
+  which is black because it is built from a user image the bench does not
+  have.
+- **Native failures (10):**
+  - 4 fail only on script-created uniforms, because the bench runs no
+    scripts. `cargo xtask corpus` runs them.
+  - 2: `syn_pass_edgeDetectSobel` returns a `float` in Synesthesia, and
+    the scenes assign it to one. Ours returned `vec4`.
+  - 1: the one-argument `_correctImageCoords(textureSize(img, 0))`.
+  - 1: `float _ratioFix(float, float)`, called with the frame-to-image
+    ratio of each axis.
+  - 2: the scenes' own bugs (a missing `return`, a redeclared
+    `fragColor`).
+- **ANGLE-only failures (17):**
+  - 14: implicit int to float;
+  - 2: `#if` on a plain `float` global (`TUBE_SHAPE`, `SHAPE`), which
+    NVIDIA reads as 0;
+  - 1: `uniform vec2 mousePos = ...;`, which GLSL ES rejects.
+- **T5, call sites and the install** (read-only):
+  - Synesthesia's own release scenes document `syn_pass_edgeDetectSobel`
+    as `@returns {float}`.
+  - `_hueSaturationContrastLEGACY` is only called, never defined or
+    documented: `vec4 (vec4, float, float, float)`, from the call.
+  - `syn_PrimeBang` is read only by scripts, as a number compared with 0.5.
+  - The install's `lib\` documents none of these.
+- **Fixed by D199:** all three ANGLE causes and the four library forms.
+  **Not yet re-run.**
+- **Note:** ANGLE reported the `#if` errors at lines 122 to 224 where the
+  source has them at 243 to 593. Check this when re-running: a line offset
+  from an `#include` would be a bug in the `#line` mapping.
+
 ## Pending on this machine
 
 - [x] Re-run 07 at 1080p and 2160p after D191: same size (T2).
-- [ ] Re-run the 65 scenes after D193/D194, and after the user-media
-  library lands.
+- [x] Re-run the 65 scenes after D193/D194 (T4): 55 native, 38 ANGLE.
+- [ ] Re-run them after D199, native and ANGLE, plus `cargo xtask corpus`.
 - [ ] The app fullscreen at 2560x1440 with a playlist show, transitions and
   the post stage, against the T480's numbers.
 - [ ] A larger set of real Shadertoy shaders through NVIDIA's compiler
