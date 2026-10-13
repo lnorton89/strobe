@@ -70,11 +70,12 @@ Each item names its acceptance test. Evidence is in [STATUS_AUDIT.md](STATUS_AUD
      time, and Hold wired to it (the LIST pane is built, D157); ~~the Editor
      (EDIT) workspace~~ (built, D204) and a full Mappings workspace (the MAP pane with MIDI
      and OSC Learn is built, D177);
-   - the generated-controls review panel (item 4; started, D202);
+   - ~~the generated-controls review panel~~ (built: D202, and keep, drop
+     and re-range per control, D219);
      ~~"open the shader error in the Editor"~~ (built, D204);
-   - density (saved named layouts are built, D215; scene thumbnails from `IMAGE_PATH`
-     and favourites are built, D211 and D212; the command palette, Ctrl+K,
-     is built: D200);
+   - ~~density~~ (built, D220; saved named layouts, D215; scene thumbnails
+     from `IMAGE_PATH` or the live frame, D212 and D222; favourites, D211;
+     the command palette, Ctrl+K, D200);
    - on the T480 and real Windows: the custom title bar's drag, snap and
      resize and DPI behaviour, a maximised undecorated window against the
      taskbar, the UI's frame cost, and a Preview's cost (D132, D136).
@@ -116,10 +117,12 @@ Each item names its acceptance test. Evidence is in [STATUS_AUDIT.md](STATUS_AUD
    progress, a second player for warm-up, the transition compositor, the
    Playlist pane and generate card, the file watcher, resume every 5 s, the
    wall-clock anchor and live commands. *Left:*
-   - audio-event advance (`clock.audio_event()` needs Phase 7 detection);
+   - ~~audio-event advance~~ (built, D226: breakdowns and drops heard in
+     the raw energy; thresholds still to tune on real sets);
    - the Playlist **workspace** proper: ~~the selected cue's inheritance
-     inspector and its edits~~ (built, D213); multi-select edits, drag from
-     the library, pasted Shadertoy URLs (D157);
+     inspector and its edits~~ (built, D213); ~~multi-select edits, drag
+     from the library, pasted Shadertoy URLs, comment-keeping save~~
+     (built, D224, D229-D231);
    - ~~real tags in the scene format, so Generate can pick by tag~~ (built:
      Synesthesia's `TAGS`, D205);
    - ~~MIDI and OSC mapping of the cue commands~~ (built: commands, `Cue` jumps and fav slots are mapping targets, and `/strobe/cmd/<id>` and `/strobe/cue/<n>` need no mapping, D173);
@@ -334,15 +337,15 @@ never per frame.
 | 1 | Renderer, SSF, controls, output window | Done, with the Perform-first UI at stage 1 (D130-D138). Images, cube maps and `syn_Media` stills and sequences work (D185, D186); video and webcam do not. |
 | 2 | JavaScript API | Integrated (D62). `meta/` writes land in a meta bank (D160) that the output post stage and audio gains read (D180, D184); `textureFinalPass` is an asynchronous readback (D162); late uniforms are refused (D161). |
 | 3 | Audio | Integrated (D61). The bench still uses the synthetic stand-in. |
-| 4 | Shadertoy import | The converter (D90-D95), acquisition (REST client, texture downloader, localhost listener), the Import panel, file drop and the userscript (D110-D117) are built, and stage 1 of auto-generated controls (D123-D126). Open: live-site verification (Q19), thumbnails, the Needs-work bin, batch import, and the app's review panel for generated controls. |
-| 5 | Playlists | The pure core (D73-D77) and the app integration (D150-D158) are built. Verified on the T480 (Task 14). Open: audio-event advance, the Playlist workspace's inspector, MIDI/OSC. |
-| 6 | Presets, MIDI, OSC, hotkeys | Built (D170-D179): `strobe-io`, presets and fav slots, the MAP pane, macros stage 2, hotkeys. Open: a controller on the T480, MIDI output (OSC feedback is built, D209), a shortcut and smoothing per macro (the range and colour editor is built, D210). |
+| 4 | Shadertoy import | The converter (D90-D95), acquisition (REST client, texture downloader, localhost listener), the Import panel, file drop and the userscript (D110-D117) are built, auto-generated controls with their review in the app (D123-D126, D202, D219), drops routed by kind (D218) and a URL on a playlist cue (D229). Open: live-site verification (Q19), the Needs-work bin, batch import. |
+| 5 | Playlists | The pure core (D73-D77), the app integration (D150-D158), cue editing with inheritance shown (D213), media per cue (D217), drag, disable, multi-select, URL import and comment-keeping save (D224, D229-D231), and audio-event advance (D226) are built. Verified on the T480 (Tasks 14, 26). Open: the downbeat detector (P-02), tuning audio events on real music. |
+| 6 | Presets, MIDI, OSC, hotkeys | Built (D170-D179): `strobe-io`, presets and fav slots, the MAP pane, macros stage 2, hotkeys, a hotkey editor (D208), OSC feedback (D209), macro reach and colour (D210), the preset media channel (D223), and a glide and a key per macro (D227, D228). Open: a controller on the T480, MIDI output. |
 | 7b | LAN remote / PWA | Protocol crate started in `strobe-remote`; no listener or UI integration yet. Next: secure service lifecycle, pairing/revocation, typed command bridge, mobile controller, then solve HTTPS before claiming installable PWA support. See [REMOTE_CONTROL_PWA_RESEARCH.md](REMOTE_CONTROL_PWA_RESEARCH.md). |
-| 7 | NDI, media input, song-change transitions | Not started, except media stills and image sequences (D186); video, webcam and NDI are open. `HARD`/`SMOOTH_TRANSITIONS` are declared but never change. |
+| 7 | NDI, media input, song-change transitions | Media stills and image sequences (D186), chosen in the Inspector, per cue and per preset (D217, D223), bounded by shrinking (D225); breakdown and drop detection feeds playlists (D226). Video, webcam and NDI are open. `HARD`/`SMOOTH_TRANSITIONS` are declared but never change. |
 
 ## Known gaps in what exists
 
-- The performer-facing UI is at stage 1 plus the Playlist pane (D157) and the MAP pane (D177) and the Editor (D204): named layouts and density are not built, and none of it has run on the T480 with real input.
+- The performer-facing UI is at stage 1 plus the Playlist pane (D157), the MAP pane (D177) and the Editor (D204), with named layouts (D215) and density (D220); little of it has been used on the T480 by a person with real input.
 - Context-loss recovery is verified under Xvfb with injected faults;
   real-driver behaviour on the T480 is pending (bug 1, D66).
 - The bench's `syn_Spectrum` and `syn_LevelTrail` are silent placeholders,
@@ -393,14 +396,15 @@ never per frame.
 
 The app plays playlists (D150-D158). Known gaps:
 
-- **Audio-event advance** (`drop`, `breakdown`) is parsed and shown but never
-  fires: nothing calls `clock.audio_event()` until Phase 7 detection exists.
+- **Audio-event advance** (`drop`, `breakdown`) fires from
+  `strobe_audio::events` (D226), tested on synthetic structure and the real
+  analyser, not yet on real music.
 - **A downbeat detector** (D75): a "bar" is counted from the beat grid's
   origin, so a beat-locked cue ends on a bar line of *that* grid.
-- **The Playlist pane is not yet the whole workspace UI_DESIGN section 13
-  describes**: one cue is edited at a time (D213), with no multi-select,
-  no drag from the library and no pasted-URL import. Save rewrites the
-  file from the model, so comments are lost.
+- **The Playlist pane** edits one cue or several (D213, D230), takes scenes
+  dragged from the library and Shadertoy URLs (D224, D229), and its save
+  keeps a hand-written file's comments (D231). Not yet timed against the
+  80-cue, two-minute acceptance by a person.
 - **Tags are edited for the playing scene only** (the Inspector), and the
   Generate form has no exclude field yet (D205).
 - **A cue's `preset` applies** (D176); `meta` overrides and presets reach
