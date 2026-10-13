@@ -133,6 +133,12 @@ checked and not committed. Interaction was driven with xdotool.
   second launch.
 - [x] Keyboard: Right, Left, B, F11, Ctrl+F, Esc; none fires while the search
   field has focus (typing "kal", then Right, changed nothing).
+- [x] Command palette (Ctrl+K, D200): runs a command by name, opens panes,
+  keeps unavailable commands listed with the reason, Esc and a second Ctrl+K
+  close it, and typing into it fires no shortcut. Evidence: headless egui
+  tests in `ui::shell_tests` that drive the real shell with key events, and
+  the Xvfb screenshot `docs/images/perform/palette-1440x900.png`. **Not
+  yet:** used by a person on Windows.
 - [x] Themes: every built-in theme passes the WCAG tests; the high-contrast
   and light themes were looked at.
 - [x] Every state at six window sizes fits its window, as headless egui tests

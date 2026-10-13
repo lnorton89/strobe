@@ -114,6 +114,7 @@ pub fn run(command: CommandId, model: &mut Model<'_>, actions: &mut Vec<Action>)
         CommandId::CloseTopmostPane => {
             let _ = model.ui.panes.close_topmost();
         }
+        CommandId::OpenPalette => model.ui.command_palette.toggle(),
     }
 }
 
@@ -136,6 +137,7 @@ mod tests {
             egui::Key::R,
             egui::Key::F,
             egui::Key::T,
+            egui::Key::K,
         ];
         for command in CommandId::ALL {
             let wanted = command.chord().key;

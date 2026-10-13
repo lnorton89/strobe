@@ -141,6 +141,10 @@ pub struct Cli {
     /// Search text to put in the scene browser at launch.
     #[arg(long, value_name = "TEXT")]
     pub browser_query: Option<String>,
+    /// Open the command palette at launch with this text typed (screenshots
+    /// of the palette; an empty string opens it empty).
+    #[arg(long, value_name = "TEXT")]
+    pub palette: Option<String>,
     /// Use this theme (by id, e.g. `high-contrast`) for this run instead of
     /// the saved one. The Settings pane changes and saves it.
     #[arg(long, value_name = "ID")]

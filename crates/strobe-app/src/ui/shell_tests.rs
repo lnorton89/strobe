@@ -364,11 +364,25 @@ fn sample_show(library: &Library) -> Result<crate::show::Show> {
 struct Drawn {
     ctx: egui::Context,
     actions: Vec<Action>,
+    /// Every frame's actions, in order.
+    all_actions: Vec<Action>,
     shapes: Vec<egui::epaint::ClippedShape>,
+    /// The panes open after the last frame.
+    open_panes: Vec<Pane>,
 }
 
 /// Draws `scenario` at `size` for `frames` frames.
 fn draw(scenario: Scenario, size: (f32, f32), frames: usize) -> Result<Drawn> {
+    draw_events(scenario, size, vec![Vec::new(); frames])
+}
+
+/// Draws `scenario` at `size`, one frame per entry of `frames`, each with
+/// its input events.
+fn draw_events(
+    scenario: Scenario,
+    size: (f32, f32),
+    frames: Vec<Vec<egui::Event>>,
+) -> Result<Drawn> {
     let ctx = egui::Context::default();
     crate::ui::theme::apply(&ctx, crate::palette::fallback());
     let library = Library {
@@ -432,9 +446,10 @@ fn draw(scenario: Scenario, size: (f32, f32), frames: usize) -> Result<Drawn> {
         .transpose()?;
     let mut shell_state = ShellState::default();
     let mut actions = Vec::new();
+    let mut all_actions = Vec::new();
     let mut shapes = Vec::new();
     let screen = Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(size.0, size.1));
-    for _ in 0..frames {
+    for events in frames {
         actions.clear();
         let mut model = Model {
             ui: &mut ui_state,
@@ -538,15 +553,22 @@ fn draw(scenario: Scenario, size: (f32, f32), frames: usize) -> Result<Drawn> {
         };
         let pass = crate::ui::testing::run(
             &ctx,
-            crate::ui::testing::input(screen.size(), Vec::new()),
+            crate::ui::testing::input(screen.size(), events),
             |ui| show(ui, &mut shell_state, &mut model, &mut actions),
         );
         shapes = pass.shapes;
+        all_actions.extend(actions.iter().cloned());
     }
+    let open_panes = Pane::ALL
+        .into_iter()
+        .filter(|pane| ui_state.panes.is_open(*pane))
+        .collect();
     Ok(Drawn {
         ctx,
         actions,
+        all_actions,
         shapes,
+        open_panes,
     })
 }
 
@@ -601,5 +623,155 @@ fn an_idle_frame_asks_for_no_actions() -> Result<()> {
             drawn.actions
         );
     }
+    Ok(())
+}
+
+/// A key press, with modifiers.
+fn press(key: egui::Key, modifiers: egui::Modifiers) -> egui::Event {
+    egui::Event::Key {
+        key,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers,
+    }
+}
+
+/// Ctrl+K.
+fn ctrl_k() -> egui::Event {
+    press(egui::Key::K, egui::Modifiers::COMMAND)
+}
+
+/// Typing `text`.
+fn typed(text: &str) -> egui::Event {
+    egui::Event::Text(text.to_owned())
+}
+
+/// Ctrl+K, then (a frame later, once the field has focus) `text`, then
+/// Enter, then a quiet frame.
+fn palette_run(text: &str) -> Vec<Vec<egui::Event>> {
+    vec![
+        vec![ctrl_k()],
+        Vec::new(),
+        vec![typed(text)],
+        vec![press(egui::Key::Enter, egui::Modifiers::NONE)],
+        Vec::new(),
+    ]
+}
+
+#[test]
+fn the_palette_runs_a_command_by_name() -> Result<()> {
+    let drawn = draw_events(BASE, (1440.0, 900.0), palette_run("black"))?;
+    assert_eq!(
+        drawn.all_actions,
+        vec![Action::SetBlackout(true)],
+        "Ctrl+K, \"black\", Enter is the same as pressing B"
+    );
+    Ok(())
+}
+
+#[test]
+fn typing_in_the_palette_never_fires_a_shortcut() -> Result<()> {
+    // B is Blackout and T is Tap tempo; typed into the palette they are
+    // letters, and the arrows move the highlight instead of the scene.
+    let frames = vec![
+        vec![ctrl_k()],
+        Vec::new(),
+        vec![
+            press(egui::Key::B, egui::Modifiers::NONE),
+            typed("b"),
+            press(egui::Key::T, egui::Modifiers::NONE),
+            typed("t"),
+            press(egui::Key::ArrowRight, egui::Modifiers::NONE),
+            press(egui::Key::ArrowDown, egui::Modifiers::NONE),
+        ],
+        Vec::new(),
+    ];
+    let drawn = draw_events(BASE, (1440.0, 900.0), frames)?;
+    assert!(
+        drawn.all_actions.is_empty(),
+        "nothing runs while typing; got {:?}",
+        drawn.all_actions
+    );
+    Ok(())
+}
+
+#[test]
+fn escape_closes_the_palette_and_gives_the_keyboard_back() -> Result<()> {
+    let frames = vec![
+        vec![ctrl_k()],
+        Vec::new(),
+        vec![typed("hold")],
+        vec![press(egui::Key::Escape, egui::Modifiers::NONE)],
+        Vec::new(),
+        vec![press(egui::Key::B, egui::Modifiers::NONE)],
+    ];
+    let drawn = draw_events(BASE, (1440.0, 900.0), frames)?;
+    assert_eq!(
+        drawn.all_actions,
+        vec![Action::SetBlackout(true)],
+        "Escape ran nothing, and B afterwards is a shortcut again"
+    );
+    assert_eq!(
+        drawn.open_panes,
+        vec![Pane::Inspector],
+        "Escape closed the palette, not the pane behind it"
+    );
+    Ok(())
+}
+
+#[test]
+fn ctrl_k_toggles_the_palette() -> Result<()> {
+    let frames = vec![
+        vec![ctrl_k()],
+        Vec::new(),
+        vec![ctrl_k()],
+        Vec::new(),
+        vec![press(egui::Key::B, egui::Modifiers::NONE)],
+    ];
+    let drawn = draw_events(BASE, (1440.0, 900.0), frames)?;
+    assert_eq!(
+        drawn.all_actions,
+        vec![Action::SetBlackout(true)],
+        "the second Ctrl+K closed it, so B is Blackout again"
+    );
+    Ok(())
+}
+
+#[test]
+fn an_unavailable_command_is_listed_but_does_not_run() -> Result<()> {
+    // BASE has no playlist, so Hold needs one.
+    let drawn = draw_events(BASE, (1440.0, 900.0), palette_run("hold"))?;
+    assert!(
+        drawn.all_actions.is_empty(),
+        "Hold without a playlist does nothing; got {:?}",
+        drawn.all_actions
+    );
+    let with_playlist = Scenario {
+        playlist: true,
+        ..BASE
+    };
+    let drawn = draw_events(with_playlist, (1440.0, 900.0), palette_run("hold"))?;
+    assert_eq!(
+        drawn.all_actions,
+        vec![Action::ToggleHold],
+        "with a playlist it runs"
+    );
+    Ok(())
+}
+
+#[test]
+fn the_palette_opens_panes_and_survives_an_empty_result() -> Result<()> {
+    let drawn = draw_events(BASE, (1440.0, 900.0), palette_run("show mappings"))?;
+    assert!(
+        drawn.open_panes.contains(&Pane::Map),
+        "the Mappings pane opened; open: {:?}",
+        drawn.open_panes
+    );
+    let drawn = draw_events(BASE, (640.0, 480.0), palette_run("qqqq"))?;
+    assert!(
+        drawn.all_actions.is_empty(),
+        "no match, and Enter on nothing does nothing"
+    );
     Ok(())
 }

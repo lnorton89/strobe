@@ -3009,3 +3009,35 @@ Left:
 
 **Would reopen:** a scene that compiled before this and does not after, or
 whose desktop frame changes.
+
+### D200: the command palette lists everything, runs through the shortcut's code, and owns the keyboard (2026-10-13)
+
+Ctrl+K opens a palette over the command table (UI_DESIGN section 25,
+backlog U-01). The choices:
+- **One path.** Choosing an entry calls `ui::keys::run`, the function its
+  shortcut calls. The palette cannot mean something different from the
+  key, and a command added to the table appears in it with no further work.
+- **Panes are entries too** ("Show Mappings"), so everything on the rail is
+  reachable by typing.
+- **Unavailable entries stay listed, with the reason** ("needs a playlist",
+  "only one scene"), and Enter on one does nothing. A palette that hides
+  commands teaches the operator they do not exist.
+- **It owns the keyboard while open,** passed to the shortcut dispatcher as
+  a modal, so `b` typed into it never blacks out the show. Escape, a click
+  outside it, or Ctrl+K again closes it. The replace-scene question
+  outranks it and closes it.
+- **Ranking** is a subsequence match: a title start beats a word start,
+  which beats anywhere, and fewer gaps win. Ties keep table order, so the
+  list does not reshuffle while typing. A match on the category ranks
+  below every title match.
+- `OpenPalette` is a control-window command. It is not mappable (MIDI and
+  OSC cannot open it) and does nothing in the output window.
+
+Evidence: `command_palette` unit tests (ranking, reasons, bindings), and
+`ui::shell_tests` driving the whole shell with real key events (run by
+name, typing fires nothing, Escape, toggle, unavailable, panes, empty).
+The screenshot is `docs/images/perform/palette-1440x900.png`.
+
+**Would reopen:** an operator who expects scenes and presets in it too;
+they would be more entry kinds, not a different design.
+

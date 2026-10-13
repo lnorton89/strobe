@@ -716,6 +716,9 @@ impl Running {
         if let Some(query) = &cli.browser_query {
             ui_state.browser.query.clone_from(query);
         }
+        if let Some(query) = &cli.palette {
+            ui_state.command_palette.open_with(query);
+        }
         let stack = Stack::open(
             event_loop,
             cli.gl.choice(),
@@ -3057,7 +3060,9 @@ fn command_action(command: CommandId, blackout: bool) -> Option<Action> {
         CommandId::ToggleBlackout => Some(Action::SetBlackout(!blackout)),
         CommandId::ToggleFullscreen => Some(Action::ToggleFullscreen),
         CommandId::TapTempo => Some(Action::TapTempo),
-        CommandId::FocusBrowserSearch | CommandId::CloseTopmostPane => None,
+        CommandId::FocusBrowserSearch | CommandId::CloseTopmostPane | CommandId::OpenPalette => {
+            None
+        }
     }
 }
 
@@ -3181,7 +3186,9 @@ mod tests {
             let action = command_action(command, false);
             let presentation = matches!(
                 command,
-                CommandId::FocusBrowserSearch | CommandId::CloseTopmostPane
+                CommandId::FocusBrowserSearch
+                    | CommandId::CloseTopmostPane
+                    | CommandId::OpenPalette
             );
             assert_eq!(
                 action.is_none(),
