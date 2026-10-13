@@ -108,7 +108,8 @@ pub fn draw(ctx: &Context, theme: &Palette, model: &mut Model<'_>, actions: &mut
         playing: model.controls.is_some(),
         generating: model.generate.running.is_some(),
     };
-    let all = items(model.remote.bindings, availability);
+    let layouts: Vec<String> = model.ui.layouts.keys().cloned().collect();
+    let all = items(model.remote.bindings, availability, &layouts);
     let just_opened = std::mem::take(&mut model.ui.command_palette.just_opened);
 
     // Consumed before the field is drawn, so it never sees Enter (which
@@ -213,7 +214,7 @@ pub fn draw(ctx: &Context, theme: &Palette, model: &mut Model<'_>, actions: &mut
         .and_then(|row| ranked.get(row))
         .and_then(|index| all.get(*index))
         .filter(|item| item.unavailable.is_none())
-        .map(|item| item.target)
+        .map(|item| item.target.clone())
     else {
         return;
     };
@@ -221,6 +222,9 @@ pub fn draw(ctx: &Context, theme: &Palette, model: &mut Model<'_>, actions: &mut
     match target {
         Target::Command(command) => keys::run(command, model, actions),
         Target::Pane(pane) => model.ui.panes.open(pane),
+        Target::Layout(name) => {
+            model.ui.apply_layout(&name);
+        }
     }
 }
 

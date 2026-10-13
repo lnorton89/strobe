@@ -117,6 +117,76 @@ pub struct Prefs {
     /// The library folder name of the scene last loaded, reopened at the
     /// next launch; empty for none.
     pub last_scene: String,
+    /// Named pane layouts the operator saved (D215).
+    pub layouts: BTreeMap<String, Layout>,
+}
+
+/// A named arrangement of panes (D215): which are open, in which order,
+/// and every pane's width.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Layout {
+    /// Panes by [`Pane::key`].
+    pub panes: BTreeMap<String, PanePref>,
+    /// Open panes, oldest first, by [`Pane::key`].
+    pub order: Vec<String>,
+}
+
+impl Layout {
+    /// The layout `panes` has now.
+    pub fn capture(panes: &Panes) -> Self {
+        Self {
+            panes: Pane::ALL
+                .into_iter()
+                .map(|pane| {
+                    (
+                        pane.key().to_string(),
+                        PanePref {
+                            open: panes.is_open(pane),
+                            width: panes.width(pane),
+                        },
+                    )
+                })
+                .collect(),
+            order: panes
+                .open_order()
+                .into_iter()
+                .map(|pane| pane.key().to_string())
+                .collect(),
+        }
+    }
+
+    /// The live pane state this layout describes. Unknown panes are ignored
+    /// and widths are clamped to the pane's range.
+    pub fn to_panes(&self) -> Panes {
+        let mut panes = Panes::default();
+        panes.close_all();
+        for (key, pref) in &self.panes {
+            if let Some(pane) = Pane::from_key(key)
+                && pref.width > 0.0
+            {
+                panes.set_width(pane, pref.width);
+            }
+        }
+        // Open oldest first so the newest ends up on top. A pane marked
+        // open but missing from `order` (a hand-edited file) opens first.
+        let mut to_open: Vec<Pane> = self
+            .panes
+            .iter()
+            .filter(|(_, pref)| pref.open)
+            .filter_map(|(key, _)| Pane::from_key(key))
+            .collect();
+        to_open.sort_by_key(|pane| {
+            self.order
+                .iter()
+                .position(|key| key == pane.key())
+                .map_or(0, |at| at + 1)
+        });
+        for pane in to_open {
+            panes.open(pane);
+        }
+        panes
+    }
 }
 
 /// Whether the custom title bar is on by default here (D132): on Windows
@@ -150,65 +220,29 @@ impl Prefs {
         browser: BrowserPref,
         collapsed_groups: Vec<String>,
     ) -> Self {
-        let map = Pane::ALL
-            .into_iter()
-            .map(|pane| {
-                (
-                    pane.key().to_string(),
-                    PanePref {
-                        open: panes.is_open(pane),
-                        width: panes.width(pane),
-                    },
-                )
-            })
-            .collect();
+        let layout = Layout::capture(panes);
         Self {
             version: VERSION,
             theme: theme.to_string(),
             custom_title_bar,
             reduced_motion,
-            panes: map,
-            order: panes
-                .open_order()
-                .into_iter()
-                .map(|pane| pane.key().to_string())
-                .collect(),
+            panes: layout.panes,
+            order: layout.order,
             browser,
             collapsed_groups,
             last_scene: String::new(),
+            layouts: BTreeMap::new(),
         }
     }
 
     /// The live pane state this file describes. Unknown panes are ignored
     /// and widths are clamped to the pane's range.
     pub fn to_panes(&self) -> Panes {
-        let mut panes = Panes::default();
-        panes.close_all();
-        for (key, pref) in &self.panes {
-            if let Some(pane) = Pane::from_key(key)
-                && pref.width > 0.0
-            {
-                panes.set_width(pane, pref.width);
-            }
+        Layout {
+            panes: self.panes.clone(),
+            order: self.order.clone(),
         }
-        // Open oldest first so the newest ends up on top. A pane marked
-        // open but missing from `order` (a hand-edited file) opens first.
-        let mut to_open: Vec<Pane> = self
-            .panes
-            .iter()
-            .filter(|(_, pref)| pref.open)
-            .filter_map(|(key, _)| Pane::from_key(key))
-            .collect();
-        to_open.sort_by_key(|pane| {
-            self.order
-                .iter()
-                .position(|key| key == pane.key())
-                .map_or(0, |at| at + 1)
-        });
-        for pane in to_open {
-            panes.open(pane);
-        }
-        panes
+        .to_panes()
     }
 
     /// Serialises to TOML text.
