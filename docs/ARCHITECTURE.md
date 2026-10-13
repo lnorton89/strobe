@@ -24,28 +24,26 @@ crates/
 ```
 
 (The localhost import listener stayed in `strobe-shadertoy`, D114. Presets and
-fav slots are in `strobe-scene::preset`, D176.)
+fav slots are in `strobe-scene::preset`, D176; tags in `strobe-scene::tags`,
+D205; OSC feedback in `strobe-io::feedback`, D209.)
 
 ### Dependency direction
 
 ```
-strobe-ssf-lib ◀── strobe-scene ◀── strobe-gfx ◀── strobe-app
-                        ▲   ▲                        │
-                        │   └── strobe-script ◀──────┤
-                        └────── strobe-audio  ◀──────┤
-                                strobe-playlist ◀────┤
-                                strobe-io       ◀────┘
+strobe-ssf-lib ◀── strobe-scene ◀── strobe-gfx ◀───────── strobe-app
+                        ▲   ▲   ▲                           │
+                        │   │   └── strobe-script ◀─────────┤
+                        │   └────── strobe-audio  ◀─────────┤
+                        └────────── strobe-io     ◀─────────┤  (midir, rosc; never strobe-gfx)
+                                    strobe-playlist ◀───────┤  (depends on no Strobe crate)
+                                    strobe-diag     ◀───────┤  (depends on no Strobe crate)
+strobe-scene ◀── strobe-shadertoy ◀─────────────────────────┤  (dev-dependency: strobe-gfx,
+                        ▲                                   │   for the render tests only)
+strobe-gfx ◀── strobe-autocontrol ◀─────────────────────────┘  (the app runs it in a worker
+                 (tokenizer and tab markers                     process, D202)
+                  of strobe-shadertoy)
 
-strobe-scene ◀── strobe-autocontrol ──▶ strobe-gfx   (nothing depends on it yet;
-strobe-shadertoy ◀──┘  (tokenizer only)                 scoring needs a GL context)
-
-strobe-scene ◀── strobe-io                (midir, rosc; never strobe-gfx)
-
-strobe-remote (serde protocol only; app/server integration is next)
-
-strobe-scene ◀── strobe-shadertoy         (nothing depends on it yet;
-                                           dev-dependency: strobe-gfx, for
-                                           the render tests only)
+strobe-remote (serde protocol only; nothing uses it yet)
 ```
 
 - `strobe-scene` knows nothing about GL, threads, or clocks: `dt` is
