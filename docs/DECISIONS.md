@@ -5691,7 +5691,7 @@ Evidence: native GL 3.3 and ANGLE GLES 3.0 rendered the scene at 1280x720
 on the RX 580; BENCHMARKS.md records timing and the first-draft delta.
 Revisit fidelity with the owner's feedback or the original network.
 
-### D280: a scene whose passes are root-sized absolute pixels renders its final pass at that size (2026-10-14)
+### D280: a scene that reads a root-sized absolute pass texel by texel renders its final pass at that size (2026-10-14)
 
 **Context.** Synesthesia's `neon_city` declares a root `WIDTH: 1920, HEIGHT:
 1080` and three FLOAT, nearest, clamped buffer passes of literally 1920x1080.
@@ -5706,67 +5706,116 @@ shrink, so GPU time stayed at 59 ms (59.4 ms at 1.0, 59.5 ms at 0.5) and
 the controller kept cutting for nothing.
 
 **Decision.**
-- **The pin.** When the scene writes both a root `WIDTH` and `HEIGHT` and a
-  buffer pass is a literal (absolute, D194; not `FIXED_SIZE: false`) size
-  exactly equal to them, the final pass is pinned to that size
-  (`SceneDef::pinned_size`, the final `PassDef`'s `fixed`). The default
-  1920x1080 does not count: it is a guess, not something the scene said.
-  The player then renders the final pass at the pinned size whatever the
-  host asks (`ScenePlayer::render_size` is what is drawn,
+- **The pin.** A scene's *frame size* is its root `WIDTH` x `HEIGHT` when
+  it writes both and a buffer pass has a literal (absolute, D194; not
+  `FIXED_SIZE: false`) size exactly equal to them (`SceneDef::frame_size`).
+  The default 1920x1080 does not count: it is a guess, not something the
+  scene said. The final pass is pinned to the frame size only when the
+  shader also reads such a pass texel by texel (`strobe_scene::pin`): a
+  `texelFetch` or `texelFetchOffset` whose sampler is a frame-sized pass,
+  or is not one of the scene's other samplers (a pass of another size, an
+  image, a cube map, a `syn_` texture), since a helper's `sampler2D`
+  parameter may be handed the frame (`neon_city` blurs through one). The
+  scan runs once, when the player is built, on the tokens of every pass
+  source and of every `#define` body, comments skipped and `#include`s
+  already expanded, so an Editor reload or a context rebuild decides it
+  afresh. The player then renders the final pass at the pinned size
+  whatever the host asks (`ScenePlayer::render_size` is what is drawn,
   `requested_size` what was asked), every `$WIDTH` pass follows it, and
   `_xy`, `_uv`, `RENDERSIZE` and the pass-size uniforms all describe the
   pinned size, so they stay consistent. Present, the post stage and the
   compositor already scale a frame of any size to the window, so the picture
-  fills the window (letterboxed if the window's aspect differs from the
-  scene's). A resize for such a scene only records the request: nothing is
-  reallocated and no feedback restarts.
-- **Why this rule.** The failure is a final pass smaller than a root-sized
-  absolute buffer. A scene that writes a root size and a buffer of exactly
-  that size is the only one that says "this buffer is the frame". Pinning on
-  any literal pass would also catch data passes (10x10) that nothing reads
-  with `_xy`. Pinning on shader text (`texelFetch`) was rejected: includes
-  hide it, and `texture(pass, _xy / vec2(1920.0, 1080.0))` breaks the same way.
+  fills the window (letterboxed by `present` if the window's aspect differs
+  from the scene's; stretched to the window's aspect while a playlist
+  crossfade runs, as the compositor samples both scenes by uv). A resize
+  for such a scene only records the request: nothing is reallocated and no
+  feedback restarts. Parking or warming it in a playlist keeps the final
+  pass at the pinned size.
+- **Why texel reads, not every root-sized literal pass.** The first draft
+  pinned all eleven of the 90 scenes with a root-sized literal pass. Nine
+  of those sample it by `_uv` (or by `_xy / RENDERSIZE`, which in each pass
+  is that pass's own size), which reads the whole buffer at any final-pass
+  size, so they drew correctly at every scale and the pin only cost them
+  the render-scale lever on their final pass, which is what keeps a heavy
+  scene playable on the HD 4000 and the venue's Vega 3 (`bouncy_hexagons`
+  was one of the slowest scenes on the T480). Only `texelFetch` takes
+  integer pixel coordinates, so it is the one read that goes wrong from a
+  smaller final pass. The first draft rejected a source test because
+  includes hide the call; they do not, as `SceneFolder::load` expands them
+  before anything reads the source. A scene computing uv from pixels itself
+  (`texture(pass, _xy / vec2(1920.0, 1080.0))`) would misread too and is
+  not caught; none of the 90 does it.
+- **Rejected: a scalable final pass with coordinates in frame pixels.**
+  Rendering the final pass small while `_xy` and `RENDERSIZE` describe the
+  frame would keep the lever, but needs a new uniform in both dialects'
+  assembly for every scene, and `texelFetch` at every second or fourth
+  texel aliases instead of averaging (`neon_city` is a noisy path trace).
+  For the two scenes pinned, it would also gain little: their buffers are
+  literal 1920x1080 under D194 and are most of their cost (59.4 ms against
+  59.5 ms at scales 1.0 and 0.5 on the RX 580).
+- **Buffer passes of a pinned scene.** The two pinned scenes have only
+  literal passes, which D194 keeps absolute at every scale, and no `$WIDTH`
+  pass that the scale could lower. Letting adaptive resolution shrink
+  literal passes is a D194 question, not reopened here.
 - **Adaptive resolution leaves a pinned scene at the ceiling** and says so
   once at the load (`perf.rs`). The scale cannot change what it draws or
   costs.
-- **A drop must pay for itself, for any scene.** After a drop, once the
-  cooldown has passed, the new smoothed GPU time is compared with the old.
-  A halving of the scale must cut it by at least 15% (`1 - 0.85^halvings`
-  for other drops, judged once the drop spans a quarter of a halving). If
-  it did not, the controller goes back to the scale it left, stops lowering
-  until the next scene load, and logs the two times. Raising still works. A
-  fixed cost under a scalable one stops the descent where the gains run out
-  instead of running to the floor. The price is one probe of about half a
-  second at the lower scale per such scene.
+- **A drop must pay for itself, for any scene.** After a drop the GPU time
+  is measured over the cooldown, leaving out its first 10 frames (the timer
+  queue still holds up to four frames drawn at the old size, and the first
+  frames at a new size pay for its new targets), and the mean of the other
+  20 is compared with the smoothed time before the drop. A halving of the
+  scale must cut it by at least 15% (`1 - 0.85^halvings` for other drops,
+  judged once the drop spans a quarter of a halving). If it did not, the
+  controller goes back to the scale it left and logs the two times. GPU
+  time follows the music too, and a heavy passage that starts just after a
+  drop hides what it saved, so one verdict only goes back up: lowering is
+  locked at that scale after two futile verdicts in a row, and a drop that
+  pays in between clears the count. The lock expires after 1800 frames (30
+  s at 60 Hz) so a scene whose cost changes, or a wrong verdict, gets
+  another try; one more futile probe locks it again for twice as long, up to
+  four minutes. A scene change lifts it. Raising always works. A fixed cost
+  under a scalable one stops the descent where the gains run out instead of
+  running to the floor. The price is two probes of half a second at the
+  lower scale per such scene, then one per expired lock, each a resize
+  that restarts feedback.
 
-**Cost.** Eleven of Synesthesia's 90 scenes meet the rule (`SkaiWalkerOG`,
-`audio_indicators`, `bouncy_hexagons`, `entombed_silicon_dreams`,
-`fractilian_foundation`, `hextunnel`, `logo_grid_pulses`, `neon_city`,
-`neuron_proximitors`, `thresholder`, `videofx_1`). Only `neon_city`,
-`entombed_silicon_dreams` and `neuron_proximitors` read a buffer with
-`texelFetch(..., ivec2(_xy ...))`; the rest sample by uv and look the same at
-any size, but are now final-passed at 1080p too, so the render scale no
-longer lightens them. Their buffers were already absolute (D194), so the
-final pass is the part that grew. A tighter rule (only scenes whose final
-pass fetches texels) can replace this one if a measurement on a slow GPU
-shows the cost.
+**Cost.** Two of Synesthesia's 90 scenes are pinned: `neon_city` and
+`entombed_silicon_dreams`. Their final pass is always 1920x1080. The nine
+other scenes with a root-sized literal pass (`SkaiWalkerOG`,
+`audio_indicators`, `bouncy_hexagons`, `fractilian_foundation`, `hextunnel`,
+`logo_grid_pulses`, `neuron_proximitors`, `thresholder`, `videofx_1`) are not
+pinned and keep the render-scale lever on their final pass, as before
+D280. `neuron_proximitors` was counted as a texel reader in the first draft,
+but the one such read of a frame-sized pass is in a comment; its live
+`texelFetch` calls read `BuffA`, a 5x512 data pass, which is absolute
+(D194) and right at any final-pass size.
 
-**Evidence.** `scene.rs`
-`a_literal_pass_at_the_root_size_pins_the_final_pass`; `render.rs`
+**Evidence.** `scene.rs` `a_literal_pass_at_the_root_size_is_the_scenes_frame`;
+`pin.rs` `a_texel_fetch_of_a_frame_sized_pass_pins_the_final_pass`,
+`sampling_by_uv_or_fetching_other_textures_leaves_the_final_pass_free`
+and two more; `render.rs`
 `a_final_pass_reading_a_root_sized_literal_pass_covers_it_at_any_render_scale`
 (an original fixture in both dialects: the picture covers the whole
 `_xy / vec2(1920, 1080)` gradient asked for at 960x540, 480x270 and 240x135)
-and `a_scene_without_a_root_sized_literal_pass_still_follows_the_render_scale`;
-`adaptive.rs` `a_scene_whose_cost_ignores_the_scale_is_not_lowered_for_nothing`,
-`a_mostly_fixed_cost_scene_stops_lowering_when_the_gain_runs_out`,
-`a_drop_that_cuts_by_the_required_share_is_kept` and four more;
-`perf.rs` `a_scene_that_pins_its_final_pass_stays_at_the_ceiling`,
-`a_drop_that_cuts_nothing_is_undone_and_says_so`. On the real `neon_city`
-under Xvfb: see `hardware/AMD.md` A9 and the run recorded with this change.
+and `a_scene_without_a_texel_read_root_sized_literal_pass_still_follows_the_render_scale`
+(including the same fixture sampled by uv, which covers the gradient at
+480x270 unpinned); `adaptive.rs`
+`a_scene_whose_cost_ignores_the_scale_is_not_lowered_for_nothing`
+(two strikes, the lock, its expiry and the doubled re-lock),
+`one_heavy_passage_after_a_drop_does_not_lock_a_scene_that_scales`,
+`the_frames_still_in_flight_after_a_drop_are_not_judged`,
+`a_mostly_fixed_cost_scene_stops_lowering_when_the_gain_runs_out` and
+more; `perf.rs` `a_scene_that_pins_its_final_pass_stays_at_the_ceiling`,
+`a_drop_that_cuts_nothing_is_undone_and_says_so`. The private corpus: 90 of
+90 in both dialects, and the pin decided for exactly the two scenes above.
+On the real `neon_city` under Xvfb: see `hardware/AMD.md` A9 and the run
+recorded with this change.
 
-**Would reopen:** a Synesthesia scene with a root-sized absolute pass that
-is read by uv only and whose final pass is the cost on a slow GPU; or a
-window aspect that makes the letterbox matter on a projector.
+**Would reopen:** a scene that reads a root-sized pass by pixel without
+`texelFetch` (computing uv from `_xy` and the literal size); a pinned scene
+whose final pass is the cost on a slow GPU; or a window aspect that makes
+the letterbox matter on a projector.
 
 ### D281: the control window is Synesthesia's three columns, and the rail switches the main view (2026-10-14)
 
@@ -5962,4 +6011,3 @@ its screenshots found a third that no test could see.
 
 **Would reopen:** a notice that must be read in full in a small window; it
 scrolls, and its Dismiss button is always in the first row.
-

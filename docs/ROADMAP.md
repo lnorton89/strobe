@@ -38,13 +38,15 @@ which backend proved a claim.
 ### In flight
 
 - **Render scale and pinned scenes (D280), built, not yet re-run on the
-  RX 580:** a scene with a root `WIDTH` x `HEIGHT` and a literal buffer pass
-  of that size draws its final pass at that size (11 of Synesthesia's 90;
-  `neon_city` now shows the whole city at every scale). Adaptive resolution
-  leaves such a scene at the ceiling, and for every scene undoes a drop that
-  cut under 15% of GPU time per halving and stops lowering until the next
-  scene. Open: the RX 580 re-run (AMD.md), and whether the seven of the eleven
-  that sample by uv should keep the render-scale lever (D280 "Cost").
+  RX 580:** a scene with a root `WIDTH` x `HEIGHT`, a literal buffer pass of
+  that size, and a shader that reads it with `texelFetch` draws its final
+  pass at that size (2 of Synesthesia's 90: `neon_city`, which now shows the
+  whole city at every scale, and `entombed_silicon_dreams`). The nine that
+  sample such a pass by uv keep the render-scale lever. Adaptive resolution
+  leaves a pinned scene at the ceiling, and for every scene undoes a drop
+  that cut under 15% of GPU time per halving; two such verdicts in a row
+  lock lowering for 30 s (doubling on each re-lock) or until the next scene.
+  Open: the RX 580 re-run (AMD.md).
 - **Chromatic Rise scene (2026-10-13):** added
   `scenes/13-chromatic-rise.synScene`, an original procedural interpretation
   of the owner's TouchDesigner RISE video, with eleven controls and bass
