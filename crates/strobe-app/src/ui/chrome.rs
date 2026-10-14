@@ -186,7 +186,9 @@ impl Readouts {
         if lan.running {
             self.remote = format!(
                 "{}  {} connected{}",
-                if model.lan.desktop_enabled {
+                if lan.desktop_controlled {
+                    "Desktop controlled remotely"
+                } else if model.lan.desktop_enabled {
                     "Desktop access on"
                 } else {
                     "Remote on"
@@ -514,7 +516,9 @@ fn health(
         if stop.clicked() {
             actions.push(Action::SetLanRemote(false));
         }
-        let waiting = !model.lan.view.requests.is_empty();
+        // A pairing request or a remote desktop at the controls is
+        // something the operator must see, not a green light.
+        let waiting = !model.lan.view.requests.is_empty() || model.lan.view.desktop_controlled;
         if readout(
             ui,
             theme,

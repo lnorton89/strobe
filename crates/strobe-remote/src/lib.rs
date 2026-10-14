@@ -518,6 +518,34 @@ mod tests {
         Ok(())
     }
 
+    /// The desktop extension's messages (D275), frozen like version 1's.
+    /// A phone never sends or receives one; these are the native
+    /// controller's shapes.
+    const DESKTOP_CLIENT: [&str; 4] = [
+        r#"{"type":"pair_desktop","code":"481226"}"#,
+        r#"{"type":"desktop_open"}"#,
+        r#"{"type":"desktop_input","events":[{"kind":"move","x":0.25,"y":0.5},{"kind":"button","x":0.25,"y":0.5,"button":0,"down":true,"modifiers":{"alt":false,"ctrl":true,"shift":false,"mac_cmd":false}}]}"#,
+        r#"{"type":"desktop_input","events":[{"kind":"key","key":"Tab","down":true,"modifiers":{"alt":false,"ctrl":false,"shift":false,"mac_cmd":false}},{"kind":"text","text":"x"},{"kind":"paste","text":"y"},{"kind":"scroll","x":0.0,"y":-24.0,"modifiers":{"alt":false,"ctrl":false,"shift":false,"mac_cmd":false}},{"kind":"reset"},{"kind":"copy"},{"kind":"cut"}]}"#,
+    ];
+
+    const DESKTOP_SERVER: [&str; 2] = [
+        r#"{"type":"desktop_frame","revision":3,"size":[640,480],"jpeg":"/9j/"}"#,
+        r#"{"type":"desktop_clipboard","text":"vec4"}"#,
+    ];
+
+    #[test]
+    fn desktop_messages_read_and_write_byte_for_byte() -> Result<()> {
+        for text in DESKTOP_CLIENT {
+            let message = decode_client(text).map_err(|e| anyhow::anyhow!("{text}: {e:?}"))?;
+            assert_eq!(serde_json::to_string(&message)?, text, "client {text}");
+        }
+        for text in DESKTOP_SERVER {
+            let message: ServerMessage = serde_json::from_str(text)?;
+            assert_eq!(serde_json::to_string(&message)?, text, "server {text}");
+        }
+        Ok(())
+    }
+
     #[test]
     fn other_versions_are_told_so_and_bad_messages_are_refused() {
         assert_eq!(negotiate(1), Ok(1), "this version");

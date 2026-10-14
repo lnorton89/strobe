@@ -602,8 +602,9 @@ fn scenarios() -> Vec<Scenario> {
 /// A scene open in the Editor, with an unsaved edit, built in memory (no
 /// files are read).
 /// The LAN remote: off with one paired phone, or on with a code showing,
-/// a phone waiting for approval and two paired.
-fn sample_lan(on: bool) -> crate::lan::LanView {
+/// a phone waiting for approval and two paired. With `desktop`, a full
+/// desktop is waiting instead and another holds the controls (D275).
+fn sample_lan(on: bool, desktop: bool) -> crate::lan::LanView {
     use strobe_remote::clients::ClientInfo;
     let phone = |id: &str, label: &str| ClientInfo {
         id: id.to_string(),
@@ -627,7 +628,14 @@ fn sample_lan(on: bool) -> crate::lan::LanView {
         code: Some(("481 226".to_string(), 103)),
         requests: vec![strobe_remote::pairing::Request {
             id: 1,
-            label: "Android at 192.168.1.31".to_string(),
+            label: if desktop {
+                format!(
+                    "{}Strobe desktop at 192.168.1.40",
+                    strobe_remote::desktop::LABEL_PREFIX
+                )
+            } else {
+                "Android at 192.168.1.31".to_string()
+            },
             since: std::time::Instant::now(),
             decision: strobe_remote::pairing::Decision::Waiting,
         }],
@@ -636,6 +644,7 @@ fn sample_lan(on: bool) -> crate::lan::LanView {
             (phone("c00000002", "iPad at 192.168.1.24"), false),
         ],
         connections: 2,
+        desktop_controlled: desktop,
     }
 }
 
@@ -1039,7 +1048,7 @@ fn draw_events(
         outcome: generated.as_ref(),
         authored: false,
     };
-    let lan_view = sample_lan(scenario.lan);
+    let lan_view = sample_lan(scenario.lan, scenario.desktop_access);
     let mut lan_address = String::new();
     let mut lan_port = "47812".to_string();
     let mut desktop_controller = crate::desktop::Controller::default();

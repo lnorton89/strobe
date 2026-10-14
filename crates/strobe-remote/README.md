@@ -21,6 +21,8 @@ native Strobe controller that mirrors the complete host control window,
 including scene editing and file operations. `pair_desktop` requires the
 host's explicit full-desktop switch and a separately labelled approval;
 ordinary phone tokens and old stored records never gain this permission.
+A desktop grant is never saved and is revoked when the host switches full
+desktop access off or stops listening.
 One connection leases input at a time. Stop, revoke, overflow and app loss
 release the lease and reset held input. The app supplies JPEG captures at
 at most 5 Hz; the network bridge keeps only the latest frame. Text copied

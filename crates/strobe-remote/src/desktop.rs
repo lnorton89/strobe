@@ -23,6 +23,9 @@ pub const MAX_EDGE: u32 = 4096;
 pub const MAX_JPEG: usize = 2 * 1024 * 1024;
 /// Maximum JSON server frame, including base64 overhead.
 pub const MAX_FRAME: usize = 3 * 1024 * 1024;
+/// What a full desktop pairing's label starts with, in the approval
+/// request and the paired list, so the operator can tell it from a phone.
+pub const LABEL_PREFIX: &str = "Full desktop: ";
 
 /// Keyboard modifiers accompanying each input event.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

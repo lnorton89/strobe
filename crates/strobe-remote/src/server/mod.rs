@@ -412,6 +412,26 @@ impl Server {
         known
     }
 
+    /// Revokes every client paired for full desktop access and closes
+    /// their connections (D275): the host switched that access off.
+    /// Returns how many there were.
+    pub fn revoke_desktop(&self) -> usize {
+        let ids = self.shared.clients.revoke_desktop();
+        for conn in lock(&self.shared.conns).iter_mut() {
+            if conn
+                .client_id
+                .as_deref()
+                .is_some_and(|id| ids.iter().any(|revoked| revoked == id))
+            {
+                conn.revoked = true;
+            }
+        }
+        if !ids.is_empty() {
+            log::info!("remote: {} desktop clients revoked", ids.len());
+        }
+        ids.len()
+    }
+
     /// Revokes every client and closes their connections.
     pub fn revoke_all(&self) -> usize {
         let count = self.shared.clients.revoke_all();
