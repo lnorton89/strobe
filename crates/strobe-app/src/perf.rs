@@ -29,6 +29,14 @@
 //!   about the old one's, and its first frames pay for compiling and
 //!   allocating.
 //! - **Every change is logged**, with the GPU time that caused it.
+//! - **A scene that pins its final pass is left at the ceiling (D280).**
+//!   Its passes are absolute pixels, so the render scale changes nothing it
+//!   draws; lowering it would cut nothing and cost sharpness elsewhere.
+//!   The load says so once, and the controller does not run for it.
+//! - **A drop that cuts nothing is undone (D280).** When a scene's cost is
+//!   not its resolution for some other reason, the controller notices that
+//!   the GPU time did not fall, goes back up, and stops lowering until the
+//!   scene changes. The change says so and the log gives the numbers.
 //! - **No timer, no adaptation.** On a context without timer queries the
 //!   toggle has nothing to measure, so the scale stays where the slider
 //!   puts it and the status bar says so.
@@ -36,7 +44,7 @@
 use crate::session;
 use std::time::{Duration, Instant};
 use strobe_gfx::GpuTimer;
-use strobe_gfx::adaptive::AdaptiveScale;
+use strobe_gfx::adaptive::{AdaptiveScale, Futile};
 
 /// The budget when the monitor reports no refresh rate: 60 Hz.
 pub const FALLBACK_BUDGET_MS: f32 = 1000.0 / 60.0;
@@ -58,6 +66,9 @@ pub struct ScaleChange {
     pub gpu_ms: f32,
     /// The budget it was judged against.
     pub budget_ms: f32,
+    /// Set when this change is the controller undoing a drop that did not
+    /// cut the GPU time (`to` is then the scale it went back to).
+    pub futile: Option<Futile>,
 }
 
 /// The budget for a monitor refresh rate in millihertz, as winit reports it.
@@ -82,6 +93,8 @@ pub struct Performance {
     max: f32,
     gpu_ms: Option<f32>,
     hold_until: Option<Instant>,
+    /// The size the live scene pins its final pass to (D280), if it does.
+    pinned: Option<[i32; 2]>,
 }
 
 impl Performance {
@@ -98,6 +111,7 @@ impl Performance {
             max,
             gpu_ms: None,
             hold_until: None,
+            pinned: None,
         }
     }
 
@@ -176,10 +190,28 @@ impl Performance {
     }
 
     /// A scene was loaded at `now`: forget the measurements and leave the
-    /// scale alone for [`HOLD`].
-    pub fn scene_loaded(&mut self, now: Instant) {
+    /// scale alone for [`HOLD`]. `pinned` is the size the scene pins its
+    /// final pass to, if it does (D280): the scale then returns to the
+    /// ceiling and stays there, since it changes nothing the scene draws.
+    pub fn scene_loaded(&mut self, now: Instant, pinned: Option<[i32; 2]>) {
         self.adaptive.reset_measurements();
         self.hold_until = Some(now + HOLD);
+        self.pinned = pinned;
+        if let Some([width, height]) = pinned {
+            self.adaptive.set_scale(self.max);
+            if self.adapting() {
+                log::info!(
+                    "adaptive resolution: this scene renders at {width}x{height} whatever the \
+                     render scale (D280), so the scale stays at {:.2}",
+                    self.max
+                );
+            }
+        }
+    }
+
+    /// Whether the live scene pins its final pass, so the scale is moot.
+    pub fn pinned(&self) -> Option<[i32; 2]> {
+        self.pinned
     }
 
     /// Starts timing the output frame's GPU work.
@@ -231,16 +263,22 @@ impl Performance {
             Some(average) => average + (ms - average) * DISPLAY_SMOOTHING,
             None => ms,
         });
-        if !self.adapting() || self.hold_until.is_some_and(|until| now < until) {
+        if !self.adapting()
+            || self.pinned.is_some()
+            || self.hold_until.is_some_and(|until| now < until)
+        {
             return None;
         }
         let from = self.adaptive.scale();
+        let before = self.adaptive.futile();
         let to = self.adaptive.observe(ms)?;
+        let after = self.adaptive.futile();
         Some(ScaleChange {
             from,
             to,
             gpu_ms: ms,
             budget_ms: self.adaptive.budget_ms(),
+            futile: after.filter(|_| after != before),
         })
     }
 
@@ -341,6 +379,7 @@ mod tests {
             to: 1.0,
             gpu_ms: 0.0,
             budget_ms: 0.0,
+            futile: None,
         });
         assert!(change.to < change.from, "scale must drop: {change:?}");
         assert!(
@@ -358,7 +397,7 @@ mod tests {
     fn nothing_changes_in_the_first_second_after_a_scene_load() {
         let mut perf = measuring(1.0);
         let loaded = Instant::now();
-        perf.scene_loaded(loaded);
+        perf.scene_loaded(loaded, None);
         assert_eq!(
             frames(&mut perf, 40.0, loaded + Duration::from_millis(900), 60),
             None,
@@ -396,5 +435,53 @@ mod tests {
             "budget {}",
             perf.budget_ms()
         );
+    }
+
+    #[test]
+    fn a_scene_that_pins_its_final_pass_stays_at_the_ceiling() {
+        let mut perf = measuring(1.0);
+        frames(&mut perf, 40.0, Instant::now(), 30);
+        assert!(
+            perf.scale() < 1.0,
+            "the last scene dropped: {}",
+            perf.scale()
+        );
+        let loaded = Instant::now();
+        perf.scene_loaded(loaded, Some([1920, 1080]));
+        assert!(
+            (perf.scale() - 1.0).abs() < 1e-6,
+            "back to the ceiling: {}",
+            perf.scale()
+        );
+        let after = loaded + HOLD + Duration::from_millis(10);
+        assert_eq!(
+            frames(&mut perf, 40.0, after, 600),
+            None,
+            "and no drop however long it runs over"
+        );
+        assert!((perf.scale() - 1.0).abs() < 1e-6, "still 1.0");
+        assert_eq!(perf.pinned(), Some([1920, 1080]), "the size is remembered");
+        perf.scene_loaded(after, None);
+        assert!(
+            frames(&mut perf, 40.0, after + HOLD, 30).is_some(),
+            "the next scene adapts again"
+        );
+    }
+
+    #[test]
+    fn a_drop_that_cuts_nothing_is_undone_and_says_so() {
+        let mut perf = measuring(1.0);
+        let now = Instant::now();
+        let mut changes = Vec::new();
+        for _ in 0..600 {
+            changes.extend(perf.feed(40.0, now));
+        }
+        assert_eq!(changes.len(), 2, "one drop, one undo: {changes:?}");
+        let undo = changes.last().copied();
+        assert!(
+            undo.is_some_and(|c| c.futile.is_some() && c.to > c.from),
+            "the second change goes back up and says why: {undo:?}"
+        );
+        assert!((perf.scale() - 1.0).abs() < 1e-6, "ends at 1.0");
     }
 }

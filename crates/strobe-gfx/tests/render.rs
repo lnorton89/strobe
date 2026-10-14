@@ -900,6 +900,146 @@ fn a_fixed_size_pass_keeps_its_grid_when_the_output_resizes() -> Result<()> {
     Ok(())
 }
 
+/// A scene that is original to this repository and shaped like the ones
+/// D280 is about: a root `WIDTH`/`HEIGHT`, a FLOAT nearest-filtered buffer
+/// pass with the same literal size (absolute pixels, D194), and a final pass
+/// that reads it with `texelFetch(grad, ivec2(_xy), 0)`. The buffer holds
+/// `_xy / (1920, 1080)`, so the picture is a gradient from 0 to 1 only if the
+/// final pass addresses the whole buffer.
+const PINNED_GRADIENT_JSON: &str = r#"{ "WIDTH": 1920, "HEIGHT": 1080,
+    "PASSES": [ {"TARGET": "grad", "WIDTH": 1920, "HEIGHT": 1080, "FLOAT": true,
+                 "FILTER": "nearest", "WRAP": "clamp"} ] }"#;
+
+const PINNED_GRADIENT_SHADER: &str = "vec4 renderMain() {\n\
+    if (PASSINDEX == 0) { return vec4(_xy / vec2(1920.0, 1080.0), 0.0, 1.0); }\n\
+    return vec4(texelFetch(grad, ivec2(_xy), 0).rg, 0.0, 1.0); }";
+
+/// Checks the output of the gradient scene covers the whole gradient: the
+/// pixel at fraction `(fx, fy)` across and up the picture holds roughly
+/// `(fx, fy)`.
+fn assert_covers_the_gradient(player: &ScenePlayer, label: &str) -> Result<()> {
+    let [width, height] = player.render_size();
+    assert_eq!(
+        [width, height],
+        [1920, 1080],
+        "{label}: the final pass is pinned to the buffer's size"
+    );
+    let pixels = player.read_output();
+    for (fx, fy) in [
+        (0.01, 0.01),
+        (0.99, 0.01),
+        (0.01, 0.99),
+        (0.99, 0.99),
+        (0.5, 0.5),
+        (0.25, 0.75),
+    ] {
+        let x = ((width as f32 * fx) as usize).min(width as usize - 1);
+        // The readback is top row first, the gradient grows upward.
+        let y = ((height as f32 * (1.0 - fy)) as usize).min(height as usize - 1);
+        let offset = (y * width as usize + x) * 4;
+        let px = pixels
+            .get(offset..offset + 4)
+            .ok_or_else(|| anyhow!("{label}: readback too short"))?;
+        let expect = |fraction: f32| (fraction * 255.0).round() as i32;
+        assert!(
+            (i32::from(px[0]) - expect(fx)).abs() <= 3
+                && (i32::from(px[1]) - expect(fy)).abs() <= 3,
+            "{label}: at ({fx}, {fy}) of the picture expected about ({}, {}), got {px:?}; \
+             a final pass smaller than the buffer would show only its corner",
+            expect(fx),
+            expect(fy)
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn a_final_pass_reading_a_root_sized_literal_pass_covers_it_at_any_render_scale() -> Result<()> {
+    // D280. The window is 960x540; render scale 1.0 asks for that, 0.5 for
+    // 480x270, and a resize between them must not change the picture.
+    for api in BOTH {
+        let Some(headless) = context(api)? else {
+            continue;
+        };
+        let gl = headless.gl();
+        let caps = Caps::from_info(gl.info());
+        let scene = folder(PINNED_GRADIENT_JSON, PINNED_GRADIENT_SHADER)?;
+        assert_eq!(
+            scene.def.pinned_size(),
+            Some([1920, 1080]),
+            "{api:?}: the scene pins its final pass"
+        );
+        let controls = ControlBank::new(scene.def.controls.clone())?;
+        let audio = vec![0.0; SCALARS.len()];
+        let mut player = ScenePlayer::new(gl, &caps, &scene, [960, 540], Options::default())?;
+        assert_eq!(
+            player.requested_size(),
+            [960, 540],
+            "{api:?}: the request is remembered"
+        );
+        let mut frame = 0_u64;
+        let mut draw = |player: &mut ScenePlayer| {
+            player.render(&FrameInputs {
+                time: frame as f32 / 60.0,
+                frame,
+                mouse: Mouse::default(),
+                audio: &audio,
+                controls: &controls,
+                transitions: &[],
+            });
+            frame += 1;
+        };
+        draw(&mut player);
+        draw(&mut player);
+        assert_covers_the_gradient(&player, &format!("{api:?} at render scale 1.0"))?;
+
+        player.resize([480, 270])?;
+        assert_eq!(
+            player.requested_size(),
+            [480, 270],
+            "{api:?}: the new request is remembered"
+        );
+        draw(&mut player);
+        draw(&mut player);
+        assert_covers_the_gradient(&player, &format!("{api:?} at render scale 0.5"))?;
+
+        player.resize_keeping([240, 135])?;
+        draw(&mut player);
+        assert_covers_the_gradient(&player, &format!("{api:?} at render scale 0.25"))?;
+        if let Some(code) = gl.error() {
+            return Err(anyhow!("{api:?}: GL error 0x{code:x}"));
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn a_scene_without_a_root_sized_literal_pass_still_follows_the_render_scale() -> Result<()> {
+    // The other side of D280: the pin is for scenes whose passes demand it.
+    // A 1920x1080 literal pass in a scene that never wrote a root size, or a
+    // root-sized one that is an expression, renders at the size it is asked.
+    for json in [
+        r#"{ "PASSES": [ {"TARGET": "grad", "WIDTH": 1920, "HEIGHT": 1080} ] }"#,
+        r#"{ "WIDTH": 1920, "HEIGHT": 1080,
+             "PASSES": [ {"TARGET": "grad", "WIDTH": "$WIDTH", "HEIGHT": "$HEIGHT"} ] }"#,
+    ] {
+        for api in BOTH {
+            let Some(headless) = context(api)? else {
+                continue;
+            };
+            let gl = headless.gl();
+            let caps = Caps::from_info(gl.info());
+            let scene = folder(json, PINNED_GRADIENT_SHADER)?;
+            let mut player = ScenePlayer::new(gl, &caps, &scene, [64, 36], Options::default())?;
+            assert_eq!(player.render_size(), [64, 36], "{api:?}: as asked");
+            player.resize([32, 18])?;
+            assert_eq!(player.render_size(), [32, 18], "{api:?}: follows a resize");
+            assert_eq!(player.pinned_size(), None, "{api:?}: nothing pinned");
+        }
+    }
+    Ok(())
+}
+
 #[test]
 fn image_wrap_filter_and_vflip_options_are_honoured() -> Result<()> {
     let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("image-options");
