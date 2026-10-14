@@ -253,47 +253,44 @@ Local reports/frames: `target/bench/before-chromatic-rise.md`,
 `target/bench/chromatic-rise-angle-final/`. The scene thumbnail preserves
 the inspected native rendered frame.
 
-## 2026-10-13: Desktop remote integration baseline, Windows RX 580
+## 2026-10-14: Desktop remote integration on the updated PR base, Windows RX 580
 
-Before and after `cargo xtask bench -- --size 1280x720`, native GL 3.3
-26.5.2.260413, hidden window, half-float buffers, per-pass programs,
-90 warmup / 60 timed frames. Reports are
-`target/bench/desktop-remote-before/results.md` and
-`target/bench/desktop-remote-after/results.md`.
+Before and after `cargo xtask bench -- --size 1280x720` on upstream
+`5507a13`, native GL 3.3 26.5.2.260413, hidden window, half-float
+buffers, per-pass programs, 90 warmup / 60 timed frames. Reports:
+`target/bench/desktop-remote-pr-base/results.md` and
+`target/bench/desktop-remote-pr-after/results.md`.
 
 | Scene | Before mean ms | After mean ms | Delta ms |
 |---|---:|---:|---:|
-| 01-aurora-gradient | 0.13 | 0.15 | +0.02 |
+| 01-aurora-gradient | 0.14 | 0.13 | -0.01 |
 | 02-plasma-pulse | 0.16 | 0.16 | 0.00 |
-| 03-kaleido-tunnel | 0.17 | 0.18 | +0.01 |
-| 04-voronoi-glass | 0.68 | 0.70 | +0.02 |
-| 05-domain-warp | 0.74 | 0.76 | +0.02 |
-| 06-feedback-trails | 0.18 | 0.22 | +0.04 |
-| 07-reaction-diffusion | 0.36 | 0.38 | +0.02 |
-| 08-bloom-orbs | 0.57 | 0.60 | +0.03 |
-| 09-sdf-cathedral | 1.56 | 1.63 | +0.07 |
-| 10-volume-clouds | 12.22 | 12.39 | +0.17 |
-| 11-script-orbits (scripts not run) | 0.17 | 0.20 | +0.03 |
-| 12-silicon-atlas | 2.53 | 3.82 | +1.29 |
-| 13-chromatic-rise | 0.42 | 0.45 | +0.03 |
-| 14-electric-bloom | 0.65 | 0.67 | +0.02 |
-| 15-neon-ribbon-flow | 0.17 | 0.18 | +0.01 |
+| 03-kaleido-tunnel | 0.17 | 0.17 | 0.00 |
+| 04-voronoi-glass | 0.67 | 0.66 | -0.01 |
+| 05-domain-warp | 0.72 | 0.73 | +0.01 |
+| 06-feedback-trails | 0.16 | 0.17 | +0.01 |
+| 07-reaction-diffusion | 0.36 | 0.39 | +0.03 |
+| 08-bloom-orbs | 0.55 | 0.55 | 0.00 |
+| 09-sdf-cathedral | 1.56 | 1.53 | -0.03 |
+| 10-volume-clouds | 12.28 | 12.23 | -0.05 |
+| 11-script-orbits * | 0.16 | 0.16 | 0.00 |
+| 12-silicon-atlas | 2.58 | 2.54 | -0.04 |
+| 13-chromatic-rise | 0.43 | 0.42 | -0.01 |
 
-Acid Mirror was added concurrently by unrelated work and is omitted from
-the comparison. No renderer or existing shader was changed by desktop
-control; these bench runs do not link the app's control-window stream.
-Background builds ran during this session. The after-run's Silicon Atlas
-p95 was 9.04 ms (before 2.63 ms), so its +1.29 ms mean is noisy and cannot
-be attributed to this feature. This table is the required renderer baseline,
-not a desktop-streaming overhead or optimization claim.
+Scripts are not run by this bench. Only the thirteen committed base scenes
+were included; unrelated local scene work is excluded from this comparison.
+No renderer or base shader changed in this feature. Changes range from
+-0.05 ms to +0.03 ms and are run variation, not evidence of an optimization.
+The bench does not link the app UI stream and cannot measure enabled
+desktop-streaming overhead.
 
-Desktop capture is separately capped at five frames per second and skipped
-without an active viewer. Compression, base64/socket transfer and decoding
-run on workers; active capture still reads pixels after control-window paint.
-Native RX 580 GL rendered network-fed viewer fixtures in
-`target/desktop-remote-qa/`; loopback tests exercise encoding/decoding and host
-input/save paths. Enabled streaming CPU/frame-time/memory impact, ANGLE
-streaming and the older-GPU soak remain unmeasured (STATUS_AUDIT.md).
+Desktop capture is capped at five frames per second and skipped without an
+active viewer. Compression, socket transfer and decoding run on workers;
+active capture still reads pixels after control-window paint. Native RX 580
+GL connection/viewer fixtures are committed in `docs/images/perform/`.
+Loopback tests exercise host input/edit/save paths. Two physical desktops,
+Wi-Fi loss/sleep, ANGLE capture and older-GPU CPU/frame-time/memory soak
+remain unverified (STATUS_AUDIT.md).
 
 ## Wanted
 

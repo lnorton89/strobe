@@ -38,6 +38,14 @@ tracks every known unfinished implementation and validation task across the proj
   `target/desktop-remote-smoke-output.png`. This local test
   build is not a packaged release; the original running processes were left
   untouched.
+  PR integration was repeated against upstream `5507a13` on 2026-10-14:
+  `cargo xtask ci` and the explicit all-workspace Windows-target clippy
+  passed (`target/desktop-remote-pr-ci.log`,
+  `target/desktop-remote-pr-windows.log`). New rustls advisories required a
+  compatible lockfile patch from 0.23.45 to 0.23.46; no advisory was ignored.
+  Fresh before/after thirteen-scene GPU timings are in BENCHMARKS.md.
+  Committed visual fixtures: `docs/images/perform/desktop-remote-host-900x700.png`
+  and `desktop-remote-viewer-1440x900.png` (native loopback fixture captures).
 - [ ] Full desktop remote: two physical Strobe desktops over Wi-Fi, reconnect
   after loss/sleep, minimized host, cross-DPI/zoom behavior on real monitors,
   ANGLE capture and T480 CPU/frame-time/memory soak remain unverified.
