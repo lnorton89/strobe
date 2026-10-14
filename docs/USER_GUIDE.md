@@ -48,11 +48,13 @@ screen until you ask.
   OSC, macros), **DIAG** (diagnostics) and **SET** (settings). The **panel**
   on the right stays whatever the view is: the live preview, a status strip
   (output, fullscreen, frame rate, audio level and tempo, and a snapshot
-  button), and four tabs: **Playlist** (the loaded show's cues),
-  **Controls** (the playing scene's controls), **Presets** (the fav slots
-  and the scene's saved looks) and **Edit** (tags, picture, media,
+  button), the eight fav slots, and four tabs: **Playlist** (the loaded
+  show's cues), **Controls** (the playing scene's controls), **Presets**
+  (the scene's saved looks) and **Edit** (tags, picture, media,
   *Generate controls*, *Open in Editor*). Drag its edge to resize it;
-  until you do it is a third of the window. In a narrow window it opens
+  until you do it is about a third of the window, and a double-click on
+  the edge puts it back to that. In a short window the fav slots move into
+  the Presets tab and the panel drops its preview. In a narrow window it opens
   over the main view, and when closed it is a thin strip you click to open.
   **BLACKOUT** and the macros are always on the bottom strip, and the bar
   under it says what the control under the pointer does.
@@ -124,7 +126,7 @@ Settings > Keyboard changes any of them.
   colours and buttons. The camera button in the status strip, or *Use
   frame as picture* in the Edit tab, saves the current frame as the
   scene's library picture.
-- **Presets** (a tab of the panel, under the fav slots): save the current look under a name,
+- **Presets** (a tab of the panel): save the current look under a name,
   recall it later or from a controller. A preset saved while a picture is
   chosen for `syn_Media` remembers it.
 - **EDIT** opens the scene's files. *Save* writes them and the show keeps

@@ -5700,11 +5700,18 @@ rail item, with panes docked around a preview.
 - **The side panel persists.** The rail never touches it. Open, it is
   docked at its width; closed, it is a 28-point handle strip that reopens
   it, with a red dot while BLACKOUT is on.
-- **Its width follows the window until it is dragged.** The default width
-  is a sentinel: while the stored width is the default, `arrange` uses 31%
-  of the window (`SIDE_SHARE`), inside the panel's 280 to 720 range (595 at
-  1920, 424 at 1366). A width the operator drags to is kept as dragged. The
-  tradeoff: a drag that lands on exactly 440 reads as untouched.
+- **Its width follows the window until it is dragged.** Until then
+  `arrange` uses 31% of the window (`SIDE_SHARE`), inside the panel's 280
+  to 720 range (595 at 1920, 424 at 1366). A width the operator drags to is
+  kept as dragged. *Follows* is a flag on `Panes` (`side_follows`), not a
+  magic width, so a drag that lands on any width, the 440 default
+  included, is kept; a double-click on the panel's edge makes it follow
+  again. `ui.toml` stores 0 for a following panel, and its version is 2: a
+  version-1 file's inspector width was the old inspector's (300 by
+  default), so it is dropped on reading and the panel follows the window.
+  (The first cut used the default width as the sentinel; a drag that landed
+  on 440 snapped the panel back to 31%, and an existing file kept the old
+  300.)
 - **Narrow windows give way as D260 says, in this order.** The main view
   keeps `MAIN_MIN` (320). Below that the panel shrinks towards its minimum,
   then becomes a drawer over the main view, clipped to the surface and
@@ -5783,28 +5790,37 @@ bar, snapshot) and icon tabs for Playlist, Controls and Edit.
 
 **Decision.**
 - **The preview** is the scene's own texture fitted to the panel's width (at
-  most 38% of its height, at least 64 points), with the LIVE, BLACKOUT and
-  output-hidden badges. The PLAY view still has the large preview with the
-  output toolbar (Show output, Fullscreen, the monitor menu).
+  most 38% of its height; left out below 64 points), with the LIVE,
+  BLACKOUT and output-hidden badges. The PLAY view still has the large
+  preview with the output toolbar (Show output, Fullscreen, the monitor
+  menu).
 - **The status strip**, in Synesthesia's order: Output (show or hide),
   Fullscreen, a dot and the frame rate (green at 50 and over, amber at 25),
   the audio icon and a level bar that takes the room left, the tempo (dropped
-  below 300 points) and Snapshot, which is *Use frame as picture*
-  (`Action::CaptureThumbnail`). Snapshot is disabled with a reason when
+  below 300 points) and Snapshot at the right edge, which is *Use frame as
+  picture* (`Action::CaptureThumbnail`). Snapshot is disabled with a reason when
   nothing plays or the scene is Synesthesia's (D271: never written).
 - **Four tabs, icons with their names in tooltips**, and beside the icons
   from 400 points of panel width: Playlist, Controls, Presets, Edit. The
   chosen tab is saved (`side_tab`). *Controls* is the script state and the
   groups. *Edit* is what used to sit above the controls: tags, Use frame as
   picture, media, Generate controls, and a new *Open in Editor*. *Presets*
-  now starts with the fav slots (D176), which were a row under the preview
-  in every tab; they hold scenes, so they work with or without one playing,
-  and the preview and the tabs keep the height the row took.
+  is the preset row and the preset list.
+- **The fav slots (D176) are a row above the tabs**, in reach from every
+  tab, as Synesthesia keeps them and as they were at the top of the old
+  inspector. A first cut put them inside the Presets tab; a performer on
+  the Controls tab then had to change tabs to fire one, which is a
+  regression for a live show. They hold scenes, so they work with or
+  without one playing. A panel under 360 points high (a drawer in a short
+  window) moves them to the top of the Presets tab, and a panel too short
+  to give the preview 64 points at its 38% share leaves the preview out:
+  at 427x320 the first cut's drawer was all preview, strip and tab bar,
+  with no room left for a single control.
 - **Playlist** is the loaded show's cue list with a jump on double-click and
   a button to LIST (unchanged).
 
-**Would reopen:** a performer who wants the fav slots in reach from every
-tab. They are also on the macro strip's targets, MIDI and OSC.
+**Would reopen:** a short window where the fav slots matter more than the
+tab's body.
 
 ### D275: a help bar under the transport says what the control under the pointer does (2026-10-14)
 
