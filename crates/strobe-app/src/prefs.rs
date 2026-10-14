@@ -50,8 +50,10 @@ pub const QUIET: Duration = Duration::from_millis(500);
 /// The longest a stream of changes (a pane being dragged) may go unwritten.
 pub const LONGEST: Duration = Duration::from_secs(5);
 
-/// The file's format version, for a future migration.
-const VERSION: u32 = 1;
+/// The file's format version. 2 (D272): the inspector's width is the side
+/// panel's, and 0 means it follows the window; a version-1 width was the
+/// old inspector's and is dropped on reading ([`Prefs::from_text`]).
+const VERSION: u32 = 2;
 
 /// One pane's saved state.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -59,7 +61,8 @@ const VERSION: u32 = 1;
 pub struct PanePref {
     /// Whether the pane is open.
     pub open: bool,
-    /// Its width in points.
+    /// Its width in points; 0 for none stored (the side panel then follows
+    /// the window, D272).
     pub width: f32,
 }
 
@@ -187,11 +190,14 @@ impl Layout {
             panes: Pane::ALL
                 .into_iter()
                 .map(|pane| {
+                    // A side panel that follows the window stores no width,
+                    // so it still follows after a restart (D272).
+                    let follows = pane == Pane::Inspector && panes.side_follows();
                     (
                         pane.key().to_string(),
                         PanePref {
                             open: panes.is_open(pane),
-                            width: panes.width(pane),
+                            width: if follows { 0.0 } else { panes.width(pane) },
                         },
                     )
                 })
@@ -302,9 +308,28 @@ impl Prefs {
         toml::to_string_pretty(self).map_err(|e| format!("encoding preferences: {e}"))
     }
 
-    /// Parses TOML text.
+    /// Parses TOML text, bringing an older version's up to date.
     pub fn from_text(text: &str) -> Result<Self, String> {
-        toml::from_str(text).map_err(|e| format!("parsing preferences: {e}"))
+        let mut prefs: Self =
+            toml::from_str(text).map_err(|e| format!("parsing preferences: {e}"))?;
+        prefs.migrate();
+        Ok(prefs)
+    }
+
+    /// Brings a file from an older version up to this one. Version 1's
+    /// inspector width belonged to the old inspector pane (300 by default),
+    /// so the side panel that took its place follows the window instead of
+    /// keeping it (D272).
+    fn migrate(&mut self) {
+        if self.version < 2 {
+            let layouts = self.layouts.values_mut().map(|layout| &mut layout.panes);
+            for panes in std::iter::once(&mut self.panes).chain(layouts) {
+                if let Some(side) = panes.get_mut(Pane::Inspector.key()) {
+                    side.width = 0.0;
+                }
+            }
+        }
+        self.version = VERSION;
     }
 
     /// Loads the file, or the defaults. The second value says why the
@@ -491,6 +516,51 @@ mod tests {
         let back = Prefs::from_text(&prefs.to_text().map_err(anyhow::Error::msg)?)
             .map_err(anyhow::Error::msg)?;
         assert_eq!(back, prefs, "what was written is what is read");
+        Ok(())
+    }
+
+    #[test]
+    fn an_undragged_side_panel_still_follows_the_window_after_a_restart() -> Result<()> {
+        let prefs = Prefs::default();
+        let back = Prefs::from_text(&prefs.to_text().map_err(anyhow::Error::msg)?)
+            .map_err(anyhow::Error::msg)?;
+        assert!(back.to_panes().side_follows(), "undragged stays undragged");
+        let mut dragged = Panes::default();
+        dragged.set_width(Pane::Inspector, Pane::Inspector.default_width());
+        let prefs = Prefs::from_parts(
+            &dragged,
+            "strobe",
+            false,
+            false,
+            BrowserPref::default(),
+            Vec::new(),
+        );
+        let back = Prefs::from_text(&prefs.to_text().map_err(anyhow::Error::msg)?)
+            .map_err(anyhow::Error::msg)?;
+        let panes = back.to_panes();
+        assert!(
+            !panes.side_follows() && panes.width(Pane::Inspector) == 440.0,
+            "a drag to the default width is kept as a drag"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_version_one_inspector_width_is_dropped_so_the_panel_follows_the_window() -> Result<()> {
+        let text = "version = 1\n\
+                    [panes.inspector]\nopen = true\nwidth = 300.0\n\
+                    [panes.browser]\nopen = false\nwidth = 320.0\n\
+                    [layouts.show.panes.inspector]\nopen = true\nwidth = 300.0\n";
+        let prefs = Prefs::from_text(text).map_err(anyhow::Error::msg)?;
+        assert_eq!(prefs.version, VERSION, "brought up to date");
+        let panes = prefs.to_panes();
+        assert!(panes.side_follows(), "the old inspector's 300 is dropped");
+        assert_eq!(panes.width(Pane::Browser), 320.0, "other widths are kept");
+        let layout = prefs.layouts.get("show").map(Layout::to_panes);
+        assert!(
+            layout.is_some_and(|panes| panes.side_follows()),
+            "and in a saved layout"
+        );
         Ok(())
     }
 
