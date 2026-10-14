@@ -72,6 +72,9 @@ sha1 = "0.11"
 # no time-zone database, no wasm shims.
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+# Decoding the desktop remote's JPEG frames (D275). Already in the tree
+# through ureq, so it adds no crate.
+base64 = "0.23"
 
 # The GL stack. glow is the bindings; glutin creates the context — natively
 # (WGL / GLX / EGL / CGL) or through ANGLE's libEGL on Windows, which is the
