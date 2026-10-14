@@ -8,7 +8,7 @@
 //               presets, theme, widgets, icon}, crate::{icon, workspace}
 // ============================================================================
 
-//! The side panel (UI_DESIGN section 7, D274).
+//! The side panel (UI_DESIGN section 7, D283).
 //!
 //! Synesthesia keeps one column on the right of every view: one preview, a
 //! status strip, and icon tabs for the playlist, the controls and the
@@ -134,7 +134,7 @@ const PREVIEW_SHARE: f32 = 0.38;
 const PREVIEW_MIN: f32 = 64.0;
 
 /// The least height the panel needs to keep the fav slots above the tabs.
-/// Below it they are the top of the Presets tab (D274).
+/// Below it they are the top of the Presets tab (D283).
 const FAVS_ABOVE: f32 = 360.0;
 
 /// The height of the status strip.

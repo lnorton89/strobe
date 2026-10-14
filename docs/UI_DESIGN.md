@@ -1,6 +1,6 @@
 # Strobe UI Design and Interaction Architecture
 
-_Last researched: 2026-10-08. Sections 2, 4, 5, 7, 12 and 22 were rewritten on 2026-10-14 for the Synesthesia-style layout (D272 to D276)._
+_Last researched: 2026-10-08. Sections 2, 4, 5, 7, 12 and 22 were rewritten on 2026-10-14 for the Synesthesia-style layout (D281 to D285)._
 
 This is the UI contract for the Strobe desktop application. Synesthesia remains the compatibility reference for scene controls, presets, media, mapping and scripting. Since 2026-10-14 the owner's direction is also to follow its *layout* (three columns, a rail that switches the main view, one persistent right panel, a help bar), with Strobe's theme and every modern feature kept reachable. The target is a modern performance instrument for VJs and creative coders.
 
@@ -52,7 +52,7 @@ Change:
 
 Synesthesia itself has been improving filtering, scene browsing, pane resizing and the scene builder, which validates these directions.
 
-**Update (D272).** "Replace the topology" no longer holds for the window's frame. The owner asked for a layout "more similar to Synesthesia's while keeping our modern functionality", so the frame is Synesthesia's (sections 4, 5, 7 and 12) and what stays Strobe's is the content: the Performance Macros, the command palette, the Learn-first mapping workflow, Preview apart from Load, the health readouts, density and themes.
+**Update (D281).** "Replace the topology" no longer holds for the window's frame. The owner asked for a layout "more similar to Synesthesia's while keeping our modern functionality", so the frame is Synesthesia's (sections 4, 5, 7 and 12) and what stays Strobe's is the content: the Performance Macros, the command palette, the Learn-first mapping workflow, Preview apart from Load, the health readouts, density and themes.
 
 ## 3. Core information hierarchy
 
@@ -76,7 +76,7 @@ The UI should feel like a musical instrument with a modern control surface, not 
 
 ## 4. Workspace shell
 
-Measured on Synesthesia 1.25.4 and matched (D272): three columns under the title bar, and a bar along the bottom.
+Measured on Synesthesia 1.25.4 and matched (D281): three columns under the title bar, and a bar along the bottom.
 
     ┌─────────────────────────────────────────────────────────────────────┐
     │ title / view / health readouts / window controls                    │
@@ -98,14 +98,14 @@ Regions and their measure at 1920 wide:
 - Rail, 60 points (3.1%): switches the main view. The active item is a filled tile. Labels drop below 1000 points.
 - Main view, about 66%: one view at a time.
 - Side panel, 31% (595): persistent across every view. Section 7.
-- Bottom: the transport strip with BLACKOUT and the macros, then the help bar (24 points, D275), which is not drawn in a window under 520 points high.
+- Bottom: the transport strip with BLACKOUT and the macros, then the help bar (24 points, D284), which is not drawn in a window under 520 points high.
 - Output: separate window, almost entirely visual.
 
 There is no Live/Edit mode. The rail switches the view and the panel never moves. Persist the panel's width (until it is dragged it follows the window; a double-click on its edge makes it follow again), its tab, and which view was open.
 
 ## 5. Navigation
 
-The rail, top to bottom, each a main view (D272):
+The rail, top to bottom, each a main view (D281):
 
 1. PLAY: the large live preview, with the output toolbar.
 2. LIB: the scene library (the default view).
@@ -158,7 +158,7 @@ Primary actions must look actionable. Numeric status must look like readouts.
 
 ## 7. The side panel and PLAY
 
-The side panel is Synesthesia's right column (D274), top to bottom:
+The side panel is Synesthesia's right column (D283), top to bottom:
 
 1. One 16:9 preview of the live scene, with the LIVE, BLACKOUT and output-hidden badges. No CPU readback. Left out when the panel is too short to give it 64 points at 38% of its height, so a drawer in a small window keeps room for the tab's body.
 2. A status strip: Output (show or hide), Fullscreen, the frame rate with a dot, a horizontal audio level bar with the tempo, and Snapshot (keeps the live frame as the scene's picture) at the right edge.
@@ -326,7 +326,7 @@ Descriptions remain hidden until hover/focus/help mode.
 
 ## 12. Scene library
 
-The library is a creative asset browser, laid out as Synesthesia's is (D273):
+The library is a creative asset browser, laid out as Synesthesia's is (D282):
 
     ┌─────────────────────────────────────────────────────────────────┐
     │ [+ New scene] [refresh]                              [S][M][L] │
@@ -614,7 +614,7 @@ Primary target sizes:
 
 At those sizes the three columns and the bottom bars all show. The side panel follows the window at 31% (595, 446, 397 points).
 
-Below that, parts give way in a fixed order (D260, D272, D276), and never BLACKOUT, the transport buttons or the window controls:
+Below that, parts give way in a fixed order (D260, D281, D285), and never BLACKOUT, the transport buttons or the window controls:
 
 1. the help bar goes below 520 points high;
 2. the rail drops its labels below 1000 points wide;

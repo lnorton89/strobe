@@ -9,7 +9,7 @@
 //               crate::workspace
 // ============================================================================
 
-//! The shell (UI_IMPLEMENTATION_PLAN section 5, D272).
+//! The shell (UI_IMPLEMENTATION_PLAN section 5, D281).
 //!
 //! The shell owns navigation, the title and readout strip, the main view,
 //! the side panel's place and the modal. It does not own scene controls: a
@@ -55,7 +55,7 @@
 //! Failures and notices sit above whatever the main view is. They take at
 //! most [`BANNER_SHARE`] of its height and scroll beyond that, so a long
 //! notice in a small window can neither take the main view nor grow the
-//! surface over the transport strip and BLACKOUT (D276).
+//! surface over the transport strip and BLACKOUT (D285).
 //!
 //! ## Pane widths are ours, not egui's
 //!
@@ -390,7 +390,7 @@ fn drawer(
 /// The draggable edge on the docked side panel's inner side. It paints a
 /// line that brightens under the pointer and writes the dragged width back
 /// to the pane model; a double-click makes the width follow the window
-/// again (D272).
+/// again (D281).
 fn splitter_handle(
     ui: &mut Ui,
     panel: Rect,

@@ -50,7 +50,7 @@ pub const QUIET: Duration = Duration::from_millis(500);
 /// The longest a stream of changes (a pane being dragged) may go unwritten.
 pub const LONGEST: Duration = Duration::from_secs(5);
 
-/// The file's format version. 2 (D272): the inspector's width is the side
+/// The file's format version. 2 (D281): the inspector's width is the side
 /// panel's, and 0 means it follows the window; a version-1 width was the
 /// old inspector's and is dropped on reading ([`Prefs::from_text`]).
 const VERSION: u32 = 2;
@@ -62,7 +62,7 @@ pub struct PanePref {
     /// Whether the pane is open.
     pub open: bool,
     /// Its width in points; 0 for none stored (the side panel then follows
-    /// the window, D272).
+    /// the window, D281).
     pub width: f32,
 }
 
@@ -85,13 +85,13 @@ pub struct BrowserPref {
     pub filter: String,
     /// Favourite scenes, by library name (D211).
     pub favourites: Vec<String>,
-    /// The library grid's card size (D273): `small`, `medium` or `large`.
+    /// The library grid's card size (D282): `small`, `medium` or `large`.
     /// Empty means the default.
     pub cards: String,
-    /// What the grid is ordered by (D273), by
+    /// What the grid is ordered by (D282), by
     /// [`crate::library::SortKey::key`]. Empty means the scan's order.
     pub sort: String,
-    /// Whether the order is reversed (D273).
+    /// Whether the order is reversed (D282).
     pub descending: bool,
 }
 
@@ -138,7 +138,7 @@ pub struct Prefs {
     pub layouts: BTreeMap<String, Layout>,
     /// The watched drop folder (D240, D265).
     pub watch: WatchPref,
-    /// The side panel's tab (D274): `controls`, `playlist` or `presets`.
+    /// The side panel's tab (D283): `controls`, `playlist` or `presets`.
     /// Empty means the default.
     pub side_tab: String,
     /// Synesthesia's own scenes in the library (D271).
@@ -191,7 +191,7 @@ impl Layout {
                 .into_iter()
                 .map(|pane| {
                     // A side panel that follows the window stores no width,
-                    // so it still follows after a restart (D272).
+                    // so it still follows after a restart (D281).
                     let follows = pane == Pane::Inspector && panes.side_follows();
                     (
                         pane.key().to_string(),
@@ -319,7 +319,7 @@ impl Prefs {
     /// Brings a file from an older version up to this one. Version 1's
     /// inspector width belonged to the old inspector pane (300 by default),
     /// so the side panel that took its place follows the window instead of
-    /// keeping it (D272).
+    /// keeping it (D281).
     fn migrate(&mut self) {
         if self.version < 2 {
             let layouts = self.layouts.values_mut().map(|layout| &mut layout.panes);

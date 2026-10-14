@@ -8,7 +8,7 @@
 //               crate::library
 // ============================================================================
 
-//! The scene library (UI_DESIGN section 12, D273).
+//! The scene library (UI_DESIGN section 12, D282).
 //!
 //! Synesthesia's library is a grid of pictures with a search over it, and
 //! so is this: the main view the control window opens on. Opening the
@@ -83,7 +83,7 @@ use std::borrow::Cow;
 /// The id of the search field, so a command can focus it.
 pub const SEARCH_ID: &str = "browser-search";
 
-/// How large the grid's cards are (D273). One setting for the grid, saved.
+/// How large the grid's cards are (D282). One setting for the grid, saved.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum CardSize {
     /// The most scenes on screen.

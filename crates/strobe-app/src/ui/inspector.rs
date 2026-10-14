@@ -28,7 +28,7 @@
 //! that is running, faulted or disabled (visible here without opening the
 //! console).
 //!
-//! It draws two tabs of the side panel (D274), chosen by [`Part`]: the
+//! It draws two tabs of the side panel (D283), chosen by [`Part`]: the
 //! panel draws the preview, the status strip and the tab bar above it, and
 //! this draws from the scene's title down. *Controls* is the script's state
 //! and the groups; *Edit* is the scene's tags and picture, its media,
@@ -47,7 +47,7 @@ use crate::script::ScriptState;
 use egui::{Sense, Ui, Vec2};
 use strobe_scene::control::{ControlBank, ControlKind};
 
-/// Which half of the playing scene's panel is drawn (D274).
+/// Which half of the playing scene's panel is drawn (D283).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Part {
     /// The Controls tab: the script's state, the scene's controls by

@@ -7,7 +7,7 @@
 // Dependencies: egui; super::{model, theme, widgets}, crate::icon
 // ============================================================================
 
-//! Presets and fav slots (D176, D274).
+//! Presets and fav slots (D176, D283).
 //!
 //! ```text
 //! PRESET  [ Slow Burn          v ]  [name         ] [Save]  [Delete]
@@ -15,7 +15,7 @@
 //! ```
 //!
 //! The fav row is the top of the side panel's Presets tab and the preset row
-//! sits under it (D274).
+//! sits under it (D283).
 //!
 //! A **preset** is the scene's control values under a name, kept in the
 //! scene folder. Choosing one in the list recalls it at once (the values are

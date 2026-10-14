@@ -7,7 +7,7 @@
 // Dependencies: egui; super::{theme, widgets}, crate::workspace
 // ============================================================================
 
-//! The help bar (UI_DESIGN section 4, D275).
+//! The help bar (UI_DESIGN section 4, D284).
 //!
 //! Synesthesia keeps a thin bar under everything that explains the control
 //! the pointer is on. Strobe's controls already carry tooltips; the bar
@@ -27,7 +27,7 @@
 //! ## What it does not do
 //!
 //! It never carries anything a person must read: a failure, a refused
-//! write, a question. Those are banners and modals (D260, D276). It is the first
+//! write, a question. Those are banners and modals (D260, D285). It is the first
 //! thing dropped when the window is short, so BLACKOUT and the transport
 //! strip keep their room ([`MIN_WINDOW_HEIGHT`]).
 

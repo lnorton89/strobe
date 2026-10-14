@@ -50,11 +50,11 @@ pub struct BrowserState {
     pub scroll_to: Option<usize>,
     /// Favourite scenes, by library name, sorted (D211).
     pub favourites: Vec<String>,
-    /// How large the library grid's cards are (D273). Saved.
+    /// How large the library grid's cards are (D282). Saved.
     pub cards: super::browser::CardSize,
-    /// What the grid is ordered by (D273). Saved.
+    /// What the grid is ordered by (D282). Saved.
     pub sort: SortKey,
-    /// Whether the order is reversed (D273). Saved.
+    /// Whether the order is reversed (D282). Saved.
     pub descending: bool,
     visible: Vec<usize>,
     cached: Option<Cached>,
@@ -107,7 +107,7 @@ impl BrowserState {
         &self.visible
     }
 
-    /// Puts the visible list in the order the sort asks for (D273). The
+    /// Puts the visible list in the order the sort asks for (D282). The
     /// sort is stable, so equal entries keep the scan's order.
     fn order(&mut self, library: &Library) {
         if self.sort != SortKey::Scan {
@@ -277,7 +277,7 @@ pub struct UiState {
     pub layouts: std::collections::BTreeMap<String, crate::prefs::Layout>,
     /// The watched drop folder (D265): the folder and the switch are saved.
     pub watch: WatchState,
-    /// The side panel's tab (D274). Saved.
+    /// The side panel's tab (D283). Saved.
     pub side_tab: super::side::SideTab,
     /// Synesthesia's scenes in the library (D271): the switch is saved.
     pub synesthesia: SynesthesiaState,
