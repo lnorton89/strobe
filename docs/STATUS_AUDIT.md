@@ -26,6 +26,9 @@ tracks every known unfinished implementation and validation task across the proj
   The scene corpus check also passed both dialects at 640x360 for ten
   frames (`target/corpus/chromatic-rise/report.md`); a separate frame at
   TIME=30 was visually inspected to confirm evolving shapes.
+  Superseded 2026-10-14 by the D276 rebuild (feedback loop, two passes):
+  verified only headless on llvmpipe in both dialects so far; the Windows
+  native/ANGLE and HD 4000 re-run is open.
 
 The Windows desktop app wires together:
 

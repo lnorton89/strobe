@@ -53,6 +53,10 @@ which backend proved a claim.
   response. Rendered and visually inspected at 1280x720 on the RX 580,
   native GL 3.3 and ANGLE GLES 3.0. Next: owner comparison against the
   original network and older integrated-GPU timing; see BENCHMARKS.md.
+  **Rebuilt 2026-10-14 (D276)** as a feedback-advected, posterised marbling
+  (fibrous striations, ringed bubbles, hard neon hue steps) after the owner
+  found the first draft too smooth; twelve controls. Checked headless on
+  llvmpipe in both dialects; the Windows and HD 4000 re-run is still open.
 
 - **Perform UI stage 2** (see item 2): the panes built in stage 1 hold the
   generated-controls review (D202, D219); the full Playlist workspace is
