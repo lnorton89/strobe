@@ -1540,19 +1540,16 @@ impl<'s> Walker<'s> {
         walker.scopes = self.scopes.clone();
         walker.expanding = self.expanding.clone();
         walker.depth = MAX_DEPTH.saturating_sub(50).max(self.depth);
-        match walker.macro_expression(depth + 1) {
+        match walker.macro_expression() {
             Ok(ty) => ty,
             Err(Stop) => Ty::Unknown,
         }
     }
 
-    /// A whole macro body as one expression, with names typed one macro
-    /// level deeper.
-    fn macro_expression(&mut self, depth: u32) -> Parsed<Ty> {
-        // Names inside the body resolve through `variable`, which would
-        // start again at depth 0; a nested macro chain is short in
-        // practice, and `MAX_DEPTH` bounds the parse itself.
-        let _ = depth;
+    /// A whole macro body as one expression. Names inside it resolve
+    /// through `variable` as anywhere else; a nested macro chain is short
+    /// in practice, and `MAX_DEPTH` bounds the parse itself.
+    fn macro_expression(&mut self) -> Parsed<Ty> {
         let value = self.expression()?;
         self.finished()?;
         Ok(value.ty)
@@ -1698,8 +1695,9 @@ fn fits(int: &Ty, float: &Ty) -> bool {
 
 /// The result of `+ - * /`.
 fn arithmetic(op: &str, left: &Ty, right: &Ty) -> Ty {
-    let (Some((left_rows, left_cols)), Some((right_rows, right_cols))) =
-        (left.shape(), right.shape())
+    // The right operand's rows never decide the result: a matrix product
+    // takes its rows from the left, and a vector's from either side.
+    let (Some((left_rows, left_cols)), Some((_, right_cols))) = (left.shape(), right.shape())
     else {
         return Ty::Unknown;
     };
@@ -1727,7 +1725,6 @@ fn arithmetic(op: &str, left: &Ty, right: &Ty) -> Ty {
             (false, false) => left.clone(),
         };
     }
-    let _ = right_rows;
     left.clone()
 }
 

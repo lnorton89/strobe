@@ -148,6 +148,7 @@ impl BrowserState {
     /// mutating the rest of the state without copying it. Hand it back with
     /// [`Self::put_visible`].
     pub fn take_visible(&mut self, library: &Library, health: &[Health], rev: u64) -> Vec<usize> {
+        // Called to refresh the cache; the list is taken from it below.
         let _ = self.visible(library, health, rev);
         std::mem::take(&mut self.visible)
     }

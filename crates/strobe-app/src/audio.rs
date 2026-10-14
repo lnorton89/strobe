@@ -166,6 +166,9 @@ impl AudioInput {
         let spawned = std::thread::Builder::new()
             .name("strobe-audio-open".to_string())
             .spawn(move || {
+                // The UI stopped waiting for this open (it was replaced or
+                // the app is closing); the capture is dropped with the
+                // message.
                 let _ = sender.send(Capture::start_resilient(config));
             });
         match spawned {
@@ -190,6 +193,8 @@ impl AudioInput {
         let spawned = std::thread::Builder::new()
             .name("strobe-audio-list".to_string())
             .spawn(move || {
+                // The UI stopped waiting for this listing; a newer one is on
+                // its way.
                 let _ = sender.send(list_devices().map_err(|e| e.to_string()));
             });
         if spawned.is_ok() {
@@ -462,6 +467,7 @@ impl AudioInput {
             reactivity: &mut self.reactivity,
             speed: &mut self.speed,
             bpm,
+            input_rms: self.frame.energy[0],
         }
     }
 }

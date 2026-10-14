@@ -97,6 +97,29 @@ fn card(
     ui.add_space(SPACE_XS);
 }
 
+/// Below this the input counts as hearing nothing: a microphone's own
+/// noise floor sits around -50 to -45 dBFS, and quiet music well above -40.
+const SILENT_DBFS: f32 = -55.0;
+
+/// The live input's level in dBFS, from its raw (not auto-gained) RMS, and
+/// whether it hears anything. The levels the scenes see adapt to whatever
+/// arrives, so "live, 120 BPM" alone looks the same on a dead microphone
+/// (AMD desktop, Task A2).
+fn input_level(live: bool, rms: f32) -> String {
+    if !live {
+        return "not capturing".to_string();
+    }
+    if !rms.is_finite() || rms <= 0.0 {
+        return "no signal".to_string();
+    }
+    let dbfs = 20.0 * rms.log10();
+    if dbfs < SILENT_DBFS {
+        format!("{dbfs:.0} dBFS: hears nothing (check the device and its level)")
+    } else {
+        format!("{dbfs:.0} dBFS")
+    }
+}
+
 fn cards(ui: &mut Ui, model: &Model<'_>, theme: &Palette) {
     let perf = &model.perf;
     let gpu_tone = match (perf.has_timer, perf.gpu_ms) {
@@ -165,6 +188,10 @@ fn cards(ui: &mut Ui, model: &Model<'_>, theme: &Palette) {
         Some(audio_tone),
         &[
             ("Source", model.audio.source.to_string()),
+            (
+                "Input",
+                input_level(model.audio.live, model.audio.input_rms),
+            ),
             ("Tempo", format!("{:.1} BPM", model.audio.bpm)),
             (
                 "Effect",
@@ -283,8 +310,7 @@ fn console(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Ve
             if widgets::button(ui, theme, None, "Clear").clicked() {
                 actions.push(Action::ClearConsole);
             }
-            let problems = problems_only(ui, model.ui);
-            let _ = problems;
+            problems_only(ui, model.ui);
         });
     });
     widgets::section_rule(ui, theme);
@@ -332,7 +358,7 @@ fn console(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Ve
 }
 
 /// The "problems only" switch.
-fn problems_only(ui: &mut Ui, state: &mut UiState) -> bool {
+fn problems_only(ui: &mut Ui, state: &mut UiState) {
     let theme = super::theme::palette();
     let on = state.console_problems_only;
     if widgets::tool_button(
@@ -347,5 +373,25 @@ fn problems_only(ui: &mut Ui, state: &mut UiState) -> bool {
     {
         state.console_problems_only = !on;
     }
-    state.console_problems_only
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use anyhow::Result;
+
+    #[test]
+    fn the_input_level_tells_a_dead_microphone_from_a_live_one() -> Result<()> {
+        assert_eq!(input_level(false, 0.5), "not capturing", "synthetic audio");
+        assert_eq!(input_level(true, 0.0), "no signal", "nothing arrives");
+        assert_eq!(input_level(true, f32::NAN), "no signal", "a bad value");
+        let music = input_level(true, 0.1);
+        assert_eq!(music, "-20 dBFS", "music at -20 dBFS");
+        // The AMD desktop's silent microphone measured about -47 dBFS RMS
+        // in winmm's 8-bit capture; at this module's resolution its floor
+        // reads lower, around -60.
+        let dead = input_level(true, 0.001);
+        assert!(dead.contains("hears nothing"), "{dead}");
+        Ok(())
+    }
 }

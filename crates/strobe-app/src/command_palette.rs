@@ -472,6 +472,8 @@ fn score(text: &str, query: &[char]) -> Option<Found> {
                 gaps += 1;
             }
             last = Some(at);
+            // Advancing the iterator is the point: this query character is
+            // matched.
             let _ = wanted.next();
         }
         after_alphanumeric = c.is_alphanumeric();

@@ -371,6 +371,8 @@ fn set_callback(context: &mut glow::Context, handler: fn(u32, u32, u32, u32, &st
     // this is the only place that installs one.
     unsafe {
         context.debug_message_callback(move |source, kind, id, severity, text| {
+            // A panic must not unwind into the driver; the handler already
+            // logs what it can.
             std::panic::catch_unwind(|| handler(source, kind, id, severity, text)).ok();
         });
     }

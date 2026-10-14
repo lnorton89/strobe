@@ -83,7 +83,7 @@ struct Check {
 /// Runs every check on the current context and returns the report
 /// (Markdown) and whether all of them passed.
 pub(crate) fn run(gl: &Gl, caps: &Caps, context: &str, size: [i32; 2]) -> Result<(String, bool)> {
-    let _ = gl.error();
+    gl.clear_errors();
     let checks = vec![
         latency(gl, caps)?,
         cost(gl, caps, size)?,

@@ -115,6 +115,8 @@ impl Incoming {
     /// Answers the command. Never blocks: the reply slot has room for
     /// exactly this answer, and an adapter that stopped waiting is fine.
     pub fn answer(self, answer: Answer) {
+        // An adapter that stopped waiting has already answered its client
+        // Busy.
         let _ = self.reply.try_send(answer);
     }
 }

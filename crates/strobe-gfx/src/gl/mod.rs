@@ -391,6 +391,15 @@ impl Gl {
         (code != glow::NO_ERROR).then_some(code)
     }
 
+    /// Clears every pending GL error and returns how many there were. A
+    /// driver may hold several error flags at once and `glGetError` returns
+    /// one per call, so one call is not enough to start clean. Bounded, so a
+    /// lost context that keeps reporting cannot spin.
+    pub fn clear_errors(&self) -> usize {
+        const MOST: usize = 16;
+        (0..MOST).take_while(|_| self.error().is_some()).count()
+    }
+
     /// Blocks until all submitted GL work has completed. Benchmarks, and the
     /// app's opt-in `STROBE_FINISH_AFTER_SWAP` experiment (D216).
     pub fn finish(&self) {
