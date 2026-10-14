@@ -80,6 +80,9 @@ struct Scenario {
     script: Option<&'static str>,
     loading: bool,
     notice: bool,
+    /// The notice is several sentences long: it must wrap inside the main
+    /// view and never push a panel over BLACKOUT.
+    long_notice: bool,
     previewing: bool,
     replace: bool,
     /// A playlist is loaded (its scenes `02-scene-1` and `ghost` cannot play).
@@ -125,6 +128,9 @@ struct Scenario {
     side_tab: crate::ui::side::SideTab,
     /// The library grid's card size (D273).
     cards: crate::ui::browser::CardSize,
+    /// The grid is sorted by author, descending, with the favourites toggle
+    /// on, and the scenes carry authors (D273).
+    ordered: bool,
     /// Synesthesia's own scenes are listed after the library's (D271):
     /// `01-scene-0` (a name the library has too), `glow` and `ink` from the
     /// install, and `deep-sea` from a folder in Synesthesia's settings. With
@@ -150,6 +156,7 @@ const BASE: Scenario = Scenario {
     script: None,
     loading: false,
     notice: false,
+    long_notice: false,
     previewing: false,
     replace: false,
     playlist: false,
@@ -168,6 +175,7 @@ const BASE: Scenario = Scenario {
     generate: false,
     browser_selected: false,
     watch: None,
+    ordered: false,
     synesthesia: false,
     on_synesthesia: false,
     side_tab: crate::ui::side::SideTab::Controls,
@@ -210,6 +218,42 @@ fn scenarios() -> Vec<Scenario> {
             name: "side panel on the presets tab, no scene",
             side_tab: crate::ui::side::SideTab::Presets,
             playing: false,
+            ..BASE
+        },
+        Scenario {
+            name: "side panel on the edit tab",
+            side_tab: crate::ui::side::SideTab::Edit,
+            tagging: true,
+            ..BASE
+        },
+        Scenario {
+            name: "side panel on the edit tab, no scene",
+            side_tab: crate::ui::side::SideTab::Edit,
+            playing: false,
+            ..BASE
+        },
+        Scenario {
+            name: "library sorted by author, favourites only",
+            ordered: true,
+            browser_selected: true,
+            ..BASE
+        },
+        Scenario {
+            name: "library sorted by author, favourites only, compact",
+            ordered: true,
+            density: crate::ui::theme::Density::Compact,
+            cards: crate::ui::browser::CardSize::Small,
+            ..BASE
+        },
+        Scenario {
+            name: "a long notice over the library",
+            long_notice: true,
+            ..BASE
+        },
+        Scenario {
+            name: "a long notice over the play view",
+            long_notice: true,
+            panes: &[Pane::Inspector],
             ..BASE
         },
         Scenario {
@@ -800,10 +844,13 @@ fn draw_events(
                 let entry = Entry::new(format!("{:02}-scene-{i}", i + 1), PathBuf::from("x"));
                 // The playing scene carries tags, so the Inspector's chips
                 // are measured at every size.
-                if i == 0 {
-                    entry.with_tags(&["dark", "tunnel", "audio reactive", "3d", "raymarching"])
-                } else {
-                    entry
+                match i {
+                    0 => {
+                        entry.with_tags(&["dark", "tunnel", "audio reactive", "3d", "raymarching"])
+                    }
+                    1 => entry.with_author("Ada Lovelace"),
+                    2 => entry.with_author("An author credit long enough to be cut short"),
+                    _ => entry,
                 }
             })
             .collect(),
@@ -922,6 +969,14 @@ fn draw_events(
             2
         });
     }
+    if scenario.ordered {
+        ui_state.browser.sort = crate::library::SortKey::Author;
+        ui_state.browser.descending = true;
+        ui_state.browser.filter = crate::library::HealthFilter::Favourites;
+        for name in ["02-scene-1", "03-scene-2", "04-scene-3"] {
+            ui_state.browser.toggle_favourite(name);
+        }
+    }
     if scenario.synesthesia {
         ui_state.synesthesia.note = "4 scenes from C:\\Program Files (x86)\\Synesthesia and \
                                      your scene folder in its settings. Its own are read-only."
@@ -1026,9 +1081,18 @@ fn draw_events(
                     }),
                 })
             } else {
-                scenario.notice.then_some(NoticePanel {
+                (scenario.notice || scenario.long_notice).then_some(NoticePanel {
                     tone: Tone::Info,
-                    text: "The graphics context was lost and rebuilt on ANGLE in 181 ms.",
+                    text: if scenario.long_notice {
+                        "The graphics context was lost and rebuilt on ANGLE in 181 ms. Two \
+                         frames were dropped, the scene was reloaded from its folder and its \
+                         controls kept their values; the output window stayed where it was. If \
+                         it happens again in the next minute the app stays on ANGLE until you \
+                         restart it, which is slower on this machine but does not lose the \
+                         context."
+                    } else {
+                        "The graphics context was lost and rebuilt on ANGLE in 181 ms."
+                    },
                     offer: None,
                 })
             },

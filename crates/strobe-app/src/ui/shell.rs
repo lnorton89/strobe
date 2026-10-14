@@ -30,14 +30,15 @@
 //! +----+-------------------------------------------+-----------------+
 //! | prev hold next  NOW .. NEXT ..  time  bpm        [BLACKOUT]      |
 //! | macro  macro  macro  macro  macro  macro                         |
+//! | help bar: what the control under the pointer does                |
 //! +------------------------------------------------------------------+
 //! ```
 //!
 //! ## Order matters
 //!
 //! egui panels claim space in the order they are added, outermost first: the
-//! title bar, the transport strip, the rail, the side panel (or its handle),
-//! and last the main view. The splitter and the resize handles are added
+//! title bar, the help bar, the transport strip, the rail, the side panel (or
+//! its handle), and last the main view. The splitter and the resize handles are added
 //! after everything so they win the hit test against the panel edge they
 //! sit on.
 //!
@@ -48,6 +49,13 @@
 //! over the main view below that; and when the panel is closed, a
 //! [`HANDLE`]-wide strip at the right edge with one button that opens it,
 //! so the preview and the controls are never more than one click away.
+//!
+//! ## Banners
+//!
+//! Failures and notices sit above whatever the main view is. They take at
+//! most [`BANNER_SHARE`] of its height and scroll beyond that, so a long
+//! notice in a small window can neither take the main view nor grow the
+//! surface over the transport strip and BLACKOUT (D276).
 //!
 //! ## Pane widths are ours, not egui's
 //!
@@ -60,8 +68,8 @@ use super::chrome::{self, Readouts};
 use super::model::{Action, Model};
 use super::theme::{self, PAD, RAIL_WIDTH, SPACE_SM, SPACE_XS};
 use super::{
-    browser, command_palette, diagnostics, editor, import, keys, map, modal, perform, playlist,
-    settings, side, transport,
+    browser, command_palette, diagnostics, editor, help, import, keys, map, modal, perform,
+    playlist, settings, side, transport,
 };
 use crate::icon::Icon;
 use crate::palette::Palette;
@@ -77,6 +85,10 @@ pub struct ShellState {
 
 /// The width of the strip that stands in for the closed side panel.
 pub const HANDLE: f32 = 28.0;
+
+/// The most of the main surface's height the banners take before they
+/// scroll.
+const BANNER_SHARE: f32 = 0.5;
 
 /// Draws the whole control window.
 pub fn show(ui: &mut Ui, shell: &mut ShellState, model: &mut Model<'_>, actions: &mut Vec<Action>) {
@@ -100,7 +112,17 @@ pub fn show(ui: &mut Ui, shell: &mut ShellState, model: &mut Model<'_>, actions:
     let width = ui.ctx().content_rect().width();
     let arrangement = workspace::arrange(&model.ui.panes, width, RAIL_WIDTH);
 
-    chrome::title_bar(ui, model, &mut shell.readouts, &theme, &arrangement, actions);
+    chrome::title_bar(
+        ui,
+        model,
+        &mut shell.readouts,
+        &theme,
+        &arrangement,
+        actions,
+    );
+    // The help bar is the outermost of the bottom panels; the transport
+    // strip sits above it.
+    help::show(ui, &theme, arrangement.main);
     transport::show(ui, model, &theme, actions);
     chrome::nav_rail(ui, model, &theme, &arrangement);
 
@@ -123,7 +145,16 @@ pub fn show(ui: &mut Ui, shell: &mut ShellState, model: &mut Model<'_>, actions:
         .show(ui, |ui| {
             // The banners sit above whatever the main view is, so a scene
             // that failed is seen from the library as well as from PLAY.
-            perform::banners(ui, model, &theme, actions);
+            // They share the surface: past half of it they scroll, so a
+            // long notice in a small window never takes the main view, and
+            // never grows the surface over the transport strip and BLACKOUT
+            // (U-09).
+            let cap = (ui.available_height() * BANNER_SHARE).max(0.0);
+            egui::ScrollArea::vertical()
+                .id_salt("banners")
+                .max_height(cap)
+                .auto_shrink([false, true])
+                .show(ui, |ui| perform::banners(ui, model, &theme, actions));
             // A drawer opens below the banners, so it never covers them
             // (U-09).
             below_banners = ui.cursor().top();
@@ -137,7 +168,9 @@ pub fn show(ui: &mut Ui, shell: &mut ShellState, model: &mut Model<'_>, actions:
             }
         });
 
-    if arrangement.overlay && let Some(w) = arrangement.side {
+    if arrangement.overlay
+        && let Some(w) = arrangement.side
+    {
         let mut surface = central.response.rect;
         if below_banners.is_finite() {
             surface.min.y = below_banners.clamp(surface.min.y, surface.max.y);
@@ -185,7 +218,9 @@ fn pane_body(
         Pane::Editor => editor::show(ui, model, theme, actions),
         // The side panel; never a main view. Drawn here only if the pane
         // model were to misfile it, and then as the panel's contents.
-        Pane::Inspector => super::inspector::show(ui, model, theme, actions),
+        Pane::Inspector => {
+            super::inspector::show(ui, model, theme, actions, super::inspector::Part::Controls);
+        }
     }
 }
 
@@ -292,7 +327,13 @@ fn handle_strip(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, arrangement
 /// The handle strip's one button: an icon button that fits the strip.
 fn handle_button(ui: &mut Ui, theme: &Palette, icon: Icon, tooltip: &str) -> egui::Response {
     let (rect, response) = ui.allocate_exact_size(Vec2::new(HANDLE - 4.0, 28.0), Sense::click());
-    let fill = super::widgets::hover_fill(ui, response.id, response.hovered(), theme.panel, theme.hover);
+    let fill = super::widgets::hover_fill(
+        ui,
+        response.id,
+        response.hovered(),
+        theme.panel,
+        theme.hover,
+    );
     ui.painter()
         .rect_filled(rect, CornerRadius::same(theme::RADIUS), fill);
     super::icon::paint(
@@ -339,7 +380,8 @@ fn drawer(
                 })
                 .show(ui, |ui| {
                     ui.set_width(width - PAD * 2.0);
-                    ui.set_height(height - SPACE_SM * 2.0);
+                    // A tall banner can leave the drawer no room at all.
+                    ui.set_height((height - SPACE_SM * 2.0).max(0.0));
                     side::show(ui, model, readouts, theme, actions);
                 });
         });

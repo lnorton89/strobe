@@ -336,11 +336,7 @@ impl SortKey {
     /// How `a` orders against `b` under this key, ascending: the entry and
     /// whether it is a favourite. Run when the visible list is recomputed (a
     /// change of query, sort or library), never per frame.
-    pub fn compare(
-        self,
-        a: (&Entry, bool),
-        b: (&Entry, bool),
-    ) -> std::cmp::Ordering {
+    pub fn compare(self, a: (&Entry, bool), b: (&Entry, bool)) -> std::cmp::Ordering {
         let by_name = || a.0.lower.cmp(&b.0.lower);
         match self {
             Self::Scan => std::cmp::Ordering::Equal,

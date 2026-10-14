@@ -1,8 +1,9 @@
 // ============================================================================
 // Module:       strobe_app::ui::inspector
-// Description:  The Controls tab of the side panel: the playing scene's
-//               controls, grouped by UI_GROUP, with per-group default and
-//               random, then the output-wide meta group.
+// Description:  The Controls and Edit tabs of the side panel: the playing
+//               scene's controls, grouped by UI_GROUP, with per-group default
+//               and random, then the output-wide meta group; and its tags,
+//               picture, media and Generate controls.
 //
 // Dependencies: egui; strobe-scene (ControlBank); super::{controls, model,
 //               theme, widgets, state}, crate::script
@@ -27,9 +28,11 @@
 //! that is running, faulted or disabled (visible here without opening the
 //! console).
 //!
-//! It is the Controls tab of the side panel (D274): the panel draws the
-//! preview, the fav slots and the tab bar above it, and this draws from the
-//! scene's title down.
+//! It draws two tabs of the side panel (D274), chosen by [`Part`]: the
+//! panel draws the preview, the status strip and the tab bar above it, and
+//! this draws from the scene's title down. *Controls* is the script's state
+//! and the groups; *Edit* is the scene's tags and picture, its media,
+//! Generate controls, and the button to the Editor.
 
 use super::controls;
 use super::icon as icons;
@@ -44,8 +47,25 @@ use crate::script::ScriptState;
 use egui::{Sense, Ui, Vec2};
 use strobe_scene::control::{ControlBank, ControlKind};
 
+/// Which half of the playing scene's panel is drawn (D274).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Part {
+    /// The Controls tab: the script's state, the scene's controls by
+    /// group, then the output-wide meta group.
+    Controls,
+    /// The Edit tab: the scene's tags and picture, its media, Generate
+    /// controls, and the way to the Editor.
+    Edit,
+}
+
 /// Draws the tab's contents.
-pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Vec<Action>) {
+pub fn show(
+    ui: &mut Ui,
+    model: &mut Model<'_>,
+    theme: &Palette,
+    actions: &mut Vec<Action>,
+    part: Part,
+) {
     let has_scene = model.controls.is_some();
 
     // Everything scrolls as one, so a short window (a drawer at 150% on a
@@ -74,7 +94,8 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
                         (ui.available_width() - 36.0).max(40.0),
                     );
                     let (rect, _) = ui.allocate_exact_size(galley.size(), Sense::hover());
-                    ui.painter().galley(rect.min, galley, theme::rgb(theme.text));
+                    ui.painter()
+                        .galley(rect.min, galley, theme::rgb(theme.text));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if widgets::icon_button(
                             ui,
@@ -89,7 +110,9 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
                     });
                 });
             }
-            if let Some(entry) = model.playing.and_then(|i| model.library.entries.get(i)) {
+            if part == Part::Edit
+                && let Some(entry) = model.playing.and_then(|i| model.library.entries.get(i))
+            {
                 let capture = |ui: &mut Ui| {
                     if ui
                         .small_button("Use frame as picture")
@@ -118,22 +141,43 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
                 );
                 actions.append(&mut asked);
             }
-            if let Some(media) = model.media {
-                media_row(ui, theme, media, &mut model.ui.media_draft, actions);
+            if part == Part::Edit {
+                if let Some(media) = model.media {
+                    media_row(ui, theme, media, &mut model.ui.media_draft, actions);
+                }
+                ui.add_space(SPACE_XS);
+                if has_scene {
+                    generate_strip(
+                        ui,
+                        theme,
+                        model.generate,
+                        &mut model.ui.generate_review,
+                        actions,
+                    );
+                    if widgets::button(ui, theme, Some(Icon::Editor), "Open in Editor")
+                        .on_hover_text(
+                            "The scene's files, with Save and Save and reload (the EDIT view)",
+                        )
+                        .clicked()
+                    {
+                        actions.push(Action::OpenEditor(None));
+                    }
+                } else {
+                    widgets::empty_state(
+                        ui,
+                        theme,
+                        Icon::Editor,
+                        "No scene playing",
+                        "Tags, picture, media and the Editor belong to the playing scene. Load \
+                         one from the library.",
+                    );
+                }
+                return;
             }
             if let Some(state) = model.script {
                 script_status(ui, theme, state);
             }
             ui.add_space(SPACE_XS);
-            if has_scene {
-                generate_strip(
-                    ui,
-                    theme,
-                    model.generate,
-                    &mut model.ui.generate_review,
-                    actions,
-                );
-            }
 
             // Which controls already have a pinned macro, for the rows' pin
             // menu (D210).

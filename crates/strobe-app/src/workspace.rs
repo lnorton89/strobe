@@ -29,7 +29,7 @@
 //! expects.
 //!
 //! The *side* dock holds the [`Pane::Inspector`] alone: the preview, the
-//! status strip, the fav slots and the Controls, Playlist and Presets tabs.
+//! status strip and the Playlist, Controls, Presets and Edit tabs.
 //! Open, it is a column beside the main view; closed, it is a handle strip
 //! that reopens it, so the preview and the controls are never more than one
 //! click away.
@@ -39,8 +39,9 @@
 //! [`arrange`] decides what is drawn. The main view takes whatever the side
 //! panel leaves, and the side panel gives way in this order:
 //!
-//! 1. it is drawn at its stored width while the main view keeps at least
-//!    [`MAIN_MIN`] beside the rail;
+//! 1. it is drawn at its stored width (until the operator drags it, the
+//!    default width means [`SIDE_SHARE`] of the window) while the main view
+//!    keeps at least [`MAIN_MIN`] beside the rail;
 //! 2. otherwise it shrinks towards its minimum;
 //! 3. below that it becomes an overlay drawer over the main view.
 //!
@@ -171,8 +172,7 @@ impl Pane {
     pub fn default_width(self) -> f32 {
         match self {
             Self::Browser | Self::Import => 280.0,
-            // About a third of a 1440 window beside the rail, as Synesthesia's
-            // panel is of its window (D272).
+            // The sentinel for "follow the window": [`SIDE_SHARE`] of it (D272).
             Self::Inspector => 440.0,
             Self::Diagnostics | Self::Settings => 380.0,
             Self::Playlist => 440.0,
@@ -202,6 +202,17 @@ pub const MAIN_MIN: f32 = 320.0;
 
 /// Below this window width the rail drops its labels.
 pub const NARROW: f32 = 1000.0;
+
+/// The share of the window the side panel takes while its width is the
+/// default one: Synesthesia's right panel is 31% of its window, measured on
+/// 1.25.4 (D272). A width the operator has dragged to is kept as dragged.
+pub const SIDE_SHARE: f32 = 0.31;
+
+/// The side panel's width in a window `window_width` wide while nobody has
+/// dragged it: [`SIDE_SHARE`] of the window, inside the panel's range.
+pub fn auto_side_width(window_width: f32) -> f32 {
+    clamp_width(Pane::Inspector, window_width * SIDE_SHARE)
+}
 
 /// Which panes are open, how wide, and in what order they were opened.
 #[derive(Clone, Debug, PartialEq)]
@@ -416,7 +427,13 @@ pub fn arrange(panes: &Panes, window_width: f32, rail: f32) -> Arrangement {
     let main = panes.shown_in(Dock::Main);
     let mut overlay = false;
     let side = panes.side_open().then(|| {
-        let wanted = panes.width(Pane::Inspector);
+        let stored = panes.width(Pane::Inspector);
+        // The default width is a promise to follow the window, not a size.
+        let wanted = if (stored - Pane::Inspector.default_width()).abs() < 0.5 {
+            auto_side_width(window_width)
+        } else {
+            stored
+        };
         let room = avail - MAIN_MIN;
         if wanted <= room {
             wanted
@@ -492,18 +509,35 @@ mod tests {
     }
 
     #[test]
-    fn at_1440_and_1280_the_panel_docks_at_its_default_width() {
-        for width in [1280.0_f32, 1366.0, 1440.0, 1920.0] {
+    fn an_undragged_panel_docks_at_a_third_of_the_window() {
+        for width in [1280.0_f32, 1366.0, 1440.0, 1920.0, 2560.0] {
             let layout = arrange(&Panes::default(), width, RAIL);
             assert_eq!(
                 layout.side,
-                Some(Pane::Inspector.default_width()),
+                Some(auto_side_width(width)),
                 "at {width}: {layout:?}"
             );
             assert!(!layout.overlay, "docked at {width}");
+            let share = layout.docked_width() / width;
+            assert!(
+                width >= 2000.0 || (0.28..=0.33).contains(&share),
+                "the panel is about 31% of the window at {width}, not {share}"
+            );
             let main = width - RAIL - layout.docked_width();
             assert!(main >= MAIN_MIN, "the main view keeps {main} at {width}");
         }
+    }
+
+    #[test]
+    fn a_dragged_panel_keeps_the_width_it_was_dragged_to() {
+        let mut panes = Panes::default();
+        panes.set_width(Pane::Inspector, 360.0);
+        let layout = arrange(&panes, 1920.0, RAIL);
+        assert_eq!(
+            layout.side,
+            Some(360.0),
+            "dragged, so not following the window"
+        );
     }
 
     #[test]
@@ -595,7 +629,10 @@ mod tests {
             Some(Pane::Browser),
             "the library is the main view after its button was pressed: {after:?}"
         );
-        assert!(panes.is_open(Pane::Playlist), "the playlist stays open beneath");
+        assert!(
+            panes.is_open(Pane::Playlist),
+            "the playlist stays open beneath"
+        );
     }
 
     #[test]

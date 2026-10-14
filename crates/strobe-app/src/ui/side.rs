@@ -1,8 +1,8 @@
 // ============================================================================
 // Module:       strobe_app::ui::side
 // Description:  The persistent side panel: the live preview, the status strip
-//               under it, the fav slots, and the Controls, Playlist and
-//               Presets tabs.
+//               under it, and the Playlist, Controls, Presets and Edit
+//               icon tabs.
 //
 // Dependencies: egui; super::{chrome, inspector, model, perform, playlist,
 //               presets, theme, widgets, icon}, crate::{icon, workspace}
@@ -10,17 +10,16 @@
 
 //! The side panel (UI_DESIGN section 7, D274).
 //!
-//! Synesthesia keeps one column on the right of every view: the preview,
-//! a status strip, and tabs for the playlist and the controls. Strobe's
-//! side panel is that column, drawn from the same model every other pane
-//! reads:
+//! Synesthesia keeps one column on the right of every view: one preview, a
+//! status strip, and icon tabs for the playlist, the controls and the
+//! edit panel. Strobe's side panel is that column, drawn from the same
+//! model every other pane reads:
 //!
 //! ```text
 //! +--------------------------------+
 //! |          PREVIEW (16:9)        |
-//! | * 60 fps  )) ====  128 BPM  [][]|
-//! | FAV [1][2][3][4][5][6][7][8]   |
-//! | CONTROLS | PLAYLIST | PRESETS  |
+//! | [out][full] * 60 fps ===== [cam]|
+//! |  LIST  |  CTRL  |  PRESET | EDIT|
 //! | (the tab's body, scrolling)    |
 //! +--------------------------------+
 //! ```
@@ -28,16 +27,18 @@
 //! - The **preview** is the scene's own output texture, fitted to the
 //!   panel's width ([`super::perform::preview_in`]), with the LIVE,
 //!   BLACKOUT and output-hidden badges the large preview has.
-//! - The **status strip** answers the stage questions in one glance: the
-//!   frame rate, whether audio is arriving (a level meter, not a word),
-//!   the tempo, and the output window's two buttons.
-//! - The **fav slots** are the eight quick-launch slots (D176), always in
-//!   reach rather than inside a tab.
-//! - The **tabs**: *Controls* is the inspector (the scene's controls by
-//!   group, then the output-wide meta group); *Playlist* is the loaded
-//!   show's cue list with a jump on double-click, and a button to the LIST
-//!   view for editing; *Presets* recalls, saves and renames the scene's
-//!   presets.
+//! - The **status strip** answers the stage questions in one glance, in
+//!   Synesthesia's order: the output window's two buttons, the frame rate
+//!   with a dot (green while the output keeps up), a horizontal audio level
+//!   bar (a meter, not a word) with the tempo, and the snapshot button,
+//!   which keeps the live frame as the scene's picture.
+//! - The **tabs** are icons, with their names in tooltips and, when the
+//!   panel is wide, beside them. *Playlist* is the loaded show's cue list
+//!   with a jump on double-click, and a button to the LIST view for editing.
+//!   *Controls* is the scene's controls by group, then the output-wide meta
+//!   group. *Presets* holds the fav slots (D176) over the preset row and the
+//!   preset list. *Edit* is the scene's tags, picture, media and Generate
+//!   controls, and the way to the Editor.
 //!
 //! The panel is [`Pane::Inspector`](crate::workspace::Pane::Inspector) in
 //! the pane model: open, it is docked or a drawer; closed, the shell draws a
@@ -57,25 +58,28 @@ use egui::{Align, Layout, Sense, Ui, UiBuilder, Vec2};
 /// The side panel's tabs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum SideTab {
+    /// The loaded playlist's cues.
+    Playlist,
     /// The playing scene's controls and the meta group.
     #[default]
     Controls,
-    /// The loaded playlist's cues.
-    Playlist,
-    /// The scene's presets.
+    /// The fav slots and the scene's presets.
     Presets,
+    /// The scene's tags, picture, media, Generate and the Editor.
+    Edit,
 }
 
 impl SideTab {
     /// Every tab, in the order the bar shows them.
-    pub const ALL: [Self; 3] = [Self::Controls, Self::Playlist, Self::Presets];
+    pub const ALL: [Self; 4] = [Self::Playlist, Self::Controls, Self::Presets, Self::Edit];
 
     /// The name saved in the preferences file.
     pub const fn key(self) -> &'static str {
         match self {
-            Self::Controls => "controls",
             Self::Playlist => "playlist",
+            Self::Controls => "controls",
             Self::Presets => "presets",
+            Self::Edit => "edit",
         }
     }
 
@@ -87,18 +91,30 @@ impl SideTab {
     /// The tab's label.
     pub const fn label(self) -> &'static str {
         match self {
-            Self::Controls => "Controls",
             Self::Playlist => "Playlist",
+            Self::Controls => "Controls",
             Self::Presets => "Presets",
+            Self::Edit => "Edit",
+        }
+    }
+
+    /// What the tab is for, as its tooltip says it.
+    pub const fn tooltip(self) -> &'static str {
+        match self {
+            Self::Playlist => "Playlist: the loaded show's cues",
+            Self::Controls => "Controls: the playing scene's controls",
+            Self::Presets => "Presets: fav slots and the scene's saved looks",
+            Self::Edit => "Edit: tags, picture, media, Generate controls, the Editor",
         }
     }
 
     /// The tab's icon.
     pub const fn icon(self) -> Icon {
         match self {
-            Self::Controls => Icon::Controls,
             Self::Playlist => Icon::Playlist,
+            Self::Controls => Icon::Controls,
             Self::Presets => Icon::Star,
+            Self::Edit => Icon::Editor,
         }
     }
 }
@@ -113,9 +129,11 @@ const PREVIEW_MIN: f32 = 64.0;
 /// The height of the status strip.
 const STRIP_HEIGHT: f32 = 26.0;
 
-/// Below this panel width the status strip drops the BPM and the tabs drop
-/// their words.
+/// Below this panel width the status strip drops the BPM.
 const TIGHT: f32 = 300.0;
+
+/// Below this panel width the tabs are icons alone.
+const LABELLED: f32 = 400.0;
 
 /// Draws the panel's contents.
 pub fn show(
@@ -129,14 +147,13 @@ pub fn show(
     ui.add_space(SPACE_XS);
     status_strip(ui, model, readouts, theme, actions);
     ui.add_space(SPACE_XS);
-    presets::fav_row(ui, model, theme, actions);
-    ui.add_space(SPACE_XS);
     tab_bar(ui, model, theme);
     ui.add_space(SPACE_SM);
     match model.ui.side_tab {
-        SideTab::Controls => inspector::show(ui, model, theme, actions),
         SideTab::Playlist => playlist_tab(ui, model, theme, actions),
+        SideTab::Controls => inspector::show(ui, model, theme, actions, inspector::Part::Controls),
         SideTab::Presets => presets_tab(ui, model, theme, actions),
+        SideTab::Edit => inspector::show(ui, model, theme, actions, inspector::Part::Edit),
     }
 }
 
@@ -153,7 +170,9 @@ fn preview(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Ve
     });
 }
 
-/// Frame rate, audio level, tempo, and the output buttons.
+/// The status strip, in Synesthesia's order: the output and fullscreen
+/// buttons, the frame rate with its dot, the audio level bar and the tempo,
+/// and the snapshot button.
 fn status_strip(
     ui: &mut Ui,
     model: &mut Model<'_>,
@@ -164,41 +183,63 @@ fn status_strip(
     let tight = ui.available_width() < TIGHT;
     ui.horizontal(|ui| {
         ui.set_height(STRIP_HEIGHT);
-        // The buttons first, against the right edge, so the readings take
-        // what is left and give way before the buttons do.
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            let visible = model.output_visible;
-            if widgets::icon_button(
-                ui,
-                theme,
-                Icon::Output,
-                if visible {
-                    "Hide the output window. The scene keeps rendering."
-                } else {
-                    "Show the output window"
-                },
-            )
-            .clicked()
-            {
-                actions.push(Action::SetOutputVisible(!visible));
+        let visible = model.output_visible;
+        if widgets::icon_button(
+            ui,
+            theme,
+            Icon::Output,
+            if visible {
+                "Hide the output window. The scene keeps rendering."
+            } else {
+                "Show the output window"
+            },
+        )
+        .clicked()
+        {
+            actions.push(Action::SetOutputVisible(!visible));
+        }
+        if widgets::icon_button(
+            ui,
+            theme,
+            Icon::Fullscreen,
+            "Fullscreen on the chosen monitor; shows the output if it is hidden (F11)",
+        )
+        .clicked()
+        {
+            actions.push(Action::ToggleFullscreen);
+        }
+        fps_reading(ui, model, readouts, theme);
+        // The snapshot keeps its place at the right edge; the level bar
+        // takes what is left between.
+        let reserve = SNAPSHOT + ui.spacing().item_spacing.x + if tight { 0.0 } else { BPM_ROOM };
+        audio_reading(ui, model, theme, tight, reserve);
+        // Not a scene of Synesthesia's: its folder is not written.
+        let playing = model
+            .playing
+            .and_then(|index| model.library.entries.get(index));
+        let can = playing.is_some_and(|entry| !entry.read_only());
+        let tip = match playing {
+            None => "Snapshot: load a scene first",
+            Some(entry) if entry.read_only() => {
+                "Snapshot: this scene is Synesthesia's own and read-only. Copy it to your library first."
             }
-            if widgets::icon_button(
-                ui,
-                theme,
-                Icon::Fullscreen,
-                "Fullscreen on the chosen monitor; shows the output if it is hidden (F11)",
-            )
-            .clicked()
-            {
-                actions.push(Action::ToggleFullscreen);
+            Some(_) => {
+                "Snapshot: keep what is on screen now as this scene's picture in the library"
             }
-            ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-                fps_reading(ui, model, readouts, theme);
-                audio_reading(ui, model, theme, tight);
-            });
-        });
+        };
+        ui.add_enabled_ui(can, |ui| {
+            if widgets::icon_button(ui, theme, Icon::Camera, tip).clicked() {
+                actions.push(Action::CaptureThumbnail);
+            }
+        })
+        .response
+        .on_disabled_hover_text(tip);
     });
 }
+
+/// The width the snapshot button takes, and the room kept for the tempo.
+const SNAPSHOT: f32 = 28.0;
+const BPM_ROOM: f32 = 60.0;
 
 /// A dot and the frame rate: green while the output keeps up.
 fn fps_reading(ui: &mut Ui, model: &Model<'_>, readouts: &Readouts, theme: &Palette) {
@@ -221,8 +262,9 @@ fn fps_reading(ui: &mut Ui, model: &Model<'_>, readouts: &Readouts, theme: &Pale
     .on_hover_text("Output frame rate");
 }
 
-/// The audio icon, a level meter and the tempo.
-fn audio_reading(ui: &mut Ui, model: &Model<'_>, theme: &Palette, tight: bool) {
+/// The audio icon, a level bar that fills the room left after `reserve`,
+/// and the tempo.
+fn audio_reading(ui: &mut Ui, model: &Model<'_>, theme: &Palette, tight: bool, reserve: f32) {
     let audio = &model.audio;
     let colour = if audio.live {
         theme.success
@@ -234,8 +276,8 @@ fn audio_reading(ui: &mut Ui, model: &Model<'_>, theme: &Palette, tight: bool) {
     ui.add_space(SPACE_XS);
     icons::show(ui, Icon::Audio, icons::DISCLOSURE + 2.0, theme::rgb(colour));
     let level = audio_level(audio.input_rms);
-    let room = (ui.available_width() - if tight { 0.0 } else { 64.0 }).max(0.0);
-    let meter_width = room.clamp(24.0, 56.0);
+    let room = (ui.available_width() - reserve - icons::DISCLOSURE).max(0.0);
+    let meter_width = room.clamp(24.0, 220.0);
     let fill = if audio.live {
         theme.accent
     } else {
@@ -269,10 +311,12 @@ pub fn audio_level(rms: f32) -> f32 {
     ((db + 60.0) / 60.0).clamp(0.0, 1.0)
 }
 
-/// The tab bar: equal cells, the chosen one underlined in the accent.
+/// The tab bar: icon tabs in equal cells, the chosen one a filled tile with
+/// an accent underline. The names are in the tooltips, and beside the icons
+/// when the panel is wide enough for them.
 fn tab_bar(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette) {
     let width = ui.available_width();
-    let labelled = width >= TIGHT;
+    let labelled = width >= LABELLED;
     let cell = width / SideTab::ALL.len() as f32;
     let (rect, _) = ui.allocate_exact_size(Vec2::new(width, 28.0), Sense::hover());
     let mut chosen = None;
@@ -282,20 +326,23 @@ fn tab_bar(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette) {
             Vec2::new(cell, rect.height()),
         );
         let id = egui::Id::new(("side-tab", tab.key()));
-        let response = ui
-            .interact(cell_rect, id, Sense::click())
-            .on_hover_text(format!("{} tab", tab.label()));
+        let response =
+            super::help::hovered(ui.interact(cell_rect, id, Sense::click()), tab.tooltip());
         let active = model.ui.side_tab == tab;
         let fill = widgets::hover_fill(
             ui,
             response.id,
             response.hovered(),
-            theme.panel,
+            if active { theme.raised } else { theme.panel },
             theme.raised,
         );
         let painter = ui.painter();
         painter.rect_filled(cell_rect, egui::CornerRadius::same(theme::RADIUS), fill);
-        let colour = if active { theme.accent } else { theme.text_muted };
+        let colour = if active {
+            theme.accent
+        } else {
+            theme.text_muted
+        };
         let glyph = icons::INLINE;
         let font = egui::FontId::new(10.5, egui::FontFamily::Proportional);
         let galley = painter.layout_no_wrap(
@@ -307,7 +354,12 @@ fn tab_bar(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette) {
             font,
             theme::rgb(colour),
         );
-        let content = glyph + if labelled { SPACE_XS + galley.size().x } else { 0.0 };
+        let content = glyph
+            + if labelled {
+                SPACE_XS + galley.size().x
+            } else {
+                0.0
+            };
         let x = cell_rect.center().x - content / 2.0;
         icons::paint(
             painter,
@@ -335,7 +387,11 @@ fn tab_bar(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette) {
                 egui::pos2(cell_rect.center().x, cell_rect.bottom() - 1.0),
                 Vec2::new((cell_rect.width() - SPACE_SM) * grown, 2.0),
             );
-            painter.rect_filled(underline, egui::CornerRadius::same(1), theme::rgb(theme.accent));
+            painter.rect_filled(
+                underline,
+                egui::CornerRadius::same(1),
+                theme::rgb(theme.accent),
+            );
         }
         if response.clicked() {
             chosen = Some(tab);
@@ -395,8 +451,13 @@ fn playlist_tab(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &m
     });
 }
 
-/// The Presets tab: the preset row, then every preset as a row to recall.
+/// The Presets tab: the fav slots, the preset row, then every preset as a
+/// row to recall.
 fn presets_tab(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Vec<Action>) {
+    // The fav slots first: they hold scenes, so they are there with or
+    // without a playing one.
+    presets::fav_row(ui, model, theme, actions);
+    ui.add_space(SPACE_SM);
     if model.controls.is_none() {
         widgets::empty_state(
             ui,
@@ -412,9 +473,11 @@ fn presets_tab(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mu
     let active = model.remote.active_preset;
     if names.is_empty() {
         ui.label(
-            egui::RichText::new("No presets saved for this scene. Set the controls and save them above.")
-                .small()
-                .color(theme::rgb(theme.text_muted)),
+            egui::RichText::new(
+                "No presets saved for this scene. Set the controls and save them above.",
+            )
+            .small()
+            .color(theme::rgb(theme.text_muted)),
         );
         return;
     }
