@@ -40,7 +40,8 @@ pub struct ScriptInputs<'a> {
     /// `_mouse`: pixel position (x, y) and the pixel position of the last
     /// click (z, w).
     pub mouse: [f32; 4],
-    /// `_click`: x and y of the last click, z the button state.
+    /// `_click`: left, right, middle held (`0` or `1`), as the player feeds
+    /// it. A real script tests `_click.x > 0.5` for the left button (R12).
     pub click: [f32; 3],
     /// `_muv`: mouse position in `0..1` across the output.
     pub muv: [f32; 2],

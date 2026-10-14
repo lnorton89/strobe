@@ -124,6 +124,6 @@ missing driver fail rather than skip.
   (D199, R8 in [`OPEN_QUESTIONS.md`](../../docs/OPEN_QUESTIONS.md)). Left:
   a function-like macro whose body mixes int and float. The shipped scenes
   are written ES-clean.
-- Unverified against real Synesthesia: the audio texture layout (Q1, Q10),
-  `_click` (Q13), the bang-smooth envelope (Q4), among others in
+- Unverified against real Synesthesia: the audio texture layout (Q10),
+  the bang-smooth envelope (Q4), among others in
   `OPEN_QUESTIONS.md`.
