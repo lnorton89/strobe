@@ -104,6 +104,8 @@ const _: () = {
 pub struct Readouts {
     updated: Option<f64>,
     fps: String,
+    /// The tempo, for the side panel's status strip.
+    bpm: String,
     gpu: String,
     gpu_fraction: f32,
     scale: String,
@@ -134,6 +136,11 @@ impl Readouts {
         &self.fps
     }
 
+    /// The tempo text, for the side panel's status strip.
+    pub fn bpm(&self) -> &str {
+        &self.bpm
+    }
+
     /// Re-formats the text if it is more than [`READOUT_PERIOD`] old.
     fn refresh(&mut self, model: &Model<'_>, now: f64) {
         if self.updated.is_some_and(|at| now - at < READOUT_PERIOD) {
@@ -141,6 +148,12 @@ impl Readouts {
         }
         self.updated = Some(now);
         self.fps = format!("{:.0} fps", model.stats.fps());
+        self.bpm.clear();
+        if model.audio.bpm > 0.0 {
+            self.bpm = format!("{:.0} BPM", model.audio.bpm);
+        } else {
+            self.bpm.push_str("-- BPM");
+        }
         let perf = &model.perf;
         self.gpu_fraction = 0.0;
         self.gpu = match (perf.has_timer, perf.gpu_ms) {

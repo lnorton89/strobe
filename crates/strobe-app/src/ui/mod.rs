@@ -105,7 +105,7 @@ mod tests {
     /// is where colours are made. `motion` is not here either: it is the
     /// one module allowed to animate. `icon` holds the painting of the
     /// geometry and `state` has no drawing at all.
-    const DRAWING_MODULES: [(&str, &str); 22] = [
+    const DRAWING_MODULES: [(&str, &str); 23] = [
         ("tags", include_str!("tags.rs")),
         ("audio", include_str!("audio.rs")),
         ("browser", include_str!("browser.rs")),
@@ -123,6 +123,7 @@ mod tests {
         ("settings", include_str!("settings.rs")),
         ("shell", include_str!("shell.rs")),
         ("side", include_str!("side.rs")),
+        ("help", include_str!("help.rs")),
         ("transport", include_str!("transport.rs")),
         ("widgets", include_str!("widgets.rs")),
         ("icon", include_str!("icon.rs")),
