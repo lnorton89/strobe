@@ -192,6 +192,23 @@ native and ANGLE.
   the shader reads them with `texelFetch(passN, ivec2(_xy))`. Any main
   pass smaller than the passes reads only their corner.
 - **Adaptive gains nothing here:** GPU time is 59.4 ms at 1.0 and 59.5 ms
-  at 0.5, because the heavy passes do not shrink. A fix is in progress
-  (D280).
+  at 0.5, because the heavy passes do not shrink. Fixed by D280; see
+  the section below.
+
+## neon_city after D280 (2026-10-14, llvmpipe under Xvfb, not the RX 580)
+
+The fix for A9 (D280): a scene with a root `WIDTH` x `HEIGHT` and a literal
+buffer pass of that size renders its final pass at that size. Run on the
+private corpus, native GL, Xvfb at 1600x900, `--window-size 1280x720
+--frames 180 --audio synthetic --no-panes`:
+
+| Run | Before (A9, RX 580) | After (llvmpipe) |
+|---|---|---|
+| `--no-adaptive --render-scale 1.0` | 960x540, a quarter of the buffers | 1920x1080, the whole frame |
+| `--render-scale 0.5` | 480x270, the bottom-left quarter | 1920x1080, the same picture byte for byte |
+| adaptive on | 240x135, a sixteenth ("striped plane") | 1920x1080, the same picture; the log says "this scene renders at 1920x1080 whatever the render scale (D280), so the scale stays at 1.00" |
+
+All three show the whole street of towers, noisy as a 180-frame path trace
+is, with `scene.png`'s framing. Open: the same run on the RX 580, where GPU
+time will show what the heavy passes cost at 1080p (59 ms at A9).
 
