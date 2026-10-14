@@ -1,8 +1,8 @@
 # Strobe UI Design and Interaction Architecture
 
-_Last researched: 2026-10-08_
+_Last researched: 2026-10-08. Sections 2, 4, 5, 7, 12 and 22 were rewritten on 2026-10-14 for the Synesthesia-style layout (D272 to D276)._
 
-This is the UI contract for the Strobe desktop application. Synesthesia remains the compatibility reference for scene controls, presets, media, mapping and scripting, but its presentation should not be copied. The target is a modern performance instrument for VJs and creative coders.
+This is the UI contract for the Strobe desktop application. Synesthesia remains the compatibility reference for scene controls, presets, media, mapping and scripting. Since 2026-10-14 the owner's direction is also to follow its *layout* (three columns, a rail that switches the main view, one persistent right panel, a help bar), with Strobe's theme and every modern feature kept reachable. The target is a modern performance instrument for VJs and creative coders.
 
 ## 1. Product model
 
@@ -52,6 +52,8 @@ Change:
 
 Synesthesia itself has been improving filtering, scene browsing, pane resizing and the scene builder, which validates these directions.
 
+**Update (D272).** "Replace the topology" no longer holds for the window's frame. The owner asked for a layout "more similar to Synesthesia's while keeping our modern functionality", so the frame is Synesthesia's (sections 4, 5, 7 and 12) and what stays Strobe's is the content: the Performance Macros, the command palette, the Learn-first mapping workflow, Preview apart from Load, the health readouts, density and themes.
+
 ## 3. Core information hierarchy
 
 The Perform workspace hierarchy is:
@@ -74,43 +76,49 @@ The UI should feel like a musical instrument with a modern control surface, not 
 
 ## 4. Workspace shell
 
-Default topology:
+Measured on Synesthesia 1.25.4 and matched (D272): three columns under the title bar, and a bar along the bottom.
 
     ┌─────────────────────────────────────────────────────────────────────┐
-    │ title / workspace / health / window controls                       │
-    ├───────┬───────────────────────────────────────────┬─────────────────┤
-    │ rail  │                                           │ inspector       │
-    │       │               work surface                │                 │
-    │       │                                           │                 │
-    ├───────┴───────────────────────────────────────────┴─────────────────┤
-    │ transport / cue strip / performance macros / status               │
+    │ title / view / health readouts / window controls                    │
+    ├──┬────────────────────────────────────────────────┬─────────────────┤
+    │  │ banners                                        │ preview (16:9)  │
+    │r │                                                │ status strip    │
+    │a │ main view: the library grid, or the view      │ [list][ctl][edit]│
+    │i │ the rail chose; PLAY is the large preview     │ tab body        │
+    │l │                                                │                 │
+    ├──┴────────────────────────────────────────────────┴─────────────────┤
+    │ transport: prev hold next / NOW NEXT / time bpm / BLACKOUT          │
+    │ performance macros                                                  │
+    ├─────────────────────────────────────────────────────────────────────┤
+    │ help bar: what the control under the pointer does                   │
     └─────────────────────────────────────────────────────────────────────┘
 
-Regions:
+Regions and their measure at 1920 wide:
 
-- Navigation rail: changes workspace.
-- Center: primary work surface.
-- Inspector: contextual controls.
-- Bottom strip: transport, cues and macros.
+- Rail, 60 points (3.1%): switches the main view. The active item is a filled tile. Labels drop below 1000 points.
+- Main view, about 66%: one view at a time.
+- Side panel, 31% (595): persistent across every view. Section 7.
+- Bottom: the transport strip with BLACKOUT and the macros, then the help bar (24 points, D275), which is not drawn in a window under 520 points high.
 - Output: separate window, almost entirely visual.
 
-Persist pane widths and visibility.
+There is no Live/Edit mode. The rail switches the view and the panel never moves. Persist the panel's width (while it is the default it follows the window), its tab, and which view was open.
 
 ## 5. Navigation
 
-Primary workspaces:
+The rail, top to bottom, each a main view (D272):
 
-1. Perform
-2. Library
-3. Playlist
-4. Editor
-5. Mappings
-6. Diagnostics
-7. Settings
+1. PLAY: the large live preview, with the output toolbar.
+2. LIB: the scene library (the default view).
+3. GET: Import, a Shadertoy shader.
+4. LIST: the playlist.
+5. EDIT: the scene's files.
+6. MAP: MIDI and OSC.
+7. DIAG: diagnostics.
+8. SET (at the bottom): settings.
 
-Expanded rail: icon + label.
+Clicking the shown item closes it, and Esc closes the topmost view; either reveals the one under it, and PLAY when none is left. Ctrl+K reaches every one of these, and every scene and preset, by name.
 
-Collapsed rail: icon only.
+Expanded rail: icon + label. Below 1000 points: icon only. A short window scrolls the upper items and keeps SET.
 
 Do not turn navigation into a row of permanent tabs consuming horizontal space.
 
@@ -148,37 +156,21 @@ Perform transport:
 
 Primary actions must look actionable. Numeric status must look like readouts.
 
-## 7. Perform workspace
+## 7. The side panel and PLAY
 
-Perform is the default and most polished screen.
+The side panel is Synesthesia's right column (D274), top to bottom:
 
-Center:
+1. One 16:9 preview of the live scene, with the LIVE, BLACKOUT and output-hidden badges. No CPU readback.
+2. A status strip: Output (show or hide), Fullscreen, the frame rate with a dot, a horizontal audio level bar with the tempo, and Snapshot (keeps the live frame as the scene's picture).
+3. Icon tabs, with their names in the tooltips and beside the icons when the panel is wide:
+   - Playlist: the loaded show's cues, double-click to jump;
+   - Controls: the scene's controls by UI_GROUP, then the meta group;
+   - Presets: the fav slots, the preset row and the scene's presets;
+   - Edit: tags, picture, media, Generate controls and Open in Editor.
 
-- large live preview;
-- optional safe area/grid/debug overlays;
-- no CPU readback.
+Closed, the panel is a handle strip. In a window too narrow to dock it (below the main view's 320 points plus the panel's 280) it is a drawer over the main view, below the banners, clipped to the surface.
 
-Left:
-
-- Current Playlist;
-- Scene Library;
-- Favorites;
-- Recent;
-- Needs Work.
-
-Right:
-
-- Scene;
-- Controls;
-- Meta;
-- Media;
-- Transition.
-
-Bottom:
-
-- Performance Macros;
-- current/next cue;
-- compact status.
+PLAY, the rail's first item, is the large preview with the toolbar (Show output, Fullscreen, the monitor menu) for the moment the preview is the point. Bottom: the Performance Macros, the current and next cue, BLACKOUT.
 
 Scene browsing must support Preview without replacing the active scene. Load is a separate action.
 
@@ -333,38 +325,40 @@ Descriptions remain hidden until hover/focus/help mode.
 
 ## 12. Scene library
 
-Library is a creative asset browser.
+The library is a creative asset browser, laid out as Synesthesia's is (D273):
 
     ┌─────────────────────────────────────────────────────────────────┐
-    │ search        sort        filters        + import              │
-    ├──────────────┬──────────────────────────────────────────────────┤
-    │ folders      │ thumbnail grid                                  │
-    │ favorites    │                                                  │
-    │ recent       │                                                  │
-    │ tags         │                                                  │
-    │ needs-work   │                                                  │
-    └──────────────┴──────────────────────────────────────────────────┘
+    │ [+ New scene] [refresh]                              [S][M][L] │
+    │ 88/88 [ search names, authors, tags ] [Sort v][^] [*] [Show v] │
+    ├─────────────────────────────────────────────────────────────────┤
+    │ thumbnail cards, as many columns as fit                         │
+    │ ┌──────────┐ ┌──────────┐                                       │
+    │ │ picture *│ │ picture  │   picture: state chip, star           │
+    │ ├──────────┤ ├──────────┤                                       │
+    │ │ Title  ..│ │ Title  ..│   caption: title, "..." menu,         │
+    │ │ author   │ │ author   │   author (or why it failed)           │
+    │ └──────────┘ └──────────┘                                       │
+    └─────────────────────────────────────────────────────────────────┘
+
+Toolbar: New scene (opens Import), rescan, and the small, medium or large thumbnail switch (saved).
+
+Filter row: the count, a wide search, the sort (Library order, Name, Author, Favourites first) with its direction, a favourites-only star, and the health filter (All, Ready, Needs work, Favourites). Below 560 points the search keeps a row with the count and the rest take the next.
 
 Cards:
 
-- thumbnail;
-- title;
-- creator;
-- favorite;
-- health;
-- tags;
-- optional performance estimate.
+- thumbnail, or the scene's identity colour and initial;
+- a state chip over it: PLAYING, PREPARING, PREVIEW, FAILED;
+- the star, over its corner;
+- the title, in the largest text on the card;
+- the "..." menu (Load, Preview without loading, favourite, Open in Editor, Copy to my library on a read-only scene), which is also the right-click menu;
+- the author, else the tags; a check before it once the scene loaded; `Failed: <why>` in its place when it did not;
+- a faint "Synesthesia" at the end of that line for a scene from Synesthesia's install or its scene folders (D271).
 
-Global search should support:
+The selected card shows Preview and Load over its picture; double-click loads. The selected scene's tags sit above the grid.
 
-- title;
-- creator;
-- tag:feedback;
-- author:Name;
-- broken;
-- favorite.
+Global search matches every word against the title, the author and the tags; the word `synesthesia` finds the scenes from its install. `tag:` and `author:` prefixes are not parsed yet.
 
-This follows the modern content-browser pattern used by Ableton Live 12.
+This follows the modern content-browser pattern used by Ableton Live 12, and Synesthesia's own library.
 
 ## 13. Playlist workspace
 
@@ -617,28 +611,18 @@ Primary target sizes:
 - 1440×900;
 - 1280×720.
 
-1920×1080:
+At those sizes the three columns and the bottom bars all show. The side panel follows the window at 31% (595, 446, 397 points).
 
-- rail;
-- browser;
-- preview;
-- inspector;
-- macro strip.
+Below that, parts give way in a fixed order (D260, D272, D276), and never BLACKOUT, the transport buttons or the window controls:
 
-1440×900:
+1. the help bar goes below 520 points high;
+2. the rail drops its labels below 1000 points wide;
+3. the side panel shrinks towards 280 points while the main view keeps 320, then becomes a drawer over the main view, below the banners and clipped to the surface;
+4. the library's filter row becomes two rows below 560 points, and its toolbar button an icon below 300;
+5. banners take at most half the surface and scroll, and wrap their buttons;
+6. the title bar drops the breadcrumb below 760 points and the wordmark below 420; the transport drops BPM, then the clock, then NOW.
 
-- same topology with tighter panes.
-
-1280×720:
-
-- collapse secondary metadata and filter chrome;
-- retain preview and inspector.
-
-Narrow:
-
-- collapse library;
-- collapse rail labels;
-- preserve preview and macro controls.
+The shell tests draw every state at the three above, at 1366×768, 900×600 and 640×480, and at the T480's four logical sizes (683×427, 533×400, 427×320, 320×533).
 
 Output window is independent.
 
