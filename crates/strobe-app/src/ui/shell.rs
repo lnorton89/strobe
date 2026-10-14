@@ -389,7 +389,8 @@ fn drawer(
 
 /// The draggable edge on the docked side panel's inner side. It paints a
 /// line that brightens under the pointer and writes the dragged width back
-/// to the pane model.
+/// to the pane model; a double-click makes the width follow the window
+/// again (D272).
 fn splitter_handle(
     ui: &mut Ui,
     panel: Rect,
@@ -405,9 +406,14 @@ fn splitter_handle(
     );
     let id = egui::Id::new(("splitter", Pane::Inspector.key()));
     let response = ui
-        .interact(rect, id, Sense::drag())
+        .interact(rect, id, Sense::click_and_drag())
         .on_hover_cursor(egui::CursorIcon::ResizeHorizontal);
-    if response.dragged()
+    if response.hovered() {
+        help::say("Drag to resize the panel. Double-click to let it follow the window again.");
+    }
+    if response.double_clicked() {
+        model.ui.panes.follow_window();
+    } else if response.dragged()
         && let Some(pos) = response.interact_pointer_pos()
     {
         let width = panel.right() - pos.x;

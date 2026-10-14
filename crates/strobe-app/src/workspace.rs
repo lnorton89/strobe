@@ -39,9 +39,9 @@
 //! [`arrange`] decides what is drawn. The main view takes whatever the side
 //! panel leaves, and the side panel gives way in this order:
 //!
-//! 1. it is drawn at its stored width (until the operator drags it, the
-//!    default width means [`SIDE_SHARE`] of the window) while the main view
-//!    keeps at least [`MAIN_MIN`] beside the rail;
+//! 1. it is drawn at its width (until the operator drags it, that is
+//!    [`SIDE_SHARE`] of the window, see [`Panes::side_follows`]) while the
+//!    main view keeps at least [`MAIN_MIN`] beside the rail;
 //! 2. otherwise it shrinks towards its minimum;
 //! 3. below that it becomes an overlay drawer over the main view.
 //!
@@ -172,7 +172,8 @@ impl Pane {
     pub fn default_width(self) -> f32 {
         match self {
             Self::Browser | Self::Import => 280.0,
-            // The sentinel for "follow the window": [`SIDE_SHARE`] of it (D272).
+            // Used only once the panel has been dragged and the stored
+            // width is lost; until then it follows the window (D272).
             Self::Inspector => 440.0,
             Self::Diagnostics | Self::Settings => 380.0,
             Self::Playlist => 440.0,
@@ -222,6 +223,10 @@ pub struct Panes {
     /// When each pane was last opened, on a counter; larger is newer.
     stamp: [u64; 8],
     clock: u64,
+    /// Whether the side panel's width follows the window ([`SIDE_SHARE`]
+    /// of it) because nobody has dragged it. A flag, not a magic width, so
+    /// a drag that lands on any width keeps it (D272).
+    side_follows: bool,
 }
 
 impl Default for Panes {
@@ -234,6 +239,7 @@ impl Default for Panes {
             width: Pane::ALL.map(Pane::default_width),
             stamp: [0; 8],
             clock: 0,
+            side_follows: true,
         };
         panes.open(Pane::Inspector);
         panes.open(Pane::Browser);
@@ -327,6 +333,7 @@ impl Panes {
             width.to_bits().hash(state);
         }
         self.stamp.hash(state);
+        self.side_follows.hash(state);
     }
 
     /// The open panes, oldest first: the order they were opened in, which
@@ -358,12 +365,31 @@ impl Panes {
     }
 
     /// Sets the pane's width, clamped to its range. Not-a-number is ignored.
+    /// The side panel stops following the window and keeps this width.
     pub fn set_width(&mut self, pane: Pane, width: f32) {
         if !width.is_finite() {
             return;
         }
         if let Some(slot) = self.width.get_mut(pane.index()) {
             *slot = clamp_width(pane, width);
+            if pane == Pane::Inspector {
+                self.side_follows = false;
+            }
+        }
+    }
+
+    /// Whether the side panel's width follows the window, because it has
+    /// not been dragged since it last did.
+    pub fn side_follows(&self) -> bool {
+        self.side_follows
+    }
+
+    /// Makes the side panel's width follow the window again (a double-click
+    /// on its edge).
+    pub fn follow_window(&mut self) {
+        self.side_follows = true;
+        if let Some(slot) = self.width.get_mut(Pane::Inspector.index()) {
+            *slot = Pane::Inspector.default_width();
         }
     }
 }
@@ -427,12 +453,10 @@ pub fn arrange(panes: &Panes, window_width: f32, rail: f32) -> Arrangement {
     let main = panes.shown_in(Dock::Main);
     let mut overlay = false;
     let side = panes.side_open().then(|| {
-        let stored = panes.width(Pane::Inspector);
-        // The default width is a promise to follow the window, not a size.
-        let wanted = if (stored - Pane::Inspector.default_width()).abs() < 0.5 {
+        let wanted = if panes.side_follows() {
             auto_side_width(window_width)
         } else {
-            stored
+            panes.width(Pane::Inspector)
         };
         let room = avail - MAIN_MIN;
         if wanted <= room {
@@ -530,13 +554,27 @@ mod tests {
 
     #[test]
     fn a_dragged_panel_keeps_the_width_it_was_dragged_to() {
+        // 440 is the panel's default width: a drag that lands on it is a
+        // drag like any other, not a return to following the window.
+        for dragged in [360.0, Pane::Inspector.default_width()] {
+            let mut panes = Panes::default();
+            assert!(panes.side_follows(), "undragged, it follows the window");
+            panes.set_width(Pane::Inspector, dragged);
+            assert!(!panes.side_follows(), "dragged to {dragged}");
+            let layout = arrange(&panes, 1920.0, RAIL);
+            assert_eq!(
+                layout.side,
+                Some(dragged),
+                "dragged to {dragged}, so not following the window"
+            );
+        }
         let mut panes = Panes::default();
         panes.set_width(Pane::Inspector, 360.0);
-        let layout = arrange(&panes, 1920.0, RAIL);
+        panes.follow_window();
         assert_eq!(
-            layout.side,
-            Some(360.0),
-            "dragged, so not following the window"
+            arrange(&panes, 1920.0, RAIL).side,
+            Some(auto_side_width(1920.0)),
+            "and a double-click on its edge makes it follow again"
         );
     }
 
