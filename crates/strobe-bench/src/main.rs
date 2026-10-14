@@ -271,6 +271,9 @@ fn run(gl: &Gl, caps: &Caps, context: &str, size: [i32; 2], cli: &Cli) -> Result
             ),
         }
         if let Some(image) = &row.image {
+            if is_black(image) {
+                println!("{name:<28} warning: the frame is all black");
+            }
             image.save(cli.out.join(format!("{name}.png")))?;
         }
         rows.push(row);
@@ -288,6 +291,18 @@ fn run(gl: &Gl, caps: &Caps, context: &str, size: [i32; 2], cli: &Cli) -> Result
         .filter(|row| row.error.is_some())
         .map(|row| row.name.as_str())
         .collect();
+    // A context that draws nothing still times: on the projector mini-PC,
+    // a hidden window in a Windows service's session 0 gave all-black
+    // frames at a tenth of the real frame time, and the run looked fine.
+    // Every frame black means no number in the report is real.
+    let images: Vec<&image::RgbaImage> = rows.iter().filter_map(|row| row.image.as_ref()).collect();
+    if !images.is_empty() && images.iter().all(|image| is_black(image)) {
+        return Err(anyhow!(
+            "every frame is all black, so the context drew nothing and the \
+             timings are not real (a window in a session nobody sees, such as \
+             a Windows service's?)"
+        ));
+    }
     if failed.is_empty() {
         Ok(())
     } else {
@@ -298,6 +313,13 @@ fn run(gl: &Gl, caps: &Caps, context: &str, size: [i32; 2], cli: &Cli) -> Result
             failed.join(", ")
         ))
     }
+}
+
+/// Whether every pixel of `image` is black (alpha ignored).
+fn is_black(image: &image::RgbaImage) -> bool {
+    image
+        .pixels()
+        .all(|pixel| pixel.0[..3].iter().all(|&c| c == 0))
 }
 
 fn parse_size(text: &str) -> Result<[i32; 2]> {
@@ -499,4 +521,19 @@ fn report(
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_a_frame_with_no_colour_at_all_is_black() -> Result<()> {
+        let black = image::RgbaImage::from_pixel(4, 4, image::Rgba([0, 0, 0, 255]));
+        assert!(is_black(&black), "all zero is black");
+        let mut one = black.clone();
+        one.put_pixel(3, 3, image::Rgba([0, 0, 1, 255]));
+        assert!(!is_black(&one), "one lit pixel is not black");
+        Ok(())
+    }
 }
