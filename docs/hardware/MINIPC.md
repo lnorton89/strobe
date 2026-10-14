@@ -14,7 +14,7 @@ created and deleted per run with the owner's approval.
 | GPU | AMD Radeon Vega 3 (integrated), driver 31.0.21925.1001 (2026-05-19); GL `3.3.0 Core Profile Context 26.5.2.260413` |
 | OS | Windows 11 Pro 26H2, build 26300.9711 (updated from 25H2 26200 during a reboot on 2026-10-14) |
 | Projector | Sony (EDID SNY8203), 1920x1200 @ 60 Hz, the only display at the console |
-| Power | Balanced plan; display-off set to never (owner's request). System sleep is AC 15 min / DC 10 min, and it did idle-sleep once during testing |
+| Power | High performance plan, with display-off, sleep and hibernate at never on AC and DC (owner, 2026-10-14, after it idle-slept once during testing). The step 7 numbers below were measured under Balanced |
 | Tools | git, Rust 1.98, Visual Studio 2022; no `gh` |
 
 ## The released v0.1.0 on a clean install (2026-10-14, Task M2, R-03)
@@ -90,4 +90,3 @@ compilation.
 - The JaJa test card on the projector at native 1920x1200, with
   `--output-monitor 1 --fullscreen --render-scale 1 --no-adaptive`. The
   flags landed after the run above.
-- The owner's call on system sleep for show use.
