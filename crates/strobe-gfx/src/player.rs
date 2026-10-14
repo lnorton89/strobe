@@ -357,8 +357,8 @@ impl ScenePlayer {
                 Some(&[0, 0, 0, 255]),
             )
             .map_err(res)?;
-        let spectrum = audio_texture(gl, caps, SILENT_AUDIO_WIDTH).map_err(res)?;
-        let level_trail = audio_texture(gl, caps, SILENT_AUDIO_WIDTH).map_err(res)?;
+        let spectrum = audio_texture(gl, caps, SILENT_SPECTRUM_WIDTH).map_err(res)?;
+        let level_trail = audio_texture(gl, caps, SILENT_TRAIL_WIDTH).map_err(res)?;
         let samples = |wanted: Source| {
             programs
                 .iter()
@@ -1281,8 +1281,14 @@ fn new_target(
     Ok(Target { texture, fbo })
 }
 
-/// Width of the silent placeholders a scene starts with.
-const SILENT_AUDIO_WIDTH: i32 = 256;
+/// Width of the silent `syn_Spectrum` a scene starts with: Synesthesia's
+/// 1024 (D269), so a scene that `texelFetch`es by that count stays in range
+/// before audio arrives, and the analyser's first upload reallocates nothing.
+const SILENT_SPECTRUM_WIDTH: i32 = 1024;
+
+/// Width of the silent `syn_LevelTrail` a scene starts with, the analyser's
+/// default trail length.
+const SILENT_TRAIL_WIDTH: i32 = 256;
 
 /// A silent audio data texture `width` texels wide, in the shape the
 /// context's dialect declared it: 1D on desktop GL, 2D one texel tall on

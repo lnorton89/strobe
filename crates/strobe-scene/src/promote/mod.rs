@@ -1612,7 +1612,7 @@ impl<'s> Walker<'s> {
 
     /// Wraps tokens `start..end` in `constructor(...)`.
     /// `texture(syn_Spectrum, x)`: the audio textures are 1D on desktop and
-    /// 2D one texel tall on ES (Q1), so a scalar coordinate becomes
+    /// 2D one texel tall on ES (R10), so a scalar coordinate becomes
     /// `vec2(x, 0.5)` (`ivec2(x, 0)` for `texelFetch`).
     fn one_dimensional(&mut self, rule: Builtin, args: &[Expr]) {
         let (Some(sampler), Some(coordinate)) = (args.first(), args.get(1)) else {

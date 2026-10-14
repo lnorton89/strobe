@@ -20,8 +20,10 @@ use strobe_scene::audio::{SCALARS, silent_value};
 
 /// How wide each texture is, and how much time the level trail covers.
 ///
-/// Defaults are the widths the design plan names. Nothing downstream
-/// assumes them: a frame's vectors carry their own lengths.
+/// The spectrum's default is Synesthesia's 1024 texels, one per FFT bin
+/// below Nyquist (D269); the others are the widths the design plan names.
+/// Nothing downstream assumes them: a frame's vectors carry their own
+/// lengths.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Layout {
     /// Texels in `syn_Spectrum`.
@@ -62,7 +64,7 @@ impl Layout {
 impl Default for Layout {
     fn default() -> Self {
         Self {
-            spectrum_len: 256,
+            spectrum_len: 1024,
             trail_len: 256,
             trail_seconds: 4.0,
             shadertoy_width: 512,

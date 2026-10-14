@@ -111,3 +111,64 @@ into the repository.
   - Four simulations diverge in detail (dynamical_flame, shrouded,
     gaussian_smoothlife, fuzzy_signal), and churning has a slight hue
     shift.
+
+## The 90 again, and the banding (Task A5, commit e47c44f)
+
+- **Corpus:** with `STROBE_GLSL_PATH` set to Synesthesia's `lib` (the
+  corpus copy), the run gives 90 of 90 in both dialects, with no notes.
+  - SkaiWalkerOG renders in 5.45 ms native and 3.81 ms ANGLE.
+  - hue_review renders in 0.32 / 0.52 ms.
+  - thresholder's "uniforms.freezes" note is gone.
+- **`turbo_encabulator_fluid`'s banding:** it does not come from the
+  render-target format.
+  - With `--full` (RGBA32F), ANGLE shows the same striated ripples as
+    with RGBA16F, and native is smooth in both.
+  - The ES preamble is `highp` and the buffers are the scene's literal
+    1600x900 FLOAT passes.
+  - Likely cause: the same class as canvas. Two `fract(sin(…))` hashes
+    in the scene, where D3D's `sin` precision differs from the native
+    driver's and the fluid feedback amplifies the difference.
+  - Not confirmed: that needs a local copy with an integer hash.
+- **Timings at 640x360, mean/p95 ms:**
+  - native: Half 1.32/1.61, Full 1.54/1.79;
+  - ANGLE: Half 1.09/1.31, Full 1.45/1.75.
+
+## Against Synesthesia itself (Task A6, commit e47c44f)
+
+**Synesthesia 1.25.4.189** is installed at `C:\Program Files (x86)\Synesthesia`.
+- Built-in scenes are in `release\` (87) and `default\` (welcome_scene).
+- Includes are in `lib\`.
+- There is no default folder for the user's own scenes. Those live in the
+  folders listed under `sceneFolders` in
+  `%LOCALAPPDATA%\Synesthesia\Data\vs.json`, with `PRIMARY_SCENE_FOLDER`
+  and recursive search set in `preferences.json`. Both are empty on this
+  machine.
+- OSC input is a Pro-licence feature, off on this free install, so
+  Synesthesia could not be driven. The comparison used Synesthesia's
+  shipped thumbnails (the authors' own captures) against Strobe's output
+  after 3 s.
+
+Results for 17 scenes, all of which exit cleanly with no WARN or ERROR:
+- **Same (3):** test_card, kifs_flythrough, terrain_lattice.
+- **Close: colour, camera or time only (8):** SkaiWalkerOG, welcome_scene,
+  alien_cavern, hexoplanet, glassier, stained_glass, fluid_body.
+- **Different (5):**
+  - **neon_city:** a striped plane with no buildings at 3 s. A later
+    look (llvmpipe, 2026-10-14, the app with its script running, 180
+    frames that took far longer than 3 s of wall time) shows the neon
+    buildings along the road. The script moves the camera with time
+    (`z_pos`, `path_x`), so this is most likely the moment of capture,
+    not a rendering fault. To confirm on this machine, capture after 30 s.
+  - **beamers:** horizontal blue beams against a white starburst. The
+    same later look shows the starburst with blue and orange beams, so
+    the remaining difference is colour and time. To confirm the same way.
+  - **PLUS:** masked by media, and Synesthesia feeds `demo_media.mp4`
+    by default where Strobe had none.
+  - **canvas** and **turbo_encabulator_fluid:** the thumbnails match
+    ANGLE's render (A4, A5), not AMD native's.
+- **Inconclusive (2):** churning (its feedback has not formed by 3 s) and
+  hue_review (no thumbnail).
+
+Synesthesia's renderer is desktop GL 3.3 (GLFW, WGL). The authors' GPUs
+therefore draw these `fract(sin(…))` hashes the way ANGLE/D3D11 does here,
+and AMD's native driver is the one that differs.
