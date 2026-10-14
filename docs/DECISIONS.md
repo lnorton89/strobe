@@ -5356,3 +5356,51 @@ clicks), and the shell scenarios "settings watching a folder" and
 
 **Would reopen:** wanting more than one watched folder, or Shadertoy
 exports taken from it (D240's own reopen condition).
+
+### D269: `syn_Spectrum` is 1024 texels wide, Synesthesia's width (2026-10-13)
+
+Q10 asked how wide real scenes expect `syn_Spectrum` to be. Synesthesia
+1.25.4's own `audio_indicators` (credited to Synesthesia, in the owner's
+private corpus) reads the raw channel with
+`texelFetch(syn_Spectrum, int(x*1024), 0)`. At Strobe's 256 the top three
+quarters of that row fetched past the end of the texture, which GL leaves
+undefined. Scenes that sample with normalised coordinates (`texture`,
+`textureLod`) address the same frequencies at any width, so for them only
+the detail changes.
+
+- **`Layout::default().spectrum_len` is 1024.** The analyser's FFT is 2048
+  points, so its 1024 bins below Nyquist map one to one onto the raw
+  channel's texels: each raw texel is one bin, not the peak of four. The
+  match with the FFT size suggests this is how Synesthesia gets its 1024 too.
+- **The player's silent `syn_Spectrum` is 1024 too,** so a `texelFetch` by
+  that count stays in range before the first upload, and the first upload
+  reallocates nothing. The silent trail stays 256, the analyser's trail.
+- **Autocontrol scores against a 1024-wide synthetic spectrum,** like the
+  live one.
+- **The trail is unchanged.** `audio_indicators` samples it with
+  normalised coordinates only, which says nothing about its length.
+
+What changes for a scene: the raw channel is spikier and a little lower on
+average (one bin per texel instead of the loudest of four). The juiced
+channel's 3-texel cross-smoothing now covers a quarter of the frequency
+span it did, so the curve shows more detail; its time smoothing is
+unchanged. The smooth channel's blur radius scales with the width
+(`len / 40`), so it looks the same. The waveform shows one sample per
+texel of its 1024-sample window instead of the mean of four, so it keeps
+more high-frequency detail.
+
+Cost: the upload is RGBA8, 4 KB a frame instead of 1 KB, with the same
+single `glTexSubImage` and no allocation after the first frame. The
+analyser does four times the per-texel work for each 512-sample hop. Its
+box blur is O(width x radius), about 100k adds per hop at 1024, roughly
+10 M a second at 48 kHz: well under one percent of a core. A 1D texture
+of 1024 is far inside every GL 3.3 and GLES 3.0 size limit.
+
+**Evidence:** `behaviour.rs` `texture_shapes_and_ranges` (a 1 kHz tone
+peaks at the raw and juiced texels a 1024-wide axis predicts); the corpus
+call quoted above.
+
+**Would reopen:** Synesthesia drawing `audio_indicators` differently from
+Strobe beside a sweep tone (Q10's remaining axis questions), or a profile
+on an HD 4000 showing the analyser's blur matters, in which case it becomes
+a running sum.

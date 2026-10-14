@@ -165,7 +165,8 @@ impl Rig {
             bank.set(*index, None, values);
         }
         let mut audio = vec![0.0; SCALARS.len()];
-        let mut spectrum = vec![[0.0_f32; 4]; 256];
+        // Synesthesia's spectrum width, as the analyser uses (D269).
+        let mut spectrum = vec![[0.0_f32; 4]; 1024];
         let mut trail = vec![[0.0_f32; 4]; 256];
         let mut captured = Vec::new();
         let frames = self.options.frames.max(1);
