@@ -42,6 +42,8 @@ pub struct UiHost {
     previews: HashMap<glow::Texture, TextureId>,
     desktop_events: Vec<egui::Event>,
     desktop_bridge: Option<strobe_remote::desktop::Desktop>,
+    /// The last pass carried remote desktop input (D275).
+    remote_pass: bool,
 }
 
 impl UiHost {
@@ -74,6 +76,7 @@ impl UiHost {
             previews: HashMap::new(),
             desktop_events: Vec::new(),
             desktop_bridge: None,
+            remote_pass: false,
         })
     }
 
@@ -106,6 +109,7 @@ impl UiHost {
     /// Runs one UI pass. Call [`Self::paint`] afterwards.
     pub fn run(&mut self, window: &Window, run_ui: impl FnMut(&mut egui::Ui)) {
         let mut raw_input = self.input.take_egui_input(window);
+        self.remote_pass = !self.desktop_events.is_empty();
         raw_input.events.append(&mut self.desktop_events);
         let egui::FullOutput {
             platform_output,
@@ -125,7 +129,11 @@ impl UiHost {
                 &mut requested,
             );
         }
-        if let Some(desktop) = &self.desktop_bridge {
+        // Only a copy the remote's own input caused goes back to it: what
+        // the operator copies at the host stays at the host.
+        if self.remote_pass
+            && let Some(desktop) = &self.desktop_bridge
+        {
             for command in &platform_output.commands {
                 if let egui::OutputCommand::CopyText(text) = command {
                     desktop.copy_text(text);
@@ -141,6 +149,12 @@ impl UiHost {
     /// Queue translated remote UI input for the next ordinary egui pass.
     pub fn desktop_events(&mut self) -> &mut Vec<egui::Event> {
         &mut self.desktop_events
+    }
+
+    /// Whether the last [`Self::run`] carried remote desktop input, so the
+    /// app can refuse what a remote may not do from that pass (D275).
+    pub fn remote_pass(&self) -> bool {
+        self.remote_pass
     }
 
     /// Share explicit UI clipboard output with the active desktop controller.
