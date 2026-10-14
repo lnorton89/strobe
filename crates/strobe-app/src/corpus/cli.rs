@@ -136,6 +136,12 @@ pub struct Cli {
     /// Where the GL context comes from.
     #[arg(long, value_enum, default_value_t = ContextArg::Auto)]
     pub context: ContextArg,
+    /// Window contexts only: a tiny off-screen window that is shown,
+    /// instead of a hidden one. AMD's native WGL draws nothing into a
+    /// window that is never shown (the JaJa mini-PC, Task M3), so a
+    /// desktop-dialect run there needs this.
+    #[arg(long)]
+    pub show_window: bool,
 }
 
 impl Cli {
@@ -172,6 +178,9 @@ pub struct WorkerCli {
     /// Where the context comes from.
     #[arg(long, value_enum)]
     pub context: ContextArg,
+    /// A shown tiny window rather than a hidden one.
+    #[arg(long)]
+    pub show_window: bool,
     /// Where to write the result JSON.
     #[arg(long)]
     pub result: PathBuf,
@@ -199,5 +208,6 @@ mod tests {
         assert_eq!(cli.out, PathBuf::from("target/corpus"), "out");
         assert!(!cli.json_only, "markdown too");
         assert_eq!(cli.dialect.dialects(), Dialect::ALL.to_vec(), "both");
+        assert!(!cli.show_window, "a hidden window unless asked");
     }
 }
