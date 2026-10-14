@@ -441,6 +441,8 @@ fn review(
                 // The bar in a fixed column, so a long colour range never
                 // runs under it.
                 let fraction = kept.score.unwrap_or(0.0) / strongest;
+                // The bar is display only; its hover text is all the response
+                // is for.
                 let _ = widgets::meter(ui, theme, fraction, theme.accent, 36.0)
                     .on_hover_text("How much the picture moves with it, against the strongest");
                 if edit.keep {

@@ -1536,7 +1536,10 @@ impl Running {
         }
         if is_control && self.rebuild.is_none() {
             let window = self.stack.control.window();
-            let _ = self.stack.ui.on_window_event(window, &event);
+            // The response's repaint request needs no action: the control
+            // window repaints on its own 30 Hz timer, and nothing else
+            // reads whether egui consumed the event.
+            let _response = self.stack.ui.on_window_event(window, &event);
         }
     }
 
@@ -2616,7 +2619,7 @@ impl Running {
                 self.ui_state.thumbs.forget(&path);
                 self.refresh_tags(&dir);
                 if self.editor_doc.as_ref().is_some_and(|doc| doc.dir == dir) {
-                    self.editor_doc = editor::Doc::open(&dir, &name).ok();
+                    self.reopen_editor(&dir, &name);
                 }
                 self.say(Tone::Info, format!("{name} has a new picture."));
             }
@@ -2704,7 +2707,7 @@ impl Running {
         self.refresh_tags(&dir);
         if self.editor_doc.as_ref().is_some_and(|doc| doc.dir == dir) {
             // Not dirty (checked above): show what is now on disk.
-            self.editor_doc = editor::Doc::open(&dir, &name).ok();
+            self.reopen_editor(&dir, &name);
         }
         log::info!("tags: {name} is now [{}]", tags.join(", "));
     }
@@ -2754,6 +2757,19 @@ impl Running {
 
     /// Writes the Editor's unsaved files. Returns whether everything was
     /// written.
+    /// Re-reads the Editor's open scene from disk after Strobe itself wrote
+    /// to it (a thumbnail, tags). If it cannot be read, the Editor keeps
+    /// what it showed and says why, rather than going blank without a word.
+    fn reopen_editor(&mut self, dir: &std::path::Path, name: &str) {
+        match editor::Doc::open(dir, name) {
+            Ok(doc) => self.editor_doc = Some(doc),
+            Err(error) => self.say(
+                Tone::Warning,
+                format!("The Editor could not re-read {name}; it shows the previous text: {error}"),
+            ),
+        }
+    }
+
     fn editor_save(&mut self) -> bool {
         let Some(doc) = self.editor_doc.as_mut() else {
             return false;
@@ -3107,7 +3123,9 @@ impl Running {
                 }
                 Action::OpenEditor(name) => self.open_editor(name.as_deref()),
                 Action::EditorSave => {
-                    let _ = self.editor_save();
+                    // `editor_save` reports its own failure; the result only
+                    // gates a reload, and a plain Save has none.
+                    self.editor_save();
                 }
                 Action::EditorSaveReload => {
                     if self.editor_check() && self.editor_save() {

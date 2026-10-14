@@ -220,7 +220,14 @@ pub fn write_scene(
         fs::write(&path, text).map_err(io_error(&path))?;
     }
     let json_path = staging.join("scene.json");
-    let original = fs::read_to_string(&json_path).ok();
+    // A scene with no scene.json gets a fresh one; one that exists but
+    // cannot be read is an error, never quietly replaced (its other fields
+    // would be lost).
+    let original = match fs::read_to_string(&json_path) {
+        Ok(text) => Some(text),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(io_error(&json_path)(error)),
+    };
     let spliced = splice_controls(original.as_deref(), &generated.control_lines)?;
     fs::write(&json_path, spliced).map_err(io_error(&json_path))?;
 

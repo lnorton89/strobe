@@ -57,6 +57,8 @@ pub(super) fn serve(mut stream: TcpStream, shared: &Shared, conn: u64, peer: Soc
         Ok(head) => head,
         Err(HeadError::Closed) => return,
         Err(HeadError::TooLarge) => {
+            // The connection ends after this reply either way; a peer that
+            // left needs none.
             let _ = http::respond(
                 &mut stream,
                 &Response::text(431, "The request is too large."),
@@ -65,6 +67,7 @@ pub(super) fn serve(mut stream: TcpStream, shared: &Shared, conn: u64, peer: Soc
         }
         Err(HeadError::TooSlow) => return,
         Err(HeadError::Malformed(why)) => {
+            // The connection ends either way; the reply is a courtesy.
             let _ = http::respond(&mut stream, &Response::text(400, why));
             return;
         }
@@ -74,6 +77,7 @@ pub(super) fn serve(mut stream: TcpStream, shared: &Shared, conn: u64, peer: Soc
         }
     };
     if let Err(refusal) = route(&mut stream, shared, &head, peer) {
+        // The connection ends either way; the reply is a courtesy.
         let _ = http::respond(&mut stream, &refusal);
         return;
     }
@@ -117,6 +121,8 @@ fn route(
                 return Err(Response::text(405, "GET only."));
             }
             let headers = page::headers(host, proxied);
+            // The connection ends after this reply either way; a peer that
+            // left needs none.
             let _ = http::respond(
                 stream,
                 &Response {
@@ -215,6 +221,7 @@ fn linger(stream: &mut TcpStream) {
     /// For at most this long.
     const TIME: std::time::Duration = std::time::Duration::from_millis(250);
     use io::Read as _;
+    // Lingering is best effort; a closed socket needs no half-close.
     let _ = stream.shutdown(std::net::Shutdown::Write);
     let until = Instant::now() + TIME;
     let mut sink = [0_u8; 4096];
@@ -315,6 +322,7 @@ impl<'a> Session<'a> {
         {
             linger(&mut self.stream);
         }
+        // Closing: a socket already closed by its peer needs no shutdown.
         let _ = self.stream.shutdown(std::net::Shutdown::Both);
     }
 
@@ -362,6 +370,8 @@ impl<'a> Session<'a> {
             (self.bucket.tokens + elapsed * limits.rate_per_second).min(limits.burst);
         if self.bucket.tokens < 1.0 {
             log::warn!("remote: {} sent too many messages; dropped", self.peer);
+            // If the error cannot be sent, the read loop ends this connection
+            // on its next turn.
             let _ = self.send(&ServerMessage::error(ErrorCode::Busy, "too many messages"));
             return Err(End::Close(close::POLICY, "too many messages"));
         }
@@ -520,6 +530,8 @@ impl<'a> Session<'a> {
                         })
                     }
                     Err(code) => {
+                        // If the error cannot be sent, the read loop ends
+                        // this connection on its next turn.
                         let _ = self.send(&ServerMessage::error(
                             code,
                             &format!("this Strobe speaks protocol version {PROTOCOL_VERSION}"),
@@ -529,6 +541,8 @@ impl<'a> Session<'a> {
                 }
             }
             (Phase::Hello, _) => {
+                // If the error cannot be sent, the read loop ends this
+                // connection on its next turn.
                 let _ = self.send(&ServerMessage::error(
                     ErrorCode::InvalidRequest,
                     "say hello first",
@@ -616,6 +630,8 @@ impl<'a> Session<'a> {
                     Ok(Answer::Rejected(reason)) => (false, Some(reason)),
                     Err(ErrorCode::Busy) => (false, Some("Strobe is busy; try again".to_string())),
                     Err(ErrorCode::Unavailable) => {
+                        // If the error cannot be sent, the read loop ends
+                        // this connection on its next turn.
                         let _ = self.send(&ServerMessage::error(
                             ErrorCode::Unavailable,
                             "the remote was switched off",

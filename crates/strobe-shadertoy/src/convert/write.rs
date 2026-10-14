@@ -35,6 +35,22 @@ pub enum WriteError {
         /// The cause.
         source: std::io::Error,
     },
+    /// The new scene could not be moved in, and the old one could not be
+    /// put back either: it is still whole, under a hidden name.
+    #[error(
+        "rename {staging}: {source}; the previous scene could not be put back \
+         ({restore}) and is kept at {kept}"
+    )]
+    NotRestored {
+        /// The new scene that could not be moved in.
+        staging: PathBuf,
+        /// Why it could not.
+        source: std::io::Error,
+        /// Where the previous scene is.
+        kept: PathBuf,
+        /// Why it could not be put back.
+        restore: std::io::Error,
+    },
 }
 
 fn io(action: &'static str, path: &Path) -> impl FnOnce(std::io::Error) -> WriteError {
@@ -109,8 +125,17 @@ fn swap_in(staging: &Path, target: &Path) -> Result<(), WriteError> {
     }
     fs::rename(target, &old).map_err(io("rename", target))?;
     if let Err(error) = fs::rename(staging, target) {
-        let _ = fs::rename(&old, target);
-        return Err(io("rename", staging)(error));
+        // Put the previous scene back. If even that fails, say where it is:
+        // it is whole, only renamed, and must not look lost.
+        return Err(match fs::rename(&old, target) {
+            Ok(()) => io("rename", staging)(error),
+            Err(restore) => WriteError::NotRestored {
+                staging: staging.to_path_buf(),
+                source: error,
+                kept: old,
+                restore,
+            },
+        });
     }
     fs::remove_dir_all(&old).map_err(io("remove", &old))
 }

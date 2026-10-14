@@ -60,11 +60,10 @@ Each item names its acceptance test. Evidence is in [STATUS_AUDIT.md](STATUS_AUD
    *Done except the audio reconnect:* recovery (Task 8), bug 1 (Tasks 8 and
    14), and the soak (Task 17: a 30-minute fullscreen playlist, 271
    transitions, 0 runtime compiles, flat memory and handles, 60 fps, exit in
-   0.11 s). The minute-6 step is explained, pending confirmation: it matches
-   the output leaving fullscreen, not a leak (Task 20, R-02), and 40 minutes
-   of one scene, fullscreen and windowed, showed no step (Task 34). Open:
-   the same fullscreen run on the playlist (Task 36), and
-   unplugging and replugging the audio device.
+   0.11 s). The minute-6 step is retired (R-02): it matches the output
+   leaving fullscreen, not a leak. Four later runs showed no step,
+   including 20 minutes fullscreen on the same playlist (Tasks 20, 34 and
+   36). Open: unplugging and replugging the audio device.
 2. **Perform-first UI.** *Stage 1 built* (D130-D138, rustaman's UI system
    ported, D5): Contextual Perform with the shell, the panes above,
    persistence, the keyboard model and every state in the audit

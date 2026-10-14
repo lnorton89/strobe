@@ -267,6 +267,8 @@ impl Job {
         std::fs::create_dir_all(&dir)?;
         let serial = NEXT_REPORT.fetch_add(1, Ordering::Relaxed);
         let report = dir.join(format!("{}-{serial}.json", std::process::id()));
+        // A stale report under this name must not be read; a missing file is
+        // the normal case.
         let _ = std::fs::remove_file(&report);
         let mut command = Command::new(exe);
         command
@@ -320,6 +322,8 @@ impl Job {
         let read = std::fs::read_to_string(&self.report)
             .ok()
             .and_then(|text| serde_json::from_str::<Outcome>(&text).ok());
+        // Best effort: the report was read (or the worker was stopped); a
+        // file left behind is harmless.
         let _ = std::fs::remove_file(&self.report);
         Some(read.unwrap_or_else(|| Outcome::Failed {
             message: format!(
@@ -330,8 +334,12 @@ impl Job {
 
     /// Stops the worker and waits for it.
     pub fn stop(&mut self) {
+        // The worker may already have exited; stopping is all that is asked.
         let _ = self.child.kill();
+        // Reaps the stopped worker; its status is not needed.
         let _ = self.child.wait();
+        // Best effort: the report was read (or the worker was stopped); a
+        // file left behind is harmless.
         let _ = std::fs::remove_file(&self.report);
     }
 }

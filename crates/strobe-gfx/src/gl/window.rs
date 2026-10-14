@@ -151,12 +151,16 @@ fn native_preference(window: Option<RawWindowHandle>) -> DisplayApiPreference {
 
 #[cfg(target_os = "macos")]
 fn native_preference(window: Option<RawWindowHandle>) -> DisplayApiPreference {
+    // Only WGL takes the window here; the parameter is shared across
+    // platforms.
     let _ = window;
     DisplayApiPreference::Cgl
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
 fn native_preference(window: Option<RawWindowHandle>) -> DisplayApiPreference {
+    // Only WGL takes the window here; the parameter is shared across
+    // platforms.
     let _ = window;
     DisplayApiPreference::GlxThenEgl(Box::new(winit::platform::x11::register_xlib_error_hook))
 }

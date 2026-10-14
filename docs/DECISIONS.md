@@ -5357,6 +5357,127 @@ clicks), and the shell scenarios "settings watching a folder" and
 **Would reopen:** wanting more than one watched folder, or Shadertoy
 exports taken from it (D240's own reopen condition).
 
+### D266: an audio stream error is a failure only when the stream stops, and reopening backs off (2026-10-13)
+
+**Context.** On the AMD desktop (Task A1) the microphone reported WASAPI
+buffer glitches (`ErrorKind::Xrun`). The capture stream's error callback
+marked the stream failed on any error, and the worker reopened at once:
+11,200 reopens and 33,600 log lines in 158 s, and live audio was
+unusable. cpal 0.18 says three error kinds leave the stream running:
+- a glitch (`Xrun`);
+- a reroute of the default device that it already followed
+  (`DeviceChanged`);
+- a refused real-time promotion (`RealtimeDenied`).
+
+**Decision.**
+- **Those three are counted,** in `Opened::glitches`. The worker logs the
+  count once a minute at info, as "N buffer glitch(es) in the last
+  minute, stream kept".
+- **Every other kind marks the stream failed,** including kinds cpal adds
+  later (`capture::device::is_fatal`).
+- **Repeated quick failures back off.** A stream that fails within 5 s of
+  opening counts as a quick failure. The first reopen is immediate, as
+  before; after that it waits 100 ms, doubling up to the 2 s retry period
+  (`worker::reopen_delay`).
+  - Only the first failure of a run is a warning; the rest are debug.
+  - A stream that ran 5 s before failing resets the count.
+- Tests: `a_glitch_a_followed_reroute_and_a_refused_priority_are_not_failures`
+  and `a_first_failure_reopens_at_once_and_repeats_back_off_to_the_retry_period`.
+
+**Would reopen:** a backend that reports a fatal condition as one of the
+three surviving kinds. The symptom would be silent levels with a "stream
+kept" line. Task A2 re-runs the app on the AMD desktop to confirm the
+loop is gone and the levels move.
+
+### D267: a result thrown away outside tests says why, and the ones that could not were fixed (2026-10-13)
+
+**Context.** A reader of `strobe-gfx/src/assets.rs` asked why its error
+paths end in `let _ = sender.send(...)`. Those discards are sound: the
+error is delivered as `MediaMessage::Failed`, and only a send to a
+receiver that is already gone (the scene was replaced) is dropped. But the
+pattern was everywhere, and an audit found 145 places outside tests that
+discarded a value, with nothing to tell a deliberate discard from an
+accident.
+
+**Fixed, because the discard lost something:**
+- **Shadertoy re-import.** If moving the new scene in failed, the old
+  scene's restore was ignored, and could leave it under a hidden
+  `.<name>.replaced` name. It now returns `WriteError::NotRestored`,
+  naming where the old scene is.
+- **LAN remote client list.** A damaged list was "moved to ….bad" even
+  when the move failed. The message now says what really happened.
+- **Token rotation.** A failed rotation (no OS random source) is now
+  logged.
+- **Generated controls.** A `scene.json` that exists but cannot be read
+  was treated as missing and replaced, losing its other fields. It is now
+  an error.
+- **Editor.** Re-reading the open scene after Strobe wrote a thumbnail or
+  tags blanked the Editor silently on failure. It now keeps the previous
+  text and says why (`reopen_editor`).
+- **Connection timeouts.** The LAN remote's and the Shadertoy listener's
+  connection threads served a socket whose timeouts could not be set,
+  where a silent peer could hold the thread forever. Such a connection is
+  now dropped with a warning.
+- **Crash-monitor threads.** A crash-monitor watchdog or a system-facts
+  probe that could not start now says so.
+- **GL error clearing.** `let _ = gl.error()` cleared one GL error flag
+  where a driver may hold several. `Gl::clear_errors` clears them all,
+  bounded.
+- **Dead suppressions.** `let _ = x;` hid an unused parameter in five
+  places and an unused import in two; they are removed.
+  - One hid a contract that was not kept: `controls::rail` documented that
+    `id_salt` identifies the control, but its id came from its position,
+    so a drag could jump to a neighbour when rows above changed. It now
+    uses `id_salt`.
+
+**The rule (`strobe_conventions::discarded`).** Outside tests, a
+statement that throws a result away (`let _ = …` or a trailing `….ok();`
+that is not assigned) carries a `//` comment, on the line or directly
+above, saying why there is nothing to do. `write!` and `writeln!` are
+exempt: they cannot fail into a `String`, and to a stream they are
+best-effort diagnostics. The 80 deliberate discards now each say why:
+- a receiver that has already gone;
+- best-effort cleanup;
+- a crash handler that must not fail;
+- a courtesy reply on a connection that ends anyway;
+- a join on a thread whose panic already aborted the process.
+
+**Would reopen:** a discard whose stated reason turns out false. The fix
+is to handle that error, not to reword the comment.
+
+### D268: Synesthesia's 90 default scenes all compile: two library names inferred, and a script's state is not a uniform (2026-10-13)
+
+**Context.** The owner's private corpus of Synesthesia 1.25.4's default
+scenes was re-run at 776ddf3: 88 of 90 in both dialects on llvmpipe, and
+the same on the AMD RX 580 (Task A4).
+- `SkaiWalkerOG` includes `hg_sdf.glsl` from Synesthesia's `lib` folder.
+  D198 already resolves that where Synesthesia is installed or
+  `STROBE_GLSL_PATH` names the folder. Past the include it read
+  `_Media_Contrast`, which Strobe did not define.
+- `hue_review` calls `_hueSaturationContrastLEGACY` (Q26), which was
+  missing.
+
+**Decision.**
+- **`_Media_Contrast` is a constant 1.0.** It is the media panel's
+  contrast, neutral like the `_applyMediaContrast` identity Strobe
+  already has (D197).
+- **`_hueSaturationContrast` and `…LEGACY` are inferred.** Hue is in
+  degrees, saturation and contrast are multipliers, and `(0, 1, 1)` leaves
+  a colour alone. This is an inference, not Synesthesia's code (Q26 stays
+  open for the look).
+- **A script's own state in the legacy `uniforms` table is skipped
+  quietly.** That means a function, or an object with no `x`/`r` keys and
+  no `length` (`host::is_script_state`). `thresholder` keeps a counter
+  object there, and each load reported "expected at least one number". A
+  string there is still reported, as a likely mistake.
+
+**Result.** 90 of 90 in both dialects on llvmpipe, with the library path
+set. The scenes' own undefined behaviour (`PLUS` takes `pow` of a negative
+base) is left alone, as in COMPATIBILITY.md.
+
+**Would reopen:** the look of `hue_review` or SkaiWalkerOG's media beside
+Synesthesia's own render.
+
 ### D269: `syn_Spectrum` is 1024 texels wide, Synesthesia's width (2026-10-13)
 
 Q10 asked how wide real scenes expect `syn_Spectrum` to be. Synesthesia

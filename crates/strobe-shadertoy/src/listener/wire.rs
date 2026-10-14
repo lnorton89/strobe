@@ -211,10 +211,13 @@ pub(super) fn respond(
 /// Closes our side, then reads and discards what the client is still
 /// sending, within [`DRAIN_BYTES`] and [`DRAIN_TIME`].
 pub(super) fn drain(stream: &mut TcpStream) {
+    // Lingering is best effort; a closed socket needs no half-close.
     let _ = stream.shutdown(Shutdown::Write);
     let started = Instant::now();
     let mut sink = [0_u8; 16 * 1024];
     let mut total = 0;
+    // Lingering is best effort; without the short timeout the normal one
+    // applies.
     let _ = stream.set_read_timeout(Some(Duration::from_millis(250)));
     while total < DRAIN_BYTES && started.elapsed() < DRAIN_TIME {
         match stream.read(&mut sink) {

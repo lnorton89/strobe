@@ -3,7 +3,8 @@
 This is the supported, degraded and unsupported matrix for Strobe, for
 people running it and for contributors. Every status points at its
 evidence: a decision in [DECISIONS.md](DECISIONS.md), a test, a hardware
-record ([T480](hardware/T480.md), [TORNADO](hardware/TORNADO.md)) or an
+record ([T480](hardware/T480.md), [TORNADO](hardware/TORNADO.md),
+[AMD desktop](hardware/AMD.md)) or an
 item in [STATUS_AUDIT.md](STATUS_AUDIT.md). STATUS_AUDIT.md is the
 evidence log, and it wins when this file disagrees with it. Written
 2026-10-13.
@@ -23,6 +24,7 @@ the only evidence is synthetic, it is Unverified.
 
 The machines: **T480** is a ThinkPad with Intel UHD 620 on Windows 11
 (the old-laptop reference). **TORNADO** is a GTX 1080 Ti on Windows 10.
+**AMD desktop** (DESKTOP-30KSOCM) is a Radeon RX 580 on Windows 10.
 **llvmpipe** is Mesa's software rasteriser in CI and the cloud
 container, headless or under Xvfb.
 
@@ -54,7 +56,7 @@ container, headless or under Xvfb.
 | `IMAGE_PATH` | Supported | [D212](DECISIONS.md), [D222](DECISIONS.md), `ui::thumbs` and `snapshot` tests | Shown as the browser thumbnail; can be taken from the live frame. |
 | Other keys (`IS_META`, `GPU`, `UNIFORMS`, `LABEL`, `X_STROBE`) | Degraded | [Q6](OPEN_QUESTIONS.md), [R11](OPEN_QUESTIONS.md) | Read and ignored. A root `UNIFORMS` is not Synesthesia's; its own scenes use the key only inside `SMOOTH_TRANSITIONS`. |
 | SSF function library (documented names) | Supported | `strobe-ssf-lib` `every_documented_function_is_defined` (63 names), `render.rs` `the_ssf_library_compiles_in_both_dialects`, [TORNADO T18](hardware/TORNADO.md) | Re-implemented from the documented behaviour. Numbers are not bit-identical to Synesthesia's. |
-| Undocumented helpers used by real scenes | Degraded | [D197](DECISIONS.md), [D199](DECISIONS.md) | The image family, older names (`_loadUserImage` and family as aliases of `syn_Media`), `_ratioFix` ([Q27](OPEN_QUESTIONS.md)) are inferred. `_hueSaturationContrastLEGACY` is missing ([Q26](OPEN_QUESTIONS.md)). |
+| Undocumented helpers used by real scenes | Degraded | [D197](DECISIONS.md), [D199](DECISIONS.md) | The image family, older names (`_loadUserImage` and family as aliases of `syn_Media`), `_ratioFix` ([Q27](OPEN_QUESTIONS.md)), `_hueSaturationContrastLEGACY` ([Q26](OPEN_QUESTIONS.md)) and `_Media_Contrast` ([D268](DECISIONS.md)) are inferred. |
 | Scalar audio uniforms (`syn_Level`, `syn_*Hits`, `syn_*Time`, `syn_*Presence`, beat values) | Supported | `strobe_scene::audio::SCALARS`, live capture on [T480](hardware/T480.md) (script scene, 2026-10-09) and [TORNADO T19](hardware/TORNADO.md) | Strobe's own analysis; values are not compared numerically with Synesthesia's. |
 | Undocumented audio names (`syn_InputLevel`, `syn_BassExpoCurve`) | Degraded | [D197](DECISIONS.md) | Stand-ins until their meaning is known. |
 | `syn_Spectrum`, `syn_LevelTrail` textures | Unverified | `render.rs` `uploaded_audio_texels_reach_the_spectrum_and_trail_samplers` | `sampler1D` on desktop is confirmed ([R10](OPEN_QUESTIONS.md)). The spectrum is 1024 texels, as Synesthesia's ([D269](DECISIONS.md)); frequency axes and trail direction are assumptions ([Q10](OPEN_QUESTIONS.md)). |
@@ -92,7 +94,9 @@ scripts included, and renders it in both dialects ([D195](DECISIONS.md)).
 | The same 65 on ANGLE/D3D11 (NVIDIA) | Supported | [TORNADO T18](hardware/TORNADO.md) | 63 of 65, the same two failures. |
 | Native and ANGLE drawing the same picture | Degraded | [TORNADO T8](hardware/TORNADO.md), [TORNADO T9](hardware/TORNADO.md), [TORNADO T18](hardware/TORNADO.md) | Two scenes differ between backends from undefined behaviour in their own code (`pow(0,0)`, `fract(sin)` hashes). Strobe does not fix those. |
 | The 65 scenes on Intel (T480) | Unverified | [T480 Task 30](hardware/T480.md) | The T480 has run only Strobe's 12 library scenes through the harness (12 of 12 in both dialects). |
-| The 90-scene corpus from Synesthesia 1.25.4 on llvmpipe | Supported | [D199](DECISIONS.md) | 87 of 90 on desktop GL and 87 of 90 on GLES. llvmpipe only. |
+| The 90 default scenes from Synesthesia 1.25.4, llvmpipe | Supported | [D268](DECISIONS.md) | 90 of 90 in both dialects, scripts on, at commit 776ddf3 plus D268. One condition: `STROBE_GLSL_PATH` points at Synesthesia's `lib` folder, which Strobe also finds when Synesthesia is installed (D198), because SkaiWalkerOG includes `hg_sdf.glsl`. |
+| The same 90 on AMD RX 580, native GL and ANGLE | Supported | [AMD Tasks A4 and A5](hardware/AMD.md) | 90 of 90 in both dialects at e47c44f (A5), with no notes. Before D268 it was 88 of 90 (A4). All 48 scripted scenes ran. |
+| The 90 drawing the same picture on native and ANGLE (AMD) | Degraded | [AMD Task A4](hardware/AMD.md) | Of the 47 scenes the bench can render, 61 frames match or nearly match. Three differ: `PLUS` (`pow` of a negative base, undefined in GLSL; llvmpipe draws it black), `canvas` (its feedback background) and `turbo_encabulator_fluid` (banding on ANGLE). Both of the last two subtract or seed with `fract(sin(…))` hashes, whose precision differs between drivers. The banding stays with RGBA32F passes, so the storage format is not the cause (A5). Four simulations diverge in detail. |
 | A picture matching Synesthesia's own render | Unverified | none | No side-by-side comparison with Synesthesia is recorded. |
 | Running Synesthesia's built-in scenes for a show | Unverified | [Q7](OPEN_QUESTIONS.md) | The EULA question is open. |
 
@@ -198,9 +202,10 @@ Per dialect: 63 ok, 2 `compile_error`. Categories: no issue 58, source bug 2, dr
 |---|---|---|---|
 | Native OpenGL 3.3 core, Intel UHD 620 (Windows 11) | Supported | [T480](hardware/T480.md) (app on the real GPU, Tasks 14, 17, 30) | Driver 30.0.101.1122. Heavy scenes need adaptive resolution at 1440p. |
 | Native OpenGL 3.3 core, NVIDIA GTX 1080 Ti (Windows 10) | Supported | [TORNADO T1](hardware/TORNADO.md), [TORNADO T18](hardware/TORNADO.md), [TORNADO T19](hardware/TORNADO.md) | Driver 582.78. |
+| Native OpenGL 3.3 core, AMD Radeon RX 580 (Windows 10) | Supported | [AMD Task A1](hardware/AMD.md) | Driver 31.0.21925.1001. All 12 scenes, both dialects, 0 KHR_debug messages. No robust context: see context loss. |
 | Intel HD 4000 (the stated GL 3.3 floor) | Unverified | [D3](DECISIONS.md) | No run on an HD 4000 is recorded ([P-03](IMPLEMENTATION_BACKLOG.md)). |
-| ANGLE, GLES 3.0 on Direct3D 11 (`--gl angle`) | Supported | [T480 Task 30](hardware/T480.md), [T480 Task 21](hardware/T480.md), [TORNADO T1](hardware/TORNADO.md), [TORNADO T18](hardware/TORNADO.md) | DLLs from a pinned Electron release ([D12](DECISIONS.md)). Compiles are slower on heavy scenes (3.2 s against 275 ms native on the T480). |
-| Context loss: rebuild, then fail over to ANGLE | Unverified | [D66](DECISIONS.md), [T480 Task 8](hardware/T480.md), `STROBE_FAULT` policy tests | Injected losses recovered on real WGL. No real driver reset has been observed. |
+| ANGLE, GLES 3.0 on Direct3D 11 (`--gl angle`) | Supported | [T480 Task 30](hardware/T480.md), [T480 Task 21](hardware/T480.md), [TORNADO T1](hardware/TORNADO.md), [TORNADO T18](hardware/TORNADO.md), [AMD Task A1](hardware/AMD.md) | DLLs from a pinned Electron release ([D12](DECISIONS.md)). Compiles are slower on heavy scenes (3.2 s against 275 ms native on the T480). |
+| Context loss: rebuild, then fail over to ANGLE | Unverified | [D66](DECISIONS.md), [T480 Task 8](hardware/T480.md), `STROBE_FAULT` policy tests, [AMD Task A1](hardware/AMD.md) | Injected losses recovered on real WGL. No real driver reset has been observed. AMD's native WGL refuses a robust context, so a reset there is not reported; ANGLE on AMD is robust. |
 | Adaptive render scale | Supported | [D64](DECISIONS.md), [T480](hardware/T480.md) | Thresholds are validated on the T480 only. |
 | Headless llvmpipe (CI, Linux) | Supported | `crates/strobe-gfx/tests/render.rs`, CI `linux` job | For tests and frames. Timings are CPU rasterisation, not GPU numbers. |
 | Windows release zip | Unverified | [T480 Task 21](hardware/T480.md), [T480 Task 22](hardware/T480.md), [Q12](OPEN_QUESTIONS.md) | Packaged by hand with the workflow's steps and run from `%TEMP%`. `release.yml` has never run from a tag ([R-05](IMPLEMENTATION_BACKLOG.md)). |
@@ -213,7 +218,7 @@ Per dialect: 63 ok, 2 `compile_error`. Categories: no issue 58, source bug 2, dr
 
 | Feature | Status | Evidence | Notes |
 |---|---|---|---|
-| Live capture from the default recording device | Supported | [D61](DECISIONS.md), [T480](hardware/T480.md) (Realtek microphone at 48 kHz), [TORNADO T19](hardware/TORNADO.md) | Windows microphone privacy settings must allow desktop apps. |
+| Live capture from the default recording device | Supported | [D61](DECISIONS.md), [T480](hardware/T480.md) (Realtek microphone at 48 kHz), [TORNADO T19](hardware/TORNADO.md), [D266](DECISIONS.md) | Windows microphone privacy settings must allow desktop apps. A device that reports buffer glitches keeps its stream (D266). On the AMD desktop it reopened 70 times a second before that fix; after it, 188 s ran with no reopen and no glitch (Task A2). |
 | Capturing what the computer plays (loopback, Stereo Mix) | Unverified | [USER_GUIDE](USER_GUIDE.md) | Output devices are listed as loopback; no run is recorded. |
 | Synthetic 120 BPM fallback | Supported | [D61](DECISIONS.md), [STATUS_AUDIT P1](STATUS_AUDIT.md) (missing and synthetic audio states) | Used when no device opens, and by the bench and tests. |
 | Device removed and reconnected | Unverified | [R-01](IMPLEMENTATION_BACKLOG.md), [T480 Task 20](hardware/T480.md) | Capture retries every 2 s by design. Never run on hardware: it waits for the owner's approval. |

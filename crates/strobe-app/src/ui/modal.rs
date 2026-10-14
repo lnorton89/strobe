@@ -136,6 +136,7 @@ pub fn draw(ctx: &egui::Context, theme: &Palette, question: &Confirmation) -> Op
         .order(egui::Order::Middle)
         .fixed_pos(screen.min)
         .show(ctx, |ui| {
+            // The scrim only has to take the clicks; nothing reads them.
             let _ = ui.allocate_exact_size(screen.size(), Sense::click());
         });
     answer

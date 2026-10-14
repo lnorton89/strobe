@@ -62,12 +62,12 @@ rquickjs = "0.14"
 # OpenSSL, no async runtime), SHA-256 for the asset cache's keys, and the OS
 # random source for the listener's token.
 ureq = { version = "3", default-features = false, features = ["rustls"] }
-sha2 = "0.10"
-getrandom = "0.3"
+sha2 = "0.11"
+getrandom = "0.4"
 # The LAN remote's WebSocket handshake (RFC 6455's Sec-WebSocket-Accept is a
 # SHA-1). Same RustCrypto family and `digest` version as sha2, so it adds
 # one crate and no new transitive ones (D250).
-sha1 = "0.10"
+sha1 = "0.11"
 # Local time for `strobe_Date` (D111). Only the clock feature: no serde,
 # no time-zone database, no wasm shims.
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }

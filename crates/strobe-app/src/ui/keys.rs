@@ -224,6 +224,7 @@ pub fn run(command: CommandId, model: &mut Model<'_>, actions: &mut Vec<Action>)
             model.ui.browser.focus_search = true;
         }
         CommandId::CloseTopmostPane => {
+            // Whether a pane was open to close does not change anything else.
             let _ = model.ui.panes.close_topmost();
         }
         CommandId::OpenPalette => model.ui.command_palette.toggle(),

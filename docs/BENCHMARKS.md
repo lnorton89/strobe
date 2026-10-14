@@ -66,6 +66,38 @@ GPUs.
 
 ## Results
 
+### 2026-10-13: AMD Radeon RX 580 (AMD desktop), commit 26576b0
+
+Driver 31.0.21925.1001, Windows 10 19045. Native GL reports `3.3.0 Core
+Profile Context 26.5.2.260413`; ANGLE is Electron 38.2.0's, on D3D11.
+`--context window`, as above. Details are in
+[hardware/AMD.md](hardware/AMD.md). Mean / p95 ms:
+
+| Scene | Native 720p | ANGLE 720p | Native 1080p | ANGLE 1080p |
+|---|---:|---:|---:|---:|
+| 01-aurora-gradient | 0.13 / 0.14 | 0.09 / 0.10 | 0.16 / 0.19 | 0.13 / 0.15 |
+| 02-plasma-pulse | 0.14 / 0.14 | 0.12 / 0.14 | 0.19 / 0.20 | 0.16 / 0.19 |
+| 03-kaleido-tunnel | 0.16 / 0.17 | 0.12 / 0.12 | 0.25 / 0.25 | 0.16 / 0.17 |
+| 04-voronoi-glass | 0.65 / 0.67 | 0.64 / 0.76 | 1.48 / 2.59 | 1.36 / 1.49 |
+| 05-domain-warp | 0.71 / 0.76 | 0.69 / 0.70 | 1.63 / 2.73 | 1.49 / 1.66 |
+| 06-feedback-trails | 0.14 / 0.17 | 0.14 / 0.15 | 0.17 / 0.18 | 0.16 / 0.17 |
+| 07-reaction-diffusion | 0.34 / 0.34 | 0.32 / 0.33 | 0.37 / 0.38 | 0.36 / 0.40 |
+| 08-bloom-orbs | 0.54 / 0.55 | 0.51 / 0.52 | 1.40 / 2.52 | 1.19 / 1.48 |
+| 09-sdf-cathedral | 1.62 / 2.73 | 1.53 / 1.72 | 3.39 / 4.40 | 3.20 / 3.40 |
+| 10-volume-clouds | 12.69 / 13.35 | 11.43 / 11.65 | 26.96 / 27.30 | 25.28 / 25.62 |
+| 11-script-orbits | 0.17 / 0.18 | 0.13 / 0.14 | 0.25 / 0.27 | 0.22 / 0.26 |
+| 12-silicon-atlas | 2.71 / 3.74 | 2.49 / 2.64 | 5.49 / 5.68 | 5.56 / 5.87 |
+
+- **Relative cost:** an RX 580 takes about twice a 1080 Ti's time per frame.
+- **The one heavy scene:** `10-volume-clouds` is the only scene under
+  60 fps at 1080p (37 fps), and adaptive resolution would carry it.
+- **ANGLE against native:** ANGLE is level with native or faster per
+  frame, as on NVIDIA.
+  - Native's p95 rises to 2.5-2.7 ms on 04, 05 and 08 at 1080p, where
+    ANGLE stays flat.
+  - ANGLE compiles 12-silicon-atlas in 1588 ms against 8.8 ms native.
+- `11-script-orbits` runs without its `script.js` here (C-05).
+
 ### 2026-10-11: NVIDIA GTX 1080 Ti (TORNADO), commit 862ad2e
 
 Driver 582.78, Windows 10 19045. `--context window` (hidden window), 60

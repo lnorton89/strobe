@@ -16,16 +16,25 @@
 //! already shows up as an input there (PulseAudio and PipeWire expose
 //! `Monitor of ...` sources).
 //!
+//! **Not every stream error is a failure.** cpal reports a buffer glitch
+//! (`Xrun`), a default-device reroute it already followed (`DeviceChanged`)
+//! and a refused real-time promotion (`RealtimeDenied`) through the same
+//! error callback as a lost device, but the stream keeps running after all
+//! three. Those are counted ([`Opened::glitches`]); only the rest mark the
+//! stream failed ([`is_fatal`]). Treating a WASAPI glitch as a failure made
+//! the worker reopen a working microphone 70 times a second on an AMD
+//! desktop (DESKTOP-30KSOCM, Task A1, D266).
+//!
 //! **The audio callback is a transport stage.** It converts to `f32`,
 //! averages the channels into mono, and pushes into a lock-free ring. It
 //! does no analysis, takes no lock and allocates nothing; if the analysis
 //! thread falls behind, samples are dropped rather than waited for.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::{DeviceId, FromSample, SampleFormat, SizedSample, StreamConfig};
+use cpal::{DeviceId, ErrorKind, FromSample, SampleFormat, SizedSample, StreamConfig};
 use rtrb::{Consumer, Producer, RingBuffer};
 
 use super::CaptureError;
@@ -132,6 +141,9 @@ pub(crate) struct Opened {
     pub(crate) consumer: Consumer<f32>,
     /// Set by the stream's error callback when the device fails.
     pub(crate) failed: Arc<AtomicBool>,
+    /// Errors the stream survives (glitches, a followed reroute), counted
+    /// by the error callback; the worker reads and resets it.
+    pub(crate) glitches: Arc<AtomicU64>,
     /// The device's sample rate.
     pub(crate) sample_rate: u32,
     /// The device's display name.
@@ -153,12 +165,30 @@ fn find_device(host: &cpal::Host, choice: &DeviceChoice) -> Result<cpal::Device,
     }
 }
 
+/// Whether a stream error means the stream has stopped. A glitch, a
+/// reroute cpal already followed, and a refused real-time promotion leave
+/// it running; anything else, including kinds cpal adds later, is treated
+/// as fatal so the device is reopened.
+pub(crate) fn is_fatal(kind: ErrorKind) -> bool {
+    !matches!(
+        kind,
+        ErrorKind::Xrun | ErrorKind::DeviceChanged | ErrorKind::RealtimeDenied
+    )
+}
+
+/// The flags the stream's error callback writes.
+#[derive(Clone)]
+struct Health {
+    failed: Arc<AtomicBool>,
+    glitches: Arc<AtomicU64>,
+}
+
 /// Builds the input stream for one sample type.
 fn build<T>(
     device: &cpal::Device,
     config: StreamConfig,
     mut producer: Producer<f32>,
-    failed: Arc<AtomicBool>,
+    health: Health,
 ) -> Result<cpal::Stream, CaptureError>
 where
     T: SizedSample,
@@ -181,8 +211,12 @@ where
                 }
             },
             move |error| {
-                log::warn!("audio stream error: {error}");
-                failed.store(true, Ordering::Release);
+                if is_fatal(error.kind()) {
+                    log::warn!("audio stream error: {error}");
+                    health.failed.store(true, Ordering::Release);
+                } else {
+                    health.glitches.fetch_add(1, Ordering::Relaxed);
+                }
             },
             None,
         )
@@ -208,19 +242,22 @@ pub(crate) fn open(choice: &DeviceChoice) -> Result<Opened, CaptureError> {
     let sample_rate = config.sample_rate;
     let capacity = ((sample_rate as f32 * RING_SECONDS) as usize).max(1024);
     let (producer, consumer) = RingBuffer::<f32>::new(capacity);
-    let failed = Arc::new(AtomicBool::new(false));
+    let health = Health {
+        failed: Arc::new(AtomicBool::new(false)),
+        glitches: Arc::new(AtomicU64::new(0)),
+    };
 
     let format = supported.sample_format();
     let stream = if format == SampleFormat::F32 {
-        build::<f32>(&device, config, producer, failed.clone())?
+        build::<f32>(&device, config, producer, health.clone())?
     } else if format == SampleFormat::F64 {
-        build::<f64>(&device, config, producer, failed.clone())?
+        build::<f64>(&device, config, producer, health.clone())?
     } else if format == SampleFormat::I16 {
-        build::<i16>(&device, config, producer, failed.clone())?
+        build::<i16>(&device, config, producer, health.clone())?
     } else if format == SampleFormat::I32 {
-        build::<i32>(&device, config, producer, failed.clone())?
+        build::<i32>(&device, config, producer, health.clone())?
     } else if format == SampleFormat::U16 {
-        build::<u16>(&device, config, producer, failed.clone())?
+        build::<u16>(&device, config, producer, health.clone())?
     } else {
         return Err(CaptureError::UnsupportedFormat(format!("{format:?}")));
     };
@@ -230,8 +267,36 @@ pub(crate) fn open(choice: &DeviceChoice) -> Result<Opened, CaptureError> {
     Ok(Opened {
         _stream: stream,
         consumer,
-        failed,
+        failed: health.failed,
+        glitches: health.glitches,
         sample_rate,
         name,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use anyhow::Result;
+
+    #[test]
+    fn a_glitch_a_followed_reroute_and_a_refused_priority_are_not_failures() -> Result<()> {
+        for kind in [
+            ErrorKind::Xrun,
+            ErrorKind::DeviceChanged,
+            ErrorKind::RealtimeDenied,
+        ] {
+            assert!(!is_fatal(kind), "{kind:?} leaves the stream running");
+        }
+        for kind in [
+            ErrorKind::DeviceNotAvailable,
+            ErrorKind::StreamInvalidated,
+            ErrorKind::BackendError,
+            ErrorKind::DeviceBusy,
+            ErrorKind::Other,
+        ] {
+            assert!(is_fatal(kind), "{kind:?} stops the stream");
+        }
+        Ok(())
+    }
 }

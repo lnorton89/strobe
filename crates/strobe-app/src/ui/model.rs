@@ -301,6 +301,10 @@ pub struct AudioPanel<'a> {
     pub speed: &'a mut f32,
     /// The tempo in the latest frame.
     pub bpm: f32,
+    /// The input's raw RMS in the latest frame (not auto-gained), 0 when
+    /// nothing arrives: what the Diagnostics card shows as the input level,
+    /// so a dead microphone does not pass for a live one.
+    pub input_rms: f32,
 }
 
 /// The browser listener's row in the import panel.

@@ -103,6 +103,8 @@ impl Drop for Sender {
         if let Some(thread) = self.thread.take() {
             let (jobs, _) = sync_channel(0);
             drop(std::mem::replace(&mut self.jobs, jobs));
+            // Waits for the sender; a panic in it already aborted the process
+            // in release builds.
             let _ = thread.join();
         }
     }

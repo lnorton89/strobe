@@ -229,6 +229,8 @@ fn work(queue: &Receiver<Job>, finished: &std::sync::mpsc::Sender<Done>, config:
         };
         let result = run(&job.input, &options, &fetch, &endpoints, config);
         if let Some(reply) = &job.reply {
+            // The requester (a browser connection) has gone; the import
+            // itself is done and logged.
             let _ = reply.send(Reply::from_import(&result));
         }
         if finished
