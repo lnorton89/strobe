@@ -37,13 +37,27 @@ screen until you ask.
 
 - The first scene of the library plays in the preview, and the scene you
   last played is reopened on later launches.
-- **Show output** in the toolbar, or **F11**, shows the output. Use the
+- **Show output** (the monitor button under the panel's preview, or the
+  PLAY view's toolbar), or **F11**, shows the output. Use the
   **Output monitor** menu to put it on the projector, then F11 for
   fullscreen.
-- The left rail opens panes: **LIB** (the scene library), **LIST**
-  (playlists), **EDIT** (the scene's code), **MAP** (MIDI, OSC, macros),
-  **DIAG** (diagnostics) and **SET** (settings). The Controls pane on the
-  right is the playing scene's controls.
+- The window is Synesthesia's three columns. The **rail** on the left
+  switches the main view: **PLAY** (the live preview at full size),
+  **LIB** (the scene library, the default), **GET** (import a Shadertoy
+  shader), **LIST** (playlists), **EDIT** (the scene's code), **MAP** (MIDI,
+  OSC, macros), **DIAG** (diagnostics) and **SET** (settings). The **panel**
+  on the right stays whatever the view is: the live preview, a status strip
+  (output, fullscreen, frame rate, audio level and tempo, and a snapshot
+  button), the eight fav slots, and four tabs: **Playlist** (the loaded
+  show's cues), **Controls** (the playing scene's controls), **Presets**
+  (the scene's saved looks) and **Edit** (tags, picture, media,
+  *Generate controls*, *Open in Editor*). Drag its edge to resize it;
+  until you do it is about a third of the window, and a double-click on
+  the edge puts it back to that. In a short window the fav slots move into
+  the Presets tab and the panel drops its preview. In a narrow window it opens
+  over the main view, and when closed it is a thin strip you click to open.
+  **BLACKOUT** and the macros are always on the bottom strip, and the bar
+  under it says what the control under the pointer does.
 
 ### Keys
 
@@ -64,9 +78,15 @@ Settings > Keyboard changes any of them.
 
 - **LIB** lists the scenes in the library folder: `scenes\` beside
   `strobe.exe` by default, or the folder given with `--library <dir>`.
-  Search by name or tag; star favourites; double-click to play. The
-  selected scene's tags show above the list, and *Edit* changes them
-  without playing it. The Controls pane does the same for the playing
+  The toolbar has *New scene* (it opens Import), a rescan and the S, M and
+  L thumbnail sizes. The row under it has the count ("88/88"), the search
+  (names, authors and tags), a sort (library order, name, author,
+  favourites first) with a direction arrow, a star that shows only your
+  favourites, and a menu that shows only scenes that loaded or that need
+  work. Each card shows the picture, the title, the author and a **...**
+  menu (also the right-click menu); star favourites; double-click to play.
+  The selected scene's tags show above the grid, and *Edit* changes them
+  without playing it. The **Edit** tab does the same for the playing
   scene, and the Import pane for the scene it just imported.
 - A scene is a folder with `main.glsl` and `scene.json`, the Synesthesia
   scene format (`.synScene`). Synesthesia scenes you own can be played by
@@ -102,10 +122,11 @@ Settings > Keyboard changes any of them.
   normally `%LOCALAPPDATA%\Synesthesia\Data`).
 - **Needs work** (a LIB filter, and a list in DIAG) shows the scenes that
   failed to load this run, each with its reason.
-- **Controls** shows the playing scene's sliders, colours and buttons.
-  *Use frame as picture* saves the current frame as the scene's library
-  picture.
-- **Presets** (in the Controls pane): save the current look under a name,
+- **Controls** (a tab of the panel) shows the playing scene's sliders,
+  colours and buttons. The camera button in the status strip, or *Use
+  frame as picture* in the Edit tab, saves the current frame as the
+  scene's library picture.
+- **Presets** (a tab of the panel): save the current look under a name,
   recall it later or from a controller. A preset saved while a picture is
   chosen for `syn_Media` remembers it.
 - **EDIT** opens the scene's files. *Save* writes them and the show keeps
@@ -142,7 +163,7 @@ Scenes react to sound through the default **recording** device.
   resolution, which lowers the render size by itself when the GPU falls
   behind; `--no-adaptive` turns it off for a run.
 - The output's look (brightness, hue, mirror, colour limits and the like)
-  is in the Controls pane under *Output (meta)*. It carries over from scene
+  is in the Controls tab under *Output (meta)*. It carries over from scene
   to scene.
 
 ## Media behind a scene
@@ -291,7 +312,7 @@ CC BY-NC-SA 3.0: no commercial use without the author's permission.
 Strobe records each import's author and source in the scene; check them
 before using a shader at a paid event.
 
-*Generate controls* (Controls pane) measures a scene's numbers and writes
+*Generate controls* (the Edit tab) measures a scene's numbers and writes
 a copy with sliders for the ones that matter; your original is never
 changed.
 

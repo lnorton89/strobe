@@ -25,7 +25,7 @@
 //! filtered list is rebuilt when the query, the filter or the library
 //! changes, never per frame.
 
-use crate::library::{Health, HealthFilter, Library, matches};
+use crate::library::{Health, HealthFilter, Library, SortKey, matches};
 use crate::palette::{Catalog, Palette};
 use crate::prefs::{BrowserPref, Debounce, Prefs, Saver};
 use crate::workspace::{Pane, Panes};
@@ -50,6 +50,12 @@ pub struct BrowserState {
     pub scroll_to: Option<usize>,
     /// Favourite scenes, by library name, sorted (D211).
     pub favourites: Vec<String>,
+    /// How large the library grid's cards are (D282). Saved.
+    pub cards: super::browser::CardSize,
+    /// What the grid is ordered by (D282). Saved.
+    pub sort: SortKey,
+    /// Whether the order is reversed (D282). Saved.
+    pub descending: bool,
     visible: Vec<usize>,
     cached: Option<Cached>,
 }
@@ -61,6 +67,8 @@ struct Cached {
     query: String,
     filter: HealthFilter,
     favourites: usize,
+    sort: SortKey,
+    descending: bool,
 }
 
 impl BrowserState {
@@ -72,6 +80,8 @@ impl BrowserState {
                 && cached.filter == self.filter
                 && cached.query == self.query
                 && cached.favourites == self.favourites.len()
+                && cached.sort == self.sort
+                && cached.descending == self.descending
         });
         if !fresh {
             let query = self.query.trim().to_lowercase();
@@ -84,14 +94,40 @@ impl BrowserState {
                     self.visible.push(index);
                 }
             }
+            self.order(library);
             self.cached = Some(Cached {
                 library_rev: rev,
                 query: self.query.clone(),
                 filter: self.filter,
                 favourites: self.favourites.len(),
+                sort: self.sort,
+                descending: self.descending,
             });
         }
         &self.visible
+    }
+
+    /// Puts the visible list in the order the sort asks for (D282). The
+    /// sort is stable, so equal entries keep the scan's order.
+    fn order(&mut self, library: &Library) {
+        if self.sort != SortKey::Scan {
+            let favourites = &self.favourites;
+            let favourite = |index: usize| {
+                library
+                    .entries
+                    .get(index)
+                    .is_some_and(|entry| favourites.binary_search(&entry.name).is_ok())
+            };
+            self.visible.sort_by(
+                |a, b| match (library.entries.get(*a), library.entries.get(*b)) {
+                    (Some(x), Some(y)) => self.sort.compare((x, favourite(*a)), (y, favourite(*b))),
+                    (Some(_), None) | (None, Some(_)) | (None, None) => std::cmp::Ordering::Equal,
+                },
+            );
+        }
+        if self.descending {
+            self.visible.reverse();
+        }
     }
 }
 
@@ -241,6 +277,8 @@ pub struct UiState {
     pub layouts: std::collections::BTreeMap<String, crate::prefs::Layout>,
     /// The watched drop folder (D265): the folder and the switch are saved.
     pub watch: WatchState,
+    /// The side panel's tab (D283). Saved.
+    pub side_tab: super::side::SideTab,
     /// Synesthesia's scenes in the library (D271): the switch is saved.
     pub synesthesia: SynesthesiaState,
     /// The Settings pane's layout name field. Not saved.
@@ -299,6 +337,9 @@ impl UiState {
                     names.dedup();
                     names
                 },
+                sort: SortKey::from_key(&prefs.browser.sort),
+                descending: prefs.browser.descending,
+                cards: super::browser::CardSize::from_key(&prefs.browser.cards).unwrap_or_default(),
                 ..BrowserState::default()
             },
             collapsed_groups: prefs.collapsed_groups.clone(),
@@ -322,6 +363,7 @@ impl UiState {
                 note: "Off".to_string(),
                 ..WatchState::default()
             },
+            side_tab: super::side::SideTab::from_key(&prefs.side_tab).unwrap_or_default(),
             synesthesia: SynesthesiaState {
                 show: prefs.synesthesia.show,
                 note: String::new(),
@@ -353,9 +395,13 @@ impl UiState {
                 query: self.browser.query.clone(),
                 filter: self.browser.filter.key().to_string(),
                 favourites: self.browser.favourites.clone(),
+                cards: self.browser.cards.key().to_string(),
+                sort: self.browser.sort.key().to_string(),
+                descending: self.browser.descending,
             },
             self.collapsed_groups.clone(),
         );
+        prefs.side_tab = self.side_tab.key().to_string();
         prefs.last_scene.clone_from(&self.last_scene);
         prefs.density = self.density.key().to_string();
         prefs.layouts.clone_from(&self.layouts);
@@ -471,6 +517,10 @@ impl UiState {
         self.browser.query.hash(&mut hasher);
         self.browser.filter.key().hash(&mut hasher);
         self.browser.favourites.hash(&mut hasher);
+        self.browser.cards.key().hash(&mut hasher);
+        self.browser.sort.key().hash(&mut hasher);
+        self.browser.descending.hash(&mut hasher);
+        self.side_tab.key().hash(&mut hasher);
         self.collapsed_groups.hash(&mut hasher);
         self.theme_id.hash(&mut hasher);
         self.custom_title_bar.hash(&mut hasher);
@@ -647,6 +697,42 @@ mod tests {
     }
 
     #[test]
+    fn the_grid_sorts_by_the_key_and_reverses_and_recomputes_when_either_changes() {
+        let mut lib = library(&["b-tunnel", "A-aurora", "c-grid"]);
+        if let Some(entry) = lib.entries.get_mut(0) {
+            entry.set_author("Zed");
+        }
+        if let Some(entry) = lib.entries.get_mut(2) {
+            entry.set_author("Ada");
+        }
+        let health = vec![Health::Unknown; 3];
+        let mut browser = BrowserState::default();
+        assert_eq!(browser.visible(&lib, &health, 1), &[0, 1, 2], "scan order");
+        browser.sort = SortKey::Name;
+        assert_eq!(
+            browser.visible(&lib, &health, 1),
+            &[1, 0, 2],
+            "by name, ignoring case"
+        );
+        browser.sort = SortKey::Author;
+        assert_eq!(
+            browser.visible(&lib, &health, 1),
+            &[2, 0, 1],
+            "by author, the unsigned last"
+        );
+        browser.descending = true;
+        assert_eq!(browser.visible(&lib, &health, 1), &[1, 0, 2], "reversed");
+        browser.descending = false;
+        browser.sort = SortKey::Favourites;
+        browser.toggle_favourite("c-grid");
+        assert_eq!(
+            browser.visible(&lib, &health, 1),
+            &[2, 1, 0],
+            "favourites first, then by name"
+        );
+    }
+
+    #[test]
     fn the_synesthesia_switch_is_on_by_default_saved_and_reread_but_its_note_is_not() {
         let mut state = UiState::ephemeral();
         assert!(state.synesthesia.show, "on by default");
@@ -729,9 +815,24 @@ mod tests {
         state.set_collapsed("Motion", true);
         state.set_theme("graphite");
         state.set_density(crate::ui::theme::Density::Compact);
+        state.browser.cards = crate::ui::browser::CardSize::Large;
+        state.browser.sort = SortKey::Author;
+        state.browser.descending = true;
+        state.side_tab = crate::ui::side::SideTab::Presets;
         let back = UiState::from_prefs(&state.to_prefs());
+        assert_eq!(
+            (back.browser.sort, back.browser.descending),
+            (SortKey::Author, true),
+            "sort and direction"
+        );
         assert_eq!(back.browser.query, "tunnel", "query");
         assert_eq!(back.browser.filter, HealthFilter::Failed, "filter");
+        assert_eq!(
+            back.browser.cards,
+            crate::ui::browser::CardSize::Large,
+            "card size"
+        );
+        assert_eq!(back.side_tab, crate::ui::side::SideTab::Presets, "side tab");
         assert!(back.is_collapsed("Motion"), "collapsed group");
         assert_eq!(back.theme_id(), "graphite", "theme");
         assert_eq!(
