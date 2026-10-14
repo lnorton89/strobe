@@ -1215,6 +1215,31 @@ impl Gl {
         Ok(())
     }
 
+    /// [`Self::read_pixels_into`] for the default framebuffer's back
+    /// buffer: queues the copy and returns at once (the remote desktop's
+    /// capture of the control window, D275). Call it after drawing and
+    /// before the swap.
+    pub fn read_default_pixels_into(
+        &self,
+        buffer: &Buffer,
+        width: i32,
+        height: i32,
+    ) -> Result<(), String> {
+        let needed = (width.max(0) as usize) * (height.max(0) as usize) * 4;
+        if needed > buffer.size {
+            return Err(format!(
+                "readback of {needed} bytes into a {} byte buffer",
+                buffer.size
+            ));
+        }
+        self.bind_raw_framebuffer(glow::READ_FRAMEBUFFER, None);
+        self.bind_raw_buffer(glow::PIXEL_PACK_BUFFER, Some(buffer.raw));
+        self.read_pixels_to_bound_buffer(width, height);
+        self.bind_raw_buffer(glow::PIXEL_PACK_BUFFER, None);
+        self.bind_raw_framebuffer(glow::FRAMEBUFFER, None);
+        Ok(())
+    }
+
     fn read_pixels_to_bound_buffer(&self, width: i32, height: i32) {
         // SAFETY: current-context invariant; a pixel-pack buffer is bound,
         // so the pointer argument is an offset (0) into it rather than

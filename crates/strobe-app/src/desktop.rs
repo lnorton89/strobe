@@ -26,12 +26,65 @@ use strobe_remote::{ClientMessage, ServerMessage};
 /// Maximum capture rate, including a control window covered by fullscreen output.
 pub const STREAM_PERIOD: Duration = Duration::from_millis(200);
 
-/// Reusable host capture worker. Queue capacity is one: the app skips a
-/// capture if compression is behind, without waiting or accumulating images.
+/// Whether `action` is one the operator must take at the host, so it is
+/// refused from a UI pass that carried remote desktop input (D275).
+///
+/// Full desktop control is the whole Strobe window, editor and file saves
+/// included, as the owner asked. What it must not do is widen who else can
+/// reach this computer, or make that wider reach outlive the session:
+/// approving or inviting another device, switching a network listener on
+/// or rebinding OSC (which is saved, unauthenticated, and could be put on
+/// every interface), and turning this host into a controller of a third
+/// machine. Narrowing (Stop, Deny, Revoke, switching desktop access off)
+/// stays allowed. A local click in the same pass is refused too; the
+/// notice says to do it again at the host.
+pub fn host_only(action: &crate::ui::Action) -> bool {
+    use crate::ui::Action;
+    matches!(
+        action,
+        Action::SetLanRemote(true)
+            | Action::SetDesktopAccess(true)
+            | Action::OpenRemotePairing
+            | Action::DecideRemotePairing { approve: true, .. }
+            | Action::ConnectDesktop
+            | Action::SetOsc(_)
+            | Action::SetImportListener(true)
+    )
+}
+
+/// The host's capture of its control window (D275), off the frame's
+/// critical path in both halves.
+///
+/// - **Readback without a stall.** A capture is a `glReadPixels` into a
+///   pixel-pack buffer with a fence behind it, which returns at once; a
+///   later control frame collects it only when the fence has signalled (a
+///   zero-timeout poll). The context is shared with the output, so a
+///   readback into client memory would wait for the output's queued frame
+///   too. A capture not ready is collected next time; one that failed is
+///   dropped.
+/// - **No allocation per capture.** The pack buffer lives while a lease
+///   does and is rebuilt only when the window's size changes. Pixel
+///   buffers go to the encoder and come back to be reused, so at most a
+///   few exist.
+/// - **Encoding on a worker.** Queue capacity is one: a capture is skipped
+///   when the encoder is behind, never waited for or accumulated.
 pub struct Capture {
     sender: Option<SyncSender<CaptureFrame>>,
+    returned: Option<Receiver<Vec<u8>>>,
+    spare: Option<Vec<u8>>,
     worker: Option<JoinHandle<()>>,
     due: Instant,
+    gpu: Option<Readback>,
+}
+
+/// The pack buffer and the capture in flight, on the context that made them.
+struct Readback {
+    gl: strobe_gfx::gl::Gl,
+    buffer: strobe_gfx::gl::Buffer,
+    /// The window size the buffer was made for.
+    size: [u32; 2],
+    /// The size and fence of the capture in flight.
+    pending: Option<([u32; 2], strobe_gfx::gl::Fence)>,
 }
 
 struct CaptureFrame {
@@ -44,70 +97,175 @@ impl Default for Capture {
     fn default() -> Self {
         Self {
             sender: None,
+            returned: None,
+            spare: None,
             worker: None,
             due: Instant::now(),
+            gpu: None,
         }
     }
 }
 
 impl Capture {
-    /// Whether a bounded framebuffer readback is due for an active viewer.
-    pub fn due(&mut self, now: Instant, desktop: &Desktop, size: [u32; 2]) -> bool {
-        if !desktop.active() || now < self.due {
-            return false;
+    /// Once per control frame, after the paint and before the swap: collect
+    /// a finished capture for the encoder and, when one is due for an
+    /// active lease, start the next. Never waits on the GPU.
+    pub fn frame(
+        &mut self,
+        gl: &strobe_gfx::gl::Gl,
+        now: Instant,
+        desktop: &Desktop,
+        size: [u32; 2],
+    ) {
+        if !desktop.active() {
+            // No lease: free the pack buffer and anything in flight.
+            self.gpu = None;
+            return;
+        }
+        if self
+            .gpu
+            .as_ref()
+            .is_some_and(|gpu| gpu.gl.is_lost() || gl.is_lost())
+        {
+            // A rebuilt context: these objects belong to the old one.
+            self.gpu = None;
+        }
+        self.collect(desktop);
+        if now < self.due || self.gpu.as_ref().is_some_and(|gpu| gpu.pending.is_some()) {
+            return;
         }
         self.due = now + STREAM_PERIOD;
-        if size.contains(&0) || size.iter().any(|edge| *edge > MAX_EDGE) {
+        if size.contains(&0) {
+            // Minimised: nothing to show. The controller sees its image go
+            // stale and disables its input until frames come back.
+            return;
+        }
+        if size.iter().any(|edge| *edge > MAX_EDGE) {
             desktop.capture_failed(
                 "Resize the host control window to at most 4096 pixels per edge, then pair again",
             );
-            return false;
+            return;
         }
-        true
+        self.start(gl, size);
     }
 
-    /// Hand bottom-up RGBA to the encoder, skipping if the queue is full.
-    pub fn submit(&mut self, desktop: Desktop, size: [u32; 2], pixels: Vec<u8>) {
-        if self.sender.is_none() {
-            let (sender, frames) = sync_channel::<CaptureFrame>(1);
-            match std::thread::Builder::new()
-                .name("desktop capture".into())
-                .spawn(move || {
-                    while let Ok(frame) = frames.recv() {
-                        if !frame.desktop.active() {
-                            continue;
-                        }
-                        match encode(frame.size, frame.pixels) {
-                            Ok(bytes) => frame
-                                .desktop
-                                .publish(frame.size, strobe_remote::client::encode_image(&bytes)),
-                            Err(error) => {
-                                log::warn!("desktop capture: {error}");
-                                frame.desktop.capture_failed(
-                                    "Host capture failed; resize the host window and pair again",
-                                );
-                            }
-                        }
-                    }
-                }) {
-                Ok(worker) => {
-                    self.sender = Some(sender);
-                    self.worker = Some(worker);
+    fn start(&mut self, gl: &strobe_gfx::gl::Gl, size: [u32; 2]) {
+        if self.gpu.as_ref().is_none_or(|gpu| gpu.size != size) {
+            self.gpu = None;
+            match gl.pack_buffer(size[0] as usize * size[1] as usize * 4) {
+                Ok(buffer) => {
+                    self.gpu = Some(Readback {
+                        gl: gl.clone(),
+                        buffer,
+                        size,
+                        pending: None,
+                    });
                 }
                 Err(error) => {
-                    log::warn!("desktop capture worker: {error}");
+                    log::warn!("desktop capture: no pack buffer: {error}");
                     return;
                 }
             }
         }
-        if let Some(sender) = &self.sender {
-            // A full queue skips this capture; a stopped encoder needs no frame.
-            let _ = sender.try_send(CaptureFrame {
-                desktop,
-                size,
-                pixels,
-            });
+        let Some(gpu) = self.gpu.as_mut() else {
+            return;
+        };
+        let started = gl
+            .read_default_pixels_into(&gpu.buffer, size[0] as i32, size[1] as i32)
+            .and_then(|()| gl.fence());
+        match started {
+            Ok(fence) => gpu.pending = Some((size, fence)),
+            Err(error) => log::warn!("desktop capture: readback not started: {error}"),
         }
+    }
+
+    fn collect(&mut self, desktop: &Desktop) {
+        let Some(gpu) = self.gpu.as_mut() else {
+            return;
+        };
+        let Some((size, fence)) = gpu.pending.as_ref() else {
+            return;
+        };
+        let size = *size;
+        match gpu.gl.fence_status(fence) {
+            strobe_gfx::gl::FenceStatus::Pending => return,
+            strobe_gfx::gl::FenceStatus::Failed => {
+                gpu.pending = None;
+                return;
+            }
+            strobe_gfx::gl::FenceStatus::Signaled => {}
+        }
+        gpu.pending = None;
+        let mut pixels = self
+            .spare
+            .take()
+            .or_else(|| self.returned.as_ref().and_then(|back| back.try_recv().ok()))
+            .unwrap_or_default();
+        pixels.resize(size[0] as usize * size[1] as usize * 4, 0);
+        if gpu.gl.read_buffer(&gpu.buffer, &mut pixels) {
+            self.submit(desktop.clone(), size, pixels);
+        } else {
+            self.spare = Some(pixels);
+        }
+    }
+
+    /// Hand bottom-up RGBA to the encoder, skipping if the queue is full.
+    fn submit(&mut self, desktop: Desktop, size: [u32; 2], pixels: Vec<u8>) {
+        if self.sender.is_none() {
+            let (sender, frames) = sync_channel::<CaptureFrame>(1);
+            let (give_back, returned) = sync_channel::<Vec<u8>>(2);
+            match std::thread::Builder::new()
+                .name("desktop capture".into())
+                .spawn(move || encoder(&frames, &give_back))
+            {
+                Ok(worker) => {
+                    self.sender = Some(sender);
+                    self.returned = Some(returned);
+                    self.worker = Some(worker);
+                }
+                Err(error) => {
+                    log::warn!("desktop capture worker: {error}");
+                    self.spare = Some(pixels);
+                    return;
+                }
+            }
+        }
+        let Some(sender) = &self.sender else {
+            self.spare = Some(pixels);
+            return;
+        };
+        match sender.try_send(CaptureFrame {
+            desktop,
+            size,
+            pixels,
+        }) {
+            Ok(()) => {}
+            // The encoder is behind: this capture is skipped, its buffer kept.
+            Err(TrySendError::Full(frame) | TrySendError::Disconnected(frame)) => {
+                self.spare = Some(frame.pixels);
+            }
+        }
+    }
+}
+
+/// The capture worker: encode, publish, and give the buffer back.
+fn encoder(frames: &Receiver<CaptureFrame>, give_back: &SyncSender<Vec<u8>>) {
+    while let Ok(mut frame) = frames.recv() {
+        if frame.desktop.active() {
+            match encode(frame.size, &mut frame.pixels) {
+                Ok(bytes) => frame
+                    .desktop
+                    .publish(frame.size, strobe_remote::client::encode_image(&bytes)),
+                Err(error) => {
+                    log::warn!("desktop capture: {error}");
+                    frame.desktop.capture_failed(
+                        "Host capture failed; resize the host window and pair again",
+                    );
+                }
+            }
+        }
+        // A full return queue drops this buffer; the app makes another.
+        let _ = give_back.try_send(frame.pixels);
     }
 }
 
@@ -121,7 +279,7 @@ impl Drop for Capture {
     }
 }
 
-fn encode(size: [u32; 2], mut pixels: Vec<u8>) -> Result<Vec<u8>, image::ImageError> {
+fn encode(size: [u32; 2], pixels: &mut [u8]) -> Result<Vec<u8>, image::ImageError> {
     let [width, height] = size;
     let stride = width as usize * 4;
     if width == 0
@@ -257,6 +415,9 @@ impl Controller {
             ..View::default()
         }));
         self.stop = Arc::new(AtomicBool::new(false));
+        // A fresh slot, so a worker still ending from the last connection
+        // cannot overwrite this one's interrupter.
+        self.socket = Arc::new(Mutex::new(None));
         let view = Arc::clone(&self.view);
         let stop = Arc::clone(&self.stop);
         let socket = Arc::clone(&self.socket);
@@ -300,10 +461,17 @@ impl Controller {
             let _ = socket.shutdown(Shutdown::Both);
         }
         self.sender = None;
-        if let Some(worker) = self.worker.take() {
+        if let Some(worker) = self.worker.take()
+            && worker.is_finished()
+        {
             // The worker's visible status carries errors; shutdown only joins it.
             let _ = worker.join();
         }
+        // An unfinished worker is left to end by itself, never joined here:
+        // this is the frame loop's thread, and a worker still connecting
+        // has no socket to interrupt yet (up to 3 s to connect and 5 s for
+        // the handshake). It sees `stop` at its next turn and touches only
+        // its own connection's state.
         self.texture = None;
         self.texture_context = None;
         self.revision = 0;
@@ -478,6 +646,10 @@ fn control(
     let mut paused = false;
     let mut batch = Vec::new();
     let mut pending = None;
+    // When this controller last sent input: the host's clipboard text is
+    // taken only shortly after, so a host cannot write into this computer's
+    // clipboard unasked.
+    let mut last_input: Option<Instant> = None;
     while !stop.load(Ordering::Relaxed) {
         let now = Instant::now();
         if authenticated && now.duration_since(last_frame) > Duration::from_secs(3) && !paused {
@@ -550,9 +722,11 @@ fn control(
                     if text.len() > 64 * 1024 {
                         return Err(io::Error::other("Host clipboard exceeds desktop limits"));
                     }
-                    view.lock()
-                        .unwrap_or_else(PoisonError::into_inner)
-                        .clipboard = Some(text);
+                    if last_input.is_some_and(|sent| sent.elapsed() <= Duration::from_secs(3)) {
+                        view.lock()
+                            .unwrap_or_else(PoisonError::into_inner)
+                            .clipboard = Some(text);
+                    }
                 }
                 ServerMessage::Paired { token, .. } => {
                     if token.is_empty() || token.len() > strobe_remote::MAX_SECRET_LEN {
@@ -587,6 +761,7 @@ fn control(
                 connection.send(&ClientMessage::DesktopInput {
                     events: std::mem::take(&mut batch),
                 })?;
+                last_input = Some(now);
                 next_send = now + Duration::from_millis(150);
             }
         }
@@ -857,6 +1032,66 @@ mod tests {
     use anyhow::Result;
 
     #[test]
+    fn a_remote_pass_cannot_widen_who_reaches_this_computer() {
+        use crate::ui::Action;
+        let refused = [
+            Action::SetLanRemote(true),
+            Action::SetDesktopAccess(true),
+            Action::OpenRemotePairing,
+            Action::DecideRemotePairing {
+                id: 1,
+                approve: true,
+            },
+            Action::ConnectDesktop,
+            Action::SetOsc(strobe_io::config::OscSettings {
+                enabled: true,
+                all_interfaces: true,
+                ..strobe_io::config::OscSettings::default()
+            }),
+            Action::SetImportListener(true),
+        ];
+        for action in &refused {
+            assert!(host_only(action), "host-only: {action:?}");
+        }
+        let allowed = [
+            Action::SetLanRemote(false),
+            Action::SetDesktopAccess(false),
+            Action::CloseRemotePairing,
+            Action::DecideRemotePairing {
+                id: 1,
+                approve: false,
+            },
+            Action::RevokeRemoteClient("c00000001".into()),
+            Action::RevokeAllRemoteClients,
+            Action::SetImportListener(false),
+            Action::EditorSave,
+            Action::DisconnectDesktop,
+        ];
+        for action in &allowed {
+            assert!(!host_only(action), "a remote may: {action:?}");
+        }
+    }
+
+    #[test]
+    fn leaving_a_desktop_never_blocks_the_frame_loop() {
+        let mut controller = Controller::default();
+        // A private address nothing answers: the worker sits in its
+        // connect (or fails at once where the route is refused).
+        controller.address = "10.255.255.1:47812".into();
+        controller.code = "123456".into();
+        controller.connect();
+        assert!(controller.active(), "connecting");
+        let started = Instant::now();
+        controller.disconnect();
+        assert!(
+            started.elapsed() < Duration::from_millis(500),
+            "disconnect returned in {:?}, not after the connect timeout",
+            started.elapsed()
+        );
+        assert!(!controller.active(), "the viewer is gone at once");
+    }
+
+    #[test]
     fn viewer_keeps_tab_for_the_host_and_has_a_local_keyboard_exit() {
         let mut controller = Controller::default();
         let (sender, receiver) = sync_channel(128);
@@ -974,7 +1209,8 @@ mod tests {
             .ok_or_else(|| anyhow::anyhow!("approval request missing"))?;
         assert!(server.decide(request.id, true), "approved on the host");
         eventually(|| app.desktop.active())?;
-        let jpeg = strobe_remote::client::encode_image(&encode([32, 32], vec![200; 32 * 32 * 4])?);
+        let jpeg =
+            strobe_remote::client::encode_image(&encode([32, 32], &mut vec![200; 32 * 32 * 4])?);
         app.desktop.publish([32, 32], jpeg.clone());
         eventually(|| {
             controller
@@ -1185,7 +1421,7 @@ mod tests {
                 });
             }
         }
-        let bytes = encode([32, 32], pixels)?;
+        let bytes = encode([32, 32], &mut pixels)?;
         let jpeg = strobe_remote::client::encode_image(&bytes);
         let decoded = decode([32, 32], &jpeg)?;
         assert!(

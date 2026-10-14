@@ -2115,6 +2115,30 @@ impl Running {
         }
     }
 
+    /// Drops the host-only actions ([`crate::desktop::host_only`]) a UI
+    /// pass that carried remote desktop input produced, from `from` on, and
+    /// says so on the banner both screens show (D275).
+    fn refuse_remote(&mut self, actions: &mut Vec<Action>, from: usize) {
+        let mut position = 0;
+        let mut refused = false;
+        actions.retain(|action| {
+            position += 1;
+            let refuse = position > from && crate::desktop::host_only(action);
+            if refuse {
+                log::warn!("remote desktop: refused {action:?}; it is host-only");
+            }
+            refused |= refuse;
+            !refuse
+        });
+        if refused {
+            self.say(
+                Tone::Warning,
+                "A remote desktop cannot pair devices, start listeners or change OSC. Do that \
+                 at this computer.",
+            );
+        }
+    }
+
     /// Shows a banner.
     fn say(&mut self, tone: Tone, text: impl Into<String>) {
         self.notice = Some(Notice {
@@ -4530,6 +4554,8 @@ impl Running {
             },
         };
         let mut actions = std::mem::take(&mut self.actions);
+        // Actions queued before this pass (keys, MIDI) are not the remote's.
+        let queued = actions.len();
         let window = self.stack.control.window();
         let shell_state = &mut self.shell;
         let ui_started = Instant::now();
@@ -4549,18 +4575,14 @@ impl Running {
         let paint_began = Instant::now();
         self.stack.ui.paint(window, crate::ui::theme::clear_color());
         let paint = paint_began.elapsed();
-        if let Some(desktop) = self.lan.desktop()
-            && self
-                .desktop_capture
-                .due(now, &desktop, [size.width, size.height])
-        {
-            let pixels = self
-                .stack
-                .gfx
-                .gl()
-                .read_default_rgba8(size.width as i32, size.height as i32);
-            self.desktop_capture
-                .submit(desktop, [size.width, size.height], pixels);
+        if let Some(desktop) = self.lan.desktop() {
+            // Starts or collects an asynchronous readback; never waits.
+            self.desktop_capture.frame(
+                self.stack.gfx.gl(),
+                now,
+                &desktop,
+                [size.width, size.height],
+            );
         }
         self.ui_state.tick(now);
         self.remote.persist(now);
@@ -4597,6 +4619,9 @@ impl Running {
                 Some(index) => self.request_load(index),
                 None => log::warn!("--request-load: no scene matching \"{query}\""),
             }
+        }
+        if self.stack.ui.remote_pass() {
+            self.refuse_remote(&mut actions, queued);
         }
         if self.rebuild.is_none() {
             self.apply(&mut actions);
