@@ -34,12 +34,16 @@
 //!   `Visuals` and the spacing scale), [`motion`], [`icon`], [`widgets`],
 //!   [`modal`].
 //! - The shell: [`shell`] composes [`chrome`] (title bar, readouts, rail,
-//!   resize handles), [`perform`] (toolbar, banners, preview) and
-//!   [`transport`] with [`macros`].
-//! - The panes: [`browser`], [`inspector`] (with [`controls`] and [`presets`];
-//!   [`tags`] is the tag row it shares with the browser and import),
-//!   [`diagnostics`], [`import`], [`settings`] (with [`audio`]), [`playlist`]
-//!   and [`map`].
+//!   resize handles), the main view, [`side`] (the persistent panel:
+//!   preview, status strip and icon tabs), [`help`] (the bar along the
+//!   bottom) and [`transport`] with [`macros`]. [`perform`] draws the live preview, at full size as the
+//!   PLAY view and fitted inside the side panel.
+//! - The main views: [`browser`] (the library grid), [`import`],
+//!   [`playlist`], [`editor`], [`map`], [`diagnostics`] and [`settings`]
+//!   (with [`audio`]).
+//! - The side panel's tabs: [`inspector`] (Controls and Edit, with
+//!   [`controls`]; [`tags`] is the tag row it shares with the browser and
+//!   import), [`presets`] and the playlist's [`playlist`] timeline.
 //! - [`keys`] turns key events into commands under the focus rule.
 //! - [`host`] runs egui on the control window.
 //!
@@ -57,6 +61,7 @@ pub mod command_palette;
 pub mod controls;
 pub mod diagnostics;
 pub mod editor;
+pub mod help;
 pub mod host;
 pub mod icon;
 pub mod import;
@@ -75,6 +80,7 @@ pub mod settings;
 pub mod shell;
 #[cfg(test)]
 mod shell_tests;
+pub mod side;
 pub mod state;
 pub mod tags;
 #[cfg(test)]
@@ -99,7 +105,7 @@ mod tests {
     /// is where colours are made. `motion` is not here either: it is the
     /// one module allowed to animate. `icon` holds the painting of the
     /// geometry and `state` has no drawing at all.
-    const DRAWING_MODULES: [(&str, &str); 21] = [
+    const DRAWING_MODULES: [(&str, &str); 23] = [
         ("tags", include_str!("tags.rs")),
         ("audio", include_str!("audio.rs")),
         ("browser", include_str!("browser.rs")),
@@ -116,6 +122,8 @@ mod tests {
         ("presets", include_str!("presets.rs")),
         ("settings", include_str!("settings.rs")),
         ("shell", include_str!("shell.rs")),
+        ("side", include_str!("side.rs")),
+        ("help", include_str!("help.rs")),
         ("transport", include_str!("transport.rs")),
         ("widgets", include_str!("widgets.rs")),
         ("icon", include_str!("icon.rs")),
