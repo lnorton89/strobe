@@ -35,6 +35,8 @@
 //!   library folders when a scene loads.
 //! - [`meta`] is the output-wide meta control bank (master, brightness,
 //!   hue, mirror...), an ordinary [`control::ControlBank`].
+//! - [`pin`] decides whether a scene's final pass is pinned to its frame
+//!   size, because its shader reads a root-sized pass texel by texel (D280).
 //! - [`names`] is the name matching the JavaScript API relies on:
 //!   case-insensitive, ignoring `_`, `-` and spaces.
 //! - [`tags`] reads a scene's `TAGS` leniently, normalises them, and
@@ -62,6 +64,7 @@ pub mod json_edit;
 pub mod load;
 pub mod meta;
 pub mod names;
+pub mod pin;
 pub mod preset;
 pub mod promote;
 pub mod scene;

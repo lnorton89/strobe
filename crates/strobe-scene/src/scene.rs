@@ -26,11 +26,12 @@
 //! its passes in proportion instead of rendering a 1080p buffer to show a
 //! 720p frame.
 //!
-//! Literal sizes are the exception: they are absolute pixels (D194). When a
-//! literal pass is exactly the scene's root `WIDTH` x `HEIGHT`, the final
-//! pass is pinned to that size too (D280, [`SceneDef::pinned_size`]), so a
-//! shader reading it with `texelFetch(pass, ivec2(_xy), 0)` reads the
-//! whole frame; the output stage scales the result to the window.
+//! Literal sizes are the exception: they are absolute pixels (D194). A
+//! literal pass exactly the scene's root `WIDTH` x `HEIGHT` is a full frame
+//! at the size the scene was written for ([`SceneDef::frame_size`]). When
+//! the shader also reads such a pass texel by texel (`texelFetch(pass,
+//! ivec2(_xy), 0)`), the final pass is pinned to that size (D280,
+//! [`crate::pin`]); the output stage scales the result to the window.
 
 use crate::control::ControlDef;
 use crate::error::SceneError;
@@ -173,6 +174,12 @@ pub struct SceneDef {
     pub image_path: Option<String>,
     /// Design resolution.
     pub size: [f32; 2],
+    /// The scene's root `WIDTH` x `HEIGHT` in pixels when a buffer pass has
+    /// exactly that absolute size (D194), so that pass is a full frame at
+    /// the size the scene was written for; `None` otherwise. Whether the
+    /// final pass is pinned to it depends on how the shader reads it
+    /// ([`crate::pin`], D280).
+    pub frame_size: Option<[i32; 2]>,
     /// Controls, in UI order.
     pub controls: Vec<ControlDef>,
     /// Passes in execution order; the last is the implicit final pass.
@@ -228,7 +235,7 @@ impl SceneDef {
             .enumerate()
             .map(|(index, pass)| pass_def(index, pass, size))
             .collect::<Result<Vec<_>, _>>()?;
-        let main = main_size(raw, &passes);
+        let frame_size = frame_size(raw, &passes);
         passes.push(PassDef {
             target: None,
             scale: [1.0, 1.0],
@@ -237,7 +244,7 @@ impl SceneDef {
             wrap: Wrap::Clamp,
             filter: Filter::Linear,
             full_precision: false,
-            fixed: main,
+            fixed: None,
         });
 
         let images = raw
@@ -310,6 +317,7 @@ impl SceneDef {
             description: raw.description.clone(),
             image_path: raw.image_path.clone(),
             size,
+            frame_size,
             controls,
             passes,
             images,
@@ -343,14 +351,6 @@ impl SceneDef {
     /// The pass index of the final (on-screen) pass.
     pub fn final_pass(&self) -> usize {
         self.passes.len().saturating_sub(1)
-    }
-
-    /// The size the final pass is pinned to, in pixels, or `None` when it
-    /// follows the output and the render scale (D280): the scene's root
-    /// `WIDTH` x `HEIGHT`, when a buffer pass has exactly that absolute
-    /// size, so `ivec2(_xy)` addresses that pass texel for texel.
-    pub fn pinned_size(&self) -> Option<[i32; 2]> {
-        self.passes.last().and_then(|pass| pass.fixed)
     }
 
     /// Rejects names that are not identifiers, are reserved, or collide.
@@ -526,16 +526,16 @@ fn pass_def(index: usize, raw: &RawPass, design: [f32; 2]) -> Result<PassDef, Sc
     })
 }
 
-/// The final pass's pinned size (D280), from the validated buffer passes.
+/// [`SceneDef::frame_size`], from the validated buffer passes.
 ///
 /// A buffer pass with an absolute size equal to the scene's own root
 /// `WIDTH` x `HEIGHT` is a full frame at the size the scene was written
-/// for, and real scenes read it with `texelFetch(pass, ivec2(_xy), 0)`
-/// from the final pass. That reads the right texel only when the final
-/// pass is the same size, so it is pinned there, as Synesthesia renders it
-/// at its output size. Both root dimensions must be written: the 1920x1080
-/// default is a guess, not something the scene said.
-fn main_size(raw: &RawScene, passes: &[PassDef]) -> Option<[i32; 2]> {
+/// for. Some real scenes read it with `texelFetch(pass, ivec2(_xy), 0)`
+/// from the final pass, which reads the right texel only when the final
+/// pass is the same size ([`crate::pin`], D280). Both root dimensions must
+/// be written: the 1920x1080 default is a guess, not something the scene
+/// said.
+fn frame_size(raw: &RawScene, passes: &[PassDef]) -> Option<[i32; 2]> {
     let declared = |value: Option<f32>| value.filter(|v| v.is_finite() && *v >= 1.0);
     let root = [
         fixed_pixels(declared(raw.width)?),
@@ -729,21 +729,21 @@ mod tests {
     }
 
     #[test]
-    fn a_literal_pass_at_the_root_size_pins_the_final_pass() -> Result<()> {
+    fn a_literal_pass_at_the_root_size_is_the_scenes_frame() -> Result<()> {
         // D280: `texelFetch(pass, ivec2(_xy), 0)` from the final pass reads
         // the whole of a root-sized literal pass only at that size.
-        let pinned = |json: &str| SceneDef::parse(json, "s").map(|def| def.pinned_size());
+        let frame = |json: &str| SceneDef::parse(json, "s").map(|def| def.frame_size);
         assert_eq!(
-            pinned(
+            frame(
                 r#"{ "WIDTH": 1920, "HEIGHT": 1080,
                      "PASSES": [ {"TARGET": "a", "WIDTH": 1920, "HEIGHT": 1080},
                                  {"TARGET": "b", "WIDTH": 10, "HEIGHT": 10} ] }"#
             )?,
             Some([1920, 1080]),
-            "a literal pass equal to the root pins the final pass"
+            "a literal pass equal to the root is the frame"
         );
         assert_eq!(
-            pinned(
+            frame(
                 r#"{ "WIDTH": 1280, "HEIGHT": 720,
                      "PASSES": [ {"TARGET": "a", "WIDTH": "1280", "HEIGHT": "720"} ] }"#
             )?,
@@ -751,21 +751,21 @@ mod tests {
             "a literal written as a string counts"
         );
         assert_eq!(
-            pinned(r#"{ "PASSES": [ {"TARGET": "a", "WIDTH": 1920, "HEIGHT": 1080} ] }"#)?,
+            frame(r#"{ "PASSES": [ {"TARGET": "a", "WIDTH": 1920, "HEIGHT": 1080} ] }"#)?,
             None,
             "no root size declared: the default is not the scene's word"
         );
         assert_eq!(
-            pinned(
+            frame(
                 r#"{ "WIDTH": 1920, "HEIGHT": 1080,
                      "PASSES": [ {"TARGET": "a", "WIDTH": 1280, "HEIGHT": 720},
                                  {"TARGET": "b", "WIDTH": 10, "HEIGHT": 10} ] }"#
             )?,
             None,
-            "literal passes of other sizes leave the final pass free"
+            "literal passes of other sizes are not the frame"
         );
         assert_eq!(
-            pinned(
+            frame(
                 r#"{ "WIDTH": 1920, "HEIGHT": 1080,
                      "PASSES": [ {"TARGET": "a", "WIDTH": "$WIDTH", "HEIGHT": "$HEIGHT"},
                                  {"TARGET": "b"} ] }"#
@@ -774,12 +774,12 @@ mod tests {
             "expressions and absent sizes follow the output"
         );
         assert_eq!(
-            pinned(
+            frame(
                 r#"{ "WIDTH": 1920, "HEIGHT": 1080,
                      "PASSES": [ {"TARGET": "a", "WIDTH": 1920, "HEIGHT": 1080, "FIXED_SIZE": false} ] }"#
             )?,
             None,
-            "FIXED_SIZE false opts the pass, and so the final pass, out"
+            "FIXED_SIZE false opts the pass out"
         );
         Ok(())
     }

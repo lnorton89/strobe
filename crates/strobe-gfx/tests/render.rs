@@ -917,12 +917,12 @@ const PINNED_GRADIENT_SHADER: &str = "vec4 renderMain() {\n\
 /// Checks the output of the gradient scene covers the whole gradient: the
 /// pixel at fraction `(fx, fy)` across and up the picture holds roughly
 /// `(fx, fy)`.
-fn assert_covers_the_gradient(player: &ScenePlayer, label: &str) -> Result<()> {
+fn assert_covers_the_gradient(player: &ScenePlayer, size: [i32; 2], label: &str) -> Result<()> {
     let [width, height] = player.render_size();
     assert_eq!(
         [width, height],
-        [1920, 1080],
-        "{label}: the final pass is pinned to the buffer's size"
+        size,
+        "{label}: the final pass renders at {size:?}"
     );
     let pixels = player.read_output();
     for (fx, fy) in [
@@ -965,7 +965,7 @@ fn a_final_pass_reading_a_root_sized_literal_pass_covers_it_at_any_render_scale(
         let caps = Caps::from_info(gl.info());
         let scene = folder(PINNED_GRADIENT_JSON, PINNED_GRADIENT_SHADER)?;
         assert_eq!(
-            scene.def.pinned_size(),
+            strobe_scene::pin::pinned_size(&scene),
             Some([1920, 1080]),
             "{api:?}: the scene pins its final pass"
         );
@@ -991,7 +991,11 @@ fn a_final_pass_reading_a_root_sized_literal_pass_covers_it_at_any_render_scale(
         };
         draw(&mut player);
         draw(&mut player);
-        assert_covers_the_gradient(&player, &format!("{api:?} at render scale 1.0"))?;
+        assert_covers_the_gradient(
+            &player,
+            [1920, 1080],
+            &format!("{api:?} at render scale 1.0"),
+        )?;
 
         player.resize([480, 270])?;
         assert_eq!(
@@ -1001,11 +1005,19 @@ fn a_final_pass_reading_a_root_sized_literal_pass_covers_it_at_any_render_scale(
         );
         draw(&mut player);
         draw(&mut player);
-        assert_covers_the_gradient(&player, &format!("{api:?} at render scale 0.5"))?;
+        assert_covers_the_gradient(
+            &player,
+            [1920, 1080],
+            &format!("{api:?} at render scale 0.5"),
+        )?;
 
         player.resize_keeping([240, 135])?;
         draw(&mut player);
-        assert_covers_the_gradient(&player, &format!("{api:?} at render scale 0.25"))?;
+        assert_covers_the_gradient(
+            &player,
+            [1920, 1080],
+            &format!("{api:?} at render scale 0.25"),
+        )?;
         if let Some(code) = gl.error() {
             return Err(anyhow!("{api:?}: GL error 0x{code:x}"));
         }
@@ -1013,15 +1025,30 @@ fn a_final_pass_reading_a_root_sized_literal_pass_covers_it_at_any_render_scale(
     Ok(())
 }
 
+/// The gradient scene's final pass sampling the buffer by uv instead, as
+/// most root-sized-pass scenes do: it reads the whole buffer at any size.
+const UV_GRADIENT_SHADER: &str = "vec4 renderMain() {\n\
+    if (PASSINDEX == 0) { return vec4(_xy / vec2(1920.0, 1080.0), 0.0, 1.0); }\n\
+    return vec4(texture(grad, _uv).rg, 0.0, 1.0); }";
+
 #[test]
-fn a_scene_without_a_root_sized_literal_pass_still_follows_the_render_scale() -> Result<()> {
+fn a_scene_without_a_texel_read_root_sized_literal_pass_still_follows_the_render_scale()
+-> Result<()> {
     // The other side of D280: the pin is for scenes whose passes demand it.
-    // A 1920x1080 literal pass in a scene that never wrote a root size, or a
-    // root-sized one that is an expression, renders at the size it is asked.
-    for json in [
-        r#"{ "PASSES": [ {"TARGET": "grad", "WIDTH": 1920, "HEIGHT": 1080} ] }"#,
-        r#"{ "WIDTH": 1920, "HEIGHT": 1080,
-             "PASSES": [ {"TARGET": "grad", "WIDTH": "$WIDTH", "HEIGHT": "$HEIGHT"} ] }"#,
+    // A 1920x1080 literal pass in a scene that never wrote a root size, a
+    // root-sized one that is an expression, or a root-sized literal one the
+    // final pass samples by uv, renders at the size it is asked.
+    for (json, shader) in [
+        (
+            r#"{ "PASSES": [ {"TARGET": "grad", "WIDTH": 1920, "HEIGHT": 1080} ] }"#,
+            PINNED_GRADIENT_SHADER,
+        ),
+        (
+            r#"{ "WIDTH": 1920, "HEIGHT": 1080,
+                 "PASSES": [ {"TARGET": "grad", "WIDTH": "$WIDTH", "HEIGHT": "$HEIGHT"} ] }"#,
+            PINNED_GRADIENT_SHADER,
+        ),
+        (PINNED_GRADIENT_JSON, UV_GRADIENT_SHADER),
     ] {
         for api in BOTH {
             let Some(headless) = context(api)? else {
@@ -1029,12 +1056,29 @@ fn a_scene_without_a_root_sized_literal_pass_still_follows_the_render_scale() ->
             };
             let gl = headless.gl();
             let caps = Caps::from_info(gl.info());
-            let scene = folder(json, PINNED_GRADIENT_SHADER)?;
+            let scene = folder(json, shader)?;
             let mut player = ScenePlayer::new(gl, &caps, &scene, [64, 36], Options::default())?;
             assert_eq!(player.render_size(), [64, 36], "{api:?}: as asked");
             player.resize([32, 18])?;
             assert_eq!(player.render_size(), [32, 18], "{api:?}: follows a resize");
             assert_eq!(player.pinned_size(), None, "{api:?}: nothing pinned");
+            if shader == UV_GRADIENT_SHADER {
+                // Sampled by uv, the buffer shows whole at a smaller size.
+                player.resize([480, 270])?;
+                let controls = ControlBank::new(scene.def.controls.clone())?;
+                let audio = vec![0.0; SCALARS.len()];
+                for frame in 0..2_u64 {
+                    player.render(&FrameInputs {
+                        time: frame as f32 / 60.0,
+                        frame,
+                        mouse: Mouse::default(),
+                        audio: &audio,
+                        controls: &controls,
+                        transitions: &[],
+                    });
+                }
+                assert_covers_the_gradient(&player, [480, 270], &format!("{api:?} by uv"))?;
+            }
         }
     }
     Ok(())
