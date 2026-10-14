@@ -20,6 +20,10 @@
 //! When that place shows another scene (the show moved on, another row was
 //! selected), the draft is not shown there, so Save can never write one
 //! scene's half-typed tags into another.
+//!
+//! A scene of Synesthesia's (D271) is read-only: its row shows the tags it
+//! came with and offers [`COPY_LABEL`] instead of Edit, so the field that
+//! would write into Synesthesia's folder is never drawn.
 
 use super::model::Action;
 use super::theme;
@@ -32,6 +36,15 @@ const BUTTONS: f32 = 120.0;
 
 /// The narrowest the field gets.
 const MIN_FIELD: f32 = 80.0;
+
+/// The button that copies a read-only scene into the person's library
+/// (D271), wherever a write to it is offered.
+pub const COPY_LABEL: &str = "Copy to my library";
+
+/// Why a scene of Synesthesia's has Copy to my library where Edit would be.
+pub const READ_ONLY_HINT: &str = "One of Synesthesia's own scenes, which Strobe only reads. Copy it \
+                                  into your library to tag it, give it a picture, edit it or save \
+                                  presets.";
 
 /// A tag field being edited, and the scene it is for. Presentation state:
 /// never saved.
@@ -50,11 +63,16 @@ pub struct Place<'a> {
     /// Whether to name the scene at the row's start, where nothing above
     /// says which scene it is (the browser, the Import pane).
     pub named: bool,
+    /// The scene's folder when it is one of Synesthesia's, which Strobe
+    /// only reads (D271): the row shows its tags and offers Copy to my
+    /// library in place of Edit and `extra`.
+    pub read_only: Option<&'a std::path::Path>,
 }
 
 /// Draws the scene's `tags` as chips with an Edit button, or, while `draft`
 /// is open for this scene, the field that edits them. `extra` draws more
-/// buttons after Edit (the Inspector's "Use frame as picture").
+/// buttons after Edit (the Inspector's "Use frame as picture"). A
+/// read-only scene ([`Place::read_only`]) never shows a field.
 pub fn row(
     ui: &mut Ui,
     theme: &Palette,
@@ -65,7 +83,10 @@ pub fn row(
     actions: &mut Vec<Action>,
 ) {
     let scene = place.scene;
-    let Some(editing) = draft.as_mut().filter(|draft| draft.scene == scene) else {
+    let editing = draft
+        .as_mut()
+        .filter(|draft| draft.scene == scene && place.read_only.is_none());
+    let Some(editing) = editing else {
         ui.horizontal_wrapped(|ui| {
             // On the same line as the chips: a label of its own above them
             // would sit on their row's top in a short pane.
@@ -85,6 +106,16 @@ pub fn row(
                         .small()
                         .color(theme::rgb(theme.text_faint)),
                 );
+            }
+            if let Some(dir) = place.read_only {
+                if ui
+                    .small_button(COPY_LABEL)
+                    .on_hover_text(READ_ONLY_HINT)
+                    .clicked()
+                {
+                    actions.push(Action::CopyToLibrary(dir.to_path_buf()));
+                }
+                return;
             }
             if ui
                 .small_button(if tags.is_empty() { "Add tags" } else { "Edit" })
@@ -141,14 +172,40 @@ mod tests {
         draft: &mut Option<TagDraft>,
         actions: &mut Vec<Action>,
     ) -> Vec<(String, egui::Rect)> {
+        draw_place(ctx, events, scene, None, draft, actions)
+    }
+
+    /// [`draw`], for a scene that may be read-only.
+    fn draw_place(
+        ctx: &egui::Context,
+        events: Vec<egui::Event>,
+        scene: &str,
+        read_only: Option<&std::path::Path>,
+        draft: &mut Option<TagDraft>,
+        actions: &mut Vec<Action>,
+    ) -> Vec<(String, egui::Rect)> {
         let theme = crate::palette::fallback().clone();
         let tags = vec!["dark".to_string()];
         let pass = crate::ui::testing::run(
             ctx,
             crate::ui::testing::input(Vec2::new(480.0, 120.0), events),
             |ui| {
-                let place = Place { scene, named: true };
-                row(ui, &theme, place, &tags, draft, |_| {}, actions);
+                let place = Place {
+                    scene,
+                    named: true,
+                    read_only,
+                };
+                row(
+                    ui,
+                    &theme,
+                    place,
+                    &tags,
+                    draft,
+                    |ui| {
+                        let _ = ui.small_button("Use frame as picture");
+                    },
+                    actions,
+                );
             },
         );
         pass.shapes
@@ -236,6 +293,58 @@ mod tests {
             "one write, to that scene, with the tags normalised"
         );
         assert!(draft.is_none(), "the field closes");
+        Ok(())
+    }
+
+    #[test]
+    fn a_synesthesia_scene_shows_its_tags_and_offers_a_copy_instead_of_edit() -> Result<()> {
+        let ctx = egui::Context::default();
+        let dir = std::path::Path::new("synesthesia/release/ink.synScene");
+        // A draft left open for a scene of the same name in the person's
+        // own library is not shown on Synesthesia's.
+        let mut draft = Some(TagDraft {
+            scene: "ink".to_string(),
+            text: "dark".to_string(),
+        });
+        let mut actions = Vec::new();
+        let drawn = draw_place(&ctx, Vec::new(), "ink", Some(dir), &mut draft, &mut actions);
+        let texts: Vec<&str> = drawn.iter().map(|(text, _)| text.as_str()).collect();
+        assert!(texts.contains(&"dark"), "its tags show: {texts:?}");
+        for writer in ["Edit", "Save", "Use frame as picture"] {
+            assert!(
+                !texts.contains(&writer),
+                "nothing that writes into it: {writer} in {texts:?}"
+            );
+        }
+        let Some(copy) = drawn
+            .iter()
+            .find(|(text, _)| text == COPY_LABEL)
+            .map(|(_, rect)| rect.center())
+        else {
+            anyhow::bail!("no {COPY_LABEL} button: {texts:?}");
+        };
+        let _ = draw_place(
+            &ctx,
+            vec![egui::Event::PointerMoved(copy), click(copy, true)],
+            "ink",
+            Some(dir),
+            &mut draft,
+            &mut actions,
+        );
+        let _ = draw_place(
+            &ctx,
+            vec![click(copy, false)],
+            "ink",
+            Some(dir),
+            &mut draft,
+            &mut actions,
+        );
+        assert_eq!(
+            actions,
+            vec![Action::CopyToLibrary(dir.to_path_buf())],
+            "the one thing it asks for is the copy"
+        );
+        assert!(draft.is_some(), "the other scene's draft is kept");
         Ok(())
     }
 }

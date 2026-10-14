@@ -91,6 +91,7 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
                     tags::Place {
                         scene: &entry.name,
                         named: false,
+                        read_only: entry.read_only().then_some(entry.dir.as_path()),
                     },
                     &entry.tags,
                     &mut model.ui.tag_draft,

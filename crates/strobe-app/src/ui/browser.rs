@@ -29,6 +29,12 @@
 //!
 //! The selected scene's tags sit above the list, with the Inspector's tag
 //! row, so a scene can be tagged without playing it (D264).
+//!
+//! Synesthesia's own scenes, where it is installed, are listed after the
+//! library folder's (D271). Their rows end their status line with a faint
+//! "Synesthesia", the count under the filters says how many there are, the
+//! search word `synesthesia` finds them all, and a selected one offers Copy
+//! to my library where the tag field's Edit would be.
 
 use super::icon as icons;
 use super::model::{Action, Model};
@@ -236,11 +242,25 @@ fn filter_row(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette) {
         .browser
         .visible(model.library, model.health, model.library_rev)
         .len();
-    ui.label(
-        egui::RichText::new(format!("{shown} of {} scenes", model.library.entries.len()))
+    let total = model.library.entries.len();
+    let theirs = model.library.synesthesia_count();
+    let count = if theirs == 0 {
+        format!("{shown} of {total} scenes")
+    } else {
+        format!("{shown} of {total} scenes, {theirs} from Synesthesia")
+    };
+    let label = ui.label(
+        egui::RichText::new(count)
             .small()
             .color(theme::rgb(theme.text_muted)),
     );
+    if theirs > 0 {
+        label.on_hover_text(
+            "Scenes from Synesthesia: the ones it ships are read-only, and the scene folders \
+             in its settings are yours. Search \"synesthesia\" to see only them; Settings can \
+             hide them.",
+        );
+    }
 }
 
 /// The selected scene's tags, and the field that edits them (D264).
@@ -261,6 +281,7 @@ fn selected_tags(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &
         tags::Place {
             scene: &entry.name,
             named: true,
+            read_only: entry.read_only().then_some(entry.dir.as_path()),
         },
         &entry.tags,
         &mut model.ui.browser_tag_draft,
@@ -412,7 +433,9 @@ fn row(
     if response.drag_started() {
         response.dnd_set_drag_payload(LibraryDrag(entry.name.clone()));
     }
-    let id = egui::Id::new(("scene-row", &entry.name));
+    // By name and folder: a name in both the library and Synesthesia's
+    // install is two rows (D271).
+    let id = egui::Id::new(("scene-row", &entry.name, entry.dir.as_path()));
     let fill = widgets::selection_fill(ui, theme, id, selected, response.hovered(), theme.panel);
     ui.painter().rect_filled(rect, CornerRadius::ZERO, fill);
     if playing {
@@ -485,9 +508,14 @@ fn row(
         name,
         theme::rgb(name_colour),
     );
-    status_line(
-        ui, theme, health, playing, loading, previewed, text_x, rect, text_width,
-    );
+    let status = Status {
+        health,
+        playing,
+        loading,
+        previewed,
+        source: entry.source.label(),
+    };
+    status_line(ui, theme, &status, text_x, rect, text_width);
 
     if let Health::Failed(reason) = health {
         response.clone().on_hover_text(reason);
@@ -576,21 +604,27 @@ fn row(
     }
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "paints into a row whose geometry the caller already has"
-)]
-fn status_line(
-    ui: &mut Ui,
-    theme: &Palette,
-    health: &Health,
+/// What a row's second line says.
+struct Status<'a> {
+    health: &'a Health,
     playing: bool,
     loading: bool,
     previewed: bool,
-    x: f32,
-    rect: Rect,
-    width: f32,
-) {
+    /// Where the scene came from, when it is not the person's own folder
+    /// (D271): drawn faint at the line's end.
+    source: Option<&'static str>,
+}
+
+fn status_line(ui: &mut Ui, theme: &Palette, status: &Status<'_>, x: f32, rect: Rect, width: f32) {
+    /// The least room the health text keeps before the source is dropped.
+    const MIN_TEXT: f32 = 60.0;
+    let Status {
+        health,
+        playing,
+        loading,
+        previewed,
+        source,
+    } = *status;
     let (icon, text, colour) = if loading {
         (Icon::Refresh, "Preparing...".to_string(), theme.accent)
     } else if playing {
@@ -615,13 +649,27 @@ fn status_line(
         icon,
         theme::rgb(colour),
     );
-    let galley = widgets::truncated(
-        ui,
-        &text,
-        egui::TextStyle::Small.resolve(ui.style()),
-        colour,
-        width - 16.0,
-    );
+    // The source, right-aligned in the line, when there is room for it and
+    // some of the health text.
+    let small = egui::TextStyle::Small.resolve(ui.style());
+    let mut room = width - 16.0;
+    if let Some(source) = source {
+        let galley = ui.painter().layout_no_wrap(
+            source.to_owned(),
+            small.clone(),
+            theme::rgb(theme.text_faint),
+        );
+        let wide = galley.size().x + SPACE_SM;
+        if room - wide >= MIN_TEXT {
+            room -= wide;
+            ui.painter().galley(
+                egui::pos2(x + width - galley.size().x, y - galley.size().y / 2.0),
+                galley,
+                theme::rgb(theme.text_faint),
+            );
+        }
+    }
+    let galley = widgets::truncated(ui, &text, small, colour, room);
     ui.painter().galley(
         egui::pos2(x + 16.0, y - galley.size().y / 2.0),
         galley,
