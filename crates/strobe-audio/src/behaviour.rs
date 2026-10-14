@@ -367,7 +367,11 @@ fn texture_shapes_and_ranges() -> Result<()> {
     let signal = fixtures::tone(1000.0, 0.5, 2.0, RATE);
     let frame = fixtures::last_frame(&signal, RATE, FPS);
     assert_eq!(frame.scalars.len(), SCALARS.len(), "one scalar per name");
-    assert_eq!(frame.spectrum.len(), 256, "syn_Spectrum is 256 wide");
+    assert_eq!(
+        frame.spectrum.len(),
+        1024,
+        "syn_Spectrum is 1024 wide (D269)"
+    );
     assert_eq!(frame.level_trail.len(), 256, "syn_LevelTrail is 256 wide");
     assert_eq!(frame.shadertoy.len(), 1024, "Shadertoy texture is 512x2");
     for (i, texel) in frame.spectrum.iter().enumerate() {
@@ -383,25 +387,33 @@ fn texture_shapes_and_ranges() -> Result<()> {
         );
     }
 
-    // The 1 kHz peak: raw is linear in frequency, juiced is logarithmic.
+    // The 1 kHz peak: raw is linear in frequency, juiced is logarithmic. A
+    // loud tone saturates several neighbouring texels at 1.0, so the peak is
+    // the middle of the run that reaches the maximum, not its last texel.
     let peak_of = |channel: usize| {
-        frame
+        let top = frame
             .spectrum
             .iter()
-            .enumerate()
-            .max_by(|a, b| a.1[channel].total_cmp(&b.1[channel]))
-            .map_or(0, |(i, _)| i)
+            .map(|texel| texel[channel])
+            .fold(f32::MIN, f32::max);
+        let at_top = |texel: &[f32; 4]| texel[channel] >= top - 1e-6;
+        let first = frame.spectrum.iter().position(at_top).unwrap_or(0);
+        let last = frame.spectrum.iter().rposition(at_top).unwrap_or(first);
+        (first + last) / 2
     };
     let raw_peak = peak_of(0);
-    let expected_raw = (1000.0 / 24_000.0 * 256.0) as usize;
+    let width = frame.spectrum.len() as f32;
+    let expected_raw = (1000.0 / 24_000.0 * width) as usize;
     assert!(
         raw_peak.abs_diff(expected_raw) <= 1,
         "raw FFT peak at texel {raw_peak}, expected near {expected_raw}"
     );
     let juiced_peak = peak_of(1);
-    let expected_juiced = ((1000.0_f32 / 30.0).ln() / (16_000.0_f32 / 30.0).ln() * 256.0) as usize;
+    let expected_juiced = ((1000.0_f32 / 30.0).ln() / (16_000.0_f32 / 30.0).ln() * width) as usize;
+    // Four texels at 256 wide: the same stretch of the log axis at any width.
+    let juiced_slack = (4.0 * width / 256.0) as usize;
     assert!(
-        juiced_peak.abs_diff(expected_juiced) <= 4,
+        juiced_peak.abs_diff(expected_juiced) <= juiced_slack,
         "juiced peak at texel {juiced_peak}, expected near {expected_juiced}"
     );
 

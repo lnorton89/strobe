@@ -6,7 +6,7 @@ in [DECISIONS.md](DECISIONS.md), the evidence-based gap list in
 [STATUS_AUDIT.md](STATUS_AUDIT.md), and real-hardware results in
 [hardware/T480.md](hardware/T480.md).
 
-_Last updated: 2026-10-13 (stale claims reconciled with D199-D238 and the T480 and TORNADO records)._
+_Last updated: 2026-10-14 (v0.1.0 tagged and published; earlier claims reconciled with D199-D238 and the T480 and TORNADO records)._
 
 ## Now
 
@@ -19,7 +19,7 @@ which backend proved a claim.
 
 | Area | What exists | Verified on |
 |---|---|---|
-| Workspace | Conventions as tests, pinned toolchain and actions, `cargo xtask ci \| changelog \| bench \| symbolicate \| brand`, release workflow (D50-D59) | CI. The release workflow has never run on a tag |
+| Workspace | Conventions as tests, pinned toolchain and actions, `cargo xtask ci \| changelog \| bench \| symbolicate \| brand`, release workflow (D50-D59) | CI, and the v0.1.0 tag (2026-10-14, D270) |
 | `strobe-scene`, `strobe-ssf-lib` | SSF parsing and validation, controls runtime, shader assembly, `PASS_SOURCES` (D90), the SSF GLSL library | Headless GL 3.3 core and GLES 3.0 (llvmpipe) |
 | `strobe-gfx` | Native GL and ANGLE context providers, headless EGL, multipass and ping-pong, implicit final pass, images, GPU timer queries, robust contexts and reset status (D66) | llvmpipe; T480 native and ANGLE |
 | `strobe-bench` | Timings, frames, contact sheet; headless, window and auto contexts (D70-D72), now `strobe_gfx::offscreen` (D140) | llvmpipe; T480 ([BENCHMARKS.md](BENCHMARKS.md)) |
@@ -245,9 +245,13 @@ Each item names its acceptance test. Evidence is in [STATUS_AUDIT.md](STATUS_AUD
    *Accept:* a cube-map fixture where each direction returns its face, a
    missing one failing visibly while the scene runs, and an image read
    through `syn_Media`. Met on llvmpipe.
-9. **A real tagged release.** Inspect the zip, the ANGLE DLL provenance,
-   the matching PDB archive, the SBOM, the checksums and the attestations
-   (Q12).
+9. ~~**A real tagged release.**~~ **Done (v0.1.0, 2026-10-14).** The zip, the
+   ANGLE DLL provenance, the matching PDB archive, the SBOM, the checksums
+   and both attestations were inspected on the published release page, after
+   the workflow was proven end to end on a throwaway mirror (Q12 resolved,
+   D270). The ordered checklist is [RELEASE_PLAN.md](RELEASE_PLAN.md); what
+   remains from it is the clean-machine smoke test and symbolication from the
+   downloaded archive (steps 4 and 5), which need the T480.
 10. **Modern graphics APIs (Vulkan, wgpu, DX12, Metal): research only.** The
    plan is in [GFX_API_RESEARCH.md](GFX_API_RESEARCH.md)
    (lnorton89/strobe#8). OpenGL 3.3 and ANGLE stay the reference and the
@@ -360,7 +364,7 @@ never per frame.
 
 | Phase | Scope | State |
 |---|---|---|
-| 0 | Workspace, conventions, CI, GL contexts | Done. A tagged release has not been run. |
+| 0 | Workspace, conventions, CI, GL contexts | Done. Tagged and published as v0.1.0 on 2026-10-14 (D270). |
 | 1 | Renderer, SSF, controls, output window | Done, with the Perform-first UI at stage 1 (D130-D138). Images, cube maps and `syn_Media` stills and sequences work (D185, D186); video and webcam do not. |
 | 2 | JavaScript API | Integrated (D62). `meta/` writes land in a meta bank (D160) that the output post stage and audio gains read (D180, D184); `textureFinalPass` is an asynchronous readback (D162); late uniforms are refused (D161). |
 | 3 | Audio | Integrated (D61). The bench still uses the synthetic stand-in. |

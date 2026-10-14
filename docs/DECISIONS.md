@@ -5477,3 +5477,93 @@ base) is left alone, as in COMPATIBILITY.md.
 
 **Would reopen:** the look of `hue_review` or SkaiWalkerOG's media beside
 Synesthesia's own render.
+
+### D269: `syn_Spectrum` is 1024 texels wide, Synesthesia's width (2026-10-13)
+
+Q10 asked how wide real scenes expect `syn_Spectrum` to be. Synesthesia
+1.25.4's own `audio_indicators` (credited to Synesthesia, in the owner's
+private corpus) reads the raw channel with
+`texelFetch(syn_Spectrum, int(x*1024), 0)`. At Strobe's 256 the top three
+quarters of that row fetched past the end of the texture, which GL leaves
+undefined. Scenes that sample with normalised coordinates (`texture`,
+`textureLod`) address the same frequencies at any width, so for them only
+the detail changes.
+
+- **`Layout::default().spectrum_len` is 1024.** The analyser's FFT is 2048
+  points, so its 1024 bins below Nyquist map one to one onto the raw
+  channel's texels: each raw texel is one bin, not the peak of four. The
+  match with the FFT size suggests this is how Synesthesia gets its 1024 too.
+- **The player's silent `syn_Spectrum` is 1024 too,** so a `texelFetch` by
+  that count stays in range before the first upload, and the first upload
+  reallocates nothing. The silent trail stays 256, the analyser's trail.
+- **Autocontrol scores against a 1024-wide synthetic spectrum,** like the
+  live one.
+- **The trail is unchanged.** `audio_indicators` samples it with
+  normalised coordinates only, which says nothing about its length.
+
+What changes for a scene: the raw channel is spikier and a little lower on
+average (one bin per texel instead of the loudest of four). The juiced
+channel's 3-texel cross-smoothing now covers a quarter of the frequency
+span it did, so the curve shows more detail; its time smoothing is
+unchanged. The smooth channel's blur radius scales with the width
+(`len / 40`), so it looks the same. The waveform shows one sample per
+texel of its 1024-sample window instead of the mean of four, so it keeps
+more high-frequency detail.
+
+Cost: the upload is RGBA8, 4 KB a frame instead of 1 KB, with the same
+single `glTexSubImage` and no allocation after the first frame. The
+analyser does four times the per-texel work for each 512-sample hop. Its
+box blur is O(width x radius), about 100k adds per hop at 1024, roughly
+10 M a second at 48 kHz: well under one percent of a core. A 1D texture
+of 1024 is far inside every GL 3.3 and GLES 3.0 size limit.
+
+**Evidence:** `behaviour.rs` `texture_shapes_and_ranges` (a 1 kHz tone
+peaks at the raw and juiced texels a 1024-wide axis predicts); the corpus
+call quoted above.
+
+**Would reopen:** Synesthesia drawing `audio_indicators` differently from
+Strobe beside a sweep tone (Q10's remaining axis questions), or a profile
+on an HD 4000 showing the analyser's blur matters, in which case it becomes
+a running sum.
+
+### D270: v0.1.0 is published as `latest`, with the unverified work named in the release body (2026-10-14)
+
+The first tag, and the first time `release.yml` ran on one. Several
+validations are still open (a MIDI controller, the live Shadertoy site, a
+real phone, an HD 4000, a four-hour show of real scenes). The choice was
+between holding the tag until those close and publishing now with each one
+written down.
+
+- **Publish now, as `latest`, not as a pre-release.** The release body
+  carries a "Known limitations in v0.1.0" section naming every open item
+  with its backlog id, so a tester meets them before running it.
+  `release.yml` ends in `--draft=false --latest`; leaving that alone means
+  the only release is also the recommended one, which is honest for a first
+  tag and needs no workflow edit that would have to happen before the tag
+  exists.
+- **No version bump.** `[workspace.package] version` was already `0.1.0`
+  and no tag carried it, so the release branch changed `CHANGELOG.md` and
+  `README.md` only.
+- **The changelog section was written before the tag** (`cargo xtask
+  changelog --release v0.1.0`), as CONTRIBUTING requires, and every
+  non-changelog commit landed before it. The check recomputes a section from
+  the tagged range, so a commit landing after generation would show as
+  drift: the README's status line was committed first, then the generated
+  section on its own.
+- **The workflow was proven on a throwaway public mirror first** (Q12), then
+  its release and tag were deleted. It could not be a fork: GitHub refuses
+  to fork your own repository. It also needed a change to the workflow file
+  to register at all on the fresh repository — a push alone left
+  `release.yml` unregistered while `ci.yml` appeared, which is worth knowing
+  before anyone points the workflow at a new repository.
+
+**Evidence:** run 38495718734 (draft, Windows build, publish, all green);
+the dry run 38494313118 on `lnorton89/strobe-release-dryrun`, whose release
+and tag were then removed. All six assets were downloaded from the release
+page, every `.sha256` verified, `gh attestation verify` returned 0 for build
+provenance and for the SBOM predicate, and the zip held exactly
+`strobe.exe`, the three ANGLE DLLs, `LICENSES.chromium.html`, `README.md`,
+`LICENSE` and the twelve scenes.
+
+**Would reopen:** a later tag wanting the pre-release flag, which is a
+`release.yml` change made before that tag and never after.

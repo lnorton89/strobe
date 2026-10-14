@@ -114,9 +114,10 @@ avoids that.
   ([`T480.md`](../../docs/hardware/T480.md)); that is the only real-device
   record there. Device loss is recovered by retrying every 2 seconds, not
   by a device-change notification (D61).
-- Texture layout and channel meanings are assumptions (Q10 and Q1 in
-  [`OPEN_QUESTIONS.md`](../../docs/OPEN_QUESTIONS.md)): 256 texels, raw
-  linear 0 to Nyquist, juiced log 30 Hz to 16 kHz, trail index 0 newest.
+- The spectrum is 1024 texels, Synesthesia's width (D269). The channel
+  meanings are assumptions (Q10 in
+  [`OPEN_QUESTIONS.md`](../../docs/OPEN_QUESTIONS.md)): raw linear 0 to
+  Nyquist, juiced log 30 Hz to 16 kHz, trail index 0 newest.
 - The downbeat estimate (`downbeat`, D233) says which beat starts a bar
   from each beat's bass energy and band-profile rise, with a confidence
   that stays near zero when every beat sounds alike. Tested on synthetic

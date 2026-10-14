@@ -191,8 +191,8 @@ STROBE_REQUIRE_HEADLESS_GL=1 cargo test -p strobe-gfx --test render
   yet on the T480 or ANGLE/D3D11.
 - macOS is not built: glutin compiles its EGL backend out on Apple targets
   and there is no CGL headless provider (D55).
-- The audio textures' layout is unverified against real Synesthesia (Q1,
-  Q10). Implicit int-to-float, the main desktop-only SSF idiom, is written
-  out by `strobe-scene`'s typed pass on every dialect, ANGLE included (D199,
-  R8); see
+- The audio textures' layout is unverified against real Synesthesia (Q10;
+  the sampler type is settled, R10). Implicit int-to-float, the main
+  desktop-only SSF idiom, is written out by `strobe-scene`'s typed pass on
+  every dialect, ANGLE included (D199, R8); see
   [`OPEN_QUESTIONS.md`](../../docs/OPEN_QUESTIONS.md).

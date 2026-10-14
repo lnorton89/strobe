@@ -620,10 +620,25 @@ survives export.
   Wi-Fi, the page rendered in a real browser, the Windows firewall prompt,
   Windows at all, multiple phones, Wi-Fi loss and sleep, and the T480 soak
   for frame time, idle CPU and memory (L-08).
-- [ ] Run a tag-triggered release, then inspect:
+- [x] Run a tag-triggered release, then inspect:
   - the zip and the ANGLE DLL provenance;
   - the matching PDB archive;
   - the SBOM, checksums and attestations.
+  Evidence: **v0.1.0, 2026-10-14** (run 38495718734; D270, Q12 resolved).
+  The workflow's three jobs (draft, Windows build, publish) all succeeded,
+  after the same three ran green on a throwaway mirror first (run
+  38494313118, since deleted). All six assets were downloaded **from the
+  release page**, every `.sha256` verified, and `gh attestation verify`
+  returned 0 for build provenance and 0 for the CycloneDX predicate. The zip
+  holds exactly `strobe.exe`, `libEGL.dll`, `libGLESv2.dll`,
+  `d3dcompiler_47.dll`, `LICENSES.chromium.html`, `README.md`, `LICENSE` and
+  twelve `*.synScene` folders; the symbols archive holds `strobe.pdb`; the
+  SBOM is CycloneDX 1.3 with 279 components. The ANGLE DLLs are covered by
+  `LICENSES.chromium.html` and were hash-checked by
+  `scripts/fetch-angle.ps1` during the build, which fails the release on a
+  mismatch. **Not yet:** the clean-machine install and smoke test, and
+  symbolicating a crash from the *downloaded* archive (steps 4 and 5 of
+  [RELEASE_PLAN.md](RELEASE_PLAN.md)).
 - [ ] Document a clean-machine install, a smoke test, and the
   symbolication steps. Portable-crate CI is not a working macOS app; that
   still needs a suitable GL context provider.

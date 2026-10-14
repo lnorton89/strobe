@@ -87,7 +87,7 @@ variable turns a missing driver into a failure (CI's Linux job sets it).
   real vendor driver. The T480 ran the scene library through the app on
   an Intel UHD 620 ([`T480.md`](../../docs/hardware/T480.md)), which is the
   only real-GPU evidence.
-- Open question Q1 and Q10 in
+- Open question Q10 in
   [`OPEN_QUESTIONS.md`](../../docs/OPEN_QUESTIONS.md) concern the layout of
   `syn_Spectrum` / `syn_LevelTrail`, which the assembler declares, not this
   file.

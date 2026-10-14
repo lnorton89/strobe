@@ -294,6 +294,8 @@ The code already declares `syn_Spectrum` and `syn_LevelTrail` in the shader prea
 
 The remaining real compatibility question is the exact data layout and coordinate semantics used by actual Synesthesia scenes.
 
+Synesthesia 1.25.4's shipped scenes settle part of it: every call samples with a `float` coordinate (R10), and `audio_indicators` fetches the raw channel by `int(x*1024)`, so the spectrum is 1024 texels wide (D269). The frequency axes and the trail's direction are still open (Q10).
+
 Until a real fixture establishes that layout:
 
 - keep the abstraction in `strobe-scene::audio`;
@@ -791,7 +793,7 @@ The first integration pass should combine interfaces, not duplicate implementati
 
 These are the few areas where documentation alone is insufficient:
 
-1. Exact `syn_Spectrum` and `syn_LevelTrail` texture sampling semantics in real Synesthesia scenes.
+1. Exact `syn_Spectrum` and `syn_LevelTrail` texture semantics in real Synesthesia scenes: the sampler type and spectrum width are settled (R10, D269); the frequency axes and the trail's direction are not (Q10).
 2. Real-world ANGLE compatibility rate for community SSF scenes containing desktop-only GLSL idioms.
 3. Whether Synesthesia's event/control write ordering has any observable frame-level edge cases.
 4. The visual effect of adaptive target reallocation on long-running feedback scenes.

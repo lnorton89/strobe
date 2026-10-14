@@ -51,7 +51,19 @@
 - **Acceptance:** a packaged-build dump symbolicates to useful function and source locations; secrets and tokens are absent from diagnostic output.
 
 ### R-05 Tagged release, supply chain and provenance
-- **Status:** Open.
+- **Status:** Done (v0.1.0, 2026-10-14). `v0.1.0` was tagged on the release
+  PR's merge commit (`578ea34`) and published as the latest release by
+  `release.yml` (run 38495718734). The workflow had first been run end to end
+  on a throwaway public mirror (run 38494313118), whose release and tag were
+  then deleted; Q12 is resolved by it. All six assets were downloaded from
+  the release page and every `.sha256` verified; `gh attestation verify`
+  returned 0 for build provenance and for the SBOM predicate; the zip
+  contents, the matching `strobe.pdb` and the 279-component CycloneDX SBOM
+  were inspected. Two housekeeping items remain: the throwaway mirror repo
+  `lnorton89/strobe-release-dryrun` could not be deleted from here (the
+  token lacks `delete_repo`), and steps 4-5 of
+  [RELEASE_PLAN.md](RELEASE_PLAN.md) (clean-machine smoke test, symbolication
+  from the downloaded archive) still need the T480.
 - **Work:** create a real release tag; inspect ZIP contents and layout; verify ANGLE DLL source and license/provenance; include matching PDBs, SBOM, checksums and build attestations; test the published artifact rather than only workflow outputs.
 - **Acceptance:** reproducible release checklist completed, archive contents reviewed, checksums verified after download, attestations validate, and the release workflow is proven on an actual tag.
 

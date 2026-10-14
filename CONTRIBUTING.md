@@ -141,6 +141,10 @@ In this order:
    individual commit hashes), then tag the merge commit, annotated:
    `git tag -a v0.2.0 -m "strobe v0.2.0"`, and push the tag.
 
+For the first tag, [`docs/RELEASE_PLAN.md`](docs/RELEASE_PLAN.md)
+sequences this order around the checks the workflow has never exercised,
+including a dry run on a throwaway tag before the real one exists.
+
 The tag push triggers `.github/workflows/release.yml`. It checks the tag
 against `Cargo.toml`, creates a **draft** release whose notes are the
 changelog section, builds `strobe.exe` on Windows, and packages
