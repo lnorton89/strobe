@@ -50,6 +50,8 @@ pub struct BrowserState {
     pub scroll_to: Option<usize>,
     /// Favourite scenes, by library name, sorted (D211).
     pub favourites: Vec<String>,
+    /// How large the library grid's cards are (D273). Saved.
+    pub cards: super::browser::CardSize,
     visible: Vec<usize>,
     cached: Option<Cached>,
 }
@@ -222,6 +224,8 @@ pub struct UiState {
     pub layouts: std::collections::BTreeMap<String, crate::prefs::Layout>,
     /// The watched drop folder (D265): the folder and the switch are saved.
     pub watch: WatchState,
+    /// The side panel's tab (D274). Saved.
+    pub side_tab: super::side::SideTab,
     /// The Settings pane's layout name field. Not saved.
     pub layout_name: String,
     theme_id: String,
@@ -278,6 +282,8 @@ impl UiState {
                     names.dedup();
                     names
                 },
+                cards: super::browser::CardSize::from_key(&prefs.browser.cards)
+                    .unwrap_or_default(),
                 ..BrowserState::default()
             },
             collapsed_groups: prefs.collapsed_groups.clone(),
@@ -301,6 +307,7 @@ impl UiState {
                 note: "Off".to_string(),
                 ..WatchState::default()
             },
+            side_tab: super::side::SideTab::from_key(&prefs.side_tab).unwrap_or_default(),
             layout_name: String::new(),
             last_scene: prefs.last_scene.clone(),
             theme_id: prefs.theme.clone(),
@@ -328,9 +335,11 @@ impl UiState {
                 query: self.browser.query.clone(),
                 filter: self.browser.filter.key().to_string(),
                 favourites: self.browser.favourites.clone(),
+                cards: self.browser.cards.key().to_string(),
             },
             self.collapsed_groups.clone(),
         );
+        prefs.side_tab = self.side_tab.key().to_string();
         prefs.last_scene.clone_from(&self.last_scene);
         prefs.density = self.density.key().to_string();
         prefs.layouts.clone_from(&self.layouts);
@@ -443,6 +452,8 @@ impl UiState {
         self.browser.query.hash(&mut hasher);
         self.browser.filter.key().hash(&mut hasher);
         self.browser.favourites.hash(&mut hasher);
+        self.browser.cards.key().hash(&mut hasher);
+        self.side_tab.key().hash(&mut hasher);
         self.collapsed_groups.hash(&mut hasher);
         self.theme_id.hash(&mut hasher);
         self.custom_title_bar.hash(&mut hasher);
@@ -678,9 +689,21 @@ mod tests {
         state.set_collapsed("Motion", true);
         state.set_theme("graphite");
         state.set_density(crate::ui::theme::Density::Compact);
+        state.browser.cards = crate::ui::browser::CardSize::Large;
+        state.side_tab = crate::ui::side::SideTab::Presets;
         let back = UiState::from_prefs(&state.to_prefs());
         assert_eq!(back.browser.query, "tunnel", "query");
         assert_eq!(back.browser.filter, HealthFilter::Failed, "filter");
+        assert_eq!(
+            back.browser.cards,
+            crate::ui::browser::CardSize::Large,
+            "card size"
+        );
+        assert_eq!(
+            back.side_tab,
+            crate::ui::side::SideTab::Presets,
+            "side tab"
+        );
         assert!(back.is_collapsed("Motion"), "collapsed group");
         assert_eq!(back.theme_id(), "graphite", "theme");
         assert_eq!(

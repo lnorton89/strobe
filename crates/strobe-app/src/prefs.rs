@@ -82,6 +82,9 @@ pub struct BrowserPref {
     pub filter: String,
     /// Favourite scenes, by library name (D211).
     pub favourites: Vec<String>,
+    /// The library grid's card size (D273): `small`, `medium` or `large`.
+    /// Empty means the default.
+    pub cards: String,
 }
 
 impl Default for BrowserPref {
@@ -90,6 +93,7 @@ impl Default for BrowserPref {
             query: String::new(),
             filter: "all".to_string(),
             favourites: Vec::new(),
+            cards: String::new(),
         }
     }
 }
@@ -124,6 +128,9 @@ pub struct Prefs {
     pub layouts: BTreeMap<String, Layout>,
     /// The watched drop folder (D240, D265).
     pub watch: WatchPref,
+    /// The side panel's tab (D274): `controls`, `playlist` or `presets`.
+    /// Empty means the default.
+    pub side_tab: String,
 }
 
 /// The watched drop folder, as Settings last applied it (D265).
@@ -249,6 +256,7 @@ impl Prefs {
             last_scene: String::new(),
             layouts: BTreeMap::new(),
             watch: WatchPref::default(),
+            side_tab: String::new(),
         }
     }
 
@@ -436,6 +444,7 @@ mod tests {
                 query: "tunnel".to_string(),
                 filter: "failed".to_string(),
                 favourites: vec!["05-domain-warp".to_string()],
+                cards: "large".to_string(),
             },
             vec!["Motion".to_string()],
         )

@@ -1,19 +1,20 @@
 // ============================================================================
 // Module:       strobe_app::ui::perform
-// Description:  The Perform work surface: the toolbar above the preview, the
-//               banners for failures and notices, and the live preview with
-//               its state overlays.
+// Description:  The large live preview (the PLAY main view) with its
+//               toolbar and state overlays, the banners for failures and
+//               notices, and the fitted preview the side panel reuses.
 //
 // Dependencies: egui; super::{model, theme, widgets, settings, icon},
 //               crate::{icon, workspace}
 // ============================================================================
 
-//! The Perform surface (UI_DESIGN section 7).
+//! The live preview (UI_DESIGN section 7).
 //!
-//! The preview is the primary object on screen: it takes everything the
-//! panes, the strip and the toolbar leave. It is the scene's own output
-//! texture painted directly by egui (no readback, UI_DESIGN section 31), so
-//! it works with the output window hidden.
+//! The side panel shows the preview at its width in every view (D274);
+//! PLAY, the main view with no pane open, shows it at full size with the
+//! output controls above it. Both are the scene's own output texture
+//! painted directly by egui (no readback, UI_DESIGN section 31), so they
+//! work with the output window hidden.
 //!
 //! ## States
 //!
@@ -36,62 +37,25 @@ use super::theme::{self, SPACE_SM, SPACE_XS};
 use super::widgets::{self, Tone};
 use crate::icon::Icon;
 use crate::palette::Palette;
-use crate::workspace::{Arrangement, Pane};
+use crate::workspace::Pane;
 use egui::{Align2, CornerRadius, FontId, Rect, Sense, Stroke, StrokeKind, Ui, Vec2};
 
-/// The toolbar above the preview: the panes on the left, the output on the
-/// right.
-pub fn toolbar(
-    ui: &mut Ui,
-    model: &mut Model<'_>,
-    theme: &Palette,
-    arrangement: &Arrangement,
-    actions: &mut Vec<Action>,
-) {
-    let shown = |pane: Pane| {
-        arrangement.left.is_some_and(|(p, _)| p == pane)
-            || arrangement.right.is_some_and(|(p, _)| p == pane)
-    };
-    // The four buttons' words need about this much; below it they are icons
+/// The toolbar above the large preview: the output controls, right-aligned.
+pub fn toolbar(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Vec<Action>) {
+    // The buttons' words need about this much; below it they are icons
     // with the words in their tooltips, rather than drawn over each other
     // (U-09, T480 Task 35).
     const LABELLED: f32 = 470.0;
     let labelled = ui.available_width() >= LABELLED;
     ui.horizontal(|ui| {
         ui.set_height(28.0);
-        if widgets::tool_button_fitted(
-            ui,
-            theme,
-            Icon::Library,
-            "Scenes",
-            shown(Pane::Browser),
-            "Browse, search and preview scenes (Ctrl+F)",
-            labelled,
+        ui.label(
+            egui::RichText::new("LIVE PREVIEW")
+                .size(10.5)
+                .strong()
+                .color(theme::rgb(theme.text_muted)),
         )
-        .clicked()
-        {
-            model
-                .ui
-                .panes
-                .toggle_drawn(Pane::Browser, shown(Pane::Browser));
-        }
-        if widgets::tool_button_fitted(
-            ui,
-            theme,
-            Icon::Controls,
-            "Controls",
-            shown(Pane::Inspector),
-            "The playing scene's controls",
-            labelled,
-        )
-        .clicked()
-        {
-            model
-                .ui
-                .panes
-                .toggle_drawn(Pane::Inspector, shown(Pane::Inspector));
-        }
-
+        .on_hover_text("The scene as the output shows it. Pick a view in the rail to put a pane here.");
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let wide = ui.available_width() > 560.0;
             if wide {
@@ -196,10 +160,30 @@ pub fn fit_inside(bounds: Vec2, aspect: f32) -> Vec2 {
 
 /// The live preview, fitted to the space left and centred.
 pub fn preview(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Vec<Action>) {
+    preview_in(ui, model, theme, actions, false);
+}
+
+/// [`preview`], `compact` for the side panel's small picture: the empty
+/// and loading states are a line each, with no button, and the size
+/// caption is left out.
+pub fn preview_in(
+    ui: &mut Ui,
+    model: &mut Model<'_>,
+    theme: &Palette,
+    actions: &mut Vec<Action>,
+    compact: bool,
+) {
     let area = ui.available_rect_before_wrap();
     // The surface is a click target only to take keyboard focus off
     // whatever had it, so the transport keys work again afterwards.
-    let response = ui.interact(area, egui::Id::new("preview-surface"), Sense::click());
+    // Two previews can share a frame (the side panel's and PLAY's), so
+    // each has its own id.
+    let surface = if compact {
+        "side-preview-surface"
+    } else {
+        "preview-surface"
+    };
+    let response = ui.interact(area, egui::Id::new(surface), Sense::click());
     if response.clicked() {
         ui.ctx().memory_mut(|m| {
             if let Some(id) = m.focused() {
@@ -215,7 +199,8 @@ pub fn preview(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mu
 
     let Some(image) = model.preview else {
         match model.loading {
-            Some(name) => preparing(ui, theme, area, name),
+            Some(name) => preparing(ui, theme, area, name, compact),
+            None if compact => compact_status(ui, theme, area, Icon::Perform, "No scene playing"),
             None => no_scene(ui, model, theme, area),
         }
         ui.allocate_rect(area, Sense::hover());
@@ -237,7 +222,7 @@ pub fn preview(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mu
     if let Some(name) = model.loading {
         ui.painter()
             .rect_filled(rect, CornerRadius::ZERO, theme::translucent(theme.app, 190));
-        preparing(ui, theme, rect, name);
+        preparing(ui, theme, rect, name, compact);
         ui.allocate_rect(area, Sense::hover());
         return;
     }
@@ -252,6 +237,10 @@ pub fn preview(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mu
         );
     }
     let chip = badges(ui, model, theme, rect, actions);
+    if compact {
+        ui.allocate_rect(area, Sense::hover());
+        return;
+    }
     // The render size in the bottom-right corner, unless a small preview
     // puts it under the output-hidden chip (U-09).
     let colour = theme::translucent(theme.text, 150);
@@ -362,7 +351,11 @@ fn no_scene(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, area: Rect) {
     });
 }
 
-fn preparing(ui: &mut Ui, theme: &Palette, area: Rect, name: &str) {
+fn preparing(ui: &mut Ui, theme: &Palette, area: Rect, name: &str, compact: bool) {
+    if compact {
+        compact_status(ui, theme, area, Icon::Refresh, &format!("Preparing {name}..."));
+        return;
+    }
     centred_status(
         ui,
         theme,
@@ -370,6 +363,37 @@ fn preparing(ui: &mut Ui, theme: &Palette, area: Rect, name: &str) {
         Icon::Refresh,
         &format!("Preparing {name}..."),
         "Compiling shaders. The current scene stays live until it is ready.",
+    );
+}
+
+/// One line with an icon, centred: the small preview's empty and loading
+/// states.
+fn compact_status(ui: &mut Ui, theme: &Palette, area: Rect, icon: Icon, title: &str) {
+    let galley = widgets::truncated(
+        ui,
+        title,
+        egui::TextStyle::Small.resolve(ui.style()),
+        theme.text_muted,
+        (area.width() - icons::INLINE - SPACE_SM * 3.0).max(20.0),
+    );
+    let width = icons::INLINE + SPACE_XS + galley.size().x;
+    let left = area.center().x - width / 2.0;
+    icons::paint(
+        ui.painter(),
+        Rect::from_center_size(
+            egui::pos2(left + icons::INLINE / 2.0, area.center().y),
+            Vec2::splat(icons::INLINE),
+        ),
+        icon,
+        theme::rgb(theme.text_faint),
+    );
+    ui.painter().galley(
+        egui::pos2(
+            left + icons::INLINE + SPACE_XS,
+            area.center().y - galley.size().y / 2.0,
+        ),
+        galley,
+        theme::rgb(theme.text_muted),
     );
 }
 

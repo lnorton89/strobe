@@ -7,38 +7,44 @@
 // Dependencies: std only
 // ============================================================================
 
-//! Panes as data (UI_IMPLEMENTATION_PLAN section 6).
+//! Panes as data (UI_IMPLEMENTATION_PLAN section 6, D272).
 //!
-//! Perform is one stable work surface (the preview, the transport, the
-//! macros) with *contextual* panes around it. A pane has an identity, a
-//! dock, a width range and a place in the open order; this module owns all
-//! of that and knows nothing about egui, so the rules that matter at 1280x720
-//! (which panes may coexist, which one gives way) are unit tests.
+//! The control window has one **main view** and one persistent **side
+//! panel**, as Synesthesia's does (UI_DESIGN section 4). A pane has an
+//! identity, a dock, a width range and a place in the open order; this module
+//! owns all of that and knows nothing about egui, so the rules that matter at
+//! 1280x720 (how wide the side panel may be, when it becomes a drawer) are
+//! unit tests.
 //!
 //! ## Docks
 //!
-//! There are two docks. The *left* dock holds the scene [`Pane::Browser`]
-//! and [`Pane::Import`]; the *right* dock holds the [`Pane::Inspector`],
-//! [`Pane::Diagnostics`], [`Pane::Settings`], [`Pane::Playlist`] and [`Pane::Map`]. A dock shows one pane: the
-//! most recently opened of its open panes. Closing that pane (Esc closes the
-//! topmost one) reveals the one that was under it, so opening Diagnostics
-//! over the Inspector and pressing Esc puts the Inspector back, which is
-//! what an operator in the middle of a show expects.
+//! The *main* dock holds every pane the rail switches between: the scene
+//! library ([`Pane::Browser`]), [`Pane::Import`], [`Pane::Playlist`],
+//! [`Pane::Editor`], [`Pane::Map`], [`Pane::Diagnostics`] and
+//! [`Pane::Settings`]. It shows one pane: the most recently opened of its open
+//! panes. With none open the main view is the large live preview (PLAY).
+//! Closing the shown pane (Esc closes the topmost one) reveals the one that
+//! was under it, so opening Diagnostics over the Library and pressing Esc
+//! puts the Library back, which is what an operator in the middle of a show
+//! expects.
+//!
+//! The *side* dock holds the [`Pane::Inspector`] alone: the preview, the
+//! status strip, the fav slots and the Controls, Playlist and Presets tabs.
+//! Open, it is a column beside the main view; closed, it is a handle strip
+//! that reopens it, so the preview and the controls are never more than one
+//! click away.
 //!
 //! ## Fitting a window
 //!
-//! [`arrange`] decides what is drawn. The plan's collapse order is: hide
-//! secondary metadata (the panes' own business), collapse the browser,
-//! collapse the inspector, drop the rail labels, and never the preview,
-//! the transport or the blackout. In terms of docks:
+//! [`arrange`] decides what is drawn. The main view takes whatever the side
+//! panel leaves, and the side panel gives way in this order:
 //!
-//! 1. both docks are shown if the preview keeps at least
-//!    [`PREVIEW_SHARE`] of the width beside the rail;
-//! 2. otherwise the dock whose pane was opened *less* recently gives way
-//!    (the browser and the inspector compete for the same contextual
-//!    region, UI_IMPLEMENTATION_PLAN section 7);
-//! 3. a lone pane that still does not fit shrinks towards its minimum;
-//! 4. below that the pane becomes an overlay drawer over the preview.
+//! 1. it is drawn at its stored width while the main view keeps at least
+//!    [`MAIN_MIN`] beside the rail;
+//! 2. otherwise it shrinks towards its minimum;
+//! 3. below that it becomes an overlay drawer over the main view.
+//!
+//! Below [`NARROW`] the rail drops its labels.
 
 /// A contextual pane.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -61,13 +67,14 @@ pub enum Pane {
     Editor,
 }
 
-/// Which side of the work surface a pane docks to.
+/// Which region of the work surface a pane docks to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Dock {
-    /// Beside the rail.
-    Left,
-    /// At the far edge.
-    Right,
+    /// The main view, beside the rail: one pane at a time, switched by the
+    /// rail.
+    Main,
+    /// The persistent side panel at the far edge.
+    Side,
 }
 
 impl Pane {
@@ -99,19 +106,23 @@ impl Pane {
     /// The dock this pane lives in.
     pub fn dock(self) -> Dock {
         match self {
-            Self::Browser | Self::Import | Self::Editor => Dock::Left,
-            Self::Inspector | Self::Diagnostics | Self::Settings | Self::Playlist | Self::Map => {
-                Dock::Right
-            }
+            Self::Browser
+            | Self::Import
+            | Self::Editor
+            | Self::Diagnostics
+            | Self::Settings
+            | Self::Playlist
+            | Self::Map => Dock::Main,
+            Self::Inspector => Dock::Side,
         }
     }
 
     /// The pane's title.
     pub fn title(self) -> &'static str {
         match self {
-            Self::Browser => "Scenes",
+            Self::Browser => "Library",
             Self::Import => "Import",
-            Self::Inspector => "Controls",
+            Self::Inspector => "Panel",
             Self::Diagnostics => "Diagnostics",
             Self::Settings => "Settings",
             Self::Playlist => "Playlist",
@@ -139,11 +150,16 @@ impl Pane {
         Self::ALL.into_iter().find(|pane| pane.key() == key)
     }
 
-    /// The narrowest the pane may be drawn, in points.
+    /// The narrowest the pane may be drawn, in points. A main pane takes
+    /// whatever the side panel leaves (at least [`MAIN_MIN`]); its own range
+    /// is kept for the preferences file, which stores a width for every
+    /// pane.
     pub fn min_width(self) -> f32 {
         match self {
             Self::Browser | Self::Import => 220.0,
-            Self::Inspector => 260.0,
+            // Wide enough for a 16:9 preview a person can judge and for a
+            // slider row with its number and reset beside it.
+            Self::Inspector => 280.0,
             Self::Diagnostics | Self::Settings => 300.0,
             Self::Playlist => 340.0,
             Self::Map => 380.0,
@@ -155,7 +171,9 @@ impl Pane {
     pub fn default_width(self) -> f32 {
         match self {
             Self::Browser | Self::Import => 280.0,
-            Self::Inspector => 300.0,
+            // About a third of a 1440 window beside the rail, as Synesthesia's
+            // panel is of its window (D272).
+            Self::Inspector => 440.0,
             Self::Diagnostics | Self::Settings => 380.0,
             Self::Playlist => 440.0,
             Self::Map => 460.0,
@@ -167,7 +185,7 @@ impl Pane {
     pub fn max_width(self) -> f32 {
         match self {
             Self::Browser | Self::Import => 460.0,
-            Self::Inspector => 480.0,
+            Self::Inspector => 720.0,
             Self::Diagnostics | Self::Settings => 640.0,
             Self::Playlist => 720.0,
             Self::Map => 760.0,
@@ -176,19 +194,13 @@ impl Pane {
     }
 }
 
-/// The share of the width beside the rail that the preview keeps before a
-/// second dock is allowed to take space from it.
-///
-/// 0.55 is where, at 1440 wide, the browser and the inspector (280 + 300)
-/// still fit beside a preview that keeps 55% of the width beside the rail,
-/// and where, at 1280, they do not: that window shows one contextual pane at
-/// a time, as UI_IMPLEMENTATION_PLAN section 7 asks. (It started at 0.58 and
-/// was lowered when the real rail, 60 points, pushed 1440 just under it.)
-/// D120 names the reopen condition if the 1280x720 screenshots disagree.
-pub const PREVIEW_SHARE: f32 = 0.55;
+/// The least width the main view keeps beside a docked side panel: two
+/// library cards at the small size, or the Editor at its narrowest line
+/// length worth having. Below it the side panel shrinks, then becomes a
+/// drawer (D272).
+pub const MAIN_MIN: f32 = 320.0;
 
-/// Below this window width the rail drops its labels and a pane becomes an
-/// overlay drawer.
+/// Below this window width the rail drops its labels.
 pub const NARROW: f32 = 1000.0;
 
 /// Which panes are open, how wide, and in what order they were opened.
@@ -202,8 +214,9 @@ pub struct Panes {
 }
 
 impl Default for Panes {
-    /// The Perform default (mockup direction B): the inspector open, the
-    /// browser closed until asked for.
+    /// The default (D272): the side panel open, and the library as the main
+    /// view. The library is opened last, so Esc closes it first and leaves
+    /// the panel.
     fn default() -> Self {
         let mut panes = Self {
             open: [false; 8],
@@ -212,6 +225,7 @@ impl Default for Panes {
             clock: 0,
         };
         panes.open(Pane::Inspector);
+        panes.open(Pane::Browser);
         panes
     }
 }
@@ -253,9 +267,26 @@ impl Panes {
         }
     }
 
-    /// Closes every pane, for a larger preview.
+    /// Closes every pane: the main view becomes the large preview and the
+    /// side panel collapses to its handle (`--no-panes`).
     pub fn close_all(&mut self) {
         self.open = [false; 8];
+    }
+
+    /// Closes every main pane, so the main view is the large live preview
+    /// (the rail's PLAY). The side panel is left as it is.
+    pub fn close_main(&mut self) {
+        for pane in Pane::ALL {
+            if pane.dock() == Dock::Main {
+                self.close(pane);
+            }
+        }
+    }
+
+    /// Whether the side panel is open (docked or as a drawer) rather than
+    /// collapsed to its handle.
+    pub fn side_open(&self) -> bool {
+        self.is_open(Pane::Inspector)
     }
 
     /// The pane showing in `dock` when there is room: the most recently
@@ -336,94 +367,69 @@ fn clamp_width(pane: Pane, width: f32) -> f32 {
 /// What is drawn this frame, for a window of a given width.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Arrangement {
-    /// The pane in the left dock and its drawn width.
-    pub left: Option<(Pane, f32)>,
-    /// The pane in the right dock and its drawn width.
-    pub right: Option<(Pane, f32)>,
-    /// Whether the docked pane is drawn as an overlay drawer over the
-    /// preview instead of beside it (a very narrow window).
+    /// The pane in the main view; `None` is the large live preview (PLAY).
+    pub main: Option<Pane>,
+    /// The side panel's drawn width when it is open, docked or as a drawer.
+    /// `None` when it is collapsed to its handle.
+    pub side: Option<f32>,
+    /// Whether the open side panel is drawn as an overlay drawer over the
+    /// main view instead of beside it (a narrow window).
     pub overlay: bool,
     /// Whether the rail shows its labels.
     pub rail_labels: bool,
 }
 
 impl Arrangement {
-    /// The width the docked panes take from the work surface.
+    /// Whether `pane` is the one drawn in its dock right now.
+    pub fn shows(&self, pane: Pane) -> bool {
+        match pane.dock() {
+            Dock::Main => self.main == Some(pane),
+            Dock::Side => self.side.is_some(),
+        }
+    }
+
+    /// The width the docked side panel takes from the main view.
     pub fn docked_width(&self) -> f32 {
         if self.overlay {
             return 0.0;
         }
-        self.left.map_or(0.0, |(_, w)| w) + self.right.map_or(0.0, |(_, w)| w)
+        self.side.unwrap_or(0.0)
     }
 }
 
-/// The widest a docked pane may be dragged without evicting the pane in the
-/// other dock (`other` is that pane's drawn width, if there is one): what is
-/// left of the window beside the rail once the preview has its share. Never
-/// less than `pane`'s own minimum, so a drag always has somewhere to go.
-pub fn drag_limit(pane: Pane, window_width: f32, rail: f32, other: Option<f32>) -> f32 {
+/// The widest the side panel may be dragged without squeezing the main view
+/// below [`MAIN_MIN`]: never less than the panel's own minimum, so a drag
+/// always has somewhere to go.
+pub fn drag_limit(window_width: f32, rail: f32) -> f32 {
     let avail = (window_width - rail).max(0.0);
-    let room = avail - PREVIEW_SHARE * avail - other.unwrap_or(0.0);
-    room.max(pane.min_width()).min(pane.max_width())
+    let room = avail - MAIN_MIN;
+    room.max(Pane::Inspector.min_width())
+        .min(Pane::Inspector.max_width())
 }
 
-/// Decides which panes are drawn, and how wide, for a window `window_width`
-/// points wide whose rail is `rail` points wide. See the module docs for
-/// the rules.
+/// Decides what is drawn, and how wide the side panel is, for a window
+/// `window_width` points wide whose rail is `rail` points wide. See the
+/// module docs for the rules.
 pub fn arrange(panes: &Panes, window_width: f32, rail: f32) -> Arrangement {
     let rail_labels = window_width >= NARROW;
     let avail = (window_width - rail).max(0.0);
-    let mut left = panes
-        .shown_in(Dock::Left)
-        .map(|pane| (pane, panes.width(pane)));
-    let mut right = panes
-        .shown_in(Dock::Right)
-        .map(|pane| (pane, panes.width(pane)));
-    let preview_min = PREVIEW_SHARE * avail;
-
-    if let (Some((l, lw)), Some((r, rw))) = (left, right)
-        && avail - lw - rw < preview_min
-    {
-        // The dock whose pane was opened less recently gives way.
-        let left_newer = panes.stamp.get(l.index()) > panes.stamp.get(r.index());
-        if left_newer {
-            right = None;
-        } else {
-            left = None;
-        }
-    }
-
-    // A lone dock may shrink towards its minimum to leave the preview its
-    // share; if even the minimum leaves too little, it becomes a drawer.
+    let main = panes.shown_in(Dock::Main);
     let mut overlay = false;
-    for (pane, width) in [&mut left, &mut right].into_iter().flatten() {
-        let room = avail - preview_min;
-        if *width > room {
-            if room >= pane.min_width() {
-                *width = room;
-            } else {
-                *width = pane.min_width().min(avail * 0.9);
-                overlay = true;
-            }
-        }
-    }
-    // Two docks never share a window narrow enough to overlay.
-    if overlay {
-        let keep_left = match (left, right) {
-            (Some((l, _)), Some((r, _))) => panes.stamp.get(l.index()) > panes.stamp.get(r.index()),
-            (Some(_), None) => true,
-            (None, _) => false,
-        };
-        if keep_left {
-            right = None;
+    let side = panes.side_open().then(|| {
+        let wanted = panes.width(Pane::Inspector);
+        let room = avail - MAIN_MIN;
+        if wanted <= room {
+            wanted
+        } else if room >= Pane::Inspector.min_width() {
+            room
         } else {
-            left = None;
+            overlay = true;
+            Pane::Inspector.min_width().min(avail * 0.9)
         }
-    }
-
+    });
     Arrangement {
-        left,
-        right,
+        main,
+        side,
         overlay,
         rail_labels,
     }
@@ -445,157 +451,171 @@ mod tests {
     }
 
     #[test]
-    fn the_default_opens_the_inspector_only() {
+    fn the_default_opens_the_library_and_the_side_panel() {
         let panes = Panes::default();
         for pane in Pane::ALL {
             assert_eq!(
                 panes.is_open(pane),
-                pane == Pane::Inspector,
+                matches!(pane, Pane::Inspector | Pane::Browser),
                 "{pane:?} in the default layout"
+            );
+        }
+        assert_eq!(
+            panes.topmost(),
+            Some(Pane::Browser),
+            "Esc closes the library first and keeps the panel"
+        );
+    }
+
+    #[test]
+    fn every_pane_but_the_inspector_is_a_main_view() {
+        for pane in Pane::ALL {
+            let expected = if pane == Pane::Inspector {
+                Dock::Side
+            } else {
+                Dock::Main
+            };
+            assert_eq!(pane.dock(), expected, "{pane:?}");
+        }
+    }
+
+    #[test]
+    fn the_main_view_shows_the_newest_open_pane_and_play_when_none() {
+        let layout = arrange(&with(&[Pane::Browser, Pane::Settings]), 1440.0, RAIL);
+        assert_eq!(layout.main, Some(Pane::Settings), "newest wins");
+        assert!(layout.shows(Pane::Settings) && !layout.shows(Pane::Browser));
+        let mut panes = with(&[Pane::Browser, Pane::Inspector]);
+        panes.close_main();
+        let layout = arrange(&panes, 1440.0, RAIL);
+        assert_eq!(layout.main, None, "PLAY: the large preview");
+        assert!(layout.side.is_some(), "and the panel stays");
+    }
+
+    #[test]
+    fn at_1440_and_1280_the_panel_docks_at_its_default_width() {
+        for width in [1280.0_f32, 1366.0, 1440.0, 1920.0] {
+            let layout = arrange(&Panes::default(), width, RAIL);
+            assert_eq!(
+                layout.side,
+                Some(Pane::Inspector.default_width()),
+                "at {width}: {layout:?}"
+            );
+            assert!(!layout.overlay, "docked at {width}");
+            let main = width - RAIL - layout.docked_width();
+            assert!(main >= MAIN_MIN, "the main view keeps {main} at {width}");
+        }
+    }
+
+    #[test]
+    fn the_main_view_always_keeps_its_minimum_when_docked() {
+        for width in [700.0_f32, 800.0, 900.0, 1000.0, 1280.0, 1920.0] {
+            let mut panes = Panes::default();
+            panes.set_width(Pane::Inspector, Pane::Inspector.max_width());
+            let layout = arrange(&panes, width, RAIL);
+            if layout.overlay {
+                continue;
+            }
+            let main = width - RAIL - layout.docked_width();
+            assert!(
+                main >= MAIN_MIN - 0.5,
+                "at {width}: the main view keeps only {main}"
             );
         }
     }
 
     #[test]
-    fn at_1440_the_browser_and_inspector_coexist() {
-        let panes = with(&[Pane::Inspector, Pane::Browser]);
-        let layout = arrange(&panes, 1440.0, RAIL);
-        assert_eq!(layout.left.map(|(p, _)| p), Some(Pane::Browser), "left");
-        assert_eq!(layout.right.map(|(p, _)| p), Some(Pane::Inspector), "right");
-        assert!(!layout.overlay, "docked, not a drawer");
-    }
-
-    #[test]
-    fn at_1280_the_newer_pane_wins_the_contextual_region() {
-        let panes = with(&[Pane::Inspector, Pane::Browser]);
-        let layout = arrange(&panes, 1280.0, RAIL);
-        assert_eq!(layout.left.map(|(p, _)| p), Some(Pane::Browser), "browser");
-        assert!(layout.right.is_none(), "inspector gives way: {layout:?}");
-
-        let panes = with(&[Pane::Browser, Pane::Inspector]);
-        let layout = arrange(&panes, 1280.0, RAIL);
-        assert!(layout.left.is_none(), "browser gives way: {layout:?}");
-        assert_eq!(
-            layout.right.map(|(p, _)| p),
-            Some(Pane::Inspector),
-            "inspector"
-        );
-    }
-
-    #[test]
-    fn at_1920_everything_open_fits() {
-        let panes = with(&[Pane::Inspector, Pane::Browser]);
-        let layout = arrange(&panes, 1920.0, RAIL);
-        assert!(
-            layout.left.is_some() && layout.right.is_some(),
-            "{layout:?}"
-        );
-    }
-
-    #[test]
-    fn the_preview_always_keeps_its_share_when_docked() {
-        for width in [900.0_f32, 1000.0, 1280.0, 1366.0, 1440.0, 1920.0] {
-            for open in [
-                vec![Pane::Inspector],
-                vec![Pane::Browser],
-                vec![Pane::Inspector, Pane::Browser],
-                vec![Pane::Settings, Pane::Import],
-            ] {
-                let layout = arrange(&with(&open), width, RAIL);
-                if layout.overlay {
-                    continue;
-                }
-                let preview = width - RAIL - layout.docked_width();
-                assert!(
-                    preview >= PREVIEW_SHARE * (width - RAIL) - 0.5,
-                    "{open:?} at {width}: the preview keeps only {preview}"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn a_very_narrow_window_turns_the_pane_into_a_drawer() {
-        let layout = arrange(&with(&[Pane::Inspector]), 600.0, RAIL);
+    fn a_very_narrow_window_turns_the_panel_into_a_drawer() {
+        let layout = arrange(&Panes::default(), 600.0, RAIL);
         assert!(layout.overlay, "{layout:?}");
         assert!(!layout.rail_labels, "labels go first");
         assert_eq!(layout.docked_width(), 0.0, "a drawer takes no layout width");
+        assert!(
+            layout.side.is_some_and(|w| w <= (600.0 - RAIL) * 0.9),
+            "the drawer leaves a strip of the main view: {layout:?}"
+        );
     }
 
     #[test]
-    fn a_lone_pane_shrinks_before_it_becomes_a_drawer() {
-        // 1100 wide: 0.58 * 1044 leaves 438 for the pane, above its
-        // 260 minimum but below the 480 maximum it was dragged to.
-        let mut panes = with(&[Pane::Inspector]);
-        panes.set_width(Pane::Inspector, 480.0);
-        let layout = arrange(&panes, 1100.0, RAIL);
-        let drawn = layout.right.map(|(_, w)| w).unwrap_or(0.0);
+    fn the_panel_shrinks_before_it_becomes_a_drawer() {
+        // 683 wide (1024 at 150%): 623 beside the rail, 303 left for the
+        // panel once the main view has its 320, above the 280 minimum.
+        let layout = arrange(&Panes::default(), 683.0, RAIL);
+        let drawn = layout.side.unwrap_or(0.0);
         assert!(!layout.overlay, "{layout:?}");
         assert!(
-            drawn < 480.0 && drawn >= Pane::Inspector.min_width(),
+            drawn < Pane::Inspector.default_width() && drawn >= Pane::Inspector.min_width(),
             "{drawn}"
         );
     }
 
     #[test]
-    fn dragging_a_pane_wider_never_evicts_its_neighbour() {
-        let mut panes = with(&[Pane::Inspector, Pane::Browser]);
-        let before = arrange(&panes, 1440.0, RAIL);
+    fn a_collapsed_panel_takes_no_width() {
+        let layout = arrange(&with(&[Pane::Browser]), 1440.0, RAIL);
+        assert_eq!(layout.side, None, "collapsed to its handle");
+        assert!(!layout.shows(Pane::Inspector));
+        assert_eq!(layout.docked_width(), 0.0);
+    }
+
+    #[test]
+    fn dragging_the_panel_wider_never_squeezes_the_main_view() {
+        let limit = drag_limit(1440.0, RAIL);
+        let mut panes = Panes::default();
+        panes.set_width(Pane::Inspector, limit);
+        let layout = arrange(&panes, 1440.0, RAIL);
+        assert!(!layout.overlay, "{layout:?}");
         assert!(
-            before.left.is_some() && before.right.is_some(),
-            "both fit: {before:?}"
+            1440.0 - RAIL - layout.docked_width() >= MAIN_MIN - 0.5,
+            "dragging to the limit ({limit}) squeezed the main view: {layout:?}"
         );
-        let inspector = before.right.map(|(_, w)| w);
-        let limit = drag_limit(Pane::Browser, 1440.0, RAIL, inspector);
-        panes.set_width(Pane::Browser, limit);
-        let after = arrange(&panes, 1440.0, RAIL);
-        assert!(
-            after.left.is_some() && after.right.is_some(),
-            "dragging to the limit ({limit}) evicted a pane: {after:?}"
-        );
-        // And the limit is never below the pane's own minimum.
-        assert!(drag_limit(Pane::Browser, 300.0, RAIL, Some(300.0)) >= Pane::Browser.min_width());
+        // And the limit is never below the panel's own minimum.
+        assert!(drag_limit(300.0, RAIL) >= Pane::Inspector.min_width());
     }
 
     #[test]
     fn opening_over_a_pane_and_closing_reveals_the_one_beneath() {
-        let mut panes = with(&[Pane::Inspector]);
+        let mut panes = with(&[Pane::Browser]);
         panes.open(Pane::Diagnostics);
-        assert_eq!(panes.shown_in(Dock::Right), Some(Pane::Diagnostics), "over");
+        assert_eq!(panes.shown_in(Dock::Main), Some(Pane::Diagnostics), "over");
         assert_eq!(panes.close_topmost(), Some(Pane::Diagnostics), "esc");
-        assert_eq!(panes.shown_in(Dock::Right), Some(Pane::Inspector), "under");
-        assert_eq!(panes.close_topmost(), Some(Pane::Inspector), "esc again");
+        assert_eq!(panes.shown_in(Dock::Main), Some(Pane::Browser), "under");
+        assert_eq!(panes.close_topmost(), Some(Pane::Browser), "esc again");
         assert_eq!(panes.close_topmost(), None, "nothing left to close");
     }
 
     #[test]
-    fn a_button_for_a_pane_hidden_by_width_shows_it_rather_than_closing_it() {
-        // At 1280 the browser (newer) holds the contextual region, so the
-        // inspector is open but not drawn. Its button must bring it back.
-        let mut panes = with(&[Pane::Inspector, Pane::Browser]);
+    fn a_button_for_a_pane_under_another_raises_it() {
+        let mut panes = with(&[Pane::Inspector, Pane::Browser, Pane::Playlist]);
         let layout = arrange(&panes, 1280.0, RAIL);
-        let drawn = layout.right.is_some_and(|(p, _)| p == Pane::Inspector);
-        assert!(!drawn, "precondition: the inspector is hidden by width");
-        panes.toggle_drawn(Pane::Inspector, drawn);
+        let drawn = layout.shows(Pane::Browser);
+        assert!(!drawn, "precondition: the playlist is over the library");
+        panes.toggle_drawn(Pane::Browser, drawn);
         let after = arrange(&panes, 1280.0, RAIL);
         assert_eq!(
-            after.right.map(|(p, _)| p),
-            Some(Pane::Inspector),
-            "the inspector is drawn after its button was pressed: {after:?}"
+            after.main,
+            Some(Pane::Browser),
+            "the library is the main view after its button was pressed: {after:?}"
         );
-        assert!(after.left.is_none(), "and the browser gave way");
+        assert!(panes.is_open(Pane::Playlist), "the playlist stays open beneath");
     }
 
     #[test]
     fn widths_are_clamped_and_nonsense_is_ignored() {
         let mut panes = Panes::default();
-        panes.set_width(Pane::Browser, 10.0);
-        assert_eq!(panes.width(Pane::Browser), Pane::Browser.min_width(), "min");
-        panes.set_width(Pane::Browser, 9999.0);
-        assert_eq!(panes.width(Pane::Browser), Pane::Browser.max_width(), "max");
-        panes.set_width(Pane::Browser, 300.0);
-        panes.set_width(Pane::Browser, f32::NAN);
-        assert_eq!(panes.width(Pane::Browser), 300.0, "NaN leaves it alone");
+        panes.set_width(Pane::Inspector, 10.0);
+        assert_eq!(
+            panes.width(Pane::Inspector),
+            Pane::Inspector.min_width(),
+            "min"
+        );
+        panes.set_width(Pane::Inspector, 9999.0);
+        assert_eq!(
+            panes.width(Pane::Inspector),
+            Pane::Inspector.max_width(),
+            "max"
+        );
+        panes.set_width(Pane::Inspector, 300.0);
+        panes.set_width(Pane::Inspector, f32::NAN);
+        assert_eq!(panes.width(Pane::Inspector), 300.0, "NaN leaves it alone");
     }
 
     #[test]
