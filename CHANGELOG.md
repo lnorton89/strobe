@@ -11,7 +11,32 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
-Nothing yet — the latest release is the tip of `master`.
+### Added
+
+- add Chromatic Rise psychedelic marbling scene ([`a56f864`](https://github.com/lnorton89/strobe/commit/a56f864b514cfeb2665c35695778aabd5f09b98d))
+- **app:** --output-monitor N and --fullscreen put the output on the projector at launch ([`b731fde`](https://github.com/lnorton89/strobe/commit/b731fdeff482c88c184ec7c2944236a542bd2a34))
+- **app:** Synesthesia's scenes join the library where it is installed, and its own are never written (D271) ([`49f3714`](https://github.com/lnorton89/strobe/commit/49f3714462f86cf649afd0493ecb3f14642bc941))
+- **scene:** one place finds Synesthesia's install and scene folders, and #include uses it (D271) ([`ee1f47f`](https://github.com/lnorton89/strobe/commit/ee1f47f9f473610aedfb7f1bb4765ff62d9481cd))
+
+### Fixed
+
+- **bench:** a run whose every frame is black fails instead of reporting timings ([`dd371ee`](https://github.com/lnorton89/strobe/commit/dd371ee067dadf63b7a458e457166e4fdc4186ac))
+- **app:** no error box nobody can see: unattended runs and service sessions only log ([`81e7fbf`](https://github.com/lnorton89/strobe/commit/81e7fbf70f6e43272490ed8837bd7c301abcc46a))
+- **app:** a screenshot run ends when the control window never draws ([`e033f71`](https://github.com/lnorton89/strobe/commit/e033f711bf60423fe2c74734095f49e0033a9aab))
+
+### Documentation
+
+- **minipc:** High performance, never sleep, as the owner set it for shows ([`d41c25b`](https://github.com/lnorton89/strobe/commit/d41c25b87995241b582277136a3bd7248ed996c9))
+- **minipc:** the released v0.1.0 on the JaJa projector mini-PC (Task M2, R-03) ([`cdfab8e`](https://github.com/lnorton89/strobe/commit/cdfab8eb913df9a9ec0ede382c3b67f4727892f4))
+- **t480:** Synesthesia's 90 scenes are 90/90 on Intel, the spectrum fills the row (Tasks 39-41) ([`607ec8d`](https://github.com/lnorton89/strobe/commit/607ec8d1787c4e75d2c541a2132206b276a0f9bf))
+- **amd:** neon_city is a render-scale bug, beamers is colour and time (Tasks A8, A9) ([`0da9b5d`](https://github.com/lnorton89/strobe/commit/0da9b5ddb2b7eaa9a990ef37509734275b24d826))
+- Synesthesia's installed scenes in the library, read-only where they are its own (D271) ([`ea3be5c`](https://github.com/lnorton89/strobe/commit/ea3be5c9d4e0c6413ecb984fbc7721248ae058a1))
+- **open-questions:** list R14 in order in the resolved table ([`3fa3ab6`](https://github.com/lnorton89/strobe/commit/3fa3ab61920bd6f7a53a4720c423a1d6cbd2be85))
+- record the v0.1.0 release (Q12 resolved, R-05 done, D270) ([`23c181c`](https://github.com/lnorton89/strobe/commit/23c181c1a56ef3173ace2321eecfb45f798ee559))
+
+### Internal
+
+- ignore a strobe-syn-corpus clone inside the checkout ([`2061e54`](https://github.com/lnorton89/strobe/commit/2061e54791b4b4e4041085bf28832dc7cdb48a1d))
 
 ## [0.1.0] - 2026-10-14
 
