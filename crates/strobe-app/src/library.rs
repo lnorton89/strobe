@@ -107,6 +107,11 @@ pub struct Entry {
     pub thumbnail: Option<PathBuf>,
     /// Where it came from (D271).
     pub source: Source,
+    /// Who made it: the scene's `CREDIT`, or the author of the Shadertoy
+    /// shader it was imported from; empty when it says nothing (D282).
+    pub author: String,
+    /// `author` lowercased once, for searching and sorting.
+    pub author_lower: String,
 }
 
 impl Entry {
@@ -121,7 +126,21 @@ impl Entry {
             tags: Vec::new(),
             thumbnail: None,
             source: Source::Own,
+            author: String::new(),
+            author_lower: String::new(),
         }
+    }
+
+    /// This entry, credited to `author`.
+    pub fn with_author(mut self, author: &str) -> Self {
+        self.set_author(author);
+        self
+    }
+
+    /// Credits the scene to `author` (trimmed; blank is nobody).
+    pub fn set_author(&mut self, author: &str) {
+        self.author = author.trim().to_string();
+        self.author_lower = self.author.to_lowercase();
     }
 
     /// This entry with these tags.
@@ -148,7 +167,28 @@ impl Entry {
         let text = std::fs::read_to_string(self.dir.join("scene.json")).unwrap_or_default();
         self.tags = strobe_scene::tags::read(&text);
         self.thumbnail = image_path(&text).map(|relative| self.dir.join(relative));
+        let author = author_of(&text);
+        self.set_author(&author);
     }
+}
+
+/// Who `scene.json` text credits: `CREDIT`, else the `SOURCE.author` of a
+/// shader imported from elsewhere; empty for neither (D282).
+fn author_of(json: &str) -> String {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(json.trim_start_matches('\u{feff}'))
+    else {
+        return String::new();
+    };
+    let named = |value: Option<&serde_json::Value>| {
+        value
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(str::to_string)
+    };
+    named(value.get("CREDIT"))
+        .or_else(|| named(value.get("SOURCE").and_then(|source| source.get("author"))))
+        .unwrap_or_default()
 }
 
 /// `IMAGE_PATH` from `scene.json` text, when it is a path inside the scene
@@ -245,6 +285,73 @@ impl HealthFilter {
     }
 }
 
+/// What the library grid is ordered by (D282). The default is the order the
+/// scan found them in: the library folder's scenes by name, then
+/// Synesthesia's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SortKey {
+    /// The scan's order.
+    #[default]
+    Scan,
+    /// By name, ignoring case, folders of both sources mixed.
+    Name,
+    /// By author, scenes with none last, then by name.
+    Author,
+    /// Favourites first, then by name.
+    Favourites,
+}
+
+impl SortKey {
+    /// Every key, in the order the dropdown offers them.
+    pub const ALL: [SortKey; 4] = [Self::Scan, Self::Name, Self::Author, Self::Favourites];
+
+    /// The key the preferences file stores.
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Scan => "scan",
+            Self::Name => "name",
+            Self::Author => "author",
+            Self::Favourites => "favourites",
+        }
+    }
+
+    /// The dropdown's label.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Scan => "Library order",
+            Self::Name => "Name",
+            Self::Author => "Author",
+            Self::Favourites => "Favourites first",
+        }
+    }
+
+    /// The key stored under `key`, or the default.
+    pub fn from_key(key: &str) -> Self {
+        Self::ALL
+            .into_iter()
+            .find(|sort| sort.key() == key)
+            .unwrap_or_default()
+    }
+
+    /// How `a` orders against `b` under this key, ascending: the entry and
+    /// whether it is a favourite. Run when the visible list is recomputed (a
+    /// change of query, sort or library), never per frame.
+    pub fn compare(self, a: (&Entry, bool), b: (&Entry, bool)) -> std::cmp::Ordering {
+        let by_name = || a.0.lower.cmp(&b.0.lower);
+        match self {
+            Self::Scan => std::cmp::Ordering::Equal,
+            Self::Name => by_name(),
+            Self::Author => match (a.0.author.is_empty(), b.0.author.is_empty()) {
+                (true, false) => std::cmp::Ordering::Greater,
+                (false, true) => std::cmp::Ordering::Less,
+                (true, true) => by_name(),
+                (false, false) => a.0.author_lower.cmp(&b.0.author_lower).then_with(by_name),
+            },
+            Self::Favourites => b.1.cmp(&a.1).then_with(by_name),
+        }
+    }
+}
+
 /// The scene a step of `delta` (1 for next, -1 for previous) from `current`
 /// lands on in a library of `len` scenes: wrapping at both ends, skipping
 /// any scene `is_failed` calls broken, and never landing back on `current`
@@ -281,8 +388,8 @@ pub fn step(
 /// Whether `entry` passes the search `query_lower` (already lowercased and
 /// trimmed; empty matches everything) and the health `filter`.
 ///
-/// The query is a list of words, all of which must appear in the name or
-/// in one of the tags, in any order: `dark tunnel` finds a scene tagged
+/// The query is a list of words, all of which must appear in the name, the
+/// author or one of the tags, in any order: `dark tunnel` finds a scene tagged
 /// `dark` whose name says tunnel. The word `synesthesia` also finds every
 /// scene listed from Synesthesia's install (D271). `broken` and
 /// `favorite`-style keywords are not special yet; the health filter covers
@@ -297,6 +404,7 @@ pub fn matches(
     filter.admits(health, favourite)
         && query_lower.split_whitespace().all(|word| {
             entry.lower.contains(word)
+                || entry.author_lower.contains(word)
                 || entry.tags.iter().any(|tag| tag.contains(word))
                 || entry.source.keyword() == Some(word)
         })
@@ -559,6 +667,22 @@ mod tests {
         );
         std::fs::remove_dir_all(&root)?;
         Ok(())
+    }
+
+    #[test]
+    fn the_author_is_the_credit_then_the_shader_it_came_from_then_nobody() {
+        assert_eq!(
+            author_of(r#"{ "CREDIT": " Ada ", "SOURCE": { "author": "iq" } }"#),
+            "Ada",
+            "the credit wins, trimmed"
+        );
+        assert_eq!(
+            author_of(r#"{ "SOURCE": { "kind": "shadertoy", "author": "iq" } }"#),
+            "iq",
+            "an imported shader names its own author"
+        );
+        assert_eq!(author_of(r#"{ "CREDIT": "  " }"#), "", "blank is nobody");
+        assert_eq!(author_of("not json"), "", "a broken file credits nobody");
     }
 
     fn library(names: &[&str]) -> Library {

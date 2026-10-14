@@ -139,6 +139,7 @@ fn options(library: &Path, work: &Path) -> Options {
         dialects: Dialect::ALL.to_vec(),
         budget: Duration::from_secs(120),
         context: ContextArg::Auto,
+        show_window: false,
         work: work.to_path_buf(),
     }
 }

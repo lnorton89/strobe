@@ -65,6 +65,8 @@ pub struct Options {
     pub budget: Duration,
     /// Where the context comes from.
     pub context: ContextArg,
+    /// A shown tiny window rather than a hidden one (window contexts).
+    pub show_window: bool,
     /// A folder for the workers' result and stderr files, created here and
     /// removed when the run ends.
     pub work: PathBuf,
@@ -172,8 +174,12 @@ fn run_worker_process(
     let Ok(stderr) = File::create(&stderr_path) else {
         return died(format!("cannot create {}", stderr_path.display()));
     };
-    let child = Command::new(&options.exe)
-        .arg(WORKER_FLAG)
+    let mut command = Command::new(&options.exe);
+    command.arg(WORKER_FLAG);
+    if options.show_window {
+        command.arg("--show-window");
+    }
+    let child = command
         .arg("--scene")
         .arg(dir)
         .args(["--dialect", dialect.label()])
@@ -276,7 +282,7 @@ pub fn run_worker(cli: &WorkerCli) -> bool {
         mode: cli.context.mode(),
         api: Some(dialect.api()),
         gl: GlChoice::Auto,
-        tiny: false,
+        tiny: cli.show_window,
     };
     let name = strobe_scene::load::folder_title(&cli.scene);
     let measured = offscreen::run(

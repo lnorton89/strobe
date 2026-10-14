@@ -1,58 +1,79 @@
 // ============================================================================
 // Module:       strobe_app::ui::shell
 // Description:  Composes the control window: title bar and readouts, rail,
-//               contextual panes, the Perform surface and the transport
-//               strip, in a fixed order.
+//               the main view, the side panel (docked, a drawer, or a handle)
+//               and the transport strip, in a fixed order.
 //
-// Dependencies: egui; super::{chrome, perform, transport, browser, inspector,
+// Dependencies: egui; super::{chrome, perform, side, transport, browser,
 //               diagnostics, settings, import, modal, keys, model, theme},
 //               crate::workspace
 // ============================================================================
 
-//! The shell (UI_IMPLEMENTATION_PLAN section 5).
+//! The shell (UI_IMPLEMENTATION_PLAN section 5, D281).
 //!
-//! The shell owns navigation, the title and readout strip, the panes' dock
-//! positions and the modal. It does not own scene controls: a pane receives
-//! a rectangle and draws inside it. Perform is the same surface at every
-//! window size; what changes is how many panes the width allows
-//! ([`crate::workspace::arrange`]).
+//! The shell owns navigation, the title and readout strip, the main view,
+//! the side panel's place and the modal. It does not own scene controls: a
+//! pane receives a rectangle and draws inside it. The topology is
+//! Synesthesia's, three columns under the title bar, with Strobe's transport
+//! strip along the bottom:
 //!
 //! ```text
 //! +------------------------------------------------------------------+
-//! | STROBE  PERFORM / scene          readouts ............  _ [] x   |
-//! +----+----------+------------------------------+------------------+
-//! | P  | browser  | toolbar                      | inspector /      |
-//! | L  | (opt.)   | banners                      | diagnostics /    |
-//! | ...|          | PREVIEW                      | settings (opt.)  |
-//! +----+----------+------------------------------+------------------+
+//! | STROBE  LIBRARY / scene          readouts ............  _ [] x   |
+//! +----+-------------------------------------------+-----------------+
+//! | P  | banners                                   | PREVIEW         |
+//! | L  |                                           | fps audio  [][] |
+//! | G  | main view: the library grid, or the pane  | FAV 1..8        |
+//! | L  | the rail chose (LIST, EDIT, MAP, DIAG,    | CONTROLS|LIST|.. |
+//! | E  | SET, GET), or the large preview (PLAY)    | (tab body)      |
+//! | ...|                                           |                 |
+//! +----+-------------------------------------------+-----------------+
 //! | prev hold next  NOW .. NEXT ..  time  bpm        [BLACKOUT]      |
 //! | macro  macro  macro  macro  macro  macro                         |
+//! | help bar: what the control under the pointer does                |
 //! +------------------------------------------------------------------+
 //! ```
 //!
 //! ## Order matters
 //!
 //! egui panels claim space in the order they are added, outermost first: the
-//! title bar, the transport strip, the rail, the docked panes, and last the
-//! central surface. Splitters and the resize handles are added after
-//! everything so they win the hit test against the panel edge they sit on.
+//! title bar, the help bar, the transport strip, the rail, the side panel (or
+//! its handle), and last the main view. The splitter and the resize handles are added
+//! after everything so they win the hit test against the panel edge they
+//! sit on.
+//!
+//! ## The side panel's three states
+//!
+//! [`crate::workspace::arrange`] decides: *docked* beside the main view
+//! while the main view keeps [`crate::workspace::MAIN_MIN`]; a *drawer*
+//! over the main view below that; and when the panel is closed, a
+//! [`HANDLE`]-wide strip at the right edge with one button that opens it,
+//! so the preview and the controls are never more than one click away.
+//!
+//! ## Banners
+//!
+//! Failures and notices sit above whatever the main view is. They take at
+//! most [`BANNER_SHARE`] of its height and scroll beyond that, so a long
+//! notice in a small window can neither take the main view nor grow the
+//! surface over the transport strip and BLACKOUT (D285).
 //!
 //! ## Pane widths are ours, not egui's
 //!
-//! Docked panes are fixed-size panels whose width comes from
-//! [`Panes`](crate::workspace::Panes); the splitter on each pane's inner edge
-//! writes the new width back. egui's own panel resizing would keep the width
-//! in its widget memory, out of reach of the preferences file and of tests.
+//! The side panel's width comes from [`Panes`](crate::workspace::Panes);
+//! the splitter on its inner edge writes the new width back. egui's own
+//! panel resizing would keep the width in its widget memory, out of reach
+//! of the preferences file and of tests.
 
 use super::chrome::{self, Readouts};
 use super::model::{Action, Model};
 use super::theme::{self, PAD, RAIL_WIDTH, SPACE_SM, SPACE_XS};
 use super::{
-    browser, command_palette, diagnostics, editor, import, inspector, keys, map, modal, perform,
-    playlist, settings, transport,
+    browser, command_palette, diagnostics, editor, help, import, keys, map, modal, perform,
+    playlist, settings, side, transport,
 };
+use crate::icon::Icon;
 use crate::palette::Palette;
-use crate::workspace::{self, Dock, Pane};
+use crate::workspace::{self, Arrangement, Pane};
 use egui::{CornerRadius, Rect, Sense, Stroke, Ui, Vec2};
 
 /// The drawing state the shell keeps between frames: only the readouts'
@@ -62,17 +83,12 @@ pub struct ShellState {
     readouts: Readouts,
 }
 
-/// A splitter to add once everything else is laid out.
-#[derive(Clone, Copy)]
-struct Splitter {
-    pane: Pane,
-    dock: Dock,
-    /// The drawn width of the pane in the other dock, if there is one.
-    other: Option<f32>,
-    window_width: f32,
-    /// The pane panel's rectangle.
-    rect: Rect,
-}
+/// The width of the strip that stands in for the closed side panel.
+pub const HANDLE: f32 = 28.0;
+
+/// The most of the main surface's height the banners take before they
+/// scroll.
+const BANNER_SHARE: f32 = 0.5;
 
 /// Draws the whole control window.
 pub fn show(ui: &mut Ui, shell: &mut ShellState, model: &mut Model<'_>, actions: &mut Vec<Action>) {
@@ -96,35 +112,30 @@ pub fn show(ui: &mut Ui, shell: &mut ShellState, model: &mut Model<'_>, actions:
     let width = ui.ctx().content_rect().width();
     let arrangement = workspace::arrange(&model.ui.panes, width, RAIL_WIDTH);
 
-    chrome::title_bar(ui, model, &mut shell.readouts, &theme, actions);
+    chrome::title_bar(
+        ui,
+        model,
+        &mut shell.readouts,
+        &theme,
+        &arrangement,
+        actions,
+    );
+    // The help bar is the outermost of the bottom panels; the transport
+    // strip sits above it.
+    help::show(ui, &theme, arrangement.main);
     transport::show(ui, model, &theme, actions);
     chrome::nav_rail(ui, model, &theme, &arrangement);
 
-    let mut splitters: [Option<Splitter>; 2] = [None, None];
-    if !arrangement.overlay {
-        if let Some((pane, w)) = arrangement.left {
-            let rect = dock_panel(ui, Dock::Left, pane, w, model, &theme, actions);
-            splitters[0] = Some(Splitter {
-                pane,
-                dock: Dock::Left,
-                other: arrangement.right.map(|(_, w)| w),
-                window_width: width,
-                rect,
-            });
+    let mut splitter = None;
+    match arrangement.side {
+        Some(w) if !arrangement.overlay => {
+            let rect = side_panel(ui, w, model, &shell.readouts, &theme, actions);
+            splitter = Some((rect, width));
         }
-        if let Some((pane, w)) = arrangement.right {
-            let rect = dock_panel(ui, Dock::Right, pane, w, model, &theme, actions);
-            splitters[1] = Some(Splitter {
-                pane,
-                dock: Dock::Right,
-                other: arrangement.left.map(|(_, w)| w),
-                window_width: width,
-                rect,
-            });
-        }
+        Some(_) | None => handle_strip(ui, model, &theme, &arrangement),
     }
 
-    let mut below_toolbar = f32::NAN;
+    let mut below_banners = f32::NAN;
     let central = egui::CentralPanel::default()
         .frame(
             egui::Frame::new()
@@ -132,28 +143,43 @@ pub fn show(ui: &mut Ui, shell: &mut ShellState, model: &mut Model<'_>, actions:
                 .inner_margin(theme::margin_xy(SPACE_SM, SPACE_SM)),
         )
         .show(ui, |ui| {
-            perform::toolbar(ui, model, &theme, &arrangement, actions);
-            ui.add_space(SPACE_XS);
-            // A drawer opens below the toolbar, so it never covers the
-            // output and fullscreen buttons (U-09).
-            below_toolbar = ui.cursor().top();
-            perform::banners(ui, model, &theme, actions);
-            perform::preview(ui, model, &theme, actions);
+            // The banners sit above whatever the main view is, so a scene
+            // that failed is seen from the library as well as from PLAY.
+            // They share the surface: past half of it they scroll, so a
+            // long notice in a small window never takes the main view, and
+            // never grows the surface over the transport strip and BLACKOUT
+            // (U-09).
+            let cap = (ui.available_height() * BANNER_SHARE).max(0.0);
+            egui::ScrollArea::vertical()
+                .id_salt("banners")
+                .max_height(cap)
+                .auto_shrink([false, true])
+                .show(ui, |ui| perform::banners(ui, model, &theme, actions));
+            // A drawer opens below the banners, so it never covers them
+            // (U-09).
+            below_banners = ui.cursor().top();
+            match arrangement.main {
+                None => {
+                    perform::toolbar(ui, model, &theme, actions);
+                    ui.add_space(SPACE_XS);
+                    perform::preview(ui, model, &theme, actions);
+                }
+                Some(pane) => main_view(ui, pane, model, &theme, actions),
+            }
         });
 
-    if arrangement.overlay {
-        let pane = arrangement.right.or(arrangement.left);
-        if let Some((pane, w)) = pane {
-            let mut surface = central.response.rect;
-            if below_toolbar.is_finite() {
-                surface.min.y = below_toolbar.clamp(surface.min.y, surface.max.y);
-            }
-            drawer(ui, pane, w, surface, model, &theme, actions);
+    if arrangement.overlay
+        && let Some(w) = arrangement.side
+    {
+        let mut surface = central.response.rect;
+        if below_banners.is_finite() {
+            surface.min.y = below_banners.clamp(surface.min.y, surface.max.y);
         }
+        drawer(ui, w, surface, model, &shell.readouts, &theme, actions);
     }
 
-    for splitter in splitters.into_iter().flatten() {
-        splitter_handle(ui, splitter, model, &theme);
+    if let Some((rect, window_width)) = splitter {
+        splitter_handle(ui, rect, window_width, model, &theme);
     }
 
     command_palette::draw(ui.ctx(), &theme, model, actions);
@@ -174,7 +200,7 @@ pub fn show(ui: &mut Ui, shell: &mut ShellState, model: &mut Model<'_>, actions:
     }
 }
 
-/// Draws one pane's contents.
+/// Draws one main pane's contents.
 fn pane_body(
     pane: Pane,
     ui: &mut Ui,
@@ -185,42 +211,67 @@ fn pane_body(
     match pane {
         Pane::Browser => browser::show(ui, model, theme, actions),
         Pane::Import => import::show(ui, model, theme, actions),
-        Pane::Inspector => inspector::show(ui, model, theme, actions),
         Pane::Diagnostics => diagnostics::show(ui, model, theme, actions),
         Pane::Settings => settings::show(ui, model, theme, actions),
         Pane::Playlist => playlist::show(ui, model, theme, actions),
         Pane::Map => map::show(ui, model, theme, actions),
         Pane::Editor => editor::show(ui, model, theme, actions),
+        // The side panel; never a main view. Drawn here only if the pane
+        // model were to misfile it, and then as the panel's contents.
+        Pane::Inspector => {
+            super::inspector::show(ui, model, theme, actions, super::inspector::Part::Controls);
+        }
     }
 }
 
-/// A docked pane as a fixed-width panel; returns its rectangle.
-fn dock_panel(
+/// The main view: a pane in a panel-coloured card that fills the surface,
+/// drawn in a child that cannot widen it.
+fn main_view(
     ui: &mut Ui,
-    dock: Dock,
     pane: Pane,
-    width: f32,
     model: &mut Model<'_>,
     theme: &Palette,
     actions: &mut Vec<Action>,
+) {
+    let area = ui.available_rect_before_wrap();
+    ui.painter().rect_filled(
+        area,
+        CornerRadius::same(theme::RADIUS),
+        theme::rgb(theme.panel),
+    );
+    let inner = area.shrink2(Vec2::new(PAD, SPACE_SM));
+    let mut body = ui.new_child(
+        egui::UiBuilder::new()
+            .max_rect(inner)
+            .layout(egui::Layout::top_down(egui::Align::Min)),
+    );
+    body.set_clip_rect(inner.intersect(ui.clip_rect()));
+    pane_body(pane, &mut body, model, theme, actions);
+    ui.advance_cursor_after_rect(area);
+}
+
+/// The docked side panel as a fixed-width panel; returns its rectangle.
+fn side_panel(
+    ui: &mut Ui,
+    width: f32,
+    model: &mut Model<'_>,
+    readouts: &Readouts,
+    theme: &Palette,
+    actions: &mut Vec<Action>,
 ) -> Rect {
-    let panel = match dock {
-        Dock::Left => egui::Panel::left("dock-left"),
-        Dock::Right => egui::Panel::right("dock-right"),
-    };
     let frame = egui::Frame::new()
         .fill(theme::rgb(theme.panel))
         .inner_margin(theme::margin_xy(PAD, SPACE_SM));
-    panel
+    egui::Panel::right("side-panel")
         .exact_size(width)
         .resizable(false)
         .show_separator_line(false)
         .frame(frame)
         .show(ui, |ui| {
-            // The pane draws in a child that cannot widen the panel. A
-            // right panel whose content overflows its exact width moves its
-            // recorded left edge right by the overflow, and the preview then
-            // drew over the pane (the monitor picker over its header).
+            // The panel draws in a child that cannot widen it. A right
+            // panel whose content overflows its exact width moves its
+            // recorded left edge right by the overflow, and the main view
+            // then drew over it (D260).
             let rect = ui.max_rect();
             let mut body = ui.new_child(
                 egui::UiBuilder::new()
@@ -228,20 +279,80 @@ fn dock_panel(
                     .layout(egui::Layout::top_down(egui::Align::Min)),
             );
             body.set_clip_rect(rect.intersect(ui.clip_rect()));
-            pane_body(pane, &mut body, model, theme, actions);
+            side::show(&mut body, model, readouts, theme, actions);
             ui.advance_cursor_after_rect(rect);
         })
         .response
         .rect
 }
 
-/// A pane drawn over the preview, for a window too narrow to dock it.
+/// The strip that stands in for the side panel while it is closed, or
+/// while it is an open drawer: one button that opens or closes it.
+fn handle_strip(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, arrangement: &Arrangement) {
+    let open = arrangement.side.is_some();
+    egui::Panel::right("side-handle")
+        .exact_size(HANDLE)
+        .resizable(false)
+        .show_separator_line(false)
+        .frame(
+            egui::Frame::new()
+                .fill(theme::rgb(theme.panel))
+                .inner_margin(theme::margin_xy(0.0, SPACE_SM)),
+        )
+        .show(ui, |ui| {
+            ui.vertical_centered(|ui| {
+                let (icon, tip) = if open {
+                    (Icon::Close, "Close the panel (Esc)")
+                } else {
+                    (
+                        Icon::Controls,
+                        "Open the panel: preview, controls, playlist and presets",
+                    )
+                };
+                if handle_button(ui, theme, icon, tip).clicked() {
+                    model.ui.panes.toggle_drawn(Pane::Inspector, open);
+                }
+                if !open && model.transport.blackout {
+                    // The output is dark: say so where the panel's badge
+                    // would have.
+                    let (dot, response) = ui.allocate_exact_size(Vec2::splat(12.0), Sense::hover());
+                    ui.painter()
+                        .circle_filled(dot.center(), 4.0, theme::rgb(theme.danger));
+                    response.on_hover_text("BLACKOUT: the output is dark");
+                }
+            });
+        });
+}
+
+/// The handle strip's one button: an icon button that fits the strip.
+fn handle_button(ui: &mut Ui, theme: &Palette, icon: Icon, tooltip: &str) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(Vec2::new(HANDLE - 4.0, 28.0), Sense::click());
+    let fill = super::widgets::hover_fill(
+        ui,
+        response.id,
+        response.hovered(),
+        theme.panel,
+        theme.hover,
+    );
+    ui.painter()
+        .rect_filled(rect, CornerRadius::same(theme::RADIUS), fill);
+    super::icon::paint(
+        ui.painter(),
+        Rect::from_center_size(rect.center(), Vec2::splat(super::icon::INLINE)),
+        icon,
+        theme::rgb(theme.accent),
+    );
+    response.on_hover_text(tooltip)
+}
+
+/// The side panel drawn over the main view, for a window too narrow to
+/// dock it.
 fn drawer(
     ui: &mut Ui,
-    pane: Pane,
     width: f32,
     surface: Rect,
     model: &mut Model<'_>,
+    readouts: &Readouts,
     theme: &Palette,
     actions: &mut Vec<Action>,
 ) {
@@ -251,9 +362,9 @@ fn drawer(
         .fixed_pos(surface.right_top() - Vec2::new(width, 0.0))
         .constrain(false)
         .show(ui.ctx(), |ui| {
-            // Never past the preview: whatever a pane cannot fit is cut
-            // off here, not drawn over the transport strip and BLACKOUT
-            // (U-09, T480 Task 35). The panes scroll inside.
+            // Never past the main view: whatever the panel cannot fit is
+            // cut off here, not drawn over the transport strip and BLACKOUT
+            // (U-09, T480 Task 35). The tabs scroll inside.
             ui.set_clip_rect(surface.intersect(ui.clip_rect()));
             egui::Frame::new()
                 .fill(theme::rgb(theme.panel))
@@ -269,51 +380,53 @@ fn drawer(
                 })
                 .show(ui, |ui| {
                     ui.set_width(width - PAD * 2.0);
-                    ui.set_height(height - SPACE_SM * 2.0);
-                    pane_body(pane, ui, model, theme, actions);
+                    // A tall banner can leave the drawer no room at all.
+                    ui.set_height((height - SPACE_SM * 2.0).max(0.0));
+                    side::show(ui, model, readouts, theme, actions);
                 });
         });
 }
 
-/// The draggable edge on a docked pane's inner side. It paints a line that
-/// brightens under the pointer and writes the dragged width back to the pane
-/// model.
-fn splitter_handle(ui: &mut Ui, splitter: Splitter, model: &mut Model<'_>, theme: &Palette) {
+/// The draggable edge on the docked side panel's inner side. It paints a
+/// line that brightens under the pointer and writes the dragged width back
+/// to the pane model; a double-click makes the width follow the window
+/// again (D281).
+fn splitter_handle(
+    ui: &mut Ui,
+    panel: Rect,
+    window_width: f32,
+    model: &mut Model<'_>,
+    theme: &Palette,
+) {
     const GRAB: f32 = 8.0;
-    let x = match splitter.dock {
-        Dock::Left => splitter.rect.right(),
-        Dock::Right => splitter.rect.left(),
-    };
+    let x = panel.left();
     let rect = Rect::from_center_size(
-        egui::pos2(x, splitter.rect.center().y),
-        Vec2::new(GRAB, splitter.rect.height()),
+        egui::pos2(x, panel.center().y),
+        Vec2::new(GRAB, panel.height()),
     );
-    let id = egui::Id::new(("splitter", splitter.pane.key()));
+    let id = egui::Id::new(("splitter", Pane::Inspector.key()));
     let response = ui
-        .interact(rect, id, Sense::drag())
+        .interact(rect, id, Sense::click_and_drag())
         .on_hover_cursor(egui::CursorIcon::ResizeHorizontal);
-    if response.dragged()
+    if response.hovered() {
+        help::say("Drag to resize the panel. Double-click to let it follow the window again.");
+    }
+    if response.double_clicked() {
+        model.ui.panes.follow_window();
+    } else if response.dragged()
         && let Some(pos) = response.interact_pointer_pos()
     {
-        let width = match splitter.dock {
-            Dock::Left => pos.x - splitter.rect.left(),
-            Dock::Right => splitter.rect.right() - pos.x,
-        };
-        // Dragging a pane wider must not push its neighbour out of the
-        // window: stop at the limit instead.
-        let limit = workspace::drag_limit(
-            splitter.pane,
-            splitter.window_width,
-            RAIL_WIDTH,
-            splitter.other,
-        );
-        model.ui.panes.set_width(splitter.pane, width.min(limit));
+        let width = panel.right() - pos.x;
+        // Dragging the panel wider must not squeeze the main view below
+        // its minimum: stop at the limit instead.
+        let limit = workspace::drag_limit(window_width, RAIL_WIDTH);
+        model.ui.panes.set_width(Pane::Inspector, width.min(limit));
     }
     let lit = response.hovered() || response.dragged();
     let colour = if lit { theme.accent } else { theme.border };
     ui.painter().vline(
         x,
-        splitter.rect.y_range(),
+        panel.y_range(),
         Stroke::new(if lit { 2.0 } else { 1.0 }, theme::rgb(colour)),
     );
 }

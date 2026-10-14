@@ -70,6 +70,7 @@ fn run(cli: &Cli) -> Result<()> {
         dialects: cli.dialect.dialects(),
         budget: cli.budget(),
         context: cli.context,
+        show_window: cli.show_window,
         work: cli.out.join(".work"),
     };
     let outcome = driver::run_library(&options, progress)?;

@@ -80,6 +80,9 @@ struct Scenario {
     script: Option<&'static str>,
     loading: bool,
     notice: bool,
+    /// The notice is several sentences long: it must wrap inside the main
+    /// view and never push a panel over BLACKOUT.
+    long_notice: bool,
     previewing: bool,
     replace: bool,
     /// A playlist is loaded (its scenes `02-scene-1` and `ghost` cannot play).
@@ -121,6 +124,13 @@ struct Scenario {
     /// Settings' watched folder: whether the app refused it, and its line
     /// (D265).
     watch: Option<(bool, &'static str)>,
+    /// The side panel's tab (D283).
+    side_tab: crate::ui::side::SideTab,
+    /// The library grid's card size (D282).
+    cards: crate::ui::browser::CardSize,
+    /// The grid is sorted by author, descending, with the favourites toggle
+    /// on, and the scenes carry authors (D282).
+    ordered: bool,
     /// Synesthesia's own scenes are listed after the library's (D271):
     /// `01-scene-0` (a name the library has too), `glow` and `ink` from the
     /// install, and `deep-sea` from a folder in Synesthesia's settings. With
@@ -129,6 +139,8 @@ struct Scenario {
     /// The playing scene, the Editor's and a refused write are Synesthesia's
     /// `01-scene-0`: read-only rows, and a notice offering the copy.
     on_synesthesia: bool,
+    /// The open panes: the newest main pane is the main view, and
+    /// `Pane::Inspector` is the side panel (D281).
     panes: &'static [Pane],
 }
 
@@ -144,6 +156,7 @@ const BASE: Scenario = Scenario {
     script: None,
     loading: false,
     notice: false,
+    long_notice: false,
     previewing: false,
     replace: false,
     playlist: false,
@@ -162,18 +175,102 @@ const BASE: Scenario = Scenario {
     generate: false,
     browser_selected: false,
     watch: None,
+    ordered: false,
     synesthesia: false,
     on_synesthesia: false,
-    panes: &[Pane::Inspector],
+    side_tab: crate::ui::side::SideTab::Controls,
+    cards: crate::ui::browser::CardSize::Medium,
+    panes: &[Pane::Inspector, Pane::Browser],
 };
 
 fn scenarios() -> Vec<Scenario> {
     vec![
         BASE,
         Scenario {
-            name: "compact, browser and inspector",
+            name: "compact, small cards",
             density: crate::ui::theme::Density::Compact,
-            panes: &[Pane::Browser, Pane::Inspector],
+            cards: crate::ui::browser::CardSize::Small,
+            ..BASE
+        },
+        Scenario {
+            name: "large cards, failed scene",
+            cards: crate::ui::browser::CardSize::Large,
+            failed: true,
+            ..BASE
+        },
+        Scenario {
+            name: "side panel on the playlist tab",
+            playlist: true,
+            side_tab: crate::ui::side::SideTab::Playlist,
+            ..BASE
+        },
+        Scenario {
+            name: "side panel on the playlist tab, no playlist",
+            side_tab: crate::ui::side::SideTab::Playlist,
+            ..BASE
+        },
+        Scenario {
+            name: "side panel on the presets tab",
+            side_tab: crate::ui::side::SideTab::Presets,
+            ..BASE
+        },
+        Scenario {
+            name: "side panel on the presets tab, no scene",
+            side_tab: crate::ui::side::SideTab::Presets,
+            playing: false,
+            ..BASE
+        },
+        Scenario {
+            name: "side panel on the edit tab",
+            side_tab: crate::ui::side::SideTab::Edit,
+            tagging: true,
+            ..BASE
+        },
+        Scenario {
+            name: "side panel on the edit tab, no scene",
+            side_tab: crate::ui::side::SideTab::Edit,
+            playing: false,
+            ..BASE
+        },
+        Scenario {
+            name: "library sorted by author, favourites only",
+            ordered: true,
+            browser_selected: true,
+            ..BASE
+        },
+        Scenario {
+            name: "library sorted by author, favourites only, compact",
+            ordered: true,
+            density: crate::ui::theme::Density::Compact,
+            cards: crate::ui::browser::CardSize::Small,
+            ..BASE
+        },
+        Scenario {
+            name: "a long notice over the library",
+            long_notice: true,
+            ..BASE
+        },
+        Scenario {
+            name: "a long notice over the play view",
+            long_notice: true,
+            panes: &[Pane::Inspector],
+            ..BASE
+        },
+        Scenario {
+            name: "side panel collapsed",
+            panes: &[Pane::Browser],
+            ..BASE
+        },
+        Scenario {
+            name: "side panel collapsed, blackout, output hidden",
+            blackout: true,
+            output_visible: false,
+            panes: &[Pane::Browser],
+            ..BASE
+        },
+        Scenario {
+            name: "play view with the side panel",
+            panes: &[Pane::Inspector],
             ..BASE
         },
         Scenario {
@@ -470,6 +567,23 @@ fn scenarios() -> Vec<Scenario> {
             ],
             ..BASE
         },
+        Scenario {
+            name: "every pane, playlist tab, compact",
+            playlist: true,
+            side_tab: crate::ui::side::SideTab::Playlist,
+            density: crate::ui::theme::Density::Compact,
+            panes: &[
+                Pane::Browser,
+                Pane::Import,
+                Pane::Diagnostics,
+                Pane::Settings,
+                Pane::Playlist,
+                Pane::Map,
+                Pane::Editor,
+                Pane::Inspector,
+            ],
+            ..BASE
+        },
     ]
 }
 
@@ -730,10 +844,13 @@ fn draw_events(
                 let entry = Entry::new(format!("{:02}-scene-{i}", i + 1), PathBuf::from("x"));
                 // The playing scene carries tags, so the Inspector's chips
                 // are measured at every size.
-                if i == 0 {
-                    entry.with_tags(&["dark", "tunnel", "audio reactive", "3d", "raymarching"])
-                } else {
-                    entry
+                match i {
+                    0 => {
+                        entry.with_tags(&["dark", "tunnel", "audio reactive", "3d", "raymarching"])
+                    }
+                    1 => entry.with_author("Ada Lovelace"),
+                    2 => entry.with_author("An author credit long enough to be cut short"),
+                    _ => entry,
                 }
             })
             .collect(),
@@ -792,6 +909,8 @@ fn draw_events(
         ui_state.panes.open(*pane);
     }
     ui_state.hotkeys.capturing = scenario.capturing;
+    ui_state.side_tab = scenario.side_tab;
+    ui_state.browser.cards = scenario.cards;
     if let Some(query) = scenario.palette {
         ui_state.command_palette.open_with(query);
     }
@@ -849,6 +968,14 @@ fn draw_events(
         } else {
             2
         });
+    }
+    if scenario.ordered {
+        ui_state.browser.sort = crate::library::SortKey::Author;
+        ui_state.browser.descending = true;
+        ui_state.browser.filter = crate::library::HealthFilter::Favourites;
+        for name in ["02-scene-1", "03-scene-2", "04-scene-3"] {
+            ui_state.browser.toggle_favourite(name);
+        }
     }
     if scenario.synesthesia {
         ui_state.synesthesia.note = "4 scenes from C:\\Program Files (x86)\\Synesthesia and \
@@ -954,9 +1081,18 @@ fn draw_events(
                     }),
                 })
             } else {
-                scenario.notice.then_some(NoticePanel {
+                (scenario.notice || scenario.long_notice).then_some(NoticePanel {
                     tone: Tone::Info,
-                    text: "The graphics context was lost and rebuilt on ANGLE in 181 ms.",
+                    text: if scenario.long_notice {
+                        "The graphics context was lost and rebuilt on ANGLE in 181 ms. Two \
+                         frames were dropped, the scene was reloaded from its folder and its \
+                         controls kept their values; the output window stayed where it was. If \
+                         it happens again in the next minute the app stays on ANGLE until you \
+                         restart it, which is slower on this machine but does not lose the \
+                         context."
+                    } else {
+                        "The graphics context was lost and rebuilt on ANGLE in 181 ms."
+                    },
                     offer: None,
                 })
             },
@@ -1302,8 +1438,8 @@ fn escape_closes_the_palette_and_gives_the_keyboard_back() -> Result<()> {
     );
     assert_eq!(
         drawn.open_panes,
-        vec![Pane::Inspector],
-        "Escape closed the palette, not the pane behind it"
+        vec![Pane::Browser, Pane::Inspector],
+        "Escape closed the palette, not the panes behind it"
     );
     Ok(())
 }
@@ -1465,7 +1601,9 @@ fn screenshots_when_asked() -> Result<()> {
     let sizes = SIZES.iter().copied().chain(SMALL_SIZES);
     for size in sizes {
         for scenario in scenarios() {
-            let mut drawn = draw(scenario, size, 3)?;
+            // Enough frames for a drawer to finish fading in, so the picture
+            // is the settled one.
+            let mut drawn = draw(scenario, size, 20)?;
             let name = format!("{}-{}x{}.png", scenario.name, size.0, size.1);
             if !shoot(&mut drawn, size, &dir.join(name))? {
                 return Ok(());
@@ -1608,6 +1746,41 @@ fn no_text_is_drawn_over_other_text_at_any_size() -> Result<()> {
         "{} overlaps:\n{}",
         failures.len(),
         failures.join("\n")
+    );
+    Ok(())
+}
+
+#[test]
+fn the_fav_slots_are_in_reach_from_every_tab_where_the_panel_has_room() -> Result<()> {
+    // Synesthesia keeps its fav slots on screen whatever the panel shows,
+    // and a performer reaches for them mid-show (D176, D283).
+    for size in [(1920.0, 1080.0), (1280.0, 720.0), (900.0, 600.0)] {
+        for tab in crate::ui::side::SideTab::ALL {
+            let scenario = Scenario {
+                side_tab: tab,
+                ..BASE
+            };
+            let drawn = draw(scenario, size, 3)?;
+            assert!(
+                texts(&drawn).iter().any(|(_, line, _)| line == "FAV"),
+                "no fav slots on the {tab:?} tab at {size:?}"
+            );
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn a_short_drawer_keeps_room_for_the_controls() -> Result<()> {
+    // At 427x320 the drawer is too short for the picture and the tab's
+    // body both: the picture gives way, so the scene's controls are still
+    // there to reach (U-09).
+    let drawn = draw(BASE, (427.0, 320.0), 3)?;
+    assert!(
+        texts(&drawn)
+            .iter()
+            .any(|(_, line, _)| line == "Aurora Field"),
+        "the Controls tab's body is not drawn in the drawer at 427x320"
     );
     Ok(())
 }
