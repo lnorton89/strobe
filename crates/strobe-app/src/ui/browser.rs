@@ -1,8 +1,8 @@
 // ============================================================================
 // Module:       strobe_app::ui::browser
-// Description:  The scene library, the default main view: search, health
-//               filter, a card size, a virtualised grid of thumbnail cards,
-//               and Preview kept separate from Load.
+// Description:  The scene library, the default main view: a toolbar, a filter
+//               row (count, search, sort, favourites, health), a virtualised
+//               grid of thumbnail cards, and Preview kept separate from Load.
 //
 // Dependencies: egui; super::{model, theme, widgets, state, thumbs, tags},
 //               crate::library
@@ -25,32 +25,46 @@
 //!   card.
 //!
 //! ```text
-//! [search names and tags            x]   12 of 12   [All][Ready][Failed][Fav]  [S][M][L]
+//! [+ New scene] [refresh]                                       [S][M][L]
+//! 88/88  [ search names, authors, tags  Ctrl+F ] [Sort v][^] [*] [Show v]
 //! +----------+ +----------+ +----------+ +----------+
-//! | picture  | | picture  | | picture  | | picture  |
-//! | Name   * | | Name   * | | Name   * | | Name   * |
-//! | Playing  | | Ready    | | tags...  | | Failed:..|
+//! | picture  | | picture* | | picture  | | picture  |
+//! | Title ...| | Title ...| | Title ...| | Title ...|
+//! | author   | | author   | | author   | | Failed:..|
 //! +----------+ +----------+ +----------+ +----------+
 //! ```
 //!
+//! The **toolbar** has New scene (it opens Import: a scene starts from a
+//! Shadertoy shader, or from Copy to my library), a rescan, and the
+//! thumbnail-size switch. The **filter row** has the count, a wide search,
+//! the sort (Library order, Name, Author, Favourites first) with its
+//! direction, a favourites-only star and the health filter (All, Ready,
+//! Needs work, Favourites). Below 560 points the search keeps a row with the
+//! count and the rest take the next.
+//!
 //! Each card shows the scene's picture (`IMAGE_PATH`, decoded off the UI
-//! thread, D212; or the frame the operator kept, D222), its name, its star,
-//! and its health as an icon and a word, never colour alone: `Playing`,
-//! `Ready` once it has loaded, `Failed` with the first line of why, and
-//! otherwise its tags. A scene with no picture shows its identity colour
-//! and initial, so the grid stays a grid. The grid is virtualised by row
-//! (`ScrollArea::show_rows`), so a library of thousands costs the same as a
-//! library of ten, and the filtered indices are cached until the query, the
-//! filter or the library changes.
+//! thread, D212; or the frame the operator kept, D222), its title, its
+//! author (`CREDIT`, else the imported shader's author), a "..." menu (the
+//! same as a right-click), and its health: a state chip over the picture
+//! (`PLAYING`, `PREPARING`, `PREVIEW`, `FAILED`), a check before the author
+//! once it has loaded, `Failed: ...` in place of the author when it did not,
+//! and the star over the picture's corner. Never colour alone. A scene with
+//! no picture shows its identity colour and initial, so the grid stays a
+//! grid. The grid is virtualised by row (`ScrollArea::show_rows`), so a
+//! library of thousands costs the same as a library of ten, and the
+//! filtered, sorted indices are cached until the query, the filter, the
+//! sort or the library changes.
 //!
 //! The selected scene's tags sit above the grid, with the Inspector's tag
 //! row, so a scene can be tagged without playing it (D264).
 //!
 //! Synesthesia's own scenes, where it is installed, are listed after the
-//! library folder's (D271). Their rows end their status line with a faint
-//! "Synesthesia", the count under the filters says how many there are, the
-//! search word `synesthesia` finds them all, and a selected one offers Copy
-//! to my library where the tag field's Edit would be.
+//! library folder's (D271). Their cards end the author line with a faint
+//! "Synesthesia", the count says how many there are, the search word
+//! `synesthesia` finds them all, and a selected one offers Copy to my
+//! library where the tag field's Edit would be (the card's menu has it too).
+//! Cards are keyed by name and folder, so a name in both places is two
+//! cards.
 
 use super::icon as icons;
 use super::model::{Action, Model};
@@ -61,7 +75,9 @@ use crate::icon::Icon;
 use crate::library::{Health, HealthFilter, SortKey};
 use crate::palette::Palette;
 use crate::workspace::Pane;
-use egui::{Align, CornerRadius, Key, Layout, Rect, Sense, Stroke, StrokeKind, Ui, UiBuilder, Vec2};
+use egui::{
+    Align, CornerRadius, Key, Layout, Rect, Sense, Stroke, StrokeKind, Ui, UiBuilder, Vec2,
+};
 
 /// The id of the search field, so a command can focus it.
 pub const SEARCH_ID: &str = "browser-search";
@@ -201,11 +217,7 @@ fn toolbar(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Ve
                 let active = model.ui.browser.cards == *size;
                 let (rect, response) =
                     ui.allocate_exact_size(Vec2::new(26.0, 26.0), Sense::click());
-                let fill = if active {
-                    theme.accent
-                } else {
-                    theme.raised
-                };
+                let fill = if active { theme.accent } else { theme.raised };
                 let fill = widgets::hover_fill(
                     ui,
                     response.id,
@@ -226,10 +238,7 @@ fn toolbar(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Ve
                         theme.text
                     }),
                 );
-                if response
-                    .on_hover_text(format!("{} thumbnails", size.key()))
-                    .clicked()
-                {
+                if super::help::hovered(response, &format!("{} thumbnails", size.key())).clicked() {
                     model.ui.browser.cards = *size;
                 }
             }
@@ -264,7 +273,8 @@ fn filter_row(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut
         } else {
             // What the right-hand controls take, measured the same way they
             // are drawn: the search gets the rest.
-            let controls = SORT_WIDTH + 26.0 + 26.0 + SHOW_WIDTH + ui.spacing().item_spacing.x * 4.0;
+            let controls =
+                SORT_WIDTH + 26.0 + 26.0 + SHOW_WIDTH + ui.spacing().item_spacing.x * 4.0;
             let width = (ui.available_width() - controls).max(120.0);
             search = Some(search_field(ui, model, theme, had_focus, width));
             order_controls(ui, model, theme);
@@ -300,10 +310,7 @@ fn count_label(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, brief: bool)
         format!("{shown}/{total}, {theirs} from Synesthesia")
     };
     let label = ui
-        .label(
-            egui::RichText::new(count)
-                .color(theme::rgb(theme.text_muted)),
-        )
+        .label(egui::RichText::new(count).color(theme::rgb(theme.text_muted)))
         .on_hover_text("Scenes shown of scenes in the library");
     if theirs > 0 {
         label.on_hover_text(format!(
@@ -510,7 +517,11 @@ fn order_controls(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette) {
 /// A 26-point square icon button, filled with the accent while `active`.
 fn square_button(ui: &mut Ui, theme: &Palette, icon: Icon, active: bool) -> egui::Response {
     let (rect, response) = ui.allocate_exact_size(Vec2::splat(26.0), Sense::click());
-    let rest = if active { theme.accent_soft } else { theme.raised };
+    let rest = if active {
+        theme.accent_soft
+    } else {
+        theme.raised
+    };
     let fill = widgets::hover_fill(ui, response.id, response.hovered(), rest, theme.hover);
     ui.painter()
         .rect_filled(rect, CornerRadius::same(theme::RADIUS), fill);
@@ -793,13 +804,37 @@ fn card(
         badges.scope(|ui| {
             ui.horizontal(|ui| {
                 if loading {
-                    widgets::status_chip_over(ui, Icon::Refresh, "PREPARING", theme.accent, Some(theme.app));
+                    widgets::status_chip_over(
+                        ui,
+                        Icon::Refresh,
+                        "PREPARING",
+                        theme.accent,
+                        Some(theme.app),
+                    );
                 } else if playing {
-                    widgets::status_chip_over(ui, Icon::Play, "PLAYING", theme.accent, Some(theme.app));
+                    widgets::status_chip_over(
+                        ui,
+                        Icon::Play,
+                        "PLAYING",
+                        theme.accent,
+                        Some(theme.app),
+                    );
                 } else if previewed {
-                    widgets::status_chip_over(ui, Icon::Output, "PREVIEW", theme.info, Some(theme.app));
+                    widgets::status_chip_over(
+                        ui,
+                        Icon::Output,
+                        "PREVIEW",
+                        theme.info,
+                        Some(theme.app),
+                    );
                 } else {
-                    widgets::status_chip_over(ui, Icon::Error, "FAILED", theme.danger, Some(theme.app));
+                    widgets::status_chip_over(
+                        ui,
+                        Icon::Error,
+                        "FAILED",
+                        theme.danger,
+                        Some(theme.app),
+                    );
                 }
             });
         });
@@ -830,7 +865,14 @@ fn card(
         tags: entry.tags.as_slice(),
         source: entry.source.label(),
     };
-    byline(ui, theme, &line, text_x, band, band.width() - SPACE_SM * 2.0);
+    byline(
+        ui,
+        theme,
+        &line,
+        text_x,
+        band,
+        band.width() - SPACE_SM * 2.0,
+    );
 
     // A selected card is outlined in the accent; a playing one in the
     // accent too, thinner, so it is found in the grid at a glance.
@@ -853,6 +895,12 @@ fn card(
         );
     }
 
+    if response.hovered() {
+        super::help::say(
+            "Double-click to load this scene. Click to select it; right-click, or the ... \
+             button, for Preview, favourites and Edit.",
+        );
+    }
     if let Health::Failed(reason) = health {
         response.clone().on_hover_text(reason);
     } else if response.hovered() && !entry.tags.is_empty() {
@@ -874,7 +922,10 @@ fn card(
     // The "..." at the right of the title opens the same menu a
     // right-click does.
     let dots = Rect::from_center_size(
-        egui::pos2(band.right() - SPACE_XS - DOTS / 2.0, band.top() + inset + 8.0),
+        egui::pos2(
+            band.right() - SPACE_XS - DOTS / 2.0,
+            band.top() + inset + 8.0,
+        ),
         Vec2::splat(DOTS),
     );
     let dots_response = ui
@@ -949,7 +1000,10 @@ fn card(
     // The star, over the picture's top-right corner, always in its slot
     // (D211).
     let star = Rect::from_center_size(
-        egui::pos2(picture.right() - SPACE_XS - STAR / 2.0, picture.top() + SPACE_XS + STAR / 2.0),
+        egui::pos2(
+            picture.right() - SPACE_XS - STAR / 2.0,
+            picture.top() + SPACE_XS + STAR / 2.0,
+        ),
         Vec2::splat(STAR),
     );
     let star_response = ui.interact(star, id.with("star"), Sense::click());
@@ -985,7 +1039,10 @@ fn card(
     // The verbs, over the picture's bottom edge, on the selected card.
     if selected {
         let verbs = Rect::from_min_max(
-            egui::pos2(picture.left() + SPACE_XS, picture.bottom() - 28.0 - SPACE_XS),
+            egui::pos2(
+                picture.left() + SPACE_XS,
+                picture.bottom() - 28.0 - SPACE_XS,
+            ),
             egui::pos2(picture.right() - SPACE_XS, picture.bottom() - SPACE_XS),
         );
         let mut verb_ui = ui.new_child(
@@ -993,38 +1050,32 @@ fn card(
                 .max_rect(verbs)
                 .layout(Layout::right_to_left(Align::Center)),
         );
-        verb_ui.scope(
-            |ui| {
-                if playing {
-                    if widgets::button(ui, theme, Some(Icon::Refresh), "Reload")
-                        .on_hover_text("Reload this scene from disk")
-                        .clicked()
-                    {
-                        actions.push(Action::Reload);
-                    }
-                } else {
-                    if widgets::button(ui, theme, Some(Icon::Play), "Load")
-                        .on_hover_text(
-                            "Make this scene live. If it fails, the current scene stays.",
-                        )
-                        .clicked()
-                    {
-                        actions.push(Action::Load(index));
-                    }
-                    // A narrow card has room for one verb; Preview stays in
-                    // the right-click menu.
-                    if verbs.width() >= 150.0
-                        && widgets::button(ui, theme, Some(Icon::Output), "Preview")
-                            .on_hover_text(
-                                "Prepare this scene here without changing what is live",
-                            )
-                            .clicked()
-                    {
-                        actions.push(Action::Preview(index));
-                    }
+        verb_ui.scope(|ui| {
+            if playing {
+                if widgets::button(ui, theme, Some(Icon::Refresh), "Reload")
+                    .on_hover_text("Reload this scene from disk")
+                    .clicked()
+                {
+                    actions.push(Action::Reload);
                 }
-            },
-        );
+            } else {
+                if widgets::button(ui, theme, Some(Icon::Play), "Load")
+                    .on_hover_text("Make this scene live. If it fails, the current scene stays.")
+                    .clicked()
+                {
+                    actions.push(Action::Load(index));
+                }
+                // A narrow card has room for one verb; Preview stays in
+                // the right-click menu.
+                if verbs.width() >= 150.0
+                    && widgets::button(ui, theme, Some(Icon::Output), "Preview")
+                        .on_hover_text("Prepare this scene here without changing what is live")
+                        .clicked()
+                {
+                    actions.push(Action::Preview(index));
+                }
+            }
+        });
     }
 }
 

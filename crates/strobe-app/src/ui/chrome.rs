@@ -914,7 +914,7 @@ fn rail_entry(
         None => is_play && nothing_shown,
     };
     let response = widgets::nav_item(ui, theme, icon, label, active, built, labels);
-    let response = response.on_hover_text(tooltip);
+    let response = super::help::hovered(response, tooltip);
     if built && response.clicked() {
         match pane {
             Some(pane) => model.ui.panes.toggle_drawn(pane, shown(pane)),

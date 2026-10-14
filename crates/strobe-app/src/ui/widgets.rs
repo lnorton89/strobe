@@ -214,7 +214,7 @@ pub fn icon_button(ui: &mut Ui, theme: &Palette, icon: Icon, tooltip: &str) -> R
         icon,
         theme::rgb(theme.text),
     );
-    response.on_hover_text(tooltip)
+    super::help::hovered(response, tooltip)
 }
 
 /// A window-control button for the custom title bar. The close variant
@@ -245,7 +245,7 @@ pub fn window_button(
         icon,
         theme::rgb(mark),
     );
-    response.on_hover_text(tooltip)
+    super::help::hovered(response, tooltip)
 }
 
 /// A small tool button: an icon and a label, tinted when `active`.
@@ -333,9 +333,9 @@ pub fn tool_button_fitted(
     response
         .widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, active, label));
     if labelled {
-        response.on_hover_text(tooltip)
+        super::help::hovered(response, tooltip)
     } else {
-        response.on_hover_text(format!("{label}. {tooltip}"))
+        super::help::hovered(response, &format!("{label}. {tooltip}"))
     }
 }
 
@@ -388,7 +388,7 @@ pub fn transport_button(
         icon,
         theme::rgb(mark),
     );
-    response.on_hover_text(tooltip)
+    super::help::hovered(response, tooltip)
 }
 
 /// The blackout button: a distinct danger-outlined control that fills when
@@ -438,7 +438,7 @@ pub fn blackout_button(ui: &mut Ui, theme: &Palette, on: bool, tooltip: &str) ->
         galley,
         theme::rgb(colour),
     );
-    response.on_hover_text(tooltip)
+    super::help::hovered(response, tooltip)
 }
 
 /// A primary (accent-filled) button.
@@ -810,6 +810,9 @@ pub fn banner(
     const WIDE: f32 = 520.0;
     let colour = tone.colour(theme);
     let wide = ui.available_width() >= WIDE;
+    // Called in the first row when wide, in a wrapping row of its own when
+    // not: one or the other, never both.
+    let mut buttons = Some(buttons);
     egui::Frame::new()
         .fill(theme::translucent(colour, 28))
         .stroke(Stroke::new(1.0, theme::rgb(colour)))
@@ -825,29 +828,41 @@ pub fn banner(
                         .strong()
                         .color(theme::rgb(colour)),
                 );
+                if !wide {
+                    return;
+                }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    buttons(ui);
-                    if wide {
-                        let width = ui.available_width();
-                        let galley = truncated(
-                            ui,
-                            message,
-                            TextStyle::Body.resolve(ui.style()),
-                            theme.text,
-                            width,
-                        );
-                        let (rect, response) = ui.allocate_exact_size(
-                            Vec2::new(width.min(galley.size().x), galley.size().y),
-                            Sense::hover(),
-                        );
-                        ui.painter()
-                            .galley(rect.left_top(), galley, theme::rgb(theme.text));
-                        response.on_hover_text(message);
+                    if let Some(buttons) = buttons.take() {
+                        buttons(ui);
                     }
+                    let width = ui.available_width();
+                    let galley = truncated(
+                        ui,
+                        message,
+                        TextStyle::Body.resolve(ui.style()),
+                        theme.text,
+                        width,
+                    );
+                    let (rect, response) = ui.allocate_exact_size(
+                        Vec2::new(width.min(galley.size().x), galley.size().y),
+                        Sense::hover(),
+                    );
+                    ui.painter()
+                        .galley(rect.left_top(), galley, theme::rgb(theme.text));
+                    response.on_hover_text(message);
                 });
             });
             if !wide {
                 ui.label(egui::RichText::new(message).color(theme::rgb(theme.text)));
+                // The buttons wrap onto as many rows as the width needs,
+                // the first at the right edge as ever, so three of them
+                // never push the banner wider than its surface.
+                if let Some(buttons) = buttons.take() {
+                    ui.with_layout(
+                        egui::Layout::right_to_left(egui::Align::Center).with_main_wrap(true),
+                        buttons,
+                    );
+                }
             }
         });
 }
@@ -972,5 +987,42 @@ mod tests {
             width = response.rect.width();
         });
         assert!(width.is_finite() && width > 0.0, "meter width {width}");
+    }
+
+    #[test]
+    fn a_banner_with_three_buttons_stays_inside_a_narrow_surface() {
+        const SURFACE: f32 = 250.0;
+        let ctx = egui::Context::default();
+        let theme = crate::palette::fallback().clone();
+        theme::apply(&ctx, &theme, theme::Density::default());
+        let mut used = Rect::NOTHING;
+        let _ = crate::ui::testing::run(
+            &ctx,
+            crate::ui::testing::input(Vec2::new(800.0, 600.0), Vec::new()),
+            |ui| {
+                let area = Rect::from_min_size(egui::pos2(300.0, 20.0), Vec2::new(SURFACE, 400.0));
+                let mut child = ui.new_child(
+                    egui::UiBuilder::new()
+                        .max_rect(area)
+                        .layout(egui::Layout::top_down(egui::Align::Min)),
+                );
+                banner(
+                    &mut child,
+                    &theme,
+                    Tone::Error,
+                    "01-scene-0 did not load: main.glsl:42: unknown identifier. Nothing is playing.",
+                    |ui| {
+                        for label in ["Open in Editor", "Dismiss", "Diagnostics"] {
+                            let _ = button(ui, &theme, None, label);
+                        }
+                    },
+                );
+                used = child.min_rect();
+            },
+        );
+        assert!(
+            used.left() >= 300.0 - 0.5 && used.right() <= 300.0 + SURFACE + 0.5,
+            "the banner spans {used:?}, outside the surface it was given"
+        );
     }
 }

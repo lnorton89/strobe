@@ -118,12 +118,12 @@ impl BrowserState {
                     .get(index)
                     .is_some_and(|entry| favourites.binary_search(&entry.name).is_ok())
             };
-            self.visible.sort_by(|a, b| {
-                match (library.entries.get(*a), library.entries.get(*b)) {
+            self.visible.sort_by(
+                |a, b| match (library.entries.get(*a), library.entries.get(*b)) {
                     (Some(x), Some(y)) => self.sort.compare((x, favourite(*a)), (y, favourite(*b))),
                     (Some(_), None) | (None, Some(_)) | (None, None) => std::cmp::Ordering::Equal,
-                }
-            });
+                },
+            );
         }
         if self.descending {
             self.visible.reverse();
@@ -339,8 +339,7 @@ impl UiState {
                 },
                 sort: SortKey::from_key(&prefs.browser.sort),
                 descending: prefs.browser.descending,
-                cards: super::browser::CardSize::from_key(&prefs.browser.cards)
-                    .unwrap_or_default(),
+                cards: super::browser::CardSize::from_key(&prefs.browser.cards).unwrap_or_default(),
                 ..BrowserState::default()
             },
             collapsed_groups: prefs.collapsed_groups.clone(),
@@ -722,11 +721,7 @@ mod tests {
             "by author, the unsigned last"
         );
         browser.descending = true;
-        assert_eq!(
-            browser.visible(&lib, &health, 1),
-            &[1, 0, 2],
-            "reversed"
-        );
+        assert_eq!(browser.visible(&lib, &health, 1), &[1, 0, 2], "reversed");
         browser.descending = false;
         browser.sort = SortKey::Favourites;
         browser.toggle_favourite("c-grid");
@@ -837,11 +832,7 @@ mod tests {
             crate::ui::browser::CardSize::Large,
             "card size"
         );
-        assert_eq!(
-            back.side_tab,
-            crate::ui::side::SideTab::Presets,
-            "side tab"
-        );
+        assert_eq!(back.side_tab, crate::ui::side::SideTab::Presets, "side tab");
         assert!(back.is_collapsed("Motion"), "collapsed group");
         assert_eq!(back.theme_id(), "graphite", "theme");
         assert_eq!(

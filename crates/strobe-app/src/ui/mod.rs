@@ -35,14 +35,15 @@
 //!   [`modal`].
 //! - The shell: [`shell`] composes [`chrome`] (title bar, readouts, rail,
 //!   resize handles), the main view, [`side`] (the persistent panel:
-//!   preview, status strip, fav slots and tabs) and [`transport`] with
-//!   [`macros`]. [`perform`] draws the live preview, at full size as the
+//!   preview, status strip and icon tabs), [`help`] (the bar along the
+//!   bottom) and [`transport`] with [`macros`]. [`perform`] draws the live preview, at full size as the
 //!   PLAY view and fitted inside the side panel.
 //! - The main views: [`browser`] (the library grid), [`import`],
 //!   [`playlist`], [`editor`], [`map`], [`diagnostics`] and [`settings`]
 //!   (with [`audio`]).
-//! - The side panel's tabs: [`inspector`] (with [`controls`]; [`tags`] is
-//!   the tag row it shares with the browser and import) and [`presets`].
+//! - The side panel's tabs: [`inspector`] (Controls and Edit, with
+//!   [`controls`]; [`tags`] is the tag row it shares with the browser and
+//!   import), [`presets`] and the playlist's [`playlist`] timeline.
 //! - [`keys`] turns key events into commands under the focus rule.
 //! - [`host`] runs egui on the control window.
 //!
@@ -60,6 +61,7 @@ pub mod command_palette;
 pub mod controls;
 pub mod diagnostics;
 pub mod editor;
+pub mod help;
 pub mod host;
 pub mod icon;
 pub mod import;

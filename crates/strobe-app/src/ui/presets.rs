@@ -14,8 +14,8 @@
 //! FAV     [1] [2] [3] [ ] [ ] [ ] [ ] [ ]
 //! ```
 //!
-//! The preset row is the top of the side panel's Presets tab; the fav row
-//! sits under the preview in every tab, so a slot is always one click away.
+//! The fav row is the top of the side panel's Presets tab and the preset row
+//! sits under it (D274).
 //!
 //! A **preset** is the scene's control values under a name, kept in the
 //! scene folder. Choosing one in the list recalls it at once (the values are
@@ -163,8 +163,7 @@ pub fn fav_row(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mu
             ),
         );
         let slots = strobe_scene::preset::FAV_SLOTS;
-        let slot_width = ((ui.available_width() - SPACE_XS * (slots as f32 - 1.0))
-            / slots as f32)
+        let slot_width = ((ui.available_width() - SPACE_XS * (slots as f32 - 1.0)) / slots as f32)
             .clamp(14.0, 40.0);
         for slot in 0..slots {
             let fav = panel.remote.favs.get(slot);

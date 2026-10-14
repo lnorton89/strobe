@@ -55,7 +55,9 @@ pub fn toolbar(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mu
                 .strong()
                 .color(theme::rgb(theme.text_muted)),
         )
-        .on_hover_text("The scene as the output shows it. Pick a view in the rail to put a pane here.");
+        .on_hover_text(
+            "The scene as the output shows it. Pick a view in the rail to put a pane here.",
+        );
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let wide = ui.available_width() > 560.0;
             if wide {
@@ -362,7 +364,13 @@ fn no_scene(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, area: Rect) {
 
 fn preparing(ui: &mut Ui, theme: &Palette, area: Rect, name: &str, compact: bool) {
     if compact {
-        compact_status(ui, theme, area, Icon::Refresh, &format!("Preparing {name}..."));
+        compact_status(
+            ui,
+            theme,
+            area,
+            Icon::Refresh,
+            &format!("Preparing {name}..."),
+        );
         return;
     }
     centred_status(
