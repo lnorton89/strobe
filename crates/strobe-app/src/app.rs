@@ -1731,6 +1731,13 @@ impl Running {
                 self.load_failure = None;
                 self.set_health(index, Health::Ready);
                 self.scene_loaded_for_perf(Instant::now());
+                // The size drawn, which a scene that pins its final pass
+                // (D280) keeps whatever size was asked for.
+                let size = self
+                    .stack
+                    .session
+                    .as_ref()
+                    .map_or(size, |session| session.player.render_size());
                 context::set(context::SCENE, &entry.name);
                 context::set(context::RENDER_SIZE, format!("{}x{}", size[0], size[1]));
                 log::info!(
