@@ -133,6 +133,11 @@ Scenes react to sound through the default **recording** device.
 
 - **Show output** / F11 as above. **Blackout** (B, or the button) darkens
   the output while the scene keeps running in the preview.
+- For a machine that starts Strobe by itself (a venue PC), put the output
+  on the projector from the command line:
+  `strobe --output-monitor 2 --fullscreen`. Monitors are numbered as the
+  **Output monitor** menu numbers them; `--fullscreen` alone uses the
+  monitor the output opens on.
 - **Settings > Performance** holds the render scale and adaptive
   resolution, which lowers the render size by itself when the GPU falls
   behind; `--no-adaptive` turns it off for a run.
