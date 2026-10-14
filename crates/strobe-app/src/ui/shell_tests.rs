@@ -1749,3 +1749,38 @@ fn no_text_is_drawn_over_other_text_at_any_size() -> Result<()> {
     );
     Ok(())
 }
+
+#[test]
+fn the_fav_slots_are_in_reach_from_every_tab_where_the_panel_has_room() -> Result<()> {
+    // Synesthesia keeps its fav slots on screen whatever the panel shows,
+    // and a performer reaches for them mid-show (D176, D274).
+    for size in [(1920.0, 1080.0), (1280.0, 720.0), (900.0, 600.0)] {
+        for tab in crate::ui::side::SideTab::ALL {
+            let scenario = Scenario {
+                side_tab: tab,
+                ..BASE
+            };
+            let drawn = draw(scenario, size, 3)?;
+            assert!(
+                texts(&drawn).iter().any(|(_, line, _)| line == "FAV"),
+                "no fav slots on the {tab:?} tab at {size:?}"
+            );
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn a_short_drawer_keeps_room_for_the_controls() -> Result<()> {
+    // At 427x320 the drawer is too short for the picture and the tab's
+    // body both: the picture gives way, so the scene's controls are still
+    // there to reach (U-09).
+    let drawn = draw(BASE, (427.0, 320.0), 3)?;
+    assert!(
+        texts(&drawn)
+            .iter()
+            .any(|(_, line, _)| line == "Aurora Field"),
+        "the Controls tab's body is not drawn in the drawer at 427x320"
+    );
+    Ok(())
+}

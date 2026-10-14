@@ -19,6 +19,7 @@
 //! +--------------------------------+
 //! |          PREVIEW (16:9)        |
 //! | [out][full] * 60 fps ===== [cam]|
+//! | FAV [1][2][3][4][5][6][7][8]   |
 //! |  LIST  |  CTRL  |  PRESET | EDIT|
 //! | (the tab's body, scrolling)    |
 //! +--------------------------------+
@@ -26,18 +27,22 @@
 //!
 //! - The **preview** is the scene's own output texture, fitted to the
 //!   panel's width ([`super::perform::preview_in`]), with the LIVE,
-//!   BLACKOUT and output-hidden badges the large preview has.
+//!   BLACKOUT and output-hidden badges the large preview has. A panel too
+//!   short to give it [`PREVIEW_MIN`] leaves it out, so a drawer in a
+//!   small window still has room for the tab's body.
 //! - The **status strip** answers the stage questions in one glance, in
 //!   Synesthesia's order: the output window's two buttons, the frame rate
 //!   with a dot (green while the output keeps up), a horizontal audio level
 //!   bar (a meter, not a word) with the tempo, and the snapshot button,
 //!   which keeps the live frame as the scene's picture.
+//! - The **fav slots** (D176) are under the strip, in reach from every
+//!   tab, as Synesthesia keeps them; a panel shorter than [`FAVS_ABOVE`]
+//!   moves them to the top of the Presets tab.
 //! - The **tabs** are icons, with their names in tooltips and, when the
 //!   panel is wide, beside them. *Playlist* is the loaded show's cue list
 //!   with a jump on double-click, and a button to the LIST view for editing.
 //!   *Controls* is the scene's controls by group, then the output-wide meta
-//!   group. *Presets* holds the fav slots (D176) over the preset row and the
-//!   preset list. *Edit* is the scene's tags, picture, media and Generate
+//!   group. *Presets* is the preset row and the preset list. *Edit* is the scene's tags, picture, media and Generate
 //!   controls, and the way to the Editor.
 //!
 //! The panel is [`Pane::Inspector`](crate::workspace::Pane::Inspector) in
@@ -88,13 +93,13 @@ impl SideTab {
         Self::ALL.into_iter().find(|tab| tab.key() == key)
     }
 
-    /// The tab's label.
-    pub const fn label(self) -> &'static str {
+    /// The tab's caption beside its icon in a wide panel.
+    pub const fn caption(self) -> &'static str {
         match self {
-            Self::Playlist => "Playlist",
-            Self::Controls => "Controls",
-            Self::Presets => "Presets",
-            Self::Edit => "Edit",
+            Self::Playlist => "PLAYLIST",
+            Self::Controls => "CONTROLS",
+            Self::Presets => "PRESETS",
+            Self::Edit => "EDIT",
         }
     }
 
@@ -124,7 +129,13 @@ impl SideTab {
 const PREVIEW_SHARE: f32 = 0.38;
 
 /// The shortest the preview is drawn: enough to tell a scene from black.
+/// A panel too short to give it this much at [`PREVIEW_SHARE`] leaves it
+/// out.
 const PREVIEW_MIN: f32 = 64.0;
+
+/// The least height the panel needs to keep the fav slots above the tabs.
+/// Below it they are the top of the Presets tab (D274).
+const FAVS_ABOVE: f32 = 360.0;
 
 /// The height of the status strip.
 const STRIP_HEIGHT: f32 = 26.0;
@@ -143,26 +154,44 @@ pub fn show(
     theme: &Palette,
     actions: &mut Vec<Action>,
 ) {
-    preview(ui, model, theme, actions);
-    ui.add_space(SPACE_XS);
+    // The fav slots sit above the tabs, in reach from every tab, while the
+    // panel is tall enough to keep room for the tab's body; in a shorter
+    // one they are the top of the Presets tab.
+    let favs_above = ui.available_height() >= FAVS_ABOVE;
+    // A drawer in a short window has no room for both the picture and the
+    // tab's body: the controls win, and PLAY still has the picture.
+    let height = ui.available_height() * PREVIEW_SHARE;
+    if height >= PREVIEW_MIN {
+        preview(ui, model, theme, actions, height);
+        ui.add_space(SPACE_XS);
+    }
     status_strip(ui, model, readouts, theme, actions);
     ui.add_space(SPACE_XS);
+    if favs_above {
+        presets::fav_row(ui, model, theme, actions);
+        ui.add_space(SPACE_XS);
+    }
     tab_bar(ui, model, theme);
     ui.add_space(SPACE_SM);
     match model.ui.side_tab {
         SideTab::Playlist => playlist_tab(ui, model, theme, actions),
         SideTab::Controls => inspector::show(ui, model, theme, actions, inspector::Part::Controls),
-        SideTab::Presets => presets_tab(ui, model, theme, actions),
+        SideTab::Presets => presets_tab(ui, model, theme, actions, !favs_above),
         SideTab::Edit => inspector::show(ui, model, theme, actions, inspector::Part::Edit),
     }
 }
 
-/// The preview, 16:9 at the panel's width, capped so the tabs keep room.
-fn preview(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Vec<Action>) {
+/// The preview, 16:9 at the panel's width, at most `cap` high so the tabs
+/// keep room.
+fn preview(
+    ui: &mut Ui,
+    model: &mut Model<'_>,
+    theme: &Palette,
+    actions: &mut Vec<Action>,
+    cap: f32,
+) {
     let width = ui.available_width();
-    let height = (width * 9.0 / 16.0)
-        .min(ui.available_height() * PREVIEW_SHARE)
-        .max(PREVIEW_MIN);
+    let height = (width * 9.0 / 16.0).min(cap);
     let (rect, _) = ui.allocate_exact_size(Vec2::new(width, height), Sense::hover());
     ui.scope_builder(UiBuilder::new().max_rect(rect), |ui| {
         ui.set_clip_rect(rect.intersect(ui.clip_rect()));
@@ -212,7 +241,7 @@ fn status_strip(
         // The snapshot keeps its place at the right edge; the level bar
         // takes what is left between.
         let reserve = SNAPSHOT + ui.spacing().item_spacing.x + if tight { 0.0 } else { BPM_ROOM };
-        audio_reading(ui, model, theme, tight, reserve);
+        audio_reading(ui, model, readouts, theme, tight, reserve);
         // Not a scene of Synesthesia's: its folder is not written.
         let playing = model
             .playing
@@ -227,13 +256,15 @@ fn status_strip(
                 "Snapshot: keep what is on screen now as this scene's picture in the library"
             }
         };
-        ui.add_enabled_ui(can, |ui| {
-            if widgets::icon_button(ui, theme, Icon::Camera, tip).clicked() {
-                actions.push(Action::CaptureThumbnail);
-            }
-        })
-        .response
-        .on_disabled_hover_text(tip);
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            ui.add_enabled_ui(can, |ui| {
+                if widgets::icon_button(ui, theme, Icon::Camera, tip).clicked() {
+                    actions.push(Action::CaptureThumbnail);
+                }
+            })
+            .response
+            .on_disabled_hover_text(tip);
+        });
     });
 }
 
@@ -264,7 +295,14 @@ fn fps_reading(ui: &mut Ui, model: &Model<'_>, readouts: &Readouts, theme: &Pale
 
 /// The audio icon, a level bar that fills the room left after `reserve`,
 /// and the tempo.
-fn audio_reading(ui: &mut Ui, model: &Model<'_>, theme: &Palette, tight: bool, reserve: f32) {
+fn audio_reading(
+    ui: &mut Ui,
+    model: &Model<'_>,
+    readouts: &Readouts,
+    theme: &Palette,
+    tight: bool,
+    reserve: f32,
+) {
     let audio = &model.audio;
     let colour = if audio.live {
         theme.success
@@ -283,16 +321,13 @@ fn audio_reading(ui: &mut Ui, model: &Model<'_>, theme: &Palette, tight: bool, r
     } else {
         theme.text_faint
     };
-    widgets::meter(ui, theme, level, fill, meter_width)
-        .on_hover_text(format!("{}. The bar is the input level.", audio.source));
+    // The tooltip's words are built only while it shows.
+    widgets::meter(ui, theme, level, fill, meter_width).on_hover_ui(|ui| {
+        ui.label(format!("{}. The bar is the input level.", audio.source));
+    });
     if !tight {
-        let bpm = if audio.bpm > 0.0 {
-            format!("{:.0} BPM", audio.bpm)
-        } else {
-            "-- BPM".to_string()
-        };
         ui.label(
-            egui::RichText::new(bpm)
+            egui::RichText::new(readouts.bpm())
                 .small()
                 .color(theme::rgb(theme.text_muted)),
         )
@@ -345,21 +380,10 @@ fn tab_bar(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette) {
         };
         let glyph = icons::INLINE;
         let font = egui::FontId::new(10.5, egui::FontFamily::Proportional);
-        let galley = painter.layout_no_wrap(
-            if labelled {
-                tab.label().to_uppercase()
-            } else {
-                String::new()
-            },
-            font,
-            theme::rgb(colour),
-        );
-        let content = glyph
-            + if labelled {
-                SPACE_XS + galley.size().x
-            } else {
-                0.0
-            };
+        // Laid out only when it is drawn; egui caches the galley.
+        let galley = labelled
+            .then(|| painter.layout_no_wrap(tab.caption().to_owned(), font, theme::rgb(colour)));
+        let content = glyph + galley.as_ref().map_or(0.0, |g| SPACE_XS + g.size().x);
         let x = cell_rect.center().x - content / 2.0;
         icons::paint(
             painter,
@@ -370,7 +394,7 @@ fn tab_bar(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette) {
             tab.icon(),
             theme::rgb(colour),
         );
-        if labelled {
+        if let Some(galley) = galley {
             painter.galley(
                 egui::pos2(
                     x + glyph + SPACE_XS,
@@ -433,7 +457,9 @@ fn playlist_tab(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &m
         );
         let (rect, response) = ui.allocate_exact_size(name.size(), Sense::hover());
         ui.painter().galley(rect.min, name, theme::rgb(theme.text));
-        response.on_hover_text(format!("{rows} cues. Double-click a cue to jump to it."));
+        response.on_hover_ui(|ui| {
+            ui.label(format!("{rows} cues. Double-click a cue to jump to it."));
+        });
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             if widgets::button(ui, theme, Some(Icon::Playlist), "Edit")
                 .on_hover_text("Open the LIST view: cue settings, Generate and Save")
@@ -451,13 +477,22 @@ fn playlist_tab(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &m
     });
 }
 
-/// The Presets tab: the fav slots, the preset row, then every preset as a
-/// row to recall.
-fn presets_tab(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Vec<Action>) {
+/// The Presets tab: the fav slots when the panel is too short to keep them
+/// above the tabs (`favs`), the preset row, then every preset as a row to
+/// recall.
+fn presets_tab(
+    ui: &mut Ui,
+    model: &mut Model<'_>,
+    theme: &Palette,
+    actions: &mut Vec<Action>,
+    favs: bool,
+) {
     // The fav slots first: they hold scenes, so they are there with or
     // without a playing one.
-    presets::fav_row(ui, model, theme, actions);
-    ui.add_space(SPACE_SM);
+    if favs {
+        presets::fav_row(ui, model, theme, actions);
+        ui.add_space(SPACE_SM);
+    }
     if model.controls.is_none() {
         widgets::empty_state(
             ui,
