@@ -32,6 +32,15 @@
 //!   do that every frame.
 //! - **A cooldown follows every change**, so the next decision is made on
 //!   frames rendered at the new size.
+//! - **A drop must pay for itself (D280).** Not every scene's cost is its
+//!   pixels: a literal 1920x1080 pass stays 1920x1080 at any scale (D194).
+//!   After a drop, once the cooldown has passed, the new GPU time is
+//!   compared with the old. A halving of the scale must cut it by at least
+//!   [`MIN_CUT_PER_HALVING`] (15%; less for a smaller drop). If it did not,
+//!   the resolution is not what this scene costs: the scale goes back to
+//!   where it was, lowering is locked there, and [`AdaptiveScale::futile`]
+//!   says what was tried. The lock lasts until the scene changes
+//!   ([`AdaptiveScale::reset_measurements`]); raising is still allowed.
 
 /// Scale changes are multiples of this.
 pub const STEP: f32 = 0.05;
@@ -56,6 +65,31 @@ const DROP_AFTER: u32 = 12;
 /// Consecutive frames of headroom before one step up: two seconds at 60 Hz.
 const RAISE_AFTER: u32 = 120;
 
+/// The least a halving of the scale must cut the GPU time by for lowering it
+/// to count as working. Area-proportional cost cuts it by 75%; a scene whose
+/// passes do not follow the scale cuts less, and below this it is not worth
+/// the lost sharpness.
+pub const MIN_CUT_PER_HALVING: f32 = 0.15;
+
+/// A drop is judged once it spans this many halvings of the scale (about
+/// 0.84x). A smaller one cuts too little to tell from noise, so the judging
+/// waits for the next drop, measured from the same starting point.
+const MIN_JUDGED_HALVINGS: f32 = 0.25;
+
+/// A lowering that did not cut the GPU time, as [`AdaptiveScale::futile`]
+/// reports it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Futile {
+    /// The scale that was lowered from, and is held at.
+    pub scale: f32,
+    /// The scale that was tried.
+    pub tried: f32,
+    /// Smoothed GPU milliseconds before the drop.
+    pub before_ms: f32,
+    /// Smoothed GPU milliseconds after it.
+    pub after_ms: f32,
+}
+
 /// The controller.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AdaptiveScale {
@@ -67,6 +101,11 @@ pub struct AdaptiveScale {
     over: u32,
     under: u32,
     cooldown: u32,
+    /// Where lowering started and what it cost there, until a drop of at
+    /// least [`MIN_JUDGED_HALVINGS`] has been judged.
+    anchor: Option<(f32, f32)>,
+    /// A drop that did not pay: lowering stops at `scale`.
+    futile: Option<Futile>,
 }
 
 impl AdaptiveScale {
@@ -84,7 +123,15 @@ impl AdaptiveScale {
             over: 0,
             under: 0,
             cooldown: 0,
+            anchor: None,
+            futile: None,
         }
+    }
+
+    /// The drop that did not cut the GPU time, if there was one since the
+    /// last scene change. Lowering is locked at its `scale` meanwhile.
+    pub fn futile(&self) -> Option<Futile> {
+        self.futile
     }
 
     /// The current render scale.
@@ -99,6 +146,7 @@ impl AdaptiveScale {
     pub fn set_scale(&mut self, scale: f32) {
         self.scale = quantise(scale.clamp(self.min, self.max));
         self.forget();
+        self.futile = None;
         self.cooldown = 0;
     }
 
@@ -127,14 +175,18 @@ impl AdaptiveScale {
     }
 
     /// Forgets what was measured, keeping the scale. For a moment when the
-    /// old measurements stop describing the load, such as a new scene.
+    /// old measurements stop describing the load, such as a new scene. A new
+    /// scene may depend on resolution where the last did not, so a lock on
+    /// lowering ([`Self::futile`]) is lifted too.
     pub fn reset_measurements(&mut self) {
         self.forget();
+        self.futile = None;
         self.cooldown = 0;
     }
 
     fn forget(&mut self) {
         self.average_ms = None;
+        self.anchor = None;
         self.over = 0;
         self.under = 0;
     }
@@ -154,6 +206,10 @@ impl AdaptiveScale {
         if self.cooldown > 0 {
             self.cooldown -= 1;
             return None;
+        }
+
+        if let Some(back) = self.judge_drop(average) {
+            return Some(back);
         }
 
         let load = average / self.budget_ms;
@@ -177,11 +233,22 @@ impl AdaptiveScale {
         } else {
             return None;
         };
-        let target = target.clamp(self.min, self.max);
+        // A drop that did not pay locks lowering at the scale it left.
+        let floor = self
+            .futile
+            .map_or(self.min, |futile| futile.scale.max(self.min));
+        let target = target.clamp(floor.min(self.max), self.max);
         if (target - self.scale).abs() < STEP * 0.5 {
             self.over = 0;
             self.under = 0;
             return None;
+        }
+        if target < self.scale {
+            if self.anchor.is_none() {
+                self.anchor = Some((self.scale, average));
+            }
+        } else {
+            self.anchor = None;
         }
         self.scale = target;
         self.over = 0;
@@ -191,6 +258,35 @@ impl AdaptiveScale {
         // area so the next decision does not act on stale load.
         self.average_ms = None;
         Some(target)
+    }
+
+    /// Judges the drops since [`Self::anchor`] once the frames after the
+    /// last one have settled: when they cost too little less, goes back to
+    /// the anchor's scale and locks lowering there. Returns that scale.
+    fn judge_drop(&mut self, average: f32) -> Option<f32> {
+        let (from, before_ms) = self.anchor?;
+        let halvings = (from / self.scale).log2();
+        if halvings < MIN_JUDGED_HALVINGS {
+            return None;
+        }
+        self.anchor = None;
+        let needed = 1.0 - (1.0 - MIN_CUT_PER_HALVING).powf(halvings);
+        let cut = 1.0 - average / before_ms.max(f32::EPSILON);
+        if cut >= needed {
+            return None;
+        }
+        self.futile = Some(Futile {
+            scale: from,
+            tried: self.scale,
+            before_ms,
+            after_ms: average,
+        });
+        self.scale = from;
+        self.over = 0;
+        self.under = 0;
+        self.cooldown = COOLDOWN_FRAMES;
+        self.average_ms = None;
+        Some(from)
     }
 }
 
@@ -214,6 +310,18 @@ mod tests {
         for _ in 0..frames {
             let ms = full_res_ms * controller.scale() * controller.scale();
             controller.observe(ms);
+        }
+        controller.scale()
+    }
+
+    /// A GPU whose frame time is `cost(scale)`.
+    fn simulate_cost(
+        controller: &mut AdaptiveScale,
+        cost: impl Fn(f32) -> f32,
+        frames: u32,
+    ) -> f32 {
+        for _ in 0..frames {
+            controller.observe(cost(controller.scale()));
         }
         controller.scale()
     }
@@ -329,6 +437,96 @@ mod tests {
             (steps - steps.round()).abs() < 1e-3,
             "{} is not a multiple of {STEP}",
             c.scale()
+        );
+    }
+    #[test]
+    fn a_scene_whose_cost_ignores_the_scale_is_not_lowered_for_nothing() {
+        // D280: passes pinned at 1920x1080 cost the same at every scale.
+        let mut c = AdaptiveScale::new(16.0, 0.25, 1.0);
+        let mut lowest = 1.0_f32;
+        for _ in 0..3000 {
+            c.observe(40.0);
+            lowest = lowest.min(c.scale());
+        }
+        assert_eq!(c.scale(), 1.0, "it ends where it started");
+        let futile = c.futile();
+        assert!(
+            futile.is_some_and(|f| f.scale == 1.0 && f.tried < 1.0),
+            "and says what it tried: {futile:?}"
+        );
+        // After the first probe it must never try again: the lowest scale
+        // reached is the probe's, once.
+        let mut probes = 0;
+        for _ in 0..3000 {
+            if c.observe(40.0).is_some() {
+                probes += 1;
+            }
+        }
+        assert_eq!(probes, 0, "no further changes while the scene stays put");
+        assert!(lowest < 1.0, "the probe itself did lower it: {lowest}");
+    }
+
+    #[test]
+    fn the_futile_drop_is_undone_within_a_second_or_so() {
+        let mut c = AdaptiveScale::new(16.0, 0.25, 1.0);
+        let mut frames_below = 0;
+        for _ in 0..600 {
+            c.observe(40.0);
+            if c.scale() < 1.0 {
+                frames_below += 1;
+            }
+        }
+        assert!(
+            frames_below <= COOLDOWN_FRAMES + 2,
+            "the probe lasts the cooldown, not longer: {frames_below} frames"
+        );
+    }
+
+    #[test]
+    fn a_mostly_fixed_cost_scene_stops_lowering_when_the_gain_runs_out() {
+        // 20 ms that ignore the scale plus 20 ms that follow its area.
+        let mut c = AdaptiveScale::new(16.0, 0.25, 1.0);
+        let scale = simulate_cost(&mut c, |s| 20.0 + 20.0 * s * s, 3000);
+        assert!(scale < 1.0, "the first halvings do pay: {scale}");
+        assert!(scale > 0.25, "but it does not run to the floor: {scale}");
+        let settled = simulate_cost(&mut c, |s| 20.0 + 20.0 * s * s, 3000);
+        assert!(
+            (settled - scale).abs() < 1e-4,
+            "and it stays put: {scale} then {settled}"
+        );
+    }
+
+    #[test]
+    fn a_drop_that_cuts_by_the_required_share_is_kept() {
+        // Exactly 20% off for a halving of the scale: above the 15% line.
+        let mut c = AdaptiveScale::new(16.0, 0.25, 1.0);
+        let cost = |s: f32| 40.0 * (1.0 - 0.2 * (1.0 - s) / 0.5);
+        let scale = simulate_cost(&mut c, cost, 120);
+        assert!(scale < 1.0, "a drop that pays stays dropped: {scale}");
+        assert!(c.futile().is_none(), "and is not called futile");
+    }
+
+    #[test]
+    fn a_new_scene_may_lower_again() {
+        let mut c = AdaptiveScale::new(16.0, 0.25, 1.0);
+        simulate_cost(&mut c, |_| 40.0, 300);
+        assert!(c.futile().is_some(), "locked on the first scene");
+        c.reset_measurements();
+        assert!(c.futile().is_none(), "a scene change lifts the lock");
+        let scale = simulate(&mut c, 40.0, 120);
+        assert!(scale < 1.0, "and a scene that scales drops: {scale}");
+    }
+
+    #[test]
+    fn a_locked_scene_still_rises_when_it_gets_light() {
+        let mut c = AdaptiveScale::new(16.0, 0.25, 1.0);
+        c.set_scale(0.8);
+        simulate_cost(&mut c, |_| 40.0, 300);
+        assert!(c.futile().is_some(), "locked at 0.8");
+        assert_eq!(
+            simulate_cost(&mut c, |_| 4.0, 1500),
+            1.0,
+            "headroom still raises the scale"
         );
     }
 }

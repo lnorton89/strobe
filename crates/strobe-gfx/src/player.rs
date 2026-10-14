@@ -204,7 +204,11 @@ pub struct ScenePlayer {
     passes: Vec<PassState>,
     finals: [Target; 2],
     final_current: usize,
+    /// The size the final pass renders at: `requested`, unless the scene
+    /// pins its final pass (D280).
     render_size: [i32; 2],
+    /// The size the host last asked for.
+    requested: [i32; 2],
     vao: VertexArray,
     black: Texture,
     spectrum: Texture,
@@ -283,7 +287,8 @@ impl ScenePlayer {
     ) -> Result<Self, PlayerError> {
         let res = |e: String| PlayerError::Resource(e);
         let def = scene.def.clone();
-        let render_size = [render_size[0].max(1), render_size[1].max(1)];
+        let requested = [render_size[0].max(1), render_size[1].max(1)];
+        let render_size = final_size(&def, requested);
 
         let vertex_src = assemble::vertex(caps.dialect);
         let vertex =
@@ -467,6 +472,7 @@ impl ScenePlayer {
             finals,
             final_current: 0,
             render_size,
+            requested,
             vao,
             black,
             spectrum,
@@ -675,18 +681,42 @@ impl ScenePlayer {
         self.date = Some(date);
     }
 
-    /// The current render resolution.
+    /// The resolution the final pass renders at, which is what
+    /// [`Self::read_output`] returns and [`Self::present`] scales. It is the
+    /// size last asked for, unless the scene pins its final pass (D280).
     pub fn render_size(&self) -> [i32; 2] {
         self.render_size
     }
 
-    /// Changes the render resolution. Pass contents restart from black.
+    /// The render size the host last asked for ([`Self::new`],
+    /// [`Self::resize`] or [`Self::resize_keeping`]). A host deciding
+    /// whether to resize compares against this, not [`Self::render_size`],
+    /// which a pinned scene keeps whatever it is asked.
+    pub fn requested_size(&self) -> [i32; 2] {
+        self.requested
+    }
+
+    /// The size the scene pins its final pass to, if it does (D280). The
+    /// render scale then changes nothing this scene draws.
+    pub fn pinned_size(&self) -> Option<[i32; 2]> {
+        self.def.pinned_size()
+    }
+
+    /// Changes the render resolution. Pass contents restart from black. A
+    /// scene whose final pass is pinned (D280) draws at the same size
+    /// whatever it is asked, so for it this only records the request.
     pub fn resize(&mut self, render_size: [i32; 2]) -> Result<(), PlayerError> {
-        let render_size = [render_size[0].max(1), render_size[1].max(1)];
+        let requested = [render_size[0].max(1), render_size[1].max(1)];
+        if requested == self.requested {
+            return Ok(());
+        }
+        let render_size = final_size(&self.def, requested);
         if render_size == self.render_size {
+            self.requested = requested;
             return Ok(());
         }
         let res = |e: String| PlayerError::Resource(e);
+        self.requested = requested;
         self.render_size = render_size;
         self.finals = [
             new_target(&self.gl, render_size, Format::Rgba8, Sampling::LINEAR_CLAMP)
@@ -712,8 +742,11 @@ impl ScenePlayer {
     /// at full size with its trails in place (D153). Nothing is compiled;
     /// only textures are allocated. On failure the player is unchanged.
     pub fn resize_keeping(&mut self, render_size: [i32; 2]) -> Result<(), PlayerError> {
-        let render_size = [render_size[0].max(1), render_size[1].max(1)];
+        let requested = [render_size[0].max(1), render_size[1].max(1)];
+        let render_size = final_size(&self.def, requested);
         if render_size == self.render_size {
+            // A pinned scene (D280) draws the same whatever it is asked.
+            self.requested = requested;
             return Ok(());
         }
         let res = |e: String| PlayerError::Resource(e);
@@ -745,6 +778,7 @@ impl ScenePlayer {
             }
         }
         self.render_size = render_size;
+        self.requested = requested;
         self.finals = finals;
         self.passes = passes;
         if self.readback.is_some() {
@@ -1126,6 +1160,15 @@ impl ScenePlayer {
         }
         top_down
     }
+}
+
+/// The final pass's size for a `requested` render size: the scene's pinned
+/// size when it has one (D280), so `ivec2(_xy)` in the final pass addresses
+/// a root-sized literal pass texel for texel. Every relative pass follows
+/// it, so a pinned scene renders at its own design size throughout.
+fn final_size(def: &SceneDef, requested: [i32; 2]) -> [i32; 2] {
+    def.pinned_size()
+        .map_or(requested, |[w, h]| [w.max(1), h.max(1)])
 }
 
 /// One pass's fragment shader: what the driver compiles, and what the user

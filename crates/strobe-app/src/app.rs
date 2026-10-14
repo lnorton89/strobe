@@ -1730,7 +1730,7 @@ impl Running {
                 self.pending_resize = None;
                 self.load_failure = None;
                 self.set_health(index, Health::Ready);
-                self.stack.perf.scene_loaded(Instant::now());
+                self.scene_loaded_for_perf(Instant::now());
                 context::set(context::SCENE, &entry.name);
                 context::set(context::RENDER_SIZE, format!("{}x{}", size[0], size[1]));
                 log::info!(
@@ -2113,7 +2113,22 @@ impl Running {
                 .position(|entry| entry.dir == session.dir);
             context::set(context::SCENE, &session.name);
         }
-        self.stack.perf.scene_loaded(now);
+        self.scene_loaded_for_perf(now);
+    }
+
+    /// Tells the performance controller a scene went live. A scene that
+    /// pins its final pass (D280) draws the same at every scale, so the
+    /// scale goes back to the ceiling with it and the next resize is a no-op.
+    fn scene_loaded_for_perf(&mut self, now: Instant) {
+        let pinned = self
+            .stack
+            .session
+            .as_ref()
+            .and_then(|session| session.player.pinned_size());
+        self.stack.perf.scene_loaded(now, pinned);
+        if pinned.is_some() {
+            self.render_scale = self.stack.perf.scale();
+        }
     }
 
     /// Frames of playback since the show became ready, for screenshot
@@ -3883,7 +3898,9 @@ impl Running {
         let Some(session) = self.stack.session.as_mut() else {
             return;
         };
-        if session.player.render_size() == want {
+        // The size asked for, not the size drawn: a scene that pins its
+        // final pass (D280) draws at its own size whatever it is asked.
+        if session.player.requested_size() == want {
             self.pending_resize = None;
             return;
         }
@@ -4123,6 +4140,21 @@ impl Running {
 
     /// Adopts the adaptive controller's new scale and says why.
     fn scale_changed(&mut self, change: &perf::ScaleChange) {
+        if let Some(futile) = change.futile {
+            log::info!(
+                "adaptive resolution: lowering the render scale {:.2} -> {:.2} cut GPU time only \
+                 {:.1} -> {:.1} ms, so this scene's cost is not its resolution; back to {:.2} \
+                 and not lowering again until the scene changes (D280)",
+                futile.scale,
+                futile.tried,
+                futile.before_ms,
+                futile.after_ms,
+                change.to
+            );
+            self.render_scale = change.to;
+            self.resize_now = true;
+            return;
+        }
         log::info!(
             "adaptive resolution: render scale {:.2} -> {:.2} (GPU {:.1} ms against a {:.1} ms budget)",
             change.from,

@@ -376,7 +376,9 @@ fn bench_scene(
     }
 
     let pixels = player.read_output();
-    let image = image::RgbaImage::from_raw(size[0] as u32, size[1] as u32, pixels);
+    // A scene that pins its final pass (D280) renders at its own size.
+    let [width, height] = player.render_size();
+    let image = image::RgbaImage::from_raw(width as u32, height as u32, pixels);
     times.sort_by(f64::total_cmp);
     let mean_ms = times.iter().sum::<f64>() / times.len().max(1) as f64;
     let p95_ms = times
