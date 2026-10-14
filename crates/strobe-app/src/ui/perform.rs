@@ -27,7 +27,7 @@
 //! | blackout | the picture, a danger border, a `BLACKOUT` badge: the output is dark but the operator can still see the scene |
 //! | output hidden | a chip that says the picture is preview-only, with a button to show the output |
 //! | scene failed | a banner above the picture; the old scene keeps playing |
-//! | notice | a banner (a recovered context, a request that is not wired yet) |
+//! | notice | a banner (a recovered context, a request that is not wired yet), with a button when it offers a way on (a refused write offers Copy to my library, D271) |
 
 use super::icon as icons;
 use super::model::{Action, Model};
@@ -168,8 +168,17 @@ pub fn banners(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mu
     }
     if let Some(notice) = model.notice {
         widgets::banner(ui, theme, notice.tone, notice.text, |ui| {
+            // Right to left: Dismiss at the edge, the offer before it.
             if widgets::button(ui, theme, None, "Dismiss").clicked() {
                 actions.push(Action::DismissNotice);
+            }
+            if let Some(offer) = notice.offer
+                && widgets::button(ui, theme, None, offer.label).clicked()
+            {
+                // Dismissed first, so a notice the offer itself raises
+                // (the copy's result) stays up.
+                actions.push(Action::DismissNotice);
+                actions.push(offer.action.clone());
             }
         });
         ui.add_space(SPACE_XS);

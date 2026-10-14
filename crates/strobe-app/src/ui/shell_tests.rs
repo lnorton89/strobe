@@ -29,8 +29,8 @@
 use super::shell::{ShellState, show};
 use super::{
     Action, AudioPanel, CueTransport, EditorPanel, FailurePanel, GeneratePanel, ImportPanel,
-    LanPanel, ListenerPanel, MapUi, Model, NoticePanel, PerfPanel, PlaylistPanel, PlaylistUi,
-    Preview, RemotePanel, ScenePreview, TransportPanel, UiState,
+    LanPanel, ListenerPanel, MapUi, Model, NoticePanel, Offer, PerfPanel, PlaylistPanel,
+    PlaylistUi, Preview, RemotePanel, ScenePreview, TransportPanel, UiState,
 };
 use crate::console::Console;
 use crate::import::Status;
@@ -121,6 +121,14 @@ struct Scenario {
     /// Settings' watched folder: whether the app refused it, and its line
     /// (D265).
     watch: Option<(bool, &'static str)>,
+    /// Synesthesia's own scenes are listed after the library's (D271):
+    /// `01-scene-0` (a name the library has too), `glow` and `ink` from the
+    /// install, and `deep-sea` from a folder in Synesthesia's settings. With
+    /// `browser_selected`, the browser selects the first of them.
+    synesthesia: bool,
+    /// The playing scene, the Editor's and a refused write are Synesthesia's
+    /// `01-scene-0`: read-only rows, and a notice offering the copy.
+    on_synesthesia: bool,
     panes: &'static [Pane],
 }
 
@@ -154,6 +162,8 @@ const BASE: Scenario = Scenario {
     generate: false,
     browser_selected: false,
     watch: None,
+    synesthesia: false,
+    on_synesthesia: false,
     panes: &[Pane::Inspector],
 };
 
@@ -398,6 +408,48 @@ fn scenarios() -> Vec<Scenario> {
         Scenario {
             name: "palette with nothing typed",
             palette: Some(""),
+            ..BASE
+        },
+        Scenario {
+            name: "library with Synesthesia's scenes, one selected",
+            synesthesia: true,
+            browser_selected: true,
+            panes: &[Pane::Browser, Pane::Inspector],
+            ..BASE
+        },
+        Scenario {
+            name: "compact library with Synesthesia's scenes",
+            synesthesia: true,
+            density: crate::ui::theme::Density::Compact,
+            panes: &[Pane::Browser],
+            ..BASE
+        },
+        Scenario {
+            name: "playing Synesthesia's scene, a write refused",
+            synesthesia: true,
+            on_synesthesia: true,
+            browser_selected: true,
+            panes: &[Pane::Browser, Pane::Inspector],
+            ..BASE
+        },
+        Scenario {
+            name: "editing Synesthesia's scene, read-only",
+            synesthesia: true,
+            on_synesthesia: true,
+            panes: &[Pane::Inspector, Pane::Editor],
+            ..BASE
+        },
+        Scenario {
+            name: "settings with Synesthesia's scenes",
+            synesthesia: true,
+            panes: &[Pane::Settings],
+            ..BASE
+        },
+        Scenario {
+            name: "palette listing Synesthesia's scenes",
+            synesthesia: true,
+            palette: Some("scene-0"),
+            panes: &[Pane::Browser],
             ..BASE
         },
         Scenario {
@@ -671,7 +723,7 @@ fn draw_events(
 ) -> Result<Drawn> {
     let ctx = egui::Context::default();
     crate::ui::theme::apply(&ctx, crate::palette::fallback(), scenario.density);
-    let library = Library {
+    let mut library = Library {
         dir: PathBuf::from("scenes"),
         entries: (0..scenario.scenes)
             .map(|i| {
@@ -686,7 +738,40 @@ fn draw_events(
             })
             .collect(),
     };
-    let health: Vec<Health> = (0..scenario.scenes)
+    if scenario.synesthesia {
+        let tags: [&[&str]; 3] = [&["dark", "feedback"], &["warm", "2d"], &[]];
+        for (name, tags) in ["01-scene-0", "glow", "ink"].into_iter().zip(tags) {
+            library.entries.push(
+                Entry::new(
+                    name.to_string(),
+                    PathBuf::from(format!(
+                        "C:/Program Files (x86)/Synesthesia/release/{name}.synScene"
+                    )),
+                )
+                .with_tags(tags)
+                .from_source(crate::library::Source::Synesthesia),
+            );
+        }
+        // One from a scene folder in Synesthesia's own settings: the
+        // person's, so writable, and labelled the same.
+        library.entries.push(
+            Entry::new(
+                "deep-sea".to_string(),
+                PathBuf::from("D:/VJ/Synesthesia scenes/packs/deep-sea.synScene"),
+            )
+            .from_source(crate::library::Source::SynesthesiaFolder),
+        );
+    }
+    // Synesthesia's `01-scene-0` when the scenario is on it.
+    let playing_index = if scenario.on_synesthesia {
+        scenario.scenes
+    } else {
+        0
+    };
+    let copy_action = Action::CopyToLibrary(PathBuf::from(
+        "C:/Program Files (x86)/Synesthesia/release/01-scene-0.synScene",
+    ));
+    let health: Vec<Health> = (0..library.entries.len())
         .map(|i| {
             if scenario.failed && i == 1 {
                 Health::Failed("main.glsl:42: unknown identifier `foo`".to_string())
@@ -759,7 +844,16 @@ fn draw_events(
         ui_state.watch.note = note.to_string();
     }
     if scenario.browser_selected || scenario.tagging {
-        ui_state.browser.selected = Some(2);
+        ui_state.browser.selected = Some(if scenario.synesthesia {
+            scenario.scenes
+        } else {
+            2
+        });
+    }
+    if scenario.synesthesia {
+        ui_state.synesthesia.note = "4 scenes from C:\\Program Files (x86)\\Synesthesia and \
+                                     your scene folder in its settings. Its own are read-only."
+            .to_string();
     }
     if scenario.tagging {
         let draft = |scene: &str| {
@@ -825,7 +919,7 @@ fn draw_events(
             health: &health,
             library_rev: 1,
             scan_error: None,
-            playing: scenario.playing.then_some(0),
+            playing: scenario.playing.then_some(playing_index),
             scene_title: if scenario.playing { "Aurora Field" } else { "" },
             controls: scenario.playing.then_some(&mut bank),
             media: scenario.playing.then_some(crate::ui::MediaPanel {
@@ -849,10 +943,23 @@ fn draw_events(
                 kept: scenario.playing.then_some("01-scene-0"),
             }),
             drop_hint: None,
-            notice: scenario.notice.then_some(NoticePanel {
-                tone: Tone::Info,
-                text: "The graphics context was lost and rebuilt on ANGLE in 181 ms.",
-            }),
+            notice: if scenario.on_synesthesia {
+                Some(NoticePanel {
+                    tone: Tone::Warning,
+                    text: "01-scene-0 is Synesthesia's own and read-only. Copy it to your \
+                           library to tag it.",
+                    offer: Some(Offer {
+                        label: crate::ui::tags::COPY_LABEL,
+                        action: &copy_action,
+                    }),
+                })
+            } else {
+                scenario.notice.then_some(NoticePanel {
+                    tone: Tone::Info,
+                    text: "The graphics context was lost and rebuilt on ANGLE in 181 ms.",
+                    offer: None,
+                })
+            },
             transport: TransportPanel {
                 now: scenario.playing.then_some("01-scene-0"),
                 next: (scenario.scenes > 1).then_some("02-scene-1"),
@@ -934,6 +1041,7 @@ fn draw_events(
             editor: EditorPanel {
                 doc: editor_doc.as_mut(),
                 playing_dir: None,
+                read_only: scenario.on_synesthesia,
             },
             lan: LanPanel {
                 view: &lan_view,

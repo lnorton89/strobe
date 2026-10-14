@@ -418,6 +418,13 @@ never per frame.
   batch import of a dropped folder of scenes (D235) and a watched folder
   (D240), set in Settings and saved (D265). Still open: a real OS drop by
   a person.
+- Built since: where Synesthesia is installed, its scenes are in the
+  library by default (D271, backlog I-05): the ones it ships read-only
+  after the library folder's, then the scene folders in its own settings.
+  A write into the install is refused with "Copy to my library". Settings
+  and `--no-synesthesia` turn it off. Checked with fake installs and a
+  fake install over the private corpus on Xvfb; open: a real Windows
+  install by a person.
 - Not supported:
   - `cubemap` and `volume` inputs, and `sound` and `cubemap` passes: these
     are errors;

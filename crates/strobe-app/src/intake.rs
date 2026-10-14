@@ -2,9 +2,11 @@
 // Module:       strobe_app::intake
 // Description:  What a file or folder dropped on a window is for: a Shadertoy
 //               export, a playlist, media for syn_Media, or a scene folder,
-//               and copying a scene folder into the library.
+//               and copying a scene folder into the library, under its own
+//               name or, for Copy to my library, a free one.
 //
-// Dependencies: strobe-gfx (assets::list_sources); std (fs)
+// Dependencies: strobe-gfx (assets::list_sources); strobe-scene
+//               (load::folder_title); std (fs)
 // ============================================================================
 
 //! Dropped files (backlog I-02, D218).
@@ -33,6 +35,11 @@
 //! ([`check_watch_folder`], D265).
 //!
 //! Anything else is refused with a sentence saying what can be dropped.
+//!
+//! **Copy to my library** ([`copy_as_own`], D271) is the one copy that
+//! never refuses a taken name: a scene of Synesthesia's, which Strobe only
+//! reads, becomes the person's own under a free name, so it can be tagged,
+//! edited and given presets.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
@@ -182,6 +189,73 @@ pub fn copy_scene(from: &Path, library: &Path) -> Result<PathBuf, String> {
             name.to_string_lossy()
         ));
     }
+    let files = bounded_files(from)?;
+    match copy_files(from, &files, &to) {
+        Ok(()) => Ok(to),
+        Err(error) => {
+            remove_partial(&to);
+            Err(error)
+        }
+    }
+}
+
+/// The most numbered names [`copy_as_own`] tries before giving up.
+const MAX_COPY_NAMES: u32 = 99;
+
+/// Copies the scene folder `from` (one of Synesthesia's, D271) into
+/// `library` as a scene the person owns, and returns where it landed. It
+/// keeps its folder name when the library has no scene of that name, and
+/// otherwise becomes `<name>-2`, `-3`... (with the `.synScene` suffix kept
+/// when it had one), so it never lands on another scene. Bounded and
+/// link-free as [`copy_scene`] is. The files go into a hidden staging
+/// folder that is renamed into place, as an import's are, so a copy that
+/// fails or is cut off part-way leaves nothing under a scene's name.
+pub fn copy_as_own(from: &Path, library: &Path) -> Result<PathBuf, String> {
+    let title = strobe_scene::load::folder_title(from);
+    if title.is_empty() {
+        return Err(format!("{} has no folder name", from.display()));
+    }
+    let suffix = if from
+        .file_name()
+        .is_some_and(|name| name.to_string_lossy().ends_with(".synScene"))
+    {
+        ".synScene"
+    } else {
+        ""
+    };
+    // A scene is known by its title, so `x` and `x.synScene` are one name.
+    let taken = |stem: &str| {
+        library.join(stem).exists() || library.join(format!("{stem}.synScene")).exists()
+    };
+    let stem = std::iter::once(title.clone())
+        .chain((2..=MAX_COPY_NAMES).map(|n| format!("{title}-{n}")))
+        .find(|stem| !taken(stem))
+        .ok_or_else(|| {
+            format!("the library already has {title} and {MAX_COPY_NAMES} numbered copies of it")
+        })?;
+    let folder = format!("{stem}{suffix}");
+    let files = bounded_files(from)?;
+    std::fs::create_dir_all(library).map_err(|e| format!("{}: {e}", library.display()))?;
+    let staging = library.join(format!(".{folder}.copying"));
+    if staging.exists() {
+        std::fs::remove_dir_all(&staging).map_err(|e| format!("{}: {e}", staging.display()))?;
+    }
+    let to = library.join(&folder);
+    let copied = copy_files(from, &files, &staging).and_then(|()| {
+        std::fs::rename(&staging, &to).map_err(|e| format!("{}: {e}", to.display()))
+    });
+    match copied {
+        Ok(()) => Ok(to),
+        Err(error) => {
+            remove_partial(&staging);
+            Err(error)
+        }
+    }
+}
+
+/// Every file under the scene folder `from`, refused past
+/// [`MAX_SCENE_FILES`] or [`MAX_SCENE_BYTES`] or at a link.
+fn bounded_files(from: &Path) -> Result<Vec<(PathBuf, u64)>, String> {
     let mut files = Vec::new();
     measure(from, from, &mut files)?;
     let bytes: u64 = files.iter().map(|(_, len)| *len).sum();
@@ -194,7 +268,13 @@ pub fn copy_scene(from: &Path, library: &Path) -> Result<PathBuf, String> {
             MAX_SCENE_BYTES / (1024 * 1024)
         ));
     }
-    let copied = files.iter().try_for_each(|(relative, _)| {
+    Ok(files)
+}
+
+/// Copies `files` (relative to `from`) to the same places under `to`.
+fn copy_files(from: &Path, files: &[(PathBuf, u64)], to: &Path) -> Result<(), String> {
+    std::fs::create_dir_all(to).map_err(|e| format!("{}: {e}", to.display()))?;
+    files.iter().try_for_each(|(relative, _)| {
         let target = to.join(relative);
         if let Some(parent) = target.parent() {
             std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
@@ -202,18 +282,16 @@ pub fn copy_scene(from: &Path, library: &Path) -> Result<PathBuf, String> {
         std::fs::copy(from.join(relative), &target)
             .map(|_| ())
             .map_err(|e| format!("{}: {e}", target.display()))
-    });
-    match copied {
-        Ok(()) => Ok(to),
-        Err(error) => {
-            if let Err(cleanup) = std::fs::remove_dir_all(&to) {
-                log::warn!(
-                    "could not remove the partial copy {}: {cleanup}",
-                    to.display()
-                );
-            }
-            Err(error)
-        }
+    })
+}
+
+/// Removes what a failed copy left at `dir`, saying so if it cannot.
+fn remove_partial(dir: &Path) {
+    if let Err(cleanup) = std::fs::remove_dir_all(dir) {
+        log::warn!(
+            "could not remove the partial copy {}: {cleanup}",
+            dir.display()
+        );
     }
 }
 
@@ -642,6 +720,39 @@ mod tests {
         assert!(
             again.as_ref().is_err_and(|why| why.contains("already has")),
             "a second copy is refused, not merged: {again:?}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn copy_to_my_library_takes_a_free_name_and_leaves_no_staging() -> Result<()> {
+        let scratch = Scratch::new("copy-own")?;
+        let from = scratch.0.join("synesthesia/release/ink.synScene");
+        scene(&from)?;
+        let library = scratch.0.join("library");
+        std::fs::create_dir_all(library.join("ink"))?;
+
+        let first = copy_as_own(&from, &library).map_err(anyhow::Error::msg)?;
+        assert_eq!(
+            first,
+            library.join("ink-2.synScene"),
+            "the library has an `ink` already (without the suffix), so a numbered name"
+        );
+        assert!(
+            first.join("images/a.png").is_file(),
+            "copied whole, subfolders too"
+        );
+        let second = copy_as_own(&from, &library).map_err(anyhow::Error::msg)?;
+        assert_eq!(second, library.join("ink-3.synScene"), "and the next one");
+        let left: Vec<String> = std::fs::read_dir(&library)?
+            .filter_map(Result::ok)
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .filter(|name| name.starts_with('.'))
+            .collect();
+        assert!(left.is_empty(), "no staging folder is left: {left:?}");
+        assert!(
+            from.join("main.glsl").is_file(),
+            "the original is left where it was"
         );
         Ok(())
     }

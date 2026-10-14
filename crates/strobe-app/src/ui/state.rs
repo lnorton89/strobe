@@ -177,6 +177,25 @@ pub struct WatchState {
     pub failed: bool,
 }
 
+/// Synesthesia's scenes in the library, in Settings (D271).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SynesthesiaState {
+    /// The switch: list them where Synesthesia is installed. Saved.
+    pub show: bool,
+    /// One line: what is listed, or why nothing is. Set by the app; not
+    /// saved.
+    pub note: String,
+}
+
+impl Default for SynesthesiaState {
+    fn default() -> Self {
+        Self {
+            show: crate::prefs::SynesthesiaPref::default().show,
+            note: String::new(),
+        }
+    }
+}
+
 /// Everything about the control window's presentation that is the
 /// operator's to keep.
 pub struct UiState {
@@ -222,6 +241,8 @@ pub struct UiState {
     pub layouts: std::collections::BTreeMap<String, crate::prefs::Layout>,
     /// The watched drop folder (D265): the folder and the switch are saved.
     pub watch: WatchState,
+    /// Synesthesia's scenes in the library (D271): the switch is saved.
+    pub synesthesia: SynesthesiaState,
     /// The Settings pane's layout name field. Not saved.
     pub layout_name: String,
     theme_id: String,
@@ -301,6 +322,10 @@ impl UiState {
                 note: "Off".to_string(),
                 ..WatchState::default()
             },
+            synesthesia: SynesthesiaState {
+                show: prefs.synesthesia.show,
+                note: String::new(),
+            },
             layout_name: String::new(),
             last_scene: prefs.last_scene.clone(),
             theme_id: prefs.theme.clone(),
@@ -337,6 +362,9 @@ impl UiState {
         prefs.watch = crate::prefs::WatchPref {
             folder: self.watch.folder.clone(),
             enabled: self.watch.enabled,
+        };
+        prefs.synesthesia = crate::prefs::SynesthesiaPref {
+            show: self.synesthesia.show,
         };
         prefs
     }
@@ -451,6 +479,7 @@ impl UiState {
         self.last_scene.hash(&mut hasher);
         self.watch.folder.hash(&mut hasher);
         self.watch.enabled.hash(&mut hasher);
+        self.synesthesia.show.hash(&mut hasher);
         for (name, layout) in &self.layouts {
             name.hash(&mut hasher);
             layout.order.hash(&mut hasher);
@@ -614,6 +643,28 @@ mod tests {
             ),
             ("D:/VJ/inbox", true, "D:/VJ/inbox", false),
             "read back with the field filled; watching starts only when the app checks it"
+        );
+    }
+
+    #[test]
+    fn the_synesthesia_switch_is_on_by_default_saved_and_reread_but_its_note_is_not() {
+        let mut state = UiState::ephemeral();
+        assert!(state.synesthesia.show, "on by default");
+        let start = Instant::now();
+        state.tick(start);
+        state.synesthesia.note = "88 scenes from C:\\Program Files (x86)\\Synesthesia".to_string();
+        state.tick(start + Duration::from_millis(33));
+        assert!(!state.debounce.pending(), "the app's line saves nothing");
+        state.synesthesia.show = false;
+        state.tick(start + Duration::from_millis(66));
+        assert!(state.debounce.pending(), "the switch is saved");
+        let prefs = state.to_prefs();
+        assert!(!prefs.synesthesia.show, "written to the preferences");
+        let again = UiState::from_prefs(&prefs);
+        assert_eq!(
+            (again.synesthesia.show, again.synesthesia.note.as_str()),
+            (false, ""),
+            "read back off, with the line left for the app to fill"
         );
     }
 
