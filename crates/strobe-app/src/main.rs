@@ -84,6 +84,11 @@ fn main() -> ExitCode {
         // --help and --version: print and stop.
         Err(error) => error.exit(),
     };
+    // Nobody watches a screenshot run or a generate worker: a failure must
+    // be logged and end the process, not wait on a box.
+    if cli.screenshot.is_some() || cli.generate_controls.is_some() {
+        dialog::set_unattended();
+    }
     // 4.
     if cli.diagnose {
         diagnose::run();
