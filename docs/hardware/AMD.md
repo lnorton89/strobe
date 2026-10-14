@@ -220,3 +220,25 @@ landscape; the log says the scale stays put (D280). `neuron_proximitors` and
 `bouncy_hexagons`, no longer pinned, draw 480x270 at 0.5 and 960x540 at 1.0,
 the same whole picture (RMSE 0.4% and 6.1% of full scale after upscaling,
 the second from hexagon edges resolved at the higher size).
+
+## D280 on the RX 580 (2026-10-14, commit 62204ed, Task A10)
+
+**neon_city**, native, 180 frames:
+- All four A9 runs (no adaptive at 1.0, at 0.5, at 1.0 with a 1920x1080
+  window, and adaptive on) now give a 1920x1080 picture of the whole city.
+- With adaptive on, the log says once that the scene renders at 1920x1080
+  whatever the render scale (D280), and the scale stays at 1.00.
+
+**entombed_silicon_dreams**, the other pinned scene, adaptive on: 1920x1080
+and the whole scene, with the same log line.
+
+**bouncy_hexagons**, adaptive on, 1800 frames:
+- Not pinned, so it is drawn at 960x540 and correct.
+- The probe lowered it 1.00 -> 0.80 twice. Both times GPU time barely
+  moved (17.9 -> 17.7 ms, then 17.9 -> 17.8 ms), so it went back up, then
+  locked lowering for 1800 frames.
+- That was the right call: the scene's heavy pass is a literal 1920x1080
+  FLOAT pass, absolute under D194, so the render scale cannot reduce it.
+
+**Corpus:** 90/90 in both dialects. Frame ms (desktop/GLES): neon_city
+60.3/45.6, bouncy_hexagons 19.2/17.0, entombed_silicon_dreams 14.6/15.2.
