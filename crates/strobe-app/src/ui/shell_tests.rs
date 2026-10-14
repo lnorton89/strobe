@@ -121,6 +121,12 @@ struct Scenario {
     /// Settings' watched folder: whether the app refused it, and its line
     /// (D265).
     watch: Option<(bool, &'static str)>,
+    /// The side panel's tab (D274).
+    side_tab: crate::ui::side::SideTab,
+    /// The library grid's card size (D273).
+    cards: crate::ui::browser::CardSize,
+    /// The open panes: the newest main pane is the main view, and
+    /// `Pane::Inspector` is the side panel (D272).
     panes: &'static [Pane],
 }
 
@@ -154,16 +160,63 @@ const BASE: Scenario = Scenario {
     generate: false,
     browser_selected: false,
     watch: None,
-    panes: &[Pane::Inspector],
+    side_tab: crate::ui::side::SideTab::Controls,
+    cards: crate::ui::browser::CardSize::Medium,
+    panes: &[Pane::Inspector, Pane::Browser],
 };
 
 fn scenarios() -> Vec<Scenario> {
     vec![
         BASE,
         Scenario {
-            name: "compact, browser and inspector",
+            name: "compact, small cards",
             density: crate::ui::theme::Density::Compact,
-            panes: &[Pane::Browser, Pane::Inspector],
+            cards: crate::ui::browser::CardSize::Small,
+            ..BASE
+        },
+        Scenario {
+            name: "large cards, failed scene",
+            cards: crate::ui::browser::CardSize::Large,
+            failed: true,
+            ..BASE
+        },
+        Scenario {
+            name: "side panel on the playlist tab",
+            playlist: true,
+            side_tab: crate::ui::side::SideTab::Playlist,
+            ..BASE
+        },
+        Scenario {
+            name: "side panel on the playlist tab, no playlist",
+            side_tab: crate::ui::side::SideTab::Playlist,
+            ..BASE
+        },
+        Scenario {
+            name: "side panel on the presets tab",
+            side_tab: crate::ui::side::SideTab::Presets,
+            ..BASE
+        },
+        Scenario {
+            name: "side panel on the presets tab, no scene",
+            side_tab: crate::ui::side::SideTab::Presets,
+            playing: false,
+            ..BASE
+        },
+        Scenario {
+            name: "side panel collapsed",
+            panes: &[Pane::Browser],
+            ..BASE
+        },
+        Scenario {
+            name: "side panel collapsed, blackout, output hidden",
+            blackout: true,
+            output_visible: false,
+            panes: &[Pane::Browser],
+            ..BASE
+        },
+        Scenario {
+            name: "play view with the side panel",
+            panes: &[Pane::Inspector],
             ..BASE
         },
         Scenario {
@@ -415,6 +468,23 @@ fn scenarios() -> Vec<Scenario> {
                 Pane::Settings,
                 Pane::Playlist,
                 Pane::Map,
+            ],
+            ..BASE
+        },
+        Scenario {
+            name: "every pane, playlist tab, compact",
+            playlist: true,
+            side_tab: crate::ui::side::SideTab::Playlist,
+            density: crate::ui::theme::Density::Compact,
+            panes: &[
+                Pane::Browser,
+                Pane::Import,
+                Pane::Diagnostics,
+                Pane::Settings,
+                Pane::Playlist,
+                Pane::Map,
+                Pane::Editor,
+                Pane::Inspector,
             ],
             ..BASE
         },
@@ -707,6 +777,8 @@ fn draw_events(
         ui_state.panes.open(*pane);
     }
     ui_state.hotkeys.capturing = scenario.capturing;
+    ui_state.side_tab = scenario.side_tab;
+    ui_state.browser.cards = scenario.cards;
     if let Some(query) = scenario.palette {
         ui_state.command_palette.open_with(query);
     }
@@ -1194,8 +1266,8 @@ fn escape_closes_the_palette_and_gives_the_keyboard_back() -> Result<()> {
     );
     assert_eq!(
         drawn.open_panes,
-        vec![Pane::Inspector],
-        "Escape closed the palette, not the pane behind it"
+        vec![Pane::Browser, Pane::Inspector],
+        "Escape closed the palette, not the panes behind it"
     );
     Ok(())
 }
@@ -1357,7 +1429,9 @@ fn screenshots_when_asked() -> Result<()> {
     let sizes = SIZES.iter().copied().chain(SMALL_SIZES);
     for size in sizes {
         for scenario in scenarios() {
-            let mut drawn = draw(scenario, size, 3)?;
+            // Enough frames for a drawer to finish fading in, so the picture
+            // is the settled one.
+            let mut drawn = draw(scenario, size, 20)?;
             let name = format!("{}-{}x{}.png", scenario.name, size.0, size.1);
             if !shoot(&mut drawn, size, &dir.join(name))? {
                 return Ok(());

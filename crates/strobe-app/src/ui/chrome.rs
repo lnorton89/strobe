@@ -129,6 +129,11 @@ enum Level {
 }
 
 impl Readouts {
+    /// The frame-rate text, for the side panel's status strip.
+    pub fn fps(&self) -> &str {
+        &self.fps
+    }
+
     /// Re-formats the text if it is more than [`READOUT_PERIOD`] old.
     fn refresh(&mut self, model: &Model<'_>, now: f64) {
         if self.updated.is_some_and(|at| now - at < READOUT_PERIOD) {
@@ -237,12 +242,13 @@ fn short_monitor(label: &str) -> &str {
     label.split(" (").next().unwrap_or(label)
 }
 
-/// What a workspace is called in the title bar's crumb.
-fn crumb(model: &Model<'_>) -> String {
+/// The title bar's crumb: the main view, then the scene.
+fn crumb(model: &Model<'_>, main: Option<Pane>) -> String {
+    let view = main.map_or("PERFORM", Pane::title).to_uppercase();
     match (model.loading, model.playing, model.scene_title) {
-        (Some(name), _, _) => format!("PERFORM  /  loading {name}"),
-        (None, Some(_), title) if !title.is_empty() => format!("PERFORM  /  {title}"),
-        (None, Some(_), _) | (None, None, _) => "PERFORM".to_string(),
+        (Some(name), _, _) => format!("{view}  /  loading {name}"),
+        (None, Some(_), title) if !title.is_empty() => format!("{view}  /  {title}"),
+        (None, Some(_), _) | (None, None, _) => view,
     }
 }
 
@@ -254,6 +260,7 @@ pub fn title_bar(
     model: &mut Model<'_>,
     readouts: &mut Readouts,
     theme: &Palette,
+    arrangement: &Arrangement,
     actions: &mut Vec<Action>,
 ) {
     let custom = model.ui.custom_title_bar;
@@ -291,7 +298,7 @@ pub fn title_bar(
                 if !narrow {
                     ui.add_space(SPACE_SM);
                     ui.label(
-                        egui::RichText::new(crumb(model))
+                        egui::RichText::new(crumb(model, arrangement.main))
                             .small()
                             .color(theme::rgb(theme.text_muted)),
                     );
@@ -755,16 +762,28 @@ fn resize_regions(rect: Rect) -> [(Rect, ResizeDirection, egui::CursorIcon); 8] 
     ]
 }
 
-/// The rail's destinations. LIST opens the Playlist pane (D157), MAP the
-/// Mappings pane (D177) and EDIT the Editor (D204).
-const RAIL: [(Icon, &str, Option<Pane>, &str); 7] = [
+/// The rail's destinations: each switches the main view (D272). LIST is the
+/// Playlist (D157), MAP the Mappings (D177), EDIT the Editor (D204), GET the
+/// Shadertoy import.
+const RAIL: [(Icon, &str, Option<Pane>, &str); 8] = [
     (
         Icon::Perform,
         "PLAY",
         None,
-        "Perform: hide the panes for a larger preview",
+        "Perform: the live preview at full size",
     ),
-    (Icon::Library, "LIB", Some(Pane::Browser), "Scene library"),
+    (
+        Icon::Library,
+        "LIB",
+        Some(Pane::Browser),
+        "Scene library: search, preview and load scenes",
+    ),
+    (
+        Icon::Import,
+        "GET",
+        Some(Pane::Import),
+        "Get scenes: import a Shadertoy shader",
+    ),
     (
         Icon::Playlist,
         "LIST",
@@ -797,14 +816,11 @@ const RAIL: [(Icon, &str, Option<Pane>, &str); 7] = [
     ),
 ];
 
-/// Draws the navigation rail. The rail changes which contextual pane is
-/// showing; it never changes what the primary task is.
+/// Draws the navigation rail. The rail switches the main view; the side
+/// panel stays whatever it was.
 pub fn nav_rail(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, arrangement: &Arrangement) {
-    let shown = |pane: Pane| {
-        arrangement.left.is_some_and(|(p, _)| p == pane)
-            || arrangement.right.is_some_and(|(p, _)| p == pane)
-    };
-    let nothing_shown = arrangement.left.is_none() && arrangement.right.is_none();
+    let shown = |pane: Pane| arrangement.shows(pane);
+    let nothing_shown = arrangement.main.is_none();
     egui::Panel::left("nav-rail")
         .exact_size(RAIL_WIDTH)
         .resizable(false)
@@ -888,9 +904,9 @@ fn rail_entry(
     shown: &dyn Fn(Pane) -> bool,
     nothing_shown: bool,
 ) {
-    // PLAY has no pane: it is the workspace itself, active when nothing is
-    // open over it. The not-built destinations have no pane either and are
-    // told apart by their tooltip.
+    // PLAY has no pane: it is the large preview, the main view when no pane
+    // is open. The not-built destinations have no pane either and are told
+    // apart by their tooltip.
     let is_play = icon == Icon::Perform;
     let built = is_play || pane.is_some();
     let active = match pane {
@@ -902,7 +918,7 @@ fn rail_entry(
     if built && response.clicked() {
         match pane {
             Some(pane) => model.ui.panes.toggle_drawn(pane, shown(pane)),
-            None => model.ui.panes.close_all(),
+            None => model.ui.panes.close_main(),
         }
     }
 }
@@ -1039,8 +1055,8 @@ mod tests {
         let labels: Vec<&str> = RAIL.iter().map(|(_, label, _, _)| *label).collect();
         assert_eq!(
             labels,
-            ["PLAY", "LIB", "LIST", "EDIT", "MAP", "DIAG", "SET"],
-            "docs/mockups/strobe-perform-directions.html direction B"
+            ["PLAY", "LIB", "GET", "LIST", "EDIT", "MAP", "DIAG", "SET"],
+            "UI_DESIGN section 5: the main views in the rail's order (D272)"
         );
     }
 

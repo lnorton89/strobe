@@ -1,7 +1,8 @@
 // ============================================================================
 // Module:       strobe_app::ui::inspector
-// Description:  The control inspector pane: the playing scene's controls,
-//               grouped by UI_GROUP, with per-group default and random.
+// Description:  The Controls tab of the side panel: the playing scene's
+//               controls, grouped by UI_GROUP, with per-group default and
+//               random, then the output-wide meta group.
 //
 // Dependencies: egui; strobe-scene (ControlBank); super::{controls, model,
 //               theme, widgets, state}, crate::script
@@ -25,11 +26,14 @@
 //! States: no scene ("Pick a scene"), a scene with no controls, a script
 //! that is running, faulted or disabled (visible here without opening the
 //! console).
+//!
+//! It is the Controls tab of the side panel (D274): the panel draws the
+//! preview, the fav slots and the tab bar above it, and this draws from the
+//! scene's title down.
 
 use super::controls;
 use super::icon as icons;
 use super::model::{Action, GeneratePanel, MediaFrom, MediaPanel, Model};
-use super::presets;
 use super::tags;
 use super::theme::{self, SPACE_SM, SPACE_XS};
 use super::widgets::{self, Tone};
@@ -37,39 +41,53 @@ use crate::generate::{Kept, Outcome, Review, Summary};
 use crate::icon::Icon;
 use crate::palette::Palette;
 use crate::script::ScriptState;
-use crate::workspace::Pane;
 use egui::{Sense, Ui, Vec2};
 use strobe_scene::control::{ControlBank, ControlKind};
 
-/// Draws the pane's contents.
+/// Draws the tab's contents.
 pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Vec<Action>) {
     let has_scene = model.controls.is_some();
-    let closed = widgets::pane_header(ui, theme, Icon::Controls, Pane::Inspector.title(), |ui| {
-        if has_scene
-            && widgets::button(ui, theme, Some(Icon::Refresh), "Reload")
-                .on_hover_text("Reload the scene from disk. Control values are kept.")
-                .clicked()
-        {
-            actions.push(Action::Reload);
-        }
-    });
-    if closed {
-        model.ui.panes.close(Pane::Inspector);
-    }
 
-    // Everything below the header scrolls as one, so a short window (a
-    // drawer at 150% on a small laptop, U-09) still reaches every control
-    // rather than losing them under the scene's tags and presets.
+    // Everything scrolls as one, so a short window (a drawer at 150% on a
+    // small laptop, U-09) still reaches every control rather than losing
+    // them under the scene's tags.
     let mut chosen_pins = (None, None);
     egui::ScrollArea::vertical()
+        .id_salt("inspector-scroll")
         .auto_shrink([false, false])
         .show(ui, |ui| {
-            if let Some(title) = (!model.scene_title.is_empty()).then_some(model.scene_title) {
-                ui.label(
-                    egui::RichText::new(title)
-                        .strong()
-                        .color(theme::rgb(theme.text)),
-                );
+            if has_scene {
+                ui.horizontal(|ui| {
+                    let title = if model.scene_title.is_empty() {
+                        model
+                            .playing
+                            .and_then(|i| model.library.entries.get(i))
+                            .map_or("", |e| e.name.as_str())
+                    } else {
+                        model.scene_title
+                    };
+                    let galley = widgets::truncated(
+                        ui,
+                        title,
+                        egui::TextStyle::Body.resolve(ui.style()),
+                        theme.text,
+                        (ui.available_width() - 36.0).max(40.0),
+                    );
+                    let (rect, _) = ui.allocate_exact_size(galley.size(), Sense::hover());
+                    ui.painter().galley(rect.min, galley, theme::rgb(theme.text));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if widgets::icon_button(
+                            ui,
+                            theme,
+                            Icon::Refresh,
+                            "Reload the scene from disk. Control values are kept.",
+                        )
+                        .clicked()
+                        {
+                            actions.push(Action::Reload);
+                        }
+                    });
+                });
             }
             if let Some(entry) = model.playing.and_then(|i| model.library.entries.get(i)) {
                 let capture = |ui: &mut Ui| {
@@ -107,7 +125,6 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
             }
             ui.add_space(SPACE_XS);
             if has_scene {
-                presets::show(ui, model, theme, actions);
                 generate_strip(
                     ui,
                     theme,
