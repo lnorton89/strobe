@@ -309,6 +309,26 @@ fn source_value(source: Source, inputs: &ScriptInputs<'_>, controls: &ControlBan
     }
 }
 
+/// Whether a legacy `uniforms` entry is the script's own state rather than
+/// a uniform: a function, or an object with no vector components (`x`/`r`
+/// keys) and no `length`. Synesthesia's scenes keep such things there
+/// (thresholder stores a counter object); they are skipped without a word,
+/// where a string or another non-number is still reported as a mistake.
+fn is_script_state(value: &Value<'_>) -> bool {
+    if value.is_function() {
+        return true;
+    }
+    if value.is_array() {
+        return false;
+    }
+    let Some(object) = value.as_object() else {
+        return false;
+    };
+    !["x", "r", "length"]
+        .iter()
+        .any(|key| object.contains_key(*key).unwrap_or(false))
+}
+
 impl ScriptHost {
     /// Starts a script for a scene whose controls are `controls`.
     ///
@@ -530,6 +550,9 @@ impl ScriptHost {
                 let _ = ctx.catch();
                 continue;
             };
+            if is_script_state(&value) {
+                continue;
+            }
             if let Err(error) = stage_uniform(ctx, &self.shared, &name, &[value]) {
                 let message = describe(ctx, error);
                 self.shared

@@ -82,3 +82,32 @@ cloud session. It writes only under `target\amd\`.
   - 05 loaded in 102 ms against 19 ms native.
   - 60.0 fps, 0 late frames, GPU 1.69 ms.
   - No WARN or ERROR lines.
+
+## Synesthesia's 90 default scenes (Task A4, commit 776ddf3)
+
+The owner's private corpus was cloned on this machine and never copied
+into the repository.
+- **Corpus run** (`cargo xtask corpus`, scripts on): 88 of 90 in both
+  dialects, and all 48 scripted scenes ran.
+  - The two failures were SkaiWalkerOG (its `#include` of Synesthesia's
+    `hg_sdf.glsl`; no Synesthesia `lib` here) and hue_review
+    (`_hueSaturationContrastLEGACY`). Both are fixed by D268.
+- **Slowest frames, 160x90:**
+  - neon_city: 57.7 ms native, 42.7 ms ANGLE.
+  - bouncy_hexagons and entombed_silicon_dreams: 17-19 ms each.
+  - The median is 1.76 ms native and 1.00 ms ANGLE.
+- **Compile time:** 11.8 s native and 26.8 s on ANGLE in total; the worst
+  single ANGLE compile is 2.08 s.
+- **Black frames:** eight scenes are black, all of them media-driven
+  (`_loadMedia`), and the harness supplies no media.
+- **Native against ANGLE,** compared on the 47 scenes `strobe-bench` can
+  render (the bench runs no scripts):
+  - 25 frames are identical and 36 nearly so.
+  - `PLUS` differs because of its own `pow` of a negative base, which is
+    undefined in GLSL.
+  - `canvas`'s feedback background differs: grey on native, black on
+    ANGLE.
+  - `turbo_encabulator_fluid` shows banding on ANGLE.
+  - Four simulations diverge in detail (dynamical_flame, shrouded,
+    gaussian_smoothlife, fuzzy_signal), and churning has a slight hue
+    shift.

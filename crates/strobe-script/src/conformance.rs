@@ -1116,6 +1116,10 @@ fn deprecated_uniforms_object_is_scanned_after_update() -> Result<()> {
             uniforms.colour = { r: 0.1, g: 0.2, b: 0.3 };
             uniforms.TIME = 1;
             uniforms.bad = "text";
+            // A script's own state kept in the table (Synesthesia's
+            // thresholder does this): not a uniform, and not a mistake.
+            uniforms.state = { count: 3, tick: function () {} };
+            uniforms.helper = function () { return 1; };
         }
     "#;
     let mut rig = Rig::new(script, &[])?;
@@ -1131,12 +1135,12 @@ fn deprecated_uniforms_object_is_scanned_after_update() -> Result<()> {
     assert_eq!(
         out.uniforms.len(),
         3,
-        "the reserved name and the string were skipped"
+        "the reserved name, the string and the script's state were skipped"
     );
     assert_eq!(
         errors(&out).len(),
         2,
-        "each skipped entry is reported: {:?}",
+        "the reserved name and the string are reported, the state is not: {:?}",
         out.console
     );
     let next = rig.step();

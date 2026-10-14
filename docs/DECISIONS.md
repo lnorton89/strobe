@@ -5444,3 +5444,36 @@ best-effort diagnostics. The 80 deliberate discards now each say why:
 
 **Would reopen:** a discard whose stated reason turns out false. The fix
 is to handle that error, not to reword the comment.
+
+### D268: Synesthesia's 90 default scenes all compile: two library names inferred, and a script's state is not a uniform (2026-10-13)
+
+**Context.** The owner's private corpus of Synesthesia 1.25.4's default
+scenes was re-run at 776ddf3: 88 of 90 in both dialects on llvmpipe, and
+the same on the AMD RX 580 (Task A4).
+- `SkaiWalkerOG` includes `hg_sdf.glsl` from Synesthesia's `lib` folder.
+  D198 already resolves that where Synesthesia is installed or
+  `STROBE_GLSL_PATH` names the folder. Past the include it read
+  `_Media_Contrast`, which Strobe did not define.
+- `hue_review` calls `_hueSaturationContrastLEGACY` (Q26), which was
+  missing.
+
+**Decision.**
+- **`_Media_Contrast` is a constant 1.0.** It is the media panel's
+  contrast, neutral like the `_applyMediaContrast` identity Strobe
+  already has (D197).
+- **`_hueSaturationContrast` and `…LEGACY` are inferred.** Hue is in
+  degrees, saturation and contrast are multipliers, and `(0, 1, 1)` leaves
+  a colour alone. This is an inference, not Synesthesia's code (Q26 stays
+  open for the look).
+- **A script's own state in the legacy `uniforms` table is skipped
+  quietly.** That means a function, or an object with no `x`/`r` keys and
+  no `length` (`host::is_script_state`). `thresholder` keeps a counter
+  object there, and each load reported "expected at least one number". A
+  string there is still reported, as a likely mistake.
+
+**Result.** 90 of 90 in both dialects on llvmpipe, with the library path
+set. The scenes' own undefined behaviour (`PLUS` takes `pow` of a negative
+base) is left alone, as in COMPATIBILITY.md.
+
+**Would reopen:** the look of `hue_review` or SkaiWalkerOG's media beside
+Synesthesia's own render.
