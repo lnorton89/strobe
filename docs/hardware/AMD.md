@@ -197,8 +197,9 @@ native and ANGLE.
 
 ## neon_city after D280 (2026-10-14, llvmpipe under Xvfb, not the RX 580)
 
-The fix for A9 (D280): a scene with a root `WIDTH` x `HEIGHT` and a literal
-buffer pass of that size renders its final pass at that size. Run on the
+The fix for A9 (D280): a scene with a root `WIDTH` x `HEIGHT`, a literal
+buffer pass of that size, and a shader that reads such a pass with
+`texelFetch` renders its final pass at that size. Run on the
 private corpus, native GL, Xvfb at 1600x900, `--window-size 1280x720
 --frames 180 --audio synthetic --no-panes`:
 
@@ -212,3 +213,10 @@ All three show the whole street of towers, noisy as a 180-frame path trace
 is, with `scene.png`'s framing. Open: the same run on the RX 580, where GPU
 time will show what the heavy passes cost at 1080p (59 ms at A9).
 
+Re-checked after the rule was narrowed to texel reads (same setup, `--frames
+30`, render scale 0.5): `neon_city` still draws 1920x1080 with the whole
+street, and `entombed_silicon_dreams` (adaptive on) 1920x1080 with the whole
+landscape; the log says the scale stays put (D280). `neuron_proximitors` and
+`bouncy_hexagons`, no longer pinned, draw 480x270 at 0.5 and 960x540 at 1.0,
+the same whole picture (RMSE 0.4% and 6.1% of full scale after upscaling,
+the second from hexagon edges resolved at the higher size).
