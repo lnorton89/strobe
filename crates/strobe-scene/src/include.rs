@@ -3,7 +3,8 @@
 // Description:  `#include "file.glsl"` in scene shaders: resolution against the
 //               including file, the scene folder and the library folders.
 //
-// Dependencies: std::fs, std::env; crate::assemble::source
+// Dependencies: std::fs, std::env; crate::assemble::source,
+//               crate::synesthesia
 // ============================================================================
 
 //! `#include` (D198).
@@ -21,7 +22,8 @@
 //! 3. in each folder of [`search_path`]: `STROBE_GLSL_PATH` (a path list),
 //!    then, where they exist, Synesthesia's own `lib` folder and its user
 //!    `glsl` data folder, so a machine with Synesthesia installed just works.
-//!    Strobe ships none of these libraries: `lygia`'s licence does not allow
+//!    The install is found by [`crate::synesthesia`], the same detection the
+//!    app's library uses for Synesthesia's scenes (D271). Strobe ships none of these libraries: `lygia`'s licence does not allow
 //!    it.
 //!
 //! Each file is included once, whatever the number of `#include`s naming it,
@@ -35,6 +37,7 @@
 //! number and a driver error in it still maps (`assemble::map_error_line`).
 
 use crate::assemble::source;
+use crate::synesthesia;
 use std::collections::HashSet;
 use std::fmt::Write as _;
 use std::fs;
@@ -46,20 +49,24 @@ const MAX_DEPTH: usize = 16;
 /// The library folders `#include` searches after the scene's own, in order,
 /// keeping only those that exist.
 pub fn search_path() -> Vec<PathBuf> {
-    let mut dirs: Vec<PathBuf> = std::env::var_os("STROBE_GLSL_PATH")
+    let env = synesthesia::Env::process();
+    let install = synesthesia::detect_with(&env);
+    search_path_with(&env, install.as_ref())
+}
+
+/// [`search_path`] for this environment and this Synesthesia install, as
+/// [`synesthesia::detect_with`] found it: the same detection the app's
+/// library lists Synesthesia's scenes from (D271). `STROBE_GLSL_PATH`, then
+/// the install's `lib`, then the person's own Synesthesia `glsl` folder.
+pub fn search_path_with(
+    env: &synesthesia::Env<'_>,
+    install: Option<&synesthesia::Install>,
+) -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> = (env.var)("STROBE_GLSL_PATH")
         .map(|list| std::env::split_paths(&list).collect())
         .unwrap_or_default();
-    if cfg!(windows) {
-        dirs.push(PathBuf::from(r"C:\Program Files (x86)\Synesthesia\lib"));
-        if let Some(local) = std::env::var_os("LOCALAPPDATA") {
-            dirs.push(
-                PathBuf::from(local)
-                    .join("Synesthesia")
-                    .join("Data")
-                    .join("glsl"),
-            );
-        }
-    }
+    dirs.extend(install.map(synesthesia::Install::lib_dir));
+    dirs.extend(synesthesia::user_glsl_dir(env));
     dirs.retain(|dir| dir.is_dir());
     dirs
 }
@@ -215,6 +222,45 @@ mod tests {
             out.contains("#line 2 1\n\nvec4 renderMain()"),
             "main.glsl's lines keep their numbers: {out}"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn the_include_path_finds_synesthesia_by_the_libraries_detection() -> Result<()> {
+        let install = Scratch::new("install")?;
+        let extra = Scratch::new("extra")?;
+        fs::create_dir_all(install.0.join("lib"))?;
+        fs::write(
+            install.0.join("lib/hg_like.glsl"),
+            "float fromTheInstall() { return 1.0; }\n",
+        )?;
+        let vars = std::collections::HashMap::from([
+            (synesthesia::DIR_VAR, install.0.clone().into_os_string()),
+            ("STROBE_GLSL_PATH", extra.0.clone().into_os_string()),
+        ]);
+        let lookup = |name: &str| vars.get(name).cloned();
+        let env = synesthesia::Env {
+            var: &lookup,
+            windows: false,
+        };
+        // The app's library asks the same function where Synesthesia is.
+        let found = synesthesia::detect_with(&env);
+        let search = search_path_with(&env, found.as_ref());
+        assert_eq!(
+            search,
+            vec![extra.0.clone(), install.0.join("lib")],
+            "STROBE_GLSL_PATH first, then the detected install's lib"
+        );
+        let main =
+            "#include \"hg_like.glsl\"\nvec4 renderMain() { return vec4(fromTheInstall()); }\n";
+        let scene = Scratch::new("synesthesia-scene")?;
+        let out = expand(main.to_string(), &scene.0, &search);
+        assert!(
+            out.contains("float fromTheInstall()"),
+            "resolved from the install: {out}"
+        );
+        let none = search_path_with(&env, None);
+        assert_eq!(none, vec![extra.0.clone()], "no install, no lib");
         Ok(())
     }
 

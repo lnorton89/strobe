@@ -39,9 +39,13 @@
 //!   case-insensitive, ignoring `_`, `-` and spaces.
 //! - [`tags`] reads a scene's `TAGS` leniently, normalises them, and
 //!   writes them back without disturbing the rest of `scene.json`.
+//! - [`synesthesia`] finds the person's own Synesthesia install and the
+//!   scene folders in its settings, for the `#include` path and the app's
+//!   library (D271).
 //!
-//! Nothing here touches GL, the filesystem beyond [`load`] and the
-//! [`include`] it runs, or a clock:
+//! Nothing here touches GL, the filesystem beyond [`load`], the
+//! [`include`] it runs, and the folder checks and settings files
+//! [`synesthesia`] reads, or a clock:
 //! `dt` is passed in. That is what lets every rule above be tested on any
 //! machine without a window.
 
@@ -61,6 +65,7 @@ pub mod names;
 pub mod preset;
 pub mod promote;
 pub mod scene;
+pub mod synesthesia;
 pub mod synthetic;
 pub mod tags;
 
