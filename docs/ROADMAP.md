@@ -37,6 +37,17 @@ which backend proved a claim.
 
 ### In flight
 
+- **Full desktop remote control (2026-10-13, D275):** native Strobe instances
+  can mirror and operate another instance's complete control window,
+  including the editor and host file operations. Built on `strobe-remote`'s
+  pairing/listener, with a separate desktop grant and host switch, one
+  controller lease, bounded input/capture workers, text clipboard and
+  in-memory reconnect credentials. Loopback tests cover host editing/saving,
+  revocation and unchanged phone permissions; Windows RX 580 native GL
+  captures verify the connection form and viewer layouts. Next: two physical
+  desktops over Wi-Fi, loss/sleep/minimized-window behavior and a T480
+  streaming soak. The raster UI stream is capped at 5 Hz; see USER_GUIDE.md.
+
 - **Render scale and pinned scenes (D280), built, not yet re-run on the
   RX 580:** a scene with a root `WIDTH` x `HEIGHT`, a literal buffer pass of
   that size, and a shader that reads it with `texelFetch` draws its final
@@ -47,6 +58,7 @@ which backend proved a claim.
   that cut under 15% of GPU time per halving; two such verdicts in a row
   lock lowering for 30 s (doubling on each re-lock) or until the next scene.
   Open: the RX 580 re-run (AMD.md).
+
 - **Chromatic Rise scene (2026-10-13):** added
   `scenes/13-chromatic-rise.synScene`, an original procedural interpretation
   of the owner's TouchDesigner RISE video, with eleven controls and bass

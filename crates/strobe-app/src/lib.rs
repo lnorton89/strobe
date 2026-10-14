@@ -50,6 +50,7 @@ pub mod command_palette;
 pub mod commands;
 pub mod console;
 pub mod corpus;
+pub mod desktop;
 pub mod diagnose;
 pub mod dialog;
 pub mod editor;

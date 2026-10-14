@@ -64,6 +64,10 @@ const FILE_VERSION: u32 = 1;
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 struct Record {
+    /// Explicitly approved for full desktop UI access. Older records and
+    /// ordinary phone pairings remain limited to performance commands.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    desktop: bool,
     id: String,
     label: String,
     paired_at: u64,
@@ -109,6 +113,8 @@ pub struct ClientInfo {
 /// A successful authentication.
 #[derive(Debug)]
 pub struct Authenticated {
+    /// Whether the operator approved full desktop UI access for this token.
+    pub desktop: bool,
     /// Who.
     pub client_id: String,
     /// The token to use next time, when it could be saved; `None` keeps
@@ -250,6 +256,11 @@ impl Clients {
     /// Pairs a new client labelled `label`: its id and its first token.
     /// Fails if the list is full or cannot be saved; nothing is paired then.
     pub fn pair(&self, label: &str) -> std::io::Result<(String, Token)> {
+        self.pair_with_access(label, false)
+    }
+
+    /// Pair with the desktop scope explicitly approved on the host.
+    pub fn pair_with_access(&self, label: &str, desktop: bool) -> std::io::Result<(String, Token)> {
         let mut store = self.store();
         if store.records.len() >= MAX_PAIRED {
             return Err(std::io::Error::other(format!(
@@ -265,6 +276,7 @@ impl Clients {
         let token = Token::generate()?;
         let now = now_secs();
         store.records.push(Record {
+            desktop,
             id: id.clone(),
             label: clean_label(label),
             paired_at: now,
@@ -298,6 +310,7 @@ impl Clients {
         }
         record.last_seen = now_secs();
         let client_id = record.id.clone();
+        let desktop = record.desktop;
         // Without the OS random source there is no next token; the current
         // one stays valid and rotation is tried again at the next connect.
         let rotated = Token::generate()
@@ -305,11 +318,16 @@ impl Clients {
             .ok();
         record.next_sha256 = rotated.as_ref().map(Token::digest);
         match store.save() {
-            Ok(()) => Some(Authenticated { client_id, rotated }),
+            Ok(()) => Some(Authenticated {
+                client_id,
+                rotated,
+                desktop,
+            }),
             Err(error) => {
                 log::warn!("remote: could not save the client list ({error}); token not rotated");
                 store.records = before;
                 Some(Authenticated {
+                    desktop,
                     client_id,
                     rotated: None,
                 })
@@ -389,6 +407,42 @@ mod tests {
         ));
         let _ = std::fs::remove_dir_all(&dir);
         dir
+    }
+
+    #[test]
+    fn phone_scope_is_the_legacy_default_and_desktop_scope_survives_rotation() -> Result<()> {
+        let clients = Clients::in_memory();
+        let (_, phone) = clients.pair("phone")?;
+        let (_, desktop) = clients.pair_with_access("desktop", true)?;
+        let phone_auth = clients
+            .authenticate(phone.expose())
+            .context("phone authentication")?;
+        assert!(!phone_auth.desktop, "phone scope stays limited");
+        let desktop_auth = clients
+            .authenticate(desktop.expose())
+            .context("desktop authentication")?;
+        assert!(desktop_auth.desktop, "explicit desktop scope");
+        let rotated = desktop_auth.rotated.context("rotated token")?;
+        assert!(
+            clients
+                .authenticate(rotated.expose())
+                .is_some_and(|auth| auth.desktop),
+            "rotated token keeps desktop scope"
+        );
+        let legacy = serde_json::to_value(&clients.store().records[0])?;
+        assert!(
+            legacy.get("desktop").is_none(),
+            "ordinary clients retain the legacy file shape"
+        );
+        let restored: Record = serde_json::from_value(legacy)?;
+        assert!(!restored.desktop, "old files default to phone permissions");
+        let native = serde_json::to_value(&clients.store().records[1])?;
+        let restored: Record = serde_json::from_value(native)?;
+        assert!(
+            restored.desktop,
+            "explicit grant is serialized and restored"
+        );
+        Ok(())
     }
 
     #[test]

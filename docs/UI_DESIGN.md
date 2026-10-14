@@ -6,6 +6,19 @@ This is the UI contract for the Strobe desktop application. Synesthesia remains 
 
 ## 1. Product model
 
+Desktop remote connection follows the existing Settings > Remote surface
+(D275). Hosting starts with a runtime-only **Allow full desktop control**
+switch; the pending approval explicitly says **Full desktop**. The controller
+form groups host IP:port, pairing code and Connect, with inline status and the
+in-memory reconnect hint. It uses existing palette, typography, spacing and
+buttons. The viewer devotes the surface to the host image, keeping connection
+status and **Return to local Strobe** above it. That button and
+Ctrl/Command+Shift+F12 always act locally. A stale or disconnected image accepts
+no input; all host edits and paths remain visibly described as host operations.
+This extends the current Operate surface rather than introducing a new visual
+system. Finish review: native GL desktop/compact captures and shell overflow,
+text-overlap, focus and keyboard checks; no new raster artwork is shipped.
+
 Strobe has two different jobs:
 
 1. Perform: manipulate visuals while music is playing.

@@ -107,6 +107,8 @@ struct Scenario {
     density: crate::ui::theme::Density,
     /// The LAN remote is on, with a phone waiting for approval (D254).
     lan: bool,
+    /// Full desktop access enabled on the host.
+    desktop_access: bool,
     /// The command palette is open with this typed (D262).
     palette: Option<&'static str>,
     /// The Editor refused a Save and reload: its `scene.json` does not
@@ -169,6 +171,7 @@ const BASE: Scenario = Scenario {
     cue_selected: false,
     density: crate::ui::theme::Density::Comfortable,
     lan: false,
+    desktop_access: false,
     palette: None,
     editor_invalid: false,
     tagging: false,
@@ -186,6 +189,13 @@ const BASE: Scenario = Scenario {
 fn scenarios() -> Vec<Scenario> {
     vec![
         BASE,
+        Scenario {
+            name: "full desktop access enabled",
+            lan: true,
+            desktop_access: true,
+            panes: &[Pane::Settings],
+            ..BASE
+        },
         Scenario {
             name: "compact, small cards",
             density: crate::ui::theme::Density::Compact,
@@ -1032,6 +1042,7 @@ fn draw_events(
     let lan_view = sample_lan(scenario.lan);
     let mut lan_address = String::new();
     let mut lan_port = "47812".to_string();
+    let mut desktop_controller = crate::desktop::Controller::default();
     let mut shell_state = ShellState::default();
     let mut actions = Vec::new();
     let mut all_actions = Vec::new();
@@ -1180,6 +1191,8 @@ fn draw_events(
                 read_only: scenario.on_synesthesia,
             },
             lan: LanPanel {
+                desktop_enabled: scenario.desktop_access,
+                controller: &mut desktop_controller,
                 view: &lan_view,
                 address: &mut lan_address,
                 port: &mut lan_port,

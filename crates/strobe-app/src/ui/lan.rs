@@ -30,7 +30,7 @@ pub fn show(ui: &mut Ui, theme: &Palette, panel: &mut LanPanel<'_>, actions: &mu
     let view = panel.view;
     ui.label(
         egui::RichText::new(
-            "Run the show from a phone or tablet on the same network. Off until you switch it \
+            "Run the show from a phone, tablet or another Strobe desktop on the same network. Off until you switch it \
              on, and never on by itself at launch. Plain HTTP: use it only on a network you \
              trust.",
         )
@@ -45,6 +45,49 @@ pub fn show(ui: &mut Ui, theme: &Palette, panel: &mut LanPanel<'_>, actions: &mu
     }
     ui.add_space(SPACE_SM);
     paired(ui, theme, panel, actions);
+    ui.add_space(SPACE_SM);
+    let mut desktop_enabled = panel.desktop_enabled;
+    if ui
+        .add_enabled(
+            view.running,
+            egui::Checkbox::new(&mut desktop_enabled, "Allow full desktop control"),
+        )
+        .changed()
+    {
+        actions.push(Action::SetDesktopAccess(desktop_enabled));
+    }
+    ui.label(egui::RichText::new("Grants paired desktops access to the entire Strobe UI, including the editor and file changes. One controller at a time. Off again when the remote stops.").small().color(theme::rgb(theme.text_muted)));
+    ui.add_space(SPACE_SM);
+    ui.strong("Control another Strobe desktop");
+    ui.label("Start remote and allow full desktop control on the host, then open pairing there.");
+    ui.horizontal_wrapped(|ui| {
+        ui.label("Host IP:port");
+        ui.add(
+            egui::TextEdit::singleline(&mut panel.controller.address)
+                .hint_text("192.168.1.20:47812")
+                .desired_width(180.0),
+        );
+        ui.label("Pairing code");
+        ui.add(
+            egui::TextEdit::singleline(&mut panel.controller.code)
+                .password(true)
+                .desired_width(90.0),
+        );
+        if widgets::button(ui, theme, None, "Connect to desktop").clicked() {
+            actions.push(Action::ConnectDesktop);
+        }
+    });
+    ui.label(
+        egui::RichText::new(
+            "Leave the code blank to reconnect to the same host during this app session.",
+        )
+        .small()
+        .color(theme::rgb(theme.text_muted)),
+    );
+    let note = panel.controller.note();
+    if !note.is_empty() {
+        ui.label(note);
+    }
 }
 
 fn stopped(ui: &mut Ui, theme: &Palette, panel: &mut LanPanel<'_>, actions: &mut Vec<Action>) {

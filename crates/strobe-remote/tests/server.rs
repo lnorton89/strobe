@@ -81,6 +81,7 @@ fn limits() -> Limits {
 /// A listener on a free loopback port, a fake app that answers every
 /// command and publishes a snapshot, and the paired-client list.
 struct Rig {
+    desktop: strobe_remote::desktop::Desktop,
     server: Server,
     clients: Clients,
     _app: FakeApp,
@@ -108,6 +109,7 @@ fn rig_with(limits: Limits, clients: Clients) -> Result<Rig> {
 fn rig_on(limits: Limits, clients: Clients, proxied: Option<&str>) -> Result<Rig> {
     capture_logs();
     let (remote, app_end) = bridge::bridge(4);
+    let desktop = app_end.desktop.clone();
     let server = Server::start(
         ServerConfig {
             bind: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
@@ -137,6 +139,7 @@ fn rig_on(limits: Limits, clients: Clients, proxied: Option<&str>) -> Result<Rig
         })
     };
     Ok(Rig {
+        desktop,
         server,
         clients,
         _app: FakeApp {
@@ -391,10 +394,14 @@ impl Ws {
 
 /// Pairs a new phone through the whole flow; returns its id and token.
 fn pair(rig: &Rig) -> Result<(String, String, Ws)> {
+    pair_as(rig, false)
+}
+
+fn pair_as(rig: &Rig, desktop: bool) -> Result<(String, String, Ws)> {
     let mut ws = open(rig)?;
     ws.hello()?;
     let code = rig.server.open_pairing()?;
-    ws.send(&json!({"type": "pair", "code": code}))?;
+    ws.send(&json!({"type": if desktop { "pair_desktop" } else { "pair" }, "code": code}))?;
     eventually("the request to reach the desktop", || {
         !rig.server.pairing_requests().is_empty()
     })?;
@@ -405,7 +412,11 @@ fn pair(rig: &Rig) -> Result<(String, String, Ws)> {
         .next()
         .context("a request")?;
     ensure!(
-        request.label.starts_with("iPhone at 127.0.0.1"),
+        request.label.starts_with(if desktop {
+            "Full desktop: iPhone at 127.0.0.1"
+        } else {
+            "iPhone at 127.0.0.1"
+        }),
         "{}",
         request.label
     );
@@ -439,6 +450,158 @@ fn authenticate(rig: &Rig, token: &str) -> Result<(String, Ws)> {
 }
 
 // --------------------------------------------------------------------- tests
+
+#[test]
+fn desktop_control_requires_pairing_and_opt_in_and_is_exclusive() -> Result<()> {
+    let rig = rig()?;
+    let mut anonymous = open(&rig)?;
+    anonymous.hello()?;
+    anonymous.send(&json!({"type":"desktop_open"}))?;
+    assert_eq!(
+        anonymous.until("error")?["code"],
+        "unauthorized",
+        "paired first"
+    );
+    let (_, phone_token, mut phone) = pair(&rig)?;
+    phone.send(&json!({"type":"desktop_open"}))?;
+    assert_eq!(
+        phone.until("error")?["code"],
+        "unavailable",
+        "host opt-in required"
+    );
+    rig.desktop.enable(true);
+    phone.send(&json!({"type":"desktop_open"}))?;
+    assert_eq!(
+        phone.until("error")?["code"],
+        "unavailable",
+        "an existing phone token is never upgraded"
+    );
+    let (_, mut phone_reconnected) = authenticate(&rig, &phone_token)?;
+    phone_reconnected.send(&json!({"type":"desktop_open"}))?;
+    assert_eq!(
+        phone_reconnected.until("error")?["code"],
+        "unavailable",
+        "phone scope survives token rotation"
+    );
+    let (id, _, mut first) = pair_as(&rig, true)?;
+    first.send(&json!({"type":"desktop_open"}))?;
+    eventually("desktop lease", || rig.desktop.active())?;
+    rig.desktop.publish([16, 16], "jpeg-fixture".into());
+    assert_eq!(
+        first.until("desktop_frame")?["jpeg"],
+        "jpeg-fixture",
+        "owner receives frames"
+    );
+    let (_, _, mut second) = pair_as(&rig, true)?;
+    second.send(&json!({"type":"desktop_open"}))?;
+    assert_eq!(
+        second.until("error")?["code"],
+        "unavailable",
+        "cannot steal lease"
+    );
+    first.send(
+        &json!({"type":"desktop_input", "events":[{"kind":"text","text":"edited shader"}]}),
+    )?;
+    let mut events = Vec::new();
+    eventually("input on app bridge", || {
+        rig.desktop.drain(&mut events);
+        !events.is_empty()
+    })?;
+    assert_eq!(
+        events,
+        vec![strobe_remote::desktop::Input::Text {
+            text: "edited shader".into()
+        }],
+        "host receives UI text"
+    );
+    rig.desktop.copy_text("selected shader");
+    assert_eq!(
+        first.until("desktop_clipboard")?["text"],
+        "selected shader",
+        "only explicit UI clipboard output"
+    );
+    assert!(rig.server.revoke(&id), "revoke controller");
+    eventually("revocation releases input", || !rig.desktop.active())?;
+    assert!(first.closed()? == 1008, "revoked connection closes");
+    events.clear();
+    rig.desktop.drain(&mut events);
+    assert_eq!(
+        events,
+        vec![strobe_remote::desktop::Input::Reset {}],
+        "release held host keys and buttons"
+    );
+    second.send(&json!({"type":"desktop_open"}))?;
+    eventually("next owner", || rig.desktop.active())?;
+    rig.desktop.enable(false);
+    assert_eq!(second.closed()?, 1008, "kill switch closes desktop");
+    Ok(())
+}
+
+#[test]
+fn native_desktop_transport_pairs_and_reads_large_frames_without_affecting_phones() -> Result<()> {
+    use strobe_remote::{ClientMessage, ServerMessage};
+    let rig = rig()?;
+    rig.desktop.enable(true);
+    let mut native = strobe_remote::client::Connection::connect(rig.addr())?;
+    native.send(&ClientMessage::Hello {
+        protocol_version: 1,
+    })?;
+    let until = Instant::now() + Duration::from_secs(5);
+    let mut hello = false;
+    while !hello && Instant::now() < until {
+        hello = matches!(native.receive()?, Some(ServerMessage::Hello { .. }));
+    }
+    assert!(hello, "native handshake and hello");
+    native.send(&ClientMessage::PairDesktop {
+        code: rig.server.open_pairing()?,
+    })?;
+    eventually("native approval request", || {
+        !rig.server.pairing_requests().is_empty()
+    })?;
+    let request = rig
+        .server
+        .pairing_requests()
+        .into_iter()
+        .next()
+        .context("native pairing request")?;
+    assert!(rig.server.decide(request.id, true), "approved locally");
+    let mut authenticated = false;
+    let until = Instant::now() + Duration::from_secs(5);
+    while !authenticated && Instant::now() < until {
+        authenticated = matches!(native.receive()?, Some(ServerMessage::Authenticated { .. }));
+    }
+    assert!(authenticated, "paired and authenticated");
+    native.send(&ClientMessage::DesktopOpen {})?;
+    eventually("native exclusive lease", || rig.desktop.active())?;
+    let jpeg = "A".repeat(100_000);
+    rig.desktop.publish([640, 480], jpeg.clone());
+    let mut image = None;
+    let until = Instant::now() + Duration::from_secs(5);
+    while image.is_none() && Instant::now() < until {
+        if let Some(ServerMessage::DesktopFrame { jpeg, .. }) = native.receive()? {
+            image = Some(jpeg);
+        }
+    }
+    assert_eq!(
+        image.as_deref(),
+        Some(jpeg.as_str()),
+        "large unmasked frame parsed across reads"
+    );
+    let (_, _, mut phone) = pair(&rig)?;
+    phone.send(
+        &json!({"type":"command", "request_id":"phone-still-works", "command":"blackout_on"}),
+    )?;
+    assert_eq!(
+        phone.until("command_result")?["accepted"],
+        true,
+        "phone protocol preserved"
+    );
+    rig.server.stop();
+    eventually("server stop releases desktop lease", || {
+        !rig.desktop.active()
+    })?;
+    Ok(())
+}
 
 #[test]
 fn the_page_is_served_same_origin_with_a_strict_policy() -> Result<()> {
@@ -1007,6 +1170,7 @@ fn stopping_drops_every_client_at_once_and_frees_the_port() -> Result<()> {
         server,
         clients,
         _app,
+        ..
     } = rig;
     let started = Instant::now();
     server.stop();

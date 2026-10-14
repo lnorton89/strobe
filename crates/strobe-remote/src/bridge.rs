@@ -149,6 +149,8 @@ struct Shared {
 /// The adapter's end: cheap to clone, one per connection if need be.
 #[derive(Clone, Debug)]
 pub struct Remote {
+    /// Optional full desktop bridge, disabled until the host opts in.
+    pub desktop: crate::desktop::Desktop,
     commands: SyncSender<Incoming>,
     state: Arc<Mutex<Shared>>,
 }
@@ -156,12 +158,22 @@ pub struct Remote {
 /// The app's end, kept on its event-loop thread.
 #[derive(Debug)]
 pub struct AppEnd {
+    /// Optional full desktop bridge, shared with authenticated connections.
+    pub desktop: crate::desktop::Desktop,
     commands: Receiver<Incoming>,
     state: Arc<Mutex<Shared>>,
 }
 
+impl Drop for AppEnd {
+    fn drop(&mut self) {
+        // A gone app cannot receive UI input or publish trustworthy frames.
+        self.desktop.enable(false);
+    }
+}
+
 /// A bridge whose queue holds `capacity` commands (at least one).
 pub fn bridge(capacity: usize) -> (Remote, AppEnd) {
+    let desktop = crate::desktop::Desktop::default();
     let (commands, receiver) = sync_channel(capacity.max(1));
     let state = Arc::new(Mutex::new(Shared {
         revision: 0,
@@ -169,10 +181,12 @@ pub fn bridge(capacity: usize) -> (Remote, AppEnd) {
     }));
     (
         Remote {
+            desktop: desktop.clone(),
             commands,
             state: Arc::clone(&state),
         },
         AppEnd {
+            desktop,
             commands: receiver,
             state,
         },

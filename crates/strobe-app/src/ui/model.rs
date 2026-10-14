@@ -258,6 +258,12 @@ pub enum Action {
     ControlAction(strobe_io::ControlAction),
     /// Start or stop the LAN remote (D254). Stop drops every phone at once.
     SetLanRemote(bool),
+    /// Explicit full desktop permission on the host, only for this run.
+    SetDesktopAccess(bool),
+    /// Connect using Settings' desktop address and one-time pairing code.
+    ConnectDesktop,
+    /// Leave the remote desktop and return to this instance's UI.
+    DisconnectDesktop,
     /// Show a pairing code for a phone to type.
     OpenRemotePairing,
     /// Withdraw the pairing code.
@@ -328,6 +334,10 @@ pub struct ListenerPanel<'a> {
 
 /// The LAN remote, for Settings and the title bar.
 pub struct LanPanel<'a> {
+    /// Host opt-in for full desktop access, separate from phone commands.
+    pub desktop_enabled: bool,
+    /// Native controller connection form and status.
+    pub controller: &'a mut crate::desktop::Controller,
     /// What it is doing, made by the app this frame.
     pub view: &'a crate::lan::LanView,
     /// The address field.

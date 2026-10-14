@@ -59,7 +59,7 @@ pub(super) mod close {
 }
 
 /// Standard base64 of `bytes`, with padding.
-pub(super) fn base64(bytes: &[u8]) -> String {
+pub(crate) fn base64(bytes: &[u8]) -> String {
     const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for chunk in bytes.chunks(3) {
@@ -91,7 +91,7 @@ pub(super) fn valid_key(key: &str) -> bool {
 }
 
 /// The `Sec-WebSocket-Accept` for a client's key.
-pub(super) fn accept_key(key: &str) -> String {
+pub(crate) fn accept_key(key: &str) -> String {
     let mut hasher = Sha1::new();
     hasher.update(key.as_bytes());
     hasher.update(GUID);
@@ -100,7 +100,7 @@ pub(super) fn accept_key(key: &str) -> String {
 
 /// A whole message from the client.
 #[derive(Debug, PartialEq, Eq)]
-pub(super) enum Message {
+pub(crate) enum Message {
     /// A text message.
     Text(String),
     /// A WebSocket ping, with its payload to echo.
@@ -113,7 +113,7 @@ pub(super) enum Message {
 
 /// Why the connection must end.
 #[derive(Debug)]
-pub(super) enum WsError {
+pub(crate) enum WsError {
     /// The client broke the protocol.
     Protocol(&'static str),
     /// A message over the limit.
@@ -155,7 +155,8 @@ impl WsError {
 
 /// Reads client frames into messages, holding at most one frame.
 #[derive(Debug)]
-pub(super) struct Reader {
+pub(crate) struct Reader {
+    masked: bool,
     buffer: Vec<u8>,
     max_message: usize,
     /// A fragmented text message being assembled.
@@ -172,11 +173,20 @@ struct Frame {
 impl Reader {
     /// A reader for messages of at most `max_message` bytes, starting with
     /// bytes that arrived with the handshake.
-    pub(super) fn new(max_message: usize, leftover: Vec<u8>) -> Self {
+    pub(crate) fn new(max_message: usize, leftover: Vec<u8>) -> Self {
         Self {
+            masked: true,
             buffer: leftover,
             max_message,
             partial: None,
+        }
+    }
+
+    /// Client-side reader for the server's unmasked frames.
+    pub(crate) fn server(max_message: usize) -> Self {
+        Self {
+            masked: false,
+            ..Self::new(max_message, Vec::new())
         }
     }
 
@@ -188,7 +198,7 @@ impl Reader {
     /// The next whole message: from what is buffered if there is one, else
     /// after one read from `stream`. `Ok(None)` is "nothing complete yet"
     /// (including a read timeout).
-    pub(super) fn read(&mut self, stream: &mut impl Read) -> Result<Option<Message>, WsError> {
+    pub(crate) fn read(&mut self, stream: &mut impl Read) -> Result<Option<Message>, WsError> {
         if let Some(message) = self.next_message()? {
             return Ok(Some(message));
         }
@@ -233,8 +243,8 @@ impl Reader {
         if b0 & 0x70 != 0 {
             return Err(WsError::Protocol("reserved bits set"));
         }
-        if b1 & 0x80 == 0 {
-            return Err(WsError::Protocol("client frames must be masked"));
+        if (b1 & 0x80 != 0) != self.masked {
+            return Err(WsError::Protocol("incorrect frame masking"));
         }
         let (length, at) = match b1 & 0x7f {
             126 => match (self.buffer.get(2), self.buffer.get(3)) {
@@ -268,15 +278,18 @@ impl Reader {
             Ok(length) if length <= limit => length,
             Ok(_) | Err(_) => return Err(WsError::TooBig),
         };
-        let total = at + 4 + length;
+        let mask_len = if self.masked { 4 } else { 0 };
+        let total = at + mask_len + length;
         if self.buffer.len() < total {
             return Ok(None);
         }
         let mut mask = [0_u8; 4];
-        mask.copy_from_slice(self.buffer.get(at..at + 4).unwrap_or(&[0; 4]));
+        if self.masked {
+            mask.copy_from_slice(self.buffer.get(at..at + 4).unwrap_or(&[0; 4]));
+        }
         let payload: Vec<u8> = self
             .buffer
-            .get(at + 4..total)
+            .get(at + mask_len..total)
             .unwrap_or_default()
             .iter()
             .zip(mask.iter().cycle())

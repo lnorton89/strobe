@@ -197,6 +197,7 @@ static VERSION_HEADER: LazyLock<Vec<String>> =
 fn label(head: &Head, peer: SocketAddr) -> String {
     let agent = head.header("user-agent").unwrap_or_default();
     let kind = [
+        ("Strobe Desktop", "Strobe desktop"),
         ("iPhone", "iPhone"),
         ("iPad", "iPad"),
         ("Android", "Android"),
@@ -277,6 +278,11 @@ struct Session<'a> {
     heard: Instant,
     since_auth_wait: Instant,
     sent_revision: Option<u64>,
+    desktop_revision: Option<u64>,
+    clipboard_revision: Option<u64>,
+    desktop_open: bool,
+    desktop_pairing: bool,
+    desktop_authorized: bool,
 }
 
 impl<'a> Session<'a> {
@@ -305,6 +311,11 @@ impl<'a> Session<'a> {
             heard: now,
             since_auth_wait: now,
             sent_revision: None,
+            desktop_revision: None,
+            clipboard_revision: None,
+            desktop_open: false,
+            desktop_pairing: false,
+            desktop_authorized: false,
         }
     }
 
@@ -314,6 +325,7 @@ impl<'a> Session<'a> {
                 break end;
             }
         };
+        self.shared.remote.desktop.release(self.conn);
         if let Phase::Approval(id) = self.phase {
             self.shared.pairing().forget(id);
         }
@@ -420,13 +432,30 @@ impl<'a> Session<'a> {
 
     /// The operator approved: issue the client's token.
     fn approved(&mut self) -> Result<(), End> {
-        match self.shared.clients.pair(&self.label) {
+        if self.desktop_pairing && !self.shared.remote.desktop.enabled() {
+            self.phase = Phase::Unauthenticated;
+            return self.send(&ServerMessage::error(
+                ErrorCode::Unavailable,
+                "Full desktop access was disabled before approval; open pairing again",
+            ));
+        }
+        let label = if self.desktop_pairing {
+            format!("Full desktop: {}", self.label)
+        } else {
+            self.label.clone()
+        };
+        match self
+            .shared
+            .clients
+            .pair_with_access(&label, self.desktop_pairing)
+        {
             Ok((client_id, token)) => {
                 log::info!("remote: {} paired as client {client_id}", self.peer);
                 self.send(&ServerMessage::Paired {
                     client_id: client_id.clone(),
                     token: token.expose().to_string(),
                 })?;
+                self.desktop_authorized = self.desktop_pairing;
                 self.authenticated(client_id)
             }
             Err(error) => {
@@ -456,6 +485,23 @@ impl<'a> Session<'a> {
     fn push_state(&mut self) -> Result<(), End> {
         if !matches!(self.phase, Phase::Authenticated(_)) {
             return Ok(());
+        }
+        if self.desktop_open {
+            if !self.shared.remote.desktop.owns(self.conn) {
+                return Err(End::Close(close::POLICY, "desktop control disabled"));
+            }
+            if let Some((revision, frame)) = self.shared.remote.desktop.frame()
+                && self.desktop_revision != Some(revision)
+            {
+                self.send(&frame)?;
+                self.desktop_revision = Some(revision);
+            }
+            if let Some((revision, message)) = self.shared.remote.desktop.clipboard()
+                && self.clipboard_revision != Some(revision)
+            {
+                self.send(&message)?;
+                self.clipboard_revision = Some(revision);
+            }
         }
         let (revision, snapshot) = self.shared.remote.snapshot();
         if self.sent_revision == Some(revision) {
@@ -519,6 +565,29 @@ impl<'a> Session<'a> {
             }
         };
         match (self.phase.clone(), message) {
+            (Phase::Authenticated(_), ClientMessage::DesktopOpen {}) => {
+                if self.desktop_authorized && self.shared.remote.desktop.acquire(self.conn) {
+                    self.desktop_open = true;
+                    self.desktop_revision = None;
+                    self.push_state()
+                } else {
+                    self.send(&ServerMessage::error(ErrorCode::Unavailable, "Enable full desktop control on the host; only one desktop can control it at a time"))
+                }
+            }
+            (Phase::Authenticated(_), ClientMessage::DesktopInput { events }) => {
+                if self.desktop_open && self.shared.remote.desktop.submit(self.conn, events) {
+                    Ok(())
+                } else {
+                    Err(End::Close(close::POLICY, "desktop input refused"))
+                }
+            }
+            (
+                Phase::Unauthenticated | Phase::Approval(_),
+                ClientMessage::DesktopOpen {} | ClientMessage::DesktopInput { .. },
+            ) => self.send(&ServerMessage::error(
+                ErrorCode::Unauthorized,
+                "pair this desktop first",
+            )),
             (_, ClientMessage::Ping {}) => self.send(&ServerMessage::Pong {}),
             (Phase::Hello, ClientMessage::Hello { protocol_version }) => {
                 match negotiate(protocol_version) {
@@ -558,6 +627,7 @@ impl<'a> Session<'a> {
                             self.peer
                         );
                         let client_id = auth.client_id.clone();
+                        self.desktop_authorized = auth.desktop;
                         self.shared.set_client(self.conn, &client_id);
                         self.send(&ServerMessage::Authenticated {
                             client_id: client_id.clone(),
@@ -578,11 +648,33 @@ impl<'a> Session<'a> {
                     }
                 }
             }
-            (Phase::Unauthenticated, ClientMessage::Pair { code }) => {
-                let attempt =
-                    self.shared
-                        .pairing()
-                        .try_code(&code, self.label.clone(), Instant::now());
+            (
+                Phase::Unauthenticated,
+                request @ (ClientMessage::Pair { .. } | ClientMessage::PairDesktop { .. }),
+            ) => {
+                let (code, desktop) = match request {
+                    ClientMessage::Pair { code } => (code, false),
+                    ClientMessage::PairDesktop { code } => (code, true),
+                    ClientMessage::Hello { .. }
+                    | ClientMessage::Authenticate { .. }
+                    | ClientMessage::Command { .. }
+                    | ClientMessage::Ping {}
+                    | ClientMessage::DesktopOpen {}
+                    | ClientMessage::DesktopInput { .. } => return Err(End::Gone),
+                };
+                if desktop && !self.shared.remote.desktop.enabled() {
+                    return self.send(&ServerMessage::error(
+                        ErrorCode::Unavailable,
+                        "Enable full desktop control on the host before pairing this desktop",
+                    ));
+                }
+                self.desktop_pairing = desktop;
+                let label = if desktop {
+                    format!("Full desktop: {}", self.label)
+                } else {
+                    self.label.clone()
+                };
+                let attempt = self.shared.pairing().try_code(&code, label, Instant::now());
                 match attempt {
                     Ok(id) => {
                         log::info!(
@@ -653,7 +745,9 @@ impl<'a> Session<'a> {
             )
             | (
                 Phase::Approval(_) | Phase::Authenticated(_),
-                ClientMessage::Pair { .. } | ClientMessage::Authenticate { .. },
+                ClientMessage::Pair { .. }
+                | ClientMessage::PairDesktop { .. }
+                | ClientMessage::Authenticate { .. },
             ) => self.send(&ServerMessage::error(
                 ErrorCode::InvalidRequest,
                 "not now: this connection is past that step",

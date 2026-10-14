@@ -5691,6 +5691,52 @@ Evidence: native GL 3.3 and ANGLE GLES 3.0 rendered the scene at 1280x720
 on the RX 580; BENCHMARKS.md records timing and the first-draft delta.
 Revisit fidelity with the owner's feedback or the original network.
 
+### D275: Desktop controllers operate the host UI through a scoped raster stream (2026-10-13)
+
+The owner requested the entire desktop UI, including scene editing and file
+management, rather than a larger performance-command list. Mirror the host's
+actual control-window framebuffer and translate normalized pointer, key,
+committed text and clipboard input into its ordinary egui pass. This preserves
+the existing editor, settings, file protections and action paths without a
+second UI model or arbitrary filesystem/script RPC. Paths and saves refer to
+the host. Operating-system windows and local file uploads are outside this
+Strobe-window surface.
+
+Full access is separately approved: `pair_desktop` requires the host's
+runtime-only switch and labels the pending approval **Full desktop**. The
+grant is stored alongside that client's token digest; missing grants in older
+files default to performance-only access. Ordinary `pair` clients never gain
+desktop permission when the switch is enabled, including after token rotation.
+One authenticated connection leases input. Disabling, stop, revoke, app loss,
+disconnect and input overflow discard pending input and request releases for
+held keys/buttons. Old phone wire messages remain byte-for-byte compatible.
+
+Compression and decoding live on app-owned workers; socket I/O stays on remote
+workers. Capture is due only for an active lease, at most every 200 ms, with
+one pending RGBA frame and one shared latest JPEG. The explicit capture does
+a bounded GPU readback after control-window paint; ordinary/off frames neither
+capture nor allocate desktop input buffers. JPEG is bounded at 2 MiB, dimensions
+at 4096 per edge, input batches at 32 and 4096 JSON bytes, host input queue at
+128 events, and text clipboard at 64 KiB. Slow peers retain write timeouts;
+stale images disable controller input. This prioritizes full UI coverage and
+old-hardware limits over video-rate remote preview. Enabled streaming overhead
+still needs the T480 soak; the renderer bench cannot measure the app UI path.
+
+Native credentials are bound to the explicit private IP:port and held only in
+memory. Reconnect is explicit, uses ordinary rotating authentication, and
+never retries old clicks. Copy/Cut returns only text a host widget explicitly
+emitted, without reading the host OS clipboard. Tab remains routed to the host;
+Ctrl/Command+Shift+F12 and the local Return button disconnect the viewer.
+Images are shared as `Arc<ColorImage>` and recreated for a new egui context,
+so graphics recovery cannot leave the viewer referring to an old texture ID.
+
+Evidence: desktop bridge/client/unit tests, real-socket server tests, native
+controller-to-host-widget editing and atomic save/backup test, Windows RX 580
+native GL visual fixtures (`target/desktop-remote-qa/`). No real two-machine
+LAN, minimized-window, ANGLE-streaming or older-GPU soak claim. Revisit a
+structured render/input protocol or video codec only with measured latency,
+bandwidth and hardware evidence. Benchmark before/after is in BENCHMARKS.md.
+
 ### D280: a scene that reads a root-sized absolute pass texel by texel renders its final pass at that size (2026-10-14)
 
 **Context.** Synesthesia's `neon_city` declares a root `WIDTH: 1920, HEIGHT:
@@ -6011,3 +6057,4 @@ its screenshots found a third that no test could see.
 
 **Would reopen:** a notice that must be read in full in a small window; it
 scrolls, and its Dismiss button is always in the first row.
+

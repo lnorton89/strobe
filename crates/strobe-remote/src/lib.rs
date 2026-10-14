@@ -10,10 +10,11 @@
 //! Typed protocol shared by Strobe's LAN remote server and its clients, and
 //! the server itself.
 //!
-//! - The **protocol** (this file): allowlisted, versioned messages. There is
-//!   no arbitrary command, path, URL, script, or shader payload. Unknown
-//!   message types and commands fail deserialization instead of being
-//!   ignored (D236).
+//! - The **protocol** (this file): allowlisted, versioned messages. Phone
+//!   commands never carry files, scripts or settings. The separately
+//!   approved desktop extension carries UI input, including editor text,
+//!   rather than direct filesystem or script RPC. Unknown message types
+//!   and commands fail deserialization instead of being ignored (D236).
 //! - The **bridge** ([`bridge`], D232): the bounded queue and revisioned
 //!   snapshot where a network thread meets the app's event-loop thread. The
 //!   listener never calls renderer or playlist objects; the app runs each
@@ -28,7 +29,9 @@
 //! installable PWA: that waits on a TLS decision (backlog L-07).
 
 pub mod bridge;
+pub mod client;
 pub mod clients;
+pub mod desktop;
 pub mod pairing;
 pub mod secret;
 pub mod server;
@@ -69,6 +72,11 @@ pub enum ClientMessage {
         /// One-time code; never log this field.
         code: String,
     },
+    /// Pair for full desktop input, with a separately labelled host approval.
+    PairDesktop {
+        /// One-use code; host full desktop access must also be enabled.
+        code: String,
+    },
     /// Authenticate a previously paired client on a new connection.
     ///
     /// Adapters must compare this token in constant time where practical,
@@ -90,6 +98,14 @@ pub enum ClientMessage {
     /// does not apply to a unit variant of an internally tagged enum, so
     /// `Ping` would accept `{"type":"ping","anything":...}`.
     Ping {},
+    /// Request exclusive control of the desktop UI. Requires the host's
+    /// separate full-desktop switch as well as ordinary pairing.
+    DesktopOpen {},
+    /// Ordered UI events, applied only by the exclusive desktop controller.
+    DesktopInput {
+        /// A bounded batch of pointer, keyboard and text events.
+        events: Vec<desktop::Input>,
+    },
 }
 
 /// Commands intentionally exposed to a paired phone or tablet.
@@ -221,6 +237,21 @@ pub enum ServerMessage {
     },
     /// Response to a ping (an empty struct, for the reason on `Ping`).
     Pong {},
+    /// The host's control window, JPEG encoded. Only the desktop lease
+    /// holder receives these; phones retain their original protocol.
+    DesktopFrame {
+        /// Capture revision.
+        revision: u64,
+        /// Pixel dimensions of the captured host window.
+        size: [u32; 2],
+        /// Standard base64 JPEG data.
+        jpeg: String,
+    },
+    /// Text the host UI explicitly copied or cut for the controller.
+    DesktopClipboard {
+        /// Selected Unicode text (at most 64 KiB).
+        text: String,
+    },
 }
 
 /// Audio state as displayed by the remote.
@@ -285,9 +316,13 @@ pub fn decode_client(text: &str) -> Result<ClientMessage, ErrorCode> {
     };
     let valid = match &message {
         ClientMessage::Hello { .. } | ClientMessage::Ping {} => true,
-        ClientMessage::Pair { code } => !code.is_empty() && code.len() <= MAX_SECRET_LEN,
+        ClientMessage::Pair { code } | ClientMessage::PairDesktop { code } => {
+            !code.is_empty() && code.len() <= MAX_SECRET_LEN
+        }
         ClientMessage::Authenticate { token } => !token.is_empty() && token.len() <= MAX_SECRET_LEN,
         ClientMessage::Command { request_id, .. } => valid_request_id(request_id),
+        ClientMessage::DesktopOpen {} => true,
+        ClientMessage::DesktopInput { events } => desktop::valid_inputs(events),
     };
     if valid {
         Ok(message)
