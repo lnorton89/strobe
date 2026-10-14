@@ -46,9 +46,22 @@ tracks every known unfinished implementation and validation task across the proj
   Fresh before/after thirteen-scene GPU timings are in BENCHMARKS.md.
   Committed visual fixtures: `docs/images/perform/desktop-remote-host-900x700.png`
   and `desktop-remote-viewer-1440x900.png` (native loopback fixture captures).
+- [x] Full desktop remote review hardening (2026-10-14, D275). Evidence, all
+  on loopback in the Linux container: `clients::tests::a_desktop_grant_is_never_saved_and_ends_with_the_switch`;
+  `tests/server.rs` `desktop_input_reaches_the_app_only_from_the_lease_holder`,
+  `desktop_input_is_bounded_and_validated_before_the_app_sees_it` and
+  `switching_desktop_access_off_ends_desktop_pairings_and_spares_phones`;
+  `lib::tests::desktop_messages_read_and_write_byte_for_byte`;
+  `desktop::tests::a_remote_pass_cannot_widen_who_reaches_this_computer` and
+  `leaving_a_desktop_never_blocks_the_frame_loop`. The asynchronous capture
+  readback is not exercised by any test: the headless context has no default
+  framebuffer.
 - [ ] Full desktop remote: two physical Strobe desktops over Wi-Fi, reconnect
-  after loss/sleep, minimized host, cross-DPI/zoom behavior on real monitors,
-  ANGLE capture and T480 CPU/frame-time/memory soak remain unverified.
+  after loss/sleep, minimized host, a host control window covered by the
+  fullscreen output (does it still redraw and capture?), the fenced capture
+  readback on a real window (native GL and ANGLE), cross-DPI/zoom behavior on
+  real monitors, a remote click on Settings' Approve refused with the banner,
+  and T480 CPU/frame-time/memory soak remain unverified.
 
 - [x] Chromatic Rise scene loads, compiles and renders on Windows RX 580
   native GL 3.3 and ANGLE GLES 3.0 at 1280x720 (2026-10-13).

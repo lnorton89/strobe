@@ -286,7 +286,9 @@ desktop-streaming overhead.
 
 Desktop capture is capped at five frames per second and skipped without an
 active viewer. Compression, socket transfer and decoding run on workers;
-active capture still reads pixels after control-window paint. Native RX 580
+active capture reads the control window into a pixel-pack buffer behind a
+fence and collects it on a later frame, so it never waits for the GPU
+(review hardening, D275). Native RX 580
 GL connection/viewer fixtures are committed in `docs/images/perform/`.
 Loopback tests exercise host input/edit/save paths. Two physical desktops,
 Wi-Fi loss/sleep, ANGLE capture and older-GPU CPU/frame-time/memory soak

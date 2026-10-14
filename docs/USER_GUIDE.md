@@ -288,16 +288,26 @@ operating-system dialogs are outside this Strobe window stream.
 **Return to local Strobe** always belongs to the controlling computer;
 Ctrl+Shift+F12 is its keyboard shortcut (Command+Shift+F12 on macOS).
 Only one desktop can control a host at once. The host title bar says
-**Desktop access on**; **Stop remote**, disabling full desktop access, or
-revoking the controlling device disconnects it and releases held inputs.
-Existing phone tokens retain performance-only access, even while desktop
-access is enabled. Desktop approval is a separate permission.
+**Desktop access on**, and **Desktop controlled remotely** (with a warning
+sign) while a controller holds the controls; **Stop remote**, disabling full
+desktop access, or revoking the controlling device disconnects it and
+releases held inputs. Existing phone tokens retain performance-only access,
+even while desktop access is enabled. Desktop approval is a separate
+permission.
+
+A controller can do anything in the host's Strobe window except widen who
+can reach the host: pairing or approving devices, starting a listener,
+switching desktop access on, changing OSC and connecting the host to another
+desktop are refused from the remote and must be done at the host itself.
+Treat a full desktop approval like handing someone the host's keyboard: it
+includes editing and saving scenes, typing host file paths and quitting.
 
 To reconnect during the same controller app session, leave the code blank
 and connect to the same IP and port. The credential is rotated on each
 connection and kept only in memory. After restarting the controller, pair
-again; revoke unused entries on the host when appropriate. Full desktop
-hosting is never saved and is off again after Stop remote or restarting.
+again. On the host, a desktop pairing is never saved: switching full desktop
+access off, **Stop remote** or restarting Strobe revokes every desktop
+pairing, so each new session is approved again. Phone pairings are kept.
 
 The native client uses a private IP connection on the trusted LAN; it does
 not use the HTTPS proxy described below. The control window stream is
