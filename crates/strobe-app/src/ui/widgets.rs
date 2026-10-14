@@ -332,9 +332,10 @@ pub fn tool_button_fitted(
     );
     response
         .widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, active, label));
-    if labelled {
+    if labelled || !response.hovered() {
         super::help::hovered(response, tooltip)
     } else {
+        // The words the button no longer shows, built only while hovered.
         super::help::hovered(response, &format!("{label}. {tooltip}"))
     }
 }

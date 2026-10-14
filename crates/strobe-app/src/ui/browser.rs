@@ -78,6 +78,7 @@ use crate::workspace::Pane;
 use egui::{
     Align, CornerRadius, Key, Layout, Rect, Sense, Stroke, StrokeKind, Ui, UiBuilder, Vec2,
 };
+use std::borrow::Cow;
 
 /// The id of the search field, so a command can focus it.
 pub const SEARCH_ID: &str = "browser-search";
@@ -118,6 +119,15 @@ impl CardSize {
             Self::Small => "S",
             Self::Medium => "M",
             Self::Large => "L",
+        }
+    }
+
+    /// The switch's tooltip.
+    pub const fn tooltip(self) -> &'static str {
+        match self {
+            Self::Small => "Small thumbnails",
+            Self::Medium => "Medium thumbnails",
+            Self::Large => "Large thumbnails",
         }
     }
 
@@ -238,7 +248,7 @@ fn toolbar(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Ve
                         theme.text
                     }),
                 );
-                if super::help::hovered(response, &format!("{} thumbnails", size.key())).clicked() {
+                if super::help::hovered(response, size.tooltip()).clicked() {
                     model.ui.browser.cards = *size;
                 }
             }
@@ -313,11 +323,14 @@ fn count_label(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, brief: bool)
         .label(egui::RichText::new(count).color(theme::rgb(theme.text_muted)))
         .on_hover_text("Scenes shown of scenes in the library");
     if theirs > 0 {
-        label.on_hover_text(format!(
-            "{theirs} from Synesthesia: the ones it ships are read-only, and the scene folders \
-             in its settings are yours. Search \"synesthesia\" to see only them; Settings can \
-             hide them."
-        ));
+        // Built only while the tooltip shows.
+        label.on_hover_ui(|ui| {
+            ui.label(format!(
+                "{theirs} from Synesthesia: the ones it ships are read-only, and the scene \
+                 folders in its settings are yours. Search \"synesthesia\" to see only them; \
+                 Settings can hide them."
+            ));
+        });
     }
 }
 
@@ -715,7 +728,10 @@ fn card(
     rect: Rect,
     actions: &mut Vec<Action>,
 ) {
-    let Some(entry) = model.library.entries.get(index) else {
+    // Borrowed from the library, not from `model`, so the card can write
+    // to `model.ui` without copying the entry's name or folder each frame.
+    let library = model.library;
+    let Some(entry) = library.entries.get(index) else {
         return;
     };
     let unknown = Health::Unknown;
@@ -915,9 +931,8 @@ fn card(
     if response.double_clicked() && !playing {
         actions.push(Action::Load(index));
     }
-    let name_for_menu = entry.name.clone();
     let favourite = model.ui.browser.is_favourite(&entry.name);
-    let read_only = entry.read_only().then(|| entry.dir.clone());
+    let read_only = entry.read_only();
 
     // The "..." at the right of the title opens the same menu a
     // right-click does.
@@ -977,7 +992,7 @@ fn card(
             menu_choice = Some(Menu::Edit);
             ui.close();
         }
-        if read_only.is_some() && ui.button(super::tags::COPY_LABEL).clicked() {
+        if read_only && ui.button(super::tags::COPY_LABEL).clicked() {
             menu_choice = Some(Menu::Copy);
             ui.close();
         }
@@ -987,13 +1002,9 @@ fn card(
     match menu_choice {
         Some(Menu::Load) => actions.push(Action::Load(index)),
         Some(Menu::Preview) => actions.push(Action::Preview(index)),
-        Some(Menu::Star) => model.ui.browser.toggle_favourite(&name_for_menu),
-        Some(Menu::Edit) => actions.push(Action::OpenEditor(Some(name_for_menu.clone()))),
-        Some(Menu::Copy) => {
-            if let Some(dir) = read_only {
-                actions.push(Action::CopyToLibrary(dir));
-            }
-        }
+        Some(Menu::Star) => model.ui.browser.toggle_favourite(&entry.name),
+        Some(Menu::Edit) => actions.push(Action::OpenEditor(Some(entry.name.clone()))),
+        Some(Menu::Copy) => actions.push(Action::CopyToLibrary(entry.dir.clone())),
         None => {}
     }
 
@@ -1033,7 +1044,7 @@ fn card(
         "Add to favourites"
     });
     if star_response.clicked() {
-        model.ui.browser.toggle_favourite(&name_for_menu);
+        model.ui.browser.toggle_favourite(&entry.name);
     }
 
     // The verbs, over the picture's bottom edge, on the selected card.
@@ -1105,20 +1116,29 @@ struct Line<'a> {
 fn byline(ui: &mut Ui, theme: &Palette, line: &Line<'_>, x: f32, band: Rect, width: f32) {
     /// The least room the text keeps before the source is dropped.
     const MIN_TEXT: f32 = 60.0;
+    // Borrowed where it can be: this runs for every card on screen, every
+    // frame.
+    let tags = || match line.tags {
+        [] => Cow::Borrowed(""),
+        [one] => Cow::Borrowed(one.as_str()),
+        many => Cow::Owned(many.join(", ")),
+    };
     let (icon, text, colour) = match line.health {
         Health::Failed(reason) => (
             Some(Icon::Error),
-            format!("Failed: {}", reason.lines().next().unwrap_or("")),
+            Cow::Owned(format!("Failed: {}", reason.lines().next().unwrap_or(""))),
             theme.danger,
         ),
-        Health::Ready if !line.author.is_empty() => {
-            (Some(Icon::Check), line.author.to_string(), theme.text_muted)
-        }
-        Health::Ready => (Some(Icon::Check), line.tags.join(", "), theme.text_muted),
+        Health::Ready if !line.author.is_empty() => (
+            Some(Icon::Check),
+            Cow::Borrowed(line.author),
+            theme.text_muted,
+        ),
+        Health::Ready => (Some(Icon::Check), tags(), theme.text_muted),
         Health::Unknown if !line.author.is_empty() => {
-            (None, line.author.to_string(), theme.text_muted)
+            (None, Cow::Borrowed(line.author), theme.text_muted)
         }
-        Health::Unknown => (None, line.tags.join(", "), theme.text_muted),
+        Health::Unknown => (None, tags(), theme.text_muted),
     };
     let y = band.bottom() - theme::density().row_inset() - 7.0;
     let mut text_x = x;
