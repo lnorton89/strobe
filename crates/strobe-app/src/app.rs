@@ -239,7 +239,8 @@ impl ApplicationHandler for App {
         }
         let library = self.library.take().unwrap_or_default();
         match Running::new(event_loop, &self.cli, library, self.scan_error.take()) {
-            Ok(running) => {
+            Ok(mut running) => {
+                running.place_output(event_loop, &self.cli);
                 self.running = Some(running);
                 self.started = true;
             }
@@ -1629,6 +1630,38 @@ impl Running {
             .cloned();
         window.set_fullscreen(Some(Fullscreen::Borderless(monitor)));
         self.set_output_visible(true);
+    }
+
+    /// Applies `--output-monitor` and `--fullscreen` once the windows exist,
+    /// so a venue autostart lands on the projector with nobody at the
+    /// keyboard.
+    fn place_output(&mut self, event_loop: &ActiveEventLoop, cli: &Cli) {
+        if !cli.fullscreen && cli.output_monitor.is_none() {
+            return;
+        }
+        self.refresh_monitors(event_loop);
+        if let Some(number) = cli.output_monitor {
+            let index = usize::try_from(number)
+                .unwrap_or(usize::MAX)
+                .saturating_sub(1);
+            if index < self.monitors.len() {
+                self.move_to_monitor(index);
+            } else {
+                log::warn!(
+                    "--output-monitor {number}: there are {} monitor(s); the output stays where it opened",
+                    self.monitors.len()
+                );
+            }
+        }
+        if cli.fullscreen {
+            self.toggle_fullscreen();
+        }
+        log::info!(
+            "output placed at launch: monitor {}, fullscreen {}",
+            self.output_monitor
+                .map_or_else(|| "as opened".to_string(), |index| (index + 1).to_string()),
+            cli.fullscreen
+        );
     }
 
     fn move_to_monitor(&mut self, index: usize) {

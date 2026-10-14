@@ -215,6 +215,44 @@ render.
 - llvmpipe's absolute numbers are CPU rasterisation, so use them only to
   rank scenes and to measure the delta of a change.
 
+### 2026-10-13: Chromatic Rise, Windows RX 580
+
+Native GL 3.3 (driver 26.5.2.260413), hidden window, 1280x720,
+per-pass programs, half-float buffers, 60 timed frames after 90 warm-up.
+Before: `cargo xtask bench -- --size 1280x720`, twelve scenes.
+After: same settings with `--out target/bench/chromatic-rise-final`,
+thirteen scenes. Existing renderer code and scenes were unchanged.
+
+| Scene | Before mean ms | After mean ms | Delta ms |
+|---|---:|---:|---:|
+| 01-aurora-gradient | 0.13 | 0.14 | +0.01 |
+| 02-plasma-pulse | 0.16 | 0.16 | 0.00 |
+| 03-kaleido-tunnel | 0.21 | 0.17 | -0.04 |
+| 04-voronoi-glass | 0.68 | 0.72 | +0.04 |
+| 05-domain-warp | 0.74 | 0.73 | -0.01 |
+| 06-feedback-trails | 0.18 | 0.16 | -0.02 |
+| 07-reaction-diffusion | 0.37 | 0.36 | -0.01 |
+| 08-bloom-orbs | 0.64 | 0.57 | -0.07 |
+| 09-sdf-cathedral | 1.57 | 1.54 | -0.03 |
+| 10-volume-clouds | 12.28 | 12.15 | -0.13 |
+| 11-script-orbits (no script execution) | 0.18 | 0.16 | -0.02 |
+| 12-silicon-atlas | 2.59 | 2.52 | -0.07 |
+| 13-chromatic-rise | absent | 0.44 | new scene |
+
+Existing-scene differences are run variation, not an engine speedup.
+Chromatic Rise's first draft cost 0.65 ms; reducing nested noise octaves
+and tuning its defaults reduced it to 0.44 ms (-0.21 ms, approximately
+32%), with a more readable visual. Final p95: 0.47 ms native.
+The final shader also compiles and renders on ANGLE GLES 3.0 / D3D11
+(ANGLE 2.1.25847), mean 0.35 ms, p95 0.36 ms, same frame settings.
+These synchronized benchmark frame times are not app presentation FPS
+or evidence for HD 4000 performance.
+
+Local reports/frames: `target/bench/before-chromatic-rise.md`,
+`target/bench/chromatic-rise-final/`,
+`target/bench/chromatic-rise-angle-final/`. The scene thumbnail preserves
+the inspected native rendered frame.
+
 ## Wanted
 
 - [x] A real-GPU run on the T480: native vs ANGLE, 32F vs 16F, 720p and

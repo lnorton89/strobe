@@ -12,6 +12,21 @@ tracks every known unfinished implementation and validation task across the proj
 
 ## Current baseline
 
+- [x] Chromatic Rise scene loads, compiles and renders on Windows RX 580
+  native GL 3.3 and ANGLE GLES 3.0 at 1280x720 (2026-10-13).
+  Evidence: `target/bench/chromatic-rise-final/results.md` and
+  `target/bench/chromatic-rise-angle-final/results.md`, corresponding PNGs
+  visually inspected; timings in BENCHMARKS.md. Exact reference fidelity,
+  live audio tuning and older integrated-GPU performance remain unverified.
+  `cargo xtask ci` passed the available gates on this Windows MSVC host:
+  fmt, workspace all-feature clippy/tests, deny, changelog and brand;
+  separate Windows cross-checks are redundant on this host. 108 headless
+  GPU tests skipped for unavailable EGL contexts; actual shader rendering
+  is evidenced by the native/ANGLE window-context benchmarks above.
+  The scene corpus check also passed both dialects at 640x360 for ten
+  frames (`target/corpus/chromatic-rise/report.md`); a separate frame at
+  TIME=30 was visually inspected to confirm evolving shapes.
+
 The Windows desktop app wires together:
 
 - the control and output windows on one GL context;
