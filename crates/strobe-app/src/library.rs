@@ -108,7 +108,7 @@ pub struct Entry {
     /// Where it came from (D271).
     pub source: Source,
     /// Who made it: the scene's `CREDIT`, or the author of the Shadertoy
-    /// shader it was imported from; empty when it says nothing (D273).
+    /// shader it was imported from; empty when it says nothing (D282).
     pub author: String,
     /// `author` lowercased once, for searching and sorting.
     pub author_lower: String,
@@ -173,7 +173,7 @@ impl Entry {
 }
 
 /// Who `scene.json` text credits: `CREDIT`, else the `SOURCE.author` of a
-/// shader imported from elsewhere; empty for neither (D273).
+/// shader imported from elsewhere; empty for neither (D282).
 fn author_of(json: &str) -> String {
     let Ok(value) = serde_json::from_str::<serde_json::Value>(json.trim_start_matches('\u{feff}'))
     else {
@@ -285,7 +285,7 @@ impl HealthFilter {
     }
 }
 
-/// What the library grid is ordered by (D273). The default is the order the
+/// What the library grid is ordered by (D282). The default is the order the
 /// scan found them in: the library folder's scenes by name, then
 /// Synesthesia's.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

@@ -775,7 +775,7 @@ fn resize_regions(rect: Rect) -> [(Rect, ResizeDirection, egui::CursorIcon); 8] 
     ]
 }
 
-/// The rail's destinations: each switches the main view (D272). LIST is the
+/// The rail's destinations: each switches the main view (D281). LIST is the
 /// Playlist (D157), MAP the Mappings (D177), EDIT the Editor (D204), GET the
 /// Shadertoy import.
 const RAIL: [(Icon, &str, Option<Pane>, &str); 8] = [
@@ -1069,7 +1069,7 @@ mod tests {
         assert_eq!(
             labels,
             ["PLAY", "LIB", "GET", "LIST", "EDIT", "MAP", "DIAG", "SET"],
-            "UI_DESIGN section 5: the main views in the rail's order (D272)"
+            "UI_DESIGN section 5: the main views in the rail's order (D281)"
         );
     }
 

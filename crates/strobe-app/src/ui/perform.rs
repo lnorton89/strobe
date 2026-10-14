@@ -10,7 +10,7 @@
 
 //! The live preview (UI_DESIGN section 7).
 //!
-//! The side panel shows the preview at its width in every view (D274);
+//! The side panel shows the preview at its width in every view (D283);
 //! PLAY, the main view with no pane open, shows it at full size with the
 //! output controls above it. Both are the scene's own output texture
 //! painted directly by egui (no readback, UI_DESIGN section 31), so they

@@ -124,12 +124,12 @@ struct Scenario {
     /// Settings' watched folder: whether the app refused it, and its line
     /// (D265).
     watch: Option<(bool, &'static str)>,
-    /// The side panel's tab (D274).
+    /// The side panel's tab (D283).
     side_tab: crate::ui::side::SideTab,
-    /// The library grid's card size (D273).
+    /// The library grid's card size (D282).
     cards: crate::ui::browser::CardSize,
     /// The grid is sorted by author, descending, with the favourites toggle
-    /// on, and the scenes carry authors (D273).
+    /// on, and the scenes carry authors (D282).
     ordered: bool,
     /// Synesthesia's own scenes are listed after the library's (D271):
     /// `01-scene-0` (a name the library has too), `glow` and `ink` from the
@@ -140,7 +140,7 @@ struct Scenario {
     /// `01-scene-0`: read-only rows, and a notice offering the copy.
     on_synesthesia: bool,
     /// The open panes: the newest main pane is the main view, and
-    /// `Pane::Inspector` is the side panel (D272).
+    /// `Pane::Inspector` is the side panel (D281).
     panes: &'static [Pane],
 }
 
@@ -1753,7 +1753,7 @@ fn no_text_is_drawn_over_other_text_at_any_size() -> Result<()> {
 #[test]
 fn the_fav_slots_are_in_reach_from_every_tab_where_the_panel_has_room() -> Result<()> {
     // Synesthesia keeps its fav slots on screen whatever the panel shows,
-    // and a performer reaches for them mid-show (D176, D274).
+    // and a performer reaches for them mid-show (D176, D283).
     for size in [(1920.0, 1080.0), (1280.0, 720.0), (900.0, 600.0)] {
         for tab in crate::ui::side::SideTab::ALL {
             let scenario = Scenario {

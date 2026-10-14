@@ -825,7 +825,7 @@ fn preview_result(ui: &mut Ui, model: &Model<'_>, theme: &Palette) {
 
 /// The cue list, virtualised: a 4-hour, 80-cue show draws a screenful.
 /// The cue list, virtualised, scrolled to the current cue once per cue.
-/// The side panel's Playlist tab draws the same list (D274).
+/// The side panel's Playlist tab draws the same list (D283).
 pub(super) fn timeline(
     ui: &mut Ui,
     model: &mut Model<'_>,

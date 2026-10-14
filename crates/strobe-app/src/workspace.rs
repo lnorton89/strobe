@@ -7,7 +7,7 @@
 // Dependencies: std only
 // ============================================================================
 
-//! Panes as data (UI_IMPLEMENTATION_PLAN section 6, D272).
+//! Panes as data (UI_IMPLEMENTATION_PLAN section 6, D281).
 //!
 //! The control window has one **main view** and one persistent **side
 //! panel**, as Synesthesia's does (UI_DESIGN section 4). A pane has an
@@ -173,7 +173,7 @@ impl Pane {
         match self {
             Self::Browser | Self::Import => 280.0,
             // Used only once the panel has been dragged and the stored
-            // width is lost; until then it follows the window (D272).
+            // width is lost; until then it follows the window (D281).
             Self::Inspector => 440.0,
             Self::Diagnostics | Self::Settings => 380.0,
             Self::Playlist => 440.0,
@@ -198,7 +198,7 @@ impl Pane {
 /// The least width the main view keeps beside a docked side panel: two
 /// library cards at the small size, or the Editor at its narrowest line
 /// length worth having. Below it the side panel shrinks, then becomes a
-/// drawer (D272).
+/// drawer (D281).
 pub const MAIN_MIN: f32 = 320.0;
 
 /// Below this window width the rail drops its labels.
@@ -206,7 +206,7 @@ pub const NARROW: f32 = 1000.0;
 
 /// The share of the window the side panel takes while its width is the
 /// default one: Synesthesia's right panel is 31% of its window, measured on
-/// 1.25.4 (D272). A width the operator has dragged to is kept as dragged.
+/// 1.25.4 (D281). A width the operator has dragged to is kept as dragged.
 pub const SIDE_SHARE: f32 = 0.31;
 
 /// The side panel's width in a window `window_width` wide while nobody has
@@ -225,12 +225,12 @@ pub struct Panes {
     clock: u64,
     /// Whether the side panel's width follows the window ([`SIDE_SHARE`]
     /// of it) because nobody has dragged it. A flag, not a magic width, so
-    /// a drag that lands on any width keeps it (D272).
+    /// a drag that lands on any width keeps it (D281).
     side_follows: bool,
 }
 
 impl Default for Panes {
-    /// The default (D272): the side panel open, and the library as the main
+    /// The default (D281): the side panel open, and the library as the main
     /// view. The library is opened last, so Esc closes it first and leaves
     /// the panel.
     fn default() -> Self {

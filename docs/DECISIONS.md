@@ -5675,7 +5675,7 @@ elsewhere, which would turn the default off; a Synesthesia version that
 moves its scenes or settings; or a person wanting to write into a
 Synesthesia install they own, which Strobe would still not do by default.
 
-### D272: the control window is Synesthesia's three columns, and the rail switches the main view (2026-10-14)
+### D281: the control window is Synesthesia's three columns, and the rail switches the main view (2026-10-14)
 
 **Context.** The owner asked for the UI to be "more similar to
 Synesthesia's layout while keeping our modern functionality and improving
@@ -5693,7 +5693,7 @@ rail item, with panes docked around a preview.
   (default), Import (GET), Playlist (LIST), Editor (EDIT), Mappings (MAP),
   Diagnostics (DIAG) and Settings (SET), one at a time: the most recently
   opened. With none open the main view is the large live preview (PLAY).
-  The *side* dock holds the panel (D274) alone. `Pane` keeps its eight
+  The *side* dock holds the panel (D283) alone. `Pane` keeps its eight
   members and gains `Dock`; `Panes::shown_in(Dock)` says what is drawn.
   Esc closes the topmost pane, so Library, then Diagnostics, then Esc is the
   Library again.
@@ -5730,7 +5730,7 @@ are not (Strobe's theme, docs/branding.md). The rail is 60 points, 3.1% at
 1280 window (it is 397 points there), or a second main view wanted beside
 the first.
 
-### D273: the library is a grid of cards under a toolbar and a filter row (2026-10-14)
+### D282: the library is a grid of cards under a toolbar and a filter row (2026-10-14)
 
 **Context.** Synesthesia's library has a toolbar (new scene, refresh, a
 small, medium or large thumbnail switch), a filter row (the count, "88/88",
@@ -5782,7 +5782,7 @@ a grid with the search and the health chips on two rows of their own.
 **Would reopen:** a bold font in the theme; the owner wanting the health
 filter as chips again.
 
-### D274: the side panel is a preview, a status strip and four icon tabs (2026-10-14)
+### D283: the side panel is a preview, a status strip and four icon tabs (2026-10-14)
 
 **Context.** Synesthesia's right panel is one 16:9 preview, a status strip
 (output, fullscreen, an fps readout with a dot, a horizontal audio level
@@ -5822,7 +5822,7 @@ bar, snapshot) and icon tabs for Playlist, Controls and Edit.
 **Would reopen:** a short window where the fav slots matter more than the
 tab's body.
 
-### D275: a help bar under the transport says what the control under the pointer does (2026-10-14)
+### D284: a help bar under the transport says what the control under the pointer does (2026-10-14)
 
 **Context.** Synesthesia has a full-width bar along the bottom that explains
 what is under the pointer. Strobe's controls have tooltips, which cover the
@@ -5835,14 +5835,14 @@ bar, drawn before the panels above it, shows the previous frame's text (a
 frame behind, invisible) and, with the pointer on nothing, a sentence about
 the main view. Wired into the icon, tool, transport and blackout buttons,
 the rail, the tabs, the size switch and the cards. It carries nothing a
-person must read (those are banners, D276) and is not drawn in a window
+person must read (those are banners, D285) and is not drawn in a window
 under 520 points high, so the transport strip and BLACKOUT keep their room.
 It allocates nothing per frame beyond the text's own layout.
 
 **Would reopen:** a control whose hint differs from its tooltip, or a
 window height at which the bar should stay.
 
-### D276: banners scroll past half the surface, and nothing can be wider or taller than what it is given (2026-10-14)
+### D285: banners scroll past half the surface, and nothing can be wider or taller than what it is given (2026-10-14)
 
 **Context.** The brief for this redesign named a hazard: long notices must
 never push panels over BLACKOUT, for instance at 427x320. A long-notice
