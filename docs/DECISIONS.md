@@ -5674,6 +5674,22 @@ Fake installs only: no real Windows install has run it yet (I-05).
 elsewhere, which would turn the default off; a Synesthesia version that
 moves its scenes or settings; or a person wanting to write into a
 Synesthesia install they own, which Strobe would still not do by default.
+### D272: Chromatic Rise interprets a video with procedural marbling (2026-10-13)
+
+The owner requested a shader matching their TouchDesigner scene at
+https://youtu.be/w0JcYtmRr0U. Chrome playback showed rainbow marbling,
+folded fine striations, dark contours and pearlescent surface patches.
+The network and its parameters were not supplied, so this is an original
+visual interpretation rather than an exact port. No frames or audio from
+the reference are bundled. Five nested fractal-noise evaluations create
+the surface; screen derivatives provide relief without additional noise
+samples, buffers, media or scripts. Low octave counts keep broad flowing
+islands readable and avoid the overly dense first draft. Eleven controls
+expose shape, motion, color and surface, with optional modest bass response.
+
+Evidence: native GL 3.3 and ANGLE GLES 3.0 rendered the scene at 1280x720
+on the RX 580; BENCHMARKS.md records timing and the first-draft delta.
+Revisit fidelity with the owner's feedback or the original network.
 
 ### D280: a scene whose passes are root-sized absolute pixels renders its final pass at that size (2026-10-14)
 
@@ -5751,4 +5767,199 @@ under Xvfb: see `hardware/AMD.md` A9 and the run recorded with this change.
 **Would reopen:** a Synesthesia scene with a root-sized absolute pass that
 is read by uv only and whose final pass is the cost on a slow GPU; or a
 window aspect that makes the letterbox matter on a projector.
+
+### D281: the control window is Synesthesia's three columns, and the rail switches the main view (2026-10-14)
+
+**Context.** The owner asked for the UI to be "more similar to
+Synesthesia's layout while keeping our modern functionality and improving
+the UI overall". Synesthesia 1.25.4's window, measured on a real install,
+is three columns under the title bar: a left icon rail (about 3% of the
+width), the main view (about 66%), a right panel (about 31%), and a
+full-width help bar along the bottom (about 3% of the height). The rail
+switches the main view; there is no Live/Edit mode switch. The active rail
+item is a filled tile, and the right panel stays whatever the main view is.
+Strobe's first Contextual Perform shell (D130-D138) had a workspace per
+rail item, with panes docked around a preview.
+
+**Decision.**
+- **Two docks, not a workspace.** The *main* dock holds the Library
+  (default), Import (GET), Playlist (LIST), Editor (EDIT), Mappings (MAP),
+  Diagnostics (DIAG) and Settings (SET), one at a time: the most recently
+  opened. With none open the main view is the large live preview (PLAY).
+  The *side* dock holds the panel (D283) alone. `Pane` keeps its eight
+  members and gains `Dock`; `Panes::shown_in(Dock)` says what is drawn.
+  Esc closes the topmost pane, so Library, then Diagnostics, then Esc is the
+  Library again.
+- **The side panel persists.** The rail never touches it. Open, it is
+  docked at its width; closed, it is a 28-point handle strip that reopens
+  it, with a red dot while BLACKOUT is on.
+- **Its width follows the window until it is dragged.** Until then
+  `arrange` uses 31% of the window (`SIDE_SHARE`), inside the panel's 280
+  to 720 range (595 at 1920, 424 at 1366). A width the operator drags to is
+  kept as dragged. *Follows* is a flag on `Panes` (`side_follows`), not a
+  magic width, so a drag that lands on any width, the 440 default
+  included, is kept; a double-click on the panel's edge makes it follow
+  again. `ui.toml` stores 0 for a following panel, and its version is 2: a
+  version-1 file's inspector width was the old inspector's (300 by
+  default), so it is dropped on reading and the panel follows the window.
+  (The first cut used the default width as the sentinel; a drag that landed
+  on 440 snapped the panel back to 31%, and an existing file kept the old
+  300.)
+- **Narrow windows give way as D260 says, in this order.** The main view
+  keeps `MAIN_MIN` (320). Below that the panel shrinks towards its minimum,
+  then becomes a drawer over the main view, clipped to the surface and
+  below the banners. The rail drops its labels below 1000 points.
+- **Strobe's own parts keep their places.** The title bar and its health
+  readouts, the transport strip with BLACKOUT, and the macro strip stay
+  under the columns at every size; Ctrl+K, Settings > Layout (saved named
+  layouts) and density (Comfortable and Compact) are unchanged. The only
+  thing taken away is the old per-workspace arrangement.
+
+**Not done on purpose.** Synesthesia's proportions are matched; its colours
+are not (Strobe's theme, docs/branding.md). The rail is 60 points, 3.1% at
+1920, rather than a percentage, so its icons and labels have a fixed size.
+
+**Would reopen:** the owner finding the always-open panel too wide on a
+1280 window (it is 397 points there), or a second main view wanted beside
+the first.
+
+### D282: the library is a grid of cards under a toolbar and a filter row (2026-10-14)
+
+**Context.** Synesthesia's library has a toolbar (new scene, refresh, a
+small, medium or large thumbnail switch), a filter row (the count, "88/88",
+a wide search, a sort dropdown with a direction, a favourites-only toggle)
+and a grid of thumbnail cards with a dark caption band: a bold title, the
+author and a "..." menu. Strobe's browser was a list of rows (D211), then
+a grid with the search and the health chips on two rows of their own.
+
+**Decision.**
+- **Toolbar.** *New scene* opens Import, which is how a scene starts in
+  Strobe (a Shadertoy shader; a scene of Synesthesia's is copied with *Copy
+  to my library*). It is not a scene wizard, and says so in its tooltip.
+  Then a rescan, and at the right the S, M and L switch (saved). The label
+  drops to an icon below 300 points.
+- **Filter row.** The count, a wide search, the sort and its direction, the
+  favourites star, and the health dropdown. Search matches names, authors
+  and tags, every word, as before. Below 560 points the search keeps a row
+  with the count and the rest take the next, so no control is ever dropped.
+  The health filter (All, Ready, Needs work, Favourites) stays: the star
+  toggles between Favourites and All, and the dropdown reaches the rest.
+- **Sort.** Library order (the scan's: the folder's scenes by name, then
+  Synesthesia's), Name, Author (the unsigned last) and Favourites first; the
+  direction reverses. Saved in `ui.toml` (`browser.sort`, `browser.descending`;
+  a file from before is library order, ascending). The order is part of the
+  cached visible list and recomputed only when the query, filter, sort or
+  library changes, never per frame.
+- **Authors.** `Entry.author` is the scene's `CREDIT`, else the `SOURCE.author`
+  of an imported shader, read with the tags at a scan.
+- **Cards.** Picture, with a state chip (`PLAYING`, `PREPARING`, `PREVIEW`,
+  `FAILED`) at its top-left and the star at its top-right; a caption band
+  with the title, a "..." button that opens the right-click menu (Load,
+  Preview, favourite, Open in Editor, and Copy to my library on a read-only
+  scene), and the author. The author line begins with a check once the scene
+  loaded, and says `Failed: <first line>` in its place when it did not; with
+  no author it shows the tags.
+- **D271 lives in the grid.** The author line ends with a faint
+  "Synesthesia" when there is room (60 points left for the text first), the
+  count says "88/88, 4 from Synesthesia" (just "88/88" in the narrow layout,
+  with the sentence in its tooltip), the search word `synesthesia` finds
+  them, and the card id is by name and folder, so a name in both places is
+  two cards (egui had reported two widgets with one id before this).
+- **No bold.** No bold face is bundled and adding one is a font choice for
+  the theme (docs/branding.md), so the title is larger (body plus 1.5) and
+  the brightest text on the card. Drawing the title twice half a point apart
+  was tried and removed: `no_text_is_drawn_over_other_text_at_any_size`
+  rightly reads it as two overlapping labels, and that test is not to be
+  loosened.
+
+**Would reopen:** a bold font in the theme; the owner wanting the health
+filter as chips again.
+
+### D283: the side panel is a preview, a status strip and four icon tabs (2026-10-14)
+
+**Context.** Synesthesia's right panel is one 16:9 preview, a status strip
+(output, fullscreen, an fps readout with a dot, a horizontal audio level
+bar, snapshot) and icon tabs for Playlist, Controls and Edit.
+
+**Decision.**
+- **The preview** is the scene's own texture fitted to the panel's width (at
+  most 38% of its height; left out below 64 points), with the LIVE,
+  BLACKOUT and output-hidden badges. The PLAY view still has the large
+  preview with the output toolbar (Show output, Fullscreen, the monitor
+  menu).
+- **The status strip**, in Synesthesia's order: Output (show or hide),
+  Fullscreen, a dot and the frame rate (green at 50 and over, amber at 25),
+  the audio icon and a level bar that takes the room left, the tempo (dropped
+  below 300 points) and Snapshot at the right edge, which is *Use frame as
+  picture* (`Action::CaptureThumbnail`). Snapshot is disabled with a reason when
+  nothing plays or the scene is Synesthesia's (D271: never written).
+- **Four tabs, icons with their names in tooltips**, and beside the icons
+  from 400 points of panel width: Playlist, Controls, Presets, Edit. The
+  chosen tab is saved (`side_tab`). *Controls* is the script state and the
+  groups. *Edit* is what used to sit above the controls: tags, Use frame as
+  picture, media, Generate controls, and a new *Open in Editor*. *Presets*
+  is the preset row and the preset list.
+- **The fav slots (D176) are a row above the tabs**, in reach from every
+  tab, as Synesthesia keeps them and as they were at the top of the old
+  inspector. A first cut put them inside the Presets tab; a performer on
+  the Controls tab then had to change tabs to fire one, which is a
+  regression for a live show. They hold scenes, so they work with or
+  without one playing. A panel under 360 points high (a drawer in a short
+  window) moves them to the top of the Presets tab, and a panel too short
+  to give the preview 64 points at its 38% share leaves the preview out:
+  at 427x320 the first cut's drawer was all preview, strip and tab bar,
+  with no room left for a single control.
+- **Playlist** is the loaded show's cue list with a jump on double-click and
+  a button to LIST (unchanged).
+
+**Would reopen:** a short window where the fav slots matter more than the
+tab's body.
+
+### D284: a help bar under the transport says what the control under the pointer does (2026-10-14)
+
+**Context.** Synesthesia has a full-width bar along the bottom that explains
+what is under the pointer. Strobe's controls have tooltips, which cover the
+thing they describe.
+
+**Decision.** `ui::help`: a 24-point bar below the transport strip. A
+control that has a tooltip says it through `help::hovered(response, text)`,
+which copies the text into a reused buffer while the pointer is on it; the
+bar, drawn before the panels above it, shows the previous frame's text (a
+frame behind, invisible) and, with the pointer on nothing, a sentence about
+the main view. Wired into the icon, tool, transport and blackout buttons,
+the rail, the tabs, the size switch and the cards. It carries nothing a
+person must read (those are banners, D285) and is not drawn in a window
+under 520 points high, so the transport strip and BLACKOUT keep their room.
+It allocates nothing per frame beyond the text's own layout.
+
+**Would reopen:** a control whose hint differs from its tooltip, or a
+window height at which the bar should stay.
+
+### D285: banners scroll past half the surface, and nothing can be wider or taller than what it is given (2026-10-14)
+
+**Context.** The brief for this redesign named a hazard: long notices must
+never push panels over BLACKOUT, for instance at 427x320. A long-notice
+scenario, added to the shell tests, found two real defects, and looking at
+its screenshots found a third that no test could see.
+
+**Decision.**
+- The banners above the main view share the surface: past half of its height
+  (`BANNER_SHARE`) they scroll. Before, a tall banner grew the central panel
+  past the space the transport strip had left, and the drawer was painted
+  over BLACKOUT.
+- The drawer's height is `max(0)`. At 427x320 with a long notice the surface
+  below the banners was shorter than the drawer's margins and egui panicked
+  on a negative height, which is an abort in a release build.
+- A narrow banner puts its buttons in a wrapping row of their own. In
+  `right_to_left` three buttons wider than the banner pushed it off the left
+  edge, over the rail, at 320 points wide; no test saw it because the
+  overflow test looks only at the right and bottom edges.
+  `a_banner_with_three_buttons_stays_inside_a_narrow_surface` holds it.
+- New scenarios: a long notice over the library and over PLAY, the Edit tab
+  with and without a scene, and the library sorted by author with favourites
+  only, comfortable and compact, with authors on the scenes. All run through
+  the overflow, BLACKOUT and text-overlap tests at every size.
+
+**Would reopen:** a notice that must be read in full in a small window; it
+scrolls, and its Dismiss button is always in the first row.
 

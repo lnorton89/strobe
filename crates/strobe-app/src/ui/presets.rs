@@ -1,18 +1,21 @@
 // ============================================================================
 // Module:       strobe_app::ui::presets
-// Description:  The preset row and the fav slots at the top of the Controls
-//               pane: recall a preset, save the controls as one, and eight
-//               slots for scene + preset pairs.
+// Description:  The preset row of the side panel's Presets tab (recall a
+//               preset, save the controls as one, rename) and the fav row
+//               under the preview: eight slots for scene + preset pairs.
 //
 // Dependencies: egui; super::{model, theme, widgets}, crate::icon
 // ============================================================================
 
-//! Presets and fav slots (D176).
+//! Presets and fav slots (D176, D283).
 //!
 //! ```text
 //! PRESET  [ Slow Burn          v ]  [name         ] [Save]  [Delete]
 //! FAV     [1] [2] [3] [ ] [ ] [ ] [ ] [ ]
 //! ```
+//!
+//! The fav row is the top of the side panel's Presets tab and the preset row
+//! sits under it (D283).
 //!
 //! A **preset** is the scene's control values under a name, kept in the
 //! scene folder. Choosing one in the list recalls it at once (the values are
@@ -35,8 +38,8 @@ use crate::icon::Icon;
 use crate::palette::Palette;
 use egui::Ui;
 
-/// Draws the preset row and the fav slots.
-pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Vec<Action>) {
+/// Draws the preset row: the picker, delete, and save or rename.
+pub fn preset_row(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Vec<Action>) {
     let panel = &mut model.remote;
     let names = panel.presets;
     let active = panel.active_preset;
@@ -140,9 +143,29 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
         }
     });
     ui.add_space(SPACE_XS);
-    ui.horizontal_wrapped(|ui| {
-        label(ui, theme, "FAV");
-        for slot in 0..strobe_scene::preset::FAV_SLOTS {
+}
+
+/// Draws the fav row: eight slots sized to share the width, so the row is
+/// one line at every panel width.
+pub fn fav_row(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Vec<Action>) {
+    let panel = &mut model.remote;
+    ui.horizontal(|ui| {
+        // Tight: eight slots and their label must fit the narrowest drawer
+        // on one line, so the slots never land under the tab bar.
+        ui.spacing_mut().item_spacing.x = SPACE_XS;
+        ui.add_sized(
+            [FAV_LABEL, 18.0],
+            egui::Label::new(
+                egui::RichText::new("FAV")
+                    .size(10.0)
+                    .strong()
+                    .color(theme::rgb(theme.text_muted)),
+            ),
+        );
+        let slots = strobe_scene::preset::FAV_SLOTS;
+        let slot_width = ((ui.available_width() - SPACE_XS * (slots as f32 - 1.0)) / slots as f32)
+            .clamp(14.0, 40.0);
+        for slot in 0..slots {
             let fav = panel.remote.favs.get(slot);
             let filled = fav.is_some();
             let here = fav.is_some_and(|f| Some(f.scene.as_str()) == panel.scene_name);
@@ -169,10 +192,9 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
                 .strong()
                 .color(theme::rgb(colour));
             let response = ui
-                .add(
-                    egui::Button::new(text)
-                        .selected(here)
-                        .min_size(egui::vec2(26.0, 24.0)),
+                .add_sized(
+                    egui::vec2(slot_width, 24.0),
+                    egui::Button::new(text).selected(here),
                 )
                 .on_hover_text(tip);
             if response.clicked() {
@@ -194,10 +216,10 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
             });
         }
     });
-    ui.add_space(SPACE_SM);
-    widgets::section_rule(ui, theme);
-    ui.add_space(SPACE_XS);
 }
+
+/// The fav row's label column.
+const FAV_LABEL: f32 = 28.0;
 
 fn label(ui: &mut Ui, theme: &Palette, text: &str) {
     ui.add_sized(

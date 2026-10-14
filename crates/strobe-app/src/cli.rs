@@ -99,6 +99,15 @@ pub struct Cli {
     /// or the monitor picker (D96).
     #[arg(long)]
     pub show_output: bool,
+    /// Put the output fullscreen at launch: on `--output-monitor` if given,
+    /// else on the monitor the output window opens on. For a venue
+    /// autostart, where nobody is there to press F11.
+    #[arg(long)]
+    pub fullscreen: bool,
+    /// Show the output at launch on this monitor, numbered from 1 as the
+    /// monitor picker numbers them.
+    #[arg(long, value_name = "N", value_parser = clap::value_parser!(u32).range(1..))]
+    pub output_monitor: Option<u32>,
     /// Accept shaders from the "Send to Strobe" browser userscript on
     /// 127.0.0.1 (off by default; the Import panel can switch it on too).
     #[arg(long)]
@@ -350,6 +359,27 @@ mod tests {
             "set"
         );
         assert!(!Cli::try_parse_from(["strobe"])?.diagnose, "off by default");
+        Ok(())
+    }
+
+    #[test]
+    fn fullscreen_and_a_monitor_can_be_asked_for_at_launch() -> Result<()> {
+        let cli = Cli::try_parse_from(["strobe", "--fullscreen", "--output-monitor", "2"])?;
+        assert!(cli.fullscreen, "fullscreen asked for");
+        assert_eq!(
+            cli.output_monitor,
+            Some(2),
+            "the monitor numbered as the picker numbers it"
+        );
+        assert!(
+            Cli::try_parse_from(["strobe", "--output-monitor", "0"]).is_err(),
+            "monitors are numbered from 1"
+        );
+        let plain = Cli::try_parse_from(["strobe"])?;
+        assert!(
+            !plain.fullscreen && plain.output_monitor.is_none(),
+            "neither by default"
+        );
         Ok(())
     }
 
