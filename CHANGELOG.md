@@ -13,21 +13,45 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- add scoped desktop-to-desktop remote control ([`20fc9ef`](https://github.com/lnorton89/strobe/commit/20fc9ef79a6347e63be1a68a5a9c26be89f18dc4))
+- **corpus:** --show-window renders in a shown tiny window, for AMD's native WGL ([`2f2093e`](https://github.com/lnorton89/strobe/commit/2f2093ed03fa2e87ff0a139eb624e3a57d015ce4))
 - add Chromatic Rise psychedelic marbling scene ([`a56f864`](https://github.com/lnorton89/strobe/commit/a56f864b514cfeb2665c35695778aabd5f09b98d))
 - **app:** --output-monitor N and --fullscreen put the output on the projector at launch ([`b731fde`](https://github.com/lnorton89/strobe/commit/b731fdeff482c88c184ec7c2944236a542bd2a34))
+- **ui:** side panel status strip and icon tabs, help bar, panel at 31%, banners that cannot overflow ([`41b425b`](https://github.com/lnorton89/strobe/commit/41b425ba7a4892e382292a9a319bf4987394f3da))
+- **ui:** Synesthesia-style shell: rail-switched main view, library grid, persistent side panel ([`5b61c8b`](https://github.com/lnorton89/strobe/commit/5b61c8b119de5d86f886e286719d31060e6d2e19))
 - **app:** Synesthesia's scenes join the library where it is installed, and its own are never written (D271) ([`49f3714`](https://github.com/lnorton89/strobe/commit/49f3714462f86cf649afd0493ecb3f14642bc941))
 - **scene:** one place finds Synesthesia's install and scene folders, and #include uses it (D271) ([`ee1f47f`](https://github.com/lnorton89/strobe/commit/ee1f47f9f473610aedfb7f1bb4765ff62d9481cd))
 
 ### Fixed
 
+- update rustls for current security advisories ([`0f28d44`](https://github.com/lnorton89/strobe/commit/0f28d4411b7c19d23b873766118c083255cae270))
+- **gfx:** adaptive resolution judges a drop on settled frames and locks only after two strikes, for a while (D280) ([`9af6f34`](https://github.com/lnorton89/strobe/commit/9af6f341e33f05ede5fcc68d249e7dd3db687a76))
+- **scene:** pin the final pass only when the shader texel-fetches a root-sized pass (D280) ([`698b3d8`](https://github.com/lnorton89/strobe/commit/698b3d89dc33b8ad11e31aeb6772e5d9daf73dab))
+- **app:** the load log names the size a pinned scene really draws at (D280) ([`f6c554e`](https://github.com/lnorton89/strobe/commit/f6c554e14405fa814dba248511412bfcbc7b5f84))
+- **gfx:** a scene with root-sized literal passes renders its final pass at that size, and adaptive resolution stops cutting what costs nothing (D280) ([`a5338b5`](https://github.com/lnorton89/strobe/commit/a5338b51452b9653073bfef0cde45921cebc99ce))
+- **ui:** fav slots in reach from every tab, and a short drawer gives the preview up before the controls ([`e0125aa`](https://github.com/lnorton89/strobe/commit/e0125aa24e149765f78437ae854e1685358ed6e5))
+- **ui:** the side panel follows the window by a flag, not a 440 sentinel, and a version-1 ui.toml drops the old inspector width ([`8eb0c3c`](https://github.com/lnorton89/strobe/commit/8eb0c3c41380c22bb9a63432b7ffa35389028f67))
 - **bench:** a run whose every frame is black fails instead of reporting timings ([`dd371ee`](https://github.com/lnorton89/strobe/commit/dd371ee067dadf63b7a458e457166e4fdc4186ac))
 - **app:** no error box nobody can see: unattended runs and service sessions only log ([`81e7fbf`](https://github.com/lnorton89/strobe/commit/81e7fbf70f6e43272490ed8837bd7c301abcc46a))
 - **app:** a screenshot run ends when the control window never draws ([`e033f71`](https://github.com/lnorton89/strobe/commit/e033f711bf60423fe2c74734095f49e0033a9aab))
 
+### Performance
+
+- **ui:** library cards borrow their name, folder and byline instead of copying them each frame ([`30f10f9`](https://github.com/lnorton89/strobe/commit/30f10f94a2eaf260398a6dd89f5f4eb90db6421a))
+
 ### Documentation
 
+- record desktop control validation on current base ([`0665aea`](https://github.com/lnorton89/strobe/commit/0665aea74a1adca51033bd4be24020da80d653c4))
+- **amd:** D280 holds on the RX 580, and the probe rightly undoes futile drops (Task A10) ([`5507a13`](https://github.com/lnorton89/strobe/commit/5507a1360f1126655601c455a0b5a376013e635a))
+- D280 pins only texel-reading scenes and gives the probe two strikes and an expiring lock ([`62204ed`](https://github.com/lnorton89/strobe/commit/62204ed3f66aaa6dea1e19b242c6c9d7e2ce0a2c))
+- neon_city shows the whole frame at every render scale; roadmap and compatibility (D280) ([`551fb9e`](https://github.com/lnorton89/strobe/commit/551fb9ec0fbb4dca3c27bce77e8b0892d4443953))
+- D280, the final pass of a root-sized absolute-pass scene is pinned ([`5eb8307`](https://github.com/lnorton89/strobe/commit/5eb83075f2102010ee1b9060a7d175f21e5f525e))
+- renumber the layout decisions D272-D276 as D281-D285 ([`3104667`](https://github.com/lnorton89/strobe/commit/3104667d863e7ff8ad7e4dfdd17cbb1b00dfc48e))
+- the side panel's follow flag, the ui.toml migration and the fav slots above the tabs (D272, D274) ([`6ea521e`](https://github.com/lnorton89/strobe/commit/6ea521e15b5eaa5bb2458db720ea3b0110d26a23))
+- **minipc:** ANGLE bench at 1920x1200, and AMD's hidden window draws nothing (Task M3) ([`6898c2c`](https://github.com/lnorton89/strobe/commit/6898c2c063797dc6a68c2eb8126cdd3ff82c2cc3))
 - **minipc:** High performance, never sleep, as the owner set it for shows ([`d41c25b`](https://github.com/lnorton89/strobe/commit/d41c25b87995241b582277136a3bd7248ed996c9))
 - **minipc:** the released v0.1.0 on the JaJa projector mini-PC (Task M2, R-03) ([`cdfab8e`](https://github.com/lnorton89/strobe/commit/cdfab8eb913df9a9ec0ede382c3b67f4727892f4))
+- the Synesthesia-style layout (D272-D276), UI_DESIGN sections 4, 5, 7, 12 and 22, the guide and the roadmap ([`2efe752`](https://github.com/lnorton89/strobe/commit/2efe75271fdf844d00cdce34510427b069baa5bc))
 - **t480:** Synesthesia's 90 scenes are 90/90 on Intel, the spectrum fills the row (Tasks 39-41) ([`607ec8d`](https://github.com/lnorton89/strobe/commit/607ec8d1787c4e75d2c541a2132206b276a0f9bf))
 - **amd:** neon_city is a render-scale bug, beamers is colour and time (Tasks A8, A9) ([`0da9b5d`](https://github.com/lnorton89/strobe/commit/0da9b5ddb2b7eaa9a990ef37509734275b24d826))
 - Synesthesia's installed scenes in the library, read-only where they are its own (D271) ([`ea3be5c`](https://github.com/lnorton89/strobe/commit/ea3be5c9d4e0c6413ecb984fbc7721248ae058a1))
