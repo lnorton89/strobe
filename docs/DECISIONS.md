@@ -5674,3 +5674,19 @@ Fake installs only: no real Windows install has run it yet (I-05).
 elsewhere, which would turn the default off; a Synesthesia version that
 moves its scenes or settings; or a person wanting to write into a
 Synesthesia install they own, which Strobe would still not do by default.
+### D272: Chromatic Rise interprets a video with procedural marbling (2026-10-13)
+
+The owner requested a shader matching their TouchDesigner scene at
+https://youtu.be/w0JcYtmRr0U. Chrome playback showed rainbow marbling,
+folded fine striations, dark contours and pearlescent surface patches.
+The network and its parameters were not supplied, so this is an original
+visual interpretation rather than an exact port. No frames or audio from
+the reference are bundled. Five nested fractal-noise evaluations create
+the surface; screen derivatives provide relief without additional noise
+samples, buffers, media or scripts. Low octave counts keep broad flowing
+islands readable and avoid the overly dense first draft. Eleven controls
+expose shape, motion, color and surface, with optional modest bass response.
+
+Evidence: native GL 3.3 and ANGLE GLES 3.0 rendered the scene at 1280x720
+on the RX 580; BENCHMARKS.md records timing and the first-draft delta.
+Revisit fidelity with the owner's feedback or the original network.
