@@ -68,7 +68,7 @@
 //! returned from a `float` function.
 
 mod expand;
-mod lex;
+pub(crate) mod lex;
 mod select;
 mod types;
 

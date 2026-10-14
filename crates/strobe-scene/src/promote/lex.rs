@@ -20,7 +20,7 @@ use crate::directives::Branches;
 
 /// What a token is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Kind {
+pub(crate) enum Kind {
     /// A name or keyword.
     Ident,
     /// An integer literal: decimal, octal or hex, with an optional `u`.
@@ -33,7 +33,7 @@ pub(super) enum Kind {
 
 /// One token and the bytes it covers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct Token {
+pub(crate) struct Token {
     /// Its class.
     pub kind: Kind,
     /// First byte.
@@ -44,7 +44,7 @@ pub(super) struct Token {
 
 /// A `#define`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct Define<'a> {
+pub(crate) struct Define<'a> {
     /// The macro's name.
     pub name: &'a str,
     /// `true` for `#define NAME(args) ...`.
@@ -58,7 +58,7 @@ pub(super) struct Define<'a> {
 
 /// A tokenized source.
 #[derive(Debug, Default)]
-pub(super) struct Lexed<'a> {
+pub(crate) struct Lexed<'a> {
     /// The tokens, in order.
     pub tokens: Vec<Token>,
     /// The `#define`s, in order.
@@ -75,7 +75,7 @@ const LONG_PUNCT: [&str; 21] = [
 
 /// Splits `text` into tokens, with no macros defined beforehand and every
 /// undecided branch kept.
-pub(super) fn lex(text: &str) -> Lexed<'_> {
+pub(crate) fn lex(text: &str) -> Lexed<'_> {
     lex_with(text, &mut Branches::default())
 }
 
