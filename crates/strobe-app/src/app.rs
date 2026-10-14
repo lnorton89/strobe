@@ -105,7 +105,7 @@ use crate::gldebug;
 use crate::import::{self, Input, Outcome};
 use crate::intake;
 use crate::lan::{self, Lan, Situation};
-use crate::library::{Health, Library};
+use crate::library::{Health, Library, Synesthesia};
 use crate::localtime::LocalDate;
 use crate::mouse::{Button, MouseTracker};
 use crate::perf::{self, Performance};
@@ -121,9 +121,9 @@ use crate::stats::{
 use crate::ui::widgets::Tone;
 use crate::ui::{
     Action, CueTransport, EditorPanel, FailurePanel, GeneratePanel, ImportPanel, LanPanel,
-    ListenerPanel, MapUi, MediaFrom, MediaPanel, Model, NoticePanel, PerfPanel, PlaylistPanel,
-    PlaylistUi, Preview, RemotePanel, ScenePreview, ShellState, TransportPanel, UiHost, UiState,
-    shell,
+    ListenerPanel, MapUi, MediaFrom, MediaPanel, Model, NoticePanel, Offer, PerfPanel,
+    PlaylistPanel, PlaylistUi, Preview, RemotePanel, ScenePreview, ShellState, TransportPanel,
+    UiHost, UiState, shell,
 };
 use crate::workspace::Pane;
 use std::path::{Path, PathBuf};
@@ -556,6 +556,14 @@ struct Running {
     stack: Stack,
 
     library: Library,
+    /// Synesthesia's install and scene folders, found at launch: listed
+    /// after the library when Settings says so, and never written to
+    /// (D271).
+    synesthesia: Synesthesia,
+    /// Whether the scene open in the Editor is one of Synesthesia's, for
+    /// the folder it was worked out for, so the frame asks only when the
+    /// Editor opens another.
+    editor_read_only: Option<(PathBuf, bool)>,
     playing: Option<usize>,
     console: Console,
     stats: FrameStats,
@@ -732,6 +740,9 @@ struct Notice {
     tone: Tone,
     text: String,
     since: Instant,
+    /// A button beside Dismiss that does what the notice suggests: its
+    /// label and action (D271's Copy to my library).
+    offer: Option<(&'static str, Action)>,
 }
 
 /// How long a notice stays up on its own.
@@ -745,7 +756,7 @@ impl Running {
     fn new(
         event_loop: &ActiveEventLoop,
         cli: &Cli,
-        library: Library,
+        mut library: Library,
         scan_error: Option<String>,
     ) -> Result<Self, String> {
         let render_scale = session::clamp_scale(cli.render_scale);
@@ -797,6 +808,13 @@ impl Running {
             &mut ui_state.watch,
             &library.dir,
         );
+        // Synesthesia's scenes after the library's own, before anything
+        // looks a scene up by name (D271).
+        let synesthesia = Synesthesia::detect(cli.no_synesthesia);
+        library.set_synesthesia(synesthesia.shown(ui_state.synesthesia.show));
+        ui_state.synesthesia.note =
+            synesthesia.note(ui_state.synesthesia.show, library.synesthesia_count());
+        log::info!("Synesthesia's scenes: {}", ui_state.synesthesia.note);
         let stack = Stack::open(
             event_loop,
             cli.gl.choice(),
@@ -825,6 +843,8 @@ impl Running {
         let mut running = Self {
             stack,
             library,
+            synesthesia,
+            editor_read_only: None,
             health,
             library_rev: 1,
             scan_error: scan_error.clone(),
@@ -1305,6 +1325,7 @@ impl Running {
                 }
             ),
             since: Instant::now(),
+            offer: None,
         });
         log::info!(
             "Output recovered on {} in {} ms{}",
@@ -1822,37 +1843,14 @@ impl Running {
         self.preview_index = None;
     }
 
-    /// Lists the library folder again, keeping what is known of each scene.
+    /// Lists the library folder again, then Synesthesia's scenes when they
+    /// are shown (D271), keeping what is known of each scene.
     fn rescan_library(&mut self) {
-        match Library::scan(&self.library.dir) {
+        let shown = self.synesthesia.shown(self.ui_state.synesthesia.show);
+        match Library::scan_with(&self.library.dir, shown) {
             Ok(library) => {
-                let playing_dir = self
-                    .playing
-                    .and_then(|index| self.library.entries.get(index))
-                    .map(|entry| entry.dir.clone());
-                let old: Vec<(std::path::PathBuf, Health)> = self
-                    .library
-                    .entries
-                    .iter()
-                    .zip(self.health.drain(..))
-                    .map(|(entry, health)| (entry.dir.clone(), health))
-                    .collect();
-                self.health = library
-                    .entries
-                    .iter()
-                    .map(|entry| {
-                        old.iter()
-                            .find(|(dir, _)| *dir == entry.dir)
-                            .map_or(Health::Unknown, |(_, health)| health.clone())
-                    })
-                    .collect();
-                self.library = library;
-                self.library_rev += 1;
+                self.replace_library(library);
                 self.scan_error = None;
-                self.playing = playing_dir
-                    .and_then(|old| self.library.entries.iter().position(|e| e.dir == old));
-                self.close_preview();
-                self.ui_state.browser.selected = None;
             }
             Err(error) => {
                 failure::report(
@@ -1864,6 +1862,144 @@ impl Running {
                 self.scan_error = Some(error);
             }
         }
+    }
+
+    /// Puts `library` in place of the one listed, keeping what is known of
+    /// each scene and the playing mark by folder. The selection and the
+    /// preview are let go: their indices may now name other scenes.
+    fn replace_library(&mut self, library: Library) {
+        let playing_dir = self
+            .playing
+            .and_then(|index| self.library.entries.get(index))
+            .map(|entry| entry.dir.clone());
+        let old: Vec<(std::path::PathBuf, Health)> = self
+            .library
+            .entries
+            .iter()
+            .zip(self.health.drain(..))
+            .map(|(entry, health)| (entry.dir.clone(), health))
+            .collect();
+        self.health = library
+            .entries
+            .iter()
+            .map(|entry| {
+                old.iter()
+                    .find(|(dir, _)| *dir == entry.dir)
+                    .map_or(Health::Unknown, |(_, health)| health.clone())
+            })
+            .collect();
+        self.library = library;
+        self.library_rev += 1;
+        self.playing =
+            playing_dir.and_then(|old| self.library.entries.iter().position(|e| e.dir == old));
+        self.close_preview();
+        self.ui_state.browser.selected = None;
+        self.ui_state.synesthesia.note = self.synesthesia.note(
+            self.ui_state.synesthesia.show,
+            self.library.synesthesia_count(),
+        );
+    }
+
+    /// Lists Synesthesia's scenes after the library's own, or stops, as the
+    /// Settings switch asks (D271), and saves the switch. Switching on looks
+    /// for the install again, so one made since launch is found. The
+    /// library's own scenes are listed again too; where its folder cannot
+    /// be read, only Synesthesia's part changes.
+    fn set_show_synesthesia(&mut self, show: bool) {
+        self.ui_state.synesthesia.show = show;
+        if show {
+            self.synesthesia = Synesthesia::detect(self.synesthesia.off_this_run);
+        }
+        self.rescan_library();
+        if self.scan_error.is_some() {
+            let mut library = Library {
+                dir: self.library.dir.clone(),
+                entries: self.library.entries.clone(),
+            };
+            library.set_synesthesia(self.synesthesia.shown(show));
+            self.replace_library(library);
+        }
+        log::info!(
+            "Synesthesia's scenes {}: {}",
+            if show { "on" } else { "off" },
+            self.ui_state.synesthesia.note
+        );
+    }
+
+    /// Copies the scene folder `dir` into the person's own library under a
+    /// free name ([`intake::copy_as_own`], D271), lists the library again,
+    /// and selects the copy. When the scene playing (by hand) is the one
+    /// copied, the show carries on from the copy without a reload, since
+    /// its files are the same: what Strobe writes for it from then on (tags,
+    /// a picture, presets) lands in the copy. An Editor open on it moves to
+    /// the copy with any unsaved edits.
+    fn copy_to_library(&mut self, dir: &Path) {
+        let name = strobe_scene::load::folder_title(dir);
+        let landed = match intake::copy_as_own(dir, &self.library.dir) {
+            Ok(landed) => landed,
+            Err(why) => {
+                failure::report(
+                    Failure::new(Subsystem::Io, "copy to library")
+                        .path(dir)
+                        .message(&why)
+                        .action("nothing was added to the library"),
+                );
+                self.say(Tone::Error, format!("Could not copy {name}: {why}."));
+                return;
+            }
+        };
+        let copy = strobe_scene::load::folder_title(&landed);
+        log::info!("copied {} into the library as {copy}", dir.display());
+        self.rescan_library();
+        let index = self.library.entries.iter().position(|e| e.dir == landed);
+        if self.stack.show.is_none()
+            && let Some(session) = self.stack.session.as_mut()
+            && session.dir == dir
+        {
+            session.dir.clone_from(&landed);
+            session.name.clone_from(&copy);
+            self.playing = index;
+            self.ui_state.last_scene.clone_from(&copy);
+            context::set(context::SCENE, &copy);
+            if let Some(index) = index {
+                self.set_health(index, Health::Ready);
+            }
+        }
+        if let Some(doc) = self.editor_doc.as_mut()
+            && doc.dir == dir
+        {
+            doc.dir.clone_from(&landed);
+            doc.name.clone_from(&copy);
+        }
+        let row = index.and_then(|index| {
+            self.ui_state
+                .browser
+                .visible(&self.library, &self.health, self.library_rev)
+                .iter()
+                .position(|visible| *visible == index)
+        });
+        self.ui_state.browser.selected = index;
+        self.ui_state.browser.scroll_to = row;
+        self.say(
+            Tone::Info,
+            format!("{name} is now in your library as {copy}, yours to change."),
+        );
+    }
+
+    /// Whether the Editor's scene is one of Synesthesia's, worked out once
+    /// per scene opened.
+    fn editor_read_only(&mut self) -> bool {
+        let Some(doc) = self.editor_doc.as_ref() else {
+            return false;
+        };
+        if let Some((dir, read_only)) = &self.editor_read_only
+            && *dir == doc.dir
+        {
+            return *read_only;
+        }
+        let read_only = self.synesthesia.owns(&doc.dir);
+        self.editor_read_only = Some((doc.dir.clone(), read_only));
+        read_only
     }
 
     // ------------------------------------------------------------ playlists
@@ -1933,7 +2069,24 @@ impl Running {
             tone,
             text: text.into(),
             since: Instant::now(),
+            offer: None,
         });
+    }
+
+    /// Whether `dir` is a scene folder of Synesthesia's, which Strobe never
+    /// writes into (D271). When it is, the write is refused with a notice
+    /// that says why and offers Copy to my library; `what` finishes "To
+    /// ..., copy it into your library first" ("tag it", "save presets").
+    fn refuse_read_only(&mut self, dir: &Path, name: &str, what: &str) -> bool {
+        let Some(notice) = read_only_refusal(&self.synesthesia, dir, name, what) else {
+            return false;
+        };
+        log::info!(
+            "{name} is one of Synesthesia's scenes ({}); refused to {what}",
+            dir.display()
+        );
+        self.notice = Some(notice);
+        true
     }
 
     /// Notices a new current cue: the browser's "playing" mark follows it,
@@ -2605,6 +2758,9 @@ impl Running {
             self.say(Tone::Warning, "No scene is playing to take a picture of.");
             return;
         };
+        if self.refuse_read_only(&dir, &name, "give it a picture") {
+            return;
+        }
         if self
             .editor_doc
             .as_ref()
@@ -2677,6 +2833,11 @@ impl Running {
             );
             return;
         };
+        // A name in both places is the person's own (found first); one only
+        // Synesthesia has is refused (D271).
+        if self.refuse_read_only(&dir, &name, "tag it") {
+            return;
+        }
         if self
             .editor_doc
             .as_ref()
@@ -2782,6 +2943,18 @@ impl Running {
     }
 
     fn editor_save(&mut self) -> bool {
+        let Some((dir, name)) = self
+            .editor_doc
+            .as_ref()
+            .map(|doc| (doc.dir.clone(), doc.name.clone()))
+        else {
+            return false;
+        };
+        // The edits stay in the Editor; Copy to my library carries them to
+        // the copy, where Save then writes (D271).
+        if self.refuse_read_only(&dir, &name, "save edits to it") {
+            return false;
+        }
         let Some(doc) = self.editor_doc.as_mut() else {
             return false;
         };
@@ -3086,6 +3259,8 @@ impl Running {
                 Action::SetSceneTags { scene, tags } => self.set_scene_tags(&scene, &tags),
                 Action::SetMedia(path) => self.set_media(path),
                 Action::CaptureThumbnail => self.capture_thumbnail(),
+                Action::CopyToLibrary(dir) => self.copy_to_library(&dir),
+                Action::SetShowSynesthesia(show) => self.set_show_synesthesia(show),
                 Action::ImportCueAfter { at, text } => {
                     self.pending_cue_import = Some((at, text.clone()));
                     self.submit_import(Input::Text(text), false);
@@ -3175,6 +3350,7 @@ impl Running {
                                    --playlist <file>. Nothing was held."
                                 .to_string(),
                             since: Instant::now(),
+                            offer: None,
                         });
                     }
                 }
@@ -3495,8 +3671,14 @@ impl Running {
             );
             return;
         };
+        let (dir, scene) = (session.dir.clone(), session.name.clone());
+        if self.refuse_read_only(&dir, &scene, "save presets for it") {
+            return;
+        }
+        let Some(session) = self.stack.session.as_mut() else {
+            return;
+        };
         let captured = session.capture_preset(name);
-        let scene = session.name.clone();
         match strobe_scene::preset::save(&session.dir, &captured) {
             Ok(path) => {
                 log::info!("preset \"{name}\" of {scene} saved to {}", path.display());
@@ -3569,8 +3751,22 @@ impl Running {
         }
     }
 
+    /// The playing scene's folder and name, from its session.
+    fn playing_folder(&self) -> Option<(PathBuf, String)> {
+        self.stack
+            .session
+            .as_ref()
+            .map(|session| (session.dir.clone(), session.name.clone()))
+    }
+
     /// Deletes preset `name`'s file.
     fn delete_preset(&mut self, name: &str) {
+        let Some((dir, scene)) = self.playing_folder() else {
+            return;
+        };
+        if self.refuse_read_only(&dir, &scene, "delete its presets") {
+            return;
+        }
         let Some(session) = self.stack.session.as_mut() else {
             return;
         };
@@ -3589,6 +3785,12 @@ impl Running {
     /// it (P-07). A playlist cue that names the old preset is not rewritten;
     /// the notice says so.
     fn rename_preset(&mut self, from: &str, to: &str) {
+        let Some((dir, scene)) = self.playing_folder() else {
+            return;
+        };
+        if self.refuse_read_only(&dir, &scene, "rename its presets") {
+            return;
+        }
         let Some(session) = self.stack.session.as_mut() else {
             return;
         };
@@ -4038,6 +4240,7 @@ impl Running {
         let next = self.step_target(1);
         let lan_view = self.lan.view();
         let playing_dir = self.stack.session.as_ref().map(|s| s.dir.clone());
+        let editor_read_only = self.editor_read_only();
         let authored = self.stack.session.as_ref().is_some_and(|session| {
             session
                 .controls
@@ -4134,6 +4337,10 @@ impl Running {
             notice: self.notice.as_ref().map(|n| NoticePanel {
                 tone: n.tone,
                 text: &n.text,
+                offer: n
+                    .offer
+                    .as_ref()
+                    .map(|(label, action)| Offer { label, action }),
             }),
             drop_hint: self.drop_hint.as_deref(),
             transport,
@@ -4198,6 +4405,7 @@ impl Running {
             editor: EditorPanel {
                 doc: self.editor_doc.as_mut(),
                 playing_dir: playing_dir.as_deref(),
+                read_only: editor_read_only,
             },
             lan: LanPanel {
                 view: &lan_view,
@@ -4474,6 +4682,29 @@ fn command_action(command: CommandId, blackout: bool) -> Option<Action> {
     }
 }
 
+/// The notice that refuses a write into `dir`, when it is one of
+/// Synesthesia's scene folders (D271): whose it is, that Strobe only reads
+/// it, and a Copy to my library button. `None` for a folder Strobe may
+/// write.
+fn read_only_refusal(
+    synesthesia: &Synesthesia,
+    dir: &Path,
+    name: &str,
+    what: &str,
+) -> Option<Notice> {
+    synesthesia.owns(dir).then(|| Notice {
+        tone: Tone::Warning,
+        text: format!(
+            "{name} is Synesthesia's own and read-only. Copy it to your library to {what}."
+        ),
+        since: Instant::now(),
+        offer: Some((
+            crate::ui::tags::COPY_LABEL,
+            Action::CopyToLibrary(dir.to_path_buf()),
+        )),
+    })
+}
+
 /// The first lines of a load error, for a banner and a row: enough to say
 /// what broke (the compiler log already names `main.glsl:N`), not a page.
 fn summarize(error: &str) -> String {
@@ -4646,6 +4877,95 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn a_write_into_synesthesias_folder_is_refused_and_offers_a_copy() -> Result<()> {
+        let scratch = crate::library::fake::Scratch::new("refused")?;
+        let synesthesia = crate::library::fake::install(&scratch.0)?;
+        let glow = scratch.0.join("install/release/glow.synScene");
+        // Every write the app makes into a scene folder asks this first.
+        for what in [
+            "tag it",
+            "give it a picture",
+            "save edits to it",
+            "save presets for it",
+            "delete its presets",
+            "rename its presets",
+        ] {
+            let Some(notice) = read_only_refusal(&synesthesia, &glow, "glow", what) else {
+                anyhow::bail!("writing to {} was not refused ({what})", glow.display());
+            };
+            assert_eq!(notice.tone, Tone::Warning, "a warning, not an error");
+            assert_eq!(
+                notice.text,
+                format!(
+                    "glow is Synesthesia's own and read-only. Copy it to your library to {what}."
+                ),
+                "says whose it is and the way on"
+            );
+            assert_eq!(
+                notice.offer,
+                Some((
+                    crate::ui::tags::COPY_LABEL,
+                    Action::CopyToLibrary(glow.clone())
+                )),
+                "and offers the copy"
+            );
+        }
+        let mine = scratch.0.join("mine/glow.synScene");
+        assert!(
+            read_only_refusal(&synesthesia, &mine, "glow", "tag it").is_none(),
+            "the library's own scenes are written as before"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn copy_to_my_library_makes_a_copy_strobe_may_write() -> Result<()> {
+        let scratch = crate::library::fake::Scratch::new("copied")?;
+        let synesthesia = crate::library::fake::install(&scratch.0)?;
+        let mine = scratch.0.join("mine");
+        crate::library::fake::scene(&mine.join("ink"), &[])?;
+        let source = scratch.0.join("install/release/ink.synScene");
+        let before = std::fs::read(source.join("scene.json"))?;
+
+        let copy = intake::copy_as_own(&source, &mine).map_err(anyhow::Error::msg)?;
+        assert_eq!(
+            copy,
+            mine.join("ink-2.synScene"),
+            "the library has an ink already, so a free name"
+        );
+        let library =
+            Library::scan_with(&mine, synesthesia.shown(true)).map_err(anyhow::Error::msg)?;
+        let Some(entry) = library.entries.iter().find(|entry| entry.dir == copy) else {
+            anyhow::bail!("the copy is not listed: {:?}", library.entries);
+        };
+        assert_eq!(
+            (entry.name.as_str(), entry.source, entry.read_only()),
+            ("ink-2", crate::library::Source::Own, false),
+            "listed as the person's own"
+        );
+        assert!(
+            read_only_refusal(&synesthesia, &copy, "ink-2", "tag it").is_none(),
+            "and not refused"
+        );
+        // The write the tag field makes, on the copy.
+        let json = copy.join("scene.json");
+        let text = std::fs::read_to_string(&json)?;
+        let tagged = strobe_scene::tags::write(&text, &["mine".to_string()])?;
+        editor::write_atomically(&json, &tagged)?;
+        assert_eq!(
+            strobe_scene::tags::read(&std::fs::read_to_string(&json)?),
+            ["mine"],
+            "the copy takes a tag"
+        );
+        assert_eq!(
+            std::fs::read(source.join("scene.json"))?,
+            before,
+            "Synesthesia's own file is byte for byte unchanged"
+        );
+        Ok(())
     }
 
     #[test]

@@ -5567,3 +5567,110 @@ provenance and for the SBOM predicate, and the zip held exactly
 
 **Would reopen:** a later tag wanting the pre-release flag, which is a
 `release.yml` change made before that tag and never after.
+
+### D271: Synesthesia's installed scenes are in the library by default, and its install is never written (2026-10-14)
+
+**Context.** A person who owns Synesthesia has its scenes on disk already,
+and D268 made all 90 of them compile. Pointing `--library` at
+`Program Files` was the only way to play them, which loses the person's
+own library and lets Strobe try to write tags and presets where a normal
+user cannot. A survey of a real 1.25.4.189 install (and the AMD desktop)
+found where the scenes are: the ones it ships in `<install>\release` (87)
+and `<install>\default` (the welcome scene), its GLSL libraries in
+`<install>\lib`, and the person's own scene folders only where they added
+them in its Settings (Custom Scene Folder), listed in
+`%LOCALAPPDATA%\Synesthesia\Data\vs.json` (`sceneFolders`,
+`primarySceneFolder`) and `preferences.json` (`PRIMARY_SCENE_FOLDER`,
+`RECURSIVE_SCENE_SEARCH`, `RECURSIVE_SCENE_SEARCH_DEPTH`, 10). There is no
+default user folder: `Documents\Synesthesia` does not exist.
+
+**Decision.**
+- **One detection, `strobe_scene::synesthesia`.** The install is
+  `STROBE_SYNESTHESIA_DIR` when set (any platform; a value that is not a
+  folder means none), else `Synesthesia` under `%ProgramFiles(x86)%` then
+  `%ProgramFiles%` on Windows. The data folder is `STROBE_SYNESTHESIA_DATA`,
+  else `%LOCALAPPDATA%\Synesthesia\Data`. Its scene folders are the
+  `BUILT_IN` table (`release`, `default`; add a row if a version adds one)
+  and the folders its settings name, searched recursively as deep as its
+  preferences say (`load::scan_deep`; 10 when a key is missing, children
+  only when recursion is off, links not followed, 20,000 folders at most).
+  The settings files are read leniently: missing, unreadable or malformed
+  is "no folders of the person's", logged once, never an error. D198's
+  `include::search_path` asks the same detection for `lib` and the `glsl`
+  data folder instead of its own hard-coded path.
+- **The library has sources.** The library folder comes first and is
+  scanned as before. Then, where installed, the scenes Synesthesia ships
+  (`Source::Synesthesia`, read-only), then those in the person's
+  Synesthesia folders (`Source::SynesthesiaFolder`, writable: they are
+  theirs). A folder is read-only exactly when it is inside the install. A
+  scene already listed is not listed again, and a Synesthesia folder that
+  is the library folder itself is skipped. A name in two places is two
+  entries, told apart by source; every lookup by name (`--scene`, the
+  reopened last scene, playlists, fav slots, tags by name) finds the
+  library folder's own first because it comes first.
+- **Shown subtly.** A browser row ends its status line with a faint
+  "Synesthesia" (dropped when the row is too narrow for it), the count under
+  the filters says how many there are, the search word `synesthesia` finds
+  them all, and the palette's category reads "Synesthesia". Rows are keyed
+  by name and folder, so two of one name are two widgets. No new filter
+  chip: the filter row's width is held by the overflow tests at every size.
+- **On by default, one switch.** Settings > "Synesthesia's scenes" >
+  "Show Synesthesia's scenes", saved in `ui.toml` as `[synesthesia] show`
+  (a file from before is on), applied at once through
+  `Action::SetShowSynesthesia`, which looks for the install again when
+  switched on. `--no-synesthesia` hides them for one run and is not saved;
+  Settings says so. Off, or not installed, the library is exactly what it
+  was (a test holds `scan_with` off equal to `scan`). A rescan, an import
+  and the watched folder rescan both parts.
+- **Never a raw OS error.** Every write Strobe makes into a scene folder
+  asks `Synesthesia::owns` (inside the install, case-insensitive on
+  Windows, listed or not) first: tags (`SetSceneTags`), Use frame as
+  picture (`CaptureThumbnail`), Editor Save and Save and reload, and
+  saving, deleting and renaming presets. A refusal is a warning notice,
+  "<name> is Synesthesia's own and read-only. Copy it to your library to
+  <what>.", whose button is Copy to my library. The UI also avoids
+  offering them: a read-only scene's tag row shows its tags and Copy to my
+  library instead of Edit and Use frame as picture, and the Editor says
+  "Read-only" with the same button first in its row (Save stays, and is
+  refused, so edits made before noticing are kept). Generate controls
+  already wrote only into the library (D202), and still does. Drops,
+  packs, the watched folder and Shadertoy imports only write into the
+  library.
+- **Copy to my library** (`Action::CopyToLibrary(dir)`,
+  `intake::copy_as_own`): the folder is copied under its own name or
+  `<name>-2`, `-3`... (`x` and `x.synScene` count as one name), with
+  D218's bounds and link refusal, into a hidden `.<name>.copying` folder
+  renamed into place, as the importer stages. Then the library is
+  rescanned and the copy selected. A scene playing by hand (no playlist)
+  carries on from the copy without a reload, since its files are the
+  same, so what Strobe writes for it next lands in the copy; an Editor
+  open on it moves to the copy with its unsaved edits.
+
+**Evidence.** `synesthesia.rs` tests (the override on any platform, an
+override that is not a folder, Program Files order, the person's folders
+from fake `vs.json` and `preferences.json` with depth, broken or missing
+files, a folder inside the install, the data folder);
+`load.rs` `a_deep_scan_finds_scenes_to_its_depth_and_not_inside_scenes`;
+`include.rs` `the_include_path_finds_synesthesia_by_the_libraries_detection`;
+`library.rs` `a_fake_install_is_listed_after_the_library_read_only`,
+`switching_synesthesia_off_lists_only_the_library`,
+`a_folder_of_synesthesias_that_cannot_be_read_lists_nothing_and_fails_nothing`,
+`synesthesias_settings_naming_the_library_folder_list_it_once`; `app.rs`
+`a_write_into_synesthesias_folder_is_refused_and_offers_a_copy`,
+`copy_to_my_library_makes_a_copy_strobe_may_write`; `intake.rs`
+`copy_to_my_library_takes_a_free_name_and_leaves_no_staging`; `ui::tags`
+`a_synesthesia_scene_shows_its_tags_and_offers_a_copy_instead_of_edit`;
+`ui::settings` `the_synesthesia_switch_asks_the_app_and_changes_nothing_itself`;
+`ui::state`, `prefs`, `cli`, `command_palette` and `show::resolve` tests;
+five shell scenarios (a library with Synesthesia's scenes selected, the
+same compact, playing one with a write refused, the Editor on one, the
+palette listing them) at every size, through the overflow, BLACKOUT and
+text-overlap tests. By hand on Xvfb: a fake install whose `release` is the
+private corpus listed 90 scenes after the library's 12, and `--scene
+SkaiWalkerOG` played it with `hg_sdf.glsl` found in the install's `lib`.
+Fake installs only: no real Windows install has run it yet (I-05).
+
+**Would reopen:** the EULA (Q7) saying Synesthesia's scenes may not be run
+elsewhere, which would turn the default off; a Synesthesia version that
+moves its scenes or settings; or a person wanting to write into a
+Synesthesia install they own, which Strobe would still not do by default.
