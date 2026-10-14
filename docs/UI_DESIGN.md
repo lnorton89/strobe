@@ -101,7 +101,7 @@ Regions and their measure at 1920 wide:
 - Bottom: the transport strip with BLACKOUT and the macros, then the help bar (24 points, D275), which is not drawn in a window under 520 points high.
 - Output: separate window, almost entirely visual.
 
-There is no Live/Edit mode. The rail switches the view and the panel never moves. Persist the panel's width (while it is the default it follows the window), its tab, and which view was open.
+There is no Live/Edit mode. The rail switches the view and the panel never moves. Persist the panel's width (until it is dragged it follows the window; a double-click on its edge makes it follow again), its tab, and which view was open.
 
 ## 5. Navigation
 
@@ -160,12 +160,13 @@ Primary actions must look actionable. Numeric status must look like readouts.
 
 The side panel is Synesthesia's right column (D274), top to bottom:
 
-1. One 16:9 preview of the live scene, with the LIVE, BLACKOUT and output-hidden badges. No CPU readback.
-2. A status strip: Output (show or hide), Fullscreen, the frame rate with a dot, a horizontal audio level bar with the tempo, and Snapshot (keeps the live frame as the scene's picture).
-3. Icon tabs, with their names in the tooltips and beside the icons when the panel is wide:
+1. One 16:9 preview of the live scene, with the LIVE, BLACKOUT and output-hidden badges. No CPU readback. Left out when the panel is too short to give it 64 points at 38% of its height, so a drawer in a small window keeps room for the tab's body.
+2. A status strip: Output (show or hide), Fullscreen, the frame rate with a dot, a horizontal audio level bar with the tempo, and Snapshot (keeps the live frame as the scene's picture) at the right edge.
+3. The eight fav slots, in reach from every tab as Synesthesia keeps them. A panel under 360 points high moves them to the top of the Presets tab.
+4. Icon tabs, with their names in the tooltips and beside the icons when the panel is wide:
    - Playlist: the loaded show's cues, double-click to jump;
    - Controls: the scene's controls by UI_GROUP, then the meta group;
-   - Presets: the fav slots, the preset row and the scene's presets;
+   - Presets: the preset row and the scene's presets;
    - Edit: tags, picture, media, Generate controls and Open in Editor.
 
 Closed, the panel is a handle strip. In a window too narrow to dock it (below the main view's 320 points plus the panel's 280) it is a drawer over the main view, below the banners, clipped to the surface.
