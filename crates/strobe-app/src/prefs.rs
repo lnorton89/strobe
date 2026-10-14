@@ -124,6 +124,25 @@ pub struct Prefs {
     pub layouts: BTreeMap<String, Layout>,
     /// The watched drop folder (D240, D265).
     pub watch: WatchPref,
+    /// Synesthesia's own scenes in the library (D271).
+    pub synesthesia: SynesthesiaPref,
+}
+
+/// Whether the library lists Synesthesia's scenes where it is installed
+/// (D271).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SynesthesiaPref {
+    /// List them, read-only, after the library folder's own.
+    pub show: bool,
+}
+
+impl Default for SynesthesiaPref {
+    /// On: a person with Synesthesia installed sees its scenes without
+    /// looking for a setting, and a file from before has none.
+    fn default() -> Self {
+        Self { show: true }
+    }
 }
 
 /// The watched drop folder, as Settings last applied it (D265).
@@ -249,6 +268,7 @@ impl Prefs {
             last_scene: String::new(),
             layouts: BTreeMap::new(),
             watch: WatchPref::default(),
+            synesthesia: SynesthesiaPref::default(),
         }
     }
 
@@ -449,6 +469,7 @@ mod tests {
             folder: "D:\\VJ\\inbox".to_string(),
             enabled: true,
         };
+        prefs.synesthesia = SynesthesiaPref { show: false };
         let back = Prefs::from_text(&prefs.to_text().map_err(anyhow::Error::msg)?)
             .map_err(anyhow::Error::msg)?;
         assert_eq!(back, prefs, "what was written is what is read");
@@ -484,6 +505,10 @@ mod tests {
             prefs.watch,
             WatchPref::default(),
             "a file from before the watched folder watches nothing"
+        );
+        assert!(
+            prefs.synesthesia.show,
+            "a file from before the switch lists Synesthesia's scenes where installed"
         );
         assert_eq!(
             prefs.custom_title_bar,

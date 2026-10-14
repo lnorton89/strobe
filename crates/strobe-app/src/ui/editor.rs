@@ -24,6 +24,11 @@
 //! column. A Save and reload refused because `scene.json` does not parse
 //! shows the parser's message here, with its line and column, and nothing
 //! reaches the show (D263).
+//!
+//! A scene of Synesthesia's opens like any other, but its status line says
+//! it is read-only and a Copy to my library button leads the row (D271).
+//! Save is still there and is refused by the app with the same offer, so
+//! edits made before noticing are never lost: the copy carries them.
 
 use super::model::{Action, Model};
 use super::theme::{self, SPACE_SM, SPACE_XS};
@@ -53,6 +58,7 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
         model.ui.panes.close(Pane::Editor);
     }
     let playing_dir = model.editor.playing_dir;
+    let read_only = model.editor.read_only;
     let failure = model.failure.map(|f| (f.scene, f.summary));
     let Some(doc) = model.editor.doc.as_deref_mut() else {
         widgets::empty_state(
@@ -103,7 +109,12 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
     let error = failure
         .filter(|(scene, _)| *scene == doc.name)
         .map(|(_, summary)| summary);
-    let (word, tone) = if doc.invalid.is_some() {
+    let (word, tone) = if read_only {
+        (
+            "Read-only: one of Synesthesia's scenes. Copy it to your library to save edits.",
+            Tone::Warning,
+        )
+    } else if doc.invalid.is_some() {
         (
             "Not saved or reloaded: scene.json does not parse",
             Tone::Error,
@@ -126,6 +137,13 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
     ui.add_space(SPACE_XS);
 
     ui.horizontal_wrapped(|ui| {
+        if read_only
+            && widgets::primary_button(ui, theme, super::tags::COPY_LABEL)
+                .on_hover_text(super::tags::READ_ONLY_HINT)
+                .clicked()
+        {
+            actions.push(Action::CopyToLibrary(doc.dir.clone()));
+        }
         if widgets::primary_button(ui, theme, "Save and reload")
             .on_hover_text("Write the files and load the scene again (Ctrl+Enter)")
             .clicked()
