@@ -247,7 +247,9 @@ Each item names its acceptance test. Evidence is in [STATUS_AUDIT.md](STATUS_AUD
    through `syn_Media`. Met on llvmpipe.
 9. **A real tagged release.** Inspect the zip, the ANGLE DLL provenance,
    the matching PDB archive, the SBOM, the checksums and the attestations
-   (Q12).
+   (Q12). The first tag's ordered checklist, including the dry run the
+   workflow needs and what stays documented rather than closed, is
+   [RELEASE_PLAN.md](RELEASE_PLAN.md).
 10. **Modern graphics APIs (Vulkan, wgpu, DX12, Metal): research only.** The
    plan is in [GFX_API_RESEARCH.md](GFX_API_RESEARCH.md)
    (lnorton89/strobe#8). OpenGL 3.3 and ANGLE stay the reference and the
