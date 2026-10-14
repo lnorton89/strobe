@@ -153,15 +153,13 @@ Results for 17 scenes, all of which exit cleanly with no WARN or ERROR:
 - **Close: colour, camera or time only (8):** SkaiWalkerOG, welcome_scene,
   alien_cavern, hexoplanet, glassier, stained_glass, fluid_body.
 - **Different (5):**
-  - **neon_city:** a striped plane with no buildings at 3 s. A later
-    look (llvmpipe, 2026-10-14, the app with its script running, 180
-    frames that took far longer than 3 s of wall time) shows the neon
-    buildings along the road. The script moves the camera with time
-    (`z_pos`, `path_x`), so this is most likely the moment of capture,
-    not a rendering fault. To confirm on this machine, capture after 30 s.
-  - **beamers:** horizontal blue beams against a white starburst. The
-    same later look shows the starburst with blue and orange beams, so
-    the remaining difference is colour and time. To confirm the same way.
+  - **neon_city:** a striped plane with no buildings. A Strobe bug,
+    found in A8 and A9 below: adaptive resolution lowers the render
+    scale, and the scene's literal 1920x1080 passes are read with
+    `texelFetch(passN, ivec2(_xy))`, so a smaller main pass reads only
+    their corner.
+  - **beamers:** a starburst, but with blue, orange and violet beams
+    where the thumbnail's are white. Colour and time (A8).
   - **PLUS:** masked by media, and Synesthesia feeds `demo_media.mp4`
     by default where Strobe had none.
   - **canvas** and **turbo_encabulator_fluid:** the thumbnails match
@@ -172,3 +170,28 @@ Results for 17 scenes, all of which exit cleanly with no WARN or ERROR:
 Synesthesia's renderer is desktop GL 3.3 (GLFW, WGL). The authors' GPUs
 therefore draw these `fract(sin(…))` hashes the way ANGLE/D3D11 does here,
 and AMD's native driver is the one that differs.
+
+## neon_city and beamers at 30 s, and neon_city at fixed scales (2026-10-14, commit 3fa3ab6, Tasks A8 and A9)
+
+**A8.** Both scenes were run with `--frames 1800 --audio synthetic`,
+native and ANGLE.
+- **beamers:** a starburst on both backends, close to the thumbnail. The
+  beams are tinted rather than white, and the focus is right of centre.
+- **neon_city:** still the striped plane on both backends. Adaptive
+  resolution logged 1.00 -> 0.50, and the output was 240x135.
+
+**A9.** neon_city native, 180 frames:
+
+| Run | Output | Picture |
+|---|---|---|
+| `--no-adaptive --render-scale 1.0` | 960x540 | buildings, a street canyon |
+| `--no-adaptive --render-scale 0.5` | 480x270 | the bottom-left quarter of the 1.0 picture, magnified |
+| adaptive (1.00 -> 0.50 -> 0.25) | 240x135 | the bottom-left sixteenth: the "striped plane" |
+
+- **Cause:** the passes are a literal 1920x1080, absolute under D194, and
+  the shader reads them with `texelFetch(passN, ivec2(_xy))`. Any main
+  pass smaller than the passes reads only their corner.
+- **Adaptive gains nothing here:** GPU time is 59.4 ms at 1.0 and 59.5 ms
+  at 0.5, because the heavy passes do not shrink. A fix is in progress
+  (D280).
+
