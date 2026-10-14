@@ -434,13 +434,14 @@ impl<'a> Session<'a> {
     fn approved(&mut self) -> Result<(), End> {
         if self.desktop_pairing && !self.shared.remote.desktop.enabled() {
             self.phase = Phase::Unauthenticated;
+            self.since_auth_wait = Instant::now();
             return self.send(&ServerMessage::error(
                 ErrorCode::Unavailable,
                 "Full desktop access was disabled before approval; open pairing again",
             ));
         }
         let label = if self.desktop_pairing {
-            format!("Full desktop: {}", self.label)
+            format!("{}{}", crate::desktop::LABEL_PREFIX, self.label)
         } else {
             self.label.clone()
         };
@@ -670,7 +671,7 @@ impl<'a> Session<'a> {
                 }
                 self.desktop_pairing = desktop;
                 let label = if desktop {
-                    format!("Full desktop: {}", self.label)
+                    format!("{}{}", crate::desktop::LABEL_PREFIX, self.label)
                 } else {
                     self.label.clone()
                 };

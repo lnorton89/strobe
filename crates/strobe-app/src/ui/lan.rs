@@ -56,7 +56,7 @@ pub fn show(ui: &mut Ui, theme: &Palette, panel: &mut LanPanel<'_>, actions: &mu
     {
         actions.push(Action::SetDesktopAccess(desktop_enabled));
     }
-    ui.label(egui::RichText::new("Grants paired desktops access to the entire Strobe UI, including the editor and file changes. One controller at a time. Off again when the remote stops.").small().color(theme::rgb(theme.text_muted)));
+    ui.label(egui::RichText::new("Grants desktops you approve the entire Strobe UI, editor and file saves included, but not pairing or network settings. One controller at a time. Switching it off, or stopping the remote, ends every desktop pairing.").small().color(theme::rgb(theme.text_muted)));
     ui.add_space(SPACE_SM);
     ui.strong("Control another Strobe desktop");
     ui.label("Start remote and allow full desktop control on the host, then open pairing there.");
@@ -203,7 +203,14 @@ fn pairing(ui: &mut Ui, theme: &Palette, panel: &LanPanel<'_>, actions: &mut Vec
             ui,
             theme,
             Tone::Warning,
-            &format!("{} wants to control the show.", request.label),
+            &if request
+                .label
+                .starts_with(strobe_remote::desktop::LABEL_PREFIX)
+            {
+                format!("{} wants full control, files included.", request.label)
+            } else {
+                format!("{} wants to control the show.", request.label)
+            },
             |ui| {
                 if widgets::primary_button(ui, theme, "Approve").clicked() {
                     actions.push(Action::DecideRemotePairing {

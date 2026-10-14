@@ -452,6 +452,148 @@ fn authenticate(rig: &Rig, token: &str) -> Result<(String, Ws)> {
 // --------------------------------------------------------------------- tests
 
 #[test]
+fn desktop_input_reaches_the_app_only_from_the_lease_holder() -> Result<()> {
+    use strobe_remote::desktop::Input;
+    let rig = rig()?;
+    rig.desktop.enable(true);
+    // Before hello, and before pairing: no lease.
+    let mut early = open(&rig)?;
+    early.send(&json!({"type":"desktop_open"}))?;
+    early.send(&json!({"type":"desktop_input","events":[{"kind":"text","text":"x"}]}))?;
+    let (_, _, mut owner) = pair_as(&rig, true)?;
+    owner.send(&json!({"type":"desktop_open"}))?;
+    eventually("the owner's lease", || rig.desktop.active())?;
+    // A paired phone, and a second paired desktop that never got the
+    // lease, are each dropped for sending input.
+    let (_, _, mut phone) = pair(&rig)?;
+    phone.send(&json!({"type":"desktop_input","events":[{"kind":"text","text":"phone"}]}))?;
+    assert_eq!(phone.closed()?, 1008, "a phone's input closes it");
+    let (_, _, mut other) = pair_as(&rig, true)?;
+    other.send(&json!({"type":"desktop_input","events":[{"kind":"text","text":"other"}]}))?;
+    assert_eq!(other.closed()?, 1008, "a non-holder's input closes it");
+    owner.send(&json!({"type":"desktop_input","events":[{"kind":"text","text":"owner"}]}))?;
+    let mut events = Vec::new();
+    eventually("the owner's input", || {
+        rig.desktop.drain(&mut events);
+        !events.is_empty()
+    })?;
+    assert_eq!(
+        events,
+        vec![Input::Text {
+            text: "owner".into()
+        }],
+        "only the lease holder's input reached the app"
+    );
+    assert!(rig.desktop.active(), "the owner kept the lease throughout");
+    drop(early);
+    Ok(())
+}
+
+#[test]
+fn desktop_input_is_bounded_and_validated_before_the_app_sees_it() -> Result<()> {
+    let rig = rig()?;
+    rig.desktop.enable(true);
+    let (_, _, mut owner) = pair_as(&rig, true)?;
+    owner.send(&json!({"type":"desktop_open"}))?;
+    eventually("lease", || rig.desktop.active())?;
+    let refused = [
+        json!({"type":"desktop_input","events":[{"kind":"move","x":1.5,"y":0.5}]}),
+        json!({"type":"desktop_input","events":[{"kind":"move","x":-0.1,"y":0.5}]}),
+        json!({"type":"desktop_input","events":[{"kind":"button","x":0.5,"y":0.5,"button":7,
+            "down":true,"modifiers":{"alt":false,"ctrl":false,"shift":false,"mac_cmd":false}}]}),
+        json!({"type":"desktop_input","events":[{"kind":"key","key":"x".repeat(25),"down":true,
+            "modifiers":{"alt":false,"ctrl":false,"shift":false,"mac_cmd":false}}]}),
+        json!({"type":"desktop_input","events":[{"kind":"scroll","x":5000.0,"y":0.0,
+            "modifiers":{"alt":false,"ctrl":false,"shift":false,"mac_cmd":false}}]}),
+        json!({"type":"desktop_input","events":vec![json!({"kind":"reset"}); 33]}),
+        json!({"type":"desktop_input","events":[]}),
+        json!({"type":"desktop_input","events":[{"kind":"text","text":"a\u{0}b"}]}),
+        json!({"type":"desktop_input","events":[{"kind":"move","x":0.5,"y":0.5,"extra":1}]}),
+    ];
+    for message in &refused {
+        owner.send(message)?;
+        assert_eq!(
+            owner.until("error")?["code"],
+            "invalid_request",
+            "refused before the app: {message}"
+        );
+    }
+    let mut events = Vec::new();
+    rig.desktop.drain(&mut events);
+    assert!(events.is_empty(), "nothing reached the app: {events:?}");
+    // Over the 4 KiB message limit: refused from the frame header, and the
+    // connection with it, which releases the lease.
+    owner.send(
+        &json!({"type":"desktop_input","events":[{"kind":"paste","text":"x".repeat(5000)}]}),
+    )?;
+    assert_eq!(owner.closed()?, 1009, "an oversized message closes");
+    eventually("the lease to go with it", || !rig.desktop.active())?;
+    rig.desktop.drain(&mut events);
+    assert_eq!(
+        events,
+        vec![strobe_remote::desktop::Input::Reset {}],
+        "only the release of held input reached the app"
+    );
+    Ok(())
+}
+
+#[test]
+fn switching_desktop_access_off_ends_desktop_pairings_and_spares_phones() -> Result<()> {
+    let rig = rig()?;
+    // Asked while the switch is off, a desktop pairing is refused without
+    // spending the code.
+    let code = rig.server.open_pairing()?;
+    let mut early = open(&rig)?;
+    early.hello()?;
+    early.send(&json!({"type":"pair_desktop","code":code}))?;
+    assert_eq!(early.until("error")?["code"], "unavailable", "switch off");
+    assert!(
+        rig.server.pairing_requests().is_empty(),
+        "no request put to the operator"
+    );
+    rig.desktop.enable(true);
+    early.send(&json!({"type":"pair_desktop","code":code}))?;
+    eventually("the same code to still work", || {
+        !rig.server.pairing_requests().is_empty()
+    })?;
+    drop(early);
+    eventually("the abandoned request to go", || {
+        rig.server.pairing_requests().is_empty()
+    })?;
+
+    let (phone_id, phone_token, mut phone) = pair(&rig)?;
+    let (desktop_id, desktop_token, mut desktop) = pair_as(&rig, true)?;
+    desktop.send(&json!({"type":"desktop_open"}))?;
+    eventually("lease", || rig.desktop.active())?;
+    // What Lan::set_desktop(false) does.
+    rig.desktop.enable(false);
+    assert_eq!(rig.server.revoke_desktop(), 1, "the one desktop pairing");
+    assert_eq!(desktop.closed()?, 1008, "the desktop is dropped at once");
+    assert!(!rig.desktop.active(), "lease released");
+    assert!(
+        !rig.clients.contains(&desktop_id) && rig.clients.contains(&phone_id),
+        "desktop pairing revoked, phone kept"
+    );
+    rig.desktop.enable(true);
+    let mut retry = open(&rig)?;
+    retry.hello()?;
+    retry.send(&json!({"type":"authenticate","token":desktop_token}))?;
+    assert_eq!(
+        retry.until("error")?["code"],
+        "unauthorized",
+        "the desktop token is dead even with the switch back on"
+    );
+    phone.send(&json!({"type":"command","request_id":"still-here","command":"blackout_on"}))?;
+    assert_eq!(
+        phone.until("command_result")?["accepted"],
+        true,
+        "the phone was not touched"
+    );
+    authenticate(&rig, &phone_token).context("the phone's token still works")?;
+    Ok(())
+}
+
+#[test]
 fn desktop_control_requires_pairing_and_opt_in_and_is_exclusive() -> Result<()> {
     let rig = rig()?;
     let mut anonymous = open(&rig)?;

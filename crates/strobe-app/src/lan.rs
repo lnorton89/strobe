@@ -124,6 +124,9 @@ pub struct LanView {
     pub clients: Vec<(ClientInfo, bool)>,
     /// Open connections, paired or not.
     pub connections: usize,
+    /// A paired desktop holds the input lease: someone elsewhere is
+    /// operating this window (D275). The title bar says so.
+    pub desktop_controlled: bool,
 }
 
 /// The LAN remote.
@@ -283,6 +286,11 @@ impl Lan {
             app_end.desktop.enable(false);
         }
         self.desktop_enabled = false;
+        // A full desktop grant lasts as long as the switch it was approved
+        // under (D275); the server is stopped below, so the list is enough.
+        if let Some(clients) = &self.clients {
+            clients.revoke_desktop();
+        }
         // The bridge first, so a command in flight is answered Unavailable.
         self.app_end = None;
         if let Some(server) = self.server.take() {
@@ -299,11 +307,32 @@ impl Lan {
     }
 
     /// Switch full desktop access without changing phone command access.
+    /// Switching it off also revokes every desktop pairing and drops its
+    /// connection, so the next session must be approved again (D275).
     pub fn set_desktop(&mut self, enabled: bool) {
         self.desktop_enabled = enabled && self.running();
         if let Some(app_end) = &self.app_end {
             app_end.desktop.enable(self.desktop_enabled);
         }
+        if !self.desktop_enabled {
+            match &self.server {
+                Some(server) => {
+                    server.revoke_desktop();
+                }
+                None => {
+                    if let Some(clients) = &self.clients {
+                        clients.revoke_desktop();
+                    }
+                }
+            }
+        }
+    }
+
+    /// Whether a desktop controller holds the input lease right now.
+    pub fn desktop_controlled(&self) -> bool {
+        self.app_end
+            .as_ref()
+            .is_some_and(|app_end| app_end.desktop.active())
     }
 
     /// Desktop bridge while the listener is running.
@@ -443,6 +472,7 @@ impl Lan {
                 })
                 .collect(),
             connections: connections.len(),
+            desktop_controlled: self.desktop_controlled(),
         }
     }
 }

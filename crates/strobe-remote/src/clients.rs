@@ -38,6 +38,17 @@
 //! A file that cannot be read is set aside as `remote-clients.json.bad`
 //! and the list starts empty: every phone pairs again, which is the safe
 //! failure.
+//!
+//! ## Full desktop grants are never saved (D275)
+//!
+//! A client paired with `pair_desktop` is kept in memory only. It is never
+//! written to the file, a record in an older file that claims the grant is
+//! dropped when the file is read, and [`Clients::revoke_desktop`] removes
+//! every such client when the host switches full desktop access off or
+//! stops listening. So a desktop token sniffed from the plain-HTTP link,
+//! or left behind by a crash, cannot outlive the run and the switch it
+//! was approved under. The native controller keeps its token in memory
+//! only as well, so nothing that could use a saved grant is lost.
 
 use crate::secret::{self, Token};
 use serde::{Deserialize, Serialize};
@@ -66,6 +77,8 @@ const FILE_VERSION: u32 = 1;
 struct Record {
     /// Explicitly approved for full desktop UI access. Older records and
     /// ordinary phone pairings remain limited to performance commands.
+    /// Such a record lives in memory only: [`Store::save`] leaves it out
+    /// and [`Clients::load`] drops one it finds.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     desktop: bool,
     id: String,
@@ -174,7 +187,13 @@ impl Clients {
             Ok(text) => match serde_json::from_str::<File>(&text) {
                 Ok(file) if file.version == FILE_VERSION => {
                     let total = file.clients.len();
-                    let mut records: Vec<Record> = file.clients.into_iter().filter(valid).collect();
+                    // A desktop grant is never saved; one in the file was not
+                    // written by this version, and is not honoured.
+                    let mut records: Vec<Record> = file
+                        .clients
+                        .into_iter()
+                        .filter(|record| valid(record) && !record.desktop)
+                        .collect();
                     records.truncate(MAX_PAIRED);
                     for record in &mut records {
                         record.label = clean_label(&record.label);
@@ -358,6 +377,22 @@ impl Clients {
         count
     }
 
+    /// Revokes every client paired for full desktop access (D275), when
+    /// the host switches that access off or stops listening. Returns their
+    /// ids, so the listener can drop their connections.
+    pub fn revoke_desktop(&self) -> Vec<String> {
+        let mut store = self.store();
+        let mut revoked = Vec::new();
+        store.records.retain(|record| {
+            if record.desktop {
+                revoked.push(record.id.clone());
+            }
+            !record.desktop
+        });
+        // Desktop records are never in the file, so there is nothing to save.
+        revoked
+    }
+
     /// Whether client `id` is still paired.
     pub fn contains(&self, id: &str) -> bool {
         self.store().records.iter().any(|r| r.id == id)
@@ -375,7 +410,13 @@ impl Store {
         }
         let file = File {
             version: FILE_VERSION,
-            clients: self.records.clone(),
+            // Full desktop grants live for this run only (D275).
+            clients: self
+                .records
+                .iter()
+                .filter(|record| !record.desktop)
+                .cloned()
+                .collect(),
         };
         let text = serde_json::to_string_pretty(&file).map_err(std::io::Error::other)?;
         let temporary = path.with_extension("json.tmp");
@@ -442,6 +483,56 @@ mod tests {
             restored.desktop,
             "explicit grant is serialized and restored"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn a_desktop_grant_is_never_saved_and_ends_with_the_switch() -> Result<()> {
+        let dir = scratch("desktop-grant");
+        let (clients, _) = Clients::load(&dir);
+        let (phone_id, phone) = clients.pair("phone")?;
+        let (desktop_id, desktop) = clients.pair_with_access("Full desktop: x", true)?;
+        let rotated = clients
+            .authenticate(desktop.expose())
+            .and_then(|auth| auth.rotated)
+            .context("a desktop token authenticates and rotates")?;
+        let text = std::fs::read_to_string(dir.join(CLIENTS_FILE))?;
+        assert!(
+            !text.contains(&desktop_id) && !text.contains("desktop"),
+            "a desktop grant never reaches the file: {text}"
+        );
+        assert!(text.contains(&phone_id), "the phone is saved as before");
+        let (restarted, _) = Clients::load(&dir);
+        assert!(
+            restarted.authenticate(rotated.expose()).is_none(),
+            "a restart ends the desktop grant"
+        );
+        assert_eq!(
+            clients.revoke_desktop(),
+            vec![desktop_id.clone()],
+            "switching desktop access off revokes the desktop client"
+        );
+        assert!(
+            clients.authenticate(rotated.expose()).is_none(),
+            "and its token is dead"
+        );
+        assert!(
+            clients.authenticate(phone.expose()).is_some(),
+            "phones are untouched"
+        );
+        // A file written by the first cut of D275, which saved the grant.
+        let forged = format!(
+            "{{\"version\":1,\"clients\":[{{\"desktop\":true,\"id\":\"c0000abcd\",\"label\":\"x\",\
+             \"paired_at\":1,\"last_seen\":1,\"token_sha256\":\"{}\"}}]}}",
+            secret::digest(desktop.expose())
+        );
+        std::fs::write(dir.join(CLIENTS_FILE), forged)?;
+        let (old_file, _) = Clients::load(&dir);
+        assert!(
+            old_file.is_empty() && old_file.authenticate(desktop.expose()).is_none(),
+            "a saved desktop grant is not honoured"
+        );
+        let _ = std::fs::remove_dir_all(&dir); // Best effort: a temp dir.
         Ok(())
     }
 
