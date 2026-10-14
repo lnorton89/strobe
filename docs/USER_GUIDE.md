@@ -267,6 +267,45 @@ then control the show until you revoke it. A home or venue network you
 control is fine; a public or shared Wi-Fi is not. There is no installable
 app (PWA) version yet, because that needs HTTPS.
 
+### Control another Strobe desktop
+
+Both computers must run a build with desktop control support. On the host,
+open **Settings > Remote**, click **Start remote**, enable **Allow full
+desktop control**, then click **Pair a device**. On the controlling computer,
+open **Settings > Remote > Control another Strobe desktop**. Enter the host's
+IP and port (for example `192.168.1.20:47812`) and its pairing code, then
+click **Connect to desktop**. Approve the request labelled **Full desktop**
+on the host.
+
+The host's entire Strobe control window replaces the controller's local UI.
+Click in the image to focus it, then use its controls, keyboard shortcuts,
+editor, playlist, presets and file operations as usual. All edits, imports
+and file paths refer to the **host computer**. Clipboard text can be pasted
+into the host; Copy/Cut in a host widget returns selected text to the
+controller. Paste at most 64 KiB at a time. Local file drops/uploads and
+operating-system dialogs are outside this Strobe window stream.
+
+**Return to local Strobe** always belongs to the controlling computer;
+Ctrl+Shift+F12 is its keyboard shortcut (Command+Shift+F12 on macOS).
+Only one desktop can control a host at once. The host title bar says
+**Desktop access on**; **Stop remote**, disabling full desktop access, or
+revoking the controlling device disconnects it and releases held inputs.
+Existing phone tokens retain performance-only access, even while desktop
+access is enabled. Desktop approval is a separate permission.
+
+To reconnect during the same controller app session, leave the code blank
+and connect to the same IP and port. The credential is rotated on each
+connection and kept only in memory. After restarting the controller, pair
+again; revoke unused entries on the host when appropriate. Full desktop
+hosting is never saved and is off again after Stop remote or restarting.
+
+The native client uses a private IP connection on the trusted LAN; it does
+not use the HTTPS proxy described below. The control window stream is
+limited to five frames per second and 4096 pixels per edge. Keep the host
+control window open; resize it if capture exceeds this limit. Input is
+disabled while frames are stale, and queued input is never replayed after
+reconnecting. Rendering the projector output continues on the host.
+
 ### HTTPS through your own proxy (advanced)
 
 Strobe has no certificate of its own, and it will never ask you to click

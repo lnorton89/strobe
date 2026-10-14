@@ -67,7 +67,7 @@ mod http;
 pub mod net;
 mod page;
 mod session;
-mod ws;
+pub(crate) mod ws;
 
 use crate::bridge::Remote;
 use crate::clients::Clients;

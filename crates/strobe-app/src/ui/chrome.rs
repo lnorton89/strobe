@@ -185,7 +185,12 @@ impl Readouts {
         let lan = model.lan.view;
         if lan.running {
             self.remote = format!(
-                "Remote on  {} connected{}",
+                "{}  {} connected{}",
+                if model.lan.desktop_enabled {
+                    "Desktop access on"
+                } else {
+                    "Remote on"
+                },
                 lan.connections,
                 if lan.requests.is_empty() {
                     ""

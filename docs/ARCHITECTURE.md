@@ -70,6 +70,12 @@ strobe-remote ◀── strobe-app  (serde, sha1, sha2, getrandom; depends on no
   egui or `strobe-gfx`. Its listener runs on threads of its own and reaches
   the app only through `bridge`: commands in on a bounded queue, a
   revisioned state snapshot out (D232, D250). The app drains it in step 1c.
+  Its optional desktop bridge (D275) separately queues bounded UI events
+  for the control-window egui pass and holds one shared latest JPEG frame.
+  Only explicitly desktop-approved tokens can acquire the exclusive lease.
+  `strobe-app::desktop` owns input translation, capture encoding and the
+  native controller's decoding worker. No UI or renderer dependency enters
+  `strobe-remote`; the original phone command bridge remains unchanged.
 - `strobe-diag` depends on no other Strobe crate, so every crate may
   depend on it (for `log` output, `context::set`, `failure::report`).
   `strobe-gfx` itself only uses the `log` facade; the app is what installs

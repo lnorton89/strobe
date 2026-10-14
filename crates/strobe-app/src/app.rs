@@ -709,6 +709,10 @@ struct Running {
     remote: Remote,
     /// The LAN remote: off until asked for (D250 to D254).
     lan: Lan,
+    desktop_controller: crate::desktop::Controller,
+    desktop_capture: crate::desktop::Capture,
+    desktop_input: crate::desktop::HostInput,
+    desktop_events: Vec<strobe_remote::desktop::Input>,
     /// The keyboard shortcuts in force: the defaults plus `hotkeys` (D178).
     bindings: Bindings,
     /// Outputs the mapper handed back this frame, kept to reuse its buffer.
@@ -883,6 +887,10 @@ impl Running {
                 cli.screenshot.is_none(),
             )
             .behind_proxy(cli.remote_proxy.clone()),
+            desktop_controller: crate::desktop::Controller::default(),
+            desktop_capture: crate::desktop::Capture::default(),
+            desktop_input: crate::desktop::HostInput::default(),
+            desktop_events: Vec::with_capacity(129),
             bindings: Bindings::default(),
             map_ui: MapUi::default(),
             pending_preset: None,
@@ -1387,7 +1395,11 @@ impl Running {
         if now >= self.next_control {
             self.stack.control.window().request_redraw();
             let period = if self.control_covered {
-                COVERED_PERIOD
+                if self.lan.desktop().is_some_and(|desktop| desktop.active()) {
+                    crate::desktop::STREAM_PERIOD
+                } else {
+                    COVERED_PERIOD
+                }
             } else if self.control_pacer.is_slow() {
                 crate::stats::SLOW_PERIOD
             } else {
@@ -3542,6 +3554,12 @@ impl Running {
                     }
                 }
                 Action::OpenRemotePairing => self.lan.open_pairing(),
+                Action::SetDesktopAccess(enabled) => self.lan.set_desktop(enabled),
+                Action::ConnectDesktop => {
+                    self.lan.set_desktop(false);
+                    self.desktop_controller.connect();
+                }
+                Action::DisconnectDesktop => self.desktop_controller.disconnect(),
                 Action::CloseRemotePairing => self.lan.close_pairing(),
                 Action::DecideRemotePairing { id, approve } => self.lan.decide(id, approve),
                 Action::RevokeRemoteClient(id) => self.lan.revoke(&id),
@@ -4250,6 +4268,24 @@ impl Running {
         }
         let now = Instant::now();
         self.console.refresh();
+        let mut desktop_events = std::mem::take(&mut self.desktop_events);
+        self.stack.ui.set_desktop_bridge(self.lan.desktop());
+        if let Some(desktop) = self.lan.desktop() {
+            desktop.drain(&mut desktop_events);
+        }
+        if !self.lan.desktop_enabled && self.desktop_input.held() {
+            desktop_events.push(strobe_remote::desktop::Input::Reset {});
+        }
+        if !desktop_events.is_empty() {
+            let scale = self.stack.ui.pixels_per_point().max(f32::EPSILON);
+            self.desktop_input.translate(
+                &desktop_events,
+                egui::vec2(size.width as f32 / scale, size.height as f32 / scale),
+                self.stack.ui.desktop_events(),
+            );
+        }
+        desktop_events.clear();
+        self.desktop_events = desktop_events;
         self.audio.refresh_status(now);
         if self
             .notice
@@ -4486,6 +4522,8 @@ impl Running {
                 read_only: editor_read_only,
             },
             lan: LanPanel {
+                desktop_enabled: self.lan.desktop_enabled,
+                controller: &mut self.desktop_controller,
                 view: &lan_view,
                 address: &mut self.lan.address,
                 port: &mut self.lan.port,
@@ -4496,7 +4534,11 @@ impl Running {
         let shell_state = &mut self.shell;
         let ui_started = Instant::now();
         self.stack.ui.run(window, |ui| {
-            shell::show(ui, shell_state, &mut model, &mut actions)
+            if model.lan.controller.active() {
+                model.lan.controller.show(ui, &mut actions);
+            } else {
+                shell::show(ui, shell_state, &mut model, &mut actions);
+            }
         });
         let ran = ui_started.elapsed();
         // Layout only: the paint that follows is the GL driver's (on
@@ -4507,6 +4549,19 @@ impl Running {
         let paint_began = Instant::now();
         self.stack.ui.paint(window, crate::ui::theme::clear_color());
         let paint = paint_began.elapsed();
+        if let Some(desktop) = self.lan.desktop()
+            && self
+                .desktop_capture
+                .due(now, &desktop, [size.width, size.height])
+        {
+            let pixels = self
+                .stack
+                .gfx
+                .gl()
+                .read_default_rgba8(size.width as i32, size.height as i32);
+            self.desktop_capture
+                .submit(desktop, [size.width, size.height], pixels);
+        }
         self.ui_state.tick(now);
         self.remote.persist(now);
 

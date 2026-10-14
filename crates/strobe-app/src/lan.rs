@@ -129,6 +129,9 @@ pub struct LanView {
 /// The LAN remote.
 #[derive(Debug)]
 pub struct Lan {
+    /// Explicit full desktop access for this run; never saved or inherited
+    /// from the phone listener's state.
+    pub desktop_enabled: bool,
     server: Option<Server>,
     app_end: Option<AppEnd>,
     clients: Option<Clients>,
@@ -151,6 +154,7 @@ impl Lan {
     /// The remote, off, with the command line's address and port.
     pub fn new(data_dir: PathBuf, bind: Option<IpAddr>, port: u16, persist: bool) -> Self {
         Self {
+            desktop_enabled: false,
             server: None,
             app_end: None,
             clients: None,
@@ -240,6 +244,7 @@ impl Lan {
         let clients = self.clients();
         let started = target.and_then(|(ip, port)| {
             let (remote, app_end) = bridge::bridge(QUEUE);
+            app_end.desktop.enable(self.desktop_enabled);
             let config = ServerConfig {
                 proxied: self.proxied.clone(),
                 ..ServerConfig::new(ip, port)
@@ -274,6 +279,10 @@ impl Lan {
     /// Stops the listener: every phone is dropped at once and the port is
     /// freed. Stopping a stopped one does nothing.
     pub fn stop(&mut self) {
+        if let Some(app_end) = &self.app_end {
+            app_end.desktop.enable(false);
+        }
+        self.desktop_enabled = false;
         // The bridge first, so a command in flight is answered Unavailable.
         self.app_end = None;
         if let Some(server) = self.server.take() {
@@ -287,6 +296,19 @@ impl Lan {
     /// The next command waiting, if any. Never blocks.
     pub fn next_command(&self) -> Option<Incoming> {
         self.app_end.as_ref().and_then(AppEnd::next)
+    }
+
+    /// Switch full desktop access without changing phone command access.
+    pub fn set_desktop(&mut self, enabled: bool) {
+        self.desktop_enabled = enabled && self.running();
+        if let Some(app_end) = &self.app_end {
+            app_end.desktop.enable(self.desktop_enabled);
+        }
+    }
+
+    /// Desktop bridge while the listener is running.
+    pub fn desktop(&self) -> Option<strobe_remote::desktop::Desktop> {
+        self.app_end.as_ref().map(|app_end| app_end.desktop.clone())
     }
 
     /// Whether it is time to publish the state.

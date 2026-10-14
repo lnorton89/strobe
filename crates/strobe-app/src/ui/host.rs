@@ -40,6 +40,8 @@ pub struct UiHost {
     pixels_per_point: f32,
     textures_delta: egui::TexturesDelta,
     previews: HashMap<glow::Texture, TextureId>,
+    desktop_events: Vec<egui::Event>,
+    desktop_bridge: Option<strobe_remote::desktop::Desktop>,
 }
 
 impl UiHost {
@@ -70,6 +72,8 @@ impl UiHost {
             pixels_per_point: 1.0,
             textures_delta: egui::TexturesDelta::default(),
             previews: HashMap::new(),
+            desktop_events: Vec::new(),
+            desktop_bridge: None,
         })
     }
 
@@ -101,7 +105,8 @@ impl UiHost {
 
     /// Runs one UI pass. Call [`Self::paint`] afterwards.
     pub fn run(&mut self, window: &Window, run_ui: impl FnMut(&mut egui::Ui)) {
-        let raw_input = self.input.take_egui_input(window);
+        let mut raw_input = self.input.take_egui_input(window);
+        raw_input.events.append(&mut self.desktop_events);
         let egui::FullOutput {
             platform_output,
             textures_delta,
@@ -120,10 +125,32 @@ impl UiHost {
                 &mut requested,
             );
         }
+        if let Some(desktop) = &self.desktop_bridge {
+            for command in &platform_output.commands {
+                if let egui::OutputCommand::CopyText(text) = command {
+                    desktop.copy_text(text);
+                }
+            }
+        }
         self.input.handle_platform_output(window, platform_output);
         self.shapes = shapes;
         self.pixels_per_point = pixels_per_point;
         self.textures_delta.append(textures_delta);
+    }
+
+    /// Queue translated remote UI input for the next ordinary egui pass.
+    pub fn desktop_events(&mut self) -> &mut Vec<egui::Event> {
+        &mut self.desktop_events
+    }
+
+    /// Share explicit UI clipboard output with the active desktop controller.
+    pub fn set_desktop_bridge(&mut self, bridge: Option<strobe_remote::desktop::Desktop>) {
+        self.desktop_bridge = bridge;
+    }
+
+    /// Current physical pixels per UI point, including keyboard zoom and DPI.
+    pub fn pixels_per_point(&self) -> f32 {
+        self.pixels_per_point
     }
 
     /// Clears the window and paints the last pass.

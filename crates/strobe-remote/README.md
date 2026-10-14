@@ -16,6 +16,17 @@ key, a pad or an OSC message uses (D172, D232, D254).
 It is a **plain-HTTP remote for trusted networks**, not an installable PWA:
 that waits on a TLS decision (backlog L-07).
 
+**Desktop-to-desktop control (D275):** the same listener also supports a
+native Strobe controller that mirrors the complete host control window,
+including scene editing and file operations. `pair_desktop` requires the
+host's explicit full-desktop switch and a separately labelled approval;
+ordinary phone tokens and old stored records never gain this permission.
+One connection leases input at a time. Stop, revoke, overflow and app loss
+release the lease and reset held input. The app supplies JPEG captures at
+at most 5 Hz; the network bridge keeps only the latest frame. Text copied
+by a host widget is returned explicitly, without reading its OS clipboard.
+See [the user guide](../../docs/USER_GUIDE.md#control-another-strobe-desktop).
+
 ## Role in the workspace
 
 - **Depends on:** `serde`, `serde_json`, `getrandom` (codes and tokens),
@@ -39,6 +50,15 @@ that waits on a TLS decision (backlog L-07).
 | `pairing::Pairing` | The six-digit code, its attempt limit and expiry, and requests waiting for Approve or Deny (D251). |
 | `clients::Clients` | Paired clients in `remote-clients.json`: token digests, rotation, revocation (D251). |
 | `secret::Token` | A 256-bit token that prints as `***` and is not `Serialize`. |
+| `client::Connection` | Native worker transport: private IP address, bounded handshake/frame reader, random client masks and socket timeouts. |
+| `desktop::Desktop` | Host opt-in, exclusive connection lease, bounded ordered UI inputs and latest shared image/explicit clipboard output. |
+
+The optional desktop extension adds `pair_desktop`, `desktop_open`,
+`desktop_input`, `desktop_frame` and `desktop_clipboard`. Original protocol
+v1 messages retain their exact wire representation. A host without the
+extension refuses the new message instead of executing a partial command.
+Native tokens are held only in the controller process and use the same
+authentication and rotation flow as phone tokens.
 
 ## The listener
 

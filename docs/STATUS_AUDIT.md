@@ -12,6 +12,36 @@ tracks every known unfinished implementation and validation task across the proj
 
 ## Current baseline
 
+- [x] Full desktop remote implementation (2026-10-13, D275) is wired into
+  Settings > Remote and the ordinary host egui pass. Evidence:
+  `desktop::tests::native_controller_pairs_decodes_edits_host_files_and_reconnects_in_memory`
+  exercises native pairing, JPEG decoding, host text-widget editing, the
+  existing editor's save/backup path and credential rotation on reconnect.
+  `strobe-remote/tests/server.rs` verifies opt-in, separately approved desktop
+  scope, refusal of old/rotated phone tokens, exclusive control, clipboard,
+  revocation and listener shutdown over real loopback sockets. Desktop bridge
+  tests verify finite/bounded input and overflow releases; viewer tests verify
+  Tab forwarding, local keyboard exit, Unicode paste and input reset.
+  Native RX 580 GL renders of the connection form (900x700, 427x533) and
+  network-fed viewer (1440x900, 640x480, 427x533) are in
+  `target/desktop-remote-qa/`; inspected with no layout overflow. This is a
+  loopback host fixture, not a claim of two physical machines tested.
+  Final `cargo xtask ci` passed fmt, workspace all-feature clippy/tests,
+  cargo-deny, changelog and brand (`target/desktop-remote-ci.log`); explicit
+  full-workspace MSVC-target clippy passed (`target/desktop-remote-windows.log`).
+  108 GPU tests passed by skipping unavailable EGL/headless contexts; the
+  native GL fixtures provide separate render evidence.
+  A separate optimized `target/release/strobe-desktop-control.exe` was built
+  from the same app entry point because the existing `strobe.exe` is running
+  and locked. Its Windows startup/screenshot smoke test exited successfully
+  and wrote `target/desktop-remote-smoke-control.png` and
+  `target/desktop-remote-smoke-output.png`. This local test
+  build is not a packaged release; the original running processes were left
+  untouched.
+- [ ] Full desktop remote: two physical Strobe desktops over Wi-Fi, reconnect
+  after loss/sleep, minimized host, cross-DPI/zoom behavior on real monitors,
+  ANGLE capture and T480 CPU/frame-time/memory soak remain unverified.
+
 - [x] Chromatic Rise scene loads, compiles and renders on Windows RX 580
   native GL 3.3 and ANGLE GLES 3.0 at 1280x720 (2026-10-13).
   Evidence: `target/bench/chromatic-rise-final/results.md` and
