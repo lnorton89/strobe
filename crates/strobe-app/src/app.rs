@@ -4181,10 +4181,16 @@ impl Running {
     /// Adopts the adaptive controller's new scale and says why.
     fn scale_changed(&mut self, change: &perf::ScaleChange) {
         if let Some(futile) = change.futile {
+            let next = match futile.lock_frames {
+                Some(frames) => {
+                    format!("not lowering it again for {frames} frames or until the scene changes")
+                }
+                None => "trying once more before holding it there".to_string(),
+            };
             log::info!(
                 "adaptive resolution: lowering the render scale {:.2} -> {:.2} cut GPU time only \
-                 {:.1} -> {:.1} ms, so this scene's cost is not its resolution; back to {:.2} \
-                 and not lowering again until the scene changes (D280)",
+                 {:.1} -> {:.1} ms, so this scene's cost is not its resolution; back to {:.2}, \
+                 {next} (D280)",
                 futile.scale,
                 futile.tried,
                 futile.before_ms,

@@ -35,8 +35,10 @@
 //!   The load says so once, and the controller does not run for it.
 //! - **A drop that cuts nothing is undone (D280).** When a scene's cost is
 //!   not its resolution for some other reason, the controller notices that
-//!   the GPU time did not fall, goes back up, and stops lowering until the
-//!   scene changes. The change says so and the log gives the numbers.
+//!   the GPU time did not fall and goes back up. Twice in a row, and it
+//!   stops lowering for a while (30 s at 60 Hz, doubling on each re-lock)
+//!   or until the scene changes. The change says so and the log gives the
+//!   numbers.
 //! - **No timer, no adaptation.** On a context without timer queries the
 //!   toggle has nothing to measure, so the scale stays where the slider
 //!   puts it and the status bar says so.
@@ -270,15 +272,13 @@ impl Performance {
             return None;
         }
         let from = self.adaptive.scale();
-        let before = self.adaptive.futile();
         let to = self.adaptive.observe(ms)?;
-        let after = self.adaptive.futile();
         Some(ScaleChange {
             from,
             to,
             gpu_ms: ms,
             budget_ms: self.adaptive.budget_ms(),
-            futile: after.filter(|_| after != before),
+            futile: self.adaptive.undone(),
         })
     }
 
@@ -476,11 +476,26 @@ mod tests {
         for _ in 0..600 {
             changes.extend(perf.feed(40.0, now));
         }
-        assert_eq!(changes.len(), 2, "one drop, one undo: {changes:?}");
-        let undo = changes.last().copied();
+        assert_eq!(
+            changes.len(),
+            4,
+            "two probes, each a drop and an undo: {changes:?}"
+        );
+        let first = changes.get(1).copied();
         assert!(
-            undo.is_some_and(|c| c.futile.is_some() && c.to > c.from),
-            "the second change goes back up and says why: {undo:?}"
+            first.is_some_and(|c| c.to > c.from
+                && c.futile.is_some_and(|f| f.lock_frames.is_none())),
+            "the first undo goes back up and says it will try again: {first:?}"
+        );
+        let second = changes.last().copied();
+        assert!(
+            second.is_some_and(|c| c.to > c.from
+                && c.futile.is_some_and(|f| f.lock_frames.is_some())),
+            "the second goes back up and locks: {second:?}"
+        );
+        assert!(
+            changes.iter().step_by(2).all(|c| c.futile.is_none()),
+            "a drop is not called futile: {changes:?}"
         );
         assert!((perf.scale() - 1.0).abs() < 1e-6, "ends at 1.0");
     }
