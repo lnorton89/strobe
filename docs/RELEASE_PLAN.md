@@ -125,22 +125,28 @@ line was committed first, then the generated section on its own.
   the CycloneDX predicate against the program zip (the SBOM's *subject* is the
   zip, not the SBOM file).
 
-### 4. Clean-machine smoke test (R-03) — **not done**
+### 4. Clean-machine smoke test (R-03) — **mostly done (projector mini-PC, 2026-10-14)**
 
-Needs a machine without the toolchain, ideally the T480.
+Run on the JaJa projector mini-PC, which has a toolchain installed but ran
+the published archive from its own folder, against a fresh
+`%LOCALAPPDATA%\strobe`.
 
-- [ ] Unzip outside the development tree (for example `C:\Strobe`), with no
-  Cargo, toolchain or developer DLLs available.
-- [ ] First run: the data directories under `%LOCALAPPDATA%\strobe` are created;
-  the library loads; audio works or reports truthfully; the last-played scene
-  reopens.
-- [ ] Native GL, then `--gl angle`: the same scenes load and play.
-- [ ] Scripts run; the Shadertoy import listener binds loopback; diagnostics
-  and `--diagnose` write sensible output; shutdown is clean.
-- [ ] Relaunch over an existing install (upgrade-in-place) works.
+- [x] Unzip outside the development tree, from the published archive, with
+  the hash verified.
+- [x] First run: the data directories are created and the library loads.
+  Audio fell back to synthetic: there is no capture device on that
+  machine, and the log says so. *Not checked:* reopening the last-played
+  scene, which screenshot runs skip by design.
+- [x] Native GL, then `--gl angle`: the same scenes load and play, in the
+  signed-in user's session.
+- [x] Scripts run, and the Shadertoy listener binds loopback only.
+  *Not checked:* `--diagnose`.
+- [x] Relaunch over an existing install works, with byte-identical frames.
 
-*Accept:* commands, logs and screenshots attached to
-[hardware/T480.md](hardware/T480.md).
+Three bugs found here are fixed on master: the screenshot hang without a
+painted desktop, the invisible fatal-error box, and the all-black bench.
+
+*Evidence:* [hardware/MINIPC.md](hardware/MINIPC.md).
 
 ### 5. Crash symbolication from the released archive (R-04) — **not done**
 
