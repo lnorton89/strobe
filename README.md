@@ -12,12 +12,16 @@ Strobe plays audio-reactive GLSL scenes on a projector or LED wall. It reads
 Synesthesia scene folders (`.synScene`) as they are, runs their JavaScript,
 imports Shadertoy shaders, and plays long shows from playlists.
 
-> **Status: in development, no release yet.** The engine, the performer UI,
-> playlists, show control and Shadertoy import are built and tested. Windows
-> is the target and has been checked on two real machines: a ThinkPad T480
-> (Intel UHD 620) and a desktop with a GTX 1080 Ti. Linux builds and runs
-> (checked under Xvfb with Mesa). macOS does not run yet. What is verified,
-> and where, is tracked in [`docs/STATUS_AUDIT.md`](docs/STATUS_AUDIT.md).
+> **Status: v0.1.0, the first release. It is for testing, not production.**
+> The engine, the performer UI, playlists, show control and Shadertoy import
+> are built and tested. Windows is the target and has been checked on two real
+> machines: a ThinkPad T480 (Intel UHD 620) and a desktop with a GTX 1080 Ti.
+> Linux builds and runs (checked under Xvfb with Mesa). macOS does not run
+> yet. What is verified, and where, is tracked in
+> [`docs/STATUS_AUDIT.md`](docs/STATUS_AUDIT.md); what is still unverified
+> (MIDI hardware, live Shadertoy import, phones, an HD 4000) is listed on the
+> [release page](https://github.com/lnorton89/strobe/releases) and in
+> [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md).
 
 ![The Perform window at 1440x900](docs/images/app-control.png)
 
