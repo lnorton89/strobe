@@ -1328,6 +1328,17 @@ impl Running {
             // `App::settle` runs right after this and rebuilds.
             return now;
         }
+        if let Some(shot) = self.screenshot.as_mut()
+            && shot.give_up_control(now)
+        {
+            log::warn!(
+                "screenshot: the control window drew nothing for {} s after the output \
+                 capture (minimised, or not painted over Remote Desktop); ending with \
+                 {} only",
+                crate::screenshot::CONTROL_DEADLINE.as_secs(),
+                shot.path(Target::Output).display()
+            );
+        }
         if now.duration_since(self.last_monitor_refresh) >= MONITOR_REFRESH {
             self.refresh_monitors(event_loop);
         }
