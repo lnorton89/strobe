@@ -84,9 +84,39 @@ compilation.
 - 10-volume-clouds cannot hold 30 fps even at the minimum scale. It needs
   a cheaper path on this class of GPU.
 
+## High performance, and the bench in session 1 (2026-10-14, Task M3)
+
+**Power plan:** High performance makes no difference here. Under it, 09
+ran at 56.6 fps (57.1 under Balanced) and 10 at 26.7 fps (27.7). The
+3200U and Vega 3 are GPU-bound.
+
+**strobe-bench at 1920x1200**, in session 1, from a cdfab8e build:
+- **Native:** fails the black-frame check. A *hidden* window on AMD's WGL
+  draws nothing even on the real desktop, so this is not only a session-0
+  effect. It matters beyond the bench: the control-generation worker
+  (D140, `--context window`) uses a hidden window too. Being checked
+  (M3b).
+- **ANGLE:** valid, and it matches the app at scale 1.0:
+
+| Scene | Compile ms | Mean ms | p95 ms | 60 fps | 30 fps |
+|---|---|---|---|---|---|
+| 01-aurora-gradient | 57 | 1.13 | 1.32 | yes | yes |
+| 02-plasma-pulse | 35 | 1.65 | 1.94 | yes | yes |
+| 03-kaleido-tunnel | 50 | 1.63 | 1.84 | yes | yes |
+| 04-voronoi-glass | 133 | 18.91 | 20.64 | no | yes |
+| 05-domain-warp | 187 | 23.27 | 25.51 | no | yes |
+| 06-feedback-trails | 42 | 1.82 | 1.97 | yes | yes |
+| 07-reaction-diffusion | 158 | 4.16 | 4.60 | yes | yes |
+| 08-bloom-orbs | 89 | 15.14 | 16.35 | barely | yes |
+| 09-sdf-cathedral | 153 | 48.17 | 54.52 | no | no |
+| 10-volume-clouds | 359 | 423.63 | 464.28 | no | no |
+| 11-script-orbits (script not run) | 94 | 3.74 | 4.69 | yes | yes |
+| 12-silicon-atlas | **6506** | 92.62 | 100.61 | no | no |
+
 ## Still to do here
 
-- strobe-bench in session 1. In session 0 it renders black.
+- Native strobe-bench and control generation in session 1: does a hidden
+  window on AMD WGL draw at all (M3b)?
 - The JaJa test card on the projector at native 1920x1200, with
   `--output-monitor 1 --fullscreen --render-scale 1 --no-adaptive`. The
   flags landed after the run above.
