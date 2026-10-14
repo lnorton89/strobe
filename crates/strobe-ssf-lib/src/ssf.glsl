@@ -236,6 +236,17 @@ vec3 _hueRotate(vec3 c, float degrees) {
 }
 vec4 _hueRotate(vec4 c, float degrees) { return vec4(_hueRotate(c.rgb, degrees), c.a); }
 
+// Undocumented (Q26, D268). Read as hue in degrees and saturation and
+// contrast as multipliers, so (0, 1, 1) leaves a colour alone; the one real
+// call, (0.0, 0.5, 1.0) in Synesthesia's hue_review, then halves the
+// saturation. An inference, not Synesthesia's code.
+vec4 _hueSaturationContrast(vec4 c, float hue, float saturation, float contrast) {
+    return vec4(_contrast(_saturation(_hueRotate(c.rgb, hue), saturation), contrast), c.a);
+}
+vec4 _hueSaturationContrastLEGACY(vec4 c, float hue, float saturation, float contrast) {
+    return _hueSaturationContrast(c, hue, saturation, contrast);
+}
+
 vec3 _invert(vec3 c, float amount) { return mix(c, 1.0 - c, amount); }
 vec4 _invert(vec4 c, float amount) { return vec4(_invert(c.rgb, amount), c.a); }
 
@@ -315,6 +326,9 @@ vec2 _applyMediaScale(vec2 uv) { return uv; }
 vec4 _applyInvertMedia(vec4 c) { return c; }
 vec4 _invertImage(vec4 c) { return c; }
 vec4 _applyMediaContrast(vec4 c) { return c; }
+// The media panel's contrast, which a scene can apply itself with
+// `_contrast(c, _Media_Contrast)` (SkaiWalkerOG, D268): neutral, as above.
+const float _Media_Contrast = 1.0;
 // Whether a sampler has a picture: an unbound one is Strobe's 1x1 black.
 bool _exists(sampler2D tex) { return textureSize(tex, 0).x > 1; }
 
