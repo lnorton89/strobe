@@ -45,6 +45,12 @@
 //!
 //! The selected scene's tags sit above the grid, with the Inspector's tag
 //! row, so a scene can be tagged without playing it (D264).
+//!
+//! Synesthesia's own scenes, where it is installed, are listed after the
+//! library folder's (D271). Their rows end their status line with a faint
+//! "Synesthesia", the count under the filters says how many there are, the
+//! search word `synesthesia` finds them all, and a selected one offers Copy
+//! to my library where the tag field's Edit would be.
 
 use super::icon as icons;
 use super::model::{Action, Model};
@@ -52,7 +58,7 @@ use super::tags;
 use super::theme::{self, SPACE_MD, SPACE_SM, SPACE_XS};
 use super::widgets;
 use crate::icon::Icon;
-use crate::library::{Health, HealthFilter};
+use crate::library::{Health, HealthFilter, SortKey};
 use crate::palette::Palette;
 use crate::workspace::Pane;
 use egui::{Align, CornerRadius, Key, Layout, Rect, Sense, Stroke, StrokeKind, Ui, UiBuilder, Vec2};
@@ -110,10 +116,10 @@ impl CardSize {
     }
 }
 
-/// The caption band's height under a card's picture: two lines of text and
-/// their insets, at the density in force.
+/// The caption band's height under a card's picture: the title and the
+/// author line and their insets, at the density in force.
 fn caption_height() -> f32 {
-    theme::row_height() - 2.0
+    theme::row_height() + 4.0
 }
 
 /// The gap between cards.
@@ -127,31 +133,11 @@ pub fn columns(width: f32, card: CardSize) -> usize {
     (((width + GAP) / (card.width() + GAP)).floor() as usize).max(1)
 }
 
-/// Draws the library.
+/// Draws the library: the toolbar, the filter row, then the grid.
 pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Vec<Action>) {
-    let panes = &mut model.ui.panes;
-    let closed = widgets::pane_header(ui, theme, Icon::Library, Pane::Browser.title(), |ui| {
-        if widgets::tool_button(
-            ui,
-            theme,
-            Icon::Import,
-            "Import",
-            false,
-            "Import a Shadertoy shader",
-        )
-        .clicked()
-        {
-            panes.open(Pane::Import);
-        }
-        if widgets::icon_button(ui, theme, Icon::Refresh, "List the scene folder again").clicked() {
-            actions.push(Action::RescanLibrary);
-        }
-    });
-    if closed {
-        model.ui.panes.close(Pane::Browser);
-    }
-    search_row(ui, model, theme, actions);
-    filter_row(ui, model, theme);
+    toolbar(ui, model, theme, actions);
+    ui.add_space(SPACE_XS);
+    filter_row(ui, model, theme, actions);
     selected_tags(ui, model, theme, actions);
     ui.add_space(SPACE_XS);
 
@@ -184,7 +170,80 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
     model.ui.browser.put_visible(visible);
 }
 
-fn search_row(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Vec<Action>) {
+/// The toolbar: new scene and refresh at the left, the thumbnail-size
+/// switch at the right, as Synesthesia's library has them.
+fn toolbar(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Vec<Action>) {
+    /// Below this width the button drops its words.
+    const LABELLED: f32 = 300.0;
+    let labelled = ui.available_width() >= LABELLED;
+    ui.horizontal(|ui| {
+        ui.set_height(30.0);
+        if widgets::tool_button_fitted(
+            ui,
+            theme,
+            Icon::Plus,
+            "New scene",
+            false,
+            "Start a scene from a Shadertoy shader: opens Import. A scene of Synesthesia's \
+             is copied with Copy to my library.",
+            labelled,
+        )
+        .clicked()
+        {
+            model.ui.panes.open(Pane::Import);
+        }
+        if widgets::icon_button(ui, theme, Icon::Refresh, "List the scene folder again").clicked() {
+            actions.push(Action::RescanLibrary);
+        }
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            // Largest first, so they read S M L left to right.
+            for size in CardSize::ALL.iter().rev() {
+                let active = model.ui.browser.cards == *size;
+                let (rect, response) =
+                    ui.allocate_exact_size(Vec2::new(26.0, 26.0), Sense::click());
+                let fill = if active {
+                    theme.accent
+                } else {
+                    theme.raised
+                };
+                let fill = widgets::hover_fill(
+                    ui,
+                    response.id,
+                    response.hovered(),
+                    fill,
+                    if active { theme.accent } else { theme.hover },
+                );
+                ui.painter()
+                    .rect_filled(rect, CornerRadius::same(theme::RADIUS), fill);
+                ui.painter().text(
+                    rect.center(),
+                    egui::Align2::CENTER_CENTER,
+                    size.letter(),
+                    egui::TextStyle::Small.resolve(ui.style()),
+                    theme::rgb(if active {
+                        theme.text_on_accent
+                    } else {
+                        theme.text
+                    }),
+                );
+                if response
+                    .on_hover_text(format!("{} thumbnails", size.key()))
+                    .clicked()
+                {
+                    model.ui.browser.cards = *size;
+                }
+            }
+        });
+    });
+}
+
+/// The filter row: the count, a wide search, the sort and its direction, the
+/// favourites toggle and the health filter. Below [`TWO_ROWS`] the search
+/// keeps a row of its own with the count, and the rest take the next.
+fn filter_row(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Vec<Action>) {
+    /// Below this width the row is two rows.
+    const TWO_ROWS: f32 = 560.0;
+    let two_rows = ui.available_width() < TWO_ROWS;
     let id = egui::Id::new(SEARCH_ID);
     // Whether the field had focus when the frame began: Esc is its own
     // business while it does (clear first, then leave).
@@ -194,182 +253,282 @@ fn search_row(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut
         model.ui.browser.query.clear();
         ui.ctx().memory_mut(|m| m.request_focus(id));
     }
-    let response = egui::Frame::new()
-        .fill(theme::rgb(theme.app))
-        .stroke(Stroke::new(
-            1.0,
-            theme::rgb(if had_focus {
-                theme.accent
-            } else {
-                theme.border
-            }),
-        ))
-        .corner_radius(CornerRadius::same(theme::RADIUS))
-        .inner_margin(theme::margin_xy(SPACE_SM, SPACE_XS))
-        .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                icons::show(
-                    ui,
-                    Icon::Search,
-                    icons::INLINE,
-                    theme::rgb(theme.text_muted),
-                );
-                let clear_width = if model.ui.browser.query.is_empty() {
-                    0.0
-                } else {
-                    22.0
-                };
-                let edit = ui.add(
-                    egui::TextEdit::singleline(&mut model.ui.browser.query)
-                        .id(id)
-                        .frame(egui::Frame::NONE)
-                        .hint_text("Search names and tags   Ctrl+F")
-                        .desired_width(ui.available_width() - clear_width - SPACE_SM),
-                );
-                if !model.ui.browser.query.is_empty() {
-                    let (rect, response) =
-                        ui.allocate_exact_size(Vec2::splat(16.0), Sense::click());
-                    icons::paint(
-                        ui.painter(),
-                        rect,
-                        Icon::Close,
-                        theme::rgb(if response.hovered() {
-                            theme.text
-                        } else {
-                            theme.text_muted
-                        }),
-                    );
-                    if response.on_hover_text("Clear the search").clicked() {
-                        model.ui.browser.query.clear();
-                    }
-                }
-                edit
-            })
-            .inner
-        })
-        .inner;
 
-    if model.ui.browser.focus_search {
-        model.ui.browser.focus_search = false;
-        response.request_focus();
-    }
-    // Keyboard-first: the arrows move the selection, Enter loads it.
-    if response.has_focus() || response.lost_focus() {
-        let (down, up, enter) = ui.input(|i| {
-            (
-                i.key_pressed(Key::ArrowDown),
-                i.key_pressed(Key::ArrowUp),
-                i.key_pressed(Key::Enter),
-            )
+    let mut search = None;
+    ui.horizontal(|ui| {
+        ui.set_height(30.0);
+        count_label(ui, model, theme, two_rows);
+        if two_rows {
+            let width = ui.available_width();
+            search = Some(search_field(ui, model, theme, had_focus, width));
+        } else {
+            // What the right-hand controls take, measured the same way they
+            // are drawn: the search gets the rest.
+            let controls = SORT_WIDTH + 26.0 + 26.0 + SHOW_WIDTH + ui.spacing().item_spacing.x * 4.0;
+            let width = (ui.available_width() - controls).max(120.0);
+            search = Some(search_field(ui, model, theme, had_focus, width));
+            order_controls(ui, model, theme);
+        }
+    });
+    if two_rows {
+        ui.horizontal(|ui| {
+            ui.set_height(30.0);
+            order_controls(ui, model, theme);
         });
-        let visible = model
-            .ui
-            .browser
-            .take_visible(model.library, model.health, model.library_rev);
-        let count = visible.len();
-        let position = model
-            .ui
-            .browser
-            .selected
-            .and_then(|s| visible.iter().position(|v| *v == s));
-        let mut next = position;
-        if down && count > 0 {
-            next = Some(position.map_or(0, |p| (p + 1).min(count - 1)));
-        }
-        if up && count > 0 {
-            next = Some(position.map_or(0, |p| p.saturating_sub(1)));
-        }
-        if next != position {
-            model.ui.browser.selected = next.and_then(|p| visible.get(p).copied());
-            model.ui.browser.scroll_to = next;
-        }
-        if enter && response.lost_focus() {
-            let target = model
-                .ui
-                .browser
-                .selected
-                .filter(|s| visible.contains(s))
-                .or_else(|| visible.first().copied());
-            if let Some(index) = target {
-                model.ui.browser.selected = Some(index);
-                actions.push(Action::Load(index));
-            }
-            response.request_focus();
-        }
-        model.ui.browser.put_visible(visible);
+    }
+    if let Some(response) = search {
+        search_keys(ui, model, &response, actions);
     }
 }
 
-/// The count, the health filters and the card-size switch.
-fn filter_row(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette) {
+/// The width of the sort dropdown, and of the health dropdown.
+const SORT_WIDTH: f32 = 128.0;
+const SHOW_WIDTH: f32 = 96.0;
+
+/// "88/88", and what is from Synesthesia (D271).
+fn count_label(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, brief: bool) {
     let shown = model
         .ui
         .browser
         .visible(model.library, model.health, model.library_rev)
         .len();
     let total = model.library.entries.len();
-    // Below this width the filters are icons alone, with their words in
-    // their tooltips.
-    const LABELLED: f32 = 520.0;
-    let labelled = ui.available_width() >= LABELLED;
-    ui.horizontal(|ui| {
-        ui.label(
-            egui::RichText::new(format!("{shown} of {total}"))
-                .small()
+    let theirs = model.library.synesthesia_count();
+    let count = if theirs == 0 || brief {
+        format!("{shown}/{total}")
+    } else {
+        format!("{shown}/{total}, {theirs} from Synesthesia")
+    };
+    let label = ui
+        .label(
+            egui::RichText::new(count)
                 .color(theme::rgb(theme.text_muted)),
         )
         .on_hover_text("Scenes shown of scenes in the library");
-        for filter in HealthFilter::ALL {
-            let active = model.ui.browser.filter == filter;
-            let tip = match filter {
-                HealthFilter::All => "Every scene",
-                HealthFilter::Ready => "Scenes that have loaded successfully this run",
-                HealthFilter::Failed => "Scenes that failed to load: they need work",
-                HealthFilter::Favourites => "Scenes you starred",
-            };
-            if widgets::tool_button_fitted(
-                ui,
-                theme,
-                filter_icon(filter),
-                filter.label(),
-                active,
-                tip,
-                labelled,
-            )
-            .clicked()
-            {
-                model.ui.browser.filter = filter;
-            }
-        }
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            // Largest first, so they read S M L left to right.
-            for size in CardSize::ALL.iter().rev() {
-                let active = model.ui.browser.cards == *size;
-                let (rect, response) =
-                    ui.allocate_exact_size(Vec2::new(24.0, 26.0), Sense::click());
-                let fill = if active {
-                    theme::rgb(theme.accent_soft)
-                } else {
-                    widgets::hover_fill(ui, response.id, response.hovered(), theme.raised, theme.hover)
-                };
-                ui.painter()
-                    .rect_filled(rect, CornerRadius::same(theme::RADIUS), fill);
-                ui.painter().text(
-                    rect.center(),
-                    egui::Align2::CENTER_CENTER,
-                    size.letter(),
-                    egui::TextStyle::Small.resolve(ui.style()),
-                    theme::rgb(if active { theme.accent } else { theme.text }),
-                );
-                if response
-                    .on_hover_text(format!("{} cards", size.key()))
-                    .clicked()
-                {
-                    model.ui.browser.cards = *size;
-                }
-            }
-        });
+    if theirs > 0 {
+        label.on_hover_text(format!(
+            "{theirs} from Synesthesia: the ones it ships are read-only, and the scene folders \
+             in its settings are yours. Search \"synesthesia\" to see only them; Settings can \
+             hide them."
+        ));
+    }
+}
+
+/// The search field, `width` wide.
+fn search_field(
+    ui: &mut Ui,
+    model: &mut Model<'_>,
+    theme: &Palette,
+    had_focus: bool,
+    width: f32,
+) -> egui::Response {
+    let id = egui::Id::new(SEARCH_ID);
+    let size = Vec2::new(width.max(80.0), 28.0);
+    let response = ui
+        .allocate_ui_with_layout(size, Layout::left_to_right(Align::Center), |ui| {
+            egui::Frame::new()
+                .fill(theme::rgb(theme.app))
+                .stroke(Stroke::new(
+                    1.0,
+                    theme::rgb(if had_focus {
+                        theme.accent
+                    } else {
+                        theme.border
+                    }),
+                ))
+                .corner_radius(CornerRadius::same(theme::RADIUS))
+                .inner_margin(theme::margin_xy(SPACE_SM, 3.0))
+                .show(ui, |ui| {
+                    ui.set_width(size.x - SPACE_SM * 2.0 - 2.0);
+                    ui.horizontal(|ui| {
+                        icons::show(
+                            ui,
+                            Icon::Search,
+                            icons::INLINE,
+                            theme::rgb(theme.text_muted),
+                        );
+                        let clear_width = if model.ui.browser.query.is_empty() {
+                            0.0
+                        } else {
+                            22.0
+                        };
+                        let edit = ui.add(
+                            egui::TextEdit::singleline(&mut model.ui.browser.query)
+                                .id(id)
+                                .frame(egui::Frame::NONE)
+                                .hint_text("Search names, authors and tags   Ctrl+F")
+                                .desired_width(ui.available_width() - clear_width - SPACE_SM),
+                        );
+                        if !model.ui.browser.query.is_empty() {
+                            let (rect, response) =
+                                ui.allocate_exact_size(Vec2::splat(16.0), Sense::click());
+                            icons::paint(
+                                ui.painter(),
+                                rect,
+                                Icon::Close,
+                                theme::rgb(if response.hovered() {
+                                    theme.text
+                                } else {
+                                    theme.text_muted
+                                }),
+                            );
+                            if response.on_hover_text("Clear the search").clicked() {
+                                model.ui.browser.query.clear();
+                            }
+                        }
+                        edit
+                    })
+                    .inner
+                })
+                .inner
+        })
+        .inner;
+    if model.ui.browser.focus_search {
+        model.ui.browser.focus_search = false;
+        response.request_focus();
+    }
+    response
+}
+
+/// Keyboard-first: the arrows move the selection, Enter loads it.
+fn search_keys(
+    ui: &mut Ui,
+    model: &mut Model<'_>,
+    response: &egui::Response,
+    actions: &mut Vec<Action>,
+) {
+    if !(response.has_focus() || response.lost_focus()) {
+        return;
+    }
+    let (down, up, enter) = ui.input(|i| {
+        (
+            i.key_pressed(Key::ArrowDown),
+            i.key_pressed(Key::ArrowUp),
+            i.key_pressed(Key::Enter),
+        )
     });
+    let visible = model
+        .ui
+        .browser
+        .take_visible(model.library, model.health, model.library_rev);
+    let count = visible.len();
+    let position = model
+        .ui
+        .browser
+        .selected
+        .and_then(|s| visible.iter().position(|v| *v == s));
+    let mut next = position;
+    if down && count > 0 {
+        next = Some(position.map_or(0, |p| (p + 1).min(count - 1)));
+    }
+    if up && count > 0 {
+        next = Some(position.map_or(0, |p| p.saturating_sub(1)));
+    }
+    if next != position {
+        model.ui.browser.selected = next.and_then(|p| visible.get(p).copied());
+        model.ui.browser.scroll_to = next;
+    }
+    if enter && response.lost_focus() {
+        let target = model
+            .ui
+            .browser
+            .selected
+            .filter(|s| visible.contains(s))
+            .or_else(|| visible.first().copied());
+        if let Some(index) = target {
+            model.ui.browser.selected = Some(index);
+            actions.push(Action::Load(index));
+        }
+        response.request_focus();
+    }
+    model.ui.browser.put_visible(visible);
+}
+
+/// The sort dropdown and its direction, the favourites-only toggle and the
+/// health filter.
+fn order_controls(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette) {
+    egui::ComboBox::from_id_salt("library-sort")
+        .selected_text(model.ui.browser.sort.label())
+        .width(SORT_WIDTH - 24.0)
+        .show_ui(ui, |ui| {
+            for key in SortKey::ALL {
+                ui.selectable_value(&mut model.ui.browser.sort, key, key.label());
+            }
+        })
+        .response
+        .on_hover_text("What the grid is ordered by");
+    let descending = model.ui.browser.descending;
+    if square_button(
+        ui,
+        theme,
+        if descending {
+            Icon::ArrowDown
+        } else {
+            Icon::ArrowUp
+        },
+        false,
+    )
+    .on_hover_text(if descending {
+        "Descending. Click for ascending."
+    } else {
+        "Ascending. Click for descending."
+    })
+    .clicked()
+    {
+        model.ui.browser.descending = !descending;
+    }
+    let only_favourites = model.ui.browser.filter == HealthFilter::Favourites;
+    if square_button(ui, theme, Icon::Star, only_favourites)
+        .on_hover_text(if only_favourites {
+            "Showing favourites only. Click to show every scene."
+        } else {
+            "Show only the scenes you starred"
+        })
+        .clicked()
+    {
+        model.ui.browser.filter = if only_favourites {
+            HealthFilter::All
+        } else {
+            HealthFilter::Favourites
+        };
+    }
+    egui::ComboBox::from_id_salt("library-show")
+        .selected_text(model.ui.browser.filter.label())
+        .width(SHOW_WIDTH - 24.0)
+        .show_ui(ui, |ui| {
+            for filter in HealthFilter::ALL {
+                ui.selectable_value(&mut model.ui.browser.filter, filter, filter.label());
+            }
+        })
+        .response
+        .on_hover_text(
+            "Show every scene, the ones that loaded this run, the ones that failed (they need \
+             work), or your favourites",
+        );
+}
+
+/// A 26-point square icon button, filled with the accent while `active`.
+fn square_button(ui: &mut Ui, theme: &Palette, icon: Icon, active: bool) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(Vec2::splat(26.0), Sense::click());
+    let rest = if active { theme.accent_soft } else { theme.raised };
+    let fill = widgets::hover_fill(ui, response.id, response.hovered(), rest, theme.hover);
+    ui.painter()
+        .rect_filled(rect, CornerRadius::same(theme::RADIUS), fill);
+    if active {
+        ui.painter().rect_stroke(
+            rect,
+            CornerRadius::same(theme::RADIUS),
+            Stroke::new(1.0, theme::rgb(theme.accent)),
+            StrokeKind::Inside,
+        );
+    }
+    icons::paint(
+        ui.painter(),
+        Rect::from_center_size(rect.center(), Vec2::splat(icons::INLINE)),
+        icon,
+        theme::rgb(if active { theme.accent } else { theme.text }),
+    );
+    response
 }
 
 /// The selected scene's tags, and the field that edits them (D264).
@@ -390,21 +549,13 @@ fn selected_tags(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &
         tags::Place {
             scene: &entry.name,
             named: true,
+            read_only: entry.read_only().then_some(entry.dir.as_path()),
         },
         &entry.tags,
         &mut model.ui.browser_tag_draft,
         |_| {},
         actions,
     );
-}
-
-fn filter_icon(filter: HealthFilter) -> Icon {
-    match filter {
-        HealthFilter::All => Icon::Library,
-        HealthFilter::Ready => Icon::Check,
-        HealthFilter::Failed => Icon::Warning,
-        HealthFilter::Favourites => Icon::Star,
-    }
 }
 
 fn empty_library(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Vec<Action>) {
@@ -539,8 +690,12 @@ pub fn drag_label(ctx: &egui::Context, theme: &Palette) {
         });
 }
 
-/// One scene's card: picture, name, star, status, and the verbs when it is
-/// selected.
+/// The star's slot, and the "..." button's.
+const STAR: f32 = 22.0;
+const DOTS: f32 = 24.0;
+
+/// One scene's card: the picture with its state and star, a caption band
+/// with the title and author, and the verbs when it is selected.
 fn card(
     ui: &mut Ui,
     model: &mut Model<'_>,
@@ -558,7 +713,9 @@ fn card(
     let selected = model.ui.browser.selected == Some(index);
     let previewed = model.scene_preview.is_some_and(|p| p.index == index);
     let loading = model.loading == Some(entry.name.as_str());
-    let id = egui::Id::new(("scene-card", &entry.name));
+    // By name and folder: a name in both the library and Synesthesia's
+    // install is two cards (D271).
+    let id = egui::Id::new(("scene-card", &entry.name, entry.dir.as_path()));
 
     let response = ui.interact(rect, id, Sense::click_and_drag());
     // A card dragged to the LIST view becomes a cue there (D224).
@@ -626,9 +783,10 @@ fn card(
     // The state over the picture's top-left corner, as the preview's badge.
     let badge_area = Rect::from_min_size(
         picture.left_top() + Vec2::splat(SPACE_XS),
-        Vec2::new(picture.width() - SPACE_XS * 2.0, 22.0),
+        Vec2::new(picture.width() - SPACE_XS * 2.0 - STAR, 22.0),
     );
-    if playing || loading || previewed {
+    let failed = matches!(health, Health::Failed(_));
+    if playing || loading || previewed || failed {
         // A child that is not merged back: a badge must not move the grid's
         // cursor.
         let mut badges = ui.new_child(UiBuilder::new().max_rect(badge_area));
@@ -638,40 +796,41 @@ fn card(
                     widgets::status_chip_over(ui, Icon::Refresh, "PREPARING", theme.accent, Some(theme.app));
                 } else if playing {
                     widgets::status_chip_over(ui, Icon::Play, "PLAYING", theme.accent, Some(theme.app));
-                } else {
+                } else if previewed {
                     widgets::status_chip_over(ui, Icon::Output, "PREVIEW", theme.info, Some(theme.app));
+                } else {
+                    widgets::status_chip_over(ui, Icon::Error, "FAILED", theme.danger, Some(theme.app));
                 }
             });
         });
     }
 
-    // The caption band: name and star on the first line, status on the
-    // second.
+    // The caption band: the title and the "..." menu on the first
+    // line, the author (or why it failed) on the second.
     let band = Rect::from_min_max(picture.left_bottom(), rect.max);
-    const STAR: f32 = 20.0;
-    let inset = theme::density().row_inset() - 2.0;
+    let inset = theme::density().row_inset();
     let text_x = band.left() + SPACE_SM;
-    let text_width = (band.width() - SPACE_SM * 2.0 - STAR - SPACE_XS).max(30.0);
+    let text_width = (band.width() - SPACE_SM * 2.0 - DOTS).max(30.0);
     let name_colour = if playing { theme.accent } else { theme.text };
-    let name = widgets::truncated(
-        ui,
-        &entry.name,
-        egui::TextStyle::Body.resolve(ui.style()),
-        name_colour,
-        text_width,
+    let title_font = egui::FontId::new(
+        egui::TextStyle::Body.resolve(ui.style()).size + 1.5,
+        egui::FontFamily::Proportional,
     );
-    ui.painter()
-        .galley(egui::pos2(text_x, band.top() + inset), name, theme::rgb(name_colour));
-    status_line(
-        ui,
-        theme,
+    let name = widgets::truncated(ui, &entry.name, title_font, name_colour, text_width);
+    // No bold face is bundled, so the title stands out by size and by being
+    // the brightest text on the card.
+    ui.painter().galley(
+        egui::pos2(text_x, band.top() + inset),
+        name,
+        theme::rgb(name_colour),
+    );
+    let line = Line {
         health,
-        entry.tags.as_slice(),
-        (playing, loading, previewed),
-        text_x,
-        band,
-        band.width() - SPACE_SM * 2.0,
-    );
+        author: &entry.author,
+        tags: entry.tags.as_slice(),
+        source: entry.source.label(),
+    };
+    byline(ui, theme, &line, text_x, band, band.width() - SPACE_SM * 2.0);
 
     // A selected card is outlined in the accent; a playing one in the
     // accent too, thinner, so it is found in the grid at a glance.
@@ -686,7 +845,10 @@ fn card(
         ui.painter().rect_stroke(
             rect,
             CornerRadius::same(theme::RADIUS),
-            Stroke::new(1.0, theme::rgb(theme.border)),
+            Stroke::new(
+                1.0,
+                theme::rgb(if failed { theme.danger } else { theme.border }),
+            ),
             StrokeKind::Inside,
         );
     }
@@ -707,8 +869,40 @@ fn card(
     }
     let name_for_menu = entry.name.clone();
     let favourite = model.ui.browser.is_favourite(&entry.name);
+    let read_only = entry.read_only().then(|| entry.dir.clone());
+
+    // The "..." at the right of the title opens the same menu a
+    // right-click does.
+    let dots = Rect::from_center_size(
+        egui::pos2(band.right() - SPACE_XS - DOTS / 2.0, band.top() + inset + 8.0),
+        Vec2::splat(DOTS),
+    );
+    let dots_response = ui
+        .interact(dots, id.with("dots"), Sense::click())
+        .on_hover_text("More: load, preview, favourite, edit");
+    if dots_response.hovered() || response.hovered() || selected {
+        let fill = widgets::hover_fill(
+            ui,
+            dots_response.id,
+            dots_response.hovered(),
+            theme.raised,
+            theme.hover,
+        );
+        ui.painter()
+            .rect_filled(dots, CornerRadius::same(theme::RADIUS), fill);
+    }
+    icons::paint(
+        ui.painter(),
+        Rect::from_center_size(dots.center(), Vec2::splat(icons::INLINE)),
+        Icon::More,
+        theme::rgb(if dots_response.hovered() {
+            theme.text
+        } else {
+            theme.text_muted
+        }),
+    );
     let mut menu_choice = None;
-    response.context_menu(|ui| {
+    let mut menu = |ui: &mut Ui| {
         if !playing && ui.button("Load").clicked() {
             menu_choice = Some(Menu::Load);
             ui.close();
@@ -732,18 +926,30 @@ fn card(
             menu_choice = Some(Menu::Edit);
             ui.close();
         }
-    });
+        if read_only.is_some() && ui.button(super::tags::COPY_LABEL).clicked() {
+            menu_choice = Some(Menu::Copy);
+            ui.close();
+        }
+    };
+    response.context_menu(&mut menu);
+    egui::Popup::menu(&dots_response).show(&mut menu);
     match menu_choice {
         Some(Menu::Load) => actions.push(Action::Load(index)),
         Some(Menu::Preview) => actions.push(Action::Preview(index)),
         Some(Menu::Star) => model.ui.browser.toggle_favourite(&name_for_menu),
         Some(Menu::Edit) => actions.push(Action::OpenEditor(Some(name_for_menu.clone()))),
+        Some(Menu::Copy) => {
+            if let Some(dir) = read_only {
+                actions.push(Action::CopyToLibrary(dir));
+            }
+        }
         None => {}
     }
 
-    // The star, at the right of the name, always in its slot (D211).
+    // The star, over the picture's top-right corner, always in its slot
+    // (D211).
     let star = Rect::from_center_size(
-        egui::pos2(band.right() - SPACE_SM - STAR / 2.0, band.top() + inset + 8.0),
+        egui::pos2(picture.right() - SPACE_XS - STAR / 2.0, picture.top() + SPACE_XS + STAR / 2.0),
         Vec2::splat(STAR),
     );
     let star_response = ui.interact(star, id.with("star"), Sense::click());
@@ -751,10 +957,15 @@ fn card(
         let colour = if favourite {
             theme.warning
         } else if star_response.hovered() {
-            theme.text_muted
+            theme.text
         } else {
-            theme.text_faint
+            theme.text_muted
         };
+        ui.painter().circle_filled(
+            star.center(),
+            STAR / 2.0,
+            theme::translucent(theme.app, 170),
+        );
         icons::paint(
             ui.painter(),
             Rect::from_center_size(star.center(), Vec2::splat(icons::DISCLOSURE + 2.0)),
@@ -824,62 +1035,78 @@ enum Menu {
     Preview,
     Star,
     Edit,
+    Copy,
 }
 
-/// The caption's second line: the scene's state, or its tags.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "paints into a card whose geometry the caller already has"
-)]
-fn status_line(
-    ui: &mut Ui,
-    theme: &Palette,
-    health: &Health,
-    tags: &[String],
-    (playing, loading, previewed): (bool, bool, bool),
-    x: f32,
-    band: Rect,
-    width: f32,
-) {
-    let (icon, text, colour) = if loading {
-        (Some(Icon::Refresh), "Preparing...".to_string(), theme.accent)
-    } else if playing {
-        (Some(Icon::Play), "Playing".to_string(), theme.accent)
-    } else if previewed {
-        (Some(Icon::Output), "Previewing".to_string(), theme.info)
-    } else {
-        match health {
-            Health::Unknown if !tags.is_empty() => (None, tags.join(", "), theme.text_muted),
-            Health::Unknown => (None, String::new(), theme.text_faint),
-            Health::Ready => (Some(Icon::Check), health.label().to_string(), theme.success),
-            Health::Failed(reason) => (
-                Some(Icon::Error),
-                format!("Failed: {}", reason.lines().next().unwrap_or("")),
-                theme.danger,
-            ),
+/// What a card's second line says.
+struct Line<'a> {
+    health: &'a Health,
+    author: &'a str,
+    tags: &'a [String],
+    /// Where the scene came from, when it is not the person's own folder
+    /// (D271): drawn faint at the line's end.
+    source: Option<&'static str>,
+}
+
+/// The caption's second line: the author, else the tags, with a check when
+/// the scene loaded; why it failed when it did not; and at the end, faint,
+/// where it came from (D271).
+fn byline(ui: &mut Ui, theme: &Palette, line: &Line<'_>, x: f32, band: Rect, width: f32) {
+    /// The least room the text keeps before the source is dropped.
+    const MIN_TEXT: f32 = 60.0;
+    let (icon, text, colour) = match line.health {
+        Health::Failed(reason) => (
+            Some(Icon::Error),
+            format!("Failed: {}", reason.lines().next().unwrap_or("")),
+            theme.danger,
+        ),
+        Health::Ready if !line.author.is_empty() => {
+            (Some(Icon::Check), line.author.to_string(), theme.text_muted)
         }
+        Health::Ready => (Some(Icon::Check), line.tags.join(", "), theme.text_muted),
+        Health::Unknown if !line.author.is_empty() => {
+            (None, line.author.to_string(), theme.text_muted)
+        }
+        Health::Unknown => (None, line.tags.join(", "), theme.text_muted),
     };
-    if text.is_empty() {
-        return;
-    }
-    let y = band.bottom() - theme::density().row_inset() - 5.0;
+    let y = band.bottom() - theme::density().row_inset() - 7.0;
     let mut text_x = x;
+    let mut room = width;
     if let Some(icon) = icon {
+        let tint = if matches!(line.health, Health::Failed(_)) {
+            theme.danger
+        } else {
+            theme.success
+        };
         icons::paint(
             ui.painter(),
             Rect::from_center_size(egui::pos2(x + 6.0, y), Vec2::splat(icons::DISCLOSURE)),
             icon,
-            theme::rgb(colour),
+            theme::rgb(tint),
         );
         text_x += 16.0;
+        room -= 16.0;
     }
-    let galley = widgets::truncated(
-        ui,
-        &text,
-        egui::TextStyle::Small.resolve(ui.style()),
-        colour,
-        width - (text_x - x),
-    );
+    let small = egui::TextStyle::Small.resolve(ui.style());
+    if let Some(source) = line.source {
+        let faint = theme::rgb(theme.text_faint);
+        let galley = ui
+            .painter()
+            .layout_no_wrap(source.to_owned(), small.clone(), faint);
+        let wide = galley.size().x + SPACE_SM;
+        if room - wide >= MIN_TEXT {
+            room -= wide;
+            ui.painter().galley(
+                egui::pos2(x + width - galley.size().x, y - galley.size().y / 2.0),
+                galley,
+                faint,
+            );
+        }
+    }
+    if text.is_empty() {
+        return;
+    }
+    let galley = widgets::truncated(ui, &text, small, colour, room);
     ui.painter().galley(
         egui::pos2(text_x, y - galley.size().y / 2.0),
         galley,

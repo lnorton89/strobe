@@ -1,8 +1,8 @@
 // ============================================================================
 // Module:       strobe_app::ui::settings
 // Description:  The settings pane: output window, performance, audio,
-//               appearance, the watched folder, the LAN remote, and the
-//               keyboard reference.
+//               appearance, Synesthesia's scenes, the watched folder, the
+//               LAN remote, and the keyboard reference.
 //
 // Dependencies: egui; super::{model, theme, widgets, audio}, crate::{commands,
 //               session}
@@ -18,6 +18,9 @@
 //! - **Performance**: adaptive resolution and the render scale (D64).
 //! - **Audio**: the input device, reactivity, speed and tap tempo.
 //! - **Appearance**: the theme, reduced motion, and the title bar (D132).
+//! - **Synesthesia's scenes**: whether the library lists Synesthesia's own
+//!   scenes, read-only, where it is installed (D271). On by default; the
+//!   app applies the switch at once and saves it.
 //! - **Watched folder**: a folder whose new scene folders join the library,
 //!   playing none (D240). The switch and Apply act at once; the app checks
 //!   the folder as at launch, and saves it only when it is accepted (D265).
@@ -67,6 +70,9 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
             ui.add_space(SPACE_SM);
             widgets::section(ui, theme, "Appearance");
             appearance(ui, model, theme, actions);
+            ui.add_space(SPACE_SM);
+            widgets::section(ui, theme, "Synesthesia's scenes");
+            synesthesia(ui, theme, &model.ui.synesthesia, actions);
             ui.add_space(SPACE_SM);
             widgets::section(ui, theme, "Watched folder");
             watch_folder(ui, theme, &mut model.ui.watch, actions);
@@ -257,6 +263,37 @@ fn appearance(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut
     {
         actions.push(Action::SetCustomTitleBar(custom));
     }
+}
+
+/// The label of the switch that lists Synesthesia's scenes (D271).
+pub const SHOW_SYNESTHESIA: &str = "Show Synesthesia's scenes";
+
+/// Synesthesia's own scenes in the library (D271): one switch, applied by
+/// the app at once and saved, and the app's line saying what is listed or
+/// why nothing is.
+fn synesthesia(
+    ui: &mut Ui,
+    theme: &Palette,
+    state: &super::state::SynesthesiaState,
+    actions: &mut Vec<Action>,
+) {
+    let mut show = state.show;
+    if ui
+        .checkbox(&mut show, SHOW_SYNESTHESIA)
+        .on_hover_text(
+            "Where Synesthesia is installed, list its own scenes after your library's, \
+             read-only. Strobe ships none of them and only reads your install; copy one to \
+             your library to change it.",
+        )
+        .changed()
+    {
+        actions.push(Action::SetShowSynesthesia(show));
+    }
+    ui.label(
+        egui::RichText::new(&state.note)
+            .small()
+            .color(theme::rgb(theme.text_muted)),
+    );
 }
 
 /// Named layouts: save the panes as they are, apply or delete one (D215).
@@ -610,6 +647,61 @@ mod tests {
             }],
             "unticking a watch that runs asks to stop it"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn the_synesthesia_switch_asks_the_app_and_changes_nothing_itself() -> Result<()> {
+        let ctx = egui::Context::default();
+        let theme = crate::palette::fallback().clone();
+        let state = super::super::state::SynesthesiaState {
+            show: true,
+            note: "88 scenes from C:\\Program Files (x86)\\Synesthesia".to_string(),
+        };
+        let mut actions = Vec::new();
+        let pass = |events: Vec<egui::Event>, actions: &mut Vec<Action>| {
+            crate::ui::testing::run(
+                &ctx,
+                crate::ui::testing::input(Vec2::new(480.0, 120.0), events),
+                |ui| synesthesia(ui, &theme, &state, actions),
+            )
+        };
+        let drawn = pass(Vec::new(), &mut actions);
+        let texts: Vec<(String, egui::Rect)> = drawn
+            .shapes
+            .iter()
+            .filter_map(|clipped| {
+                let egui::Shape::Text(text) = &clipped.shape else {
+                    return None;
+                };
+                Some((
+                    text.galley.text().to_string(),
+                    clipped.shape.visual_bounding_rect(),
+                ))
+            })
+            .collect();
+        let at = find(&texts, SHOW_SYNESTHESIA)?;
+        assert!(
+            texts.iter().any(|(text, _)| text.starts_with("88 scenes")),
+            "the app's line shows: {texts:?}"
+        );
+        let button = |pressed| egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        let _ = pass(
+            vec![egui::Event::PointerMoved(at), button(true)],
+            &mut actions,
+        );
+        let _ = pass(vec![button(false)], &mut actions);
+        assert_eq!(
+            actions,
+            vec![Action::SetShowSynesthesia(false)],
+            "unticking asks the app to stop listing them"
+        );
+        assert!(state.show, "the pane changes nothing itself");
         Ok(())
     }
 }

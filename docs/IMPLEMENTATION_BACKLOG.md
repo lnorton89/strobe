@@ -213,6 +213,11 @@
 - **Work:** verify texture cache eviction and corrupt downloads, duplicate imports, missing assets, cancellation, concurrent import attempts, listener token handling, and import destination collisions.
 - **Acceptance:** import errors do not replace the currently playing scene unless explicitly confirmed; credentials are not logged; repeated imports have deterministic replace/cancel behaviour.
 
+### I-05 Synesthesia's installed scenes in the library
+- **Status:** In progress; built (D271), not yet checked on a real Windows install. Where Synesthesia is installed (`Program Files (x86)` or `Program Files`, or `STROBE_SYNESTHESIA_DIR`), the library lists, after the library folder's own, the scenes it ships (`release`, `default`; read-only) and the scene folders in its own settings (`vs.json` `sceneFolders` and `primarySceneFolder`, `preferences.json` `PRIMARY_SCENE_FOLDER`, searched recursively as its preferences say; writable). One detection (`strobe_scene::synesthesia`) serves the library and `#include`. On by default; Settings > "Show Synesthesia's scenes" (ui.toml) and `--no-synesthesia` turn it off. Writes into the install (tags, a picture, Editor saves, presets) are refused with a notice offering "Copy to my library", which copies the scene in under a free name and moves a playing scene or an open Editor onto the copy. Search, the palette, playlists, presets, fav slots and `--scene` find these scenes, the library folder's own first on a name clash.
+- **Work:** run it on a real install: the 88 scenes appear (87 `release` + the welcome scene), one plays, a tag on one is refused and Copy to my library works, and a Custom Scene Folder from Synesthesia's settings is listed and taggable. Decide with Q7 whether the default stays on.
+- **Acceptance:** on a Windows machine with Synesthesia 1.25.4 installed, LIB shows 88 scenes marked Synesthesia beside the library's, Settings hides them, and nothing under `Program Files` changes after tagging, saving and copying.
+
 ## Epic P — Playlist, audio timing and show control
 
 ### P-01 Audio-event advance

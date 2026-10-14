@@ -73,6 +73,13 @@ pub enum Action {
     },
     /// Save the playing scene's live frame as its thumbnail (D222).
     CaptureThumbnail,
+    /// Copy this scene folder (one of Synesthesia's, which Strobe only
+    /// reads) into the person's own library under a free name, then rescan
+    /// and select the copy, or carry on playing from it (D271).
+    CopyToLibrary(std::path::PathBuf),
+    /// List Synesthesia's scenes in the library where it is installed, or
+    /// not (D271). Applied at once and saved.
+    SetShowSynesthesia(bool),
     /// Make the same setting edit to several cues (D230).
     EditCues {
         /// The cues, as authored.
@@ -601,6 +608,18 @@ pub struct NoticePanel<'a> {
     pub tone: Tone,
     /// What to say.
     pub text: &'a str,
+    /// A button that does what the notice suggests, beside Dismiss.
+    pub offer: Option<Offer<'a>>,
+}
+
+/// A notice's button: what it says, and the action it asks for (D271's
+/// "Copy to my library" on a refused write).
+#[derive(Debug, Clone, Copy)]
+pub struct Offer<'a> {
+    /// The button's label.
+    pub label: &'a str,
+    /// What a click asks the app for.
+    pub action: &'a Action,
 }
 
 /// Everything the panels need for one frame.
@@ -686,6 +705,9 @@ pub struct EditorPanel<'a> {
     pub doc: Option<&'a mut crate::editor::Doc>,
     /// The folder of the scene on screen.
     pub playing_dir: Option<&'a std::path::Path>,
+    /// The open scene is one of Synesthesia's, which Strobe never writes
+    /// (D271): the pane says so and offers Copy to my library.
+    pub read_only: bool,
 }
 
 /// The Inspector's "Generate controls" strip.

@@ -8,9 +8,11 @@
 
 //! Loading a scene folder.
 //!
-//! The only file access in this crate. A folder needs `main.glsl`;
-//! `scene.json` is optional (a bare shader is a valid scene with no
-//! controls), and so is `script.js`.
+//! The file access in this crate, beside `include` and `synesthesia`. A
+//! folder needs `main.glsl`; `scene.json` is optional (a bare shader is a
+//! valid scene with no controls), and so is `script.js`. [`scan_deep`]
+//! searches a folder recursively, as Synesthesia searches the scene
+//! folders in its settings (D271).
 //!
 //! A scene that sets `PASS_SOURCES` also has one shader file per pass,
 //! read here too. `main.glsl` stays mandatory even then (the final pass's
@@ -158,9 +160,95 @@ pub fn scan(library: &Path) -> Result<Vec<PathBuf>, SceneError> {
     Ok(found)
 }
 
+/// The most folders [`scan_deep`] looks into, so a scene folder setting that
+/// names a whole drive cannot stall the caller.
+const MAX_VISITS: usize = 20_000;
+
+/// Every scene folder under `root` down to `depth` levels (1 is [`scan`]'s
+/// children only), sorted by path: how Synesthesia searches a scene folder
+/// recursively (D271). A scene folder is not looked inside, folders behind
+/// links are not descended into, a subfolder that cannot be read is
+/// skipped, and the walk stops after [`MAX_VISITS`] folders.
+pub fn scan_deep(root: &Path, depth: usize) -> Result<Vec<PathBuf>, SceneError> {
+    let entries = fs::read_dir(root).map_err(|source| SceneError::Io {
+        path: root.to_path_buf(),
+        source,
+    })?;
+    let mut found = Vec::new();
+    let mut visits = 0;
+    walk(entries, depth, &mut found, &mut visits);
+    found.sort();
+    Ok(found)
+}
+
+/// [`scan_deep`]'s walk over one folder's `entries`.
+fn walk(entries: fs::ReadDir, depth: usize, found: &mut Vec<PathBuf>, visits: &mut usize) {
+    for entry in entries.filter_map(Result::ok) {
+        if *visits >= MAX_VISITS {
+            return;
+        }
+        *visits += 1;
+        let path = entry.path();
+        if path.join("main.glsl").is_file() {
+            found.push(path);
+            continue;
+        }
+        // `file_type` does not follow links, so a link is never descended.
+        let folder = entry.file_type().is_ok_and(|kind| kind.is_dir());
+        if depth > 1
+            && folder
+            && let Ok(inner) = fs::read_dir(&path)
+        {
+            walk(inner, depth - 1, found, visits);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_deep_scan_finds_scenes_to_its_depth_and_not_inside_scenes() -> anyhow::Result<()> {
+        let root = std::env::temp_dir().join(format!("strobe-scan-deep-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        for dir in [
+            "top.synScene",
+            "a/b.synScene",
+            "a/c/d.synScene",
+            "top.synScene/inner",
+        ] {
+            fs::create_dir_all(root.join(dir))?;
+            fs::write(
+                root.join(dir).join("main.glsl"),
+                "vec4 renderMain(void) { return vec4(1.0); }",
+            )?;
+        }
+        let names = |found: Vec<PathBuf>| -> Vec<String> {
+            found
+                .iter()
+                .filter_map(|path| path.strip_prefix(&root).ok())
+                .map(|path| path.to_string_lossy().replace('\\', "/"))
+                .collect()
+        };
+        assert_eq!(
+            names(scan_deep(&root, 1)?),
+            ["top.synScene"],
+            "depth 1 is the children, as scan"
+        );
+        assert_eq!(
+            names(scan_deep(&root, 2)?),
+            ["a/b.synScene", "top.synScene"],
+            "one level more"
+        );
+        assert_eq!(
+            names(scan_deep(&root, 10)?),
+            ["a/b.synScene", "a/c/d.synScene", "top.synScene"],
+            "all of them, and nothing inside a scene"
+        );
+        fs::remove_dir_all(&root)?;
+        Ok(())
+    }
 
     #[test]
     fn every_line_ending_becomes_one_newline() {
