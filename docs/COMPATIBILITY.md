@@ -52,17 +52,17 @@ container, headless or under Xvfb.
 | `HARD_TRANSITIONS`, `SMOOTH_TRANSITIONS` | Degraded | [ROADMAP phase 7](ROADMAP.md), [D196](DECISIONS.md) | Parsed (`null` accepted) and declared; the uniforms keep their first value. Song changes ([D237](DECISIONS.md)) drive playlists only, not these uniforms. |
 | `TAGS` | Supported | [D205](DECISIONS.md), [D264](DECISIONS.md), `strobe_scene::tags` and `ui::tags` tests | Read leniently, normalised, written in place, for any library scene. |
 | `IMAGE_PATH` | Supported | [D212](DECISIONS.md), [D222](DECISIONS.md), `ui::thumbs` and `snapshot` tests | Shown as the browser thumbnail; can be taken from the live frame. |
-| Other keys (`IS_META`, `GPU`, `UNIFORMS`, `LABEL`, `X_STROBE`) | Degraded | [Q6](OPEN_QUESTIONS.md), [Q9](OPEN_QUESTIONS.md) | Read and ignored. |
+| Other keys (`IS_META`, `GPU`, `UNIFORMS`, `LABEL`, `X_STROBE`) | Degraded | [Q6](OPEN_QUESTIONS.md), [R11](OPEN_QUESTIONS.md) | Read and ignored. A root `UNIFORMS` is not Synesthesia's; its own scenes use the key only inside `SMOOTH_TRANSITIONS`. |
 | SSF function library (documented names) | Supported | `strobe-ssf-lib` `every_documented_function_is_defined` (63 names), `render.rs` `the_ssf_library_compiles_in_both_dialects`, [TORNADO T18](hardware/TORNADO.md) | Re-implemented from the documented behaviour. Numbers are not bit-identical to Synesthesia's. |
 | Undocumented helpers used by real scenes | Degraded | [D197](DECISIONS.md), [D199](DECISIONS.md) | The image family, older names (`_loadUserImage` and family as aliases of `syn_Media`), `_ratioFix` ([Q27](OPEN_QUESTIONS.md)) are inferred. `_hueSaturationContrastLEGACY` is missing ([Q26](OPEN_QUESTIONS.md)). |
 | Scalar audio uniforms (`syn_Level`, `syn_*Hits`, `syn_*Time`, `syn_*Presence`, beat values) | Supported | `strobe_scene::audio::SCALARS`, live capture on [T480](hardware/T480.md) (script scene, 2026-10-09) and [TORNADO T19](hardware/TORNADO.md) | Strobe's own analysis; values are not compared numerically with Synesthesia's. |
 | Undocumented audio names (`syn_InputLevel`, `syn_BassExpoCurve`) | Degraded | [D197](DECISIONS.md) | Stand-ins until their meaning is known. |
-| `syn_Spectrum`, `syn_LevelTrail` textures | Unverified | `render.rs` `uploaded_audio_texels_reach_the_spectrum_and_trail_samplers` | Sampler type, texel count and channel layout are assumptions ([Q1](OPEN_QUESTIONS.md), [Q10](OPEN_QUESTIONS.md)). |
+| `syn_Spectrum`, `syn_LevelTrail` textures | Unverified | `render.rs` `uploaded_audio_texels_reach_the_spectrum_and_trail_samplers` | `sampler1D` on desktop is confirmed ([R10](OPEN_QUESTIONS.md)). Synesthesia's spectrum is 1024 texels and Strobe's is 256; frequency axes and trail direction are assumptions ([Q10](OPEN_QUESTIONS.md)). |
 | `syn_FinalPass` | Supported | `render.rs` `syn_final_pass_is_last_frames_output` | llvmpipe, both dialects. |
 | `textureFinalPass` (script) | Unverified | [D162](DECISIONS.md), `render.rs` readback tests, `script_uniforms.rs` `texture_final_pass_reads_the_picture_a_few_frames_late` | 64x36, two frames late, never a stall. Latency and cost unmeasured on the T480 and ANGLE/D3D11: the test skips on Windows ([Q14](OPEN_QUESTIONS.md), [C-04](IMPLEMENTATION_BACKLOG.md)). |
 | Meta controls (master, invert, brightness, gamma, contrast, hue, saturation, mirrors, Limit Colors) | Degraded | [D180](DECISIONS.md), [D207](DECISIONS.md), `crates/strobe-gfx/tests/post.rs`, [T480 Task 15](hardware/T480.md), [T480 Task 25](hardware/T480.md) | Order, ranges and mirror conventions are Strobe's guesses ([Q21](OPEN_QUESTIONS.md)). About 1.1 ms GPU at 1440p on the T480; HD 4000 unmeasured. |
 | Meta `Alpha Channel` | Unsupported | [D207](DECISIONS.md) | Waits for an output that carries alpha. |
-| `_mouse`, `_muv`, `_click` | Unverified | [Q2](OPEN_QUESTIONS.md), [Q13](OPEN_QUESTIONS.md) | The meaning of `_click` is ambiguous; the app feeds both readings. |
+| `_mouse`, `_muv`, `_click` | Unverified | [Q2](OPEN_QUESTIONS.md), [R12](OPEN_QUESTIONS.md) | `_click` is the buttons held, confirmed by a real script; what the mouse values hold outside the preview is unverified. |
 
 ## 2. SSF scripts (`script.js`)
 

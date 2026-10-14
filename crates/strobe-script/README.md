@@ -126,8 +126,8 @@ the CI `windows` job and the T480 check it on Windows.
   stage renders from it (D180): master, invert, brightness, gamma, contrast,
   hue, saturation and the mirrors change the picture. How each matches
   Synesthesia's is unverified (Q21).
-- `_click` is ambiguous between `strobe-gfx` (buttons held) and this crate
-  (last click and button state); the app feeds both readings (Q13).
-- The conformance tests are written per documented API surface; Q13 and Q14
-  in [`OPEN_QUESTIONS.md`](../../docs/OPEN_QUESTIONS.md) are waiting on a real
-  script that exercises `_click` and `textureFinalPass`.
+- `_click` is left, right, middle held, the same reading `strobe-gfx` gets;
+  a real Synesthesia script tests `_click.x > 0.5` for the left button (R12).
+- The conformance tests are written per documented API surface; Q14 in
+  [`OPEN_QUESTIONS.md`](../../docs/OPEN_QUESTIONS.md) is waiting on a real
+  script that exercises `textureFinalPass`.
