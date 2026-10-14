@@ -153,10 +153,15 @@ Results for 17 scenes, all of which exit cleanly with no WARN or ERROR:
 - **Close: colour, camera or time only (8):** SkaiWalkerOG, welcome_scene,
   alien_cavern, hexoplanet, glassier, stained_glass, fluid_body.
 - **Different (5):**
-  - **neon_city:** a striped plane with no buildings. Under
-    investigation.
-  - **beamers:** horizontal blue beams against a white starburst.
-    Under investigation.
+  - **neon_city:** a striped plane with no buildings at 3 s. A later
+    look (llvmpipe, 2026-10-14, the app with its script running, 180
+    frames that took far longer than 3 s of wall time) shows the neon
+    buildings along the road. The script moves the camera with time
+    (`z_pos`, `path_x`), so this is most likely the moment of capture,
+    not a rendering fault. To confirm on this machine, capture after 30 s.
+  - **beamers:** horizontal blue beams against a white starburst. The
+    same later look shows the starburst with blue and orange beams, so
+    the remaining difference is colour and time. To confirm the same way.
   - **PLUS:** masked by media, and Synesthesia feeds `demo_media.mp4`
     by default where Strobe had none.
   - **canvas** and **turbo_encabulator_fluid:** the thumbnails match
