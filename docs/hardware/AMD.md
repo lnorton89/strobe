@@ -111,3 +111,24 @@ into the repository.
   - Four simulations diverge in detail (dynamical_flame, shrouded,
     gaussian_smoothlife, fuzzy_signal), and churning has a slight hue
     shift.
+
+## The 90 again, and the banding (Task A5, commit e47c44f)
+
+- **Corpus:** with `STROBE_GLSL_PATH` set to Synesthesia's `lib` (the
+  corpus copy), the run gives 90 of 90 in both dialects, with no notes.
+  - SkaiWalkerOG renders in 5.45 ms native and 3.81 ms ANGLE.
+  - hue_review renders in 0.32 / 0.52 ms.
+  - thresholder's "uniforms.freezes" note is gone.
+- **`turbo_encabulator_fluid`'s banding:** it does not come from the
+  render-target format.
+  - With `--full` (RGBA32F), ANGLE shows the same striated ripples as
+    with RGBA16F, and native is smooth in both.
+  - The ES preamble is `highp` and the buffers are the scene's literal
+    1600x900 FLOAT passes.
+  - Likely cause: the same class as canvas. Two `fract(sin(…))` hashes
+    in the scene, where D3D's `sin` precision differs from the native
+    driver's and the fluid feedback amplifies the difference.
+  - Not confirmed: that needs a local copy with an integer hash.
+- **Timings at 640x360, mean/p95 ms:**
+  - native: Half 1.32/1.61, Full 1.54/1.79;
+  - ANGLE: Half 1.09/1.31, Full 1.45/1.75.
