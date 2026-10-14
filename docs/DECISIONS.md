@@ -5704,8 +5704,8 @@ Strobe-window surface.
 
 Full access is separately approved: `pair_desktop` requires the host's
 runtime-only switch and labels the pending approval **Full desktop**. The
-grant is stored alongside that client's token digest; missing grants in older
-files default to performance-only access. Ordinary `pair` clients never gain
+grant is held alongside that client's token digest, in memory only (see the
+review hardening below); records without it default to performance-only access. Ordinary `pair` clients never gain
 desktop permission when the switch is enabled, including after token rotation.
 One authenticated connection leases input. Disabling, stop, revoke, app loss,
 disconnect and input overflow discard pending input and request releases for
@@ -5713,8 +5713,8 @@ held keys/buttons. Old phone wire messages remain byte-for-byte compatible.
 
 Compression and decoding live on app-owned workers; socket I/O stays on remote
 workers. Capture is due only for an active lease, at most every 200 ms, with
-one pending RGBA frame and one shared latest JPEG. The explicit capture does
-a bounded GPU readback after control-window paint; ordinary/off frames neither
+one pending RGBA frame and one shared latest JPEG. The explicit capture is an
+asynchronous, fenced GPU readback after control-window paint; ordinary/off frames neither
 capture nor allocate desktop input buffers. JPEG is bounded at 2 MiB, dimensions
 at 4096 per edge, input batches at 32 and 4096 JSON bytes, host input queue at
 128 events, and text clipboard at 64 KiB. Slow peers retain write timeouts;
@@ -5736,6 +5736,68 @@ native GL visual fixtures (`target/desktop-remote-qa/`). No real two-machine
 LAN, minimized-window, ANGLE-streaming or older-GPU soak claim. Revisit a
 structured render/input protocol or video codec only with measured latency,
 bandwidth and hardware evidence. Benchmark before/after is in BENCHMARKS.md.
+
+**Review hardening (2026-10-14).** A security review of the first cut
+changed six things:
+
+- **A desktop grant lives only as long as its switch.** Desktop records are
+  never written to `remote-clients.json`, a file record claiming one is
+  dropped on read, and switching full desktop access off or stopping the
+  remote revokes every desktop pairing and closes its connection
+  (`Clients::revoke_desktop`, `Server::revoke_desktop`). The first cut kept
+  the grant on disk, so a token sniffed from the plain-HTTP link (D252)
+  became full UI control again the next time the operator enabled the
+  switch, even after restarts. The native controller holds its token in
+  memory only, so nothing usable was lost.
+- **A remote cannot widen who reaches the host.** A UI pass that carried
+  remote input drops the actions that pair or approve a device, start a
+  listener, switch desktop access on, rebind OSC (saved, unauthenticated and
+  possibly on every interface) or make the host a controller of a third
+  machine (`desktop::host_only`), with a banner saying to do it at the host.
+  Narrowing actions (Stop, Deny, Revoke, switching access off) stay allowed.
+  Everything else in the window stays reachable, as the owner asked.
+- **Capture never stalls the show.** The control window is read into a
+  pixel-pack buffer behind a fence and collected on a later control frame
+  once the fence has signalled, the pattern of `strobe_gfx::readback`. The
+  first cut used `glReadPixels` into client memory, which on the shared
+  context waits for the output's queued frame too, five times a second.
+  The pack buffer and pixel buffers are reused, not allocated per capture.
+  A minimised window (size 0) is skipped rather than ending the session.
+- **Clipboard text goes only where it was asked for.** The host forwards a
+  copy only from a pass that carried the controller's input, so what the
+  operator copies at the host stays there; the controller takes host text
+  only within 3 s of sending input, so a host cannot write into the
+  controller's clipboard unasked.
+- **Leaving never blocks the controller's frame loop.** `Controller::disconnect`
+  joins the worker only if it has finished. A worker still connecting has no
+  socket to interrupt, and joining it held the UI thread for up to 8 s.
+- **Operator visibility.** The title bar reads *Desktop controlled remotely*,
+  as a warning, while a lease is held; the approval banner reads
+  *Full desktop: … wants full control, files included*.
+
+**Known limitations, not fixed here:**
+
+- **Plain HTTP.** Frames (everything the window shows, including pairing
+  codes and the import listener's token in Settings), input and the desktop
+  token cross the LAN in clear. Anyone on the network can watch the session
+  and, while the switch is on and the lease free, replay a sniffed desktop
+  token. The switch's lifetime now bounds that window; TLS would close it.
+- **No proxy or TLS for the native client.** `client::Connection` speaks only
+  `ws://` to a private IP and does not verify which host answered. With
+  `--remote-proxy` (D258) the plain listener is loopback-only, so desktop
+  control from another machine is not available in that mode.
+- **Full UI means full UI.** A controller can edit and save scenes, type any
+  host path into Import, the watched folder or MEDIA, and Quit. That is the
+  scope the operator approves.
+- **Covered or minimised host windows.** Capture runs when the control
+  window is redrawn. Whether Windows delivers `RedrawRequested`, and whether
+  the back buffer holds the window's pixels, while a fullscreen output
+  covers it is unverified on real hardware; the controller then shows its
+  image as paused and refuses input.
+- **A slow controller holds its session thread.** A frame write makes
+  progress byte by byte under the 2 s write timeout, so a peer that drains
+  slowly delays that session's notice of a revoke (its input is already
+  refused, and the lease released, by the bridge).
 
 ### D280: a scene that reads a root-sized absolute pass texel by texel renders its final pass at that size (2026-10-14)
 

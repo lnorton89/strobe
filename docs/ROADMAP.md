@@ -47,6 +47,9 @@ which backend proved a claim.
   captures verify the connection form and viewer layouts. Next: two physical
   desktops over Wi-Fi, loss/sleep/minimized-window behavior and a T480
   streaming soak. The raster UI stream is capped at 5 Hz; see USER_GUIDE.md.
+  Review hardening (2026-10-14): desktop grants end with the switch and are
+  never saved, a remote cannot pair devices or open listeners, capture is a
+  fenced asynchronous readback, and clipboard text flows only when asked.
 
 - **Render scale and pinned scenes (D280), built, not yet re-run on the
   RX 580:** a scene with a root `WIDTH` x `HEIGHT`, a literal buffer pass of
