@@ -5691,6 +5691,52 @@ Evidence: native GL 3.3 and ANGLE GLES 3.0 rendered the scene at 1280x720
 on the RX 580; BENCHMARKS.md records timing and the first-draft delta.
 Revisit fidelity with the owner's feedback or the original network.
 
+### D276: Chromatic Rise rebuilt as a feedback-advected, posterised marbling (2026-10-14)
+
+**Context.** The D272 draft was smooth, uniform-scale lava-lamp marbling with a
+glossy sheen. The owner's reference frame (URBAN ASSAULT - RISE) is
+a TouchDesigner feedback look: fibrous, combed striations, clusters of small
+ringed bubbles, large islands full of fine texture, harsh posterised neon and
+a gritty edge-detected relief. No amount of retuning a stateless noise stack
+gets there, because the look comes from history.
+
+**Decision.** Two passes.
+- **`field`**, a double-buffered RGBA16F pass at `$WIDTH` x `$HEIGHT`, so the
+  render scale still applies. r is a height, g a tint, a marks "written". Each
+  frame it samples the previous frame upstream along a curl-noise flow
+  (three 2-octave noise reads plus a slow turning drag), smears three taps
+  along the flow so streamlines become fibres, and sharpens across it
+  (clamped). It then injects fine isotropic noise (the smear turns it into
+  hair, which beats deriving a flow-aligned frame: that moired and an
+  axis-aligned one drew rectangles), a weak broad height, a slow tint, and
+  small bubbles (one disc per grid cell, born once per cycle by frame count).
+  The tint also sets texture roughness and smear length, so each island has
+  its own colour and its own texture. Height is folded with `_mirror`, not
+  clamped, so detail survives at the extremes. A target that reads `a == 0`
+  (first frame, or a resize) is re-seeded, which keeps adaptive resolution
+  safe.
+- **The final pass** takes five taps for an emboss and an edge, posterises
+  `tint * 4 + height * bands`, picks hues by golden-ratio steps per island
+  plus 70 degree steps per height band (hard jumps, never a gradient), and
+  inks the step lines and strong edges. A little animated grit is added.
+- **Audio.** Bass lengthens the drag and smear, a bass hit adds a kick;
+  `syn_BassTime` jumps the colour phase; highs thicken the striations and the
+  grit. At reactivity 0 or in silence it still flows (checked by rendering with
+  the audio uniforms forced to 0).
+- **Twelve controls** (flow, flow_scale, speed, reactivity, smear, fibers,
+  bubbles, bands, hue, color_speed, relief, outline).
+
+**Costs and limits.** Advection is per frame, as in 06-feedback-trails, so the
+motion speed follows the frame rate: no delta-time uniform exists. Cost is
+about 1.35x 05-domain-warp on llvmpipe at 1280x720 (BENCHMARKS.md), against
+the 2x budget. The sharpen term is clamped because an unclamped one
+grew row-aligned instabilities where the flow was exactly horizontal.
+
+**Would reopen:** the owner finding the swirl too vortex-like next to the
+reference's long drags (lower `flow_scale`, or add a shear term), or HD 4000
+timing showing the full-resolution field is too dear (half resolution is the
+first lever).
+
 ### D280: a scene that reads a root-sized absolute pass texel by texel renders its final pass at that size (2026-10-14)
 
 **Context.** Synesthesia's `neon_city` declares a root `WIDTH: 1920, HEIGHT:

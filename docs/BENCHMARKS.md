@@ -56,7 +56,7 @@ what the numbers changed. Don't overwrite old results.
 |---|---|---|
 | 1 | 01-aurora-gradient, 02-plasma-pulse, 03-kaleido-tunnel, 06-feedback-trails | Baseline cost per frame; `syn_FinalPass` bandwidth (06) |
 | 2 | 07-reaction-diffusion | Five passes, four RGBA32F sim steps at half resolution |
-| 3 | 05-domain-warp, 08-bloom-orbs | Heavy ALU: about 60 noise evaluations per pixel; a 32-light loop plus a quarter-resolution blur chain |
+| 3 | 05-domain-warp, 08-bloom-orbs, 13-chromatic-rise | Heavy ALU: about 60 noise evaluations per pixel; a 32-light loop plus a quarter-resolution blur chain; 13 is a full-resolution feedback pass plus an emboss and posterise pass (about 1.35x 05) |
 | 4 | 04-voronoi-glass, 09-sdf-cathedral | 3×3 + 5×5 cell search; about 110 march steps plus a soft shadow and AO |
 | 5 | 10-volume-clouds | Volumetric raymarch, up to 56 steps × 6 density samples × 4-octave 3D noise |
 
@@ -65,6 +65,35 @@ heavier than domain warping on llvmpipe, so check the ranking on real
 GPUs.
 
 ## Results
+
+### 2026-10-14: Chromatic Rise rebuilt as a feedback loop (D276), Mesa llvmpipe
+
+Cloud container, no GPU, headless EGL, 4 cores shared with other jobs
+(load average 5 to 7, so absolute numbers wobble by up to 30%). Interleaved
+runs of `strobe-bench --filter 05` / `--filter 13`, 1280x720, 40 timed
+frames after 90 warm-up, per-pass programs, half-float buffers. The rebuild
+is two passes: a full-resolution double-buffered `field` pass (about 14 noise
+reads, 5 taps) and a post pass (5 taps, no noise but the grit hash). Budget:
+no more than 2x 05-domain-warp.
+
+| Scene | Run 1 ms | Run 2 ms | Run 3 ms | Mean ms | Ratio to 05 |
+|---|---:|---:|---:|---:|---:|
+| 05-domain-warp | 20.83 | 21.98 | 21.85 | 21.55 | 1.00 |
+| 13-chromatic-rise (rebuilt) | 29.16 | 29.74 | 28.56 | 29.15 | 1.35 |
+
+- `--api gles` (GLSL ES 3.0, one run each): 05 39.7 ms, 13 53.3 ms (1.34x).
+- 1920x1080 interleaved runs were too disturbed by the load to quote
+  (13 ran from 0.8x to 1.4x of 05 across three pairs); the 1.35x figure is
+  the one to trust. The cost scales with pixels, so expect about 2.25x the
+  720p time at 1080p for both scenes.
+- The first draft (stateless, one pass) cost 0.44 ms on the RX 580. The
+  rebuild adds a full-resolution float read-modify-write of a 16-bit RGBA
+  buffer per frame, which is cheap on that card and the first thing to
+  halve (`$WIDTH/2`) if the HD 4000 or Vega 3 cannot hold 60 fps.
+  **Not measured on real hardware yet.**
+- `cargo xtask corpus -- --library scenes --filter 13`: desktop ok,
+  GLES 3.0 ok. Renders at 2 s, 10 s and 30 s showed no blow-out or fade to
+  black; a run with every audio uniform forced to 0 still flows.
 
 ### 2026-10-13: AMD Radeon RX 580 (AMD desktop), commit 26576b0
 
