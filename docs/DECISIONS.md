@@ -5525,3 +5525,45 @@ call quoted above.
 Strobe beside a sweep tone (Q10's remaining axis questions), or a profile
 on an HD 4000 showing the analyser's blur matters, in which case it becomes
 a running sum.
+
+### D270: v0.1.0 is published as `latest`, with the unverified work named in the release body (2026-10-14)
+
+The first tag, and the first time `release.yml` ran on one. Several
+validations are still open (a MIDI controller, the live Shadertoy site, a
+real phone, an HD 4000, a four-hour show of real scenes). The choice was
+between holding the tag until those close and publishing now with each one
+written down.
+
+- **Publish now, as `latest`, not as a pre-release.** The release body
+  carries a "Known limitations in v0.1.0" section naming every open item
+  with its backlog id, so a tester meets them before running it.
+  `release.yml` ends in `--draft=false --latest`; leaving that alone means
+  the only release is also the recommended one, which is honest for a first
+  tag and needs no workflow edit that would have to happen before the tag
+  exists.
+- **No version bump.** `[workspace.package] version` was already `0.1.0`
+  and no tag carried it, so the release branch changed `CHANGELOG.md` and
+  `README.md` only.
+- **The changelog section was written before the tag** (`cargo xtask
+  changelog --release v0.1.0`), as CONTRIBUTING requires, and every
+  non-changelog commit landed before it. The check recomputes a section from
+  the tagged range, so a commit landing after generation would show as
+  drift: the README's status line was committed first, then the generated
+  section on its own.
+- **The workflow was proven on a throwaway public mirror first** (Q12), then
+  its release and tag were deleted. It could not be a fork: GitHub refuses
+  to fork your own repository. It also needed a change to the workflow file
+  to register at all on the fresh repository — a push alone left
+  `release.yml` unregistered while `ci.yml` appeared, which is worth knowing
+  before anyone points the workflow at a new repository.
+
+**Evidence:** run 38495718734 (draft, Windows build, publish, all green);
+the dry run 38494313118 on `lnorton89/strobe-release-dryrun`, whose release
+and tag were then removed. All six assets were downloaded from the release
+page, every `.sha256` verified, `gh attestation verify` returned 0 for build
+provenance and for the SBOM predicate, and the zip held exactly
+`strobe.exe`, the three ANGLE DLLs, `LICENSES.chromium.html`, `README.md`,
+`LICENSE` and the twelve scenes.
+
+**Would reopen:** a later tag wanting the pre-release flag, which is a
+`release.yml` change made before that tag and never after.
