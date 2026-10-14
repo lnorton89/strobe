@@ -61,7 +61,16 @@ pub struct Cli {
     /// Folder of scene folders.
     #[arg(long, default_value = "scenes")]
     pub library: PathBuf,
+    /// Leave Synesthesia's scenes out of the library for this run, whatever
+    /// Settings says. Where Synesthesia is installed, the scenes it ships
+    /// (read-only) and those in the scene folders its settings name are
+    /// listed after the library folder (D271). `STROBE_SYNESTHESIA_DIR` and
+    /// `STROBE_SYNESTHESIA_DATA` name an install and its data folder in
+    /// unusual places.
+    #[arg(long)]
+    pub no_synesthesia: bool,
     /// Scene to load at start: a folder name, or a unique prefix of one.
+    /// The library folder's own scenes are found before Synesthesia's.
     #[arg(long)]
     pub scene: Option<String>,
     /// GL backend.
@@ -484,6 +493,19 @@ mod tests {
         );
         let cli = Cli::try_parse_from(["strobe", "--watch-folder", "inbox"])?;
         assert_eq!(cli.watch_folder, Some(PathBuf::from("inbox")), "named");
+        Ok(())
+    }
+
+    #[test]
+    fn synesthesias_scenes_are_listed_unless_switched_off_for_the_run() -> Result<()> {
+        assert!(
+            !Cli::try_parse_from(["strobe"])?.no_synesthesia,
+            "listed by default, where installed"
+        );
+        assert!(
+            Cli::try_parse_from(["strobe", "--no-synesthesia"])?.no_synesthesia,
+            "off for this run"
+        );
         Ok(())
     }
 

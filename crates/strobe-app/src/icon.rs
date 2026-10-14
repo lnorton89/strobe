@@ -125,6 +125,16 @@ pub enum Icon {
     Controls,
     /// A favourite: a five-pointed star.
     Star,
+    /// A menu of more: three dots in a row.
+    More,
+    /// A camera: a snapshot of the live frame.
+    Camera,
+    /// An arrow pointing up (sorted ascending).
+    ArrowUp,
+    /// An arrow pointing down (sorted descending).
+    ArrowDown,
+    /// Add, new: a plus.
+    Plus,
 }
 
 /// One stroked part of an icon, in grid space.
@@ -314,6 +324,32 @@ impl Icon {
                 Seg::Open(&[(12.0, 2.5), (12.0, 13.5)]),
                 Seg::Circle(12.0, 8.5, 1.7),
             ],
+            Self::More => &[Seg::Dot(3.0, 8.0), Seg::Dot(8.0, 8.0), Seg::Dot(13.0, 8.0)],
+            Self::Camera => &[
+                Seg::Closed(&[
+                    (2.0, 5.0),
+                    (5.0, 5.0),
+                    (6.2, 3.2),
+                    (9.8, 3.2),
+                    (11.0, 5.0),
+                    (14.0, 5.0),
+                    (14.0, 12.8),
+                    (2.0, 12.8),
+                ]),
+                Seg::Circle(8.0, 8.8, 2.4),
+            ],
+            Self::ArrowUp => &[
+                Seg::Open(&[(8.0, 13.0), (8.0, 3.0)]),
+                Seg::Open(&[(4.0, 7.0), (8.0, 3.0), (12.0, 7.0)]),
+            ],
+            Self::ArrowDown => &[
+                Seg::Open(&[(8.0, 3.0), (8.0, 13.0)]),
+                Seg::Open(&[(4.0, 9.0), (8.0, 13.0), (12.0, 9.0)]),
+            ],
+            Self::Plus => &[
+                Seg::Open(&[(8.0, 3.0), (8.0, 13.0)]),
+                Seg::Open(&[(3.0, 8.0), (13.0, 8.0)]),
+            ],
         }
     }
 }
@@ -363,7 +399,7 @@ mod tests {
     /// Every icon the enum names, so a new variant is drawn by the tests
     /// below without anyone remembering to add it. Kept in declaration
     /// order: the check below reads each entry's discriminant.
-    const ALL: [Icon; 33] = [
+    const ALL: [Icon; 38] = [
         Icon::Perform,
         Icon::Library,
         Icon::Playlist,
@@ -397,6 +433,11 @@ mod tests {
         Icon::Audio,
         Icon::Controls,
         Icon::Star,
+        Icon::More,
+        Icon::Camera,
+        Icon::ArrowUp,
+        Icon::ArrowDown,
+        Icon::Plus,
     ];
 
     // `ALL` names each icon exactly once, checked when the tests are

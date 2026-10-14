@@ -78,6 +78,28 @@ Settings > Keyboard changes any of them.
   *Apply*, and the switch turns it off and on. It is remembered, and it
   cannot be the library folder itself. `strobe.exe --watch-folder
   <folder>` watches one for that run only.
+- **Synesthesia's scenes.** If Synesthesia is installed on this computer,
+  LIB also lists its scenes after your own, each marked *Synesthesia*:
+  - the scenes it ships (in `C:\Program Files (x86)\Synesthesia\release`
+    and `default`). These are **read-only**: Strobe never changes
+    Synesthesia's files. Tagging one, *Use frame as picture*, saving it in
+    EDIT or saving a preset for it says so and offers **Copy to my
+    library**, which copies the scene into your library folder (under a
+    new name if you already have one called that). The copy is yours to
+    change, and if it was playing it carries on from the copy;
+  - the scene folders you added in Synesthesia's own Settings (Custom
+    Scene Folder). Those are yours, so tags and edits work as usual.
+
+  Search for `synesthesia` to see only them. A scene that is in both your
+  library and Synesthesia's shows twice; `--scene`, playlists and fav slots
+  use your own. To hide them, untick **Settings > Synesthesia's scenes >
+  Show Synesthesia's scenes** (remembered), or start with
+  `strobe.exe --no-synesthesia` for one run. Strobe ships none of
+  Synesthesia's files: it only reads your own install, the same way it
+  finds Synesthesia's `lib` folder for scenes that `#include` it. If
+  Synesthesia is somewhere unusual, set `STROBE_SYNESTHESIA_DIR` to its
+  folder (and `STROBE_SYNESTHESIA_DATA` to its data folder,
+  normally `%LOCALAPPDATA%\Synesthesia\Data`).
 - **Needs work** (a LIB filter, and a list in DIAG) shows the scenes that
   failed to load this run, each with its reason.
 - **Controls** shows the playing scene's sliders, colours and buttons.

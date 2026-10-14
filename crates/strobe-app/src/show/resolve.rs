@@ -15,9 +15,11 @@
 //! a path. [`scene_dir`] finds the folder. A library name must match an entry
 //! *exactly* (ignoring case): a playlist is a script for a show, and a
 //! prefix match that quietly picked a different scene when a new folder was
-//! added would be worse than an error. A path is tried relative to the
-//! playlist file first and then to the working directory, and `~/` is the
-//! home folder.
+//! added would be worse than an error. Synesthesia's own scenes are library
+//! entries too where they are listed (D271); they come after the library
+//! folder's, so a name both have plays the person's own. A path is tried
+//! relative to the playlist file first and then to the working directory,
+//! and `~/` is the home folder.
 //!
 //! ## Control overrides
 //!
@@ -349,6 +351,37 @@ mod tests {
         assert!(
             error.contains("\"02\"") && error.contains("scenes"),
             "the error names the scene and the library: {error}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_cue_finds_synesthesias_scenes_and_the_libraries_own_first_on_a_clash() -> Result<()> {
+        use crate::library::Source;
+        let mut lib = library();
+        for name in ["02-plasma", "ink"] {
+            lib.entries.push(
+                Entry::new(
+                    name.to_string(),
+                    PathBuf::from(format!("synesthesia/release/{name}.synScene")),
+                )
+                .from_source(Source::Synesthesia),
+            );
+        }
+        let base = Path::new(".");
+        let ink =
+            scene_dir(&lib, base, &SceneRef::Library("ink".into())).map_err(|e| anyhow!(e))?;
+        assert_eq!(
+            (ink.library_index, ink.dir),
+            (Some(3), PathBuf::from("synesthesia/release/ink.synScene")),
+            "a scene only Synesthesia has is found"
+        );
+        let plasma = scene_dir(&lib, base, &SceneRef::Library("02-plasma".into()))
+            .map_err(|e| anyhow!(e))?;
+        assert_eq!(
+            plasma.dir,
+            PathBuf::from("scenes/02-plasma"),
+            "a name in both is the library's own"
         );
         Ok(())
     }

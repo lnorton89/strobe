@@ -23,12 +23,24 @@
 //! rendered. The control window is captured after that, once it has also
 //! drawn a few frames of its own: egui lays a window out over two passes,
 //! and the first frames after a scene load are not representative.
+//!
+//! The control capture has a deadline. Windows sends no `RedrawRequested`
+//! to a window it is not painting (minimised, or a session over Remote
+//! Desktop: the mini-PC's M2 run drew 0 control frames in five minutes), so
+//! waiting for one could keep the run alive for ever. Past the deadline the
+//! control capture is given up with a warning and the run ends with the
+//! output capture alone.
 
 use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
 /// Control-window frames drawn after the output capture before the control
 /// capture, so egui's layout has settled.
 const CONTROL_SETTLE_FRAMES: u32 = 4;
+
+/// How long after the output capture the control capture may take before it
+/// is given up. A painting control window needs a fraction of a second.
+pub const CONTROL_DEADLINE: Duration = Duration::from_secs(10);
 
 /// Which window a capture is of.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -54,7 +66,12 @@ pub struct Screenshot {
     base: PathBuf,
     frames: u32,
     output_done: bool,
+    /// When the output capture was written, which starts the control
+    /// capture's deadline.
+    output_at: Option<Instant>,
     control_done: bool,
+    /// The control capture was given up: the window drew nothing in time.
+    control_skipped: bool,
     control_frames_since: u32,
 }
 
@@ -66,7 +83,9 @@ impl Screenshot {
             base,
             frames,
             output_done: false,
+            output_at: None,
             control_done: false,
+            control_skipped: false,
             control_frames_since: 0,
         }
     }
@@ -80,7 +99,7 @@ impl Screenshot {
     /// Whether the control window should be captured on this frame.
     /// Counts the call as one control frame once the output is captured.
     pub fn control_due(&mut self) -> bool {
-        if !self.output_done || self.control_done {
+        if !self.output_done || self.control_done || self.control_skipped {
             return false;
         }
         self.control_frames_since += 1;
@@ -93,12 +112,27 @@ impl Screenshot {
     pub fn control_capture_next(&self) -> bool {
         self.output_done
             && !self.control_done
+            && !self.control_skipped
             && self.control_frames_since + 1 > CONTROL_SETTLE_FRAMES
     }
 
-    /// Whether both captures are written.
+    /// Gives up the control capture when its deadline has passed at `now`.
+    /// True once, on the call that gives it up, so the caller can say so.
+    pub fn give_up_control(&mut self, now: Instant) -> bool {
+        let overdue = self
+            .output_at
+            .is_some_and(|at| now.saturating_duration_since(at) >= CONTROL_DEADLINE);
+        if !overdue || self.control_done || self.control_skipped {
+            return false;
+        }
+        self.control_skipped = true;
+        true
+    }
+
+    /// Whether the run is over: the output captured, and the control
+    /// captured or given up.
     pub fn finished(&self) -> bool {
-        self.output_done && self.control_done
+        self.output_done && (self.control_done || self.control_skipped)
     }
 
     /// The file a capture of `target` is written to.
@@ -157,7 +191,10 @@ impl Screenshot {
             .map_err(|e| format!("writing {}: {e}", path.display()))?;
         match target {
             Target::Control => self.control_done = true,
-            Target::Output => self.output_done = true,
+            Target::Output => {
+                self.output_done = true;
+                self.output_at = Some(Instant::now());
+            }
         }
         Ok(path)
     }
@@ -216,5 +253,33 @@ mod tests {
         shot.output_done = true;
         let due_at = (1..=CONTROL_SETTLE_FRAMES + 2).find(|_| shot.control_due());
         assert_eq!(due_at, Some(CONTROL_SETTLE_FRAMES + 1), "after settling");
+    }
+
+    #[test]
+    fn a_control_window_that_never_draws_is_given_up_after_the_deadline() -> anyhow::Result<()> {
+        let mut shot = Screenshot::new(PathBuf::from("x"), 3);
+        let start = Instant::now();
+        assert!(
+            !shot.give_up_control(start + CONTROL_DEADLINE),
+            "nothing to give up before the output capture"
+        );
+        shot.output_done = true;
+        shot.output_at = Some(start);
+        assert!(
+            !shot.give_up_control(start + CONTROL_DEADLINE / 2),
+            "still inside the deadline"
+        );
+        assert!(!shot.finished(), "the control capture is still awaited");
+        assert!(
+            shot.give_up_control(start + CONTROL_DEADLINE),
+            "given up at the deadline"
+        );
+        assert!(shot.finished(), "the run ends with the output alone");
+        assert!(
+            !shot.give_up_control(start + CONTROL_DEADLINE * 2),
+            "given up only once"
+        );
+        assert!(!shot.control_due(), "no control capture after giving up");
+        Ok(())
     }
 }

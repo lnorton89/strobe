@@ -176,13 +176,16 @@ pub fn content_items(library: &Library, playing: Option<usize>, presets: &[Strin
     let mut items = Vec::with_capacity(library.entries.len() * 2 + presets.len());
     for (index, entry) in library.entries.iter().enumerate() {
         let live = (playing == Some(index)).then_some(PLAYING_NOW);
-        let mut load = Item::named(Target::LoadScene(index), "Load: ", &entry.name, "Scene");
+        // Synesthesia's scenes say so where the category goes, so a name in
+        // both places reads as two (D271).
+        let category = entry.source.label().unwrap_or("Scene");
+        let mut load = Item::named(Target::LoadScene(index), "Load: ", &entry.name, category);
         load.unavailable = live;
         let mut preview = Item::named(
             Target::PreviewScene(index),
             "Preview: ",
             &entry.name,
-            "Scene",
+            category,
         );
         preview.unavailable = live;
         items.push(load);
@@ -703,6 +706,32 @@ mod tests {
             all.iter()
                 .any(|item| item.target == Target::ApplyPreset("Slow burn".to_string())),
             "it recalls that preset"
+        );
+    }
+
+    #[test]
+    fn synesthesias_scenes_are_listed_and_say_where_they_come_from() {
+        let mut library = library(&["01-aurora", "ink"]);
+        library.entries.push(
+            crate::library::Entry::new(
+                "ink".to_string(),
+                std::path::PathBuf::from("release/ink.synScene"),
+            )
+            .from_source(crate::library::Source::Synesthesia),
+        );
+        let content = content_items(&library, None, &[]);
+        let inks: Vec<(&Target, &str)> = content
+            .iter()
+            .filter(|item| item.title == "Load: ink")
+            .map(|item| (&item.target, item.category))
+            .collect();
+        assert_eq!(
+            inks,
+            [
+                (&Target::LoadScene(1), "Scene"),
+                (&Target::LoadScene(2), "Synesthesia")
+            ],
+            "the library's own first, then Synesthesia's, told apart by category"
         );
     }
 
