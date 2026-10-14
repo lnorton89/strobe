@@ -132,3 +132,38 @@ into the repository.
 - **Timings at 640x360, mean/p95 ms:**
   - native: Half 1.32/1.61, Full 1.54/1.79;
   - ANGLE: Half 1.09/1.31, Full 1.45/1.75.
+
+## Against Synesthesia itself (Task A6, commit e47c44f)
+
+**Synesthesia 1.25.4.189** is installed at `C:\Program Files (x86)\Synesthesia`.
+- Built-in scenes are in `release\` (87) and `default\` (welcome_scene).
+- Includes are in `lib\`.
+- There is no default folder for the user's own scenes. Those live in the
+  folders listed under `sceneFolders` in
+  `%LOCALAPPDATA%\Synesthesia\Data\vs.json`, with `PRIMARY_SCENE_FOLDER`
+  and recursive search set in `preferences.json`. Both are empty on this
+  machine.
+- OSC input is a Pro-licence feature, off on this free install, so
+  Synesthesia could not be driven. The comparison used Synesthesia's
+  shipped thumbnails (the authors' own captures) against Strobe's output
+  after 3 s.
+
+Results for 17 scenes, all of which exit cleanly with no WARN or ERROR:
+- **Same (3):** test_card, kifs_flythrough, terrain_lattice.
+- **Close: colour, camera or time only (8):** SkaiWalkerOG, welcome_scene,
+  alien_cavern, hexoplanet, glassier, stained_glass, fluid_body.
+- **Different (5):**
+  - **neon_city:** a striped plane with no buildings. Under
+    investigation.
+  - **beamers:** horizontal blue beams against a white starburst.
+    Under investigation.
+  - **PLUS:** masked by media, and Synesthesia feeds `demo_media.mp4`
+    by default where Strobe had none.
+  - **canvas** and **turbo_encabulator_fluid:** the thumbnails match
+    ANGLE's render (A4, A5), not AMD native's.
+- **Inconclusive (2):** churning (its feedback has not formed by 3 s) and
+  hue_review (no thumbnail).
+
+Synesthesia's renderer is desktop GL 3.3 (GLFW, WGL). The authors' GPUs
+therefore draw these `fract(sin(…))` hashes the way ANGLE/D3D11 does here,
+and AMD's native driver is the one that differs.
