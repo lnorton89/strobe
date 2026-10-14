@@ -24,6 +24,8 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **app:** keep remote desktop input from widening access or stalling the show ([`b7b311a`](https://github.com/lnorton89/strobe/commit/b7b311a47f789094568d6eb21bd3051c21e9fd62))
+- **remote:** end a full desktop grant with its switch, and show who holds the controls ([`48f8b39`](https://github.com/lnorton89/strobe/commit/48f8b3903147adfc3a2dee2e6c74912e6ad96018))
 - update rustls for current security advisories ([`0f28d44`](https://github.com/lnorton89/strobe/commit/0f28d4411b7c19d23b873766118c083255cae270))
 - **gfx:** adaptive resolution judges a drop on settled frames and locks only after two strikes, for a while (D280) ([`9af6f34`](https://github.com/lnorton89/strobe/commit/9af6f341e33f05ede5fcc68d249e7dd3db687a76))
 - **scene:** pin the final pass only when the shader texel-fetches a root-sized pass (D280) ([`698b3d8`](https://github.com/lnorton89/strobe/commit/698b3d89dc33b8ad11e31aeb6772e5d9daf73dab))
@@ -41,6 +43,8 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Documentation
 
+- record the desktop remote's review hardening and known limits (D275) ([`dd5db8c`](https://github.com/lnorton89/strobe/commit/dd5db8c57dabcb9b1ce8e0747467e75d94bea87a))
+- normalize decision log trailing whitespace ([`af6656d`](https://github.com/lnorton89/strobe/commit/af6656d0781197185610811ac68e783351a03ccf))
 - record desktop control validation on current base ([`0665aea`](https://github.com/lnorton89/strobe/commit/0665aea74a1adca51033bd4be24020da80d653c4))
 - **amd:** D280 holds on the RX 580, and the probe rightly undoes futile drops (Task A10) ([`5507a13`](https://github.com/lnorton89/strobe/commit/5507a1360f1126655601c455a0b5a376013e635a))
 - D280 pins only texel-reading scenes and gives the probe two strikes and an expiring lock ([`62204ed`](https://github.com/lnorton89/strobe/commit/62204ed3f66aaa6dea1e19b242c6c9d7e2ce0a2c))
@@ -60,6 +64,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Internal
 
+- take base64 from the workspace like every other dependency ([`52d4a66`](https://github.com/lnorton89/strobe/commit/52d4a66f39a402654f52960c438c63bbb3dc2887))
 - ignore a strobe-syn-corpus clone inside the checkout ([`2061e54`](https://github.com/lnorton89/strobe/commit/2061e54791b4b4e4041085bf28832dc7cdb48a1d))
 
 ## [0.1.0] - 2026-10-14
