@@ -36,6 +36,13 @@ which backend proved a claim.
 
 ### In flight
 
+- **Chromatic Rise scene (2026-10-13):** added
+  `scenes/13-chromatic-rise.synScene`, an original procedural interpretation
+  of the owner's TouchDesigner RISE video, with eleven controls and bass
+  response. Rendered and visually inspected at 1280x720 on the RX 580,
+  native GL 3.3 and ANGLE GLES 3.0. Next: owner comparison against the
+  original network and older integrated-GPU timing; see BENCHMARKS.md.
+
 - **Perform UI stage 2** (see item 2): the panes built in stage 1 hold the
   generated-controls review (D202, D219); the full Playlist workspace is
   still to come.
