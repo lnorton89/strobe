@@ -59,8 +59,10 @@
 //!
 //! [`Server::stop`] (and dropping the server) sets the stop flag, shuts
 //! every connection's socket down at once, so phones see the remote go
-//! immediately, then wakes and joins the accept thread, which frees the
-//! port. Connection threads finish on their own within a tick. Stopping
+//! immediately, then joins the accept thread, which polls a non-blocking
+//! listener every tick and so needs no wake-up connection (one could reach
+//! nothing once the address has gone), and frees the port. Connection
+//! threads finish on their own within a tick. Stopping
 //! twice is harmless.
 
 mod http;
@@ -73,7 +75,7 @@ use crate::bridge::Remote;
 use crate::clients::Clients;
 use crate::pairing::{Pairing, Request};
 use crate::trust::{Limiter, TrustSecret};
-use std::net::{IpAddr, Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream};
+use std::net::{IpAddr, Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread::JoinHandle;
@@ -345,6 +347,12 @@ impl Server {
             source,
         })?;
         let addr = socket.local_addr().map_err(StartError::Thread)?;
+        socket
+            .set_nonblocking(true)
+            .map_err(|source| StartError::Bind {
+                addr: config.bind,
+                source,
+            })?;
         let shared = Arc::new(Shared {
             limits: config.limits,
             addr,
@@ -512,17 +520,8 @@ impl Server {
             // needs no shutdown.
             let _ = conn.stream.shutdown(Shutdown::Both);
         }
-        // `accept` blocks; a connection to ourselves wakes it to see the flag.
-        let wake = if self.shared.addr.ip().is_unspecified() {
-            SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), self.shared.addr.port())
-        } else {
-            self.shared.addr
-        };
-        // Only wakes the accept loop; if nothing answers, the loop has
-        // already ended.
-        let _ = TcpStream::connect_timeout(&wake, Duration::from_secs(1));
-        // Waits for the accept loop; a panic in it already aborted the
-        // process in release builds.
+        // The accept loop polls, so it sees the flag within a tick. Waits for
+        // it; a panic in it already aborted the process in release builds.
         let _ = accept.join();
         self.shared.pairing().close();
         log::info!("remote: stopped listening on {}", self.shared.addr);
@@ -540,14 +539,30 @@ impl Drop for Server {
     }
 }
 
+/// Accepts until the stop flag is set. The listener is non-blocking and
+/// polled every tick, so the flag alone ends the loop: no wake-up
+/// connection is needed, which could reach nothing once the bound address
+/// has gone (a DHCP renewal, a Wi-Fi rejoin) or when `::` is IPv6-only,
+/// and then left Stop, and quitting, joining this thread for ever. A
+/// failing `accept` (out of file handles) waits a tick too, rather than
+/// spinning.
 fn accept_loop(socket: &TcpListener, shared: &Arc<Shared>) {
-    for stream in socket.incoming() {
-        if shared.stopping() {
-            return;
-        }
-        let Ok(mut stream) = stream else {
-            continue;
+    while !shared.stopping() {
+        let mut stream = match socket.accept() {
+            Ok((stream, _)) => stream,
+            Err(error) => {
+                if error.kind() != std::io::ErrorKind::WouldBlock {
+                    log::debug!("remote: accept failed: {error}");
+                }
+                std::thread::sleep(shared.limits.tick);
+                continue;
+            }
         };
+        // Windows and macOS hand out sockets as non-blocking as their
+        // listener; a session needs blocking reads with a timeout.
+        if stream.set_nonblocking(false).is_err() {
+            continue;
+        }
         let Ok(peer) = stream.peer_addr() else {
             continue;
         };
@@ -608,5 +623,40 @@ fn accept_loop(socket: &TcpListener, shared: &Arc<Shared>) {
             shared.forget(id);
             shared.active.fetch_sub(1, Ordering::SeqCst);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use anyhow::Result;
+
+    #[test]
+    fn the_accept_thread_ends_on_the_stop_flag_without_a_wake_up_connection() -> Result<()> {
+        // Stopping used to wake a blocked `accept` by connecting to the
+        // bound address. That connection reaches nothing when the address
+        // has gone (a DHCP renewal or a Wi-Fi rejoin mid-show) or when `::`
+        // is IPv6-only (Windows' default) and the wake-up goes to
+        // 127.0.0.1, and then joining the thread hung Stop, and quitting.
+        let (remote, _app) = crate::bridge::bridge(4);
+        let config = ServerConfig {
+            limits: Limits {
+                tick: Duration::from_millis(20),
+                ..Limits::default()
+            },
+            ..ServerConfig::new(IpAddr::V4(std::net::Ipv4Addr::LOCALHOST), 0)
+        };
+        let server = Server::start(config, remote, Clients::in_memory())?;
+        server.shared.stop.store(true, Ordering::SeqCst);
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let finished = || server.accept.as_ref().is_some_and(JoinHandle::is_finished);
+        while !finished() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(
+            finished(),
+            "the accept thread must notice the stop flag by itself"
+        );
+        Ok(())
     }
 }
