@@ -229,6 +229,24 @@ pub fn run(command: CommandId, model: &mut Model<'_>, actions: &mut Vec<Action>)
         }
         CommandId::OpenPalette => model.ui.command_palette.toggle(),
         CommandId::GenerateControls => actions.push(Action::GenerateControls),
+        CommandId::ToggleControlsView => toggle_controls_view(model),
+    }
+}
+
+/// Flips the library view between Scenes and Controls (D291). From any
+/// other main view (PLAY, LIST, MAP...) it shows the library on Controls:
+/// someone reaching for the controls wants them, not the grid.
+pub fn toggle_controls_view(model: &mut Model<'_>) {
+    use super::browser::LibraryPage;
+    let library_shown =
+        model.ui.panes.shown_in(crate::workspace::Dock::Main) == Some(Pane::Browser);
+    model.ui.library_page = if library_shown {
+        model.ui.library_page.other()
+    } else {
+        LibraryPage::Controls
+    };
+    if !library_shown {
+        model.ui.panes.open(Pane::Browser);
     }
 }
 
@@ -252,6 +270,7 @@ mod tests {
             egui::Key::F,
             egui::Key::T,
             egui::Key::K,
+            egui::Key::L,
         ];
         for command in CommandId::ALL {
             let Some(wanted) = command.chord().map(|chord| chord.key) else {

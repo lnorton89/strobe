@@ -248,11 +248,14 @@ pub enum CommandId {
     OpenPalette,
     /// Generate controls for the playing scene in the background (D202).
     GenerateControls,
+    /// Flip the library view between its Scenes and Controls pages (D291);
+    /// from any other main view, show the library on Controls.
+    ToggleControlsView,
 }
 
 impl CommandId {
     /// Every command, in the order the help text lists them.
-    pub const ALL: [CommandId; 15] = [
+    pub const ALL: [CommandId; 16] = [
         Self::PrevScene,
         Self::NextScene,
         Self::ToggleHold,
@@ -264,6 +267,7 @@ impl CommandId {
         Self::BlackoutOff,
         Self::ToggleFullscreen,
         Self::FocusBrowserSearch,
+        Self::ToggleControlsView,
         Self::CloseTopmostPane,
         Self::TapTempo,
         Self::OpenPalette,
@@ -290,6 +294,7 @@ impl CommandId {
             Self::TapTempo => "tap_tempo",
             Self::OpenPalette => "open_palette",
             Self::GenerateControls => "generate_controls",
+            Self::ToggleControlsView => "toggle_controls_view",
         }
     }
 
@@ -310,7 +315,8 @@ impl CommandId {
             Self::FocusBrowserSearch
             | Self::CloseTopmostPane
             | Self::OpenPalette
-            | Self::GenerateControls => false,
+            | Self::GenerateControls
+            | Self::ToggleControlsView => false,
             Self::NextScene
             | Self::PrevScene
             | Self::ToggleHold
@@ -343,6 +349,7 @@ impl CommandId {
             Self::TapTempo => "Tap tempo",
             Self::OpenPalette => "Command palette",
             Self::GenerateControls => "Generate controls",
+            Self::ToggleControlsView => "Switch Scenes / Controls",
         }
     }
 
@@ -359,9 +366,10 @@ impl CommandId {
             | Self::BlackoutOn
             | Self::BlackoutOff
             | Self::TapTempo => Category::Playback,
-            Self::FocusBrowserSearch | Self::CloseTopmostPane | Self::OpenPalette => {
-                Category::Navigation
-            }
+            Self::FocusBrowserSearch
+            | Self::CloseTopmostPane
+            | Self::OpenPalette
+            | Self::ToggleControlsView => Category::Navigation,
             Self::ToggleFullscreen => Category::Window,
             Self::GenerateControls => Category::Scene,
         }
@@ -387,6 +395,7 @@ impl CommandId {
             Self::CloseTopmostPane => Chord::plain(Key::Escape),
             Self::TapTempo => Chord::plain(Key::T),
             Self::OpenPalette => Chord::command(Key::Letter('K')),
+            Self::ToggleControlsView => Chord::command(Key::Letter('L')),
             Self::BlackoutOn | Self::BlackoutOff | Self::GenerateControls => return None,
         })
     }
@@ -406,7 +415,8 @@ impl CommandId {
             | Self::CloseTopmostPane
             | Self::TapTempo
             | Self::OpenPalette
-            | Self::GenerateControls => false,
+            | Self::GenerateControls
+            | Self::ToggleControlsView => false,
         }
     }
 }
@@ -692,6 +702,7 @@ mod tests {
             unmappable,
             [
                 "focus_browser_search",
+                "toggle_controls_view",
                 "close_topmost_pane",
                 "open_palette",
                 "generate_controls"
