@@ -82,6 +82,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Documentation
 
+- allow strobe.exe through Windows Firewall before an unattended venue start ([`df27819`](https://github.com/lnorton89/strobe/commit/df278191972c36eb57f30659cd028c8e79dae63e))
 - hardware evidence for D290, venue mode on loopback, and Linux under WSL2 ([`aadc967`](https://github.com/lnorton89/strobe/commit/aadc967db8c01d576df64ffd2d8a67c136fffe20))
 - WSL2 GPU and audio setup, and the check script picks D3D12 there (D296) ([`2958c88`](https://github.com/lnorton89/strobe/commit/2958c8892ded0f0af32161cca066a5c1625f52b1))
 - note the covered control window and venue mode in the architecture companion ([`44346aa`](https://github.com/lnorton89/strobe/commit/44346aaeab11b4116c3b5ebf7068c290fcfe52a3))

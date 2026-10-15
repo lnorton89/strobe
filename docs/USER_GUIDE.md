@@ -363,6 +363,22 @@ use the same file.
 strobe --remote --allow-desktop-control --remote-trust "C:\Users\you\venue.trust" --fullscreen
 ```
 
+**Windows Firewall, before the first unattended start.** The first time
+Strobe listens on the network, Windows asks whether to allow it. On a machine
+with no one at the screen nobody answers, and Windows quietly adds **Block**
+rules for `strobe.exe`, so the laptop cannot connect. Seen on the JaJa mini PC.
+Do one of these once, as an administrator, before the show:
+
+```text
+netsh advfirewall firewall add rule name="Strobe remote" dir=in action=allow program="C:\path\to\strobe.exe" enable=yes profile=private
+```
+
+or start Strobe once with `--remote` while someone is at the screen and click
+**Allow** on the private network. If Block rules already exist, delete them in
+*Windows Defender Firewall > Advanced settings > Inbound Rules* (both are
+named `strobe.exe`). A rule is per program path, so a new build in a new
+folder needs it again.
+
 `--remote` starts the listener (it retries every few seconds if the network
 is not up yet at boot); `--allow-desktop-control` switches **Allow full
 desktop control** on for this run; `--remote-trust` names the file, which is
