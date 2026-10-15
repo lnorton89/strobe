@@ -32,6 +32,8 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **app:** keep the output's swap wait while the loop drives the control window ([`c812236`](https://github.com/lnorton89/strobe/commit/c812236b22ae922ee557529d3d974933c9646097))
+- **app:** run the control frame from the event loop when Windows withholds its paints ([`e96573b`](https://github.com/lnorton89/strobe/commit/e96573b6d63b334984275e899c06640e194cae6e))
 - **app:** do not print a laptop command that does not exist yet ([`92f4965`](https://github.com/lnorton89/strobe/commit/92f4965b7e45cccd75975eb26c8fb8ca2c6bb9ac))
 - **remote:** bind a trust proof to the address the connection reached ([`dd8c2f5`](https://github.com/lnorton89/strobe/commit/dd8c2f5741c5d13fec7094765eff6ffbe8240971))
 - **app:** compile the playlist from output frames when the control window stops painting ([`fca44a5`](https://github.com/lnorton89/strobe/commit/fca44a53e14838c9591c9d32a4257a5e81ae6d85))
@@ -63,6 +65,8 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Documentation
 
+- D290 keeps the swap wait for a driven window and corrects a rejected option ([`50062a0`](https://github.com/lnorton89/strobe/commit/50062a0b1736eb21a2a3c2baf5b04140abd422be))
+- D290, the mini PC's control window starved of paints, and the hotfix verification ([`bf2568c`](https://github.com/lnorton89/strobe/commit/bf2568ccf419ededb905a74cfd63889c40d8becd))
 - D288 venue mode, user guide, roadmap and status audit ([`bcdf95f`](https://github.com/lnorton89/strobe/commit/bcdf95f7c1c10d259843229487d62c52c7397555))
 - D287 restarts a kept pass that a restarted pass reads ([`9d559fd`](https://github.com/lnorton89/strobe/commit/9d559fd26279cb0f8fa855273769bc88e7d122e9))
 - D287, a resize keeps the passes whose size it does not change ([`03c8e77`](https://github.com/lnorton89/strobe/commit/03c8e7743032b37eaa307515faa83e85f573ae7e))
