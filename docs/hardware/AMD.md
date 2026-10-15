@@ -292,3 +292,48 @@ strobe-bench `--context window` at 1920x1080, mean ms native / ANGLE:
   blow-out.
 - **Minor, in Acid Mirror:** small mirrored dash fragments just below mid
   height, and hard, slightly aliased edges on the black voids.
+
+## Task A14, to run: `pow` of a negative base on ANGLE (D301)
+
+D301 writes `pow(x, y)` as `exp2(log2(x) * (y))` in the ES dialect, on the
+inference that native GL gives NaN for a negative base and ANGLE gives
+`|x|^y`. llvmpipe has no Direct3D compiler, so this checks it here. Build the
+commit before D301 and the D301 commit side by side, or run step 1 on both.
+
+1. **Probe the drivers.** Make a scene folder `pow-probe.synScene` outside the
+   repository with this `scene.json`:
+   `{"CONTROLS": [{"NAME": "base", "TYPE": "slider", "MIN": -1.0, "MAX": 1.0, "DEFAULT": -0.25}]}`
+   and this `main.glsl`:
+   ```glsl
+   vec4 renderMain() {
+       float one = clamp(pow(base, 1.0) + 0.5, 0.0, 1.0);
+       float half_power = clamp(pow(base, 0.5) * 2.0, 0.0, 1.0);
+       float cube = clamp(pow(base, 3.0) + 0.5, 0.0, 1.0);
+       return vec4(one, half_power, cube, 1.0);
+   }
+   ```
+   Run `strobe-bench --library <folder> --context window --show-window --gl native`
+   and again with `--gl angle`, `--frames 1 --warmup 1`, and read one pixel
+   of each PNG. Red is 64 for `x`, 191 for `|x|` and 0 for NaN; green is 255
+   for `|x|^0.5` and 0 for NaN; blue is about 124 for `x^3`, about 132 for `|x|^3` and 0
+   for NaN. D301 expects native (0 or 64, 0, 124 or 0), ANGLE before D301
+   (64, 255, 124 or 132), and ANGLE with D301 equal to native in red and
+   green. For reference, llvmpipe (Mesa) gives (64, 0, 124) in both
+   dialects, with and without D301: it folds `pow(x, 1.0)` to `x`.
+2. **Corpus black lists:** `cargo xtask corpus -- --library <corpus>` with
+   `STROBE_GLSL_PATH` at the corpus's `engine/lib`. Before: PLUS black on
+   gles only. Expected after: PLUS black on neither, the other six
+   unchanged.
+3. **sprinkles at 600 frames:** `strobe-bench --library <corpus> --filter
+   sprinkles --context window --show-window --gl native --size 1280x720
+   --warmup 600 --frames 1 --out target/bench/sprinkles-native`, then with
+   `--gl angle` and `--out target/bench/sprinkles-angle`. Expected: both fill
+   the frame, where ANGLE showed a small centre ring before.
+4. **PLUS:** the same with `--filter PLUS --warmup 60`. Expected: ANGLE no
+   longer black, with a picture like native's.
+5. **The sources:** with `STROBE_DUMP_GLSL=<dir>`, both scenes' `es300` dumps
+   should hold `exp2(log2(` where `main.glsl` has `pow(`, and the `glsl330`
+   dumps should still hold `pow(`.
+
+If native red or green is not 0, or ANGLE with D301 still differs from
+native in steps 3 and 4, reopen D301 and record the probe values in Q28.
