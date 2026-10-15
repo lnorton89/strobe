@@ -834,7 +834,7 @@ impl Show {
         match event {
             ClockEvent::CueStarted { index, pass } => {
                 log::info!(
-                    "playlist: cue {} started: {} (pass {pass})",
+                    "playlist: cue {} started: {} (loop pass {pass})",
                     index + 1,
                     self.cue_scene(index).unwrap_or("?")
                 );
