@@ -29,11 +29,30 @@ at most 5 Hz; the network bridge keeps only the latest frame. Text copied
 by a host widget is returned explicitly, without reading its OS clipboard.
 See [the user guide](../../docs/USER_GUIDE.md#control-another-strobe-desktop).
 
+**Venue mode (D288):** a headless show machine is controlled with no click at
+it. `strobe --make-remote-trust FILE` writes 32 random bytes as hex (it
+refuses to overwrite); the host starts with `--remote-trust FILE` and full
+desktop access on, and a controller that proves it holds the same file is
+paired for full desktop control with no approval. The proof is a challenge
+and response, never the secret: the host sends a random nonce and the
+controller answers `HMAC-SHA256(secret, framed(context, nonce, host, controller
+id))`, compared in constant time and good for one answer ([`trust`](src/trust.rs)).
+Failed proofs back off per address and globally. A trusted pairing lasts as
+long as its connection, shows in the paired list as *trusted*, and the host
+operator can revoke it for the run. The controller's half (D294) is in
+`strobe-app`: the laptop proves the file only in answer to its own
+`trust_start` on that connection (it refuses an unsolicited challenge, so it
+is never a signing oracle), binds the proof to
+[`client::host_header`](src/client.rs), the exact `Host` it sent, uses a stable
+id made by [`trust::new_controller_id`](src/trust.rs), and reconnects with a
+1 s, 2 s, 4 s ... 15 s backoff until told to stop. See
+[the user guide](../../docs/USER_GUIDE.md#venue-mode-an-unattended-show-machine).
+
 ## Role in the workspace
 
 - **Depends on:** `serde`, `serde_json`, `getrandom` (codes and tokens),
   `sha2` (stored token digests, the page's CSP hashes), `sha1` (the WebSocket
-  handshake only, D250), `log`.
+  handshake only, D250), `hmac` (the venue trust file's proof, D288), `log`.
 - **Depended on by:** `strobe-app` (`lan.rs`, Settings' Remote section, the
   title bar's "Remote on" and Stop).
 - **Never depends on:** another Strobe crate, `strobe-gfx`, a window or egui.
@@ -42,7 +61,7 @@ See [the user guide](../../docs/USER_GUIDE.md#control-another-strobe-desktop).
 
 | Item | What |
 |---|---|
-| `ClientMessage` | `hello`, `pair`, `authenticate`, `command`, `ping`. Internally tagged by `type`, `deny_unknown_fields`: an unknown type or field fails to parse rather than being ignored. |
+| `ClientMessage` | `hello`, `pair`, `authenticate`, `command`, `ping` (and the desktop extension's, and venue mode's `trust_start` and `trust_proof`). Internally tagged by `type`, `deny_unknown_fields`: an unknown type or field fails to parse rather than being ignored. |
 | `RemoteCommand` | The allowlist: no scene loading, files, scripts, shaders or settings. |
 | `ServerMessage` | `hello`, `paired`, `authenticated`, a revisioned `state` snapshot, `command_result`, `error`, `pong`. A `paired` after `authenticated` is a token rotation (D251). |
 | `negotiate`, `decode_client`, `ServerMessage::error` | Version 1 to `PROTOCOL_VERSION`, a bounded and validated decode (`MAX_MESSAGE_BYTES` 4096, `MAX_SECRET_LEN` 128), errors cut to `MAX_ERROR_LEN` (D236). |
@@ -51,12 +70,14 @@ See [the user guide](../../docs/USER_GUIDE.md#control-another-strobe-desktop).
 | `server::net` | `scope` (loopback, private, link-local, every interface, public), `lan_address`, `host_matches`. |
 | `pairing::Pairing` | The six-digit code, its attempt limit and expiry, and requests waiting for Approve or Deny (D251). |
 | `clients::Clients` | Paired clients in `remote-clients.json`: token digests, rotation, revocation (D251). |
+| `trust::TrustSecret`, `Challenge`, `Limiter` | The venue trust file (make, load, parse), the single-use HMAC challenge, and the failed-proof limiter (D288). |
 | `secret::Token` | A 256-bit token that prints as `***` and is not `Serialize`. |
 | `client::Connection` | Native worker transport: private IP address, bounded handshake/frame reader, random client masks and socket timeouts. |
 | `desktop::Desktop` | Host opt-in, exclusive connection lease, bounded ordered UI inputs and latest shared image/explicit clipboard output. |
 
 The optional desktop extension adds `pair_desktop`, `desktop_open`,
-`desktop_input`, `desktop_frame` and `desktop_clipboard`. Original protocol
+`desktop_input`, `desktop_frame` and `desktop_clipboard`; venue mode adds
+`trust_start`, `trust_challenge` and `trust_proof`. Original protocol
 v1 messages retain their exact wire representation. A host without the
 extension refuses the new message instead of executing a partial command.
 Native tokens are held only in the controller process and use the same

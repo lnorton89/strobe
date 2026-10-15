@@ -214,7 +214,13 @@ impl Branches {
     /// The state at the start of the user's code on an ES context: `GL_ES`
     /// and the preamble's macros defined.
     pub fn for_es(preamble: &str) -> Self {
-        let mut branches = Self::dialect(true);
+        Self::for_dialect(true, preamble)
+    }
+
+    /// The state at the start of the user's code: `GL_ES` on ES only, and
+    /// the preamble's macros defined.
+    pub fn for_dialect(es: bool, preamble: &str) -> Self {
+        let mut branches = Self::dialect(es);
         for line in preamble.lines() {
             if let Some(rest) = line.trim_start().strip_prefix('#') {
                 branches.follow(rest);

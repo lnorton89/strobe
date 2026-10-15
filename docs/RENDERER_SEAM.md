@@ -5,7 +5,7 @@ what a second backend would have to provide, and where the GL path leaks
 past that line today. It defines the seam; it does not build one. No trait
 or abstraction layer exists in the code. The GL 3.3 path and ANGLE are the
 only backends (D1). The G-03 spike found no GLSL front end that could feed
-another one yet (D255, `research/g03-frontends/README.md`).
+another one yet (D255, `docs/research/g03-frontends/README.md`).
 
 An interface written before a second implementation exists is guesswork,
 and a guess on the frame path costs every frame. So the rule is: when a

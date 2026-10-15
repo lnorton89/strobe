@@ -6,7 +6,7 @@ in [DECISIONS.md](DECISIONS.md), the evidence-based gap list in
 [STATUS_AUDIT.md](STATUS_AUDIT.md), and real-hardware results in
 [hardware/T480.md](hardware/T480.md).
 
-_Last updated: 2026-10-14 (the control window follows Synesthesia's layout, D281-D285; v0.1.0 tagged and published; earlier claims reconciled with D199-D238 and the T480 and TORNADO records)._
+_Last updated: 2026-10-15 (Linux support documented, with a Nix flake, D295; one click on a scene card makes it live, and LIB has Scenes and Controls pages, D291); 2026-10-14 (the control window follows Synesthesia's layout, D281-D285; v0.1.0 tagged and published; earlier claims reconciled with D199-D238 and the T480 and TORNADO records)._
 
 ## Now
 
@@ -24,7 +24,7 @@ which backend proved a claim.
 | `strobe-gfx` | Native GL and ANGLE context providers, headless EGL, multipass and ping-pong, implicit final pass, images, GPU timer queries, robust contexts and reset status (D66) | llvmpipe; T480 native and ANGLE |
 | `strobe-bench` | Timings, frames, contact sheet; headless, window and auto contexts (D70-D72), now `strobe_gfx::offscreen` (D140) | llvmpipe; T480 ([BENCHMARKS.md](BENCHMARKS.md)) |
 | `strobe-app` | Control window (maximized) and output window on one context; the output starts hidden and the scene frame runs on its own schedule (D96); **Contextual Perform stage 1** (D130-D138): rail, custom title bar with health readouts, preview, transport (prev, next, blackout; hold shown as not wired), first-controls macros, and contextual panes for the scene browser (search, health filter, Preview apart from Load), inspector, diagnostics, import and settings, with saved layout, a focus-aware keyboard model and themes; `--diagnose`, adaptive resolution (D64), context-loss recovery with ANGLE fail-over (D66) | Xvfb (screenshots at 1280x720 and 1440x900 for every state, xdotool for keys); T480: smoke tests, recovery on real WGL (Task 8), hidden output, F11 and the close button (Task 9), the Perform UI at 150% scaling (Task 12) |
-| `strobe-app` layout | **Synesthesia-style control window** (D281-D285): a 60-point rail that switches the main view (PLAY, LIB, GET, LIST, EDIT, MAP, DIAG, SET), a persistent side panel at 31% of the window (preview, status strip with output, fullscreen, fps, audio level and snapshot, the fav slots in reach from every tab, and Playlist, Controls, Presets and Edit icon tabs), the library as a grid with a toolbar, a filter row (count, search, sort and direction, favourites, health) and caption cards (title, author, "..." menu, Synesthesia marker, D271), and a help bar under the transport and BLACKOUT, which stay put | Headless shell tests (overflow, nothing over BLACKOUT, no text over text) on every state at ten sizes, and llvmpipe screenshots; **not yet seen on a real Windows display or the T480** (U-09 at 150%) |
+| `strobe-app` layout | **Synesthesia-style control window** (D281-D285): a 60-point rail that switches the main view (PLAY, LIB, GET, LIST, EDIT, MAP, DIAG, SET), a persistent side panel at 31% of the window (preview, status strip with output, fullscreen, fps, audio level and snapshot, the fav slots in reach from every tab, and Playlist, Controls, Presets and Edit icon tabs), the library as a grid with a toolbar, a filter row (count, search, sort and direction, favourites, health) and caption cards (title, author, "..." menu, Synesthesia marker, D271), and a help bar under the transport and BLACKOUT, which stay put. **D291:** one click on a card makes it live (a double-click is one load; Enter on a focused card too; Preview moved to the card menu and the palette), and LIB switches between **Scenes** and a large, touch-sized **Controls** page (the same widgets as the panel's tab) with a segmented switch, Ctrl+L or the palette; the colour swatch, zero-wide before, can be clicked again | Headless shell tests (overflow, nothing over BLACKOUT, no text over text) on every state at ten sizes, and llvmpipe screenshots; **not yet seen on a real Windows display or the T480** (U-09 at 150%) |
 | `strobe-audio` | Capture with retry and synthetic fallback, analysis, spectrum and level-trail textures, tap tempo (D20-D23, D61) | T480 live mic at 48 kHz |
 | `strobe-script` | QuickJS host: events, `update`, controls, `setUniform` compiled in at load, budget and faults (D62) | Xvfb; T480 (`11-script-orbits`) |
 | `strobe-diag` | Session logs, structured failures, panic reports, out-of-process minidumps, GL debug output (D40-D45) | Linux; T480 (`overflow` gives a `.dmp`, bug 2) |
@@ -37,6 +37,32 @@ which backend proved a claim.
 
 ### In flight
 
+- **Linux support (2026-10-15, D295), documented and built, not yet seen on
+  real Linux hardware:** the README has a Linux section (Debian and Ubuntu
+  packages verified on a clean Ubuntu 24.04, Fedora and Arch names from the
+  package databases, Wayland and X11, graphics, audio, WSL2), `flake.nix` gives
+  a dev shell, a software-GL shell and a wrapped package for x86_64 and
+  aarch64 Linux (built and run on x86_64 under Xvfb and Weston), and
+  COMPATIBILITY has the rows. Open, in STATUS_AUDIT's "P1: Linux": a real
+  Linux GPU, ALSA, PipeWire and PulseAudio capture, MIDI hardware, NixOS, and
+  WSL2 with WSLg on the AMD desktop.
+
+- **Venue mode (2026-10-15, D288):** a headless show machine is controlled
+  from a laptop with no click at it. Built: `--allow-desktop-control`,
+  `--remote-trust FILE` and `--make-remote-trust FILE` on the host; a trust
+  file of 32 OS-random bytes; trusted pairing by HMAC-SHA256 challenge and
+  response (the secret is never on the wire, nonce single-use, constant-time
+  compare); per-address and global backoff on failed proofs; a trusted
+  pairing is per connection, listed as *trusted*, revocable for the run, and
+  ends with the kill switch; a launch-time `--remote` retries until the
+  network is up. **Controller side built (D294):** `strobe --control
+  HOST:PORT --remote-trust FILE` opens straight into the viewer; Settings >
+  Control another Strobe has "Use a trust file" (the path is remembered, never
+  the secret); the proof is made only for the controller's own `trust_start`;
+  a stable controller id; and a trusted connection that drops retries by
+  itself (1 s, 2 s, 4 s ... 15 s) as a `Stage::Reconnecting` on D286's viewer
+  until Disconnect, stopping with the reason on a refusal. Next: a two-machine
+  soak on the T480 and the JaJa mini PC.
 - **Full desktop remote control (2026-10-13, D275):** native Strobe instances
   can mirror and operate another instance's complete control window,
   including the editor and host file operations. Built on `strobe-remote`'s
@@ -57,7 +83,16 @@ which backend proved a claim.
   section with a Ctrl+K entry, and the host counts only authenticated
   clients as connected. The T480 to RX 580 re-test of these states is open.
 
-- **AMD native WGL renders black above about 160x90 offscreen (D289), cause
+- **Control frames without paints (2026-10-15, D290), built, not yet re-run
+  on the mini PC:** at the JaJa show the fullscreen output took every
+  `WM_PAINT`, so the control window ran 0 frames a minute and the playlist,
+  UI actions and desktop remote stopped with it (fca44a5 restarted only the
+  playlist). When a control redraw request goes unanswered for 250 ms and
+  4 loop passes, `about_to_wait` now runs the whole control frame itself, at
+  2 Hz (5 Hz with a desktop remote), until Windows paints it promptly again.
+  Open: the mini-PC verification in MINIPC.md.
+
+- **AMD native WGL renders black above about 160x90 offscreen (D296), cause
   open:** the mini-PC's Vega 3 draws 05-domain-warp correctly at 160x90 and
   black above it, and `neon_city` black at 160x90 (targets larger than the
   window). The code never draws to or reads from the default framebuffer
@@ -348,11 +383,29 @@ Each item names its acceptance test. Evidence is in [STATUS_AUDIT.md](STATUS_AUD
    *Stages 1 and 2 done (D255), 2026-10-13:*
    - **The seam** is a contract, [RENDERER_SEAM.md](RENDERER_SEAM.md), with
      no code moved.
-   - **The spike** (`research/g03-frontends/`) rules naga out: it has no
+   - **The spike** (`docs/research/g03-frontends/`) rules naga out: it has no
      combined samplers in either front end, so 0 of 51 passes go through
      its GLSL input. glslang -> SPIR-V -> SPIRV-Cross is viable as a front
      end: 51 of 51 to SPIR-V, HLSL and MSL for 50.
    - **No backend is started:** that waits for a platform that needs one.
+
+   *Follow-up (D292), 2026-10-15:*
+   - **The full corpus agrees with the spike.** The owner's 90 Synesthesia
+     scenes plus the library, 120 scenes and 288 passes: naga's GLSL input
+     takes 0. glslang takes all 227 corpus passes, and SPIRV-Cross writes
+     HLSL and MSL for every one.
+   - **naga 30.0.1 is still the newest**, with no combined-sampler work.
+     Splitting the samplers in SPIR-V first gets naga 60 of 60 library
+     passes but only 56 of 227 corpus passes.
+   - **The second backend is ANGLE's.** ANGLE's Vulkan backend, already
+     inside the shipped Electron build, rendered the library and the
+     corpus with no code change (`ANGLE_DEFAULT_PLATFORM=vulkan`, on
+     lavapipe). ANGLE's Metal backend is the macOS answer, and needs an EGL
+     provider of our own because glutin has no EGL on Apple.
+   - See [research/angle-backends.md](research/angle-backends.md).
+   - **Next:** backlog G-05 to G-07 (ANGLE-Vulkan on the T480 and TORNADO,
+     a backend-type choice in `--gl`, ANGLE-Metal on a Mac). A new
+     renderer (G-04) stays deferred.
 
 ### Auto-generated controls (stage 1 built)
 
@@ -504,8 +557,10 @@ never per frame.
   - `srgb` textures: not decoded (Q16);
   - packing built-ins on a 3.30 context: not rewritten. Implicit
     int-to-float is written out by D199's typed rewrite (R8).
-- A resize restarts `iTime` at `TIME` and `iFrame` at 0 (D91), which is a
-  visible jump at a non-default Speed.
+- A resize restarts `iTime` at `TIME` and `iFrame` at 0 only when it wipes
+  a buffer that reads them (`resize` on an import with buffers, D91), which a
+  buffer initialising on `iFrame == 0` needs. An import whose Image pass
+  alone reads time, and any `resize_keeping`, keeps the clock (D287).
 - Every buffer is double-buffered, even one that never reads itself (D95).
 
 ### Playlists (stages 1 and 2)

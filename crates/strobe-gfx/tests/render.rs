@@ -463,6 +463,33 @@ fn a_non_constant_global_initializer_compiles_in_both_dialects() -> Result<()> {
 }
 
 #[test]
+fn a_global_initialized_from_the_coordinates_sees_them_in_both_dialects() -> Result<()> {
+    // D293: a global set from `_uv` was read before main set `_uv`, so on
+    // desktop it was (0, 0) on every pixel and the scene rendered black.
+    // Near the centre `_uv` is about (0.5, 0.5), so red is about 128 and
+    // green about 64 (the 32x18 target's centre pixel is half a texel off
+    // either way); broken, both are 0. `t0` is TIME, 0.
+    let shader = "vec2 uv = _uv;\nvec2 half_uv = uv * 0.5;\nfloat t0 = TIME;\n\
+                  vec4 renderMain() { return vec4(uv.x, half_uv.y, t0, 1.0); }\n";
+    for api in BOTH {
+        for specialise_passes in [true, false] {
+            let options = Options {
+                specialise_passes,
+                ..Options::default()
+            };
+            let Some(px) = render_center(api, options, "{}", shader, 1)? else {
+                continue;
+            };
+            assert!(
+                (112..=144).contains(&px[0]) && (48..=80).contains(&px[1]),
+                "{api:?} specialised={specialise_passes}: uv is the pixel's, not (0, 0); got {px:?}"
+            );
+        }
+    }
+    Ok(())
+}
+
+#[test]
 fn the_output_is_opaque_and_buffer_passes_keep_their_alpha() -> Result<()> {
     // D192: Synesthesia's `hello_world_start` returns vec4(1, 0, 0, 0) and is
     // meant to be red. The final pass is made opaque; a buffer pass keeps
@@ -1465,7 +1492,232 @@ fn a_lost_context_makes_the_readback_inert_and_its_drops_harmless() -> Result<()
     Ok(())
 }
 
-/// D289: offscreen rendering never depends on the window's drawable.
+/// A frame counter that must survive resizes (D287): a 1x1 double-buffered
+/// float pass that adds 1 per frame, a `$WIDTH` pass that records its own
+/// width, and a final pass that shows both. Red is the count over 50 and
+/// green is the `$WIDTH` pass's width over 255. The counter is a literal
+/// size (absolute, D194), so no resize changes its size.
+const COUNTER_JSON: &str = r#"{ "WIDTH": 64, "HEIGHT": 36,
+    "PASSES": [
+        {"TARGET": "count", "DOUBLE_BUFFER": true, "WIDTH": 1, "HEIGHT": 1,
+         "FLOAT": true, "FULL_PRECISION": true, "FILTER": "nearest"},
+        {"TARGET": "wide", "WIDTH": "$WIDTH", "HEIGHT": "$HEIGHT", "FILTER": "nearest"} ] }"#;
+
+const COUNTER_SHADER: &str = "vec4 renderMain() {\n\
+    if (PASSINDEX == 0) { return texture(count, vec2(0.5)) + vec4(1.0, 0.0, 0.0, 0.0); }\n\
+    if (PASSINDEX == 1) { return vec4(RENDERSIZE.x / 255.0, 0.0, 0.0, 1.0); }\n\
+    return vec4(texture(count, vec2(0.5)).r / 50.0, texture(wide, vec2(0.5)).r, 0.0, 1.0); }";
+
+/// The centre pixel of the player's output.
+fn centre_pixel(player: &ScenePlayer) -> Result<[u8; 4]> {
+    let [width, height] = player.render_size();
+    let pixels = player.read_output();
+    let offset = ((height as usize / 2) * width as usize + width as usize / 2) * 4;
+    let px = pixels
+        .get(offset..offset + 4)
+        .ok_or_else(|| anyhow!("readback too short"))?;
+    Ok([px[0], px[1], px[2], px[3]])
+}
+
+/// What the counter scene shows after `count` frames: the count scaled to
+/// 8 bits, as the final pass writes it.
+fn counter_byte(count: u32) -> u8 {
+    (count as f32 / 50.0 * 255.0).round() as u8
+}
+
+#[test]
+fn a_resize_keeps_the_passes_whose_size_it_does_not_change() -> Result<()> {
+    for api in BOTH {
+        for keeping in [false, true] {
+            let Some(headless) = context(api)? else {
+                continue;
+            };
+            let gl = headless.gl();
+            let caps = Caps::from_info(gl.info());
+            let scene = folder(COUNTER_JSON, COUNTER_SHADER)?;
+            let controls = ControlBank::new(scene.def.controls.clone())?;
+            let label = format!("{api:?} keeping={keeping}");
+            let mut player = ScenePlayer::new(gl, &caps, &scene, [64, 36], Options::default())?;
+            // An odd count leaves the second of the two buffers current, so
+            // a resize that reset which one is current shows too.
+            let mut frame = 0_u64;
+            let mut counted = 0_u32;
+            for _ in 0..5 {
+                render_frame(&mut player, &controls, frame);
+                frame += 1;
+                counted += 1;
+            }
+            let px = centre_pixel(&player)?;
+            assert!(
+                px[0].abs_diff(counter_byte(counted)) <= 1 && px[1] == 64,
+                "{label}: before any resize expected count {counted} and width 64, got {px:?}"
+            );
+            // Resize down, up and down again, as the adaptive probe does,
+            // with a frame between each.
+            for (size, width) in [([32, 18], 32_u8), ([64, 36], 64), ([48, 27], 48)] {
+                if keeping {
+                    player.resize_keeping(size)?;
+                } else {
+                    player.resize(size)?;
+                }
+                render_frame(&mut player, &controls, frame);
+                frame += 1;
+                counted += 1;
+                let px = centre_pixel(&player)?;
+                assert_eq!(player.render_size(), size, "{label}: resized to {size:?}");
+                assert!(
+                    px[0].abs_diff(counter_byte(counted)) <= 1,
+                    "{label}: after resizing to {size:?} the counter should read {counted} \
+                     (byte {}), not restart; got {px:?}",
+                    counter_byte(counted)
+                );
+                assert_eq!(
+                    px[1], width,
+                    "{label}: the $WIDTH pass follows the resize to {size:?}; got {px:?}"
+                );
+            }
+            // Asking for the size it already has changes nothing either.
+            player.resize([48, 27])?;
+            render_frame(&mut player, &controls, frame);
+            counted += 1;
+            let px = centre_pixel(&player)?;
+            assert!(
+                px[0].abs_diff(counter_byte(counted)) <= 1,
+                "{label}: a no-op resize keeps counting; got {px:?}"
+            );
+            if let Some(code) = gl.error() {
+                return Err(anyhow!("{label}: GL error 0x{code:x}"));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The counter of [`COUNTER_JSON`], read this time by the `$WIDTH` pass,
+/// which the final pass shows: red is the count over 50.
+const READ_COUNTER_SHADER: &str = "vec4 renderMain() {\n\
+    if (PASSINDEX == 0) { return texture(count, vec2(0.5)) + vec4(1.0, 0.0, 0.0, 0.0); }\n\
+    if (PASSINDEX == 1) { return vec4(texture(count, vec2(0.5)).r / 50.0, 0.0, 0.0, 1.0); }\n\
+    return vec4(texture(wide, vec2(0.5)).rgb, 1.0); }";
+
+#[test]
+fn a_resize_restarts_an_unchanged_pass_that_a_restarted_pass_reads() -> Result<()> {
+    // The `$WIDTH` pass restarts from black and reads the counter, so the
+    // counter restarts with it (D287), as a Shadertoy buffer's `iFrame`
+    // clock must (D91). `resize_keeping` restarts nothing, so it keeps it.
+    for api in BOTH {
+        for keeping in [false, true] {
+            let Some(headless) = context(api)? else {
+                continue;
+            };
+            let gl = headless.gl();
+            let caps = Caps::from_info(gl.info());
+            let scene = folder(COUNTER_JSON, READ_COUNTER_SHADER)?;
+            let controls = ControlBank::new(scene.def.controls.clone())?;
+            let label = format!("{api:?} keeping={keeping}");
+            let mut player = ScenePlayer::new(gl, &caps, &scene, [64, 36], Options::default())?;
+            for frame in 0..5 {
+                render_frame(&mut player, &controls, frame);
+            }
+            if keeping {
+                player.resize_keeping([32, 18])?;
+            } else {
+                player.resize([32, 18])?;
+            }
+            render_frame(&mut player, &controls, 5);
+            let expected = counter_byte(if keeping { 6 } else { 1 });
+            let px = centre_pixel(&player)?;
+            assert!(
+                px[0].abs_diff(expected) <= 1,
+                "{label}: the counter the $WIDTH pass reads should show byte {expected}; got {px:?}"
+            );
+            if let Some(code) = gl.error() {
+                return Err(anyhow!("{label}: GL error 0x{code:x}"));
+            }
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn restart_clears_every_pass_a_resize_would_keep() -> Result<()> {
+    for api in BOTH {
+        let Some(headless) = context(api)? else {
+            continue;
+        };
+        let gl = headless.gl();
+        let caps = Caps::from_info(gl.info());
+        let scene = folder(COUNTER_JSON, COUNTER_SHADER)?;
+        let controls = ControlBank::new(scene.def.controls.clone())?;
+        let mut player = ScenePlayer::new(gl, &caps, &scene, [64, 36], Options::default())?;
+        for frame in 0..5 {
+            render_frame(&mut player, &controls, frame);
+        }
+        player.restart()?;
+        render_frame(&mut player, &controls, 0);
+        let px = centre_pixel(&player)?;
+        assert!(
+            px[0].abs_diff(counter_byte(1)) <= 1 && px[1] == 64,
+            "{api:?}: after a restart the literal-size counter starts again at 1; got {px:?}"
+        );
+        if let Some(code) = gl.error() {
+            return Err(anyhow!("{api:?}: GL error 0x{code:x}"));
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn a_one_byte_texture_whose_rows_are_not_four_bytes_uploads_tightly_packed() -> Result<()> {
+    // `texture_2d` and `upload` take tightly packed rows. GL's default
+    // unpack alignment is 4, so without setting it a 3-texel R8 row is read
+    // as 4 bytes: the second row starts one byte late and its last texel
+    // comes from past the end of the slice. The player's own silent 1x2
+    // Shadertoy audio texture is such a case.
+    use strobe_gfx::gl::{Format, Sampling, Texture};
+    for api in BOTH {
+        let Some(headless) = context(api)? else {
+            continue;
+        };
+        let gl = headless.gl();
+        let red = |texture: &Texture| -> Result<Vec<u8>> {
+            let fbo = gl
+                .framebuffer(texture)
+                .map_err(|e| anyhow!("{api:?}: framebuffer: {e}"))?;
+            let pixels = gl.read_rgba8(&fbo, 3, 2);
+            Ok(pixels.as_chunks::<4>().0.iter().map(|px| px[0]).collect())
+        };
+        let texture = gl
+            .texture_2d(
+                3,
+                2,
+                Format::R8,
+                Sampling::LINEAR_CLAMP,
+                Some(&[10, 20, 30, 40, 50, 60]),
+            )
+            .map_err(|e| anyhow!("{api:?}: texture: {e}"))?;
+        let allocated = red(&texture)?;
+        assert_eq!(
+            allocated,
+            vec![10, 20, 30, 40, 50, 60],
+            "{api:?}: the allocation reads its rows tightly packed"
+        );
+        gl.upload(&texture, &[70, 80, 90, 100, 110, 120])
+            .map_err(|e| anyhow!("{api:?}: upload: {e}"))?;
+        let uploaded = red(&texture)?;
+        assert_eq!(
+            uploaded,
+            vec![70, 80, 90, 100, 110, 120],
+            "{api:?}: an upload reads its rows tightly packed"
+        );
+        if let Some(code) = gl.error() {
+            return Err(anyhow!("{api:?}: GL error 0x{code:x}"));
+        }
+    }
+    Ok(())
+}
+
+/// D296: offscreen rendering never depends on the window's drawable.
 ///
 /// On AMD's native WGL a hidden window's context rendered black above about
 /// 160x90. A driver can only behave differently from llvmpipe here if the

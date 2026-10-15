@@ -58,6 +58,18 @@ pub fn show(ui: &mut Ui, theme: &Palette, panel: &mut LanPanel<'_>, actions: &mu
         actions.push(Action::SetDesktopAccess(desktop_enabled));
     }
     ui.label(egui::RichText::new("Grants desktops you approve the entire Strobe UI, editor and file saves included, but not pairing or network settings. One controller at a time. Switching it off, or stopping the remote, ends every desktop pairing.").small().color(theme::rgb(theme.text_muted)));
+    if view.venue {
+        ui.label(
+            egui::RichText::new(
+                "Venue mode: this Strobe was started with a trust file. While full desktop \
+                 control is on, a controller that holds the same file gets full control with no \
+                 approval here. Revoke ends its session and refuses that controller until Strobe \
+                 restarts; Revoke all, or switching full desktop control off, closes the door.",
+            )
+            .small()
+            .color(theme::rgb(theme.text_muted)),
+        );
+    }
 }
 
 /// Settings' "Control another Strobe" section, heading included: the form that makes this
@@ -76,7 +88,8 @@ pub fn control(ui: &mut Ui, theme: &Palette, panel: &mut LanPanel<'_>, actions: 
             egui::RichText::new(
                 "Operate another computer's whole Strobe window from here. On the host: Settings \
                  > Remote, Start remote, tick Allow full desktop control, then Pair a device to \
-                 get a six-digit code. Type its address and that code below.",
+                 get a six-digit code. Type its address and that code below. For an unattended \
+                 show machine, use a trust file instead (venue mode).",
             )
             .small()
             .color(theme::rgb(theme.text_muted)),
@@ -91,22 +104,40 @@ pub fn control(ui: &mut Ui, theme: &Palette, panel: &mut LanPanel<'_>, actions: 
             if reveal {
                 address.request_focus();
             }
-            ui.add(
-                egui::TextEdit::singleline(&mut panel.controller.code)
-                    .password(true)
-                    .hint_text("Pairing code")
-                    .desired_width(110.0),
-            );
+            if panel.controller.use_trust {
+                ui.add(
+                    egui::TextEdit::singleline(&mut panel.controller.trust_path)
+                        .hint_text("Trust file, e.g. C:\\Users\\you\\venue.trust")
+                        .desired_width(260.0),
+                );
+            } else {
+                ui.add(
+                    egui::TextEdit::singleline(&mut panel.controller.code)
+                        .password(true)
+                        .hint_text("Pairing code")
+                        .desired_width(110.0),
+                );
+            }
             if widgets::button(ui, theme, None, "Connect to desktop").clicked() {
                 actions.push(Action::ConnectDesktop);
             }
             address.rect
         });
+        ui.checkbox(
+            &mut panel.controller.use_trust,
+            "Use a trust file (venue mode)",
+        );
         ui.label(
-            egui::RichText::new(
+            egui::RichText::new(if panel.controller.use_trust {
+                "The host must have been started with the same file (strobe --remote \
+                 --allow-desktop-control --remote-trust FILE). Nobody needs to approve \
+                 anything there, and if the connection drops, or the host restarts, this \
+                 keeps trying again until you press Disconnect. Only the file's path is \
+                 remembered, never its contents."
+            } else {
                 "The port is 47812 unless the host says otherwise. Leave the code blank to \
-                 reconnect to a host you paired with earlier in this session.",
-            )
+                 reconnect to a host you paired with earlier in this session."
+            })
             .small()
             .color(theme::rgb(theme.text_muted)),
         );
@@ -281,6 +312,12 @@ fn paired(ui: &mut Ui, theme: &Palette, panel: &LanPanel<'_>, actions: &mut Vec<
     for (client, connected) in &view.clients {
         ui.horizontal_wrapped(|ui| {
             ui.label(&client.label);
+            if client
+                .label
+                .starts_with(strobe_remote::desktop::TRUSTED_LABEL_PREFIX)
+            {
+                widgets::status_chip(ui, Icon::Info, "trusted", theme.warning);
+            }
             if *connected {
                 widgets::status_chip(ui, Icon::Check, "connected", theme.success);
             }

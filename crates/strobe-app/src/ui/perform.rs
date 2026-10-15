@@ -340,7 +340,7 @@ fn no_scene(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, area: Rect) {
     } else {
         (
             "No scene playing",
-            "Open the library and load one, or press the right arrow for the first.",
+            "Click one in the library to make it live, or press the right arrow for the first.",
         )
     };
     centred_status(ui, theme, area, Icon::Perform, title, detail);

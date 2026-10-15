@@ -34,6 +34,7 @@ use strobe_remote::bridge::{self, AppEnd, Incoming, Snapshot};
 use strobe_remote::clients::{ClientInfo, Clients};
 use strobe_remote::pairing::Request;
 use strobe_remote::server::{Server, ServerConfig, net};
+use strobe_remote::trust::TrustSecret;
 use strobe_remote::{AudioStatus, RemoteCommand};
 
 /// Commands taken off the bridge in one frame. A phone sends a few a
@@ -46,6 +47,10 @@ pub const PUBLISH_PERIOD: Duration = Duration::from_millis(100);
 
 /// Commands the bridge holds before the listener answers `Busy`.
 const QUEUE: usize = 16;
+
+/// How long a listener that was asked for at launch waits before trying to
+/// start again, when the first try failed (no network yet, say).
+const LAUNCH_RETRY: Duration = Duration::from_secs(5);
 
 /// The longest scene name sent to a phone, in characters.
 const MAX_NAME: usize = 120;
@@ -129,6 +134,10 @@ pub struct LanView {
     /// A paired desktop holds the input lease: someone elsewhere is
     /// operating this window (D275). The title bar says so.
     pub desktop_controlled: bool,
+    /// The host was started with a trust file (D288): a controller that
+    /// proves it holds it is paired for full desktop control, without an
+    /// approval, while full desktop access is on.
+    pub venue: bool,
 }
 
 /// The LAN remote.
@@ -149,6 +158,15 @@ pub struct Lan {
     pub port: String,
     /// The operator's HTTPS reverse proxy's public name (D258), if any.
     proxied: Option<String>,
+    /// The venue trust file's secret, read once at launch (D288). There is
+    /// deliberately no way to set it from the UI.
+    trust: Option<TrustSecret>,
+    /// `--allow-desktop-control`: switch full desktop access on the first
+    /// time the listener starts. Consumed then, so stopping and starting
+    /// the remote by hand later does not turn it back on.
+    desktop_at_start: bool,
+    /// A launch-time start that failed is tried again at this time.
+    retry_at: Option<Instant>,
     note: String,
     failed: bool,
     published: Option<Instant>,
@@ -168,6 +186,9 @@ impl Lan {
             address: bind.map(|ip| ip.to_string()).unwrap_or_default(),
             port: port.to_string(),
             proxied: None,
+            trust: None,
+            desktop_at_start: false,
+            retry_at: None,
             note: "Off".to_string(),
             failed: false,
             published: None,
@@ -182,6 +203,40 @@ impl Lan {
     pub fn behind_proxy(mut self, name: Option<String>) -> Self {
         self.proxied = name;
         self
+    }
+
+    /// Venue mode (D288): the trust file's secret, and whether full desktop
+    /// access comes on with the first start (`--allow-desktop-control`).
+    #[must_use]
+    pub fn venue(mut self, trust: Option<TrustSecret>, allow_desktop: bool) -> Self {
+        self.trust = trust;
+        self.desktop_at_start = allow_desktop;
+        self
+    }
+
+    /// The start `--remote` asks for. If it fails, for instance because the
+    /// network is not up yet on a machine that has just booted, it is tried
+    /// again every few seconds until it works or the operator stops or
+    /// starts the remote by hand. Only the first failure is reported.
+    pub fn start_at_launch(&mut self, now: Instant) {
+        self.start();
+        if !self.running() {
+            self.retry_at = Some(now + LAUNCH_RETRY);
+            log::warn!("remote: will keep trying to start every {LAUNCH_RETRY:?}");
+        }
+    }
+
+    /// Once a frame: retries a launch-time start that failed.
+    pub fn maintain(&mut self, now: Instant) {
+        let Some(at) = self.retry_at else {
+            return;
+        };
+        if self.server.is_some() {
+            self.retry_at = None;
+        } else if now >= at {
+            self.start_inner(false);
+            self.retry_at = (!self.running()).then_some(now + LAUNCH_RETRY);
+        }
     }
 
     /// Whether the listener is running.
@@ -242,6 +297,11 @@ impl Lan {
     /// Starts the listener. Starting a running one does nothing. A failure
     /// is shown in Settings and reported, and the remote stays off.
     pub fn start(&mut self) {
+        self.retry_at = None;
+        self.start_inner(true);
+    }
+
+    fn start_inner(&mut self, report: bool) {
         if self.server.is_some() {
             return;
         }
@@ -249,9 +309,12 @@ impl Lan {
         let clients = self.clients();
         let started = target.and_then(|(ip, port)| {
             let (remote, app_end) = bridge::bridge(QUEUE);
-            app_end.desktop.enable(self.desktop_enabled);
+            app_end
+                .desktop
+                .enable(self.desktop_enabled || self.desktop_at_start);
             let config = ServerConfig {
                 proxied: self.proxied.clone(),
+                trust: self.trust.clone(),
                 ..ServerConfig::new(ip, port)
             };
             Server::start(config, remote, clients)
@@ -265,6 +328,10 @@ impl Lan {
                     None => format!("On: {}", server.url()),
                 };
                 self.failed = false;
+                if std::mem::take(&mut self.desktop_at_start) {
+                    self.desktop_enabled = true;
+                    log::info!("remote: full desktop access is on (--allow-desktop-control)");
+                }
                 self.server = Some(server);
                 self.app_end = Some(app_end);
                 self.published = None;
@@ -272,11 +339,15 @@ impl Lan {
             Err(error) => {
                 self.note = error.clone();
                 self.failed = true;
-                failure::report(
-                    Failure::new(Subsystem::Io, "remote")
-                        .message(error)
-                        .action("the LAN remote stays off"),
-                );
+                if report {
+                    failure::report(
+                        Failure::new(Subsystem::Io, "remote")
+                            .message(error)
+                            .action("the LAN remote stays off"),
+                    );
+                } else {
+                    log::debug!("remote: still not started: {error}");
+                }
             }
         }
     }
@@ -284,6 +355,8 @@ impl Lan {
     /// Stops the listener: every phone is dropped at once and the port is
     /// freed. Stopping a stopped one does nothing.
     pub fn stop(&mut self) {
+        self.retry_at = None;
+        self.desktop_at_start = false;
         if let Some(app_end) = &self.app_end {
             app_end.desktop.enable(false);
         }
@@ -447,6 +520,7 @@ impl Lan {
                 note: self.note.clone(),
                 failed: self.failed,
                 clients: clients.into_iter().map(|c| (c, false)).collect(),
+                venue: self.trust.is_some(),
                 ..LanView::default()
             };
         };
@@ -475,6 +549,7 @@ impl Lan {
                 .collect(),
             connected: authenticated(&connections),
             desktop_controlled: self.desktop_controlled(),
+            venue: self.trust.is_some(),
         }
     }
 }
@@ -692,6 +767,72 @@ mod tests {
         lan.stop();
         assert!(!lan.running(), "stopped");
         assert!(lan.view().code.is_none(), "and the code is gone");
+        Ok(())
+    }
+
+    #[test]
+    fn launch_flags_turn_desktop_access_on_once_and_the_view_says_venue() -> Result<()> {
+        let secret = TrustSecret::generate()?;
+        let mut lan = Lan::new(std::env::temp_dir(), None, 0, false).venue(Some(secret), true);
+        assert!(lan.view().venue, "a trust file is loaded");
+        assert!(
+            !lan.desktop_enabled,
+            "nothing is on before the listener starts"
+        );
+        lan.address = "127.0.0.1".into();
+        lan.port = "47814".into();
+        lan.start_at_launch(Instant::now());
+        if !lan.running() {
+            // The port is taken on this machine; nothing else to check.
+            return Ok(());
+        }
+        assert!(lan.desktop_enabled, "--allow-desktop-control took effect");
+        assert!(
+            lan.desktop().is_some_and(|desktop| desktop.enabled()),
+            "and the bridge agrees"
+        );
+        lan.stop();
+        assert!(!lan.desktop_enabled, "stopping switches it off");
+        lan.start();
+        if lan.running() {
+            assert!(
+                !lan.desktop_enabled,
+                "starting again by hand does not turn it back on"
+            );
+        }
+        lan.stop();
+        let mut plain = Lan::new(std::env::temp_dir(), None, 0, false);
+        assert!(!plain.view().venue, "no trust file, no venue");
+        Ok(())
+    }
+
+    #[test]
+    fn a_launch_time_start_that_fails_is_retried_until_it_works() -> Result<()> {
+        let mut lan = Lan::new(std::env::temp_dir(), None, 0, false);
+        lan.address = "not an address".into();
+        lan.port = "47815".into();
+        let t0 = Instant::now();
+        lan.start_at_launch(t0);
+        assert!(!lan.running() && lan.view().failed, "the first try failed");
+        lan.maintain(t0 + Duration::from_secs(1));
+        assert!(!lan.running(), "not yet time");
+        lan.address = "127.0.0.1".into();
+        lan.maintain(t0 + LAUNCH_RETRY + Duration::from_secs(1));
+        if !lan.running() {
+            // The port is taken on this machine; still scheduled, not lost.
+            assert!(lan.retry_at.is_some(), "it keeps trying");
+            return Ok(());
+        }
+        assert!(lan.retry_at.is_none(), "and stops once it works");
+        lan.stop();
+        // A hand start or stop ends the retrying.
+        let mut again = Lan::new(std::env::temp_dir(), None, 0, false);
+        again.address = "not an address".into();
+        again.start_at_launch(t0);
+        again.stop();
+        again.address = "127.0.0.1".into();
+        again.maintain(t0 + LAUNCH_RETRY * 2);
+        assert!(!again.running(), "a stopped remote is not restarted");
         Ok(())
     }
 }

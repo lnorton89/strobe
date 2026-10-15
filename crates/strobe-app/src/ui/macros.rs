@@ -43,12 +43,13 @@
 use super::controls;
 use super::map;
 use super::model::Action;
+use super::state::UiState;
 use super::theme::{self, SPACE_SM, SPACE_XS};
 use super::widgets;
 use crate::icon::Icon;
 use crate::palette::Palette;
 use crate::remote::Remote;
-use crate::workspace::{Pane, Panes};
+use crate::workspace::Pane;
 use egui::{CornerRadius, Rect, Sense, Stroke, StrokeKind, Ui, UiBuilder, Vec2};
 use strobe_io::target::{Flat, State, flatten, locate_control};
 use strobe_io::{Macro, Resolution, Target};
@@ -86,8 +87,8 @@ pub struct Strip<'a> {
     pub remote: &'a mut Remote,
     /// The playing scene's preset names.
     pub presets: &'a [String],
-    /// The pane model, for the XY button.
-    pub panes: &'a mut Panes,
+    /// The presentation state, for the XY button: it opens the controls.
+    pub view: &'a mut UiState,
 }
 
 /// What one card is about to draw, gathered before anything is mutated.
@@ -107,10 +108,10 @@ pub fn strip(ui: &mut Ui, theme: &Palette, strip: Strip<'_>, actions: &mut Vec<A
         mut meta,
         remote,
         presets,
-        panes,
+        view,
     } = strip;
     if remote.engine.macros.is_empty() {
-        legacy(ui, theme, scene, panes);
+        legacy(ui, theme, scene, view);
         return;
     }
     let evaluated = remote.evaluate(scene.as_deref(), meta.as_deref(), presets);
@@ -154,7 +155,7 @@ pub fn strip(ui: &mut Ui, theme: &Palette, strip: Strip<'_>, actions: &mut Vec<A
                         scene: scene.as_deref_mut(),
                         meta: meta.as_deref_mut(),
                     };
-                    if let Some(chosen) = cell(ui, theme, card, reach, remote, panes, actions) {
+                    if let Some(chosen) = cell(ui, theme, card, reach, remote, view, actions) {
                         intent = Some((card.found.id, chosen));
                     }
                 }
@@ -197,7 +198,7 @@ struct Reach<'a> {
 }
 
 /// The stage 1 strip: the playing scene's first controls.
-fn legacy(ui: &mut Ui, theme: &Palette, bank: Option<&mut ControlBank>, panes: &mut Panes) {
+fn legacy(ui: &mut Ui, theme: &Palette, bank: Option<&mut ControlBank>, view: &mut UiState) {
     let gap = ui.spacing().item_spacing.x;
     let count = cells_that_fit(ui.available_width(), gap);
     let Some(bank) = bank else {
@@ -220,7 +221,7 @@ fn legacy(ui: &mut Ui, theme: &Palette, bank: Option<&mut ControlBank>, panes: &
             };
             frame(ui, theme, None, |ui, width| {
                 header(ui, theme, "SCENE", &name, None, width);
-                control_body(ui, theme, bank, index, None, width, panes);
+                control_body(ui, theme, bank, index, None, width, view);
             });
         }
     });
@@ -346,7 +347,7 @@ fn cell(
     card: &Card,
     reach: Reach<'_>,
     remote: &Remote,
-    panes: &mut Panes,
+    view: &mut UiState,
     actions: &mut Vec<Action>,
 ) -> Option<Intent> {
     let found = &card.found;
@@ -399,7 +400,7 @@ fn cell(
             return;
         }
         let Ok(flat) = flat else { return };
-        body(ui, theme, &flat, reach, panes, width, actions);
+        body(ui, theme, &flat, reach, view, width, actions);
     });
     response.context_menu(|ui| {
         if ui.button("Learn a MIDI or OSC source").clicked() {
@@ -443,7 +444,7 @@ fn body(
     theme: &Palette,
     flat: &Flat<'_>,
     reach: Reach<'_>,
-    panes: &mut Panes,
+    view: &mut UiState,
     width: f32,
     actions: &mut Vec<Action>,
 ) {
@@ -458,7 +459,7 @@ fn body(
                 strobe_io::target::BankId::Meta => meta,
             };
             if let Some(bank) = bank {
-                control_body(ui, theme, bank, found.index, found.component, width, panes);
+                control_body(ui, theme, bank, found.index, found.component, width, view);
             }
         }
         Target::Command { id } => {
@@ -502,7 +503,7 @@ fn control_body(
     index: usize,
     component: Option<usize>,
     width: f32,
-    panes: &mut Panes,
+    view: &mut UiState,
 ) {
     let Some(def) = bank.defs().get(index).cloned() else {
         return;
@@ -573,7 +574,7 @@ fn control_body(
         }
         (ControlKind::Color { .. }, None) => {
             let mut rgb = target;
-            if ui.color_edit_button_rgb(&mut rgb).changed() {
+            if controls::swatch(ui, theme, &mut rgb, Vec2::new(44.0, 16.0)).changed() {
                 bank.set(index, None, &rgb);
             }
         }
@@ -584,11 +585,16 @@ fn control_body(
                 Icon::Controls,
                 "XY pad",
                 false,
-                "Open the controls pane: an XY pad needs more room than a macro cell",
+                "Show the scene's controls, where the XY pad has room: a macro cell is too small \
+                 for one",
             )
             .clicked()
             {
-                panes.open(Pane::Inspector);
+                // The Controls page, where the pad is large (D291). Opening
+                // the side panel alone showed it only if its Controls tab
+                // happened to be the chosen one.
+                view.panes.open(Pane::Browser);
+                view.library_page = super::browser::LibraryPage::Controls;
             }
         }
     }

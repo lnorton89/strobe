@@ -116,6 +116,30 @@ pub fn host_matches(host: &str, bound: SocketAddr) -> bool {
     }
 }
 
+/// Whether a `Host` header names `local`, the address this one connection
+/// actually arrived at: the same IP (a v4-mapped spelling counts as the v4
+/// address) and port, or `localhost` when it arrived on loopback.
+///
+/// [`host_matches`] is about the bind, and a listener on every interface
+/// takes any literal there. A trusted pairing's proof is bound to the
+/// `Host` (D288), so it needs this stricter check: otherwise a relay at
+/// another address could forward a controller's handshake to this host
+/// under the relay's own `Host`, and the proof would hold.
+pub fn host_is_local(host: &str, local: SocketAddr) -> bool {
+    let Some((name, port)) = split_host(host) else {
+        return false;
+    };
+    if port != local.port() {
+        return false;
+    }
+    let local_ip = local.ip().to_canonical();
+    if name.eq_ignore_ascii_case("localhost") {
+        return local_ip.is_loopback();
+    }
+    name.parse::<IpAddr>()
+        .is_ok_and(|ip| ip.to_canonical() == local_ip)
+}
+
 /// `host:port` or `[v6]:port` into its parts. A missing port is HTTP's 80.
 fn split_host(host: &str) -> Option<(&str, u16)> {
     if host.is_empty()
@@ -226,6 +250,32 @@ mod tests {
             "localhost on loopback"
         );
         assert!(host_matches("LOCALHOST:47812", loopback), "any case");
+        Ok(())
+    }
+
+    #[test]
+    fn a_host_is_local_only_at_the_address_the_connection_arrived_at() -> Result<()> {
+        let local: SocketAddr = "192.168.1.20:47812".parse()?;
+        assert!(host_is_local("192.168.1.20:47812", local), "exact");
+        assert!(
+            !host_is_local("10.0.0.5:47812", local),
+            "another literal, which a bind on every interface would take"
+        );
+        assert!(!host_is_local("192.168.1.20:47813", local), "another port");
+        assert!(
+            !host_is_local("localhost:47812", local),
+            "localhost, from off the machine"
+        );
+        assert!(!host_is_local("strobe.local:47812", local), "a name");
+        let mapped: SocketAddr = "[::ffff:192.168.1.20]:47812".parse()?;
+        assert!(
+            host_is_local("192.168.1.20:47812", mapped),
+            "a dual-stack socket's v4-mapped local address"
+        );
+        let loopback: SocketAddr = "127.0.0.1:47812".parse()?;
+        assert!(host_is_local("LOCALHOST:47812", loopback), "localhost");
+        let v6: SocketAddr = "[fe80::1]:47812".parse()?;
+        assert!(host_is_local("[fe80::1]:47812", v6), "v6");
         Ok(())
     }
 

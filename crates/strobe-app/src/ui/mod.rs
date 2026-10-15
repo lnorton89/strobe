@@ -38,9 +38,10 @@
 //!   preview, status strip and icon tabs), [`help`] (the bar along the
 //!   bottom) and [`transport`] with [`macros`]. [`perform`] draws the live preview, at full size as the
 //!   PLAY view and fitted inside the side panel.
-//! - The main views: [`browser`] (the library grid), [`import`],
-//!   [`playlist`], [`editor`], [`map`], [`diagnostics`] and [`settings`]
-//!   (with [`audio`]).
+//! - The main views: [`browser`] (the library: its Scenes page, the grid,
+//!   and its Controls page, which is [`inspector`] laid out large, D291),
+//!   [`import`], [`playlist`], [`editor`], [`map`], [`diagnostics`] and
+//!   [`settings`] (with [`audio`]).
 //! - The side panel's tabs: [`inspector`] (Controls and Edit, with
 //!   [`controls`]; [`tags`] is the tag row it shares with the browser and
 //!   import), [`presets`] and the playlist's [`playlist`] timeline.

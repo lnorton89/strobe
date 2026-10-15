@@ -353,18 +353,49 @@
 - **Acceptance:** current GL path remains behaviourally unchanged and benchmark baselines are comparable; no per-frame allocation or synchronous readback introduced.
 
 ### G-03 wgpu/Naga versus direct GLSL-to-SPIR-V spike
-- **Status:** Done, with a written go/no-go (D255, `research/g03-frontends/README.md`), on 26 scenes and 51 pass sources:
+- **Status:** Done, with a written go/no-go (D255, `docs/research/g03-frontends/README.md`), on 26 scenes and 51 pass sources:
   - **naga: no-go.** Its GLSL front end has no combined samplers, and its SPIR-V front end fails on loading them, so 0 of 51 pass the GLSL route and only the 11 passes that sample no texture pass the SPIR-V one.
   - **glslang -> SPIR-V -> SPIRV-Cross: viable as a front end.** 51 of 51 to GL SPIR-V, 50 of 51 to Vulkan SPIR-V, and HLSL and MSL from all 50.
 
-  Not measured, because no second renderer exists: image fidelity and frame time on another API. Left: the same run over the owner's 65 scenes on TORNADO.
+  Not measured, because no second renderer exists: image fidelity and frame time on another API.
+  - **Full corpus done (D292, 2026-10-15):** 120 scenes and 288 passes, the owner's 90 Synesthesia scenes included. naga's GLSL input takes 0 of 288. glslang takes all 227 corpus passes, and SPIRV-Cross writes HLSL and MSL for every one. naga 30.0.1 is still the newest. Splitting samplers in SPIR-V first lets naga take 60 of 60 library passes but only 56 of 227 corpus passes.
 - **Work:** run both candidates over the exact same corpus; report GLSL construct failures, image fidelity, load/compile time, frame time, binary size, dependency and maintenance cost; include Vulkan and platform path considerations for DX12/Metal/MoltenVK.
 - **Acceptance:** written go/no-go based on corpus results; no production backend enabled by default until the full compatibility and hardware matrix passes.
 
 ### G-04 Backend vertical slice and device-loss handling
-- **Status:** Deferred until G-01–G-03 justify implementation.
+- **Status:** Deferred, and narrowed by D292. Vulkan and Metal come
+  through ANGLE (G-05 to G-07) with no new renderer. This slice is for a
+  platform or feature ANGLE cannot serve, such as D3D12-only features,
+  compute, or a target with no GLES.
+  - If it is ever built, its front end is glslang -> SPIR-V -> SPIRV-Cross
+    (227 of 227 corpus passes, `docs/research/g03-frontends/README.md`'s
+    follow-up). It is not naga.
 - **Work:** behind a feature flag, implement one representative multipass feedback scene, audio texture, resize, async timing/readback and loss/recreate path; keep GL as fallback.
 - **Acceptance:** matching visual tests and load-time shader preparation on T480 and TORNADO; no regressions to GL/ANGLE; release claims distinguish Vulkan, DX12, Metal and MoltenVK support.
+
+### G-05 ANGLE's Vulkan backend on real GPUs
+- **Status:** Proven on CPU Vulkan in a container (D292, [research/angle-backends.md](research/angle-backends.md)). The unmodified bench rendered the 16 library scenes on lavapipe and SwiftShader, and the corpus harness ran the owner's 90 scenes on lavapipe, with `ANGLE_DEFAULT_PLATFORM=vulkan` and the pinned Electron's ANGLE. Not yet run on a GPU.
+- **Work:** on the T480 and TORNADO, with the DLLs the release ships plus Electron's `vulkan-1.dll` (or the driver's own in `System32`), set `ANGLE_DEFAULT_PLATFORM=vulkan` and run `strobe-bench --context window --gl angle` and `strobe-corpus --context window --dialect gles`. Compare each with ANGLE-D3D11 and native GL: images, frame times, compile times, and a 30-minute soak.
+- **Acceptance:** the renderer string names Vulkan, and the corpus matches ANGLE-D3D11's pass list. The frame times are recorded in BENCHMARKS.md, and a written verdict says whether Vulkan should ever be the fallback before D3D11.
+
+### G-06 Choose ANGLE's backend from `--gl`
+- **Status:** Not started (D292).
+- **Work:**
+  - `--gl angle-d3d11 | angle-vulkan | angle-gl | angle-metal` (with `angle` keeping today's default), shown in the diagnostics line.
+  - Each choice is offered only when ANGLE's client-extension string advertises it (`EGL_ANGLE_platform_angle_vulkan`, `_metal`, `_d3d`).
+  - The type is passed as `EGL_PLATFORM_ANGLE_TYPE_ANGLE`, either through a glutin patch (preferred, upstreamable: display attributes for the ANGLE platform) or through the environment variable, set by a leaf wrapper in `gl/` before any thread starts.
+  - D66's fail-over order stays native, then ANGLE's default.
+- **Acceptance:** each choice starts or fails with a message naming what is missing. The bench and corpus accept the same flag. Nothing changes when the flag is absent.
+
+### G-07 macOS through ANGLE-Metal
+- **Status:** Not started (D292). Waits for a Mac to test on.
+- **Work:**
+  - An EGL provider in `strobe-gfx/src/gl/` for Apple targets, since glutin compiles EGL out there. It dlopens `libEGL.dylib` and calls `eglGetPlatformDisplayEXT(EGL_PLATFORM_ANGLE_ANGLE, …, TYPE_METAL_ANGLE)`; the type must be explicit, because ANGLE's own default on macOS is its GL backend.
+  - It creates a GLES 3.0 context, with a window surface from the winit `NSView`'s `CALayer`.
+  - It provides vsync, `get_proc_address` and robustness, under the unsafe-boundary rules.
+  - A headless variant for the bench and tests, which ends D55's two-tier macOS CI.
+  - Fetch `libEGL.dylib` and `libGLESv2.dylib` from the pinned Electron `darwin-arm64` and `darwin-x64` zips with hashes, as `fetch-angle.ps1` does (minimum macOS 12), and re-sign them inside the `.app`.
+- **Acceptance:** the library and the corpus in the GLES dialect on Apple silicon, with images compared against ANGLE-D3D11 and native GL, and frame times recorded. CGL stays available as `--gl native` for comparison.
 
 ## Epic D — Documentation, evidence and maintainability
 

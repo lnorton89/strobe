@@ -893,9 +893,14 @@ that initialises on `iFrame == 0` needs after its buffers were wiped.
 Full precision is required: in RGBA16F the clock stops advancing after about
 16 seconds. The cost is one 1-pixel draw per frame.
 
-**Known loss:** a resize with a non-default speed makes the clock jump to
-`TIME`. The adaptive-resolution controller resizes rarely, and at default
-controls the clock equals `TIME`, so nothing visible happens.
+**Known loss (narrowed by D287):** a resize with a non-default speed makes
+the clock jump to `TIME`. The adaptive-resolution controller resizes rarely,
+and at default controls the clock equals `TIME`, so nothing visible happens.
+Resizes stopped being rare (D280 probes, undoes and probes again), and D287
+now keeps a pass whose size a resize does not change. The clock is kept
+when only the Image pass reads it. When a buffer reads it, `resize` wipes
+that buffer and so still restarts the clock with it, which is what the
+`iFrame == 0` initialisation above needs; `resize_keeping` keeps both.
 
 **Would reopen:** host-side clock state in the frame loop (it would remove
 the pass), or a driver that cannot do `texelFetch` on RGBA32F (the ES path
@@ -4758,7 +4763,7 @@ T480 soak showing a cost in the frame (none is expected: an empty
 
 G-02 and G-03. The question was whether Strobe's GLSL can reach a
 Vulkan, D3D12 or Metal backend, through wgpu/naga or through
-glslang -> SPIR-V. A tool in `research/g03-frontends/` (outside the
+glslang -> SPIR-V. A tool in `docs/research/g03-frontends/` (outside the
 workspace and CI) assembles every pass as the GL path does and runs each
 route.
 
@@ -6378,7 +6383,770 @@ T480 to RX 580 re-test of these states is still to do.
 reconnect, so a stale click is never replayed), or a viewer that must stay
 useful with the host asleep.
 
-### D289: tracing and probing the "black above ~160x90" AMD WGL failure; no behaviour change yet (2026-10-15)
+### D287: a resize keeps every pass whose own size it does not change (2026-10-15)
+
+**Context.** `resize` rebuilt every pass target and `resize_keeping` blitted
+every one into a fresh target, whatever the pass's size. D91 accepted that
+when a resize was rare. It is not: the adaptive-resolution controller probes,
+undoes and probes again (D280), and a window drag resizes continuously. Each
+one reset the 1x1 `st_clock` pass of a Shadertoy import and the mids-integrated
+clock of scenes 14 Electric Bloom and 15 Neon Ribbon Flow to zero, so their
+integrated time drifted away from `TIME` and the picture visibly jumped. A
+literal-size data pass (D194) lost its state for no reason, since nothing about
+it had changed.
+
+**Decision.**
+- `ScenePlayer::allocate_passes` computes each pass's size as before and
+  compares it with the old pass's. When they are equal it allocates nothing
+  for that pass; the pass is marked and, once every allocation has succeeded,
+  takes the old pass's targets by move (`adopt_unchanged`). Texture,
+  framebuffer, contents and which buffer of a double-buffered pair is current
+  all carry over. No copy, no clear, no blit.
+- This holds for both `resize` and `resize_keeping`. The passes that do change
+  size (`$WIDTH`-relative passes and anything with a scale) behave as before:
+  `resize` restarts them from black, `resize_keeping` blits them filtered
+  (nearest for 32-bit float) into the new targets.
+- **Except what a restarted pass reads.** On `resize`, an unchanged pass that
+  a restarted pass samples (the final pass aside; transitively) restarts with
+  it, so the two stay consistent. The case that forces this is a Shadertoy
+  import: its `$WIDTH` buffers read `st_clock` for `iFrame`, and a buffer
+  wiped to black needs `iFrame` back at 0 to run its `iFrame == 0`
+  initialisation again (D91). Keeping the clock left such a buffer counting up
+  from black forever. The set is decided from each program's active samplers
+  once per resize. `resize_keeping` wipes nothing, so it keeps every unchanged
+  pass.
+- `ScenePlayer::restart` clears every pass at the current size, kept ones
+  included. `strobe-autocontrol` used "resize to another size and back" to
+  clear history between probes; that no longer clears a literal-size pass, so
+  its probes call `restart` instead (which also clears a pinned scene, D280,
+  that the resize trick never touched).
+- The final pass and the two finished-frame targets always follow the render
+  size, so they are rebuilt (or blitted) on every real change.
+- Allocation happens before any player field is touched, the final-pass
+  readback's included, so a failed `resize` or `resize_keeping` leaves the
+  player unchanged.
+- A context-loss rebuild builds a new `ScenePlayer`, so it still recreates
+  everything.
+- Nothing runs per frame: the comparison and the move happen once per resize.
+
+**Test.** `a_resize_keeps_the_passes_whose_size_it_does_not_change` (both
+dialects, both resize calls): a 1x1 double-buffered counter keeps counting
+through three resizes and a no-op resize while a `$WIDTH` pass still follows
+the new size. With the keep disabled the `resize` half fails with the counter
+back at 1; the `resize_keeping` half passes either way, since its exact
+same-size blit already kept such a pass, so there the keep saves a copy.
+`a_resize_restarts_an_unchanged_pass_that_a_restarted_pass_reads` (strobe-gfx)
+and `a_resize_that_wipes_the_buffers_restarts_iframe_so_they_initialise_again`
+(strobe-shadertoy) fail without the exception above;
+`restart_clears_every_pass_a_resize_would_keep` covers `restart`.
+
+**Would reopen:** a pass whose size is unchanged but whose contents should
+still be cleared by a resize (none known), or a driver that invalidates
+textures on a viewport change.
+
+### D288: venue mode, a trust file lets a controller take full desktop control with no click at the host (2026-10-15)
+
+**Context.** The JaJa venue's mini-PC drives two mirrored projectors and has
+no control screen. The owner runs the show from a laptop with the full desktop
+remote (D275), whose pairing needs the host's *Allow full desktop control*
+switch on and an operator clicking Approve at the host, and whose grants live
+in memory, so a host restart ends them. With nobody at the machine none of
+that can happen.
+
+**Decision.**
+
+- **Launch flags on the host.** `--remote` (existing), `--allow-desktop-control`
+  (switches full desktop access on when the listener first starts; needs
+  `--remote`; never saved; consumed once, so stopping and starting the remote
+  by hand later does not turn it back on) and `--remote-trust FILE` (needs
+  `--remote`). The trust file is read once at launch. There is no setting,
+  button or saved state for it, so there is nothing a remote controller's UI
+  pass could be made to widen (`desktop::host_only` is unchanged, and needs no
+  new entry). A trust file that cannot be read is reported and the host runs
+  without trusted pairing (fail closed); it does not stop the show.
+  A launch-time `--remote` that cannot start (no network yet at boot) is
+  retried every 5 s, with only the first failure reported.
+- **The trust file.** `strobe --make-remote-trust FILE` writes
+  `strobe-remote-trust 1` and `secret <64 hex>`: 32 bytes from the OS RNG,
+  with comment lines saying what it is. It uses `create_new`, so it refuses to
+  overwrite and does not write through a symlink; mode 0600 on Unix; on
+  Windows it takes the folder's ACL, so keep it in your user profile (ACLs are
+  not set, which would need `unsafe`). Reading takes one open handle, at most
+  4 KiB, refuses a file other Unix users can read (as `ssh` does), a version
+  it does not know, trailing lines and a secret with fewer than 8 distinct
+  byte values.
+- **Trusted pairing is challenge-response; the secret is never sent.** After
+  `hello`, the controller sends `trust_start {controller_id}`; the host
+  answers `trust_challenge {nonce}` (32 random bytes, hex); the controller
+  sends `trust_proof {response}` with
+  `HMAC-SHA256(secret, F(context) F(nonce) F(host) F(controller id))`,
+  `F(x) = len16(x) || x` (so no two tuples encode alike). *Context* is
+  `strobe-remote trust v1: full desktop control`; *host* is the `Host` header
+  the controller dialled, which must name the address and port that this
+  connection actually reached (or `localhost` on loopback, or the D258 proxy
+  name from this computer). That is stricter than the listener's own `Host`
+  check, which on every interface (`--remote-bind 0.0.0.0`) takes any IP
+  literal; without it a relay at another address could forward a
+  controller's handshake under its own `Host` and the proof would hold. So a
+  proof made for one address is no use at another (it defeats a rogue host
+  relaying a challenge to the real one from a different address); *controller id* is 1 to 48 of `[A-Za-z0-9._-]`. The host
+  verifies with `hmac`'s `verify_slice` (constant time, length-checked). The
+  challenge is a value held by its connection and consumed by `verify(self)`,
+  so it answers once whether right or wrong, and expires after 10 s. Success
+  sends the existing `authenticated` and `state`; no token is issued. The
+  v1 and desktop messages are byte-for-byte unchanged (golden tests), and
+  the three new messages are frozen the same way. A sniffer sees a nonce and a
+  MAC bound to it; recovering a 256-bit key from that is not feasible and a
+  recorded response is useless on the next nonce.
+- **Required to succeed:** the host has a trust file *and* full desktop access
+  is on. Otherwise the answer is `unavailable` with one text for both cases,
+  so a scan cannot tell how the host was started. Phones, `pair`,
+  `pair_desktop` and tokens are untouched; a trust file never gives a phone
+  token desktop scope.
+- **A trusted pairing is a property of its connection.** It is a desktop
+  record in the same in-memory list (never written to
+  `remote-clients.json`), labelled `Full desktop: trusted <id>, <device> at
+  <ip>`, shown in Settings > Remote with a *trusted* chip. Its token digest is
+  of a token nobody was given, so it cannot be authenticated with later. It is
+  removed when its connection ends. A controller that reconnects (Wi-Fi drop;
+  the host has not yet noticed the old socket) replaces its own earlier
+  record: the old connection is closed and gives up the lease at once, so the
+  new one can take it. A different controller id never takes the lease.
+  This keeps the 32-client list from filling over a four-hour show.
+- **Revocation is for the run.** Revoke on a trusted entry drops the
+  connection and refuses that controller id until Strobe restarts (otherwise
+  it would prove its way straight back in). Revoke all closes trusted pairing
+  until restart, because a leaked file could otherwise change its id. The kill
+  switch (switching full desktop access off, or Stop remote) still ends every
+  desktop pairing, trusted ones included, and while it is off trusted pairing
+  is refused; switching it on again (a host action) re-opens it. The session
+  also ends itself on its next tick if the switch is off or its entry has
+  left the list, so a revoke, revoke all or replacing reconnect that lands
+  between the pairing and the connection being marked with its client id
+  still ends it.
+  The title bar still says *Desktop controlled remotely* because it follows
+  the lease.
+- **Failed proofs are limited and logged.** Per peer address: three free
+  failures, then a pause of 2 s doubling to 5 min. Across all addresses: 20
+  failures in a minute pause everyone for 30 s, doubling to 5 min while it
+  repeats, forgiven after a quiet spell. A paused peer is answered `busy`
+  and disconnected; each failure is a warning in the log with the peer, the
+  controller id and the pause (never a nonce or proof). Each connection also
+  keeps its existing five-failure limit and message bucket. The state is in
+  memory. Through the D258 proxy every client shares the loopback address, so
+  the per-peer limit is then global in effect.
+- **Dependency.** `hmac` 0.13 (RustCrypto, MIT or Apache-2.0), on the same
+  `digest` 0.11 as `sha2` and `sha1`. It brings `cmov` and `ctutils` (the
+  constant-time primitives `digest` 0.11 uses) as new lockfile entries.
+
+**Threat model, and what this does not do.**
+
+- **Whoever can read the trust file has full control** of the host: scenes,
+  files and quitting (D275 scope), with no click. Treat it like a key. It is
+  not wiped from memory (that needs `unsafe` or a crate), it is on disk in
+  clear, and a controller with the full UI could in principle write host
+  files, including over the trust file, which the next launch would then
+  read. Keep the file outside any folder Strobe writes to. Replace it if it
+  may have leaked: make a new one and relaunch both ends.
+- **LAN only, plain HTTP.** The secret is never on the wire, but frames,
+  input and everything the window shows are still in the clear (D275), and an
+  active attacker who can sit on the path can take over an established
+  connection, or relay a handshake from the same address, without learning the
+  secret. Only the proof of knowledge is protected; there is no
+  confidentiality and no host authentication to the controller (a rogue host
+  can show the controller a fake window). TLS would close those (backlog
+  L-07).
+- **A flood can pause new attempts** (the global limit), but not a session
+  already open.
+- **Windows file permissions are not checked or set**; only the user profile's
+  inherited ACL protects the file.
+
+**Not done in this change.** The controller side: a trust-file field in the
+*Control another Strobe desktop* form, `--control HOST:PORT --remote-trust FILE`
+opening straight into the viewer, and automatic reconnect with backoff after a
+host restart or a Wi-Fi drop. It is to be built on the viewer's Stage and
+Reconnect machinery from D286, which was not on this branch (see
+STATUS_AUDIT). The host half and the protocol are tested over real sockets;
+the controller can use `trust::TrustSecret::respond` and the messages above.
+**Built in D294.**
+
+**Evidence.** Unit tests: RFC 4231 HMAC vectors, a protocol vector computed
+independently with Python, a wrong secret, a flipped nibble, wrong host,
+controller and nonce, single-use and expiry, the file parser, no overwrite,
+no write through a symlink, mode 0600, loose-permission refusal, and the
+limiter's backoff, global trip and bound. Socket tests
+(`strobe-remote/tests/server.rs`): trusted pairing with no approval, the
+secret and proofs never on the wire or in the log, wrong secret/host/
+controller, replay, no trust file or desktop control off, the kill switch,
+operator revoke and revoke all, reconnect taking back the lease, per-address
+backoff and recovery, phone pairing unaffected, and the v1 messages unchanged.
+Not verified: two physical machines, a Windows host, a four-hour soak.
+
+**Would reopen:** TLS for the native client (closing the plain-HTTP gaps); a
+per-controller secret instead of one shared file; ACLs set on Windows.
+
+### D290: the event loop runs the control frame when Windows withholds its paints (2026-10-15)
+
+**Context.** On the JaJa mini PC (Ryzen 3 3200U, Vega 3, AMD WGL), a
+scheduled-task show with `--playlist --output-monitor 1 --fullscreen` logged
+"control window in view: redrawing at 30 Hz", then "control 1 redraws" in the
+first minute and "control 0 redraws" in every minute after, with the output
+at 60 fps. Ninety posted `InvalidateRect`/`WM_PAINT` nudges and three minutes
+with the output moved off-screen drew nothing either, so it was not
+occlusion. The playlist compiled one scene per control frame and stuck at 1
+of 14 behind a black output; fca44a5 made the output frame compile when the
+control window has been quiet for 500 ms. Everything else in
+`redraw_control` (applying UI actions, the remote and LAN UI passes, the
+D275 desktop capture, `ui_state.tick`, remote persist, preview loads) still
+never ran, so the desktop remote could not have worked on that machine.
+
+**Cause.** The control window was starved of `WM_PAINT`, not hidden from it.
+- winit 0.30.13 on Windows emits `RedrawRequested` only from `WM_PAINT`
+  (`request_redraw` is `RedrawWindow(.., RDW_INTERNALPAINT)`,
+  `platform_impl/windows/window.rs:152`; the event is sent from the
+  `WM_PAINT` arm, `event_loop.rs:1276`).
+- Windows makes a `WM_PAINT` only when the queue is otherwise empty, and for
+  the first dirty window of the thread found walking top-level windows in
+  z-order from the top (ReactOS's `IntFindWindowToRepaint` models it).
+- winit stops dispatching after every `RedrawRequested` and goes back to
+  `about_to_wait` (`event_loop/runner.rs:214`, `interrupt_msg_dispatch`).
+- `schedule` requests the output's redraw whenever `OUTPUT_PERIOD`
+  (6.9 ms) has passed since the last request. On Vega 3 the fullscreen
+  output's vsync wait lands inside its own swap, so its frame takes about
+  16.7 ms and the output is dirty again on every pass.
+- So with the output above the control window, the output is always the
+  first dirty window and the control window's paint never comes. Nudges add
+  update region to a window that is already waiting; moving the output
+  off-screen changes neither its z-order nor its dirtiness.
+
+This also explains TORNADO T11's "0 to 2 paints a minute" for a covered
+control window (D206), and why a *windowed* output on NVIDIA left the
+control window painted: there the vsync wait landed in the control window's
+`make_current` (D216), so the output's own frame was short and it was not
+always dirty. The covered/in-view state does not decide it: the app thought
+the control window was in view here (it had been given focus), and z-order,
+not focus, is what counts.
+
+**Decision.**
+- **`stats::ControlDrive`.** Every control request is still made as before.
+  When one has gone unanswered for `PAINT_PATIENCE` (250 ms) and
+  `PAINT_PASSES` (4) passes of the event loop, `about_to_wait` runs the
+  control frame itself (`redraw_control(true)`): make-current on the
+  control surface, the egui pass, paint, desktop capture, swap, actions.
+  It keeps doing so at the control window's period until a paint answers a
+  request within the patience, which hands the frames back. A late paint
+  (an output frame that happened to let one through) leaves the loop in
+  charge, so the two do not take turns.
+- **Counting passes as well as time** keeps a loop that was merely blocked
+  (a scene compiling for a second inside an output frame) from reading as a
+  starved window: that is one or two passes, a starved window sees one per
+  output frame.
+- **While the loop drives, the window counts as unseen** (`control_unseen`):
+  it redraws at `COVERED_PERIOD` (2 Hz), or `desktop::STREAM_PERIOD` (5 Hz)
+  while a desktop remote holds the lease, and the pacer treats it as
+  covered. Starvation means the output is above it, and a swap of a covered
+  window is what D206 throttled.
+- **The swap policy does not.** The output's D221 wait is skipped only
+  while `control_covered`, as before. A driven window still takes the
+  shared context two to five times a second, and on a machine where the
+  wait has engaged, dropping it would move the flip's wait back into that
+  make-current and cost the show a frame per driven redraw (TORNADO T15,
+  T16), where before this fix the starved window cost nothing.
+- **Not in screenshot mode, and not while minimised.** A screenshot captures
+  what was painted and keeps its 10 s give-up; a minimised window has
+  nothing to draw (`redraw_control` returns at once).
+- **The perf line counts loop-driven redraws:** "control N redraws X ms
+  (worst Y ms, M unpainted)". The first takeover is logged at info:
+  "control window: no paint from Windows for N ms (takeover 1); the event
+  loop runs its frames every 500 ms until one comes (D290)". Later
+  takeovers and every hand-back are at debug.
+- **fca44a5 stays** as the backstop for the playlist compile.
+- **The desktop capture stays valid.** It reads the control window's back
+  buffer right after egui paints it and before the swap. Windows composes
+  every window through DWM (always on since Windows 8), so a covered window
+  owns all its pixels and the read does not depend on the window being
+  shown. The fenced readback on a real covered window is still to be seen
+  on hardware (STATUS_AUDIT).
+
+**Not chosen.**
+- *Skip the output's request while a control paint is overdue*, so Windows
+  picks the control window. The control frame would run in the same slot
+  between two output frames as a driven one does, so it costs the same; but
+  it still depends on Windows' paint order, and a paint that did not come
+  (a minimised window, another window of the thread on top) would stall
+  the output until a timeout, which is this fix's heuristic again.
+- *Drive the control window from the loop always*, dropping
+  `request_redraw`. It would change the paint behaviour everywhere it works
+  today, and lose winit's expose redraws.
+- *Raise the control window or post paints at it.* The field already showed
+  nudges do nothing, and raising it would cover the projector.
+
+**Test.** `stats::tests`:
+`a_painted_control_window_is_never_driven_by_the_loop`,
+`a_control_window_with_no_paints_is_run_by_the_loop_at_its_own_period`
+(the mini PC's state),
+`a_blocked_loop_is_not_a_window_without_paints` and
+`the_loop_hands_back_only_to_a_prompt_paint`;
+`a_minute_is_summarised_once_with_late_frames_counted` checks the perf line's
+unpainted count. Linux and llvmpipe cannot reproduce the paint order, so the
+acceptance test is the mini PC (MINIPC.md).
+
+**Would reopen:** the mini PC's log showing the takeover line with the
+control count still at 0 (then the frame itself fails, not its scheduling),
+or a loop-driven 2 Hz control window costing the output frames.
+
+### D291: one click on a scene card makes it live, and the library view flips between Scenes and Controls (2026-10-15)
+
+**Context.** The owner: "UI still needs work". Picking a scene took a click
+to select it and then a Load button over the selected card (or a
+double-click); in Synesthesia one click on a scene makes it live, with no
+preview step in the main flow. The playing scene's controls lived only in
+the side panel's Controls tab, a 31% column, where Synesthesia gives them
+the main area. D288 to D290 are taken on other branches (venue mode, the
+AMD bench diagnostic, the control-frame fix), so this is D291.
+
+**Decision.**
+- **A click on a card loads it.** `browser::card` pushes `Action::Load` on
+  the card's click, and also selects it (its tags show above the grid).
+  Enter or Space on a keyboard-focused card is the same click (egui reports
+  both as one), and a focused card shows a second accent ring inside its
+  edge. No load is asked for the second click of a double-click (or a
+  triple), for the scene that is live, or for the scene already preparing,
+  so a double-click is one load request. Everything that guarded a load is
+  unchanged: the request is still `App::request_load`, painted as
+  PREPARING on the card first; a failure keeps the old scene and is shown
+  on the card and as a banner; nothing blocks a frame beyond the compile
+  that loading already costs.
+- **Preview stays, out of the main flow.** The Load and Preview buttons
+  over the selected card are gone. *Preview without loading* is in the
+  card's "..." menu (also its right-click menu) and in the palette
+  (`Preview: name`); the preview card above the grid keeps *Load this
+  scene*. On the live card the menu offers *Reload from disk*, which was
+  the selected live card's button. Enter in the search field still loads the
+  highlighted scene.
+- **The library view has two pages, Scenes and Controls**
+  (`browser::LibraryPage`, saved in `ui.toml` as `library_page`). A
+  segmented switch (`widgets::segmented`) sits at the top of the main
+  view; on the Scenes page the library's toolbar shares its row when the
+  view is 560 points wide or more, and takes the next row below that. The
+  Controls page is `inspector::show` with `Part::Page`: the same groups,
+  rows, pin menus, default and random, script state and meta section as the
+  side panel's Controls tab, laid out in up to three columns (one per 340
+  points, each group to the shortest column, from a fixed array) and drawn
+  at `controls::Scale::Touch` (32-point rails with a thicker track and
+  handle, 48x26 switches, 40-point bangs, an XY pad up to 280 wide, a
+  56x30 colour swatch). No control logic is duplicated: `controls::rows`
+  takes the scale.
+- **The side panel keeps the preview and the output's state in view** and
+  does not draw the same controls twice: while the main view is the
+  Controls page and the panel is docked beside it, its Controls tab is
+  dimmed and the panel shows Presets in its place (without changing the
+  saved tab). A drawer covers the main view, so a drawer keeps its Controls
+  tab.
+- **Flipping is one key.** `toggle_controls_view`, "Switch Scenes /
+  Controls", default **Ctrl+L**, Navigation, in the palette like every
+  command and rebindable in Settings > Keyboard. On the library it flips
+  the page; from any other main view it opens the library on Controls.
+  Not mappable to a controller (a presentation command, like Ctrl+F).
+  A plain letter was rejected because a command's key silently shadows a
+  macro bound to the same key; Tab is egui's focus traversal.
+- **Remote desktop passes gain nothing.** A click on a card from a remote
+  pass is the `Action::Load` it already was (not host-only, D275), and the
+  switch is presentation state only.
+
+**Smaller fixes from the same pass.** The colour control's swatch had
+zero width (the theme sets `interact_size.x` to 0 and egui sizes the swatch
+by it), so it could not be clicked in the panel or the macro strip; it is
+`controls::swatch` now, sized and outlined so black reads as a swatch. The
+macro strip's XY button opens the Controls page rather than the side panel
+on whatever tab it had. The title crumb names the rail's views (PLAY,
+SCENES, CONTROLS) instead of PERFORM and LIBRARY; empty states say "click"
+rather than "load", centre each wrapped line, and the empty library's
+buttons sit under its words; the narrow filter row wraps instead of cutting
+off the health menu at 320 points; the meta section's chevron points down
+while it is open.
+
+**Tests.** `one_click_on_a_card_makes_it_live_and_a_double_click_is_still_one_load`,
+`enter_on_a_focused_card_makes_it_live`,
+`the_library_flips_between_scenes_and_controls_by_switch_key_and_palette`,
+`the_controls_page_draws_the_controls_once_with_the_preview_beside_them`,
+the page's preference round trip, and five new scenarios (the Controls page
+with and without a scene, compact, with the panel collapsed, and a focused
+card) through the overflow, BLACKOUT and text-over-text tests at every size.
+
+**Would reopen:** the owner wanting a preview step back in the main flow,
+the controls wanted beside the grid rather than instead of it, or Ctrl+L
+clashing with something an operator relies on.
+
+### D292: the second backend is ANGLE's Vulkan and Metal, not a new renderer (2026-10-15)
+
+This extends D255; D255 stands. The owner asked three things:
+
+- run the G-03 tool over the private Synesthesia corpus;
+- check whether a newer naga changes the no-go;
+- find out whether ANGLE's other backends could be the second backend.
+
+The evidence is in `docs/research/g03-frontends/README.md` (its 2026-10-15
+follow-up) and `docs/research/angle-backends.md`.
+
+**What was found:**
+
+- **The full corpus confirms D255.**
+  - The corpus is 120 scenes and 288 passes: the owner's 90 Synesthesia
+    scenes, the 16 library scenes and the 14 Shadertoy fixtures.
+  - naga's GLSL input takes 0 of 288.
+  - glslang takes all 227 corpus passes, and 287 of 288 overall to Vulkan
+    SPIR-V. SPIRV-Cross writes HLSL and MSL for all 287.
+  - The tool also had to learn to pass a script's uniforms, as
+    `Session::load` does, or 43 scripted scenes failed on names the app
+    would have declared.
+- **naga 30.0.1 is still the newest, and nothing changed.** Trunk has no
+  combined-sampler work in either front end.
+  - One new route was measured. `spirv-webgpu-transform`, pure Rust,
+    splits combined samplers in SPIR-V. After it, naga takes 60 of 60
+    library passes but only 56 of 227 corpus passes.
+  - The rest fail naga's validator on what its own SPIR-V reader built
+    (155 passes: an expression emitted twice). Those are naga bugs, not
+    SSF constructs. wgpu stays a no-go.
+- **ANGLE's Vulkan backend works with no code change.**
+  - It is inside the Electron v38.2.0 build D12 pins, on Windows and
+    Linux.
+  - With `ANGLE_DEFAULT_PLATFORM=vulkan`, the unmodified
+    `strobe-bench --context window --gl angle` rendered all 16 library
+    scenes on Mesa's lavapipe. The pictures matched Mesa's own GLES on
+    the same rasteriser (identical in 12, feedback noise in 4). Frame
+    times were within the container's run-to-run noise: one run was 18%
+    slower, an earlier one faster.
+  - `strobe-corpus --dialect gles --context window` ran all 90 corpus
+    scenes on it. One needed a rerun after the X server refused a
+    connection. 47 of 90 checksums are identical to Mesa's, and the same
+    7 scenes are flagged all-black or all-white on both.
+  - SwiftShader's Vulkan also rendered all 16.
+- **ANGLE's Metal backend fits on paper.**
+  - It is ES 3.0 conformant, and it is the backend Apple's Safari uses for
+    WebGL 2.
+  - Everything Strobe's ES path uses is there: float targets, timer
+    queries, `KHR_debug`, robustness, PBOs, fences.
+  - Electron's darwin zips ship it (`libEGL.dylib`, `libGLESv2.dylib`,
+    7 MB, macOS 12+).
+- **But two things stand in the way on macOS.**
+  - glutin compiles EGL out on Apple targets and never passes ANGLE's
+    platform attributes.
+  - ANGLE's own default on macOS is its OpenGL backend: GL is compiled in,
+    and GL comes before Metal in its fallback order. So the Metal type
+    must be requested explicitly.
+- **Apple's OpenGL is deprecated (10.14, 2018), frozen at 4.1, and still
+  shipped.** No removal has been announced for macOS 26 or 27. WWDC 2026
+  ended Intel Macs, not GL. The risk is gradual.
+
+**Decision.** The ranking, with what would trigger each option:
+
+1. **Stay native GL first, with ANGLE-D3D11 as the fallback (today).**
+   - Cost: none.
+   - This remains the default everywhere it works. D1 and D2 are
+     unchanged.
+2. **Add ANGLE backend selection: Vulkan now, Metal with macOS.** This is
+   the chosen second backend.
+   - It gives Vulkan and Metal with no new renderer, no new shader
+     pipeline (the ES dialect and `fixups` already pass the corpus) and no
+     new egui painter.
+   - Cost:
+     - small on Windows and Linux: an environment variable today, then a
+       `--gl` choice through a glutin patch or a leaf wrapper;
+     - moderate on macOS: an EGL provider of our own in `gl/`, with a
+       `CALayer` surface, plus fetching, hashing and re-signing the
+       dylibs.
+   - Risk: a translation layer's overhead on real GPUs, and Metal-specific
+     behaviour (feedback passes, RGBA16F precision, present timing), all
+     unmeasured until hardware runs it.
+   - Triggers:
+     - **Vulkan:** the T480 and TORNADO runs (G-05) showing it is at least
+       as good as D3D11, or a machine where WGL and D3D11 both fail and
+       Vulkan works.
+     - **Metal:** any macOS port (G-07). A macOS port needs a new context
+       provider anyway (D55), and ANGLE-Metal costs about the same as CGL
+       without sitting on a deprecated API.
+3. **glslang -> SPIR-V -> SPIRV-Cross, with a new renderer per API
+   (G-04).**
+   - Cost: large. It is a renderer per API, two C++ dependencies, about
+     50 ms per pass of extra compile time, a second egui painter, and the
+     seam turned into a trait.
+   - Risk: fidelity, which cannot be measured before a renderer exists.
+   - Trigger: a need ANGLE cannot meet, such as a D3D12-only or compute
+     feature, ES 3.0 limits, or a target with no GLES.
+4. **wgpu.**
+   - No-go while naga cannot take the corpus, even after the split.
+   - Trigger: a rerun of the G-03 tool showing naga's SPIR-V reader taking
+     the corpus after `combimgsampsplitter`. Even then, it carries
+     glslang.
+
+**Backlog:**
+
+- **G-05:** ANGLE-Vulkan on the T480 and TORNADO.
+- **G-06:** a backend-type choice in `--gl`, offered only when ANGLE's
+  client extensions advertise it.
+- **G-07:** macOS through ANGLE-Metal.
+- **G-04** narrows to the case ANGLE cannot serve.
+
+**Would reopen:**
+
+- ANGLE-Vulkan or ANGLE-Metal failing the corpus, or costing frames, on
+  real hardware;
+- Electron or ANGLE dropping a backend from its builds;
+- Apple announcing OpenGL's removal, which moves G-07 up but does not
+  change the choice;
+- naga's SPIR-V reader taking the corpus.
+
+### D293: global initializers run in `main` on desktop too (2026-10-15)
+
+The corpus scene sprinkles rendered all black on native GL (RX 580, Intel
+HD 620, Vega 3) and correctly on ANGLE. Its code declares a global set from
+the pixel coordinate, `vec2 uv = _uv;`. Strobe's `_xy`, `_uv` and `_uvc` are
+globals that `main` fills, and a desktop driver runs a non-constant global
+initializer before `main`, so `uv` was (0, 0) on every pixel. ES never
+showed it, because D192 already moves global initializers to the top of
+`main`, after the coordinates are set.
+
+`fixups::hoist_global_initializers` now runs for every dialect, with
+`Branches::for_dialect(false, …)` on desktop so `#ifdef GL_ES` blocks are
+skipped there. D192's argument for equivalence holds unchanged: a global can
+only be read from a function, every function runs from `main`, and the
+assignments keep their source order. `STROBE_DUMP_GLSL` writes each pass's
+assembled source at load, which is how the two dialects were compared.
+
+Found and fixed on the AMD desktop (task A13) and reviewed here.
+
+**Evidence.** `assemble` test
+`a_global_initializer_runs_after_the_coordinates_in_every_dialect`, and
+`render.rs` `a_global_initialized_from_the_coordinates_sees_them_in_both_dialects`.
+On the RX 580, sprinkles is no longer all black on desktop, and the
+90-scene corpus stays 90/90 in both dialects with no other change to the
+all-black lists.
+
+**Not explained by this:** PLUS, black on ES only. After 600 frames sprinkles
+on ANGLE shows a small centre ring where native fills the frame; that
+divergence predates this change and is not yet understood.
+
+**Would reopen:** a driver that rejects a global declared without an
+initializer and assigned in `main` (none known), or a scene that relies on
+a global initializer running before `main` (GLSL has no way to observe
+that).
+
+### D294: a laptop controls a venue's show machine with a trust file, and keeps reconnecting until told to stop (2026-10-15)
+
+**Context.** D288 built the host and the protocol and left the controller to
+D286's viewer stages. A four-hour show on a venue's Wi-Fi sees the host
+restart, the access point drop the laptop for a few seconds, and the mini PC
+come up after the laptop. A controller that needs a click to come back, or a
+code the host no longer has, ends the show's remote control the first time it
+blinks.
+
+**Decision.**
+
+- **Two ways in, one worker.** *Settings > Control another Strobe* has a
+  checkbox, **Use a trust file (venue mode)**; ticked, the pairing-code field
+  becomes a path field and Connect runs trust pairing instead. There is no
+  file picker: the app has no file-dialog helper and a dialog would need a
+  new dependency or PowerShell, so the path is typed or pasted (quotes from
+  Windows' Copy as path are stripped). On the command line,
+  `strobe --control HOST:PORT --remote-trust FILE` opens straight into the
+  viewer; a bare IP takes port 47812. `--control` without the file opens the
+  form with the address filled in and the trust option **off**, for a code: a
+  remembered file never connects by itself. `--remote-trust` now needs
+  `--remote` *or* `--control` (a clap group); with `--remote` it is the host's
+  file as before, and the host reads it only when `--remote` is given.
+  `--control` conflicts with `--remote`: one run is a host or a controller.
+- **What is remembered.** `ui.toml` gets `[remote]`: the trust file's path,
+  whether the form uses it, and `controller_id`. The secret is read from the
+  file each time Connect is pressed and lives only in the connection's
+  worker; it is never saved, logged, shown or in the viewer's text
+  (`TrustSecret` prints as `***`, as D288 made it). The controller id is
+  `computer-name-<8 hex of OS randomness>`, made once on first launch and
+  kept, so the host's list and its revoke-by-name refer to one laptop for
+  ever; it is cut to 48 bytes of `[A-Za-z0-9.-]` by `trust::controller_id_for`.
+- **The proof is made only for our own question** (the security review's
+  condition). `trusted::Handshake` is owned by one connection. It sends
+  `trust_start` once, when the host's `hello` arrives, and answers exactly
+  one `trust_challenge` after it. A challenge that arrives before our
+  `trust_start`, on a connection that pairs by code, or a second one, is
+  refused: the connection ends as *refused*, no proof is computed, and the
+  viewer says the host sent one nobody asked for. So the controller can
+  never be used to sign a nonce taken from somewhere else. The `host` in
+  the proof is `client::host_header(address)`, the very function that
+  writes the `Host` header, so the two cannot differ.
+- **Reconnecting is a Stage, not a second path.** `Stage::Reconnecting(n)`
+  sits beside Connecting, Live and Ended. The worker that owns a trusted
+  connection loops: connect, and when it ends without the host having said
+  no (a closed socket, a timeout, connection refused, a pause for failed
+  proofs), set `Reconnecting(n)`, wait `trusted::backoff(n)` and try again.
+  The schedule is 1 s, 2 s, 4 s, 8 s, then 15 s for ever. A connection that
+  brought the host's picture starts it again at attempt 1; one that never got
+  that far keeps counting. Being paired is not enough (review fix): a second
+  laptop that the host pairs and then refuses the lease, because another
+  controller holds it, would otherwise pair and drop once a second for the
+  whole show. The viewer keeps the last image, dimmed and read-only (D286),
+  under a card that says "Reconnecting... (attempt N)" and why, and the
+  toolbar button reads **Disconnect**. The wait is in 50 ms slices that look
+  at the stop flag, so Disconnect ends it at once; input typed while away is
+  dropped, never replayed.
+- **A refusal stops it, and says why.** Wrong file, revoked, trusted pairing
+  unavailable (host without the file or with desktop control off), a bad
+  request, a protocol mismatch, an unanswered challenge: `Ended(Refused)`
+  with the next step in words, a **Reconnect** button (which proves the file
+  again), and nothing retries. Retrying a wrong file would only feed the
+  host's failed-proof limiter (D288). Only `busy` (the host pausing after
+  failures, which ends by itself) is retried. A kill-switch drop on the host
+  is retried once and then shows "does not offer trusted pairing right now".
+- **Code-paired connections are unchanged**: they end in `Ended` and offer a
+  manual Reconnect (D275, D286).
+- **The retry costs a four-hour show nothing.** The loop sleeps in slices,
+  holds no lock while asleep, runs on the worker thread (never the frame
+  loop), and logs attempts 1 to 4 and every 20th, so a night of retries is
+  a few lines.
+
+**Evidence.** Unit tests: the proof against the protocol vector from D288
+and against the host's own `Challenge::verify` (accepted for the host
+dialled, refused for another address or port); an unsolicited, a repeated
+and a malformed challenge refused; the backoff schedule as a pure function;
+controller ids for odd computer names; the trust-file loader's sentences;
+`--control` and `--remote-trust` parsing (both roles, the refused
+combinations); the launch decisions (`Controller::at_launch`). Loopback tests
+with a real host (`desktop::tests`): a trusted connect with no approval and
+the label *trusted*; a wrong file refused once, the worker ended after the
+first backoff would have fired; the host stopped and restarted on the same
+port with the controller back by itself and the lease taken again; Disconnect
+with the host back on the same port, and nobody connects; a host that
+volunteers a challenge is not answered; a second laptop shut out of the lease
+backs off rather than retrying every second; the kill switch retried once and
+then refused. Shell tests for the form's option and
+viewer states for Reconnecting and a refused file.
+
+**Not verified:** two physical machines, a real Wi-Fi drop, Windows, a
+four-hour soak. The retry schedule is the decision, not a measurement.
+
+**Would reopen:** TLS (D288's list); a controller that should also retry a
+refusal after a long wait (a host brought up late with the switch off); a
+file picker if a dialog helper is added.
+
+### D295: Linux is a documented platform: three build packages, a Nix flake, dlopen'd libraries on `LD_LIBRARY_PATH` (2026-10-15)
+
+D291-D294 were taken on other branches; this entry is D295 so the
+numbers do not collide at merge.
+
+**Context.** CI's Linux job already built and tested Strobe, but the packages
+it installs were never explained, the README said only "checked under Xvfb",
+and a Nix user (Bonzupii) offered a dev-shell flake from another project. His
+own note was that it was a dev shell, not an install flake, and that some of
+its graphical dependencies were bloat for his game. The owner wants Linux in
+the README and the repo, and the AMD desktop runs Debian on WSL2.
+
+**What Strobe needs on Linux, from `Cargo.lock`, the build scripts and
+`ldd`/`LD_DEBUG` on a real run.**
+- **Linked (build time, headers and a `.pc` file): ALSA only.** `ldd` on the
+  release binary lists `libasound.so.2` and libc. `alsa-sys` (cpal for
+  capture, midir for MIDI) runs `pkg-config alsa`. Plus a C compiler:
+  `rquickjs-sys` (QuickJS) and `ring` (rustls, for Shadertoy import) compile C.
+  `build-essential pkg-config libasound2-dev` was enough on a clean Ubuntu
+  24.04 (`debootstrap`, no `libxkbcommon-dev`, no Wayland headers, no clang, no
+  git: `build.rs` reports the commit as `unknown` without it).
+- **Loaded with `dlopen` (run time, nothing in `DT_NEEDED`):** libGL, libEGL
+  and libGLX (glutin; the GPU's driver behind them), libX11, libXcursor, libXi,
+  libXrandr and libxcb (winit through `x11-dl`), libxkbcommon and
+  libxkbcommon-x11 (`xkbcommon-dl`), libwayland-client, -cursor and -egl
+  (winit's `wayland-dlopen`, glutin). A build on a machine without them
+  succeeds; the window fails to open. On Nix they must be on `LD_LIBRARY_PATH`.
+- **Not needed:** OpenSSL (TLS is rustls), fontconfig and freetype (egui's fonts
+  are compiled in), udev (MIDI is ALSA's sequencer), Vulkan (no wgpu, D1),
+  libclang. Bonzupii's `vulkan-loader` and `cargo-llvm-cov` are dropped for
+  that reason; his libxkbcommon, wayland, libGL, X11 and alsa-lib stay, and
+  libxcb is added.
+
+**Decision.**
+- **`flake.nix` at the root** with `forAllSystems` over x86_64-linux and
+  aarch64-linux.
+  - `devShells.default`: nixpkgs' `cargo`, `rustc`, `clippy`, `rustfmt`,
+    `pkg-config`, `git`, ALSA in `buildInputs`, and `LD_LIBRARY_PATH` from the
+    dlopen list. **The toolchain is nixpkgs', not rust-overlay or fenix.** The
+    pin in `rust-toolchain.toml` is 1.98.0, nixpkgs-unstable has 1.98.1 and the
+    workspace's `rust-version` is 1.98, so a second toolchain source buys
+    nothing. The shell ignores `rust-toolchain.toml` (no rustup), so
+    `cargo xtask ci` skips the Windows cross-check there, and clippy is 1.98.1
+    where CI is 1.98.0. If nixpkgs falls behind the pin, use
+    `rust-bin.fromRustupToolchainFile`.
+  - `devShells.software`: the default shell plus nixpkgs' Mesa, with
+    `__EGL_VENDOR_LIBRARY_DIRS` and `LIBGL_DRIVERS_PATH` set, for a machine
+    with no GL of its own (a VM, a container, CI). **Mesa is not in the default
+    shell**: forcing it would override the system's driver (NVIDIA's
+    proprietary one, or a newer Mesa) on a real GPU. libglvnd, which is what
+    `libGL` is in nixpkgs, already looks in `/run/opengl-driver`, where NixOS
+    puts the driver.
+  - `packages.default`: `rustPlatform.buildRustPackage` with
+    `cargoLock.lockFile` (every dependency is from crates.io, so no
+    `outputHashes`), building `strobe-app` and `strobe-bench` in one
+    invocation, `doCheck = false` (the tests need a GL context and walk the
+    source tree; CI's Linux job is where they run). `makeWrapper` puts the
+    dlopen list on `LD_LIBRARY_PATH` for `strobe`, `strobe-bench` and
+    `strobe-corpus`. The scene library is installed to `share/strobe/scenes`
+    and linked as `bin/scenes`, which is where `library::resolve` looks "beside
+    the program" for the packaged build. `STROBE_GIT_HASH` carries the flake's
+    revision, since a Nix build has no repository for `build.rs` to ask.
+  - `strobe-bench` has no such lookup, so it needs `--library
+    result/share/strobe/scenes`.
+- **`flake.lock`.** `api.github.com` and `codeload.github.com` are blocked in
+  the agent container, so `nixos-unstable` could not be fetched as `github:`.
+  The lock was made by fetching the same revision (`7fd4004d0511`, the
+  head of `nixos-unstable` on 2026-10-15, which the channel's tarball link also names) with `git+https://github.com/NixOS/nixpkgs`
+  and rewriting the node to `type: github` with the same `rev`, `narHash` and
+  `lastModified`. nixpkgs has no `export-ignore` or `export-subst`, so the git
+  checkout and GitHub's tarball are the same tree, and Nix accepted the
+  rewritten lock and matched the `narHash` against that store path; the
+  GitHub tarball itself was not fetched. If `nix flake metadata` ever
+  disagrees, `nix flake update` regenerates it.
+- **README "Linux" section**, with Debian and Ubuntu packages (verified), Fedora
+  and Arch names (checked against the Fedora 43 and Arch package databases,
+  not built), the Nix route, how to choose Wayland or X11, graphics, audio and
+  MIDI, and WSL2. `docs/COMPATIBILITY.md` gets four rows,
+  `docs/USER_GUIDE.md` and `CONTRIBUTING.md` point to it.
+- **Wayland or X11.** winit 0.30 picks Wayland when `WAYLAND_DISPLAY` or
+  `WAYLAND_SOCKET` is non-empty, else X11 when `DISPLAY` is set.
+  `WINIT_UNIX_BACKEND` no longer exists and Strobe adds no flag, so the way to
+  force one is `env -u WAYLAND_DISPLAY -u WAYLAND_SOCKET` or `env -u DISPLAY`.
+- **ANGLE is Windows-only.** On Linux `--gl angle` is the system's EGL with an
+  OpenGL ES 3.0 context, which is how the GLSL ES dialect is exercised, and
+  `--gl auto` falls back to it.
+
+**What was checked (2026-10-15, cloud container, no GPU, llvmpipe).**
+
+| Claim | Result |
+|---|---|
+| Debian/Ubuntu build list | Clean Ubuntu 24.04 chroot, `build-essential pkg-config libasound2-dev`, `cargo build --release -p strobe-app` and `-p strobe-bench`: built. |
+| Debian/Ubuntu run list | Same chroot plus `libegl1 libegl-mesa0 libgl1-mesa-dri`: `--diagnose` and the headless bench ran (16 scenes, Mesa 24.0.5). Plus the X libraries and Xvfb: control and output screenshots on X11 with desktop GL 3.3 core. Plus Weston headless and the Wayland libraries: both screenshots on Wayland. |
+| Flake, x86_64-linux, Nix 2.34 | `nix develop -c cargo build -p strobe-app -p strobe-bench`: built. `nix build`: built. The result, from another directory: `--help`, `--diagnose` (Mesa 26.2.4), headless bench with `--library`, a screenshot under nixpkgs' Xvfb and under nixpkgs' Weston, the scene library found beside the program. `nix run . -- --help`. |
+| Flake, aarch64-linux | `nix eval` of the package and both shells succeeds. Not built. |
+| Default dev shell on this non-NixOS host | `--diagnose` finds no GL context: expected, there is no driver for libglvnd to load. `.#software` is the answer. |
+
+**Not verified:** NixOS itself (`hardware.graphics`, the ALSA plugin path), any
+real Linux GPU, ALSA, PipeWire or PulseAudio capture, MIDI hardware, GNOME or
+KDE, WSL2 and WSLg (the hand-off has a test script for the AMD desktop's
+Debian), and Fedora and Arch builds.
+
+**Not chosen.**
+- *rust-overlay or fenix*, for the reason above.
+- *Mesa in the default shell*, for the reason above.
+- *`patchelf --add-rpath` instead of a wrapper.* It would work for libraries
+  that glutin and winit `dlopen` from the executable, but the request was a
+  wrapper and a wrapper also covers the helper processes the app starts.
+  The cost is that `LD_LIBRARY_PATH` is inherited by children (an opened link
+  starts `xdg-open` with it), which has not caused a problem so far.
+- *crane or naersk.* `buildRustPackage` is nixpkgs' own and the lock file has
+  no git dependencies.
+
+**Would reopen:** a nixpkgs bump that moves `rustc` below 1.98, a git
+dependency in `Cargo.lock` (needs `outputHashes`), a dlopen'd library
+the list misses (a window that will not open on a clean Nix or Debian box),
+or a real Linux GPU that needs more than `hardware.graphics.enable`.
+
+### D296: tracing and probing the "black above ~160x90" AMD WGL failure; no behaviour change yet (2026-10-15)
 
 **Context.** On the JaJa mini-PC (Vega 3, Adrenalin 26.5.2, native WGL),
 `strobe-bench --context window --gl native --filter 05` renders correctly at
