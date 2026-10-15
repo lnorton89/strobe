@@ -83,6 +83,9 @@ fn same_cue(old: &ResolvedCue, new: &ResolvedCue) -> bool {
         && old.meta == new.meta
 }
 
+/// The longest real-time step one frame gives the playlist clock (D299).
+pub const MAX_WALL_STEP: f32 = 1.0;
+
 /// The size a parked scene's targets are cut down to.
 pub const PARKED: [i32; 2] = [1, 1];
 
@@ -701,21 +704,34 @@ impl Show {
 
     /// Runs one frame of the show: tick, react, render. Does nothing until
     /// the precompile is finished.
-    pub fn frame(&mut self, env: &mut Env<'_>, dt: f32) -> FrameReport {
+    ///
+    /// `dt` is the scenes' step, which the app clamps so a stall does not
+    /// fling their smoothed controls (`stats::MAX_DT`); `wall_dt` is the
+    /// real time since the last frame, which the playlist clock, the audio
+    /// listeners and the resume timer follow, so a scene drawing at 2 fps
+    /// does not stretch a 2-minute cue to 8 (D299). It is capped at
+    /// [`MAX_WALL_STEP`]: a frame that waited on a compile or a window drag
+    /// does not eat that much of the cue.
+    pub fn frame(&mut self, env: &mut Env<'_>, dt: f32, wall_dt: f32) -> FrameReport {
         let mut report = FrameReport::default();
         self.composited = false;
         if self.phase != Phase::Ready {
             return report;
         }
-        self.show_time += dt;
-        if !self.pace_anchor(env, dt) {
+        let wall = if wall_dt.is_finite() && wall_dt > 0.0 {
+            wall_dt.min(MAX_WALL_STEP)
+        } else {
+            dt
+        };
+        self.show_time += wall;
+        if !self.pace_anchor(env, wall) {
             let frame = env.audio.frame_at(self.show_time);
             let beat = self.reader.read(&frame.scalars, frame.downbeat);
             let [whole, bass] = frame.energy;
             let source = env.audio.source();
-            self.clock.tick(f64::from(dt), &beat);
-            self.hear(dt, whole, bass);
-            self.hear_song(dt, whole, &beat, source);
+            self.clock.tick(f64::from(wall), &beat);
+            self.hear(wall, whole, bass);
+            self.hear_song(wall, whole, &beat, source);
         }
 
         self.events.clear();
@@ -742,7 +758,7 @@ impl Show {
             warm.session.advance(dt, env.audio, env.mouse, env.date);
         }
         self.composite(env);
-        self.account(env, dt);
+        self.account(env, wall);
         if report.notice.is_none() {
             report.notice = self.notice.take();
         }

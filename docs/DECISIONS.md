@@ -7210,3 +7210,31 @@ which is what Alt+F4 does to a fullscreen program on Windows anyway.
 and a stop request reaches only the output: it still hides. A launcher that
 must stop Strobe in every layout should post `WM_CLOSE` to the window titled
 "Strobe" (the control window).
+
+### D299: the playlist clock follows real time; the scenes keep the clamped step (2026-10-15)
+
+**Context.** The app clamps each frame's `dt` to 0.1 s (`stats::MAX_DT`) so
+a stall does not fling every smoothed control across its range, and it gave
+the show that same `dt`. On the mini PC (Vega 3, 1080p, `--no-adaptive`) a
+2-minute cue of 10-volume-clouds at 2.4 fps (about 400 ms frames) ran 490 s
+of real time: each frame counted a quarter of its length. 12-silicon-atlas at
+12.8 fps (78 ms, under the clamp) kept exactly 120 s. A playlist is a
+schedule, and the clock already carries a long frame's leftover into the next
+cue so that it does not lose time (D76); the clamp undid that.
+
+**Decision.** `Show::frame` takes two steps. The scenes advance by the clamped
+`dt`, as before. The playlist clock, the anchor countdown, the breakdown, drop
+and song listeners, the synthetic beat the clock reads, and the resume timer
+take the real interval (`FrameStats::last_interval`), capped at
+`MAX_WALL_STEP` = 1 s per frame. The cap keeps a frame that waited on
+something other than drawing (the last precompile step, a window drag) from
+eating seconds of a cue; any scene faster than 1 fps keeps its cue's length
+in real time. Screenshot mode passes its fixed step for both.
+
+**Test.** `a_slow_scene_does_not_stretch_its_cue_past_real_time`
+(`strobe-app/tests/show.rs`): frames 0.4 s apart with a 0.1 s scene step; the
+2-second cue is over after 2.4 s. With the old single `dt` it was still on.
+
+**Would reopen:** a show that wants a slow scene's cue to run longer (that is
+a duration in the playlist), or a scene below 1 fps that must keep time
+(raise the cap).
