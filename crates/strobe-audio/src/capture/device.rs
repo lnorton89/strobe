@@ -16,6 +16,11 @@
 //! already shows up as an input there (PulseAudio and PipeWire expose
 //! `Monitor of ...` sources).
 //!
+//! **Linux sound servers.** cpal opens ALSA's `default` PCM, which does not
+//! exist under WSLg (only `pulse` does). When the default input will not
+//! open, [`open`] tries an input named `pulse`, then `pipewire`, and logs
+//! which one it used, before the caller falls back to synthetic audio.
+//!
 //! **Not every stream error is a failure.** cpal reports a buffer glitch
 //! (`Xrun`), a default-device reroute it already followed (`DeviceChanged`)
 //! and a refused real-time promotion (`RealtimeDenied`) through the same
@@ -223,11 +228,72 @@ where
         .map_err(|e| CaptureError::Stream(e.to_string()))
 }
 
-/// Opens `choice` and starts it playing.
+/// The sound-server PCMs tried, in order, when the default input will not
+/// open on Linux. WSLg has no ALSA `default` PCM but does have `pulse`.
+const FALLBACK_NAMES: [&str; 2] = ["pulse", "pipewire"];
+
+/// Which of `names` to use when the default input cannot be opened: the
+/// first match for [`FALLBACK_NAMES`], in that order, ignoring case.
+fn fallback_index(names: &[String]) -> Option<usize> {
+    FALLBACK_NAMES.iter().find_map(|wanted| {
+        names
+            .iter()
+            .position(|name| name.trim().eq_ignore_ascii_case(wanted))
+    })
+}
+
+/// A device's name for [`fallback_index`]: the backend's own id (ALSA's PCM
+/// name, `pulse`) when there is one, else the display name.
+fn fallback_name(device: &cpal::Device) -> String {
+    device
+        .id()
+        .map_or_else(|_| display_name(device), |id| id.id().to_owned())
+}
+
+/// Opens the input device named `pulse`, else `pipewire`, among the host's
+/// inputs. `first` is the error that sent us here, returned if neither opens.
+fn open_sound_server(host: &cpal::Host, first: CaptureError) -> Result<Opened, CaptureError> {
+    let Ok(inputs) = host.input_devices() else {
+        return Err(first);
+    };
+    let devices: Vec<cpal::Device> = inputs.collect();
+    let names: Vec<String> = devices.iter().map(fallback_name).collect();
+    let Some(device) = fallback_index(&names).and_then(|i| devices.get(i)) else {
+        return Err(first);
+    };
+    match open_device(device) {
+        Ok(opened) => {
+            log::info!(
+                "default input unavailable ({first}); using the {} device",
+                fallback_name(device)
+            );
+            Ok(opened)
+        }
+        Err(error) => {
+            log::warn!("fallback input {} failed: {error}", fallback_name(device));
+            Err(first)
+        }
+    }
+}
+
+/// Opens `choice` and starts it playing. On Linux a default input that will
+/// not open falls back to a `pulse` or `pipewire` device (see
+/// [`open_sound_server`]).
 pub(crate) fn open(choice: &DeviceChoice) -> Result<Opened, CaptureError> {
     let host = cpal::default_host();
-    let device = find_device(&host, choice)?;
-    let name = display_name(&device);
+    let first = match find_device(&host, choice).and_then(|device| open_device(&device)) {
+        Ok(opened) => return Ok(opened),
+        Err(error) => error,
+    };
+    if cfg!(target_os = "linux") && *choice == DeviceChoice::DefaultInput {
+        return open_sound_server(&host, first);
+    }
+    Err(first)
+}
+
+/// Opens one device and starts it playing.
+fn open_device(device: &cpal::Device) -> Result<Opened, CaptureError> {
+    let name = display_name(device);
 
     // A render device has no input configs; its output config describes the
     // loopback format.
@@ -249,15 +315,15 @@ pub(crate) fn open(choice: &DeviceChoice) -> Result<Opened, CaptureError> {
 
     let format = supported.sample_format();
     let stream = if format == SampleFormat::F32 {
-        build::<f32>(&device, config, producer, health.clone())?
+        build::<f32>(device, config, producer, health.clone())?
     } else if format == SampleFormat::F64 {
-        build::<f64>(&device, config, producer, health.clone())?
+        build::<f64>(device, config, producer, health.clone())?
     } else if format == SampleFormat::I16 {
-        build::<i16>(&device, config, producer, health.clone())?
+        build::<i16>(device, config, producer, health.clone())?
     } else if format == SampleFormat::I32 {
-        build::<i32>(&device, config, producer, health.clone())?
+        build::<i32>(device, config, producer, health.clone())?
     } else if format == SampleFormat::U16 {
-        build::<u16>(&device, config, producer, health.clone())?
+        build::<u16>(device, config, producer, health.clone())?
     } else {
         return Err(CaptureError::UnsupportedFormat(format!("{format:?}")));
     };
@@ -278,6 +344,28 @@ pub(crate) fn open(choice: &DeviceChoice) -> Result<Opened, CaptureError> {
 mod tests {
     use super::*;
     use anyhow::Result;
+
+    fn names(list: &[&str]) -> Vec<String> {
+        list.iter().map(|name| (*name).to_owned()).collect()
+    }
+
+    #[test]
+    fn the_fallback_prefers_pulse_then_pipewire() -> Result<()> {
+        assert!(
+            fallback_index(&names(&["hw:0,0", "pipewire", "Pulse"])) == Some(2),
+            "pulse wins over pipewire whatever the order, ignoring case"
+        );
+        assert!(
+            fallback_index(&names(&["sysdefault", "pipewire"])) == Some(1),
+            "pipewire is used when pulse is absent"
+        );
+        assert!(
+            fallback_index(&names(&["hw:0,0", "default", "pulseaudio-monitor"])).is_none(),
+            "only exact names match"
+        );
+        assert!(fallback_index(&[]).is_none(), "no devices, no fallback");
+        Ok(())
+    }
 
     #[test]
     fn a_glitch_a_followed_reroute_and_a_refused_priority_are_not_failures() -> Result<()> {
