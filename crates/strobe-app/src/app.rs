@@ -838,6 +838,16 @@ impl Running {
         ui_state.synesthesia.note =
             synesthesia.note(ui_state.synesthesia.show, library.synesthesia_count());
         log::info!("Synesthesia's scenes: {}", ui_state.synesthesia.note);
+        // Controlling another Strobe (D294): this laptop's id is made once
+        // and kept, and `--control` decides the first thing the form does.
+        if !strobe_remote::trust::valid_controller_id(&ui_state.remote.controller_id) {
+            ui_state.remote.controller_id = crate::trusted::new_controller_id();
+        }
+        let (desktop_controller, launch_action) = crate::desktop::Controller::at_launch(
+            &ui_state.remote,
+            cli.control.filter(|_| cli.screenshot.is_none()),
+            cli.remote_trust.as_deref(),
+        );
         let stack = Stack::open(
             event_loop,
             cli.gl.choice(),
@@ -906,10 +916,14 @@ impl Running {
             )
             .behind_proxy(cli.remote_proxy.clone())
             .venue(
-                cli.remote_trust.as_deref().and_then(crate::venue::load),
+                // Only a host reads it; with `--control` it is the laptop's.
+                cli.remote_trust
+                    .as_deref()
+                    .filter(|_| cli.remote)
+                    .and_then(crate::venue::load),
                 cli.allow_desktop_control,
             ),
-            desktop_controller: crate::desktop::Controller::default(),
+            desktop_controller,
             desktop_capture: crate::desktop::Capture::default(),
             desktop_input: crate::desktop::HostInput::default(),
             desktop_events: Vec::with_capacity(129),
@@ -952,7 +966,7 @@ impl Running {
             control_covered: false,
             next_output: now,
             next_control: now,
-            actions: Vec::new(),
+            actions: launch_action.into_iter().collect(),
             start_time: if screenshot.is_some() {
                 SCREENSHOT_START
             } else {
@@ -3659,6 +3673,22 @@ impl Running {
                 Action::ConnectDesktop => {
                     self.lan.set_desktop(false);
                     self.desktop_controller.connect();
+                    // The trust file's path (not its contents) and the
+                    // choice survive a restart (D294).
+                    self.desktop_controller
+                        .remembered(&mut self.ui_state.remote);
+                    // A trust file that cannot be read leaves no viewer, and
+                    // after `--control` or the viewer's Reconnect the form
+                    // holding the reason is not on screen: bring it up. The
+                    // note names the path, never the file's contents.
+                    if self.desktop_controller.use_trust && !self.desktop_controller.active() {
+                        log::warn!(
+                            "desktop controller: not connecting: {}",
+                            self.desktop_controller.note()
+                        );
+                        self.desktop_controller.reveal_form();
+                        self.ui_state.panes.open(Pane::Settings);
+                    }
                 }
                 Action::DisconnectDesktop => self.desktop_controller.disconnect(),
                 Action::ControlAnotherDesktop => {

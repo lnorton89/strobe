@@ -45,9 +45,14 @@ which backend proved a claim.
   compare); per-address and global backoff on failed proofs; a trusted
   pairing is per connection, listed as *trusted*, revocable for the run, and
   ends with the kill switch; a launch-time `--remote` retries until the
-  network is up. Next: the controller side (trust-file field, `--control
-  HOST:PORT --remote-trust FILE`, automatic reconnect with backoff) on D286's
-  viewer stages, then a two-machine soak on the T480.
+  network is up. **Controller side built (D294):** `strobe --control
+  HOST:PORT --remote-trust FILE` opens straight into the viewer; Settings >
+  Control another Strobe has "Use a trust file" (the path is remembered, never
+  the secret); the proof is made only for the controller's own `trust_start`;
+  a stable controller id; and a trusted connection that drops retries by
+  itself (1 s, 2 s, 4 s ... 15 s) as a `Stage::Reconnecting` on D286's viewer
+  until Disconnect, stopping with the reason on a refusal. Next: a two-machine
+  soak on the T480 and the JaJa mini PC.
 - **Full desktop remote control (2026-10-13, D275):** native Strobe instances
   can mirror and operate another instance's complete control window,
   including the editor and host file operations. Built on `strobe-remote`'s
