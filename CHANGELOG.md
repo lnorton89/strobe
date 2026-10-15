@@ -74,6 +74,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Documentation
 
+- Linux as a documented platform, with a check script (D294) ([`2b4d009`](https://github.com/lnorton89/strobe/commit/2b4d009d573265864acbe97f1f1bd3e2e8435969))
 - --audio ambient in the user guide ([`fdcb76a`](https://github.com/lnorton89/strobe/commit/fdcb76a2600197ce212167a6a374ffad2b79ac06))
 - D294, the laptop side of venue mode, in the guide, roadmap and audit ([`5f09af9`](https://github.com/lnorton89/strobe/commit/5f09af93ef6ab4cf83ed234c68dfce699bb41875))
 - D292 makes ANGLE's Vulkan and Metal backends the second backend ([`f782cee`](https://github.com/lnorton89/strobe/commit/f782ceee4fd29dc2cd2e7e9858095435e0988ca0))
@@ -111,6 +112,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Internal
 
+- a Nix flake with a dev shell, a software-GL shell and a wrapped package (D294) ([`0c43a41`](https://github.com/lnorton89/strobe/commit/0c43a41baaca90796374a9ea6ad22d850f556241))
 - **deps:** bump rustls to 0.23.46 for the RUSTSEC advisories against 0.23.45 ([`f1a157c`](https://github.com/lnorton89/strobe/commit/f1a157cdb15df8874d9b234db003763ff81d7536))
 - take base64 from the workspace like every other dependency ([`52d4a66`](https://github.com/lnorton89/strobe/commit/52d4a66f39a402654f52960c438c63bbb3dc2887))
 - ignore a strobe-syn-corpus clone inside the checkout ([`2061e54`](https://github.com/lnorton89/strobe/commit/2061e54791b4b4e4041085bf28832dc7cdb48a1d))
