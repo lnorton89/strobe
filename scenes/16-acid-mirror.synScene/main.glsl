@@ -13,6 +13,9 @@
 
 // ---------------------------------------------------------------- shared
 
+// Iso-lines of the combed grain per unit of it, for the hairline streaks.
+const float STREAKS = 44.0;
+
 // Seconds that advance the flow: speed control, mids make it swirl faster.
 float flowRate() {
     return speed * (1.0 + 0.9 * clamp(syn_MidLevel, 0.0, 1.0) * reactivity);
@@ -94,12 +97,12 @@ void paintSource(vec2 p, float t, out float s, out float add, out float cut,
     float pr = 0.055 * (1.0 + 0.6 * kick);
     vec2 pen = vec2(-0.20 - 0.10 * sin(t * 0.23), 0.16 * sin(t * 0.31 + 1.0));
     float dp = length(p - pen);
-    float pm = smoothstep(pr, pr * 0.55, dp);
+    float pm = 1.0 - smoothstep(pr * 0.55, pr, dp);
     float ps = mix(0.84, 0.28, smoothstep(pr * 0.25, pr * 0.6, dp));
     s = mix(s, ps, pm);
     vec2 pen2 = vec2(-0.40 + 0.12 * sin(t * 0.17 + 2.0), -0.22 + 0.13 * sin(t * 0.27));
     float dq = length(p - pen2);
-    float qm = smoothstep(pr * 1.4, pr * 0.7, dq);
+    float qm = 1.0 - smoothstep(pr * 0.7, pr * 1.4, dq);
     float qs = mix(0.58, 0.18, smoothstep(pr * 0.3, pr * 1.0, dq));
     s = mix(s, qs, qm);
     float pens = max(pm, qm);
@@ -112,7 +115,9 @@ vec4 paintPass() {
     vec4 clk = texelFetch(clock, ivec2(0), 0);
     float dt = stepDt(clk.x);
     float rate = flowRate();
-    float T = clk.y + dt * rate;
+    // A cleared clock (first frame, or a resize) restarts at the scene time,
+    // as the clock pass will this frame.
+    float T = (clk.x > 0.0) ? clk.y + dt * rate : TIME * rate;
     float A = 2.0 * RENDERSIZE.x / RENDERSIZE.y;
     vec2 pc = (vec2(_uv.x * 0.5, _uv.y) - 0.5) * vec2(A, 1.0);
 
@@ -142,12 +147,16 @@ vec4 paintPass() {
     float frames = dt * 60.0;
     float ss, add, cut, acs, vns;
     paintSource(pc, T, ss, add, cut, acs, vns);
-    float first = (FRAMECOUNT < 2.0) ? 1.0 : 0.0;
+    // A cleared buffer (the first frame, or a resize or render-scale change
+    // reallocating it) reads all zeros, which written paint never is (the
+    // grain is never exactly 0): take the sources whole, so the picture is
+    // back in one frame instead of growing back over seconds.
+    float first = (FRAMECOUNT < 2.0 || prev == vec4(0.0)) ? 1.0 : 0.0;
     d = max(d, add);
     d *= exp(-dt * 16.0 * cut) * (1.0 - first * cut);
     s = mix(s, ss, max(add * (1.0 - exp(-dt * 0.9)), first));
-    acc = mix(acc, acs, 1.0 - exp(-dt * 3.5));
-    vein = mix(vein, vns, 1.0 - exp(-dt * 1.3));
+    acc = mix(acc, acs, max(1.0 - exp(-dt * 3.5), first));
+    vein = mix(vein, vns, max(1.0 - exp(-dt * 1.3), first));
 
     // Keep edges crisp (threshold dynamics): faint or thin paint resolves to
     // either solid or nothing.
@@ -171,24 +180,29 @@ vec2 foldUV(vec2 uv) {
     return vec2(1.0 - abs(1.0 - 2.0 * uv.x), uv.y);
 }
 
-// .x ink thickness, .y colour index through the band fold.
-vec2 surfaceAt(vec2 uv) {
-    vec4 c = texture(paintBuf, foldUV(uv));
-    return vec2(smoothstep(0.1, 0.9, c.g) + 1.2 * detail * c.a, pingPong(c.r * bands + 2.2 * detail * (c.a - 0.5)));
+// .x ink thickness, .y colour index through the band fold, .z the streak
+// coordinate (colour index scaled, plus a little grain).
+vec3 surface(vec4 c) {
+    return vec3(0.45 * smoothstep(0.2, 0.8, c.g) + 1.2 * detail * c.a,
+                pingPong(c.r * bands + 2.2 * detail * (c.a - 0.5)),
+                c.r * STREAKS + 1.2 * c.a);
 }
+
+vec3 surfaceAt(vec2 uv) { return surface(texture(paintBuf, foldUV(uv))); }
 
 vec4 finalPass() {
     vec4 c = texture(paintBuf, foldUV(_uv));
     float s = c.r;
     float d = c.g;
-    float a = smoothstep(0.46, 0.54, d);
+    // Coverage over one pixel of the paint edge, so the cut to black is crisp.
+    float a = clamp((d - 0.5) / max(fwidth(d), 0.01) + 0.5, 0.0, 1.0);
 
     vec2 e = 1.25 / RENDERSIZE;
-    vec2 s0 = surfaceAt(_uv);
-    vec2 sE = surfaceAt(_uv + vec2(e.x, 0.0));
-    vec2 sW = surfaceAt(_uv - vec2(e.x, 0.0));
-    vec2 sN = surfaceAt(_uv + vec2(0.0, e.y));
-    vec2 sS = surfaceAt(_uv - vec2(0.0, e.y));
+    vec3 s0 = surface(c);
+    vec3 sE = surfaceAt(_uv + vec2(e.x, 0.0));
+    vec3 sW = surfaceAt(_uv - vec2(e.x, 0.0));
+    vec3 sN = surfaceAt(_uv + vec2(0.0, e.y));
+    vec3 sS = surfaceAt(_uv - vec2(0.0, e.y));
     vec2 grad = vec2(sE.x - sW.x + 0.55 * (sE.y - sW.y), sN.x - sS.x + 0.55 * (sN.y - sS.y));
     vec3 n = normalize(vec3(-grad * relief * 4.5, 1.0));
     vec3 light = normalize(vec3(-0.45, 0.55, 0.7));
@@ -205,7 +219,25 @@ vec4 finalPass() {
     // Ink lines in the grooves, and a dark rim at the edge of the paint.
     float lap = sE.y + sW.y + sN.y + sS.y - 4.0 * s0.y + 0.5 * (sE.x + sW.x + sN.x + sS.x - 4.0 * s0.x);
     col *= 1.0 - 0.85 * smoothstep(0.02, 0.08, lap);
-    col *= 0.5 + 0.5 * smoothstep(0.45, 0.95, d);
+
+    // Hairline streaks: iso-lines of the colour index. The flow folds and
+    // stretches that index along itself, so its iso-lines run with the paint
+    // in nested bundles, like dragged pigment. Each line is about two pixels
+    // wide whatever the spacing (distance to the line over its rate per
+    // pixel, measured across 2.5 pixels so it is smooth), takes the accent
+    // colours in turn, and fades where lines would crowd into moire, which
+    // also leaves the hard colour steps alone.
+    float hv = s0.z;
+    float hw = max(length(vec2(sE.z - sW.z, sN.z - sS.z)) * 0.4, 1e-4);
+    float dl = abs(fract(hv) - 0.5) / hw;
+    float line = (1.0 - smoothstep(0.6, 1.4, dl)) * (1.0 - smoothstep(0.18, 0.4, hw));
+    float k = floor(hv);
+    vec3 lineCol = acidPalette(0.40 + 0.34 * fract(k * 0.618034));
+    lineCol = mix(lineCol, vec3(1.0), step(0.78, fract(k * 0.371)));
+    col = mix(col, lineCol * (0.55 + 0.6 * diff), line * streaks * smoothstep(0.55, 0.8, d));
+
+    // A thin dark rim at the edge of the paint, then a crisp cut to black.
+    col *= 0.3 + 0.7 * smoothstep(0.5, 0.6, d);
     col += vec3(0.8, 1.0, 0.95) * (spec * 0.9 + rim * 0.2);
     col *= a * brightness * (1.0 + 0.12 * clamp(syn_BassLevel, 0.0, 1.0) * reactivity);
     return vec4(clamp(col, 0.0, 1.0), 1.0);
