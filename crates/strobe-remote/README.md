@@ -39,7 +39,13 @@ controller answers `HMAC-SHA256(secret, framed(context, nonce, host, controller
 id))`, compared in constant time and good for one answer ([`trust`](src/trust.rs)).
 Failed proofs back off per address and globally. A trusted pairing lasts as
 long as its connection, shows in the paired list as *trusted*, and the host
-operator can revoke it for the run. See
+operator can revoke it for the run. The controller's half (D294) is in
+`strobe-app`: the laptop proves the file only in answer to its own
+`trust_start` on that connection (it refuses an unsolicited challenge, so it
+is never a signing oracle), binds the proof to
+[`client::host_header`](src/client.rs), the exact `Host` it sent, uses a stable
+id made by [`trust::new_controller_id`](src/trust.rs), and reconnects with a
+1 s, 2 s, 4 s ... 15 s backoff until told to stop. See
 [the user guide](../../docs/USER_GUIDE.md#venue-mode-an-unattended-show-machine).
 
 ## Role in the workspace
