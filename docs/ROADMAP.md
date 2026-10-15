@@ -92,6 +92,15 @@ which backend proved a claim.
   2 Hz (5 Hz with a desktop remote), until Windows paints it promptly again.
   Open: the mini-PC verification in MINIPC.md.
 
+- **AMD native WGL renders black above about 160x90 offscreen (D296), cause
+  open:** the mini-PC's Vega 3 draws 05-domain-warp correctly at 160x90 and
+  black above it, and `neon_city` black at 160x90 (targets larger than the
+  window). The code never draws to or reads from the default framebuffer
+  (pinned by a headless test), so this is a driver behaviour with targets or
+  sizes. Built and ready to run on the mini-PC: `STROBE_GL_TRACE`,
+  `strobe-bench --probe` and `--window-size`; the run and how to read it are in
+  `hardware/MINIPC.md`. The fix waits on that result.
+
 - **Render scale and pinned scenes (D280), built, not yet re-run on the
   RX 580:** a scene with a root `WIDTH` x `HEIGHT`, a literal buffer pass of
   that size, and a shader that reads it with `texelFetch` draws its final
