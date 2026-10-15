@@ -6,7 +6,7 @@ in [DECISIONS.md](DECISIONS.md), the evidence-based gap list in
 [STATUS_AUDIT.md](STATUS_AUDIT.md), and real-hardware results in
 [hardware/T480.md](hardware/T480.md).
 
-_Last updated: 2026-10-14 (the control window follows Synesthesia's layout, D281-D285; v0.1.0 tagged and published; earlier claims reconciled with D199-D238 and the T480 and TORNADO records)._
+_Last updated: 2026-10-15 (Linux support documented, with a Nix flake, D294; the control window follows Synesthesia's layout, D281-D285; v0.1.0 tagged and published; earlier claims reconciled with D199-D238 and the T480 and TORNADO records)._
 
 ## Now
 
@@ -36,6 +36,16 @@ which backend proved a claim.
 | Scenes | Twelve original scenes over five GPU-load tiers, one scripted, one circuit-board animation (lnorton89/strobe#11) | llvmpipe and T480 |
 
 ### In flight
+
+- **Linux support (2026-10-15, D294), documented and built, not yet seen on
+  real Linux hardware:** the README has a Linux section (Debian and Ubuntu
+  packages verified on a clean Ubuntu 24.04, Fedora and Arch names from the
+  package databases, Wayland and X11, graphics, audio, WSL2), `flake.nix` gives
+  a dev shell, a software-GL shell and a wrapped package for x86_64 and
+  aarch64 Linux (built and run on x86_64 under Xvfb and Weston), and
+  COMPATIBILITY has the rows. Open, in STATUS_AUDIT's "P1: Linux": a real
+  Linux GPU, ALSA, PipeWire and PulseAudio capture, MIDI hardware, NixOS, and
+  WSL2 with WSLg on the AMD desktop.
 
 - **Venue mode (2026-10-15, D288):** a headless show machine is controlled
   from a laptop with no click at it. Built: `--allow-desktop-control`,
