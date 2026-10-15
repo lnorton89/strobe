@@ -8,7 +8,7 @@
 // Dependencies: anyhow; strobe-gfx (Gl, formats, programs)
 // ============================================================================
 
-//! A driver probe for contexts that render black above some size (D289).
+//! A driver probe for contexts that render black above some size (D296).
 //!
 //! On the JaJa mini-PC's Vega 3 (AMD, native WGL) the bench renders
 //! correctly at 160x90 and all black at 200x90, in about a fifth of the time

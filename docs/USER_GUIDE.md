@@ -2,7 +2,9 @@
 
 This is for someone running Strobe, not building it. You do not need Rust
 or a compiler. Everything here applies to the Windows release; the
-command-line flags work the same on Linux. For logs in depth, see
+command-line flags work the same on Linux, where there is no download yet and
+you build Strobe from source (README, "Linux"; settings and logs are in
+`~/.local/share/strobe`). For logs in depth, see
 [DEBUGGING.md](DEBUGGING.md).
 
 ## Install
@@ -43,7 +45,8 @@ screen until you ask.
   fullscreen.
 - The window is Synesthesia's three columns. The **rail** on the left
   switches the main view: **PLAY** (the live preview at full size),
-  **LIB** (the scene library, the default), **GET** (import a Shadertoy
+  **LIB** (the scene library, the default, with its **Scenes** and
+  **Controls** pages), **GET** (import a Shadertoy
   shader), **LIST** (playlists), **EDIT** (the scene's code), **MAP** (MIDI,
   OSC, macros), **DIAG** (diagnostics) and **SET** (settings). The **panel**
   on the right stays whatever the view is: the live preview, a status strip
@@ -70,6 +73,7 @@ screen until you ask.
 | F11 | Output fullscreen |
 | Ctrl+F | Search the library |
 | Ctrl+K | The command palette: every command, pane, scene and preset by name |
+| Ctrl+L | Switch LIB between Scenes and the live scene's Controls |
 | Esc | Close the top pane |
 
 Settings > Keyboard changes any of them.
@@ -84,9 +88,14 @@ Settings > Keyboard changes any of them.
   favourites first) with a direction arrow, a star that shows only your
   favourites, and a menu that shows only scenes that loaded or that need
   work. Each card shows the picture, the title, the author and a **...**
-  menu (also the right-click menu); star favourites; double-click to play.
-  The selected scene's tags show above the grid, and *Edit* changes them
-  without playing it. The **Edit** tab does the same for the playing
+  menu (also the right-click menu); star favourites. **Click a card to
+  play it**, as in Synesthesia: it says PREPARING while it compiles, and if
+  it fails the scene that was playing carries on and the card says why. A
+  double-click is still one load. With the keyboard, Tab to a card and
+  press Enter, or type in the search and press Enter. *Preview without
+  loading* (in the **...** menu, or *Preview:* in Ctrl+K) shows a scene
+  above the grid without changing what is live. The clicked scene's tags
+  show above the grid, and *Edit* changes them. The **Edit** tab does the same for the playing
   scene, and the Import pane for the scene it just imported.
 - A scene is a folder with `main.glsl` and `scene.json`, the Synesthesia
   scene format (`.synScene`). Synesthesia scenes you own can be played by
@@ -122,10 +131,13 @@ Settings > Keyboard changes any of them.
   normally `%LOCALAPPDATA%\Synesthesia\Data`).
 - **Needs work** (a LIB filter, and a list in DIAG) shows the scenes that
   failed to load this run, each with its reason.
-- **Controls** (a tab of the panel) shows the playing scene's sliders,
-  colours and buttons. The camera button in the status strip, or *Use
-  frame as picture* in the Edit tab, saves the current frame as the
-  scene's library picture.
+- **Controls** shows the playing scene's sliders, colours and buttons, in
+  two places: large, as LIB's **Controls** page (the switch at the top of
+  LIB, or Ctrl+L, flips between it and the scenes), and compact, as a tab
+  of the panel for when another view is up. While the Controls page is up
+  the panel shows Presets beside it rather than the same controls twice.
+  The camera button in the status strip, or *Use frame as picture* in the
+  Edit tab, saves the current frame as the scene's library picture.
 - **Presets** (a tab of the panel): save the current look under a name,
   recall it later or from a controller. A preset saved while a picture is
   chosen for `syn_Media` remembers it.
@@ -149,6 +161,10 @@ Scenes react to sound through the default **recording** device.
   or use a loopback device, and choose it in Settings > Audio.
 - `--audio synthetic` forces the built-in pattern, for testing without
   sound.
+- `--audio ambient` is the built-in pattern with no beat: hits and beat
+  triggers stay at zero and the levels swell slowly, so scenes keep moving
+  without flashing on a beat the room cannot hear. Use it for a show with
+  no microphone.
 
 ## The output
 
@@ -163,16 +179,16 @@ Scenes react to sound through the default **recording** device.
   resolution, which lowers the render size by itself when the GPU falls
   behind; `--no-adaptive` turns it off for a run.
 - The output's look (brightness, hue, mirror, colour limits and the like)
-  is in the Controls tab under *Output (meta)*. It carries over from scene
-  to scene.
+  is under *Output (meta)* in Controls (the page or the panel's tab). It
+  carries over from scene to scene.
 
 ## Media behind a scene
 
 Scenes that read `syn_Media` show a picture or a looping folder of
 pictures (PNG or JPEG).
 
-- In Controls, **Media > Choose** takes a file or folder path; *Scene's
-  own* gives the scene its own back. Dropping a picture or a folder of
+- In the panel's Edit tab, **Media > Choose** takes a file or folder
+  path; *Scene's own* gives the scene its own back. Dropping a picture or a folder of
   pictures on the window does the same.
 - A playlist cue can name its own media, and that wins for the cue.
 - Very long sequences are shrunk to fit 192 MiB of memory rather than cut
@@ -315,6 +331,102 @@ limited to five frames per second and 4096 pixels per edge. Keep the host
 control window open; resize it if capture exceeds this limit. Input is
 disabled while frames are stale, and queued input is never replayed after
 reconnecting. Rendering the projector output continues on the host.
+
+### Venue mode: an unattended show machine
+
+Normally pairing a desktop needs someone to click **Approve** at the host.
+At a venue the show machine may have no screen, so venue mode replaces the
+click with a **trust file**: a small text file holding a secret. A controller
+that proves it has the same file is paired for full desktop control, with no
+approval.
+
+**1. Make the file, once, on any computer you own.**
+
+```text
+strobe --make-remote-trust "C:\Users\you\venue.trust"
+```
+
+Strobe writes 32 random bytes as hex, tells you what to do next, and refuses
+to overwrite a file that is already there. Keep it in your user profile (the
+default permissions on your profile folder let only you and administrators
+read it) and never post it, email it or commit it. On Linux and macOS the
+file is created readable by you only, and Strobe will not use one that other
+users can read.
+
+**2. Copy it to the other computer.** Use a USB stick or a copy over a
+channel you trust, and delete the stick's copy afterwards. Both computers
+use the same file.
+
+**3. Start the show machine** (start-up shortcut or script):
+
+```text
+strobe --remote --allow-desktop-control --remote-trust "C:\Users\you\venue.trust" --fullscreen
+```
+
+`--remote` starts the listener (it retries every few seconds if the network
+is not up yet at boot); `--allow-desktop-control` switches **Allow full
+desktop control** on for this run; `--remote-trust` names the file, which is
+read once at launch. If the file cannot be used, Strobe says so in its log and
+carries on without trusted pairing, so the show still starts. Nothing here is
+saved: after a restart the switches come from the command line again.
+
+**4. The laptop.** Copy the trust file to the laptop (step 2), then start
+Strobe there with the show machine's address:
+
+```text
+strobe --control 192.168.1.50:47812 --remote-trust "C:\Users\you\venue.trust"
+```
+
+`192.168.1.50` is the show machine's address, shown in its **Settings >
+Remote** (and in its log); the port is `47812` unless you started it with
+`--remote-port`. A bare IP takes `47812`. The laptop opens straight into the
+show machine's window, with no click anywhere, and reads the file when it
+connects. `--control` is for the laptop only: it cannot be combined with
+`--remote`. Without `--remote-trust`, `--control HOST:PORT` opens
+**Settings > Control another Strobe** with the address filled in, for pairing
+with a code.
+
+Or, from the running laptop, open **Settings > Control another Strobe**, type
+the address, tick **Use a trust file (venue mode)**, type or paste the file's
+path and press **Connect to desktop**. Strobe remembers the path (never the
+file's contents) and the choice for next time.
+
+**If the connection drops, the laptop reconnects by itself.** After a host
+restart, a Wi-Fi blip or the show machine booting later than the laptop, the
+viewer keeps the last image dimmed and says **Reconnecting... (attempt N)**
+and why. It tries again after 1 s, 2 s, 4 s, 8 s and then every 15 s, for as
+long as it takes, and takes the controls back when the host answers. Press
+**Disconnect** to stop. If the host says no, it stops and says why instead:
+the file is not the one the host was started with, the controller was
+revoked at the host, or the host was not started with `--remote
+--allow-desktop-control --remote-trust FILE`. **Reconnect** tries the file
+again once you have fixed it. (Pairing by code keeps its manual **Reconnect**.)
+
+What you see at the host: the title bar says **Desktop controlled remotely**
+while the laptop is in control, and **Settings > Remote** lists the laptop as
+*Full desktop: trusted ...* with a *trusted* mark. **Revoke** there ends that
+session and refuses that controller until Strobe restarts. **Revoke all**, or
+switching **Allow full desktop control** off, shuts the trust file out;
+switching it off ends every desktop session at once, and trusted pairing is
+refused while it is off.
+
+**What it protects, and what it does not.**
+
+- **Whoever has the file has full control** of the show machine: scenes,
+  files, quitting. Treat it like a key. If it may have leaked, make a new one
+  and relaunch both computers.
+- **LAN only, plain HTTP.** The secret is never sent. The laptop answers a
+  fresh random challenge with a keyed hash that is good once, for that host
+  only, so someone watching the network cannot learn the secret or replay an
+  earlier answer. But the picture and your clicks and typing are not
+  encrypted, and someone able to sit between the two machines on your
+  network could hijack a session. Use a network you control, not a public one.
+- Wrong guesses are slowed and logged: a few free tries per address, then
+  pauses that grow to five minutes, and a shared pause if many addresses fail
+  at once. A flood on the network can therefore delay a *new* connection for a
+  while; a session already open is not affected.
+- Keep the file out of any folder Strobe writes scenes to: a controller with
+  the full UI can save files on the host.
 
 ### HTTPS through your own proxy (advanced)
 

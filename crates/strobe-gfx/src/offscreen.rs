@@ -124,7 +124,7 @@ pub struct Request {
     pub tiny: bool,
     /// Window mode only: the stand-in window's client size, in pixels.
     /// `None` is [`TINY_SIDE`] square. Nothing the job renders depends on it
-    /// (D289); it exists so a machine that draws black above some size can
+    /// (D296); it exists so a machine that draws black above some size can
     /// be bisected by making the window bigger than the render.
     pub window_size: Option<[u32; 2]>,
 }

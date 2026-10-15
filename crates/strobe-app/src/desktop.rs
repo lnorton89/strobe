@@ -23,6 +23,8 @@ use std::time::{Duration, Instant};
 use strobe_remote::desktop::{Desktop, Input, MAX_EDGE, MAX_JPEG, Modifiers};
 use strobe_remote::{ClientMessage, ErrorCode, ServerMessage};
 
+use crate::trusted;
+
 /// Maximum capture rate, including a control window covered by fullscreen output.
 pub const STREAM_PERIOD: Duration = Duration::from_millis(200);
 
@@ -331,6 +333,9 @@ struct View {
     stage: Stage,
     /// The connection reuses a saved pairing, so no approval is awaited.
     reconnecting: bool,
+    /// The connection proves a trust file (D288/D294): no code, no
+    /// approval, and it retries by itself when it drops.
+    trusted: bool,
 }
 
 /// Where a connection stands, for the viewer.
@@ -343,6 +348,11 @@ enum Stage {
     Live,
     /// Over, and why. The last image, if any, stays on screen.
     Ended(End),
+    /// A trusted connection (D294) that dropped, or could not be made yet,
+    /// and is being tried again: this is attempt `n`, waiting out its
+    /// backoff or in flight. The last image, if any, stays on screen. It
+    /// ends only when the person disconnects or the host refuses.
+    Reconnecting(u32),
 }
 
 /// Why a connection ended, which decides what the viewer offers next.
@@ -372,7 +382,7 @@ pub const APPROVAL_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// The host address a person typed, as a socket address. A bare IP address
 /// takes the remote's default port, so "192.168.1.20" is enough.
-fn parse_host(text: &str) -> Result<SocketAddr, &'static str> {
+pub fn parse_host(text: &str) -> Result<SocketAddr, &'static str> {
     let text = text.trim();
     if let Ok(address) = text.parse::<SocketAddr>() {
         return Ok(address);
@@ -398,8 +408,12 @@ fn waiting_text(waited: Duration, limit: Duration) -> String {
 }
 
 /// What to do on the host while this desktop waits.
-fn wait_hint(reconnecting: bool) -> &'static str {
-    if reconnecting {
+fn wait_hint(reconnecting: bool, trusted: bool) -> &'static str {
+    if trusted {
+        "Proving the trust file to the host needs no approval. If this takes more than a few \
+         seconds, check that Strobe is running on the host with --remote, \
+         --allow-desktop-control and --remote-trust, on the same network."
+    } else if reconnecting {
         "Reconnecting with the saved pairing needs no approval. If this takes more than a few \
          seconds, check that Strobe is running on the host and on the same network."
     } else {
@@ -481,6 +495,18 @@ pub struct Controller {
     pub address: String,
     /// One-time code shown by the host; cleared immediately on connect.
     pub code: String,
+    /// Venue mode (D294): connect by proving a trust file instead of typing
+    /// a code. The form's checkbox; remembered across launches.
+    pub use_trust: bool,
+    /// Where the trust file is, as typed. Only this path is remembered,
+    /// never the file's contents.
+    pub trust_path: String,
+    /// This laptop's id on the host's list: stable across launches, and
+    /// valid for the protocol (`trust::valid_controller_id`).
+    pub controller_id: String,
+    /// The current (or last) connection proves a trust file, so it retries
+    /// by itself and a refusal offers Reconnect rather than a new code.
+    trusted: bool,
     view: Arc<Mutex<View>>,
     sender: Option<SyncSender<Input>>,
     worker: Option<JoinHandle<()>>,
@@ -510,6 +536,10 @@ impl Default for Controller {
         Self {
             address: String::new(),
             code: String::new(),
+            use_trust: false,
+            trust_path: String::new(),
+            controller_id: String::new(),
+            trusted: false,
             view: Arc::new(Mutex::new(View::default())),
             sender: None,
             worker: None,
@@ -536,6 +566,50 @@ impl Controller {
         self.worker.is_some()
     }
 
+    /// The controller a launch starts with, and what to do first (D294).
+    ///
+    /// The form starts from what was remembered: the trust file's path, and
+    /// whether it was in use, and this laptop's `controller_id`.
+    /// `--control HOST:PORT` then decides the first action. With
+    /// `--remote-trust FILE` it opens straight into the viewer (the file is
+    /// used even if the form had it off). Without, it opens the form with
+    /// the address filled in and the trust option off, for pairing with a
+    /// code: a remembered trust file never connects by itself.
+    pub fn at_launch(
+        remembered: &crate::prefs::RemotePref,
+        control: Option<SocketAddr>,
+        trust_file: Option<&std::path::Path>,
+    ) -> (Self, Option<crate::ui::Action>) {
+        let mut controller = Self::default();
+        controller
+            .controller_id
+            .clone_from(&remembered.controller_id);
+        controller.trust_path.clone_from(&remembered.trust_file);
+        controller.use_trust = remembered.use_trust && !remembered.trust_file.is_empty();
+        let Some(address) = control else {
+            return (controller, None);
+        };
+        controller.address = address.to_string();
+        match trust_file {
+            Some(file) => {
+                controller.trust_path = file.display().to_string();
+                controller.use_trust = true;
+                (controller, Some(crate::ui::Action::ConnectDesktop))
+            }
+            None => {
+                controller.use_trust = false;
+                (controller, Some(crate::ui::Action::ControlAnotherDesktop))
+            }
+        }
+    }
+
+    /// What the form should remember after a Connect: the trust file's
+    /// path (never its contents) and whether it is in use.
+    pub fn remembered(&self, into: &mut crate::prefs::RemotePref) {
+        into.trust_file = trusted::clean_path(&self.trust_path).to_string();
+        into.use_trust = self.use_trust;
+    }
+
     /// Start a fresh pairing session; no bearer secret is saved or logged.
     pub fn connect(&mut self) {
         self.disconnect();
@@ -548,18 +622,42 @@ impl Controller {
         };
         // Show the address as it will be used, port included.
         self.address = address.to_string();
+        let trust = if self.use_trust {
+            match trusted::load_plan(&self.trust_path, &self.controller_id) {
+                Ok(plan) => {
+                    self.trust_path = trusted::clean_path(&self.trust_path).to_string();
+                    Some(plan)
+                }
+                Err(note) => {
+                    self.set_note(&note);
+                    return;
+                }
+            }
+        } else {
+            None
+        };
+        // A trust file replaces the code; one typed as well is dropped.
         let code = std::mem::take(&mut self.code);
+        let code = if trust.is_some() { String::new() } else { code };
         let remembered = self.remembers(address);
-        if code.trim().is_empty() && !remembered {
+        if trust.is_none() && code.trim().is_empty() && !remembered {
             self.set_note(
                 "Enter the pairing code from the host: Settings > Remote > Pair a device, with \
                  Allow full desktop control on.",
             );
             return;
         }
+        self.trusted = trust.is_some();
+        if trust.is_some() {
+            log::info!(
+                "desktop controller: connecting to {address} as {} with a trust file",
+                self.controller_id
+            );
+        }
         self.view = Arc::new(Mutex::new(View {
             note: "Connecting".into(),
-            reconnecting: code.trim().is_empty(),
+            reconnecting: trust.is_none() && code.trim().is_empty(),
+            trusted: trust.is_some(),
             ..View::default()
         }));
         self.started = Some(Instant::now());
@@ -575,36 +673,13 @@ impl Controller {
             stop: Arc::clone(&self.stop),
             socket: Arc::clone(&self.socket),
             credential: Arc::clone(&self.credential),
+            trust,
         };
         let (sender, inputs) = sync_channel(512);
-        let view = Arc::clone(&self.view);
-        let stop = Arc::clone(&self.stop);
-        let socket = Arc::clone(&self.socket);
         match std::thread::Builder::new()
             .name("desktop controller".into())
-            .spawn(move || {
-                let ended = control(link, inputs);
-                // However the worker ended, its socket closes now. The
-                // interrupter in the slot is a second handle on it, so
-                // dropping the connection alone would leave it open: after
-                // a timeout the host would go on listing a request nobody
-                // here waits for, and could still approve it.
-                if let Some(open) = socket.lock().unwrap_or_else(PoisonError::into_inner).take() {
-                    // A socket the peer or `disconnect` already closed is
-                    // equally closed.
-                    let _ = open.shutdown(Shutdown::Both);
-                }
-                if let Err(error) = ended {
-                    // A cancel closes the socket itself: that is not news.
-                    if stop.load(Ordering::Relaxed) {
-                        return;
-                    }
-                    let started =
-                        view.lock().unwrap_or_else(PoisonError::into_inner).stage == Stage::Live;
-                    let how = if started { End::Lost } else { End::Unreachable };
-                    end(&view, how, lost_text(&error.to_string()));
-                }
-            }) {
+            .spawn(move || work(&link, &inputs))
+        {
             Ok(worker) => {
                 self.sender = Some(sender);
                 self.worker = Some(worker);
@@ -678,6 +753,9 @@ impl Controller {
                 match view.stage {
                     Stage::Connecting => view.note = "Connection cancelled.".into(),
                     Stage::Live => view.note = "Disconnected from the host.".into(),
+                    Stage::Reconnecting(_) => {
+                        view.note = "Disconnected from the host. Not reconnecting.".into();
+                    }
                     Stage::Ended(_) => {}
                 }
             }
@@ -706,7 +784,11 @@ impl Controller {
             match sender.try_send(event) {
                 Ok(()) => {}
                 Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) => {
-                    self.stop.store(true, Ordering::Relaxed);
+                    // A trusted connection does not stop: closing its socket
+                    // makes the worker see the drop and try again (D294).
+                    if !self.trusted {
+                        self.stop.store(true, Ordering::Relaxed);
+                    }
                     if let Some(socket) = self
                         .socket
                         .lock()
@@ -715,6 +797,13 @@ impl Controller {
                     {
                         // A peer-closed socket already satisfies the interruption.
                         let _ = socket.shutdown(Shutdown::Both);
+                    }
+                    if self.trusted {
+                        self.view
+                            .lock()
+                            .unwrap_or_else(PoisonError::into_inner)
+                            .ready = false;
+                        return;
                     }
                     // Ended, not paused: no frame is coming back on this
                     // connection, and a held pairing offers Reconnect.
@@ -746,7 +835,7 @@ impl Controller {
         }) {
             actions.push(crate::ui::Action::DisconnectDesktop);
         }
-        let (size, ready, stage, note, reconnecting) = {
+        let (size, ready, stage, note, reconnecting, trusted) = {
             let mut view = self.view.lock().unwrap_or_else(PoisonError::into_inner);
             if let Some(text) = view.clipboard.take() {
                 ui.ctx().copy_text(text);
@@ -776,12 +865,14 @@ impl Controller {
                 view.stage,
                 view.note.clone(),
                 view.reconnecting,
+                view.trusted,
             )
         };
         ui.horizontal_wrapped(|ui| {
             ui.strong(format!("Controlling {}", self.address));
             let leave = match stage {
                 Stage::Connecting => "Cancel",
+                Stage::Reconnecting(_) => "Disconnect",
                 Stage::Live | Stage::Ended(_) => "Return to local Strobe",
             };
             if ui.button(leave).clicked() {
@@ -812,8 +903,27 @@ impl Controller {
                     ));
                 }
                 if let Some((_, heading, line)) = &self.waiting {
-                    card(ui.ctx(), heading, &[line, wait_hint(reconnecting)], None);
+                    card(
+                        ui.ctx(),
+                        heading,
+                        &[line, wait_hint(reconnecting, trusted)],
+                        None,
+                    );
                 }
+            }
+            Stage::Reconnecting(attempt) => {
+                // The attempt changes on its own schedule, with no input.
+                ui.ctx().request_repaint_after(Duration::from_millis(500));
+                if let Some(texture) = &self.texture {
+                    dimmed_image(ui, texture.id(), size);
+                }
+                let heading = format!("Reconnecting\u{2026} (attempt {attempt})");
+                let advice = if self.texture.is_some() {
+                    "The dimmed picture is the last image the host sent. It is read-only."
+                } else {
+                    "Nothing has been received from the host yet."
+                };
+                card(ui.ctx(), &heading, &[note.as_str(), advice], None);
             }
             Stage::Ended(how) => {
                 let (heading, advice) = match how {
@@ -831,7 +941,9 @@ impl Controller {
                 if let Some(texture) = &self.texture {
                     dimmed_image(ui, texture.id(), size);
                 }
-                let reconnect = self.remembers_current();
+                // A trusted connection needs no pairing held: pressing
+                // Reconnect proves the file again.
+                let reconnect = self.trusted || self.remembers_current();
                 let with_advice;
                 let alone;
                 let lines: &[&str] = match advice.filter(|_| self.texture.is_some()) {
@@ -990,6 +1102,13 @@ pub(crate) enum Staged {
     Refused,
     /// A reconnect that timed out, with its pairing still held.
     TimedOutReconnect,
+    /// A trusted connection (D294) that dropped after frames had arrived
+    /// and is on this retry attempt.
+    Retrying(u32),
+    /// A trusted connection the host refused.
+    TrustRefused,
+    /// Live, over a trusted connection.
+    TrustedLive,
 }
 
 #[cfg(test)]
@@ -1010,10 +1129,24 @@ impl Controller {
             | Staged::Unreachable
             | Staged::TimedOut
             | Staged::Refused
-            | Staged::TimedOutReconnect => 0,
+            | Staged::TimedOutReconnect
+            | Staged::Retrying(_)
+            | Staged::TrustRefused
+            | Staged::TrustedLive => 0,
         };
         controller.started = Instant::now().checked_sub(Duration::from_secs(waited));
-        let with_image = matches!(how, Staged::Live | Staged::Paused | Staged::Dropped);
+        let with_image = matches!(
+            how,
+            Staged::Live
+                | Staged::Paused
+                | Staged::Dropped
+                | Staged::Retrying(_)
+                | Staged::TrustedLive
+        );
+        controller.trusted = matches!(
+            how,
+            Staged::Retrying(_) | Staged::TrustRefused | Staged::TrustedLive
+        );
         let reconnecting = matches!(how, Staged::Reconnecting(_) | Staged::TimedOutReconnect);
         if let (Some(address), true) = (
             parse_host(address).ok(),
@@ -1033,6 +1166,7 @@ impl Controller {
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
         view.reconnecting = reconnecting;
+        view.trusted = controller.trusted;
         if with_image {
             let size = [640_usize, 360];
             let mut pixels = Vec::with_capacity(size[0] * size[1]);
@@ -1057,7 +1191,7 @@ impl Controller {
             Staged::Waiting(_) | Staged::Reconnecting(_) => {
                 view.note = "Connecting".into();
             }
-            Staged::Live => {
+            Staged::Live | Staged::TrustedLive => {
                 view.stage = Stage::Live;
                 view.ready = true;
                 view.note = "Full desktop control. Edits and file paths apply on the host.".into();
@@ -1083,6 +1217,17 @@ impl Controller {
                 view.stage = Stage::Ended(End::Refused);
                 view.note = refusal_text(ErrorCode::Unauthorized, "not paired, or revoked");
             }
+            Staged::Retrying(attempt) => {
+                view.stage = Stage::Reconnecting(attempt);
+                view.note = trusted::retry_text("Connection lost: host closed desktop control.");
+            }
+            Staged::TrustRefused => {
+                view.stage = Stage::Ended(End::Refused);
+                view.note = trusted::refusal_text(
+                    ErrorCode::PairingRejected,
+                    "that trust file does not match this host",
+                );
+            }
         }
         drop(view);
         controller
@@ -1104,9 +1249,122 @@ struct Link {
     stop: Arc<AtomicBool>,
     socket: Arc<Mutex<Option<TcpStream>>>,
     credential: Arc<Mutex<Option<Credential>>>,
+    /// Prove this trust file instead of a code, and retry on a drop.
+    trust: Option<trusted::Plan>,
 }
 
-fn control(link: Link, inputs: Receiver<Input>) -> io::Result<()> {
+/// How long the worker sleeps between looks at `stop` while it waits out a
+/// retry.
+const RETRY_SLICE: Duration = Duration::from_millis(50);
+
+/// Sleeps for `wait` unless `stop` is set first. Returns whether to go on.
+fn pause(stop: &AtomicBool, wait: Duration) -> bool {
+    let until = Instant::now() + wait;
+    loop {
+        if stop.load(Ordering::Relaxed) {
+            return false;
+        }
+        let left = until.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return true;
+        }
+        std::thread::sleep(left.min(RETRY_SLICE));
+    }
+}
+
+/// The worker thread's whole life: one connection, and for a trusted one
+/// (D294) as many more as it takes.
+///
+/// A code-paired connection that fails ends the viewer's story, as before
+/// (D286): the person chooses Reconnect. A trusted connection that drops, or
+/// cannot be made yet, becomes [`Stage::Reconnecting`] and is tried again
+/// after [`trusted::backoff`], for ever, until `stop` is set by Disconnect.
+/// A refusal, or any other ending `control` has already put into the view as
+/// [`Stage::Ended`], is final: retrying a wrong file only feeds the host's
+/// failed-proof limiter.
+fn work(link: &Link, inputs: &Receiver<Input>) {
+    let mut attempt: u32 = 0;
+    loop {
+        let mut pictured = false;
+        let ended = control(link, inputs, &mut pictured);
+        // However the connection ended, its socket closes now. The
+        // interrupter in the slot is a second handle on it, so dropping the
+        // connection alone would leave it open: after a timeout the host
+        // would go on listing a request nobody here waits for, and could
+        // still approve it.
+        if let Some(open) = link
+            .socket
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take()
+        {
+            // A socket the peer or `disconnect` already closed is equally
+            // closed.
+            let _ = open.shutdown(Shutdown::Both);
+        }
+        let Err(error) = ended else {
+            return;
+        };
+        // A cancel closes the socket itself: that is not news.
+        if link.stop.load(Ordering::Relaxed) {
+            return;
+        }
+        let stage = link
+            .view
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .stage;
+        if matches!(stage, Stage::Ended(_)) {
+            return;
+        }
+        let started = stage == Stage::Live;
+        let reason = lost_text(&error.to_string());
+        if link.trust.is_none() {
+            let how = if started { End::Lost } else { End::Unreachable };
+            end(&link.view, how, reason);
+            return;
+        }
+        // A connection that brought the host's picture starts the schedule
+        // again; one that never got that far keeps counting. Being paired is
+        // not enough: a host that pairs this laptop and then refuses it the
+        // lease (another controller holds it) would otherwise be asked again
+        // every second for the whole show.
+        attempt = if pictured {
+            1
+        } else {
+            attempt.saturating_add(1)
+        };
+        let wait = trusted::backoff(attempt);
+        if attempt <= 4 || attempt.is_multiple_of(20) {
+            log::info!(
+                "desktop controller: {} ({}); attempt {attempt} in {} s",
+                if started {
+                    "connection to the host lost"
+                } else {
+                    "could not connect to the host"
+                },
+                error,
+                wait.as_secs()
+            );
+        }
+        {
+            let mut view = link.view.lock().unwrap_or_else(PoisonError::into_inner);
+            view.stage = Stage::Reconnecting(attempt);
+            view.ready = false;
+            view.note = trusted::retry_text(&reason);
+        }
+        if !pause(&link.stop, wait) {
+            return;
+        }
+        // Input typed while the host was away is stale; it is never
+        // replayed into the new connection (D275).
+        while inputs.try_recv().is_ok() {}
+    }
+}
+
+/// One connection, until it ends or `stop` is set. `pictured` is set once a
+/// frame from the host has arrived on it.
+fn control(link: &Link, inputs: &Receiver<Input>, pictured: &mut bool) -> io::Result<()> {
     let Link {
         address,
         code,
@@ -1115,7 +1373,14 @@ fn control(link: Link, inputs: Receiver<Input>) -> io::Result<()> {
         stop,
         socket,
         credential,
+        trust,
     } = link;
+    let address = *address;
+    let approval_limit = *approval_limit;
+    // The proof is tied to this connection and the `Host` it sends.
+    let mut handshake = trust.as_ref().map(|plan| {
+        trusted::Handshake::new(plan.clone(), strobe_remote::client::host_header(address))
+    });
     let began = Instant::now();
     let mut connection = strobe_remote::client::Connection::connect(address)?;
     *socket.lock().unwrap_or_else(PoisonError::into_inner) = Some(connection.interrupter()?);
@@ -1146,9 +1411,15 @@ fn control(link: Link, inputs: Receiver<Input>) -> io::Result<()> {
             paused = true;
         }
         if now.duration_since(heard) > Duration::from_secs(15) && authenticated {
+            // A trusted connection reconnects by itself; only a code needs
+            // pairing again.
             return Err(io::Error::new(
                 io::ErrorKind::TimedOut,
-                "Host stopped responding; pair again",
+                if trust.is_some() {
+                    "the host stopped responding"
+                } else {
+                    "Host stopped responding; pair again"
+                },
             ));
         }
         let message = connection.receive()?;
@@ -1157,18 +1428,26 @@ fn control(link: Link, inputs: Receiver<Input>) -> io::Result<()> {
         // the socket and is read, not thrown away by a timeout that races it.
         if message.is_none() && !authenticated && approval_expired(began.elapsed(), approval_limit)
         {
-            let reconnecting = view
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .reconnecting;
-            end(
-                &view,
-                End::TimedOut,
-                timed_out_text(approval_limit, reconnecting),
-            );
+            if trust.is_none() {
+                let reconnecting = view
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .reconnecting;
+                end(
+                    view,
+                    End::TimedOut,
+                    timed_out_text(approval_limit, reconnecting),
+                );
+            }
+            // A trusted connection needs no approval, so a host that does
+            // not answer is one that is not there: the worker retries.
             return Err(io::Error::new(
                 io::ErrorKind::TimedOut,
-                "the host did not approve in time",
+                if trust.is_some() {
+                    "the host did not answer the trust file in time"
+                } else {
+                    "the host did not approve in time"
+                },
             ));
         }
         if let Some(message) = message {
@@ -1178,20 +1457,39 @@ fn control(link: Link, inputs: Receiver<Input>) -> io::Result<()> {
                     protocol_version, ..
                 } => {
                     if strobe_remote::negotiate(protocol_version).is_err() {
+                        // No retry will change this.
+                        end(
+                            view,
+                            End::Refused,
+                            "The host speaks a different protocol version. Update Strobe on both \
+                             computers."
+                                .into(),
+                        );
                         return Err(io::Error::other("Host uses an incompatible protocol"));
                     }
-                    let token = credential
-                        .lock()
-                        .unwrap_or_else(PoisonError::into_inner)
-                        .as_ref()
-                        .filter(|remembered| {
-                            remembered.address == address && code.trim().is_empty()
-                        })
-                        .map(|remembered| remembered.token.clone());
-                    match token {
-                        Some(token) => connection.send(&ClientMessage::Authenticate { token })?,
-                        None => {
-                            connection.send(&ClientMessage::PairDesktop { code: code.clone() })?
+                    if let Some(handshake) = handshake.as_mut() {
+                        // Venue mode: ask for a challenge instead of
+                        // sending a code or a token. Sent once, only here.
+                        if let Some(start) = handshake.start() {
+                            connection.send(&start)?;
+                        }
+                    } else {
+                        let token = credential
+                            .lock()
+                            .unwrap_or_else(PoisonError::into_inner)
+                            .as_ref()
+                            .filter(|remembered| {
+                                remembered.address == address && code.trim().is_empty()
+                            })
+                            .map(|remembered| remembered.token.clone());
+                        match token {
+                            Some(token) => {
+                                connection.send(&ClientMessage::Authenticate { token })?;
+                            }
+                            None => {
+                                connection
+                                    .send(&ClientMessage::PairDesktop { code: code.clone() })?;
+                            }
                         }
                     }
                 }
@@ -1201,7 +1499,11 @@ fn control(link: Link, inputs: Receiver<Input>) -> io::Result<()> {
                     {
                         let mut view = view.lock().unwrap_or_else(PoisonError::into_inner);
                         view.stage = Stage::Live;
-                        view.note = "Approved. Waiting for the host's first image.".into();
+                        view.note = if trust.is_some() {
+                            "Trusted by the host. Waiting for its first image.".into()
+                        } else {
+                            "Approved. Waiting for the host's first image.".into()
+                        };
                     }
                     connection.send(&ClientMessage::DesktopOpen {})?;
                 }
@@ -1211,6 +1513,7 @@ fn control(link: Link, inputs: Receiver<Input>) -> io::Result<()> {
                     jpeg,
                 } => {
                     let image = decode(size, &jpeg)?;
+                    *pictured = true;
                     last_frame = Instant::now();
                     paused = false;
                     let mut view = view.lock().unwrap_or_else(PoisonError::into_inner);
@@ -1222,13 +1525,25 @@ fn control(link: Link, inputs: Receiver<Input>) -> io::Result<()> {
                         "Full desktop control. Edits and file paths apply on the host.".into();
                 }
                 ServerMessage::Error { code, message } => {
+                    if trust.is_some() {
+                        // A trusted connection retries unless the host said
+                        // no, and then it says why. A pause for failed
+                        // proofs ends by itself, and an error after the
+                        // session began is a drop like any other: the
+                        // retry finds out whether the host still allows
+                        // us.
+                        if !authenticated && !trusted::is_transient(code) {
+                            end(view, End::Refused, trusted::refusal_text(code, &message));
+                        }
+                        return Err(io::Error::other(message));
+                    }
                     if code == ErrorCode::Unauthorized {
                         *credential.lock().unwrap_or_else(PoisonError::into_inner) = None;
                     }
                     if authenticated {
-                        end(&view, End::Lost, lost_text(&message));
+                        end(view, End::Lost, lost_text(&message));
                     } else {
-                        end(&view, End::Refused, refusal_text(code, &message));
+                        end(view, End::Refused, refusal_text(code, &message));
                     }
                     return Err(io::Error::other(message));
                 }
@@ -1248,6 +1563,36 @@ fn control(link: Link, inputs: Receiver<Input>) -> io::Result<()> {
                     }
                     *credential.lock().unwrap_or_else(PoisonError::into_inner) =
                         Some(Credential { address, token });
+                }
+                ServerMessage::TrustChallenge { nonce } => {
+                    // Signed only if it answers the trust_start this very
+                    // connection sent, and only once; otherwise this
+                    // controller would sign for whoever asked.
+                    let reply = handshake
+                        .as_mut()
+                        .ok_or(trusted::Unanswered::Unsolicited)
+                        .and_then(|handshake| handshake.answer(&nonce));
+                    match reply {
+                        Ok(proof) => connection.send(&proof)?,
+                        Err(why) => {
+                            end(
+                                view,
+                                End::Refused,
+                                match why {
+                                    trusted::Unanswered::Unsolicited => {
+                                        "The host sent a trust challenge this computer did not \
+                                         ask for, so it was not answered."
+                                    }
+                                    trusted::Unanswered::Malformed => {
+                                        "The host sent a trust challenge that is not valid, so it \
+                                         was not answered."
+                                    }
+                                }
+                                .into(),
+                            );
+                            return Err(io::Error::other("unanswered trust challenge"));
+                        }
+                    }
                 }
                 ServerMessage::State { .. }
                 | ServerMessage::CommandResult { .. }
@@ -1794,14 +2139,15 @@ mod tests {
             "a late frame never reads past the limit"
         );
         assert!(
-            wait_hint(false).contains("Settings > Remote") && wait_hint(false).contains("Approve"),
+            wait_hint(false, false).contains("Settings > Remote")
+                && wait_hint(false, false).contains("Approve"),
             "{}",
-            wait_hint(false)
+            wait_hint(false, false)
         );
         assert!(
-            !wait_hint(true).contains("Approve"),
+            !wait_hint(true, false).contains("Approve"),
             "a reconnect needs no approval: {}",
-            wait_hint(true)
+            wait_hint(true, false)
         );
         let expired = timed_out_text(limit, false);
         assert!(
@@ -2287,6 +2633,592 @@ mod tests {
         controller.disconnect();
         server.stop();
         Ok(())
+    }
+
+    // ------------------------------------------------ trusted connections
+
+    use std::path::{Path, PathBuf};
+    use strobe_remote::bridge::AppEnd;
+    use strobe_remote::server::Server;
+    use strobe_remote::trust::{self as venue_trust, TrustSecret};
+
+    /// A scratch folder that deletes itself.
+    struct Scratch(PathBuf);
+
+    impl Scratch {
+        fn new(tag: &str) -> Result<Self> {
+            let stamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)?
+                .as_nanos();
+            let dir = std::env::temp_dir().join(format!(
+                "strobe-trusted-{tag}-{}-{stamp}",
+                std::process::id()
+            ));
+            std::fs::create_dir_all(&dir)?;
+            Ok(Self(dir))
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// A host on loopback that trusts `secret`, with full desktop access on
+    /// and quick connection polling. Port 0 picks a free one; a restart
+    /// names the port it had, and tries again if the system has not yet
+    /// let go of it.
+    fn trusted_host(secret: &TrustSecret, port: u16) -> Result<(Server, AppEnd)> {
+        use strobe_remote::{
+            bridge,
+            clients::Clients,
+            server::{Limits, ServerConfig},
+        };
+        let mut last = None;
+        for _ in 0..50 {
+            let (remote, app) = bridge::bridge(4);
+            app.desktop.enable(true);
+            let mut config = ServerConfig::new(IpAddr::from([127, 0, 0, 1]), port);
+            config.limits = Limits {
+                tick: Duration::from_millis(5),
+                ..Limits::default()
+            };
+            config.trust = Some(secret.clone());
+            match Server::start(config, remote, Clients::in_memory()) {
+                Ok(server) => return Ok((server, app)),
+                Err(error) => last = Some(error),
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        Err(anyhow::anyhow!("the host did not start: {last:?}"))
+    }
+
+    /// A controller set up as the form leaves it with a trust file chosen.
+    fn trusted_controller(file: &Path, address: SocketAddr) -> Controller {
+        let mut controller = Controller::default();
+        controller.controller_id = "t480-1a2b3c4d".into();
+        controller.use_trust = true;
+        controller.trust_path = file.display().to_string();
+        controller.address = address.to_string();
+        controller
+    }
+
+    fn stage_of(controller: &Controller) -> Stage {
+        controller
+            .view
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .stage
+    }
+
+    fn within(limit: Duration, mut check: impl FnMut() -> bool) -> Result<()> {
+        let until = Instant::now() + limit;
+        while Instant::now() < until {
+            if check() {
+                return Ok(());
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        anyhow::bail!("desktop test timed out after {limit:?}")
+    }
+
+    fn a_frame() -> Result<String> {
+        Ok(strobe_remote::client::encode_image(&encode(
+            [32, 32],
+            &mut vec![200; 32 * 32 * 4],
+        )?))
+    }
+
+    #[test]
+    fn a_trusted_controller_connects_with_no_approval_and_keeps_the_secret_to_itself() -> Result<()>
+    {
+        let scratch = Scratch::new("connect")?;
+        let file = scratch.0.join("venue.trust");
+        let secret = venue_trust::create_file(&file)?;
+        let (server, app) = trusted_host(&secret, 0)?;
+        let mut controller = trusted_controller(&file, server.addr());
+        controller.connect();
+        within(Duration::from_secs(5), || app.desktop.active())?;
+        assert!(
+            server.pairing_requests().is_empty(),
+            "nobody was asked to approve anything"
+        );
+        app.desktop.publish([32, 32], a_frame()?);
+        within(Duration::from_secs(5), || {
+            controller
+                .view
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .ready
+        })?;
+        assert_eq!(stage_of(&controller), Stage::Live, "live");
+        let listed = server.clients().list();
+        assert!(
+            listed
+                .iter()
+                .any(|client| client.label.starts_with(&format!(
+                    "{}t480-1a2b3c4d",
+                    strobe_remote::desktop::TRUSTED_LABEL_PREFIX
+                ))),
+            "the host lists this laptop as trusted by its controller id: {listed:?}"
+        );
+        assert!(
+            !controller.remembers(server.addr()),
+            "no token was issued, so nothing but the file can get back in"
+        );
+        // Neither the viewer's text nor anything printable holds the secret.
+        let text = std::fs::read_to_string(&file)?;
+        let hex = text
+            .lines()
+            .find_map(|line| line.strip_prefix("secret "))
+            .ok_or_else(|| anyhow::anyhow!("the file has a secret line"))?;
+        assert!(!controller.note().contains(hex), "the secret is not shown");
+        controller.disconnect();
+        server.stop();
+        Ok(())
+    }
+
+    #[test]
+    fn the_wrong_trust_file_is_refused_once_and_says_why_without_retrying() -> Result<()> {
+        let scratch = Scratch::new("wrong")?;
+        let host_file = scratch.0.join("host.trust");
+        let other_file = scratch.0.join("other.trust");
+        let secret = venue_trust::create_file(&host_file)?;
+        venue_trust::create_file(&other_file)?;
+        let (server, app) = trusted_host(&secret, 0)?;
+        let mut controller = trusted_controller(&other_file, server.addr());
+        controller.connect();
+        within(Duration::from_secs(5), || {
+            stage_of(&controller) == Stage::Ended(End::Refused)
+        })?;
+        let note = controller.note();
+        assert!(
+            note.contains("does not accept this trust file")
+                && note.contains("--make-remote-trust"),
+            "{note}"
+        );
+        // Longer than the first backoff (1 s): a retry loop would have shown.
+        std::thread::sleep(trusted::backoff(1) + Duration::from_millis(600));
+        assert_eq!(
+            stage_of(&controller),
+            Stage::Ended(End::Refused),
+            "still refused, not Reconnecting"
+        );
+        assert!(
+            controller
+                .worker
+                .as_ref()
+                .is_some_and(JoinHandle::is_finished),
+            "the worker has ended: nothing is trying again"
+        );
+        assert!(!app.desktop.active(), "and the host gave no control");
+        assert!(server.connections().is_empty(), "no socket is left open");
+        controller.disconnect();
+        server.stop();
+        Ok(())
+    }
+
+    #[test]
+    fn a_trusted_controller_finds_a_restarted_host_by_itself_and_takes_its_lease_back() -> Result<()>
+    {
+        let scratch = Scratch::new("restart")?;
+        let file = scratch.0.join("venue.trust");
+        let secret = venue_trust::create_file(&file)?;
+        let (server, app) = trusted_host(&secret, 0)?;
+        let address = server.addr();
+        let mut controller = trusted_controller(&file, address);
+        controller.connect();
+        within(Duration::from_secs(5), || app.desktop.active())?;
+        app.desktop.publish([32, 32], a_frame()?);
+        within(Duration::from_secs(5), || {
+            controller
+                .view
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .ready
+        })?;
+
+        // The host goes away: the show machine reboots.
+        server.stop();
+        drop(app);
+        within(Duration::from_secs(5), || {
+            matches!(stage_of(&controller), Stage::Reconnecting(_))
+        })?;
+        {
+            let view = controller
+                .view
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            assert!(view.image.is_some(), "the last image is kept");
+            assert!(!view.ready, "and read-only");
+            assert!(
+                view.note.contains("until you press Disconnect"),
+                "{}",
+                view.note
+            );
+        }
+        // It keeps trying while the host is down, counting its attempts.
+        within(
+            Duration::from_secs(8),
+            || matches!(stage_of(&controller), Stage::Reconnecting(n) if n >= 2),
+        )?;
+
+        // The host comes back on the same port.
+        let (server, app) = trusted_host(&secret, address.port())?;
+        within(Duration::from_secs(12), || {
+            stage_of(&controller) == Stage::Live && app.desktop.active()
+        })?;
+        assert!(
+            server.pairing_requests().is_empty(),
+            "no approval was asked of anyone"
+        );
+        app.desktop.publish([32, 32], a_frame()?);
+        within(Duration::from_secs(5), || {
+            controller
+                .view
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .ready
+        })?;
+        controller.disconnect();
+        within(Duration::from_secs(5), || !app.desktop.active())?;
+        server.stop();
+        Ok(())
+    }
+
+    #[test]
+    fn disconnect_stops_the_retrying() -> Result<()> {
+        let scratch = Scratch::new("stop")?;
+        let file = scratch.0.join("venue.trust");
+        let secret = venue_trust::create_file(&file)?;
+        let (server, app) = trusted_host(&secret, 0)?;
+        let address = server.addr();
+        let mut controller = trusted_controller(&file, address);
+        controller.connect();
+        within(Duration::from_secs(5), || app.desktop.active())?;
+        server.stop();
+        drop(app);
+        within(Duration::from_secs(5), || {
+            matches!(stage_of(&controller), Stage::Reconnecting(_))
+        })?;
+
+        controller.disconnect();
+        assert!(!controller.active(), "the viewer is gone");
+        // The host comes back; a controller still trying would be in by now
+        // (its first retry is after 1 s).
+        let (server, app) = trusted_host(&secret, address.port())?;
+        std::thread::sleep(trusted::backoff(1) + trusted::backoff(2));
+        assert!(!app.desktop.active(), "nobody took the lease");
+        assert!(server.connections().is_empty(), "nobody is connected");
+        server.stop();
+        Ok(())
+    }
+
+    #[test]
+    fn a_trusted_controller_shut_out_of_the_lease_backs_off_rather_than_hammering() -> Result<()> {
+        // Two laptops with the same file but different ids: the host pairs
+        // the second, then refuses it the lease (one desktop at a time) and
+        // it is dropped. Being paired is not being live; it must not restart
+        // the schedule at 1 s every time, or it would pair and drop once a
+        // second for the whole show.
+        let scratch = Scratch::new("lease")?;
+        let file = scratch.0.join("venue.trust");
+        let secret = venue_trust::create_file(&file)?;
+        let (server, app) = trusted_host(&secret, 0)?;
+        let mut first = trusted_controller(&file, server.addr());
+        first.connect();
+        within(Duration::from_secs(5), || app.desktop.active())?;
+        let mut second = trusted_controller(&file, server.addr());
+        second.controller_id = "other-laptop-00000000".into();
+        second.connect();
+        within(
+            Duration::from_secs(10),
+            || matches!(stage_of(&second), Stage::Reconnecting(n) if n >= 3),
+        )
+        .map_err(|error| {
+            anyhow::anyhow!(
+                "{error}: the attempts should count up (1 s, 2 s, ...), not start again at 1; \
+                 stuck at {:?}",
+                stage_of(&second)
+            )
+        })?;
+        assert!(app.desktop.active(), "the first laptop keeps the lease");
+        second.disconnect();
+        first.disconnect();
+        server.stop();
+        Ok(())
+    }
+
+    #[test]
+    fn the_kill_switch_is_retried_once_and_then_refused() -> Result<()> {
+        let scratch = Scratch::new("kill")?;
+        let file = scratch.0.join("venue.trust");
+        let secret = venue_trust::create_file(&file)?;
+        let (server, app) = trusted_host(&secret, 0)?;
+        let mut controller = trusted_controller(&file, server.addr());
+        controller.connect();
+        within(Duration::from_secs(5), || app.desktop.active())?;
+        app.desktop.publish([32, 32], a_frame()?);
+        within(Duration::from_secs(5), || {
+            controller
+                .view
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .ready
+        })?;
+        // What Lan::set_desktop(false) does at the host.
+        app.desktop.enable(false);
+        server.revoke_desktop();
+        within(Duration::from_secs(5), || {
+            stage_of(&controller) == Stage::Ended(End::Refused)
+        })?;
+        let note = controller.note();
+        assert!(
+            note.contains("does not offer trusted pairing right now"),
+            "{note}"
+        );
+        assert!(!app.desktop.active(), "and nothing holds the lease");
+        controller.disconnect();
+        server.stop();
+        Ok(())
+    }
+
+    /// A host that sends a trust challenge nobody asked for, and records the
+    /// type of every message the controller sends it.
+    fn rogue_host() -> Result<(SocketAddr, JoinHandle<Vec<String>>)> {
+        use sha1::{Digest as _, Sha1};
+        use std::io::{Read as _, Write as _};
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0))?;
+        let address = listener.local_addr()?;
+        let handle = std::thread::spawn(move || {
+            let mut seen = Vec::new();
+            let Ok((mut stream, _)) = listener.accept() else {
+                return seen;
+            };
+            let _ = stream.set_read_timeout(Some(Duration::from_millis(50)));
+            let mut head = Vec::new();
+            let mut byte = [0_u8; 1];
+            while !head.ends_with(b"\r\n\r\n") && head.len() < 4096 {
+                match stream.read(&mut byte) {
+                    Ok(1) => head.push(byte[0]),
+                    Ok(_) => return seen,
+                    Err(_) => {}
+                }
+            }
+            let head = String::from_utf8_lossy(&head).to_string();
+            let Some(key) = head.lines().find_map(|line| {
+                line.split_once(':')
+                    .filter(|(name, _)| name.eq_ignore_ascii_case("sec-websocket-key"))
+                    .map(|(_, value)| value.trim().to_string())
+            }) else {
+                return seen;
+            };
+            let mut hasher = Sha1::new();
+            hasher.update(key.as_bytes());
+            hasher.update(b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
+            let accept = base64::engine::general_purpose::STANDARD.encode(hasher.finalize());
+            let reply = format!(
+                "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n"
+            );
+            let send = |stream: &mut TcpStream, message: &ServerMessage| -> bool {
+                let Ok(text) = serde_json::to_string(message) else {
+                    return false;
+                };
+                let Ok(length) = u8::try_from(text.len()) else {
+                    return false;
+                };
+                if length > 125 {
+                    return false;
+                }
+                let mut frame = vec![0x81, length];
+                frame.extend_from_slice(text.as_bytes());
+                stream.write_all(&frame).is_ok()
+            };
+            if stream.write_all(reply.as_bytes()).is_err()
+                || !send(
+                    &mut stream,
+                    &ServerMessage::Hello {
+                        protocol_version: strobe_remote::PROTOCOL_VERSION,
+                        paired: false,
+                    },
+                )
+            {
+                return seen;
+            }
+            let mut buffered: Vec<u8> = Vec::new();
+            let mut challenged = false;
+            let until = Instant::now() + Duration::from_secs(3);
+            let mut chunk = [0_u8; 512];
+            while Instant::now() < until {
+                match stream.read(&mut chunk) {
+                    Ok(0) => break,
+                    Ok(n) => buffered.extend_from_slice(&chunk[..n]),
+                    Err(_) => {}
+                }
+                // Masked client frames, each a short text message.
+                while buffered.len() >= 2 {
+                    let length = usize::from(buffered[1] & 0x7f);
+                    if length >= 126 || buffered.len() < 6 + length {
+                        break;
+                    }
+                    let mask = [buffered[2], buffered[3], buffered[4], buffered[5]];
+                    let text: Vec<u8> = buffered[6..6 + length]
+                        .iter()
+                        .zip(mask.iter().cycle())
+                        .map(|(byte, key)| byte ^ key)
+                        .collect();
+                    buffered.drain(..6 + length);
+                    if let Ok(value) = serde_json::from_slice::<serde_json::Value>(&text)
+                        && let Some(kind) = value["type"].as_str()
+                    {
+                        seen.push(kind.to_string());
+                    }
+                    if !challenged {
+                        challenged = true;
+                        // Unprompted: this controller never sent trust_start.
+                        let _ = send(
+                            &mut stream,
+                            &ServerMessage::TrustChallenge {
+                                nonce: "ab".repeat(32),
+                            },
+                        );
+                    }
+                }
+            }
+            seen
+        });
+        Ok((address, handle))
+    }
+
+    #[test]
+    fn a_challenge_nobody_asked_for_is_not_signed_and_ends_the_connection() -> Result<()> {
+        let (address, host) = rogue_host()?;
+        // A controller pairing by code has a trust file nowhere near it, and
+        // a trusted one has not sent trust_start on this path: either way a
+        // volunteered challenge must not be answered. The code controller
+        // is the plainest case.
+        let mut controller = Controller::default();
+        controller.address = address.to_string();
+        controller.code = "123456".into();
+        controller.connect();
+        within(Duration::from_secs(5), || {
+            stage_of(&controller) == Stage::Ended(End::Refused)
+        })?;
+        assert!(
+            controller.note().contains("did not ask for"),
+            "{}",
+            controller.note()
+        );
+        controller.disconnect();
+        let seen = host
+            .join()
+            .map_err(|_| anyhow::anyhow!("the rogue host panicked"))?;
+        assert_eq!(
+            seen,
+            ["hello", "pair_desktop"],
+            "the controller answered the hello and nothing more: no proof was made"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn the_viewer_says_reconnecting_with_the_attempt_and_keeps_the_last_image() {
+        let ctx = egui::Context::default();
+        let size = Vec2::new(640.0, 480.0);
+        let mut retrying = Controller::staged("192.168.1.20:47812", Staged::Retrying(3));
+        let seen = look(&mut retrying, &ctx, size);
+        assert!(
+            seen.text.contains("Reconnecting\u{2026} (attempt 3)"),
+            "{}",
+            seen.text
+        );
+        assert!(
+            seen.text.contains("Disconnect") && seen.text.contains("last image"),
+            "a way out, and only the promise the picture keeps: {}",
+            seen.text
+        );
+        assert_eq!(seen.images.len(), 1, "the last image is still drawn");
+        assert!(
+            seen.images.iter().all(|tint| tint.r() < 128),
+            "dimmed: {:?}",
+            seen.images
+        );
+        assert!(
+            !seen.text.contains("pairing code"),
+            "a trusted connection never asks for a code: {}",
+            seen.text
+        );
+    }
+
+    #[test]
+    fn a_refused_trust_file_offers_reconnect_not_a_new_code() {
+        let ctx = egui::Context::default();
+        let size = Vec2::new(640.0, 480.0);
+        let mut refused = Controller::staged("192.168.1.20:47812", Staged::TrustRefused);
+        let seen = look(&mut refused, &ctx, size);
+        assert!(
+            seen.text.contains("does not accept this trust file")
+                && seen.text.contains("Reconnect")
+                && !seen.text.contains("Enter a new pairing code"),
+            "{}",
+            seen.text
+        );
+    }
+
+    #[test]
+    fn the_form_remembers_a_path_and_a_launch_with_control_decides_the_first_action() {
+        use crate::prefs::RemotePref;
+        use crate::ui::Action;
+        let remembered = RemotePref {
+            trust_file: "C:/Users/me/venue.trust".into(),
+            use_trust: true,
+            controller_id: "t480-1a2b3c4d".into(),
+        };
+        let host = SocketAddr::from(([192, 168, 1, 50], 47812));
+
+        let (form, first) = Controller::at_launch(&remembered, None, None);
+        assert_eq!(first, None, "no --control, no first action");
+        assert!(
+            form.use_trust && form.trust_path == "C:/Users/me/venue.trust",
+            "the form comes back as it was left"
+        );
+        assert_eq!(form.controller_id, "t480-1a2b3c4d", "the same laptop id");
+
+        let (viewer, first) = Controller::at_launch(
+            &remembered,
+            Some(host),
+            Some(Path::new("D:/other/show.trust")),
+        );
+        assert_eq!(
+            first,
+            Some(Action::ConnectDesktop),
+            "straight into the viewer"
+        );
+        assert!(
+            viewer.use_trust
+                && viewer.trust_path == "D:/other/show.trust"
+                && viewer.address == "192.168.1.50:47812",
+            "with the file named on the command line"
+        );
+
+        let (prefilled, first) = Controller::at_launch(&remembered, Some(host), None);
+        assert_eq!(first, Some(Action::ControlAnotherDesktop), "the form opens");
+        assert!(
+            !prefilled.use_trust && prefilled.address == "192.168.1.50:47812",
+            "address filled in, code pairing, even with a remembered file"
+        );
+
+        let mut saved = RemotePref::default();
+        let mut typed = Controller::default();
+        typed.use_trust = true;
+        typed.trust_path = "  \"C:/Users/me/venue.trust\"  ".into();
+        typed.remembered(&mut saved);
+        assert_eq!(
+            (saved.trust_file.as_str(), saved.use_trust),
+            ("C:/Users/me/venue.trust", true),
+            "the path as a clean path, nothing else about the file"
+        );
     }
 
     #[test]

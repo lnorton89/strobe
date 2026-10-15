@@ -6,3 +6,4 @@
 # The owner's private Synesthesia corpus is copyrighted and never part of the
 # repository; a clone dropped inside a checkout must not be committable.
 /strobe-syn-corpus
+/result

@@ -103,7 +103,7 @@ struct Cli {
     /// Window contexts only: the stand-in window's client size,
     /// WIDTHxHEIGHT (default 16x16). The render never depends on it; use
     /// it to see whether a driver that draws black above some size limits
-    /// work to the window (D289).
+    /// work to the window (D296).
     #[arg(long)]
     window_size: Option<String>,
     /// Context dialect for headless (default desktop). In window mode the
@@ -131,7 +131,7 @@ struct Cli {
     /// Probe the driver at a ladder of sizes (plus `--size`) instead of
     /// benchmarking: does it clear, draw into and read back a target, and
     /// what viewport does it keep. Writes `probe.md`. For a machine whose
-    /// frames come out black (D289).
+    /// frames come out black (D296).
     #[arg(long)]
     probe: bool,
 }

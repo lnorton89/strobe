@@ -13,6 +13,13 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- control a venue's show machine with a trust file, reconnecting by itself ([`4da7d2b`](https://github.com/lnorton89/strobe/commit/4da7d2b80445aa3f3116a19ff9dbbd2be132f435))
+- a controller id for a laptop and the Host header a trusted proof binds to ([`3196ef4`](https://github.com/lnorton89/strobe/commit/3196ef4bf8b496ca92640b48ea7449a7ac0e6b00))
+- **app:** --audio ambient, the synthetic track without its beat ([`ac94a3c`](https://github.com/lnorton89/strobe/commit/ac94a3cc5ddf8da8804993cb918f47e5346a724d))
+- **app:** one click on a scene card makes it live, and LIB flips between Scenes and Controls ([`f400de0`](https://github.com/lnorton89/strobe/commit/f400de000dd442a319cd2f53eb7ad0a6420e9134))
+- **app:** venue mode launch flags and trust file on the host ([`c9eed9b`](https://github.com/lnorton89/strobe/commit/c9eed9b730571074c3b2cf884012e725f9e4efa0))
+- **remote:** trusted pairing over the WebSocket protocol ([`2337d78`](https://github.com/lnorton89/strobe/commit/2337d78d0ffe287ddd52147e750e42803f7aec13))
+- **remote:** trust file and HMAC-SHA256 challenge-response for venue mode ([`2b19e43`](https://github.com/lnorton89/strobe/commit/2b19e43672c82784a3c9f73cbf19f2d6a7c497d6))
 - **scenes:** Acid Mirror gains hairline streaks, crisp edges and more black, and re-seeds at once after a resize (D279) ([`1a59ae8`](https://github.com/lnorton89/strobe/commit/1a59ae8672cc8d170138712fc0586b900cdd5148))
 - **scenes:** Acid Mirror rebuilt on a mirrored advected feedback buffer (D279) ([`d0fb00d`](https://github.com/lnorton89/strobe/commit/d0fb00d0ed8ab61726b7fc223560f18e0d70bbba))
 - **scenes:** Neon Ribbon Flow rebuilt as layered translucent ribbons (D278) ([`306c7a4`](https://github.com/lnorton89/strobe/commit/306c7a4a5274e940adc29efa8ebcc2c08a600f14))
@@ -29,6 +36,18 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- a trust file that cannot be read brings up the form instead of failing silently ([`5b1dac6`](https://github.com/lnorton89/strobe/commit/5b1dac6826af36a7484ef178196147e9f9b49686))
+- a trusted controller restarts its backoff only after a frame, not on pairing ([`102f796`](https://github.com/lnorton89/strobe/commit/102f79669d6cbf21e81ed77975da7040c6f543a9))
+- **gfx:** upload texture rows tightly packed, not at GL's 4-byte alignment ([`971b694`](https://github.com/lnorton89/strobe/commit/971b6945d9c88d52a48ed1e25fc02928c09b545d))
+- **scene:** run global initializers in main on desktop too, so sprinkles is not black ([`0037fcf`](https://github.com/lnorton89/strobe/commit/0037fcf71b4f17d00ea6e41c883f1433662c98b4))
+- **app:** keep the output's swap wait while the loop drives the control window ([`c812236`](https://github.com/lnorton89/strobe/commit/c812236b22ae922ee557529d3d974933c9646097))
+- **app:** run the control frame from the event loop when Windows withholds its paints ([`e96573b`](https://github.com/lnorton89/strobe/commit/e96573b6d63b334984275e899c06640e194cae6e))
+- **app:** do not print a laptop command that does not exist yet ([`92f4965`](https://github.com/lnorton89/strobe/commit/92f4965b7e45cccd75975eb26c8fb8ca2c6bb9ac))
+- **remote:** bind a trust proof to the address the connection reached ([`dd8c2f5`](https://github.com/lnorton89/strobe/commit/dd8c2f5741c5d13fec7094765eff6ffbe8240971))
+- **app:** compile the playlist from output frames when the control window stops painting ([`fca44a5`](https://github.com/lnorton89/strobe/commit/fca44a53e14838c9591c9d32a4257a5e81ae6d85))
+- **app:** compile the playlist from output frames when the control window stops painting ([`4460897`](https://github.com/lnorton89/strobe/commit/4460897f25ff65f6abb8115bd0447c6f5fd9af5a))
+- **gfx:** restart a kept pass that a restarted pass reads ([`96aeeeb`](https://github.com/lnorton89/strobe/commit/96aeeebf255504b1270b22942577bffd1d30d2a4))
+- **gfx:** keep the passes a resize does not change ([`a5cd1fd`](https://github.com/lnorton89/strobe/commit/a5cd1fd26cec2675b0c0721585d13a0917661730))
 - **ui:** scroll the connect form's address field into view in small windows ([`9b75aa0`](https://github.com/lnorton89/strobe/commit/9b75aa0974ec29674ff1004246af637378415f35))
 - **app:** close the desktop viewer's socket when its worker ends ([`5ae8fcf`](https://github.com/lnorton89/strobe/commit/5ae8fcf455adc22d5ecb6c8e0f89a1b56bcb591f))
 - **ui:** make the desktop viewer keep its image, time out, and be findable ([`7e2125a`](https://github.com/lnorton89/strobe/commit/7e2125a59c55c2814da10a8983c8e8d1b8218e89))
@@ -55,6 +74,20 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Documentation
 
+- **minipc:** the first JaJa PDX show, four hours with no crash restarts ([`9267e0c`](https://github.com/lnorton89/strobe/commit/9267e0caa70bc1e0b0528799b05151f7889eab0a))
+- Linux as a documented platform, with a check script (D294) ([`2b4d009`](https://github.com/lnorton89/strobe/commit/2b4d009d573265864acbe97f1f1bd3e2e8435969))
+- --audio ambient in the user guide ([`fdcb76a`](https://github.com/lnorton89/strobe/commit/fdcb76a2600197ce212167a6a374ffad2b79ac06))
+- D294, the laptop side of venue mode, in the guide, roadmap and audit ([`5f09af9`](https://github.com/lnorton89/strobe/commit/5f09af93ef6ab4cf83ed234c68dfce699bb41875))
+- D292 makes ANGLE's Vulkan and Metal backends the second backend ([`f782cee`](https://github.com/lnorton89/strobe/commit/f782ceee4fd29dc2cd2e7e9858095435e0988ca0))
+- run the G-03 spike over the full Synesthesia corpus ([`ea4491e`](https://github.com/lnorton89/strobe/commit/ea4491e6159759db954482b0ea5fd475ab59a2b0))
+- D291 one-click scenes and the Scenes and Controls pages ([`2195446`](https://github.com/lnorton89/strobe/commit/21954467351570cf613a3baea5f82134a3bbeef3))
+- move the G-03 front-end research under docs/research ([`43ccdd3`](https://github.com/lnorton89/strobe/commit/43ccdd3399c2b109d4b57ae69645ea09fdf80c50))
+- D290 keeps the swap wait for a driven window and corrects a rejected option ([`50062a0`](https://github.com/lnorton89/strobe/commit/50062a0b1736eb21a2a3c2baf5b04140abd422be))
+- D290, the mini PC's control window starved of paints, and the hotfix verification ([`bf2568c`](https://github.com/lnorton89/strobe/commit/bf2568ccf419ededb905a74cfd63889c40d8becd))
+- D288 venue mode, user guide, roadmap and status audit ([`bcdf95f`](https://github.com/lnorton89/strobe/commit/bcdf95f7c1c10d259843229487d62c52c7397555))
+- D287 restarts a kept pass that a restarted pass reads ([`9d559fd`](https://github.com/lnorton89/strobe/commit/9d559fd26279cb0f8fa855273769bc88e7d122e9))
+- D287, a resize keeps the passes whose size it does not change ([`03c8e77`](https://github.com/lnorton89/strobe/commit/03c8e7743032b37eaa307515faa83e85f573ae7e))
+- **amd:** the rebuilt scenes 13-16 cost under one domain-warp on the RX 580 (Task A12) ([`c879851`](https://github.com/lnorton89/strobe/commit/c879851d8f6b2b1787f01ed50764e4814473cd5a))
 - record the desktop viewer polish (D286) ([`d28eced`](https://github.com/lnorton89/strobe/commit/d28eced5d3d342f754c1f96145832c6a535cfb39))
 - **hardware:** desktop remote control between the RX 580 and the T480 passes (A11, Task 45) ([`6620d82`](https://github.com/lnorton89/strobe/commit/6620d822848069836331222ee08e7ae074ba28d9))
 - the pre-merge review of scenes 13-16, measured (D276-D279) ([`b81b20d`](https://github.com/lnorton89/strobe/commit/b81b20dd74485cf848211b14751b8230e8fca0c8))
@@ -80,9 +113,15 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Internal
 
+- a Nix flake with a dev shell, a software-GL shell and a wrapped package (D294) ([`0c43a41`](https://github.com/lnorton89/strobe/commit/0c43a41baaca90796374a9ea6ad22d850f556241))
 - **deps:** bump rustls to 0.23.46 for the RUSTSEC advisories against 0.23.45 ([`f1a157c`](https://github.com/lnorton89/strobe/commit/f1a157cdb15df8874d9b234db003763ff81d7536))
 - take base64 from the workspace like every other dependency ([`52d4a66`](https://github.com/lnorton89/strobe/commit/52d4a66f39a402654f52960c438c63bbb3dc2887))
 - ignore a strobe-syn-corpus clone inside the checkout ([`2061e54`](https://github.com/lnorton89/strobe/commit/2061e54791b4b4e4041085bf28832dc7cdb48a1d))
+
+### Tests
+
+- **script:** time the setUniform budget as the best of five frames ([`b1b97ca`](https://github.com/lnorton89/strobe/commit/b1b97ca329549096453ce47691d75c0b657c16c7))
+- **remote:** give the revoke-all trust assertion a message ([`363a0db`](https://github.com/lnorton89/strobe/commit/363a0db46393abc2ed465de50e9bfc8ea9c12603))
 
 ## [0.1.0] - 2026-10-14
 

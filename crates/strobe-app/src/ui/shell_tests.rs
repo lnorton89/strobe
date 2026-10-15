@@ -115,6 +115,9 @@ struct Scenario {
     /// (the palette entry, or a failed connection's retry): Settings
     /// scrolls to it and focuses the address.
     reveal_connect: bool,
+    /// The connect form has "Use a trust file" ticked, with a path in it
+    /// (venue mode, D294).
+    trust_form: bool,
     /// The Editor refused a Save and reload: its `scene.json` does not
     /// parse (D263).
     editor_invalid: bool,
@@ -148,6 +151,10 @@ struct Scenario {
     /// The open panes: the newest main pane is the main view, and
     /// `Pane::Inspector` is the side panel (D281).
     panes: &'static [Pane],
+    /// The library view's page (D291).
+    library_page: crate::ui::browser::LibraryPage,
+    /// The library card with keyboard focus, by library index (D291).
+    focus_card: Option<usize>,
 }
 
 const BASE: Scenario = Scenario {
@@ -178,6 +185,7 @@ const BASE: Scenario = Scenario {
     desktop_access: false,
     palette: None,
     reveal_connect: false,
+    trust_form: false,
     editor_invalid: false,
     tagging: false,
     generate: false,
@@ -189,6 +197,8 @@ const BASE: Scenario = Scenario {
     side_tab: crate::ui::side::SideTab::Controls,
     cards: crate::ui::browser::CardSize::Medium,
     panes: &[Pane::Inspector, Pane::Browser],
+    library_page: crate::ui::browser::LibraryPage::Scenes,
+    focus_card: None,
 };
 
 fn scenarios() -> Vec<Scenario> {
@@ -209,8 +219,46 @@ fn scenarios() -> Vec<Scenario> {
             ..BASE
         },
         Scenario {
+            name: "the connect form with a trust file",
+            lan: true,
+            reveal_connect: true,
+            trust_form: true,
+            panes: &[Pane::Settings],
+            ..BASE
+        },
+        Scenario {
             name: "palette finds control another strobe",
             palette: Some("another strobe"),
+            ..BASE
+        },
+        Scenario {
+            name: "library on the controls page",
+            library_page: crate::ui::browser::LibraryPage::Controls,
+            ..BASE
+        },
+        Scenario {
+            name: "library on the controls page, compact, playlist tab",
+            library_page: crate::ui::browser::LibraryPage::Controls,
+            density: crate::ui::theme::Density::Compact,
+            side_tab: crate::ui::side::SideTab::Playlist,
+            playlist: true,
+            ..BASE
+        },
+        Scenario {
+            name: "library on the controls page, no scene",
+            library_page: crate::ui::browser::LibraryPage::Controls,
+            playing: false,
+            ..BASE
+        },
+        Scenario {
+            name: "library on the controls page, side panel collapsed",
+            library_page: crate::ui::browser::LibraryPage::Controls,
+            panes: &[Pane::Browser],
+            ..BASE
+        },
+        Scenario {
+            name: "library with a focused card",
+            focus_card: Some(2),
             ..BASE
         },
         Scenario {
@@ -662,6 +710,7 @@ fn sample_lan(on: bool, desktop: bool) -> crate::lan::LanView {
         ],
         connected: 2,
         desktop_controlled: desktop,
+        venue: false,
     }
 }
 
@@ -849,6 +898,8 @@ struct Drawn {
     shapes: Vec<egui::epaint::ClippedShape>,
     /// The panes open after the last frame.
     open_panes: Vec<Pane>,
+    /// The library view's page after the last frame (D291).
+    library_page: crate::ui::browser::LibraryPage,
     /// Every frame's texture changes, for [`shoot`]; cleared on drop.
     textures: egui::TexturesDelta,
 }
@@ -946,6 +997,7 @@ fn draw_events(
     }
     ui_state.hotkeys.capturing = scenario.capturing;
     ui_state.side_tab = scenario.side_tab;
+    ui_state.library_page = scenario.library_page;
     ui_state.browser.cards = scenario.cards;
     if let Some(query) = scenario.palette {
         ui_state.command_palette.open_with(query);
@@ -1072,6 +1124,10 @@ fn draw_events(
     if scenario.reveal_connect {
         desktop_controller.reveal_form();
     }
+    if scenario.trust_form {
+        desktop_controller.use_trust = true;
+        desktop_controller.trust_path = "C:\\Users\\you\\venue.trust".to_string();
+    }
     let mut shell_state = ShellState::default();
     let mut actions = Vec::new();
     let mut all_actions = Vec::new();
@@ -1080,6 +1136,12 @@ fn draw_events(
     let screen = Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(size.0, size.1));
     for events in frames {
         actions.clear();
+        if let Some(entry) = scenario.focus_card.and_then(|i| library.entries.get(i)) {
+            // The id the card registers (browser::card), so it holds the
+            // keyboard focus as a Tab to it would leave it.
+            let id = egui::Id::new(("scene-card", &entry.name, entry.dir.as_path()));
+            ctx.memory_mut(|memory| memory.request_focus(id));
+        }
         let mut model = Model {
             ui: &mut ui_state,
             library: &library,
@@ -1246,6 +1308,7 @@ fn draw_events(
         all_actions,
         shapes,
         open_panes,
+        library_page: ui_state.library_page,
         textures,
     })
 }
@@ -1665,7 +1728,7 @@ fn screenshots_when_asked() -> Result<()> {
 }
 
 /// The states the desktop viewer draws (D275), named for their pictures.
-const VIEWER_STATES: [(&str, crate::desktop::Staged); 9] = [
+const VIEWER_STATES: [(&str, crate::desktop::Staged); 12] = [
     ("viewer live", crate::desktop::Staged::Live),
     (
         "viewer waiting for approval",
@@ -1693,6 +1756,18 @@ const VIEWER_STATES: [(&str, crate::desktop::Staged); 9] = [
         crate::desktop::Staged::TimedOutReconnect,
     ),
     ("viewer pairing refused", crate::desktop::Staged::Refused),
+    (
+        "viewer trusted and live",
+        crate::desktop::Staged::TrustedLive,
+    ),
+    (
+        "viewer trusted and reconnecting",
+        crate::desktop::Staged::Retrying(7),
+    ),
+    (
+        "viewer trust file refused",
+        crate::desktop::Staged::TrustRefused,
+    ),
 ];
 
 /// Draws the viewer in `how` at `size` for `frames` frames, as the app does
@@ -1724,6 +1799,7 @@ fn draw_viewer(how: crate::desktop::Staged, size: (f32, f32), frames: usize) -> 
         actions,
         shapes,
         open_panes: Vec::new(),
+        library_page: crate::ui::browser::LibraryPage::Scenes,
         textures,
     })
 }
@@ -1810,6 +1886,50 @@ fn the_connect_form_is_its_own_section_with_a_hint_not_a_value() -> Result<()> {
     assert!(
         !rows.iter().any(|line| line.contains("192.168.1.20:47812")),
         "no address that could be mistaken for a value: {rows:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn the_connect_form_offers_a_trust_file_in_place_of_the_code() -> Result<()> {
+    let at = |trust_form| Scenario {
+        lan: true,
+        reveal_connect: true,
+        trust_form,
+        panes: &[Pane::Settings],
+        ..BASE
+    };
+    let rows = |trust_form| -> Result<Vec<String>> {
+        let drawn = draw(at(trust_form), (1440.0, 900.0), 20)?;
+        Ok(texts(&drawn).into_iter().map(|(_, line, _)| line).collect())
+    };
+    let code = rows(false)?;
+    assert!(
+        code.iter().any(|line| line.contains("Use a trust file")),
+        "the option is there, off: {code:?}"
+    );
+    assert!(
+        code.iter().any(|line| line.starts_with("Pairing code")),
+        "off: the code field: {code:?}"
+    );
+    assert!(
+        !code.iter().any(|line| line.starts_with("Trust file")),
+        "off: no path field: {code:?}"
+    );
+    let trust = rows(true)?;
+    assert!(
+        trust.iter().any(|line| line.contains("venue.trust")),
+        "on: the remembered path is in the field: {trust:?}"
+    );
+    assert!(
+        !trust.iter().any(|line| line.starts_with("Pairing code")),
+        "on: the code field is gone: {trust:?}"
+    );
+    assert!(
+        trust
+            .iter()
+            .any(|line| line.contains("--remote-trust") || line.contains("never its contents")),
+        "on: says what the host needs and what is remembered: {trust:?}"
     );
     Ok(())
 }
@@ -1983,5 +2103,201 @@ fn a_short_drawer_keeps_room_for_the_controls() -> Result<()> {
             .any(|(_, line, _)| line == "Aurora Field"),
         "the Controls tab's body is not drawn in the drawer at 427x320"
     );
+    Ok(())
+}
+
+/// The primary button at `at`, pressed or let go.
+fn button(at: egui::Pos2, pressed: bool) -> egui::Event {
+    egui::Event::PointerButton {
+        pos: at,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    }
+}
+
+/// A frame that moves the pointer to `at`, then a press and a release, a
+/// frame each: one click.
+fn click_at(at: egui::Pos2) -> Vec<Vec<egui::Event>> {
+    vec![
+        vec![egui::Event::PointerMoved(at)],
+        vec![button(at, true)],
+        vec![button(at, false)],
+    ]
+}
+
+/// Where the topmost row of text that reads `line` is drawn in `scenario`
+/// at `size`: a card's title sits above the transport strip that may name
+/// the same scene.
+fn text_at(scenario: Scenario, size: (f32, f32), line: &str) -> Result<egui::Pos2> {
+    let drawn = draw(scenario, size, 3)?;
+    texts(&drawn)
+        .into_iter()
+        .filter(|(_, text, _)| text == line)
+        .map(|(_, _, rect)| rect.center())
+        .min_by(|a, b| a.y.total_cmp(&b.y))
+        .ok_or_else(|| anyhow::anyhow!("nothing reads {line:?} in {}", scenario.name))
+}
+
+/// The scene loads `drawn` asked for, over every frame.
+fn loads(drawn: &Drawn) -> Vec<Action> {
+    drawn
+        .all_actions
+        .iter()
+        .filter(|action| matches!(action, Action::Load(_)))
+        .cloned()
+        .collect()
+}
+
+#[test]
+fn one_click_on_a_card_makes_it_live_and_a_double_click_is_still_one_load() -> Result<()> {
+    // As in Synesthesia, a click is the whole gesture (D291).
+    let size = (1440.0, 900.0);
+    let at = text_at(BASE, size, "03-scene-2")?;
+    let mut frames = click_at(at);
+    frames.push(Vec::new());
+    let drawn = draw_events(BASE, size, frames)?;
+    assert_eq!(
+        loads(&drawn),
+        vec![Action::Load(2)],
+        "one click is one load request"
+    );
+
+    let mut frames = click_at(at);
+    frames.push(vec![button(at, true)]);
+    frames.push(vec![button(at, false)]);
+    frames.push(Vec::new());
+    let drawn = draw_events(BASE, size, frames)?;
+    assert_eq!(
+        loads(&drawn),
+        vec![Action::Load(2)],
+        "the second click of a double-click is not a second load"
+    );
+
+    let live = text_at(BASE, size, "01-scene-0")?;
+    let drawn = draw_events(BASE, size, click_at(live))?;
+    assert!(
+        loads(&drawn).is_empty(),
+        "a click on the live scene asks for nothing: {:?}",
+        drawn.all_actions
+    );
+
+    let preparing = Scenario {
+        loading: true,
+        ..BASE
+    };
+    let at = text_at(preparing, size, "02-scene-1")?;
+    let drawn = draw_events(preparing, size, click_at(at))?;
+    assert!(
+        loads(&drawn).is_empty(),
+        "a click on the scene already preparing asks for nothing: {:?}",
+        drawn.all_actions
+    );
+    Ok(())
+}
+
+#[test]
+fn enter_on_a_focused_card_makes_it_live() -> Result<()> {
+    let scenario = Scenario {
+        focus_card: Some(2),
+        ..BASE
+    };
+    let drawn = draw_events(
+        scenario,
+        (1440.0, 900.0),
+        vec![
+            Vec::new(),
+            vec![press(egui::Key::Enter, egui::Modifiers::NONE)],
+            Vec::new(),
+        ],
+    )?;
+    assert_eq!(
+        loads(&drawn),
+        vec![Action::Load(2)],
+        "Enter on the focused card loads it"
+    );
+    Ok(())
+}
+
+#[test]
+fn the_library_flips_between_scenes_and_controls_by_switch_key_and_palette() -> Result<()> {
+    use crate::ui::browser::LibraryPage;
+    let size = (1440.0, 900.0);
+
+    let at = text_at(BASE, size, "Controls")?;
+    let mut frames = click_at(at);
+    frames.push(Vec::new());
+    let drawn = draw_events(BASE, size, frames)?;
+    assert_eq!(
+        drawn.library_page,
+        LibraryPage::Controls,
+        "the switch's Controls cell"
+    );
+    assert!(drawn.all_actions.is_empty(), "a presentation change only");
+
+    let ctrl_l = || press(egui::Key::L, egui::Modifiers::COMMAND);
+    let drawn = draw_events(BASE, size, vec![vec![ctrl_l()], Vec::new()])?;
+    assert_eq!(drawn.library_page, LibraryPage::Controls, "Ctrl+L flips");
+    // Let go between the two presses: egui reads a second press of a key
+    // still held as a repeat.
+    let drawn = draw_events(
+        BASE,
+        size,
+        vec![
+            vec![ctrl_l()],
+            vec![release(egui::Key::L)],
+            vec![ctrl_l()],
+            vec![release(egui::Key::L)],
+        ],
+    )?;
+    assert_eq!(drawn.library_page, LibraryPage::Scenes, "and flips back");
+
+    let play = Scenario {
+        panes: &[Pane::Inspector],
+        ..BASE
+    };
+    let drawn = draw_events(play, size, vec![vec![ctrl_l()], Vec::new()])?;
+    assert!(
+        drawn.open_panes.contains(&Pane::Browser) && drawn.library_page == LibraryPage::Controls,
+        "from PLAY it shows the library on Controls: {:?} {:?}",
+        drawn.open_panes,
+        drawn.library_page
+    );
+
+    let drawn = draw_events(BASE, size, palette_run("switch scenes"))?;
+    assert_eq!(
+        drawn.library_page,
+        LibraryPage::Controls,
+        "Ctrl+K, \"switch scenes\", Enter"
+    );
+    assert!(drawn.all_actions.is_empty(), "and nothing else ran");
+    Ok(())
+}
+
+#[test]
+fn the_controls_page_draws_the_controls_once_with_the_preview_beside_them() -> Result<()> {
+    let scenario = Scenario {
+        library_page: crate::ui::browser::LibraryPage::Controls,
+        ..BASE
+    };
+    for size in [(1920.0, 1080.0), (1280.0, 720.0)] {
+        let drawn = draw(scenario, size, 3)?;
+        let rows = texts(&drawn);
+        // A group's header names it once per place the group is drawn; the
+        // macro strip, which also names `speed`, has no headers.
+        let headers = rows.iter().filter(|(_, line, _)| line == "MOTION").count();
+        assert_eq!(
+            headers, 1,
+            "the main view has the controls and the side panel does not repeat them at {size:?}"
+        );
+        assert!(
+            rows.iter().any(|(_, line, _)| line == "LIVE"),
+            "the side panel's preview stays in view at {size:?}"
+        );
+        assert!(
+            rows.iter().any(|(_, line, _)| line == "FAV"),
+            "and the fav slots at {size:?}"
+        );
+    }
     Ok(())
 }

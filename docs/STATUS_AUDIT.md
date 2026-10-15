@@ -71,12 +71,68 @@ tracks every known unfinished implementation and validation task across the proj
   `the_connect_form_is_its_own_section_with_a_hint_not_a_value`; viewer
   screenshots from `STROBE_UI_SHOTS` on llvmpipe. Not re-run on the T480 and
   RX 580 pair.
+
+- [x] Venue mode, host and protocol (2026-10-15, D288). Evidence, all on
+  loopback in the Linux container: `trust::tests` (RFC 4231 vectors, an
+  independent protocol vector, wrong secret/host/controller/nonce, single use
+  and expiry, file parser, no overwrite and no write through a symlink, mode
+  0600, loose-permission refusal, limiter backoff, global trip and bound);
+  `clients::tests::a_trusted_pairing_is_in_memory_only_listed_replaced_and_revocable`;
+  `lib::tests::trust_messages_read_and_write_byte_for_byte_and_are_validated`;
+  `tests/server.rs` `a_controller_that_proves_the_trust_file_pairs_with_no_approval`,
+  `neither_the_secret_nor_its_proof_is_on_the_wire_or_in_the_log`,
+  `a_wrong_secret_a_wrong_controller_or_a_wrong_host_is_refused`,
+  `a_replayed_response_is_refused_because_each_nonce_answers_once`,
+  `trusted_pairing_is_refused_without_a_trust_file_or_with_desktop_control_off`,
+  `the_kill_switch_ends_a_trusted_session_and_stops_new_ones`,
+  `the_operator_can_revoke_a_trusted_controller_for_the_run`,
+  `a_controller_that_reconnects_takes_back_its_own_lease`,
+  `failed_proofs_back_off_per_address_and_then_recover`,
+  `phone_pairing_is_unaffected_by_a_trust_file`,
+  `version_one_traffic_is_byte_for_byte_what_it_was`; `venue::tests` and
+  `cli::tests::venue_mode_flags_need_the_remote_and_are_off_by_default`.
+- [x] Venue mode, controller side (2026-10-15, D294). Evidence, all on
+  loopback in the Linux container: `trusted::tests`
+  (`the_proof_is_the_protocols_published_vector`,
+  `the_host_accepts_what_the_handshake_makes_and_only_for_the_host_dialled`,
+  `a_challenge_nobody_asked_for_is_refused_and_so_is_a_second`,
+  `the_retry_schedule_doubles_to_fifteen_seconds_and_stays_there`,
+  `a_controller_id_is_valid_and_survives_odd_computer_names`);
+  `trust::tests::a_generated_controller_id_is_always_valid_and_keeps_the_name_readable`;
+  `desktop::tests` with a real host:
+  `a_trusted_controller_connects_with_no_approval_and_keeps_the_secret_to_itself`,
+  `the_wrong_trust_file_is_refused_once_and_says_why_without_retrying`,
+  `a_trusted_controller_finds_a_restarted_host_by_itself_and_takes_its_lease_back`,
+  `disconnect_stops_the_retrying`,
+  `a_trusted_controller_shut_out_of_the_lease_backs_off_rather_than_hammering`,
+  `the_kill_switch_is_retried_once_and_then_refused`,
+  `a_challenge_nobody_asked_for_is_not_signed_and_ends_the_connection`,
+  `the_viewer_says_reconnecting_with_the_attempt_and_keeps_the_last_image`,
+  `the_form_remembers_a_path_and_a_launch_with_control_decides_the_first_action`;
+  `cli::tests::control_names_a_host_and_takes_the_trust_file_for_the_laptop`;
+  `shell_tests::the_connect_form_offers_a_trust_file_in_place_of_the_code`.
+- [ ] Venue mode, on real machines: a Windows host reading a trust file from
+  the user profile, a laptop controlling a physical show machine over Wi-Fi,
+  a host restart and a Wi-Fi drop while connected (do the retries land within
+  the 15 s cap on a real network, and is the lease taken back?), the
+  controller's file permissions on Windows, and a four-hour soak.
 - [ ] Full desktop remote: two physical Strobe desktops over Wi-Fi, reconnect
   after loss/sleep, minimized host, a host control window covered by the
   fullscreen output (does it still redraw and capture?), the fenced capture
   readback on a real window (native GL and ANGLE), cross-DPI/zoom behavior on
   real monitors, a remote click on Settings' Approve refused with the banner,
   and T480 CPU/frame-time/memory soak remain unverified.
+- [ ] The control frame runs while Windows sends the control window no
+  paints (2026-10-15, D290). Built; the scheduling decision is unit-tested
+  in the Linux container (`stats::tests::a_control_window_with_no_paints_is_run_by_the_loop_at_its_own_period`,
+  `a_painted_control_window_is_never_driven_by_the_loop`,
+  `a_blocked_loop_is_not_a_window_without_paints`,
+  `the_loop_hands_back_only_to_a_prompt_paint`). No container reproduces
+  Windows' paint order. Acceptance test, on the JaJa mini PC with the show
+  launch: the log says `control window: no paint from Windows ... (D290)`,
+  every later `perf:` line has a nonzero `control N redraws ... (... M unpainted)`
+  with the output still at 60 fps, the playlist gets past 1 of 14, and the
+  laptop's desktop remote shows and operates the host (MINIPC.md).
 
 - [x] Chromatic Rise scene loads, compiles and renders on Windows RX 580
   native GL 3.3 and ANGLE GLES 3.0 at 1280x720 (2026-10-13).
@@ -179,6 +235,36 @@ Diagnostics are not recovery. The bounded state machine is built (D66):
   in 171 ms, and the give-up path ended cleanly
   ([hardware/T480.md](hardware/T480.md), bug 1). No real driver reset has
   been observed yet: bug 1 no longer reproduces.
+
+## P1: Linux
+
+Linux is documented and builds (D295); what a person on a real Linux machine
+would meet is not yet seen. Evidence so far is the cloud container, with no
+GPU, on Mesa's llvmpipe.
+
+- [x] A clean Ubuntu 24.04 builds the app and the bench with
+  `build-essential pkg-config libasound2-dev` and nothing else, and the
+  bench, `--diagnose` and a control-plus-output screenshot run on X11 (Xvfb)
+  and Wayland (headless Weston) once the run-time libraries in the README are
+  installed (2026-10-15, D295).
+- [x] The Nix flake: `nix develop -c cargo build`, `nix build` and `nix run`
+  on x86_64-linux; the package's `--help`, `--diagnose`, bench, and X11 and
+  Wayland screenshots (2026-10-15, D295). aarch64-linux evaluates only.
+- [ ] A real Linux GPU (Intel, AMD, NVIDIA): native GL 3.3 core, the
+  scenes, timings. Acceptance: `strobe --diagnose` and `strobe-bench` output
+  with the driver named, in `docs/hardware/`.
+- [ ] Audio capture on ALSA, PipeWire and PulseAudio machines, and
+  removal and reconnection of the device. Acceptance: a live input moves the
+  level meter; the log shows the transitions.
+- [ ] MIDI input from a real controller through ALSA's sequencer.
+- [ ] GNOME and KDE on Wayland: window decorations, the custom title bar,
+  fullscreen output on a second monitor.
+- [ ] NixOS: `nix run` opens a window with `hardware.graphics.enable`, and
+  PipeWire's ALSA plugin finds the input.
+- [ ] WSL2 with WSLg on the AMD desktop's Debian: apt build, `glxinfo -B`
+  naming a D3D12 renderer, a window on Wayland and on X11, the bench.
+  Acceptance: the transcript `target/linux-check.txt` from
+  `scripts/check-linux.sh`.
 
 ## P1: performer-facing UI
 

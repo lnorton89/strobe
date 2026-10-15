@@ -2,7 +2,8 @@
 // Module:       strobe_app::ui::browser
 // Description:  The scene library, the default main view: a toolbar, a filter
 //               row (count, search, sort, favourites, health), a virtualised
-//               grid of thumbnail cards, and Preview kept separate from Load.
+//               grid of thumbnail cards that a click makes live, and Preview
+//               kept apart in the card's menu.
 //
 // Dependencies: egui; super::{model, theme, widgets, state, thumbs, tags},
 //               crate::library
@@ -12,17 +13,22 @@
 //!
 //! Synesthesia's library is a grid of pictures with a search over it, and
 //! so is this: the main view the control window opens on. Opening the
-//! library must not stop the show, and browsing must not change it. Three
-//! verbs, kept visibly apart:
+//! library must not stop the show, and scrolling or searching it must not
+//! change it. As in Synesthesia, a scene is made live by clicking it (D291):
 //!
-//! - **Select** (a click, or Up/Down in the search field) only highlights.
-//! - **Preview** prepares the selected scene in a second, small player and
-//!   shows it in the card above the grid. It never changes the live scene,
-//!   the controls, the macros or the output.
-//! - **Load** commits the scene (double-click, Enter in the search field, or
-//!   the button on the selected card). If the scene fails to prepare, the
-//!   old scene stays live and the failure appears as a banner and on the
-//!   card.
+//! - **Load** is one click on a card, Enter (or Space) on a focused card, or
+//!   Enter in the search field, which loads the highlighted scene. The card
+//!   says PREPARING while it compiles; if it fails, the old scene stays live
+//!   and the failure appears as a banner and on the card. A click on the
+//!   scene that is live or already preparing asks for nothing, and so does
+//!   the second click of a double-click, so a double-click is one load.
+//! - **Select** (Up/Down in the search field) only highlights; a click
+//!   selects as it loads, so the selected scene's tags show above the grid.
+//! - **Preview** prepares a scene in a second, small player and shows it in
+//!   the card above the grid, without changing the live scene, the
+//!   controls, the macros or the output. It is in the card's "..." menu
+//!   (also its right-click menu) and the command palette: a step a person
+//!   asks for, not one every pick goes through.
 //!
 //! ```text
 //! [+ New scene] [refresh]                                       [S][M][L]
@@ -82,6 +88,68 @@ use std::borrow::Cow;
 
 /// The id of the search field, so a command can focus it.
 pub const SEARCH_ID: &str = "browser-search";
+
+/// Which page the library view shows (D291): the card grid, or the live
+/// scene's controls, laid out large. A switch at the top of the main view
+/// flips between them, as does a command (Ctrl+L by default). Saved.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum LibraryPage {
+    /// The scene grid.
+    #[default]
+    Scenes,
+    /// The playing scene's controls.
+    Controls,
+}
+
+impl LibraryPage {
+    /// Both pages, in the order the switch shows them.
+    pub const ALL: [Self; 2] = [Self::Scenes, Self::Controls];
+
+    /// The name saved in the preferences file.
+    pub const fn key(self) -> &'static str {
+        match self {
+            Self::Scenes => "scenes",
+            Self::Controls => "controls",
+        }
+    }
+
+    /// The page saved as `key`; `None` for a name this build does not know.
+    pub fn from_key(key: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|page| page.key() == key)
+    }
+
+    /// The switch's label.
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Scenes => "Scenes",
+            Self::Controls => "Controls",
+        }
+    }
+
+    /// The other page.
+    pub const fn other(self) -> Self {
+        match self {
+            Self::Scenes => Self::Controls,
+            Self::Controls => Self::Scenes,
+        }
+    }
+
+    /// The switch's icon.
+    pub const fn icon(self) -> Icon {
+        match self {
+            Self::Scenes => Icon::Library,
+            Self::Controls => Icon::Controls,
+        }
+    }
+
+    /// What the page is, as the switch's tooltip says it.
+    pub const fn tooltip(self) -> &'static str {
+        match self {
+            Self::Scenes => "Scenes: the library. Click a scene to make it live.",
+            Self::Controls => "Controls: the live scene's controls, laid out large",
+        }
+    }
+}
 
 /// How large the grid's cards are (D282). One setting for the grid, saved.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -159,10 +227,10 @@ pub fn columns(width: f32, card: CardSize) -> usize {
     (((width + GAP) / (card.width() + GAP)).floor() as usize).max(1)
 }
 
-/// Draws the library: the toolbar, the filter row, then the grid.
+/// Draws the library below its toolbar: the filter row, then the grid. The
+/// shell draws the [`toolbar`], on the row of the Scenes and Controls
+/// switch when there is room for both (D291).
 pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Vec<Action>) {
-    toolbar(ui, model, theme, actions);
-    ui.add_space(SPACE_XS);
     filter_row(ui, model, theme, actions);
     selected_tags(ui, model, theme, actions);
     ui.add_space(SPACE_XS);
@@ -196,63 +264,73 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
     model.ui.browser.put_visible(visible);
 }
 
-/// The toolbar: new scene and refresh at the left, the thumbnail-size
-/// switch at the right, as Synesthesia's library has them.
-fn toolbar(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Vec<Action>) {
+/// The toolbar on a row of its own: new scene and refresh at the left, the
+/// thumbnail-size switch at the right, as Synesthesia's library has them.
+pub fn toolbar(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Vec<Action>) {
+    ui.horizontal(|ui| {
+        ui.set_height(30.0);
+        toolbar_items(ui, model, theme, actions);
+    });
+}
+
+/// The toolbar's items, laid out in the caller's row: the shell puts them
+/// on the Scenes and Controls switch's row when it is wide enough (D291).
+pub fn toolbar_items(
+    ui: &mut Ui,
+    model: &mut Model<'_>,
+    theme: &Palette,
+    actions: &mut Vec<Action>,
+) {
     /// Below this width the button drops its words.
     const LABELLED: f32 = 300.0;
     let labelled = ui.available_width() >= LABELLED;
-    ui.horizontal(|ui| {
-        ui.set_height(30.0);
-        if widgets::tool_button_fitted(
-            ui,
-            theme,
-            Icon::Plus,
-            "New scene",
-            false,
-            "Start a scene from a Shadertoy shader: opens Import. A scene of Synesthesia's \
-             is copied with Copy to my library.",
-            labelled,
-        )
-        .clicked()
-        {
-            model.ui.panes.open(Pane::Import);
-        }
-        if widgets::icon_button(ui, theme, Icon::Refresh, "List the scene folder again").clicked() {
-            actions.push(Action::RescanLibrary);
-        }
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            // Largest first, so they read S M L left to right.
-            for size in CardSize::ALL.iter().rev() {
-                let active = model.ui.browser.cards == *size;
-                let (rect, response) =
-                    ui.allocate_exact_size(Vec2::new(26.0, 26.0), Sense::click());
-                let fill = if active { theme.accent } else { theme.raised };
-                let fill = widgets::hover_fill(
-                    ui,
-                    response.id,
-                    response.hovered(),
-                    fill,
-                    if active { theme.accent } else { theme.hover },
-                );
-                ui.painter()
-                    .rect_filled(rect, CornerRadius::same(theme::RADIUS), fill);
-                ui.painter().text(
-                    rect.center(),
-                    egui::Align2::CENTER_CENTER,
-                    size.letter(),
-                    egui::TextStyle::Small.resolve(ui.style()),
-                    theme::rgb(if active {
-                        theme.text_on_accent
-                    } else {
-                        theme.text
-                    }),
-                );
-                if super::help::hovered(response, size.tooltip()).clicked() {
-                    model.ui.browser.cards = *size;
-                }
+    if widgets::tool_button_fitted(
+        ui,
+        theme,
+        Icon::Plus,
+        "New scene",
+        false,
+        "Start a scene from a Shadertoy shader: opens Import. A scene of Synesthesia's \
+         is copied with Copy to my library.",
+        labelled,
+    )
+    .clicked()
+    {
+        model.ui.panes.open(Pane::Import);
+    }
+    if widgets::icon_button(ui, theme, Icon::Refresh, "List the scene folder again").clicked() {
+        actions.push(Action::RescanLibrary);
+    }
+    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+        // Largest first, so they read S M L left to right.
+        for size in CardSize::ALL.iter().rev() {
+            let active = model.ui.browser.cards == *size;
+            let (rect, response) = ui.allocate_exact_size(Vec2::new(26.0, 26.0), Sense::click());
+            let fill = if active { theme.accent } else { theme.raised };
+            let fill = widgets::hover_fill(
+                ui,
+                response.id,
+                response.hovered(),
+                fill,
+                if active { theme.accent } else { theme.hover },
+            );
+            ui.painter()
+                .rect_filled(rect, CornerRadius::same(theme::RADIUS), fill);
+            ui.painter().text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                size.letter(),
+                egui::TextStyle::Small.resolve(ui.style()),
+                theme::rgb(if active {
+                    theme.text_on_accent
+                } else {
+                    theme.text
+                }),
+            );
+            if super::help::hovered(response, size.tooltip()).clicked() {
+                model.ui.browser.cards = *size;
             }
-        });
+        }
     });
 }
 
@@ -291,10 +369,27 @@ fn filter_row(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut
         }
     });
     if two_rows {
+        // In the narrowest windows (320 points wide, U-09) the sort, its
+        // direction, the star and the health menu are wider than the view:
+        // the health menu takes a row of its own. Left on one row, it was
+        // cut off at the edge, and the overflow widened the grid below it,
+        // so the cards were cut off too. (A wrapped row does not help: a
+        // combo box is placed before its width is known.)
+        let row = SORT_WIDTH + 26.0 + 26.0 + SHOW_WIDTH + ui.spacing().item_spacing.x * 3.0;
+        let one_row = ui.available_width() >= row;
         ui.horizontal(|ui| {
             ui.set_height(30.0);
-            order_controls(ui, model, theme);
+            sort_controls(ui, model, theme);
+            if one_row {
+                show_control(ui, model);
+            }
         });
+        if !one_row {
+            ui.horizontal(|ui| {
+                ui.set_height(30.0);
+                show_control(ui, model);
+            });
+        }
     }
     if let Some(response) = search {
         search_keys(ui, model, &response, actions);
@@ -467,6 +562,12 @@ fn search_keys(
 /// The sort dropdown and its direction, the favourites-only toggle and the
 /// health filter.
 fn order_controls(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette) {
+    sort_controls(ui, model, theme);
+    show_control(ui, model);
+}
+
+/// The sort dropdown and its direction, and the favourites-only toggle.
+fn sort_controls(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette) {
     egui::ComboBox::from_id_salt("library-sort")
         .selected_text(model.ui.browser.sort.label())
         .width(SORT_WIDTH - 24.0)
@@ -512,6 +613,10 @@ fn order_controls(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette) {
             HealthFilter::Favourites
         };
     }
+}
+
+/// The health filter.
+fn show_control(ui: &mut Ui, model: &mut Model<'_>) {
     egui::ComboBox::from_id_salt("library-show")
         .selected_text(model.ui.browser.filter.label())
         .width(SHOW_WIDTH - 24.0)
@@ -604,14 +709,16 @@ fn empty_library(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &
             .color(theme::rgb(theme.text_muted)),
         );
         ui.add_space(theme::SPACE_MD);
-        ui.horizontal(|ui| {
-            if widgets::button(ui, theme, Some(Icon::Import), "Import").clicked() {
-                model.ui.panes.open(Pane::Import);
-            }
-            if widgets::button(ui, theme, Some(Icon::Refresh), "Rescan").clicked() {
-                actions.push(Action::RescanLibrary);
-            }
-        });
+        // One above the other, each centred under the words: a horizontal
+        // row inside a centred column starts at the left edge, which left
+        // the two buttons under nothing.
+        if widgets::button(ui, theme, Some(Icon::Import), "Import").clicked() {
+            model.ui.panes.open(Pane::Import);
+        }
+        ui.add_space(SPACE_XS);
+        if widgets::button(ui, theme, Some(Icon::Refresh), "Rescan").clicked() {
+            actions.push(Action::RescanLibrary);
+        }
     });
 }
 
@@ -912,10 +1019,13 @@ fn card(
     }
 
     if response.hovered() {
-        super::help::say(
-            "Double-click to load this scene. Click to select it; right-click, or the ... \
-             button, for Preview, favourites and Edit.",
-        );
+        super::help::say(if playing {
+            "This scene is live. Right-click, or the ... button, to reload it, favourite it or \
+             edit it."
+        } else {
+            "Click to make this scene live. Right-click, or the ... button, to preview it \
+             without loading, favourite it or edit it."
+        });
     }
     if let Health::Failed(reason) = health {
         response.clone().on_hover_text(reason);
@@ -927,9 +1037,26 @@ fn card(
     }
     if response.clicked() {
         model.ui.browser.selected = Some(index);
+        // One click makes the scene live (D291), Enter or Space on a focused
+        // card too (egui reports both as a click). The second click of a
+        // double-click is not a second load, and neither is a click on the
+        // scene that is live or already preparing.
+        let repeat = response.double_clicked() || response.triple_clicked();
+        if !playing && !loading && !repeat {
+            actions.push(Action::Load(index));
+        }
     }
-    if response.double_clicked() && !playing {
-        actions.push(Action::Load(index));
+    if response.has_focus() {
+        // Keyboard focus is visible, and apart from the selection's
+        // outline: a second ring just inside the card's edge, which the
+        // grid's clip never cuts (a ring outside it lost its top edge on
+        // the first row).
+        ui.painter().rect_stroke(
+            rect.shrink(3.0),
+            CornerRadius::same(theme::RADIUS.saturating_sub(2)),
+            Stroke::new(1.5, theme::rgb(theme.accent_hover)),
+            StrokeKind::Inside,
+        );
     }
     let favourite = model.ui.browser.is_favourite(&entry.name);
     let read_only = entry.read_only();
@@ -945,7 +1072,11 @@ fn card(
     );
     let dots_response = ui
         .interact(dots, id.with("dots"), Sense::click())
-        .on_hover_text("More: load, preview, favourite, edit");
+        .on_hover_text(if playing {
+            "More: reload, favourite, edit"
+        } else {
+            "More: preview without loading, favourite, edit"
+        });
     if dots_response.hovered() || response.hovered() || selected {
         let fill = widgets::hover_fill(
             ui,
@@ -969,11 +1100,12 @@ fn card(
     );
     let mut menu_choice = None;
     let mut menu = |ui: &mut Ui| {
-        if !playing && ui.button("Load").clicked() {
-            menu_choice = Some(Menu::Load);
-            ui.close();
-        }
-        if !playing && ui.button("Preview without loading").clicked() {
+        if playing {
+            if ui.button("Reload from disk").clicked() {
+                menu_choice = Some(Menu::Reload);
+                ui.close();
+            }
+        } else if ui.button("Preview without loading").clicked() {
             menu_choice = Some(Menu::Preview);
             ui.close();
         }
@@ -1000,7 +1132,7 @@ fn card(
     response.context_menu(&mut menu);
     egui::Popup::menu(&dots_response).show(&mut menu);
     match menu_choice {
-        Some(Menu::Load) => actions.push(Action::Load(index)),
+        Some(Menu::Reload) => actions.push(Action::Reload),
         Some(Menu::Preview) => actions.push(Action::Preview(index)),
         Some(Menu::Star) => model.ui.browser.toggle_favourite(&entry.name),
         Some(Menu::Edit) => actions.push(Action::OpenEditor(Some(entry.name.clone()))),
@@ -1046,54 +1178,12 @@ fn card(
     if star_response.clicked() {
         model.ui.browser.toggle_favourite(&entry.name);
     }
-
-    // The verbs, over the picture's bottom edge, on the selected card.
-    if selected {
-        let verbs = Rect::from_min_max(
-            egui::pos2(
-                picture.left() + SPACE_XS,
-                picture.bottom() - 28.0 - SPACE_XS,
-            ),
-            egui::pos2(picture.right() - SPACE_XS, picture.bottom() - SPACE_XS),
-        );
-        let mut verb_ui = ui.new_child(
-            UiBuilder::new()
-                .max_rect(verbs)
-                .layout(Layout::right_to_left(Align::Center)),
-        );
-        verb_ui.scope(|ui| {
-            if playing {
-                if widgets::button(ui, theme, Some(Icon::Refresh), "Reload")
-                    .on_hover_text("Reload this scene from disk")
-                    .clicked()
-                {
-                    actions.push(Action::Reload);
-                }
-            } else {
-                if widgets::button(ui, theme, Some(Icon::Play), "Load")
-                    .on_hover_text("Make this scene live. If it fails, the current scene stays.")
-                    .clicked()
-                {
-                    actions.push(Action::Load(index));
-                }
-                // A narrow card has room for one verb; Preview stays in
-                // the right-click menu.
-                if verbs.width() >= 150.0
-                    && widgets::button(ui, theme, Some(Icon::Output), "Preview")
-                        .on_hover_text("Prepare this scene here without changing what is live")
-                        .clicked()
-                {
-                    actions.push(Action::Preview(index));
-                }
-            }
-        });
-    }
 }
 
 /// What a card's context menu asked for.
 #[derive(Clone, Copy)]
 enum Menu {
-    Load,
+    Reload,
     Preview,
     Star,
     Edit,

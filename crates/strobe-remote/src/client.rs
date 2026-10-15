@@ -16,6 +16,14 @@ use std::io::{self, Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::time::{Duration, Instant};
 
+/// The `Host` header [`Connection::connect`] sends for `address`: the
+/// address and port exactly as dialled. Trusted pairing (D288) binds its
+/// proof to this string, so a controller must use this function rather than
+/// rebuild it.
+pub fn host_header(address: SocketAddr) -> String {
+    address.to_string()
+}
+
 /// One native controller connection. No automatic reconnection or replay:
 /// reconnect requires a new pairing and no old click is retried.
 pub struct Connection {
@@ -45,8 +53,9 @@ impl Connection {
         let mut random = [0_u8; 16];
         getrandom::fill(&mut random).map_err(|_| invalid("Cannot generate a WebSocket key"))?;
         let key = ws::base64(&random);
+        let host = host_header(address);
         let request = format!(
-            "GET /ws HTTP/1.1\r\nHost: {address}\r\nOrigin: http://{address}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: {key}\r\nUser-Agent: Strobe Desktop\r\n\r\n"
+            "GET /ws HTTP/1.1\r\nHost: {host}\r\nOrigin: http://{host}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: {key}\r\nUser-Agent: Strobe Desktop\r\n\r\n"
         );
         stream.write_all(request.as_bytes())?;
         let deadline = Instant::now() + Duration::from_secs(5);
@@ -159,4 +168,44 @@ impl Connection {
 /// Standard base64 for capture workers.
 pub fn encode_image(bytes: &[u8]) -> String {
     ws::base64(bytes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use anyhow::{Context as _, Result};
+
+    #[test]
+    fn the_host_header_sent_is_exactly_the_address_dialled() -> Result<()> {
+        // The trusted proof (D288/D294) is bound to this string, so what goes
+        // on the wire must be what `host_header` says.
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0))?;
+        let address = listener.local_addr()?;
+        let reader = std::thread::spawn(move || -> io::Result<String> {
+            let (mut stream, _) = listener.accept()?;
+            stream.set_read_timeout(Some(Duration::from_secs(5)))?;
+            let mut head = Vec::new();
+            let mut byte = [0_u8; 1];
+            while !head.ends_with(b"\r\n\r\n") && head.len() < 4096 {
+                if stream.read(&mut byte)? == 0 {
+                    break;
+                }
+                head.push(byte[0]);
+            }
+            Ok(String::from_utf8_lossy(&head).into_owned())
+        });
+        // The listener never answers, so connecting ends in an error; the
+        // request is what matters.
+        let _ = Connection::connect(address);
+        let head = reader
+            .join()
+            .map_err(|_| anyhow::anyhow!("reader panicked"))??;
+        let host = head
+            .lines()
+            .find_map(|line| line.strip_prefix("Host: "))
+            .context("a Host header")?;
+        assert_eq!(host, host_header(address), "as dialled");
+        assert_eq!(host, address.to_string(), "ip:port, nothing added");
+        Ok(())
+    }
 }

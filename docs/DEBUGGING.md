@@ -36,12 +36,13 @@ setup, saves it beside the logs, and exits. Attach it to bug reports.
 | `STROBE_LOG` | Log filter. A comma-separated list: a bare level (`debug`) sets the default, `target=level` sets one target and everything under it (`strobe_gfx=trace,warn`). Levels `off`, `error`, `warn`, `info`, `debug`, `trace`. The most specific directive wins. Default is `info` in release builds and `debug` in debug builds; noisy third-party targets (`winit`, `egui`, `glutin`, `x11rb` and others) are capped at `warn` unless named, as in `STROBE_LOG=winit=debug`. A directive that does not parse is skipped and reported in the log's first lines. |
 | `STROBE_LOG_STDERR=1` | Mirror log lines to stderr. Debug builds do it anyway. The Windows release build has no console, so this is for a console build on a test laptop, and for runs under Xvfb. |
 | `STROBE_GL_DEBUG` | Driver debug output (`KHR_debug`), routed to the log under the target `gl_driver`. Unset: warnings and errors in debug builds, errors only in release. `1` or `all`: everything. `errors`, `warn`, `info` pick a level. `0` or `off` turns it off. Old Intel drivers without `KHR_debug` report that it is unavailable. `STROBE_LOG=gl_driver=debug` shows the notification-level messages too. |
-| `STROBE_GL_TRACE` | Records where the renderer binds, draws, clears, blits and reads: the framebuffer (0 is the window's) and viewport of each, once per distinct event, under the log target `gl_trace`, with a count summary (`strobe-bench` prints it at the end). `1` turns it on; a number caps the distinct events kept. The first time each viewport is set it is read back from the driver and a mismatch warns, which shows a driver clamping it. Off by default and free when off; for a machine that renders black (D289). `strobe-bench --probe` is the companion. |
+| `STROBE_GL_TRACE` | Records where the renderer binds, draws, clears, blits and reads: the framebuffer (0 is the window's) and viewport of each, once per distinct event, under the log target `gl_trace`, with a count summary (`strobe-bench` prints it at the end). `1` turns it on; a number caps the distinct events kept. The first time each viewport is set it is read back from the driver and a mismatch warns, which shows a driver clamping it. Off by default and free when off; for a machine that renders black (D296). `strobe-bench --probe` is the companion. |
 | `STROBE_FAULT` | Fault injection, to exercise context-loss recovery without a broken driver. See below. |
 | `STROBE_FINISH_AFTER_SWAP` | Whether the output waits (`glFinish`) for each swap to complete, so switching the context to the control window does not (D221). Unset: only after the control window has been seen waiting (NVIDIA, windowed output), and not while a fullscreen output covers it. `1`: always. `0`: never. |
 | `STROBE_NO_CRASH_MONITOR=1` | Do not start the crash monitor process or attach the native crash handler. Use it under a debugger. |
 | `STROBE_DIAG_DIR` | Replace the base directory above. |
 | `STROBE_REQUIRE_HEADLESS_GL=1` | Make the headless-GL tests fail instead of skip when no EGL device exists. CI's Linux job sets it. |
+| `STROBE_DUMP_GLSL=<dir>` | Write each pass's assembled fragment shader to `<dir>` when a scene loads, as `<title>.<dialect>.pass<N>.frag` (dialect `glsl330`, `glsl410` or `es300`). Use it to compare what the desktop and ANGLE drivers are given. A failed write is a log warning. |
 
 ## Context loss and `STROBE_FAULT`
 
@@ -106,7 +107,7 @@ and `-control.png`; open them to check the output is not black.
 Once a minute the app logs one line (D206):
 
 ```
-perf: 59.9 fps over 60 s, 0 late of 3594 frames, worst gap 17.9 ms, gpu 2.10 ms, control 1800 redraws 2.40 ms (worst 6.1 ms): make-current 0.10, layout 1.20, paint 0.80, swap 0.30 ms
+perf: 59.9 fps over 60 s, 0 late of 3594 frames, worst gap 17.9 ms, gpu 2.10 ms, control 1800 redraws 2.40 ms (worst 6.1 ms, 0 unpainted): make-current 0.10, layout 1.20, paint 0.80, swap 0.30 ms
 ```
 
 - **late**: frames whose gap was over 1.5 frame budgets, so each is a
@@ -120,6 +121,13 @@ perf: 59.9 fps over 60 s, 0 late of 3594 frames, worst gap 17.9 ms, gpu 2.10 ms,
   frame late (TORNADO T11, T12).
   The count drops to about 120 a minute while the fullscreen output covers
   the control window ("control window covered" in the log).
+  **unpainted** counts the redraws the event loop ran because Windows sent
+  the control window no paint (D290): an output above it in z-order takes
+  every `WM_PAINT`. After `control window: no paint from Windows for ...`
+  in the log, expect about 120 a minute, all of them unpainted (300 while
+  a desktop remote is connected). **`control 0 redraws` with the output
+  shown is a bug**: nothing in the control window's frame is running (its
+  actions, the desktop stream, the playlist compile).
 
 If make-current sits near a refresh period, the control window is waiting
 for the output's vsynced swap. The app then slows the control window to
@@ -128,7 +136,8 @@ logs again when it recovers.
 
 A soak should show `0 late` minute after minute. The fps in the control
 window's status bar is only as fresh as that window's last paint; while the
-fullscreen output covers it, Windows hardly repaints it, so trust the log. To compare with an older
+fullscreen output covers it, Windows hardly repaints it (the event loop
+redraws it at 2 Hz then, D290), so trust the log. To compare with an older
 run, grep the log for `perf:`.
 
 ## GL problems
@@ -143,7 +152,7 @@ run, grep the log for `perf:`.
 4. A GPU timing line says whether adaptive resolution can work on this
    context.
 5. Frames black on one machine and fine on another: `STROBE_GL_TRACE=1`, and
-   for the bench `--probe` (D289, `hardware/MINIPC.md`). `STROBE_GL_DEBUG` is
+   for the bench `--probe` (D296, `hardware/MINIPC.md`). `STROBE_GL_DEBUG` is
    also read by `strobe-bench` and `strobe-autocontrol`, off unless set.
 
 ## Crashes

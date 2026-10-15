@@ -38,6 +38,15 @@
 //!   laptop, where egui's tessellation and the extra swap are a real cost
 //!   and 30 Hz is plenty for sliders. While the fullscreen output covers
 //!   it, it redraws at 2 Hz instead (`update_covered`, TORNADO T10).
+//!   The frame normally runs on the control window's `RedrawRequested`,
+//!   which winit delivers on Windows only from a `WM_PAINT`. Windows makes
+//!   that message for the topmost dirty window first, so an output above
+//!   the control window that is dirty again every pass takes every paint.
+//!   When a request has gone unanswered for `stats::PAINT_PATIENCE`,
+//!   `about_to_wait` runs the control frame itself, at the unseen rate,
+//!   until a paint answers promptly again ([`ControlDrive`], D290). Actions,
+//!   the remote passes, the desktop capture and the playlist compile all
+//!   live in that frame, so a show with nobody at the console needs it.
 //! - **A perf line** is logged once a minute (`stats::PerfWindow`): frame
 //!   rate, late frames, the worst gap, GPU time and the control window's
 //!   redraw cost, so a soak's log alone says where frames went.
@@ -116,7 +125,8 @@ use crate::session::{self, Session};
 use crate::show::{self, Env, Phase, Show};
 use crate::snapshot;
 use crate::stats::{
-    ControlPacer, ControlTimes, FinishMode, FrameStats, PaceChange, PerfWindow, SwapPolicy,
+    ControlDrive, ControlPacer, ControlStep, ControlTimes, FinishMode, FrameStats, PaceChange,
+    PerfWindow, SwapPolicy,
 };
 use crate::ui::widgets::Tone;
 use crate::ui::{
@@ -576,6 +586,9 @@ struct Running {
     /// When the output waits for its own swap, so switching to the control
     /// window does not (D221).
     swap_policy: SwapPolicy,
+    /// Runs the control frames from the event loop when Windows stops
+    /// painting the control window (D290).
+    control_drive: ControlDrive,
     /// What the file hovering over a window would do if dropped (D218).
     drop_hint: Option<String>,
     /// A Shadertoy import that becomes a cue after this one when it lands
@@ -730,6 +743,11 @@ struct Running {
     /// The output frame count when the show became ready, so a screenshot
     /// counts frames of playback, not of loading.
     ready_frames: Option<u64>,
+    /// When the control window last ran a frame. A playlist compiles one
+    /// scene per control frame, and Windows can stop painting a control
+    /// window that a fullscreen output covers, so the output frame takes
+    /// over the compiling when the control window has gone quiet.
+    last_control_frame: Instant,
 }
 
 /// A scene that did not load, for the banner.
@@ -820,6 +838,16 @@ impl Running {
         ui_state.synesthesia.note =
             synesthesia.note(ui_state.synesthesia.show, library.synesthesia_count());
         log::info!("Synesthesia's scenes: {}", ui_state.synesthesia.note);
+        // Controlling another Strobe (D294): this laptop's id is made once
+        // and kept, and `--control` decides the first thing the form does.
+        if !strobe_remote::trust::valid_controller_id(&ui_state.remote.controller_id) {
+            ui_state.remote.controller_id = crate::trusted::new_controller_id();
+        }
+        let (desktop_controller, launch_action) = crate::desktop::Controller::at_launch(
+            &ui_state.remote,
+            cli.control.filter(|_| cli.screenshot.is_none()),
+            cli.remote_trust.as_deref(),
+        );
         let stack = Stack::open(
             event_loop,
             cli.gl.choice(),
@@ -886,8 +914,16 @@ impl Running {
                 cli.remote_port,
                 cli.screenshot.is_none(),
             )
-            .behind_proxy(cli.remote_proxy.clone()),
-            desktop_controller: crate::desktop::Controller::default(),
+            .behind_proxy(cli.remote_proxy.clone())
+            .venue(
+                // Only a host reads it; with `--control` it is the laptop's.
+                cli.remote_trust
+                    .as_deref()
+                    .filter(|_| cli.remote)
+                    .and_then(crate::venue::load),
+                cli.allow_desktop_control,
+            ),
+            desktop_controller,
             desktop_capture: crate::desktop::Capture::default(),
             desktop_input: crate::desktop::HostInput::default(),
             desktop_events: Vec::with_capacity(129),
@@ -897,6 +933,7 @@ impl Running {
             resume_enabled: !cli.no_resume && cli.screenshot.is_none(),
             last_cue: None,
             ready_frames: None,
+            last_control_frame: Instant::now(),
             ui_state,
             shell: ShellState::default(),
             playing: None,
@@ -905,13 +942,15 @@ impl Running {
             perf_log: PerfWindow::default(),
             control_pacer: ControlPacer::default(),
             swap_policy: SwapPolicy::new(finish_mode()),
+            control_drive: ControlDrive::default(),
             drop_hint: None,
             pending_cue_import: None,
             pack: None,
             inbox,
             inbox_polled: Instant::now(),
             gl_summary,
-            audio: AudioInput::new(cli.audio == AudioArg::Auto),
+            audio: AudioInput::new(cli.audio == AudioArg::Auto)
+                .with_ambient(cli.audio == AudioArg::Ambient),
             mouse: MouseTracker::default(),
             local_date: LocalDate::from_system(),
             render_scale,
@@ -927,7 +966,7 @@ impl Running {
             control_covered: false,
             next_output: now,
             next_control: now,
-            actions: Vec::new(),
+            actions: launch_action.into_iter().collect(),
             start_time: if screenshot.is_some() {
                 SCREENSHOT_START
             } else {
@@ -965,7 +1004,7 @@ impl Running {
             running.start_listener();
         }
         if cli.remote {
-            running.lan.start();
+            running.lan.start_at_launch(Instant::now());
         }
         if let Some(error) = scan_error {
             failure::report(
@@ -1282,6 +1321,8 @@ impl Running {
             resize_now: false,
             next_output: now,
             next_control: now,
+            // The old control window's unanswered request died with it.
+            control_drive: ControlDrive::default(),
             // The preview and a load that was waiting belonged to the lost
             // context; the scene that was playing is reloaded below.
             preview_index: None,
@@ -1358,6 +1399,7 @@ impl Running {
             // `App::settle` runs right after this and rebuilds.
             return now;
         }
+        self.control_drive.pass();
         if let Some(shot) = self.screenshot.as_mut()
             && shot.give_up_control(now)
         {
@@ -1393,8 +1435,18 @@ impl Running {
             }
         }
         if now >= self.next_control {
-            self.stack.control.window().request_redraw();
-            let period = if self.control_covered {
+            let window = self.stack.control.window();
+            window.request_redraw();
+            // A minimised window has nothing to draw (`redraw_control` returns
+            // at once), and a screenshot captures only what was painted.
+            let size = window.inner_size();
+            let minimized = size.width == 0 || size.height == 0;
+            let step = if minimized || self.screenshot.is_some() {
+                ControlStep::Request
+            } else {
+                self.control_drive.due(now)
+            };
+            let period = if self.control_unseen() {
                 if self.lan.desktop().is_some_and(|desktop| desktop.active()) {
                     crate::desktop::STREAM_PERIOD
                 } else {
@@ -1406,8 +1458,40 @@ impl Running {
                 CONTROL_PERIOD
             };
             self.next_control = now + period;
+            let run_here = match step {
+                ControlStep::Request => false,
+                ControlStep::TakeOver { waited, times } => {
+                    let level = if times == 1 {
+                        log::Level::Info
+                    } else {
+                        log::Level::Debug
+                    };
+                    log::log!(
+                        level,
+                        "control window: no paint from Windows for {} ms (takeover {times}); the \
+                         event loop runs its frames every {} ms until one comes (D290)",
+                        waited.as_millis(),
+                        period.as_millis()
+                    );
+                    true
+                }
+                ControlStep::RunHere => true,
+            };
+            if run_here {
+                self.redraw_control(true);
+                if self.rebuild.is_some() {
+                    return Instant::now();
+                }
+            }
         }
         self.next_output.min(self.next_control)
+    }
+
+    /// Whether nobody can see the control window: the fullscreen output
+    /// covers it, or Windows has stopped painting it (D290). Either way it
+    /// redraws at [`COVERED_PERIOD`] (or the desktop stream's rate).
+    fn control_unseen(&self) -> bool {
+        self.control_covered || self.control_drive.driving()
     }
 
     /// Decides whether the output covers the control window: it is shown,
@@ -1539,7 +1623,14 @@ impl Running {
             if is_output {
                 self.redraw_output();
             } else if is_control {
-                self.redraw_control();
+                if self.control_drive.painted(Instant::now()) {
+                    log::debug!(
+                        "control window: Windows paints it again; its frames follow the paints (D290)"
+                    );
+                    // Back from the unseen rate without waiting it out.
+                    self.next_control = self.next_control.min(Instant::now() + CONTROL_PERIOD);
+                }
+                self.redraw_control(false);
             }
         } else if is_output && let WindowEvent::CursorMoved { position, .. } = &event {
             self.mouse.moved([position.x as f32, position.y as f32]);
@@ -3582,6 +3673,22 @@ impl Running {
                 Action::ConnectDesktop => {
                     self.lan.set_desktop(false);
                     self.desktop_controller.connect();
+                    // The trust file's path (not its contents) and the
+                    // choice survive a restart (D294).
+                    self.desktop_controller
+                        .remembered(&mut self.ui_state.remote);
+                    // A trust file that cannot be read leaves no viewer, and
+                    // after `--control` or the viewer's Reconnect the form
+                    // holding the reason is not on screen: bring it up. The
+                    // note names the path, never the file's contents.
+                    if self.desktop_controller.use_trust && !self.desktop_controller.active() {
+                        log::warn!(
+                            "desktop controller: not connecting: {}",
+                            self.desktop_controller.note()
+                        );
+                        self.desktop_controller.reveal_form();
+                        self.ui_state.panes.open(Pane::Settings);
+                    }
                 }
                 Action::DisconnectDesktop => self.desktop_controller.disconnect(),
                 Action::ControlAnotherDesktop => {
@@ -3676,6 +3783,7 @@ impl Running {
     /// an OSC message runs, then answered. Nothing happens while the remote
     /// is off.
     fn drain_lan(&mut self, now: Instant) {
+        self.lan.maintain(now);
         if !self.lan.running() {
             return;
         }
@@ -4022,6 +4130,18 @@ impl Running {
         // A redraw requested just before the window was hidden.
         if self.output_visible {
             self.scene_frame(Surface::Output);
+            // Windows can stop painting the control window under the
+            // output, and a playlist that compiles only on control frames
+            // would then never start (seen live on the JaJa mini PC: stuck
+            // at 1 of 14 behind a black output). The event loop now runs
+            // those frames itself (D290); this stays as the backstop.
+            const CONTROL_QUIET: Duration = Duration::from_millis(500);
+            if self.last_control_frame.elapsed() > CONTROL_QUIET
+                && self.rebuild.is_none()
+                && self.make_current(Surface::Output)
+            {
+                self.compile_show_step();
+            }
         }
     }
 
@@ -4190,6 +4310,11 @@ impl Running {
         }
         if shown {
             self.present(Surface::Output, started);
+            // Covered, not `control_unseen`: a window the loop drives because
+            // Windows withholds its paints still makes the shared context
+            // current twice a second, and on a machine where the wait is
+            // engaged that switch would otherwise take the flip's wait back
+            // and cost the show a frame each time (D221, D290).
             if self.swap_policy.finish_now(self.control_covered) {
                 self.stack.gfx.gl().finish();
             }
@@ -4259,8 +4384,12 @@ impl Running {
         self.resize_now = true;
     }
 
-    fn redraw_control(&mut self) {
+    /// One control-window frame. `unpainted` says the event loop ran it
+    /// because Windows sent no paint (D290); everything in it, the egui
+    /// pass, the desktop capture, the actions, runs the same either way.
+    fn redraw_control(&mut self, unpainted: bool) {
         let began = Instant::now();
+        self.last_control_frame = began;
         let size = self.stack.control.window().inner_size();
         if size.width == 0 || size.height == 0 {
             return;
@@ -4272,7 +4401,7 @@ impl Running {
         let make_current = current_began.elapsed();
         // A covered window redraws a few times a minute and its waits say
         // nothing about the windowed case the pacer is for (TORNADO T16).
-        let change = if self.control_covered {
+        let change = if self.control_unseen() {
             PaceChange::None
         } else {
             self.control_pacer.observe(make_current)
@@ -4613,6 +4742,7 @@ impl Running {
             layout: ran,
             paint,
             swap: swap_began.elapsed(),
+            unpainted,
         });
         if self
             .screenshot
@@ -4841,7 +4971,8 @@ fn command_action(command: CommandId, blackout: bool) -> Option<Action> {
         CommandId::FocusBrowserSearch
         | CommandId::CloseTopmostPane
         | CommandId::OpenPalette
-        | CommandId::GenerateControls => None,
+        | CommandId::GenerateControls
+        | CommandId::ToggleControlsView => None,
     }
 }
 
@@ -5294,6 +5425,7 @@ mod tests {
                     | CommandId::CloseTopmostPane
                     | CommandId::OpenPalette
                     | CommandId::GenerateControls
+                    | CommandId::ToggleControlsView
             );
             assert_eq!(
                 action.is_none(),

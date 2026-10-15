@@ -25,6 +25,19 @@
 //!                                           server: state {...} whenever it changes
 //! ```
 //!
+//! Venue mode (D288) adds a third way past `Unauthenticated`, when the host
+//! was started with a trust file and full desktop access is on:
+//!
+//! ```text
+//! client: trust_start {controller_id}  -> server: trust_challenge {nonce}
+//! client: trust_proof {response}       -> server: authenticated {client_id}
+//!                                                 state {...}
+//! ```
+//!
+//! The proof is an HMAC over the nonce, this connection's `Host`, and the
+//! controller id ([`crate::trust`]); no token is issued, and the pairing
+//! lasts as long as this connection.
+//!
 //! A `paired` message after `authenticated` is a token rotation (D251): the
 //! client replaces the token it keeps.
 //!
@@ -40,7 +53,9 @@ use super::http::{self, Head, HeadError, Response};
 use super::ws::{self, Message, Reader, close};
 use super::{Shared, net, page};
 use crate::bridge::Answer;
+use crate::clients::TrustedRefusal;
 use crate::pairing::{Decision, Refusal};
+use crate::trust::{Challenge, Verdict};
 use crate::{ClientMessage, ErrorCode, PROTOCOL_VERSION, ServerMessage, decode_client, negotiate};
 use std::io;
 use std::net::{SocketAddr, TcpStream};
@@ -83,8 +98,24 @@ pub(super) fn serve(mut stream: TcpStream, shared: &Shared, conn: u64, peer: Soc
     }
     if head.path() == "/ws" {
         let label = label(&head, peer);
+        // The `Host` just checked: what the controller dialled, and so what
+        // a trusted pairing's proof is bound to (D288). It is used for that
+        // only if it names the address this connection reached (or the
+        // operator's proxy, from this computer): a listener on every
+        // interface takes any literal, and a relay elsewhere could then
+        // forward a controller's handshake here under its own address.
+        let header = head.header("host").unwrap_or_default();
+        let proxied = shared
+            .proxied
+            .as_deref()
+            .is_some_and(|name| header.eq_ignore_ascii_case(name) && peer.ip().is_loopback());
+        let here = proxied
+            || stream
+                .local_addr()
+                .is_ok_and(|local| net::host_is_local(header, local));
+        let host = here.then(|| header.to_ascii_lowercase());
         let leftover = head.leftover;
-        Session::new(stream, shared, conn, peer, label, leftover).run();
+        Session::new(stream, shared, conn, peer, label, host, leftover).run();
     }
 }
 
@@ -283,7 +314,20 @@ struct Session<'a> {
     desktop_open: bool,
     desktop_pairing: bool,
     desktop_authorized: bool,
+    /// The `Host` this connection was opened for, if it names the address
+    /// the connection reached; `None` refuses trusted pairing (D288).
+    host: Option<String>,
+    /// The trust challenge waiting for its proof (D288). Taken, not
+    /// cloned, when answered: a nonce answers once.
+    trust_challenge: Option<Challenge>,
+    /// This connection's trusted pairing, removed when it ends.
+    trusted_client: Option<String>,
 }
+
+/// What a controller is told when trusted pairing is not on. One text for
+/// "no trust file" and "full desktop access is off", so a scan learns
+/// nothing about how the host was started.
+const TRUST_UNAVAILABLE: &str = "Trusted pairing is not available on this host";
 
 impl<'a> Session<'a> {
     fn new(
@@ -292,6 +336,7 @@ impl<'a> Session<'a> {
         conn: u64,
         peer: SocketAddr,
         label: String,
+        host: Option<String>,
         leftover: Vec<u8>,
     ) -> Self {
         let now = Instant::now();
@@ -316,6 +361,9 @@ impl<'a> Session<'a> {
             desktop_open: false,
             desktop_pairing: false,
             desktop_authorized: false,
+            host,
+            trust_challenge: None,
+            trusted_client: None,
         }
     }
 
@@ -326,6 +374,9 @@ impl<'a> Session<'a> {
             }
         };
         self.shared.remote.desktop.release(self.conn);
+        if let Some(id) = self.trusted_client.take() {
+            self.shared.clients.forget_trusted(&id);
+        }
         if let Phase::Approval(id) = self.phase {
             self.shared.pairing().forget(id);
         }
@@ -425,9 +476,195 @@ impl<'a> Session<'a> {
                     }
                 }
             }
-            Phase::Authenticated(_) => {}
+            Phase::Authenticated(_) => {
+                if let Some(id) = &self.trusted_client {
+                    // The trusted pairing belongs to the switch it was
+                    // proved under: with it off the session ends, whatever
+                    // raced.
+                    if !self.shared.remote.desktop.enabled() {
+                        return Err(End::Close(close::POLICY, "desktop control disabled"));
+                    }
+                    // And to its entry in the list. A revoke, a revoke all
+                    // or a reconnect that replaced it can land between the
+                    // pairing and this connection being marked with its
+                    // client id, which would leave the session running
+                    // with nothing on the list to revoke.
+                    if !self.shared.clients.contains(id) {
+                        return Err(End::Close(close::POLICY, "revoked on the desktop"));
+                    }
+                }
+            }
         }
         Ok(())
+    }
+
+    /// Trusted pairing, step one (D288): hand out a challenge.
+    fn trust_start(&mut self, controller_id: String) -> Result<(), End> {
+        let Some(trust) = self
+            .shared
+            .trust
+            .as_ref()
+            .filter(|_| self.shared.remote.desktop.enabled())
+        else {
+            log::info!(
+                "remote: {} asked for trusted pairing; the host has no trust file or full \
+                 desktop access is off",
+                self.peer
+            );
+            return self.send(&ServerMessage::error(
+                ErrorCode::Unavailable,
+                TRUST_UNAVAILABLE,
+            ));
+        };
+        let Some(host) = self.host.clone() else {
+            log::warn!(
+                "remote: {} asked for trusted pairing under a Host that is not the address it \
+                 reached",
+                self.peer
+            );
+            return self.send(&ServerMessage::error(
+                ErrorCode::InvalidRequest,
+                "for trusted pairing, open the host at its own IP address and port",
+            ));
+        };
+        let now = Instant::now();
+        let admitted = super::lock(&trust.limiter).admit(self.peer.ip(), now);
+        if let Err(wait) = admitted {
+            log::warn!(
+                "remote: trusted pairing from {} paused after failed proofs ({} s left)",
+                self.peer,
+                wait.as_secs() + 1
+            );
+            // The close that follows ends the connection either way.
+            let _ = self.send(&ServerMessage::error(
+                ErrorCode::Busy,
+                &format!(
+                    "too many failed attempts; try again in {} s",
+                    wait.as_secs() + 1
+                ),
+            ));
+            return Err(End::Close(close::POLICY, "too many failed attempts"));
+        }
+        if self.shared.clients.trust_blocked(&controller_id) {
+            log::warn!(
+                "remote: refused trusted controller {controller_id} from {}: revoked on the host",
+                self.peer
+            );
+            return self.send(&ServerMessage::error(
+                ErrorCode::Unauthorized,
+                "this controller was revoked on the host",
+            ));
+        }
+        match Challenge::issue(&host, &controller_id, now) {
+            Ok(challenge) => {
+                let nonce = challenge.nonce_hex();
+                self.trust_challenge = Some(challenge);
+                self.send(&ServerMessage::TrustChallenge { nonce })
+            }
+            Err(error) => {
+                log::warn!("remote: no random bytes for a trust challenge: {error}");
+                self.send(&ServerMessage::error(
+                    ErrorCode::Unavailable,
+                    TRUST_UNAVAILABLE,
+                ))
+            }
+        }
+    }
+
+    /// Trusted pairing, step two (D288): judge the proof and, if it holds,
+    /// pair for full desktop control with no approval.
+    fn trust_proof(&mut self, response: &str) -> Result<(), End> {
+        let Some(challenge) = self.trust_challenge.take() else {
+            return self.failed(
+                ErrorCode::InvalidRequest,
+                "no trust challenge is waiting; start again",
+            );
+        };
+        let Some(trust) = self
+            .shared
+            .trust
+            .as_ref()
+            .filter(|_| self.shared.remote.desktop.enabled())
+        else {
+            return self.send(&ServerMessage::error(
+                ErrorCode::Unavailable,
+                TRUST_UNAVAILABLE,
+            ));
+        };
+        let now = Instant::now();
+        let controller_id = challenge.controller_id().to_owned();
+        let verdict = challenge.verify(&trust.secret, response, now);
+        let why = match verdict {
+            Verdict::Accepted => None,
+            Verdict::Expired => Some("the challenge expired; try again"),
+            Verdict::Wrong => Some("that trust file does not match this host"),
+        };
+        if let Some(why) = why {
+            let recorded = super::lock(&trust.limiter).failure(self.peer.ip(), now);
+            log::warn!(
+                "remote: trusted pairing for {controller_id} from {} refused ({verdict:?}); \
+                 failure {} from this address{}{}",
+                self.peer,
+                recorded.failures,
+                recorded
+                    .peer_pause
+                    .map_or(String::new(), |p| format!(", paused for {} s", p.as_secs())),
+                recorded.global_pause.map_or(String::new(), |p| format!(
+                    ", and every address paused for {} s",
+                    p.as_secs()
+                )),
+            );
+            return self.failed(ErrorCode::PairingRejected, why);
+        }
+        super::lock(&trust.limiter).success(self.peer.ip());
+        let label = format!(
+            "{}{controller_id}, {}",
+            crate::desktop::TRUSTED_LABEL_PREFIX,
+            self.label
+        );
+        match self.shared.clients.pair_trusted(&label, &controller_id) {
+            Ok(pairing) => {
+                // The switch may have gone off while the proof was judged.
+                if !self.shared.remote.desktop.enabled() {
+                    self.shared.clients.forget_trusted(&pairing.client_id);
+                    return self.send(&ServerMessage::error(
+                        ErrorCode::Unavailable,
+                        TRUST_UNAVAILABLE,
+                    ));
+                }
+                self.shared.supersede(&pairing.superseded);
+                log::info!(
+                    "remote: {} paired as trusted controller {controller_id} (client {}) \
+                     with the trust file; no approval was asked",
+                    self.peer,
+                    pairing.client_id
+                );
+                self.trusted_client = Some(pairing.client_id.clone());
+                self.desktop_authorized = true;
+                self.authenticated(pairing.client_id)
+            }
+            Err(TrustedRefusal::Revoked) => {
+                log::warn!(
+                    "remote: refused trusted controller {controller_id} from {}: revoked on the host",
+                    self.peer
+                );
+                self.send(&ServerMessage::error(
+                    ErrorCode::Unauthorized,
+                    "this controller was revoked on the host",
+                ))
+            }
+            Err(TrustedRefusal::Full) => self.send(&ServerMessage::error(
+                ErrorCode::Unavailable,
+                "too many remotes are paired; revoke one on the host",
+            )),
+            Err(TrustedRefusal::NoRandom(error)) => {
+                log::warn!("remote: no random bytes for a trusted pairing: {error}");
+                self.send(&ServerMessage::error(
+                    ErrorCode::Unavailable,
+                    TRUST_UNAVAILABLE,
+                ))
+            }
+        }
     }
 
     /// The operator approved: issue the client's token.
@@ -566,6 +803,12 @@ impl<'a> Session<'a> {
             }
         };
         match (self.phase.clone(), message) {
+            (Phase::Unauthenticated, ClientMessage::TrustStart { controller_id }) => {
+                self.trust_start(controller_id)
+            }
+            (Phase::Unauthenticated, ClientMessage::TrustProof { response }) => {
+                self.trust_proof(&response)
+            }
             (Phase::Authenticated(_), ClientMessage::DesktopOpen {}) => {
                 if self.desktop_authorized && self.shared.remote.desktop.acquire(self.conn) {
                     self.desktop_open = true;
@@ -661,7 +904,9 @@ impl<'a> Session<'a> {
                     | ClientMessage::Command { .. }
                     | ClientMessage::Ping {}
                     | ClientMessage::DesktopOpen {}
-                    | ClientMessage::DesktopInput { .. } => return Err(End::Gone),
+                    | ClientMessage::DesktopInput { .. }
+                    | ClientMessage::TrustStart { .. }
+                    | ClientMessage::TrustProof { .. } => return Err(End::Gone),
                 };
                 if desktop && !self.shared.remote.desktop.enabled() {
                     return self.send(&ServerMessage::error(
@@ -748,7 +993,9 @@ impl<'a> Session<'a> {
                 Phase::Approval(_) | Phase::Authenticated(_),
                 ClientMessage::Pair { .. }
                 | ClientMessage::PairDesktop { .. }
-                | ClientMessage::Authenticate { .. },
+                | ClientMessage::Authenticate { .. }
+                | ClientMessage::TrustStart { .. }
+                | ClientMessage::TrustProof { .. },
             ) => self.send(&ServerMessage::error(
                 ErrorCode::InvalidRequest,
                 "not now: this connection is past that step",

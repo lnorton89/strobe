@@ -516,6 +516,101 @@ pub fn button(ui: &mut Ui, theme: &Palette, icon: Option<Icon>, label: &str) -> 
     response.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
+/// One cell of a [`segmented`] switch: its icon, its label and its
+/// tooltip.
+pub type Segment<'a> = (Icon, &'a str, &'a str);
+
+/// A segmented switch (D291): `segments` side by side in one outlined
+/// track, `cell` wide each, the `active` one filled with the accent. A cell
+/// too narrow for its label shows its icon alone (the label is in the
+/// tooltip and the help bar either way). Returns the cell clicked this
+/// frame. `id` keeps two switches apart.
+pub fn segmented(
+    ui: &mut Ui,
+    theme: &Palette,
+    id: &str,
+    segments: &[Segment<'_>],
+    active: usize,
+    cell: f32,
+) -> Option<usize> {
+    const HEIGHT: f32 = 30.0;
+    let count = segments.len().max(1) as f32;
+    let (track, _) = ui.allocate_exact_size(Vec2::new(cell * count, HEIGHT), Sense::hover());
+    let painter = ui.painter();
+    painter.rect_filled(track, CornerRadius::same(RADIUS), theme::rgb(theme.app));
+    painter.rect_stroke(
+        track,
+        CornerRadius::same(RADIUS),
+        Stroke::new(1.0, theme::rgb(theme.border)),
+        StrokeKind::Inside,
+    );
+    let font = TextStyle::Button.resolve(ui.style());
+    let mut clicked = None;
+    for (index, (icon, label, tooltip)) in segments.iter().enumerate() {
+        let rect = Rect::from_min_size(
+            egui::pos2(track.left() + cell * index as f32, track.top()),
+            Vec2::new(cell, HEIGHT),
+        )
+        .shrink(2.0);
+        let response = ui.interact(rect, egui::Id::new((id, index)), Sense::click());
+        let on = index == active;
+        let fill = if on {
+            theme::rgb(theme.accent)
+        } else {
+            hover_fill(ui, response.id, response.hovered(), theme.app, theme.hover)
+        };
+        let ink = theme::rgb(if on {
+            theme.text_on_accent
+        } else {
+            theme.text_muted
+        });
+        let painter = ui.painter();
+        painter.rect_filled(rect, CornerRadius::same(RADIUS - 1), fill);
+        if response.has_focus() {
+            painter.rect_stroke(
+                rect,
+                CornerRadius::same(RADIUS - 1),
+                Stroke::new(1.5, theme::rgb(theme.accent_hover)),
+                StrokeKind::Inside,
+            );
+        }
+        // Laid out each frame as every label is; egui caches the galley.
+        let galley = painter.layout_no_wrap((*label).to_owned(), font.clone(), ink);
+        let labelled = galley.size().x + icons::INLINE + SPACE_XS + SPACE_SM * 2.0 <= rect.width();
+        let content = if labelled {
+            icons::INLINE + SPACE_XS + galley.size().x
+        } else {
+            icons::INLINE
+        };
+        let x = rect.center().x - content / 2.0;
+        icons::paint(
+            painter,
+            Rect::from_center_size(
+                egui::pos2(x + icons::INLINE / 2.0, rect.center().y),
+                Vec2::splat(icons::INLINE),
+            ),
+            *icon,
+            ink,
+        );
+        if labelled {
+            painter.galley(
+                egui::pos2(
+                    x + icons::INLINE + SPACE_XS,
+                    rect.center().y - galley.size().y / 2.0,
+                ),
+                galley,
+                ink,
+            );
+        }
+        let response =
+            super::help::hovered(response, tooltip).on_hover_cursor(egui::CursorIcon::PointingHand);
+        if response.clicked() {
+            clicked = Some(index);
+        }
+    }
+    clicked
+}
+
 /// A small labelled pill: a count, a source badge.
 pub fn chip(ui: &mut Ui, text: &str, fill: Rgb, text_color: Rgb) -> Response {
     let font = TextStyle::Small.resolve(ui.style());
@@ -730,16 +825,19 @@ pub fn empty_state(ui: &mut Ui, theme: &Palette, icon: Icon, title: &str, detail
         theme::rgb(theme.text),
     );
     // Wrapped, not truncated: the detail says what to do next, and an
-    // instruction cut off mid-word is worse than none.
-    let galley = ui.painter().layout(
+    // instruction cut off mid-word is worse than none. Each wrapped line is
+    // centred under the title, not left-aligned in a centred block.
+    let mut job = egui::text::LayoutJob::simple(
         detail.to_string(),
         TextStyle::Small.resolve(ui.style()),
         theme::rgb(theme.text_muted),
         (rect.width() - SPACE_LG_X2).max(40.0),
     );
+    job.halign = egui::Align::Center;
+    let galley = ui.painter().layout_job(job);
     let bottom = centre.y + 12.0 + galley.size().y;
     ui.painter().galley(
-        egui::pos2(centre.x - galley.size().x / 2.0, centre.y + 12.0),
+        egui::pos2(centre.x, centre.y + 12.0),
         galley,
         theme::rgb(theme.text_muted),
     );

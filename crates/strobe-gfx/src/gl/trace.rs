@@ -8,7 +8,7 @@
 // Dependencies: log; the parent module's wrappers call into it
 // ============================================================================
 
-//! A trace of the renderer's framebuffer traffic (D289).
+//! A trace of the renderer's framebuffer traffic (D296).
 //!
 //! The question it answers is "what did the renderer ask the driver to do,
 //! and where": for every bind, viewport, clear, draw, blit, read-back and
