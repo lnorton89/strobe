@@ -15,8 +15,10 @@
 //! texture allocation, the framebuffer it targeted (0 is the window's
 //! default framebuffer) and the viewport in force. It makes no GL calls of
 //! its own; it only remembers what the safe wrappers in [`super`] were
-//! asked, so it costs one `Cell<bool>` read per wrapper when off and no
-//! driver round trip when on.
+//! asked, so it costs one one-byte `Cell` read per wrapper when off. When on,
+//! the one driver round trip is [`super::Gl::viewport`] reading back
+//! `GL_VIEWPORT` the first time each size is set (every time while a test
+//! captures).
 //!
 //! Two uses:
 //!

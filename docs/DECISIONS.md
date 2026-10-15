@@ -7204,7 +7204,7 @@ frame loop's hot path:
   `strobe-bench` prints the summary at the end. The first time each viewport
   is set it is read back (`GL_VIEWPORT`) and a mismatch is a warning, which
   catches a driver clamping to the window. When off, each wrapper pays one
-  `Cell<bool>` read; it makes no GL call.
+  one-byte `Cell` read and makes no GL call.
 - `strobe-bench --probe [--size WxH]`: a ladder of sizes (the good and bad
   ones above, either side of 16,384 pixels, long thin ones) by RGBA8 and
   RGBA16F. For each: viewport read back, clear-and-read, a trivial draw and
