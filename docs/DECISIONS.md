@@ -7226,6 +7226,71 @@ app's output window for scenes whose literal passes exceed it (`neon_city`);
 if it is a pixel-count limit independent of the window, it is a driver bug to
 report and to route around by a minimum target size.
 
+### D297: a scene cued again starts with every pass cleared (2026-10-15)
+
+**Context.** A playlist parks a scene between its cues by resizing it to
+1x1 (D151). Since D287 a resize keeps every pass whose own size it does not
+change, so a parked scene keeps its literal-size and `FIXED_SIZE` passes, and
+a scene that pins its final pass (D280) keeps all of them. When the playlist
+cued the scene again, `prepare` started its clock and frame count over but the
+buffers carried the state of the cue that played last time, an hour earlier
+in a long show: a 1x1 counter pass read 301 on the first frame of its second
+cue instead of the 120 frames of its warm-up. Before D287 the resize out of
+the park cleared those passes, so this is a regression of D287, not its
+intent. D287's own fix for `strobe-autocontrol` was `ScenePlayer::restart`.
+
+**Decision.** `Show::unpark` takes a scene out of the cache and calls
+`ScenePlayer::restart` before the warm-up or the cue resizes it. A cue starts
+its scene from the beginning: clock, frame count and buffers. A cue that
+follows a cue of the same scene keeps the live session and its picture
+(`prepare_active`, no flash of black), as before; it restarts only the clock.
+The restart happens at the parked size (1x1 for every pass that follows the
+render size) and once per cue change, so it costs a few texture allocations,
+never a compile.
+
+**Test.** `a_scene_cued_again_starts_fresh_rather_than_from_its_last_cues_buffers`
+(`strobe-app/tests/show.rs`, both dialects): a 1x1 counter scene, another
+scene, the counter again. Without the restart the third cue begins at 301,
+past the first cue's 180.
+
+**Would reopen:** a show that wants a scene to pick up where its last cue
+left it (a persistent simulation across cues). That would be a cue setting,
+not the default.
+
+### D298: closing the output quits when the control window is out of reach (2026-10-15)
+
+**Context.** Closing the output window hid it, and only closing the control
+window quit, so an operator could take the projector picture down without
+ending the show. At the end of the first JaJa show the launcher's
+`taskkill /im strobe.exe` (a `WM_CLOSE`, no `/f`) did not stop a fullscreen
+Strobe within 10 s and it was force-killed. `WM_CLOSE` posted to the control
+window alone quit in about 2 s. On that machine the output is fullscreen on
+the one desktop with the control window maximised behind it, and focus says
+the control window is on top, so it was not even judged covered (the D290
+log). The close reached the output, which hid; nothing reached the control
+window, and there was no way left to quit but a kill, which loses up to five
+seconds of resume point (D155).
+
+**Decision.** A close request on the output quits, exactly as one on the
+control window does, when the control window cannot be reached to quit from:
+the output is shown fullscreen on the control window's monitor (by geometry,
+not focus), or the control window is minimised. Otherwise it hides the
+output, as before. A control window that Windows has stopped painting (D290)
+does not count: that can happen beside a windowed output on another monitor,
+where the operator still sees the control window and can quit from it. Quitting goes through the normal exit, so the playlist's resume point
+is written and the writer thread joined (`Show::finish`). The rule is
+`closing_quits`, a pure function over the facts the event handler gathers, so
+it is tested without a window.
+
+A close button on a windowed output beside a visible control window still
+hides it. Alt+F4 on a fullscreen output over the control window now quits,
+which is what Alt+F4 does to a fullscreen program on Windows anyway.
+
+**Would reopen:** a setup where the control window sits on another monitor
+and a stop request reaches only the output: it still hides. A launcher that
+must stop Strobe in every layout should post `WM_CLOSE` to the window titled
+"Strobe" (the control window).
+
 ### D299: on Linux a default input that will not open falls back to `pulse`, then `pipewire`; the check script picks D3D12 on WSL2 (2026-10-15)
 
 **Context.** The AMD desktop's Debian on WSL2 (AMD.md A14) started on synthetic
@@ -7251,3 +7316,31 @@ audio: cpal opens ALSA's `default` PCM, which WSLg does not define, while
   controller shows the host's UI and needs neither.
 
 **Not verified:** the fallback against a live WSLg `pulse` device.
+
+### D300: the playlist clock follows real time; the scenes keep the clamped step (2026-10-15)
+
+**Context.** The app clamps each frame's `dt` to 0.1 s (`stats::MAX_DT`) so
+a stall does not fling every smoothed control across its range, and it gave
+the show that same `dt`. On the mini PC (Vega 3, 1080p, `--no-adaptive`) a
+2-minute cue of 10-volume-clouds at 2.4 fps (about 400 ms frames) ran 490 s
+of real time: each frame counted a quarter of its length. 12-silicon-atlas at
+12.8 fps (78 ms, under the clamp) kept exactly 120 s. A playlist is a
+schedule, and the clock already carries a long frame's leftover into the next
+cue so that it does not lose time (D76); the clamp undid that.
+
+**Decision.** `Show::frame` takes two steps. The scenes advance by the clamped
+`dt`, as before. The playlist clock, the anchor countdown, the breakdown, drop
+and song listeners, the synthetic beat the clock reads, and the resume timer
+take the real interval (`FrameStats::last_interval`), capped at
+`MAX_WALL_STEP` = 1 s per frame. The cap keeps a frame that waited on
+something other than drawing (the last precompile step, a window drag) from
+eating seconds of a cue; any scene faster than 1 fps keeps its cue's length
+in real time. Screenshot mode passes its fixed step for both.
+
+**Test.** `a_slow_scene_does_not_stretch_its_cue_past_real_time`
+(`strobe-app/tests/show.rs`): frames 0.4 s apart with a 0.1 s scene step; the
+2-second cue is over after 2.4 s. With the old single `dt` it was still on.
+
+**Would reopen:** a show that wants a slow scene's cue to run longer (that is
+a duration in the playlist), or a scene below 1 fps that must keep time
+(raise the cap).
