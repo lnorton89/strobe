@@ -26,6 +26,9 @@ pub const MAX_FRAME: usize = 3 * 1024 * 1024;
 /// What a full desktop pairing's label starts with, in the approval
 /// request and the paired list, so the operator can tell it from a phone.
 pub const LABEL_PREFIX: &str = "Full desktop: ";
+/// What a pairing made by trust file (D288) starts with, so the paired
+/// list can say "trusted".
+pub const TRUSTED_LABEL_PREFIX: &str = "Full desktop: trusted ";
 
 /// Keyboard modifiers accompanying each input event.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
