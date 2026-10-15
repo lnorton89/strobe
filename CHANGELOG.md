@@ -13,7 +13,11 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
-- add scoped desktop-to-desktop remote control ([`20fc9ef`](https://github.com/lnorton89/strobe/commit/20fc9ef79a6347e63be1a68a5a9c26be89f18dc4))
+- **scenes:** Acid Mirror gains hairline streaks, crisp edges and more black, and re-seeds at once after a resize (D279) ([`1a59ae8`](https://github.com/lnorton89/strobe/commit/1a59ae8672cc8d170138712fc0586b900cdd5148))
+- **scenes:** Acid Mirror rebuilt on a mirrored advected feedback buffer (D279) ([`d0fb00d`](https://github.com/lnorton89/strobe/commit/d0fb00d0ed8ab61726b7fc223560f18e0d70bbba))
+- **scenes:** Neon Ribbon Flow rebuilt as layered translucent ribbons (D278) ([`306c7a4`](https://github.com/lnorton89/strobe/commit/306c7a4a5274e940adc29efa8ebcc2c08a600f14))
+- **scenes:** Electric Bloom rebuilt as a three-layer glowing garden (D277) ([`510aa24`](https://github.com/lnorton89/strobe/commit/510aa24467da172f9b309b1d61ef719d416ea4d4))
+- **scenes:** rebuild Chromatic Rise as a feedback-advected, posterised marbling (D276) ([`59fc280`](https://github.com/lnorton89/strobe/commit/59fc2802a500a7246d4e4a85fee5983dc03d6c61))
 - **corpus:** --show-window renders in a shown tiny window, for AMD's native WGL ([`2f2093e`](https://github.com/lnorton89/strobe/commit/2f2093ed03fa2e87ff0a139eb624e3a57d015ce4))
 - add Chromatic Rise psychedelic marbling scene ([`a56f864`](https://github.com/lnorton89/strobe/commit/a56f864b514cfeb2665c35695778aabd5f09b98d))
 - **app:** --output-monitor N and --fullscreen put the output on the projector at launch ([`b731fde`](https://github.com/lnorton89/strobe/commit/b731fdeff482c88c184ec7c2944236a542bd2a34))
@@ -24,9 +28,9 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
-- **app:** keep remote desktop input from widening access or stalling the show ([`b7b311a`](https://github.com/lnorton89/strobe/commit/b7b311a47f789094568d6eb21bd3051c21e9fd62))
-- **remote:** end a full desktop grant with its switch, and show who holds the controls ([`48f8b39`](https://github.com/lnorton89/strobe/commit/48f8b3903147adfc3a2dee2e6c74912e6ad96018))
-- update rustls for current security advisories ([`0f28d44`](https://github.com/lnorton89/strobe/commit/0f28d4411b7c19d23b873766118c083255cae270))
+- **scenes:** Neon Ribbon Flow is more saturated and has no reversed smoothstep (D278) ([`0339fe1`](https://github.com/lnorton89/strobe/commit/0339fe1a774f74c6d1a7402c95a10c042c354437))
+- **scenes:** Electric Bloom's petal tips lose their black dots, and the scene is 9% cheaper (D277) ([`dbf43b2`](https://github.com/lnorton89/strobe/commit/dbf43b2b5a0ea657661806f5b971881e17fc4f54))
+- **scenes:** Chromatic Rise loses its row artifact and gains long drags, an acid palette and a clock (D276) ([`db06bec`](https://github.com/lnorton89/strobe/commit/db06becad21dbd2fa9a4ddd8c39f45672ca2587f))
 - **gfx:** adaptive resolution judges a drop on settled frames and locks only after two strikes, for a while (D280) ([`9af6f34`](https://github.com/lnorton89/strobe/commit/9af6f341e33f05ede5fcc68d249e7dd3db687a76))
 - **scene:** pin the final pass only when the shader texel-fetches a root-sized pass (D280) ([`698b3d8`](https://github.com/lnorton89/strobe/commit/698b3d89dc33b8ad11e31aeb6772e5d9daf73dab))
 - **app:** the load log names the size a pinned scene really draws at (D280) ([`f6c554e`](https://github.com/lnorton89/strobe/commit/f6c554e14405fa814dba248511412bfcbc7b5f84))
@@ -43,9 +47,8 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Documentation
 
-- record the desktop remote's review hardening and known limits (D275) ([`dd5db8c`](https://github.com/lnorton89/strobe/commit/dd5db8c57dabcb9b1ce8e0747467e75d94bea87a))
-- normalize decision log trailing whitespace ([`af6656d`](https://github.com/lnorton89/strobe/commit/af6656d0781197185610811ac68e783351a03ccf))
-- record desktop control validation on current base ([`0665aea`](https://github.com/lnorton89/strobe/commit/0665aea74a1adca51033bd4be24020da80d653c4))
+- the pre-merge review of scenes 13-16, measured (D276-D279) ([`b81b20d`](https://github.com/lnorton89/strobe/commit/b81b20dd74485cf848211b14751b8230e8fca0c8))
+- put D277-D279 in numeric order, before D280 ([`96d72c8`](https://github.com/lnorton89/strobe/commit/96d72c8d2248414191d6534480d5186513ed3817))
 - **amd:** D280 holds on the RX 580, and the probe rightly undoes futile drops (Task A10) ([`5507a13`](https://github.com/lnorton89/strobe/commit/5507a1360f1126655601c455a0b5a376013e635a))
 - D280 pins only texel-reading scenes and gives the probe two strikes and an expiring lock ([`62204ed`](https://github.com/lnorton89/strobe/commit/62204ed3f66aaa6dea1e19b242c6c9d7e2ce0a2c))
 - neon_city shows the whole frame at every render scale; roadmap and compatibility (D280) ([`551fb9e`](https://github.com/lnorton89/strobe/commit/551fb9ec0fbb4dca3c27bce77e8b0892d4443953))
@@ -64,7 +67,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Internal
 
-- take base64 from the workspace like every other dependency ([`52d4a66`](https://github.com/lnorton89/strobe/commit/52d4a66f39a402654f52960c438c63bbb3dc2887))
+- **deps:** bump rustls to 0.23.46 for the RUSTSEC advisories against 0.23.45 ([`f1a157c`](https://github.com/lnorton89/strobe/commit/f1a157cdb15df8874d9b234db003763ff81d7536))
 - ignore a strobe-syn-corpus clone inside the checkout ([`2061e54`](https://github.com/lnorton89/strobe/commit/2061e54791b4b4e4041085bf28832dc7cdb48a1d))
 
 ## [0.1.0] - 2026-10-14

@@ -3,19 +3,25 @@
   "IMAGE_PATH": "thumbnail.png",
   "CREDIT": "Original Strobe interpretation of Lethal Larry's TouchDesigner scene",
   "LICENSE": "MIT",
-  "DESCRIPTION": "Flowing psychedelic rainbow marbling with folded veins, dark contour edges and iridescent relief. Inspired by the owner's URBAN ASSAULT - RISE video (https://youtu.be/w0JcYtmRr0U); procedural interpretation, not a reconstruction of the TouchDesigner network. Bass gently bends and brightens the surface; set reactivity to zero for autonomous flow.",
-  "CONTROLS": [
-    { "NAME": "warp", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 8.0, "DEFAULT": 3.4, "PARAMS": 0.03, "UI_GROUP": "shape" },
-    { "NAME": "scale", "TYPE": "slider smooth", "MIN": 1.0, "MAX": 8.0, "DEFAULT": 2.7, "PARAMS": 0.03, "UI_GROUP": "shape" },
-    { "NAME": "detail", "TYPE": "slider smooth", "MIN": 4.0, "MAX": 45.0, "DEFAULT": 23.0, "PARAMS": 0.03, "UI_GROUP": "shape" },
-    { "NAME": "speed", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 3.0, "DEFAULT": 1.0, "PARAMS": 0.03, "UI_GROUP": "motion" },
-    { "NAME": "reactivity", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 2.0, "DEFAULT": 0.5, "PARAMS": 0.03, "UI_GROUP": "motion" },
-    { "NAME": "bands", "TYPE": "slider smooth", "MIN": 1.0, "MAX": 12.0, "DEFAULT": 3.2, "PARAMS": 0.03, "UI_GROUP": "color" },
-    { "NAME": "hue", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 1.0, "DEFAULT": 0.0, "PARAMS": 0.03, "UI_GROUP": "color" },
-    { "NAME": "color_speed", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 2.0, "DEFAULT": 0.35, "PARAMS": 0.03, "UI_GROUP": "color" },
-    { "NAME": "saturation", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 1.0, "DEFAULT": 1.0, "PARAMS": 0.03, "UI_GROUP": "color" },
-    { "NAME": "relief", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 3.0, "DEFAULT": 0.9, "PARAMS": 0.03, "UI_GROUP": "surface" },
-    { "NAME": "edge", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 1.0, "DEFAULT": 0.65, "PARAMS": 0.03, "UI_GROUP": "surface" }
+  "DESCRIPTION": "Paint dragged through a feedback loop: long shear drags and a curl-noise swirl advect and smear the previous frame into fibrous, combed striations, clusters of small ringed bubbles are stamped in, and the result is edge-embossed, posterised into hard acid-green, lemon, cyan, violet and magenta steps and inked with dark contours. Inspired by the owner's URBAN ASSAULT - RISE video (https://youtu.be/w0JcYtmRr0U); procedural interpretation, not a reconstruction of the TouchDesigner network. Bass drives the drag and smear, bass hits jump the colour phase, highs thicken the striations; it still flows on its own in silence (reactivity 0).",
+  "PASSES": [
+    {"TARGET": "clock", "WIDTH": 1, "HEIGHT": 1, "FLOAT": true, "DOUBLE_BUFFER": true, "WRAP": "clamp", "FILTER": "nearest", "FULL_PRECISION": true},
+    {"TARGET": "field", "WIDTH": "$WIDTH", "HEIGHT": "$HEIGHT", "FLOAT": true, "DOUBLE_BUFFER": true}
   ],
-  "TAGS": ["2d", "noise", "psychedelic", "marble", "audio-reactive"]
+  "CONTROLS": [
+    {"NAME": "flow", "TYPE": "slider smooth", "MIN": 0, "MAX": 3, "DEFAULT": 1.0, "PARAMS": 0.03, "UI_GROUP": "motion"},
+    {"NAME": "flow_scale", "TYPE": "slider smooth", "MIN": 0.6, "MAX": 5, "DEFAULT": 1.8, "PARAMS": 0.03, "UI_GROUP": "motion"},
+    {"NAME": "drag", "TYPE": "slider smooth", "MIN": 0, "MAX": 2, "DEFAULT": 1.0, "PARAMS": 0.03, "UI_GROUP": "motion"},
+    {"NAME": "speed", "TYPE": "slider smooth", "MIN": 0, "MAX": 3, "DEFAULT": 1.0, "PARAMS": 0.03, "UI_GROUP": "motion"},
+    {"NAME": "reactivity", "TYPE": "slider smooth", "MIN": 0, "MAX": 2, "DEFAULT": 1.0, "PARAMS": 0.03, "UI_GROUP": "motion"},
+    {"NAME": "smear", "TYPE": "slider smooth", "MIN": 0, "MAX": 8, "DEFAULT": 6, "PARAMS": 0.03, "UI_GROUP": "texture"},
+    {"NAME": "fibers", "TYPE": "slider smooth", "MIN": 60, "MAX": 400, "DEFAULT": 130, "PARAMS": 0.03, "UI_GROUP": "texture"},
+    {"NAME": "bubbles", "TYPE": "slider smooth", "MIN": 0, "MAX": 1, "DEFAULT": 0.85, "PARAMS": 0.03, "UI_GROUP": "texture"},
+    {"NAME": "bands", "TYPE": "slider smooth", "MIN": 1, "MAX": 12, "DEFAULT": 5, "PARAMS": 0.03, "UI_GROUP": "color"},
+    {"NAME": "hue", "TYPE": "slider smooth", "MIN": 0, "MAX": 1, "DEFAULT": 0, "PARAMS": 0.03, "UI_GROUP": "color"},
+    {"NAME": "color_speed", "TYPE": "slider smooth", "MIN": 0, "MAX": 2, "DEFAULT": 0.5, "PARAMS": 0.03, "UI_GROUP": "color"},
+    {"NAME": "relief", "TYPE": "slider smooth", "MIN": 0, "MAX": 3, "DEFAULT": 1.0, "PARAMS": 0.03, "UI_GROUP": "surface"},
+    {"NAME": "outline", "TYPE": "slider smooth", "MIN": 0, "MAX": 1, "DEFAULT": 0.8, "PARAMS": 0.03, "UI_GROUP": "surface"}
+  ],
+  "TAGS": ["2d", "feedback", "psychedelic", "posterised", "striations", "audio-reactive"]
 }
