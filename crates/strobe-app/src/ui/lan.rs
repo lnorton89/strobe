@@ -82,7 +82,7 @@ pub fn control(ui: &mut Ui, theme: &Palette, panel: &mut LanPanel<'_>, actions: 
             .color(theme::rgb(theme.text_muted)),
         );
         ui.add_space(SPACE_XS);
-        ui.horizontal_wrapped(|ui| {
+        let field = ui.horizontal_wrapped(|ui| {
             let address = ui.add(
                 egui::TextEdit::singleline(&mut panel.controller.address)
                     .hint_text("Host address, e.g. 192.168.1.20")
@@ -100,6 +100,7 @@ pub fn control(ui: &mut Ui, theme: &Palette, panel: &mut LanPanel<'_>, actions: 
             if widgets::button(ui, theme, None, "Connect to desktop").clicked() {
                 actions.push(Action::ConnectDesktop);
             }
+            address.rect
         });
         ui.label(
             egui::RichText::new(
@@ -113,9 +114,17 @@ pub fn control(ui: &mut Ui, theme: &Palette, panel: &mut LanPanel<'_>, actions: 
         if !note.is_empty() {
             ui.label(note);
         }
+        field.inner
     });
     if reveal {
-        ui.scroll_to_rect(section.response.rect, Some(egui::Align::TOP));
+        // The heading down to the focused field, or, where the pane is too
+        // short for both (a small window), the field itself.
+        let wanted = section.response.rect.with_max_y(section.inner.max.y);
+        if wanted.height() <= ui.clip_rect().height() {
+            ui.scroll_to_rect(wanted, Some(egui::Align::TOP));
+        } else {
+            ui.scroll_to_rect(section.inner, Some(egui::Align::Center));
+        }
     }
 }
 
