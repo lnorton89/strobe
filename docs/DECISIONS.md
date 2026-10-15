@@ -6057,3 +6057,84 @@ its screenshots found a third that no test could see.
 
 **Would reopen:** a notice that must be read in full in a small window; it
 scrolls, and its Dismiss button is always in the first row.
+
+### D277: Electric Bloom is an original procedural garden, rebuilt from a Codex draft (2026-10-15)
+
+The owner asked for a scene from a floral image that is not available to us.
+The Codex draft (D273) was a flat grid of sticker-like rainbow daisies, and
+the owner said it needed improving massively. This is an original procedural
+interpretation worked from the draft's written description (vivid layered
+flowers, inked veins, black negative space), not a reproduction of the image.
+
+- Three depth layers (far, middle, near), each with its own rotation, cell
+  size, drift speed and brightness, so there is parallax and no grid; cells
+  are jittered and warped, and each layer visits only the four nearest cells.
+- Each flower has three petal rings whose outlines are approximate signed
+  distances, so the ink rim, the veins and the antialiasing hold at any size;
+  a beaded pollen centre; and a halo plus a hot centre glow.
+- Petals unfurl on a slow per-flower cycle. Bass opens them further, mids stir
+  the sway speed, highs sparkle the pollen and the bead centres, kicks shift
+  the hue. With zero audio it still looks complete.
+- A one-texel `FULL_PRECISION` clock integrates the sway speed, as the
+  Shadertoy converter's `st_clock` does (D91), so mids change the speed
+  without making the pattern jump.
+
+**Would reopen:** the owner's floral image arriving, or a request for a
+different composition.
+
+### D278: Neon Ribbon Flow is five translucent ribbons, not contour lines (2026-10-15)
+
+The Codex draft contoured a single warped field into uniform rainbow stripes
+with moire seams and no focal structure. The owner's reference (a Lethal Larry
+video, not available) is judged from two frames of the same artist's style:
+liquid, saturated, glossy shapes on black. This is an original procedural
+interpretation, rebuilt from the draft.
+
+- Five analytic ribbons, far to near, each a sine-sum centreline with a
+  true distance (slope-corrected), a twist that narrows it where it turns
+  edge-on, iridescent colour that marbles across and along it, filament
+  lines, two gloss reflections and a neon edge; layers drift at different
+  speeds for parallax and soften with depth.
+- Anti-aliasing: every edge is a `smoothstep` over the pixel footprint
+  (wider for far layers) and the filaments fade when thinner than about six
+  pixels, so there is nothing to alias at any size. Glow is added per layer
+  and only where it is above a visible level, which is what made it cheap.
+- No feedback buffer: the trail look came from glow and layering instead,
+  which keeps it at 1.3x of `05-domain-warp`. The one-texel clock is the
+  only extra pass.
+- The `LICENSE` field is now present (the draft had none).
+
+**Would reopen:** a real frame of the owner's video showing a structure
+this does not have (for instance streaked trails), which would justify a
+feedback pass.
+
+### D279: Acid Mirror advects paint in a feedback buffer and mirrors it (2026-10-15)
+
+The Codex draft was a static analytic Rorschach with rainbow contour stripes
+and jagged edges. The owner's reference frame is TouchDesigner-style liquid:
+displaced feedback, mirrored. This is an original procedural interpretation,
+rebuilt from the draft, not a reconstruction of that network.
+
+- A `DOUBLE_BUFFER` pass, half the output width (`$WIDTH/2`, so the render
+  scale still works, D194; never `texelFetch`ed, D280), holds the left half
+  of the picture. Each frame it semi-Lagrangian-advects along a curl-of-stream-
+  function flow (area-preserving, so paint folds and stretches instead of
+  piling up), reflects at the mirror axis, sharpens the colour index with a
+  bounded shock filter, thresholds the ink density so edges stay crisp, and
+  injects or carves fresh paint from slow noise and two moving pens that the
+  mirror turns into eyes.
+- The buffer stores scalars (colour index, ink density, accent, grain), not
+  colour, so smearing never greys the palette and the black voids stay black.
+  Over 5 minutes it neither blows out nor fades (checked at 2, 10, 30, 60,
+  120, 240 and 300 s).
+- The final pass folds x (optionally y), lights the height of the ink with a
+  gradient normal, specular, rim and ink lines in the creases, and maps the
+  index through an acid palette (greens and lemon, with magenta, violet,
+  cobalt and cyan streaks).
+- A one-texel `FULL_PRECISION` clock gives the advection a real frame delta
+  and integrates the flow speed (mids), as D91 does for Shadertoy.
+
+**Would reopen:** a resize clearing the buffer in a way that is visible on a
+projector (the paint re-grows in about a second), or the owner wanting
+more directional streaking than the grain channel gives.
+

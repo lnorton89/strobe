@@ -282,6 +282,34 @@ Local reports/frames: `target/bench/before-chromatic-rise.md`,
 `target/bench/chromatic-rise-angle-final/`. The scene thumbnail preserves
 the inspected native rendered frame.
 
+### 2026-10-15: Electric Bloom, Neon Ribbon Flow, Acid Mirror, llvmpipe
+
+Rebuilt from Codex drafts (D277-D279). Mesa llvmpipe 25.2.8 (CPU), headless
+EGL, native GL 3.3, half-float buffers, 1920x1080, 30 timed frames after 60
+warm-up at scene time 5 s, synthetic 120 BPM audio, two runs each. The
+target was no more than about 2x `05-domain-warp` at 1080p. Absolute times are
+CPU rasterisation; the ratio is the evidence. None of this is real-GPU
+(Vega 3, HD 4000) data.
+
+| Scene | Mean ms (run 1 / run 2) | Ratio to 05-domain-warp | Passes |
+|---|---:|---:|---|
+| 05-domain-warp | 54.3 / 54.0 | 1.00 | 1 |
+| 14-electric-bloom | 97.6 / 97.5 | 1.80 | clock + final |
+| 15-neon-ribbon-flow | 68.4 / 69.8 | 1.28 | clock + final |
+| 16-acid-mirror | 57.5 / 58.3 | 1.07 | feedback + clock + final |
+
+Both dialects render identical pixels (a GLSL ES 3.0 render at 640x360 and
+the desktop one compared with RMSE 0 for 14 and 15; `strobe-corpus` reports
+8 of 8 scenes ok in both for the 01 and 10-16 filter). The Codex drafts were cheaper but
+flat; the rebuilds spend the budget on depth layers (14), five translucent
+layers with glow (15) and a flow-advected feedback buffer at half width (16).
+Optimisations that mattered: early-outs for empty cells and for pixels far
+from a ribbon's glow (14: 108 -> 98 ms at first; 15: 103 -> 68 ms), and
+colour work done only where a petal ring covers the pixel.
+Silence is cheaper than the audio-on numbers above (bloom 42, ribbon 29,
+acid 26 ms at 1280x720 against 114, 67 and 53 with audio) because the
+synthetic track's kick drives larger flowers and wider glow.
+
 ## Wanted
 
 - [x] A real-GPU run on the T480: native vs ANGLE, 32F vs 16F, 720p and

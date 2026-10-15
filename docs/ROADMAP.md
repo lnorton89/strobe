@@ -58,6 +58,17 @@ which backend proved a claim.
   found the first draft too smooth; twelve controls. Checked headless on
   llvmpipe in both dialects; the Windows and HD 4000 re-run is still open.
 
+- **Scenes 14-16 rebuilt (2026-10-15, D277-D279):** `14-electric-bloom`,
+  `15-neon-ribbon-flow` and `16-acid-mirror` replace Codex's first drafts.
+  Electric Bloom is a three-layer garden with unfurling petals and drifting
+  pollen; Neon Ribbon Flow is five translucent, glowing neon ribbons with
+  parallax; Acid Mirror is a double-buffered advected paint buffer folded
+  into bilateral symmetry. Each is within 2x of `05-domain-warp` at 1080p on
+  llvmpipe, renders identically in desktop GLSL 3.30 and GLSL ES 3.0, and
+  keeps a stable palette at 2, 10, 30 s and 5 min. Open: real-GPU timing
+  (Vega 3, HD 4000), owner comparison against the reference videos and the
+  floral image, which was never available.
+
 - **Perform UI stage 2** (see item 2): the panes built in stage 1 hold the
   generated-controls review (D202, D219); the full Playlist workspace is
   still to come.
