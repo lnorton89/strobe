@@ -7027,3 +7027,121 @@ four-hour soak. The retry schedule is the decision, not a measurement.
 **Would reopen:** TLS (D288's list); a controller that should also retry a
 refusal after a long wait (a host brought up late with the switch off); a
 file picker if a dialog helper is added.
+
+### D295: Linux is a documented platform: three build packages, a Nix flake, dlopen'd libraries on `LD_LIBRARY_PATH` (2026-10-15)
+
+D291-D294 were taken on other branches; this entry is D295 so the
+numbers do not collide at merge.
+
+**Context.** CI's Linux job already built and tested Strobe, but the packages
+it installs were never explained, the README said only "checked under Xvfb",
+and a Nix user (Bonzupii) offered a dev-shell flake from another project. His
+own note was that it was a dev shell, not an install flake, and that some of
+its graphical dependencies were bloat for his game. The owner wants Linux in
+the README and the repo, and the AMD desktop runs Debian on WSL2.
+
+**What Strobe needs on Linux, from `Cargo.lock`, the build scripts and
+`ldd`/`LD_DEBUG` on a real run.**
+- **Linked (build time, headers and a `.pc` file): ALSA only.** `ldd` on the
+  release binary lists `libasound.so.2` and libc. `alsa-sys` (cpal for
+  capture, midir for MIDI) runs `pkg-config alsa`. Plus a C compiler:
+  `rquickjs-sys` (QuickJS) and `ring` (rustls, for Shadertoy import) compile C.
+  `build-essential pkg-config libasound2-dev` was enough on a clean Ubuntu
+  24.04 (`debootstrap`, no `libxkbcommon-dev`, no Wayland headers, no clang, no
+  git: `build.rs` reports the commit as `unknown` without it).
+- **Loaded with `dlopen` (run time, nothing in `DT_NEEDED`):** libGL, libEGL
+  and libGLX (glutin; the GPU's driver behind them), libX11, libXcursor, libXi,
+  libXrandr and libxcb (winit through `x11-dl`), libxkbcommon and
+  libxkbcommon-x11 (`xkbcommon-dl`), libwayland-client, -cursor and -egl
+  (winit's `wayland-dlopen`, glutin). A build on a machine without them
+  succeeds; the window fails to open. On Nix they must be on `LD_LIBRARY_PATH`.
+- **Not needed:** OpenSSL (TLS is rustls), fontconfig and freetype (egui's fonts
+  are compiled in), udev (MIDI is ALSA's sequencer), Vulkan (no wgpu, D1),
+  libclang. Bonzupii's `vulkan-loader` and `cargo-llvm-cov` are dropped for
+  that reason; his libxkbcommon, wayland, libGL, X11 and alsa-lib stay, and
+  libxcb is added.
+
+**Decision.**
+- **`flake.nix` at the root** with `forAllSystems` over x86_64-linux and
+  aarch64-linux.
+  - `devShells.default`: nixpkgs' `cargo`, `rustc`, `clippy`, `rustfmt`,
+    `pkg-config`, `git`, ALSA in `buildInputs`, and `LD_LIBRARY_PATH` from the
+    dlopen list. **The toolchain is nixpkgs', not rust-overlay or fenix.** The
+    pin in `rust-toolchain.toml` is 1.98.0, nixpkgs-unstable has 1.98.1 and the
+    workspace's `rust-version` is 1.98, so a second toolchain source buys
+    nothing. The shell ignores `rust-toolchain.toml` (no rustup), so
+    `cargo xtask ci` skips the Windows cross-check there, and clippy is 1.98.1
+    where CI is 1.98.0. If nixpkgs falls behind the pin, use
+    `rust-bin.fromRustupToolchainFile`.
+  - `devShells.software`: the default shell plus nixpkgs' Mesa, with
+    `__EGL_VENDOR_LIBRARY_DIRS` and `LIBGL_DRIVERS_PATH` set, for a machine
+    with no GL of its own (a VM, a container, CI). **Mesa is not in the default
+    shell**: forcing it would override the system's driver (NVIDIA's
+    proprietary one, or a newer Mesa) on a real GPU. libglvnd, which is what
+    `libGL` is in nixpkgs, already looks in `/run/opengl-driver`, where NixOS
+    puts the driver.
+  - `packages.default`: `rustPlatform.buildRustPackage` with
+    `cargoLock.lockFile` (every dependency is from crates.io, so no
+    `outputHashes`), building `strobe-app` and `strobe-bench` in one
+    invocation, `doCheck = false` (the tests need a GL context and walk the
+    source tree; CI's Linux job is where they run). `makeWrapper` puts the
+    dlopen list on `LD_LIBRARY_PATH` for `strobe`, `strobe-bench` and
+    `strobe-corpus`. The scene library is installed to `share/strobe/scenes`
+    and linked as `bin/scenes`, which is where `library::resolve` looks "beside
+    the program" for the packaged build. `STROBE_GIT_HASH` carries the flake's
+    revision, since a Nix build has no repository for `build.rs` to ask.
+  - `strobe-bench` has no such lookup, so it needs `--library
+    result/share/strobe/scenes`.
+- **`flake.lock`.** `api.github.com` and `codeload.github.com` are blocked in
+  the agent container, so `nixos-unstable` could not be fetched as `github:`.
+  The lock was made by fetching the same revision (`7fd4004d0511`, the
+  head of `nixos-unstable` on 2026-10-15, which the channel's tarball link also names) with `git+https://github.com/NixOS/nixpkgs`
+  and rewriting the node to `type: github` with the same `rev`, `narHash` and
+  `lastModified`. nixpkgs has no `export-ignore` or `export-subst`, so the git
+  checkout and GitHub's tarball are the same tree, and Nix accepted the
+  rewritten lock and matched the `narHash` against that store path; the
+  GitHub tarball itself was not fetched. If `nix flake metadata` ever
+  disagrees, `nix flake update` regenerates it.
+- **README "Linux" section**, with Debian and Ubuntu packages (verified), Fedora
+  and Arch names (checked against the Fedora 43 and Arch package databases,
+  not built), the Nix route, how to choose Wayland or X11, graphics, audio and
+  MIDI, and WSL2. `docs/COMPATIBILITY.md` gets four rows,
+  `docs/USER_GUIDE.md` and `CONTRIBUTING.md` point to it.
+- **Wayland or X11.** winit 0.30 picks Wayland when `WAYLAND_DISPLAY` or
+  `WAYLAND_SOCKET` is non-empty, else X11 when `DISPLAY` is set.
+  `WINIT_UNIX_BACKEND` no longer exists and Strobe adds no flag, so the way to
+  force one is `env -u WAYLAND_DISPLAY -u WAYLAND_SOCKET` or `env -u DISPLAY`.
+- **ANGLE is Windows-only.** On Linux `--gl angle` is the system's EGL with an
+  OpenGL ES 3.0 context, which is how the GLSL ES dialect is exercised, and
+  `--gl auto` falls back to it.
+
+**What was checked (2026-10-15, cloud container, no GPU, llvmpipe).**
+
+| Claim | Result |
+|---|---|
+| Debian/Ubuntu build list | Clean Ubuntu 24.04 chroot, `build-essential pkg-config libasound2-dev`, `cargo build --release -p strobe-app` and `-p strobe-bench`: built. |
+| Debian/Ubuntu run list | Same chroot plus `libegl1 libegl-mesa0 libgl1-mesa-dri`: `--diagnose` and the headless bench ran (16 scenes, Mesa 24.0.5). Plus the X libraries and Xvfb: control and output screenshots on X11 with desktop GL 3.3 core. Plus Weston headless and the Wayland libraries: both screenshots on Wayland. |
+| Flake, x86_64-linux, Nix 2.34 | `nix develop -c cargo build -p strobe-app -p strobe-bench`: built. `nix build`: built. The result, from another directory: `--help`, `--diagnose` (Mesa 26.2.4), headless bench with `--library`, a screenshot under nixpkgs' Xvfb and under nixpkgs' Weston, the scene library found beside the program. `nix run . -- --help`. |
+| Flake, aarch64-linux | `nix eval` of the package and both shells succeeds. Not built. |
+| Default dev shell on this non-NixOS host | `--diagnose` finds no GL context: expected, there is no driver for libglvnd to load. `.#software` is the answer. |
+
+**Not verified:** NixOS itself (`hardware.graphics`, the ALSA plugin path), any
+real Linux GPU, ALSA, PipeWire or PulseAudio capture, MIDI hardware, GNOME or
+KDE, WSL2 and WSLg (the hand-off has a test script for the AMD desktop's
+Debian), and Fedora and Arch builds.
+
+**Not chosen.**
+- *rust-overlay or fenix*, for the reason above.
+- *Mesa in the default shell*, for the reason above.
+- *`patchelf --add-rpath` instead of a wrapper.* It would work for libraries
+  that glutin and winit `dlopen` from the executable, but the request was a
+  wrapper and a wrapper also covers the helper processes the app starts.
+  The cost is that `LD_LIBRARY_PATH` is inherited by children (an opened link
+  starts `xdg-open` with it), which has not caused a problem so far.
+- *crane or naersk.* `buildRustPackage` is nixpkgs' own and the lock file has
+  no git dependencies.
+
+**Would reopen:** a nixpkgs bump that moves `rustc` below 1.98, a git
+dependency in `Cargo.lock` (needs `outputHashes`), a dlopen'd library
+the list misses (a window that will not open on a clean Nix or Debian box),
+or a real Linux GPU that needs more than `hardware.graphics.enable`.

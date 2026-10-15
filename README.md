@@ -16,8 +16,9 @@ imports Shadertoy shaders, and plays long shows from playlists.
 > The engine, the performer UI, playlists, show control and Shadertoy import
 > are built and tested. Windows is the target and has been checked on two real
 > machines: a ThinkPad T480 (Intel UHD 620) and a desktop with a GTX 1080 Ti.
-> Linux builds and runs (checked under Xvfb with Mesa). macOS does not run
-> yet. What is verified, and where, is tracked in
+> Linux builds and runs, on X11 and Wayland, with a Nix flake and a package
+> list for Debian and Ubuntu (see [Linux](#linux); checked on Mesa's software
+> renderer, not yet on a real Linux GPU). macOS does not run yet. What is verified, and where, is tracked in
 > [`docs/STATUS_AUDIT.md`](docs/STATUS_AUDIT.md); what is still unverified
 > (MIDI hardware, live Shadertoy import, phones, an HD 4000) is listed on the
 > [release page](https://github.com/lnorton89/strobe/releases) and in
@@ -240,12 +241,142 @@ scene, Space holds, B blacks out, T taps tempo, Ctrl+K opens the palette.
 Settings > Keyboard rebinds any of them.
 
 Settings, show-control mappings, logs, crash reports and editor backups live
-in the user data directory (`%LOCALAPPDATA%\strobe` on Windows). See
+in the user data directory (`%LOCALAPPDATA%\strobe` on Windows,
+`~/.local/share/strobe` on Linux). See
 [`docs/DEBUGGING.md`](docs/DEBUGGING.md) for logs, `STROBE_LOG` and crash
 symbolication.
 
 [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md): what works, what is
 degraded and what is not, with evidence.
+
+### Linux
+
+Strobe builds and runs on Linux with OpenGL 3.3 core from Mesa (or a
+vendor driver), on Wayland or X11. There is no Linux release download yet;
+you build it. A clean Ubuntu 24.04 needed only the three build packages
+below, and the rest is already on a normal desktop.
+
+#### Debian and Ubuntu
+
+```bash
+# To build: a C compiler (QuickJS and ring are C), pkg-config and ALSA headers.
+sudo apt-get install -y build-essential pkg-config libasound2-dev
+cargo build --release -p strobe-app     # about 10 minutes on four cores
+target/release/strobe --diagnose        # GPU, driver and audio report
+```
+
+`rustup` installs the toolchain `rust-toolchain.toml` pins. Distro `rustc`
+packages are too old: the workspace needs 1.98.
+
+To run, these are loaded at run time, so the build does not need them and
+a missing one shows up as a window that will not open. A desktop install
+has them all; a minimal server or container does not:
+
+```bash
+sudo apt-get install -y libegl1 libgl1 libegl-mesa0 libgl1-mesa-dri \
+  libx11-6 libxcursor1 libxi6 libxrandr2 libxkbcommon0 libxkbcommon-x11-0 \
+  libwayland-client0 libwayland-cursor0 libwayland-egl1
+```
+
+| Library | Needed for | When it is needed |
+|---|---|---|
+| `libasound2` (ALSA) | audio capture (cpal) and MIDI input (midir) | linked at build time; `libasound2-dev` supplies headers and the `.pc` file |
+| `libegl1`, `libgl1`, Mesa's `libegl-mesa0` and `libgl1-mesa-dri` | the GL context (glutin: GLX, then EGL) and headless rendering | run time (`dlopen`); the driver is the GPU's own (Mesa, or NVIDIA's proprietary one) |
+| `libx11-6`, `libxcursor1`, `libxi6`, `libxrandr2`, `libxkbcommon-x11-0` | the window on X11 (winit) | run time |
+| `libwayland-client0`, `libwayland-cursor0`, `libwayland-egl1`, `libxkbcommon0` | the window on Wayland (winit, glutin) and the keyboard on both | run time |
+| a C compiler | QuickJS (`rquickjs-sys`) and `ring` (rustls, for Shadertoy import) | build time |
+
+Nothing uses OpenSSL, fontconfig, udev or Vulkan: TLS is rustls, fonts are
+compiled in, and MIDI goes through ALSA's sequencer.
+
+Fedora and Arch, names checked against the Fedora 43 and Arch package
+databases but not built on either:
+
+```bash
+# Fedora
+sudo dnf install gcc pkgconf-pkg-config alsa-lib-devel \
+  mesa-libEGL mesa-libGL mesa-dri-drivers libX11 libXcursor libXi libXrandr \
+  libxkbcommon libxkbcommon-x11 libwayland-client libwayland-cursor libwayland-egl
+# Arch
+sudo pacman -S --needed base-devel pkgconf alsa-lib mesa libglvnd \
+  libx11 libxcursor libxi libxrandr libxkbcommon libxkbcommon-x11 wayland
+```
+
+#### Nix
+
+`flake.nix` gives a dev shell and a package, for x86_64-linux and
+aarch64-linux ([D295](docs/DECISIONS.md)). On x86_64 with Nix 2.34 the dev
+shell built the app, and the package built and ran: `--help`, `--diagnose`,
+the headless bench, and a window on both X11 (Xvfb) and Wayland (Weston),
+with nixpkgs' Mesa as the software driver. aarch64 evaluates but has not been
+built. It has not been run on NixOS or on a real GPU.
+
+```bash
+nix develop                  # cargo, rustc, clippy, rustfmt, pkg-config, ALSA, and
+                             # LD_LIBRARY_PATH for the libraries Strobe opens at run time
+cargo run --release -p strobe-app
+nix develop .#software       # the same, plus Mesa's software GL: no GPU, a VM, CI
+nix build                    # ./result/bin/strobe, wrapped so it finds its libraries
+nix run                      # build and start it
+result/bin/strobe-bench --library result/share/strobe/scenes
+```
+
+The dev shell uses nixpkgs' own `cargo` and `rustc` (1.98.x), not
+`rust-toolchain.toml`, so the Windows cross-check in `cargo xtask ci` is
+skipped there. The package carries the scene library beside `strobe`, and
+also installs `strobe-bench` and `strobe-corpus`. The GPU driver comes from
+the system, not from the flake: on NixOS set `hardware.graphics.enable =
+true`. On another distro Nix's libGL cannot use the host's driver, so use the
+apt route above, or `nix develop .#software` for Mesa's software renderer.
+For audio on NixOS, `services.pipewire.alsa.enable = true`.
+
+#### Wayland and X11
+
+winit 0.30 picks Wayland when `WAYLAND_DISPLAY` (or `WAYLAND_SOCKET`) is
+set, and X11 otherwise when `DISPLAY` is set. The old `WINIT_UNIX_BACKEND`
+variable is gone and Strobe has no flag for it. To force a backend, hide the
+other one from the process:
+
+```bash
+env -u WAYLAND_DISPLAY -u WAYLAND_SOCKET target/release/strobe   # X11 (or XWayland)
+env -u DISPLAY target/release/strobe                             # Wayland only
+```
+
+On X11 the GL context is GLX, then EGL; on Wayland it is EGL.
+
+#### Graphics
+
+Strobe needs OpenGL 3.3 core, which Mesa provides for Intel and AMD GPUs and
+in software on any machine (`LIBGL_ALWAYS_SOFTWARE=1` forces llvmpipe).
+ANGLE is Windows-only. On Linux `--gl angle` asks the system's EGL for an
+OpenGL ES 3.0 context instead (the GLSL ES dialect), and `--gl auto` falls
+back to it when desktop GL fails. `strobe --diagnose` prints the driver it
+got.
+
+#### Audio and MIDI
+
+Capture uses ALSA through cpal, from the default input unless Settings picks
+another, and falls back to synthetic audio (shown in the title bar) when
+there is none. PipeWire and PulseAudio machines need their ALSA bridge:
+`pipewire-alsa` or `libasound2-plugins`, both usually installed already.
+To visualise what the machine is playing, pick that output's *Monitor* as
+the recording source (`pavucontrol`, Recording tab). MIDI input uses ALSA's
+sequencer and needs `/dev/snd/seq`; with none, Strobe says MIDI is
+unavailable and carries on ([`docs/DEBUGGING.md`](docs/DEBUGGING.md)).
+No Linux audio device or MIDI hardware has been tried yet.
+
+#### WSL2
+
+WSLg gives a Linux GUI both Wayland and X11, and Mesa's `d3d12` driver gives
+it OpenGL on the Windows GPU. Install the Debian list above and build inside
+WSL's own filesystem (`~`, not `/mnt/c`). `glxinfo -B` should name a D3D12
+renderer; if it says llvmpipe, GL is in software. WSLg's audio is a
+PulseAudio server, so install `libasound2-plugins`. This is good for
+development and for checking the Linux build; for a show, use the Windows
+release. `scripts/check-linux.sh` installs the packages, builds, and runs the
+bench and a window on each backend, printing PASS, FAIL or SKIP for each step
+and saving the transcript to `target/linux-check.txt`. It has run on Ubuntu
+24.04 under Xvfb, and not yet on WSL2.
 
 ### Developing
 

@@ -2,7 +2,9 @@
 
 This is for someone running Strobe, not building it. You do not need Rust
 or a compiler. Everything here applies to the Windows release; the
-command-line flags work the same on Linux. For logs in depth, see
+command-line flags work the same on Linux, where there is no download yet and
+you build Strobe from source (README, "Linux"; settings and logs are in
+`~/.local/share/strobe`). For logs in depth, see
 [DEBUGGING.md](DEBUGGING.md).
 
 ## Install

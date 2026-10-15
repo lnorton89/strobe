@@ -236,6 +236,36 @@ Diagnostics are not recovery. The bounded state machine is built (D66):
   ([hardware/T480.md](hardware/T480.md), bug 1). No real driver reset has
   been observed yet: bug 1 no longer reproduces.
 
+## P1: Linux
+
+Linux is documented and builds (D295); what a person on a real Linux machine
+would meet is not yet seen. Evidence so far is the cloud container, with no
+GPU, on Mesa's llvmpipe.
+
+- [x] A clean Ubuntu 24.04 builds the app and the bench with
+  `build-essential pkg-config libasound2-dev` and nothing else, and the
+  bench, `--diagnose` and a control-plus-output screenshot run on X11 (Xvfb)
+  and Wayland (headless Weston) once the run-time libraries in the README are
+  installed (2026-10-15, D295).
+- [x] The Nix flake: `nix develop -c cargo build`, `nix build` and `nix run`
+  on x86_64-linux; the package's `--help`, `--diagnose`, bench, and X11 and
+  Wayland screenshots (2026-10-15, D295). aarch64-linux evaluates only.
+- [ ] A real Linux GPU (Intel, AMD, NVIDIA): native GL 3.3 core, the
+  scenes, timings. Acceptance: `strobe --diagnose` and `strobe-bench` output
+  with the driver named, in `docs/hardware/`.
+- [ ] Audio capture on ALSA, PipeWire and PulseAudio machines, and
+  removal and reconnection of the device. Acceptance: a live input moves the
+  level meter; the log shows the transitions.
+- [ ] MIDI input from a real controller through ALSA's sequencer.
+- [ ] GNOME and KDE on Wayland: window decorations, the custom title bar,
+  fullscreen output on a second monitor.
+- [ ] NixOS: `nix run` opens a window with `hardware.graphics.enable`, and
+  PipeWire's ALSA plugin finds the input.
+- [ ] WSL2 with WSLg on the AMD desktop's Debian: apt build, `glxinfo -B`
+  naming a D3D12 renderer, a window on Wayland and on X11, the bench.
+  Acceptance: the transcript `target/linux-check.txt` from
+  `scripts/check-linux.sh`.
+
 ## P1: performer-facing UI
 
 The egui UI was an engineering shell and is now at stage 1 of Contextual Perform (evidence below). The research conclusion was
