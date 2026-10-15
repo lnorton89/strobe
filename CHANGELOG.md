@@ -13,6 +13,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **audio:** on Linux fall back to a pulse or pipewire input when the default will not open ([`084c6db`](https://github.com/lnorton89/strobe/commit/084c6db0236026f7ad9dd3b45c7f1bd51b6c7345))
 - control a venue's show machine with a trust file, reconnecting by itself ([`4da7d2b`](https://github.com/lnorton89/strobe/commit/4da7d2b80445aa3f3116a19ff9dbbd2be132f435))
 - a controller id for a laptop and the Host header a trusted proof binds to ([`3196ef4`](https://github.com/lnorton89/strobe/commit/3196ef4bf8b496ca92640b48ea7449a7ac0e6b00))
 - **app:** --audio ambient, the synthetic track without its beat ([`ac94a3c`](https://github.com/lnorton89/strobe/commit/ac94a3cc5ddf8da8804993cb918f47e5346a724d))
@@ -38,6 +39,9 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **app:** the reconnect card states the real wait and attempt ([`7fcfb17`](https://github.com/lnorton89/strobe/commit/7fcfb17f21ce95c4672f486db3fef64bd7e0ead0))
+- **app:** a pure controller does not log a missing library as an error ([`7fb6939`](https://github.com/lnorton89/strobe/commit/7fb6939f8d8d4e4fc6096e81f7dab54844463677))
+- **audio:** log the forced audio source once, where the choice is final ([`992372b`](https://github.com/lnorton89/strobe/commit/992372bc6c0cd04e33231221b423f5e3d96731da))
 - **gfx:** an offscreen window reports the size it was given, not the size asked ([`20edd15`](https://github.com/lnorton89/strobe/commit/20edd156298b0ebc8ddcbbb38ed9329879932885))
 - **bench:** --probe reads a float target through an RGBA8 copy on GLES ([`9e4e1a5`](https://github.com/lnorton89/strobe/commit/9e4e1a5626953a62d82b6e28632075b8e3a50e41))
 - a trust file that cannot be read brings up the form instead of failing silently ([`5b1dac6`](https://github.com/lnorton89/strobe/commit/5b1dac6826af36a7484ef178196147e9f9b49686))
@@ -78,6 +82,8 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Documentation
 
+- hardware evidence for D290, venue mode on loopback, and Linux under WSL2 ([`aadc967`](https://github.com/lnorton89/strobe/commit/aadc967db8c01d576df64ffd2d8a67c136fffe20))
+- WSL2 GPU and audio setup, and the check script picks D3D12 there (D296) ([`2958c88`](https://github.com/lnorton89/strobe/commit/2958c8892ded0f0af32161cca066a5c1625f52b1))
 - note the covered control window and venue mode in the architecture companion ([`44346aa`](https://github.com/lnorton89/strobe/commit/44346aaeab11b4116c3b5ebf7068c290fcfe52a3))
 - keep the mini-PC probe's stdout, and state the trace's real cost (D296) ([`cc40cf8`](https://github.com/lnorton89/strobe/commit/cc40cf81fecf44f0786d2fa0ca408e3737a8ee75))
 - **minipc:** the first JaJa PDX show, four hours with no crash restarts ([`08375c2`](https://github.com/lnorton89/strobe/commit/08375c2d6c924ebe6e33e3d6488edaff34288a8b))
