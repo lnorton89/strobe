@@ -950,7 +950,8 @@ impl Running {
             inbox_polled: Instant::now(),
             gl_summary,
             audio: AudioInput::new(cli.audio == AudioArg::Auto)
-                .with_ambient(cli.audio == AudioArg::Ambient),
+                .with_ambient(cli.audio == AudioArg::Ambient)
+                .with_controller(cli.control.is_some()),
             mouse: MouseTracker::default(),
             local_date: LocalDate::from_system(),
             render_scale,
@@ -1007,12 +1008,16 @@ impl Running {
             running.lan.start_at_launch(Instant::now());
         }
         if let Some(error) = scan_error {
-            failure::report(
-                Failure::new(Subsystem::Io, "scan")
-                    .path(&running.library.dir)
-                    .message(error)
-                    .action("the scene list is empty"),
-            );
+            if cli.library_is_optional() {
+                log::info!("no scene library, which a controller does not need: {error}");
+            } else {
+                failure::report(
+                    Failure::new(Subsystem::Io, "scan")
+                        .path(&running.library.dir)
+                        .message(error)
+                        .action("the scene list is empty"),
+                );
+            }
         }
         // Reopen the scene of the last session (T480 Task 21), unless the
         // command line chose one, a playlist will, or this is a screenshot

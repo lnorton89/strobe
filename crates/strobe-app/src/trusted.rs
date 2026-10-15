@@ -199,13 +199,24 @@ pub fn refusal_text(code: ErrorCode, host_message: &str) -> String {
 }
 
 /// The text of the card while a trusted connection is down: why, and what
-/// happens next.
-pub fn retry_text(reason: &str) -> String {
-    format!(
-        "{} Trying again about every {} s until you press Disconnect.",
-        reason.trim(),
-        MAX_RETRY.as_secs()
-    )
+/// happens next. `attempt` is the retry about to be made, which waits
+/// [`backoff`]`(attempt)`. Made once per attempt, never per frame.
+pub fn retry_text(reason: &str, attempt: u32) -> String {
+    let wait = backoff(attempt);
+    let cap = MAX_RETRY.as_secs();
+    if wait >= MAX_RETRY {
+        format!(
+            "{} Trying again in {cap} s (attempt {attempt}), and every {cap} s until you \
+             press Disconnect.",
+            reason.trim()
+        )
+    } else {
+        format!(
+            "{} Trying again in {} s (attempt {attempt}); the wait grows to {cap} s.",
+            reason.trim(),
+            wait.as_secs()
+        )
+    }
 }
 
 /// This computer's name for a controller id, from the environment or
@@ -349,6 +360,26 @@ mod tests {
             "the secret's hex is not in the debug text: {shown}"
         );
         Ok(())
+    }
+
+    #[test]
+    fn the_retry_text_says_the_real_wait_and_attempt() {
+        let first = retry_text("Connection lost. ", 1);
+        assert!(
+            first.contains("Trying again in 1 s (attempt 1); the wait grows to 15 s."),
+            "{first}"
+        );
+        let third = retry_text("Connection lost.", 3);
+        assert!(third.contains("in 4 s (attempt 3)"), "{third}");
+        let capped = retry_text("Connection lost.", 9);
+        assert!(
+            capped.contains("in 15 s (attempt 9), and every 15 s until you press Disconnect"),
+            "{capped}"
+        );
+        assert!(
+            !capped.contains("about every"),
+            "the old, untrue wording is gone: {capped}"
+        );
     }
 
     #[test]

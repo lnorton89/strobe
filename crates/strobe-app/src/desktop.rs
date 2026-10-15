@@ -1219,7 +1219,8 @@ impl Controller {
             }
             Staged::Retrying(attempt) => {
                 view.stage = Stage::Reconnecting(attempt);
-                view.note = trusted::retry_text("Connection lost: host closed desktop control.");
+                view.note =
+                    trusted::retry_text("Connection lost: host closed desktop control.", attempt);
             }
             Staged::TrustRefused => {
                 view.stage = Stage::Ended(End::Refused);
@@ -1351,7 +1352,7 @@ fn work(link: &Link, inputs: &Receiver<Input>) {
             let mut view = link.view.lock().unwrap_or_else(PoisonError::into_inner);
             view.stage = Stage::Reconnecting(attempt);
             view.ready = false;
-            view.note = trusted::retry_text(&reason);
+            view.note = trusted::retry_text(&reason, attempt);
         }
         if !pause(&link.stop, wait) {
             return;
@@ -2853,7 +2854,7 @@ mod tests {
             assert!(view.image.is_some(), "the last image is kept");
             assert!(!view.ready, "and read-only");
             assert!(
-                view.note.contains("until you press Disconnect"),
+                view.note.contains("the wait grows to 15 s"),
                 "{}",
                 view.note
             );
