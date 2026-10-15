@@ -3,16 +3,18 @@
   "IMAGE_PATH": "thumbnail.png",
   "CREDIT": "Original Strobe interpretation of Lethal Larry's TouchDesigner scene",
   "LICENSE": "MIT",
-  "DESCRIPTION": "Paint dragged through a feedback loop: a curl-noise flow advects and smears the previous frame into fibrous, combed striations, small ringed bubbles are stamped in, and the result is edge-embossed, posterised into hard neon hue steps and inked with dark contours. Inspired by the owner's URBAN ASSAULT - RISE video (https://youtu.be/w0JcYtmRr0U); procedural interpretation, not a reconstruction of the TouchDesigner network. Bass drives the drag and smear, bass hits jump the colour phase, highs thicken the striations; it still flows on its own in silence (reactivity 0).",
+  "DESCRIPTION": "Paint dragged through a feedback loop: long shear drags and a curl-noise swirl advect and smear the previous frame into fibrous, combed striations, clusters of small ringed bubbles are stamped in, and the result is edge-embossed, posterised into hard acid-green, lemon, cyan, violet and magenta steps and inked with dark contours. Inspired by the owner's URBAN ASSAULT - RISE video (https://youtu.be/w0JcYtmRr0U); procedural interpretation, not a reconstruction of the TouchDesigner network. Bass drives the drag and smear, bass hits jump the colour phase, highs thicken the striations; it still flows on its own in silence (reactivity 0).",
   "PASSES": [
+    {"TARGET": "clock", "WIDTH": 1, "HEIGHT": 1, "FLOAT": true, "DOUBLE_BUFFER": true, "WRAP": "clamp", "FILTER": "nearest", "FULL_PRECISION": true},
     {"TARGET": "field", "WIDTH": "$WIDTH", "HEIGHT": "$HEIGHT", "FLOAT": true, "DOUBLE_BUFFER": true}
   ],
   "CONTROLS": [
     {"NAME": "flow", "TYPE": "slider smooth", "MIN": 0, "MAX": 3, "DEFAULT": 1.0, "PARAMS": 0.03, "UI_GROUP": "motion"},
-    {"NAME": "flow_scale", "TYPE": "slider smooth", "MIN": 0.6, "MAX": 5, "DEFAULT": 2.2, "PARAMS": 0.03, "UI_GROUP": "motion"},
+    {"NAME": "flow_scale", "TYPE": "slider smooth", "MIN": 0.6, "MAX": 5, "DEFAULT": 1.8, "PARAMS": 0.03, "UI_GROUP": "motion"},
+    {"NAME": "drag", "TYPE": "slider smooth", "MIN": 0, "MAX": 2, "DEFAULT": 1.0, "PARAMS": 0.03, "UI_GROUP": "motion"},
     {"NAME": "speed", "TYPE": "slider smooth", "MIN": 0, "MAX": 3, "DEFAULT": 1.0, "PARAMS": 0.03, "UI_GROUP": "motion"},
     {"NAME": "reactivity", "TYPE": "slider smooth", "MIN": 0, "MAX": 2, "DEFAULT": 1.0, "PARAMS": 0.03, "UI_GROUP": "motion"},
-    {"NAME": "smear", "TYPE": "slider smooth", "MIN": 0, "MAX": 8, "DEFAULT": 4, "PARAMS": 0.03, "UI_GROUP": "texture"},
+    {"NAME": "smear", "TYPE": "slider smooth", "MIN": 0, "MAX": 8, "DEFAULT": 6, "PARAMS": 0.03, "UI_GROUP": "texture"},
     {"NAME": "fibers", "TYPE": "slider smooth", "MIN": 60, "MAX": 400, "DEFAULT": 130, "PARAMS": 0.03, "UI_GROUP": "texture"},
     {"NAME": "bubbles", "TYPE": "slider smooth", "MIN": 0, "MAX": 1, "DEFAULT": 0.85, "PARAMS": 0.03, "UI_GROUP": "texture"},
     {"NAME": "bands", "TYPE": "slider smooth", "MIN": 1, "MAX": 12, "DEFAULT": 5, "PARAMS": 0.03, "UI_GROUP": "color"},
