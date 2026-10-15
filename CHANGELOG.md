@@ -74,6 +74,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Documentation
 
+- **minipc:** the first JaJa PDX show, four hours with no crash restarts ([`9267e0c`](https://github.com/lnorton89/strobe/commit/9267e0caa70bc1e0b0528799b05151f7889eab0a))
 - Linux as a documented platform, with a check script (D294) ([`2b4d009`](https://github.com/lnorton89/strobe/commit/2b4d009d573265864acbe97f1f1bd3e2e8435969))
 - --audio ambient in the user guide ([`fdcb76a`](https://github.com/lnorton89/strobe/commit/fdcb76a2600197ce212167a6a374ffad2b79ac06))
 - D294, the laptop side of venue mode, in the guide, roadmap and audit ([`5f09af9`](https://github.com/lnorton89/strobe/commit/5f09af93ef6ab4cf83ed234c68dfce699bb41875))

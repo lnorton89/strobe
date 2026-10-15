@@ -208,7 +208,41 @@ newest log in `%LOCALAPPDATA%\strobe\logs\`:
 `STROBE_LOG=debug` also logs every later takeover and every hand-back
 ("Windows paints it again"), if the pattern needs a closer look.
 
+## The first JaJa PDX show (2026-10-15)
+
+The four-hour show kit from the private `jaja-strobe-assets` repository
+(`playlists/jaja-4h.toml`, `show/start-show.cmd`) ran on the two
+mirrored projectors. The topology was Windows Duplicate at 1920x1080. It
+ran on build 4460897, which is c879851 plus the playlist-compile backstop
+(fca44a5), with `--audio synthetic` because there was no microphone. The
+StrobeShow scheduled task started it at logon in session 1.
+
+- **Timeline:** started 19:38. The output was black until the backstop
+  hotfix (see the section above). Run 3 started 20:02:11, prepared 14 scenes
+  in 4 s, ran the test card for 2 min, then played all 53 cues on schedule.
+  It reached the final cue (`01-aurora-gradient`, `advance = "manual"`) at
+  23:56:53, 3 h 54 m 41 s after the test card, and held there until the
+  owner stopped it.
+- **Stability:** no crash restarts in the run. Private bytes rose from 206
+  to 217 MB over the first three hours and then stayed flat; the working
+  set stayed at 25-38 MB. No new WARN or ERROR lines after startup.
+- **Frame rate:** about 60 fps almost throughout. Exceptions:
+  - `14-electric-bloom` with its `hue = 0.85` override ran at 52-54 fps,
+    GPU 14-15 ms, with no late frames;
+  - one crossfade between two heavy scenes (`15-neon-ribbon-flow` into
+    `05-domain-warp`) gave 40 late frames in that minute.
+- **Audio:** the synthetic 120 BPM beat looked jarring on the projectors.
+  `--audio ambient` (the synthetic track without hits or beat triggers)
+  was built during the show but not deployed. Use it, or a USB mic with
+  `--audio auto`, next time. Stereo Mix is no use here: no default
+  recording device is set, so `auto` falls back to synthetic.
+- **Not used:** the laptop remote. Venue mode (D288, D294) landed on master
+  after the show started.
+
 ## Still to do here
+
+- Build master and run a two-machine venue-mode test with the laptop.
+- Make `14-electric-bloom` cheaper on the Vega 3, or let it scale.
 
 - The D290 verification above, after the show.
 - Native strobe-bench and control generation in session 1: does a hidden
