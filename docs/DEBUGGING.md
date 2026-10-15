@@ -105,7 +105,7 @@ and `-control.png`; open them to check the output is not black.
 Once a minute the app logs one line (D206):
 
 ```
-perf: 59.9 fps over 60 s, 0 late of 3594 frames, worst gap 17.9 ms, gpu 2.10 ms, control 1800 redraws 2.40 ms (worst 6.1 ms): make-current 0.10, layout 1.20, paint 0.80, swap 0.30 ms
+perf: 59.9 fps over 60 s, 0 late of 3594 frames, worst gap 17.9 ms, gpu 2.10 ms, control 1800 redraws 2.40 ms (worst 6.1 ms, 0 unpainted): make-current 0.10, layout 1.20, paint 0.80, swap 0.30 ms
 ```
 
 - **late**: frames whose gap was over 1.5 frame budgets, so each is a
@@ -119,6 +119,13 @@ perf: 59.9 fps over 60 s, 0 late of 3594 frames, worst gap 17.9 ms, gpu 2.10 ms,
   frame late (TORNADO T11, T12).
   The count drops to about 120 a minute while the fullscreen output covers
   the control window ("control window covered" in the log).
+  **unpainted** counts the redraws the event loop ran because Windows sent
+  the control window no paint (D290): an output above it in z-order takes
+  every `WM_PAINT`. After `control window: no paint from Windows for ...`
+  in the log, expect about 120 a minute, all of them unpainted (300 while
+  a desktop remote is connected). **`control 0 redraws` with the output
+  shown is a bug**: nothing in the control window's frame is running (its
+  actions, the desktop stream, the playlist compile).
 
 If make-current sits near a refresh period, the control window is waiting
 for the output's vsynced swap. The app then slows the control window to
@@ -127,7 +134,8 @@ logs again when it recovers.
 
 A soak should show `0 late` minute after minute. The fps in the control
 window's status bar is only as fresh as that window's last paint; while the
-fullscreen output covers it, Windows hardly repaints it, so trust the log. To compare with an older
+fullscreen output covers it, Windows hardly repaints it (the event loop
+redraws it at 2 Hz then, D290), so trust the log. To compare with an older
 run, grep the log for `perf:`.
 
 ## GL problems
