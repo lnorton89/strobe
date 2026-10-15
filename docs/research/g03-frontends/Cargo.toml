@@ -14,4 +14,4 @@ license = "MIT"
 [dependencies]
 anyhow = "1"
 naga = { version = "30", features = ["glsl-in", "spv-in"] }
-strobe-scene = { path = "../../crates/strobe-scene" }
+strobe-scene = { path = "../../../crates/strobe-scene" }

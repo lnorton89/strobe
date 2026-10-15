@@ -359,7 +359,7 @@ Each item names its acceptance test. Evidence is in [STATUS_AUDIT.md](STATUS_AUD
    *Stages 1 and 2 done (D255), 2026-10-13:*
    - **The seam** is a contract, [RENDERER_SEAM.md](RENDERER_SEAM.md), with
      no code moved.
-   - **The spike** (`research/g03-frontends/`) rules naga out: it has no
+   - **The spike** (`docs/research/g03-frontends/`) rules naga out: it has no
      combined samplers in either front end, so 0 of 51 passes go through
      its GLSL input. glslang -> SPIR-V -> SPIRV-Cross is viable as a front
      end: 51 of 51 to SPIR-V, HLSL and MSL for 50.

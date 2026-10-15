@@ -4763,7 +4763,7 @@ T480 soak showing a cost in the frame (none is expected: an empty
 
 G-02 and G-03. The question was whether Strobe's GLSL can reach a
 Vulkan, D3D12 or Metal backend, through wgpu/naga or through
-glslang -> SPIR-V. A tool in `research/g03-frontends/` (outside the
+glslang -> SPIR-V. A tool in `docs/research/g03-frontends/` (outside the
 workspace and CI) assembles every pass as the GL path does and runs each
 route.
 

@@ -353,7 +353,7 @@
 - **Acceptance:** current GL path remains behaviourally unchanged and benchmark baselines are comparable; no per-frame allocation or synchronous readback introduced.
 
 ### G-03 wgpu/Naga versus direct GLSL-to-SPIR-V spike
-- **Status:** Done, with a written go/no-go (D255, `research/g03-frontends/README.md`), on 26 scenes and 51 pass sources:
+- **Status:** Done, with a written go/no-go (D255, `docs/research/g03-frontends/README.md`), on 26 scenes and 51 pass sources:
   - **naga: no-go.** Its GLSL front end has no combined samplers, and its SPIR-V front end fails on loading them, so 0 of 51 pass the GLSL route and only the 11 passes that sample no texture pass the SPIR-V one.
   - **glslang -> SPIR-V -> SPIRV-Cross: viable as a front end.** 51 of 51 to GL SPIR-V, 50 of 51 to Vulkan SPIR-V, and HLSL and MSL from all 50.
 
