@@ -45,6 +45,25 @@ pub(crate) fn hex(bytes: &[u8]) -> String {
     out
 }
 
+/// The bytes `text` spells in hex (either case), or `None` for an odd
+/// length or any other character.
+pub(crate) fn unhex(text: &str) -> Option<Vec<u8>> {
+    if !text.len().is_multiple_of(2) {
+        return None;
+    }
+    let digit = |byte: u8| {
+        char::from(byte)
+            .to_digit(16)
+            .and_then(|d| u8::try_from(d).ok())
+    };
+    text.as_bytes()
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|[high, low]| Some(digit(*high)? << 4 | digit(*low)?))
+        .collect()
+}
+
 /// Whether `a` and `b` are equal, comparing every byte of the shorter
 /// length's worth either way, so the time taken does not say where they
 /// first differ.
@@ -140,5 +159,9 @@ mod tests {
         assert!(!same(b"abc", b"ab"), "length differs");
         assert!(same(b"", b""), "both empty");
         assert_eq!(hex(&[0x00, 0x7f, 0xff]), "007fff", "hex");
+        assert_eq!(unhex("007FfF"), Some(vec![0x00, 0x7f, 0xff]), "either case");
+        assert_eq!(unhex("0"), None, "odd length");
+        assert_eq!(unhex("zz"), None, "not hex");
+        assert_eq!(unhex("+1"), None, "a sign is not a digit");
     }
 }
