@@ -692,6 +692,12 @@ survives export.
   ANGLE now agree, 0.00 at 100 frames). Two scenes still differ, from
   undefined behaviour in their own code (`pow(0,0)`, `fract(sin)` hashes;
   T9). Strobe does not fix those.
+  **D301 (2026-10-15) narrows that for `pow`:** the ES dialect writes it
+  as the native drivers run it (`exp2(log2(x) * (y))`), because ANGLE's
+  `|x|^y` for a negative base stopped sprinkles growing and its fold of
+  `pow(x, 1.0)` turned PLUS black. Unit, assembly and both-dialect render
+  tests pass and llvmpipe's corpus black lists are unchanged; the ANGLE
+  picture itself is unverified until AMD Task A15 runs.
 
 ## P2: playlists, show control and release
 

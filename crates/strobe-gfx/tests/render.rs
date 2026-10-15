@@ -490,6 +490,33 @@ fn a_global_initialized_from_the_coordinates_sees_them_in_both_dialects() -> Res
 }
 
 #[test]
+fn pow_keeps_its_value_in_both_dialects_where_drivers_agree() -> Result<()> {
+    // D301: ES writes pow(x, y) as exp2(log2(x) * (y)), the native drivers'
+    // sequence, so a negative base is NaN there as on native rather than
+    // Direct3D's |x|^y. Where pow is defined nothing may change. TIME is 0
+    // at frame 0, so the bases come from a uniform and are not folded:
+    // red 0.25^0.5, green (-0.5)^2 (an integer power keeps its sign rule),
+    // blue clamp(pow(-0.25, 0.5)), the idiom a reaction-diffusion scene
+    // feeds itself with: NaN, which clamp turns into 0.
+    let shader = "float a = pow(TIME + 0.25, 0.5);\n\
+                  vec4 renderMain() {\n\
+                  \x20   float b = pow(TIME - 0.5, 2.0);\n\
+                  \x20   float c = clamp(pow(TIME - 0.25, 0.5), 0.0, 1.0);\n\
+                  \x20   return vec4(a, b, c, 1.0);\n\
+                  }\n";
+    for api in BOTH {
+        let Some(px) = render_center(api, Options::default(), "{}", shader, 1)? else {
+            continue;
+        };
+        assert!(
+            near(px[0], 128) && near(px[1], 64) && px[2] == 0,
+            "{api:?}: 0.5, 0.25 and 0; got {px:?}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn the_output_is_opaque_and_buffer_passes_keep_their_alpha() -> Result<()> {
     // D192: Synesthesia's `hello_world_start` returns vec4(1, 0, 0, 0) and is
     // meant to be red. The final pass is made opaque; a buffer pass keeps
