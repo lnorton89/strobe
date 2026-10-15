@@ -204,6 +204,12 @@ impl Desktop {
     }
 
     /// Submit a validated batch. Overflow fails closed, releasing held input.
+    ///
+    /// A pointer move that follows another move replaces it: only the latest
+    /// position matters to the host's next pass, and a controller moving its
+    /// mouse while the host's frame is held up (a scene compiling) would
+    /// otherwise fill the queue with positions and lose the lease. Every
+    /// other event, a button or key edge above all, keeps its own slot.
     pub fn submit(&self, connection: u64, events: Vec<Input>) -> bool {
         if !valid_inputs(&events) {
             return false;
@@ -212,15 +218,23 @@ impl Desktop {
         if !state.enabled || state.owner != Some(connection) {
             return false;
         }
-        if state.inputs.len() + events.len() > QUEUE {
-            state.owner = None;
-            state.inputs.clear();
-            state.frame = None;
-            state.clipboard = None;
-            state.reset = true;
-            return false;
+        for event in events {
+            if matches!(event, Input::Move { .. })
+                && let Some(last @ Input::Move { .. }) = state.inputs.back_mut()
+            {
+                *last = event;
+                continue;
+            }
+            if state.inputs.len() >= QUEUE {
+                state.owner = None;
+                state.inputs.clear();
+                state.frame = None;
+                state.clipboard = None;
+                state.reset = true;
+                return false;
+            }
+            state.inputs.push_back(event);
         }
-        state.inputs.extend(events);
         true
     }
 
@@ -340,6 +354,48 @@ mod tests {
         assert!(desktop.acquire(2), "next controller");
         desktop.enable(false);
         assert!(!desktop.owns(2) && !desktop.active(), "kill switch");
+    }
+
+    #[test]
+    fn pointer_moves_while_the_host_is_busy_do_not_cost_the_lease() {
+        // The host drains once per control frame; a scene compile holds that
+        // for a second or more. A controller moving its mouse meanwhile sends
+        // a batch of moves every 150 ms, and each used to take a queue slot,
+        // so the lease was dropped and the session closed for no lost edge.
+        let desktop = Desktop::default();
+        desktop.enable(true);
+        assert!(desktop.acquire(1), "lease");
+        let at = |n: usize| {
+            let x = n as f32 / 1000.0;
+            Input::Move { x, y: 1.0 - x }
+        };
+        let press = Input::Button {
+            x: 0.5,
+            y: 0.5,
+            button: 0,
+            down: true,
+            modifiers: Modifiers::default(),
+        };
+        for batch in 0..20 {
+            let mut events: Vec<Input> = (0..32).map(|i| at(batch * 32 + i)).collect();
+            if batch == 10
+                && let Some(slot) = events.get_mut(16)
+            {
+                *slot = press.clone();
+            }
+            assert!(
+                desktop.submit(1, events),
+                "batch {batch}: moves never fill the queue"
+            );
+        }
+        assert!(desktop.owns(1), "the lease is kept");
+        let mut out = Vec::new();
+        desktop.drain(&mut out);
+        assert_eq!(
+            out,
+            vec![at(335), press, at(639)],
+            "each run of moves is its last position, and the button keeps its place"
+        );
     }
 
     #[test]
