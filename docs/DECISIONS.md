@@ -6443,3 +6443,86 @@ and `a_resize_that_wipes_the_buffers_restarts_iframe_so_they_initialise_again`
 **Would reopen:** a pass whose size is unchanged but whose contents should
 still be cleared by a resize (none known), or a driver that invalidates
 textures on a viewport change.
+
+### D291: one click on a scene card makes it live, and the library view flips between Scenes and Controls (2026-10-15)
+
+**Context.** The owner: "UI still needs work". Picking a scene took a click
+to select it and then a Load button over the selected card (or a
+double-click); in Synesthesia one click on a scene makes it live, with no
+preview step in the main flow. The playing scene's controls lived only in
+the side panel's Controls tab, a 31% column, where Synesthesia gives them
+the main area. D288 to D290 are taken on other branches (venue mode, the
+AMD bench diagnostic, the control-frame fix), so this is D291.
+
+**Decision.**
+- **A click on a card loads it.** `browser::card` pushes `Action::Load` on
+  the card's click, and also selects it (its tags show above the grid).
+  Enter or Space on a keyboard-focused card is the same click (egui reports
+  both as one), and a focused card shows a second accent ring inside its
+  edge. No load is asked for the second click of a double-click (or a
+  triple), for the scene that is live, or for the scene already preparing,
+  so a double-click is one load request. Everything that guarded a load is
+  unchanged: the request is still `App::request_load`, painted as
+  PREPARING on the card first; a failure keeps the old scene and is shown
+  on the card and as a banner; nothing blocks a frame beyond the compile
+  that loading already costs.
+- **Preview stays, out of the main flow.** The Load and Preview buttons
+  over the selected card are gone. *Preview without loading* is in the
+  card's "..." menu (also its right-click menu) and in the palette
+  (`Preview: name`); the preview card above the grid keeps *Load this
+  scene*. On the live card the menu offers *Reload from disk*, which was
+  the selected live card's button. Enter in the search field still loads the
+  highlighted scene.
+- **The library view has two pages, Scenes and Controls**
+  (`browser::LibraryPage`, saved in `ui.toml` as `library_page`). A
+  segmented switch (`widgets::segmented`) sits at the top of the main
+  view; on the Scenes page the library's toolbar shares its row when the
+  view is 560 points wide or more, and takes the next row below that. The
+  Controls page is `inspector::show` with `Part::Page`: the same groups,
+  rows, pin menus, default and random, script state and meta section as the
+  side panel's Controls tab, laid out in up to three columns (one per 340
+  points, each group to the shortest column, from a fixed array) and drawn
+  at `controls::Scale::Touch` (32-point rails with a thicker track and
+  handle, 48x26 switches, 40-point bangs, an XY pad up to 280 wide, a
+  56x30 colour swatch). No control logic is duplicated: `controls::rows`
+  takes the scale.
+- **The side panel keeps the preview and the output's state in view** and
+  does not draw the same controls twice: while the main view is the
+  Controls page and the panel is docked beside it, its Controls tab is
+  dimmed and the panel shows Presets in its place (without changing the
+  saved tab). A drawer covers the main view, so a drawer keeps its Controls
+  tab.
+- **Flipping is one key.** `toggle_controls_view`, "Switch Scenes /
+  Controls", default **Ctrl+L**, Navigation, in the palette like every
+  command and rebindable in Settings > Keyboard. On the library it flips
+  the page; from any other main view it opens the library on Controls.
+  Not mappable to a controller (a presentation command, like Ctrl+F).
+  A plain letter was rejected because a command's key silently shadows a
+  macro bound to the same key; Tab is egui's focus traversal.
+- **Remote desktop passes gain nothing.** A click on a card from a remote
+  pass is the `Action::Load` it already was (not host-only, D275), and the
+  switch is presentation state only.
+
+**Smaller fixes from the same pass.** The colour control's swatch had
+zero width (the theme sets `interact_size.x` to 0 and egui sizes the swatch
+by it), so it could not be clicked in the panel or the macro strip; it is
+`controls::swatch` now, sized and outlined so black reads as a swatch. The
+macro strip's XY button opens the Controls page rather than the side panel
+on whatever tab it had. The title crumb names the rail's views (PLAY,
+SCENES, CONTROLS) instead of PERFORM and LIBRARY; empty states say "click"
+rather than "load", centre each wrapped line, and the empty library's
+buttons sit under its words; the narrow filter row wraps instead of cutting
+off the health menu at 320 points; the meta section's chevron points down
+while it is open.
+
+**Tests.** `one_click_on_a_card_makes_it_live_and_a_double_click_is_still_one_load`,
+`enter_on_a_focused_card_makes_it_live`,
+`the_library_flips_between_scenes_and_controls_by_switch_key_and_palette`,
+`the_controls_page_draws_the_controls_once_with_the_preview_beside_them`,
+the page's preference round trip, and five new scenarios (the Controls page
+with and without a scene, compact, with the panel collapsed, and a focused
+card) through the overflow, BLACKOUT and text-over-text tests at every size.
+
+**Would reopen:** the owner wanting a preview step back in the main flow,
+the controls wanted beside the grid rather than instead of it, or Ctrl+L
+clashing with something an operator relies on.
