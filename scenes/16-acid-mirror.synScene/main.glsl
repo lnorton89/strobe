@@ -1,10 +1,15 @@
 // Acid Mirror: original procedural interpretation of the owner's mirrored
 // liquid-paint video (https://www.youtube.com/watch?v=DE5lQ1FN8zY).
 //
-// Three passes, as TouchDesigner does it: a DOUBLE_BUFFER feedback pass
+// Four passes, as TouchDesigner does it: a DOUBLE_BUFFER feedback pass
 // advects paint along a divergence-free flow and injects fresh paint; a
 // one-texel clock pass supplies a real frame delta; the final pass mirrors the
-// left half of the feedback buffer and lights it as glossy enamel.
+// left half of the feedback buffer and lights it as glossy enamel. The paint
+// is injected from noise fields; the three broad ones (the ink mask, the
+// accent bands and the dye lines, about 70% of the noise arithmetic) are
+// evaluated first, in a pass at half the feedback buffer's size, and the
+// feedback pass reads them back with bilinear filtering and applies the sharp
+// thresholds itself. The finer colour-band and grain noise stay at full size.
 //
 // The buffer stores only scalars, so no grey mush when paint smears:
 //   r = colour index along the acid palette (0..1, never wraps),
@@ -32,15 +37,19 @@ float pingPong(float x) { return 1.0 - abs(1.0 - 2.0 * fract(x * 0.5)); }
 // Acid path: greens and lemon dominate, then amber, magenta, violet,
 // cobalt and cyan streaks, and back to green.
 vec3 acidPalette(float x) {
+    // The eight blends cover disjoint ranges of x, so each earlier one is
+    // already 1 and each later one still 0 wherever a blend is in progress:
+    // the chain of mixes is the first colour plus each blend's weight times
+    // its step, which is the same arithmetic with one multiply-add per stop.
     vec3 c = vec3(0.05, 0.92, 0.10);
-    c = mix(c, vec3(0.00, 1.00, 0.45), smoothstep(0.00, 0.12, x));
-    c = mix(c, vec3(0.62, 1.00, 0.02), smoothstep(0.12, 0.26, x));
-    c = mix(c, vec3(1.00, 0.88, 0.00), smoothstep(0.26, 0.38, x));
-    c = mix(c, vec3(1.00, 0.10, 0.70), smoothstep(0.38, 0.50, x));
-    c = mix(c, vec3(0.50, 0.08, 1.00), smoothstep(0.50, 0.58, x));
-    c = mix(c, vec3(0.02, 0.30, 1.00), smoothstep(0.58, 0.66, x));
-    c = mix(c, vec3(0.00, 0.92, 1.00), smoothstep(0.66, 0.74, x));
-    c = mix(c, vec3(0.05, 0.92, 0.10), smoothstep(0.74, 0.88, x));
+    c += smoothstep(0.00, 0.12, x) * vec3(-0.05, 0.08, 0.35);
+    c += smoothstep(0.12, 0.26, x) * vec3(0.62, 0.00, -0.43);
+    c += smoothstep(0.26, 0.38, x) * vec3(0.38, -0.12, -0.02);
+    c += smoothstep(0.38, 0.50, x) * vec3(0.00, -0.78, 0.70);
+    c += smoothstep(0.50, 0.58, x) * vec3(-0.50, -0.02, 0.30);
+    c += smoothstep(0.58, 0.66, x) * vec3(-0.48, 0.22, 0.00);
+    c += smoothstep(0.66, 0.74, x) * vec3(-0.02, 0.62, 0.00);
+    c += smoothstep(0.74, 0.88, x) * vec3(0.05, 0.00, -0.90);
     return c;
 }
 
@@ -65,15 +74,27 @@ vec2 flowVel(vec2 p, float t) {
 
 // ---------------------------------------------------------------- paint
 
+// The broad noise fields behind the paint, at p: .x the ink mask noise, .y the
+// accent noise and .z the dye-line noise. Evaluated at a quarter of the
+// feedback buffer's pixels.
+vec4 sourceFields(vec2 p, float t) {
+    vec2 q = p * scale;
+    float n = _fbm(vec3(q * 1.8, t * 0.11), 3.0);
+    float accent = _fbm(q * 2.6 + vec2(7.0, -t * 0.08), 2.0);
+    float h1 = _fbm(q * 4.5 + vec2(t * 0.03, 11.0), 2.0);
+    return vec4(n, accent, h1, 0.0);
+}
+
 // What the world wants this frame at p. Ink (g) is added where a slow noise is
 // high and carved where it is low, so paint flowing into a void is cut off
 // and the black stays black. Dye sources are fixed in space while the flow
 // moves through them, so they trail off downstream as long streaks.
-void paintSource(vec2 p, float t, out float s, out float add, out float cut,
+// f holds the noise fields from sourceFields.
+void paintSource(vec2 p, float t, vec4 f, out float s, out float add, out float cut,
                  out float acc, out float vein) {
     float kick = clamp(syn_BassHits, 0.0, 1.0) * reactivity;
     vec2 q = p * scale;
-    float n = _fbm(vec3(q * 1.8, t * 0.11), 3.0);
+    float n = f.x;
     float thr = 0.44 - (ink - 0.5) * 0.16;
     add = smoothstep(thr, thr + 0.06, n);
     cut = 1.0 - smoothstep(thr - 0.07, thr, n);
@@ -82,14 +103,13 @@ void paintSource(vec2 p, float t, out float s, out float add, out float cut,
     // Banded colour: contours of a warped noise, mostly greens and lemon,
     // with accent colours where a second noise peaks.
     float c = _fbm(q * 3.4 + vec2(n * 2.0, -t * 0.06), 3.0);
-    float accent = _fbm(q * 2.6 + vec2(7.0, -t * 0.08), 2.0);
+    float accent = f.y;
     s = 0.22 * pingPong(c * 7.0 + 0.5 * n);
     s = mix(s, 0.34 + 0.6 * pingPong(c * 4.0), smoothstep(0.53, 0.62, accent));
     s += 0.12 * kick;
 
     // Thin dye lines (accent colour) and ink-black veins.
-    float h1 = _fbm(q * 4.5 + vec2(t * 0.03, 11.0), 2.0);
-    acc = (1.0 - smoothstep(0.0, 0.03, abs(h1 - 0.5))) * detail;
+    acc = (1.0 - smoothstep(0.0, 0.03, abs(f.z - 0.5))) * detail;
     // Fine grain that the flow combs into directional streaks.
     vein = _noise(q * 15.0 + vec2(t * 0.07, 23.0));
 
@@ -111,15 +131,35 @@ void paintSource(vec2 p, float t, out float s, out float add, out float cut,
     acc *= 1.0 - pens;
 }
 
-vec4 paintPass() {
+// The flow time and frame delta the feedback pass and the source fields both
+// use: both run before the clock pass, so they read last frame's clock. A
+// cleared clock (first frame, or a resize) restarts at the scene time, as the
+// clock pass will this frame.
+float flowTime(out float dt) {
     vec4 clk = texelFetch(clock, ivec2(0), 0);
-    float dt = stepDt(clk.x);
-    float rate = flowRate();
-    // A cleared clock (first frame, or a resize) restarts at the scene time,
-    // as the clock pass will this frame.
-    float T = (clk.x > 0.0) ? clk.y + dt * rate : TIME * rate;
+    dt = stepDt(clk.x);
+    return (clk.x > 0.0) ? clk.y + dt * flowRate() : TIME * flowRate();
+}
+
+// A pixel's place in screen heights, centred on the axis, for a pass whose
+// target holds the left half of the picture.
+vec2 leftHalfPos() {
     float A = 2.0 * RENDERSIZE.x / RENDERSIZE.y;
-    vec2 pc = (vec2(_uv.x * 0.5, _uv.y) - 0.5) * vec2(A, 1.0);
+    return (vec2(_uv.x * 0.5, _uv.y) - 0.5) * vec2(A, 1.0);
+}
+
+vec4 sourcesPass() {
+    float dt;
+    float T = flowTime(dt);
+    return sourceFields(leftHalfPos(), T);
+}
+
+vec4 paintPass() {
+    float dt;
+    float T = flowTime(dt);
+    float rate = flowRate();
+    float A = 2.0 * RENDERSIZE.x / RENDERSIZE.y;
+    vec2 pc = leftHalfPos();
 
     // Semi-Lagrangian advection with a midpoint step.
     float k = dt * rate * 0.22 * swirl;
@@ -146,7 +186,7 @@ vec4 paintPass() {
 
     float frames = dt * 60.0;
     float ss, add, cut, acs, vns;
-    paintSource(pc, T, ss, add, cut, acs, vns);
+    paintSource(pc, T, texture(sourcesBuf, _uv), ss, add, cut, acs, vns);
     // A cleared buffer (the first frame, or a resize or render-scale change
     // reallocating it) reads all zeros, which written paint never is (the
     // grain is never exactly 0): take the sources whole, so the picture is
@@ -208,9 +248,15 @@ vec4 finalPass() {
     vec3 light = normalize(vec3(-0.45, 0.55, 0.7));
     float diff = max(dot(n, light), 0.0);
     vec3 refl = reflect(-light, n);
-    float spec = pow(max(refl.z, 0.0), 48.0);
-    float sheen = pow(max(refl.z, 0.0), 6.0);
-    float rim = pow(1.0 - n.z, 2.0);
+    // Fixed integer powers by repeated squaring, not exp2(log2).
+    float rz = max(refl.z, 0.0);
+    float rz2 = rz * rz;
+    float rz4 = rz2 * rz2;
+    float rz8 = rz4 * rz4;
+    float rz16 = rz8 * rz8;
+    float spec = rz16 * rz16 * rz16;
+    float sheen = rz4 * rz2;
+    float rim = (1.0 - n.z) * (1.0 - n.z);
 
     float idx = pingPong(s * bands + hue - 0.06 + 1.7 * detail * (c.a - 0.5) + 0.15 * n.x * relief + 0.45 * smoothstep(0.3, 0.75, c.b));
     vec3 col = acidPalette(idx);
@@ -231,10 +277,12 @@ vec4 finalPass() {
     float hw = max(length(vec2(sE.z - sW.z, sN.z - sS.z)) * 0.4, 1e-4);
     float dl = abs(fract(hv) - 0.5) / hw;
     float line = (1.0 - smoothstep(0.6, 1.4, dl)) * (1.0 - smoothstep(0.18, 0.4, hw));
-    float k = floor(hv);
-    vec3 lineCol = acidPalette(0.40 + 0.34 * fract(k * 0.618034));
-    lineCol = mix(lineCol, vec3(1.0), step(0.78, fract(k * 0.371)));
-    col = mix(col, lineCol * (0.55 + 0.6 * diff), line * streaks * smoothstep(0.55, 0.8, d));
+    if (line > 0.0) {
+        float k = floor(hv);
+        vec3 lineCol = acidPalette(0.40 + 0.34 * fract(k * 0.618034));
+        lineCol = mix(lineCol, vec3(1.0), step(0.78, fract(k * 0.371)));
+        col = mix(col, lineCol * (0.55 + 0.6 * diff), line * streaks * smoothstep(0.55, 0.8, d));
+    }
 
     // A thin dark rim at the edge of the paint, then a crisp cut to black.
     col *= 0.3 + 0.7 * smoothstep(0.5, 0.6, d);
@@ -244,7 +292,8 @@ vec4 finalPass() {
 }
 
 vec4 renderMain(void) {
-    if (PASSINDEX == 0) { return paintPass(); }
-    if (PASSINDEX == 1) { return clockPass(); }
+    if (PASSINDEX == 0) { return sourcesPass(); }
+    if (PASSINDEX == 1) { return paintPass(); }
+    if (PASSINDEX == 2) { return clockPass(); }
     return finalPass();
 }
