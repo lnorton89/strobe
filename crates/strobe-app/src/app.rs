@@ -1540,7 +1540,6 @@ impl Running {
             on_output,
             rebuilding: self.rebuild.is_some(),
             control_minimized: control.is_minimized() == Some(true),
-            control_unseen: self.control_unseen(),
             output_fills_control_monitor: self.output_visible
                 && output.fullscreen().is_some()
                 && output
@@ -5002,9 +5001,6 @@ struct CloseFacts {
     rebuilding: bool,
     /// The control window is minimised.
     control_minimized: bool,
-    /// The control window is judged covered, or Windows is not painting it
-    /// ([`Running::control_unseen`], D290).
-    control_unseen: bool,
     /// The output is shown fullscreen on the control window's monitor, so
     /// it is in front of the control window whatever focus says.
     output_fills_control_monitor: bool,
@@ -5012,15 +5008,16 @@ struct CloseFacts {
 
 /// Whether a close request quits the app (D298). Closing the output only
 /// hides it while the operator can reach the control window to quit from
-/// there. When nobody can (a fullscreen output over it, a minimised or
-/// unpainted control window) the request is someone asking Strobe to stop,
-/// such as `taskkill` at the end of a show, and it quits; the resume point
-/// is saved on the way out.
+/// there. When nobody can (a fullscreen output over it, or a minimised
+/// control window) the request is someone asking Strobe to stop, such as
+/// `taskkill` at the end of a show, and it quits; the resume point is saved
+/// on the way out. A control window Windows has stopped painting (D290) is
+/// not reason enough: that happens beside a windowed output too, where the
+/// operator can still see it and its close button.
 fn closing_quits(facts: CloseFacts) -> bool {
     !facts.on_output
         || facts.rebuilding
         || facts.control_minimized
-        || facts.control_unseen
         || facts.output_fills_control_monitor
 }
 
@@ -5535,7 +5532,6 @@ mod tests {
             on_output: true,
             rebuilding: false,
             control_minimized: false,
-            control_unseen: false,
             output_fills_control_monitor: false,
         };
         assert!(
@@ -5565,13 +5561,6 @@ mod tests {
                 ..reachable
             }),
             "a fullscreen output over the control window quits"
-        );
-        assert!(
-            closing_quits(CloseFacts {
-                control_unseen: true,
-                ..reachable
-            }),
-            "a covered or unpainted control window (D290) cannot be closed by hand either"
         );
         assert!(
             closing_quits(CloseFacts {

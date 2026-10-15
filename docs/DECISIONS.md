@@ -7194,9 +7194,10 @@ seconds of resume point (D155).
 **Decision.** A close request on the output quits, exactly as one on the
 control window does, when the control window cannot be reached to quit from:
 the output is shown fullscreen on the control window's monitor (by geometry,
-not focus), the control window is minimised, or it is unseen (covered, or
-Windows has stopped painting it, D290). Otherwise it hides the output, as
-before. Quitting goes through the normal exit, so the playlist's resume point
+not focus), or the control window is minimised. Otherwise it hides the
+output, as before. A control window that Windows has stopped painting (D290)
+does not count: that can happen beside a windowed output on another monitor,
+where the operator still sees the control window and can quit from it. Quitting goes through the normal exit, so the playlist's resume point
 is written and the writer thread joined (`Show::finish`). The rule is
 `closing_quits`, a pure function over the facts the event handler gathers, so
 it is tested without a window.
