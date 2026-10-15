@@ -17,6 +17,8 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - a controller id for a laptop and the Host header a trusted proof binds to ([`3196ef4`](https://github.com/lnorton89/strobe/commit/3196ef4bf8b496ca92640b48ea7449a7ac0e6b00))
 - **app:** --audio ambient, the synthetic track without its beat ([`ac94a3c`](https://github.com/lnorton89/strobe/commit/ac94a3cc5ddf8da8804993cb918f47e5346a724d))
 - **app:** one click on a scene card makes it live, and LIB flips between Scenes and Controls ([`f400de0`](https://github.com/lnorton89/strobe/commit/f400de000dd442a319cd2f53eb7ad0a6420e9134))
+- **bench:** --probe finds the size where a driver drops work, --window-size bisects the drawable (D289) ([`958ebca`](https://github.com/lnorton89/strobe/commit/958ebca5495f3110bb8a17c07bdccc03f41e7969))
+- **gfx:** STROBE_GL_TRACE records where the renderer draws, and a test pins that it never uses framebuffer 0 (D289) ([`403d2da`](https://github.com/lnorton89/strobe/commit/403d2da52846dfed42f3941a44a5aabf3e83f0d1))
 - **app:** venue mode launch flags and trust file on the host ([`c9eed9b`](https://github.com/lnorton89/strobe/commit/c9eed9b730571074c3b2cf884012e725f9e4efa0))
 - **remote:** trusted pairing over the WebSocket protocol ([`2337d78`](https://github.com/lnorton89/strobe/commit/2337d78d0ffe287ddd52147e750e42803f7aec13))
 - **remote:** trust file and HMAC-SHA256 challenge-response for venue mode ([`2b19e43`](https://github.com/lnorton89/strobe/commit/2b19e43672c82784a3c9f73cbf19f2d6a7c497d6))
@@ -36,6 +38,8 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **gfx:** an offscreen window reports the size it was given, not the size asked ([`20edd15`](https://github.com/lnorton89/strobe/commit/20edd156298b0ebc8ddcbbb38ed9329879932885))
+- **bench:** --probe reads a float target through an RGBA8 copy on GLES ([`9e4e1a5`](https://github.com/lnorton89/strobe/commit/9e4e1a5626953a62d82b6e28632075b8e3a50e41))
 - a trust file that cannot be read brings up the form instead of failing silently ([`5b1dac6`](https://github.com/lnorton89/strobe/commit/5b1dac6826af36a7484ef178196147e9f9b49686))
 - a trusted controller restarts its backoff only after a frame, not on pairing ([`102f796`](https://github.com/lnorton89/strobe/commit/102f79669d6cbf21e81ed77975da7040c6f543a9))
 - **gfx:** upload texture rows tightly packed, not at GL's 4-byte alignment ([`971b694`](https://github.com/lnorton89/strobe/commit/971b6945d9c88d52a48ed1e25fc02928c09b545d))
@@ -74,7 +78,8 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Documentation
 
-- **minipc:** the first JaJa PDX show, four hours with no crash restarts ([`9267e0c`](https://github.com/lnorton89/strobe/commit/9267e0caa70bc1e0b0528799b05151f7889eab0a))
+- keep the mini-PC probe's stdout, and state the trace's real cost (D296) ([`cc40cf8`](https://github.com/lnorton89/strobe/commit/cc40cf81fecf44f0786d2fa0ca408e3737a8ee75))
+- **minipc:** the first JaJa PDX show, four hours with no crash restarts ([`08375c2`](https://github.com/lnorton89/strobe/commit/08375c2d6c924ebe6e33e3d6488edaff34288a8b))
 - Linux as a documented platform, with a check script (D294) ([`2b4d009`](https://github.com/lnorton89/strobe/commit/2b4d009d573265864acbe97f1f1bd3e2e8435969))
 - --audio ambient in the user guide ([`fdcb76a`](https://github.com/lnorton89/strobe/commit/fdcb76a2600197ce212167a6a374ffad2b79ac06))
 - D294, the laptop side of venue mode, in the guide, roadmap and audit ([`5f09af9`](https://github.com/lnorton89/strobe/commit/5f09af93ef6ab4cf83ed234c68dfce699bb41875))
@@ -84,6 +89,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - move the G-03 front-end research under docs/research ([`43ccdd3`](https://github.com/lnorton89/strobe/commit/43ccdd3399c2b109d4b57ae69645ea09fdf80c50))
 - D290 keeps the swap wait for a driven window and corrects a rejected option ([`50062a0`](https://github.com/lnorton89/strobe/commit/50062a0b1736eb21a2a3c2baf5b04140abd422be))
 - D290, the mini PC's control window starved of paints, and the hotfix verification ([`bf2568c`](https://github.com/lnorton89/strobe/commit/bf2568ccf419ededb905a74cfd63889c40d8becd))
+- D289, the AMD black-above-160x90 audit and the mini-PC diagnostic run ([`1a80ade`](https://github.com/lnorton89/strobe/commit/1a80ade30572d9c7848b3712674ca6904d4994c1))
 - D288 venue mode, user guide, roadmap and status audit ([`bcdf95f`](https://github.com/lnorton89/strobe/commit/bcdf95f7c1c10d259843229487d62c52c7397555))
 - D287 restarts a kept pass that a restarted pass reads ([`9d559fd`](https://github.com/lnorton89/strobe/commit/9d559fd26279cb0f8fa855273769bc88e7d122e9))
 - D287, a resize keeps the passes whose size it does not change ([`03c8e77`](https://github.com/lnorton89/strobe/commit/03c8e7743032b37eaa307515faa83e85f573ae7e))
