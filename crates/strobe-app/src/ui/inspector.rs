@@ -33,6 +33,13 @@
 //! this draws from the scene's title down. *Controls* is the script's state
 //! and the groups; *Edit* is the scene's tags and picture, its media,
 //! Generate controls, and the button to the Editor.
+//!
+//! It also draws the library view's **Controls page** (D291), [`Part::Page`]:
+//! the same groups, the same widgets and the same writes as the Controls
+//! tab, laid out for the main view. The groups flow into as many columns as
+//! [`PAGE_COLUMN`] fits (at most [`PAGE_COLUMNS_MAX`]), each to the
+//! shortest column so far, and the rows are drawn at
+//! [`controls::Scale::Touch`].
 
 use super::controls;
 use super::icon as icons;
@@ -56,6 +63,23 @@ pub enum Part {
     /// The Edit tab: the scene's tags and picture, its media, Generate
     /// controls, and the way to the Editor.
     Edit,
+    /// The library view's Controls page (D291): what the Controls tab
+    /// shows, in columns and at touch size.
+    Page,
+}
+
+/// The width one column of the Controls page aims for.
+pub const PAGE_COLUMN: f32 = 340.0;
+
+/// The most columns the Controls page uses.
+pub const PAGE_COLUMNS_MAX: usize = 3;
+
+/// How many columns of groups the Controls page has at `width`.
+pub fn page_columns(width: f32) -> usize {
+    if !width.is_finite() || width <= 0.0 {
+        return 1;
+    }
+    ((width / PAGE_COLUMN).floor() as usize).clamp(1, PAGE_COLUMNS_MAX)
 }
 
 /// Draws the tab's contents.
@@ -67,13 +91,23 @@ pub fn show(
     part: Part,
 ) {
     let has_scene = model.controls.is_some();
+    let page = part == Part::Page;
+    let scale = if page {
+        controls::Scale::Touch
+    } else {
+        controls::Scale::Panel
+    };
 
     // Everything scrolls as one, so a short window (a drawer at 150% on a
     // small laptop, U-09) still reaches every control rather than losing
     // them under the scene's tags.
     let mut chosen_pins = (None, None);
     egui::ScrollArea::vertical()
-        .id_salt("inspector-scroll")
+        .id_salt(if page {
+            "controls-page-scroll"
+        } else {
+            "inspector-scroll"
+        })
         .auto_shrink([false, false])
         .show(ui, |ui| {
             if has_scene {
@@ -86,10 +120,16 @@ pub fn show(
                     } else {
                         model.scene_title
                     };
+                    // The page's title is as large as a card's: the live
+                    // scene is what the page is about.
+                    let mut font = egui::TextStyle::Body.resolve(ui.style());
+                    if page {
+                        font.size += 3.0;
+                    }
                     let galley = widgets::truncated(
                         ui,
                         title,
-                        egui::TextStyle::Body.resolve(ui.style()),
+                        font,
                         theme.text,
                         (ui.available_width() - 36.0).max(40.0),
                     );
@@ -168,8 +208,8 @@ pub fn show(
                         theme,
                         Icon::Editor,
                         "No scene playing",
-                        "Tags, picture, media and the Editor belong to the playing scene. Load \
-                         one from the library.",
+                        "Tags, picture, media and the Editor belong to the playing scene. Click \
+                         one in the library to make it live.",
                     );
                 }
                 return;
@@ -202,6 +242,7 @@ pub fn show(
                         ui_state,
                         &mut scene_pins,
                         &mut meta_pins,
+                        scale,
                     );
                 }
                 Some(_) => {
@@ -213,7 +254,7 @@ pub fn show(
                         "It plays as authored. Generate controls makes a copy with some.",
                     );
                     if let Some(meta) = meta {
-                        meta_section(ui, theme, meta, ui_state, &mut meta_pins);
+                        meta_section(ui, theme, meta, ui_state, &mut meta_pins, scale);
                     }
                 }
                 None => widgets::empty_state(
@@ -221,7 +262,13 @@ pub fn show(
                     theme,
                     Icon::Library,
                     "No scene playing",
-                    "Open the scene library and load one to see its controls.",
+                    if page {
+                        "Pick one in Scenes, above: a click makes it live, and its controls \
+                         appear here."
+                    } else {
+                        "Click a scene in the library to make it live; its controls appear \
+                         here."
+                    },
                 ),
             }
             chosen_pins = (scene_pins.chosen.take(), meta_pins.chosen.take());
@@ -674,6 +721,10 @@ fn script_status(ui: &mut Ui, theme: &Palette, state: &ScriptState) {
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one call site; the bank, its meta bank, the state and the pins are each needed"
+)]
 fn groups(
     ui: &mut Ui,
     theme: &Palette,
@@ -682,37 +733,54 @@ fn groups(
     state: &mut super::state::UiState,
     pins: &mut controls::Pins<'_>,
     meta_pins: &mut controls::Pins<'_>,
+    scale: controls::Scale,
 ) {
     let groups = controls::group_order(bank.defs());
     // The pane's one scroll area is around everything below its header.
     ui.scope(|ui| {
-        for (group, members) in groups {
-            match group {
-                None => controls::rows(ui, theme, bank, &members, Some(&mut *pins)),
-                Some(name) => {
-                    let collapsed = state.is_collapsed(&name);
-                    match group_header(ui, theme, &name, collapsed, members.len()) {
-                        HeaderAction::None => {}
-                        HeaderAction::Toggle => state.set_collapsed(&name, !collapsed),
-                        HeaderAction::Default => {
-                            for &index in &members {
-                                bank.set_default(index);
-                            }
-                        }
-                        HeaderAction::Random => {
-                            for &index in &members {
-                                bank.randomize(index, || state.random_unit());
-                            }
-                        }
+        let columns = match scale {
+            controls::Scale::Touch => page_columns(ui.available_width()),
+            controls::Scale::Panel => 1,
+        };
+        if columns > 1 {
+            // Each group goes to the column with the fewest rows so far: a
+            // fixed array, so the layout allocates nothing.
+            ui.columns(columns, |cols| {
+                let mut load = [0_usize; PAGE_COLUMNS_MAX];
+                for (name, members) in &groups {
+                    let slot = (0..columns)
+                        .min_by_key(|c| load.get(*c).copied().unwrap_or(usize::MAX))
+                        .unwrap_or(0);
+                    if let Some(rows) = load.get_mut(slot) {
+                        *rows += members.len() + 1;
                     }
-                    if !collapsed {
-                        ui.indent(("group", &name), |ui| {
-                            controls::rows(ui, theme, bank, &members, Some(&mut *pins));
-                        });
+                    if let Some(col) = cols.get_mut(slot) {
+                        group(
+                            col,
+                            theme,
+                            bank,
+                            state,
+                            pins,
+                            name.as_deref(),
+                            members,
+                            scale,
+                        );
                     }
                 }
+            });
+        } else {
+            for (name, members) in &groups {
+                group(
+                    ui,
+                    theme,
+                    bank,
+                    state,
+                    pins,
+                    name.as_deref(),
+                    members,
+                    scale,
+                );
             }
-            ui.add_space(SPACE_SM);
         }
         // Bangs are left alone by default and random; say so once, near
         // the end, only if the scene has any.
@@ -728,9 +796,53 @@ fn groups(
             );
         }
         if let Some(meta) = meta {
-            meta_section(ui, theme, meta, state, meta_pins);
+            meta_section(ui, theme, meta, state, meta_pins, scale);
         }
     });
+}
+
+/// One group: its header (none for the ungrouped controls, `name` `None`)
+/// and, unless collapsed, its rows.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a group's whole context; both layouts call it the same way"
+)]
+fn group(
+    ui: &mut Ui,
+    theme: &Palette,
+    bank: &mut ControlBank,
+    state: &mut super::state::UiState,
+    pins: &mut controls::Pins<'_>,
+    name: Option<&str>,
+    members: &[usize],
+    scale: controls::Scale,
+) {
+    match name {
+        None => controls::rows(ui, theme, bank, members, Some(&mut *pins), scale),
+        Some(name) => {
+            let collapsed = state.is_collapsed(name);
+            match group_header(ui, theme, name, collapsed, members.len()) {
+                HeaderAction::None => {}
+                HeaderAction::Toggle => state.set_collapsed(name, !collapsed),
+                HeaderAction::Default => {
+                    for &index in members {
+                        bank.set_default(index);
+                    }
+                }
+                HeaderAction::Random => {
+                    for &index in members {
+                        bank.randomize(index, || state.random_unit());
+                    }
+                }
+            }
+            if !collapsed {
+                ui.indent(("group", name), |ui| {
+                    controls::rows(ui, theme, bank, members, Some(&mut *pins), scale);
+                });
+            }
+        }
+    }
+    ui.add_space(SPACE_SM);
 }
 
 /// The output-wide meta controls (master, colour, mirror, audio gains),
@@ -743,17 +855,20 @@ fn meta_section(
     meta: &mut ControlBank,
     state: &mut super::state::UiState,
     pins: &mut controls::Pins<'_>,
+    scale: controls::Scale,
 ) {
     const NAME: &str = "Output (meta)";
     let collapsed = state.is_collapsed(NAME);
     ui.separator();
     ui.horizontal(|ui| {
-        let label = if collapsed {
-            "Output (meta): show"
+        // The chevron points the way the group headers' do: right while
+        // closed, down while open.
+        let (chevron, label) = if collapsed {
+            (Icon::ChevronRight, "Output (meta): show")
         } else {
-            "Output (meta): hide"
+            (Icon::ChevronDown, "Output (meta): hide")
         };
-        if widgets::button(ui, theme, Some(Icon::ChevronRight), label)
+        if widgets::button(ui, theme, Some(chevron), label)
             .on_hover_text("Master, colour, mirror and audio gains for the whole output")
             .clicked()
         {
@@ -779,7 +894,7 @@ fn meta_section(
                     .color(theme::rgb(theme.text_faint)),
             );
         }
-        controls::rows(ui, theme, meta, &members, Some(&mut *pins));
+        controls::rows(ui, theme, meta, &members, Some(&mut *pins), scale);
         ui.add_space(SPACE_XS);
     }
 }

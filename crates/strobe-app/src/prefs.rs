@@ -141,6 +141,9 @@ pub struct Prefs {
     /// The side panel's tab (D283): `controls`, `playlist` or `presets`.
     /// Empty means the default.
     pub side_tab: String,
+    /// The library view's page (D291): `scenes` or `controls`. Empty means
+    /// the default, the scenes.
+    pub library_page: String,
     /// Synesthesia's own scenes in the library (D271).
     pub synesthesia: SynesthesiaPref,
 }
@@ -289,6 +292,7 @@ impl Prefs {
             layouts: BTreeMap::new(),
             watch: WatchPref::default(),
             side_tab: String::new(),
+            library_page: String::new(),
             synesthesia: SynesthesiaPref::default(),
         }
     }

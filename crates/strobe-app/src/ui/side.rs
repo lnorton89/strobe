@@ -48,6 +48,13 @@
 //! The panel is [`Pane::Inspector`](crate::workspace::Pane::Inspector) in
 //! the pane model: open, it is docked or a drawer; closed, the shell draws a
 //! handle strip that reopens it. The tab is the operator's and is saved.
+//!
+//! While the main view is the library on its Controls page (D291) and the
+//! panel is docked beside it, the controls are there, large, and the panel
+//! does not draw them twice: its Controls tab is dimmed and, if it was the
+//! chosen one, the panel shows Presets until the main view goes back to
+//! Scenes. The saved choice is not changed. A drawer covers the main view,
+//! so it keeps its Controls tab.
 
 use super::chrome::Readouts;
 use super::icon as icons;
@@ -146,13 +153,15 @@ const TIGHT: f32 = 300.0;
 /// Below this panel width the tabs are icons alone.
 const LABELLED: f32 = 400.0;
 
-/// Draws the panel's contents.
+/// Draws the panel's contents. `docked` is whether the panel sits beside
+/// the main view rather than over it as a drawer.
 pub fn show(
     ui: &mut Ui,
     model: &mut Model<'_>,
     readouts: &Readouts,
     theme: &Palette,
     actions: &mut Vec<Action>,
+    docked: bool,
 ) {
     // The fav slots sit above the tabs, in reach from every tab, while the
     // panel is tall enough to keep room for the tab's body; in a shorter
@@ -171,9 +180,18 @@ pub fn show(
         presets::fav_row(ui, model, theme, actions);
         ui.add_space(SPACE_XS);
     }
-    tab_bar(ui, model, theme);
+    // The controls are in the main view beside the panel: it shows the
+    // presets rather than the same controls again (D291). A drawer covers
+    // the main view, so it keeps its own Controls tab.
+    let controls_in_main = docked && model.ui.controls_in_main();
+    let shown = if controls_in_main && model.ui.side_tab == SideTab::Controls {
+        SideTab::Presets
+    } else {
+        model.ui.side_tab
+    };
+    tab_bar(ui, model, theme, shown, controls_in_main);
     ui.add_space(SPACE_SM);
-    match model.ui.side_tab {
+    match shown {
         SideTab::Playlist => playlist_tab(ui, model, theme, actions),
         SideTab::Controls => inspector::show(ui, model, theme, actions, inspector::Part::Controls),
         SideTab::Presets => presets_tab(ui, model, theme, actions, !favs_above),
@@ -346,10 +364,17 @@ pub fn audio_level(rms: f32) -> f32 {
     ((db + 60.0) / 60.0).clamp(0.0, 1.0)
 }
 
-/// The tab bar: icon tabs in equal cells, the chosen one a filled tile with
-/// an accent underline. The names are in the tooltips, and beside the icons
-/// when the panel is wide enough for them.
-fn tab_bar(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette) {
+/// The tab bar: icon tabs in equal cells, the `shown` one a filled tile
+/// with an accent underline. The names are in the tooltips, and beside the
+/// icons when the panel is wide enough for them. With `controls_in_main`
+/// the Controls tab is dimmed: the main view has them (D291).
+fn tab_bar(
+    ui: &mut Ui,
+    model: &mut Model<'_>,
+    theme: &Palette,
+    shown: SideTab,
+    controls_in_main: bool,
+) {
     let width = ui.available_width();
     let labelled = width >= LABELLED;
     let cell = width / SideTab::ALL.len() as f32;
@@ -361,9 +386,14 @@ fn tab_bar(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette) {
             Vec2::new(cell, rect.height()),
         );
         let id = egui::Id::new(("side-tab", tab.key()));
-        let response =
-            super::help::hovered(ui.interact(cell_rect, id, Sense::click()), tab.tooltip());
-        let active = model.ui.side_tab == tab;
+        let elsewhere = controls_in_main && tab == SideTab::Controls;
+        let tooltip = if elsewhere {
+            "Controls: shown large in the main view now. Switch it to Scenes to have them here."
+        } else {
+            tab.tooltip()
+        };
+        let response = super::help::hovered(ui.interact(cell_rect, id, Sense::click()), tooltip);
+        let active = shown == tab;
         let fill = widgets::hover_fill(
             ui,
             response.id,
@@ -375,6 +405,8 @@ fn tab_bar(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette) {
         painter.rect_filled(cell_rect, egui::CornerRadius::same(theme::RADIUS), fill);
         let colour = if active {
             theme.accent
+        } else if elsewhere {
+            theme.text_faint
         } else {
             theme.text_muted
         };
@@ -417,7 +449,7 @@ fn tab_bar(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette) {
                 theme::rgb(theme.accent),
             );
         }
-        if response.clicked() {
+        if response.clicked() && !elsewhere {
             chosen = Some(tab);
         }
     }
@@ -499,7 +531,7 @@ fn presets_tab(
             theme,
             Icon::Star,
             "No scene playing",
-            "Presets belong to a scene. Load one from the library.",
+            "Presets belong to a scene. Click one in the library to make it live.",
         );
         return;
     }

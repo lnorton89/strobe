@@ -135,7 +135,7 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
                     meta: model.meta.as_deref_mut(),
                     remote: &mut *model.remote.remote,
                     presets: model.remote.presets,
-                    panes: &mut model.ui.panes,
+                    view: &mut *model.ui,
                 },
                 actions,
             );
