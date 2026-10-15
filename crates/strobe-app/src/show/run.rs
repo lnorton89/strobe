@@ -68,8 +68,23 @@ use strobe_gfx::gl::Gl;
 use strobe_gfx::{Blend, Caps, Compositor, MediaRequest, Mouse};
 use strobe_playlist::{
     AudioEventKind, ClockConfig, ClockEvent, ClockState, Command, Playlist, PlaylistClock,
-    ResumePoint, SceneRef, SkipReason, Timeline, TimelineConfig, TransitionKind,
+    ResolvedCue, ResumePoint, SceneRef, SkipReason, Timeline, TimelineConfig, TransitionKind,
 };
+
+/// Whether `new` is the same authored cue as `old`, with the same look:
+/// what [`Show::prepare`] would apply is unchanged.
+fn same_cue(old: &ResolvedCue, new: &ResolvedCue) -> bool {
+    old.section == new.section
+        && old.cue == new.cue
+        && old.scene == new.scene
+        && old.preset == new.preset
+        && old.media == new.media
+        && old.overrides == new.overrides
+        && old.meta == new.meta
+}
+
+/// The longest real-time step one frame gives the playlist clock (D300).
+pub const MAX_WALL_STEP: f32 = 1.0;
 
 /// The size a parked scene's targets are cut down to.
 pub const PARKED: [i32; 2] = [1, 1];
@@ -153,6 +168,8 @@ pub struct FrameReport {
 /// The session being warmed.
 struct Warm {
     scene: SceneRef,
+    /// The cue whose settings it was prepared with.
+    index: usize,
     session: Session,
 }
 
@@ -200,6 +217,9 @@ pub struct Show {
     events: Vec<ClockEvent>,
     waiting: Option<f64>,
     resume_in: Option<ResumePoint>,
+    /// The cue that was live when the playlist was replaced, so the restore
+    /// can leave the live scene alone if the save did not change that cue.
+    carried: Option<ResolvedCue>,
     /// The point to restore is from an earlier version of this playlist.
     lenient: bool,
     writer: Option<ResumeWriter>,
@@ -268,6 +288,7 @@ impl Show {
             events: Vec::with_capacity(64),
             waiting: None,
             resume_in: resume,
+            carried: None,
             lenient: false,
             writer,
             save: SaveTimer::new(),
@@ -652,6 +673,9 @@ impl Show {
     /// restored once the new scenes are compiled.
     pub fn replace_playlist(&mut self, playlist: Playlist, library: &Library) {
         let point = self.clock.resume_point().or_else(|| self.resume_in.take());
+        if let Some(live) = self.clock.current_cue() {
+            self.carried = Some(live.resolved.clone());
+        }
         // Scenes in flight go back to the cache so they can be kept.
         if let Some(out) = self.outgoing.take() {
             self.park(out.scene, out.session);
@@ -680,21 +704,34 @@ impl Show {
 
     /// Runs one frame of the show: tick, react, render. Does nothing until
     /// the precompile is finished.
-    pub fn frame(&mut self, env: &mut Env<'_>, dt: f32) -> FrameReport {
+    ///
+    /// `dt` is the scenes' step, which the app clamps so a stall does not
+    /// fling their smoothed controls (`stats::MAX_DT`); `wall_dt` is the
+    /// real time since the last frame, which the playlist clock, the audio
+    /// listeners and the resume timer follow, so a scene drawing at 2 fps
+    /// does not stretch a 2-minute cue to 8 (D300). It is capped at
+    /// [`MAX_WALL_STEP`]: a frame that waited on a compile or a window drag
+    /// does not eat that much of the cue.
+    pub fn frame(&mut self, env: &mut Env<'_>, dt: f32, wall_dt: f32) -> FrameReport {
         let mut report = FrameReport::default();
         self.composited = false;
         if self.phase != Phase::Ready {
             return report;
         }
-        self.show_time += dt;
-        if !self.pace_anchor(env, dt) {
+        let wall = if wall_dt.is_finite() && wall_dt > 0.0 {
+            wall_dt.min(MAX_WALL_STEP)
+        } else {
+            dt
+        };
+        self.show_time += wall;
+        if !self.pace_anchor(env, wall) {
             let frame = env.audio.frame_at(self.show_time);
             let beat = self.reader.read(&frame.scalars, frame.downbeat);
             let [whole, bass] = frame.energy;
             let source = env.audio.source();
-            self.clock.tick(f64::from(dt), &beat);
-            self.hear(dt, whole, bass);
-            self.hear_song(dt, whole, &beat, source);
+            self.clock.tick(f64::from(wall), &beat);
+            self.hear(wall, whole, bass);
+            self.hear_song(wall, whole, &beat, source);
         }
 
         self.events.clear();
@@ -721,7 +758,7 @@ impl Show {
             warm.session.advance(dt, env.audio, env.mouse, env.date);
         }
         self.composite(env);
-        self.account(env, dt);
+        self.account(env, wall);
         if report.notice.is_none() {
             report.notice = self.notice.take();
         }
@@ -832,10 +869,13 @@ impl Show {
         match event {
             ClockEvent::CueStarted { index, pass } => {
                 log::info!(
-                    "playlist: cue {} started: {} (pass {pass})",
+                    "playlist: cue {} started: {} (loop pass {pass})",
                     index + 1,
                     self.cue_scene(index).unwrap_or("?")
                 );
+                // A jump can bring an ended show back; its next end is
+                // noted (and its resume point cleared) again.
+                self.ended_noted = false;
                 self.begin_cue(index, env);
                 self.warn_if_deaf(index, env);
             }
@@ -923,15 +963,23 @@ impl Show {
         else {
             return;
         };
-        if self.active_scene.as_ref() == Some(&scene)
-            || self.warming.as_ref().is_some_and(|w| w.scene == scene)
-        {
+        if self.active_scene.as_ref() == Some(&scene) {
+            return;
+        }
+        // Already warming for another cue of the same scene (a jump): it
+        // takes this cue's settings.
+        if let Some(mut warm) = self.warming.take_if(|w| w.scene == scene) {
+            if warm.index != index {
+                self.prepare(&mut warm.session, index, env.start_time, env.media);
+                warm.index = index;
+            }
+            self.warming = Some(warm);
             return;
         }
         if let Some(old) = self.warming.take() {
             self.park(old.scene, old.session);
         }
-        let Some(mut session) = self.cache.take(&scene) else {
+        let Some(mut session) = self.unpark(&scene) else {
             return;
         };
         self.prepare(&mut session, index, env.start_time, env.media);
@@ -948,7 +996,11 @@ impl Show {
             size[0],
             size[1]
         );
-        self.warming = Some(Warm { scene, session });
+        self.warming = Some(Warm {
+            scene,
+            index,
+            session,
+        });
     }
 
     /// Restarts a session's clock and applies a cue's control settings and
@@ -1016,23 +1068,40 @@ impl Show {
         else {
             return;
         };
+        let carried = self.carried.take();
         // The same scene again (a restart, or two cues in a row): keep the
-        // session, give it the cue's settings.
+        // session, give it the cue's settings. Unless this is a reload
+        // putting the clock back on the cue that was live, which the save
+        // did not change: then the live scene carries on as it was, its
+        // clock and the operator's changes included (D158).
         let media = env.media;
         if self.active_scene.as_ref() == Some(&scene)
             && let Some(session) = env.active.as_mut()
         {
-            self.prepare_active(session, index, env.start_time, media);
+            let untouched = carried
+                .as_ref()
+                .zip(self.clock.timeline().cues().get(index))
+                .is_some_and(|(old, cue)| same_cue(old, &cue.resolved));
+            if !untouched {
+                self.prepare_active(session, index, env.start_time, media);
+            }
             return;
         }
         // A transition that was still running is over.
         if let Some(out) = self.outgoing.take() {
             self.park(out.scene, out.session);
         }
+        // A warmed session was prepared for the cue it was warmed for; a
+        // jump or a step back can start another cue of the same scene.
         let warmed = self
             .warming
             .take_if(|warm| warm.scene == scene)
-            .map(|warm| warm.session);
+            .map(|mut warm| {
+                if warm.index != index {
+                    self.prepare(&mut warm.session, index, env.start_time, media);
+                }
+                warm.session
+            });
         let incoming = match warmed {
             Some(mut session) => match session.player.resize_keeping(env.full_size) {
                 Ok(()) => Some(session),
@@ -1041,7 +1110,7 @@ impl Show {
                     Some(session)
                 }
             },
-            None => self.cache.take(&scene).and_then(|mut session| {
+            None => self.unpark(&scene).and_then(|mut session| {
                 self.prepare(&mut session, index, env.start_time, media);
                 match session.player.resize(env.full_size) {
                     Ok(()) => Some(session),
@@ -1087,6 +1156,22 @@ impl Show {
         let before = session.meta.clone();
         self.prepare(session, index, start_time, media);
         session.meta.carry_unchanged_from(&before);
+    }
+
+    /// Takes `scene` out of the cache for a new cue, every pass cleared.
+    /// Parking keeps what a resize does not touch: a literal-size or
+    /// `FIXED_SIZE` pass (D287), and all of a scene that pins its final
+    /// pass (D280). A cue starts its scene's clock at the beginning, so its
+    /// buffers start there too, as they did before D287 (D297).
+    fn unpark(&mut self, scene: &SceneRef) -> Option<Session> {
+        let mut session = self.cache.take(scene)?;
+        if let Err(error) = session.player.restart() {
+            log::warn!(
+                "playlist: could not clear {}'s passes: {error}",
+                session.name
+            );
+        }
+        Some(session)
     }
 
     /// Returns a session to the cache, its targets cut down to nothing.

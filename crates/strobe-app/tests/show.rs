@@ -160,7 +160,7 @@ impl<'a> Rig<'a> {
     }
 
     fn frame(&mut self, show: &mut Show) {
-        let _ = show.frame(&mut self.env(), DT);
+        let _ = show.frame(&mut self.env(), DT, DT);
     }
 
     fn centre_of_output(&self, show: &Show) -> Result<[u8; 3]> {
@@ -660,5 +660,376 @@ fn a_cues_media_replaces_the_scenes_own_and_the_next_cue_gets_it_back() -> Resul
         );
         show.finish();
     }
+    Ok(())
+}
+
+/// A library of the given `(name, scene.json, main.glsl)` scenes.
+fn library_of(tag: &str, scenes: &[(&str, &str, &str)]) -> Result<TempLibrary> {
+    let root = std::env::temp_dir().join(format!("strobe-show-{}-{tag}", std::process::id()));
+    let mut entries = Vec::new();
+    for (name, json, shader) in scenes {
+        let dir = root.join(format!("{name}.synScene"));
+        std::fs::create_dir_all(&dir)?;
+        std::fs::write(dir.join("scene.json"), json)?;
+        std::fs::write(dir.join("main.glsl"), shader)?;
+        entries.push(Entry::new((*name).to_string(), dir));
+    }
+    Ok(TempLibrary {
+        library: Library {
+            dir: root.clone(),
+            entries,
+        },
+        root,
+    })
+}
+
+/// A 1x1 double-buffered counter (a literal-size pass, which a resize
+/// keeps, D287) shown in red as the count over [`COUNT_SCALE`].
+const COUNTER_JSON: &str = r#"{ "PASSES": [
+    {"TARGET": "count", "DOUBLE_BUFFER": true, "WIDTH": 1, "HEIGHT": 1,
+     "FLOAT": true, "FULL_PRECISION": true, "FILTER": "nearest"} ] }"#;
+const COUNTER_SHADER: &str = "vec4 renderMain() {\n\
+    if (PASSINDEX == 0) { return texture(count, vec2(0.5)) + vec4(1.0, 0.0, 0.0, 0.0); }\n\
+    return vec4(texture(count, vec2(0.5)).r / 400.0, 0.0, 0.0, 1.0); }";
+const COUNT_SCALE: f32 = 400.0;
+
+/// One slider, `amount`, shown as the red channel.
+const AMOUNT_JSON: &str = r#"{ "CONTROLS": [ { "NAME": "amount", "TYPE": "slider", "MIN": 0.0, "MAX": 1.0, "DEFAULT": 0.0 } ] }"#;
+const AMOUNT_SHADER: &str = "vec4 renderMain() { return vec4(amount, 0.0, 0.0, 1.0); }";
+const RED_SHADER: &str = "vec4 renderMain() { return vec4(1.0, 0.0, 0.0, 1.0); }";
+const GREEN_SHADER: &str = "vec4 renderMain() { return vec4(0.0, 1.0, 0.0, 1.0); }";
+
+/// The live scene's own frame (not the mix), centre pixel.
+fn live_centre(rig: &Rig<'_>) -> Result<[u8; 3]> {
+    let session = rig
+        .active
+        .as_ref()
+        .ok_or_else(|| anyhow!("nothing is playing"))?;
+    let pixels = session.player.read_output();
+    let [w, h] = session.player.render_size();
+    let offset = ((h / 2 * w + w / 2) * 4) as usize;
+    let px = pixels
+        .get(offset..offset + 3)
+        .ok_or_else(|| anyhow!("readback too short"))?;
+    Ok([px[0], px[1], px[2]])
+}
+
+fn cue_of(scene: &str, seconds: f64, transition: TransitionSpec) -> Cue {
+    let mut cue = Cue::new(SceneRef::Library(scene.to_string()));
+    cue.settings.duration = Some(DurationSpec::Seconds(seconds));
+    cue.settings.transition = Some(transition);
+    cue
+}
+
+fn with_amount(mut cue: Cue, amount: f32) -> Cue {
+    cue.overrides.insert(
+        "amount".to_string(),
+        strobe_playlist::ControlValue::Float(amount),
+    );
+    cue
+}
+
+#[test]
+fn a_scene_cued_again_starts_fresh_rather_than_from_its_last_cues_buffers() -> Result<()> {
+    for api in BOTH {
+        let Some(headless) = context(api)? else {
+            continue;
+        };
+        let library = library_of(
+            &format!("recue-{api:?}"),
+            &[
+                ("counter", COUNTER_JSON, COUNTER_SHADER),
+                ("red", "{}", RED_SHADER),
+            ],
+        )?;
+        let mut rig = Rig::new(&headless)?;
+        let mut playlist = Playlist::new("recue");
+        let mut section = Section::new("all");
+        section
+            .cues
+            .push(cue_of("counter", 3.0, TransitionSpec::cut()));
+        section.cues.push(cue_of("red", 3.0, TransitionSpec::cut()));
+        section
+            .cues
+            .push(cue_of("counter", 3.0, TransitionSpec::cut()));
+        playlist.sections.push(section);
+        let mut show = Show::new(None, playlist, &library.library, None, None);
+        rig.load(&mut show)?;
+        let count = |rig: &Rig<'_>| -> Result<f32> {
+            Ok(f32::from(live_centre(rig)?[0]) / 255.0 * COUNT_SCALE)
+        };
+        let mut end_of_first = None;
+        let mut start_of_third = None;
+        for _ in 0..(8 * 60) {
+            rig.frame(&mut show);
+            match show.clock().current() {
+                Some(0) => end_of_first = Some(count(&rig)?),
+                Some(2) if start_of_third.is_none() => start_of_third = Some(count(&rig)?),
+                _ => {}
+            }
+        }
+        let (Some(first), Some(third)) = (end_of_first, start_of_third) else {
+            return Err(anyhow!("{api:?}: the counter cues did not both play"));
+        };
+        // The third cue's counter has run only through its warm-up (the
+        // two seconds before it starts, about 120 frames); one that carried
+        // the first cue's buffers would read about 180 more.
+        assert!(
+            third < first,
+            "{api:?}: a re-cued scene starts its passes over: the first cue ended at \
+             {first:.0}, the third began at {third:.0}"
+        );
+        show.finish();
+    }
+    Ok(())
+}
+
+#[test]
+fn a_cues_overrides_reach_the_picture_every_time_its_scene_plays() -> Result<()> {
+    for api in BOTH {
+        let Some(headless) = context(api)? else {
+            continue;
+        };
+        let library = library_of(
+            &format!("repeat-{api:?}"),
+            &[
+                ("tint", AMOUNT_JSON, AMOUNT_SHADER),
+                ("red", "{}", RED_SHADER),
+            ],
+        )?;
+        let mut rig = Rig::new(&headless)?;
+        let mut playlist = Playlist::new("repeats");
+        let mut section = Section::new("all");
+        let fade = TransitionSpec::crossfade(0.5);
+        // The same scene three times, once after another scene and once
+        // straight after itself, each with its own value.
+        section
+            .cues
+            .push(with_amount(cue_of("tint", 2.0, fade.clone()), 0.2));
+        section.cues.push(cue_of("red", 2.0, fade.clone()));
+        section
+            .cues
+            .push(with_amount(cue_of("tint", 2.0, fade.clone()), 0.8));
+        section
+            .cues
+            .push(with_amount(cue_of("tint", 2.0, fade), 0.4));
+        playlist.sections.push(section);
+        let mut show = Show::new(None, playlist, &library.library, None, None);
+        rig.load(&mut show)?;
+        let mut last = [None; 4];
+        for _ in 0..(9 * 60) {
+            rig.frame(&mut show);
+            if let Some(current) = show.clock().current()
+                && let Some(slot) = last.get_mut(current)
+            {
+                *slot = Some(live_centre(&rig)?[0]);
+            }
+        }
+        let expected = [51_u8, 255, 204, 102];
+        for (index, (seen, want)) in last.iter().zip(expected).enumerate() {
+            let Some(seen) = seen else {
+                return Err(anyhow!("{api:?}: cue {index} never played"));
+            };
+            assert!(
+                seen.abs_diff(want) <= 2,
+                "{api:?}: cue {index} ends drawing red {seen}, its override says {want}: {last:?}"
+            );
+        }
+        show.finish();
+    }
+    Ok(())
+}
+
+#[test]
+fn jumping_to_a_cue_whose_scene_is_warming_for_another_cue_applies_its_own_overrides() -> Result<()>
+{
+    let Some(headless) = context(Api::DesktopCore33)? else {
+        return Ok(());
+    };
+    let library = library_of(
+        "jump-warm",
+        &[
+            ("tint", AMOUNT_JSON, AMOUNT_SHADER),
+            ("red", "{}", RED_SHADER),
+            ("green", "{}", GREEN_SHADER),
+        ],
+    )?;
+    let mut rig = Rig::new(&headless)?;
+    let mut playlist = Playlist::new("jump");
+    let mut section = Section::new("all");
+    let cut = TransitionSpec::cut();
+    section.cues.push(cue_of("red", 3.0, cut.clone()));
+    section
+        .cues
+        .push(with_amount(cue_of("tint", 3.0, cut.clone()), 0.8));
+    section.cues.push(cue_of("green", 3.0, cut.clone()));
+    section
+        .cues
+        .push(with_amount(cue_of("tint", 3.0, cut), 0.2));
+    playlist.sections.push(section);
+    let mut show = Show::new(None, playlist, &library.library, None, None);
+    rig.load(&mut show)?;
+    // 1.5 s into the first cue the second (tint at 0.8) is warming.
+    for _ in 0..90 {
+        rig.frame(&mut show);
+    }
+    assert_eq!(show.warming_cue(), Some(1), "cue 2 is warming");
+    // The operator jumps to cue 4: the same scene, another value.
+    show.command(Command::JumpTo(3));
+    for _ in 0..3 {
+        rig.frame(&mut show);
+    }
+    assert_eq!(show.clock().current(), Some(3), "on cue 4");
+    let value = amount(&rig)?;
+    assert!(
+        (value - 0.2).abs() < 1e-4,
+        "cue 4 plays with its own override (0.2), not the warmed cue's: {value}"
+    );
+    show.finish();
+    Ok(())
+}
+
+#[test]
+fn saving_the_playlist_leaves_the_live_scene_alone_unless_its_cue_changed() -> Result<()> {
+    let Some(headless) = context(Api::DesktopCore33)? else {
+        return Ok(());
+    };
+    let library = library_of(
+        "reload-live",
+        &[
+            ("tint", AMOUNT_JSON, AMOUNT_SHADER),
+            ("red", "{}", RED_SHADER),
+        ],
+    )?;
+    let mut rig = Rig::new(&headless)?;
+    let edited = |live_amount: f32, last: &str| {
+        let mut playlist = Playlist::new("reload");
+        let mut section = Section::new("all");
+        section.cues.push(with_amount(
+            cue_of("tint", 30.0, TransitionSpec::cut()),
+            live_amount,
+        ));
+        section.cues.push(cue_of(last, 30.0, TransitionSpec::cut()));
+        playlist.sections.push(section);
+        playlist
+    };
+    let mut show = Show::new(None, edited(0.2, "red"), &library.library, None, None);
+    rig.load(&mut show)?;
+    for _ in 0..120 {
+        rig.frame(&mut show);
+    }
+    // The operator nudges the live scene.
+    if let Some(session) = rig.active.as_mut() {
+        let index = session
+            .controls
+            .find("amount")
+            .ok_or_else(|| anyhow!("no amount control"))?;
+        session.controls.set(index, None, &[0.6]);
+    }
+    let time = |rig: &Rig<'_>| rig.active.as_ref().map_or(0.0, |s| s.time());
+    let before = time(&rig);
+
+    // A save that changes another cue (the LIST pane's edits go the same
+    // way, D213).
+    show.replace_playlist(edited(0.2, "tint"), &library.library);
+    rig.load(&mut show)?;
+    rig.frame(&mut show);
+    assert_eq!(show.clock().current(), Some(0), "still on the first cue");
+    assert!(
+        time(&rig) >= before,
+        "the live scene's clock runs on through the save: {before} then {}",
+        time(&rig)
+    );
+    let nudged = amount(&rig)?;
+    assert!(
+        (nudged - 0.6).abs() < 1e-4,
+        "the operator's change survives a save that did not touch the live cue: {nudged}"
+    );
+
+    // A save that changes the live cue itself applies it.
+    show.replace_playlist(edited(0.9, "tint"), &library.library);
+    rig.load(&mut show)?;
+    rig.frame(&mut show);
+    let edited_amount = amount(&rig)?;
+    assert!(
+        (edited_amount - 0.9).abs() < 1e-4,
+        "an edit to the live cue takes effect: {edited_amount}"
+    );
+    show.finish();
+    Ok(())
+}
+
+#[test]
+fn a_show_that_ends_a_second_time_clears_its_resume_point_again() -> Result<()> {
+    let Some(headless) = context(Api::DesktopCore33)? else {
+        return Ok(());
+    };
+    let library = library_of("ends-twice", &[("red", "{}", RED_SHADER)])?;
+    let file = library.root.join("resume.toml");
+    let mut rig = Rig::new(&headless)?;
+    let mut playlist = Playlist::new("twice");
+    let mut section = Section::new("all");
+    section.cues.push(cue_of("red", 3.0, TransitionSpec::cut()));
+    section.cues.push(cue_of("red", 3.0, TransitionSpec::cut()));
+    playlist.sections.push(section);
+    let writer = strobe_app::show::resume::ResumeWriter::start(file.clone());
+    let mut show = Show::new(None, playlist, &library.library, None, Some(writer));
+    rig.load(&mut show)?;
+    for _ in 0..(7 * 60) {
+        rig.frame(&mut show);
+    }
+    assert!(show.ended(), "the playlist ended");
+    // The operator brings it back and lets it run out again; on the way the
+    // position is saved (every five seconds).
+    show.command(Command::JumpTo(0));
+    for _ in 0..(7 * 60) {
+        rig.frame(&mut show);
+    }
+    assert!(show.ended(), "the playlist ended again");
+    show.finish();
+    assert!(
+        !file.exists(),
+        "an ended show leaves no resume point, the second time too"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_slow_scene_does_not_stretch_its_cue_past_real_time() -> Result<()> {
+    let Some(headless) = context(Api::DesktopCore33)? else {
+        return Ok(());
+    };
+    let library = library_of(
+        "slow",
+        &[("red", "{}", RED_SHADER), ("green", "{}", GREEN_SHADER)],
+    )?;
+    let mut rig = Rig::new(&headless)?;
+    let mut playlist = Playlist::new("slow");
+    let mut section = Section::new("all");
+    section.cues.push(cue_of("red", 2.0, TransitionSpec::cut()));
+    section
+        .cues
+        .push(cue_of("green", 2.0, TransitionSpec::cut()));
+    playlist.sections.push(section);
+    let mut show = Show::new(None, playlist, &library.library, None, None);
+    rig.load(&mut show)?;
+    // A scene at 2.5 fps: 0.4 s between frames, which the app clamps to
+    // 0.1 s for the scene's own clock (`stats::MAX_DT`). The mini PC's
+    // 10-volume-clouds played a 2-minute cue for 490 s that way.
+    let (scene_dt, wall_dt) = (0.1, 0.4);
+    for _ in 0..6 {
+        let _ = show.frame(&mut rig.env(), scene_dt, wall_dt);
+    }
+    assert_eq!(
+        show.clock().current(),
+        Some(1),
+        "2.4 s of real time is past the first cue's 2 s"
+    );
+    let scene_time = rig.active.as_ref().map_or(0.0, |s| s.time());
+    assert!(
+        scene_time < 1.0,
+        "the scene's own clock still advances by the clamped dt (real time would be 2.4 s): {scene_time}"
+    );
+    show.finish();
     Ok(())
 }

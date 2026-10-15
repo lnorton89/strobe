@@ -64,7 +64,7 @@
 
 use crate::model::{AudioEventKind, LoopMode, SceneRef, TransitionKind};
 use crate::resume::{ResumeError, ResumePoint};
-use crate::schedule::{Placement, elapsed_since_anchor};
+use crate::schedule::Placement;
 use crate::tempo::BeatInfo;
 use crate::timeline::{MIN_CUE_SECONDS, Timeline, TimelineCue};
 use std::vec::Drain;
@@ -743,7 +743,7 @@ impl PlaylistClock {
         let anchor = self.timeline.anchor()?;
         let placement = self
             .timeline
-            .place(elapsed_since_anchor(anchor, now_seconds_of_day));
+            .place(self.timeline.elapsed_at(anchor, now_seconds_of_day));
         self.apply_placement(&placement);
         Some(placement)
     }

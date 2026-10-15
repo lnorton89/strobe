@@ -93,6 +93,25 @@ pub fn elapsed_since_anchor(anchor: WallClockAnchor, now_seconds_of_day: f64) ->
 }
 
 impl Timeline {
+    /// Seconds into the show at `now_seconds_of_day`, from `anchor`: like
+    /// [`elapsed_since_anchor`], except that before today's anchor the run
+    /// that began at yesterday's is still on if it has not ended yet (a
+    /// show that crosses midnight, restarted after it). Only a playlist
+    /// that plays once ends; a looping one waits for its anchor, as before.
+    pub fn elapsed_at(&self, anchor: WallClockAnchor, now_seconds_of_day: f64) -> f64 {
+        let elapsed = elapsed_since_anchor(anchor, now_seconds_of_day);
+        let yesterday = elapsed + f64::from(SECONDS_PER_DAY);
+        let plays_once = match self.loop_mode() {
+            LoopMode::Stop => true,
+            LoopMode::Loop | LoopMode::LoopSection => false,
+        };
+        if elapsed < 0.0 && plays_once && yesterday < self.total_runtime() {
+            yesterday
+        } else {
+            elapsed
+        }
+    }
+
     /// The wall time cue `index` starts, if the playlist has an anchor.
     pub fn wall_time(&self, index: usize) -> Option<WallTime> {
         let anchor = self.anchor()?;
