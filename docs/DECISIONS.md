@@ -6351,10 +6351,14 @@ that can happen.
   `HMAC-SHA256(secret, F(context) F(nonce) F(host) F(controller id))`,
   `F(x) = len16(x) || x` (so no two tuples encode alike). *Context* is
   `strobe-remote trust v1: full desktop control`; *host* is the `Host` header
-  the controller dialled, which the listener already requires to be its own IP
-  literal and port, so a proof made for one address is no use at another
-  (it defeats a rogue host relaying a challenge to the real one from a
-  different address); *controller id* is 1 to 48 of `[A-Za-z0-9._-]`. The host
+  the controller dialled, which must name the address and port that this
+  connection actually reached (or `localhost` on loopback, or the D258 proxy
+  name from this computer). That is stricter than the listener's own `Host`
+  check, which on every interface (`--remote-bind 0.0.0.0`) takes any IP
+  literal; without it a relay at another address could forward a
+  controller's handshake under its own `Host` and the proof would hold. So a
+  proof made for one address is no use at another (it defeats a rogue host
+  relaying a challenge to the real one from a different address); *controller id* is 1 to 48 of `[A-Za-z0-9._-]`. The host
   verifies with `hmac`'s `verify_slice` (constant time, length-checked). The
   challenge is a value held by its connection and consumed by `verify(self)`,
   so it answers once whether right or wrong, and expires after 10 s. Success
@@ -6385,7 +6389,10 @@ that can happen.
   switch (switching full desktop access off, or Stop remote) still ends every
   desktop pairing, trusted ones included, and while it is off trusted pairing
   is refused; switching it on again (a host action) re-opens it. The session
-  also ends itself if the switch goes off between the proof and the pairing.
+  also ends itself on its next tick if the switch is off or its entry has
+  left the list, so a revoke, revoke all or replacing reconnect that lands
+  between the pairing and the connection being marked with its client id
+  still ends it.
   The title bar still says *Desktop controlled remotely* because it follows
   the lease.
 - **Failed proofs are limited and logged.** Per peer address: three free
