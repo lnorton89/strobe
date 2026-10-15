@@ -37,6 +37,17 @@ which backend proved a claim.
 
 ### In flight
 
+- **Venue mode (2026-10-15, D288):** a headless show machine is controlled
+  from a laptop with no click at it. Built: `--allow-desktop-control`,
+  `--remote-trust FILE` and `--make-remote-trust FILE` on the host; a trust
+  file of 32 OS-random bytes; trusted pairing by HMAC-SHA256 challenge and
+  response (the secret is never on the wire, nonce single-use, constant-time
+  compare); per-address and global backoff on failed proofs; a trusted
+  pairing is per connection, listed as *trusted*, revocable for the run, and
+  ends with the kill switch; a launch-time `--remote` retries until the
+  network is up. Next: the controller side (trust-file field, `--control
+  HOST:PORT --remote-trust FILE`, automatic reconnect with backoff) on D286's
+  viewer stages, then a two-machine soak on the T480.
 - **Full desktop remote control (2026-10-13, D275):** native Strobe instances
   can mirror and operate another instance's complete control window,
   including the editor and host file operations. Built on `strobe-remote`'s
