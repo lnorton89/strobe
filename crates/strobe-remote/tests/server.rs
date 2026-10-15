@@ -113,12 +113,22 @@ fn rig_on(
     proxied: Option<&str>,
     trust: Option<TrustSecret>,
 ) -> Result<Rig> {
+    rig_at(Ipv4Addr::LOCALHOST, limits, clients, proxied, trust)
+}
+
+fn rig_at(
+    ip: Ipv4Addr,
+    limits: Limits,
+    clients: Clients,
+    proxied: Option<&str>,
+    trust: Option<TrustSecret>,
+) -> Result<Rig> {
     capture_logs();
     let (remote, app_end) = bridge::bridge(4);
     let desktop = app_end.desktop.clone();
     let server = Server::start(
         ServerConfig {
-            bind: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+            bind: SocketAddr::new(IpAddr::V4(ip), 0),
             limits,
             proxied: proxied.map(str::to_string),
             trust,
@@ -1613,6 +1623,50 @@ fn a_wrong_secret_a_wrong_controller_or_a_wrong_host_is_refused() -> Result<()> 
     );
     assert!(rig.clients.is_empty(), "nobody was paired");
     assert!(!rig.desktop.active(), "and nobody holds the lease");
+    Ok(())
+}
+
+#[test]
+fn on_every_interface_a_proof_binds_to_the_address_the_connection_reached() -> Result<()> {
+    // Bound to every interface, the listener takes any IP literal as the
+    // `Host`. A relay at another address (10.9.8.7 here) that forwards a
+    // controller's handshake would present its own address, which the
+    // controller's proof is bound to; that must not pair.
+    let secret = new_secret()?;
+    let rig = rig_at(
+        Ipv4Addr::UNSPECIFIED,
+        limits(),
+        Clients::in_memory(),
+        None,
+        Some(secret.clone()),
+    )?;
+    rig.desktop.enable(true);
+    let port = rig.addr().port();
+    let target = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
+    for relayed in [format!("10.9.8.7:{port}"), format!("[::1]:{port}")] {
+        let mut ws = open_as(target, &relayed, Some(&format!("http://{relayed}")))?;
+        ws.hello()?;
+        ws.send(&json!({"type":"trust_start","controller_id":"laptop"}))?;
+        let answer = ws.json()?;
+        assert_eq!(
+            answer["code"], "invalid_request",
+            "no challenge under another address's Host {relayed}: {answer}"
+        );
+    }
+    // The address it reached, by literal and as localhost, still works.
+    for host in [format!("127.0.0.1:{port}"), format!("localhost:{port}")] {
+        let mut ws = open_as(target, &host, Some(&format!("http://{host}")))?;
+        ws.hello()?;
+        ws.send(&json!({"type":"trust_start","controller_id":"laptop"}))?;
+        let challenge = ws.json()?;
+        let nonce = challenge["nonce"].as_str().context("a challenge")?;
+        let response = secret
+            .respond(nonce, &host, "laptop")
+            .context("a response")?;
+        ws.send(&json!({"type":"trust_proof","response":response}))?;
+        ws.until("authenticated")
+            .with_context(|| format!("paired at {host}"))?;
+    }
     Ok(())
 }
 

@@ -99,8 +99,21 @@ pub(super) fn serve(mut stream: TcpStream, shared: &Shared, conn: u64, peer: Soc
     if head.path() == "/ws" {
         let label = label(&head, peer);
         // The `Host` just checked: what the controller dialled, and so what
-        // a trusted pairing's proof is bound to (D288).
-        let host = head.header("host").unwrap_or_default().to_ascii_lowercase();
+        // a trusted pairing's proof is bound to (D288). It is used for that
+        // only if it names the address this connection reached (or the
+        // operator's proxy, from this computer): a listener on every
+        // interface takes any literal, and a relay elsewhere could then
+        // forward a controller's handshake here under its own address.
+        let header = head.header("host").unwrap_or_default();
+        let proxied = shared
+            .proxied
+            .as_deref()
+            .is_some_and(|name| header.eq_ignore_ascii_case(name) && peer.ip().is_loopback());
+        let here = proxied
+            || stream
+                .local_addr()
+                .is_ok_and(|local| net::host_is_local(header, local));
+        let host = here.then(|| header.to_ascii_lowercase());
         let leftover = head.leftover;
         Session::new(stream, shared, conn, peer, label, host, leftover).run();
     }
@@ -301,8 +314,9 @@ struct Session<'a> {
     desktop_open: bool,
     desktop_pairing: bool,
     desktop_authorized: bool,
-    /// The `Host` this connection was opened for.
-    host: String,
+    /// The `Host` this connection was opened for, if it names the address
+    /// the connection reached; `None` refuses trusted pairing (D288).
+    host: Option<String>,
     /// The trust challenge waiting for its proof (D288). Taken, not
     /// cloned, when answered: a nonce answers once.
     trust_challenge: Option<Challenge>,
@@ -322,7 +336,7 @@ impl<'a> Session<'a> {
         conn: u64,
         peer: SocketAddr,
         label: String,
-        host: String,
+        host: Option<String>,
         leftover: Vec<u8>,
     ) -> Self {
         let now = Instant::now();
@@ -463,10 +477,21 @@ impl<'a> Session<'a> {
                 }
             }
             Phase::Authenticated(_) => {
-                // The trusted pairing belongs to the switch it was proved
-                // under: with it off the session ends, whatever raced.
-                if self.trusted_client.is_some() && !self.shared.remote.desktop.enabled() {
-                    return Err(End::Close(close::POLICY, "desktop control disabled"));
+                if let Some(id) = &self.trusted_client {
+                    // The trusted pairing belongs to the switch it was
+                    // proved under: with it off the session ends, whatever
+                    // raced.
+                    if !self.shared.remote.desktop.enabled() {
+                        return Err(End::Close(close::POLICY, "desktop control disabled"));
+                    }
+                    // And to its entry in the list. A revoke, a revoke all
+                    // or a reconnect that replaced it can land between the
+                    // pairing and this connection being marked with its
+                    // client id, which would leave the session running
+                    // with nothing on the list to revoke.
+                    if !self.shared.clients.contains(id) {
+                        return Err(End::Close(close::POLICY, "revoked on the desktop"));
+                    }
                 }
             }
         }
@@ -489,6 +514,17 @@ impl<'a> Session<'a> {
             return self.send(&ServerMessage::error(
                 ErrorCode::Unavailable,
                 TRUST_UNAVAILABLE,
+            ));
+        };
+        let Some(host) = self.host.clone() else {
+            log::warn!(
+                "remote: {} asked for trusted pairing under a Host that is not the address it \
+                 reached",
+                self.peer
+            );
+            return self.send(&ServerMessage::error(
+                ErrorCode::InvalidRequest,
+                "for trusted pairing, open the host at its own IP address and port",
             ));
         };
         let now = Instant::now();
@@ -519,7 +555,7 @@ impl<'a> Session<'a> {
                 "this controller was revoked on the host",
             ));
         }
-        match Challenge::issue(&self.host, &controller_id, now) {
+        match Challenge::issue(&host, &controller_id, now) {
             Ok(challenge) => {
                 let nonce = challenge.nonce_hex();
                 self.trust_challenge = Some(challenge);
