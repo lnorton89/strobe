@@ -4274,7 +4274,12 @@ impl Running {
         }
         if shown {
             self.present(Surface::Output, started);
-            if self.swap_policy.finish_now(self.control_unseen()) {
+            // Covered, not `control_unseen`: a window the loop drives because
+            // Windows withholds its paints still makes the shared context
+            // current twice a second, and on a machine where the wait is
+            // engaged that switch would otherwise take the flip's wait back
+            // and cost the show a frame each time (D221, D290).
+            if self.swap_policy.finish_now(self.control_covered) {
                 self.stack.gfx.gl().finish();
             }
         }
