@@ -893,12 +893,14 @@ that initialises on `iFrame == 0` needs after its buffers were wiped.
 Full precision is required: in RGBA16F the clock stops advancing after about
 16 seconds. The cost is one 1-pixel draw per frame.
 
-**Known loss (superseded by D287):** a resize with a non-default speed makes
+**Known loss (narrowed by D287):** a resize with a non-default speed makes
 the clock jump to `TIME`. The adaptive-resolution controller resizes rarely,
 and at default controls the clock equals `TIME`, so nothing visible happens.
 Resizes stopped being rare (D280 probes, undoes and probes again), and D287
-now keeps a pass whose size a resize does not change, the clock included, so
-this no longer happens.
+now keeps a pass whose size a resize does not change. The clock is kept
+when only the Image pass reads it. When a buffer reads it, `resize` wipes
+that buffer and so still restarts the clock with it, which is what the
+`iFrame == 0` initialisation above needs; `resize_keeping` keeps both.
 
 **Would reopen:** host-side clock state in the frame loop (it would remove
 the pass), or a driver that cannot do `texelFetch` on RGBA32F (the ES path
@@ -6339,10 +6341,25 @@ it had changed.
   size (`$WIDTH`-relative passes and anything with a scale) behave as before:
   `resize` restarts them from black, `resize_keeping` blits them filtered
   (nearest for 32-bit float) into the new targets.
+- **Except what a restarted pass reads.** On `resize`, an unchanged pass that
+  a restarted pass samples (the final pass aside; transitively) restarts with
+  it, so the two stay consistent. The case that forces this is a Shadertoy
+  import: its `$WIDTH` buffers read `st_clock` for `iFrame`, and a buffer
+  wiped to black needs `iFrame` back at 0 to run its `iFrame == 0`
+  initialisation again (D91). Keeping the clock left such a buffer counting up
+  from black forever. The set is decided from each program's active samplers
+  once per resize. `resize_keeping` wipes nothing, so it keeps every unchanged
+  pass.
+- `ScenePlayer::restart` clears every pass at the current size, kept ones
+  included. `strobe-autocontrol` used "resize to another size and back" to
+  clear history between probes; that no longer clears a literal-size pass, so
+  its probes call `restart` instead (which also clears a pinned scene, D280,
+  that the resize trick never touched).
 - The final pass and the two finished-frame targets always follow the render
   size, so they are rebuilt (or blitted) on every real change.
-- Allocation happens before any player field is touched, so a failed `resize`
-  now leaves the player unchanged, as `resize_keeping` already did.
+- Allocation happens before any player field is touched, the final-pass
+  readback's included, so a failed `resize` or `resize_keeping` leaves the
+  player unchanged.
 - A context-loss rebuild builds a new `ScenePlayer`, so it still recreates
   everything.
 - Nothing runs per frame: the comparison and the move happen once per resize.
@@ -6350,7 +6367,13 @@ it had changed.
 **Test.** `a_resize_keeps_the_passes_whose_size_it_does_not_change` (both
 dialects, both resize calls): a 1x1 double-buffered counter keeps counting
 through three resizes and a no-op resize while a `$WIDTH` pass still follows
-the new size. With the keep disabled it fails with the counter back at 1.
+the new size. With the keep disabled the `resize` half fails with the counter
+back at 1; the `resize_keeping` half passes either way, since its exact
+same-size blit already kept such a pass, so there the keep saves a copy.
+`a_resize_restarts_an_unchanged_pass_that_a_restarted_pass_reads` (strobe-gfx)
+and `a_resize_that_wipes_the_buffers_restarts_iframe_so_they_initialise_again`
+(strobe-shadertoy) fail without the exception above;
+`restart_clears_every_pass_a_resize_would_keep` covers `restart`.
 
 **Would reopen:** a pass whose size is unchanged but whose contents should
 still be cleared by a resize (none known), or a driver that invalidates
