@@ -63,6 +63,9 @@ pub enum Target {
     Pane(Pane),
     /// Apply a saved layout, by name (D215).
     Layout(String),
+    /// Open Settings at the form for controlling another Strobe desktop
+    /// (D275): the connect form is otherwise the last paragraph of Remote.
+    ControlDesktop,
     /// Load the library scene at this index (it becomes live).
     LoadScene(usize),
     /// Preview the library scene at this index without changing what is
@@ -78,7 +81,7 @@ impl Target {
     fn is_content(&self) -> bool {
         match self {
             Self::LoadScene(_) | Self::PreviewScene(_) | Self::ApplyPreset(_) => true,
-            Self::Command(_) | Self::Pane(_) | Self::Layout(_) => false,
+            Self::Command(_) | Self::Pane(_) | Self::Layout(_) | Self::ControlDesktop => false,
         }
     }
 }
@@ -156,6 +159,14 @@ pub fn items(bindings: &Bindings, availability: Availability, layouts: &[String]
         shortcut: None,
         unavailable: None,
     }));
+    items.push(Item {
+        target: Target::ControlDesktop,
+        title: "Control another Strobe\u{2026}".to_owned(),
+        name_at: 0,
+        category: "Remote",
+        shortcut: None,
+        unavailable: None,
+    });
     items.extend(layouts.iter().map(|name| Item {
         target: Target::Layout(name.clone()),
         title: format!("Layout: {name}"),

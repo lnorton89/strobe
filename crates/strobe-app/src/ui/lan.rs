@@ -8,7 +8,8 @@
 //               palette}
 // ============================================================================
 
-//! The LAN remote's settings (L-03, L-06, D254).
+//! The LAN remote's settings (L-03, L-06, D254) and the form for controlling
+//! another Strobe desktop (D275).
 //!
 //! The section reads a [`LanView`](crate::lan::LanView) the app made this
 //! frame and hands back [`Action`]s; it never touches the listener. The
@@ -57,36 +58,64 @@ pub fn show(ui: &mut Ui, theme: &Palette, panel: &mut LanPanel<'_>, actions: &mu
         actions.push(Action::SetDesktopAccess(desktop_enabled));
     }
     ui.label(egui::RichText::new("Grants desktops you approve the entire Strobe UI, editor and file saves included, but not pairing or network settings. One controller at a time. Switching it off, or stopping the remote, ends every desktop pairing.").small().color(theme::rgb(theme.text_muted)));
-    ui.add_space(SPACE_SM);
-    ui.strong("Control another Strobe desktop");
-    ui.label("Start remote and allow full desktop control on the host, then open pairing there.");
-    ui.horizontal_wrapped(|ui| {
-        ui.label("Host IP:port");
-        ui.add(
-            egui::TextEdit::singleline(&mut panel.controller.address)
-                .hint_text("192.168.1.20:47812")
-                .desired_width(180.0),
+}
+
+/// Settings' "Control another Strobe" section, heading included: the form that makes this
+/// desktop the controller of another one's whole window (D275).
+///
+/// It is its own section, with the command palette's "Control another
+/// Strobe..." entry to open it, because it had been the last paragraph
+/// of Remote, which is about being controlled: nobody looking to control a
+/// second laptop would think to look there. `reveal` scrolls to it and
+/// focuses the address field.
+pub fn control(ui: &mut Ui, theme: &Palette, panel: &mut LanPanel<'_>, actions: &mut Vec<Action>) {
+    let reveal = panel.controller.take_reveal();
+    let section = ui.scope(|ui| {
+        widgets::section(ui, theme, "Control another Strobe");
+        ui.label(
+            egui::RichText::new(
+                "Operate another computer's whole Strobe window from here. On the host: Settings \
+                 > Remote, Start remote, tick Allow full desktop control, then Pair a device to \
+                 get a six-digit code. Type its address and that code below.",
+            )
+            .small()
+            .color(theme::rgb(theme.text_muted)),
         );
-        ui.label("Pairing code");
-        ui.add(
-            egui::TextEdit::singleline(&mut panel.controller.code)
-                .password(true)
-                .desired_width(90.0),
+        ui.add_space(SPACE_XS);
+        ui.horizontal_wrapped(|ui| {
+            let address = ui.add(
+                egui::TextEdit::singleline(&mut panel.controller.address)
+                    .hint_text("Host address, e.g. 192.168.1.20")
+                    .desired_width(230.0),
+            );
+            if reveal {
+                address.request_focus();
+            }
+            ui.add(
+                egui::TextEdit::singleline(&mut panel.controller.code)
+                    .password(true)
+                    .hint_text("Pairing code")
+                    .desired_width(110.0),
+            );
+            if widgets::button(ui, theme, None, "Connect to desktop").clicked() {
+                actions.push(Action::ConnectDesktop);
+            }
+        });
+        ui.label(
+            egui::RichText::new(
+                "The port is 47812 unless the host says otherwise. Leave the code blank to \
+                 reconnect to a host you paired with earlier in this session.",
+            )
+            .small()
+            .color(theme::rgb(theme.text_muted)),
         );
-        if widgets::button(ui, theme, None, "Connect to desktop").clicked() {
-            actions.push(Action::ConnectDesktop);
+        let note = panel.controller.note();
+        if !note.is_empty() {
+            ui.label(note);
         }
     });
-    ui.label(
-        egui::RichText::new(
-            "Leave the code blank to reconnect to the same host during this app session.",
-        )
-        .small()
-        .color(theme::rgb(theme.text_muted)),
-    );
-    let note = panel.controller.note();
-    if !note.is_empty() {
-        ui.label(note);
+    if reveal {
+        ui.scroll_to_rect(section.response.rect, Some(egui::Align::TOP));
     }
 }
 
@@ -140,8 +169,8 @@ fn running(ui: &mut Ui, theme: &Palette, panel: &LanPanel<'_>, actions: &mut Vec
     });
     ui.label(
         egui::RichText::new(format!(
-            "{} paired device{} connected. Windows may ask whether Strobe may accept connections: allow \
-             it on private networks only.",
+            "{} paired device{} connected. Windows may ask whether Strobe may accept connections: \
+             allow it on private networks only.",
             view.connected,
             if view.connected == 1 { "" } else { "s" }
         ))
