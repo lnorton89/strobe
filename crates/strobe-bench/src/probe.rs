@@ -91,7 +91,7 @@ pub(crate) fn run(gl: &Gl, caps: &Caps, context: &str, extra: [i32; 2]) -> Resul
             if matches!(format, Format::Rgba16f) && !caps.float_render {
                 continue;
             }
-            match probe_one(gl, &program, size, format) {
+            match probe_one(gl, &program, size, format, caps.dialect) {
                 Ok(row) => rows.push(row),
                 Err(why) => {
                     failures.push(format!("{}x{} {}: {why}", size[0], size[1], format.name()))
@@ -195,10 +195,36 @@ fn reading(rows: &[Row], passed: bool) -> String {
 }
 
 /// Clears, draws and reads one target.
-fn probe_one(gl: &Gl, painter: &Painter, size: [i32; 2], format: Format) -> Result<Row, String> {
+fn probe_one(
+    gl: &Gl,
+    painter: &Painter,
+    size: [i32; 2],
+    format: Format,
+    dialect: Dialect,
+) -> Result<Row, String> {
     let [w, h] = size;
     let texture = gl.texture_2d(w, h, format, Sampling::LINEAR_CLAMP, None)?;
     let fbo = gl.framebuffer(&texture)?;
+    // GLES reads a float target back only as FLOAT, never as
+    // RGBA/UNSIGNED_BYTE, so on an ES context (ANGLE) a float target is
+    // copied into an RGBA8 one to be read. Desktop GL converts in the
+    // read itself, so the native path the probe exists for adds no step.
+    let copy = match (format, dialect) {
+        (Format::Rgba16f | Format::Rgba32f, Dialect::Es300) => {
+            let texture = gl.texture_2d(w, h, Format::Rgba8, Sampling::LINEAR_CLAMP, None)?;
+            let fbo = gl.framebuffer(&texture)?;
+            Some((texture, fbo))
+        }
+        (Format::Rgba8 | Format::R8, _)
+        | (Format::Rgba16f | Format::Rgba32f, Dialect::Glsl330 | Dialect::Glsl410) => None,
+    };
+    let read = || match &copy {
+        Some((_, rgba8)) => {
+            gl.blit_between(&fbo, size, rgba8, size);
+            gl.read_rgba8(rgba8, w, h)
+        }
+        None => gl.read_rgba8(&fbo, w, h),
+    };
     gl.clear_errors();
     gl.plain_state();
     gl.bind_framebuffer(Some(&fbo));
@@ -207,14 +233,14 @@ fn probe_one(gl: &Gl, painter: &Painter, size: [i32; 2], format: Format) -> Resu
 
     gl.clear([1.0, 0.0, 0.0, 1.0]);
     gl.finish();
-    let clear_red = share(&gl.read_rgba8(&fbo, w, h), |px| px[0] > 200 && px[1] < 50);
+    let clear_red = share(&read(), |px| px[0] > 200 && px[1] < 50);
 
     gl.bind_framebuffer(Some(&fbo));
     gl.use_program(&painter.program);
     gl.bind_vertex_array(&painter.vao);
     gl.draw_fullscreen_triangle();
     gl.finish();
-    let draw_green = share(&gl.read_rgba8(&fbo, w, h), |px| px[1] > 200 && px[0] < 50);
+    let draw_green = share(&read(), |px| px[1] > 200 && px[0] < 50);
     gl.bind_framebuffer(None);
     Ok(Row {
         size,
