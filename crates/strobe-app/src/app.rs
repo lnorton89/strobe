@@ -3676,6 +3676,18 @@ impl Running {
                     // choice survive a restart (D294).
                     self.desktop_controller
                         .remembered(&mut self.ui_state.remote);
+                    // A trust file that cannot be read leaves no viewer, and
+                    // after `--control` or the viewer's Reconnect the form
+                    // holding the reason is not on screen: bring it up. The
+                    // note names the path, never the file's contents.
+                    if self.desktop_controller.use_trust && !self.desktop_controller.active() {
+                        log::warn!(
+                            "desktop controller: not connecting: {}",
+                            self.desktop_controller.note()
+                        );
+                        self.desktop_controller.reveal_form();
+                        self.ui_state.panes.open(Pane::Settings);
+                    }
                 }
                 Action::DisconnectDesktop => self.desktop_controller.disconnect(),
                 Action::ControlAnotherDesktop => {
