@@ -1,5 +1,9 @@
 # Architecture
 
+![Strobe engine architecture — data flow from scenes and live signals to projector output](images/strobe-engine-architecture.svg)
+
+[Full-resolution vector diagram](images/strobe-engine-architecture.svg) · [PNG export](images/strobe-engine-architecture.png) · [Technical companion and source references](ENGINE_ARCHITECTURE_INFOGRAPHIC.md)
+
 This document covers how Strobe is put together and why the boundaries
 sit where they do. For *what's built so far*, see [ROADMAP.md](ROADMAP.md).
 
