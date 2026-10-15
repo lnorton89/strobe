@@ -68,6 +68,15 @@ which backend proved a claim.
   section with a Ctrl+K entry, and the host counts only authenticated
   clients as connected. The T480 to RX 580 re-test of these states is open.
 
+- **Control frames without paints (2026-10-15, D290), built, not yet re-run
+  on the mini PC:** at the JaJa show the fullscreen output took every
+  `WM_PAINT`, so the control window ran 0 frames a minute and the playlist,
+  UI actions and desktop remote stopped with it (fca44a5 restarted only the
+  playlist). When a control redraw request goes unanswered for 250 ms and
+  4 loop passes, `about_to_wait` now runs the whole control frame itself, at
+  2 Hz (5 Hz with a desktop remote), until Windows paints it promptly again.
+  Open: the mini-PC verification in MINIPC.md.
+
 - **Render scale and pinned scenes (D280), built, not yet re-run on the
   RX 580:** a scene with a root `WIDTH` x `HEIGHT`, a literal buffer pass of
   that size, and a shader that reads it with `texelFetch` draws its final

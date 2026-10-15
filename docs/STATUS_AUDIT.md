@@ -103,6 +103,17 @@ tracks every known unfinished implementation and validation task across the proj
   readback on a real window (native GL and ANGLE), cross-DPI/zoom behavior on
   real monitors, a remote click on Settings' Approve refused with the banner,
   and T480 CPU/frame-time/memory soak remain unverified.
+- [ ] The control frame runs while Windows sends the control window no
+  paints (2026-10-15, D290). Built; the scheduling decision is unit-tested
+  in the Linux container (`stats::tests::a_control_window_with_no_paints_is_run_by_the_loop_at_its_own_period`,
+  `a_painted_control_window_is_never_driven_by_the_loop`,
+  `a_blocked_loop_is_not_a_window_without_paints`,
+  `the_loop_hands_back_only_to_a_prompt_paint`). No container reproduces
+  Windows' paint order. Acceptance test, on the JaJa mini PC with the show
+  launch: the log says `control window: no paint from Windows ... (D290)`,
+  every later `perf:` line has a nonzero `control N redraws ... (... M unpainted)`
+  with the output still at 60 fps, the playlist gets past 1 of 14, and the
+  laptop's desktop remote shows and operates the host (MINIPC.md).
 
 - [x] Chromatic Rise scene loads, compiles and renders on Windows RX 580
   native GL 3.3 and ANGLE GLES 3.0 at 1280x720 (2026-10-13).

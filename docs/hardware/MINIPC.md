@@ -113,8 +113,104 @@ ran at 56.6 fps (57.1 under Balanced) and 10 at 26.7 fps (27.7). The
 | 11-script-orbits (script not run) | 94 | 3.74 | 4.69 | yes | yes |
 | 12-silicon-atlas | **6506** | 92.62 | 100.61 | no | no |
 
+## The show's black output: a control window with no paints (2026-10-15, D290)
+
+**What happened.** The venue setup: two projectors in Duplicate mode as one
+1920x1080 desktop, no keyboard or mouse. A scheduled task (interactive,
+session 1) ran `cmd /c start "" /min start-show.cmd`, which starts
+`strobe.exe --library ... --playlist ... --no-synesthesia --output-monitor 1
+--fullscreen --audio synthetic` with `start "" /b`. The output came up
+black and stayed there.
+
+**The log.**
+- "output placed at launch: monitor 1, fullscreen true", then "output window
+  resized to 1920x1080, fullscreen true", then "control window in view:
+  redrawing at 30 Hz".
+- The perf line: "control 1 redraws (158.8 ms)" at 60 s, then "control 0
+  redraws" at 120 s and 180 s. The output ran at 60 fps throughout.
+- The playlist stalled at 1 of 14: it compiled one scene per control frame.
+
+**The windows.** "Strobe Output" at 0,0-1920,1080, visible and foreground;
+"Strobe" (control) at -8,-8-1928,1040, maximised, behind it.
+
+**What did not make the control window draw:**
+- 90 posted `InvalidateRect`/`WM_PAINT` nudges;
+- moving the output off-screen for 180 s.
+
+So it was not occlusion. Earlier runs launched with `--scene` from another
+task had logged "covered by the fullscreen output: redrawing at 2 Hz", and
+the control window did draw now and then.
+
+**First workaround, fca44a5.** The output frame compiles the next playlist
+step when the control window has been quiet for 500 ms. That started the
+show. Everything else in the control frame still never ran: UI actions, the
+remote and LAN UI passes, the desktop remote's capture, `ui_state.tick`, the
+remote mapping's persist and preview loads. So the laptop's desktop remote
+could not have reached this machine.
+
+**Root cause (D290).** Paint starvation, not occlusion:
+- winit on Windows sends `RedrawRequested` only from `WM_PAINT`.
+- Windows makes `WM_PAINT` for the topmost dirty window of the thread first.
+- winit returns to `about_to_wait` after every `RedrawRequested`.
+- On Vega 3 the fullscreen output's vsync wait is inside its own swap, so
+  each output frame takes about 16.7 ms. That is longer than the 6.9 ms
+  `OUTPUT_PERIOD`, so the output asks for its next frame on every pass.
+
+The output, above the control window, is therefore always the first dirty
+window, and the control window's paint never comes. The nudges and the
+off-screen move changed neither the z-order nor the output's dirtiness. The
+"in view" state did not matter either: focus said the control window was on
+top, and z-order said otherwise.
+
+**The fix (D290).** When a control redraw request has gone unanswered for
+250 ms and 4 passes of the event loop, `about_to_wait` runs the control frame
+itself. It keeps doing so at 2 Hz, or 5 Hz while a desktop remote holds the
+lease, until Windows answers a request promptly again. The whole frame runs
+(egui, paint, desktop capture, swap, actions, playlist compile). fca44a5
+stays as the backstop.
+
+### Hotfix deploy
+
+On the mini PC (it has Rust 1.98 and Visual Studio 2022), in the strobe
+checkout, at the commit carrying D290:
+
+```
+git fetch origin
+git checkout <hotfix commit>
+cargo build --release -p strobe-app
+```
+
+Stop the show (or wait for it to end) and copy `target\release\strobe.exe`
+over the `strobe.exe` that `start-show.cmd` launches. Keep the old one beside
+it as `strobe-prev.exe` to roll back. Then relaunch through the same
+scheduled task, so the run is in session 1 exactly as at the show.
+
+### Verification after the show
+
+Run the same launch (scheduled task, `start-show.cmd`, the show playlist,
+`--output-monitor 1 --fullscreen`) for at least 3 minutes, then read the
+newest log in `%LOCALAPPDATA%\strobe\logs\`:
+
+1. Within the first seconds, this line, once:
+   `control window: no paint from Windows for N ms (takeover 1); the event loop runs its frames every 500 ms until one comes (D290)`
+2. Every `perf:` line after the first minute shows the control window
+   running, all or nearly all of it from the loop: about
+   `control 120 redraws ... (worst ... ms, 120 unpainted)`. That is
+   2 Hz x 60 s. It is about 300 while the laptop's desktop remote is
+   connected. **`control 0 redraws` is a failure.**
+3. The same `perf:` lines still show 60 fps with no new late frames. If
+   they do not, the loop-driven swap costs the show frames (reopen D290).
+4. The playlist advances past 1 of 14 and the output is not black.
+5. With the laptop connected to the desktop remote, the viewer shows the
+   host's control window and updates about 5 times a second, and a click
+   (Next, say) takes effect on the projector.
+
+`STROBE_LOG=debug` also logs every later takeover and every hand-back
+("Windows paints it again"), if the pattern needs a closer look.
+
 ## Still to do here
 
+- The D290 verification above, after the show.
 - Native strobe-bench and control generation in session 1: does a hidden
   window on AMD WGL draw at all (M3b)?
 - The JaJa test card on the projector at native 1920x1200, with
