@@ -5,8 +5,10 @@
 //               naga's GLSL front end and through glslang to SPIR-V, then
 //               SPIR-V into naga, HLSL and MSL. One row per pass and dialect.
 //
-// Dependencies: anyhow, naga (glsl-in, spv-in), strobe-scene; the
-//               glslangValidator and spirv-cross programs on PATH
+// Dependencies: anyhow, naga (glsl-in, spv-in), spirv-webgpu-transform,
+//               strobe-scene, strobe-script
+//               (a scripted scene's uniforms); the glslangValidator and
+//               spirv-cross programs on PATH
 // ============================================================================
 
 //! `cargo run --release -- <library>... --out <dir>`
@@ -15,6 +17,12 @@
 //! `<dir>/summary.md` (counts, and the first lines of each kind of
 //! failure). The sources are written to `<dir>/src/` so any row can be
 //! reproduced by hand. See README.md for the question and the answer.
+//!
+//! A scene with a `script.js` gets the uniforms its script creates, found
+//! the way the app finds them (`Session::load`): the script runs one frame
+//! at time 0 before the shaders are assembled, and any name the scene
+//! already declares is dropped. Without that, every scripted scene fails
+//! on an undeclared identifier that the app would have declared.
 
 use anyhow::{Context as _, Result, bail};
 use std::collections::BTreeMap;
@@ -23,7 +31,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Instant;
 use strobe_scene::SceneFolder;
-use strobe_scene::assemble::{self, Dialect, PassIndex, Request};
+use strobe_scene::assemble::{self, Dialect, ExtraType, PassIndex, Request};
+use strobe_scene::control::ControlBank;
+use strobe_script::{Budget, ScriptHost, ScriptInputs};
 
 /// One step's outcome: passed, or the first line of why not, and its time.
 #[derive(Clone)]
@@ -50,7 +60,7 @@ impl Step {
             .find(|line| !line.is_empty() && !line.starts_with("glslangValidator"))
             .unwrap_or("")
             .chars()
-            .take(160)
+            .take(300)
             .collect();
         Self {
             ok: false,
@@ -77,13 +87,14 @@ impl Step {
 }
 
 /// The candidates, in the column order of the report.
-const COLUMNS: [&str; 8] = [
+const COLUMNS: [&str; 9] = [
     "naga glsl-in",
     "naga glsl-in (as 450 core)",
     "naga glsl-in (450, uniforms in a block)",
     "glslang -> SPIR-V (GL)",
     "glslang -> SPIR-V (Vulkan, relaxed)",
     "SPIR-V -> naga spv-in",
+    "SPIR-V, samplers split -> naga spv-in",
     "SPIR-V -> HLSL (spirv-cross)",
     "SPIR-V -> MSL (spirv-cross)",
 ];
@@ -122,6 +133,13 @@ fn main() -> Result<()> {
                 }
             };
             let name = strobe_scene::load::folder_title(&dir);
+            let extras = match script_extras(&folder) {
+                Ok(extras) => extras,
+                Err(error) => {
+                    eprintln!("{name}: script does not run, assembled without its uniforms: {error}");
+                    Vec::new()
+                }
+            };
             // The desktop dialect only: SPIR-V needs ES 3.10 or later, so
             // the ANGLE dialect (ES 3.00) cannot take this route at all,
             // and a SPIR-V backend would compile the desktop one.
@@ -132,7 +150,7 @@ fn main() -> Result<()> {
                         user_code: folder.shader_for(pass),
                         dialect,
                         pass_index: PassIndex::Constant(pass),
-                        extra: &[],
+                        extra: &extras,
                     });
                     let stem = format!("{name}__p{pass}__{label}");
                     let file = out.join("src").join(format!("{stem}.frag"));
@@ -157,6 +175,35 @@ fn main() -> Result<()> {
     std::fs::write(out.join("summary.md"), summary(&rows)?)?;
     println!("\nwrote {}", out.display());
     Ok(())
+}
+
+/// The uniforms the scene's script creates on its first frame, minus any
+/// name the scene already declares: what `Session::load` compiles in.
+fn script_extras(folder: &SceneFolder) -> Result<Vec<(String, ExtraType)>> {
+    let Some(source) = folder.script.as_deref() else {
+        return Ok(Vec::new());
+    };
+    let mut controls = ControlBank::new(folder.def.controls.clone())?;
+    let mut meta = strobe_scene::meta::bank()?;
+    let mut host = ScriptHost::new(source, &controls, &meta, Budget::default())?;
+    let output = host.frame(
+        1.0 / 60.0,
+        &ScriptInputs::default(),
+        &mut controls,
+        &mut meta,
+    );
+    let def = &folder.def;
+    let mut declared: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    declared.extend(def.controls.iter().map(|c| c.name.as_str()));
+    declared.extend(def.passes.iter().filter_map(|p| p.target.as_deref()));
+    declared.extend(def.images.iter().map(|i| i.name.as_str()));
+    declared.extend(def.cubemaps.iter().map(|c| c.name.as_str()));
+    declared.extend(def.transition_uniforms.iter().map(|t| t.name.as_str()));
+    Ok(output
+        .extras()
+        .into_iter()
+        .filter(|(name, _)| !declared.contains(name.as_str()))
+        .collect())
 }
 
 /// Every candidate on one source.
@@ -209,16 +256,22 @@ fn run_all(source: &str, file: &Path, dir: &Path, stem: &str) -> Vec<Step> {
             &file.display().to_string(),
         ],
     );
-    let (spv_in, hlsl, msl) = if glslang_vk.ok {
+    let (spv_in, split_in, hlsl, msl) = if glslang_vk.ok {
         let vk = vk_spv.display().to_string();
         (
             naga_spv(&vk_spv),
+            naga_spv_split(&vk_spv),
             tool("spirv-cross", &[&vk, "--hlsl", "--shader-model", "50"]),
             tool("spirv-cross", &[&vk, "--msl"]),
         )
     } else {
         let why = "glslang (Vulkan) failed";
-        (Step::skipped(why), Step::skipped(why), Step::skipped(why))
+        (
+            Step::skipped(why),
+            Step::skipped(why),
+            Step::skipped(why),
+            Step::skipped(why),
+        )
     };
     vec![
         naga_as_written,
@@ -227,6 +280,7 @@ fn run_all(source: &str, file: &Path, dir: &Path, stem: &str) -> Vec<Step> {
         glslang_gl,
         glslang_vk,
         spv_in,
+        split_in,
         hlsl,
         msl,
     ]
@@ -307,6 +361,49 @@ fn naga_spv(path: &Path) -> Step {
     }
 }
 
+/// The same SPIR-V with every combined image sampler split into a texture
+/// and a sampler first (`spirv-webgpu-transform`, a pure-Rust SPIR-V pass,
+/// function parameters included), then naga: the route a wgpu backend
+/// could take for SSF code, since naga has no combined samplers itself.
+fn naga_spv_split(path: &Path) -> Step {
+    let started = Instant::now();
+    let bytes = match std::fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(error) => return Step::failed(format!("read: {error}"), 0.0),
+    };
+    let words = spirv_webgpu_transform::u8_slice_to_u32_vec(&bytes);
+    // The transform asserts on input it does not expect; a panic is a
+    // failed row, not a failed run.
+    let split = std::panic::catch_unwind(|| {
+        let mut corrections = spirv_webgpu_transform::CorrectionMap::default();
+        spirv_webgpu_transform::combimgsampsplitter(&words, &mut corrections)
+    });
+    let split = match split {
+        Ok(Ok(split)) => split,
+        Ok(Err(())) => {
+            return Step::failed(
+                "split: the transform refused the module",
+                started.elapsed().as_secs_f64() * 1000.0,
+            );
+        }
+        Err(_) => {
+            return Step::failed(
+                "split: the transform panicked",
+                started.elapsed().as_secs_f64() * 1000.0,
+            );
+        }
+    };
+    let bytes = spirv_webgpu_transform::u32_slice_to_u8_vec(&split);
+    let options = naga::front::spv::Options::default();
+    match naga::front::spv::parse_u8_slice(&bytes, &options) {
+        Ok(module) => validate(&module, started),
+        Err(error) => Step::failed(
+            format!("spv-in: {error}"),
+            started.elapsed().as_secs_f64() * 1000.0,
+        ),
+    }
+}
+
 fn validate(module: &naga::Module, started: Instant) -> Step {
     let mut validator = naga::valid::Validator::new(
         naga::valid::ValidationFlags::all(),
@@ -316,7 +413,18 @@ fn validate(module: &naga::Module, started: Instant) -> Step {
     let ms = started.elapsed().as_secs_f64() * 1000.0;
     match result {
         Ok(_) => Step::passed(ms),
-        Err(error) => Step::failed(format!("validate: {}", error.into_inner()), ms),
+        Err(error) => {
+            // The whole cause chain: naga's top line only says which
+            // function is invalid, the reason is in its sources.
+            let error = error.into_inner();
+            let mut why = format!("validate: {error}");
+            let mut cause = std::error::Error::source(&error);
+            while let Some(inner) = cause {
+                let _ = write!(why, ": {inner}");
+                cause = inner.source();
+            }
+            Step::failed(why, ms)
+        }
     }
 }
 
@@ -476,5 +584,5 @@ fn normalise(why: &str) -> String {
             .to_string(),
         None => out,
     };
-    out.chars().take(110).collect()
+    out.chars().take(220).collect()
 }
