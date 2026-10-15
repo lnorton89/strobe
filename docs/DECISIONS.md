@@ -7145,3 +7145,85 @@ Debian), and Fedora and Arch builds.
 dependency in `Cargo.lock` (needs `outputHashes`), a dlopen'd library
 the list misses (a window that will not open on a clean Nix or Debian box),
 or a real Linux GPU that needs more than `hardware.graphics.enable`.
+
+### D301: on ES, `pow(x, y)` is written as `exp2(log2(x) * (y))`, so a negative base is NaN as on the native drivers (2026-10-15)
+
+D296-D300 are taken by other branches; this entry is D301.
+
+**Context.** Two corpus scenes drew differently on ANGLE than on native GL
+(RX 580, Vega 3, Intel HD 620): `PLUS` all black on ANGLE only, and
+`sprinkles`, a reaction-diffusion feedback scene, a small ring at the centre
+after 600 frames on ANGLE where native fills the frame (D293 notes both).
+`STROBE_DUMP_GLSL` shows the two dialects' sources are identical apart
+from the header, so the difference is in the drivers. Both scenes take
+`pow` of a negative base, which GLSL leaves undefined:
+- `sprinkles` takes `pow(1 - (r + g), 0.25)` of its own state and clamps
+  the result to `0..1`. `r + g` passes 1 in the grown pattern.
+- `PLUS` takes `pow(noise - 0.5, 1.0)` for two sizes of its pattern.
+
+The drivers' answers:
+- **Native Windows GL** behaves as `exp2(y * log2(x))`, which is NaN for
+  `x < 0`, and `clamp` turns NaN into 0. This is inferred from the two
+  scenes below, not measured (Q28).
+- **Direct3D's compiler (FXC), under ANGLE,** takes `log2(|x|)`, so the
+  same call is `|x|^y`. Its warning X3571 says as much ("pow(f, e) will not
+  work for negative f"). From `PLUS` it also folds `pow(x, 1.0)` to `x`.
+- **Mesa** folds `pow(x, 1.0)` to `x` and gives NaN otherwise.
+
+**Evidence (llvmpipe, `strobe-bench`, scene copies kept out of the repo).**
+- `sprinkles`, 600 frames, with its `pow` replaced by each driver's
+  answer. With `|x|^0.25` it shows a small structure at the centre and an
+  empty frame: ANGLE's reported picture. With NaN, clamped to 0, it fills
+  the frame: native's picture, and llvmpipe's unchanged render, checksum
+  for checksum.
+- `sprinkles`' float passes are not the cause. Emulated round-to-zero and
+  round-to-nearest half-float storage, RGBA16F and RGBA32F all fill the
+  frame.
+- `PLUS` with `pow(x, 1.0)` as `x` (Mesa's fold) is all black at 160x90
+  and has 54 lit pixels at 1080p, in both dialects. That is llvmpipe's
+  current render, and why PLUS is on llvmpipe's desktop black list too.
+  With NaN it lights pixels at 160x90, as the RX 580's native render does.
+
+**Decision.** In the ES dialect, `fixups::pow_as_exp2_log2` rewrites
+`pow(x, y)` as `exp2(log2(x) * (y))`. That is the sequence the native
+drivers run, and HLSL's `log2` has no `abs`, so ANGLE now gets NaN where
+native does. Two cases keep `pow`, because no driver disagrees on them:
+- a base that is a plain unsigned literal;
+- an integer literal exponent other than 1 and -1, which compilers expand
+  into multiplications (ANGLE's own `ExpandIntegerPowExpressions` included).
+
+Nested calls are each rewritten, the arguments keep their order, and no
+line moves. Desktop is untouched: its driver is the reference.
+
+**Cost.** None to speak of: `pow` is `exp2`, `log2` and a multiply on every
+GPU.
+
+**Evidence of the change.**
+- `fixups::pow_tests`: the rewrite, the calls left alone, and lines kept.
+- `assemble` test `only_es_spells_out_pow`.
+- `render.rs` `pow_keeps_its_value_in_both_dialects_where_drivers_agree`:
+  a positive base, an integer power of a negative base, and the clamped
+  NaN idiom render the same in both dialects.
+- The 90-scene corpus on llvmpipe (160x90, 3 frames, scripts on), before
+  and after, 90 of 90 in both dialects. The rewrite reaches 75 scenes'
+  ES sources. The all-black lists are unchanged: circles5, glitch,
+  hills_eels, PLUS, pxl_sort_1, raw_video and redrum in both dialects
+  (llvmpipe folds `pow(x, 1.0)` back either way). No ES checksum changed
+  apart from stained_glass and thresholder, whose desktop checksums changed
+  too, with no desktop change, so they do not repeat from run to run.
+
+**Not verified here.** llvmpipe has no Direct3D compiler, so the ANGLE side
+rests on the scenes' reported pictures. The check on the AMD desktop is in
+`docs/hardware/AMD.md` (Task A14).
+
+**Not chosen.**
+- *`pow(abs(x), y)`.* That is FXC's answer, the one that stopped
+  `sprinkles` growing.
+- *The same rewrite on desktop.* Mesa folds `pow(x, 1.0)`, so PLUS is
+  black on Linux too. Adopting it there waits for the native answer to be
+  measured (Q28).
+- *Editing the scenes.* Strobe plays them as shipped.
+
+**Would reopen:** an AMD or Intel measurement where native `pow` of a
+negative base is not NaN, or a scene that draws worse on ANGLE because of
+the rewrite.
