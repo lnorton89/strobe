@@ -365,6 +365,24 @@ Each item names its acceptance test. Evidence is in [STATUS_AUDIT.md](STATUS_AUD
      end: 51 of 51 to SPIR-V, HLSL and MSL for 50.
    - **No backend is started:** that waits for a platform that needs one.
 
+   *Follow-up (D292), 2026-10-15:*
+   - **The full corpus agrees with the spike.** The owner's 90 Synesthesia
+     scenes plus the library, 120 scenes and 288 passes: naga's GLSL input
+     takes 0. glslang takes all 227 corpus passes, and SPIRV-Cross writes
+     HLSL and MSL for every one.
+   - **naga 30.0.1 is still the newest**, with no combined-sampler work.
+     Splitting the samplers in SPIR-V first gets naga 60 of 60 library
+     passes but only 56 of 227 corpus passes.
+   - **The second backend is ANGLE's.** ANGLE's Vulkan backend, already
+     inside the shipped Electron build, rendered the library and the
+     corpus with no code change (`ANGLE_DEFAULT_PLATFORM=vulkan`, on
+     lavapipe). ANGLE's Metal backend is the macOS answer, and needs an EGL
+     provider of our own because glutin has no EGL on Apple.
+   - See [research/angle-backends.md](research/angle-backends.md).
+   - **Next:** backlog G-05 to G-07 (ANGLE-Vulkan on the T480 and TORNADO,
+     a backend-type choice in `--gl`, ANGLE-Metal on a Mac). A new
+     renderer (G-04) stays deferred.
+
 ### Auto-generated controls (stage 1 built)
 
 Most Shadertoy shaders, and many community SSF scenes, have no controls:
