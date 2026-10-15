@@ -548,6 +548,9 @@ pub struct Controller {
     /// The waiting card's heading and time line, and the whole second they
     /// were formatted for: they change once a second, not every frame.
     waiting: Option<(u64, String, String)>,
+    /// The stage and readiness the viewer last drew, so the app redraws it
+    /// when the worker changes either ([`Self::needs_redraw`]).
+    shown: Option<(Stage, bool)>,
 }
 
 impl Default for Controller {
@@ -575,6 +578,7 @@ impl Default for Controller {
             approval_limit: APPROVAL_TIMEOUT,
             reveal: false,
             waiting: None,
+            shown: None,
         }
     }
 }
@@ -781,12 +785,23 @@ impl Controller {
         }
         self.started = None;
         self.waiting = None;
+        self.shown = None;
         self.texture = None;
         self.texture_context = None;
         self.revision = 0;
         self.focused = false;
         self.input_note.clear();
         self.input_frame = None;
+    }
+
+    /// Whether the viewer has something new to draw: an image from the
+    /// host, or a stage or readiness the worker changed since the last
+    /// [`Self::show`]. The app redraws an idle viewer slowly and brings the
+    /// next redraw forward for this (D302). One lock, no allocation.
+    pub fn needs_redraw(&self) -> bool {
+        let view = self.view.lock().unwrap_or_else(PoisonError::into_inner);
+        (view.image.is_some() && view.revision != self.revision)
+            || self.shown != Some((view.stage, view.ready))
     }
 
     /// Status for Settings or the always-visible viewer toolbar.
@@ -887,6 +902,7 @@ impl Controller {
                 view.trusted,
             )
         };
+        self.shown = Some((stage, ready));
         ui.horizontal_wrapped(|ui| {
             ui.strong(format!("Controlling {}", self.address));
             let leave = match stage {
@@ -2243,6 +2259,33 @@ mod tests {
             "Connection refused.",
             "a sentence"
         );
+    }
+
+    #[test]
+    fn the_viewer_asks_for_a_redraw_only_for_something_new() {
+        let ctx = egui::Context::default();
+        let size = Vec2::new(640.0, 480.0);
+        let mut viewer = Controller::staged("192.168.1.20:47812", Staged::Live);
+        assert!(viewer.needs_redraw(), "never drawn");
+        look(&mut viewer, &ctx, size);
+        assert!(!viewer.needs_redraw(), "drawn, and nothing has changed");
+        viewer
+            .view
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .revision = 2;
+        assert!(viewer.needs_redraw(), "a new image from the host");
+        look(&mut viewer, &ctx, size);
+        assert!(!viewer.needs_redraw(), "that image drawn");
+        viewer
+            .view
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .ready = false;
+        assert!(viewer.needs_redraw(), "the host's image paused");
+        look(&mut viewer, &ctx, size);
+        end(&viewer.view, End::Lost, "gone".into());
+        assert!(viewer.needs_redraw(), "the connection ended");
     }
 
     #[test]

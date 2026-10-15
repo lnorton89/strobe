@@ -7344,3 +7344,45 @@ in real time. Screenshot mode passes its fixed step for both.
 **Would reopen:** a show that wants a slow scene's cue to run longer (that is
 a duration in the playlist), or a scene below 1 fps that must keep time
 (raise the cap).
+
+### D302: the desktop viewer redraws for a new image or input, not at 30 Hz (2026-10-15)
+
+**Context.** A hardware run put the controller and its host on one 2-core
+machine. The controller's control window redrew its viewer at the ordinary
+30 Hz (`CONTROL_PERIOD`): an egui pass, a full-window texture paint and a
+swap thirty times a second, for a host image that changes at most five
+times a second (D275's `STREAM_PERIOD`). The host lost 210 frames a minute
+to it.
+
+**Decision.**
+- **Idle, the viewer redraws every `VIEWER_PERIOD` (500 ms).** That keeps the
+  waiting card's clock (whole seconds) and the reconnect card current.
+  `app::control_period` picks it when `Controller::active()`; a covered or
+  unpainted window keeps its D206/D290 rates.
+- **Something new brings the next redraw forward**, to at most
+  `CONTROL_PERIOD` after the last request, never sooner:
+  - `Controller::needs_redraw`: an image whose revision has not been drawn,
+    or a stage or readiness the worker changed since the last `show` (one
+    lock, no allocation; checked on each pass of the event loop, which wakes
+    at the output's rate anyway);
+  - input on the control window (`app::is_input`: pointer, keys, wheel, IME,
+    focus, resize), so pointing and typing feel as they did.
+- **Leaving the viewer** (Disconnect, Enter a new pairing code) makes the
+  next control frame due at once, so the local window is back at 30 Hz
+  without waiting out the idle period.
+
+So a live viewer redraws about five times a second while the host streams,
+up to 30 Hz only while the person is moving or typing, and twice a second
+otherwise.
+
+**Not done.** egui's own repaint requests (a hover animation finishing after
+the pointer stops) are not followed, as nowhere else in the app; such an
+animation completes at the next redraw. The controller's own scene still
+renders while the viewer is up; whether to pause it is a separate question.
+
+**Test.** `app::tests::a_desktop_viewer_with_nothing_new_redraws_slower_than_the_host_streams`
+(failed before: 33 ms), `desktop::tests::the_viewer_asks_for_a_redraw_only_for_something_new`.
+**Not verified:** the late-frame count on the 2-core machine again.
+
+**Would reopen:** a viewer that feels sluggish to point with (the input pull
+is the lever), or a host stream faster than 5 Hz.
