@@ -136,8 +136,8 @@ apt-get install -y glslang-tools spirv-cross
 for f in crates/strobe-shadertoy/tests/fixtures/*.json crates/strobe-autocontrol/tests/fixtures/*.json; do
   target/debug/strobe-import "$f" --out /tmp/g03lib --name "st-$(basename "$f" .json)" --offline --force
 done
-cd research/g03-frontends
-cargo run --release -- ../../scenes /tmp/g03lib --out /tmp/g03out
+cd docs/research/g03-frontends
+cargo run --release -- ../../../scenes /tmp/g03lib --out /tmp/g03out
 ```
 
 `G03_VERBOSE=1` prints naga's full error for the adapted source of each pass.
