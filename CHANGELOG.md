@@ -39,6 +39,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- spell out pow on GLSL ES so a negative base is NaN as on native GL (D301) ([`1fde3b8`](https://github.com/lnorton89/strobe/commit/1fde3b8c45ba30ecc6c73fe8b03c688668d63517))
 - **show:** a slow scene no longer stretches its cue past real time (D299) ([`97b2d20`](https://github.com/lnorton89/strobe/commit/97b2d20f7f1fcc31b9942efc93d4d057b331ef50))
 - **show:** an unpainted control window alone does not make an output close quit ([`9965bf2`](https://github.com/lnorton89/strobe/commit/9965bf2d675cbe3f01b23ad1cba8d336b8a3d2ee))
 - **app:** the reconnect card states the real wait and attempt ([`7fcfb17`](https://github.com/lnorton89/strobe/commit/7fcfb17f21ce95c4672f486db3fef64bd7e0ead0))
@@ -94,6 +95,8 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Documentation
 
+- describe D301's two scene constructs in words ([`ba39557`](https://github.com/lnorton89/strobe/commit/ba39557969031b49c31dec18f935ca8e525fc2f6))
+- the AMD check for D301, Q28 on native pow, and the roadmap entry ([`79a17cb`](https://github.com/lnorton89/strobe/commit/79a17cb016dd8ebb06ab4a0012238a4adbc44b73))
 - allow strobe.exe through Windows Firewall before an unattended venue start ([`85af6ce`](https://github.com/lnorton89/strobe/commit/85af6ced99bead3e8b2fd9387f6e7b0f61e072d7))
 - hardware evidence for D290, venue mode on loopback, and Linux under WSL2 ([`aadc967`](https://github.com/lnorton89/strobe/commit/aadc967db8c01d576df64ffd2d8a67c136fffe20))
 - WSL2 GPU and audio setup, and the check script picks D3D12 there (D296) ([`2958c88`](https://github.com/lnorton89/strobe/commit/2958c8892ded0f0af32161cca066a5c1625f52b1))
