@@ -1,0 +1,25 @@
+{
+  "TITLE": "Neon Ribbon Flow",
+  "IMAGE_PATH": "thumbnail.png",
+  "CREDIT": "Original Strobe interpretation of Lethal Larry's flowing neon style",
+  "LICENSE": "MIT",
+  "DESCRIPTION": "Broad, translucent neon ribbons that twist, cross and drift at different depths, with iridescent cross-sections, glossy crests, soft bloom and black negative space. Inspired by a Lethal Larry video; an original procedural scene, not a reconstruction. Mids surge the flow, bass swells the ribbons, highs sparkle the crests.",
+  "PASSES": [
+    { "TARGET": "clock", "WIDTH": 1, "HEIGHT": 1, "FLOAT": true, "DOUBLE_BUFFER": true, "WRAP": "clamp", "FILTER": "nearest", "FULL_PRECISION": true }
+  ],
+  "CONTROLS": [
+    { "NAME": "speed", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 3.0, "DEFAULT": 1.0, "PARAMS": 0.03, "UI_GROUP": "motion" },
+    { "NAME": "zoom", "TYPE": "slider smooth", "MIN": 0.5, "MAX": 2.0, "DEFAULT": 1.0, "PARAMS": 0.03, "UI_GROUP": "shape" },
+    { "NAME": "width", "TYPE": "slider smooth", "MIN": 0.5, "MAX": 1.8, "DEFAULT": 1.0, "PARAMS": 0.03, "UI_GROUP": "shape" },
+    { "NAME": "curl", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 3.0, "DEFAULT": 1.0, "PARAMS": 0.03, "UI_GROUP": "shape" },
+    { "NAME": "hue", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 1.0, "DEFAULT": 0.0, "PARAMS": 0.03, "UI_GROUP": "color" },
+    { "NAME": "hue_spread", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 1.5, "DEFAULT": 0.45, "PARAMS": 0.03, "UI_GROUP": "color" },
+    { "NAME": "filaments", "TYPE": "slider smooth", "MIN": 1.0, "MAX": 12.0, "DEFAULT": 6.0, "PARAMS": 0.03, "UI_GROUP": "surface" },
+    { "NAME": "gloss", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 1.5, "DEFAULT": 0.8, "PARAMS": 0.03, "UI_GROUP": "surface" },
+    { "NAME": "glow", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 2.0, "DEFAULT": 1.0, "PARAMS": 0.03, "UI_GROUP": "surface" },
+    { "NAME": "depth_fog", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 0.9, "DEFAULT": 0.55, "PARAMS": 0.03, "UI_GROUP": "surface" },
+    { "NAME": "brightness", "TYPE": "slider smooth", "MIN": 0.4, "MAX": 1.6, "DEFAULT": 1.0, "PARAMS": 0.03, "UI_GROUP": "color" },
+    { "NAME": "reactivity", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 2.0, "DEFAULT": 0.8, "PARAMS": 0.03, "UI_GROUP": "audio" }
+  ],
+  "TAGS": ["abstract", "ribbons", "neon", "psychedelic", "flow", "audio-reactive"]
+}
