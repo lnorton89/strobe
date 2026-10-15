@@ -316,6 +316,75 @@ control window open; resize it if capture exceeds this limit. Input is
 disabled while frames are stale, and queued input is never replayed after
 reconnecting. Rendering the projector output continues on the host.
 
+### Venue mode: an unattended show machine
+
+Normally pairing a desktop needs someone to click **Approve** at the host.
+At a venue the show machine may have no screen, so venue mode replaces the
+click with a **trust file**: a small text file holding a secret. A controller
+that proves it has the same file is paired for full desktop control, with no
+approval.
+
+**1. Make the file, once, on any computer you own.**
+
+```text
+strobe --make-remote-trust "C:\Users\you\venue.trust"
+```
+
+Strobe writes 32 random bytes as hex, tells you what to do next, and refuses
+to overwrite a file that is already there. Keep it in your user profile (the
+default permissions on your profile folder let only you and administrators
+read it) and never post it, email it or commit it. On Linux and macOS the
+file is created readable by you only, and Strobe will not use one that other
+users can read.
+
+**2. Copy it to the other computer.** Use a USB stick or a copy over a
+channel you trust, and delete the stick's copy afterwards. Both computers
+use the same file.
+
+**3. Start the show machine** (start-up shortcut or script):
+
+```text
+strobe --remote --allow-desktop-control --remote-trust "C:\Users\you\venue.trust" --fullscreen
+```
+
+`--remote` starts the listener (it retries every few seconds if the network
+is not up yet at boot); `--allow-desktop-control` switches **Allow full
+desktop control** on for this run; `--remote-trust` names the file, which is
+read once at launch. If the file cannot be used, Strobe says so in its log and
+carries on without trusted pairing, so the show still starts. Nothing here is
+saved: after a restart the switches come from the command line again.
+
+**4. The laptop.** The laptop side, `strobe --control HOST:PORT
+--remote-trust FILE`, which opens straight into the viewer and reconnects by
+itself after a host restart or a Wi-Fi drop, is not in this build yet (see
+D288). Until then use the pairing code and **Approve** at the host.
+
+What you see at the host: the title bar says **Desktop controlled remotely**
+while the laptop is in control, and **Settings > Remote** lists the laptop as
+*Full desktop: trusted ...* with a *trusted* mark. **Revoke** there ends that
+session and refuses that controller until Strobe restarts. **Revoke all**, or
+switching **Allow full desktop control** off, shuts the trust file out;
+switching it off ends every desktop session at once, and trusted pairing is
+refused while it is off.
+
+**What it protects, and what it does not.**
+
+- **Whoever has the file has full control** of the show machine: scenes,
+  files, quitting. Treat it like a key. If it may have leaked, make a new one
+  and relaunch both computers.
+- **LAN only, plain HTTP.** The secret is never sent. The laptop answers a
+  fresh random challenge with a keyed hash that is good once, for that host
+  only, so someone watching the network cannot learn the secret or replay an
+  earlier answer. But the picture and your clicks and typing are not
+  encrypted, and someone able to sit between the two machines on your
+  network could hijack a session. Use a network you control, not a public one.
+- Wrong guesses are slowed and logged: a few free tries per address, then
+  pauses that grow to five minutes, and a shared pause if many addresses fail
+  at once. A flood on the network can therefore delay a *new* connection for a
+  while; a session already open is not affected.
+- Keep the file out of any folder Strobe writes scenes to: a controller with
+  the full UI can save files on the host.
+
 ### HTTPS through your own proxy (advanced)
 
 Strobe has no certificate of its own, and it will never ask you to click
