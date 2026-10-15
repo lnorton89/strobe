@@ -39,6 +39,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **gfx:** prime every GL context with one 16x16 draw, so AMD WGL stops dropping large draws (D311) ([`94cf8e6`](https://github.com/lnorton89/strobe/commit/94cf8e6c5c6cbbf001ee05b15a46f32a2137322c))
 - **show:** a slow scene no longer stretches its cue past real time (D299) ([`97b2d20`](https://github.com/lnorton89/strobe/commit/97b2d20f7f1fcc31b9942efc93d4d057b331ef50))
 - **show:** an unpainted control window alone does not make an output close quit ([`9965bf2`](https://github.com/lnorton89/strobe/commit/9965bf2d675cbe3f01b23ad1cba8d336b8a3d2ee))
 - **app:** the reconnect card states the real wait and attempt ([`7fcfb17`](https://github.com/lnorton89/strobe/commit/7fcfb17f21ce95c4672f486db3fef64bd7e0ead0))
