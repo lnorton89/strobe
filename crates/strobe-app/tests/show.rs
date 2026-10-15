@@ -697,6 +697,7 @@ const COUNT_SCALE: f32 = 400.0;
 const AMOUNT_JSON: &str = r#"{ "CONTROLS": [ { "NAME": "amount", "TYPE": "slider", "MIN": 0.0, "MAX": 1.0, "DEFAULT": 0.0 } ] }"#;
 const AMOUNT_SHADER: &str = "vec4 renderMain() { return vec4(amount, 0.0, 0.0, 1.0); }";
 const RED_SHADER: &str = "vec4 renderMain() { return vec4(1.0, 0.0, 0.0, 1.0); }";
+const GREEN_SHADER: &str = "vec4 renderMain() { return vec4(0.0, 1.0, 0.0, 1.0); }";
 
 /// The live scene's own frame (not the mix), centre pixel.
 fn live_centre(rig: &Rig<'_>) -> Result<[u8; 3]> {
@@ -836,5 +837,54 @@ fn a_cues_overrides_reach_the_picture_every_time_its_scene_plays() -> Result<()>
         }
         show.finish();
     }
+    Ok(())
+}
+
+#[test]
+fn jumping_to_a_cue_whose_scene_is_warming_for_another_cue_applies_its_own_overrides() -> Result<()>
+{
+    let Some(headless) = context(Api::DesktopCore33)? else {
+        return Ok(());
+    };
+    let library = library_of(
+        "jump-warm",
+        &[
+            ("tint", AMOUNT_JSON, AMOUNT_SHADER),
+            ("red", "{}", RED_SHADER),
+            ("green", "{}", GREEN_SHADER),
+        ],
+    )?;
+    let mut rig = Rig::new(&headless)?;
+    let mut playlist = Playlist::new("jump");
+    let mut section = Section::new("all");
+    let cut = TransitionSpec::cut();
+    section.cues.push(cue_of("red", 3.0, cut.clone()));
+    section
+        .cues
+        .push(with_amount(cue_of("tint", 3.0, cut.clone()), 0.8));
+    section.cues.push(cue_of("green", 3.0, cut.clone()));
+    section
+        .cues
+        .push(with_amount(cue_of("tint", 3.0, cut), 0.2));
+    playlist.sections.push(section);
+    let mut show = Show::new(None, playlist, &library.library, None, None);
+    rig.load(&mut show)?;
+    // 1.5 s into the first cue the second (tint at 0.8) is warming.
+    for _ in 0..90 {
+        rig.frame(&mut show);
+    }
+    assert_eq!(show.warming_cue(), Some(1), "cue 2 is warming");
+    // The operator jumps to cue 4: the same scene, another value.
+    show.command(Command::JumpTo(3));
+    for _ in 0..3 {
+        rig.frame(&mut show);
+    }
+    assert_eq!(show.clock().current(), Some(3), "on cue 4");
+    let value = amount(&rig)?;
+    assert!(
+        (value - 0.2).abs() < 1e-4,
+        "cue 4 plays with its own override (0.2), not the warmed cue's: {value}"
+    );
+    show.finish();
     Ok(())
 }

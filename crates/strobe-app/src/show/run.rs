@@ -153,6 +153,8 @@ pub struct FrameReport {
 /// The session being warmed.
 struct Warm {
     scene: SceneRef,
+    /// The cue whose settings it was prepared with.
+    index: usize,
     session: Session,
 }
 
@@ -923,9 +925,17 @@ impl Show {
         else {
             return;
         };
-        if self.active_scene.as_ref() == Some(&scene)
-            || self.warming.as_ref().is_some_and(|w| w.scene == scene)
-        {
+        if self.active_scene.as_ref() == Some(&scene) {
+            return;
+        }
+        // Already warming for another cue of the same scene (a jump): it
+        // takes this cue's settings.
+        if let Some(mut warm) = self.warming.take_if(|w| w.scene == scene) {
+            if warm.index != index {
+                self.prepare(&mut warm.session, index, env.start_time, env.media);
+                warm.index = index;
+            }
+            self.warming = Some(warm);
             return;
         }
         if let Some(old) = self.warming.take() {
@@ -948,7 +958,11 @@ impl Show {
             size[0],
             size[1]
         );
-        self.warming = Some(Warm { scene, session });
+        self.warming = Some(Warm {
+            scene,
+            index,
+            session,
+        });
     }
 
     /// Restarts a session's clock and applies a cue's control settings and
@@ -1029,10 +1043,17 @@ impl Show {
         if let Some(out) = self.outgoing.take() {
             self.park(out.scene, out.session);
         }
+        // A warmed session was prepared for the cue it was warmed for; a
+        // jump or a step back can start another cue of the same scene.
         let warmed = self
             .warming
             .take_if(|warm| warm.scene == scene)
-            .map(|warm| warm.session);
+            .map(|mut warm| {
+                if warm.index != index {
+                    self.prepare(&mut warm.session, index, env.start_time, media);
+                }
+                warm.session
+            });
         let incoming = match warmed {
             Some(mut session) => match session.player.resize_keeping(env.full_size) {
                 Ok(()) => Some(session),
