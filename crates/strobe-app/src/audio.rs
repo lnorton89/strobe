@@ -109,6 +109,9 @@ pub struct AudioInput {
     label: String,
     /// `--audio ambient`: the synthetic track made calm, if asked for.
     ambient: Option<Ambient>,
+    /// This run only controls another Strobe (`--control`), so a machine
+    /// with no input device is not worth a warning.
+    controller: bool,
 }
 
 /// The synthetic track without a beat (`--audio ambient`): hits and beat
@@ -223,6 +226,7 @@ impl AudioInput {
             status_read: None,
             label: String::new(),
             ambient: None,
+            controller: false,
         };
         if capture {
             input.label = "synthetic (opening audio input...)".to_string();
@@ -250,6 +254,22 @@ impl AudioInput {
             log::info!("synthetic source (--audio synthetic)");
         }
         self
+    }
+
+    /// Marks a run that only controls another Strobe (`--control`): it may
+    /// have no audio input, and says so at info level, not as a warning.
+    pub fn with_controller(mut self, controller: bool) -> Self {
+        self.controller = controller;
+        self
+    }
+
+    /// The level at which "no usable capture device" is logged.
+    fn no_device_level(&self) -> log::Level {
+        if self.controller {
+            log::Level::Info
+        } else {
+            log::Level::Warn
+        }
     }
 
     fn start_capture(&mut self) {
@@ -410,7 +430,8 @@ impl AudioInput {
                             .action("using synthetic audio; capture retries in the background"),
                     );
                 } else {
-                    log::warn!(
+                    log::log!(
+                        self.no_device_level(),
                         "no usable capture device ({reason}); using synthetic audio, \
                          and retrying in the background"
                     );
@@ -592,6 +613,22 @@ mod tests {
             input.label().contains("synthetic"),
             "label: {}",
             input.label()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_controller_run_does_not_warn_about_a_missing_input() -> Result<()> {
+        assert!(
+            AudioInput::new(false).no_device_level() == log::Level::Warn,
+            "a show machine without an input is worth a warning"
+        );
+        assert!(
+            AudioInput::new(false)
+                .with_controller(true)
+                .no_device_level()
+                == log::Level::Info,
+            "a controller does not need audio"
         );
         Ok(())
     }
