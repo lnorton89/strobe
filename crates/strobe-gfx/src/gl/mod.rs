@@ -21,6 +21,12 @@
 //!   array, buffer, fence) is held by an owning type here whose `Drop` releases it
 //!   through the same `Gl`, so an early return cannot leak GPU memory.
 //!
+//! - **Every context is primed once (D311).** [`Gl::from_loader`], the one
+//!   place a `Gl` is built, runs [`prime`] before returning: one tiny draw
+//!   into a 16x16 target, because AMD's WGL driver drops draws into large
+//!   targets until a context has drawn into a small one. Nothing else has to
+//!   remember to do it.
+//!
 //! - **A lost context is never touched again.** [`Gl::mark_lost`] sets a flag
 //!   shared by every clone of the `Gl`, and every owning type's `Drop` then
 //!   skips its delete call. Once a context has been reset or destroyed, a
@@ -37,6 +43,7 @@
 
 pub mod context;
 pub mod debug;
+pub mod prime;
 pub mod trace;
 pub mod window;
 
@@ -282,6 +289,40 @@ pub struct Info {
     pub gpu_timer: bool,
 }
 
+/// What a context has bound, as [`Gl::bindings`] reads it. Object names are
+/// GL's raw integers (0 is "none" / the default framebuffer).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Bindings {
+    /// `GL_DRAW_FRAMEBUFFER_BINDING`.
+    pub draw_framebuffer: i32,
+    /// `GL_READ_FRAMEBUFFER_BINDING`.
+    pub read_framebuffer: i32,
+    /// `GL_CURRENT_PROGRAM`.
+    pub program: i32,
+    /// `GL_VERTEX_ARRAY_BINDING`.
+    pub vertex_array: i32,
+    /// `GL_ACTIVE_TEXTURE` (an enum: `GL_TEXTURE0` + unit).
+    pub active_texture: i32,
+    /// `GL_TEXTURE_BINDING_2D` on the active unit.
+    pub texture_2d: i32,
+    /// `GL_UNPACK_ALIGNMENT`.
+    pub unpack_alignment: i32,
+}
+
+impl Bindings {
+    /// What a context holds when it is first made current: nothing bound,
+    /// unit 0 active, the unpack alignment GL starts with (4).
+    pub const FRESH: Self = Self {
+        draw_framebuffer: 0,
+        read_framebuffer: 0,
+        program: 0,
+        vertex_array: 0,
+        active_texture: glow::TEXTURE0 as i32,
+        texture_2d: 0,
+        unpack_alignment: 4,
+    };
+}
+
 /// `GL_GPU_DISJOINT_EXT`: set when a timer result may be garbage because
 /// the GPU was reset or throttled (the ES extension's one extra query).
 const GPU_DISJOINT_EXT: u32 = 0x8FBB;
@@ -291,6 +332,10 @@ impl Gl {
     /// [`window`] call this, immediately after making the context current on
     /// this thread. The same loader that builds the glow context also looks
     /// up the reset-status function glow does not wrap.
+    ///
+    /// Every context in the process is built here, so this is where it is
+    /// primed ([`prime::on_new_context`], D311): one draw into a small
+    /// target before anyone else draws, with the GL state left as it was.
     fn from_loader(mut loader: impl FnMut(&CStr) -> *const c_void) -> Self {
         let raw = context::glow_from_loader(&mut loader);
         let version = raw.version();
@@ -304,14 +349,23 @@ impl Gl {
             let address = loader(&name);
             (!address.is_null()).then_some(ResetAddress(address))
         });
-        Self {
+        let gl = Self {
             raw: Arc::new(raw),
             reset,
             lost: Rc::new(Cell::new(false)),
             compiles: Rc::new(Cell::new(0)),
             trace: Rc::new(trace::Trace::from_env()),
             _thread: PhantomData,
-        }
+        };
+        prime::on_new_context(&gl);
+        gl
+    }
+
+    /// Whether this is an OpenGL ES context (ANGLE, or the headless GLES
+    /// context). glow parsed the version once when the context was loaded,
+    /// so this asks the driver nothing.
+    pub fn is_embedded(&self) -> bool {
+        self.raw.version().is_embedded
     }
 
     /// Records that this context is lost (reset, destroyed, or no longer
@@ -480,6 +534,32 @@ impl Gl {
     pub fn scissor_enabled(&self) -> bool {
         // SAFETY: current-context invariant.
         unsafe { self.raw.is_enabled(glow::SCISSOR_TEST) }
+    }
+
+    /// Puts back a viewport read with [`Self::viewport_box`], origin
+    /// included. For [`prime`], which restores what the context had.
+    fn restore_viewport(&self, [x, y, width, height]: [i32; 4]) {
+        if self.trace.on() {
+            self.trace.viewport([width, height]);
+        }
+        // SAFETY: current-context invariant; the values came from the
+        // driver's own GL_VIEWPORT.
+        unsafe { self.raw.viewport(x, y, width, height) }
+    }
+
+    /// What the context has bound: framebuffers, program, vertex array, the
+    /// active unit's 2D texture, and the unpack alignment. Seven driver
+    /// round trips, for tests and diagnostics, never the frame loop.
+    pub fn bindings(&self) -> Bindings {
+        Bindings {
+            draw_framebuffer: self.get_i32(glow::DRAW_FRAMEBUFFER_BINDING),
+            read_framebuffer: self.get_i32(glow::READ_FRAMEBUFFER_BINDING),
+            program: self.get_i32(glow::CURRENT_PROGRAM),
+            vertex_array: self.get_i32(glow::VERTEX_ARRAY_BINDING),
+            active_texture: self.get_i32(glow::ACTIVE_TEXTURE),
+            texture_2d: self.get_i32(glow::TEXTURE_BINDING_2D),
+            unpack_alignment: self.get_i32(glow::UNPACK_ALIGNMENT),
+        }
     }
 
     /// The largest viewport the driver allows (`GL_MAX_VIEWPORT_DIMS`).
@@ -657,7 +737,7 @@ impl Gl {
 
     fn use_raw_program(&self, program: Option<glow::Program>) {
         // SAFETY: current-context invariant; the handle is owned by a live
-        // Program.
+        // Program, or None for no program.
         unsafe { self.raw.use_program(program) }
     }
 
@@ -899,9 +979,13 @@ impl Gl {
     /// before each upload, not once per context, because the context is
     /// shared with egui's painter, which sets pixel-store state of its own.
     fn unpack_tightly(&self) {
+        self.unpack_alignment(1);
+    }
+
+    fn unpack_alignment(&self, bytes: i32) {
         // SAFETY: current-context invariant; a pixel-store parameter is
         // plain state and reads no memory.
-        unsafe { self.raw.pixel_store_i32(glow::UNPACK_ALIGNMENT, 1) }
+        unsafe { self.raw.pixel_store_i32(glow::UNPACK_ALIGNMENT, bytes) }
     }
 
     fn create_texture(&self) -> Result<glow::Texture, String> {
@@ -911,7 +995,7 @@ impl Gl {
 
     fn bind_texture(&self, target: u32, texture: Option<glow::Texture>) {
         // SAFETY: current-context invariant; the handle is owned by a live
-        // Texture.
+        // Texture, or None to unbind.
         unsafe { self.raw.bind_texture(target, texture) }
     }
 
@@ -1492,7 +1576,7 @@ impl Gl {
 
     fn bind_raw_vertex_array(&self, vao: Option<glow::VertexArray>) {
         // SAFETY: current-context invariant; the handle is owned by a live
-        // VertexArray.
+        // VertexArray, or None to unbind.
         unsafe { self.raw.bind_vertex_array(vao) }
     }
 

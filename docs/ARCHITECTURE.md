@@ -98,6 +98,11 @@ Within the GL module:
 - `gl/mod.rs` holds `Gl`, the safe wrappers (one GL call each), and the
   owning resource types (`Program`, `Texture`, `Framebuffer`,
   `VertexArray`, `Shader`), each released on `Drop`.
+- `gl/prime.rs` runs once per context, from `Gl::from_loader` (which both
+  the headless and the windowed providers call): one 16x16 draw before
+  anything else draws, with the state put back, because AMD's WGL driver
+  drops draws into large targets until a context has drawn into a small
+  one (D311). It holds no `unsafe`.
 
 `Gl` is `!Send`. A GL call is only defined on the thread where the
 context is current, so the type system keeps `Gl` on that thread.

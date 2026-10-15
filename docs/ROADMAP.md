@@ -92,14 +92,16 @@ which backend proved a claim.
   2 Hz (5 Hz with a desktop remote), until Windows paints it promptly again.
   Open: the mini-PC verification in MINIPC.md.
 
-- **AMD native WGL renders black above about 160x90 offscreen (D296), cause
-  open:** the mini-PC's Vega 3 draws 05-domain-warp correctly at 160x90 and
-  black above it, and `neon_city` black at 160x90 (targets larger than the
-  window). The code never draws to or reads from the default framebuffer
-  (pinned by a headless test), so this is a driver behaviour with targets or
-  sizes. Built and ready to run on the mini-PC: `STROBE_GL_TRACE`,
-  `strobe-bench --probe` and `--window-size`; the run and how to read it are in
-  `hardware/MINIPC.md`. The fix waits on that result.
+- **AMD native WGL renders black above about 160x90 offscreen (D296), fixed,
+  pending verification on the mini PC (D311):** root-caused there (MINIPC.md
+  M11-M14): the Vega 3's driver drops every draw into a target over 16384
+  pixels (64 KiB of RGBA8) until the context has drawn into a small target
+  once; after that, everything lands. The app escaped it because egui draws
+  first; the bench, corpus and autocontrol did not. Every GL context now does
+  one 16x16 draw when it is created (`gl::prime`, from `Gl::from_loader`),
+  with the state restored; headless-tested for clean state in both dialects,
+  which cannot reproduce the bug. Open: MINIPC.md Task M15, the bench at
+  640x360 and 1920x1080 on native WGL with no D296 switches.
 
 - **Render scale and pinned scenes (D280), built, not yet re-run on the
   RX 580:** a scene with a root `WIDTH` x `HEIGHT`, a literal buffer pass of
