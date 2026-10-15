@@ -13,6 +13,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **app:** --audio ambient, the synthetic track without its beat ([`ac94a3c`](https://github.com/lnorton89/strobe/commit/ac94a3cc5ddf8da8804993cb918f47e5346a724d))
 - **app:** one click on a scene card makes it live, and LIB flips between Scenes and Controls ([`f400de0`](https://github.com/lnorton89/strobe/commit/f400de000dd442a319cd2f53eb7ad0a6420e9134))
 - **app:** venue mode launch flags and trust file on the host ([`c9eed9b`](https://github.com/lnorton89/strobe/commit/c9eed9b730571074c3b2cf884012e725f9e4efa0))
 - **remote:** trusted pairing over the WebSocket protocol ([`2337d78`](https://github.com/lnorton89/strobe/commit/2337d78d0ffe287ddd52147e750e42803f7aec13))
@@ -33,12 +34,14 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **gfx:** upload texture rows tightly packed, not at GL's 4-byte alignment ([`971b694`](https://github.com/lnorton89/strobe/commit/971b6945d9c88d52a48ed1e25fc02928c09b545d))
 - **scene:** run global initializers in main on desktop too, so sprinkles is not black ([`0037fcf`](https://github.com/lnorton89/strobe/commit/0037fcf71b4f17d00ea6e41c883f1433662c98b4))
 - **app:** keep the output's swap wait while the loop drives the control window ([`c812236`](https://github.com/lnorton89/strobe/commit/c812236b22ae922ee557529d3d974933c9646097))
 - **app:** run the control frame from the event loop when Windows withholds its paints ([`e96573b`](https://github.com/lnorton89/strobe/commit/e96573b6d63b334984275e899c06640e194cae6e))
 - **app:** do not print a laptop command that does not exist yet ([`92f4965`](https://github.com/lnorton89/strobe/commit/92f4965b7e45cccd75975eb26c8fb8ca2c6bb9ac))
 - **remote:** bind a trust proof to the address the connection reached ([`dd8c2f5`](https://github.com/lnorton89/strobe/commit/dd8c2f5741c5d13fec7094765eff6ffbe8240971))
 - **app:** compile the playlist from output frames when the control window stops painting ([`fca44a5`](https://github.com/lnorton89/strobe/commit/fca44a53e14838c9591c9d32a4257a5e81ae6d85))
+- **app:** compile the playlist from output frames when the control window stops painting ([`4460897`](https://github.com/lnorton89/strobe/commit/4460897f25ff65f6abb8115bd0447c6f5fd9af5a))
 - **gfx:** restart a kept pass that a restarted pass reads ([`96aeeeb`](https://github.com/lnorton89/strobe/commit/96aeeebf255504b1270b22942577bffd1d30d2a4))
 - **gfx:** keep the passes a resize does not change ([`a5cd1fd`](https://github.com/lnorton89/strobe/commit/a5cd1fd26cec2675b0c0721585d13a0917661730))
 - **ui:** scroll the connect form's address field into view in small windows ([`9b75aa0`](https://github.com/lnorton89/strobe/commit/9b75aa0974ec29674ff1004246af637378415f35))
