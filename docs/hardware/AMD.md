@@ -269,3 +269,26 @@ either machine.
   approval gave a new client id.
 - **Automation note, not a product issue:** posted mouse input lands only
   when the move, down and up messages are posted back to back.
+
+## The rebuilt scenes 13-16 on the RX 580 (2026-10-15, commit 469c8a8, Task A12)
+
+strobe-bench `--context window` at 1920x1080, mean ms native / ANGLE:
+
+| Scene | Native | ANGLE |
+|---|---|---|
+| 05-domain-warp (reference) | 1.54 | 1.48 |
+| 13-chromatic-rise | 0.99 | 0.95 |
+| 14-electric-bloom | 1.48 | 1.49 |
+| 15-neon-ribbon-flow | 0.98 | 1.33 |
+| 16-acid-mirror | 0.96 | 0.85 |
+
+- **Cost:** all four run at 0.6-1.0x domain-warp on real hardware. llvmpipe
+  overstated them (1.1-1.5x).
+- **ANGLE:** compiles take 83-278 ms (native 38-72 ms). Neon Ribbon Flow is
+  the only scene slower on ANGLE, by 0.35 ms.
+- **Corpus:** 8/8 in both dialects.
+- **Stability:** 1800 frames in the app, with no WARN or ERROR and no
+  render-scale changes. All four are stable and vivid, with no fade or
+  blow-out.
+- **Minor, in Acid Mirror:** small mirrored dash fragments just below mid
+  height, and hard, slightly aliased edges on the black voids.
