@@ -242,3 +242,30 @@ and the whole scene, with the same log line.
 
 **Corpus:** 90/90 in both dialects. Frame ms (desktop/GLES): neon_city
 60.3/45.6, bouncy_hexagons 19.2/17.0, entombed_silicon_dreams 14.6/15.2.
+
+## Desktop remote control, host side (2026-10-15, commit d19cc24, Task A11, D275)
+
+The RX 580 was the host at 10.1.10.206:47812, on a Private Wi-Fi network,
+with the T480 controlling (T480 Task 45). No firewall prompt appeared on
+either machine.
+
+- **Approval.** The pairing banner read "Full desktop: Strobe desktop at
+  10.1.10.30 wants full control, files included", and the pairing was
+  approved.
+- **(a)** The title bar showed "Desktop controlled remotely · 1
+  connected".
+- **(b)** Remote Next loaded 02-plasma-pulse on the host. The controller
+  also opened the Editor and loaded more scenes.
+- **(c)** A remote "Pair a device" was refused: `refused
+  OpenRemotePairing; it is host-only`, with the host-only banner shown.
+- **(d)** Streaming had no measurable cost on the output: 59.9 fps,
+  1-2 late frames a minute, control redraw 2.2-2.4 ms against 2.0-2.2 ms
+  idle. Worst gaps of 72-92 ms came with scene loads and the Editor
+  opening, and a local load costs as much (111 ms). This was not a clean
+  same-scene comparison.
+- **(e)** Switching desktop control off revoked the controller (`1
+  desktop clients revoked`), and the viewer dropped within about 0.6 s.
+- **(f)** A reconnect with no code was refused. A fresh code and a fresh
+  approval gave a new client id.
+- **Automation note, not a product issue:** posted mouse input lands only
+  when the move, down and up messages are posted back to back.
