@@ -735,6 +735,10 @@ fn control(
                     *credential.lock().unwrap_or_else(PoisonError::into_inner) =
                         Some(Credential { address, token });
                 }
+                ServerMessage::TrustChallenge { .. } => {
+                    // This controller never asked to prove a trust file.
+                    return Err(io::Error::other("Host sent an unexpected trust challenge"));
+                }
                 ServerMessage::State { .. }
                 | ServerMessage::CommandResult { .. }
                 | ServerMessage::Pong {} => {}

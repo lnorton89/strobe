@@ -57,6 +57,18 @@ pub fn show(ui: &mut Ui, theme: &Palette, panel: &mut LanPanel<'_>, actions: &mu
         actions.push(Action::SetDesktopAccess(desktop_enabled));
     }
     ui.label(egui::RichText::new("Grants desktops you approve the entire Strobe UI, editor and file saves included, but not pairing or network settings. One controller at a time. Switching it off, or stopping the remote, ends every desktop pairing.").small().color(theme::rgb(theme.text_muted)));
+    if view.venue {
+        ui.label(
+            egui::RichText::new(
+                "Venue mode: this Strobe was started with a trust file. While full desktop \
+                 control is on, a controller that holds the same file gets full control with no \
+                 approval here. Revoke ends its session and refuses that controller until Strobe \
+                 restarts; Revoke all, or switching full desktop control off, closes the door.",
+            )
+            .small()
+            .color(theme::rgb(theme.text_muted)),
+        );
+    }
     ui.add_space(SPACE_SM);
     ui.strong("Control another Strobe desktop");
     ui.label("Start remote and allow full desktop control on the host, then open pairing there.");
@@ -243,6 +255,12 @@ fn paired(ui: &mut Ui, theme: &Palette, panel: &LanPanel<'_>, actions: &mut Vec<
     for (client, connected) in &view.clients {
         ui.horizontal_wrapped(|ui| {
             ui.label(&client.label);
+            if client
+                .label
+                .starts_with(strobe_remote::desktop::TRUSTED_LABEL_PREFIX)
+            {
+                widgets::status_chip(ui, Icon::Info, "trusted", theme.warning);
+            }
             if *connected {
                 widgets::status_chip(ui, Icon::Check, "connected", theme.success);
             }

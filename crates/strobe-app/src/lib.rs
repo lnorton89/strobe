@@ -37,6 +37,8 @@
 //! - [`localtime`]: local wall-clock time for `strobe_Date`.
 //! - [`screenshot`]: the `--screenshot` verification mode.
 //! - [`brand`]: the window and taskbar icon (D190).
+//! - [`venue`]: venue mode's launch-time pieces (D288), the trust file for an
+//!   unattended show machine.
 //! - [`cli`]: the command line.
 //! - [`corpus`]: the scene-corpus compatibility harness behind
 //!   `strobe-corpus` and `cargo xtask corpus` (D195).
@@ -77,6 +79,6 @@ pub mod session;
 pub mod show;
 pub mod snapshot;
 pub mod stats;
-
 pub mod ui;
+pub mod venue;
 pub mod workspace;
