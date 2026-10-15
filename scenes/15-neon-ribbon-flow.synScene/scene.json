@@ -11,7 +11,7 @@
     { "NAME": "speed", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 3.0, "DEFAULT": 1.0, "PARAMS": 0.03, "UI_GROUP": "motion" },
     { "NAME": "zoom", "TYPE": "slider smooth", "MIN": 0.5, "MAX": 2.0, "DEFAULT": 1.0, "PARAMS": 0.03, "UI_GROUP": "shape" },
     { "NAME": "width", "TYPE": "slider smooth", "MIN": 0.5, "MAX": 1.8, "DEFAULT": 1.0, "PARAMS": 0.03, "UI_GROUP": "shape" },
-    { "NAME": "curl", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 3.0, "DEFAULT": 1.0, "PARAMS": 0.03, "UI_GROUP": "shape" },
+    { "NAME": "curl", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 3.0, "DEFAULT": 1.8, "PARAMS": 0.03, "UI_GROUP": "shape" },
     { "NAME": "hue", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 1.0, "DEFAULT": 0.0, "PARAMS": 0.03, "UI_GROUP": "color" },
     { "NAME": "hue_spread", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 1.5, "DEFAULT": 0.45, "PARAMS": 0.03, "UI_GROUP": "color" },
     { "NAME": "filaments", "TYPE": "slider smooth", "MIN": 1.0, "MAX": 12.0, "DEFAULT": 6.0, "PARAMS": 0.03, "UI_GROUP": "surface" },

@@ -27,7 +27,8 @@ vec4 clockPass() {
 
 // Iridescent neon: a full wheel, stretched toward magenta and cyan.
 vec3 neon(float h) {
-    return clamp(0.5 + 0.62 * cos(6.2831853 * (h + vec3(0.0, 0.33, 0.67))), 0.0, 1.0);
+    vec3 c = clamp(0.5 + 0.62 * cos(6.2831853 * (h + vec3(0.0, 0.33, 0.67))), 0.0, 1.0);
+    return c * c * (3.0 - 2.0 * c);
 }
 
 vec4 ribbons(void) {
@@ -119,7 +120,7 @@ vec4 ribbons(void) {
             float dotAt = _hash12(cid + floor(T * 3.0 + fi));
             vec2 jit = _hash22(cid) * 0.5 + 0.25;
             float dsp = length(fract(sg) - jit);
-            float sparkle = smoothstep(0.30, 0.0, dsp) * step(0.82 - 0.35 * high, dotAt) * crest;
+            float sparkle = (1.0 - smoothstep(0.0, 0.30, dsp)) * step(0.82 - 0.35 * high, dotAt) * crest;
             rib += vec3(1.0) * sparkle * (0.25 + 1.6 * high) * depth;
         }
 
