@@ -6502,9 +6502,15 @@ not focus, is what counts.
   output frame.
 - **While the loop drives, the window counts as unseen** (`control_unseen`):
   it redraws at `COVERED_PERIOD` (2 Hz), or `desktop::STREAM_PERIOD` (5 Hz)
-  while a desktop remote holds the lease, and the pacer and the swap policy
-  treat it as covered. Starvation means the output is above it, and a swap
-  of a covered window is what D206 throttled.
+  while a desktop remote holds the lease, and the pacer treats it as
+  covered. Starvation means the output is above it, and a swap of a covered
+  window is what D206 throttled.
+- **The swap policy does not.** The output's D221 wait is skipped only
+  while `control_covered`, as before. A driven window still takes the
+  shared context two to five times a second, and on a machine where the
+  wait has engaged, dropping it would move the flip's wait back into that
+  make-current and cost the show a frame per driven redraw (TORNADO T15,
+  T16), where before this fix the starved window cost nothing.
 - **Not in screenshot mode, and not while minimised.** A screenshot captures
   what was painted and keeps its 10 s give-up; a minimised window has
   nothing to draw (`redraw_control` returns at once).
@@ -6523,8 +6529,11 @@ not focus, is what counts.
 
 **Not chosen.**
 - *Skip the output's request while a control paint is overdue*, so Windows
-  picks the control window. It costs the output a vertical blank each time,
-  and it still depends on Windows' paint order.
+  picks the control window. The control frame would run in the same slot
+  between two output frames as a driven one does, so it costs the same; but
+  it still depends on Windows' paint order, and a paint that did not come
+  (a minimised window, another window of the thread on top) would stall
+  the output until a timeout, which is this fix's heuristic again.
 - *Drive the control window from the loop always*, dropping
   `request_redraw`. It would change the paint behaviour everywhere it works
   today, and lose winit's expose redraws.
