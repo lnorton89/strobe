@@ -192,6 +192,11 @@ struct PassState {
     current: usize,
     size: [i32; 2],
     mipmap: bool,
+    /// Set by [`ScenePlayer::allocate_passes`] on a pass whose size a resize
+    /// left unchanged: it has no targets of its own yet and takes the old
+    /// pass's, contents and current buffer included, in
+    /// [`adopt_unchanged`] (D287).
+    awaiting_adoption: bool,
 }
 
 /// A scene, compiled and ready to render.
@@ -497,7 +502,7 @@ impl ScenePlayer {
             extra_values: Vec::with_capacity(extras.len()),
             readback: None,
         };
-        player.passes = player.allocate_passes(programs, render_size)?;
+        player.passes = player.allocate_passes(programs, render_size, &[])?;
         Ok(player)
     }
 
@@ -707,9 +712,12 @@ impl ScenePlayer {
         self.pinned
     }
 
-    /// Changes the render resolution. Pass contents restart from black. A
-    /// scene whose final pass is pinned (D280) draws at the same size
-    /// whatever it is asked, so for it this only records the request.
+    /// Changes the render resolution. Pass contents restart from black,
+    /// except for passes whose own size the resize does not change (a
+    /// `FIXED_SIZE` or literal-size pass, D194), which keep their targets and
+    /// what is in them (D287). A scene whose final pass is pinned (D280)
+    /// draws at the same size whatever it is asked, so for it this only
+    /// records the request.
     pub fn resize(&mut self, render_size: [i32; 2]) -> Result<(), PlayerError> {
         let requested = [render_size[0].max(1), render_size[1].max(1)];
         if requested == self.requested {
@@ -721,16 +729,21 @@ impl ScenePlayer {
             return Ok(());
         }
         let res = |e: String| PlayerError::Resource(e);
-        self.requested = requested;
-        self.render_size = render_size;
-        self.finals = [
+        let finals = [
             new_target(&self.gl, render_size, Format::Rgba8, Sampling::LINEAR_CLAMP)
                 .map_err(res)?,
             new_target(&self.gl, render_size, Format::Rgba8, Sampling::LINEAR_CLAMP)
                 .map_err(res)?,
         ];
         let programs = self.passes.iter().map(|p| Rc::clone(&p.program)).collect();
-        self.passes = self.allocate_passes(programs, render_size)?;
+        let mut passes = self.allocate_passes(programs, render_size, &self.passes)?;
+        // Nothing below can fail, so a failed allocation left the player as
+        // it was. A pass whose size did not change keeps its targets (D287).
+        adopt_unchanged(&mut self.passes, &mut passes);
+        self.requested = requested;
+        self.render_size = render_size;
+        self.finals = finals;
+        self.passes = passes;
         if self.readback.is_some() {
             self.readback = None;
             self.enable_final_pass_readback()?;
@@ -744,8 +757,11 @@ impl ScenePlayer {
     /// GL only copies nearest) instead of restarting from black.
     ///
     /// This is what lets a feedback scene warmed up at a small size arrive
-    /// at full size with its trails in place (D153). Nothing is compiled;
-    /// only textures are allocated. On failure the player is unchanged.
+    /// at full size with its trails in place (D153). A pass whose own size
+    /// does not change (`FIXED_SIZE`, a literal size) is not touched at all:
+    /// same textures, same contents, same current buffer (D287). Nothing is
+    /// compiled; only textures are allocated. On failure the player is
+    /// unchanged.
     pub fn resize_keeping(&mut self, render_size: [i32; 2]) -> Result<(), PlayerError> {
         let requested = [render_size[0].max(1), render_size[1].max(1)];
         let render_size = final_size(self.pinned, requested);
@@ -764,12 +780,16 @@ impl ScenePlayer {
         ];
         let programs = self.passes.iter().map(|p| Rc::clone(&p.program)).collect();
         // Allocated against the new size without touching `self` yet.
-        let mut passes = self.allocate_passes(programs, render_size)?;
+        let mut passes = self.allocate_passes(programs, render_size, &self.passes)?;
         for (old, new) in self.finals.iter().zip(&finals) {
             self.gl
                 .blit_between_filtered(&old.fbo, old_size, &new.fbo, render_size, true);
         }
-        for (old, new) in self.passes.iter().zip(passes.iter_mut()) {
+        for (old, new) in self.passes.iter_mut().zip(passes.iter_mut()) {
+            if new.awaiting_adoption {
+                adopt_one(old, new);
+                continue;
+            }
             new.current = old.current;
             for (from, to) in old.targets.iter().zip(&new.targets) {
                 let linear = from.texture.format() != Format::Rgba32f;
@@ -914,6 +934,7 @@ impl ScenePlayer {
         &self,
         programs: Vec<Rc<Compiled>>,
         render_size: [i32; 2],
+        previous: &[PassState],
     ) -> Result<Vec<PassState>, PlayerError> {
         let last = self.def.final_pass();
         let mut passes = Vec::with_capacity(programs.len());
@@ -925,6 +946,7 @@ impl ScenePlayer {
                     current: 0,
                     size: render_size,
                     mipmap: false,
+                    awaiting_adoption: false,
                 });
                 continue;
             }
@@ -934,6 +956,23 @@ impl ScenePlayer {
                 ((render_size[0] as f32 * pass.scale[0]).round() as i32).max(1),
                 ((render_size[1] as f32 * pass.scale[1]).round() as i32).max(1),
             ]);
+            // A pass the resize leaves at the same size keeps its texture,
+            // framebuffer and contents (D287): a one-texel clock pass or a
+            // literal-size data pass must not restart on every probe.
+            if previous
+                .get(index)
+                .is_some_and(|old| old.size == size && !old.targets.is_empty())
+            {
+                passes.push(PassState {
+                    program,
+                    targets: Vec::new(),
+                    current: 0,
+                    size,
+                    mipmap: pass.filter == Filter::Mipmap,
+                    awaiting_adoption: true,
+                });
+                continue;
+            }
             let precision = if pass.full_precision {
                 FloatPrecision::Full
             } else {
@@ -974,6 +1013,7 @@ impl ScenePlayer {
                 current: 0,
                 size,
                 mipmap: pass.filter == Filter::Mipmap,
+                awaiting_adoption: false,
             });
         }
         Ok(passes)
@@ -1165,6 +1205,24 @@ impl ScenePlayer {
         }
         top_down
     }
+}
+
+/// Moves the targets of every pass a resize left at the same size from the
+/// old passes into the new ones ([`PassState::awaiting_adoption`]).
+fn adopt_unchanged(old: &mut [PassState], new: &mut [PassState]) {
+    for (old, new) in old.iter_mut().zip(new.iter_mut()) {
+        if new.awaiting_adoption {
+            adopt_one(old, new);
+        }
+    }
+}
+
+/// Hands `old`'s targets and current buffer to `new` (D287). A move, so
+/// nothing is allocated, copied or cleared.
+fn adopt_one(old: &mut PassState, new: &mut PassState) {
+    new.targets = std::mem::take(&mut old.targets);
+    new.current = old.current;
+    new.awaiting_adoption = false;
 }
 
 /// The final pass's size for a `requested` render size: the scene's pinned
