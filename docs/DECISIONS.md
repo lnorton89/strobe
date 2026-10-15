@@ -7145,3 +7145,29 @@ Debian), and Fedora and Arch builds.
 dependency in `Cargo.lock` (needs `outputHashes`), a dlopen'd library
 the list misses (a window that will not open on a clean Nix or Debian box),
 or a real Linux GPU that needs more than `hardware.graphics.enable`.
+
+### D296: on Linux a default input that will not open falls back to `pulse`, then `pipewire`; the check script picks D3D12 on WSL2 (2026-10-15)
+
+**Context.** The AMD desktop's Debian on WSL2 (AMD.md A14) started on synthetic
+audio: cpal opens ALSA's `default` PCM, which WSLg does not define, while
+`pulse` works. Mesa also chose llvmpipe there although `/dev/dxg` and
+`d3d12_dri.so` were present, and `GALLIUM_DRIVER=d3d12` was about 3x faster.
+
+**Decision.**
+- `strobe_audio::capture::device::open`: when the default input fails to open and
+  `cfg!(target_os = "linux")`, it looks through cpal's input devices for one
+  whose backend id (ALSA's PCM name) is `pulse`, then `pipewire`, ignoring
+  case and exact match only, opens it and logs which. Otherwise the first
+  error is returned and the caller falls back to synthetic as before. It is a
+  value check, not `#[cfg]`, so every host type-checks it. The choice of name
+  is a pure function (`fallback_index`) with a unit test. The README also
+  documents the `~/.asoundrc` route, which fixes every ALSA program.
+- `scripts/check-linux.sh` exports `GALLIUM_DRIVER=d3d12` when `/dev/dxg`
+  exists and the variable is unset, and says so; `STROBE_CHECK_NO_D3D12=1`
+  opts out. The app itself does not set it: that is the user's Mesa
+  environment, and the README says how.
+- A `--control` run with the default library is not told its missing library
+  is an `ERROR`, and a missing audio input is logged at info there: a
+  controller shows the host's UI and needs neither.
+
+**Not verified:** the fallback against a live WSLg `pulse` device.
