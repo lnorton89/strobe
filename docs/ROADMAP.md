@@ -489,9 +489,10 @@ never per frame.
   - `srgb` textures: not decoded (Q16);
   - packing built-ins on a 3.30 context: not rewritten. Implicit
     int-to-float is written out by D199's typed rewrite (R8).
-- A resize no longer restarts `iTime` or `iFrame`: the clock pass is a
-  1x1 literal-size pass and a resize keeps every pass whose size it does not
-  change (D287).
+- A resize restarts `iTime` at `TIME` and `iFrame` at 0 only when it wipes
+  a buffer that reads them (`resize` on an import with buffers, D91), which a
+  buffer initialising on `iFrame == 0` needs. An import whose Image pass
+  alone reads time, and any `resize_keeping`, keeps the clock (D287).
 - Every buffer is double-buffered, even one that never reads itself (D95).
 
 ### Playlists (stages 1 and 2)
