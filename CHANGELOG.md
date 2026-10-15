@@ -32,6 +32,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **scene:** run global initializers in main on desktop too, so sprinkles is not black ([`0037fcf`](https://github.com/lnorton89/strobe/commit/0037fcf71b4f17d00ea6e41c883f1433662c98b4))
 - **app:** keep the output's swap wait while the loop drives the control window ([`c812236`](https://github.com/lnorton89/strobe/commit/c812236b22ae922ee557529d3d974933c9646097))
 - **app:** run the control frame from the event loop when Windows withholds its paints ([`e96573b`](https://github.com/lnorton89/strobe/commit/e96573b6d63b334984275e899c06640e194cae6e))
 - **app:** do not print a laptop command that does not exist yet ([`92f4965`](https://github.com/lnorton89/strobe/commit/92f4965b7e45cccd75975eb26c8fb8ca2c6bb9ac))
