@@ -74,6 +74,29 @@ which backend proved a claim.
   response. Rendered and visually inspected at 1280x720 on the RX 580,
   native GL 3.3 and ANGLE GLES 3.0. Next: owner comparison against the
   original network and older integrated-GPU timing; see BENCHMARKS.md.
+  **Rebuilt 2026-10-14 (D276)** as a feedback-advected, posterised marbling
+  (fibrous striations, ringed bubbles, hard neon hue steps) after the owner
+  found the first draft too smooth; twelve controls. Checked headless on
+  llvmpipe in both dialects; the Windows and HD 4000 re-run is still open.
+
+- **Scenes 14-16 rebuilt (2026-10-15, D277-D279):** `14-electric-bloom`,
+  `15-neon-ribbon-flow` and `16-acid-mirror` replace Codex's first drafts.
+  Electric Bloom is a three-layer garden with unfurling petals and drifting
+  pollen; Neon Ribbon Flow is five translucent, glowing neon ribbons with
+  parallax; Acid Mirror is a double-buffered advected paint buffer folded
+  into bilateral symmetry. Each is within 2x of `05-domain-warp` at 1080p on
+  llvmpipe, renders identically in desktop GLSL 3.30 and GLSL ES 3.0, and
+  keeps a stable palette at 2, 10, 30 s and 5 min. Open: real-GPU timing
+  (Vega 3, HD 4000), owner comparison against the reference videos and the
+  floral image, which was never available.
+  **Reviewed before merge (2026-10-15, the "Revised" notes of D276-D279):**
+  13 lost its one-pixel row artifact (an unstable cross-flow sharpen) and
+  gained long shear drags, an acid-green palette, bubble clusters and a
+  clock (frame-rate independent drag, no jump when a speed slider moves);
+  14 lost the black dots at its petal tips and 9% of its cost; 15 is more
+  saturated; 16 gained flow-following hairline streaks, crisper edges, more
+  black, and re-seeds at once after a resize. All four: 1.1x to 1.5x
+  `05-domain-warp` on llvmpipe, identical in both dialects, stable to 5 min.
 
 - **Perform UI stage 2** (see item 2): the panes built in stage 1 hold the
   generated-controls review (D202, D219); the full Playlist workspace is

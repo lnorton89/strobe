@@ -1,0 +1,25 @@
+{
+  "TITLE": "Electric Bloom",
+  "IMAGE_PATH": "thumbnail.png",
+  "CREDIT": "Original Strobe procedural interpretation of the owner's floral reference",
+  "LICENSE": "MIT",
+  "DESCRIPTION": "A garden of vivid, glowing flowers in three depth layers over black: inked petal veins, beaded pollen centres, blooms that unfurl and sway, and drifting pollen. Bass pushes the blooms open, mids stir the garden, highs sparkle the pollen, hits flash the colour. Entirely procedural.",
+  "PASSES": [
+    { "TARGET": "clock", "WIDTH": 1, "HEIGHT": 1, "FLOAT": true, "DOUBLE_BUFFER": true, "WRAP": "clamp", "FILTER": "nearest", "FULL_PRECISION": true }
+  ],
+  "CONTROLS": [
+    { "NAME": "density", "TYPE": "slider smooth", "MIN": 0.6, "MAX": 1.8, "DEFAULT": 1.0, "PARAMS": 0.03, "UI_GROUP": "shape" },
+    { "NAME": "bloom", "TYPE": "slider smooth", "MIN": 0.3, "MAX": 1.2, "DEFAULT": 1.0, "PARAMS": 0.03, "UI_GROUP": "shape" },
+    { "NAME": "petal_width", "TYPE": "slider smooth", "MIN": 0.6, "MAX": 1.5, "DEFAULT": 1.2, "PARAMS": 0.03, "UI_GROUP": "shape" },
+    { "NAME": "stems", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 1.0, "DEFAULT": 0.8, "PARAMS": 0.03, "UI_GROUP": "shape" },
+    { "NAME": "linework", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 1.0, "DEFAULT": 0.85, "PARAMS": 0.03, "UI_GROUP": "surface" },
+    { "NAME": "glow", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 2.0, "DEFAULT": 1.0, "PARAMS": 0.03, "UI_GROUP": "surface" },
+    { "NAME": "pollen", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 2.0, "DEFAULT": 1.0, "PARAMS": 0.03, "UI_GROUP": "surface" },
+    { "NAME": "hue", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 1.0, "DEFAULT": 0.0, "PARAMS": 0.03, "UI_GROUP": "color" },
+    { "NAME": "brightness", "TYPE": "slider smooth", "MIN": 0.5, "MAX": 1.5, "DEFAULT": 1.1, "PARAMS": 0.03, "UI_GROUP": "color" },
+    { "NAME": "speed", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 3.0, "DEFAULT": 1.0, "PARAMS": 0.03, "UI_GROUP": "motion" },
+    { "NAME": "sway_amt", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 2.0, "DEFAULT": 1.0, "PARAMS": 0.03, "UI_GROUP": "motion" },
+    { "NAME": "reactivity", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 2.0, "DEFAULT": 0.8, "PARAMS": 0.03, "UI_GROUP": "audio" }
+  ],
+  "TAGS": ["2d", "floral", "psychedelic", "glow", "audio-reactive"]
+}
