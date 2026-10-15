@@ -29,6 +29,9 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **app:** compile the playlist from output frames when the control window stops painting ([`fca44a5`](https://github.com/lnorton89/strobe/commit/fca44a53e14838c9591c9d32a4257a5e81ae6d85))
+- **gfx:** restart a kept pass that a restarted pass reads ([`96aeeeb`](https://github.com/lnorton89/strobe/commit/96aeeebf255504b1270b22942577bffd1d30d2a4))
+- **gfx:** keep the passes a resize does not change ([`a5cd1fd`](https://github.com/lnorton89/strobe/commit/a5cd1fd26cec2675b0c0721585d13a0917661730))
 - **ui:** scroll the connect form's address field into view in small windows ([`9b75aa0`](https://github.com/lnorton89/strobe/commit/9b75aa0974ec29674ff1004246af637378415f35))
 - **app:** close the desktop viewer's socket when its worker ends ([`5ae8fcf`](https://github.com/lnorton89/strobe/commit/5ae8fcf455adc22d5ecb6c8e0f89a1b56bcb591f))
 - **ui:** make the desktop viewer keep its image, time out, and be findable ([`7e2125a`](https://github.com/lnorton89/strobe/commit/7e2125a59c55c2814da10a8983c8e8d1b8218e89))
@@ -55,6 +58,9 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Documentation
 
+- D287 restarts a kept pass that a restarted pass reads ([`9d559fd`](https://github.com/lnorton89/strobe/commit/9d559fd26279cb0f8fa855273769bc88e7d122e9))
+- D287, a resize keeps the passes whose size it does not change ([`03c8e77`](https://github.com/lnorton89/strobe/commit/03c8e7743032b37eaa307515faa83e85f573ae7e))
+- **amd:** the rebuilt scenes 13-16 cost under one domain-warp on the RX 580 (Task A12) ([`c879851`](https://github.com/lnorton89/strobe/commit/c879851d8f6b2b1787f01ed50764e4814473cd5a))
 - record the desktop viewer polish (D286) ([`d28eced`](https://github.com/lnorton89/strobe/commit/d28eced5d3d342f754c1f96145832c6a535cfb39))
 - **hardware:** desktop remote control between the RX 580 and the T480 passes (A11, Task 45) ([`6620d82`](https://github.com/lnorton89/strobe/commit/6620d822848069836331222ee08e7ae074ba28d9))
 - the pre-merge review of scenes 13-16, measured (D276-D279) ([`b81b20d`](https://github.com/lnorton89/strobe/commit/b81b20dd74485cf848211b14751b8230e8fca0c8))
