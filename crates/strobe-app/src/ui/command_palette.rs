@@ -271,6 +271,7 @@ pub fn draw(ctx: &Context, theme: &Palette, model: &mut Model<'_>, actions: &mut
         Target::Layout(name) => {
             model.ui.apply_layout(&name);
         }
+        Target::ControlDesktop => actions.push(Action::ControlAnotherDesktop),
         Target::LoadScene(index) => actions.push(Action::Load(index)),
         Target::PreviewScene(index) => {
             // The preview is shown in the browser's card.

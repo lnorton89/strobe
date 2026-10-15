@@ -264,6 +264,11 @@ pub enum Action {
     ConnectDesktop,
     /// Leave the remote desktop and return to this instance's UI.
     DisconnectDesktop,
+    /// Open Settings at the form for controlling another Strobe, with its
+    /// address field focused: the command palette's "Control another
+    /// Strobe", and a failed connection's way to a new pairing code. Any
+    /// viewer still on screen is closed first.
+    ControlAnotherDesktop,
     /// Show a pairing code for a phone to type.
     OpenRemotePairing,
     /// Withdraw the pairing code.
