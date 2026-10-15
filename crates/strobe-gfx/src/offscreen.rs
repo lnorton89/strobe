@@ -388,7 +388,13 @@ where
     debug_output_from_env(gfx.gl_mut());
     let mut context = format!("window ({what}), {}", gfx.backend());
     if side != [TINY_SIDE, TINY_SIDE] {
-        context.push_str(&format!(", {}x{} window", side[0], side[1]));
+        // The size the platform gave, which can be less than asked: Windows
+        // caps a new window at about the screen's size.
+        let given = swap.window().inner_size();
+        context.push_str(&format!(", {}x{} window", given.width, given.height));
+        if [given.width, given.height] != side {
+            context.push_str(&format!(" (asked for {}x{})", side[0], side[1]));
+        }
     }
     if let Err(error) = gfx.set_vsync(&swap, false) {
         log::warn!("offscreen window: could not turn vsync off: {error}");
