@@ -135,6 +135,51 @@ pub fn valid_controller_id(id: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
 }
 
+/// Hex digits of random suffix in a generated controller id.
+const SUFFIX_HEX: usize = 8;
+
+/// A controller id built from a computer's `name` and four random bytes:
+/// `name-1a2b3c4d`. Anything outside `[A-Za-z0-9.]` in the name becomes
+/// `-` and runs of `-` collapse, the name is cut so the whole id fits
+/// [`MAX_CONTROLLER_ID`], and an empty name becomes `strobe`. The result
+/// always satisfies [`valid_controller_id`]. Pure, so it is tested without
+/// randomness; [`new_controller_id`] supplies the bytes.
+pub fn controller_id_for(name: &str, suffix: [u8; 4]) -> String {
+    let room = MAX_CONTROLLER_ID - SUFFIX_HEX - 1;
+    let mut base = String::new();
+    for ch in name.trim().chars() {
+        let keep = if ch.is_ascii_alphanumeric() || ch == '.' {
+            ch
+        } else {
+            '-'
+        };
+        if keep == '-' && (base.is_empty() || base.ends_with('-')) {
+            continue;
+        }
+        if base.len() >= room {
+            break;
+        }
+        base.push(keep);
+    }
+    let base = base.trim_end_matches('-');
+    let base = if base.is_empty() { "strobe" } else { base };
+    format!("{base}-{}", secret::hex(&suffix))
+}
+
+/// A fresh controller id for this computer, from its `name` and the
+/// operating system's random source. Keep the result: a controller that
+/// changes its id on every launch fills the host's list and cannot be
+/// revoked by name.
+pub fn new_controller_id(name: &str) -> Result<String, TrustError> {
+    secret::random::<4>()
+        .map(|suffix| controller_id_for(name, suffix))
+        .map_err(|error| {
+            TrustError::new(format!(
+                "the operating system gave no random bytes ({error}); no controller id was made"
+            ))
+        })
+}
+
 /// Whether `text` is [`HEX_LEN`] hex digits: the shape of a nonce or proof.
 pub fn valid_hex_block(text: &str) -> bool {
     text.len() == HEX_LEN && text.bytes().all(|b| b.is_ascii_hexdigit())
@@ -593,6 +638,47 @@ mod tests {
 
     fn peer(last: u8) -> IpAddr {
         IpAddr::V4(Ipv4Addr::new(192, 168, 1, last))
+    }
+
+    #[test]
+    fn a_generated_controller_id_is_always_valid_and_keeps_the_name_readable() {
+        let suffix = [0x1a, 0x2b, 0x3c, 0x4d];
+        assert_eq!(controller_id_for("T480", suffix), "T480-1a2b3c4d");
+        assert_eq!(
+            controller_id_for("  My Laptop (2)  ", suffix),
+            "My-Laptop-2-1a2b3c4d",
+            "spaces and brackets fold to one dash"
+        );
+        let long = "x".repeat(500);
+        for odd in ["", "   ", "---", "\u{feff}", "ünïcödé", long.as_str()] {
+            let id = controller_id_for(odd, suffix);
+            assert!(
+                valid_controller_id(&id),
+                "{odd:?} gave {id:?}, which the host would refuse"
+            );
+            assert!(id.ends_with("-1a2b3c4d"), "{id}: the suffix always fits");
+        }
+        assert_eq!(controller_id_for("", suffix), "strobe-1a2b3c4d");
+        assert_eq!(
+            controller_id_for(&long, suffix).len(),
+            MAX_CONTROLLER_ID,
+            "a long name is cut, never the suffix"
+        );
+    }
+
+    #[test]
+    fn two_new_controller_ids_for_one_computer_differ() -> Result<()> {
+        let a = new_controller_id("laptop")?;
+        let b = new_controller_id("laptop")?;
+        assert!(
+            valid_controller_id(&a) && valid_controller_id(&b),
+            "{a} {b}"
+        );
+        assert_ne!(
+            a, b,
+            "the random suffix tells two laptops of one name apart"
+        );
+        Ok(())
     }
 
     #[test]
