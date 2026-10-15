@@ -12,6 +12,8 @@
 #   STROBE_CHECK_NO_APT=1     do not install packages (already done, or no sudo)
 #   STROBE_CHECK_NO_BUILD=1   use the binaries already built
 #   STROBE_CHECK_BENCH_SIZE   bench resolution, default 640x360 (software GL is slow; a GPU can take 1280x720)
+#   STROBE_CHECK_NO_D3D12=1   on WSL2, stay on Mesa's default (llvmpipe) instead of GALLIUM_DRIVER=d3d12
+#   GALLIUM_DRIVER            if you set it yourself, the script leaves it alone
 #
 # It never needs a GPU: Mesa's software renderer is a pass. What it reports
 # is which renderer it got, so a D3D12 or hardware renderer is visible.
@@ -40,6 +42,18 @@ echo "WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-} DISPLAY=${DISPLAY:-} XDG_RUNTIME_DIR=
 if [ -d /usr/lib/wsl/lib ]; then echo "/usr/lib/wsl/lib:"; ls /usr/lib/wsl/lib; fi
 nproc
 free -m | head -2
+
+# WSL2 exposes the Windows GPU as /dev/dxg, and Mesa has a d3d12 driver for it,
+# but Mesa picks llvmpipe unless told otherwise (an RX 580 ran the bench about
+# 3x faster, at twice the pixels, with d3d12). Everything below inherits this.
+if [ -e /dev/dxg ] && [ -z "${GALLIUM_DRIVER:-}" ]; then
+  if [ "${STROBE_CHECK_NO_D3D12:-0}" = 1 ]; then
+    echo "/dev/dxg present; staying on Mesa's default renderer (STROBE_CHECK_NO_D3D12=1)"
+  else
+    export GALLIUM_DRIVER=d3d12
+    echo "/dev/dxg present and GALLIUM_DRIVER unset: using GALLIUM_DRIVER=d3d12 (STROBE_CHECK_NO_D3D12=1 opts out)"
+  fi
+fi
 
 step "packages"
 if [ "${STROBE_CHECK_NO_APT:-0}" = 1 ]; then
@@ -102,12 +116,13 @@ else
 fi
 "$strobe" --diagnose 2>&1 | sed -n '/^Session/,$p'
 
+# On WSL2 this passed on llvmpipe over EGL (Debian 13, AMD.md A14).
 step "headless bench (an EGL device, no window)"
 size="${STROBE_CHECK_BENCH_SIZE:-640x360}"
 if "$bench" --context headless --size "$size" --frames 20 --warmup 20 --out "$target/bench-linux"; then
   ok "bench headless"
 else
-  bad "bench headless (expected on WSL2, which has no EGL device; the next step is the real test there)"
+  bad "bench headless"
 fi
 
 step "bench on a window context"
@@ -170,7 +185,9 @@ arecord -l 2>&1 | head -12 || true
 if command -v pactl >/dev/null 2>&1; then pactl list short sources 2>&1 | head -8 || true; fi
 echo "Strobe's audio source in the runs above is in the 'strobe_app::audio' lines."
 echo "'synthetic' there means no input device was found, which is expected on a"
-echo "machine without a microphone; on WSLg it should name the RDP source."
+echo "machine without a microphone; on WSLg it should name the RDP source. If it"
+echo "stays synthetic there, ALSA has no 'default' PCM: see the README's WSL2 section"
+echo "(~/.asoundrc with 'pcm.!default pulse' and 'ctl.!default pulse')."
 
 step "MIDI"
 if [ -e /dev/snd/seq ]; then ok "/dev/snd/seq present"; else no "/dev/snd/seq absent (WSL2 has none; Strobe says MIDI is unavailable and carries on)"; fi

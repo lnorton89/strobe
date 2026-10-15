@@ -363,20 +363,47 @@ To visualise what the machine is playing, pick that output's *Monitor* as
 the recording source (`pavucontrol`, Recording tab). MIDI input uses ALSA's
 sequencer and needs `/dev/snd/seq`; with none, Strobe says MIDI is
 unavailable and carries on ([`docs/DEBUGGING.md`](docs/DEBUGGING.md)).
-No Linux audio device or MIDI hardware has been tried yet.
+If the default input will not open, Strobe tries an input named `pulse`,
+then `pipewire`, and logs which it used, before falling back to synthetic
+audio. No MIDI hardware has been tried on Linux yet; audio is verified only
+through the WSLg route below.
 
 #### WSL2
 
-WSLg gives a Linux GUI both Wayland and X11, and Mesa's `d3d12` driver gives
-it OpenGL on the Windows GPU. Install the Debian list above and build inside
-WSL's own filesystem (`~`, not `/mnt/c`). `glxinfo -B` should name a D3D12
-renderer; if it says llvmpipe, GL is in software. WSLg's audio is a
-PulseAudio server, so install `libasound2-plugins`. This is good for
+WSLg gives a Linux GUI both Wayland and X11. Install the Debian list above
+and build inside WSL's own filesystem (`~`, not `/mnt/c`). This is good for
 development and for checking the Linux build; for a show, use the Windows
 release. `scripts/check-linux.sh` installs the packages, builds, and runs the
 bench and a window on each backend, printing PASS, FAIL or SKIP for each step
 and saving the transcript to `target/linux-check.txt`. It has run on Ubuntu
-24.04 under Xvfb, and not yet on WSL2.
+24.04 under Xvfb and on Debian 13 under WSL2 on an AMD RX 580
+([`docs/hardware/AMD.md`](docs/hardware/AMD.md), A14).
+
+- **The apt step needs sudo.** It asks for your password unless you run it as
+  root: `wsl -d Debian -u root`, then the script from your clone. With the
+  packages already installed, `STROBE_CHECK_NO_APT=1` skips it.
+- **GL is software unless you ask for D3D12.** Mesa picks llvmpipe by
+  default, even though `/dev/dxg` and `d3d12_dri.so` are there. Set
+  `GALLIUM_DRIVER=d3d12` and `glxinfo -B` names the Windows GPU
+  ("D3D12 (Radeon RX 580 Series) | 4.2 Core"); the bench ran about 3x faster
+  at twice the pixels. `scripts/check-linux.sh` sets it for you when
+  `/dev/dxg` exists and `GALLIUM_DRIVER` is unset, and says so; run it with
+  `STROBE_CHECK_NO_D3D12=1` to stay on llvmpipe. For `strobe` itself, export
+  it in your shell: `export GALLIUM_DRIVER=d3d12`.
+- **Audio needs ALSA pointed at PulseAudio.** WSLg provides a PulseAudio
+  server (the `RDPSource` input), but ALSA has no `default` PCM there
+  (`arecord -D default` says "Unknown PCM default"; `arecord -D pulse`
+  works), so Strobe starts on synthetic audio. Install `libasound2-plugins`
+  and make `pulse` the default by putting this in `~/.asoundrc`:
+
+  ```
+  pcm.!default pulse
+  ctl.!default pulse
+  ```
+
+  (On PipeWire, the `pipewire-alsa` package installs the same kind of
+  config.) Without it, Strobe now finds the `pulse` input by itself when the
+  default will not open, and logs `using the pulse device`.
 
 ### Developing
 
