@@ -91,6 +91,11 @@ struct Record {
     /// first used.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     next_sha256: Option<String>,
+    /// For a client paired by trust file (D288): the controller id it
+    /// proved. Memory only, like every desktop record; the token digest of
+    /// such a record is of a token nobody was given.
+    #[serde(skip)]
+    trusted_as: Option<String>,
 }
 
 impl fmt::Debug for Record {
@@ -123,6 +128,38 @@ pub struct ClientInfo {
     pub last_seen: u64,
 }
 
+/// A trusted pairing made (D288).
+#[derive(Debug, PartialEq, Eq)]
+pub struct TrustedPairing {
+    /// The new client's id.
+    pub client_id: String,
+    /// Ids of this controller's earlier pairings, now removed.
+    pub superseded: Vec<String>,
+}
+
+/// Why a trusted pairing was not made.
+#[derive(Debug)]
+pub enum TrustedRefusal {
+    /// The operator revoked this controller (or everyone) this run.
+    Revoked,
+    /// [`MAX_PAIRED`] clients are paired already.
+    Full,
+    /// The operating system gave no random bytes.
+    NoRandom(std::io::Error),
+}
+
+impl fmt::Display for TrustedRefusal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Revoked => f.write_str("revoked on the host this run"),
+            Self::Full => write!(f, "{MAX_PAIRED} remotes are paired already"),
+            Self::NoRandom(error) => write!(f, "no random bytes: {error}"),
+        }
+    }
+}
+
+impl std::error::Error for TrustedRefusal {}
+
 /// A successful authentication.
 #[derive(Debug)]
 pub struct Authenticated {
@@ -139,6 +176,10 @@ pub struct Authenticated {
 struct Store {
     path: Option<PathBuf>,
     records: Vec<Record>,
+    /// Controller ids the operator revoked this run (D288). Memory only.
+    denied: Vec<String>,
+    /// Revoke all closes trusted pairing for the rest of the run.
+    trust_closed: bool,
 }
 
 /// The paired clients, shared by the listener and the desktop.
@@ -231,6 +272,8 @@ impl Clients {
             Self(Arc::new(Mutex::new(Store {
                 path: Some(path),
                 records,
+                denied: Vec::new(),
+                trust_closed: false,
             }))),
             problem,
         )
@@ -241,6 +284,8 @@ impl Clients {
         Self(Arc::new(Mutex::new(Store {
             path: None,
             records: Vec::new(),
+            denied: Vec::new(),
+            trust_closed: false,
         })))
     }
 
@@ -302,6 +347,7 @@ impl Clients {
             last_seen: now,
             token_sha256: token.digest(),
             next_sha256: None,
+            trusted_as: None,
         });
         if let Err(error) = store.save() {
             store.records.pop();
@@ -358,7 +404,16 @@ impl Clients {
     pub fn revoke(&self, id: &str) -> bool {
         let mut store = self.store();
         let before = store.records.len();
+        let denied: Vec<String> = store
+            .records
+            .iter()
+            .filter(|r| r.id == id)
+            .filter_map(|r| r.trusted_as.clone())
+            .collect();
         store.records.retain(|r| r.id != id);
+        // A trusted controller the operator revokes stays out for the run:
+        // it would otherwise prove its way straight back in (D288).
+        store.denied.extend(denied);
         let removed = store.records.len() != before;
         if removed && let Err(error) = store.save() {
             log::warn!("remote: could not save the client list after a revoke: {error}");
@@ -370,6 +425,15 @@ impl Clients {
     pub fn revoke_all(&self) -> usize {
         let mut store = self.store();
         let count = store.records.len();
+        let denied: Vec<String> = store
+            .records
+            .iter()
+            .filter_map(|r| r.trusted_as.clone())
+            .collect();
+        store.denied.extend(denied);
+        // Everyone out means the trust file stops opening the door too,
+        // for the rest of the run (D288).
+        store.trust_closed = true;
         store.records.clear();
         if let Err(error) = store.save() {
             log::warn!("remote: could not save the client list after revoking all: {error}");
@@ -391,6 +455,80 @@ impl Clients {
         });
         // Desktop records are never in the file, so there is nothing to save.
         revoked
+    }
+
+    /// Pairs a controller that proved the trust file (D288), for full
+    /// desktop control, in memory only. The record has no token anyone
+    /// holds, so it can only be used through the connection that proved
+    /// it, and it is removed when that connection ends
+    /// ([`Clients::forget_trusted`]).
+    ///
+    /// A controller id already paired (its earlier connection not yet
+    /// noticed dead, say) is replaced, and the replaced ids come back so
+    /// the listener can close those connections and free their lease. The
+    /// list is bounded as for phones.
+    pub fn pair_trusted(
+        &self,
+        label: &str,
+        controller_id: &str,
+    ) -> Result<TrustedPairing, TrustedRefusal> {
+        let mut store = self.store();
+        if store.trust_closed || store.denied.iter().any(|d| d == controller_id) {
+            return Err(TrustedRefusal::Revoked);
+        }
+        let mut superseded = Vec::new();
+        store.records.retain(|record| {
+            let same = record.trusted_as.as_deref() == Some(controller_id);
+            if same {
+                superseded.push(record.id.clone());
+            }
+            !same
+        });
+        if store.records.len() >= MAX_PAIRED {
+            return Err(TrustedRefusal::Full);
+        }
+        let id = loop {
+            let id = format!(
+                "c{}",
+                secret::hex(&secret::random::<4>().map_err(TrustedRefusal::NoRandom)?)
+            );
+            if store.records.iter().all(|r| r.id != id) {
+                break id;
+            }
+        };
+        // A token that is generated, digested and dropped: the record
+        // exists to be listed and revoked, never to be authenticated.
+        let token = Token::generate().map_err(TrustedRefusal::NoRandom)?;
+        let now = now_secs();
+        store.records.push(Record {
+            desktop: true,
+            id: id.clone(),
+            label: clean_label(label),
+            paired_at: now,
+            last_seen: now,
+            token_sha256: token.digest(),
+            next_sha256: None,
+            trusted_as: Some(controller_id.to_owned()),
+        });
+        Ok(TrustedPairing {
+            client_id: id,
+            superseded,
+        })
+    }
+
+    /// Whether `controller_id` may not pair by trust file now: the operator
+    /// revoked it, or revoked everyone, this run.
+    pub fn trust_blocked(&self, controller_id: &str) -> bool {
+        let store = self.store();
+        store.trust_closed || store.denied.iter().any(|d| d == controller_id)
+    }
+
+    /// Removes a trusted pairing whose connection has ended. Not a revoke:
+    /// the controller may prove its way in again.
+    pub fn forget_trusted(&self, id: &str) {
+        self.store()
+            .records
+            .retain(|r| !(r.id == id && r.trusted_as.is_some()));
     }
 
     /// Whether client `id` is still paired.
@@ -657,6 +795,82 @@ mod tests {
             !printed.contains(&token.digest()) && !printed.contains(token.expose()),
             "neither a token nor its digest prints: {printed}"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn a_trusted_pairing_is_in_memory_only_listed_replaced_and_revocable() -> Result<()> {
+        let dir = scratch("trusted");
+        let (clients, _) = Clients::load(&dir);
+        let first = clients.pair_trusted("Full desktop: trusted a, x", "a")?;
+        assert!(first.superseded.is_empty(), "nothing to replace");
+        let again = clients.pair_trusted("Full desktop: trusted a, x", "a")?;
+        assert_eq!(
+            again.superseded,
+            vec![first.client_id.clone()],
+            "the same controller replaces itself"
+        );
+        assert_eq!(clients.len(), 1, "one record, not a growing list");
+        let other = clients.pair_trusted("Full desktop: trusted b, x", "b")?;
+        assert_eq!(clients.len(), 2, "a second controller is a second record");
+        let text = std::fs::read_to_string(dir.join(CLIENTS_FILE)).unwrap_or_default();
+        assert!(
+            !text.contains("trusted"),
+            "never written to the file: {text}"
+        );
+        let (id, token) = clients.pair("phone")?;
+        assert!(
+            clients.authenticate(token.expose()).is_some(),
+            "phones work"
+        );
+        assert!(clients.revoke(&again.client_id), "revoked");
+        assert!(clients.trust_blocked("a"), "and kept out for the run");
+        assert!(
+            matches!(clients.pair_trusted("x", "a"), Err(TrustedRefusal::Revoked)),
+            "it cannot pair again"
+        );
+        assert!(!clients.trust_blocked("b"), "others are not blocked");
+        clients.forget_trusted(&other.client_id);
+        assert!(
+            !clients.contains(&other.client_id),
+            "forgotten at disconnect"
+        );
+        assert!(
+            clients.pair_trusted("x", "b").is_ok(),
+            "forgetting is not revoking"
+        );
+        assert_eq!(
+            clients.revoke_desktop().len(),
+            1,
+            "the kill switch takes them"
+        );
+        clients.pair_trusted("x", "c")?;
+        clients.revoke_all();
+        assert!(
+            clients.trust_blocked("c") && clients.trust_blocked("new"),
+            "revoke all closes trusted pairing to every controller id"
+        );
+        assert!(
+            clients.contains(&id) || clients.is_empty(),
+            "phones revoked"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn trusted_pairings_respect_the_list_bound() -> Result<()> {
+        let clients = Clients::in_memory();
+        for n in 0..MAX_PAIRED {
+            clients.pair_trusted("x", &format!("c{n}"))?;
+        }
+        assert!(
+            matches!(
+                clients.pair_trusted("x", "one-more"),
+                Err(TrustedRefusal::Full)
+            ),
+            "full"
+        );
+        clients.pair_trusted("x", "c0")?;
         Ok(())
     }
 }

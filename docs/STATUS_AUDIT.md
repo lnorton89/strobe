@@ -71,6 +71,32 @@ tracks every known unfinished implementation and validation task across the proj
   `the_connect_form_is_its_own_section_with_a_hint_not_a_value`; viewer
   screenshots from `STROBE_UI_SHOTS` on llvmpipe. Not re-run on the T480 and
   RX 580 pair.
+
+- [x] Venue mode, host and protocol (2026-10-15, D288). Evidence, all on
+  loopback in the Linux container: `trust::tests` (RFC 4231 vectors, an
+  independent protocol vector, wrong secret/host/controller/nonce, single use
+  and expiry, file parser, no overwrite and no write through a symlink, mode
+  0600, loose-permission refusal, limiter backoff, global trip and bound);
+  `clients::tests::a_trusted_pairing_is_in_memory_only_listed_replaced_and_revocable`;
+  `lib::tests::trust_messages_read_and_write_byte_for_byte_and_are_validated`;
+  `tests/server.rs` `a_controller_that_proves_the_trust_file_pairs_with_no_approval`,
+  `neither_the_secret_nor_its_proof_is_on_the_wire_or_in_the_log`,
+  `a_wrong_secret_a_wrong_controller_or_a_wrong_host_is_refused`,
+  `a_replayed_response_is_refused_because_each_nonce_answers_once`,
+  `trusted_pairing_is_refused_without_a_trust_file_or_with_desktop_control_off`,
+  `the_kill_switch_ends_a_trusted_session_and_stops_new_ones`,
+  `the_operator_can_revoke_a_trusted_controller_for_the_run`,
+  `a_controller_that_reconnects_takes_back_its_own_lease`,
+  `failed_proofs_back_off_per_address_and_then_recover`,
+  `phone_pairing_is_unaffected_by_a_trust_file`,
+  `version_one_traffic_is_byte_for_byte_what_it_was`; `venue::tests` and
+  `cli::tests::venue_mode_flags_need_the_remote_and_are_off_by_default`.
+- [ ] Venue mode, controller side: `--control HOST:PORT --remote-trust FILE`,
+  the trust-file field in the connection form and automatic reconnect with
+  backoff are not built (they wait on D286's viewer stages). Also unverified:
+  a Windows host reading a trust file from the user profile, two physical
+  machines, a host restart while the laptop is connected, and a four-hour
+  soak.
 - [ ] Full desktop remote: two physical Strobe desktops over Wi-Fi, reconnect
   after loss/sleep, minimized host, a host control window covered by the
   fullscreen output (does it still redraw and capture?), the fenced capture

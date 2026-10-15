@@ -94,6 +94,17 @@ fn main() -> ExitCode {
         diagnose::run();
         return ExitCode::SUCCESS;
     }
+    // Venue mode (D288): make a trust file and exit. No windows, no log
+    // session beyond the one already open.
+    if let Some(path) = &cli.make_remote_trust {
+        let made = strobe_app::venue::make(path);
+        strobe_diag::logger::flush(FLUSH_TIMEOUT);
+        return if made {
+            ExitCode::SUCCESS
+        } else {
+            ExitCode::FAILURE
+        };
+    }
     if let Some(args) = generate_worker(&cli) {
         let wrote = generate::worker(&args);
         strobe_diag::logger::flush(FLUSH_TIMEOUT);
