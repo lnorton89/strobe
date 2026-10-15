@@ -917,7 +917,8 @@ impl Running {
             inbox,
             inbox_polled: Instant::now(),
             gl_summary,
-            audio: AudioInput::new(cli.audio == AudioArg::Auto),
+            audio: AudioInput::new(cli.audio == AudioArg::Auto)
+                .with_ambient(cli.audio == AudioArg::Ambient),
             mouse: MouseTracker::default(),
             local_date: LocalDate::from_system(),
             render_scale,

@@ -48,6 +48,10 @@ pub enum AudioArg {
     Auto,
     /// Always synthetic audio: a fixed 120 BPM pattern, reproducible.
     Synthetic,
+    /// The synthetic pattern with its hits and beat triggers removed and
+    /// its levels replaced by a slow swell: scenes keep moving without a
+    /// beat that the room cannot hear. For a show with no microphone.
+    Ambient,
 }
 
 /// The command line.
