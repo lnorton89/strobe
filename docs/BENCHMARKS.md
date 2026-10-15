@@ -66,6 +66,45 @@ GPUs.
 
 ## Results
 
+### 2026-10-15: scenes 13-16 after the pre-merge review, Mesa llvmpipe
+
+The review's changes (D276-D279 "Revised" notes) measured against the
+scenes as cherry-picked, on the same container: Mesa llvmpipe 25.2.8,
+headless EGL, desktop GLSL 3.30, half-float buffers, scene time 2 s plus 60
+warm-up frames, 40 timed frames at 720p (30 at 1080p), synthetic 120 BPM
+audio, 4 shared cores (load average 3.5 to 4.5). Ratios are to
+`05-domain-warp` in the same run; absolute times are CPU rasterisation.
+
+| Scene | Before, 720p ms (ratio) | After, 720p ms, two runs (ratio) | After, 1080p ms (ratio) |
+|---|---:|---:|---:|
+| 05-domain-warp | 25.12 (1.00) | 24.70 / 24.66 (1.00) | 55.46 (1.00) |
+| 13-chromatic-rise | 34.64 (1.38) | 34.49 / 33.24 (1.37) | 72.76 (1.31) |
+| 14-electric-bloom | 43.79 (1.74) | 36.54 / 36.76 (1.48) | 80.74 (1.46) |
+| 15-neon-ribbon-flow | 31.91 (1.27) | 31.97 / 31.83 (1.29) | 69.99 (1.26) |
+| 16-acid-mirror | 25.20 (1.00) | 27.44 / 26.89 (1.10) | 60.85 (1.10) |
+
+- **13** holds its cost while adding a clock pass, shear lanes and a
+  palette lookup: the curl potential dropped from two noise octaves to one
+  (37.3 -> 32.0 ms in an A/B pair, 15%), and the cross-flow fix reuses the
+  seed-check read, so the field pass still takes six taps.
+- **14**: skipping the petal rings past the longest petal saved 9% (40.2
+  -> 36.7 ms in an A/B pair). What remains is the 3 layers x 4 cells of
+  hashes and glow every pixel pays (27 ms with petals and pollen both off)
+  and the pollen (5.5 ms).
+- **16** pays about 10% for the hairline streaks (one more `fwidth` and the
+  streak line), less one tap the final pass no longer repeats.
+- Projected on the venue's Vega 3, where 05 ran about 23 ms at 1920x1200 on
+  ANGLE: 13 about 30 ms, 14 about 34, 15 about 29, 16 about 25, so each
+  settles near the same 0.7 render scale 05 does. **Not measured on real
+  hardware**; llvmpipe under-weights the bandwidth of 13's and 16's
+  full-resolution float feedback, which matters more on a shared-memory
+  iGPU.
+- `cargo xtask corpus -- --library scenes --filter 1`: 8 of 8 ok in desktop
+  and GLES 3.0; 640x360 frames of 13-16 at 5 s are identical in the two
+  dialects (RMSE 0). 13 and 16 rendered at 60, 180 and 300 s show no
+  blow-out, fade or NaN; all four still move and fill the frame with
+  reactivity 0.
+
 ### 2026-10-14: Chromatic Rise rebuilt as a feedback loop (D276), Mesa llvmpipe
 
 Cloud container, no GPU, headless EGL, 4 cores shared with other jobs

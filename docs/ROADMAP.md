@@ -68,6 +68,14 @@ which backend proved a claim.
   keeps a stable palette at 2, 10, 30 s and 5 min. Open: real-GPU timing
   (Vega 3, HD 4000), owner comparison against the reference videos and the
   floral image, which was never available.
+  **Reviewed before merge (2026-10-15, the "Revised" notes of D276-D279):**
+  13 lost its one-pixel row artifact (an unstable cross-flow sharpen) and
+  gained long shear drags, an acid-green palette, bubble clusters and a
+  clock (frame-rate independent drag, no jump when a speed slider moves);
+  14 lost the black dots at its petal tips and 9% of its cost; 15 is more
+  saturated; 16 gained flow-following hairline streaks, crisper edges, more
+  black, and re-seeds at once after a resize. All four: 1.1x to 1.5x
+  `05-domain-warp` on llvmpipe, identical in both dialects, stable to 5 min.
 
 - **Perform UI stage 2** (see item 2): the panes built in stage 1 hold the
   generated-controls review (D202, D219); the full Playlist workspace is
