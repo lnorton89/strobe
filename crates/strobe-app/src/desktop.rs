@@ -133,10 +133,9 @@ impl Capture {
             self.gpu = None;
         }
         self.collect(desktop);
-        if now < self.due || self.gpu.as_ref().is_some_and(|gpu| gpu.pending.is_some()) {
+        if self.gpu.as_ref().is_some_and(|gpu| gpu.pending.is_some()) || !self.take_due(now) {
             return;
         }
-        self.due = now + STREAM_PERIOD;
         if size.contains(&0) {
             // Minimised: nothing to show. The controller sees its image go
             // stale and disables its input until frames come back.
@@ -149,6 +148,26 @@ impl Capture {
             return;
         }
         self.start(gl, size);
+    }
+
+    /// Whether a capture is due at `now`; when it is, the next one is
+    /// scheduled.
+    ///
+    /// The next is due a little under [`STREAM_PERIOD`] on. A control
+    /// window the event loop runs at the stream's own rate (covered, with a
+    /// lease: D290) has its frames that far apart as the loop schedules
+    /// them, but `now` is read after make_current, which can wait up to a
+    /// vertical blank for the output; without the slack, a frame read a
+    /// few ms earlier than the last was not due, and the image came every
+    /// 400 ms. In view, at 30 Hz, it is still a capture every sixth frame.
+    fn take_due(&mut self, now: Instant) -> bool {
+        /// Covers make_current's wait, up to a 60 Hz refresh and more.
+        const SLACK: Duration = Duration::from_millis(25);
+        if now < self.due {
+            return false;
+        }
+        self.due = now + STREAM_PERIOD.saturating_sub(SLACK);
+        true
     }
 
     fn start(&mut self, gl: &strobe_gfx::gl::Gl, size: [u32; 2]) {
@@ -3286,6 +3305,40 @@ mod tests {
             )
             .is_empty(),
             "local disconnect toolbar is never sent to host"
+        );
+    }
+
+    #[test]
+    fn a_control_window_driven_at_the_stream_rate_captures_on_every_frame() {
+        // While a lease is held, a covered control window is run by the event
+        // loop every STREAM_PERIOD (D290), apart as the loop schedules them.
+        // The capture reads its clock after make_current, which can wait up
+        // to a vertical blank for the output, so one frame's reading can be
+        // a few ms later than the next's. That next frame was then not due,
+        // by those few ms, and the controller got an image every 400 ms.
+        let mut driven = Capture::default();
+        let mut in_view = Capture::default();
+        let start = Instant::now();
+        // What make_current waited in each frame, in ms.
+        let waits = [12_u64, 1, 15, 0, 9, 2, 16, 3];
+        let captured = (0_u32..)
+            .zip(waits)
+            .filter(|(n, wait)| {
+                driven.take_due(start + STREAM_PERIOD * *n + Duration::from_millis(*wait))
+            })
+            .count();
+        assert_eq!(
+            captured,
+            waits.len(),
+            "a frame driven at the stream's rate captures every time"
+        );
+        // In view, the window redraws at 30 Hz: still about five a second.
+        let captured = (0_u64..60)
+            .filter(|n| in_view.take_due(start + Duration::from_millis(33 * n)))
+            .count();
+        assert!(
+            (9..=11).contains(&captured),
+            "{captured} captures in two seconds of 30 Hz frames"
         );
     }
 
