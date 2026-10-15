@@ -6693,3 +6693,122 @@ acceptance test is the mini PC (MINIPC.md).
 **Would reopen:** the mini PC's log showing the takeover line with the
 control count still at 0 (then the frame itself fails, not its scheduling),
 or a loop-driven 2 Hz control window costing the output frames.
+
+### D292: the second backend is ANGLE's Vulkan and Metal, not a new renderer (2026-10-15)
+
+This extends D255; D255 stands. The owner asked three things:
+
+- run the G-03 tool over the private Synesthesia corpus;
+- check whether a newer naga changes the no-go;
+- find out whether ANGLE's other backends could be the second backend.
+
+The evidence is in `docs/research/g03-frontends/README.md` (its 2026-10-15
+follow-up) and `docs/research/angle-backends.md`.
+
+**What was found:**
+
+- **The full corpus confirms D255.**
+  - The corpus is 120 scenes and 288 passes: the owner's 90 Synesthesia
+    scenes, the 16 library scenes and the 14 Shadertoy fixtures.
+  - naga's GLSL input takes 0 of 288.
+  - glslang takes all 227 corpus passes, and 287 of 288 overall to Vulkan
+    SPIR-V. SPIRV-Cross writes HLSL and MSL for all 287.
+  - The tool also had to learn to pass a script's uniforms, as
+    `Session::load` does, or 43 scripted scenes failed on names the app
+    would have declared.
+- **naga 30.0.1 is still the newest, and nothing changed.** Trunk has no
+  combined-sampler work in either front end.
+  - One new route was measured. `spirv-webgpu-transform`, pure Rust,
+    splits combined samplers in SPIR-V. After it, naga takes 60 of 60
+    library passes but only 56 of 227 corpus passes.
+  - The rest fail naga's validator on what its own SPIR-V reader built
+    (155 passes: an expression emitted twice). Those are naga bugs, not
+    SSF constructs. wgpu stays a no-go.
+- **ANGLE's Vulkan backend works with no code change.**
+  - It is inside the Electron v38.2.0 build D12 pins, on Windows and
+    Linux.
+  - With `ANGLE_DEFAULT_PLATFORM=vulkan`, the unmodified
+    `strobe-bench --context window --gl angle` rendered all 16 library
+    scenes on Mesa's lavapipe. The pictures matched Mesa's own GLES on
+    the same rasteriser (identical in 12, feedback noise in 4). Frame
+    times were within the container's run-to-run noise: one run was 18%
+    slower, an earlier one faster.
+  - `strobe-corpus --dialect gles --context window` ran all 90 corpus
+    scenes on it. One needed a rerun after the X server refused a
+    connection. 47 of 90 checksums are identical to Mesa's, and the same
+    7 scenes are flagged all-black or all-white on both.
+  - SwiftShader's Vulkan also rendered all 16.
+- **ANGLE's Metal backend fits on paper.**
+  - It is ES 3.0 conformant, and it is the backend Apple's Safari uses for
+    WebGL 2.
+  - Everything Strobe's ES path uses is there: float targets, timer
+    queries, `KHR_debug`, robustness, PBOs, fences.
+  - Electron's darwin zips ship it (`libEGL.dylib`, `libGLESv2.dylib`,
+    7 MB, macOS 12+).
+- **But two things stand in the way on macOS.**
+  - glutin compiles EGL out on Apple targets and never passes ANGLE's
+    platform attributes.
+  - ANGLE's own default on macOS is its OpenGL backend: GL is compiled in,
+    and GL comes before Metal in its fallback order. So the Metal type
+    must be requested explicitly.
+- **Apple's OpenGL is deprecated (10.14, 2018), frozen at 4.1, and still
+  shipped.** No removal has been announced for macOS 26 or 27. WWDC 2026
+  ended Intel Macs, not GL. The risk is gradual.
+
+**Decision.** The ranking, with what would trigger each option:
+
+1. **Stay native GL first, with ANGLE-D3D11 as the fallback (today).**
+   - Cost: none.
+   - This remains the default everywhere it works. D1 and D2 are
+     unchanged.
+2. **Add ANGLE backend selection: Vulkan now, Metal with macOS.** This is
+   the chosen second backend.
+   - It gives Vulkan and Metal with no new renderer, no new shader
+     pipeline (the ES dialect and `fixups` already pass the corpus) and no
+     new egui painter.
+   - Cost:
+     - small on Windows and Linux: an environment variable today, then a
+       `--gl` choice through a glutin patch or a leaf wrapper;
+     - moderate on macOS: an EGL provider of our own in `gl/`, with a
+       `CALayer` surface, plus fetching, hashing and re-signing the
+       dylibs.
+   - Risk: a translation layer's overhead on real GPUs, and Metal-specific
+     behaviour (feedback passes, RGBA16F precision, present timing), all
+     unmeasured until hardware runs it.
+   - Triggers:
+     - **Vulkan:** the T480 and TORNADO runs (G-05) showing it is at least
+       as good as D3D11, or a machine where WGL and D3D11 both fail and
+       Vulkan works.
+     - **Metal:** any macOS port (G-07). A macOS port needs a new context
+       provider anyway (D55), and ANGLE-Metal costs about the same as CGL
+       without sitting on a deprecated API.
+3. **glslang -> SPIR-V -> SPIRV-Cross, with a new renderer per API
+   (G-04).**
+   - Cost: large. It is a renderer per API, two C++ dependencies, about
+     50 ms per pass of extra compile time, a second egui painter, and the
+     seam turned into a trait.
+   - Risk: fidelity, which cannot be measured before a renderer exists.
+   - Trigger: a need ANGLE cannot meet, such as a D3D12-only or compute
+     feature, ES 3.0 limits, or a target with no GLES.
+4. **wgpu.**
+   - No-go while naga cannot take the corpus, even after the split.
+   - Trigger: a rerun of the G-03 tool showing naga's SPIR-V reader taking
+     the corpus after `combimgsampsplitter`. Even then, it carries
+     glslang.
+
+**Backlog:**
+
+- **G-05:** ANGLE-Vulkan on the T480 and TORNADO.
+- **G-06:** a backend-type choice in `--gl`, offered only when ANGLE's
+  client extensions advertise it.
+- **G-07:** macOS through ANGLE-Metal.
+- **G-04** narrows to the case ANGLE cannot serve.
+
+**Would reopen:**
+
+- ANGLE-Vulkan or ANGLE-Metal failing the corpus, or costing frames, on
+  real hardware;
+- Electron or ANGLE dropping a backend from its builds;
+- Apple announcing OpenGL's removal, which moves G-07 up but does not
+  change the choice;
+- naga's SPIR-V reader taking the corpus.
