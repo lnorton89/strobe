@@ -68,8 +68,20 @@ use strobe_gfx::gl::Gl;
 use strobe_gfx::{Blend, Caps, Compositor, MediaRequest, Mouse};
 use strobe_playlist::{
     AudioEventKind, ClockConfig, ClockEvent, ClockState, Command, Playlist, PlaylistClock,
-    ResumePoint, SceneRef, SkipReason, Timeline, TimelineConfig, TransitionKind,
+    ResolvedCue, ResumePoint, SceneRef, SkipReason, Timeline, TimelineConfig, TransitionKind,
 };
+
+/// Whether `new` is the same authored cue as `old`, with the same look:
+/// what [`Show::prepare`] would apply is unchanged.
+fn same_cue(old: &ResolvedCue, new: &ResolvedCue) -> bool {
+    old.section == new.section
+        && old.cue == new.cue
+        && old.scene == new.scene
+        && old.preset == new.preset
+        && old.media == new.media
+        && old.overrides == new.overrides
+        && old.meta == new.meta
+}
 
 /// The size a parked scene's targets are cut down to.
 pub const PARKED: [i32; 2] = [1, 1];
@@ -202,6 +214,9 @@ pub struct Show {
     events: Vec<ClockEvent>,
     waiting: Option<f64>,
     resume_in: Option<ResumePoint>,
+    /// The cue that was live when the playlist was replaced, so the restore
+    /// can leave the live scene alone if the save did not change that cue.
+    carried: Option<ResolvedCue>,
     /// The point to restore is from an earlier version of this playlist.
     lenient: bool,
     writer: Option<ResumeWriter>,
@@ -270,6 +285,7 @@ impl Show {
             events: Vec::with_capacity(64),
             waiting: None,
             resume_in: resume,
+            carried: None,
             lenient: false,
             writer,
             save: SaveTimer::new(),
@@ -654,6 +670,9 @@ impl Show {
     /// restored once the new scenes are compiled.
     pub fn replace_playlist(&mut self, playlist: Playlist, library: &Library) {
         let point = self.clock.resume_point().or_else(|| self.resume_in.take());
+        if let Some(live) = self.clock.current_cue() {
+            self.carried = Some(live.resolved.clone());
+        }
         // Scenes in flight go back to the cache so they can be kept.
         if let Some(out) = self.outgoing.take() {
             self.park(out.scene, out.session);
@@ -1030,13 +1049,23 @@ impl Show {
         else {
             return;
         };
+        let carried = self.carried.take();
         // The same scene again (a restart, or two cues in a row): keep the
-        // session, give it the cue's settings.
+        // session, give it the cue's settings. Unless this is a reload
+        // putting the clock back on the cue that was live, which the save
+        // did not change: then the live scene carries on as it was, its
+        // clock and the operator's changes included (D158).
         let media = env.media;
         if self.active_scene.as_ref() == Some(&scene)
             && let Some(session) = env.active.as_mut()
         {
-            self.prepare_active(session, index, env.start_time, media);
+            let untouched = carried
+                .as_ref()
+                .zip(self.clock.timeline().cues().get(index))
+                .is_some_and(|(old, cue)| same_cue(old, &cue.resolved));
+            if !untouched {
+                self.prepare_active(session, index, env.start_time, media);
+            }
             return;
         }
         // A transition that was still running is over.

@@ -888,3 +888,73 @@ fn jumping_to_a_cue_whose_scene_is_warming_for_another_cue_applies_its_own_overr
     show.finish();
     Ok(())
 }
+
+#[test]
+fn saving_the_playlist_leaves_the_live_scene_alone_unless_its_cue_changed() -> Result<()> {
+    let Some(headless) = context(Api::DesktopCore33)? else {
+        return Ok(());
+    };
+    let library = library_of(
+        "reload-live",
+        &[
+            ("tint", AMOUNT_JSON, AMOUNT_SHADER),
+            ("red", "{}", RED_SHADER),
+        ],
+    )?;
+    let mut rig = Rig::new(&headless)?;
+    let edited = |live_amount: f32, last: &str| {
+        let mut playlist = Playlist::new("reload");
+        let mut section = Section::new("all");
+        section.cues.push(with_amount(
+            cue_of("tint", 30.0, TransitionSpec::cut()),
+            live_amount,
+        ));
+        section.cues.push(cue_of(last, 30.0, TransitionSpec::cut()));
+        playlist.sections.push(section);
+        playlist
+    };
+    let mut show = Show::new(None, edited(0.2, "red"), &library.library, None, None);
+    rig.load(&mut show)?;
+    for _ in 0..120 {
+        rig.frame(&mut show);
+    }
+    // The operator nudges the live scene.
+    if let Some(session) = rig.active.as_mut() {
+        let index = session
+            .controls
+            .find("amount")
+            .ok_or_else(|| anyhow!("no amount control"))?;
+        session.controls.set(index, None, &[0.6]);
+    }
+    let time = |rig: &Rig<'_>| rig.active.as_ref().map_or(0.0, |s| s.time());
+    let before = time(&rig);
+
+    // A save that changes another cue (the LIST pane's edits go the same
+    // way, D213).
+    show.replace_playlist(edited(0.2, "tint"), &library.library);
+    rig.load(&mut show)?;
+    rig.frame(&mut show);
+    assert_eq!(show.clock().current(), Some(0), "still on the first cue");
+    assert!(
+        time(&rig) >= before,
+        "the live scene's clock runs on through the save: {before} then {}",
+        time(&rig)
+    );
+    let nudged = amount(&rig)?;
+    assert!(
+        (nudged - 0.6).abs() < 1e-4,
+        "the operator's change survives a save that did not touch the live cue: {nudged}"
+    );
+
+    // A save that changes the live cue itself applies it.
+    show.replace_playlist(edited(0.9, "tint"), &library.library);
+    rig.load(&mut show)?;
+    rig.frame(&mut show);
+    let edited_amount = amount(&rig)?;
+    assert!(
+        (edited_amount - 0.9).abs() < 1e-4,
+        "an edit to the live cue takes effect: {edited_amount}"
+    );
+    show.finish();
+    Ok(())
+}
