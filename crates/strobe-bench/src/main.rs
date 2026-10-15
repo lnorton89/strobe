@@ -46,6 +46,7 @@
 //! llvmpipe: absolute numbers are CPU rasterisation, but the *ranking* of
 //! scenes and the effect of a renderer change hold.
 
+mod probe;
 mod readback;
 
 use anyhow::{Context as _, Result, anyhow};
@@ -99,6 +100,12 @@ struct Cli {
     /// fallback when a platform will not give a hidden one a GL surface.
     #[arg(long)]
     show_window: bool,
+    /// Window contexts only: the stand-in window's client size,
+    /// WIDTHxHEIGHT (default 16x16). The render never depends on it; use
+    /// it to see whether a driver that draws black above some size limits
+    /// work to the window (D289).
+    #[arg(long)]
+    window_size: Option<String>,
     /// Context dialect for headless (default desktop). In window mode the
     /// backend decides it, and this must agree: `gles` means ANGLE.
     #[arg(long, value_enum)]
@@ -121,6 +128,12 @@ struct Cli {
     /// library; writes `readback.md` (C-04).
     #[arg(long)]
     readback: bool,
+    /// Probe the driver at a ladder of sizes (plus `--size`) instead of
+    /// benchmarking: does it clear, draw into and read back a target, and
+    /// what viewport does it keep. Writes `probe.md`. For a machine whose
+    /// frames come out black (D289).
+    #[arg(long)]
+    probe: bool,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -196,11 +209,18 @@ fn main() -> Result<()> {
         stderr: true,
     });
     let size = parse_size(&cli.size)?;
+    let window_size = cli
+        .window_size
+        .as_deref()
+        .map(parse_size)
+        .transpose()?
+        .map(|[w, h]| [w.max(1) as u32, h.max(1) as u32]);
     let request = Request {
         mode: cli.context.mode(),
         api: cli.api.map(ApiArg::api),
         gl: cli.gl.choice(),
         tiny: cli.show_window,
+        window_size,
     };
     offscreen::run(
         &request,
@@ -239,6 +259,22 @@ fn run(gl: &Gl, caps: &Caps, context: &str, size: [i32; 2], cli: &Cli) -> Result
     // scenes' doing.
     gl.clear_errors();
     std::fs::create_dir_all(&cli.out).with_context(|| format!("creating {}", cli.out.display()))?;
+    if cli.probe {
+        let (report, passed) = probe::run(gl, caps, context, size)?;
+        println!("{report}");
+        std::fs::write(cli.out.join("probe.md"), &report)?;
+        let trace = gl.trace_summary();
+        if !trace.is_empty() {
+            println!("GL trace (STROBE_GL_TRACE):\n{trace}");
+        }
+        return if passed {
+            Ok(())
+        } else {
+            Err(anyhow!(
+                "the driver dropped work at some size; see probe.md"
+            ))
+        };
+    }
     if cli.readback {
         let (report, passed) = readback::run(gl, caps, context, size)?;
         println!("{report}");
@@ -279,6 +315,10 @@ fn run(gl: &Gl, caps: &Caps, context: &str, size: [i32; 2], cli: &Cli) -> Result
         rows.push(row);
     }
 
+    let trace = gl.trace_summary();
+    if !trace.is_empty() {
+        println!("\nGL trace (STROBE_GL_TRACE):\n{trace}");
+    }
     write_contact_sheet(&rows, &cli.out.join("contact-sheet.png"))?;
     let report = report(&rows, caps, context, size, options, cli);
     std::fs::write(cli.out.join("results.md"), &report)?;
@@ -300,7 +340,9 @@ fn run(gl: &Gl, caps: &Caps, context: &str, size: [i32; 2], cli: &Cli) -> Result
         return Err(anyhow!(
             "every frame is all black, so the context drew nothing and the \
              timings are not real (a window in a session nobody sees, such as \
-             a Windows service's?)"
+             a Windows service's? A driver that drops work above some size? \
+             `--probe` finds the size, `STROBE_GL_TRACE=1` shows where the \
+             renderer drew)"
         ));
     }
     if failed.is_empty() {
