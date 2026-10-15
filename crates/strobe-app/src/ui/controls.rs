@@ -56,6 +56,71 @@ const PAD_SIZE: Vec2 = Vec2::new(160.0, 108.0);
 /// The height of a slider rail's hit area.
 const RAIL_HEIGHT: f32 = 18.0;
 
+/// How large the rows are drawn (D291): the side panel's compact rows, or
+/// the main view's Controls page, sized for a finger as much as a mouse.
+/// The widgets and what they write are the same either way.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Scale {
+    /// The side panel's Controls tab.
+    Panel,
+    /// The main view's Controls page: taller rails, a larger pad, wider
+    /// switches and buttons.
+    Touch,
+}
+
+impl Scale {
+    /// A slider rail's hit height.
+    const fn rail_height(self) -> f32 {
+        match self {
+            Self::Panel => RAIL_HEIGHT,
+            Self::Touch => 32.0,
+        }
+    }
+
+    /// The xy pad, at most `width` wide.
+    fn pad_size(self, width: f32) -> Vec2 {
+        match self {
+            Self::Panel => PAD_SIZE,
+            Self::Touch => {
+                let w = width.clamp(PAD_SIZE.x, 280.0);
+                Vec2::new(w, w * 2.0 / 3.0)
+            }
+        }
+    }
+
+    /// A bang button's height.
+    const fn bang_height(self) -> f32 {
+        match self {
+            Self::Panel => 26.0,
+            Self::Touch => 40.0,
+        }
+    }
+
+    /// A toggle switch's size.
+    const fn switch_size(self) -> Vec2 {
+        match self {
+            Self::Panel => Vec2::new(32.0, 18.0),
+            Self::Touch => Vec2::new(48.0, 26.0),
+        }
+    }
+
+    /// A colour control's swatch.
+    const fn swatch_size(self) -> Vec2 {
+        match self {
+            Self::Panel => Vec2::new(40.0, 20.0),
+            Self::Touch => Vec2::new(56.0, 30.0),
+        }
+    }
+
+    /// The gap under each row, in steps of `SPACE_XS`.
+    const fn gap_steps(self) -> f32 {
+        match self {
+            Self::Panel => 1.0,
+            Self::Touch => 2.0,
+        }
+    }
+}
+
 /// How much of the range one arrow press moves the value.
 const NUDGE: f32 = 0.01;
 
@@ -121,10 +186,33 @@ pub fn rail(
     max: f32,
     default: f32,
 ) -> (Response, RailOut) {
+    rail_at(
+        ui,
+        theme,
+        id_salt,
+        width,
+        RAIL_HEIGHT,
+        value,
+        (min, max, default),
+    )
+}
+
+/// [`rail`] with its hit height: `range` is the minimum, the maximum and
+/// the default.
+fn rail_at(
+    ui: &mut Ui,
+    theme: &Palette,
+    id_salt: impl std::hash::Hash + std::fmt::Debug,
+    width: f32,
+    height: f32,
+    value: &mut f32,
+    range: (f32, f32, f32),
+) -> (Response, RailOut) {
+    let (min, max, default) = range;
     // The rail's identity comes from `id_salt`, not from where it was laid
     // out, so a drag in progress stays with its control when the rows above
     // it change (a group collapsing, a control appearing).
-    let (rect, _) = ui.allocate_exact_size(Vec2::new(width.max(24.0), RAIL_HEIGHT), Sense::hover());
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(width.max(24.0), height), Sense::hover());
     let response = ui
         .interact(
             rect,
@@ -184,7 +272,13 @@ pub fn rail(
 
     let t = fraction(*value, min, max);
     let painter = ui.painter();
-    let track = Rect::from_center_size(rect.center(), Vec2::new(rect.width(), 4.0));
+    // A taller rail (the Controls page, D291) gets a thicker track and a
+    // larger handle, so a finger can see what it holds.
+    let big = height > RAIL_HEIGHT;
+    let track = Rect::from_center_size(
+        rect.center(),
+        Vec2::new(rect.width(), if big { 6.0 } else { 4.0 }),
+    );
     let radius = CornerRadius::same(2);
     painter.rect_filled(track, radius, theme::rgb(theme.control));
     if usable {
@@ -205,13 +299,18 @@ pub fn rail(
         }
         let lit = response.hovered() || response.dragged() || response.has_focus();
         let handle = egui::pos2(track.left() + track.width() * t, rect.center().y);
+        let grow = if big { 3.0 } else { 0.0 };
         painter.circle_filled(
             handle,
-            if lit { 7.0 } else { 6.0 },
+            grow + if lit { 7.0 } else { 6.0 },
             theme::rgb(if lit { theme.accent_hover } else { theme.text }),
         );
         if response.has_focus() {
-            painter.circle_stroke(handle, 9.0, Stroke::new(1.5, theme::rgb(theme.accent)));
+            painter.circle_stroke(
+                handle,
+                grow + 9.0,
+                Stroke::new(1.5, theme::rgb(theme.accent)),
+            );
         }
     }
     (response, out)
@@ -287,14 +386,15 @@ fn name_label(
 }
 
 /// Draws every control in `members` (indices into the bank). Group headers
-/// are the inspector's business; this draws the rows. With `pins`, a
-/// control's name offers to pin it as a macro.
+/// are the inspector's business; this draws the rows, at `scale`. With
+/// `pins`, a control's name offers to pin it as a macro.
 pub fn rows(
     ui: &mut Ui,
     theme: &Palette,
     bank: &mut ControlBank,
     members: &[usize],
     mut pins: Option<&mut Pins<'_>>,
+    scale: Scale,
 ) {
     let pins = &mut pins;
     for &index in members {
@@ -305,21 +405,23 @@ pub fn rows(
         let output = bank.output(index).copied().unwrap_or_default();
         ui.push_id(index, |ui| match def.kind {
             ControlKind::Slider(_) | ControlKind::Knob(_) => {
-                slider_row(ui, theme, bank, index, &def, target[0], pins);
+                slider_row(ui, theme, bank, index, &def, target[0], pins, scale);
             }
             ControlKind::Toggle { .. } => {
-                toggle_row(ui, theme, bank, index, &def, target[0], pins);
+                toggle_row(ui, theme, bank, index, &def, target[0], pins, scale);
             }
             ControlKind::Bang(kind) => {
-                bang_row(ui, theme, bank, index, &def, kind, output[0], pins);
+                bang_row(ui, theme, bank, index, &def, (kind, output[0]), pins, scale);
             }
-            ControlKind::Xy(_) => xy_row(ui, theme, bank, index, &def, target, pins),
-            ControlKind::Color { .. } => color_row(ui, theme, bank, index, &def, target, pins),
+            ControlKind::Xy(_) => xy_row(ui, theme, bank, index, &def, target, pins, scale),
+            ControlKind::Color { .. } => {
+                color_row(ui, theme, bank, index, &def, target, pins, scale);
+            }
             ControlKind::Dropdown { .. } => {
                 dropdown_row(ui, theme, bank, index, &def, target[0], pins);
             }
         });
-        ui.add_space(SPACE_XS);
+        ui.add_space(SPACE_XS * scale.gap_steps());
     }
 }
 
@@ -351,6 +453,10 @@ fn reset_button(ui: &mut Ui, theme: &Palette) -> Response {
     response.on_hover_text("Reset to the default")
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a row's whole context, as its siblings take"
+)]
 fn slider_row(
     ui: &mut Ui,
     theme: &Palette,
@@ -359,6 +465,7 @@ fn slider_row(
     def: &ControlDef,
     v: f32,
     pins: &mut Option<&mut Pins<'_>>,
+    scale: Scale,
 ) {
     let (min, max, default) = (def.min[0], def.max[0], def.default[0]);
     if (max - min).abs() < f32::EPSILON {
@@ -395,7 +502,15 @@ fn slider_row(
         });
     });
     let width = ui.available_width();
-    let (_, out) = rail(ui, theme, index, width, &mut value, min, max, default);
+    let (_, out) = rail_at(
+        ui,
+        theme,
+        index,
+        width,
+        scale.rail_height(),
+        &mut value,
+        (min, max, default),
+    );
     if out.reset {
         bank.set_default(index);
     } else if out.changed {
@@ -403,6 +518,10 @@ fn slider_row(
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a row's whole context, as its siblings take"
+)]
 fn toggle_row(
     ui: &mut Ui,
     theme: &Palette,
@@ -411,25 +530,29 @@ fn toggle_row(
     def: &ControlDef,
     v: f32,
     pins: &mut Option<&mut Pins<'_>>,
+    scale: Scale,
 ) {
     let on = def.normalize(0, v) >= 0.5;
     let response = ui
         .horizontal(|ui| {
-            let (rect, response) = ui.allocate_exact_size(Vec2::new(32.0, 18.0), Sense::click());
+            let size = scale.switch_size();
+            let (rect, response) = ui.allocate_exact_size(size, Sense::click());
             let t = super::motion::toggle(ui.ctx(), response.id, on, super::motion::INSTANT);
             let painter = ui.painter();
             let track = if on { theme.accent } else { theme.control };
-            painter.rect_filled(rect, CornerRadius::same(9), theme::rgb(track));
-            let x = rect.left() + 9.0 + t * (rect.width() - 18.0);
+            let half = size.y / 2.0;
+            let round = CornerRadius::same(half as u8);
+            painter.rect_filled(rect, round, theme::rgb(track));
+            let x = rect.left() + half + t * (rect.width() - size.y);
             painter.circle_filled(
                 egui::pos2(x, rect.center().y),
-                6.5,
+                half - 2.5,
                 theme::rgb(if on { theme.text_on_accent } else { theme.text }),
             );
             if response.has_focus() {
                 painter.rect_stroke(
                     rect.expand(2.0),
-                    CornerRadius::same(10),
+                    CornerRadius::same(half as u8 + 1),
                     Stroke::new(1.5, theme::rgb(theme.accent)),
                     egui::StrokeKind::Outside,
                 );
@@ -459,12 +582,12 @@ fn bang_row(
     bank: &mut ControlBank,
     index: usize,
     def: &ControlDef,
-    kind: Bang,
-    output: f32,
+    (kind, output): (Bang, f32),
     pins: &mut Option<&mut Pins<'_>>,
+    scale: Scale,
 ) {
     ui.horizontal(|ui| {
-        let response = bang_button(ui, theme, &def.name);
+        let response = bang_button_sized(ui, theme, &def.name, scale.bang_height());
         pin_menu(&response, def, pins);
         if describe(response, def).clicked() {
             bank.press(index);
@@ -484,11 +607,16 @@ fn bang_row(
 
 /// A momentary button with a visible pressed state.
 pub fn bang_button(ui: &mut Ui, theme: &Palette, name: &str) -> Response {
+    bang_button_sized(ui, theme, name, Scale::Panel.bang_height())
+}
+
+/// [`bang_button`], `height` tall.
+fn bang_button_sized(ui: &mut Ui, theme: &Palette, name: &str, height: f32) -> Response {
     let font = egui::TextStyle::Button.resolve(ui.style());
     let galley = ui
         .painter()
         .layout_no_wrap(name.to_string(), font, theme::rgb(theme.text));
-    let size = Vec2::new(galley.size().x + SPACE_SM * 3.0, 26.0);
+    let size = Vec2::new(galley.size().x + SPACE_SM * 3.0, height);
     let (rect, response) = ui.allocate_exact_size(size, Sense::click());
     let pressed = response.is_pointer_button_down_on();
     let fill = if pressed { theme.accent } else { theme.raised };
@@ -527,6 +655,10 @@ pub fn bang_button(ui: &mut Ui, theme: &Palette, name: &str) -> Response {
     response
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a row's whole context, as its siblings take"
+)]
 fn xy_row(
     ui: &mut Ui,
     theme: &Palette,
@@ -535,6 +667,7 @@ fn xy_row(
     def: &ControlDef,
     v: [f32; 3],
     pins: &mut Option<&mut Pins<'_>>,
+    scale: Scale,
 ) {
     let modified = def.default[0] != v[0] || def.default[1] != v[1];
     ui.horizontal(|ui| {
@@ -550,7 +683,8 @@ fn xy_row(
             );
         });
     });
-    let (rect, response) = ui.allocate_exact_size(PAD_SIZE, Sense::click_and_drag());
+    let pad = scale.pad_size(ui.available_width());
+    let (rect, response) = ui.allocate_exact_size(pad, Sense::click_and_drag());
     let response = describe(response, def);
     if let Some(pos) = response.interact_pointer_pos() {
         let tx = ((pos.x - rect.left()) / rect.width()).clamp(0.0, 1.0);
@@ -608,6 +742,10 @@ fn xy_row(
     painter.circle_filled(at, 5.0, theme::rgb(theme.accent));
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a row's whole context, as its siblings take"
+)]
 fn color_row(
     ui: &mut Ui,
     theme: &Palette,
@@ -616,14 +754,39 @@ fn color_row(
     def: &ControlDef,
     v: [f32; 3],
     pins: &mut Option<&mut Pins<'_>>,
+    scale: Scale,
 ) {
     ui.horizontal(|ui| {
         let mut rgb = v;
-        if describe(ui.color_edit_button_rgb(&mut rgb), def).changed() {
+        let response = swatch(ui, theme, &mut rgb, scale.swatch_size());
+        if describe(response, def).changed() {
             bank.set(index, None, &rgb);
         }
         name_label(ui, theme, def, pins);
     });
+}
+
+/// A colour swatch, `size` large, that opens egui's picker.
+///
+/// egui sizes its swatch by `interact_size`, whose width the theme sets to
+/// zero so buttons size to their words: left alone, the swatch had no width
+/// and could not be clicked, in the panel and the macro strip alike. The
+/// size is set in a scope of its own. The swatch is outlined, so a black or
+/// panel-coloured value still reads as a swatch on the dark theme.
+pub fn swatch(ui: &mut Ui, theme: &Palette, rgb: &mut [f32; 3], size: Vec2) -> Response {
+    let response = ui
+        .scope(|ui| {
+            ui.spacing_mut().interact_size = size;
+            ui.color_edit_button_rgb(rgb)
+        })
+        .inner;
+    ui.painter().rect_stroke(
+        response.rect,
+        CornerRadius::same(2),
+        Stroke::new(1.0, theme::rgb(theme.border)),
+        egui::StrokeKind::Outside,
+    );
+    response
 }
 
 fn dropdown_row(
