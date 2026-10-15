@@ -1,7 +1,9 @@
 // ============================================================================
 // Module:       strobe_app::stats
 // Description:  Frame-time readout: smoothed CPU time per frame and the
-//               frame rate the output window is actually achieving.
+//               frame rate the output window is actually achieving; the
+//               per-minute perf line; and the control window's pacing
+//               (make-current pacer, swap policy, paint-starvation drive).
 //
 // Dependencies: std only
 // ============================================================================
@@ -118,6 +120,8 @@ pub struct PerfWindow {
     control_frames: u32,
     control_sum: f32,
     control_worst: f32,
+    /// Control redraws the event loop ran without a paint (D290).
+    control_unpainted: u32,
     /// Per part of a control redraw, in [`ControlTimes`]' order: summed
     /// milliseconds.
     part_sums: [f32; 4],
@@ -138,6 +142,8 @@ pub struct ControlTimes {
     pub paint: Duration,
     /// The buffer swap.
     pub swap: Duration,
+    /// The event loop ran this redraw because no paint came (D290).
+    pub unpainted: bool,
 }
 
 impl PerfWindow {
@@ -166,6 +172,9 @@ impl PerfWindow {
         self.control_frames += 1;
         self.control_sum += ms(times.total);
         self.control_worst = self.control_worst.max(ms(times.total));
+        if times.unpainted {
+            self.control_unpainted += 1;
+        }
         for (sum, part) in self.part_sums.iter_mut().zip([
             times.make_current,
             times.layout,
@@ -188,8 +197,8 @@ impl PerfWindow {
         let mean = |sum: f32, n: u32| if n > 0 { sum / n as f32 } else { 0.0 };
         let line = format!(
             "perf: {:.1} fps over {:.0} s, {} late of {} frames, worst gap {:.1} ms, \
-             gpu {:.2} ms, control {} redraws {:.2} ms (worst {:.1} ms): make-current {:.2}, \
-             layout {:.2}, paint {:.2}, swap {:.2} ms",
+             gpu {:.2} ms, control {} redraws {:.2} ms (worst {:.1} ms, {} unpainted): \
+             make-current {:.2}, layout {:.2}, paint {:.2}, swap {:.2} ms",
             self.frames as f32 / span,
             span,
             self.late,
@@ -199,6 +208,7 @@ impl PerfWindow {
             self.control_frames,
             mean(self.control_sum, self.control_frames),
             self.control_worst,
+            self.control_unpainted,
             mean(self.part_sums[0], self.control_frames),
             mean(self.part_sums[1], self.control_frames),
             mean(self.part_sums[2], self.control_frames),
@@ -282,6 +292,119 @@ impl ControlPacer {
     /// Starts measuring again from nothing, at the normal rate.
     pub fn reset(&mut self) {
         *self = Self::default();
+    }
+}
+
+/// Runs the control window's frames from the event loop when Windows stops
+/// painting it (D290).
+///
+/// winit delivers `RedrawRequested` on Windows only from a `WM_PAINT`, and
+/// Windows makes a `WM_PAINT` for the first dirty window of the thread in
+/// z-order. winit stops dispatching after each `RedrawRequested`, and the
+/// output asks for its next frame in every `about_to_wait` once its
+/// vsync-blocked frame outlasts `OUTPUT_PERIOD`. So while the output is
+/// above the control window, the output is always dirty first and the
+/// control window's paint never comes: the JaJa mini PC logged
+/// "control 0 redraws" a minute with the output at 60 fps. Every request is
+/// still made as before; when one has gone unanswered for
+/// [`PAINT_PATIENCE`] and [`PAINT_PASSES`] passes of the event loop, the
+/// control frame runs from `about_to_wait` itself, at the control window's
+/// period, until a paint answers promptly again. Counting passes keeps a
+/// loop that was simply blocked (a scene compiling for a second) from
+/// reading as a window Windows will not paint.
+#[derive(Debug, Default)]
+pub struct ControlDrive {
+    /// When the oldest unanswered `request_redraw` was made.
+    asked: Option<Instant>,
+    /// Passes of the event loop since then, each a chance for the paint.
+    passes: u32,
+    /// Whether the event loop is running the control frames.
+    driving: bool,
+    /// How many times the event loop has taken over, for the log.
+    takeovers: u32,
+}
+
+/// How long a requested control redraw may go unanswered before the event
+/// loop runs the control frame itself. A painted window is answered within
+/// one output frame; this is fifteen of them at 60 Hz.
+pub const PAINT_PATIENCE: Duration = Duration::from_millis(250);
+
+/// How many passes of the event loop a request must also go unanswered
+/// through. A starved window sees one pass per output frame, fifteen in
+/// [`PAINT_PATIENCE`]; a loop blocked for that long sees one or two.
+pub const PAINT_PASSES: u32 = 4;
+
+/// What to do with a control frame that is due ([`ControlDrive::due`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ControlStep {
+    /// Request a redraw and let its `RedrawRequested` run the frame.
+    Request,
+    /// Request a redraw, and run the frame now: no paint has come for
+    /// [`PAINT_PATIENCE`]. This is the first such frame since paints last
+    /// came.
+    TakeOver {
+        /// How long the oldest request has gone unanswered.
+        waited: Duration,
+        /// The takeovers so far, this one included.
+        times: u32,
+    },
+    /// Request a redraw, and run the frame now: the event loop is already
+    /// running the control frames.
+    RunHere,
+}
+
+impl ControlDrive {
+    /// Counts one pass of the event loop (`about_to_wait`).
+    pub fn pass(&mut self) {
+        self.passes = self.passes.saturating_add(1);
+    }
+
+    /// The control window is due at `now`: says whether the event loop
+    /// runs its frame or a paint is waited for. The caller requests a
+    /// redraw either way, so a paint that does come is never lost.
+    pub fn due(&mut self, now: Instant) -> ControlStep {
+        let Some(asked) = self.asked else {
+            self.asked = Some(now);
+            self.passes = 0;
+            return ControlStep::Request;
+        };
+        let waited = now.saturating_duration_since(asked);
+        if waited < PAINT_PATIENCE || self.passes < PAINT_PASSES {
+            return ControlStep::Request;
+        }
+        if self.driving {
+            return ControlStep::RunHere;
+        }
+        self.driving = true;
+        self.takeovers = self.takeovers.saturating_add(1);
+        ControlStep::TakeOver {
+            waited,
+            times: self.takeovers,
+        }
+    }
+
+    /// A `RedrawRequested` reached the control window at `now`. Returns
+    /// true when that hands the frames back to the paints: the event loop
+    /// was running them, and this paint answered its request within
+    /// [`PAINT_PATIENCE`]. A late paint (one an output frame happened to
+    /// let through) leaves the event loop in charge, so the two do not take
+    /// turns.
+    pub fn painted(&mut self, now: Instant) -> bool {
+        let prompt = self
+            .asked
+            .take()
+            .is_none_or(|asked| now.saturating_duration_since(asked) < PAINT_PATIENCE);
+        if self.driving && prompt {
+            self.driving = false;
+            return true;
+        }
+        false
+    }
+
+    /// Whether the event loop is running the control frames, which means
+    /// something above the control window is taking all of its paints.
+    pub fn driving(&self) -> bool {
+        self.driving
     }
 }
 
@@ -391,6 +514,140 @@ mod tests {
         );
     }
 
+    /// Runs `passes` passes of the event loop.
+    fn passes(drive: &mut ControlDrive, passes: u32) {
+        for _ in 0..passes {
+            drive.pass();
+        }
+    }
+
+    #[test]
+    fn a_painted_control_window_is_never_driven_by_the_loop() {
+        let mut drive = ControlDrive::default();
+        let start = Instant::now();
+        for frame in 0..300_u32 {
+            // 30 Hz, each request answered by a paint 20 ms later, with
+            // two output frames in between.
+            let at = start + Duration::from_millis(33) * frame;
+            assert_eq!(
+                drive.due(at),
+                ControlStep::Request,
+                "frame {frame} waits for its paint"
+            );
+            passes(&mut drive, 2);
+            assert!(
+                !drive.painted(at + Duration::from_millis(20)),
+                "nothing to hand back at frame {frame}"
+            );
+        }
+        assert!(!drive.driving(), "paints keep the frames");
+    }
+
+    #[test]
+    fn a_control_window_with_no_paints_is_run_by_the_loop_at_its_own_period() {
+        // The JaJa mini PC: requests at 30 Hz, an output frame every 16 ms,
+        // and never a paint.
+        let mut drive = ControlDrive::default();
+        let start = Instant::now();
+        let at = |ms: u64| start + Duration::from_millis(ms);
+        let patience = PAINT_PATIENCE.as_millis() as u64;
+        assert_eq!(drive.due(at(0)), ControlStep::Request, "first request");
+        passes(&mut drive, 2);
+        assert_eq!(
+            drive.due(at(33)),
+            ControlStep::Request,
+            "one missed paint is not a starved window"
+        );
+        passes(&mut drive, 13);
+        assert_eq!(
+            drive.due(at(patience - 1)),
+            ControlStep::Request,
+            "still inside the patience"
+        );
+        assert_eq!(
+            drive.due(at(patience)),
+            ControlStep::TakeOver {
+                waited: PAINT_PATIENCE,
+                times: 1
+            },
+            "the loop takes over once the patience is spent"
+        );
+        assert!(drive.driving(), "and is now running the frames");
+        for frame in 1..1000_u64 {
+            passes(&mut drive, 2);
+            assert_eq!(
+                drive.due(at(patience + 33 * frame)),
+                ControlStep::RunHere,
+                "every due frame runs from the loop ({frame})"
+            );
+        }
+    }
+
+    #[test]
+    fn a_blocked_loop_is_not_a_window_without_paints() {
+        // A scene compiles for 1.4 s inside an output frame: the request
+        // is old, but the loop has had one pass in which to deliver it.
+        let mut drive = ControlDrive::default();
+        let start = Instant::now();
+        drive.due(start);
+        drive.pass();
+        assert_eq!(
+            drive.due(start + Duration::from_millis(1400)),
+            ControlStep::Request,
+            "too few passes to say the paint is being withheld"
+        );
+        assert!(
+            !drive.painted(start + Duration::from_millis(1410)),
+            "the paint comes on the next pass"
+        );
+        assert!(!drive.driving(), "the loop never took the frames");
+    }
+
+    #[test]
+    fn the_loop_hands_back_only_to_a_prompt_paint() {
+        let mut drive = ControlDrive::default();
+        let start = Instant::now();
+        let at = |ms: u64| start + Duration::from_millis(ms);
+        drive.due(at(0));
+        passes(&mut drive, 30);
+        assert!(
+            matches!(drive.due(at(500)), ControlStep::TakeOver { .. }),
+            "a covered window's next frame, half a second on, takes over"
+        );
+        assert!(
+            !drive.painted(at(900)),
+            "a paint 900 ms after its request is a lucky one: the loop keeps the frames"
+        );
+        assert!(drive.driving(), "still driving after a late paint");
+        assert_eq!(drive.due(at(1000)), ControlStep::Request, "asked afresh");
+        passes(&mut drive, 30);
+        assert_eq!(
+            drive.due(at(1500)),
+            ControlStep::RunHere,
+            "unanswered again: run here, without a second takeover"
+        );
+        assert!(
+            !drive.painted(at(2010)),
+            "a request standing since 1000 ms is not answered promptly"
+        );
+        assert_eq!(drive.due(at(2033)), ControlStep::Request, "asked afresh");
+        assert!(
+            drive.painted(at(2040)),
+            "a paint 7 ms after its request hands the frames back"
+        );
+        assert!(!drive.driving(), "paints have the frames again");
+        drive.due(at(3000));
+        passes(&mut drive, 20);
+        assert_eq!(
+            drive.due(at(3300)),
+            ControlStep::TakeOver {
+                waited: Duration::from_millis(300),
+                times: 2
+            },
+            "a second takeover is counted"
+        );
+    }
+
     #[test]
     fn the_swap_wait_engages_once_on_the_first_slowdown_and_only_in_auto() {
         assert_eq!(FinishMode::from_env(None), FinishMode::Auto, "unset");
@@ -434,6 +691,7 @@ mod tests {
                     layout: Duration::from_micros(1000),
                     paint: Duration::from_micros(500),
                     swap: Duration::from_millis(1),
+                    unpainted: i % 4 == 0,
                 });
             }
             if i < 3000 {
@@ -447,6 +705,7 @@ mod tests {
         assert!(line.contains("worst gap 33.3 ms"), "{line}");
         assert!(line.contains("gpu 2.00 ms"), "{line}");
         assert!(line.contains("control 1800 redraws 3.00 ms"), "{line}");
+        assert!(line.contains("900 unpainted"), "{line}");
         assert!(
             line.contains("make-current 0.50, layout 1.00, paint 0.50, swap 1.00 ms"),
             "{line}"
