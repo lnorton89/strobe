@@ -29,6 +29,17 @@
 //! float literal into `float(PASSINDEX)`. A comparison with an int literal,
 //! or any other use, is left alone, so the int idiom keeps compiling and
 //! the program's one `PASSINDEX` constant still folds the branch away.
+//!
+//! ## `pow` of a negative base
+//!
+//! GLSL leaves `pow(x, y)` undefined for `x < 0`, and the drivers disagree.
+//! The native Windows drivers compile it as `exp2(y * log2(x))`, which is
+//! NaN there. Direct3D's compiler takes `log2(|x|)` instead, so under
+//! ANGLE the same call is `|x|^y`, and it folds `pow(x, 1.0)` to `x`. Real
+//! scenes depend on the answer: a reaction-diffusion scene stops growing
+//! and a pattern scene goes black on ANGLE. On ES, `pow` is written out as
+//! the native sequence, so every ES driver gets the native answer (D301).
+//! Desktop is left to its driver.
 
 use crate::directives::Branches;
 use std::borrow::Cow;
@@ -78,6 +89,145 @@ pub fn passindex_float_compares(source: &str) -> Cow<'_, str> {
     }
     rewritten.push_str(source.get(copied..).unwrap_or_default());
     Cow::Owned(rewritten)
+}
+
+/// Rewrites `pow(x, y)` as `exp2(log2(x) * (y))`, the sequence the native
+/// drivers compile `pow` to, so a negative base gives NaN on ES as it does
+/// there, instead of Direct3D's `|x|^y` (D301). Returns `source` untouched
+/// (no allocation) when nothing is rewritten.
+///
+/// Left alone, because no driver disagrees on them: a base that is a plain
+/// unsigned literal, and an exponent that is an integer literal other than
+/// 1 or -1 (`pow(x, 2.0)`), which compilers expand into multiplications.
+/// Nested calls are each rewritten, comments are copied, the arguments keep
+/// their order and no newline is added, so lines still map.
+pub fn pow_as_exp2_log2(source: &str) -> Cow<'_, str> {
+    if !source.contains("pow") {
+        return Cow::Borrowed(source);
+    }
+    let rewritten = rewrite_pows(source);
+    if rewritten == source {
+        Cow::Borrowed(source)
+    } else {
+        Cow::Owned(rewritten)
+    }
+}
+
+/// [`pow_as_exp2_log2`] on any span of code, recursing into arguments.
+fn rewrite_pows(source: &str) -> String {
+    const POW: &str = "pow";
+    let bytes = source.as_bytes();
+    let mut out = String::with_capacity(source.len() + 16);
+    let mut copied = 0;
+    let mut i = 0;
+    while let Some(&byte) = bytes.get(i) {
+        let next = bytes.get(i + 1).copied();
+        if byte == b'/' && next == Some(b'/') {
+            i = skip_line_comment(bytes, i);
+        } else if byte == b'/' && next == Some(b'*') {
+            i = skip_block_comment(bytes, i);
+        } else if byte.is_ascii_digit() {
+            while bytes.get(i).is_some_and(|b| is_word(*b) || *b == b'.') {
+                i += 1;
+            }
+        } else if is_word(byte) {
+            let start = i;
+            while bytes.get(i).is_some_and(|b| is_word(*b)) {
+                i += 1;
+            }
+            let member = start > 0 && bytes.get(start - 1) == Some(&b'.');
+            let open = skip_spaces(bytes, i);
+            if source.get(start..i) != Some(POW) || member || bytes.get(open) != Some(&b'(') {
+                continue;
+            }
+            let Some((comma, close)) = two_arguments(bytes, open + 1) else {
+                continue;
+            };
+            let base = source.get(open + 1..comma).unwrap_or_default();
+            let exponent = source.get(comma + 1..close).unwrap_or_default();
+            out.push_str(source.get(copied..start).unwrap_or_default());
+            if driver_agrees(base, exponent) {
+                out.push_str(source.get(start..=open).unwrap_or_default());
+                out.push_str(&rewrite_pows(base));
+                out.push(',');
+                out.push_str(&rewrite_pows(exponent));
+                out.push(')');
+            } else {
+                out.push_str("exp2(log2(");
+                out.push_str(&rewrite_pows(base));
+                out.push_str(") * (");
+                out.push_str(&rewrite_pows(exponent));
+                out.push_str("))");
+            }
+            i = close + 1;
+            copied = i;
+        } else {
+            i += 1;
+        }
+    }
+    out.push_str(source.get(copied..).unwrap_or_default());
+    out
+}
+
+/// The offsets of the `,` between a call's two arguments and of the `)`
+/// closing it, the arguments starting at `from`; `None` unless the call
+/// has exactly two.
+fn two_arguments(bytes: &[u8], from: usize) -> Option<(usize, usize)> {
+    let mut depth = 0_i32;
+    let mut comma = None;
+    let mut i = from;
+    while let Some(&byte) = bytes.get(i) {
+        let next = bytes.get(i + 1).copied();
+        if byte == b'/' && next == Some(b'/') {
+            i = skip_line_comment(bytes, i);
+            continue;
+        }
+        if byte == b'/' && next == Some(b'*') {
+            i = skip_block_comment(bytes, i);
+            continue;
+        }
+        match byte {
+            b'(' | b'[' => depth += 1,
+            b')' if depth == 0 => return comma.map(|comma| (comma, i)),
+            b']' if depth == 0 => return None,
+            b')' | b']' => depth -= 1,
+            b',' if depth == 0 => {
+                if comma.is_some() {
+                    return None;
+                }
+                comma = Some(i);
+            }
+            // A statement end inside a call means the text is not one.
+            b';' | b'{' | b'}' => return None,
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Whether every driver gives `pow(base, exponent)` the same value, so it
+/// is left as `pow`: the base is a plain unsigned literal, or the exponent
+/// is an integer literal other than 1 and -1.
+fn driver_agrees(base: &str, exponent: &str) -> bool {
+    let number = |text: &str| -> Option<f64> {
+        let text = text.trim();
+        let digits = text.strip_suffix(['f', 'F']).unwrap_or(text);
+        let unsigned = digits.strip_prefix('-').unwrap_or(digits);
+        if !unsigned
+            .bytes()
+            .next()
+            .is_some_and(|b| b.is_ascii_digit() || b == b'.')
+        {
+            return None;
+        }
+        digits.parse::<f64>().ok()
+    };
+    let base = base.trim();
+    if !base.starts_with('-') && number(base).is_some() {
+        return true;
+    }
+    number(exponent).is_some_and(|n| n.fract() == 0.0 && n.abs() != 1.0)
 }
 
 /// Whether `byte` can be part of an identifier or a number.
@@ -789,6 +939,78 @@ mod tests {
             fix("if (PASSINDEX == 0.0) a(); else if (PASSINDEX == 1.0) b();"),
             "if (float(PASSINDEX) == 0.0) a(); else if (float(PASSINDEX) == 1.0) b();",
             "both"
+        );
+    }
+}
+
+#[cfg(test)]
+mod pow_tests {
+    use super::*;
+
+    fn fix(source: &str) -> String {
+        pow_as_exp2_log2(source).into_owned()
+    }
+
+    #[test]
+    fn pow_becomes_exp2_of_log2_in_argument_order() {
+        assert_eq!(
+            fix("float g = pow(n - 0.5, 1.0);"),
+            "float g = exp2(log2(n - 0.5) * ( 1.0));",
+            "exponent 1, which some compilers fold to the base"
+        );
+        assert_eq!(
+            fix("v = pow (tex(a, b).rgb, vec3(0.25));"),
+            "v = exp2(log2(tex(a, b).rgb) * ( vec3(0.25)));",
+            "a call with its own commas, and a space before the parenthesis"
+        );
+        assert_eq!(
+            fix("x = pow(pow(a, k) - 1.0, f(i, j));"),
+            "x = exp2(log2(exp2(log2(a) * ( k)) - 1.0) * ( f(i, j)));",
+            "nested calls are each rewritten"
+        );
+        assert_eq!(
+            fix("x = pow(-2.0, y) + pow(a, -1.0);"),
+            "x = exp2(log2(-2.0) * ( y)) + exp2(log2(a) * ( -1.0));",
+            "a negative literal base, and exponent -1"
+        );
+    }
+
+    #[test]
+    fn calls_every_driver_agrees_on_are_left_alone() {
+        for source in [
+            "x = pow(2.0, y);",
+            "x = pow(.5, y);",
+            "x = pow(a, 2.0) + pow(a, 3) + pow(a, -2.0) + pow(a, 0.0);",
+            "x = power(a, b) + mypow(a, b) + pow_2(a);",
+            "// pow(a, b)\n/* pow(c, d) */",
+            "float pow;",
+            "x = pow(a);",
+        ] {
+            assert!(
+                matches!(pow_as_exp2_log2(source), Cow::Borrowed(_)),
+                "`{source}` should be untouched"
+            );
+        }
+        assert_eq!(
+            fix("x = pow(pow(a, 0.5), 2.0);"),
+            "x = pow(exp2(log2(a) * ( 0.5)), 2.0);",
+            "an integer power keeps pow, and its base is still rewritten"
+        );
+    }
+
+    #[test]
+    fn lines_are_kept_and_a_split_call_is_still_found() {
+        let source = "float a = pow(\n  n - 0.5, // base\n  0.5);\n#define P(x) pow(x, 0.25)\n";
+        let fixed = fix(source);
+        assert_eq!(
+            fixed,
+            "float a = exp2(log2(\n  n - 0.5) * ( // base\n  0.5));\n#define P(x) exp2(log2(x) * ( 0.25))\n",
+            "multi-line call with a comment, and a macro body"
+        );
+        assert_eq!(
+            fixed.lines().count(),
+            source.lines().count(),
+            "error lines still map"
         );
     }
 }

@@ -111,19 +111,29 @@ tracks every known unfinished implementation and validation task across the proj
   `the_form_remembers_a_path_and_a_launch_with_control_decides_the_first_action`;
   `cli::tests::control_names_a_host_and_takes_the_trust_file_for_the_laptop`;
   `shell_tests::the_connect_form_offers_a_trust_file_in_place_of_the_code`.
-- [ ] Venue mode, on real machines: a Windows host reading a trust file from
-  the user profile, a laptop controlling a physical show machine over Wi-Fi,
-  a host restart and a Wi-Fi drop while connected (do the retries land within
-  the 15 s cap on a real network, and is the lease taken back?), the
-  controller's file permissions on Windows, and a four-hour soak.
+- [x] Venue mode on loopback on a real Windows machine (2026-10-15, JaJa
+  mini PC, MINIPC.md M6): trusted pairing with no approval, the viewer shows
+  the host UI, and after a host kill the controller shows "Reconnecting..."
+  and re-pairs by itself 13 s later.
+- [ ] Venue mode, on two physical machines: a laptop controlling a show
+  machine over Wi-Fi, a Wi-Fi drop while connected (do the retries land
+  within the 15 s cap on a real network, and is the lease taken back?),
+  Disconnect while reconnecting (untested), the controller's file
+  permissions on Windows, and a four-hour soak. A Windows host reading a
+  trust file from the user profile is covered by M6.
 - [ ] Full desktop remote: two physical Strobe desktops over Wi-Fi, reconnect
   after loss/sleep, minimized host, a host control window covered by the
   fullscreen output (does it still redraw and capture?), the fenced capture
   readback on a real window (native GL and ANGLE), cross-DPI/zoom behavior on
   real monitors, a remote click on Settings' Approve refused with the banner,
   and T480 CPU/frame-time/memory soak remain unverified.
-- [ ] The control frame runs while Windows sends the control window no
-  paints (2026-10-15, D290). Built; the scheduling decision is unit-tested
+- [x] The control frame runs while Windows sends the control window no
+  paints (2026-10-15, D290). Verified on the JaJa mini PC (MINIPC.md M5):
+  `control window: no paint from Windows for 1217 ms (takeover 1)` at 3.5 s,
+  about 119 driven redraws a minute all unpainted, playlist 14/14 in 5.4 s,
+  59.9 fps, and `WM_CLOSE` to the control window closes cleanly. The laptop
+  remote showing and operating the host on that machine is the two-machine
+  item above. Built; the scheduling decision is unit-tested
   in the Linux container (`stats::tests::a_control_window_with_no_paints_is_run_by_the_loop_at_its_own_period`,
   `a_painted_control_window_is_never_driven_by_the_loop`,
   `a_blocked_loop_is_not_a_window_without_paints`,
@@ -252,18 +262,25 @@ GPU, on Mesa's llvmpipe.
   Wayland screenshots (2026-10-15, D295). aarch64-linux evaluates only.
 - [ ] A real Linux GPU (Intel, AMD, NVIDIA): native GL 3.3 core, the
   scenes, timings. Acceptance: `strobe --diagnose` and `strobe-bench` output
-  with the driver named, in `docs/hardware/`.
+  with the driver named, in `docs/hardware/`. Only WSL2's D3D12 driver on the
+  RX 580 has run (the WSL2 item below, AMD.md A14); that is Mesa over
+  Windows' GPU driver, not a Linux GPU driver.
 - [ ] Audio capture on ALSA, PipeWire and PulseAudio machines, and
   removal and reconnection of the device. Acceptance: a live input moves the
-  level meter; the log shows the transitions.
+  level meter; the log shows the transitions. Under WSLg (A14) the source was
+  synthetic until ALSA's default was pointed at PulseAudio; the `pulse` and
+  `pipewire` fallback is unit-tested but not yet seen live.
 - [ ] MIDI input from a real controller through ALSA's sequencer.
 - [ ] GNOME and KDE on Wayland: window decorations, the custom title bar,
   fullscreen output on a second monitor.
 - [ ] NixOS: `nix run` opens a window with `hardware.graphics.enable`, and
   PipeWire's ALSA plugin finds the input.
-- [ ] WSL2 with WSLg on the AMD desktop's Debian: apt build, `glxinfo -B`
-  naming a D3D12 renderer, a window on Wayland and on X11, the bench.
-  Acceptance: the transcript `target/linux-check.txt` from
+- [x] WSL2 with WSLg on the AMD desktop's Debian (2026-10-15, AMD.md A14):
+  toolchain, build (289 s), `--help`, the headless bench (llvmpipe over EGL),
+  the window bench and the three screenshots (default, X11, Wayland) pass;
+  apt was pre-done and MIDI is skipped. Mesa uses llvmpipe unless
+  `GALLIUM_DRIVER=d3d12`, which names "D3D12 (Radeon RX 580 Series) | 4.2
+  Core" and ran about 3x faster. Transcript: `target/linux-check.txt` from
   `scripts/check-linux.sh`.
 
 ## P1: performer-facing UI
@@ -675,6 +692,12 @@ survives export.
   ANGLE now agree, 0.00 at 100 frames). Two scenes still differ, from
   undefined behaviour in their own code (`pow(0,0)`, `fract(sin)` hashes;
   T9). Strobe does not fix those.
+  **D301 (2026-10-15) narrows that for `pow`:** the ES dialect writes it
+  as the native drivers run it (`exp2(log2(x) * (y))`), because ANGLE's
+  `|x|^y` for a negative base stopped sprinkles growing and its fold of
+  `pow(x, 1.0)` turned PLUS black. Unit, assembly and both-dialect render
+  tests pass and llvmpipe's corpus black lists are unchanged; the ANGLE
+  picture itself is unverified until AMD Task A15 runs.
 
 ## P2: playlists, show control and release
 

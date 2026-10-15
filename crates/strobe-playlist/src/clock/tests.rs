@@ -1541,6 +1541,37 @@ fn before_the_anchor_the_clock_waits_and_after_the_end_it_finishes() -> Result<(
 }
 
 #[test]
+fn a_show_that_runs_past_midnight_picks_up_after_midnight() -> Result<()> {
+    // Four hours from 23:00, and Strobe restarted (a crash, a reboot) at
+    // 00:15: the show is 75 minutes in, not 22 h 45 min from starting.
+    let mut playlist = show(&[3600.0; 4], TransitionSpec::cut(), LoopMode::Stop);
+    playlist.anchor = WallClockAnchor::from_hm(23, 0);
+    let mut clock = clock_for(&playlist);
+    let quarter_past_midnight = 15.0 * 60.0;
+    assert_eq!(
+        clock.sync_to_wall_clock(quarter_past_midnight),
+        Some(Placement::Playing {
+            pass: 0,
+            index: 1,
+            offset: 900.0
+        }),
+        "yesterday's 23:00 show is still on at 00:15"
+    );
+    assert_eq!(current(&clock)?, 1, "the clock followed");
+
+    // Once that run is over, the next anchor is waited for as before.
+    let mut after = clock_for(&playlist);
+    assert_eq!(
+        after.sync_to_wall_clock(4.0 * 3600.0),
+        Some(Placement::Waiting {
+            seconds_until_start: 19.0 * 3600.0
+        }),
+        "at 04:00 the 23:00 show is over and the next one is waited for"
+    );
+    Ok(())
+}
+
+#[test]
 fn syncing_to_a_failed_cue_moves_to_the_next_playable_one() -> Result<()> {
     let mut clock = anchored(&[100.0, 100.0, 100.0], LoopMode::Stop);
     clock.mark_failed(1);
