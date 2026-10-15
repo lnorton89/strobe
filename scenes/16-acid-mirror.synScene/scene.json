@@ -1,0 +1,25 @@
+{
+  "TITLE": "Acid Mirror",
+  "IMAGE_PATH": "thumbnail.png",
+  "CREDIT": "Original Strobe interpretation of Lethal Larry's mirrored liquid video",
+  "LICENSE": "MIT",
+  "DESCRIPTION": "Bilateral liquid paint. A feedback buffer advects acid-green and lemon ink along a swirling flow, a mirror folds it into eyes and masks, and the final pass lights it as glossy enamel with black voids. Inspired by https://www.youtube.com/watch?v=DE5lQ1FN8zY; procedural, no reference media.",
+  "PASSES": [
+    { "TARGET": "paintBuf", "WIDTH": "$WIDTH/2", "HEIGHT": "$HEIGHT", "FLOAT": true, "DOUBLE_BUFFER": true, "WRAP": "clamp", "FILTER": "linear" },
+    { "TARGET": "clock", "WIDTH": 1, "HEIGHT": 1, "FLOAT": true, "DOUBLE_BUFFER": true, "WRAP": "clamp", "FILTER": "nearest", "FULL_PRECISION": true }
+  ],
+  "CONTROLS": [
+    { "NAME": "swirl", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 2.5, "DEFAULT": 1.0, "PARAMS": 0.03, "UI_GROUP": "flow" },
+    { "NAME": "speed", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 3.0, "DEFAULT": 1.0, "PARAMS": 0.03, "UI_GROUP": "flow" },
+    { "NAME": "scale", "TYPE": "slider smooth", "MIN": 0.5, "MAX": 10.0, "DEFAULT": 5.6, "PARAMS": 0.03, "UI_GROUP": "flow" },
+    { "NAME": "ink", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 1.0, "DEFAULT": 0.6, "PARAMS": 0.03, "UI_GROUP": "paint" },
+    { "NAME": "detail", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 1.0, "DEFAULT": 0.7, "PARAMS": 0.03, "UI_GROUP": "paint" },
+    { "NAME": "mirror_y", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 1.0, "DEFAULT": 0.0, "PARAMS": 0.03, "UI_GROUP": "paint" },
+    { "NAME": "bands", "TYPE": "slider smooth", "MIN": 0.5, "MAX": 4.0, "DEFAULT": 1.0, "PARAMS": 0.03, "UI_GROUP": "color" },
+    { "NAME": "hue", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 1.0, "DEFAULT": 0.0, "PARAMS": 0.03, "UI_GROUP": "color" },
+    { "NAME": "brightness", "TYPE": "slider smooth", "MIN": 0.4, "MAX": 1.6, "DEFAULT": 1.1, "PARAMS": 0.03, "UI_GROUP": "color" },
+    { "NAME": "relief", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 2.0, "DEFAULT": 0.9, "PARAMS": 0.03, "UI_GROUP": "surface" },
+    { "NAME": "reactivity", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 2.0, "DEFAULT": 0.8, "PARAMS": 0.03, "UI_GROUP": "audio" }
+  ],
+  "TAGS": ["psychedelic", "mirrored", "liquid", "feedback", "audio-reactive"]
+}
