@@ -2190,7 +2190,14 @@ impl Running {
         let mut show = self.stack.show.take()?;
         let full = self.full_render_size();
         let window = self.stack.output.window().inner_size();
-        let mouse = self.mouse.uniforms([window.width, window.height], full);
+        let live = self
+            .stack
+            .session
+            .as_ref()
+            .map(|session| session.player.render_size());
+        let mouse = self
+            .mouse
+            .uniforms([window.width, window.height], show_mouse_size(live, full));
         let date = self.local_date.now();
         let result = {
             let mut env = Env {
@@ -4934,6 +4941,14 @@ fn hidden_period(budget_ms: f32) -> Duration {
     Duration::from_secs_f32(budget_ms / 1000.0).max(OUTPUT_PERIOD)
 }
 
+/// The render size a show's mouse uniforms are mapped to: the live scene's
+/// own, which a scene that pins its final pass keeps whatever it is asked
+/// (D280), as the single-scene path does; the full render size when nothing
+/// is live yet.
+fn show_mouse_size(live: Option<[i32; 2]>, full: [i32; 2]) -> [i32; 2] {
+    live.unwrap_or(full)
+}
+
 /// Where the windows are when a close request arrives.
 #[derive(Debug, Clone, Copy)]
 struct CloseFacts {
@@ -5410,6 +5425,25 @@ mod tests {
             "a saved folder that has gone is not watched, and stays saved: {gone:?}"
         );
         Ok(())
+    }
+
+    #[test]
+    fn a_pinned_scene_in_a_show_gets_the_mouse_in_its_own_pixels() {
+        // A square scene pinned at 1024x1024 (D280), letterboxed into a
+        // 1920x1080 output while the render scale makes the full size 720p.
+        let mut tracker = crate::mouse::MouseTracker::default();
+        tracker.moved([960.0, 0.0]);
+        let size = show_mouse_size(Some([1024, 1024]), [1280, 720]);
+        let mouse = tracker.uniforms([1920, 1080], size);
+        assert!(
+            (mouse.mouse[0] - 512.0).abs() < 1e-3 && (mouse.mouse[1] - 1024.0).abs() < 1e-3,
+            "the top centre of the window is the top centre of the scene's 1024x1024: {mouse:?}"
+        );
+        assert_eq!(
+            show_mouse_size(None, [1280, 720]),
+            [1280, 720],
+            "with nothing live, the full render size"
+        );
     }
 
     #[test]
