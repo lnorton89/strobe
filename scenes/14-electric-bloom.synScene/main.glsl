@@ -8,13 +8,12 @@
 // pollen specks float between the layers. Cells are rotated and jittered per
 // layer, so no grid shows.
 //
-// Four passes: a one-texel clock integrates the sway speed so mids can make
-// the garden stir without the pattern jumping. The back and front layers are
-// out of focus (their petal edges, veins and rims are already blurred over
-// 4 to 12 pixels), so each is drawn into its own half-size buffer, premultiplied,
-// and the output pass draws the sharp middle layer at full size, stacks the
-// three, and adds the pollen. Splitting the layers also means each program
-// holds one layer's code instead of a loop over all three.
+// Two passes: a one-texel clock integrates the sway speed so mids can make
+// the garden stir without the pattern jumping, then the garden is drawn.
+// The layers are drawn front to back, each premultiplied, so a layer is
+// skipped wherever the ones in front of it are already opaque (D310). All
+// three stay at full size: the beaded centres and their rings are sharp on
+// every layer, and a half-size buffer blurred them visibly.
 
 float flowRate() {
     return speed * (1.0 + 0.8 * clamp(syn_MidLevel, 0.0, 1.0) * reactivity);
@@ -63,7 +62,7 @@ float petalSD(float th, float n, float len, float m, float shp, float rho, out f
 // col, coverage in a, and the glow it adds to the black around it in glowc.
 // z is its stacking order within the layer.
 void flower(vec2 d, vec3 hv, vec2 id, float layer, float T, float bass, float high, float kick,
-            float pxc, float pxStem, float aaMul, out vec3 col, out float a, out vec3 glowc,
+            float pxc, float aaMul, out vec3 col, out float a, out vec3 glowc,
             out float z) {
     col = vec3(0.0);
     a = 0.0;
@@ -90,7 +89,7 @@ void flower(vec2 d, vec3 hv, vec2 id, float layer, float T, float bass, float hi
             float xs = 0.09 * sin(yl * 6.0 + hv.z * 20.0 + T * 0.4 * sway_amt) * (yl / len);
             float w = (0.0085 + 0.004 * (1.0 - yl / len)) * (0.6 + 0.3 * layer);
             float dd = abs(d.x - xs);
-            float aaS = pxStem * 1.2;
+            float aaS = pxc * 1.2;
             float fadeEnd = 1.0 - smoothstep(len - 0.05, len, yl);
             float ink = (1.0 - smoothstep(w * 1.5 - aaS, w * 1.5 + aaS, dd)) * fadeEnd;
             float core = (1.0 - smoothstep(w * 0.55 - aaS, w * 0.55 + aaS, dd));
@@ -201,11 +200,8 @@ void flower(vec2 d, vec3 hv, vec2 id, float layer, float T, float bass, float hi
 // Layer L (0 back, 1 middle, 2 front) at p, premultiplied: rgb is what the
 // layer adds over whatever is behind it (its petals' colour times coverage,
 // plus its glow) and a is its coverage, so the stack is
-// col = col * (1 - a) + rgb. pxs is one output pixel in screen heights, pxBuf
-// one pixel of the buffer being drawn: petal edges antialias over output
-// pixels whatever the buffer, and the crisp stem edges over at least a
-// buffer pixel so they do not alias.
-vec4 layer(int L, vec2 p, float T, float bass, float high, float kick, float pxs, float pxBuf) {
+// col = col * (1 - a) + rgb. pxs is one pixel in screen heights.
+vec4 layer(int L, vec2 p, float T, float bass, float high, float kick, float pxs) {
     float fl = float(L);                        // 0 back, 1 middle, 2 front
     float S = (L == 0 ? 3.7 : (L == 1 ? 2.3 : 1.3)) * density;
     float ang = (L == 0 ? 0.42 : (L == 1 ? -0.27 : 0.16));
@@ -223,7 +219,6 @@ vec4 layer(int L, vec2 p, float T, float bass, float high, float kick, float pxs
     vec2 f = fract(q);
     vec2 sgn = vec2(f.x < 0.5 ? -1.0 : 1.0, f.y < 0.5 ? -1.0 : 1.0);
     float pxc = pxs * S;
-    float pxStem = max(pxs, pxBuf) * S;
 
     vec3 lc = vec3(0.0);
     float la = 0.0;
@@ -246,7 +241,7 @@ vec4 layer(int L, vec2 p, float T, float bass, float high, float kick, float pxs
         float fa;
         vec3 fg;
         float fz;
-        flower(dv, hv, id, fl, T, bass, high, kick, pxc, pxStem, aaMul, fc, fa, fg, fz);
+        flower(dv, hv, id, fl, T, bass, high, kick, pxc, aaMul, fc, fa, fg, fz);
         lg += fg;
         if (fa > 0.0) {
             if (fz > lz) { lc = mix(lc, fc, fa); la = max(la, fa); lz = fz; }
@@ -258,55 +253,34 @@ vec4 layer(int L, vec2 p, float T, float bass, float high, float kick, float pxs
     return vec4(lc * la * bright * tint + lg * bright, la);
 }
 
-// What every pass of the garden shares: the clock, the audio and the
-// picture's position (the whole garden breathes in with the bass).
-struct Scene { float T; float bass; float high; float kick; vec2 p; };
-
-Scene sceneNow(void) {
-    Scene sc;
-    sc.T = texelFetch(clock, ivec2(0), 0).y;
-    sc.bass = clamp(syn_BassLevel, 0.0, 1.0);
-    sc.high = clamp(syn_HighLevel, 0.0, 1.0) * reactivity;
-    sc.kick = clamp(syn_BassHits, 0.0, 1.0) * reactivity;
-    sc.p = _uvc * (1.0 - 0.035 * sc.bass * reactivity);
-    return sc;
-}
-
-// The half-size layer buffers. A pixel here is two output pixels.
-const float LOW = 2.0;
-
-vec4 backPass(void) {
-    Scene sc = sceneNow();
-    float pxBuf = 1.0 / RENDERSIZE.y;
-    return layer(0, sc.p, sc.T, sc.bass, sc.high, sc.kick, pxBuf / LOW, pxBuf);
-}
-
-vec4 frontPass(void) {
-    Scene sc = sceneNow();
-    float pxBuf = 1.0 / RENDERSIZE.y;
-    return layer(2, sc.p, sc.T, sc.bass, sc.high, sc.kick, pxBuf / LOW, pxBuf);
-}
-
 vec4 garden(void) {
-    Scene sc = sceneNow();
-    float T = sc.T;
-    float high = sc.high;
-    vec2 p = sc.p;
+    float T = texelFetch(clock, ivec2(0), 0).y;
+    float bass = clamp(syn_BassLevel, 0.0, 1.0);
+    float high = clamp(syn_HighLevel, 0.0, 1.0) * reactivity;
+    float kick = clamp(syn_BassHits, 0.0, 1.0) * reactivity;
+    vec2 p = _uvc;
+    p *= 1.0 - 0.035 * bass * reactivity;
     float pxs = 1.0 / RENDERSIZE.y;                 // one pixel, in screen heights
 
-    // Where the front layer is opaque (its petals' interiors) nothing behind
-    // it shows, so the middle layer, the costly one, is not drawn there.
-    vec4 fr = texture(front, _uv);
+    // Front to back. Where a layer is opaque (its petals' interiors) nothing
+    // behind it shows, so the layers behind are not drawn there; what they
+    // would add is at most 0.05% of their colour.
+    const float OPAQUE = 0.9995;
+    vec4 fr = layer(2, p, T, bass, high, kick, pxs);
     vec3 col = fr.rgb;
-    if (fr.a < 0.9995) {
-        vec4 m = layer(1, p, T, sc.bass, high, sc.kick, pxs, pxs);
-        vec3 behind = texture(back, _uv).rgb * (1.0 - m.a) + m.rgb;
+    if (fr.a < OPAQUE) {
+        vec4 m = layer(1, p, T, bass, high, kick, pxs);
+        vec3 behind = m.rgb;
+        if (m.a < OPAQUE) {
+            behind += layer(0, p, T, bass, high, kick, pxs).rgb * (1.0 - m.a);
+        }
         col = behind * (1.0 - fr.a) + fr.rgb;
     }
 
     // Drifting pollen: two sparse layers of soft specks. Only a cell that
-    // has a speck, and only a pixel within the halo's reach (0.28 cell) of
-    // it, pays for the rest.
+    // has a speck, and only a pixel within its reach (the halo's 0.28 cell,
+    // or the speck's antialiased edge where that is wider, at a tiny output
+    // size), pays for the rest.
     for (int P = 0; P < 2; P++) {
         float fp = float(P);
         float PS = (P == 0 ? 11.0 : 6.5);
@@ -317,10 +291,10 @@ vec4 garden(void) {
         if (ph.x + 0.2 * fp < 0.5) { continue; }
         vec2 pos = 0.5 + (ph.xy - 0.5) * 0.24 + 0.10 * vec2(sin(T * (0.5 + ph.z) + ph.x * 30.0),
                                                            cos(T * (0.4 + ph.y) + ph.z * 30.0));
-        float dist = length(pf - pos);
-        if (dist >= 0.28) { continue; }
         float rr = (P == 0 ? 0.055 : 0.075) * (0.6 + 0.8 * ph.z);
         float aap = pxs * PS * 1.5;
+        float dist = length(pf - pos);
+        if (dist >= max(0.28, rr + aap)) { continue; }
         float speck = 1.0 - smoothstep(rr - aap, rr + aap, dist);
         float halo = exp(-dist * dist / (rr * rr * 5.0)) * (1.0 - smoothstep(0.10, 0.28, dist));
         float tw = 0.45 + 0.55 * sin(T * 2.0 + ph.y * 40.0);
@@ -337,7 +311,5 @@ vec4 garden(void) {
 
 vec4 renderMain(void) {
     if (PASSINDEX == 0) { return clockPass(); }
-    if (PASSINDEX == 1) { return backPass(); }
-    if (PASSINDEX == 2) { return frontPass(); }
     return garden();
 }

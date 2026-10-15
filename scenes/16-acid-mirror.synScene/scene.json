@@ -5,7 +5,6 @@
   "LICENSE": "MIT",
   "DESCRIPTION": "Bilateral liquid paint. A feedback buffer advects acid-green and lemon ink along a swirling flow, a mirror folds it into eyes and masks, and the final pass lights it as glossy enamel with black voids, combed with magenta, cobalt, cyan and white hairline streaks that follow the flow. Inspired by https://www.youtube.com/watch?v=DE5lQ1FN8zY; procedural, no reference media.",
   "PASSES": [
-    { "TARGET": "sourcesBuf", "WIDTH": "$WIDTH/4", "HEIGHT": "$HEIGHT/2", "FLOAT": true, "WRAP": "clamp" },
     { "TARGET": "paintBuf", "WIDTH": "$WIDTH/2", "HEIGHT": "$HEIGHT", "FLOAT": true, "DOUBLE_BUFFER": true, "WRAP": "clamp", "FILTER": "linear" },
     { "TARGET": "clock", "WIDTH": 1, "HEIGHT": 1, "FLOAT": true, "DOUBLE_BUFFER": true, "WRAP": "clamp", "FILTER": "nearest", "FULL_PRECISION": true }
   ],
