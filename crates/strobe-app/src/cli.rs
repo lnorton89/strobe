@@ -15,7 +15,7 @@
 //! `--diagnose` prints the system report and exits (see [`crate::diagnose`]).
 
 use clap::{ArgGroup, Parser, ValueEnum};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use strobe_gfx::{Backend, GlChoice};
 
 /// Which GL stack to use.
@@ -335,6 +335,16 @@ fn parse_size(text: &str) -> Result<(u32, u32), String> {
     Ok((w, h))
 }
 
+impl Cli {
+    /// Whether a library that cannot be read is no fault: this run controls
+    /// another Strobe (`--control`) and was not pointed at a library, so the
+    /// default `scenes` folder (resolved against the working directory) has
+    /// no reason to exist.
+    pub fn library_is_optional(&self) -> bool {
+        self.control.is_some() && self.library == Path::new("scenes")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -597,6 +607,25 @@ mod tests {
             make.make_remote_trust,
             Some(PathBuf::from("venue.trust")),
             "make"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_controller_without_a_library_does_not_need_one() -> Result<()> {
+        let controller = Cli::try_parse_from(["strobe", "--control", "10.0.0.5"])?;
+        assert!(
+            controller.library_is_optional(),
+            "a controller run with the default library"
+        );
+        let named = Cli::try_parse_from(["strobe", "--control", "10.0.0.5", "--library", "mine"])?;
+        assert!(
+            !named.library_is_optional(),
+            "a library the person named is reported when it is missing"
+        );
+        assert!(
+            !Cli::try_parse_from(["strobe"])?.library_is_optional(),
+            "a show machine needs its library"
         );
         Ok(())
     }
