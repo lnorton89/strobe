@@ -72,6 +72,7 @@ pub(crate) mod ws;
 use crate::bridge::Remote;
 use crate::clients::Clients;
 use crate::pairing::{Pairing, Request};
+use crate::trust::{Limiter, TrustSecret};
 use std::net::{IpAddr, Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -138,6 +139,12 @@ pub struct ServerConfig {
     /// proxy), and its socket only with the `Origin` `https://` and this
     /// name. `None`, the default, accepts IP literals only.
     pub proxied: Option<String>,
+    /// The venue trust file's secret (D288), if the host was started with
+    /// one. With it, and the full-desktop switch on, a controller that
+    /// proves it knows the secret is paired for full desktop control
+    /// without an approval. `None`, the default, means every pairing
+    /// needs the operator.
+    pub trust: Option<TrustSecret>,
 }
 
 impl ServerConfig {
@@ -147,6 +154,7 @@ impl ServerConfig {
             bind: SocketAddr::new(ip, port),
             limits: Limits::default(),
             proxied: None,
+            trust: None,
         }
     }
 }
@@ -229,10 +237,18 @@ struct Shared {
     remote: Remote,
     clients: Clients,
     pairing: Mutex<Pairing>,
+    trust: Option<TrustState>,
     stop: AtomicBool,
     conns: Mutex<Vec<Conn>>,
     next_conn: AtomicU64,
     active: AtomicUsize,
+}
+
+/// The venue trust file's secret and the failed-proof limiter (D288).
+#[derive(Debug)]
+struct TrustState {
+    secret: TrustSecret,
+    limiter: Mutex<Limiter>,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -252,6 +268,24 @@ impl Shared {
     fn set_client(&self, conn: u64, client_id: &str) {
         if let Some(entry) = lock(&self.conns).iter_mut().find(|c| c.id == conn) {
             entry.client_id = Some(client_id.to_string());
+        }
+    }
+
+    /// A trusted controller proved itself again (D288): its earlier
+    /// connections, `ids` being their client ids, are closed and give up
+    /// the desktop lease at once, so the new one can take it. Without this
+    /// a Wi-Fi drop would leave the dead connection holding the lease until
+    /// its idle timeout.
+    fn supersede(&self, ids: &[String]) {
+        for conn in lock(&self.conns).iter_mut() {
+            if conn
+                .client_id
+                .as_deref()
+                .is_some_and(|id| ids.iter().any(|old| old == id))
+            {
+                conn.revoked = true;
+                self.remote.desktop.release(conn.id);
+            }
         }
     }
 
@@ -309,6 +343,10 @@ impl Server {
             remote,
             clients,
             pairing: Mutex::new(Pairing::default()),
+            trust: config.trust.map(|secret| TrustState {
+                secret,
+                limiter: Mutex::new(Limiter::default()),
+            }),
             stop: AtomicBool::new(false),
             conns: Mutex::new(Vec::new()),
             next_conn: AtomicU64::new(1),
@@ -330,6 +368,12 @@ impl Server {
             accept: Some(accept),
             warning,
         })
+    }
+
+    /// Whether the host was started with a trust file (D288). Trusted
+    /// pairing also needs the full-desktop switch on.
+    pub fn trust_configured(&self) -> bool {
+        self.shared.trust.is_some()
     }
 
     /// The address bound.

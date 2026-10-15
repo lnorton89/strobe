@@ -107,6 +107,21 @@ pub enum ClientMessage {
         /// A bounded batch of pointer, keyboard and text events.
         events: Vec<desktop::Input>,
     },
+    /// Venue mode (D288): ask to pair for full desktop control by proving
+    /// knowledge of the host's trust file instead of waiting for an
+    /// approval. The host answers `trust_challenge`.
+    TrustStart {
+        /// A name for this controller (letters, digits, `.`, `_`, `-`),
+        /// shown in the host's list and bound into the proof.
+        controller_id: String,
+    },
+    /// The proof for the outstanding challenge: 64 hex digits, never the
+    /// secret itself (see [`trust`]).
+    TrustProof {
+        /// HMAC-SHA256 over the challenge, the host, the controller id and
+        /// the protocol context, as hex.
+        response: String,
+    },
 }
 
 /// Commands intentionally exposed to a paired phone or tablet.
@@ -253,6 +268,12 @@ pub enum ServerMessage {
         /// Selected Unicode text (at most 64 KiB).
         text: String,
     },
+    /// Venue mode (D288): the nonce a controller must answer with a
+    /// `trust_proof`. Good for one answer and [`trust::CHALLENGE_TTL`].
+    TrustChallenge {
+        /// 32 random bytes as 64 hex digits.
+        nonce: String,
+    },
 }
 
 /// Audio state as displayed by the remote.
@@ -324,6 +345,8 @@ pub fn decode_client(text: &str) -> Result<ClientMessage, ErrorCode> {
         ClientMessage::Command { request_id, .. } => valid_request_id(request_id),
         ClientMessage::DesktopOpen {} => true,
         ClientMessage::DesktopInput { events } => desktop::valid_inputs(events),
+        ClientMessage::TrustStart { controller_id } => trust::valid_controller_id(controller_id),
+        ClientMessage::TrustProof { response } => trust::valid_hex_block(response),
     };
     if valid {
         Ok(message)
@@ -533,6 +556,43 @@ mod tests {
         r#"{"type":"desktop_frame","revision":3,"size":[640,480],"jpeg":"/9j/"}"#,
         r#"{"type":"desktop_clipboard","text":"vec4"}"#,
     ];
+
+    /// The venue-mode messages (D288), frozen like the others.
+    const TRUST_CLIENT: [&str; 2] = [
+        r#"{"type":"trust_start","controller_id":"t480-1a2b3c4d"}"#,
+        r#"{"type":"trust_proof","response":"7aea3b9895699f81047022e272038f94ed6995618c444749b1d73c6ce06e5d58"}"#,
+    ];
+
+    const TRUST_SERVER: [&str; 1] = [
+        r#"{"type":"trust_challenge","nonce":"808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f"}"#,
+    ];
+
+    #[test]
+    fn trust_messages_read_and_write_byte_for_byte_and_are_validated() -> Result<()> {
+        for text in TRUST_CLIENT {
+            let message = decode_client(text).map_err(|e| anyhow::anyhow!("{text}: {e:?}"))?;
+            assert_eq!(serde_json::to_string(&message)?, text, "client {text}");
+        }
+        for text in TRUST_SERVER {
+            let message: ServerMessage = serde_json::from_str(text)?;
+            assert_eq!(serde_json::to_string(&message)?, text, "server {text}");
+        }
+        for bad in [
+            r#"{"type":"trust_start","controller_id":""}"#,
+            r#"{"type":"trust_start","controller_id":"has space"}"#,
+            r#"{"type":"trust_start","controller_id":"x","extra":1}"#,
+            r#"{"type":"trust_proof","response":"abcd"}"#,
+            r#"{"type":"trust_proof","response":"zz7aea3b9895699f81047022e272038f94ed6995618c444749b1d73c6ce06e5d"}"#,
+            r#"{"type":"trust_proof"}"#,
+        ] {
+            assert_eq!(
+                decode_client(bad).err(),
+                Some(ErrorCode::InvalidRequest),
+                "{bad}"
+            );
+        }
+        Ok(())
+    }
 
     #[test]
     fn desktop_messages_read_and_write_byte_for_byte() -> Result<()> {
