@@ -283,6 +283,7 @@ pub fn run_worker(cli: &WorkerCli) -> bool {
         api: Some(dialect.api()),
         gl: GlChoice::Auto,
         tiny: cli.show_window,
+        window_size: None,
     };
     let name = strobe_scene::load::folder_title(&cli.scene);
     let measured = offscreen::run(
