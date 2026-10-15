@@ -7429,37 +7429,54 @@ the rewrite.
 
 ### D310: heavy library scenes are cut for the venue GPU by exact culling first, then by drawing smooth fields smaller (2026-10-15)
 
-The venue's Vega 3 at 1080p ran 04, 05, 08, 13, 14 and 16 at 12.6 to 21.2 ms
-(60 fps needs under 16.7). Goal: about 10 ms, same look. Order of
-preference, as asked: cheaper exact math, then smaller passes for smooth
-fields, then a lower default quality (not needed). Per scene (numbers in
-BENCHMARKS.md):
+The owner's figures for the venue's Vega 3 at 1080p had 04, 05, 08, 13, 14
+and 16 at 12.6 to 21.2 ms (60 fps needs under 16.7). Goal: about 10 ms,
+same look. Order of preference, as asked: cheaper exact math, then smaller
+passes for smooth fields, then a lower default quality (not used). The
+numbers are in BENCHMARKS.md; they are llvmpipe ratios, not Vega 3
+measurements.
 
 - **Exact where possible.** 04 rejects cells by a distance bound before
-  hashing them (pixel-identical). 14 rejects candidate cells and pollen
-  cells before hashing, and skips the middle layer under opaque front
-  petals (to within 0.05%). 13 skips the bubble work in cells not born this
-  frame (identical).
-- **Smooth fields at reduced size via D11 expressions.** 05's warp fields
-  at `$WIDTH/3`, 08's lights at `$WIDTH/2`, 13's and 16's broad noise at
-  `$WIDTH/4`, 14's out-of-focus back and front layers at `$WIDTH/2`.
-  Thresholds, edges, the outer fbm, the in-focus layer and the pollen stay
-  full size. Stored as float (RGBA16F, filtered); no scene needs
-  FULL_PRECISION filtering, which ANGLE may not offer for 32F. 05 stores
-  q-0.5 and r-0.5 because half floats are finest near zero and the warp
-  multiplies the error.
-- **Why not a per-light data texture for 08.** Exact, but it replaces ALU
-  with two RGBA32F fetches per light per pixel (quarter rate on GCN) and was
-  slower on llvmpipe.
-- **Feedback scenes (13, 16) cannot stay bit-exact** when their injected
-  fields change at all: even storing the full-size noise through an fp16
-  texture moved 16 by 0.5%. At 720p 13 differs 0.26% and 16 1.5%, with the
-  same layout and palette. 16 keeps its finer colour and grain noise at full
-  size because moving them raised the error to 3%.
-- **llvmpipe understates ALU work.** It is bound by texture sampling and
-  trig; Vega is not. 16 shows 0.94 on llvmpipe for a change that removes
-  about half its feedback-pass arithmetic. Projections in BENCHMARKS.md are
-  llvmpipe ratios and are not measurements of the venue machine.
+  hashing them. The bound is the largest border distance that changes the
+  lead, so the result is the same (13 pixels of 921,600 differ by one
+  level). 13 does the bubble work only in cells born this frame, and reads
+  its same-size field with `texelFetch`. 14 draws its three layers front to
+  back and skips a layer where those in front are opaque (to within 0.05%),
+  and rejects candidate and pollen cells before hashing. 16's final pass
+  squares instead of calling `pow` and sums its palette steps.
+- **Smooth fields at reduced size, through D11 expressions, so they follow
+  the render scale.** 05's inner warp fields are at `$WIDTH/3`, 08's lights
+  at `$WIDTH/2` and 13's broad noise at `$WIDTH/4`. Thresholds, edges, the
+  outer fbm and the feedback fields stay full size. The reduced passes are
+  float (RGBA16F, filtered). 05 stores `q - 0.5` and `r - 0.5`, because
+  half floats are finest near zero and the warp multiplies the error.
+- **What the review took back.** The first version also drew 14's back and
+  front layers at half size. Its premise, that those layers are out of
+  focus, holds for the petals but not for the beaded centres, which lost
+  their rings on every back and front flower. 14 is full size again, at 0.82
+  of master instead of 0.59.
 
-**Would reopen:** a Vega 3 measurement that disagrees (then 16 gets its
-colour-band noise moved too, or a lower default `scale`).
+  The first version also moved 16's ink-mask, accent and dye-line noise to a
+  quarter-size pass. That measured 0.94 and changed its feedback picture
+  (1.5% mean error, 7.9% of pixels off by more than 16), on a scene the owner
+  already sees minor glitches in. An ALU estimate does not rescue it: about
+  2.6 noise evaluations saved per output pixel is under 1 ms at 1080p on a
+  Vega 3, out of 12.6. 16 keeps master's passes.
+- **Why not a per-light data texture for 08.** Exact, but it replaces ALU
+  with two RGBA32F fetches per light per pixel (quarter rate on GCN), and
+  was slower on llvmpipe.
+- **Feedback scenes cannot stay bit-exact** once their injected fields
+  change at all. 13 differs 0.27% at 720p after 90 frames and 0.30% after
+  1800, with the same layout and palette. It neither blows out nor dies to
+  black.
+- **Small outputs.** At 160x90, 05's warp pass is 53x30 and visibly blocky,
+  and 13's 40x22 flow field moves the pattern more (4.5%). The render scales
+  shows use keep these passes at 320x180 or more.
+- **llvmpipe is not the venue GPU.** Its ratios project 04, 05, 08 and 13
+  under 10 ms and 14 to about 14 ms, but the projections are not
+  measurements. The re-measurement is set out in `hardware/MINIPC.md`.
+
+**Would reopen:** a Vega 3 measurement that disagrees. If 14 stays well
+above 10 ms, its back layer could go to half size (about 0.65 of master on
+llvmpipe) if the owner accepts softer far-layer centres. If 16 needs more,
+look at its final pass before its noise.
