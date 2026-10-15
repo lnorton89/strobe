@@ -6568,6 +6568,7 @@ host restart or a Wi-Fi drop. It is to be built on the viewer's Stage and
 Reconnect machinery from D286, which was not on this branch (see
 STATUS_AUDIT). The host half and the protocol are tested over real sockets;
 the controller can use `trust::TrustSecret::respond` and the messages above.
+**Built in D294.**
 
 **Evidence.** Unit tests: RFC 4231 HMAC vectors, a protocol vector computed
 independently with Python, a wrong secret, a flipped nibble, wrong host,
@@ -6930,3 +6931,94 @@ divergence predates this change and is not yet understood.
 initializer and assigned in `main` (none known), or a scene that relies on
 a global initializer running before `main` (GLSL has no way to observe
 that).
+
+### D294: a laptop controls a venue's show machine with a trust file, and keeps reconnecting until told to stop (2026-10-15)
+
+**Context.** D288 built the host and the protocol and left the controller to
+D286's viewer stages. A four-hour show on a venue's Wi-Fi sees the host
+restart, the access point drop the laptop for a few seconds, and the mini PC
+come up after the laptop. A controller that needs a click to come back, or a
+code the host no longer has, ends the show's remote control the first time it
+blinks.
+
+**Decision.**
+
+- **Two ways in, one worker.** *Settings > Control another Strobe* has a
+  checkbox, **Use a trust file (venue mode)**; ticked, the pairing-code field
+  becomes a path field and Connect runs trust pairing instead. There is no
+  file picker: the app has no file-dialog helper and a dialog would need a
+  new dependency or PowerShell, so the path is typed or pasted (quotes from
+  Windows' Copy as path are stripped). On the command line,
+  `strobe --control HOST:PORT --remote-trust FILE` opens straight into the
+  viewer; a bare IP takes port 47812. `--control` without the file opens the
+  form with the address filled in and the trust option **off**, for a code: a
+  remembered file never connects by itself. `--remote-trust` now needs
+  `--remote` *or* `--control` (a clap group); with `--remote` it is the host's
+  file as before, and the host reads it only when `--remote` is given.
+  `--control` conflicts with `--remote`: one run is a host or a controller.
+- **What is remembered.** `ui.toml` gets `[remote]`: the trust file's path,
+  whether the form uses it, and `controller_id`. The secret is read from the
+  file each time Connect is pressed and lives only in the connection's
+  worker; it is never saved, logged, shown or in the viewer's text
+  (`TrustSecret` prints as `***`, as D288 made it). The controller id is
+  `computer-name-<8 hex of OS randomness>`, made once on first launch and
+  kept, so the host's list and its revoke-by-name refer to one laptop for
+  ever; it is cut to 48 bytes of `[A-Za-z0-9.-]` by `trust::controller_id_for`.
+- **The proof is made only for our own question** (the security review's
+  condition). `trusted::Handshake` is owned by one connection. It sends
+  `trust_start` once, when the host's `hello` arrives, and answers exactly
+  one `trust_challenge` after it. A challenge that arrives before our
+  `trust_start`, on a connection that pairs by code, or a second one, is
+  refused: the connection ends as *refused*, no proof is computed, and the
+  viewer says the host sent one nobody asked for. So the controller can
+  never be used to sign a nonce taken from somewhere else. The `host` in
+  the proof is `client::host_header(address)`, the very function that
+  writes the `Host` header, so the two cannot differ.
+- **Reconnecting is a Stage, not a second path.** `Stage::Reconnecting(n)`
+  sits beside Connecting, Live and Ended. The worker that owns a trusted
+  connection loops: connect, and when it ends without the host having said
+  no (a closed socket, a timeout, connection refused, a pause for failed
+  proofs), set `Reconnecting(n)`, wait `trusted::backoff(n)` and try again.
+  The schedule is 1 s, 2 s, 4 s, 8 s, then 15 s for ever. A connection that
+  went live starts it again at attempt 1; one that never connected keeps
+  counting. The viewer keeps the last image, dimmed and read-only (D286),
+  under a card that says "Reconnecting... (attempt N)" and why, and the
+  toolbar button reads **Disconnect**. The wait is in 50 ms slices that look
+  at the stop flag, so Disconnect ends it at once; input typed while away is
+  dropped, never replayed.
+- **A refusal stops it, and says why.** Wrong file, revoked, trusted pairing
+  unavailable (host without the file or with desktop control off), a bad
+  request, a protocol mismatch, an unanswered challenge: `Ended(Refused)`
+  with the next step in words, a **Reconnect** button (which proves the file
+  again), and nothing retries. Retrying a wrong file would only feed the
+  host's failed-proof limiter (D288). Only `busy` (the host pausing after
+  failures, which ends by itself) is retried. A kill-switch drop on the host
+  is retried once and then shows "does not offer trusted pairing right now".
+- **Code-paired connections are unchanged**: they end in `Ended` and offer a
+  manual Reconnect (D275, D286).
+- **The retry costs a four-hour show nothing.** The loop sleeps in slices,
+  holds no lock while asleep, runs on the worker thread (never the frame
+  loop), and logs attempts 1 to 4 and every 20th, so a night of retries is
+  a few lines.
+
+**Evidence.** Unit tests: the proof against the protocol vector from D288
+and against the host's own `Challenge::verify` (accepted for the host
+dialled, refused for another address or port); an unsolicited, a repeated
+and a malformed challenge refused; the backoff schedule as a pure function;
+controller ids for odd computer names; the trust-file loader's sentences;
+`--control` and `--remote-trust` parsing (both roles, the refused
+combinations); the launch decisions (`Controller::at_launch`). Loopback tests
+with a real host (`desktop::tests`): a trusted connect with no approval and
+the label *trusted*; a wrong file refused once, the worker ended after the
+first backoff would have fired; the host stopped and restarted on the same
+port with the controller back by itself and the lease taken again; Disconnect
+with the host back on the same port, and nobody connects; a host that
+volunteers a challenge is not answered. Shell tests for the form's option and
+viewer states for Reconnecting and a refused file.
+
+**Not verified:** two physical machines, a real Wi-Fi drop, Windows, a
+four-hour soak. The retry schedule is the decision, not a measurement.
+
+**Would reopen:** TLS (D288's list); a controller that should also retry a
+refusal after a long wait (a host brought up late with the switch off); a
+file picker if a dialog helper is added.
