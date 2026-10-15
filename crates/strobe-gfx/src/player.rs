@@ -1483,6 +1483,13 @@ fn new_target(
     gl.bind_framebuffer(Some(&fbo));
     gl.viewport(size[0], size[1]);
     gl.clear([0.0; 4]);
+    // D296 experiment (throwaway): settle a new target once, at allocation.
+    match std::env::var("STROBE_D296_SETTLE").as_deref() {
+        Ok("read") => drop(gl.read_rgba8(&fbo, 1, 1)),
+        Ok("finish") => gl.finish(),
+        Ok("red") => gl.clear([1.0, 0.0, 0.0, 1.0]),
+        Ok(_) | Err(_) => {}
+    }
     gl.bind_framebuffer(None);
     if sampling.min == glow::LINEAR_MIPMAP_LINEAR {
         gl.generate_mipmaps(&texture);

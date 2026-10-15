@@ -272,7 +272,11 @@ fn run(gl: &Gl, caps: &Caps, context: &str, size: [i32; 2], cli: &Cli) -> Result
         }
         if let Some(image) = &row.image {
             if is_black(image) {
-                println!("{name:<28} warning: the frame is all black");
+                let clear = image.pixels().filter(|px| px.0[3] == 0).count();
+                println!(
+                    "{name:<28} warning: the frame is all black ({clear} of {} pixels have alpha 0)",
+                    image.pixels().len()
+                );
             }
             image.save(cli.out.join(format!("{name}.png")))?;
         }
@@ -375,6 +379,8 @@ fn bench_scene(
     let mut audio = vec![0.0; SCALARS.len()];
     let dt = 1.0 / 60.0;
     let mut times = Vec::with_capacity(cli.frames as usize);
+    // D296 experiment (throwaway): read the output back after every frame.
+    let read_each = std::env::var_os("STROBE_D296_READ_EACH_FRAME").is_some();
     for frame in 0..u64::from(cli.warmup + cli.frames) {
         let time = cli.start + frame as f32 * dt;
         strobe_scene::synthetic::fill(time, &mut audio);
@@ -389,6 +395,9 @@ fn bench_scene(
             transitions: &transitions,
         });
         gl.finish();
+        if read_each {
+            drop(player.read_output());
+        }
         if frame >= u64::from(cli.warmup) {
             times.push(start.elapsed().as_secs_f64() * 1000.0);
         }
