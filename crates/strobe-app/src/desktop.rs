@@ -500,6 +500,9 @@ pub struct Controller {
     /// Something asked for the connect form to be brought into view and
     /// focused (the command palette, or a failed connection's retry).
     reveal: bool,
+    /// The waiting card's heading and time line, and the whole second they
+    /// were formatted for: they change once a second, not every frame.
+    waiting: Option<(u64, String, String)>,
 }
 
 impl Default for Controller {
@@ -522,6 +525,7 @@ impl Default for Controller {
             started: None,
             approval_limit: APPROVAL_TIMEOUT,
             reveal: false,
+            waiting: None,
         }
     }
 }
@@ -575,10 +579,22 @@ impl Controller {
         let (sender, inputs) = sync_channel(512);
         let view = Arc::clone(&self.view);
         let stop = Arc::clone(&self.stop);
+        let socket = Arc::clone(&self.socket);
         match std::thread::Builder::new()
             .name("desktop controller".into())
             .spawn(move || {
-                if let Err(error) = control(link, inputs) {
+                let ended = control(link, inputs);
+                // However the worker ended, its socket closes now. The
+                // interrupter in the slot is a second handle on it, so
+                // dropping the connection alone would leave it open: after
+                // a timeout the host would go on listing a request nobody
+                // here waits for, and could still approve it.
+                if let Some(open) = socket.lock().unwrap_or_else(PoisonError::into_inner).take() {
+                    // A socket the peer or `disconnect` already closed is
+                    // equally closed.
+                    let _ = open.shutdown(Shutdown::Both);
+                }
+                if let Err(error) = ended {
                     // A cancel closes the socket itself: that is not news.
                     if stop.load(Ordering::Relaxed) {
                         return;
@@ -667,6 +683,7 @@ impl Controller {
             }
         }
         self.started = None;
+        self.waiting = None;
         self.texture = None;
         self.texture_context = None;
         self.revision = 0;
@@ -699,11 +716,14 @@ impl Controller {
                         // A peer-closed socket already satisfies the interruption.
                         let _ = socket.shutdown(Shutdown::Both);
                     }
-                    let mut view = self.view.lock().unwrap_or_else(PoisonError::into_inner);
-                    view.ready = false;
-                    view.note =
-                        "Desktop connection interrupted; return to local Strobe and pair again"
-                            .into();
+                    // Ended, not paused: no frame is coming back on this
+                    // connection, and a held pairing offers Reconnect.
+                    end(
+                        &self.view,
+                        End::Lost,
+                        "The desktop connection was interrupted: input could not reach the host."
+                            .into(),
+                    );
                 }
             }
         }
@@ -777,18 +797,23 @@ impl Controller {
         match stage {
             Stage::Connecting => {
                 let waited = self.started.map_or(Duration::ZERO, |began| began.elapsed());
-                // The time moves on without any input arriving.
-                ui.ctx().request_repaint_after(Duration::from_millis(500));
-                let heading = format!("Connecting to {}", self.address);
-                card(
-                    ui.ctx(),
-                    &heading,
-                    &[
-                        &waiting_text(waited, self.approval_limit),
-                        wait_hint(reconnecting),
-                    ],
-                    None,
+                // The count moves on without any input arriving: repaint
+                // when it next changes, once a second.
+                ui.ctx().request_repaint_after(
+                    Duration::from_secs(1)
+                        .saturating_sub(Duration::from_nanos(u64::from(waited.subsec_nanos()))),
                 );
+                let second = waited.as_secs();
+                if self.waiting.as_ref().is_none_or(|(at, ..)| *at != second) {
+                    self.waiting = Some((
+                        second,
+                        format!("Connecting to {}", self.address),
+                        waiting_text(waited, self.approval_limit),
+                    ));
+                }
+                if let Some((_, heading, line)) = &self.waiting {
+                    card(ui.ctx(), heading, &[line, wait_hint(reconnecting)], None);
+                }
             }
             Stage::Ended(how) => {
                 let (heading, advice) = match how {
@@ -807,8 +832,18 @@ impl Controller {
                     dimmed_image(ui, texture.id(), size);
                 }
                 let reconnect = self.remembers_current();
-                let mut lines = vec![note.as_str()];
-                lines.extend(advice.filter(|_| self.texture.is_some()));
+                let with_advice;
+                let alone;
+                let lines: &[&str] = match advice.filter(|_| self.texture.is_some()) {
+                    Some(advice) => {
+                        with_advice = [note.as_str(), advice];
+                        &with_advice
+                    }
+                    None => {
+                        alone = [note.as_str()];
+                        &alone
+                    }
+                };
                 let mut offer = |ui: &mut egui::Ui| {
                     if reconnect {
                         if ui.button("Reconnect").clicked() {
@@ -818,7 +853,7 @@ impl Controller {
                         actions.push(crate::ui::Action::ControlAnotherDesktop);
                     }
                 };
-                card(ui.ctx(), heading, &lines, Some(&mut offer));
+                card(ui.ctx(), heading, lines, Some(&mut offer));
             }
             Stage::Live => self.live(ui, size, ready),
         }
@@ -1101,21 +1136,6 @@ fn control(link: Link, inputs: Receiver<Input>) -> io::Result<()> {
     let mut last_input: Option<Instant> = None;
     while !stop.load(Ordering::Relaxed) {
         let now = Instant::now();
-        if !authenticated && approval_expired(now.duration_since(began), approval_limit) {
-            let reconnecting = view
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .reconnecting;
-            end(
-                &view,
-                End::TimedOut,
-                timed_out_text(approval_limit, reconnecting),
-            );
-            return Err(io::Error::new(
-                io::ErrorKind::TimedOut,
-                "the host did not approve in time",
-            ));
-        }
         if authenticated && now.duration_since(last_frame) > Duration::from_secs(3) && !paused {
             let mut view = view.lock().unwrap_or_else(PoisonError::into_inner);
             view.ready = false;
@@ -1131,7 +1151,27 @@ fn control(link: Link, inputs: Receiver<Input>) -> io::Result<()> {
                 "Host stopped responding; pair again",
             ));
         }
-        if let Some(message) = connection.receive()? {
+        let message = connection.receive()?;
+        // The approval deadline is checked only after a poll that brought
+        // nothing: an approval the host sent just before it is already in
+        // the socket and is read, not thrown away by a timeout that races it.
+        if message.is_none() && !authenticated && approval_expired(began.elapsed(), approval_limit)
+        {
+            let reconnecting = view
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .reconnecting;
+            end(
+                &view,
+                End::TimedOut,
+                timed_out_text(approval_limit, reconnecting),
+            );
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "the host did not approve in time",
+            ));
+        }
+        if let Some(message) = message {
             heard = Instant::now();
             match message {
                 ServerMessage::Hello {
@@ -1540,6 +1580,9 @@ mod tests {
             Action::SetImportListener(false),
             Action::EditorSave,
             Action::DisconnectDesktop,
+            // Ends this computer's own viewer, if any, and opens Settings
+            // at the form, whose Connect stays host-only.
+            Action::ControlAnotherDesktop,
         ];
         for action in &allowed {
             assert!(!host_only(action), "a remote may: {action:?}");
@@ -2000,9 +2043,31 @@ mod tests {
             controller.note()
         );
         assert!(controller.active(), "the viewer stays up to say so");
+        // The worker closed its socket, so the host withdrew the request
+        // rather than keep it for an Approve nobody is waiting on.
+        eventually(|| server.pairing_requests().is_empty() && server.connections().is_empty())?;
         controller.disconnect();
         server.stop();
         Ok(())
+    }
+
+    #[test]
+    fn input_that_cannot_reach_the_host_ends_the_connection() {
+        let mut controller = Controller::staged("192.168.1.20:47812", Staged::Live);
+        let (sender, receiver) = sync_channel(1);
+        drop(receiver);
+        controller.sender = Some(sender);
+        controller.send(Input::Reset {});
+        let view = controller
+            .view
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        assert_eq!(
+            view.stage,
+            Stage::Ended(End::Lost),
+            "ended, not left waiting for a frame that cannot come"
+        );
+        assert!(!view.ready, "input is off");
     }
 
     #[test]

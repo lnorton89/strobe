@@ -59,7 +59,9 @@ tracks every known unfinished implementation and validation task across the proj
 - [x] Desktop viewer polish after the first two-machine test (2026-10-15,
   D286). Evidence, Linux container: `desktop::tests::a_dropped_viewer_keeps_showing_the_last_image_dimmed`,
   `a_waiting_viewer_shows_elapsed_time_a_hint_and_a_way_out`,
-  `an_unapproved_connection_gives_up_and_says_so` (real socket),
+  `an_unapproved_connection_gives_up_and_says_so` (real socket; the host
+  withdraws the request because the worker closes its socket),
+  `input_that_cannot_reach_the_host_ends_the_connection`,
   `a_blank_code_after_the_host_forgot_us_asks_for_a_new_one` (real socket),
   `a_failed_connection_offers_reconnect_only_when_a_pairing_is_held`;
   `lan::tests::only_authenticated_clients_count_as_connected` and the refused
