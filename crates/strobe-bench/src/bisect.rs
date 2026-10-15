@@ -97,6 +97,23 @@ pub(crate) fn run(
     let trivial = write_trivial_scenes(&library)?;
     let real = SceneFolder::load(scene_dir)
         .map_err(|e| anyhow!("loading {}: {e}", scene_dir.display()))?;
+
+    // D296 experiment (throwaway): the player path before anything else has
+    // drawn in this process, failing size first, as the bench loop does.
+    if std::env::var_os("STROBE_D296_E_FIRST").is_some() {
+        let _ = writeln!(report, "## E0. The player path first, before A-D\n");
+        for scene in trivial.iter().chain(std::iter::once(&real)) {
+            for at in [size, GOOD, size] {
+                let line = player_frames(gl, caps, scene, at, 3)?;
+                let _ = writeln!(
+                    report,
+                    "- {} at {}x{}: {line}",
+                    scene.def.title, at[0], at[1]
+                );
+            }
+        }
+        let _ = writeln!(report);
+    }
     let painter = painter_fragment(caps.dialect);
     let vao = gl
         .vertex_array()

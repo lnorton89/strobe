@@ -303,6 +303,16 @@ fn run(gl: &Gl, caps: &Caps, context: &str, size: [i32; 2], cli: &Cli) -> Result
             Err(anyhow!("the readback check failed; see readback.md"))
         };
     }
+    // D296 experiment (throwaway): one frame of the first scene at 128x128
+    // before the loop, so the first draw in the process lands on a small
+    // target.
+    if std::env::var_os("STROBE_D296_PRIME").is_some()
+        && let Some(dir) = strobe_scene::load::scan(&cli.library)?.into_iter().next()
+    {
+        let row = bench_scene(gl, caps, &dir, "prime", [128, 128], options, cli);
+        let primed = row.image.as_ref().is_some_and(|image| !is_black(image));
+        println!("D296 prime at 128x128: rendered {primed}");
+    }
     let mut rows = Vec::new();
     for dir in strobe_scene::load::scan(&cli.library)? {
         let name = strobe_scene::load::folder_title(&dir);
