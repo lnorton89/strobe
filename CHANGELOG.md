@@ -13,6 +13,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **app:** one click on a scene card makes it live, and LIB flips between Scenes and Controls ([`f400de0`](https://github.com/lnorton89/strobe/commit/f400de000dd442a319cd2f53eb7ad0a6420e9134))
 - **scenes:** Acid Mirror gains hairline streaks, crisp edges and more black, and re-seeds at once after a resize (D279) ([`1a59ae8`](https://github.com/lnorton89/strobe/commit/1a59ae8672cc8d170138712fc0586b900cdd5148))
 - **scenes:** Acid Mirror rebuilt on a mirrored advected feedback buffer (D279) ([`d0fb00d`](https://github.com/lnorton89/strobe/commit/d0fb00d0ed8ab61726b7fc223560f18e0d70bbba))
 - **scenes:** Neon Ribbon Flow rebuilt as layered translucent ribbons (D278) ([`306c7a4`](https://github.com/lnorton89/strobe/commit/306c7a4a5274e940adc29efa8ebcc2c08a600f14))
@@ -58,6 +59,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Documentation
 
+- D291 one-click scenes and the Scenes and Controls pages ([`2195446`](https://github.com/lnorton89/strobe/commit/21954467351570cf613a3baea5f82134a3bbeef3))
 - D287 restarts a kept pass that a restarted pass reads ([`9d559fd`](https://github.com/lnorton89/strobe/commit/9d559fd26279cb0f8fa855273769bc88e7d122e9))
 - D287, a resize keeps the passes whose size it does not change ([`03c8e77`](https://github.com/lnorton89/strobe/commit/03c8e7743032b37eaa307515faa83e85f573ae7e))
 - **amd:** the rebuilt scenes 13-16 cost under one domain-warp on the RX 580 (Task A12) ([`c879851`](https://github.com/lnorton89/strobe/commit/c879851d8f6b2b1787f01ed50764e4814473cd5a))
