@@ -56,8 +56,10 @@
 //! written out by [`crate::promote`] and `#if` on a non-macro read as 0 by
 //! [`crate::directives`] (D199). [`Dialect::Es300`] (the ANGLE path) also
 //! gets [`crate::fixups`]: global initializers that are not constant
-//! expressions move into `main` (D192), and an initialised uniform becomes
-//! a global.
+//! expressions move into `main` (D192), an initialised uniform becomes
+//! a global, and `pow(x, y)` is written as `exp2(log2(x) * (y))`, so a
+//! negative base is NaN as on the native drivers rather than ANGLE's
+//! `|x|^y` (D301).
 
 use crate::audio::SCALARS;
 use crate::directives::{self, Branches};
@@ -268,8 +270,10 @@ pub fn fragment(request: &Request<'_>) -> String {
             let _ = writeln!(out, "#line {line} {}", source::USER);
             out.push_str(UNSUPPORTED_SELECT);
         }
-        let (code, hoisted) =
-            fixups::hoist_global_initializers(&promoted.code, Branches::for_es(&out));
+        // `pow` of a negative base is undefined: NaN on the native drivers,
+        // `|x|^y` under ANGLE. Spell out the native sequence (D301).
+        let guarded = fixups::pow_as_exp2_log2(&promoted.code);
+        let (code, hoisted) = fixups::hoist_global_initializers(&guarded, Branches::for_es(&out));
         (Cow::Owned(code.into_owned()), hoisted)
     } else {
         // Strict desktop compilers (Mesa, Apple's) reject some of the same
@@ -629,6 +633,34 @@ mod tests {
             assert!(
                 !src.contains("vec2 uv = _uv;"),
                 "{dialect:?}: and the global keeps no initializer"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn only_es_spells_out_pow() -> Result<()> {
+        // D301: ES gets the native drivers' sequence; desktop keeps its pow.
+        let scene = scene()?;
+        let user = "float g = pow(TIME - 9.0, 0.5);\nvec4 renderMain() { return vec4(g); }\n";
+        let source = |dialect| {
+            fragment(&Request {
+                scene: &scene,
+                user_code: user,
+                dialect,
+                pass_index: PassIndex::Constant(1),
+                extra: &[],
+            })
+        };
+        assert!(
+            source(Dialect::Es300).contains("g = exp2(log2(TIME - 9.0) * ( 0.5));"),
+            "ES: the hoisted initializer is spelled out"
+        );
+        for dialect in [Dialect::Glsl330, Dialect::Glsl410] {
+            let src = source(dialect);
+            assert!(
+                src.contains("g = pow(TIME - 9.0, 0.5);") && !src.contains("log2(TIME"),
+                "{dialect:?}: desktop source unchanged"
             );
         }
         Ok(())

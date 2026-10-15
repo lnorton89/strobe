@@ -6,7 +6,7 @@ in [DECISIONS.md](DECISIONS.md), the evidence-based gap list in
 [STATUS_AUDIT.md](STATUS_AUDIT.md), and real-hardware results in
 [hardware/T480.md](hardware/T480.md).
 
-_Last updated: 2026-10-15 (Linux support documented, with a Nix flake, D295; one click on a scene card makes it live, and LIB has Scenes and Controls pages, D291); 2026-10-14 (the control window follows Synesthesia's layout, D281-D285; v0.1.0 tagged and published; earlier claims reconciled with D199-D238 and the T480 and TORNADO records)._
+_Last updated: 2026-10-15 (`pow` of a negative base on ANGLE, D301; Linux support documented, with a Nix flake, D295; one click on a scene card makes it live, and LIB has Scenes and Controls pages, D291); 2026-10-14 (the control window follows Synesthesia's layout, D281-D285; v0.1.0 tagged and published; earlier claims reconciled with D199-D238 and the T480 and TORNADO records)._
 
 ## Now
 
@@ -36,6 +36,14 @@ which backend proved a claim.
 | Scenes | Twelve original scenes over five GPU-load tiers, one scripted, one circuit-board animation (lnorton89/strobe#11) | llvmpipe and T480 |
 
 ### In flight
+
+- **`pow` of a negative base on ANGLE (2026-10-15, D301), built, not yet re-run
+  on the RX 580:** the ES dialect writes `pow(x, y)` as `exp2(log2(x) * (y))`,
+  the native drivers' sequence, because Direct3D's compiler answers a negative
+  base with `|x|^y` (sprinkles stopped growing, a centre ring after 600 frames)
+  and folds `pow(x, 1.0)` (PLUS black). Integer powers of 2 or more and literal
+  bases keep `pow`; desktop is unchanged. Open: AMD.md Task A15 (the probe,
+  the corpus black lists, sprinkles and PLUS on native and ANGLE) and Q28.
 
 - **Linux support (2026-10-15, D295), documented and built, not yet seen on
   real Linux hardware:** the README has a Linux section (Debian and Ubuntu

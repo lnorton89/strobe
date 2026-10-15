@@ -13,6 +13,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **audio:** on Linux fall back to a pulse or pipewire input when the default will not open ([`084c6db`](https://github.com/lnorton89/strobe/commit/084c6db0236026f7ad9dd3b45c7f1bd51b6c7345))
 - control a venue's show machine with a trust file, reconnecting by itself ([`4da7d2b`](https://github.com/lnorton89/strobe/commit/4da7d2b80445aa3f3116a19ff9dbbd2be132f435))
 - a controller id for a laptop and the Host header a trusted proof binds to ([`3196ef4`](https://github.com/lnorton89/strobe/commit/3196ef4bf8b496ca92640b48ea7449a7ac0e6b00))
 - **app:** --audio ambient, the synthetic track without its beat ([`ac94a3c`](https://github.com/lnorton89/strobe/commit/ac94a3cc5ddf8da8804993cb918f47e5346a724d))
@@ -38,6 +39,22 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- spell out pow on GLSL ES so a negative base is NaN as on native GL (D301) ([`1fde3b8`](https://github.com/lnorton89/strobe/commit/1fde3b8c45ba30ecc6c73fe8b03c688668d63517))
+- **show:** a slow scene no longer stretches its cue past real time (D299) ([`97b2d20`](https://github.com/lnorton89/strobe/commit/97b2d20f7f1fcc31b9942efc93d4d057b331ef50))
+- **show:** an unpainted control window alone does not make an output close quit ([`9965bf2`](https://github.com/lnorton89/strobe/commit/9965bf2d675cbe3f01b23ad1cba8d336b8a3d2ee))
+- **app:** the reconnect card states the real wait and attempt ([`7fcfb17`](https://github.com/lnorton89/strobe/commit/7fcfb17f21ce95c4672f486db3fef64bd7e0ead0))
+- **app:** a pure controller does not log a missing library as an error ([`7fb6939`](https://github.com/lnorton89/strobe/commit/7fb6939f8d8d4e4fc6096e81f7dab54844463677))
+- **audio:** log the forced audio source once, where the choice is final ([`992372b`](https://github.com/lnorton89/strobe/commit/992372bc6c0cd04e33231221b423f5e3d96731da))
+- **show:** a dropdown override past its options is refused, not clamped ([`87e52a7`](https://github.com/lnorton89/strobe/commit/87e52a73b52f8357d610219727cdb2f978eabaae))
+- **show:** a show that ends a second time clears its resume point again ([`b976057`](https://github.com/lnorton89/strobe/commit/b9760579bdcec4d1774711eec9ea794a11994748))
+- **playlist:** an anchored show that crosses midnight picks up after midnight ([`f3c119a`](https://github.com/lnorton89/strobe/commit/f3c119a05302776cd7cee945b6de4ed75489fc5d))
+- **show:** saving the playlist no longer restarts the live scene ([`15476bd`](https://github.com/lnorton89/strobe/commit/15476bdde153f5d5c44e9c37ba97ba0cf18d4896))
+- **show:** the cue log names the loop pass as such ([`26e3dce`](https://github.com/lnorton89/strobe/commit/26e3dce08fd71753ea94efb84666209dc99bbbad))
+- **show:** a render size that failed to allocate is retried every 5 s, reported once ([`3cfc797`](https://github.com/lnorton89/strobe/commit/3cfc797454759c698c41fab97763e12cf4fbf939))
+- **show:** a pinned scene in a playlist gets the mouse in its own pixels ([`9fadaf3`](https://github.com/lnorton89/strobe/commit/9fadaf33000d7cc5c8e5a1487538579ad8ceadb8))
+- **show:** closing the output quits when the control window is out of reach (D298) ([`fca485e`](https://github.com/lnorton89/strobe/commit/fca485ed56f1a33f868a9ea1e73b64d8e749cf89))
+- **show:** a jump into a warming scene gets its own cue's settings ([`a5b6d89`](https://github.com/lnorton89/strobe/commit/a5b6d89384da982e0103400b10226b6ba08e3dbe))
+- **show:** a scene cued again starts with its passes cleared (D297) ([`6055d35`](https://github.com/lnorton89/strobe/commit/6055d354ee730cf16cfa84eabd76edf972a74558))
 - **gfx:** an offscreen window reports the size it was given, not the size asked ([`20edd15`](https://github.com/lnorton89/strobe/commit/20edd156298b0ebc8ddcbbb38ed9329879932885))
 - **bench:** --probe reads a float target through an RGBA8 copy on GLES ([`9e4e1a5`](https://github.com/lnorton89/strobe/commit/9e4e1a5626953a62d82b6e28632075b8e3a50e41))
 - a trust file that cannot be read brings up the form instead of failing silently ([`5b1dac6`](https://github.com/lnorton89/strobe/commit/5b1dac6826af36a7484ef178196147e9f9b49686))
@@ -78,6 +95,11 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Documentation
 
+- describe D301's two scene constructs in words ([`ba39557`](https://github.com/lnorton89/strobe/commit/ba39557969031b49c31dec18f935ca8e525fc2f6))
+- the AMD check for D301, Q28 on native pow, and the roadmap entry ([`79a17cb`](https://github.com/lnorton89/strobe/commit/79a17cb016dd8ebb06ab4a0012238a4adbc44b73))
+- allow strobe.exe through Windows Firewall before an unattended venue start ([`85af6ce`](https://github.com/lnorton89/strobe/commit/85af6ced99bead3e8b2fd9387f6e7b0f61e072d7))
+- hardware evidence for D290, venue mode on loopback, and Linux under WSL2 ([`aadc967`](https://github.com/lnorton89/strobe/commit/aadc967db8c01d576df64ffd2d8a67c136fffe20))
+- WSL2 GPU and audio setup, and the check script picks D3D12 there (D296) ([`2958c88`](https://github.com/lnorton89/strobe/commit/2958c8892ded0f0af32161cca066a5c1625f52b1))
 - note the covered control window and venue mode in the architecture companion ([`44346aa`](https://github.com/lnorton89/strobe/commit/44346aaeab11b4116c3b5ebf7068c290fcfe52a3))
 - keep the mini-PC probe's stdout, and state the trace's real cost (D296) ([`cc40cf8`](https://github.com/lnorton89/strobe/commit/cc40cf81fecf44f0786d2fa0ca408e3737a8ee75))
 - **minipc:** the first JaJa PDX show, four hours with no crash restarts ([`08375c2`](https://github.com/lnorton89/strobe/commit/08375c2d6c924ebe6e33e3d6488edaff34288a8b))
@@ -130,6 +152,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Tests
 
+- **show:** a cue's overrides reach the picture each time its scene plays ([`fc87072`](https://github.com/lnorton89/strobe/commit/fc8707214665cefb88177183eca0e445513bbab8))
 - **script:** time the setUniform budget as the best of five frames ([`b1b97ca`](https://github.com/lnorton89/strobe/commit/b1b97ca329549096453ce47691d75c0b657c16c7))
 - **remote:** give the revoke-all trust assertion a message ([`363a0db`](https://github.com/lnorton89/strobe/commit/363a0db46393abc2ed465de50e9bfc8ea9c12603))
 

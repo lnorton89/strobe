@@ -7226,7 +7226,208 @@ app's output window for scenes whose literal passes exceed it (`neon_city`);
 if it is a pixel-count limit independent of the window, it is a driver bug to
 report and to route around by a minimum target size.
 
-### D297: heavy library scenes are cut for the venue GPU by exact culling first, then by drawing smooth fields smaller (2026-10-15)
+### D297: a scene cued again starts with every pass cleared (2026-10-15)
+
+**Context.** A playlist parks a scene between its cues by resizing it to
+1x1 (D151). Since D287 a resize keeps every pass whose own size it does not
+change, so a parked scene keeps its literal-size and `FIXED_SIZE` passes, and
+a scene that pins its final pass (D280) keeps all of them. When the playlist
+cued the scene again, `prepare` started its clock and frame count over but the
+buffers carried the state of the cue that played last time, an hour earlier
+in a long show: a 1x1 counter pass read 301 on the first frame of its second
+cue instead of the 120 frames of its warm-up. Before D287 the resize out of
+the park cleared those passes, so this is a regression of D287, not its
+intent. D287's own fix for `strobe-autocontrol` was `ScenePlayer::restart`.
+
+**Decision.** `Show::unpark` takes a scene out of the cache and calls
+`ScenePlayer::restart` before the warm-up or the cue resizes it. A cue starts
+its scene from the beginning: clock, frame count and buffers. A cue that
+follows a cue of the same scene keeps the live session and its picture
+(`prepare_active`, no flash of black), as before; it restarts only the clock.
+The restart happens at the parked size (1x1 for every pass that follows the
+render size) and once per cue change, so it costs a few texture allocations,
+never a compile.
+
+**Test.** `a_scene_cued_again_starts_fresh_rather_than_from_its_last_cues_buffers`
+(`strobe-app/tests/show.rs`, both dialects): a 1x1 counter scene, another
+scene, the counter again. Without the restart the third cue begins at 301,
+past the first cue's 180.
+
+**Would reopen:** a show that wants a scene to pick up where its last cue
+left it (a persistent simulation across cues). That would be a cue setting,
+not the default.
+
+### D298: closing the output quits when the control window is out of reach (2026-10-15)
+
+**Context.** Closing the output window hid it, and only closing the control
+window quit, so an operator could take the projector picture down without
+ending the show. At the end of the first JaJa show the launcher's
+`taskkill /im strobe.exe` (a `WM_CLOSE`, no `/f`) did not stop a fullscreen
+Strobe within 10 s and it was force-killed. `WM_CLOSE` posted to the control
+window alone quit in about 2 s. On that machine the output is fullscreen on
+the one desktop with the control window maximised behind it, and focus says
+the control window is on top, so it was not even judged covered (the D290
+log). The close reached the output, which hid; nothing reached the control
+window, and there was no way left to quit but a kill, which loses up to five
+seconds of resume point (D155).
+
+**Decision.** A close request on the output quits, exactly as one on the
+control window does, when the control window cannot be reached to quit from:
+the output is shown fullscreen on the control window's monitor (by geometry,
+not focus), or the control window is minimised. Otherwise it hides the
+output, as before. A control window that Windows has stopped painting (D290)
+does not count: that can happen beside a windowed output on another monitor,
+where the operator still sees the control window and can quit from it. Quitting goes through the normal exit, so the playlist's resume point
+is written and the writer thread joined (`Show::finish`). The rule is
+`closing_quits`, a pure function over the facts the event handler gathers, so
+it is tested without a window.
+
+A close button on a windowed output beside a visible control window still
+hides it. Alt+F4 on a fullscreen output over the control window now quits,
+which is what Alt+F4 does to a fullscreen program on Windows anyway.
+
+**Would reopen:** a setup where the control window sits on another monitor
+and a stop request reaches only the output: it still hides. A launcher that
+must stop Strobe in every layout should post `WM_CLOSE` to the window titled
+"Strobe" (the control window).
+
+### D299: on Linux a default input that will not open falls back to `pulse`, then `pipewire`; the check script picks D3D12 on WSL2 (2026-10-15)
+
+**Context.** The AMD desktop's Debian on WSL2 (AMD.md A14) started on synthetic
+audio: cpal opens ALSA's `default` PCM, which WSLg does not define, while
+`pulse` works. Mesa also chose llvmpipe there although `/dev/dxg` and
+`d3d12_dri.so` were present, and `GALLIUM_DRIVER=d3d12` was about 3x faster.
+
+**Decision.**
+- `strobe_audio::capture::device::open`: when the default input fails to open and
+  `cfg!(target_os = "linux")`, it looks through cpal's input devices for one
+  whose backend id (ALSA's PCM name) is `pulse`, then `pipewire`, ignoring
+  case and exact match only, opens it and logs which. Otherwise the first
+  error is returned and the caller falls back to synthetic as before. It is a
+  value check, not `#[cfg]`, so every host type-checks it. The choice of name
+  is a pure function (`fallback_index`) with a unit test. The README also
+  documents the `~/.asoundrc` route, which fixes every ALSA program.
+- `scripts/check-linux.sh` exports `GALLIUM_DRIVER=d3d12` when `/dev/dxg`
+  exists and the variable is unset, and says so; `STROBE_CHECK_NO_D3D12=1`
+  opts out. The app itself does not set it: that is the user's Mesa
+  environment, and the README says how.
+- A `--control` run with the default library is not told its missing library
+  is an `ERROR`, and a missing audio input is logged at info there: a
+  controller shows the host's UI and needs neither.
+
+**Not verified:** the fallback against a live WSLg `pulse` device.
+
+### D300: the playlist clock follows real time; the scenes keep the clamped step (2026-10-15)
+
+**Context.** The app clamps each frame's `dt` to 0.1 s (`stats::MAX_DT`) so
+a stall does not fling every smoothed control across its range, and it gave
+the show that same `dt`. On the mini PC (Vega 3, 1080p, `--no-adaptive`) a
+2-minute cue of 10-volume-clouds at 2.4 fps (about 400 ms frames) ran 490 s
+of real time: each frame counted a quarter of its length. 12-silicon-atlas at
+12.8 fps (78 ms, under the clamp) kept exactly 120 s. A playlist is a
+schedule, and the clock already carries a long frame's leftover into the next
+cue so that it does not lose time (D76); the clamp undid that.
+
+**Decision.** `Show::frame` takes two steps. The scenes advance by the clamped
+`dt`, as before. The playlist clock, the anchor countdown, the breakdown, drop
+and song listeners, the synthetic beat the clock reads, and the resume timer
+take the real interval (`FrameStats::last_interval`), capped at
+`MAX_WALL_STEP` = 1 s per frame. The cap keeps a frame that waited on
+something other than drawing (the last precompile step, a window drag) from
+eating seconds of a cue; any scene faster than 1 fps keeps its cue's length
+in real time. Screenshot mode passes its fixed step for both.
+
+**Test.** `a_slow_scene_does_not_stretch_its_cue_past_real_time`
+(`strobe-app/tests/show.rs`): frames 0.4 s apart with a 0.1 s scene step; the
+2-second cue is over after 2.4 s. With the old single `dt` it was still on.
+
+**Would reopen:** a show that wants a slow scene's cue to run longer (that is
+a duration in the playlist), or a scene below 1 fps that must keep time
+(raise the cap).
+
+### D301: on ES, `pow(x, y)` is written as `exp2(log2(x) * (y))`, so a negative base is NaN as on the native drivers (2026-10-15)
+
+**Context.** Two corpus scenes drew differently on ANGLE than on native GL
+(RX 580, Vega 3, Intel HD 620): `PLUS` all black on ANGLE only, and
+`sprinkles`, a reaction-diffusion feedback scene, a small ring at the centre
+after 600 frames on ANGLE where native fills the frame (D293 notes both).
+`STROBE_DUMP_GLSL` shows the two dialects' sources are identical apart
+from the header, so the difference is in the drivers. Both scenes take
+`pow` of a negative base, which GLSL leaves undefined:
+- `sprinkles` takes a fractional power of one minus the sum of two of its
+  state channels, and clamps the result to `0..1`. The sum passes 1 in the
+  grown pattern, so the base goes negative.
+- `PLUS` takes the first power of centred noise, negative about half the
+  time, for two sizes of its pattern.
+
+The drivers' answers:
+- **Native Windows GL** behaves as `exp2(y * log2(x))`, which is NaN for
+  `x < 0`, and `clamp` turns NaN into 0. This is inferred from the two
+  scenes below, not measured (Q28).
+- **Direct3D's compiler (FXC), under ANGLE,** takes `log2(|x|)`, so the
+  same call is `|x|^y`. Its warning X3571 says as much ("pow(f, e) will not
+  work for negative f"). From `PLUS` it also folds `pow(x, 1.0)` to `x`.
+- **Mesa** folds `pow(x, 1.0)` to `x` and gives NaN otherwise.
+
+**Evidence (llvmpipe, `strobe-bench`, scene copies kept out of the repo).**
+- `sprinkles`, 600 frames, with its `pow` replaced by each driver's
+  answer. With `|x|^0.25` it shows a small structure at the centre and an
+  empty frame: ANGLE's reported picture. With NaN, clamped to 0, it fills
+  the frame: native's picture, and llvmpipe's unchanged render, checksum
+  for checksum.
+- `sprinkles`' float passes are not the cause. Emulated round-to-zero and
+  round-to-nearest half-float storage, RGBA16F and RGBA32F all fill the
+  frame.
+- `PLUS` with `pow(x, 1.0)` as `x` (Mesa's fold) is all black at 160x90
+  and has 54 lit pixels at 1080p, in both dialects. That is llvmpipe's
+  current render, and why PLUS is on llvmpipe's desktop black list too.
+  With NaN it lights pixels at 160x90, as the RX 580's native render does.
+
+**Decision.** In the ES dialect, `fixups::pow_as_exp2_log2` rewrites
+`pow(x, y)` as `exp2(log2(x) * (y))`. That is the sequence the native
+drivers run, and HLSL's `log2` has no `abs`, so ANGLE now gets NaN where
+native does. Two cases keep `pow`, because no driver disagrees on them:
+- a base that is a plain unsigned literal;
+- an integer literal exponent other than 1 and -1, which compilers expand
+  into multiplications (ANGLE's own `ExpandIntegerPowExpressions` included).
+
+Nested calls are each rewritten, the arguments keep their order, and no
+line moves. Desktop is untouched: its driver is the reference.
+
+**Cost.** None to speak of: `pow` is `exp2`, `log2` and a multiply on every
+GPU.
+
+**Evidence of the change.**
+- `fixups::pow_tests`: the rewrite, the calls left alone, and lines kept.
+- `assemble` test `only_es_spells_out_pow`.
+- `render.rs` `pow_keeps_its_value_in_both_dialects_where_drivers_agree`:
+  a positive base, an integer power of a negative base, and the clamped
+  NaN idiom render the same in both dialects.
+- The 90-scene corpus on llvmpipe (160x90, 3 frames, scripts on), before
+  and after, 90 of 90 in both dialects. The rewrite reaches 75 scenes'
+  ES sources. The all-black lists are unchanged: circles5, glitch,
+  hills_eels, PLUS, pxl_sort_1, raw_video and redrum in both dialects
+  (llvmpipe folds `pow(x, 1.0)` back either way). No ES checksum changed
+  apart from stained_glass and thresholder, whose desktop checksums changed
+  too, with no desktop change, so they do not repeat from run to run.
+
+**Not verified here.** llvmpipe has no Direct3D compiler, so the ANGLE side
+rests on the scenes' reported pictures. The check on the AMD desktop is in
+`docs/hardware/AMD.md` (Task A15).
+
+**Not chosen.**
+- *`pow(abs(x), y)`.* That is FXC's answer, the one that stopped
+  `sprinkles` growing.
+- *The same rewrite on desktop.* Mesa folds `pow(x, 1.0)`, so PLUS is
+  black on Linux too. Adopting it there waits for the native answer to be
+  measured (Q28).
+- *Editing the scenes.* Strobe plays them as shipped.
+
+**Would reopen:** an AMD or Intel measurement where native `pow` of a
+negative base is not NaN, or a scene that draws worse on ANGLE because of
+the rewrite.
+
+### D310: heavy library scenes are cut for the venue GPU by exact culling first, then by drawing smooth fields smaller (2026-10-15)
 
 The venue's Vega 3 at 1080p ran 04, 05, 08, 13, 14 and 16 at 12.6 to 21.2 ms
 (60 fps needs under 16.7). Goal: about 10 ms, same look. Order of

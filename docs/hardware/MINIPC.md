@@ -296,12 +296,50 @@ Reading it:
 - **Everything passes at 200x90 but `bench-small` is black:** a shader or
   state problem specific to 05 on this driver, not size.
 
+## D290 verified on the projector (2026-10-15, Task M5)
+
+The "Verification after the show" list above, run on the mini PC through the
+scheduled task in session 1, with `--audio ambient`.
+
+- **Takeover:** `control window: no paint from Windows for 1217 ms
+  (takeover 1)` at 3.5 s, once.
+- **Redraws:** about 119 driven redraws a minute, all unpainted (the
+  expected 2 Hz x 60 s). Not `control 0 redraws`.
+- **Playlist:** 14/14 prepared in 5.4 s, so it is no longer stuck at 1 of 14.
+- **Frame rate:** 59.9 fps in the `perf:` lines.
+- **Audio:** the ambient source was logged. (The log line said "synthetic
+  source (--audio synthetic)" first; fixed since, so it names the source
+  chosen.)
+- **Close:** `WM_CLOSE` to the control window closes the app cleanly.
+- **Not checked here:** the laptop's remote viewer on this run; M6 below
+  covers venue mode.
+
+## Venue mode on loopback (2026-10-15, Task M6, D288, D294)
+
+Host and controller both ran on the mini PC, over 127.0.0.1.
+
+- **Pairing:** `--remote --remote-trust FILE` on the host and `--control
+  127.0.0.1:47812 --remote-trust FILE` on the controller paired with no
+  approval.
+- **Viewer:** it showed the host's UI.
+- **Host kill:** after the host process was killed the controller showed
+  "Reconnecting…" and re-paired by itself 13 s later, when the host was
+  back.
+- **Not tested:** Disconnect (and that it stops the retries).
+- **Cost:** running both ends on one 2-core machine cost the host 210 late
+  frames a minute. That is the price of the test setup, not a measurement of
+  venue mode; the real test is two machines.
+- **Seen on the controller, since fixed:** a pure controller logged `ERROR IO
+  "library scenes: cannot read scenes"` and a WARN for no audio device, and
+  the card said it retried "about every 15 s" when the wait is 1, 2, 4, 8,
+  then 15 s.
+
 ## Still to do here
 
-- Build master and run a two-machine venue-mode test with the laptop.
+- Run a two-machine venue-mode test with the laptop (loopback is M6), and
+  Disconnect.
 - Make `14-electric-bloom` cheaper on the Vega 3, or let it scale.
 
-- The D290 verification above, after the show.
 - Native strobe-bench and control generation in session 1: does a hidden
   window on AMD WGL draw at all (M3b)?
 - The JaJa test card on the projector at native 1920x1200, with

@@ -134,8 +134,8 @@ pub fn values_for(def: &ControlDef, value: &ControlValue) -> Result<Vec<f32>, St
         }
         (ControlKind::Toggle { .. }, ControlValue::Float(x)) => Ok(vec![*x]),
         (ControlKind::Toggle { .. }, ControlValue::Int(i)) => Ok(vec![*i as f32]),
-        (ControlKind::Dropdown { .. }, ControlValue::Int(i)) => Ok(vec![*i as f32]),
-        (ControlKind::Dropdown { .. }, ControlValue::Float(x)) => Ok(vec![x.round()]),
+        (ControlKind::Dropdown { .. }, ControlValue::Int(i)) => option_index(def, *i as f32),
+        (ControlKind::Dropdown { .. }, ControlValue::Float(x)) => option_index(def, x.round()),
         (ControlKind::Dropdown { .. }, ControlValue::Text(label)) => def
             .labels
             .iter()
@@ -162,6 +162,23 @@ pub fn values_for(def: &ControlDef, value: &ControlValue) -> Result<Vec<f32>, St
         (_, ControlValue::Vec2(_)) => wrong("a pair of numbers"),
         (_, ControlValue::Color(_)) => wrong("a colour"),
         (_, ControlValue::Text(label)) => wrong(&format!("\"{label}\"")),
+    }
+}
+
+/// `index` as an option of dropdown `def`, or why it is not one. The bank
+/// would clamp an index past the end to the last option without a word, so
+/// `segments = 8` meant to pick the option labelled "8" is refused here.
+fn option_index(def: &ControlDef, index: f32) -> Result<Vec<f32>, String> {
+    let last = def.max[0];
+    if (0.0..=last).contains(&index) {
+        Ok(vec![index])
+    } else {
+        Err(format!(
+            "`{}` has no option {index}: its options are numbered 0 to {last} ({}); to pick \
+             one by its label, write the label in quotes",
+            def.name,
+            def.labels.join(", ")
+        ))
     }
 }
 
@@ -303,6 +320,41 @@ mod tests {
             vec![1.0],
             "the good one landed"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn a_dropdown_index_past_its_options_is_refused_not_clamped_to_the_last() -> Result<()> {
+        // `mode` has two options. `segments = 8` meaning the option labelled
+        // "8" used to land on whichever option was last, with no word.
+        for value in [
+            ControlValue::Int(8),
+            ControlValue::Int(-1),
+            ControlValue::Float(2.0),
+        ] {
+            let mut controls = bank()?;
+            let problems = apply_overrides(&mut controls, &overrides(&[("mode", value.clone())]));
+            assert_eq!(
+                problems.len(),
+                1,
+                "{value:?} is not an option index: {problems:?}"
+            );
+            let joined = problems.join("\n");
+            assert!(
+                joined.contains("`mode`") && joined.contains("calm, wild"),
+                "the refusal names the control and its options: {joined}"
+            );
+            assert_eq!(
+                target(&controls, "mode")?,
+                vec![0.0],
+                "{value:?} leaves the dropdown as it was"
+            );
+        }
+        let mut controls = bank()?;
+        let problems =
+            apply_overrides(&mut controls, &overrides(&[("mode", ControlValue::Int(1))]));
+        assert!(problems.is_empty(), "the last index is fine: {problems:?}");
+        assert_eq!(target(&controls, "mode")?, vec![1.0], "index 1");
         Ok(())
     }
 

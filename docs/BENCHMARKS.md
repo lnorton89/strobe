@@ -56,7 +56,7 @@ what the numbers changed. Don't overwrite old results.
 |---|---|---|
 | 1 | 01-aurora-gradient, 02-plasma-pulse, 03-kaleido-tunnel, 06-feedback-trails | Baseline cost per frame; `syn_FinalPass` bandwidth (06) |
 | 2 | 07-reaction-diffusion | Five passes, four RGBA32F sim steps at half resolution |
-| 3 | 05-domain-warp, 08-bloom-orbs, 13-chromatic-rise | Heavy ALU (before D297: about 60 noise evaluations per pixel; a 32-light loop plus a quarter-resolution blur chain; 13 a full-resolution feedback pass plus an emboss and posterise pass, about 1.35x 05). Since D297 05 evaluates its warp fields at a third of the size, 08 its lights at half, and 13 its broad noise at a quarter |
+| 3 | 05-domain-warp, 08-bloom-orbs, 13-chromatic-rise | Heavy ALU (before D310: about 60 noise evaluations per pixel; a 32-light loop plus a quarter-resolution blur chain; 13 a full-resolution feedback pass plus an emboss and posterise pass, about 1.35x 05). Since D310 05 evaluates its warp fields at a third of the size, 08 its lights at half, and 13 its broad noise at a quarter |
 | 4 | 04-voronoi-glass, 09-sdf-cathedral | 3×3 + 5×5 cell search; about 110 march steps plus a soft shadow and AO |
 | 5 | 10-volume-clouds | Volumetric raymarch, up to 56 steps × 6 density samples × 4-octave 3D noise |
 
@@ -66,7 +66,7 @@ GPUs.
 
 ## Results
 
-### 2026-10-15: venue-GPU pass on 04, 05, 08, 13, 14 and 16 (D297), Mesa llvmpipe
+### 2026-10-15: venue-GPU pass on 04, 05, 08, 13, 14 and 16 (D310), Mesa llvmpipe
 
 Target: the venue mini PC's Vega 3 at 1920x1080, which measured 04 17.1 ms,
 05 21.2, 08 14.2, 13 13.7, 14 16.8 and 16 12.6 (60 fps needs under 16.7).

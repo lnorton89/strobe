@@ -613,6 +613,8 @@ struct Running {
     scale_edit: f32,
     pending_resize: Option<([i32; 2], Instant)>,
     resize_now: bool,
+    /// A render size that failed to allocate, retried slowly.
+    resize_backoff: ResizeBackoff,
 
     monitors: Vec<MonitorHandle>,
     monitor_labels: Vec<String>,
@@ -950,13 +952,15 @@ impl Running {
             inbox_polled: Instant::now(),
             gl_summary,
             audio: AudioInput::new(cli.audio == AudioArg::Auto)
-                .with_ambient(cli.audio == AudioArg::Ambient),
+                .with_ambient(cli.audio == AudioArg::Ambient)
+                .with_controller(cli.control.is_some()),
             mouse: MouseTracker::default(),
             local_date: LocalDate::from_system(),
             render_scale,
             scale_edit: render_scale,
             pending_resize: None,
             resize_now: false,
+            resize_backoff: ResizeBackoff::default(),
             monitors: Vec::new(),
             monitor_labels: Vec::new(),
             output_monitor: None,
@@ -1007,12 +1011,16 @@ impl Running {
             running.lan.start_at_launch(Instant::now());
         }
         if let Some(error) = scan_error {
-            failure::report(
-                Failure::new(Subsystem::Io, "scan")
-                    .path(&running.library.dir)
-                    .message(error)
-                    .action("the scene list is empty"),
-            );
+            if cli.library_is_optional() {
+                log::info!("no scene library, which a controller does not need: {error}");
+            } else {
+                failure::report(
+                    Failure::new(Subsystem::Io, "scan")
+                        .path(&running.library.dir)
+                        .message(error)
+                        .action("the scene list is empty"),
+                );
+            }
         }
         // Reopen the scene of the last session (T480 Task 21), unless the
         // command line chose one, a playlist will, or this is a screenshot
@@ -1319,6 +1327,7 @@ impl Running {
             rebuild: None,
             pending_resize: None,
             resize_now: false,
+            resize_backoff: ResizeBackoff::default(),
             next_output: now,
             next_control: now,
             // The old control window's unanswered request died with it.
@@ -1528,6 +1537,22 @@ impl Running {
         }
     }
 
+    /// What a close request needs to know about the windows (D298).
+    fn close_facts(&self, on_output: bool) -> CloseFacts {
+        let output = self.stack.output.window();
+        let control = self.stack.control.window();
+        CloseFacts {
+            on_output,
+            rebuilding: self.rebuild.is_some(),
+            control_minimized: control.is_minimized() == Some(true),
+            output_fills_control_monitor: self.output_visible
+                && output.fullscreen().is_some()
+                && output
+                    .current_monitor()
+                    .is_some_and(|monitor| control.current_monitor().as_ref() == Some(&monitor)),
+        }
+    }
+
     fn refresh_monitors(&mut self, event_loop: &ActiveEventLoop) {
         self.last_monitor_refresh = Instant::now();
         self.update_covered();
@@ -1570,11 +1595,19 @@ impl Running {
     fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
         if matches!(event, WindowEvent::CloseRequested) {
             // The output's close button (or Alt+F4 on it) hides it: the
-            // control window is the app, and closing it quits.
-            if self.rebuild.is_none() && id == self.stack.output.window().id() {
+            // control window is the app, and closing it quits. Unless the
+            // control window cannot be reached to quit from (D298).
+            let on_output = id == self.stack.output.window().id();
+            let facts = self.close_facts(on_output);
+            if !closing_quits(facts) {
                 log::info!("output window closed: hiding it (close the control window to quit)");
                 self.set_output_visible(false);
             } else {
+                if on_output {
+                    log::info!(
+                        "output window closed with the control window out of reach ({facts:?}): quitting"
+                    );
+                }
                 event_loop.exit();
             }
             return;
@@ -2165,7 +2198,14 @@ impl Running {
         let mut show = self.stack.show.take()?;
         let full = self.full_render_size();
         let window = self.stack.output.window().inner_size();
-        let mouse = self.mouse.uniforms([window.width, window.height], full);
+        let live = self
+            .stack
+            .session
+            .as_ref()
+            .map(|session| session.player.render_size());
+        let mouse = self
+            .mouse
+            .uniforms([window.width, window.height], show_mouse_size(live, full));
         let date = self.local_date.now();
         let result = {
             let mut env = Env {
@@ -4103,22 +4143,28 @@ impl Running {
             self.pending_resize,
             Some((size, since)) if size == want && now.duration_since(since) >= RESIZE_SETTLE
         );
-        if steady || self.resize_now || self.screenshot.is_some() {
+        if (steady || self.resize_now || self.screenshot.is_some())
+            && self.resize_backoff.allows(want, now)
+        {
             self.resize_now = false;
             self.pending_resize = None;
             match session.player.resize(want) {
                 Ok(()) => {
+                    self.resize_backoff.succeeded();
                     context::set(context::RENDER_SIZE, format!("{}x{}", want[0], want[1]));
                     if let Some(show) = self.stack.show.as_mut() {
                         show.resize(want, &mut self.stack.compositor);
                     }
                 }
-                Err(error) => failure::report(
+                Err(error) if self.resize_backoff.failed(want, now) => failure::report(
                     Failure::new(Subsystem::Context, "resize")
                         .scene(&session.name)
                         .message(error)
-                        .action("keeping the previous render size"),
+                        .action("keeping the previous render size; trying again every 5 s"),
                 ),
+                Err(error) => {
+                    log::debug!("resize to {}x{} failed again: {error}", want[0], want[1])
+                }
             }
         } else if !matches!(self.pending_resize, Some((size, _)) if size == want) {
             self.pending_resize = Some((want, now));
@@ -4192,10 +4238,10 @@ impl Running {
         if let Some(line) = self.perf_log.take_due(started) {
             log::info!("{line}");
         }
-        let dt = if self.screenshot.is_some() {
-            SCREENSHOT_DT
+        let (dt, wall_dt) = if self.screenshot.is_some() {
+            (SCREENSHOT_DT, SCREENSHOT_DT)
         } else {
-            measured
+            (measured, self.stats.last_interval())
         };
         let window = [size.width as i32, size.height as i32];
         self.settle_resize([size.width, size.height], started);
@@ -4228,7 +4274,7 @@ impl Running {
             self.audio.set_meta_gains(meta.reactivity, meta.audio_speed);
         }
         if show_ready {
-            if let Some(report) = self.run_show(|show, env| show.frame(env, dt)) {
+            if let Some(report) = self.run_show(|show, env| show.frame(env, dt, wall_dt)) {
                 self.apply_show_report(report);
             }
             self.poll_playlist_file(dt);
@@ -4909,6 +4955,77 @@ fn hidden_period(budget_ms: f32) -> Duration {
     Duration::from_secs_f32(budget_ms / 1000.0).max(OUTPUT_PERIOD)
 }
 
+/// A render size that could not be allocated, so the resize to it is tried
+/// again every [`ResizeBackoff::RETRY`] instead of every settle period, and
+/// reported once rather than several times a second.
+#[derive(Debug, Default, Clone, Copy)]
+struct ResizeBackoff {
+    failed: Option<([i32; 2], Instant)>,
+}
+
+impl ResizeBackoff {
+    /// How long a size that failed waits before it is tried again.
+    const RETRY: Duration = Duration::from_secs(5);
+
+    /// Whether a resize to `want` may be tried at `now`.
+    fn allows(&self, want: [i32; 2], now: Instant) -> bool {
+        match self.failed {
+            Some((size, at)) if size == want => now.duration_since(at) >= Self::RETRY,
+            Some(_) | None => true,
+        }
+    }
+
+    /// Records that the resize to `want` failed at `now`. Returns whether
+    /// this is the first failure at that size, which is worth reporting.
+    fn failed(&mut self, want: [i32; 2], now: Instant) -> bool {
+        let first = !matches!(self.failed, Some((size, _)) if size == want);
+        self.failed = Some((want, now));
+        first
+    }
+
+    /// A resize succeeded.
+    fn succeeded(&mut self) {
+        self.failed = None;
+    }
+}
+
+/// The render size a show's mouse uniforms are mapped to: the live scene's
+/// own, which a scene that pins its final pass keeps whatever it is asked
+/// (D280), as the single-scene path does; the full render size when nothing
+/// is live yet.
+fn show_mouse_size(live: Option<[i32; 2]>, full: [i32; 2]) -> [i32; 2] {
+    live.unwrap_or(full)
+}
+
+/// Where the windows are when a close request arrives.
+#[derive(Debug, Clone, Copy)]
+struct CloseFacts {
+    /// It is for the output window.
+    on_output: bool,
+    /// The windows are about to be replaced.
+    rebuilding: bool,
+    /// The control window is minimised.
+    control_minimized: bool,
+    /// The output is shown fullscreen on the control window's monitor, so
+    /// it is in front of the control window whatever focus says.
+    output_fills_control_monitor: bool,
+}
+
+/// Whether a close request quits the app (D298). Closing the output only
+/// hides it while the operator can reach the control window to quit from
+/// there. When nobody can (a fullscreen output over it, or a minimised
+/// control window) the request is someone asking Strobe to stop, such as
+/// `taskkill` at the end of a show, and it quits; the resume point is saved
+/// on the way out. A control window Windows has stopped painting (D290) is
+/// not reason enough: that happens beside a windowed output too, where the
+/// operator can still see it and its close button.
+fn closing_quits(facts: CloseFacts) -> bool {
+    !facts.on_output
+        || facts.rebuilding
+        || facts.control_minimized
+        || facts.output_fills_control_monitor
+}
+
 /// The chord a key press in the output window stands for. Modifiers are
 /// not tracked there, so only plain keys exist.
 fn chord_of(key: &Key) -> Option<commands::Chord> {
@@ -5354,6 +5471,109 @@ mod tests {
             "a saved folder that has gone is not watched, and stays saved: {gone:?}"
         );
         Ok(())
+    }
+
+    #[test]
+    fn a_render_size_that_failed_is_retried_slowly_and_reported_once() {
+        let start = Instant::now();
+        let at = |ms: u64| start + Duration::from_millis(ms);
+        let mut backoff = ResizeBackoff::default();
+        assert!(backoff.allows([1920, 1080], at(0)), "nothing failed yet");
+        assert!(
+            backoff.failed([1920, 1080], at(0)),
+            "the first failure at a size is reported"
+        );
+        // The settle period is 150 ms: without a backoff it was tried, and
+        // reported, about seven times a second for as long as it failed.
+        assert!(
+            !backoff.allows([1920, 1080], at(150)),
+            "the same size is not tried again at once"
+        );
+        assert!(
+            backoff.allows([1280, 720], at(150)),
+            "another size (the window or the scale changed) is tried at once"
+        );
+        assert!(
+            backoff.allows([1920, 1080], at(5_000)),
+            "the same size is tried again after a while"
+        );
+        assert!(
+            !backoff.failed([1920, 1080], at(5_000)),
+            "and failing again there is not reported again"
+        );
+        assert!(
+            backoff.failed([1280, 720], at(5_100)),
+            "a failure at a new size is"
+        );
+        backoff.succeeded();
+        assert!(
+            backoff.allows([1280, 720], at(5_200)),
+            "a success clears it"
+        );
+    }
+
+    #[test]
+    fn a_pinned_scene_in_a_show_gets_the_mouse_in_its_own_pixels() {
+        // A square scene pinned at 1024x1024 (D280), letterboxed into a
+        // 1920x1080 output while the render scale makes the full size 720p.
+        let mut tracker = crate::mouse::MouseTracker::default();
+        tracker.moved([960.0, 0.0]);
+        let size = show_mouse_size(Some([1024, 1024]), [1280, 720]);
+        let mouse = tracker.uniforms([1920, 1080], size);
+        assert!(
+            (mouse.mouse[0] - 512.0).abs() < 1e-3 && (mouse.mouse[1] - 1024.0).abs() < 1e-3,
+            "the top centre of the window is the top centre of the scene's 1024x1024: {mouse:?}"
+        );
+        assert_eq!(
+            show_mouse_size(None, [1280, 720]),
+            [1280, 720],
+            "with nothing live, the full render size"
+        );
+    }
+
+    #[test]
+    fn closing_the_output_quits_when_the_control_window_is_out_of_reach() {
+        let reachable = CloseFacts {
+            on_output: true,
+            rebuilding: false,
+            control_minimized: false,
+            output_fills_control_monitor: false,
+        };
+        assert!(
+            !closing_quits(reachable),
+            "a windowed output beside the control window only hides"
+        );
+        assert!(
+            closing_quits(CloseFacts {
+                on_output: false,
+                ..reachable
+            }),
+            "closing the control window quits"
+        );
+        assert!(
+            closing_quits(CloseFacts {
+                rebuilding: true,
+                ..reachable
+            }),
+            "a close during a rebuild quits, as before"
+        );
+        // The JaJa mini PC: the output fullscreen on the one desktop, the
+        // control window maximised behind it, focus saying it is on top
+        // (so not judged covered) and `taskkill` asking the output to close.
+        assert!(
+            closing_quits(CloseFacts {
+                output_fills_control_monitor: true,
+                ..reachable
+            }),
+            "a fullscreen output over the control window quits"
+        );
+        assert!(
+            closing_quits(CloseFacts {
+                control_minimized: true,
+                ..reachable
+            }),
+            "nor can a minimised one"
+        );
     }
 
     #[test]

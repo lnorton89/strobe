@@ -292,3 +292,81 @@ strobe-bench `--context window` at 1920x1080, mean ms native / ANGLE:
   blow-out.
 - **Minor, in Acid Mirror:** small mirrored dash fragments just below mid
   height, and hard, slightly aliased edges on the black voids.
+
+## Linux under WSL2 (2026-10-15, Task A14, D295)
+
+Debian 13 on WSL2 (WSLg), on the RX 580, running `scripts/check-linux.sh`.
+`/dev/dxg` and Mesa's `d3d12_dri.so` were present.
+
+| Step | Result |
+|---|---|
+| apt packages | SKIP (done beforehand) |
+| Rust toolchain | PASS |
+| Build (`cargo build --release -p strobe-app -p strobe-bench`) | PASS, 289 s |
+| `strobe --help` | PASS |
+| Headless bench (EGL device) | PASS, on llvmpipe |
+| Bench on a window context | PASS |
+| App window, default backend: screenshot | PASS |
+| App window, X11 forced: screenshot | PASS |
+| App window, Wayland forced: screenshot | PASS |
+| MIDI | SKIP (no `/dev/snd/seq` on WSL2) |
+
+- **Renderer.** Mesa chose llvmpipe by default. With `GALLIUM_DRIVER=d3d12`
+  it is "D3D12 (Radeon RX 580 Series) | 4.2 Core", and the bench ran about
+  3x faster at twice the pixels. The script now sets it when `/dev/dxg`
+  exists (opt out with `STROBE_CHECK_NO_D3D12=1`).
+- **Bench on D3D12 at 1280x720, ms per frame:** 05 0.90, 10 12.32, 12 2.84,
+  16 0.69.
+- **Audio was synthetic.** cpal opens ALSA `default`, which does not exist
+  under WSLg (`arecord -D default`: "Unknown PCM default"), while
+  `arecord -D pulse` works with WSLg's RDPSource. Fixed two ways: an
+  `~/.asoundrc` with `pcm.!default pulse` and `ctl.!default pulse` (README,
+  WSL2), and Strobe now tries an input named `pulse`, then `pipewire`, when
+  the default will not open. The second is not yet re-run on this machine.
+- **Not covered:** a real Linux GPU other than D3D12 under WSL2, and a
+  physical audio input.
+
+## Task A15, to run: `pow` of a negative base on ANGLE (D301)
+
+D301 writes `pow(x, y)` as `exp2(log2(x) * (y))` in the ES dialect, on the
+inference that native GL gives NaN for a negative base and ANGLE gives
+`|x|^y`. llvmpipe has no Direct3D compiler, so this checks it here. Build the
+commit before D301 and the D301 commit side by side, or run step 1 on both.
+
+1. **Probe the drivers.** Make a scene folder `pow-probe.synScene` outside the
+   repository with this `scene.json`:
+   `{"CONTROLS": [{"NAME": "base", "TYPE": "slider", "MIN": -1.0, "MAX": 1.0, "DEFAULT": -0.25}]}`
+   and this `main.glsl`:
+   ```glsl
+   vec4 renderMain() {
+       float one = clamp(pow(base, 1.0) + 0.5, 0.0, 1.0);
+       float half_power = clamp(pow(base, 0.5) * 2.0, 0.0, 1.0);
+       float cube = clamp(pow(base, 3.0) + 0.5, 0.0, 1.0);
+       return vec4(one, half_power, cube, 1.0);
+   }
+   ```
+   Run `strobe-bench --library <folder> --context window --show-window --gl native`
+   and again with `--gl angle`, `--frames 1 --warmup 1`, and read one pixel
+   of each PNG. Red is 64 for `x`, 191 for `|x|` and 0 for NaN; green is 255
+   for `|x|^0.5` and 0 for NaN; blue is about 124 for `x^3`, about 132 for `|x|^3` and 0
+   for NaN. D301 expects native (0 or 64, 0, 124 or 0), ANGLE before D301
+   (64, 255, 124 or 132), and ANGLE with D301 equal to native in red and
+   green. For reference, llvmpipe (Mesa) gives (64, 0, 124) in both
+   dialects, with and without D301: it folds `pow(x, 1.0)` to `x`.
+2. **Corpus black lists:** `cargo xtask corpus -- --library <corpus>` with
+   `STROBE_GLSL_PATH` at the corpus's `engine/lib`. Before: PLUS black on
+   gles only. Expected after: PLUS black on neither, the other six
+   unchanged.
+3. **sprinkles at 600 frames:** `strobe-bench --library <corpus> --filter
+   sprinkles --context window --show-window --gl native --size 1280x720
+   --warmup 600 --frames 1 --out target/bench/sprinkles-native`, then with
+   `--gl angle` and `--out target/bench/sprinkles-angle`. Expected: both fill
+   the frame, where ANGLE showed a small centre ring before.
+4. **PLUS:** the same with `--filter PLUS --warmup 60`. Expected: ANGLE no
+   longer black, with a picture like native's.
+5. **The sources:** with `STROBE_DUMP_GLSL=<dir>`, both scenes' `es300` dumps
+   should hold `exp2(log2(` where `main.glsl` has `pow(`, and the `glsl330`
+   dumps should still hold `pow(`.
+
+If native red or green is not 0, or ANGLE with D301 still differs from
+native in steps 3 and 4, reopen D301 and record the probe values in Q28.
