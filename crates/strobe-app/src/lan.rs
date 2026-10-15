@@ -122,8 +122,10 @@ pub struct LanView {
     pub requests: Vec<Request>,
     /// Paired clients, and whether each is connected now.
     pub clients: Vec<(ClientInfo, bool)>,
-    /// Open connections, paired or not.
-    pub connections: usize,
+    /// Paired clients connected now: connections that authenticated. A
+    /// socket that was refused, or is still waiting for approval, is not
+    /// counted (it is no one's connection to the show).
+    pub connected: usize,
     /// A paired desktop holds the input lease: someone elsewhere is
     /// operating this window (D275). The title bar says so.
     pub desktop_controlled: bool,
@@ -471,10 +473,18 @@ impl Lan {
                     (c, on)
                 })
                 .collect(),
-            connections: connections.len(),
+            connected: authenticated(&connections),
             desktop_controlled: self.desktop_controlled(),
         }
     }
+}
+
+/// How many of `connections` are paired clients that authenticated.
+fn authenticated(connections: &[strobe_remote::server::ConnectionInfo]) -> usize {
+    connections
+        .iter()
+        .filter(|connection| connection.is_authenticated())
+        .count()
 }
 
 /// Sets `slot` to `name` (cut to [`MAX_NAME`]), allocating only when it
@@ -500,6 +510,31 @@ mod tests {
         ready: false,
         can_step: true,
     };
+
+    #[test]
+    fn only_authenticated_clients_count_as_connected() {
+        use strobe_remote::server::ConnectionInfo;
+        let socket = |port: u16, client_id: Option<&str>| ConnectionInfo {
+            peer: std::net::SocketAddr::from(([192, 168, 1, 30], port)),
+            client_id: client_id.map(str::to_string),
+        };
+        assert_eq!(authenticated(&[]), 0, "nothing open");
+        assert_eq!(
+            authenticated(&[socket(50001, None)]),
+            0,
+            "a refused or unapproved socket is not a connected client"
+        );
+        assert_eq!(
+            authenticated(&[
+                socket(50001, None),
+                socket(50002, Some("c00000001")),
+                socket(50003, None),
+                socket(50004, Some("c00000002")),
+            ]),
+            2,
+            "two clients among four sockets"
+        );
+    }
 
     #[test]
     fn nothing_listens_until_the_remote_is_started() {
