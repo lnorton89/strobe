@@ -264,14 +264,16 @@ $b = "cargo run --release -p strobe-bench --"
 
 # 1. The ladder, default 16x16 stand-in window. Finds the limit and says
 #    whether clears, draws or the viewport go wrong.
-cmd /c "$b --context window --gl native --probe --size 200x90 --out target\probe-small 2> target\probe-small.log"
+cmd /c "$b --context window --gl native --probe --size 200x90 --out target\probe-small > target\probe-small.log 2>&1"
 
-# 2. The same ladder with a window larger than every size on it.
-cmd /c "$b --context window --gl native --probe --size 200x90 --window-size 2048x1200 --out target\probe-big 2> target\probe-big.log"
+# 2. The same ladder with a window as large as the screen allows. Windows
+#    caps a new window at about the screen's size; the "Context:" line in
+#    probe.md gives the size it actually got.
+cmd /c "$b --context window --gl native --probe --size 200x90 --window-size 2048x1200 --out target\probe-big > target\probe-big.log 2>&1"
 
 # 3. The real failure with the trace, small and large window.
-cmd /c "$b --context window --gl native --filter 05 --size 200x90 --out target\bench-small 2> target\bench-small.log"
-cmd /c "$b --context window --gl native --filter 05 --size 200x90 --window-size 2048x1200 --out target\bench-big 2> target\bench-big.log"
+cmd /c "$b --context window --gl native --filter 05 --size 200x90 --out target\bench-small > target\bench-small.log 2>&1"
+cmd /c "$b --context window --gl native --filter 05 --size 200x90 --window-size 2048x1200 --out target\bench-big > target\bench-big.log 2>&1"
 ```
 
 Reading it:
@@ -287,7 +289,7 @@ Reading it:
   failing. The driver is dropping work for the target; read the `gl_driver`
   lines in the log.
 - **Both pass:** the bench scene differs from the probe, so compare the
-  `gl_trace` summaries (`bench-small.log`, and the summary printed before
+  `gl_trace` summaries (near the end of `bench-small.log`, before
   `wrote target\bench-small`): each pass's draw should be into a non-zero
   framebuffer at its own size, and any `glViewport(...) reads back as` warning
   names the clamp.
