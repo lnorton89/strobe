@@ -1665,3 +1665,53 @@ fn restart_clears_every_pass_a_resize_would_keep() -> Result<()> {
     }
     Ok(())
 }
+
+#[test]
+fn a_one_byte_texture_whose_rows_are_not_four_bytes_uploads_tightly_packed() -> Result<()> {
+    // `texture_2d` and `upload` take tightly packed rows. GL's default
+    // unpack alignment is 4, so without setting it a 3-texel R8 row is read
+    // as 4 bytes: the second row starts one byte late and its last texel
+    // comes from past the end of the slice. The player's own silent 1x2
+    // Shadertoy audio texture is such a case.
+    use strobe_gfx::gl::{Format, Sampling, Texture};
+    for api in BOTH {
+        let Some(headless) = context(api)? else {
+            continue;
+        };
+        let gl = headless.gl();
+        let red = |texture: &Texture| -> Result<Vec<u8>> {
+            let fbo = gl
+                .framebuffer(texture)
+                .map_err(|e| anyhow!("{api:?}: framebuffer: {e}"))?;
+            let pixels = gl.read_rgba8(&fbo, 3, 2);
+            Ok(pixels.as_chunks::<4>().0.iter().map(|px| px[0]).collect())
+        };
+        let texture = gl
+            .texture_2d(
+                3,
+                2,
+                Format::R8,
+                Sampling::LINEAR_CLAMP,
+                Some(&[10, 20, 30, 40, 50, 60]),
+            )
+            .map_err(|e| anyhow!("{api:?}: texture: {e}"))?;
+        let allocated = red(&texture)?;
+        assert_eq!(
+            allocated,
+            vec![10, 20, 30, 40, 50, 60],
+            "{api:?}: the allocation reads its rows tightly packed"
+        );
+        gl.upload(&texture, &[70, 80, 90, 100, 110, 120])
+            .map_err(|e| anyhow!("{api:?}: upload: {e}"))?;
+        let uploaded = red(&texture)?;
+        assert_eq!(
+            uploaded,
+            vec![70, 80, 90, 100, 110, 120],
+            "{api:?}: an upload reads its rows tightly packed"
+        );
+        if let Some(code) = gl.error() {
+            return Err(anyhow!("{api:?}: GL error 0x{code:x}"));
+        }
+    }
+    Ok(())
+}
