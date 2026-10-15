@@ -4,7 +4,7 @@
 //               app-thread bridge, pairing and paired clients, and the
 //               opt-in listener that serves the controller page.
 //
-// Dependencies: serde, serde_json, getrandom, sha2, sha1, log
+// Dependencies: serde, serde_json, getrandom, sha2, sha1, hmac, log
 // ============================================================================
 
 //! Typed protocol shared by Strobe's LAN remote server and its clients, and
@@ -35,6 +35,7 @@ pub mod desktop;
 pub mod pairing;
 pub mod secret;
 pub mod server;
+pub mod trust;
 
 use serde::{Deserialize, Serialize};
 

@@ -20,6 +20,8 @@ serde_json.workspace = true
 getrandom.workspace = true
 sha2.workspace = true
 sha1.workspace = true
+# HMAC-SHA256 for the venue trust file's challenge-response (D288).
+hmac.workspace = true
 log.workspace = true
 
 [dev-dependencies]

@@ -68,6 +68,10 @@ getrandom = "0.4"
 # SHA-1). Same RustCrypto family and `digest` version as sha2, so it adds
 # one crate and no new transitive ones (D250).
 sha1 = "0.11"
+# The venue trust file's challenge-response (D288): HMAC-SHA256 over the
+# same `digest` 0.11 as sha2 and sha1, with a constant-time tag comparison
+# (`subtle`, already in the tree). It adds this one crate.
+hmac = "0.13"
 # Local time for `strobe_Date` (D111). Only the clock feature: no serde,
 # no time-zone database, no wasm shims.
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
