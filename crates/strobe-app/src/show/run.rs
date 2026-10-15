@@ -931,7 +931,7 @@ impl Show {
         if let Some(old) = self.warming.take() {
             self.park(old.scene, old.session);
         }
-        let Some(mut session) = self.cache.take(&scene) else {
+        let Some(mut session) = self.unpark(&scene) else {
             return;
         };
         self.prepare(&mut session, index, env.start_time, env.media);
@@ -1041,7 +1041,7 @@ impl Show {
                     Some(session)
                 }
             },
-            None => self.cache.take(&scene).and_then(|mut session| {
+            None => self.unpark(&scene).and_then(|mut session| {
                 self.prepare(&mut session, index, env.start_time, media);
                 match session.player.resize(env.full_size) {
                     Ok(()) => Some(session),
@@ -1087,6 +1087,22 @@ impl Show {
         let before = session.meta.clone();
         self.prepare(session, index, start_time, media);
         session.meta.carry_unchanged_from(&before);
+    }
+
+    /// Takes `scene` out of the cache for a new cue, every pass cleared.
+    /// Parking keeps what a resize does not touch: a literal-size or
+    /// `FIXED_SIZE` pass (D287), and all of a scene that pins its final
+    /// pass (D280). A cue starts its scene's clock at the beginning, so its
+    /// buffers start there too, as they did before D287 (D297).
+    fn unpark(&mut self, scene: &SceneRef) -> Option<Session> {
+        let mut session = self.cache.take(scene)?;
+        if let Err(error) = session.player.restart() {
+            log::warn!(
+                "playlist: could not clear {}'s passes: {error}",
+                session.name
+            );
+        }
+        Some(session)
     }
 
     /// Returns a session to the cache, its targets cut down to nothing.
