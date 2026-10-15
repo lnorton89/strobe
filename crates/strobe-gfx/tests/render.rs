@@ -462,6 +462,33 @@ fn a_non_constant_global_initializer_compiles_in_both_dialects() -> Result<()> {
 }
 
 #[test]
+fn a_global_initialized_from_the_coordinates_sees_them_in_both_dialects() -> Result<()> {
+    // D293: a global set from `_uv` was read before main set `_uv`, so on
+    // desktop it was (0, 0) on every pixel and the scene rendered black.
+    // Near the centre `_uv` is about (0.5, 0.5), so red is about 128 and
+    // green about 64 (the 32x18 target's centre pixel is half a texel off
+    // either way); broken, both are 0. `t0` is TIME, 0.
+    let shader = "vec2 uv = _uv;\nvec2 half_uv = uv * 0.5;\nfloat t0 = TIME;\n\
+                  vec4 renderMain() { return vec4(uv.x, half_uv.y, t0, 1.0); }\n";
+    for api in BOTH {
+        for specialise_passes in [true, false] {
+            let options = Options {
+                specialise_passes,
+                ..Options::default()
+            };
+            let Some(px) = render_center(api, options, "{}", shader, 1)? else {
+                continue;
+            };
+            assert!(
+                (112..=144).contains(&px[0]) && (48..=80).contains(&px[1]),
+                "{api:?} specialised={specialise_passes}: uv is the pixel's, not (0, 0); got {px:?}"
+            );
+        }
+    }
+    Ok(())
+}
+
+#[test]
 fn the_output_is_opaque_and_buffer_passes_keep_their_alpha() -> Result<()> {
     // D192: Synesthesia's `hello_world_start` returns vec4(1, 0, 0, 0) and is
     // meant to be red. The final pass is made opaque; a buffer pass keeps

@@ -276,7 +276,13 @@ pub fn fragment(request: &Request<'_>) -> String {
         // conversions NVIDIA accepts, such as an int `return` from a float
         // function. The explicit form is accepted by every driver.
         let promoted = promote::int_to_float(&user_code, &out, false);
-        (Cow::Owned(promoted.into_owned()), Vec::new())
+        // Desktop drivers accept a non-constant global initializer, but run
+        // it before `main`, when `_xy`/`_uv`/`_uvc` are still zero: a scene's
+        // `vec2 uv = _uv;` was (0, 0) on every pixel, and sprinkles rendered
+        // black. Hoisted, it runs after them, as on ES (D192, D293).
+        let (code, hoisted) =
+            fixups::hoist_global_initializers(&promoted, Branches::for_dialect(false, &out));
+        (Cow::Owned(code.into_owned()), hoisted)
     };
 
     let _ = writeln!(out, "#line 1 {}", source::USER);
@@ -292,8 +298,9 @@ pub fn fragment(request: &Request<'_>) -> String {
          \x20   _uv = _xy / RENDERSIZE;\n\
          \x20   _uvc = (_xy - 0.5 * RENDERSIZE) / RENDERSIZE.y;\n",
     );
-    // Global initializers ES will not take, run here in source order, each
-    // under its own line of main.glsl so an error still points there (D192).
+    // Global initializers, run here in source order after the coordinates
+    // are set, each under its own line of main.glsl so an error still
+    // points there (D192 for ES, D293 for desktop).
     for hoist in &hoisted {
         let _ = writeln!(out, "#line {} {}", hoist.line, source::USER);
         let _ = writeln!(out, "    {}", hoist.assignment);
@@ -598,6 +605,32 @@ mod tests {
             !src.contains("uniform int PASSINDEX"),
             "and not as a uniform"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn a_global_initializer_runs_after_the_coordinates_in_every_dialect() -> Result<()> {
+        // D293: run before main, `vec2 uv = _uv;` read (0, 0) on desktop.
+        let scene = scene()?;
+        for dialect in [Dialect::Glsl330, Dialect::Glsl410, Dialect::Es300] {
+            let src = fragment(&Request {
+                scene: &scene,
+                user_code: "vec2 uv = _uv;\nvec4 renderMain() { return vec4(uv, 0.0, 1.0); }\n",
+                dialect,
+                pass_index: PassIndex::Constant(1),
+                extra: &[],
+            });
+            let set = src.find("_uv = _xy / RENDERSIZE;");
+            let read = src.find("    uv = _uv;");
+            assert!(
+                matches!((set, read), (Some(set), Some(read)) if set < read),
+                "{dialect:?}: the assignment follows `_uv` in main"
+            );
+            assert!(
+                !src.contains("vec2 uv = _uv;"),
+                "{dialect:?}: and the global keeps no initializer"
+            );
+        }
         Ok(())
     }
 
