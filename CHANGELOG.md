@@ -70,6 +70,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Documentation
 
+- --audio ambient in the user guide ([`d82a45f`](https://github.com/lnorton89/strobe/commit/d82a45fae1e4d7df0a58a5899ff2565ec59ca602))
 - D292 makes ANGLE's Vulkan and Metal backends the second backend ([`f782cee`](https://github.com/lnorton89/strobe/commit/f782ceee4fd29dc2cd2e7e9858095435e0988ca0))
 - run the G-03 spike over the full Synesthesia corpus ([`ea4491e`](https://github.com/lnorton89/strobe/commit/ea4491e6159759db954482b0ea5fd475ab59a2b0))
 - D291 one-click scenes and the Scenes and Controls pages ([`2195446`](https://github.com/lnorton89/strobe/commit/21954467351570cf613a3baea5f82134a3bbeef3))
