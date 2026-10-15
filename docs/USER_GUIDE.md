@@ -43,7 +43,8 @@ screen until you ask.
   fullscreen.
 - The window is Synesthesia's three columns. The **rail** on the left
   switches the main view: **PLAY** (the live preview at full size),
-  **LIB** (the scene library, the default), **GET** (import a Shadertoy
+  **LIB** (the scene library, the default, with its **Scenes** and
+  **Controls** pages), **GET** (import a Shadertoy
   shader), **LIST** (playlists), **EDIT** (the scene's code), **MAP** (MIDI,
   OSC, macros), **DIAG** (diagnostics) and **SET** (settings). The **panel**
   on the right stays whatever the view is: the live preview, a status strip
@@ -70,6 +71,7 @@ screen until you ask.
 | F11 | Output fullscreen |
 | Ctrl+F | Search the library |
 | Ctrl+K | The command palette: every command, pane, scene and preset by name |
+| Ctrl+L | Switch LIB between Scenes and the live scene's Controls |
 | Esc | Close the top pane |
 
 Settings > Keyboard changes any of them.
@@ -84,9 +86,14 @@ Settings > Keyboard changes any of them.
   favourites first) with a direction arrow, a star that shows only your
   favourites, and a menu that shows only scenes that loaded or that need
   work. Each card shows the picture, the title, the author and a **...**
-  menu (also the right-click menu); star favourites; double-click to play.
-  The selected scene's tags show above the grid, and *Edit* changes them
-  without playing it. The **Edit** tab does the same for the playing
+  menu (also the right-click menu); star favourites. **Click a card to
+  play it**, as in Synesthesia: it says PREPARING while it compiles, and if
+  it fails the scene that was playing carries on and the card says why. A
+  double-click is still one load. With the keyboard, Tab to a card and
+  press Enter, or type in the search and press Enter. *Preview without
+  loading* (in the **...** menu, or *Preview:* in Ctrl+K) shows a scene
+  above the grid without changing what is live. The clicked scene's tags
+  show above the grid, and *Edit* changes them. The **Edit** tab does the same for the playing
   scene, and the Import pane for the scene it just imported.
 - A scene is a folder with `main.glsl` and `scene.json`, the Synesthesia
   scene format (`.synScene`). Synesthesia scenes you own can be played by
@@ -122,10 +129,13 @@ Settings > Keyboard changes any of them.
   normally `%LOCALAPPDATA%\Synesthesia\Data`).
 - **Needs work** (a LIB filter, and a list in DIAG) shows the scenes that
   failed to load this run, each with its reason.
-- **Controls** (a tab of the panel) shows the playing scene's sliders,
-  colours and buttons. The camera button in the status strip, or *Use
-  frame as picture* in the Edit tab, saves the current frame as the
-  scene's library picture.
+- **Controls** shows the playing scene's sliders, colours and buttons, in
+  two places: large, as LIB's **Controls** page (the switch at the top of
+  LIB, or Ctrl+L, flips between it and the scenes), and compact, as a tab
+  of the panel for when another view is up. While the Controls page is up
+  the panel shows Presets beside it rather than the same controls twice.
+  The camera button in the status strip, or *Use frame as picture* in the
+  Edit tab, saves the current frame as the scene's library picture.
 - **Presets** (a tab of the panel): save the current look under a name,
   recall it later or from a controller. A preset saved while a picture is
   chosen for `syn_Media` remembers it.
@@ -163,16 +173,16 @@ Scenes react to sound through the default **recording** device.
   resolution, which lowers the render size by itself when the GPU falls
   behind; `--no-adaptive` turns it off for a run.
 - The output's look (brightness, hue, mirror, colour limits and the like)
-  is in the Controls tab under *Output (meta)*. It carries over from scene
-  to scene.
+  is under *Output (meta)* in Controls (the page or the panel's tab). It
+  carries over from scene to scene.
 
 ## Media behind a scene
 
 Scenes that read `syn_Media` show a picture or a looping folder of
 pictures (PNG or JPEG).
 
-- In Controls, **Media > Choose** takes a file or folder path; *Scene's
-  own* gives the scene its own back. Dropping a picture or a folder of
+- In the panel's Edit tab, **Media > Choose** takes a file or folder
+  path; *Scene's own* gives the scene its own back. Dropping a picture or a folder of
   pictures on the window does the same.
 - A playlist cue can name its own media, and that wins for the cue.
 - Very long sequences are shrunk to fit 192 MiB of memory rather than cut

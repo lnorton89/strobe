@@ -252,7 +252,8 @@ fn unavailable(command: CommandId, availability: Availability) -> Option<&'stati
         | CommandId::CloseTopmostPane
         | CommandId::TapTempo
         | CommandId::OpenPalette
-        | CommandId::GenerateControls => None,
+        | CommandId::GenerateControls
+        | CommandId::ToggleControlsView => None,
     }
 }
 

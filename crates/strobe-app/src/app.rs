@@ -4940,7 +4940,8 @@ fn command_action(command: CommandId, blackout: bool) -> Option<Action> {
         CommandId::FocusBrowserSearch
         | CommandId::CloseTopmostPane
         | CommandId::OpenPalette
-        | CommandId::GenerateControls => None,
+        | CommandId::GenerateControls
+        | CommandId::ToggleControlsView => None,
     }
 }
 
@@ -5393,6 +5394,7 @@ mod tests {
                     | CommandId::CloseTopmostPane
                     | CommandId::OpenPalette
                     | CommandId::GenerateControls
+                    | CommandId::ToggleControlsView
             );
             assert_eq!(
                 action.is_none(),

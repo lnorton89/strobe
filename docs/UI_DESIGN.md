@@ -1,6 +1,6 @@
 # Strobe UI Design and Interaction Architecture
 
-_Last researched: 2026-10-08. Sections 2, 4, 5, 7, 12 and 22 were rewritten on 2026-10-14 for the Synesthesia-style layout (D281 to D285)._
+_Last researched: 2026-10-08. Sections 2, 4, 5, 7, 12 and 22 were rewritten on 2026-10-14 for the Synesthesia-style layout (D281 to D285); sections 2, 4, 5, 7, 12, 24 and 25 were updated on 2026-10-15 for one-click scenes and the Scenes and Controls pages (D291)._
 
 This is the UI contract for the Strobe desktop application. Synesthesia remains the compatibility reference for scene controls, presets, media, mapping and scripting. Since 2026-10-14 the owner's direction is also to follow its *layout* (three columns, a rail that switches the main view, one persistent right panel, a help bar), with Strobe's theme and every modern feature kept reachable. The target is a modern performance instrument for VJs and creative coders.
 
@@ -72,6 +72,8 @@ Synesthesia itself has been improving filtering, scene browsing, pane resizing a
 
 **Update (D281).** "Replace the topology" no longer holds for the window's frame. The owner asked for a layout "more similar to Synesthesia's while keeping our modern functionality", so the frame is Synesthesia's (sections 4, 5, 7 and 12) and what stays Strobe's is the content: the Performance Macros, the command palette, the Learn-first mapping workflow, Preview apart from Load, the health readouts, density and themes.
 
+**Update (D291).** As in Synesthesia, one click on a scene makes it live; Preview is still Strobe's, but as a step a person asks for (the card's menu, the palette), not one every pick goes through. The live scene's controls also have the main area: the library view switches between Scenes and Controls.
+
 ## 3. Core information hierarchy
 
 The Perform workspace hierarchy is:
@@ -101,7 +103,7 @@ Measured on Synesthesia 1.25.4 and matched (D281): three columns under the title
     ├──┬────────────────────────────────────────────────┬─────────────────┤
     │  │ banners                                        │ preview (16:9)  │
     │r │                                                │ status strip    │
-    │a │ main view: the library grid, or the view      │ [list][ctl][edit]│
+    │a │ main view: Scenes (the grid) | Controls, or   │ [list][ctl][edit]│
     │i │ the rail chose; PLAY is the large preview     │ tab body        │
     │l │                                                │                 │
     ├──┴────────────────────────────────────────────────┴─────────────────┤
@@ -126,7 +128,7 @@ There is no Live/Edit mode. The rail switches the view and the panel never moves
 The rail, top to bottom, each a main view (D281):
 
 1. PLAY: the large live preview, with the output toolbar.
-2. LIB: the scene library (the default view).
+2. LIB: the scene library (the default view), with its two pages, **Scenes** (the card grid) and **Controls** (the live scene's controls, large), switched at the top of the view, with Ctrl+L or from the palette (D291).
 3. GET: Import, a Shadertoy shader.
 4. LIST: the playlist.
 5. EDIT: the scene's files.
@@ -191,7 +193,13 @@ Closed, the panel is a handle strip. In a window too narrow to dock it (below th
 
 PLAY, the rail's first item, is the large preview with the toolbar (Show output, Fullscreen, the monitor menu) for the moment the preview is the point. Bottom: the Performance Macros, the current and next cue, BLACKOUT.
 
-Scene browsing must support Preview without replacing the active scene. Load is a separate action.
+Scene browsing must support Preview without replacing the active scene; it is in the card's menu and the palette. A click on a card loads it (D291).
+
+While the main view is the library's Controls page and the panel is docked beside it, the panel does not draw the same controls again: its Controls tab is dimmed and it shows Presets instead, without changing the saved tab. A drawer covers the main view, so it keeps its Controls tab (D291).
+
+### The Controls page (D291)
+
+The library's second page is the live scene's controls, laid out for the main view and for a finger as much as a mouse: the same groups, rows and actions as the panel's Controls tab (one implementation, `inspector::show` with `Part::Page`), flowed into up to three columns of at least 340 points, with 32-point slider rails, larger switches, bangs, swatches and XY pad. The preview, the status strip and the fav slots stay in the side panel beside it.
 
 ## 8. Performance Macros
 
@@ -369,11 +377,11 @@ Cards:
 - a state chip over it: PLAYING, PREPARING, PREVIEW, FAILED;
 - the star, over its corner;
 - the title, in the largest text on the card;
-- the "..." menu (Load, Preview without loading, favourite, Open in Editor, Copy to my library on a read-only scene), which is also the right-click menu;
+- the "..." menu (Preview without loading, or Reload from disk on the live scene; favourite, Open in Editor, Copy to my library on a read-only scene), which is also the right-click menu;
 - the author, else the tags; a check before it once the scene loaded; `Failed: <why>` in its place when it did not;
 - a faint "Synesthesia" at the end of that line for a scene from Synesthesia's install or its scene folders (D271).
 
-The selected card shows Preview and Load over its picture; double-click loads. The selected scene's tags sit above the grid.
+One click on a card makes it live (D291), as in Synesthesia; Enter or Space on a focused card does the same, and a focused card shows a second accent ring. A click on the live scene, on the one preparing, or the second click of a double-click asks for nothing, so a double-click is one load. The clicked scene is selected too, and the selected scene's tags sit above the grid.
 
 Global search matches every word against the title, the author and the tags; the word `synesthesia` finds the scenes from its install. `tag:` and `author:` prefixes are not parsed yet.
 
@@ -681,6 +689,7 @@ Named layouts:
 Global:
 
 - Ctrl/Cmd+K: command palette;
+- Ctrl/Cmd+L: the library's Scenes and Controls pages (from another view, the Controls page);
 - Space: play/hold when transport owns focus;
 - Left/Right: previous/next cue;
 - F: focus preview;
@@ -712,6 +721,7 @@ Commands:
 - Randomize;
 - Save/Load preset;
 - Toggle library;
+- Switch Scenes / Controls;
 - Toggle inspector;
 - MIDI Learn;
 - Diagnostics;

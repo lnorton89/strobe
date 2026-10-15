@@ -50,6 +50,14 @@
 //! [`HANDLE`]-wide strip at the right edge with one button that opens it,
 //! so the preview and the controls are never more than one click away.
 //!
+//! ## The library's two pages
+//!
+//! The library view has a switch at its top, **Scenes** and **Controls**
+//! (D291): the card grid, or the live scene's controls laid out large. A
+//! click on a card makes it live, and the switch (or Ctrl+L, or the
+//! palette) flips to its controls and back, while the side panel keeps the
+//! preview and the output's state in view.
+//!
 //! ## Banners
 //!
 //! Failures and notices sit above whatever the main view is. They take at
@@ -122,7 +130,7 @@ pub fn show(ui: &mut Ui, shell: &mut ShellState, model: &mut Model<'_>, actions:
     );
     // The help bar is the outermost of the bottom panels; the transport
     // strip sits above it.
-    help::show(ui, &theme, arrangement.main);
+    help::show(ui, &theme, arrangement.main, model.ui.library_page);
     transport::show(ui, model, &theme, actions);
     chrome::nav_rail(ui, model, &theme, &arrangement);
 
@@ -209,7 +217,7 @@ fn pane_body(
     actions: &mut Vec<Action>,
 ) {
     match pane {
-        Pane::Browser => browser::show(ui, model, theme, actions),
+        Pane::Browser => library_view(ui, model, theme, actions),
         Pane::Import => import::show(ui, model, theme, actions),
         Pane::Diagnostics => diagnostics::show(ui, model, theme, actions),
         Pane::Settings => settings::show(ui, model, theme, actions),
@@ -220,6 +228,50 @@ fn pane_body(
         // model were to misfile it, and then as the panel's contents.
         Pane::Inspector => {
             super::inspector::show(ui, model, theme, actions, super::inspector::Part::Controls);
+        }
+    }
+}
+
+/// The library view: the Scenes and Controls switch, then the page it
+/// chose (D291). On the Scenes page the library's toolbar shares the
+/// switch's row when the view is wide enough for both, and takes the next
+/// row when it is not.
+fn library_view(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Vec<Action>) {
+    use super::browser::LibraryPage;
+    /// The widest a cell of the switch grows.
+    const CELL: f32 = 124.0;
+    /// From this width the toolbar shares the switch's row.
+    const SHARED: f32 = 560.0;
+    let page = model.ui.library_page;
+    let segments = LibraryPage::ALL.map(|page| (page.icon(), page.label(), page.tooltip()));
+    let active = LibraryPage::ALL
+        .iter()
+        .position(|p| *p == page)
+        .unwrap_or(0);
+    let cell = (ui.available_width() / LibraryPage::ALL.len() as f32).min(CELL);
+    let shared = ui.available_width() >= SHARED && page == LibraryPage::Scenes;
+    let mut chosen = None;
+    ui.horizontal(|ui| {
+        // The toolbar's own row is this tall: the two share a centre line.
+        ui.set_height(30.0);
+        chosen = super::widgets::segmented(ui, theme, "library-page", &segments, active, cell);
+        if shared {
+            ui.add_space(SPACE_SM);
+            browser::toolbar_items(ui, model, theme, actions);
+        }
+    });
+    if page == LibraryPage::Scenes && !shared {
+        ui.add_space(SPACE_XS);
+        browser::toolbar(ui, model, theme, actions);
+    }
+    if let Some(next) = chosen.and_then(|index| LibraryPage::ALL.get(index)) {
+        model.ui.library_page = *next;
+    }
+    ui.add_space(SPACE_SM);
+    match page {
+        LibraryPage::Scenes => browser::show(ui, model, theme, actions),
+        LibraryPage::Controls => {
+            super::inspector::show(ui, model, theme, actions, super::inspector::Part::Page);
         }
     }
 }
@@ -279,7 +331,7 @@ fn side_panel(
                     .layout(egui::Layout::top_down(egui::Align::Min)),
             );
             body.set_clip_rect(rect.intersect(ui.clip_rect()));
-            side::show(&mut body, model, readouts, theme, actions);
+            side::show(&mut body, model, readouts, theme, actions, true);
             ui.advance_cursor_after_rect(rect);
         })
         .response
@@ -382,7 +434,7 @@ fn drawer(
                     ui.set_width(width - PAD * 2.0);
                     // A tall banner can leave the drawer no room at all.
                     ui.set_height((height - SPACE_SM * 2.0).max(0.0));
-                    side::show(ui, model, readouts, theme, actions);
+                    side::show(ui, model, readouts, theme, actions, false);
                 });
         });
 }

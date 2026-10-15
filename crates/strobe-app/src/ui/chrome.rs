@@ -262,9 +262,15 @@ fn short_monitor(label: &str) -> &str {
     label.split(" (").next().unwrap_or(label)
 }
 
-/// The title bar's crumb: the main view, then the scene.
+/// The title bar's crumb: the main view, as the rail names it (the
+/// library by its page, D291), then the scene.
 fn crumb(model: &Model<'_>, main: Option<Pane>) -> String {
-    let view = main.map_or("PERFORM", Pane::title).to_uppercase();
+    let view = match main {
+        Some(Pane::Browser) => model.ui.library_page.label(),
+        Some(pane) => pane.title(),
+        None => "Play",
+    }
+    .to_uppercase();
     match (model.loading, model.playing, model.scene_title) {
         (Some(name), _, _) => format!("{view}  /  loading {name}"),
         (None, Some(_), title) if !title.is_empty() => format!("{view}  /  {title}"),
@@ -798,7 +804,7 @@ const RAIL: [(Icon, &str, Option<Pane>, &str); 8] = [
         Icon::Library,
         "LIB",
         Some(Pane::Browser),
-        "Scene library: search, preview and load scenes",
+        "Scenes: click one to make it live, then Controls (Ctrl+L) for its controls",
     ),
     (
         Icon::Import,
