@@ -958,3 +958,38 @@ fn saving_the_playlist_leaves_the_live_scene_alone_unless_its_cue_changed() -> R
     show.finish();
     Ok(())
 }
+
+#[test]
+fn a_show_that_ends_a_second_time_clears_its_resume_point_again() -> Result<()> {
+    let Some(headless) = context(Api::DesktopCore33)? else {
+        return Ok(());
+    };
+    let library = library_of("ends-twice", &[("red", "{}", RED_SHADER)])?;
+    let file = library.root.join("resume.toml");
+    let mut rig = Rig::new(&headless)?;
+    let mut playlist = Playlist::new("twice");
+    let mut section = Section::new("all");
+    section.cues.push(cue_of("red", 3.0, TransitionSpec::cut()));
+    section.cues.push(cue_of("red", 3.0, TransitionSpec::cut()));
+    playlist.sections.push(section);
+    let writer = strobe_app::show::resume::ResumeWriter::start(file.clone());
+    let mut show = Show::new(None, playlist, &library.library, None, Some(writer));
+    rig.load(&mut show)?;
+    for _ in 0..(7 * 60) {
+        rig.frame(&mut show);
+    }
+    assert!(show.ended(), "the playlist ended");
+    // The operator brings it back and lets it run out again; on the way the
+    // position is saved (every five seconds).
+    show.command(Command::JumpTo(0));
+    for _ in 0..(7 * 60) {
+        rig.frame(&mut show);
+    }
+    assert!(show.ended(), "the playlist ended again");
+    show.finish();
+    assert!(
+        !file.exists(),
+        "an ended show leaves no resume point, the second time too"
+    );
+    Ok(())
+}
