@@ -56,6 +56,21 @@ tracks every known unfinished implementation and validation task across the proj
   `leaving_a_desktop_never_blocks_the_frame_loop`. The asynchronous capture
   readback is not exercised by any test: the headless context has no default
   framebuffer.
+- [x] Desktop viewer polish after the first two-machine test (2026-10-15,
+  D286). Evidence, Linux container: `desktop::tests::a_dropped_viewer_keeps_showing_the_last_image_dimmed`,
+  `a_waiting_viewer_shows_elapsed_time_a_hint_and_a_way_out`,
+  `an_unapproved_connection_gives_up_and_says_so` (real socket; the host
+  withdraws the request because the worker closes its socket),
+  `input_that_cannot_reach_the_host_ends_the_connection`,
+  `a_blank_code_after_the_host_forgot_us_asks_for_a_new_one` (real socket),
+  `a_failed_connection_offers_reconnect_only_when_a_pairing_is_held`;
+  `lan::tests::only_authenticated_clients_count_as_connected` and the refused
+  socket assertions in `tests/server.rs`; shell tests
+  `every_viewer_state_fits_every_size_without_text_over_text`,
+  `the_palette_opens_the_connect_form_from_its_own_entry` and
+  `the_connect_form_is_its_own_section_with_a_hint_not_a_value`; viewer
+  screenshots from `STROBE_UI_SHOTS` on llvmpipe. Not re-run on the T480 and
+  RX 580 pair.
 - [ ] Full desktop remote: two physical Strobe desktops over Wi-Fi, reconnect
   after loss/sleep, minimized host, a host control window covered by the
   fullscreen output (does it still redraw and capture?), the fenced capture

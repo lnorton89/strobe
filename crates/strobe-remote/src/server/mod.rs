@@ -208,6 +208,15 @@ pub struct ConnectionInfo {
     pub client_id: Option<String>,
 }
 
+impl ConnectionInfo {
+    /// Whether this is a paired client that has authenticated. A socket
+    /// that has only said hello, is waiting for approval or was refused is
+    /// open but is nobody's connection.
+    pub fn is_authenticated(&self) -> bool {
+        self.client_id.is_some()
+    }
+}
+
 /// A connection the listener tracks.
 #[derive(Debug)]
 struct Conn {

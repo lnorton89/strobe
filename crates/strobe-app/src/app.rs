@@ -3584,6 +3584,11 @@ impl Running {
                     self.desktop_controller.connect();
                 }
                 Action::DisconnectDesktop => self.desktop_controller.disconnect(),
+                Action::ControlAnotherDesktop => {
+                    self.desktop_controller.disconnect();
+                    self.desktop_controller.reveal_form();
+                    self.ui_state.panes.open(Pane::Settings);
+                }
                 Action::CloseRemotePairing => self.lan.close_pairing(),
                 Action::DecideRemotePairing { id, approve } => self.lan.decide(id, approve),
                 Action::RevokeRemoteClient(id) => self.lan.revoke(&id),

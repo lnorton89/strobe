@@ -29,6 +29,10 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **ui:** scroll the connect form's address field into view in small windows ([`9b75aa0`](https://github.com/lnorton89/strobe/commit/9b75aa0974ec29674ff1004246af637378415f35))
+- **app:** close the desktop viewer's socket when its worker ends ([`5ae8fcf`](https://github.com/lnorton89/strobe/commit/5ae8fcf455adc22d5ecb6c8e0f89a1b56bcb591f))
+- **ui:** make the desktop viewer keep its image, time out, and be findable ([`7e2125a`](https://github.com/lnorton89/strobe/commit/7e2125a59c55c2814da10a8983c8e8d1b8218e89))
+- **remote:** count only authenticated clients as connected ([`610a9ca`](https://github.com/lnorton89/strobe/commit/610a9ca75aa2c8801b0cfb1a3d557641f5c8bdea))
 - **scenes:** Neon Ribbon Flow is more saturated and has no reversed smoothstep (D278) ([`0339fe1`](https://github.com/lnorton89/strobe/commit/0339fe1a774f74c6d1a7402c95a10c042c354437))
 - **scenes:** Electric Bloom's petal tips lose their black dots, and the scene is 9% cheaper (D277) ([`dbf43b2`](https://github.com/lnorton89/strobe/commit/dbf43b2b5a0ea657661806f5b971881e17fc4f54))
 - **scenes:** Chromatic Rise loses its row artifact and gains long drags, an acid palette and a clock (D276) ([`db06bec`](https://github.com/lnorton89/strobe/commit/db06becad21dbd2fa9a4ddd8c39f45672ca2587f))
@@ -51,6 +55,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Documentation
 
+- record the desktop viewer polish (D286) ([`d28eced`](https://github.com/lnorton89/strobe/commit/d28eced5d3d342f754c1f96145832c6a535cfb39))
 - **hardware:** desktop remote control between the RX 580 and the T480 passes (A11, Task 45) ([`6620d82`](https://github.com/lnorton89/strobe/commit/6620d822848069836331222ee08e7ae074ba28d9))
 - the pre-merge review of scenes 13-16, measured (D276-D279) ([`b81b20d`](https://github.com/lnorton89/strobe/commit/b81b20dd74485cf848211b14751b8230e8fca0c8))
 - put D277-D279 in numeric order, before D280 ([`96d72c8`](https://github.com/lnorton89/strobe/commit/96d72c8d2248414191d6534480d5186513ed3817))

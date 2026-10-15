@@ -193,7 +193,7 @@ impl Readouts {
                 } else {
                     "Remote on"
                 },
-                lan.connections,
+                lan.connected,
                 if lan.requests.is_empty() {
                     ""
                 } else {
