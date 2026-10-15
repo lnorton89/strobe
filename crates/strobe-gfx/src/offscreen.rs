@@ -84,6 +84,7 @@
 use crate::caps::Caps;
 use crate::gl::Gl;
 use crate::gl::context::{Api, Headless};
+use crate::gl::debug::{DebugLevel, enable_debug_output};
 use crate::gl::window::{Backend, GlChoice, WindowedContext};
 use winit::application::ApplicationHandler;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
@@ -121,6 +122,11 @@ pub struct Request {
     /// Window mode only: skip the hidden window and start with the tiny
     /// off-screen one (D71).
     pub tiny: bool,
+    /// Window mode only: the stand-in window's client size, in pixels.
+    /// `None` is [`TINY_SIDE`] square. Nothing the job renders depends on it
+    /// (D296); it exists so a machine that draws black above some size can
+    /// be bisected by making the window bigger than the render.
+    pub window_size: Option<[u32; 2]>,
 }
 
 /// Why no context could be had.
@@ -186,12 +192,12 @@ where
     let choice = window_choice(request.api, request.gl)?;
     match request.mode {
         ContextMode::Headless => run_headless(request.api, job),
-        ContextMode::Window => run_window(choice, request.tiny, job),
+        ContextMode::Window => run_window_sized(choice, request.tiny, request.window_size, job),
         ContextMode::Auto => match open_headless(request.api) {
             Ok(headless) => Ok(call_headless(&headless, request.api, job)),
             Err(error) => {
                 notice(&format!("{error}; using a window context instead"));
-                run_window(choice, request.tiny, job)
+                run_window_sized(choice, request.tiny, request.window_size, job)
             }
         },
     }
@@ -212,7 +218,29 @@ where
 }
 
 fn open_headless(api: Option<Api>) -> Result<Headless, OffscreenError> {
-    Headless::new(api.unwrap_or(Api::DesktopCore33)).map_err(OffscreenError::Headless)
+    let mut headless =
+        Headless::new(api.unwrap_or(Api::DesktopCore33)).map_err(OffscreenError::Headless)?;
+    debug_output_from_env(headless.gl_mut());
+    Ok(headless)
+}
+
+/// The variable that asks an offscreen tool for the driver's own messages.
+const DEBUG_ENV: &str = "STROBE_GL_DEBUG";
+
+/// Turns on `KHR_debug` output when `STROBE_GL_DEBUG` asks, the way the app
+/// does, so a bench run on a machine that renders black can show what the
+/// driver said about it. Unset means off here (unlike the app, which
+/// defaults to errors): an offscreen tool's output is a report.
+fn debug_output_from_env(gl: &mut Gl) {
+    let setting = std::env::var(DEBUG_ENV).ok();
+    let level = match setting.as_deref().map(str::trim) {
+        None | Some("" | "0" | "off" | "false") => return,
+        Some("info") => DebugLevel::Info,
+        Some("warn" | "warning" | "warnings") => DebugLevel::Warnings,
+        Some("errors" | "error") => DebugLevel::Errors,
+        Some(_) => DebugLevel::All,
+    };
+    enable_debug_output(gl, level);
 }
 
 fn call_headless<T, F>(headless: &Headless, api: Option<Api>, job: F) -> T
@@ -239,11 +267,30 @@ pub fn run_window<T, F>(choice: GlChoice, tiny: bool, job: F) -> Result<T, Offsc
 where
     F: FnOnce(&Gl, &Caps, &str) -> T,
 {
+    run_window_sized(choice, tiny, None, job)
+}
+
+/// [`run_window`] with the stand-in window's client size chosen
+/// ([`Request::window_size`]).
+///
+/// # Errors
+///
+/// As [`run_window`].
+pub fn run_window_sized<T, F>(
+    choice: GlChoice,
+    tiny: bool,
+    window_size: Option<[u32; 2]>,
+    job: F,
+) -> Result<T, OffscreenError>
+where
+    F: FnOnce(&Gl, &Caps, &str) -> T,
+{
     let event_loop = EventLoop::new()
         .map_err(|e| OffscreenError::Window(format!("could not start the window system: {e}")))?;
     let mut host = Host {
         choice,
         tiny,
+        side: window_size.unwrap_or([TINY_SIDE, TINY_SIDE]),
         job: Some(job),
         outcome: None,
     };
@@ -261,6 +308,7 @@ where
 struct Host<F, T> {
     choice: GlChoice,
     tiny: bool,
+    side: [u32; 2],
     job: Option<F>,
     outcome: Option<Result<T, OffscreenError>>,
 }
@@ -271,7 +319,13 @@ where
 {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if let Some(job) = self.job.take() {
-            self.outcome = Some(open_and_run(event_loop, self.choice, self.tiny, job));
+            self.outcome = Some(open_and_run(
+                event_loop,
+                self.choice,
+                self.tiny,
+                self.side,
+                job,
+            ));
         }
         event_loop.exit();
     }
@@ -279,19 +333,19 @@ where
     fn window_event(&mut self, _: &ActiveEventLoop, _: WindowId, _: WindowEvent) {}
 }
 
-fn hidden() -> WindowAttributes {
+fn hidden([width, height]: [u32; 2]) -> WindowAttributes {
     Window::default_attributes()
         .with_title("Strobe offscreen")
         .with_visible(false)
-        .with_inner_size(PhysicalSize::new(TINY_SIDE, TINY_SIDE))
+        .with_inner_size(PhysicalSize::new(width, height))
 }
 
-fn parked() -> WindowAttributes {
+fn parked([width, height]: [u32; 2]) -> WindowAttributes {
     Window::default_attributes()
         .with_title("Strobe offscreen")
         .with_decorations(false)
         .with_resizable(false)
-        .with_inner_size(PhysicalSize::new(TINY_SIDE, TINY_SIDE))
+        .with_inner_size(PhysicalSize::new(width, height))
         .with_position(PhysicalPosition::new(PARKED_AT, PARKED_AT))
 }
 
@@ -299,6 +353,7 @@ fn open_and_run<T, F>(
     event_loop: &ActiveEventLoop,
     choice: GlChoice,
     tiny: bool,
+    side: [u32; 2],
     job: F,
 ) -> Result<T, OffscreenError>
 where
@@ -307,11 +362,11 @@ where
     let mut problems = Vec::new();
     let mut opened = None;
     let attempts = if tiny {
-        vec![("tiny off-screen window", parked())]
+        vec![("tiny off-screen window", parked(side))]
     } else {
         vec![
-            ("hidden window", hidden()),
-            ("tiny off-screen window", parked()),
+            ("hidden window", hidden(side)),
+            ("tiny off-screen window", parked(side)),
         ]
     };
     for (what, attributes) in attempts {
@@ -323,14 +378,24 @@ where
             Err(error) => problems.push(format!("{what}: {error}")),
         }
     }
-    let Some((what, gfx, swap)) = opened else {
+    let Some((what, mut gfx, swap)) = opened else {
         return Err(OffscreenError::Window(format!(
             "window context: could not open one ({})",
             problems.join("; ")
         )));
     };
 
+    debug_output_from_env(gfx.gl_mut());
     let mut context = format!("window ({what}), {}", gfx.backend());
+    if side != [TINY_SIDE, TINY_SIDE] {
+        // The size the platform gave, which can be less than asked: Windows
+        // caps a new window at about the screen's size.
+        let given = swap.window().inner_size();
+        context.push_str(&format!(", {}x{} window", given.width, given.height));
+        if [given.width, given.height] != side {
+            context.push_str(&format!(" (asked for {}x{})", side[0], side[1]));
+        }
+    }
     if let Err(error) = gfx.set_vsync(&swap, false) {
         log::warn!("offscreen window: could not turn vsync off: {error}");
         context.push_str(&format!(" (vsync left on: {error})"));
@@ -385,6 +450,7 @@ mod tests {
                 api: Some(Api::Gles30),
                 gl: GlChoice::Only(Backend::Native),
                 tiny: false,
+                window_size: None,
             };
             let outcome = run(&request, |_| {}, |_, _, _| ());
             anyhow::ensure!(
