@@ -613,6 +613,8 @@ struct Running {
     scale_edit: f32,
     pending_resize: Option<([i32; 2], Instant)>,
     resize_now: bool,
+    /// A render size that failed to allocate, retried slowly.
+    resize_backoff: ResizeBackoff,
 
     monitors: Vec<MonitorHandle>,
     monitor_labels: Vec<String>,
@@ -957,6 +959,7 @@ impl Running {
             scale_edit: render_scale,
             pending_resize: None,
             resize_now: false,
+            resize_backoff: ResizeBackoff::default(),
             monitors: Vec::new(),
             monitor_labels: Vec::new(),
             output_monitor: None,
@@ -1319,6 +1322,7 @@ impl Running {
             rebuild: None,
             pending_resize: None,
             resize_now: false,
+            resize_backoff: ResizeBackoff::default(),
             next_output: now,
             next_control: now,
             // The old control window's unanswered request died with it.
@@ -4135,22 +4139,28 @@ impl Running {
             self.pending_resize,
             Some((size, since)) if size == want && now.duration_since(since) >= RESIZE_SETTLE
         );
-        if steady || self.resize_now || self.screenshot.is_some() {
+        if (steady || self.resize_now || self.screenshot.is_some())
+            && self.resize_backoff.allows(want, now)
+        {
             self.resize_now = false;
             self.pending_resize = None;
             match session.player.resize(want) {
                 Ok(()) => {
+                    self.resize_backoff.succeeded();
                     context::set(context::RENDER_SIZE, format!("{}x{}", want[0], want[1]));
                     if let Some(show) = self.stack.show.as_mut() {
                         show.resize(want, &mut self.stack.compositor);
                     }
                 }
-                Err(error) => failure::report(
+                Err(error) if self.resize_backoff.failed(want, now) => failure::report(
                     Failure::new(Subsystem::Context, "resize")
                         .scene(&session.name)
                         .message(error)
-                        .action("keeping the previous render size"),
+                        .action("keeping the previous render size; trying again every 5 s"),
                 ),
+                Err(error) => {
+                    log::debug!("resize to {}x{} failed again: {error}", want[0], want[1])
+                }
             }
         } else if !matches!(self.pending_resize, Some((size, _)) if size == want) {
             self.pending_resize = Some((want, now));
@@ -4941,6 +4951,40 @@ fn hidden_period(budget_ms: f32) -> Duration {
     Duration::from_secs_f32(budget_ms / 1000.0).max(OUTPUT_PERIOD)
 }
 
+/// A render size that could not be allocated, so the resize to it is tried
+/// again every [`ResizeBackoff::RETRY`] instead of every settle period, and
+/// reported once rather than several times a second.
+#[derive(Debug, Default, Clone, Copy)]
+struct ResizeBackoff {
+    failed: Option<([i32; 2], Instant)>,
+}
+
+impl ResizeBackoff {
+    /// How long a size that failed waits before it is tried again.
+    const RETRY: Duration = Duration::from_secs(5);
+
+    /// Whether a resize to `want` may be tried at `now`.
+    fn allows(&self, want: [i32; 2], now: Instant) -> bool {
+        match self.failed {
+            Some((size, at)) if size == want => now.duration_since(at) >= Self::RETRY,
+            Some(_) | None => true,
+        }
+    }
+
+    /// Records that the resize to `want` failed at `now`. Returns whether
+    /// this is the first failure at that size, which is worth reporting.
+    fn failed(&mut self, want: [i32; 2], now: Instant) -> bool {
+        let first = !matches!(self.failed, Some((size, _)) if size == want);
+        self.failed = Some((want, now));
+        first
+    }
+
+    /// A resize succeeded.
+    fn succeeded(&mut self) {
+        self.failed = None;
+    }
+}
+
 /// The render size a show's mouse uniforms are mapped to: the live scene's
 /// own, which a scene that pins its final pass keeps whatever it is asked
 /// (D280), as the single-scene path does; the full render size when nothing
@@ -5425,6 +5469,45 @@ mod tests {
             "a saved folder that has gone is not watched, and stays saved: {gone:?}"
         );
         Ok(())
+    }
+
+    #[test]
+    fn a_render_size_that_failed_is_retried_slowly_and_reported_once() {
+        let start = Instant::now();
+        let at = |ms: u64| start + Duration::from_millis(ms);
+        let mut backoff = ResizeBackoff::default();
+        assert!(backoff.allows([1920, 1080], at(0)), "nothing failed yet");
+        assert!(
+            backoff.failed([1920, 1080], at(0)),
+            "the first failure at a size is reported"
+        );
+        // The settle period is 150 ms: without a backoff it was tried, and
+        // reported, about seven times a second for as long as it failed.
+        assert!(
+            !backoff.allows([1920, 1080], at(150)),
+            "the same size is not tried again at once"
+        );
+        assert!(
+            backoff.allows([1280, 720], at(150)),
+            "another size (the window or the scale changed) is tried at once"
+        );
+        assert!(
+            backoff.allows([1920, 1080], at(5_000)),
+            "the same size is tried again after a while"
+        );
+        assert!(
+            !backoff.failed([1920, 1080], at(5_000)),
+            "and failing again there is not reported again"
+        );
+        assert!(
+            backoff.failed([1280, 720], at(5_100)),
+            "a failure at a new size is"
+        );
+        backoff.succeeded();
+        assert!(
+            backoff.allows([1280, 720], at(5_200)),
+            "a success clears it"
+        );
     }
 
     #[test]
