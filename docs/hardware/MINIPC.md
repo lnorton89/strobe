@@ -250,7 +250,8 @@ window). The app's real 1920x1080 output window renders fine.
 
 The code was audited and the offscreen path never touches the default
 framebuffer, so the pixel-ownership explanation does not hold as stated; see
-D296. The cause is not yet known. Run this in session 1 (a one-shot scheduled
+D296. The cause is not yet known (found later: M11-M14 below, fixed by
+D311). Run this in session 1 (a one-shot scheduled
 task as before) from a build of this commit, and send back the four output
 folders and the logs.
 
@@ -295,6 +296,67 @@ Reading it:
   names the clamp.
 - **Everything passes at 200x90 but `bench-small` is black:** a shader or
   state problem specific to 05 on this driver, not size.
+
+## Black frames root-caused: large draws need a small draw first (2026-10-15, M11-M14, D311)
+
+The bisect on the throwaway `d296-experiment` branch (`strobe-bench --bisect`
+and its `STROBE_D296_*` switches), run on this machine with native WGL
+(driver 31.0.21925.1001). The branch is not merged; its result is D311.
+
+- **M11:** clears land in every target. Draws into any target over 16384
+  pixels (64 KiB of RGBA8) write nothing, with no GL error and no debug
+  message. `STROBE_D296_SETTLE=read` (`glReadPixels` on each new target, no
+  draw) and `SETTLE=finish` (`glFinish`) leave the bench fully black;
+  `SETTLE=red` (clear to red) stays solid red. A read or a finish does not
+  unwedge the driver; only a draw does.
+- **M12:** every bisect stage lands (draw-time state, one shader change at a
+  time, the player's vertex stage, the player's own target), but trivial
+  scenes (solid green, `_uv`) through the bench loop are black.
+- **M13:** a frame-count sweep at 640x360 from 1 to 150 frames
+  (`--warmup 0 --frames 1` included) is black every time. At 128x128 it is
+  fine. The frame count is not the trigger.
+- **M14 (decisive):** with the player path run first in the process
+  (`STROBE_D296_E_FIRST`), `01-d296-solid` at 640x360 wrote 0 %. The next
+  draw, the same scene at 128x128, wrote 100 %, and so did 640x360 again and
+  every later draw at any size, with new players and new targets. With
+  `STROBE_D296_PRIME` (one 1-frame 128x128 scene before the bench loop),
+  every 640x360 scene renders; without it, every one is black. So draws into
+  targets over 64 KiB are lost until the context has drawn into a small
+  target once.
+
+The fix (D311): every GL context draws once into a 16x16 target when it is
+created (`gl::prime`) and reads it back. At debug level the log says
+`GL prime: one 16x16 draw landed in N us (D311)`; a prime that does not land
+is a warning.
+
+### Task M15, to run: the fix on this machine
+
+Update to master with D311 and build the bench, in session 1 as before, with
+**no** `STROBE_D296_*` variables set. Send back the four output folders and
+logs.
+
+```powershell
+cd $env:USERPROFILE\strobe
+cargo build --release -p strobe-bench
+Get-ChildItem Env:STROBE_D296_* | Remove-Item
+$env:STROBE_LOG = "info,strobe_gfx=debug"
+$env:STROBE_LOG_STDERR = "1"
+$b = "target\release\strobe-bench.exe"
+
+cmd /c "$b --context window --gl native --size 640x360 --out target\m15-native-360 > target\m15-native-360.log 2>&1"
+cmd /c "$b --context window --gl native --size 1920x1080 --out target\m15-native-1080 > target\m15-native-1080.log 2>&1"
+# The control: ANGLE never showed the bug.
+cmd /c "$b --context window --gl angle --size 640x360 --out target\m15-angle-360 > target\m15-angle-360.log 2>&1"
+# The prime switched off, to show it is what fixes this (expect black again).
+$env:STROBE_GL_NO_PRIME = "1"
+cmd /c "$b --context window --gl native --size 640x360 --out target\m15-noprime-360 > target\m15-noprime-360.log 2>&1"
+Remove-Item Env:STROBE_GL_NO_PRIME
+```
+
+Expected: the two native runs have no all-black warnings, and every PNG and
+the contact sheet show the scenes. Each log has the `GL prime: ... landed`
+line. ANGLE matches. The `noprime` run should be black as before; if it is
+not, this driver no longer needs the prime (see D311, "Would reopen").
 
 ## D290 verified on the projector (2026-10-15, Task M5)
 
