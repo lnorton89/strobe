@@ -65,6 +65,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Documentation
 
+- move the G-03 front-end research under docs/research ([`43ccdd3`](https://github.com/lnorton89/strobe/commit/43ccdd3399c2b109d4b57ae69645ea09fdf80c50))
 - D290 keeps the swap wait for a driven window and corrects a rejected option ([`50062a0`](https://github.com/lnorton89/strobe/commit/50062a0b1736eb21a2a3c2baf5b04140abd422be))
 - D290, the mini PC's control window starved of paints, and the hotfix verification ([`bf2568c`](https://github.com/lnorton89/strobe/commit/bf2568ccf419ededb905a74cfd63889c40d8becd))
 - D288 venue mode, user guide, roadmap and status audit ([`bcdf95f`](https://github.com/lnorton89/strobe/commit/bcdf95f7c1c10d259843229487d62c52c7397555))
