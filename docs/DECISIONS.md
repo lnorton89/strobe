@@ -5737,6 +5737,36 @@ reference's long drags (lower `flow_scale`, or add a shear term), or HD 4000
 timing showing the full-resolution field is too dear (half resolution is the
 first lever).
 
+**Revised 2026-10-15 (Opus review before merge).**
+- **The row artifact, found.** Where the flow ran along an axis, every
+  cross-flow tap landed on a texel centre, so nothing filtered across the
+  flow and the unsharp (gain 1.5 at the pixel period) grew one-pixel rows
+  (horizontal flow) or columns (vertical flow) until the clamp held them.
+  The centre is now two taps half a texel either side across the flow (a
+  [1 2 1] blur) and the unsharp is 0.4, which puts every cross-flow
+  frequency below gain 1 (0.9 at the pixel period, 0.95 at two pixels): it
+  sharpens what advection blurs and grows nothing. The tap count is the same,
+  since the seed check now reads the advected sample's alpha.
+- **Long drags.** The flow is lanes of shear along a slowly turning
+  direction plus the curl swirl, both divergence-free; a `drag` control
+  (default 1) trades swirl for drag, and `flow_scale` defaults to 1.8. The
+  swirl potential is one noise octave: two cost 15% of the scene and the
+  drags now give the fine direction.
+- **Colour.** A ten-slot acid palette (four greens and lemon, then cyan,
+  cobalt, magenta, sky, violet) replaces the HSV hue steps, and the steps
+  inside an island jump three slots, so every island mixes green and lemon
+  with cool accents, as the reference does.
+- **Bubbles** cluster under a slow noise mask, 20 cells per screen height,
+  each born every 0.4 s by the clock instead of every 32 frames.
+- **A one-texel clock**, as in 14-16, integrates `speed` and `color_speed`
+  (a slider moved an hour into a set no longer jumps the pattern) and gives
+  the frame delta, which now scales the advection: the drag covers the same
+  distance per second at any frame rate. The smear and sharpen remain per
+  frame.
+- Cost is unchanged at about 1.35x 05-domain-warp on llvmpipe (1.37x at
+  1280x720, 1.31x at 1920x1080; BENCHMARKS.md): the one-octave swirl pays
+  for the clock and the drags. Stable at 60, 180 and 300 s.
+
 ### D277: Electric Bloom is an original procedural garden, rebuilt from a Codex draft (2026-10-15)
 
 The owner asked for a scene from a floral image that is not available to us.
@@ -5760,6 +5790,15 @@ flowers, inked veins, black negative space), not a reproduction of the image.
 
 **Would reopen:** the owner's floral image arriving, or a request for a
 different composition.
+
+**Revised 2026-10-15 (Opus review before merge).** The ink rim was 0.05
+flower radii wide, which filled the narrow petal tips: in focus they read as
+black dots, and in the blurred near layer as black crescents beside the
+flowers. The rim is now 0.018 radii (a thin outline along the whole petal)
+and fades with the layer's blur. Past 1.02 radii (plus the blur) only the
+glow reaches, so the petal rings are skipped there: 9% less time on
+llvmpipe, 1.48x 05-domain-warp at 1280x720 (was 1.74x). (D273, the Codex
+draft this cites, is on the branch that added the drafts.)
 
 ### D278: Neon Ribbon Flow is five translucent ribbons, not contour lines (2026-10-15)
 
@@ -5786,6 +5825,14 @@ interpretation, rebuilt from the draft.
 **Would reopen:** a real frame of the owner's video showing a structure
 this does not have (for instance streaked trails), which would justify a
 feedback pass.
+
+**Revised 2026-10-15 (Opus review before merge).** Judged clean but tamer
+and more regular than the liquid, glossy style of the two reference frames.
+It is kept as the calm counterpart to 13 and 16: pushing it toward liquid
+gloss would duplicate Acid Mirror. Two cheap changes: the neon ramp gets a
+contrast curve (deep blue and magenta instead of lavender pastels), and
+`curl` defaults to 1.8 for more liquid bends. A `smoothstep` with reversed
+edges (undefined in GLSL; Mesa happened to draw it) is fixed.
 
 ### D279: Acid Mirror advects paint in a feedback buffer and mirrors it (2026-10-15)
 
@@ -5816,6 +5863,28 @@ rebuilt from the draft, not a reconstruction of that network.
 **Would reopen:** a resize clearing the buffer in a way that is visible on a
 projector (the paint re-grows in about a second), or the owner wanting
 more directional streaking than the grain channel gives.
+
+**Revised 2026-10-15 (Opus review before merge).** Against the reference the
+render was mostly green and lemon with soft, rounded edges and few voids.
+- **Hairline streaks.** The final pass draws iso-lines of the colour index,
+  which the flow folds and stretches along itself, so they run with the
+  paint in nested bundles. Each line is about two pixels wide at any
+  spacing (distance over the index's rate per pixel, measured across 2.5
+  pixels so it is smooth), takes magenta, violet, cobalt, cyan or white in
+  turn, and fades where lines would crowd into moire. A `streaks` control
+  (default 0.8). The grain channel's iso-lines were tried first and read as
+  a contour map, not streaks.
+- **Edges and voids.** Coverage is one pixel over the ink edge (from
+  `fwidth`), the dark rim is a tenth of the density ramp instead of half, the
+  ink thickness bevels the normal half as much, and `ink` defaults to 0.4,
+  so about a third of the frame is black.
+- **A cleared buffer re-seeds at once.** A resize or a render-scale change
+  clears it to zeros, which written paint never is; the paint pass then takes
+  its sources whole, as on the first frame, instead of re-growing over
+  seconds, at the flow time the cleared clock restarts from.
+- Two `smoothstep`s with reversed edges fixed; the final pass reuses its
+  centre tap (five reads, was six). 1.10x 05-domain-warp at 1280x720
+  (was 1.00x); stable at 60, 180 and 300 s.
 
 ### D280: a scene that reads a root-sized absolute pass texel by texel renders its final pass at that size (2026-10-14)
 
