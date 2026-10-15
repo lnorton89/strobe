@@ -248,6 +248,7 @@ fn main() -> Result<()> {
         api: cli.api.map(ApiArg::api),
         gl: cli.gl.choice(),
         tiny: cli.show_window,
+        window_size: None,
     };
     let generated = offscreen::run(
         &request,

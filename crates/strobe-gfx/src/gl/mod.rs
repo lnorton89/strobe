@@ -37,6 +37,7 @@
 
 pub mod context;
 pub mod debug;
+pub mod trace;
 pub mod window;
 
 use glow::HasContext;
@@ -60,6 +61,9 @@ pub struct Gl {
     /// by every clone. A plain counter (no driver query), so a test can
     /// prove that nothing compiles while a scene plays.
     compiles: Rc<Cell<u64>>,
+    /// The opt-in record of framebuffer traffic (`STROBE_GL_TRACE`); shared
+    /// by every clone. See [`trace`].
+    trace: Rc<trace::Trace>,
     /// `!Send` and `!Sync`: the context is current on one thread only.
     _thread: PhantomData<*const ()>,
 }
@@ -217,6 +221,16 @@ impl Format {
         }
     }
 
+    /// The format's name, for the trace and for reports.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Rgba8 => "RGBA8",
+            Self::Rgba16f => "RGBA16F",
+            Self::Rgba32f => "RGBA32F",
+            Self::R8 => "R8",
+        }
+    }
+
     /// Bytes per texel of the upload/readback type.
     pub fn bytes_per_texel(self) -> usize {
         match self {
@@ -295,6 +309,7 @@ impl Gl {
             reset,
             lost: Rc::new(Cell::new(false)),
             compiles: Rc::new(Cell::new(0)),
+            trace: Rc::new(trace::Trace::from_env()),
             _thread: PhantomData,
         }
     }
@@ -318,6 +333,26 @@ impl Gl {
     /// stop moving once the scene is loaded (D161).
     pub fn shader_compiles(&self) -> u64 {
         self.compiles.get()
+    }
+
+    /// Starts recording every framebuffer bind, viewport, clear, draw,
+    /// blit, read-back and texture allocation, in order, whatever
+    /// `STROBE_GL_TRACE` says. [`Self::trace_take`] returns them. For tests
+    /// of where the renderer draws (D289).
+    pub fn trace_capture(&self) {
+        self.trace.capture();
+    }
+
+    /// The events recorded since [`Self::trace_capture`] (or since the last
+    /// call), in order. Empty when tracing is off.
+    pub fn trace_take(&self) -> Vec<trace::Event> {
+        self.trace.take()
+    }
+
+    /// The distinct events `STROBE_GL_TRACE` recorded, each with how many
+    /// times it happened, one per line. Empty when tracing is off.
+    pub fn trace_summary(&self) -> String {
+        self.trace.summary()
     }
 
     /// Whether the driver exposes a reset-status query at all.
@@ -409,9 +444,57 @@ impl Gl {
 
     /// Sets the viewport.
     pub fn viewport(&self, width: i32, height: i32) {
+        let first_time = self.trace.on() && self.trace.viewport([width, height]);
         // SAFETY: current-context invariant; negative sizes are a GL error,
         // not undefined behaviour.
         unsafe { self.raw.viewport(0, 0, width, height) }
+        if first_time {
+            // Tracing only, and only the first time this viewport is seen:
+            // a driver that clamps the viewport to the window shows here.
+            let actual = self.viewport_box();
+            if actual != [0, 0, width, height] {
+                log::warn!(
+                    target: "gl_trace",
+                    "glViewport(0, 0, {width}, {height}) reads back as {actual:?}: \
+                     the driver changed it"
+                );
+            }
+        }
+    }
+
+    /// The viewport the driver holds (`GL_VIEWPORT`): `[x, y, w, h]`. A
+    /// driver round trip, for diagnostics (`strobe-bench --probe`, the
+    /// trace), never the frame loop.
+    pub fn viewport_box(&self) -> [i32; 4] {
+        self.get_i32_quad(glow::VIEWPORT)
+    }
+
+    /// The scissor box the driver holds (`GL_SCISSOR_BOX`): `[x, y, w, h]`.
+    /// A context starts with a box the size of its first window. For
+    /// diagnostics only.
+    pub fn scissor_box(&self) -> [i32; 4] {
+        self.get_i32_quad(glow::SCISSOR_BOX)
+    }
+
+    /// Whether the scissor test is on. For diagnostics only.
+    pub fn scissor_enabled(&self) -> bool {
+        // SAFETY: current-context invariant.
+        unsafe { self.raw.is_enabled(glow::SCISSOR_TEST) }
+    }
+
+    /// The largest viewport the driver allows (`GL_MAX_VIEWPORT_DIMS`).
+    /// For diagnostics only.
+    pub fn max_viewport_dims(&self) -> [i32; 2] {
+        let [w, h, ..] = self.get_i32_quad(glow::MAX_VIEWPORT_DIMS);
+        [w, h]
+    }
+
+    fn get_i32_quad(&self, name: u32) -> [i32; 4] {
+        let mut values = [0_i32; 4];
+        // SAFETY: current-context invariant; `values` holds the four
+        // integers the largest query used here (`GL_VIEWPORT`) writes.
+        unsafe { self.raw.get_parameter_i32_slice(name, &mut values) };
+        values
     }
 
     /// Disables blending, depth, scissor and culling: every pass writes
@@ -444,12 +527,18 @@ impl Gl {
     }
 
     fn clear_color_bit(&self) {
+        if self.trace.on() {
+            self.trace.clear();
+        }
         // SAFETY: current-context invariant.
         unsafe { self.raw.clear(glow::COLOR_BUFFER_BIT) }
     }
 
     /// Draws one full-screen triangle with the bound program and VAO.
     pub fn draw_fullscreen_triangle(&self) {
+        if self.trace.on() {
+            self.trace.draw();
+        }
         // SAFETY: current-context invariant; no vertex buffer is read, the
         // vertex shader derives positions from gl_VertexID.
         unsafe { self.raw.draw_arrays(glow::TRIANGLES, 0, 3) }
@@ -644,6 +733,9 @@ impl Gl {
             }
             other => other,
         };
+        if self.trace.on() {
+            self.trace.texture([width, height], format.name());
+        }
         let raw = self.create_texture()?;
         let texture = Texture {
             gl: self.clone(),
@@ -934,6 +1026,14 @@ impl Gl {
     }
 
     fn bind_raw_framebuffer(&self, target: u32, fbo: Option<glow::Framebuffer>) {
+        if self.trace.on() {
+            let binding = match target {
+                glow::DRAW_FRAMEBUFFER => trace::Binding::Draw,
+                glow::READ_FRAMEBUFFER => trace::Binding::Read,
+                _ => trace::Binding::Both,
+            };
+            self.trace.bind(binding, fbo.map_or(0, |raw| raw.0.get()));
+        }
         // SAFETY: current-context invariant; the handle is owned by a live
         // Framebuffer, or None for the default framebuffer.
         unsafe { self.raw.bind_framebuffer(target, fbo) }
@@ -973,6 +1073,9 @@ impl Gl {
     }
 
     fn blit(&self, [w, h]: [i32; 2], [x0, y0, x1, y1]: [i32; 4]) {
+        if self.trace.on() {
+            self.trace.blit([w, h], [x0, y0, x1, y1]);
+        }
         // SAFETY: current-context invariant; read and draw framebuffers are
         // bound by the caller.
         unsafe {
@@ -1011,6 +1114,9 @@ impl Gl {
     }
 
     fn blit_scaled(&self, [sw, sh]: [i32; 2], [dw, dh]: [i32; 2], linear: bool) {
+        if self.trace.on() {
+            self.trace.blit([sw, sh], [0, 0, dw, dh]);
+        }
         let filter = if linear { glow::LINEAR } else { glow::NEAREST };
         // SAFETY: current-context invariant; read and draw framebuffers are
         // bound by the caller.
@@ -1040,6 +1146,9 @@ impl Gl {
     }
 
     fn read_pixels(&self, width: i32, height: i32, out: &mut [u8]) {
+        if self.trace.on() {
+            self.trace.read_pixels([width, height]);
+        }
         // SAFETY: current-context invariant; `out` holds exactly
         // width * height * 4 bytes, the size GL writes for RGBA /
         // UNSIGNED_BYTE with the default pack alignment of 4.
@@ -1241,6 +1350,9 @@ impl Gl {
     }
 
     fn read_pixels_to_bound_buffer(&self, width: i32, height: i32) {
+        if self.trace.on() {
+            self.trace.read_pixels([width, height]);
+        }
         // SAFETY: current-context invariant; a pixel-pack buffer is bound,
         // so the pointer argument is an offset (0) into it rather than
         // client memory, and the caller checked that the buffer holds
