@@ -160,7 +160,7 @@ impl<'a> Rig<'a> {
     }
 
     fn frame(&mut self, show: &mut Show) {
-        let _ = show.frame(&mut self.env(), DT);
+        let _ = show.frame(&mut self.env(), DT, DT);
     }
 
     fn centre_of_output(&self, show: &Show) -> Result<[u8; 3]> {
@@ -991,5 +991,45 @@ fn a_show_that_ends_a_second_time_clears_its_resume_point_again() -> Result<()> 
         !file.exists(),
         "an ended show leaves no resume point, the second time too"
     );
+    Ok(())
+}
+
+#[test]
+fn a_slow_scene_does_not_stretch_its_cue_past_real_time() -> Result<()> {
+    let Some(headless) = context(Api::DesktopCore33)? else {
+        return Ok(());
+    };
+    let library = library_of(
+        "slow",
+        &[("red", "{}", RED_SHADER), ("green", "{}", GREEN_SHADER)],
+    )?;
+    let mut rig = Rig::new(&headless)?;
+    let mut playlist = Playlist::new("slow");
+    let mut section = Section::new("all");
+    section.cues.push(cue_of("red", 2.0, TransitionSpec::cut()));
+    section
+        .cues
+        .push(cue_of("green", 2.0, TransitionSpec::cut()));
+    playlist.sections.push(section);
+    let mut show = Show::new(None, playlist, &library.library, None, None);
+    rig.load(&mut show)?;
+    // A scene at 2.5 fps: 0.4 s between frames, which the app clamps to
+    // 0.1 s for the scene's own clock (`stats::MAX_DT`). The mini PC's
+    // 10-volume-clouds played a 2-minute cue for 490 s that way.
+    let (scene_dt, wall_dt) = (0.1, 0.4);
+    for _ in 0..6 {
+        let _ = show.frame(&mut rig.env(), scene_dt, wall_dt);
+    }
+    assert_eq!(
+        show.clock().current(),
+        Some(1),
+        "2.4 s of real time is past the first cue's 2 s"
+    );
+    let scene_time = rig.active.as_ref().map_or(0.0, |s| s.time());
+    assert!(
+        scene_time < 1.0,
+        "the scene's own clock still advances by the clamped dt (real time would be 2.4 s): {scene_time}"
+    );
+    show.finish();
     Ok(())
 }

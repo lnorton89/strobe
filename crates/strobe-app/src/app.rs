@@ -4233,10 +4233,10 @@ impl Running {
         if let Some(line) = self.perf_log.take_due(started) {
             log::info!("{line}");
         }
-        let dt = if self.screenshot.is_some() {
-            SCREENSHOT_DT
+        let (dt, wall_dt) = if self.screenshot.is_some() {
+            (SCREENSHOT_DT, SCREENSHOT_DT)
         } else {
-            measured
+            (measured, self.stats.last_interval())
         };
         let window = [size.width as i32, size.height as i32];
         self.settle_resize([size.width, size.height], started);
@@ -4269,7 +4269,7 @@ impl Running {
             self.audio.set_meta_gains(meta.reactivity, meta.audio_speed);
         }
         if show_ready {
-            if let Some(report) = self.run_show(|show, env| show.frame(env, dt)) {
+            if let Some(report) = self.run_show(|show, env| show.frame(env, dt, wall_dt)) {
                 self.apply_show_report(report);
             }
             self.poll_playlist_file(dt);

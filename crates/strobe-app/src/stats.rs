@@ -30,6 +30,8 @@ const MAX_DT: f32 = 0.1;
 #[derive(Debug, Default)]
 pub struct FrameStats {
     last_start: Option<Instant>,
+    /// The last interval as measured, before the clamp.
+    last_interval: f32,
     interval_ms: f32,
     cpu_ms: f32,
     ui_ms: f32,
@@ -44,12 +46,20 @@ impl FrameStats {
             None => 1.0 / 60.0,
         };
         self.last_start = Some(now);
+        self.last_interval = dt;
         if self.interval_ms == 0.0 {
             self.interval_ms = dt * 1000.0;
         } else {
             self.interval_ms += (dt * 1000.0 - self.interval_ms) * SMOOTHING;
         }
         dt.min(MAX_DT)
+    }
+
+    /// The seconds between the last two frame starts, not clamped: real
+    /// time, for a playlist's schedule (which a slow scene must not
+    /// stretch) where [`Self::begin`]'s value is the scene's own clock.
+    pub fn last_interval(&self) -> f32 {
+        self.last_interval
     }
 
     /// Records the CPU time one frame took.
@@ -747,5 +757,10 @@ mod tests {
         stats.begin(start);
         let dt = stats.begin(start + Duration::from_secs(5));
         assert!((dt - MAX_DT).abs() < f32::EPSILON, "dt was {dt}");
+        assert!(
+            (stats.last_interval() - 5.0).abs() < 1e-3,
+            "the real interval is kept for the playlist clock: {}",
+            stats.last_interval()
+        );
     }
 }
