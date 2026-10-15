@@ -7176,3 +7176,36 @@ past the first cue's 180.
 **Would reopen:** a show that wants a scene to pick up where its last cue
 left it (a persistent simulation across cues). That would be a cue setting,
 not the default.
+
+### D298: closing the output quits when the control window is out of reach (2026-10-15)
+
+**Context.** Closing the output window hid it, and only closing the control
+window quit, so an operator could take the projector picture down without
+ending the show. At the end of the first JaJa show the launcher's
+`taskkill /im strobe.exe` (a `WM_CLOSE`, no `/f`) did not stop a fullscreen
+Strobe within 10 s and it was force-killed. `WM_CLOSE` posted to the control
+window alone quit in about 2 s. On that machine the output is fullscreen on
+the one desktop with the control window maximised behind it, and focus says
+the control window is on top, so it was not even judged covered (the D290
+log). The close reached the output, which hid; nothing reached the control
+window, and there was no way left to quit but a kill, which loses up to five
+seconds of resume point (D155).
+
+**Decision.** A close request on the output quits, exactly as one on the
+control window does, when the control window cannot be reached to quit from:
+the output is shown fullscreen on the control window's monitor (by geometry,
+not focus), the control window is minimised, or it is unseen (covered, or
+Windows has stopped painting it, D290). Otherwise it hides the output, as
+before. Quitting goes through the normal exit, so the playlist's resume point
+is written and the writer thread joined (`Show::finish`). The rule is
+`closing_quits`, a pure function over the facts the event handler gathers, so
+it is tested without a window.
+
+A close button on a windowed output beside a visible control window still
+hides it. Alt+F4 on a fullscreen output over the control window now quits,
+which is what Alt+F4 does to a fullscreen program on Windows anyway.
+
+**Would reopen:** a setup where the control window sits on another monitor
+and a stop request reaches only the output: it still hides. A launcher that
+must stop Strobe in every layout should post `WM_CLOSE` to the window titled
+"Strobe" (the control window).
