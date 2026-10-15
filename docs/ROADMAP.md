@@ -50,6 +50,12 @@ which backend proved a claim.
   Review hardening (2026-10-14): desktop grants end with the switch and are
   never saved, a remote cannot pair devices or open listeners, capture is a
   fenced asynchronous readback, and clipboard text flows only when asked.
+  Viewer polish (2026-10-15, D286), from the first T480 to RX 580 test: the
+  viewer keeps the last image dimmed when the host drops it, waiting for
+  approval shows its seconds and ends at 60 s, a refusal says a new pairing
+  code is needed and where it appears, the connect form is its own Settings
+  section with a Ctrl+K entry, and the host counts only authenticated
+  clients as connected. The T480 to RX 580 re-test of these states is open.
 
 - **Render scale and pinned scenes (D280), built, not yet re-run on the
   RX 580:** a scene with a root `WIDTH` x `HEIGHT`, a literal buffer pass of

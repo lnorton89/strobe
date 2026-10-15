@@ -6119,3 +6119,57 @@ its screenshots found a third that no test could see.
 
 **Would reopen:** a notice that must be read in full in a small window; it
 scrolls, and its Dismiss button is always in the first row.
+
+### D286: the desktop viewer keeps its last image, gives up waiting, and says what to do next (2026-10-15)
+
+**Context.** The first two-machine test of D275 (a T480 controlling an RX 580
+host) worked end to end and found five rough edges: the viewer went blank
+when the host dropped it though its text promised the last image; "Connecting;
+approve this desktop on the host" waited for ever; a reconnect with a blank
+code was refused with the phone-oriented "not paired, or revoked"; the
+connect form was the last paragraph of Settings > Remote with a hint that
+read as a typed address; and the host's title counted a refused socket as
+"1 connected".
+
+**Decision.**
+- **The viewer has a stage, and the picture follows it** (`desktop::Stage`):
+  *Connecting* shows a card with the seconds spent against the limit and what
+  to do on the host; *Live* is the interactive host window, dimmed with a
+  "waiting" card while frames are paused; *Ended* (timed out, refused, lost)
+  keeps the last received frame, dimmed and read-only, under a card that says
+  why. The worker no longer clears the image when it fails, so a rebuilt
+  graphics context can still recreate the texture; `disconnect` releases it.
+  The text claims the image only when one is drawn.
+- **Waiting for approval ends after 60 s** (`APPROVAL_TIMEOUT`), enforced by
+  the worker so its socket is closed too. A reconnect with a held pairing
+  needs no approval and says so. The time label reads "Waiting 12 s of
+  60 s"; the viewer asks for a repaint twice a second while it waits.
+- **Refusals name the next step.** `Unauthorized` becomes "a new pairing code
+  from the host is needed" with where it appears (Settings > Remote > Pair a
+  device, with Allow full desktop control on); `PairingRejected` keeps the
+  host's reason and says the same. The wire message ("not paired, or
+  revoked") is unchanged, because phones read it too. A finished connection
+  offers **Reconnect** only when the pairing is still held in memory;
+  otherwise **Enter a new pairing code** (`Action::ControlAnotherDesktop`).
+- **The form is its own Settings section, "Control another Strobe".** The
+  address starts empty with the hint "Host address, e.g. 192.168.1.20", the
+  code field hints "Pairing code", and a bare IP takes the default port
+  (47812). Ctrl+K lists **Control another Strobe...** (category Remote), which
+  opens Settings, scrolls to the section and focuses the address.
+  No rail item was added: the rail is for Synesthesia's seven views (D281)
+  and this is a rarely used setting, so the palette and a section of its own
+  fit better than a new icon.
+- **"Connected" counts authenticated clients.** `LanView::connected` counts
+  connections whose `client_id` is set (`ConnectionInfo::is_authenticated`);
+  a socket that was refused or is still waiting for approval is open but not
+  counted. Settings reads "N paired devices connected".
+
+**Evidence.** Unit tests for the count, the address, the timeout and the
+messages; real-socket tests for a connection nobody approves and a blank-code
+reconnect after the host revoked; viewer states drawn at every size through
+the overflow and text-over-text checks; screenshots of each state. The
+T480 to RX 580 re-test of these states is still to do.
+
+**Would reopen:** an operator wanting automatic reconnect (D275 chose explicit
+reconnect, so a stale click is never replayed), or a viewer that must stay
+useful with the host asleep.
