@@ -30,7 +30,9 @@ cargo run --release -p strobe-bench -- --size 1280x720   # renders scenes/ headl
 ```
 
 On Linux, the renderer tests and the bench need Mesa's EGL:
-`apt-get install -y libegl1 libegl-mesa0`.
+`apt-get install -y libegl1 libegl-mesa0`. Building the app also needs
+`build-essential pkg-config libasound2-dev`. The README's Linux section has
+the full package list, and `nix develop` (see `flake.nix`) provides all of it.
 
 ## Before you submit
 
