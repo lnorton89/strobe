@@ -1564,3 +1564,77 @@ fn a_resize_keeps_the_passes_whose_size_it_does_not_change() -> Result<()> {
     }
     Ok(())
 }
+
+/// The counter of [`COUNTER_JSON`], read this time by the `$WIDTH` pass,
+/// which the final pass shows: red is the count over 50.
+const READ_COUNTER_SHADER: &str = "vec4 renderMain() {\n\
+    if (PASSINDEX == 0) { return texture(count, vec2(0.5)) + vec4(1.0, 0.0, 0.0, 0.0); }\n\
+    if (PASSINDEX == 1) { return vec4(texture(count, vec2(0.5)).r / 50.0, 0.0, 0.0, 1.0); }\n\
+    return vec4(texture(wide, vec2(0.5)).rgb, 1.0); }";
+
+#[test]
+fn a_resize_restarts_an_unchanged_pass_that_a_restarted_pass_reads() -> Result<()> {
+    // The `$WIDTH` pass restarts from black and reads the counter, so the
+    // counter restarts with it (D287), as a Shadertoy buffer's `iFrame`
+    // clock must (D91). `resize_keeping` restarts nothing, so it keeps it.
+    for api in BOTH {
+        for keeping in [false, true] {
+            let Some(headless) = context(api)? else {
+                continue;
+            };
+            let gl = headless.gl();
+            let caps = Caps::from_info(gl.info());
+            let scene = folder(COUNTER_JSON, READ_COUNTER_SHADER)?;
+            let controls = ControlBank::new(scene.def.controls.clone())?;
+            let label = format!("{api:?} keeping={keeping}");
+            let mut player = ScenePlayer::new(gl, &caps, &scene, [64, 36], Options::default())?;
+            for frame in 0..5 {
+                render_frame(&mut player, &controls, frame);
+            }
+            if keeping {
+                player.resize_keeping([32, 18])?;
+            } else {
+                player.resize([32, 18])?;
+            }
+            render_frame(&mut player, &controls, 5);
+            let expected = counter_byte(if keeping { 6 } else { 1 });
+            let px = centre_pixel(&player)?;
+            assert!(
+                px[0].abs_diff(expected) <= 1,
+                "{label}: the counter the $WIDTH pass reads should show byte {expected}; got {px:?}"
+            );
+            if let Some(code) = gl.error() {
+                return Err(anyhow!("{label}: GL error 0x{code:x}"));
+            }
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn restart_clears_every_pass_a_resize_would_keep() -> Result<()> {
+    for api in BOTH {
+        let Some(headless) = context(api)? else {
+            continue;
+        };
+        let gl = headless.gl();
+        let caps = Caps::from_info(gl.info());
+        let scene = folder(COUNTER_JSON, COUNTER_SHADER)?;
+        let controls = ControlBank::new(scene.def.controls.clone())?;
+        let mut player = ScenePlayer::new(gl, &caps, &scene, [64, 36], Options::default())?;
+        for frame in 0..5 {
+            render_frame(&mut player, &controls, frame);
+        }
+        player.restart()?;
+        render_frame(&mut player, &controls, 0);
+        let px = centre_pixel(&player)?;
+        assert!(
+            px[0].abs_diff(counter_byte(1)) <= 1 && px[1] == 64,
+            "{api:?}: after a restart the literal-size counter starts again at 1; got {px:?}"
+        );
+        if let Some(code) = gl.error() {
+            return Err(anyhow!("{api:?}: GL error 0x{code:x}"));
+        }
+    }
+    Ok(())
+}

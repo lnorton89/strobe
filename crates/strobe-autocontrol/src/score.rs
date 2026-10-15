@@ -20,8 +20,8 @@
 //! controls, and a probe is just a different uniform value: no recompile per
 //! candidate. For the baseline and each nudge the [`Rig`]
 //!
-//! 1. resets history (a resize to another size and back clears every pass
-//!    target to black, so feedback starts from the same place every time);
+//! 1. resets history (`ScenePlayer::restart` clears every pass target to
+//!    black, so feedback starts from the same place every time);
 //! 2. builds a fresh `ControlBank`, so speed integrators restart at zero;
 //! 3. renders [`ScoreOptions::frames`] frames at fixed times with the
 //!    synthetic audio track and reads the last [`ScoreOptions::capture`].
@@ -154,11 +154,10 @@ impl Rig {
     /// Renders one probe: every control at its default except `overrides`
     /// (control index, raw component values).
     pub fn render(&mut self, overrides: &[(usize, Vec<f32>)]) -> Result<Frames, ScoreError> {
-        let [width, height] = self.options.size;
-        // Another size and back: every pass target is reallocated and
-        // cleared, so history from the previous probe cannot leak in.
-        self.player.resize([width + 1, height])?;
-        self.player.resize([width, height])?;
+        // Every pass target is cleared, `FIXED_SIZE` and literal-size passes
+        // included (a resize keeps those, D287), so history from the
+        // previous probe cannot leak in.
+        self.player.restart()?;
 
         let mut bank = ControlBank::new(self.controls.clone())?;
         for (index, values) in overrides {

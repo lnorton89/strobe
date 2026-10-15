@@ -45,7 +45,7 @@ use strobe_scene::SceneFolder;
 use strobe_scene::assemble::{self, ErrorSite, ExtraType, PassIndex, Request};
 use strobe_scene::audio::SCALARS;
 use strobe_scene::control::{ControlBank, UniformValue};
-use strobe_scene::scene::{Filter, ImageDef, SceneDef, Wrap};
+use strobe_scene::scene::{Filter, ImageDef, PassDef, SceneDef, Wrap};
 
 /// Why a scene could not be prepared.
 #[derive(Debug, thiserror::Error)]
@@ -502,7 +502,7 @@ impl ScenePlayer {
             extra_values: Vec::with_capacity(extras.len()),
             readback: None,
         };
-        player.passes = player.allocate_passes(programs, render_size, &[])?;
+        player.passes = player.allocate_passes(programs, render_size, &[], &[])?;
         Ok(player)
     }
 
@@ -715,9 +715,12 @@ impl ScenePlayer {
     /// Changes the render resolution. Pass contents restart from black,
     /// except for passes whose own size the resize does not change (a
     /// `FIXED_SIZE` or literal-size pass, D194), which keep their targets and
-    /// what is in them (D287). A scene whose final pass is pinned (D280)
-    /// draws at the same size whatever it is asked, so for it this only
-    /// records the request.
+    /// what is in them (D287) unless a pass that does restart reads them: a
+    /// Shadertoy import's buffers read the `st_clock` pass for `iFrame`, and
+    /// buffers wiped to black need `iFrame` back at 0 to initialise again
+    /// (D91). A scene whose final pass is pinned (D280) draws at the same
+    /// size whatever it is asked, so for it this only records the request.
+    /// On failure the player is unchanged.
     pub fn resize(&mut self, render_size: [i32; 2]) -> Result<(), PlayerError> {
         let requested = [render_size[0].max(1), render_size[1].max(1)];
         if requested == self.requested {
@@ -728,15 +731,11 @@ impl ScenePlayer {
             self.requested = requested;
             return Ok(());
         }
-        let res = |e: String| PlayerError::Resource(e);
-        let finals = [
-            new_target(&self.gl, render_size, Format::Rgba8, Sampling::LINEAR_CLAMP)
-                .map_err(res)?,
-            new_target(&self.gl, render_size, Format::Rgba8, Sampling::LINEAR_CLAMP)
-                .map_err(res)?,
-        ];
+        let finals = self.new_finals(render_size)?;
         let programs = self.passes.iter().map(|p| Rc::clone(&p.program)).collect();
-        let mut passes = self.allocate_passes(programs, render_size, &self.passes)?;
+        let restart = self.passes_to_restart(render_size);
+        let mut passes = self.allocate_passes(programs, render_size, &self.passes, &restart)?;
+        let readback = self.new_readback(render_size)?;
         // Nothing below can fail, so a failed allocation left the player as
         // it was. A pass whose size did not change keeps its targets (D287).
         adopt_unchanged(&mut self.passes, &mut passes);
@@ -744,11 +743,86 @@ impl ScenePlayer {
         self.render_size = render_size;
         self.finals = finals;
         self.passes = passes;
-        if self.readback.is_some() {
-            self.readback = None;
-            self.enable_final_pass_readback()?;
-        }
+        self.readback = readback;
         Ok(())
+    }
+
+    /// Restarts every pass from black at the current size, `FIXED_SIZE`
+    /// and literal-size passes included, as a freshly built player would
+    /// start. For a caller that renders the same scene several times from
+    /// scratch (`strobe-autocontrol`'s probes), since a resize no longer
+    /// clears a pass whose size it does not change (D287). On failure the
+    /// player is unchanged.
+    pub fn restart(&mut self) -> Result<(), PlayerError> {
+        let size = self.render_size;
+        let finals = self.new_finals(size)?;
+        let programs = self.passes.iter().map(|p| Rc::clone(&p.program)).collect();
+        let passes = self.allocate_passes(programs, size, &[], &[])?;
+        let readback = self.new_readback(size)?;
+        self.finals = finals;
+        self.passes = passes;
+        self.readback = readback;
+        Ok(())
+    }
+
+    /// Which passes a [`Self::resize`] to `render_size` restarts from black,
+    /// by index: every pass whose size changes, the final pass, and every
+    /// pass one of those (the final pass aside) reads, transitively. A pass
+    /// whose state feeds a restarted pass restarts with it, so the two stay
+    /// consistent (D287): the `st_clock` behind a wiped Shadertoy buffer's
+    /// `iFrame` is the case that matters (D91). Runs once per resize.
+    fn passes_to_restart(&self, render_size: [i32; 2]) -> Vec<bool> {
+        let last = self.def.final_pass();
+        let mut restart: Vec<bool> = self
+            .def
+            .passes
+            .iter()
+            .zip(&self.passes)
+            .enumerate()
+            .map(|(index, (pass, state))| {
+                index == last || pass_size(pass, render_size) != state.size
+            })
+            .collect();
+        loop {
+            let mut changed = false;
+            for (index, state) in self.passes.iter().enumerate() {
+                if index == last || !restart.get(index).copied().unwrap_or(false) {
+                    continue;
+                }
+                for (source, _) in &state.program.samplers {
+                    if let Source::Pass(read) = *source
+                        && let Some(flag) = restart.get_mut(read)
+                        && !*flag
+                    {
+                        *flag = true;
+                        changed = true;
+                    }
+                }
+            }
+            if !changed {
+                return restart;
+            }
+        }
+    }
+
+    /// The two finished-frame targets at `size`.
+    fn new_finals(&self, size: [i32; 2]) -> Result<[Target; 2], PlayerError> {
+        let res = |e: String| PlayerError::Resource(e);
+        Ok([
+            new_target(&self.gl, size, Format::Rgba8, Sampling::LINEAR_CLAMP).map_err(res)?,
+            new_target(&self.gl, size, Format::Rgba8, Sampling::LINEAR_CLAMP).map_err(res)?,
+        ])
+    }
+
+    /// A fresh final-pass readback at `size` when one is running, so a
+    /// resize can build it before it changes anything.
+    fn new_readback(&self, size: [i32; 2]) -> Result<Option<FinalPassReader>, PlayerError> {
+        match self.readback {
+            Some(_) => FinalPassReader::new(&self.gl, size)
+                .map(Some)
+                .map_err(PlayerError::Resource),
+            None => Ok(None),
+        }
     }
 
     /// Changes the render resolution **keeping what the scene has drawn**:
@@ -770,17 +844,14 @@ impl ScenePlayer {
             self.requested = requested;
             return Ok(());
         }
-        let res = |e: String| PlayerError::Resource(e);
         let old_size = self.render_size;
-        let finals = [
-            new_target(&self.gl, render_size, Format::Rgba8, Sampling::LINEAR_CLAMP)
-                .map_err(res)?,
-            new_target(&self.gl, render_size, Format::Rgba8, Sampling::LINEAR_CLAMP)
-                .map_err(res)?,
-        ];
+        let finals = self.new_finals(render_size)?;
         let programs = self.passes.iter().map(|p| Rc::clone(&p.program)).collect();
         // Allocated against the new size without touching `self` yet.
-        let mut passes = self.allocate_passes(programs, render_size, &self.passes)?;
+        // Nothing restarts here (what changes size is blitted), so every
+        // pass whose size is unchanged keeps its targets (D287).
+        let mut passes = self.allocate_passes(programs, render_size, &self.passes, &[])?;
+        let readback = self.new_readback(render_size)?;
         for (old, new) in self.finals.iter().zip(&finals) {
             self.gl
                 .blit_between_filtered(&old.fbo, old_size, &new.fbo, render_size, true);
@@ -806,10 +877,7 @@ impl ScenePlayer {
         self.requested = requested;
         self.finals = finals;
         self.passes = passes;
-        if self.readback.is_some() {
-            self.readback = None;
-            self.enable_final_pass_readback()?;
-        }
+        self.readback = readback;
         Ok(())
     }
 
@@ -935,6 +1003,7 @@ impl ScenePlayer {
         programs: Vec<Rc<Compiled>>,
         render_size: [i32; 2],
         previous: &[PassState],
+        restart: &[bool],
     ) -> Result<Vec<PassState>, PlayerError> {
         let last = self.def.final_pass();
         let mut passes = Vec::with_capacity(programs.len());
@@ -950,18 +1019,15 @@ impl ScenePlayer {
                 });
                 continue;
             }
-            // A FIXED_SIZE pass keeps its own grid (D191); every other pass
-            // follows the render size, and so the render scale (D11).
-            let size = pass.fixed.unwrap_or([
-                ((render_size[0] as f32 * pass.scale[0]).round() as i32).max(1),
-                ((render_size[1] as f32 * pass.scale[1]).round() as i32).max(1),
-            ]);
+            let size = pass_size(pass, render_size);
             // A pass the resize leaves at the same size keeps its texture,
             // framebuffer and contents (D287): a one-texel clock pass or a
-            // literal-size data pass must not restart on every probe.
-            if previous
-                .get(index)
-                .is_some_and(|old| old.size == size && !old.targets.is_empty())
+            // literal-size data pass must not restart on every probe. Unless
+            // `restart` says it must, because a restarted pass reads it.
+            if !restart.get(index).copied().unwrap_or(false)
+                && previous
+                    .get(index)
+                    .is_some_and(|old| old.size == size && !old.targets.is_empty())
             {
                 passes.push(PassState {
                     program,
@@ -1223,6 +1289,16 @@ fn adopt_one(old: &mut PassState, new: &mut PassState) {
     new.targets = std::mem::take(&mut old.targets);
     new.current = old.current;
     new.awaiting_adoption = false;
+}
+
+/// A pass's size at `render_size`. A FIXED_SIZE pass keeps its own grid
+/// (D191); every other pass follows the render size, and so the render
+/// scale (D11). Not for the final pass, which is the render size.
+fn pass_size(pass: &PassDef, render_size: [i32; 2]) -> [i32; 2] {
+    pass.fixed.unwrap_or([
+        ((render_size[0] as f32 * pass.scale[0]).round() as i32).max(1),
+        ((render_size[1] as f32 * pass.scale[1]).round() as i32).max(1),
+    ])
 }
 
 /// The final pass's size for a `requested` render size: the scene's pinned
