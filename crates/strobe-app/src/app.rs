@@ -730,6 +730,11 @@ struct Running {
     /// The output frame count when the show became ready, so a screenshot
     /// counts frames of playback, not of loading.
     ready_frames: Option<u64>,
+    /// When the control window last ran a frame. A playlist compiles one
+    /// scene per control frame, and Windows can stop painting a control
+    /// window that a fullscreen output covers, so the output frame takes
+    /// over the compiling when the control window has gone quiet.
+    last_control_frame: Instant,
 }
 
 /// A scene that did not load, for the banner.
@@ -897,6 +902,7 @@ impl Running {
             resume_enabled: !cli.no_resume && cli.screenshot.is_none(),
             last_cue: None,
             ready_frames: None,
+            last_control_frame: Instant::now(),
             ui_state,
             shell: ShellState::default(),
             playing: None,
@@ -4017,6 +4023,17 @@ impl Running {
         // A redraw requested just before the window was hidden.
         if self.output_visible {
             self.scene_frame(Surface::Output);
+            // Windows stops painting a control window that the fullscreen
+            // output covers completely, and a playlist that compiles only
+            // on control frames would then never start (seen live on the
+            // JaJa mini PC: stuck at 1 of 14 behind a black output).
+            const CONTROL_QUIET: Duration = Duration::from_millis(500);
+            if self.last_control_frame.elapsed() > CONTROL_QUIET
+                && self.rebuild.is_none()
+                && self.make_current(Surface::Output)
+            {
+                self.compile_show_step();
+            }
         }
     }
 
@@ -4256,6 +4273,7 @@ impl Running {
 
     fn redraw_control(&mut self) {
         let began = Instant::now();
+        self.last_control_frame = began;
         let size = self.stack.control.window().inner_size();
         if size.width == 0 || size.height == 0 {
             return;
