@@ -1528,6 +1528,23 @@ impl Running {
         }
     }
 
+    /// What a close request needs to know about the windows (D298).
+    fn close_facts(&self, on_output: bool) -> CloseFacts {
+        let output = self.stack.output.window();
+        let control = self.stack.control.window();
+        CloseFacts {
+            on_output,
+            rebuilding: self.rebuild.is_some(),
+            control_minimized: control.is_minimized() == Some(true),
+            control_unseen: self.control_unseen(),
+            output_fills_control_monitor: self.output_visible
+                && output.fullscreen().is_some()
+                && output
+                    .current_monitor()
+                    .is_some_and(|monitor| control.current_monitor().as_ref() == Some(&monitor)),
+        }
+    }
+
     fn refresh_monitors(&mut self, event_loop: &ActiveEventLoop) {
         self.last_monitor_refresh = Instant::now();
         self.update_covered();
@@ -1570,11 +1587,19 @@ impl Running {
     fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
         if matches!(event, WindowEvent::CloseRequested) {
             // The output's close button (or Alt+F4 on it) hides it: the
-            // control window is the app, and closing it quits.
-            if self.rebuild.is_none() && id == self.stack.output.window().id() {
+            // control window is the app, and closing it quits. Unless the
+            // control window cannot be reached to quit from (D298).
+            let on_output = id == self.stack.output.window().id();
+            let facts = self.close_facts(on_output);
+            if !closing_quits(facts) {
                 log::info!("output window closed: hiding it (close the control window to quit)");
                 self.set_output_visible(false);
             } else {
+                if on_output {
+                    log::info!(
+                        "output window closed with the control window out of reach ({facts:?}): quitting"
+                    );
+                }
                 event_loop.exit();
             }
             return;
@@ -4909,6 +4934,37 @@ fn hidden_period(budget_ms: f32) -> Duration {
     Duration::from_secs_f32(budget_ms / 1000.0).max(OUTPUT_PERIOD)
 }
 
+/// Where the windows are when a close request arrives.
+#[derive(Debug, Clone, Copy)]
+struct CloseFacts {
+    /// It is for the output window.
+    on_output: bool,
+    /// The windows are about to be replaced.
+    rebuilding: bool,
+    /// The control window is minimised.
+    control_minimized: bool,
+    /// The control window is judged covered, or Windows is not painting it
+    /// ([`Running::control_unseen`], D290).
+    control_unseen: bool,
+    /// The output is shown fullscreen on the control window's monitor, so
+    /// it is in front of the control window whatever focus says.
+    output_fills_control_monitor: bool,
+}
+
+/// Whether a close request quits the app (D298). Closing the output only
+/// hides it while the operator can reach the control window to quit from
+/// there. When nobody can (a fullscreen output over it, a minimised or
+/// unpainted control window) the request is someone asking Strobe to stop,
+/// such as `taskkill` at the end of a show, and it quits; the resume point
+/// is saved on the way out.
+fn closing_quits(facts: CloseFacts) -> bool {
+    !facts.on_output
+        || facts.rebuilding
+        || facts.control_minimized
+        || facts.control_unseen
+        || facts.output_fills_control_monitor
+}
+
 /// The chord a key press in the output window stands for. Modifiers are
 /// not tracked there, so only plain keys exist.
 fn chord_of(key: &Key) -> Option<commands::Chord> {
@@ -5354,6 +5410,59 @@ mod tests {
             "a saved folder that has gone is not watched, and stays saved: {gone:?}"
         );
         Ok(())
+    }
+
+    #[test]
+    fn closing_the_output_quits_when_the_control_window_is_out_of_reach() {
+        let reachable = CloseFacts {
+            on_output: true,
+            rebuilding: false,
+            control_minimized: false,
+            control_unseen: false,
+            output_fills_control_monitor: false,
+        };
+        assert!(
+            !closing_quits(reachable),
+            "a windowed output beside the control window only hides"
+        );
+        assert!(
+            closing_quits(CloseFacts {
+                on_output: false,
+                ..reachable
+            }),
+            "closing the control window quits"
+        );
+        assert!(
+            closing_quits(CloseFacts {
+                rebuilding: true,
+                ..reachable
+            }),
+            "a close during a rebuild quits, as before"
+        );
+        // The JaJa mini PC: the output fullscreen on the one desktop, the
+        // control window maximised behind it, focus saying it is on top
+        // (so not judged covered) and `taskkill` asking the output to close.
+        assert!(
+            closing_quits(CloseFacts {
+                output_fills_control_monitor: true,
+                ..reachable
+            }),
+            "a fullscreen output over the control window quits"
+        );
+        assert!(
+            closing_quits(CloseFacts {
+                control_unseen: true,
+                ..reachable
+            }),
+            "a covered or unpainted control window (D290) cannot be closed by hand either"
+        );
+        assert!(
+            closing_quits(CloseFacts {
+                control_minimized: true,
+                ..reachable
+            }),
+            "nor can a minimised one"
+        );
     }
 
     #[test]
