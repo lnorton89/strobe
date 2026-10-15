@@ -14,8 +14,8 @@
 //! The output window starts hidden; `--show-output` opens it at launch.
 //! `--diagnose` prints the system report and exits (see [`crate::diagnose`]).
 
-use clap::{Parser, ValueEnum};
-use std::path::PathBuf;
+use clap::{ArgGroup, Parser, ValueEnum};
+use std::path::{Path, PathBuf};
 use strobe_gfx::{Backend, GlChoice};
 
 /// Which GL stack to use.
@@ -48,6 +48,10 @@ pub enum AudioArg {
     Auto,
     /// Always synthetic audio: a fixed 120 BPM pattern, reproducible.
     Synthetic,
+    /// The synthetic pattern with its hits and beat triggers removed and
+    /// its levels replaced by a slow swell: scenes keep moving without a
+    /// beat that the room cannot hear. For a show with no microphone.
+    Ambient,
 }
 
 /// The command line.
@@ -55,7 +59,12 @@ pub enum AudioArg {
 #[command(
     name = "strobe",
     version,
-    about = "Strobe: an audio-reactive VJ engine"
+    about = "Strobe: an audio-reactive VJ engine",
+    group(
+        ArgGroup::new("venue_role")
+            .args(["remote", "control"])
+            .multiple(true)
+    )
 )]
 pub struct Cli {
     /// Folder of scene folders.
@@ -248,17 +257,37 @@ pub struct Cli {
     /// Approve button, or with `--remote-trust`. Never saved.
     #[arg(long, requires = "remote")]
     pub allow_desktop_control: bool,
-    /// Venue mode (D288): a controller that proves it holds this trust file
-    /// is paired for full desktop control with no approval click, while
-    /// full desktop access is on. Make the file with `--make-remote-trust`.
-    /// Anyone who can read it has full control; keep it private. Read once
-    /// at launch.
-    #[arg(long, value_name = "FILE", requires = "remote")]
+    /// Venue mode (D288): with `--remote`, a controller that proves it holds
+    /// this trust file is paired for full desktop control with no approval
+    /// click, while full desktop access is on; read once at launch. With
+    /// `--control`, the file this laptop proves to the host. Make the file
+    /// with `--make-remote-trust`. Anyone who can read it has full control;
+    /// keep it private.
+    #[arg(long, value_name = "FILE", requires = "venue_role")]
     pub remote_trust: Option<PathBuf>,
+    /// Control another Strobe from this one (D275, D294): open straight into
+    /// the viewer of the host at HOST:PORT (a bare IP takes port 47812). With
+    /// `--remote-trust FILE` it connects by proving the file, with no
+    /// approval at the host, and reconnects by itself after a host restart
+    /// or a Wi-Fi drop. Without it, the "Control another Strobe" form opens
+    /// with the address filled in, for pairing with a code. Not for a host:
+    /// it cannot be combined with `--remote`.
+    #[arg(
+        long,
+        value_name = "HOST:PORT",
+        value_parser = parse_control,
+        conflicts_with = "remote"
+    )]
+    pub control: Option<std::net::SocketAddr>,
     /// Make a trust file at FILE (32 random bytes from the operating
     /// system), print how to use it, and exit. Refuses to overwrite.
     #[arg(long, value_name = "FILE")]
     pub make_remote_trust: Option<PathBuf>,
+}
+
+/// The host `--control` names: an IP address and optionally a port.
+fn parse_control(text: &str) -> Result<std::net::SocketAddr, String> {
+    crate::desktop::parse_host(text).map_err(|why| format!("\"{text}\": {why}"))
 }
 
 /// A host name, optionally with a port: letters, digits, `-` and `.`.
@@ -304,6 +333,16 @@ fn parse_size(text: &str) -> Result<(u32, u32), String> {
         return Err(format!("{w}x{h} is outside 320x240 to 16384x16384"));
     }
     Ok((w, h))
+}
+
+impl Cli {
+    /// Whether a library that cannot be read is no fault: this run controls
+    /// another Strobe (`--control`) and was not pointed at a library, so the
+    /// default `scenes` folder (resolved against the working directory) has
+    /// no reason to exist.
+    pub fn library_is_optional(&self) -> bool {
+        self.control.is_some() && self.library == Path::new("scenes")
+    }
 }
 
 #[cfg(test)]
@@ -568,6 +607,83 @@ mod tests {
             make.make_remote_trust,
             Some(PathBuf::from("venue.trust")),
             "make"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_controller_without_a_library_does_not_need_one() -> Result<()> {
+        let controller = Cli::try_parse_from(["strobe", "--control", "10.0.0.5"])?;
+        assert!(
+            controller.library_is_optional(),
+            "a controller run with the default library"
+        );
+        let named = Cli::try_parse_from(["strobe", "--control", "10.0.0.5", "--library", "mine"])?;
+        assert!(
+            !named.library_is_optional(),
+            "a library the person named is reported when it is missing"
+        );
+        assert!(
+            !Cli::try_parse_from(["strobe"])?.library_is_optional(),
+            "a show machine needs its library"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn control_names_a_host_and_takes_the_trust_file_for_the_laptop() -> Result<()> {
+        assert!(
+            Cli::try_parse_from(["strobe"])?.control.is_none(),
+            "this Strobe controls nothing by default"
+        );
+        let laptop = Cli::try_parse_from([
+            "strobe",
+            "--control",
+            "192.168.1.50:47812",
+            "--remote-trust",
+            "venue.trust",
+        ])?;
+        assert_eq!(
+            laptop.control.map(|address| address.to_string()).as_deref(),
+            Some("192.168.1.50:47812"),
+            "the host"
+        );
+        assert_eq!(
+            laptop.remote_trust,
+            Some(PathBuf::from("venue.trust")),
+            "the laptop's file: allowed with --control, as with --remote"
+        );
+        assert!(!laptop.remote, "and it is not a host");
+        let bare = Cli::try_parse_from(["strobe", "--control", "10.0.0.5"])?;
+        assert_eq!(
+            bare.control.map(|address| address.to_string()).as_deref(),
+            Some("10.0.0.5:47812"),
+            "a bare IP takes the remote's default port"
+        );
+        assert!(bare.remote_trust.is_none(), "no file: the form, for a code");
+        for bad in [
+            ["strobe", "--control", "show-pc"].as_slice(),
+            &["strobe", "--control", "10.0.0.5:"],
+            &["strobe", "--control", "8.8.8.8:99999"],
+            &["strobe", "--control"],
+            // A host and a controller are different roles.
+            &["strobe", "--control", "10.0.0.5", "--remote"],
+        ] {
+            assert!(Cli::try_parse_from(bad).is_err(), "{bad:?} must be refused");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn a_trust_file_alone_still_belongs_to_nothing_but_keeps_its_host_meaning() -> Result<()> {
+        assert!(
+            Cli::try_parse_from(["strobe", "--remote-trust", "venue.trust"]).is_err(),
+            "a file with no role is refused, as before"
+        );
+        let host = Cli::try_parse_from(["strobe", "--remote", "--remote-trust", "venue.trust"])?;
+        assert!(
+            host.remote && host.control.is_none(),
+            "with --remote it is the host's, as in D288"
         );
         Ok(())
     }

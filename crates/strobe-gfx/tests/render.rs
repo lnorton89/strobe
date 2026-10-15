@@ -17,6 +17,7 @@
 
 use anyhow::{Result, anyhow};
 use std::path::PathBuf;
+use strobe_gfx::gl::trace::Event;
 use strobe_gfx::{
     Api, AudioTextures, Caps, FrameInputs, GpuTimer, Headless, Mouse, Options, ScenePlayer,
 };
@@ -1662,6 +1663,162 @@ fn restart_clears_every_pass_a_resize_would_keep() -> Result<()> {
         if let Some(code) = gl.error() {
             return Err(anyhow!("{api:?}: GL error 0x{code:x}"));
         }
+    }
+    Ok(())
+}
+
+#[test]
+fn a_one_byte_texture_whose_rows_are_not_four_bytes_uploads_tightly_packed() -> Result<()> {
+    // `texture_2d` and `upload` take tightly packed rows. GL's default
+    // unpack alignment is 4, so without setting it a 3-texel R8 row is read
+    // as 4 bytes: the second row starts one byte late and its last texel
+    // comes from past the end of the slice. The player's own silent 1x2
+    // Shadertoy audio texture is such a case.
+    use strobe_gfx::gl::{Format, Sampling, Texture};
+    for api in BOTH {
+        let Some(headless) = context(api)? else {
+            continue;
+        };
+        let gl = headless.gl();
+        let red = |texture: &Texture| -> Result<Vec<u8>> {
+            let fbo = gl
+                .framebuffer(texture)
+                .map_err(|e| anyhow!("{api:?}: framebuffer: {e}"))?;
+            let pixels = gl.read_rgba8(&fbo, 3, 2);
+            Ok(pixels.as_chunks::<4>().0.iter().map(|px| px[0]).collect())
+        };
+        let texture = gl
+            .texture_2d(
+                3,
+                2,
+                Format::R8,
+                Sampling::LINEAR_CLAMP,
+                Some(&[10, 20, 30, 40, 50, 60]),
+            )
+            .map_err(|e| anyhow!("{api:?}: texture: {e}"))?;
+        let allocated = red(&texture)?;
+        assert_eq!(
+            allocated,
+            vec![10, 20, 30, 40, 50, 60],
+            "{api:?}: the allocation reads its rows tightly packed"
+        );
+        gl.upload(&texture, &[70, 80, 90, 100, 110, 120])
+            .map_err(|e| anyhow!("{api:?}: upload: {e}"))?;
+        let uploaded = red(&texture)?;
+        assert_eq!(
+            uploaded,
+            vec![70, 80, 90, 100, 110, 120],
+            "{api:?}: an upload reads its rows tightly packed"
+        );
+        if let Some(code) = gl.error() {
+            return Err(anyhow!("{api:?}: GL error 0x{code:x}"));
+        }
+    }
+    Ok(())
+}
+
+/// D296: offscreen rendering never depends on the window's drawable.
+///
+/// On AMD's native WGL a hidden window's context rendered black above about
+/// 160x90. A driver can only behave differently from llvmpipe here if the
+/// renderer lets the default framebuffer (0, the window's drawable) into the
+/// picture, so the invariant is that it does not: from `ScenePlayer::new`
+/// through every frame and the read-back, no clear, draw or blit lands in
+/// framebuffer 0 and no read-back comes from it, and each draw's viewport is
+/// its own target's size, including a literal pass larger than the output
+/// (the shape of the `neon_city` scene). Presenting to a window is the one
+/// operation that does touch the default framebuffer; the last assertion
+/// checks the trace sees it, so the invariant is not vacuously true.
+#[test]
+fn offscreen_rendering_never_touches_the_default_framebuffer() -> Result<()> {
+    const OUTPUT: [i32; 2] = [64, 36];
+    const BIG: [i32; 2] = [128, 72];
+    let json = r#"{ "PASSES": [
+        {"TARGET": "big", "WIDTH": 128, "HEIGHT": 72},
+        {"TARGET": "trail", "DOUBLE_BUFFER": true}
+    ] }"#;
+    let shader = "vec4 renderMain() {\n\
+                      if (PASSINDEX == 0) { return vec4(0.0, 1.0, 0.0, 1.0); }\n\
+                      if (PASSINDEX == 1) { return texture(trail, _uv) * 0.5 + vec4(0.25, 0.0, 0.0, 0.0); }\n\
+                      return texture(big, _uv) + texture(trail, _uv);\n\
+                  }\n";
+    for api in BOTH {
+        let Some(headless) = context(api)? else {
+            continue;
+        };
+        let gl = headless.gl();
+        gl.trace_capture();
+        let caps = Caps::from_info(gl.info());
+        let scene = folder(json, shader)?;
+        let controls = ControlBank::new(scene.def.controls.clone())?;
+        let audio = vec![0.0; SCALARS.len()];
+        let mut player = ScenePlayer::new(gl, &caps, &scene, OUTPUT, Options::default())?;
+        for frame in 0..3_u64 {
+            player.render(&FrameInputs {
+                time: frame as f32 / 60.0,
+                frame,
+                mouse: Mouse::default(),
+                audio: &audio,
+                controls: &controls,
+                transitions: &[],
+            });
+        }
+        let pixels = player.read_output();
+        assert_eq!(
+            pixels.len(),
+            (OUTPUT[0] * OUTPUT[1] * 4) as usize,
+            "{api:?}: the read-back is the requested size"
+        );
+        let events = gl.trace_take();
+
+        let strays: Vec<String> = events
+            .iter()
+            .filter(|event| event.touches_default_framebuffer())
+            .map(ToString::to_string)
+            .collect();
+        assert!(
+            strays.is_empty(),
+            "{api:?}: offscreen work touched the default framebuffer: {strays:?}"
+        );
+
+        let draws: Vec<[i32; 2]> = events
+            .iter()
+            .filter_map(|event| match event {
+                Event::Draw { viewport, .. } => Some(*viewport),
+                Event::Bind { .. }
+                | Event::Viewport { .. }
+                | Event::Clear { .. }
+                | Event::Blit { .. }
+                | Event::ReadPixels { .. }
+                | Event::Texture { .. } => None,
+            })
+            .collect();
+        let expected: Vec<[i32; 2]> = (0..3).flat_map(|_| [BIG, OUTPUT, OUTPUT]).collect();
+        assert_eq!(
+            draws, expected,
+            "{api:?}: three frames of three passes, each at its own target's size"
+        );
+
+        let reads: Vec<&Event> = events
+            .iter()
+            .filter(|event| matches!(event, Event::ReadPixels { .. }))
+            .collect();
+        assert!(
+            matches!(
+                reads.as_slice(),
+                [Event::ReadPixels { read_fbo, size }] if *read_fbo != 0 && *size == OUTPUT
+            ),
+            "{api:?}: one read-back, from an FBO, at the output size: {reads:?}"
+        );
+
+        // The control: presenting is the one thing that draws to the window.
+        gl.trace_capture();
+        player.present(OUTPUT);
+        let presented = gl.trace_take();
+        assert!(
+            presented.iter().any(Event::touches_default_framebuffer),
+            "{api:?}: the trace must see present() write the default framebuffer: {presented:?}"
+        );
     }
     Ok(())
 }

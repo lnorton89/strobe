@@ -6,7 +6,7 @@ in [DECISIONS.md](DECISIONS.md), the evidence-based gap list in
 [STATUS_AUDIT.md](STATUS_AUDIT.md), and real-hardware results in
 [hardware/T480.md](hardware/T480.md).
 
-_Last updated: 2026-10-15 (one click on a scene card makes it live, and LIB has Scenes and Controls pages, D291); 2026-10-14 (the control window follows Synesthesia's layout, D281-D285; v0.1.0 tagged and published; earlier claims reconciled with D199-D238 and the T480 and TORNADO records)._
+_Last updated: 2026-10-15 (Linux support documented, with a Nix flake, D295; one click on a scene card makes it live, and LIB has Scenes and Controls pages, D291); 2026-10-14 (the control window follows Synesthesia's layout, D281-D285; v0.1.0 tagged and published; earlier claims reconciled with D199-D238 and the T480 and TORNADO records)._
 
 ## Now
 
@@ -37,6 +37,16 @@ which backend proved a claim.
 
 ### In flight
 
+- **Linux support (2026-10-15, D295), documented and built, not yet seen on
+  real Linux hardware:** the README has a Linux section (Debian and Ubuntu
+  packages verified on a clean Ubuntu 24.04, Fedora and Arch names from the
+  package databases, Wayland and X11, graphics, audio, WSL2), `flake.nix` gives
+  a dev shell, a software-GL shell and a wrapped package for x86_64 and
+  aarch64 Linux (built and run on x86_64 under Xvfb and Weston), and
+  COMPATIBILITY has the rows. Open, in STATUS_AUDIT's "P1: Linux": a real
+  Linux GPU, ALSA, PipeWire and PulseAudio capture, MIDI hardware, NixOS, and
+  WSL2 with WSLg on the AMD desktop.
+
 - **Venue mode (2026-10-15, D288):** a headless show machine is controlled
   from a laptop with no click at it. Built: `--allow-desktop-control`,
   `--remote-trust FILE` and `--make-remote-trust FILE` on the host; a trust
@@ -45,9 +55,14 @@ which backend proved a claim.
   compare); per-address and global backoff on failed proofs; a trusted
   pairing is per connection, listed as *trusted*, revocable for the run, and
   ends with the kill switch; a launch-time `--remote` retries until the
-  network is up. Next: the controller side (trust-file field, `--control
-  HOST:PORT --remote-trust FILE`, automatic reconnect with backoff) on D286's
-  viewer stages, then a two-machine soak on the T480.
+  network is up. **Controller side built (D294):** `strobe --control
+  HOST:PORT --remote-trust FILE` opens straight into the viewer; Settings >
+  Control another Strobe has "Use a trust file" (the path is remembered, never
+  the secret); the proof is made only for the controller's own `trust_start`;
+  a stable controller id; and a trusted connection that drops retries by
+  itself (1 s, 2 s, 4 s ... 15 s) as a `Stage::Reconnecting` on D286's viewer
+  until Disconnect, stopping with the reason on a refusal. Next: a two-machine
+  soak on the T480 and the JaJa mini PC.
 - **Full desktop remote control (2026-10-13, D275):** native Strobe instances
   can mirror and operate another instance's complete control window,
   including the editor and host file operations. Built on `strobe-remote`'s
@@ -76,6 +91,15 @@ which backend proved a claim.
   4 loop passes, `about_to_wait` now runs the whole control frame itself, at
   2 Hz (5 Hz with a desktop remote), until Windows paints it promptly again.
   Open: the mini-PC verification in MINIPC.md.
+
+- **AMD native WGL renders black above about 160x90 offscreen (D296), cause
+  open:** the mini-PC's Vega 3 draws 05-domain-warp correctly at 160x90 and
+  black above it, and `neon_city` black at 160x90 (targets larger than the
+  window). The code never draws to or reads from the default framebuffer
+  (pinned by a headless test), so this is a driver behaviour with targets or
+  sizes. Built and ready to run on the mini-PC: `STROBE_GL_TRACE`,
+  `strobe-bench --probe` and `--window-size`; the run and how to read it are in
+  `hardware/MINIPC.md`. The fix waits on that result.
 
 - **Render scale and pinned scenes (D280), built, not yet re-run on the
   RX 580:** a scene with a root `WIDTH` x `HEIGHT`, a literal buffer pass of

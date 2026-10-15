@@ -48,5 +48,10 @@ winit.workspace = true
 [build-dependencies]
 embed-resource.workspace = true
 
+[dev-dependencies]
+# A host that misbehaves on purpose, for the controller's unsolicited-challenge
+# test (D294): it must answer the WebSocket upgrade itself.
+sha1.workspace = true
+
 [lints]
 workspace = true

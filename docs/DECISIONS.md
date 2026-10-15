@@ -6568,6 +6568,7 @@ host restart or a Wi-Fi drop. It is to be built on the viewer's Stage and
 Reconnect machinery from D286, which was not on this branch (see
 STATUS_AUDIT). The host half and the protocol are tested over real sockets;
 the controller can use `trust::TrustSecret::respond` and the messages above.
+**Built in D294.**
 
 **Evidence.** Unit tests: RFC 4231 HMAC vectors, a protocol vector computed
 independently with Python, a wrong secret, a flipped nibble, wrong host,
@@ -6930,3 +6931,323 @@ divergence predates this change and is not yet understood.
 initializer and assigned in `main` (none known), or a scene that relies on
 a global initializer running before `main` (GLSL has no way to observe
 that).
+
+### D294: a laptop controls a venue's show machine with a trust file, and keeps reconnecting until told to stop (2026-10-15)
+
+**Context.** D288 built the host and the protocol and left the controller to
+D286's viewer stages. A four-hour show on a venue's Wi-Fi sees the host
+restart, the access point drop the laptop for a few seconds, and the mini PC
+come up after the laptop. A controller that needs a click to come back, or a
+code the host no longer has, ends the show's remote control the first time it
+blinks.
+
+**Decision.**
+
+- **Two ways in, one worker.** *Settings > Control another Strobe* has a
+  checkbox, **Use a trust file (venue mode)**; ticked, the pairing-code field
+  becomes a path field and Connect runs trust pairing instead. There is no
+  file picker: the app has no file-dialog helper and a dialog would need a
+  new dependency or PowerShell, so the path is typed or pasted (quotes from
+  Windows' Copy as path are stripped). On the command line,
+  `strobe --control HOST:PORT --remote-trust FILE` opens straight into the
+  viewer; a bare IP takes port 47812. `--control` without the file opens the
+  form with the address filled in and the trust option **off**, for a code: a
+  remembered file never connects by itself. `--remote-trust` now needs
+  `--remote` *or* `--control` (a clap group); with `--remote` it is the host's
+  file as before, and the host reads it only when `--remote` is given.
+  `--control` conflicts with `--remote`: one run is a host or a controller.
+- **What is remembered.** `ui.toml` gets `[remote]`: the trust file's path,
+  whether the form uses it, and `controller_id`. The secret is read from the
+  file each time Connect is pressed and lives only in the connection's
+  worker; it is never saved, logged, shown or in the viewer's text
+  (`TrustSecret` prints as `***`, as D288 made it). The controller id is
+  `computer-name-<8 hex of OS randomness>`, made once on first launch and
+  kept, so the host's list and its revoke-by-name refer to one laptop for
+  ever; it is cut to 48 bytes of `[A-Za-z0-9.-]` by `trust::controller_id_for`.
+- **The proof is made only for our own question** (the security review's
+  condition). `trusted::Handshake` is owned by one connection. It sends
+  `trust_start` once, when the host's `hello` arrives, and answers exactly
+  one `trust_challenge` after it. A challenge that arrives before our
+  `trust_start`, on a connection that pairs by code, or a second one, is
+  refused: the connection ends as *refused*, no proof is computed, and the
+  viewer says the host sent one nobody asked for. So the controller can
+  never be used to sign a nonce taken from somewhere else. The `host` in
+  the proof is `client::host_header(address)`, the very function that
+  writes the `Host` header, so the two cannot differ.
+- **Reconnecting is a Stage, not a second path.** `Stage::Reconnecting(n)`
+  sits beside Connecting, Live and Ended. The worker that owns a trusted
+  connection loops: connect, and when it ends without the host having said
+  no (a closed socket, a timeout, connection refused, a pause for failed
+  proofs), set `Reconnecting(n)`, wait `trusted::backoff(n)` and try again.
+  The schedule is 1 s, 2 s, 4 s, 8 s, then 15 s for ever. A connection that
+  brought the host's picture starts it again at attempt 1; one that never got
+  that far keeps counting. Being paired is not enough (review fix): a second
+  laptop that the host pairs and then refuses the lease, because another
+  controller holds it, would otherwise pair and drop once a second for the
+  whole show. The viewer keeps the last image, dimmed and read-only (D286),
+  under a card that says "Reconnecting... (attempt N)" and why, and the
+  toolbar button reads **Disconnect**. The wait is in 50 ms slices that look
+  at the stop flag, so Disconnect ends it at once; input typed while away is
+  dropped, never replayed.
+- **A refusal stops it, and says why.** Wrong file, revoked, trusted pairing
+  unavailable (host without the file or with desktop control off), a bad
+  request, a protocol mismatch, an unanswered challenge: `Ended(Refused)`
+  with the next step in words, a **Reconnect** button (which proves the file
+  again), and nothing retries. Retrying a wrong file would only feed the
+  host's failed-proof limiter (D288). Only `busy` (the host pausing after
+  failures, which ends by itself) is retried. A kill-switch drop on the host
+  is retried once and then shows "does not offer trusted pairing right now".
+- **Code-paired connections are unchanged**: they end in `Ended` and offer a
+  manual Reconnect (D275, D286).
+- **The retry costs a four-hour show nothing.** The loop sleeps in slices,
+  holds no lock while asleep, runs on the worker thread (never the frame
+  loop), and logs attempts 1 to 4 and every 20th, so a night of retries is
+  a few lines.
+
+**Evidence.** Unit tests: the proof against the protocol vector from D288
+and against the host's own `Challenge::verify` (accepted for the host
+dialled, refused for another address or port); an unsolicited, a repeated
+and a malformed challenge refused; the backoff schedule as a pure function;
+controller ids for odd computer names; the trust-file loader's sentences;
+`--control` and `--remote-trust` parsing (both roles, the refused
+combinations); the launch decisions (`Controller::at_launch`). Loopback tests
+with a real host (`desktop::tests`): a trusted connect with no approval and
+the label *trusted*; a wrong file refused once, the worker ended after the
+first backoff would have fired; the host stopped and restarted on the same
+port with the controller back by itself and the lease taken again; Disconnect
+with the host back on the same port, and nobody connects; a host that
+volunteers a challenge is not answered; a second laptop shut out of the lease
+backs off rather than retrying every second; the kill switch retried once and
+then refused. Shell tests for the form's option and
+viewer states for Reconnecting and a refused file.
+
+**Not verified:** two physical machines, a real Wi-Fi drop, Windows, a
+four-hour soak. The retry schedule is the decision, not a measurement.
+
+**Would reopen:** TLS (D288's list); a controller that should also retry a
+refusal after a long wait (a host brought up late with the switch off); a
+file picker if a dialog helper is added.
+
+### D295: Linux is a documented platform: three build packages, a Nix flake, dlopen'd libraries on `LD_LIBRARY_PATH` (2026-10-15)
+
+D291-D294 were taken on other branches; this entry is D295 so the
+numbers do not collide at merge.
+
+**Context.** CI's Linux job already built and tested Strobe, but the packages
+it installs were never explained, the README said only "checked under Xvfb",
+and a Nix user (Bonzupii) offered a dev-shell flake from another project. His
+own note was that it was a dev shell, not an install flake, and that some of
+its graphical dependencies were bloat for his game. The owner wants Linux in
+the README and the repo, and the AMD desktop runs Debian on WSL2.
+
+**What Strobe needs on Linux, from `Cargo.lock`, the build scripts and
+`ldd`/`LD_DEBUG` on a real run.**
+- **Linked (build time, headers and a `.pc` file): ALSA only.** `ldd` on the
+  release binary lists `libasound.so.2` and libc. `alsa-sys` (cpal for
+  capture, midir for MIDI) runs `pkg-config alsa`. Plus a C compiler:
+  `rquickjs-sys` (QuickJS) and `ring` (rustls, for Shadertoy import) compile C.
+  `build-essential pkg-config libasound2-dev` was enough on a clean Ubuntu
+  24.04 (`debootstrap`, no `libxkbcommon-dev`, no Wayland headers, no clang, no
+  git: `build.rs` reports the commit as `unknown` without it).
+- **Loaded with `dlopen` (run time, nothing in `DT_NEEDED`):** libGL, libEGL
+  and libGLX (glutin; the GPU's driver behind them), libX11, libXcursor, libXi,
+  libXrandr and libxcb (winit through `x11-dl`), libxkbcommon and
+  libxkbcommon-x11 (`xkbcommon-dl`), libwayland-client, -cursor and -egl
+  (winit's `wayland-dlopen`, glutin). A build on a machine without them
+  succeeds; the window fails to open. On Nix they must be on `LD_LIBRARY_PATH`.
+- **Not needed:** OpenSSL (TLS is rustls), fontconfig and freetype (egui's fonts
+  are compiled in), udev (MIDI is ALSA's sequencer), Vulkan (no wgpu, D1),
+  libclang. Bonzupii's `vulkan-loader` and `cargo-llvm-cov` are dropped for
+  that reason; his libxkbcommon, wayland, libGL, X11 and alsa-lib stay, and
+  libxcb is added.
+
+**Decision.**
+- **`flake.nix` at the root** with `forAllSystems` over x86_64-linux and
+  aarch64-linux.
+  - `devShells.default`: nixpkgs' `cargo`, `rustc`, `clippy`, `rustfmt`,
+    `pkg-config`, `git`, ALSA in `buildInputs`, and `LD_LIBRARY_PATH` from the
+    dlopen list. **The toolchain is nixpkgs', not rust-overlay or fenix.** The
+    pin in `rust-toolchain.toml` is 1.98.0, nixpkgs-unstable has 1.98.1 and the
+    workspace's `rust-version` is 1.98, so a second toolchain source buys
+    nothing. The shell ignores `rust-toolchain.toml` (no rustup), so
+    `cargo xtask ci` skips the Windows cross-check there, and clippy is 1.98.1
+    where CI is 1.98.0. If nixpkgs falls behind the pin, use
+    `rust-bin.fromRustupToolchainFile`.
+  - `devShells.software`: the default shell plus nixpkgs' Mesa, with
+    `__EGL_VENDOR_LIBRARY_DIRS` and `LIBGL_DRIVERS_PATH` set, for a machine
+    with no GL of its own (a VM, a container, CI). **Mesa is not in the default
+    shell**: forcing it would override the system's driver (NVIDIA's
+    proprietary one, or a newer Mesa) on a real GPU. libglvnd, which is what
+    `libGL` is in nixpkgs, already looks in `/run/opengl-driver`, where NixOS
+    puts the driver.
+  - `packages.default`: `rustPlatform.buildRustPackage` with
+    `cargoLock.lockFile` (every dependency is from crates.io, so no
+    `outputHashes`), building `strobe-app` and `strobe-bench` in one
+    invocation, `doCheck = false` (the tests need a GL context and walk the
+    source tree; CI's Linux job is where they run). `makeWrapper` puts the
+    dlopen list on `LD_LIBRARY_PATH` for `strobe`, `strobe-bench` and
+    `strobe-corpus`. The scene library is installed to `share/strobe/scenes`
+    and linked as `bin/scenes`, which is where `library::resolve` looks "beside
+    the program" for the packaged build. `STROBE_GIT_HASH` carries the flake's
+    revision, since a Nix build has no repository for `build.rs` to ask.
+  - `strobe-bench` has no such lookup, so it needs `--library
+    result/share/strobe/scenes`.
+- **`flake.lock`.** `api.github.com` and `codeload.github.com` are blocked in
+  the agent container, so `nixos-unstable` could not be fetched as `github:`.
+  The lock was made by fetching the same revision (`7fd4004d0511`, the
+  head of `nixos-unstable` on 2026-10-15, which the channel's tarball link also names) with `git+https://github.com/NixOS/nixpkgs`
+  and rewriting the node to `type: github` with the same `rev`, `narHash` and
+  `lastModified`. nixpkgs has no `export-ignore` or `export-subst`, so the git
+  checkout and GitHub's tarball are the same tree, and Nix accepted the
+  rewritten lock and matched the `narHash` against that store path; the
+  GitHub tarball itself was not fetched. If `nix flake metadata` ever
+  disagrees, `nix flake update` regenerates it.
+- **README "Linux" section**, with Debian and Ubuntu packages (verified), Fedora
+  and Arch names (checked against the Fedora 43 and Arch package databases,
+  not built), the Nix route, how to choose Wayland or X11, graphics, audio and
+  MIDI, and WSL2. `docs/COMPATIBILITY.md` gets four rows,
+  `docs/USER_GUIDE.md` and `CONTRIBUTING.md` point to it.
+- **Wayland or X11.** winit 0.30 picks Wayland when `WAYLAND_DISPLAY` or
+  `WAYLAND_SOCKET` is non-empty, else X11 when `DISPLAY` is set.
+  `WINIT_UNIX_BACKEND` no longer exists and Strobe adds no flag, so the way to
+  force one is `env -u WAYLAND_DISPLAY -u WAYLAND_SOCKET` or `env -u DISPLAY`.
+- **ANGLE is Windows-only.** On Linux `--gl angle` is the system's EGL with an
+  OpenGL ES 3.0 context, which is how the GLSL ES dialect is exercised, and
+  `--gl auto` falls back to it.
+
+**What was checked (2026-10-15, cloud container, no GPU, llvmpipe).**
+
+| Claim | Result |
+|---|---|
+| Debian/Ubuntu build list | Clean Ubuntu 24.04 chroot, `build-essential pkg-config libasound2-dev`, `cargo build --release -p strobe-app` and `-p strobe-bench`: built. |
+| Debian/Ubuntu run list | Same chroot plus `libegl1 libegl-mesa0 libgl1-mesa-dri`: `--diagnose` and the headless bench ran (16 scenes, Mesa 24.0.5). Plus the X libraries and Xvfb: control and output screenshots on X11 with desktop GL 3.3 core. Plus Weston headless and the Wayland libraries: both screenshots on Wayland. |
+| Flake, x86_64-linux, Nix 2.34 | `nix develop -c cargo build -p strobe-app -p strobe-bench`: built. `nix build`: built. The result, from another directory: `--help`, `--diagnose` (Mesa 26.2.4), headless bench with `--library`, a screenshot under nixpkgs' Xvfb and under nixpkgs' Weston, the scene library found beside the program. `nix run . -- --help`. |
+| Flake, aarch64-linux | `nix eval` of the package and both shells succeeds. Not built. |
+| Default dev shell on this non-NixOS host | `--diagnose` finds no GL context: expected, there is no driver for libglvnd to load. `.#software` is the answer. |
+
+**Not verified:** NixOS itself (`hardware.graphics`, the ALSA plugin path), any
+real Linux GPU, ALSA, PipeWire or PulseAudio capture, MIDI hardware, GNOME or
+KDE, WSL2 and WSLg (the hand-off has a test script for the AMD desktop's
+Debian), and Fedora and Arch builds.
+
+**Not chosen.**
+- *rust-overlay or fenix*, for the reason above.
+- *Mesa in the default shell*, for the reason above.
+- *`patchelf --add-rpath` instead of a wrapper.* It would work for libraries
+  that glutin and winit `dlopen` from the executable, but the request was a
+  wrapper and a wrapper also covers the helper processes the app starts.
+  The cost is that `LD_LIBRARY_PATH` is inherited by children (an opened link
+  starts `xdg-open` with it), which has not caused a problem so far.
+- *crane or naersk.* `buildRustPackage` is nixpkgs' own and the lock file has
+  no git dependencies.
+
+**Would reopen:** a nixpkgs bump that moves `rustc` below 1.98, a git
+dependency in `Cargo.lock` (needs `outputHashes`), a dlopen'd library
+the list misses (a window that will not open on a clean Nix or Debian box),
+or a real Linux GPU that needs more than `hardware.graphics.enable`.
+
+### D296: tracing and probing the "black above ~160x90" AMD WGL failure; no behaviour change yet (2026-10-15)
+
+**Context.** On the JaJa mini-PC (Vega 3, Adrenalin 26.5.2, native WGL),
+`strobe-bench --context window --gl native --filter 05` renders correctly at
+100x60, 160x90, 161x90 and 160x91 and renders all black, in about 0.2 ms, at
+200x90, 160x120, 240x135, 256x256 and up to 1920x1200, with or without
+`--show-window`. The corpus run at 160x90 on the same context also shows
+`neon_city` black on native only (1.7 ms against 555.6 ms on ANGLE), and that
+scene has literal passes far larger than the window (D194, D280). The RX 580
+(also AMD WGL) showed hidden-window draws black earlier. Intel, NVIDIA and
+Mesa llvmpipe are fine.
+
+The suspicion was the pixel-ownership test: something draws to, reads from or
+sizes a viewport by the default framebuffer, whose pixels outside the visible
+client area AMD leaves undefined.
+
+**What the code says.** The offscreen path never touches framebuffer 0.
+Checked end to end, not assumed:
+
+- Every pass draws into an FBO, with `bind_framebuffer(Some(..))` and
+  `viewport(size)` set per pass (`player.rs` `render`, lines 1008-1009), and
+  `plain_state` turns the scissor test off each frame (`gl/mod.rs`
+  `plain_state`). New targets are cleared into their own FBO with their own
+  viewport (`player.rs` `new_target`, 1321-1324).
+- `read_output` reads from the final target's FBO (`gl/mod.rs` `read_rgba8`,
+  which binds it first). The only users of framebuffer 0 are `present`
+  and `read_default_*`, which the bench, autocontrol and corpus never call;
+  `strobe-bench` has no swap at all.
+- The asynchronous PBO readback is off unless a scene reads
+  `textureFinalPass`, and `05-domain-warp` does not.
+- No size appears in any condition on the bench path, so nothing branches at
+  160x90, 16384 pixels, or anywhere else.
+
+So the pixel-ownership explanation, as stated, does not apply to this code:
+that test governs the default framebuffer, and the renderer does not use it.
+`tests/render.rs` now pins this
+(`offscreen_rendering_never_touches_the_default_framebuffer`).
+
+The data does not say "per-axis limit" either. 160x90 is 14,400 pixels and
+161x90 and 160x91 are 14,490 and 14,560, all good; the smallest bad size,
+200x90, is 18,000. A pixel-count threshold between 14,560 and 18,000 fits every
+observation (16,384 is 128x128), as does a threshold on the largest target
+against the drawable. `neon_city`, whose targets exceed the window, fits the
+second reading. Neither can be told apart from the code, because the code
+does the same thing at every size.
+
+**Decision.** No guess-fix. A change that sizes the window to the render, or
+adds a pbuffer, would be an untested workaround for an unknown cause, in a
+path (the app's output) that works at 1920x1080. Instead the failure is made
+measurable on the machine that has it, with all of it opt-in and off the
+frame loop's hot path:
+
+- `STROBE_GL_TRACE=1` (`gl::trace`): every bind, viewport, clear, draw, blit,
+  read-back and texture allocation, with the framebuffer and viewport in
+  force, logged once per distinct event (target `gl_trace`) and counted;
+  `strobe-bench` prints the summary at the end. The first time each viewport
+  is set it is read back (`GL_VIEWPORT`) and a mismatch is a warning, which
+  catches a driver clamping to the window. When off, each wrapper pays one
+  one-byte `Cell` read and makes no GL call.
+- `strobe-bench --probe [--size WxH]`: a ladder of sizes (the good and bad
+  ones above, either side of 16,384 pixels, long thin ones) by RGBA8 and
+  RGBA16F. For each: viewport read back, clear-and-read, a trivial draw and
+  read, GL error. It separates "driver drops draws" from "drops clears" from
+  "clamps the viewport", and finds the limit. Writes `probe.md`.
+- `strobe-bench --window-size WxH` (`Request::window_size`): the stand-in
+  window's client size. If the black frames go away once the window is larger
+  than the render, the driver is tying work to the drawable.
+- `STROBE_GL_DEBUG` is honoured by the offscreen runner (opt-in, off when
+  unset), so the bench shows what the AMD driver says (`gl_driver` target).
+- The bench's all-black error now points at `--probe` and the trace.
+
+The exact mini-PC run is in [`hardware/MINIPC.md`](hardware/MINIPC.md).
+
+**Would reopen / next.** The probe's reading decides the fix. If the viewport
+reads back clamped or draws are dropped above the window's size, size the
+offscreen window to the largest target (or use a WGL pbuffer), and look at the
+app's output window for scenes whose literal passes exceed it (`neon_city`);
+if it is a pixel-count limit independent of the window, it is a driver bug to
+report and to route around by a minimum target size.
+
+### D299: on Linux a default input that will not open falls back to `pulse`, then `pipewire`; the check script picks D3D12 on WSL2 (2026-10-15)
+
+**Context.** The AMD desktop's Debian on WSL2 (AMD.md A14) started on synthetic
+audio: cpal opens ALSA's `default` PCM, which WSLg does not define, while
+`pulse` works. Mesa also chose llvmpipe there although `/dev/dxg` and
+`d3d12_dri.so` were present, and `GALLIUM_DRIVER=d3d12` was about 3x faster.
+
+**Decision.**
+- `strobe_audio::capture::device::open`: when the default input fails to open and
+  `cfg!(target_os = "linux")`, it looks through cpal's input devices for one
+  whose backend id (ALSA's PCM name) is `pulse`, then `pipewire`, ignoring
+  case and exact match only, opens it and logs which. Otherwise the first
+  error is returned and the caller falls back to synthetic as before. It is a
+  value check, not `#[cfg]`, so every host type-checks it. The choice of name
+  is a pure function (`fallback_index`) with a unit test. The README also
+  documents the `~/.asoundrc` route, which fixes every ALSA program.
+- `scripts/check-linux.sh` exports `GALLIUM_DRIVER=d3d12` when `/dev/dxg`
+  exists and the variable is unset, and says so; `STROBE_CHECK_NO_D3D12=1`
+  opts out. The app itself does not set it: that is the user's Mesa
+  environment, and the README says how.
+- A `--control` run with the default library is not told its missing library
+  is an `ERROR`, and a missing audio input is logged at info there: a
+  controller shows the host's UI and needs neither.
+
+**Not verified:** the fallback against a live WSLg `pulse` device.

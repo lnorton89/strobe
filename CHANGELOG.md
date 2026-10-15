@@ -13,7 +13,13 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **audio:** on Linux fall back to a pulse or pipewire input when the default will not open ([`084c6db`](https://github.com/lnorton89/strobe/commit/084c6db0236026f7ad9dd3b45c7f1bd51b6c7345))
+- control a venue's show machine with a trust file, reconnecting by itself ([`4da7d2b`](https://github.com/lnorton89/strobe/commit/4da7d2b80445aa3f3116a19ff9dbbd2be132f435))
+- a controller id for a laptop and the Host header a trusted proof binds to ([`3196ef4`](https://github.com/lnorton89/strobe/commit/3196ef4bf8b496ca92640b48ea7449a7ac0e6b00))
+- **app:** --audio ambient, the synthetic track without its beat ([`ac94a3c`](https://github.com/lnorton89/strobe/commit/ac94a3cc5ddf8da8804993cb918f47e5346a724d))
 - **app:** one click on a scene card makes it live, and LIB flips between Scenes and Controls ([`f400de0`](https://github.com/lnorton89/strobe/commit/f400de000dd442a319cd2f53eb7ad0a6420e9134))
+- **bench:** --probe finds the size where a driver drops work, --window-size bisects the drawable (D289) ([`958ebca`](https://github.com/lnorton89/strobe/commit/958ebca5495f3110bb8a17c07bdccc03f41e7969))
+- **gfx:** STROBE_GL_TRACE records where the renderer draws, and a test pins that it never uses framebuffer 0 (D289) ([`403d2da`](https://github.com/lnorton89/strobe/commit/403d2da52846dfed42f3941a44a5aabf3e83f0d1))
 - **app:** venue mode launch flags and trust file on the host ([`c9eed9b`](https://github.com/lnorton89/strobe/commit/c9eed9b730571074c3b2cf884012e725f9e4efa0))
 - **remote:** trusted pairing over the WebSocket protocol ([`2337d78`](https://github.com/lnorton89/strobe/commit/2337d78d0ffe287ddd52147e750e42803f7aec13))
 - **remote:** trust file and HMAC-SHA256 challenge-response for venue mode ([`2b19e43`](https://github.com/lnorton89/strobe/commit/2b19e43672c82784a3c9f73cbf19f2d6a7c497d6))
@@ -33,12 +39,21 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **app:** the reconnect card states the real wait and attempt ([`7fcfb17`](https://github.com/lnorton89/strobe/commit/7fcfb17f21ce95c4672f486db3fef64bd7e0ead0))
+- **app:** a pure controller does not log a missing library as an error ([`7fb6939`](https://github.com/lnorton89/strobe/commit/7fb6939f8d8d4e4fc6096e81f7dab54844463677))
+- **audio:** log the forced audio source once, where the choice is final ([`992372b`](https://github.com/lnorton89/strobe/commit/992372bc6c0cd04e33231221b423f5e3d96731da))
+- **gfx:** an offscreen window reports the size it was given, not the size asked ([`20edd15`](https://github.com/lnorton89/strobe/commit/20edd156298b0ebc8ddcbbb38ed9329879932885))
+- **bench:** --probe reads a float target through an RGBA8 copy on GLES ([`9e4e1a5`](https://github.com/lnorton89/strobe/commit/9e4e1a5626953a62d82b6e28632075b8e3a50e41))
+- a trust file that cannot be read brings up the form instead of failing silently ([`5b1dac6`](https://github.com/lnorton89/strobe/commit/5b1dac6826af36a7484ef178196147e9f9b49686))
+- a trusted controller restarts its backoff only after a frame, not on pairing ([`102f796`](https://github.com/lnorton89/strobe/commit/102f79669d6cbf21e81ed77975da7040c6f543a9))
+- **gfx:** upload texture rows tightly packed, not at GL's 4-byte alignment ([`971b694`](https://github.com/lnorton89/strobe/commit/971b6945d9c88d52a48ed1e25fc02928c09b545d))
 - **scene:** run global initializers in main on desktop too, so sprinkles is not black ([`0037fcf`](https://github.com/lnorton89/strobe/commit/0037fcf71b4f17d00ea6e41c883f1433662c98b4))
 - **app:** keep the output's swap wait while the loop drives the control window ([`c812236`](https://github.com/lnorton89/strobe/commit/c812236b22ae922ee557529d3d974933c9646097))
 - **app:** run the control frame from the event loop when Windows withholds its paints ([`e96573b`](https://github.com/lnorton89/strobe/commit/e96573b6d63b334984275e899c06640e194cae6e))
 - **app:** do not print a laptop command that does not exist yet ([`92f4965`](https://github.com/lnorton89/strobe/commit/92f4965b7e45cccd75975eb26c8fb8ca2c6bb9ac))
 - **remote:** bind a trust proof to the address the connection reached ([`dd8c2f5`](https://github.com/lnorton89/strobe/commit/dd8c2f5741c5d13fec7094765eff6ffbe8240971))
 - **app:** compile the playlist from output frames when the control window stops painting ([`fca44a5`](https://github.com/lnorton89/strobe/commit/fca44a53e14838c9591c9d32a4257a5e81ae6d85))
+- **app:** compile the playlist from output frames when the control window stops painting ([`4460897`](https://github.com/lnorton89/strobe/commit/4460897f25ff65f6abb8115bd0447c6f5fd9af5a))
 - **gfx:** restart a kept pass that a restarted pass reads ([`96aeeeb`](https://github.com/lnorton89/strobe/commit/96aeeebf255504b1270b22942577bffd1d30d2a4))
 - **gfx:** keep the passes a resize does not change ([`a5cd1fd`](https://github.com/lnorton89/strobe/commit/a5cd1fd26cec2675b0c0721585d13a0917661730))
 - **ui:** scroll the connect form's address field into view in small windows ([`9b75aa0`](https://github.com/lnorton89/strobe/commit/9b75aa0974ec29674ff1004246af637378415f35))
@@ -67,12 +82,23 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Documentation
 
+- hardware evidence for D290, venue mode on loopback, and Linux under WSL2 ([`aadc967`](https://github.com/lnorton89/strobe/commit/aadc967db8c01d576df64ffd2d8a67c136fffe20))
+- WSL2 GPU and audio setup, and the check script picks D3D12 there (D296) ([`2958c88`](https://github.com/lnorton89/strobe/commit/2958c8892ded0f0af32161cca066a5c1625f52b1))
+- note the covered control window and venue mode in the architecture companion ([`44346aa`](https://github.com/lnorton89/strobe/commit/44346aaeab11b4116c3b5ebf7068c290fcfe52a3))
+- keep the mini-PC probe's stdout, and state the trace's real cost (D296) ([`cc40cf8`](https://github.com/lnorton89/strobe/commit/cc40cf81fecf44f0786d2fa0ca408e3737a8ee75))
+- **minipc:** the first JaJa PDX show, four hours with no crash restarts ([`08375c2`](https://github.com/lnorton89/strobe/commit/08375c2d6c924ebe6e33e3d6488edaff34288a8b))
+- Linux as a documented platform, with a check script (D294) ([`2b4d009`](https://github.com/lnorton89/strobe/commit/2b4d009d573265864acbe97f1f1bd3e2e8435969))
+- --audio ambient in the user guide ([`fdcb76a`](https://github.com/lnorton89/strobe/commit/fdcb76a2600197ce212167a6a374ffad2b79ac06))
+- D294, the laptop side of venue mode, in the guide, roadmap and audit ([`5f09af9`](https://github.com/lnorton89/strobe/commit/5f09af93ef6ab4cf83ed234c68dfce699bb41875))
 - D292 makes ANGLE's Vulkan and Metal backends the second backend ([`f782cee`](https://github.com/lnorton89/strobe/commit/f782ceee4fd29dc2cd2e7e9858095435e0988ca0))
 - run the G-03 spike over the full Synesthesia corpus ([`ea4491e`](https://github.com/lnorton89/strobe/commit/ea4491e6159759db954482b0ea5fd475ab59a2b0))
+- add high-resolution architecture PNG export ([`5df7808`](https://github.com/lnorton89/strobe/commit/5df780804bf83cf8920ae7cdc6407435ccfc898f))
+- add source-researched engine architecture infographic ([`78a69c9`](https://github.com/lnorton89/strobe/commit/78a69c988d116ec05aa2b043ffb11fe1511d3389))
 - D291 one-click scenes and the Scenes and Controls pages ([`2195446`](https://github.com/lnorton89/strobe/commit/21954467351570cf613a3baea5f82134a3bbeef3))
 - move the G-03 front-end research under docs/research ([`43ccdd3`](https://github.com/lnorton89/strobe/commit/43ccdd3399c2b109d4b57ae69645ea09fdf80c50))
 - D290 keeps the swap wait for a driven window and corrects a rejected option ([`50062a0`](https://github.com/lnorton89/strobe/commit/50062a0b1736eb21a2a3c2baf5b04140abd422be))
 - D290, the mini PC's control window starved of paints, and the hotfix verification ([`bf2568c`](https://github.com/lnorton89/strobe/commit/bf2568ccf419ededb905a74cfd63889c40d8becd))
+- D289, the AMD black-above-160x90 audit and the mini-PC diagnostic run ([`1a80ade`](https://github.com/lnorton89/strobe/commit/1a80ade30572d9c7848b3712674ca6904d4994c1))
 - D288 venue mode, user guide, roadmap and status audit ([`bcdf95f`](https://github.com/lnorton89/strobe/commit/bcdf95f7c1c10d259843229487d62c52c7397555))
 - D287 restarts a kept pass that a restarted pass reads ([`9d559fd`](https://github.com/lnorton89/strobe/commit/9d559fd26279cb0f8fa855273769bc88e7d122e9))
 - D287, a resize keeps the passes whose size it does not change ([`03c8e77`](https://github.com/lnorton89/strobe/commit/03c8e7743032b37eaa307515faa83e85f573ae7e))
@@ -102,12 +128,15 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Internal
 
+- a Nix flake with a dev shell, a software-GL shell and a wrapped package (D294) ([`0c43a41`](https://github.com/lnorton89/strobe/commit/0c43a41baaca90796374a9ea6ad22d850f556241))
+- remove temporary PNG render workflow ([`89ce99b`](https://github.com/lnorton89/strobe/commit/89ce99b49e0ea4d658017aaa08586ce65b643b40))
 - **deps:** bump rustls to 0.23.46 for the RUSTSEC advisories against 0.23.45 ([`f1a157c`](https://github.com/lnorton89/strobe/commit/f1a157cdb15df8874d9b234db003763ff81d7536))
 - take base64 from the workspace like every other dependency ([`52d4a66`](https://github.com/lnorton89/strobe/commit/52d4a66f39a402654f52960c438c63bbb3dc2887))
 - ignore a strobe-syn-corpus clone inside the checkout ([`2061e54`](https://github.com/lnorton89/strobe/commit/2061e54791b4b4e4041085bf28832dc7cdb48a1d))
 
 ### Tests
 
+- **script:** time the setUniform budget as the best of five frames ([`b1b97ca`](https://github.com/lnorton89/strobe/commit/b1b97ca329549096453ce47691d75c0b657c16c7))
 - **remote:** give the revoke-all trust assertion a message ([`363a0db`](https://github.com/lnorton89/strobe/commit/363a0db46393abc2ed465de50e9bfc8ea9c12603))
 
 ## [0.1.0] - 2026-10-14

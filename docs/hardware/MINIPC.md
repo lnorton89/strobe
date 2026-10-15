@@ -208,9 +208,138 @@ newest log in `%LOCALAPPDATA%\strobe\logs\`:
 `STROBE_LOG=debug` also logs every later takeover and every hand-back
 ("Windows paints it again"), if the pattern needs a closer look.
 
+## The first JaJa PDX show (2026-10-15)
+
+The four-hour show kit from the private `jaja-strobe-assets` repository
+(`playlists/jaja-4h.toml`, `show/start-show.cmd`) ran on the two
+mirrored projectors. The topology was Windows Duplicate at 1920x1080. It
+ran on build 4460897, which is c879851 plus the playlist-compile backstop
+(fca44a5), with `--audio synthetic` because there was no microphone. The
+StrobeShow scheduled task started it at logon in session 1.
+
+- **Timeline:** started 19:38. The output was black until the backstop
+  hotfix (see the section above). Run 3 started 20:02:11, prepared 14 scenes
+  in 4 s, ran the test card for 2 min, then played all 53 cues on schedule.
+  It reached the final cue (`01-aurora-gradient`, `advance = "manual"`) at
+  23:56:53, 3 h 54 m 41 s after the test card, and held there until the
+  owner stopped it.
+- **Stability:** no crash restarts in the run. Private bytes rose from 206
+  to 217 MB over the first three hours and then stayed flat; the working
+  set stayed at 25-38 MB. No new WARN or ERROR lines after startup.
+- **Frame rate:** about 60 fps almost throughout. Exceptions:
+  - `14-electric-bloom` with its `hue = 0.85` override ran at 52-54 fps,
+    GPU 14-15 ms, with no late frames;
+  - one crossfade between two heavy scenes (`15-neon-ribbon-flow` into
+    `05-domain-warp`) gave 40 late frames in that minute.
+- **Audio:** the synthetic 120 BPM beat looked jarring on the projectors.
+  `--audio ambient` (the synthetic track without hits or beat triggers)
+  was built during the show but not deployed. Use it, or a USB mic with
+  `--audio auto`, next time. Stereo Mix is no use here: no default
+  recording device is set, so `auto` falls back to synthetic.
+- **Not used:** the laptop remote. Venue mode (D288, D294) landed on master
+  after the show started.
+
+## Black frames above about 160x90 (2026-10-15, D296)
+
+`strobe-bench --context window --gl native [--show-window] --filter 05`:
+correct at 100x60, 160x90, 161x90, 160x91; all black in about 0.2 ms at
+200x90, 160x120, 240x135, 256x256, 300x300, 320x180, 480x270, 640x360 and
+1920x1200. The corpus at 160x90 shows `neon_city` black on native only (1.7 ms
+against 555.6 ms on ANGLE; its literal passes are far larger than the
+window). The app's real 1920x1080 output window renders fine.
+
+The code was audited and the offscreen path never touches the default
+framebuffer, so the pixel-ownership explanation does not hold as stated; see
+D296. The cause is not yet known. Run this in session 1 (a one-shot scheduled
+task as before) from a build of this commit, and send back the four output
+folders and the logs.
+
+```powershell
+cd $env:USERPROFILE\strobe
+$env:STROBE_LOG = "info,gl_driver=debug,gl_trace=info"
+$env:STROBE_LOG_STDERR = "1"
+$env:STROBE_GL_DEBUG = "1"
+$env:STROBE_GL_TRACE = "1"
+$b = "cargo run --release -p strobe-bench --"
+
+# 1. The ladder, default 16x16 stand-in window. Finds the limit and says
+#    whether clears, draws or the viewport go wrong.
+cmd /c "$b --context window --gl native --probe --size 200x90 --out target\probe-small > target\probe-small.log 2>&1"
+
+# 2. The same ladder with a window as large as the screen allows. Windows
+#    caps a new window at about the screen's size; the "Context:" line in
+#    probe.md gives the size it actually got.
+cmd /c "$b --context window --gl native --probe --size 200x90 --window-size 2048x1200 --out target\probe-big > target\probe-big.log 2>&1"
+
+# 3. The real failure with the trace, small and large window.
+cmd /c "$b --context window --gl native --filter 05 --size 200x90 --out target\bench-small > target\bench-small.log 2>&1"
+cmd /c "$b --context window --gl native --filter 05 --size 200x90 --window-size 2048x1200 --out target\bench-big > target\bench-big.log 2>&1"
+```
+
+Reading it:
+
+- **`probe-small` fails and `probe-big` passes** (and `bench-big` is not
+  black): the driver limits work to the window's drawable. The first bad row
+  in `probe.md` is the limit; the "Viewport read back" column shows whether it
+  is a clamped viewport (smaller than asked) or dropped draws (clear 100 %,
+  draw 0 %).
+- **Both fail at the same size:** a size limit that is not the window's. A
+  pixel count near 16,384 shows as 128x128 passing and 129x128 failing with
+  `1000x16` and `16x1000` passing; a per-axis limit shows as those two
+  failing. The driver is dropping work for the target; read the `gl_driver`
+  lines in the log.
+- **Both pass:** the bench scene differs from the probe, so compare the
+  `gl_trace` summaries (near the end of `bench-small.log`, before
+  `wrote target\bench-small`): each pass's draw should be into a non-zero
+  framebuffer at its own size, and any `glViewport(...) reads back as` warning
+  names the clamp.
+- **Everything passes at 200x90 but `bench-small` is black:** a shader or
+  state problem specific to 05 on this driver, not size.
+
+## D290 verified on the projector (2026-10-15, Task M5)
+
+The "Verification after the show" list above, run on the mini PC through the
+scheduled task in session 1, with `--audio ambient`.
+
+- **Takeover:** `control window: no paint from Windows for 1217 ms
+  (takeover 1)` at 3.5 s, once.
+- **Redraws:** about 119 driven redraws a minute, all unpainted (the
+  expected 2 Hz x 60 s). Not `control 0 redraws`.
+- **Playlist:** 14/14 prepared in 5.4 s, so it is no longer stuck at 1 of 14.
+- **Frame rate:** 59.9 fps in the `perf:` lines.
+- **Audio:** the ambient source was logged. (The log line said "synthetic
+  source (--audio synthetic)" first; fixed since, so it names the source
+  chosen.)
+- **Close:** `WM_CLOSE` to the control window closes the app cleanly.
+- **Not checked here:** the laptop's remote viewer on this run; M6 below
+  covers venue mode.
+
+## Venue mode on loopback (2026-10-15, Task M6, D288, D294)
+
+Host and controller both ran on the mini PC, over 127.0.0.1.
+
+- **Pairing:** `--remote --remote-trust FILE` on the host and `--control
+  127.0.0.1:47812 --remote-trust FILE` on the controller paired with no
+  approval.
+- **Viewer:** it showed the host's UI.
+- **Host kill:** after the host process was killed the controller showed
+  "Reconnecting…" and re-paired by itself 13 s later, when the host was
+  back.
+- **Not tested:** Disconnect (and that it stops the retries).
+- **Cost:** running both ends on one 2-core machine cost the host 210 late
+  frames a minute. That is the price of the test setup, not a measurement of
+  venue mode; the real test is two machines.
+- **Seen on the controller, since fixed:** a pure controller logged `ERROR IO
+  "library scenes: cannot read scenes"` and a WARN for no audio device, and
+  the card said it retried "about every 15 s" when the wait is 1, 2, 4, 8,
+  then 15 s.
+
 ## Still to do here
 
-- The D290 verification above, after the show.
+- Run a two-machine venue-mode test with the laptop (loopback is M6), and
+  Disconnect.
+- Make `14-electric-bloom` cheaper on the Vega 3, or let it scale.
+
 - Native strobe-bench and control generation in session 1: does a hidden
   window on AMD WGL draw at all (M3b)?
 - The JaJa test card on the projector at native 1920x1200, with

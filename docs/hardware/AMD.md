@@ -292,3 +292,36 @@ strobe-bench `--context window` at 1920x1080, mean ms native / ANGLE:
   blow-out.
 - **Minor, in Acid Mirror:** small mirrored dash fragments just below mid
   height, and hard, slightly aliased edges on the black voids.
+
+## Linux under WSL2 (2026-10-15, Task A14, D295)
+
+Debian 13 on WSL2 (WSLg), on the RX 580, running `scripts/check-linux.sh`.
+`/dev/dxg` and Mesa's `d3d12_dri.so` were present.
+
+| Step | Result |
+|---|---|
+| apt packages | SKIP (done beforehand) |
+| Rust toolchain | PASS |
+| Build (`cargo build --release -p strobe-app -p strobe-bench`) | PASS, 289 s |
+| `strobe --help` | PASS |
+| Headless bench (EGL device) | PASS, on llvmpipe |
+| Bench on a window context | PASS |
+| App window, default backend: screenshot | PASS |
+| App window, X11 forced: screenshot | PASS |
+| App window, Wayland forced: screenshot | PASS |
+| MIDI | SKIP (no `/dev/snd/seq` on WSL2) |
+
+- **Renderer.** Mesa chose llvmpipe by default. With `GALLIUM_DRIVER=d3d12`
+  it is "D3D12 (Radeon RX 580 Series) | 4.2 Core", and the bench ran about
+  3x faster at twice the pixels. The script now sets it when `/dev/dxg`
+  exists (opt out with `STROBE_CHECK_NO_D3D12=1`).
+- **Bench on D3D12 at 1280x720, ms per frame:** 05 0.90, 10 12.32, 12 2.84,
+  16 0.69.
+- **Audio was synthetic.** cpal opens ALSA `default`, which does not exist
+  under WSLg (`arecord -D default`: "Unknown PCM default"), while
+  `arecord -D pulse` works with WSLg's RDPSource. Fixed two ways: an
+  `~/.asoundrc` with `pcm.!default pulse` and `ctl.!default pulse` (README,
+  WSL2), and Strobe now tries an input named `pulse`, then `pipewire`, when
+  the default will not open. The second is not yet re-run on this machine.
+- **Not covered:** a real Linux GPU other than D3D12 under WSL2, and a
+  physical audio input.

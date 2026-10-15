@@ -107,6 +107,87 @@ pub struct AudioInput {
     status: CaptureStatus,
     status_read: Option<Instant>,
     label: String,
+    /// `--audio ambient`: the synthetic track made calm, if asked for.
+    ambient: Option<Ambient>,
+    /// This run only controls another Strobe (`--control`), so a machine
+    /// with no input device is not worth a warning.
+    controller: bool,
+}
+
+/// The synthetic track without a beat (`--audio ambient`): hits and beat
+/// triggers held at zero, levels a slow swell, the textures damped. The
+/// clocks and the smooth tempo shapes keep running, so scenes still move.
+/// Indices are resolved once; per frame it only writes into the frame.
+#[derive(Debug)]
+struct Ambient {
+    /// Scalars held at zero: hits, beat triggers, the twitcher.
+    zero: Vec<usize>,
+    /// Level scalars, replaced by the swell.
+    levels: Vec<usize>,
+}
+
+impl Ambient {
+    /// How much of the synthetic textures' amplitude is kept.
+    const TEXTURE_GAIN: f32 = 0.35;
+    /// The swell's period in seconds.
+    const SWELL_PERIOD: f32 = 16.0;
+
+    fn new() -> Self {
+        const ZERO: &[&str] = &[
+            "syn_Hits",
+            "syn_BassHits",
+            "syn_MidHits",
+            "syn_MidHighHits",
+            "syn_HighHits",
+            "syn_OnBeat",
+            "syn_ToggleOnBeat",
+            "syn_RandomOnBeat",
+            "syn_BPMTwitcher",
+        ];
+        const LEVELS: &[&str] = &[
+            "syn_Level",
+            "syn_BassLevel",
+            "syn_MidLevel",
+            "syn_MidHighLevel",
+            "syn_HighLevel",
+        ];
+        let find = |names: &[&str]| {
+            names
+                .iter()
+                .filter_map(|name| SCALARS.iter().position(|scalar| scalar == name))
+                .collect()
+        };
+        Self {
+            zero: find(ZERO),
+            levels: find(LEVELS),
+        }
+    }
+
+    /// Calms a frame the synthetic track just filled for scene time `time`.
+    fn calm(&self, time: f32, frame: &mut AudioFrame) {
+        let phase = time * std::f32::consts::TAU / Self::SWELL_PERIOD;
+        for &index in &self.zero {
+            if let Some(value) = frame.scalars.get_mut(index) {
+                *value = 0.0;
+            }
+        }
+        for (band, &index) in self.levels.iter().enumerate() {
+            // Each band a little out of step with the others.
+            let swell = 0.35 + 0.1 * (phase + band as f32 * 0.7).sin();
+            if let Some(value) = frame.scalars.get_mut(index) {
+                *value = swell;
+            }
+        }
+        for texel in frame
+            .spectrum
+            .iter_mut()
+            .chain(frame.level_trail.iter_mut())
+        {
+            for channel in texel.iter_mut() {
+                *channel *= Self::TEXTURE_GAIN;
+            }
+        }
+    }
 }
 
 impl std::fmt::Debug for AudioInput {
@@ -144,6 +225,8 @@ impl AudioInput {
             status: CaptureStatus::default(),
             status_read: None,
             label: String::new(),
+            ambient: None,
+            controller: false,
         };
         if capture {
             input.label = "synthetic (opening audio input...)".to_string();
@@ -152,9 +235,41 @@ impl AudioInput {
         } else {
             input.label = "synthetic (forced)".to_string();
             input.announced = Some(Source::Synthetic);
-            log::info!("synthetic source (--audio synthetic)");
         }
         input
+    }
+
+    /// With `ambient` true, the synthetic track plays without its beat
+    /// (`--audio ambient`). Only meaningful without capture.
+    ///
+    /// This is where a forced source is logged, once, because only here is
+    /// the choice final: `--audio ambient` and `--audio synthetic` both
+    /// start from `new(false)`.
+    pub fn with_ambient(mut self, ambient: bool) -> Self {
+        if ambient {
+            self.ambient = Some(Ambient::new());
+            self.label = "ambient (no beat)".to_string();
+            log::info!("ambient source (--audio ambient): synthetic without hits or beats");
+        } else if !self.wants_capture {
+            log::info!("synthetic source (--audio synthetic)");
+        }
+        self
+    }
+
+    /// Marks a run that only controls another Strobe (`--control`): it may
+    /// have no audio input, and says so at info level, not as a warning.
+    pub fn with_controller(mut self, controller: bool) -> Self {
+        self.controller = controller;
+        self
+    }
+
+    /// The level at which "no usable capture device" is logged.
+    fn no_device_level(&self) -> log::Level {
+        if self.controller {
+            log::Level::Info
+        } else {
+            log::Level::Warn
+        }
     }
 
     fn start_capture(&mut self) {
@@ -276,6 +391,9 @@ impl AudioInput {
                     &mut self.frame.level_trail,
                     self.trail_seconds,
                 );
+                if let Some(ambient) = &self.ambient {
+                    ambient.calm(time, &mut self.frame);
+                }
             }
         }
         &self.frame
@@ -312,7 +430,8 @@ impl AudioInput {
                             .action("using synthetic audio; capture retries in the background"),
                     );
                 } else {
-                    log::warn!(
+                    log::log!(
+                        self.no_device_level(),
                         "no usable capture device ({reason}); using synthetic audio, \
                          and retrying in the background"
                     );
@@ -495,6 +614,60 @@ mod tests {
             "label: {}",
             input.label()
         );
+        Ok(())
+    }
+
+    #[test]
+    fn a_controller_run_does_not_warn_about_a_missing_input() -> Result<()> {
+        assert!(
+            AudioInput::new(false).no_device_level() == log::Level::Warn,
+            "a show machine without an input is worth a warning"
+        );
+        assert!(
+            AudioInput::new(false)
+                .with_controller(true)
+                .no_device_level()
+                == log::Level::Info,
+            "a controller does not need audio"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn ambient_frames_keep_the_clocks_and_drop_the_beat() -> Result<()> {
+        let index = |name: &str| SCALARS.iter().position(|scalar| *scalar == name);
+        let (Some(hits), Some(on_beat), Some(level), Some(time), Some(bpm)) = (
+            index("syn_BassHits"),
+            index("syn_OnBeat"),
+            index("syn_BassLevel"),
+            index("syn_Time"),
+            index("syn_BPM"),
+        ) else {
+            anyhow::bail!("the scalars this test reads exist");
+        };
+        let mut plain = AudioInput::new(false);
+        let mut calm = AudioInput::new(false).with_ambient(true);
+        let mut beat_seen = false;
+        for step in 0..240 {
+            let t = step as f32 / 60.0;
+            let synthetic = plain.frame_at(t).scalars.clone();
+            beat_seen |= synthetic[hits] > 0.1 || synthetic[on_beat] > 0.5;
+            let frame = calm.frame_at(t);
+            assert!(
+                frame.scalars[hits] == 0.0 && frame.scalars[on_beat] == 0.0,
+                "no hits or beat triggers at {t}"
+            );
+            assert!(
+                (0.2..=0.5).contains(&frame.scalars[level]),
+                "levels are a gentle swell at {t}: {}",
+                frame.scalars[level]
+            );
+            assert!(
+                frame.scalars[time] == synthetic[time] && frame.scalars[bpm] == synthetic[bpm],
+                "clocks and tempo are the synthetic track's at {t}"
+            );
+        }
+        assert!(beat_seen, "the plain synthetic track does have a beat");
         Ok(())
     }
 
