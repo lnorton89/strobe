@@ -111,6 +111,10 @@ struct Scenario {
     desktop_access: bool,
     /// The command palette is open with this typed (D262).
     palette: Option<&'static str>,
+    /// Something asked for the "Control another Strobe" form to be shown
+    /// (the palette entry, or a failed connection's retry): Settings
+    /// scrolls to it and focuses the address.
+    reveal_connect: bool,
     /// The Editor refused a Save and reload: its `scene.json` does not
     /// parse (D263).
     editor_invalid: bool,
@@ -173,6 +177,7 @@ const BASE: Scenario = Scenario {
     lan: false,
     desktop_access: false,
     palette: None,
+    reveal_connect: false,
     editor_invalid: false,
     tagging: false,
     generate: false,
@@ -194,6 +199,18 @@ fn scenarios() -> Vec<Scenario> {
             lan: true,
             desktop_access: true,
             panes: &[Pane::Settings],
+            ..BASE
+        },
+        Scenario {
+            name: "settings at the control another strobe form",
+            lan: true,
+            reveal_connect: true,
+            panes: &[Pane::Settings],
+            ..BASE
+        },
+        Scenario {
+            name: "palette finds control another strobe",
+            palette: Some("another strobe"),
             ..BASE
         },
         Scenario {
@@ -643,7 +660,7 @@ fn sample_lan(on: bool, desktop: bool) -> crate::lan::LanView {
             (phone("c00000001", "iPhone at 192.168.1.23"), true),
             (phone("c00000002", "iPad at 192.168.1.24"), false),
         ],
-        connections: 2,
+        connected: 2,
         desktop_controlled: desktop,
     }
 }
@@ -1052,6 +1069,9 @@ fn draw_events(
     let mut lan_address = String::new();
     let mut lan_port = "47812".to_string();
     let mut desktop_controller = crate::desktop::Controller::default();
+    if scenario.reveal_connect {
+        desktop_controller.reveal_form();
+    }
     let mut shell_state = ShellState::default();
     let mut actions = Vec::new();
     let mut all_actions = Vec::new();
@@ -1621,6 +1641,15 @@ fn screenshots_when_asked() -> Result<()> {
     };
     let dir = PathBuf::from(dir);
     let sizes = SIZES.iter().copied().chain(SMALL_SIZES);
+    for size in sizes.clone() {
+        for (name, how) in VIEWER_STATES {
+            let mut drawn = draw_viewer(how, size, 8)?;
+            let file = format!("{name}-{}x{}.png", size.0, size.1);
+            if !shoot(&mut drawn, size, &dir.join(file))? {
+                return Ok(());
+            }
+        }
+    }
     for size in sizes {
         for scenario in scenarios() {
             // Enough frames for a drawer to finish fading in, so the picture
@@ -1632,6 +1661,156 @@ fn screenshots_when_asked() -> Result<()> {
             }
         }
     }
+    Ok(())
+}
+
+/// The states the desktop viewer draws (D275), named for their pictures.
+const VIEWER_STATES: [(&str, crate::desktop::Staged); 9] = [
+    ("viewer live", crate::desktop::Staged::Live),
+    (
+        "viewer waiting for approval",
+        crate::desktop::Staged::Waiting(12),
+    ),
+    (
+        "viewer reconnecting",
+        crate::desktop::Staged::Reconnecting(4),
+    ),
+    ("viewer host image paused", crate::desktop::Staged::Paused),
+    (
+        "viewer dropped by the host",
+        crate::desktop::Staged::Dropped,
+    ),
+    (
+        "viewer could not connect",
+        crate::desktop::Staged::Unreachable,
+    ),
+    (
+        "viewer approval timed out",
+        crate::desktop::Staged::TimedOut,
+    ),
+    (
+        "viewer reconnect timed out",
+        crate::desktop::Staged::TimedOutReconnect,
+    ),
+    ("viewer pairing refused", crate::desktop::Staged::Refused),
+];
+
+/// Draws the viewer in `how` at `size` for `frames` frames, as the app does
+/// when a controller is active: it replaces the shell.
+fn draw_viewer(how: crate::desktop::Staged, size: (f32, f32), frames: usize) -> Result<Drawn> {
+    let ctx = egui::Context::default();
+    crate::ui::theme::apply(
+        &ctx,
+        crate::palette::fallback(),
+        crate::ui::theme::Density::Comfortable,
+    );
+    let mut controller = crate::desktop::Controller::staged("192.168.1.20:47812", how);
+    let mut actions = Vec::new();
+    let mut shapes = Vec::new();
+    let mut textures = egui::TexturesDelta::default();
+    for _ in 0..frames {
+        actions.clear();
+        let pass = crate::ui::testing::run_keeping(
+            &ctx,
+            crate::ui::testing::input(Vec2::new(size.0, size.1), Vec::new()),
+            |ui| controller.show(ui, &mut actions),
+            &mut textures,
+        );
+        shapes = pass.shapes;
+    }
+    Ok(Drawn {
+        ctx,
+        all_actions: actions.clone(),
+        actions,
+        shapes,
+        open_panes: Vec::new(),
+        textures,
+    })
+}
+
+#[test]
+fn every_viewer_state_fits_every_size_without_text_over_text() -> Result<()> {
+    let mut failures = Vec::new();
+    for size in SIZES.iter().copied().chain(SMALL_SIZES) {
+        for (name, how) in VIEWER_STATES {
+            let drawn = draw_viewer(how, size, 4)?;
+            assert!(!drawn.shapes.is_empty(), "{name} at {size:?} drew nothing");
+            let used = drawn.ctx.globally_used_rect();
+            assert!(
+                used.max.x <= size.0 + 0.5 && used.max.y <= size.1 + 0.5,
+                "{name} at {size:?} wants {used:?}: it overflows the window"
+            );
+            assert!(
+                drawn.actions.is_empty(),
+                "{name} at {size:?} asked for {:?} with nobody touching it",
+                drawn.actions
+            );
+            let texts = texts(&drawn);
+            for (i, (ia, a, ra)) in texts.iter().enumerate() {
+                for (ib, b, rb) in texts.iter().skip(i + 1) {
+                    let overlap = ra.intersect(*rb);
+                    if !overlap.is_positive() || overlap.area() < 4.0 {
+                        continue;
+                    }
+                    let covered = drawn
+                        .shapes
+                        .get(ia + 1..*ib)
+                        .unwrap_or_default()
+                        .iter()
+                        .any(|between| opaque_over(between, overlap));
+                    if !covered {
+                        failures.push(format!(
+                            "{name} at {size:?}: {a:?} {ra:?} overlaps {b:?} {rb:?}"
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "{} overlaps:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
+    Ok(())
+}
+
+#[test]
+fn the_palette_opens_the_connect_form_from_its_own_entry() -> Result<()> {
+    let drawn = draw_events(BASE, (1440.0, 900.0), palette_run("control another"))?;
+    assert_eq!(
+        drawn.all_actions,
+        vec![Action::ControlAnotherDesktop],
+        "Ctrl+K, \"control another\", Enter"
+    );
+    Ok(())
+}
+
+#[test]
+fn the_connect_form_is_its_own_section_with_a_hint_not_a_value() -> Result<()> {
+    let scenario = Scenario {
+        lan: true,
+        reveal_connect: true,
+        panes: &[Pane::Settings],
+        ..BASE
+    };
+    let drawn = draw(scenario, (1440.0, 900.0), 20)?;
+    let rows: Vec<String> = texts(&drawn).into_iter().map(|(_, line, _)| line).collect();
+    assert!(
+        rows.iter()
+            .any(|line| line.eq_ignore_ascii_case("Control another Strobe")),
+        "its own Settings section: {rows:?}"
+    );
+    assert!(
+        rows.iter()
+            .any(|line| line.starts_with("Host address, e.g. 192.168.1.20")),
+        "the empty field hints at what to type: {rows:?}"
+    );
+    assert!(
+        !rows.iter().any(|line| line.contains("192.168.1.20:47812")),
+        "no address that could be mistaken for a value: {rows:?}"
+    );
     Ok(())
 }
 

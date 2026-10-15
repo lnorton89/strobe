@@ -26,6 +26,9 @@
 //!   the folder as at launch, and saves it only when it is accepted (D265).
 //! - **Remote**: the LAN remote's switch, address, pairing and paired
 //!   devices (`super::lan`, D254).
+//! - **Control another Strobe**: the address and pairing code of a host
+//!   whose whole window this desktop operates (`super::lan::control`,
+//!   D275). Ctrl+K finds it as "Control another Strobe".
 //! - **Layouts**: the open panes, their order and widths, saved under a
 //!   name and put back in one click (D215).
 //! - **Keyboard**: the command table, as data, so what is advertised here
@@ -79,6 +82,8 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
             ui.add_space(SPACE_SM);
             widgets::section(ui, theme, "Remote");
             super::lan::show(ui, theme, &mut model.lan, actions);
+            ui.add_space(SPACE_SM);
+            super::lan::control(ui, theme, &mut model.lan, actions);
             ui.add_space(SPACE_SM);
             widgets::section(ui, theme, "Layouts");
             layouts(ui, theme, model.ui);
