@@ -655,6 +655,7 @@ impl Gl {
         };
         self.bind_texture(glow::TEXTURE_2D, Some(raw));
         let (internal, fmt, ty) = format.raw();
+        self.unpack_tightly();
         self.tex_image_2d(width, height, internal, fmt, ty, data);
         self.apply_sampling(glow::TEXTURE_2D, sampling);
         Ok(texture)
@@ -682,6 +683,7 @@ impl Gl {
         };
         self.bind_texture(glow::TEXTURE_1D, Some(raw));
         let (internal, fmt, ty) = format.raw();
+        self.unpack_tightly();
         self.tex_image_1d(width, internal, fmt, ty, data);
         self.apply_sampling(glow::TEXTURE_1D, Sampling::LINEAR_CLAMP);
         Ok(texture)
@@ -720,6 +722,7 @@ impl Gl {
         };
         self.bind_texture(glow::TEXTURE_CUBE_MAP, Some(raw));
         let (internal, fmt, ty) = Format::Rgba8.raw();
+        self.unpack_tightly();
         for (index, face) in faces.iter().enumerate() {
             self.tex_image_cube_face(index as u32, size, internal, fmt, ty, face);
         }
@@ -788,12 +791,25 @@ impl Gl {
         }
         self.bind_texture(texture.target, Some(texture.raw));
         let (_, fmt, ty) = texture.format.raw();
+        self.unpack_tightly();
         if texture.target == glow::TEXTURE_1D {
             self.tex_image_1d(texture.width, texture.format.raw().0, fmt, ty, Some(data));
         } else {
             self.tex_sub_image_2d(texture.width, texture.height, fmt, ty, data);
         }
         Ok(())
+    }
+
+    /// Makes GL read uploaded rows tightly packed, as every caller here
+    /// passes them and as the length checks assume. GL's default unpack
+    /// alignment is 4, which pads a row whose byte length is not a multiple
+    /// of 4 (an R8 texture of odd width) and so reads past the slice. Set
+    /// before each upload, not once per context, because the context is
+    /// shared with egui's painter, which sets pixel-store state of its own.
+    fn unpack_tightly(&self) {
+        // SAFETY: current-context invariant; a pixel-store parameter is
+        // plain state and reads no memory.
+        unsafe { self.raw.pixel_store_i32(glow::UNPACK_ALIGNMENT, 1) }
     }
 
     fn create_texture(&self) -> Result<glow::Texture, String> {
@@ -818,7 +834,9 @@ impl Gl {
     ) {
         // SAFETY: current-context invariant; when `data` is Some its length
         // was checked by the caller against width * height * texel size for
-        // exactly this format/type pair, so GL reads only inside the slice.
+        // exactly this format/type pair, and the caller set an unpack
+        // alignment of 1 (`unpack_tightly`), so rows carry no padding and GL
+        // reads only inside the slice.
         unsafe {
             self.raw.tex_image_2d(
                 glow::TEXTURE_2D,
