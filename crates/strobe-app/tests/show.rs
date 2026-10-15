@@ -693,6 +693,9 @@ const COUNTER_SHADER: &str = "vec4 renderMain() {\n\
     return vec4(texture(count, vec2(0.5)).r / 400.0, 0.0, 0.0, 1.0); }";
 const COUNT_SCALE: f32 = 400.0;
 
+/// One slider, `amount`, shown as the red channel.
+const AMOUNT_JSON: &str = r#"{ "CONTROLS": [ { "NAME": "amount", "TYPE": "slider", "MIN": 0.0, "MAX": 1.0, "DEFAULT": 0.0 } ] }"#;
+const AMOUNT_SHADER: &str = "vec4 renderMain() { return vec4(amount, 0.0, 0.0, 1.0); }";
 const RED_SHADER: &str = "vec4 renderMain() { return vec4(1.0, 0.0, 0.0, 1.0); }";
 
 /// The live scene's own frame (not the mix), centre pixel.
@@ -714,6 +717,14 @@ fn cue_of(scene: &str, seconds: f64, transition: TransitionSpec) -> Cue {
     let mut cue = Cue::new(SceneRef::Library(scene.to_string()));
     cue.settings.duration = Some(DurationSpec::Seconds(seconds));
     cue.settings.transition = Some(transition);
+    cue
+}
+
+fn with_amount(mut cue: Cue, amount: f32) -> Cue {
+    cue.overrides.insert(
+        "amount".to_string(),
+        strobe_playlist::ControlValue::Float(amount),
+    );
     cue
 }
 
@@ -767,6 +778,62 @@ fn a_scene_cued_again_starts_fresh_rather_than_from_its_last_cues_buffers() -> R
             "{api:?}: a re-cued scene starts its passes over: the first cue ended at \
              {first:.0}, the third began at {third:.0}"
         );
+        show.finish();
+    }
+    Ok(())
+}
+
+#[test]
+fn a_cues_overrides_reach_the_picture_every_time_its_scene_plays() -> Result<()> {
+    for api in BOTH {
+        let Some(headless) = context(api)? else {
+            continue;
+        };
+        let library = library_of(
+            &format!("repeat-{api:?}"),
+            &[
+                ("tint", AMOUNT_JSON, AMOUNT_SHADER),
+                ("red", "{}", RED_SHADER),
+            ],
+        )?;
+        let mut rig = Rig::new(&headless)?;
+        let mut playlist = Playlist::new("repeats");
+        let mut section = Section::new("all");
+        let fade = TransitionSpec::crossfade(0.5);
+        // The same scene three times, once after another scene and once
+        // straight after itself, each with its own value.
+        section
+            .cues
+            .push(with_amount(cue_of("tint", 2.0, fade.clone()), 0.2));
+        section.cues.push(cue_of("red", 2.0, fade.clone()));
+        section
+            .cues
+            .push(with_amount(cue_of("tint", 2.0, fade.clone()), 0.8));
+        section
+            .cues
+            .push(with_amount(cue_of("tint", 2.0, fade), 0.4));
+        playlist.sections.push(section);
+        let mut show = Show::new(None, playlist, &library.library, None, None);
+        rig.load(&mut show)?;
+        let mut last = [None; 4];
+        for _ in 0..(9 * 60) {
+            rig.frame(&mut show);
+            if let Some(current) = show.clock().current()
+                && let Some(slot) = last.get_mut(current)
+            {
+                *slot = Some(live_centre(&rig)?[0]);
+            }
+        }
+        let expected = [51_u8, 255, 204, 102];
+        for (index, (seen, want)) in last.iter().zip(expected).enumerate() {
+            let Some(seen) = seen else {
+                return Err(anyhow!("{api:?}: cue {index} never played"));
+            };
+            assert!(
+                seen.abs_diff(want) <= 2,
+                "{api:?}: cue {index} ends drawing red {seen}, its override says {want}: {last:?}"
+            );
+        }
         show.finish();
     }
     Ok(())
