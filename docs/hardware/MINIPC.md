@@ -113,6 +113,61 @@ ran at 56.6 fps (57.1 under Balanced) and 10 at 26.7 fps (27.7). The
 | 11-script-orbits (script not run) | 94 | 3.74 | 4.69 | yes | yes |
 | 12-silicon-atlas | **6506** | 92.62 | 100.61 | no | no |
 
+## Black frames above about 160x90 (2026-10-15, D289)
+
+`strobe-bench --context window --gl native [--show-window] --filter 05`:
+correct at 100x60, 160x90, 161x90, 160x91; all black in about 0.2 ms at
+200x90, 160x120, 240x135, 256x256, 300x300, 320x180, 480x270, 640x360 and
+1920x1200. The corpus at 160x90 shows `neon_city` black on native only (1.7 ms
+against 555.6 ms on ANGLE; its literal passes are far larger than the
+window). The app's real 1920x1080 output window renders fine.
+
+The code was audited and the offscreen path never touches the default
+framebuffer, so the pixel-ownership explanation does not hold as stated; see
+D289. The cause is not yet known. Run this in session 1 (a one-shot scheduled
+task as before) from a build of this commit, and send back the four output
+folders and the logs.
+
+```powershell
+cd $env:USERPROFILE\strobe
+$env:STROBE_LOG = "info,gl_driver=debug,gl_trace=info"
+$env:STROBE_LOG_STDERR = "1"
+$env:STROBE_GL_DEBUG = "1"
+$env:STROBE_GL_TRACE = "1"
+$b = "cargo run --release -p strobe-bench --"
+
+# 1. The ladder, default 16x16 stand-in window. Finds the limit and says
+#    whether clears, draws or the viewport go wrong.
+cmd /c "$b --context window --gl native --probe --size 200x90 --out target\probe-small 2> target\probe-small.log"
+
+# 2. The same ladder with a window larger than every size on it.
+cmd /c "$b --context window --gl native --probe --size 200x90 --window-size 2048x1200 --out target\probe-big 2> target\probe-big.log"
+
+# 3. The real failure with the trace, small and large window.
+cmd /c "$b --context window --gl native --filter 05 --size 200x90 --out target\bench-small 2> target\bench-small.log"
+cmd /c "$b --context window --gl native --filter 05 --size 200x90 --window-size 2048x1200 --out target\bench-big 2> target\bench-big.log"
+```
+
+Reading it:
+
+- **`probe-small` fails and `probe-big` passes** (and `bench-big` is not
+  black): the driver limits work to the window's drawable. The first bad row
+  in `probe.md` is the limit; the "Viewport read back" column shows whether it
+  is a clamped viewport (smaller than asked) or dropped draws (clear 100 %,
+  draw 0 %).
+- **Both fail at the same size:** a size limit that is not the window's. A
+  pixel count near 16,384 shows as 128x128 passing and 129x128 failing with
+  `1000x16` and `16x1000` passing; a per-axis limit shows as those two
+  failing. The driver is dropping work for the target; read the `gl_driver`
+  lines in the log.
+- **Both pass:** the bench scene differs from the probe, so compare the
+  `gl_trace` summaries (`bench-small.log`, and the summary printed before
+  `wrote target\bench-small`): each pass's draw should be into a non-zero
+  framebuffer at its own size, and any `glViewport(...) reads back as` warning
+  names the clamp.
+- **Everything passes at 200x90 but `bench-small` is black:** a shader or
+  state problem specific to 05 on this driver, not size.
+
 ## Still to do here
 
 - Native strobe-bench and control generation in session 1: does a hidden

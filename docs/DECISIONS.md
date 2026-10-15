@@ -6377,3 +6377,83 @@ T480 to RX 580 re-test of these states is still to do.
 **Would reopen:** an operator wanting automatic reconnect (D275 chose explicit
 reconnect, so a stale click is never replayed), or a viewer that must stay
 useful with the host asleep.
+
+### D289: tracing and probing the "black above ~160x90" AMD WGL failure; no behaviour change yet (2026-10-15)
+
+**Context.** On the JaJa mini-PC (Vega 3, Adrenalin 26.5.2, native WGL),
+`strobe-bench --context window --gl native --filter 05` renders correctly at
+100x60, 160x90, 161x90 and 160x91 and renders all black, in about 0.2 ms, at
+200x90, 160x120, 240x135, 256x256 and up to 1920x1200, with or without
+`--show-window`. The corpus run at 160x90 on the same context also shows
+`neon_city` black on native only (1.7 ms against 555.6 ms on ANGLE), and that
+scene has literal passes far larger than the window (D194, D280). The RX 580
+(also AMD WGL) showed hidden-window draws black earlier. Intel, NVIDIA and
+Mesa llvmpipe are fine.
+
+The suspicion was the pixel-ownership test: something draws to, reads from or
+sizes a viewport by the default framebuffer, whose pixels outside the visible
+client area AMD leaves undefined.
+
+**What the code says.** The offscreen path never touches framebuffer 0.
+Checked end to end, not assumed:
+
+- Every pass draws into an FBO, with `bind_framebuffer(Some(..))` and
+  `viewport(size)` set per pass (`player.rs` `render`, lines 1008-1009), and
+  `plain_state` turns the scissor test off each frame (`gl/mod.rs`
+  `plain_state`). New targets are cleared into their own FBO with their own
+  viewport (`player.rs` `new_target`, 1321-1324).
+- `read_output` reads from the final target's FBO (`gl/mod.rs` `read_rgba8`,
+  which binds it first). The only users of framebuffer 0 are `present`
+  and `read_default_*`, which the bench, autocontrol and corpus never call;
+  `strobe-bench` has no swap at all.
+- The asynchronous PBO readback is off unless a scene reads
+  `textureFinalPass`, and `05-domain-warp` does not.
+- No size appears in any condition on the bench path, so nothing branches at
+  160x90, 16384 pixels, or anywhere else.
+
+So the pixel-ownership explanation, as stated, does not apply to this code:
+that test governs the default framebuffer, and the renderer does not use it.
+`tests/render.rs` now pins this
+(`offscreen_rendering_never_touches_the_default_framebuffer`).
+
+The data does not say "per-axis limit" either. 160x90 is 14,400 pixels and
+161x90 and 160x91 are 14,490 and 14,560, all good; the smallest bad size,
+200x90, is 18,000. A pixel-count threshold between 14,560 and 18,000 fits every
+observation (16,384 is 128x128), as does a threshold on the largest target
+against the drawable. `neon_city`, whose targets exceed the window, fits the
+second reading. Neither can be told apart from the code, because the code
+does the same thing at every size.
+
+**Decision.** No guess-fix. A change that sizes the window to the render, or
+adds a pbuffer, would be an untested workaround for an unknown cause, in a
+path (the app's output) that works at 1920x1080. Instead the failure is made
+measurable on the machine that has it, with all of it opt-in and off the
+frame loop's hot path:
+
+- `STROBE_GL_TRACE=1` (`gl::trace`): every bind, viewport, clear, draw, blit,
+  read-back and texture allocation, with the framebuffer and viewport in
+  force, logged once per distinct event (target `gl_trace`) and counted;
+  `strobe-bench` prints the summary at the end. The first time each viewport
+  is set it is read back (`GL_VIEWPORT`) and a mismatch is a warning, which
+  catches a driver clamping to the window. When off, each wrapper pays one
+  `Cell<bool>` read; it makes no GL call.
+- `strobe-bench --probe [--size WxH]`: a ladder of sizes (the good and bad
+  ones above, either side of 16,384 pixels, long thin ones) by RGBA8 and
+  RGBA16F. For each: viewport read back, clear-and-read, a trivial draw and
+  read, GL error. It separates "driver drops draws" from "drops clears" from
+  "clamps the viewport", and finds the limit. Writes `probe.md`.
+- `strobe-bench --window-size WxH` (`Request::window_size`): the stand-in
+  window's client size. If the black frames go away once the window is larger
+  than the render, the driver is tying work to the drawable.
+- `STROBE_GL_DEBUG` is honoured by the offscreen runner (opt-in, off when
+  unset), so the bench shows what the AMD driver says (`gl_driver` target).
+- The bench's all-black error now points at `--probe` and the trace.
+
+The exact mini-PC run is in [`hardware/MINIPC.md`](hardware/MINIPC.md).
+
+**Would reopen / next.** The probe's reading decides the fix. If the viewport
+reads back clamped or draws are dropped above the window's size, size the
+offscreen window to the largest target (or use a WGL pbuffer), and look at the
+app's output window for scenes whose literal passes exceed it (`neon_city`);
+if it is a pixel-count limit independent of the window, it is a driver bug to
+report and to route around by a minimum target size.
