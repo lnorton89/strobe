@@ -857,6 +857,9 @@ impl Show {
                     index + 1,
                     self.cue_scene(index).unwrap_or("?")
                 );
+                // A jump can bring an ended show back; its next end is
+                // noted (and its resume point cleared) again.
+                self.ended_noted = false;
                 self.begin_cue(index, env);
                 self.warn_if_deaf(index, env);
             }
