@@ -13,6 +13,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **app:** one click on a scene card makes it live, and LIB flips between Scenes and Controls ([`f400de0`](https://github.com/lnorton89/strobe/commit/f400de000dd442a319cd2f53eb7ad0a6420e9134))
 - **app:** venue mode launch flags and trust file on the host ([`c9eed9b`](https://github.com/lnorton89/strobe/commit/c9eed9b730571074c3b2cf884012e725f9e4efa0))
 - **remote:** trusted pairing over the WebSocket protocol ([`2337d78`](https://github.com/lnorton89/strobe/commit/2337d78d0ffe287ddd52147e750e42803f7aec13))
 - **remote:** trust file and HMAC-SHA256 challenge-response for venue mode ([`2b19e43`](https://github.com/lnorton89/strobe/commit/2b19e43672c82784a3c9f73cbf19f2d6a7c497d6))
@@ -66,6 +67,9 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Documentation
 
+- D292 makes ANGLE's Vulkan and Metal backends the second backend ([`f782cee`](https://github.com/lnorton89/strobe/commit/f782ceee4fd29dc2cd2e7e9858095435e0988ca0))
+- run the G-03 spike over the full Synesthesia corpus ([`ea4491e`](https://github.com/lnorton89/strobe/commit/ea4491e6159759db954482b0ea5fd475ab59a2b0))
+- D291 one-click scenes and the Scenes and Controls pages ([`2195446`](https://github.com/lnorton89/strobe/commit/21954467351570cf613a3baea5f82134a3bbeef3))
 - move the G-03 front-end research under docs/research ([`43ccdd3`](https://github.com/lnorton89/strobe/commit/43ccdd3399c2b109d4b57ae69645ea09fdf80c50))
 - D290 keeps the swap wait for a driven window and corrects a rejected option ([`50062a0`](https://github.com/lnorton89/strobe/commit/50062a0b1736eb21a2a3c2baf5b04140abd422be))
 - D290, the mini PC's control window starved of paints, and the hotfix verification ([`bf2568c`](https://github.com/lnorton89/strobe/commit/bf2568ccf419ededb905a74cfd63889c40d8becd))
