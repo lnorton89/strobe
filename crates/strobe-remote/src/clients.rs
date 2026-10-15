@@ -846,7 +846,10 @@ mod tests {
         );
         clients.pair_trusted("x", "c")?;
         clients.revoke_all();
-        assert!(clients.trust_blocked("c") && clients.trust_blocked("new"));
+        assert!(
+            clients.trust_blocked("c") && clients.trust_blocked("new"),
+            "revoke all closes trusted pairing to every controller id"
+        );
         assert!(
             clients.contains(&id) || clients.is_empty(),
             "phones revoked"
