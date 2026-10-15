@@ -231,18 +231,23 @@ impl AudioInput {
         } else {
             input.label = "synthetic (forced)".to_string();
             input.announced = Some(Source::Synthetic);
-            log::info!("synthetic source (--audio synthetic)");
         }
         input
     }
 
     /// With `ambient` true, the synthetic track plays without its beat
     /// (`--audio ambient`). Only meaningful without capture.
+    ///
+    /// This is where a forced source is logged, once, because only here is
+    /// the choice final: `--audio ambient` and `--audio synthetic` both
+    /// start from `new(false)`.
     pub fn with_ambient(mut self, ambient: bool) -> Self {
         if ambient {
             self.ambient = Some(Ambient::new());
             self.label = "ambient (no beat)".to_string();
             log::info!("ambient source (--audio ambient): synthetic without hits or beats");
+        } else if !self.wants_capture {
+            log::info!("synthetic source (--audio synthetic)");
         }
         self
     }
