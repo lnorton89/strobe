@@ -78,6 +78,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Documentation
 
+- note the covered control window and venue mode in the architecture companion ([`44346aa`](https://github.com/lnorton89/strobe/commit/44346aaeab11b4116c3b5ebf7068c290fcfe52a3))
 - keep the mini-PC probe's stdout, and state the trace's real cost (D296) ([`cc40cf8`](https://github.com/lnorton89/strobe/commit/cc40cf81fecf44f0786d2fa0ca408e3737a8ee75))
 - **minipc:** the first JaJa PDX show, four hours with no crash restarts ([`08375c2`](https://github.com/lnorton89/strobe/commit/08375c2d6c924ebe6e33e3d6488edaff34288a8b))
 - Linux as a documented platform, with a check script (D294) ([`2b4d009`](https://github.com/lnorton89/strobe/commit/2b4d009d573265864acbe97f1f1bd3e2e8435969))
@@ -85,6 +86,8 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - D294, the laptop side of venue mode, in the guide, roadmap and audit ([`5f09af9`](https://github.com/lnorton89/strobe/commit/5f09af93ef6ab4cf83ed234c68dfce699bb41875))
 - D292 makes ANGLE's Vulkan and Metal backends the second backend ([`f782cee`](https://github.com/lnorton89/strobe/commit/f782ceee4fd29dc2cd2e7e9858095435e0988ca0))
 - run the G-03 spike over the full Synesthesia corpus ([`ea4491e`](https://github.com/lnorton89/strobe/commit/ea4491e6159759db954482b0ea5fd475ab59a2b0))
+- add high-resolution architecture PNG export ([`5df7808`](https://github.com/lnorton89/strobe/commit/5df780804bf83cf8920ae7cdc6407435ccfc898f))
+- add source-researched engine architecture infographic ([`78a69c9`](https://github.com/lnorton89/strobe/commit/78a69c988d116ec05aa2b043ffb11fe1511d3389))
 - D291 one-click scenes and the Scenes and Controls pages ([`2195446`](https://github.com/lnorton89/strobe/commit/21954467351570cf613a3baea5f82134a3bbeef3))
 - move the G-03 front-end research under docs/research ([`43ccdd3`](https://github.com/lnorton89/strobe/commit/43ccdd3399c2b109d4b57ae69645ea09fdf80c50))
 - D290 keeps the swap wait for a driven window and corrects a rejected option ([`50062a0`](https://github.com/lnorton89/strobe/commit/50062a0b1736eb21a2a3c2baf5b04140abd422be))
@@ -120,6 +123,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Internal
 
 - a Nix flake with a dev shell, a software-GL shell and a wrapped package (D294) ([`0c43a41`](https://github.com/lnorton89/strobe/commit/0c43a41baaca90796374a9ea6ad22d850f556241))
+- remove temporary PNG render workflow ([`89ce99b`](https://github.com/lnorton89/strobe/commit/89ce99b49e0ea4d658017aaa08586ce65b643b40))
 - **deps:** bump rustls to 0.23.46 for the RUSTSEC advisories against 0.23.45 ([`f1a157c`](https://github.com/lnorton89/strobe/commit/f1a157cdb15df8874d9b234db003763ff81d7536))
 - take base64 from the workspace like every other dependency ([`52d4a66`](https://github.com/lnorton89/strobe/commit/52d4a66f39a402654f52960c438c63bbb3dc2887))
 - ignore a strobe-syn-corpus clone inside the checkout ([`2061e54`](https://github.com/lnorton89/strobe/commit/2061e54791b4b4e4041085bf28832dc7cdb48a1d))
