@@ -891,7 +891,11 @@ impl Running {
                 cli.remote_port,
                 cli.screenshot.is_none(),
             )
-            .behind_proxy(cli.remote_proxy.clone()),
+            .behind_proxy(cli.remote_proxy.clone())
+            .venue(
+                cli.remote_trust.as_deref().and_then(crate::venue::load),
+                cli.allow_desktop_control,
+            ),
             desktop_controller: crate::desktop::Controller::default(),
             desktop_capture: crate::desktop::Capture::default(),
             desktop_input: crate::desktop::HostInput::default(),
@@ -971,7 +975,7 @@ impl Running {
             running.start_listener();
         }
         if cli.remote {
-            running.lan.start();
+            running.lan.start_at_launch(Instant::now());
         }
         if let Some(error) = scan_error {
             failure::report(
@@ -3682,6 +3686,7 @@ impl Running {
     /// an OSC message runs, then answered. Nothing happens while the remote
     /// is off.
     fn drain_lan(&mut self, now: Instant) {
+        self.lan.maintain(now);
         if !self.lan.running() {
             return;
         }

@@ -662,6 +662,7 @@ fn sample_lan(on: bool, desktop: bool) -> crate::lan::LanView {
         ],
         connected: 2,
         desktop_controlled: desktop,
+        venue: false,
     }
 }
 

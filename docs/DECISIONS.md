@@ -6443,3 +6443,143 @@ and `a_resize_that_wipes_the_buffers_restarts_iframe_so_they_initialise_again`
 **Would reopen:** a pass whose size is unchanged but whose contents should
 still be cleared by a resize (none known), or a driver that invalidates
 textures on a viewport change.
+
+### D288: venue mode, a trust file lets a controller take full desktop control with no click at the host (2026-10-15)
+
+**Context.** The JaJa venue's mini-PC drives two mirrored projectors and has
+no control screen. The owner runs the show from a laptop with the full desktop
+remote (D275), whose pairing needs the host's *Allow full desktop control*
+switch on and an operator clicking Approve at the host, and whose grants live
+in memory, so a host restart ends them. With nobody at the machine none of
+that can happen.
+
+**Decision.**
+
+- **Launch flags on the host.** `--remote` (existing), `--allow-desktop-control`
+  (switches full desktop access on when the listener first starts; needs
+  `--remote`; never saved; consumed once, so stopping and starting the remote
+  by hand later does not turn it back on) and `--remote-trust FILE` (needs
+  `--remote`). The trust file is read once at launch. There is no setting,
+  button or saved state for it, so there is nothing a remote controller's UI
+  pass could be made to widen (`desktop::host_only` is unchanged, and needs no
+  new entry). A trust file that cannot be read is reported and the host runs
+  without trusted pairing (fail closed); it does not stop the show.
+  A launch-time `--remote` that cannot start (no network yet at boot) is
+  retried every 5 s, with only the first failure reported.
+- **The trust file.** `strobe --make-remote-trust FILE` writes
+  `strobe-remote-trust 1` and `secret <64 hex>`: 32 bytes from the OS RNG,
+  with comment lines saying what it is. It uses `create_new`, so it refuses to
+  overwrite and does not write through a symlink; mode 0600 on Unix; on
+  Windows it takes the folder's ACL, so keep it in your user profile (ACLs are
+  not set, which would need `unsafe`). Reading takes one open handle, at most
+  4 KiB, refuses a file other Unix users can read (as `ssh` does), a version
+  it does not know, trailing lines and a secret with fewer than 8 distinct
+  byte values.
+- **Trusted pairing is challenge-response; the secret is never sent.** After
+  `hello`, the controller sends `trust_start {controller_id}`; the host
+  answers `trust_challenge {nonce}` (32 random bytes, hex); the controller
+  sends `trust_proof {response}` with
+  `HMAC-SHA256(secret, F(context) F(nonce) F(host) F(controller id))`,
+  `F(x) = len16(x) || x` (so no two tuples encode alike). *Context* is
+  `strobe-remote trust v1: full desktop control`; *host* is the `Host` header
+  the controller dialled, which must name the address and port that this
+  connection actually reached (or `localhost` on loopback, or the D258 proxy
+  name from this computer). That is stricter than the listener's own `Host`
+  check, which on every interface (`--remote-bind 0.0.0.0`) takes any IP
+  literal; without it a relay at another address could forward a
+  controller's handshake under its own `Host` and the proof would hold. So a
+  proof made for one address is no use at another (it defeats a rogue host
+  relaying a challenge to the real one from a different address); *controller id* is 1 to 48 of `[A-Za-z0-9._-]`. The host
+  verifies with `hmac`'s `verify_slice` (constant time, length-checked). The
+  challenge is a value held by its connection and consumed by `verify(self)`,
+  so it answers once whether right or wrong, and expires after 10 s. Success
+  sends the existing `authenticated` and `state`; no token is issued. The
+  v1 and desktop messages are byte-for-byte unchanged (golden tests), and
+  the three new messages are frozen the same way. A sniffer sees a nonce and a
+  MAC bound to it; recovering a 256-bit key from that is not feasible and a
+  recorded response is useless on the next nonce.
+- **Required to succeed:** the host has a trust file *and* full desktop access
+  is on. Otherwise the answer is `unavailable` with one text for both cases,
+  so a scan cannot tell how the host was started. Phones, `pair`,
+  `pair_desktop` and tokens are untouched; a trust file never gives a phone
+  token desktop scope.
+- **A trusted pairing is a property of its connection.** It is a desktop
+  record in the same in-memory list (never written to
+  `remote-clients.json`), labelled `Full desktop: trusted <id>, <device> at
+  <ip>`, shown in Settings > Remote with a *trusted* chip. Its token digest is
+  of a token nobody was given, so it cannot be authenticated with later. It is
+  removed when its connection ends. A controller that reconnects (Wi-Fi drop;
+  the host has not yet noticed the old socket) replaces its own earlier
+  record: the old connection is closed and gives up the lease at once, so the
+  new one can take it. A different controller id never takes the lease.
+  This keeps the 32-client list from filling over a four-hour show.
+- **Revocation is for the run.** Revoke on a trusted entry drops the
+  connection and refuses that controller id until Strobe restarts (otherwise
+  it would prove its way straight back in). Revoke all closes trusted pairing
+  until restart, because a leaked file could otherwise change its id. The kill
+  switch (switching full desktop access off, or Stop remote) still ends every
+  desktop pairing, trusted ones included, and while it is off trusted pairing
+  is refused; switching it on again (a host action) re-opens it. The session
+  also ends itself on its next tick if the switch is off or its entry has
+  left the list, so a revoke, revoke all or replacing reconnect that lands
+  between the pairing and the connection being marked with its client id
+  still ends it.
+  The title bar still says *Desktop controlled remotely* because it follows
+  the lease.
+- **Failed proofs are limited and logged.** Per peer address: three free
+  failures, then a pause of 2 s doubling to 5 min. Across all addresses: 20
+  failures in a minute pause everyone for 30 s, doubling to 5 min while it
+  repeats, forgiven after a quiet spell. A paused peer is answered `busy`
+  and disconnected; each failure is a warning in the log with the peer, the
+  controller id and the pause (never a nonce or proof). Each connection also
+  keeps its existing five-failure limit and message bucket. The state is in
+  memory. Through the D258 proxy every client shares the loopback address, so
+  the per-peer limit is then global in effect.
+- **Dependency.** `hmac` 0.13 (RustCrypto, MIT or Apache-2.0), on the same
+  `digest` 0.11 as `sha2` and `sha1`. It brings `cmov` and `ctutils` (the
+  constant-time primitives `digest` 0.11 uses) as new lockfile entries.
+
+**Threat model, and what this does not do.**
+
+- **Whoever can read the trust file has full control** of the host: scenes,
+  files and quitting (D275 scope), with no click. Treat it like a key. It is
+  not wiped from memory (that needs `unsafe` or a crate), it is on disk in
+  clear, and a controller with the full UI could in principle write host
+  files, including over the trust file, which the next launch would then
+  read. Keep the file outside any folder Strobe writes to. Replace it if it
+  may have leaked: make a new one and relaunch both ends.
+- **LAN only, plain HTTP.** The secret is never on the wire, but frames,
+  input and everything the window shows are still in the clear (D275), and an
+  active attacker who can sit on the path can take over an established
+  connection, or relay a handshake from the same address, without learning the
+  secret. Only the proof of knowledge is protected; there is no
+  confidentiality and no host authentication to the controller (a rogue host
+  can show the controller a fake window). TLS would close those (backlog
+  L-07).
+- **A flood can pause new attempts** (the global limit), but not a session
+  already open.
+- **Windows file permissions are not checked or set**; only the user profile's
+  inherited ACL protects the file.
+
+**Not done in this change.** The controller side: a trust-file field in the
+*Control another Strobe desktop* form, `--control HOST:PORT --remote-trust FILE`
+opening straight into the viewer, and automatic reconnect with backoff after a
+host restart or a Wi-Fi drop. It is to be built on the viewer's Stage and
+Reconnect machinery from D286, which was not on this branch (see
+STATUS_AUDIT). The host half and the protocol are tested over real sockets;
+the controller can use `trust::TrustSecret::respond` and the messages above.
+
+**Evidence.** Unit tests: RFC 4231 HMAC vectors, a protocol vector computed
+independently with Python, a wrong secret, a flipped nibble, wrong host,
+controller and nonce, single-use and expiry, the file parser, no overwrite,
+no write through a symlink, mode 0600, loose-permission refusal, and the
+limiter's backoff, global trip and bound. Socket tests
+(`strobe-remote/tests/server.rs`): trusted pairing with no approval, the
+secret and proofs never on the wire or in the log, wrong secret/host/
+controller, replay, no trust file or desktop control off, the kill switch,
+operator revoke and revoke all, reconnect taking back the lease, per-address
+backoff and recovery, phone pairing unaffected, and the v1 messages unchanged.
+Not verified: two physical machines, a Windows host, a four-hour soak.
+
+**Would reopen:** TLS for the native client (closing the plain-HTTP gaps); a
+per-controller secret instead of one shared file; ACLs set on Windows.

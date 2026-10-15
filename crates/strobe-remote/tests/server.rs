@@ -29,6 +29,7 @@ use std::time::{Duration, Instant};
 use strobe_remote::bridge::{self, Answer, AppEnd, Snapshot};
 use strobe_remote::clients::Clients;
 use strobe_remote::server::{Limits, Server, ServerConfig, StartError};
+use strobe_remote::trust::TrustSecret;
 
 // ------------------------------------------------------------------ logging
 
@@ -103,18 +104,34 @@ impl Drop for FakeApp {
 }
 
 fn rig_with(limits: Limits, clients: Clients) -> Result<Rig> {
-    rig_on(limits, clients, None)
+    rig_on(limits, clients, None, None)
 }
 
-fn rig_on(limits: Limits, clients: Clients, proxied: Option<&str>) -> Result<Rig> {
+fn rig_on(
+    limits: Limits,
+    clients: Clients,
+    proxied: Option<&str>,
+    trust: Option<TrustSecret>,
+) -> Result<Rig> {
+    rig_at(Ipv4Addr::LOCALHOST, limits, clients, proxied, trust)
+}
+
+fn rig_at(
+    ip: Ipv4Addr,
+    limits: Limits,
+    clients: Clients,
+    proxied: Option<&str>,
+    trust: Option<TrustSecret>,
+) -> Result<Rig> {
     capture_logs();
     let (remote, app_end) = bridge::bridge(4);
     let desktop = app_end.desktop.clone();
     let server = Server::start(
         ServerConfig {
-            bind: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+            bind: SocketAddr::new(IpAddr::V4(ip), 0),
             limits,
             proxied: proxied.map(str::to_string),
+            trust,
         },
         remote,
         clients.clone(),
@@ -817,7 +834,12 @@ fn an_https_proxy_on_this_computer_is_accepted_by_its_name_only() -> Result<()> 
     // The proxy's name, from loopback (the test connects from 127.0.0.1,
     // as a proxy on this computer does): the page is served with a wss:
     // policy and the socket opens for the https origin only (D258).
-    let proxied = rig_on(limits(), Clients::in_memory(), Some("strobe.example.com"))?;
+    let proxied = rig_on(
+        limits(),
+        Clients::in_memory(),
+        Some("strobe.example.com"),
+        None,
+    )?;
     let page = http(
         proxied.addr(),
         "GET / HTTP/1.1\r\nHost: strobe.example.com\r\n\r\n",
@@ -1168,6 +1190,7 @@ fn a_full_command_queue_is_busy_not_a_backlog() -> Result<()> {
                 ..limits()
             },
             proxied: None,
+            trust: None,
         },
         remote,
         clients,
@@ -1232,6 +1255,7 @@ fn a_client_that_stops_reading_is_dropped_not_buffered() -> Result<()> {
                 ..limits()
             },
             proxied: None,
+            trust: None,
         },
         remote,
         clients,
@@ -1358,6 +1382,7 @@ fn stopping_drops_every_client_at_once_and_frees_the_port() -> Result<()> {
             bind: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port),
             limits: limits(),
             proxied: None,
+            trust: None,
         },
         remote,
         clients,
@@ -1389,6 +1414,7 @@ fn a_public_or_taken_address_is_refused_with_advice() -> Result<()> {
             bind: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
             limits: limits(),
             proxied: None,
+            trust: None,
         },
         remote.clone(),
         Clients::in_memory(),
@@ -1403,6 +1429,7 @@ fn a_public_or_taken_address_is_refused_with_advice() -> Result<()> {
             bind: first.addr(),
             limits: limits(),
             proxied: None,
+            trust: None,
         },
         remote,
         Clients::in_memory(),
@@ -1450,5 +1477,475 @@ fn no_secret_ever_reaches_the_log() -> Result<()> {
     ] {
         assert!(!log.contains(&secret), "the log holds a secret");
     }
+    Ok(())
+}
+
+// ------------------------------------------------------- venue mode (D288)
+
+/// A listener that trusts `secret`, with full desktop access switched on as
+/// `--allow-desktop-control` does.
+fn trusted_rig(secret: &TrustSecret) -> Result<Rig> {
+    let rig = rig_on(limits(), Clients::in_memory(), None, Some(secret.clone()))?;
+    rig.desktop.enable(true);
+    Ok(rig)
+}
+
+fn new_secret() -> Result<TrustSecret> {
+    Ok(TrustSecret::generate()?)
+}
+
+/// Starts a trusted pairing as `controller` and returns the socket and the
+/// nonce the host sent.
+fn trust_start(rig: &Rig, controller: &str) -> Result<(Ws, String)> {
+    let mut ws = open(rig)?;
+    ws.hello()?;
+    ws.send(&json!({"type":"trust_start","controller_id":controller}))?;
+    let challenge = ws.json()?;
+    ensure!(challenge["type"] == "trust_challenge", "{challenge}");
+    let nonce = challenge["nonce"].as_str().context("nonce")?.to_string();
+    Ok((ws, nonce))
+}
+
+/// The whole trusted pairing; returns the socket and the client id.
+fn trust_pair(rig: &Rig, secret: &TrustSecret, controller: &str) -> Result<(Ws, String)> {
+    let (mut ws, nonce) = trust_start(rig, controller)?;
+    let response = secret
+        .respond(&nonce, &rig.host(), controller)
+        .context("a response")?;
+    ws.send(&json!({"type":"trust_proof","response":response}))?;
+    let authenticated = ws.until("authenticated")?;
+    let client_id = authenticated["client_id"]
+        .as_str()
+        .context("client id")?
+        .to_string();
+    ws.until("state")?;
+    Ok((ws, client_id))
+}
+
+#[test]
+fn a_controller_that_proves_the_trust_file_pairs_with_no_approval() -> Result<()> {
+    let secret = new_secret()?;
+    let rig = trusted_rig(&secret)?;
+    let (mut ws, client_id) = trust_pair(&rig, &secret, "t480-1a2b3c4d")?;
+    assert!(
+        rig.server.pairing_requests().is_empty(),
+        "nothing was put to the operator"
+    );
+    let listed = rig.clients.list();
+    let entry = listed
+        .iter()
+        .find(|c| c.id == client_id)
+        .context("the pairing is listed")?;
+    assert!(
+        entry
+            .label
+            .starts_with("Full desktop: trusted t480-1a2b3c4d, "),
+        "labelled trusted: {}",
+        entry.label
+    );
+    // The pairing carries the desktop scope: it can lease and operate.
+    ws.send(&json!({"type":"desktop_open"}))?;
+    eventually("the lease", || rig.desktop.active())?;
+    rig.desktop.publish([16, 16], "jpeg-fixture".into());
+    assert_eq!(ws.until("desktop_frame")?["jpeg"], "jpeg-fixture", "frames");
+    ws.send(&json!({"type":"desktop_input","events":[{"kind":"text","text":"x"}]}))?;
+    let mut events = Vec::new();
+    eventually("input", || {
+        rig.desktop.drain(&mut events);
+        !events.is_empty()
+    })?;
+    // It is a connection's pairing, not a token: ending the connection ends
+    // it, and no token was ever sent.
+    drop(ws);
+    eventually("the listing to go with the connection", || {
+        rig.clients.list().iter().all(|c| c.id != client_id)
+    })?;
+    eventually("the lease to go", || !rig.desktop.active())?;
+    Ok(())
+}
+
+#[test]
+fn neither_the_secret_nor_its_proof_is_on_the_wire_or_in_the_log() -> Result<()> {
+    let secret = new_secret()?;
+    let rig = trusted_rig(&secret)?;
+    let text = secret.to_file_text();
+    let hex = text
+        .lines()
+        .find_map(|l| l.strip_prefix("secret "))
+        .context("secret line")?
+        .to_string();
+    let (mut ws, nonce) = trust_start(&rig, "wire-check")?;
+    let proof = secret
+        .respond(&nonce, &rig.host(), "wire-check")
+        .context("proof")?;
+    ws.send(&json!({"type":"trust_proof","response":proof}))?;
+    // Every message the host sent is searched for the secret.
+    let mut seen = nonce.clone();
+    for _ in 0..2 {
+        if let Frame::Text(t) = ws.recv()? {
+            seen.push_str(&t);
+        }
+    }
+    assert!(
+        !seen.contains(&hex),
+        "the secret is not sent to the controller"
+    );
+    assert_ne!(proof, hex, "and the proof is not the secret");
+    let mut bad = open(&rig)?;
+    bad.hello()?;
+    bad.send(&json!({"type":"trust_start","controller_id":"wrong"}))?;
+    bad.json()?;
+    bad.send(&json!({"type":"trust_proof","response":"0".repeat(64)}))?;
+    bad.json()?;
+    let log = logged();
+    assert!(log.contains("trusted pairing"), "it did log: {log:.200}");
+    assert!(!log.contains(&hex), "the secret never reaches the log");
+    assert!(!log.contains(&proof), "nor does a proof");
+    Ok(())
+}
+
+#[test]
+fn a_wrong_secret_a_wrong_controller_or_a_wrong_host_is_refused() -> Result<()> {
+    let secret = new_secret()?;
+    let rig = trusted_rig(&secret)?;
+    // Another file's secret.
+    let (mut ws, nonce) = trust_start(&rig, "intruder")?;
+    let response = new_secret()?
+        .respond(&nonce, &rig.host(), "intruder")
+        .context("response")?;
+    ws.send(&json!({"type":"trust_proof","response":response}))?;
+    assert_eq!(
+        ws.until("error")?["code"],
+        "pairing_rejected",
+        "wrong secret"
+    );
+    // The right secret, answering for a controller id it did not give.
+    let (mut ws, nonce) = trust_start(&rig, "honest")?;
+    let response = secret
+        .respond(&nonce, &rig.host(), "someone-else")
+        .context("response")?;
+    ws.send(&json!({"type":"trust_proof","response":response}))?;
+    assert_eq!(ws.until("error")?["code"], "pairing_rejected", "wrong id");
+    // The right secret, bound to another host address.
+    let (mut ws, nonce) = trust_start(&rig, "honest")?;
+    let response = secret
+        .respond(&nonce, "192.168.1.9:47812", "honest")
+        .context("response")?;
+    ws.send(&json!({"type":"trust_proof","response":response}))?;
+    assert_eq!(ws.until("error")?["code"], "pairing_rejected", "wrong host");
+    // A proof with no challenge outstanding.
+    let mut cold = open(&rig)?;
+    cold.hello()?;
+    cold.send(&json!({"type":"trust_proof","response":"a".repeat(64)}))?;
+    assert_eq!(
+        cold.until("error")?["code"],
+        "invalid_request",
+        "no challenge"
+    );
+    assert!(rig.clients.is_empty(), "nobody was paired");
+    assert!(!rig.desktop.active(), "and nobody holds the lease");
+    Ok(())
+}
+
+#[test]
+fn on_every_interface_a_proof_binds_to_the_address_the_connection_reached() -> Result<()> {
+    // Bound to every interface, the listener takes any IP literal as the
+    // `Host`. A relay at another address (10.9.8.7 here) that forwards a
+    // controller's handshake would present its own address, which the
+    // controller's proof is bound to; that must not pair.
+    let secret = new_secret()?;
+    let rig = rig_at(
+        Ipv4Addr::UNSPECIFIED,
+        limits(),
+        Clients::in_memory(),
+        None,
+        Some(secret.clone()),
+    )?;
+    rig.desktop.enable(true);
+    let port = rig.addr().port();
+    let target = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
+    for relayed in [format!("10.9.8.7:{port}"), format!("[::1]:{port}")] {
+        let mut ws = open_as(target, &relayed, Some(&format!("http://{relayed}")))?;
+        ws.hello()?;
+        ws.send(&json!({"type":"trust_start","controller_id":"laptop"}))?;
+        let answer = ws.json()?;
+        assert_eq!(
+            answer["code"], "invalid_request",
+            "no challenge under another address's Host {relayed}: {answer}"
+        );
+    }
+    // The address it reached, by literal and as localhost, still works.
+    for host in [format!("127.0.0.1:{port}"), format!("localhost:{port}")] {
+        let mut ws = open_as(target, &host, Some(&format!("http://{host}")))?;
+        ws.hello()?;
+        ws.send(&json!({"type":"trust_start","controller_id":"laptop"}))?;
+        let challenge = ws.json()?;
+        let nonce = challenge["nonce"].as_str().context("a challenge")?;
+        let response = secret
+            .respond(nonce, &host, "laptop")
+            .context("a response")?;
+        ws.send(&json!({"type":"trust_proof","response":response}))?;
+        ws.until("authenticated")
+            .with_context(|| format!("paired at {host}"))?;
+    }
+    Ok(())
+}
+
+#[test]
+fn a_replayed_response_is_refused_because_each_nonce_answers_once() -> Result<()> {
+    let secret = new_secret()?;
+    let rig = trusted_rig(&secret)?;
+    let (mut first, nonce) = trust_start(&rig, "laptop")?;
+    let response = secret
+        .respond(&nonce, &rig.host(), "laptop")
+        .context("response")?;
+    first.send(&json!({"type":"trust_proof","response":response}))?;
+    first.until("authenticated")?;
+    // The sniffed response, on a new connection with a new nonce.
+    let (mut replay, new_nonce) = trust_start(&rig, "laptop")?;
+    assert_ne!(nonce, new_nonce, "the host never repeats a nonce");
+    replay.send(&json!({"type":"trust_proof","response":response}))?;
+    assert_eq!(
+        replay.until("error")?["code"],
+        "pairing_rejected",
+        "a replay fails"
+    );
+    // The same connection, answered twice: the second is out of place.
+    first.send(&json!({"type":"trust_proof","response":response}))?;
+    assert_eq!(
+        first.until("error")?["code"],
+        "invalid_request",
+        "a connection past that step"
+    );
+    // A wrong answer spends its challenge too.
+    let (mut once, nonce) = trust_start(&rig, "other")?;
+    once.send(&json!({"type":"trust_proof","response":"0".repeat(64)}))?;
+    once.until("error")?;
+    let good = secret
+        .respond(&nonce, &rig.host(), "other")
+        .context("response")?;
+    once.send(&json!({"type":"trust_proof","response":good}))?;
+    assert_eq!(
+        once.until("error")?["code"],
+        "invalid_request",
+        "the spent nonce cannot be answered after a failed try"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_proof_for_a_nonce_the_host_did_not_issue_is_refused() -> Result<()> {
+    // The clock side of expiry is a unit test (the challenge lifetime is
+    // not configurable); this is the socket path for a foreign nonce.
+    let secret = new_secret()?;
+    let rig = trusted_rig(&secret)?;
+    let (mut ws, _) = trust_start(&rig, "slow")?;
+    let response = secret
+        .respond(&"ab".repeat(32), &rig.host(), "slow")
+        .context("response")?;
+    ws.send(&json!({"type":"trust_proof","response":response}))?;
+    assert_eq!(
+        ws.until("error")?["code"],
+        "pairing_rejected",
+        "not its nonce"
+    );
+    Ok(())
+}
+
+#[test]
+fn trusted_pairing_is_refused_without_a_trust_file_or_with_desktop_control_off() -> Result<()> {
+    // No trust file: even the right-looking exchange is unavailable.
+    let plain = rig()?;
+    plain.desktop.enable(true);
+    let mut ws = open(&plain)?;
+    ws.hello()?;
+    ws.send(&json!({"type":"trust_start","controller_id":"laptop"}))?;
+    let refused = ws.until("error")?;
+    assert_eq!(refused["code"], "unavailable", "no trust file");
+    // A trust file but the switch off.
+    let secret = new_secret()?;
+    let rig = rig_on(limits(), Clients::in_memory(), None, Some(secret.clone()))?;
+    let mut off = open(&rig)?;
+    off.hello()?;
+    off.send(&json!({"type":"trust_start","controller_id":"laptop"}))?;
+    let also = off.until("error")?;
+    assert_eq!(also["code"], "unavailable", "desktop control off");
+    assert_eq!(
+        also["message"], refused["message"],
+        "the two cases cannot be told apart from outside"
+    );
+    assert!(
+        rig.clients.is_empty() && !rig.desktop.active(),
+        "nothing granted"
+    );
+    Ok(())
+}
+
+#[test]
+fn the_kill_switch_ends_a_trusted_session_and_stops_new_ones() -> Result<()> {
+    let secret = new_secret()?;
+    let rig = trusted_rig(&secret)?;
+    let (mut ws, client_id) = trust_pair(&rig, &secret, "laptop")?;
+    ws.send(&json!({"type":"desktop_open"}))?;
+    eventually("lease", || rig.desktop.active())?;
+    // What Lan::set_desktop(false) does.
+    rig.desktop.enable(false);
+    assert_eq!(rig.server.revoke_desktop(), 1, "the trusted pairing counts");
+    assert_eq!(ws.closed()?, 1008, "dropped at once");
+    assert!(!rig.clients.contains(&client_id), "and gone from the list");
+    let mut again = open(&rig)?;
+    again.hello()?;
+    again.send(&json!({"type":"trust_start","controller_id":"laptop"}))?;
+    assert_eq!(
+        again.until("error")?["code"],
+        "unavailable",
+        "the file opens nothing while the switch is off"
+    );
+    rig.desktop.enable(true);
+    trust_pair(&rig, &secret, "laptop").context("back on, the file works again")?;
+    Ok(())
+}
+
+#[test]
+fn the_operator_can_revoke_a_trusted_controller_for_the_run() -> Result<()> {
+    let secret = new_secret()?;
+    let rig = trusted_rig(&secret)?;
+    let (mut ws, client_id) = trust_pair(&rig, &secret, "laptop")?;
+    ws.send(&json!({"type":"desktop_open"}))?;
+    eventually("lease", || rig.desktop.active())?;
+    assert!(rig.server.revoke(&client_id), "revoked");
+    assert_eq!(ws.closed()?, 1008, "dropped");
+    eventually("lease released", || !rig.desktop.active())?;
+    let mut back = open(&rig)?;
+    back.hello()?;
+    back.send(&json!({"type":"trust_start","controller_id":"laptop"}))?;
+    assert_eq!(
+        back.until("error")?["code"],
+        "unauthorized",
+        "the same controller does not prove its way back in"
+    );
+    // Another controller id is not revoked by that...
+    let (other, _) = trust_pair(&rig, &secret, "second")?;
+    // ...but Revoke all closes trusted pairing for the run.
+    assert_eq!(rig.server.revoke_all(), 1, "the second is listed");
+    drop(other);
+    let mut closed = open(&rig)?;
+    closed.hello()?;
+    closed.send(&json!({"type":"trust_start","controller_id":"third"}))?;
+    assert_eq!(
+        closed.until("error")?["code"],
+        "unauthorized",
+        "revoke all shuts the trust file out until the host restarts"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_controller_that_reconnects_takes_back_its_own_lease() -> Result<()> {
+    // A Wi-Fi drop leaves the old connection open at the host for a while.
+    let secret = new_secret()?;
+    let rig = trusted_rig(&secret)?;
+    let (mut old, old_id) = trust_pair(&rig, &secret, "laptop")?;
+    old.send(&json!({"type":"desktop_open"}))?;
+    eventually("lease", || rig.desktop.active())?;
+    let (mut fresh, fresh_id) = trust_pair(&rig, &secret, "laptop")?;
+    assert_ne!(old_id, fresh_id, "a new pairing");
+    fresh.send(&json!({"type":"desktop_open"}))?;
+    eventually("the new lease", || rig.desktop.active())?;
+    rig.desktop.publish([16, 16], "after-reconnect".into());
+    assert_eq!(
+        fresh.until("desktop_frame")?["jpeg"],
+        "after-reconnect",
+        "the new connection has the lease"
+    );
+    assert_eq!(old.closed()?, 1008, "the old one was closed");
+    assert!(!rig.clients.contains(&old_id), "and replaced in the list");
+    // A different trusted controller does not take the lease from it.
+    let (mut other, _) = trust_pair(&rig, &secret, "second")?;
+    other.send(&json!({"type":"desktop_open"}))?;
+    assert_eq!(
+        other.until("error")?["code"],
+        "unavailable",
+        "one controller at a time"
+    );
+    Ok(())
+}
+
+#[test]
+fn failed_proofs_back_off_per_address_and_then_recover() -> Result<()> {
+    let secret = new_secret()?;
+    let rig = trusted_rig(&secret)?;
+    // Three free failures, then a pause of two seconds.
+    for _ in 0..4 {
+        let (mut ws, _) = trust_start(&rig, "guesser")?;
+        ws.send(&json!({"type":"trust_proof","response":"0".repeat(64)}))?;
+        ws.until("error")?;
+    }
+    let mut paused = open(&rig)?;
+    paused.hello()?;
+    paused.send(&json!({"type":"trust_start","controller_id":"laptop"}))?;
+    let busy = paused.until("error")?;
+    assert_eq!(busy["code"], "busy", "paused: {busy}");
+    assert_eq!(paused.closed()?, 1008, "and the connection is closed");
+    assert!(logged().contains("paused"), "the pause is logged");
+    std::thread::sleep(Duration::from_millis(2300));
+    trust_pair(&rig, &secret, "laptop").context("admitted once the pause is over")?;
+    Ok(())
+}
+
+#[test]
+fn phone_pairing_is_unaffected_by_a_trust_file() -> Result<()> {
+    let secret = new_secret()?;
+    let rig = trusted_rig(&secret)?;
+    // The code and the operator's approval still pair a phone, and the
+    // phone still has no desktop scope.
+    let (phone_id, phone_token, mut phone) = pair(&rig)?;
+    phone.send(&json!({"type":"desktop_open"}))?;
+    assert_eq!(
+        phone.until("error")?["code"],
+        "unavailable",
+        "a phone is not upgraded by the trust file"
+    );
+    phone.send(&json!({"type":"command","request_id":"r1","command":"blackout_on"}))?;
+    assert_eq!(
+        phone.until("command_result")?["accepted"],
+        true,
+        "commands run"
+    );
+    authenticate(&rig, &phone_token).context("tokens still rotate")?;
+    // A full-desktop pairing by code and approval still needs the click.
+    let (_, _, _approved) = pair_as(&rig, true)?;
+    assert!(rig.clients.contains(&phone_id), "the phone stays paired");
+    // The trust messages from a connection past pairing are out of place.
+    phone.send(&json!({"type":"trust_start","controller_id":"x"}))?;
+    assert_eq!(phone.until("error")?["code"], "invalid_request", "not now");
+    Ok(())
+}
+
+#[test]
+fn version_one_traffic_is_byte_for_byte_what_it_was() -> Result<()> {
+    let secret = new_secret()?;
+    let rig = trusted_rig(&secret)?;
+    let mut ws = open(&rig)?;
+    ws.send(&json!({"type":"hello","protocol_version":1}))?;
+    assert_eq!(
+        ws.recv()?,
+        Frame::Text(r#"{"type":"hello","protocol_version":1,"paired":false}"#.into()),
+        "the D236 hello"
+    );
+    ws.send(&json!({"type":"ping"}))?;
+    assert_eq!(
+        ws.recv()?,
+        Frame::Text(r#"{"type":"pong"}"#.into()),
+        "the D236 pong"
+    );
+    ws.send(&json!({"type":"command","request_id":"r1","command":"tap_tempo"}))?;
+    assert_eq!(
+        ws.recv()?,
+        Frame::Text(
+            r#"{"type":"error","code":"unauthorized","message":"pair this device first"}"#.into()
+        ),
+        "the D236 error shape"
+    );
     Ok(())
 }
