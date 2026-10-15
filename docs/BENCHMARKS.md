@@ -57,7 +57,7 @@ what the numbers changed. Don't overwrite old results.
 | 1 | 01-aurora-gradient, 02-plasma-pulse, 03-kaleido-tunnel, 06-feedback-trails | Baseline cost per frame; `syn_FinalPass` bandwidth (06) |
 | 2 | 07-reaction-diffusion | Five passes, four RGBA32F sim steps at half resolution |
 | 3 | 05-domain-warp, 08-bloom-orbs, 13-chromatic-rise | Heavy ALU (before D310: about 60 noise evaluations per pixel; a 32-light loop plus a quarter-resolution blur chain; 13 a full-resolution feedback pass plus an emboss and posterise pass, about 1.35x 05). Since D310 05 evaluates its warp fields at a third of the size, 08 its lights at half, and 13 its broad noise at a quarter |
-| 4 | 04-voronoi-glass, 09-sdf-cathedral | 3×3 + 5×5 cell search; about 110 march steps plus a soft shadow and AO |
+| 4 | 04-voronoi-glass, 09-sdf-cathedral | 3×3 + 5×5 cell search (since D310 cells that cannot change the pixel are skipped before hashing); about 110 march steps plus a soft shadow and AO |
 | 5 | 10-volume-clouds | Volumetric raymarch, up to 56 steps × 6 density samples × 4-octave 3D noise |
 
 The tiers are ranked by measured cost, not by intent. Voronoi turned out
@@ -68,61 +68,81 @@ GPUs.
 
 ### 2026-10-15: venue-GPU pass on 04, 05, 08, 13, 14 and 16 (D310), Mesa llvmpipe
 
-Target: the venue mini PC's Vega 3 at 1920x1080, which measured 04 17.1 ms,
-05 21.2, 08 14.2, 13 13.7, 14 16.8 and 16 12.6 (60 fps needs under 16.7).
-Aim: about 10 ms or less without a visible change. Container as above
-(Mesa llvmpipe 25.2.8, headless EGL, desktop GLSL 3.30), but **one
-llvmpipe thread** (`LP_NUM_THREADS=1`) because other jobs load the shared
-cores, 1280x720, 60 timed frames after 90 warm-up, the lower of two runs.
-Absolute times are CPU rasterisation; the ratio is the number to read.
+Target: the venue mini PC's Vega 3 at 1920x1080. The owner's figures for
+it were 04 17.1 ms, 05 21.2, 08 14.2, 13 13.7, 14 16.8 and 16 12.6 (60 fps
+needs under 16.7). Aim: about 10 ms or less without a visible change.
 
-| Scene | Before ms | After ms | After / before | Vega 3 ms projected by ratio (measured) | Image change (MAD of 255, share of pixels off by >16) |
+**Method.** The container as above: Mesa llvmpipe 25.2.8, headless EGL,
+desktop GLSL 3.30. Other jobs loaded the four shared cores (load average 6
+to 12), so the runs used **one llvmpipe thread** (`LP_NUM_THREADS=1`).
+Each run was 1280x720, 60 timed frames after 90 warm-up. Master's scenes and
+the branch's alternated, twice each; the table gives the lower mean.
+Absolute times are CPU rasterisation; read the ratio.
+
+| Scene | Master ms | D310 ms | D310 / master | Vega 3 ms if the ratio carried over (owner's figure) | Image change at 720p (mean abs diff of 255; pixels off by >16) |
 |---|---:|---:|---:|---:|---|
-| 04-voronoi-glass | 160.0 | 83.4 | 0.52 | 8.9 (17.1) | 0.00%, 0.000% (identical) |
-| 05-domain-warp | 111.9 | 48.2 | 0.43 | 9.1 (21.2) | 0.34%, 0.11% |
-| 08-bloom-orbs | 124.7 | 46.8 | 0.38 | 5.3 (14.2) | 0.03%, 0.00% |
-| 13-chromatic-rise | 141.2 | 98.2 | 0.70 | 9.5 (13.7) | 0.26%, 0.31% |
-| 14-electric-bloom | 161.0 | 94.4 | 0.59 | 9.9 (16.8) | 0.10%, 0.30% |
-| 16-acid-mirror | 114.6 | 107.3 | 0.94 | 11.8 (12.6) | 1.51%, 7.9% |
+| 04-voronoi-glass | 144.5 | 78.2 | 0.54 | 9.2 (17.1) | 0.000%; 13 pixels off by 1 level |
+| 05-domain-warp | 98.7 | 41.0 | 0.42 | 8.9 (21.2) | 0.34%; 0.08% |
+| 08-bloom-orbs | 115.3 | 41.6 | 0.36 | 5.1 (14.2) | 0.03%; 0% |
+| 13-chromatic-rise | 137.2 | 95.8 | 0.70 | 9.6 (13.7) | 0.27%; 0.30% |
+| 14-electric-bloom | 153.2 | 126.1 | 0.82 | 13.8 (16.8) | 0.000%; max 1 level |
+| 16-acid-mirror | 108.0 | 109.6 | 1.01 (noise) | 12.6 (12.6) | 0.000%; max 1 level |
 
-- Frames are a pure function of time, so before and after are compared
-  frame for frame (same scene time, same warm-up). `--api gles` compiles
-  all six and renders the same pixels as desktop (RMSE 0).
-- **04** is exact: a cell is rejected before it is hashed when its box is
+**The fourth column is a projection, not a measurement.** It applies an
+llvmpipe ratio to the owner's Vega 3 figures. llvmpipe is a CPU, bound by
+texture sampling and transcendentals; a GCN GPU's balance of ALU against
+texture is different, so the real ratios will differ. Re-measure on the
+mini PC (`hardware/MINIPC.md`, "Re-measuring the D310 scene pass") before
+ticking anything in STATUS_AUDIT.
+
+**Per scene:**
+- **04** is exact. A cell is skipped before it is hashed when its box is
   already farther than the best point (nearest search), or when it cannot
-  bring the border distance below `edge + 0.02` (border search, the largest
-  value that changes the lead). 34 hashed cells per pixel become about 10.
-- **05**: the two inner warp fields (4 of the 5 fbm calls) run in a
-  `$WIDTH/3` pass and the output pass keeps the full-size outer fbm.
-  Divisors 2, 3, 4 measured 0.57, 0.45, 0.41 of the original CPU time and
-  0.17%, 0.34%, 0.47% mean error, so 3.
-- **08**: the light pass runs at `$WIDTH/2`; `d*d` is a dot product.
-  (Tried and dropped: a 32x2 texture of per-light data, which was exact but
-  slower on llvmpipe and costs RGBA32F fetches per light per pixel on a
-  small GPU.)
-- **13**: the broad noise (flow, tint islands, height islands) moved into a
-  `$WIDTH/4` pass; bubbles do their work only in the cells born this frame;
-  the output pass reads the field with point fetches. 11 noise lookups per
-  pixel become 2. llvmpipe is bound by the field taps here, so its ratio
-  understates the ALU saving.
-- **14**: back and front layers drawn into `$WIDTH/2` buffers (premultiplied),
-  the sharp middle layer, pollen and the stack at full size; the middle
-  layer is skipped under opaque front petals; candidate cells and pollen
-  cells are rejected before hashing and pollen before the trig. One program
-  per layer instead of a loop over three.
-- **16**: the three broad noise fields (ink mask, accent, dye lines) moved
-  into a `$WIDTH/4 x $HEIGHT/2` pass; the palette is a sum of steps instead of
-  a chain of mixes and the final pass squares instead of calling `pow`. This
-  one is a **feedback** scene, so any change in the injected paint
-  compounds: the layout and palette match, the fine colour detail does not
-  match pixel for pixel (1.5% mean error at 720p). llvmpipe barely sees the
-  gain (it is bound by the fp16 bilinear taps and trig, not the noise); on a
-  GPU the noise was about 70% of the feedback pass's arithmetic, so expect
-  more there than the ratio shows. **Not measured on the Vega 3.**
-- The "projected" column is the llvmpipe ratio applied to the measured
-  Vega 3 times; it is a projection, and the real gain depends on ALU versus
-  texture balance. Re-measure on the venue machine before ticking anything
-  in STATUS_AUDIT.
+  bring the border distance below `edge + 0.02`, the largest value that
+  changes the lead (border search). 34 hashed cells per pixel become about
+  10.
+- **05:** the two inner warp fields (4 of the 5 fbm calls) run in a
+  `$WIDTH/3` pass, stored as `q - 0.5` and `r - 0.5` in RGBA16F. In the first pass, divisors 2,
+  3 and 4 measured 0.57, 0.45 and 0.41 of master's time, with 0.17%, 0.34%
+  and 0.47% mean error, so 3. At 3x zoom the finest dark creases are a
+  little softer; at 1x they read the same.
+- **08:** the light pass runs at `$WIDTH/2`, and `d*d` is a dot product. A
+  32x2 texture of per-light data was tried and dropped: it was exact, but
+  slower on llvmpipe, and it costs RGBA32F fetches per light per pixel on a
+  small GPU.
+- **13:** the broad noise (flow, tint islands, height islands) moved into a
+  `$WIDTH/4` pass: 11 noise lookups per pixel become 2. Bubbles do their work
+  only in cells born this frame, which is exact (a mix by weight 0 returns
+  `h` unchanged). The output pass reads the field with `texelFetch`, which is
+  exact because the field is always the final pass's size (`$WIDTH` scales by
+  1); the edge taps wrap as the repeat sampler did.
+- **14:** the first version drew the back and front layers into half-size
+  buffers. That blurred the beaded centres and their rings on every back and
+  front flower; at 720p the large front flower's centre turned to mush. All
+  three layers are back at full size. What remains is exact: the layers are
+  drawn front to back and a layer is skipped where those in front are opaque
+  (to within 0.05%). Candidate and pollen cells are rejected before hashing.
+  Without the back layer at all the scene measured 86 ms, so a half-size back
+  layer would bring it to about 0.65 of master, if the owner accepts softer
+  far-layer centres.
+- **16:** the first version moved the ink-mask, accent and dye-line noise
+  into a quarter-size pass. That measured 0.94 here and moved the feedback
+  picture (1.5% mean error, 7.9% of pixels off by more than 16), so it was
+  reverted. What remains is exact and in the final pass only: the palette is
+  a sum of steps instead of a chain of mixes, the three `pow` calls are
+  squarings, and a streak's colour is only looked up where it has a line. On
+  llvmpipe the gain is within the noise.
+
+**Checks:**
+- `--api gles` renders the same pixels as desktop for all six (max 0).
+- At 160x90: 04, 14 and 16 are identical to master and 08 is close (0.34%).
+  05's warp fields are then 53x30, and the picture is visibly blockier (2.9%
+  mean error). 13 is equivalent in kind but differs pixel for pixel (4.5%),
+  as its feedback loop amplifies a 40x22 flow field's error. Render scales
+  that shows use (1080p at 0.5 and up) keep the reduced passes at 320x180 or
+  more.
+- 1800 warm-up frames (30 s of scene time) at 720p: 13 is 0.30% from master
+  and neither blows out nor dies to black. 16 matches master to 1 level.
 
 ### 2026-10-15: scenes 13-16 after the pre-merge review, Mesa llvmpipe
 
