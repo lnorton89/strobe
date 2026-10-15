@@ -159,6 +159,10 @@ Scenes react to sound through the default **recording** device.
   or use a loopback device, and choose it in Settings > Audio.
 - `--audio synthetic` forces the built-in pattern, for testing without
   sound.
+- `--audio ambient` is the built-in pattern with no beat: hits and beat
+  triggers stay at zero and the levels swell slowly, so scenes keep moving
+  without flashing on a beat the room cannot hear. Use it for a show with
+  no microphone.
 
 ## The output
 
