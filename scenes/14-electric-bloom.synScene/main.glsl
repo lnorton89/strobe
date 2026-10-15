@@ -97,12 +97,25 @@ void flower(vec2 d, vec3 hv, vec2 id, float layer, float T, float bass, float hi
     }
     if (rho > min(1.75, 0.78 / R)) { return; }
 
+    // Glow: a wide halo in the petal colour and a hot centre.
+    float g1 = exp(-rho * rho * 2.6) * (0.28 + 0.30 * o);
+    float g2 = exp(-rho * rho * 30.0) * (0.5 + 1.1 * bass * reactivity + 0.8 * kick);
+    glowc = (V0 * g1 + vec3(1.0, 0.78, 0.35) * g2) * glow;
+
+    // Beyond the longest petal (1.0 radius) and its blur only the glow
+    // reaches: skip the petal rings, about two thirds of the halo's area.
+    float aaR = pxc / R * 1.4 * aaMul;
+    if (rho > 1.02 + 1.5 * aaR) { return; }
+
     vec3 V1 = vivid(hue0 + 0.15);
     vec3 V2 = vivid(hue0 - 0.10);
     float sway = 0.20 * sin(T * 0.5 + hv.z * 20.0 + layer) * sway_amt;
     float th = atan(d.y, d.x) + hv.y * 6.2831853 + sway + T * 0.02 * (hv.x - 0.5);
     float n1 = 6.0 + floor(hw.y * 4.0);
-    float aaR = pxc / R * 1.4 * aaMul;
+    // Ink rims are a thin line in focus; an out-of-focus layer's would read
+    // as dark smudges at the petal tips, so they fade with the blur.
+    float rimW = 0.018 + aaR;
+    float rimInk = min(1.0, 1.5 / aaMul);
 
     float wide = petal_width;
     float shp = mix(3.2, 0.9, clamp((wide - 0.6) / 0.9, 0.0, 1.0));
@@ -132,7 +145,7 @@ void flower(vec2 d, vec3 hv, vec2 id, float layer, float T, float bass, float hi
         float tZ = clamp(rho / max(edgeZ, 0.05), 0.0, 1.0);
         vec3 cZ = mix(V0, V2 * 0.8, smoothstep(0.2, 1.0, tZ));
         cZ *= 0.50 + 0.30 * cos(phiZ * 3.14159265 * 1.1);
-        cZ *= 1.0 - linework * (0.75 * (1.0 - smoothstep(0.0, 0.05 + aaR, sdZ)) + 0.5 * veins(phiZ, rho, n1, aaR));
+        cZ *= 1.0 - linework * (0.75 * rimInk * (1.0 - smoothstep(0.0, rimW, sdZ)) + 0.5 * veins(phiZ, rho, n1, aaR));
         col = mix(col, cZ, covZ);
         a = max(a, covZ);
     }
@@ -145,8 +158,8 @@ void flower(vec2 d, vec3 hv, vec2 id, float layer, float T, float bass, float hi
         cA *= 0.60 + 0.40 * cos(phiA * 3.14159265 * 1.1);
         cA = mix(cA, vec3(1.0, 0.95, 0.8), 0.45 * (1.0 - smoothstep(0.0, 0.42, tA)));
         float vA = veins(phiA + 0.05 * sin(rho * 9.0 + hv.y * 20.0), rho, n1, aaR);
-        float rimA = smoothstep(0.0, 0.05 + aaR, sdA);
-        cA *= 1.0 - linework * (0.82 * vA * smoothstep(0.12, 0.3, rho) + 0.85 * (1.0 - rimA));
+        float rimA = smoothstep(0.0, rimW, sdA);
+        cA *= 1.0 - linework * (0.82 * vA * smoothstep(0.12, 0.3, rho) + 0.85 * rimInk * (1.0 - rimA));
         col = mix(col, cA, covA);
         a = max(a, covA);
     }
@@ -160,8 +173,8 @@ void flower(vec2 d, vec3 hv, vec2 id, float layer, float T, float bass, float hi
         cB *= 0.65 + 0.35 * cos(phiB * 3.14159265 * 1.1);
         cB = mix(cB, vec3(1.0, 0.96, 0.82), 0.35 * (1.0 - tB));
         float vB = veins(phiB, rho, n1, aaR);
-        float rimB = smoothstep(0.0, 0.05 + aaR, sdB);
-        cB *= 1.0 - linework * (0.78 * vB * smoothstep(0.12, 0.3, rho) + 0.9 * (1.0 - rimB));
+        float rimB = smoothstep(0.0, rimW, sdB);
+        cB *= 1.0 - linework * (0.78 * vB * smoothstep(0.12, 0.3, rho) + 0.9 * rimInk * (1.0 - rimB));
         col = mix(col, cB, covB);
         a = max(a, covB);
     }
@@ -178,11 +191,6 @@ void flower(vec2 d, vec3 hv, vec2 id, float layer, float T, float bass, float hi
         a = max(a, covC);
     }
 
-    // Glow: a wide halo in the petal colour and a hot centre.
-    vec3 halo = V0;
-    float g1 = exp(-rho * rho * 2.6) * (0.28 + 0.30 * o);
-    float g2 = exp(-rho * rho * 30.0) * (0.5 + 1.1 * bass * reactivity + 0.8 * kick);
-    glowc = (halo * g1 + vec3(1.0, 0.78, 0.35) * g2) * glow;
 }
 
 vec4 garden(void) {
