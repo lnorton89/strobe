@@ -40,7 +40,7 @@ This is the central sequence illustrated in the bottom seven-step strip.
 6. **Post/present.** Apply master/colour/mirror effects after compositing; bypass this pass entirely if every meta setting is neutral. Present letterboxed pixels (or blackout) to the output window when visible. Only the output window's swap uses vsync.
 7. **Feedback.** Poll **older** GPU timer-query results without waiting. Feed `AdaptiveScale` so changes to rendering resolution apply to subsequent frames. Monitor GL reset state at most once per second on robust contexts.
 
-The UI redraw happens separately at approximately **30 Hz**. The output scene frame continues to be evaluated while the output window is hidden, so the control window preview remains usable.
+The UI redraw happens separately at approximately **30 Hz**, or about 2 Hz while the fullscreen output covers the control window. Windows can stop painting a covered control window altogether, so since D290 the event loop runs those frames itself when no paint arrives. The output scene frame continues to be evaluated while the output window is hidden, so the control window preview remains usable.
 
 ## 4. Inside a shader render
 
@@ -62,7 +62,7 @@ The UI redraw happens separately at approximately **30 Hz**. The output scene fr
 
 ## 6. Evidence and caveats
 
-The repository states the project is in its **v0.1.0 test release**, not production-ready. Open validation areas include real MIDI controller hardware, Shadertoy access on the live service, additional GPU models, phones and parts of Synesthesia compatibility. The LAN controller is presently an **opt-in HTTP/WebSocket page**, not an installable PWA (per its crate README). The diagram describes the paths implemented/documented at the cited commit and must not be interpreted as a performance guarantee or a fully validated compatibility matrix.
+The repository states the project is in its **v0.1.0 test release**, not production-ready. Open validation areas include real MIDI controller hardware, Shadertoy access on the live service, additional GPU models, phones and parts of Synesthesia compatibility. The LAN controller is presently an **opt-in HTTP/WebSocket page**, not an installable PWA (per its crate README). Since this snapshot, a second Strobe can also take full desktop control of a headless show machine with a shared trust file and automatic reconnect (venue mode, D288 and D294); the diagram predates it. The diagram describes the paths implemented/documented at the cited commit and must not be interpreted as a performance guarantee or a fully validated compatibility matrix.
 
 ### Source code and documentation
 
