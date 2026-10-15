@@ -6141,9 +6141,17 @@ read as a typed address; and the host's title counted a refused socket as
   graphics context can still recreate the texture; `disconnect` releases it.
   The text claims the image only when one is drawn.
 - **Waiting for approval ends after 60 s** (`APPROVAL_TIMEOUT`), enforced by
-  the worker so its socket is closed too. A reconnect with a held pairing
-  needs no approval and says so. The time label reads "Waiting 12 s of
-  60 s"; the viewer asks for a repaint twice a second while it waits.
+  the worker, which shuts its socket down however it ends: the interrupter
+  the app holds is a second handle on the socket, so dropping the connection
+  alone left it open, and the host went on listing a request it could still
+  approve. The deadline is checked only after a poll that brought nothing,
+  so an approval the host sent just before it is read rather than thrown
+  away. A reconnect with a held pairing needs no approval and says so. The
+  time label reads "Waiting 12 s of 60 s"; it is formatted once a second,
+  and the viewer repaints when the count next changes.
+- **Input that cannot reach the host ends the connection** (`End::Lost`),
+  rather than leaving the viewer on a paused card waiting for a frame that
+  cannot come; a held pairing offers Reconnect.
 - **Refusals name the next step.** `Unauthorized` becomes "a new pairing code
   from the host is needed" with where it appears (Settings > Remote > Pair a
   device, with Allow full desktop control on); `PairingRejected` keeps the
@@ -6155,7 +6163,10 @@ read as a typed address; and the host's title counted a refused socket as
   address starts empty with the hint "Host address, e.g. 192.168.1.20", the
   code field hints "Pairing code", and a bare IP takes the default port
   (47812). Ctrl+K lists **Control another Strobe...** (category Remote), which
-  opens Settings, scrolls to the section and focuses the address.
+  opens Settings, scrolls to the section and focuses the address; where the
+  pane is too short for the heading and the field together, it scrolls the
+  field into view instead. From a remote desktop pass it only closes this
+  computer's own viewer and opens the form: Connect stays host-only (D275).
   No rail item was added: the rail is for Synesthesia's seven views (D281)
   and this is a rarely used setting, so the palette and a section of its own
   fit better than a new icon.
