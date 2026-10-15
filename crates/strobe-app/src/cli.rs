@@ -242,6 +242,23 @@ pub struct Cli {
     /// and its certificate are yours to run.
     #[arg(long, value_name = "NAME[:PORT]", value_parser = parse_proxy_name)]
     pub remote_proxy: Option<String>,
+    /// Switch "Allow full desktop control" on at launch, for this run, so a
+    /// headless show machine can be controlled without anyone at it (D288).
+    /// Needs `--remote`. It does not approve anyone: pair with the host's
+    /// Approve button, or with `--remote-trust`. Never saved.
+    #[arg(long, requires = "remote")]
+    pub allow_desktop_control: bool,
+    /// Venue mode (D288): a controller that proves it holds this trust file
+    /// is paired for full desktop control with no approval click, while
+    /// full desktop access is on. Make the file with `--make-remote-trust`.
+    /// Anyone who can read it has full control; keep it private. Read once
+    /// at launch.
+    #[arg(long, value_name = "FILE", requires = "remote")]
+    pub remote_trust: Option<PathBuf>,
+    /// Make a trust file at FILE (32 random bytes from the operating
+    /// system), print how to use it, and exit. Refuses to overwrite.
+    #[arg(long, value_name = "FILE")]
+    pub make_remote_trust: Option<PathBuf>,
 }
 
 /// A host name, optionally with a port: letters, digits, `-` and `.`.
@@ -511,6 +528,46 @@ mod tests {
         assert!(
             Cli::try_parse_from(["strobe", "--remote-bind", "phone.local"]).is_err(),
             "an address, never a name"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn venue_mode_flags_need_the_remote_and_are_off_by_default() -> Result<()> {
+        let plain = Cli::try_parse_from(["strobe"])?;
+        assert!(
+            !plain.allow_desktop_control
+                && plain.remote_trust.is_none()
+                && plain.make_remote_trust.is_none(),
+            "nothing by default"
+        );
+        let host = Cli::try_parse_from([
+            "strobe",
+            "--remote",
+            "--allow-desktop-control",
+            "--remote-trust",
+            "venue.trust",
+        ])?;
+        assert!(host.allow_desktop_control, "switch on at launch");
+        assert_eq!(
+            host.remote_trust,
+            Some(PathBuf::from("venue.trust")),
+            "file"
+        );
+        for lone in [
+            ["strobe", "--allow-desktop-control"],
+            ["strobe", "--remote-trust=venue.trust"],
+        ] {
+            assert!(
+                Cli::try_parse_from(lone).is_err(),
+                "{lone:?} does nothing without --remote, so it is refused"
+            );
+        }
+        let make = Cli::try_parse_from(["strobe", "--make-remote-trust", "venue.trust"])?;
+        assert_eq!(
+            make.make_remote_trust,
+            Some(PathBuf::from("venue.trust")),
+            "make"
         );
         Ok(())
     }

@@ -645,6 +645,7 @@ fn sample_lan(on: bool, desktop: bool) -> crate::lan::LanView {
         ],
         connections: 2,
         desktop_controlled: desktop,
+        venue: false,
     }
 }
 
