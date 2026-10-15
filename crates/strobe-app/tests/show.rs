@@ -662,3 +662,112 @@ fn a_cues_media_replaces_the_scenes_own_and_the_next_cue_gets_it_back() -> Resul
     }
     Ok(())
 }
+
+/// A library of the given `(name, scene.json, main.glsl)` scenes.
+fn library_of(tag: &str, scenes: &[(&str, &str, &str)]) -> Result<TempLibrary> {
+    let root = std::env::temp_dir().join(format!("strobe-show-{}-{tag}", std::process::id()));
+    let mut entries = Vec::new();
+    for (name, json, shader) in scenes {
+        let dir = root.join(format!("{name}.synScene"));
+        std::fs::create_dir_all(&dir)?;
+        std::fs::write(dir.join("scene.json"), json)?;
+        std::fs::write(dir.join("main.glsl"), shader)?;
+        entries.push(Entry::new((*name).to_string(), dir));
+    }
+    Ok(TempLibrary {
+        library: Library {
+            dir: root.clone(),
+            entries,
+        },
+        root,
+    })
+}
+
+/// A 1x1 double-buffered counter (a literal-size pass, which a resize
+/// keeps, D287) shown in red as the count over [`COUNT_SCALE`].
+const COUNTER_JSON: &str = r#"{ "PASSES": [
+    {"TARGET": "count", "DOUBLE_BUFFER": true, "WIDTH": 1, "HEIGHT": 1,
+     "FLOAT": true, "FULL_PRECISION": true, "FILTER": "nearest"} ] }"#;
+const COUNTER_SHADER: &str = "vec4 renderMain() {\n\
+    if (PASSINDEX == 0) { return texture(count, vec2(0.5)) + vec4(1.0, 0.0, 0.0, 0.0); }\n\
+    return vec4(texture(count, vec2(0.5)).r / 400.0, 0.0, 0.0, 1.0); }";
+const COUNT_SCALE: f32 = 400.0;
+
+const RED_SHADER: &str = "vec4 renderMain() { return vec4(1.0, 0.0, 0.0, 1.0); }";
+
+/// The live scene's own frame (not the mix), centre pixel.
+fn live_centre(rig: &Rig<'_>) -> Result<[u8; 3]> {
+    let session = rig
+        .active
+        .as_ref()
+        .ok_or_else(|| anyhow!("nothing is playing"))?;
+    let pixels = session.player.read_output();
+    let [w, h] = session.player.render_size();
+    let offset = ((h / 2 * w + w / 2) * 4) as usize;
+    let px = pixels
+        .get(offset..offset + 3)
+        .ok_or_else(|| anyhow!("readback too short"))?;
+    Ok([px[0], px[1], px[2]])
+}
+
+fn cue_of(scene: &str, seconds: f64, transition: TransitionSpec) -> Cue {
+    let mut cue = Cue::new(SceneRef::Library(scene.to_string()));
+    cue.settings.duration = Some(DurationSpec::Seconds(seconds));
+    cue.settings.transition = Some(transition);
+    cue
+}
+
+#[test]
+fn a_scene_cued_again_starts_fresh_rather_than_from_its_last_cues_buffers() -> Result<()> {
+    for api in BOTH {
+        let Some(headless) = context(api)? else {
+            continue;
+        };
+        let library = library_of(
+            &format!("recue-{api:?}"),
+            &[
+                ("counter", COUNTER_JSON, COUNTER_SHADER),
+                ("red", "{}", RED_SHADER),
+            ],
+        )?;
+        let mut rig = Rig::new(&headless)?;
+        let mut playlist = Playlist::new("recue");
+        let mut section = Section::new("all");
+        section
+            .cues
+            .push(cue_of("counter", 3.0, TransitionSpec::cut()));
+        section.cues.push(cue_of("red", 3.0, TransitionSpec::cut()));
+        section
+            .cues
+            .push(cue_of("counter", 3.0, TransitionSpec::cut()));
+        playlist.sections.push(section);
+        let mut show = Show::new(None, playlist, &library.library, None, None);
+        rig.load(&mut show)?;
+        let count = |rig: &Rig<'_>| -> Result<f32> {
+            Ok(f32::from(live_centre(rig)?[0]) / 255.0 * COUNT_SCALE)
+        };
+        let mut end_of_first = None;
+        let mut start_of_third = None;
+        for _ in 0..(8 * 60) {
+            rig.frame(&mut show);
+            match show.clock().current() {
+                Some(0) => end_of_first = Some(count(&rig)?),
+                Some(2) if start_of_third.is_none() => start_of_third = Some(count(&rig)?),
+                _ => {}
+            }
+        }
+        let (Some(first), Some(third)) = (end_of_first, start_of_third) else {
+            return Err(anyhow!("{api:?}: the counter cues did not both play"));
+        };
+        // The third cue's counter has run only through its warm-up (the
+        // two seconds before it starts, about 120 frames); one that carried
+        // the first cue's buffers would read about 180 more.
+        assert!(
+            third < first,
+            "{api:?}: a re-cued scene starts its passes over: the first cue ended at \
+             {first:.0}, the third began at {third:.0}"
+        );
+        show.finish();
+    }
+    Ok(())
+}

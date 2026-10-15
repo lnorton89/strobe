@@ -7145,3 +7145,34 @@ Debian), and Fedora and Arch builds.
 dependency in `Cargo.lock` (needs `outputHashes`), a dlopen'd library
 the list misses (a window that will not open on a clean Nix or Debian box),
 or a real Linux GPU that needs more than `hardware.graphics.enable`.
+
+### D297: a scene cued again starts with every pass cleared (2026-10-15)
+
+**Context.** A playlist parks a scene between its cues by resizing it to
+1x1 (D151). Since D287 a resize keeps every pass whose own size it does not
+change, so a parked scene keeps its literal-size and `FIXED_SIZE` passes, and
+a scene that pins its final pass (D280) keeps all of them. When the playlist
+cued the scene again, `prepare` started its clock and frame count over but the
+buffers carried the state of the cue that played last time, an hour earlier
+in a long show: a 1x1 counter pass read 301 on the first frame of its second
+cue instead of the 120 frames of its warm-up. Before D287 the resize out of
+the park cleared those passes, so this is a regression of D287, not its
+intent. D287's own fix for `strobe-autocontrol` was `ScenePlayer::restart`.
+
+**Decision.** `Show::unpark` takes a scene out of the cache and calls
+`ScenePlayer::restart` before the warm-up or the cue resizes it. A cue starts
+its scene from the beginning: clock, frame count and buffers. A cue that
+follows a cue of the same scene keeps the live session and its picture
+(`prepare_active`, no flash of black), as before; it restarts only the clock.
+The restart happens at the parked size (1x1 for every pass that follows the
+render size) and once per cue change, so it costs a few texture allocations,
+never a compile.
+
+**Test.** `a_scene_cued_again_starts_fresh_rather_than_from_its_last_cues_buffers`
+(`strobe-app/tests/show.rs`, both dialects): a 1x1 counter scene, another
+scene, the counter again. Without the restart the third cue begins at 301,
+past the first cue's 180.
+
+**Would reopen:** a show that wants a scene to pick up where its last cue
+left it (a persistent simulation across cues). That would be a cue setting,
+not the default.
