@@ -6583,3 +6583,113 @@ Not verified: two physical machines, a Windows host, a four-hour soak.
 
 **Would reopen:** TLS for the native client (closing the plain-HTTP gaps); a
 per-controller secret instead of one shared file; ACLs set on Windows.
+
+### D290: the event loop runs the control frame when Windows withholds its paints (2026-10-15)
+
+**Context.** On the JaJa mini PC (Ryzen 3 3200U, Vega 3, AMD WGL), a
+scheduled-task show with `--playlist --output-monitor 1 --fullscreen` logged
+"control window in view: redrawing at 30 Hz", then "control 1 redraws" in the
+first minute and "control 0 redraws" in every minute after, with the output
+at 60 fps. Ninety posted `InvalidateRect`/`WM_PAINT` nudges and three minutes
+with the output moved off-screen drew nothing either, so it was not
+occlusion. The playlist compiled one scene per control frame and stuck at 1
+of 14 behind a black output; fca44a5 made the output frame compile when the
+control window has been quiet for 500 ms. Everything else in
+`redraw_control` (applying UI actions, the remote and LAN UI passes, the
+D275 desktop capture, `ui_state.tick`, remote persist, preview loads) still
+never ran, so the desktop remote could not have worked on that machine.
+
+**Cause.** The control window was starved of `WM_PAINT`, not hidden from it.
+- winit 0.30.13 on Windows emits `RedrawRequested` only from `WM_PAINT`
+  (`request_redraw` is `RedrawWindow(.., RDW_INTERNALPAINT)`,
+  `platform_impl/windows/window.rs:152`; the event is sent from the
+  `WM_PAINT` arm, `event_loop.rs:1276`).
+- Windows makes a `WM_PAINT` only when the queue is otherwise empty, and for
+  the first dirty window of the thread found walking top-level windows in
+  z-order from the top (ReactOS's `IntFindWindowToRepaint` models it).
+- winit stops dispatching after every `RedrawRequested` and goes back to
+  `about_to_wait` (`event_loop/runner.rs:214`, `interrupt_msg_dispatch`).
+- `schedule` requests the output's redraw whenever `OUTPUT_PERIOD`
+  (6.9 ms) has passed since the last request. On Vega 3 the fullscreen
+  output's vsync wait lands inside its own swap, so its frame takes about
+  16.7 ms and the output is dirty again on every pass.
+- So with the output above the control window, the output is always the
+  first dirty window and the control window's paint never comes. Nudges add
+  update region to a window that is already waiting; moving the output
+  off-screen changes neither its z-order nor its dirtiness.
+
+This also explains TORNADO T11's "0 to 2 paints a minute" for a covered
+control window (D206), and why a *windowed* output on NVIDIA left the
+control window painted: there the vsync wait landed in the control window's
+`make_current` (D216), so the output's own frame was short and it was not
+always dirty. The covered/in-view state does not decide it: the app thought
+the control window was in view here (it had been given focus), and z-order,
+not focus, is what counts.
+
+**Decision.**
+- **`stats::ControlDrive`.** Every control request is still made as before.
+  When one has gone unanswered for `PAINT_PATIENCE` (250 ms) and
+  `PAINT_PASSES` (4) passes of the event loop, `about_to_wait` runs the
+  control frame itself (`redraw_control(true)`): make-current on the
+  control surface, the egui pass, paint, desktop capture, swap, actions.
+  It keeps doing so at the control window's period until a paint answers a
+  request within the patience, which hands the frames back. A late paint
+  (an output frame that happened to let one through) leaves the loop in
+  charge, so the two do not take turns.
+- **Counting passes as well as time** keeps a loop that was merely blocked
+  (a scene compiling for a second inside an output frame) from reading as a
+  starved window: that is one or two passes, a starved window sees one per
+  output frame.
+- **While the loop drives, the window counts as unseen** (`control_unseen`):
+  it redraws at `COVERED_PERIOD` (2 Hz), or `desktop::STREAM_PERIOD` (5 Hz)
+  while a desktop remote holds the lease, and the pacer treats it as
+  covered. Starvation means the output is above it, and a swap of a covered
+  window is what D206 throttled.
+- **The swap policy does not.** The output's D221 wait is skipped only
+  while `control_covered`, as before. A driven window still takes the
+  shared context two to five times a second, and on a machine where the
+  wait has engaged, dropping it would move the flip's wait back into that
+  make-current and cost the show a frame per driven redraw (TORNADO T15,
+  T16), where before this fix the starved window cost nothing.
+- **Not in screenshot mode, and not while minimised.** A screenshot captures
+  what was painted and keeps its 10 s give-up; a minimised window has
+  nothing to draw (`redraw_control` returns at once).
+- **The perf line counts loop-driven redraws:** "control N redraws X ms
+  (worst Y ms, M unpainted)". The first takeover is logged at info:
+  "control window: no paint from Windows for N ms (takeover 1); the event
+  loop runs its frames every 500 ms until one comes (D290)". Later
+  takeovers and every hand-back are at debug.
+- **fca44a5 stays** as the backstop for the playlist compile.
+- **The desktop capture stays valid.** It reads the control window's back
+  buffer right after egui paints it and before the swap. Windows composes
+  every window through DWM (always on since Windows 8), so a covered window
+  owns all its pixels and the read does not depend on the window being
+  shown. The fenced readback on a real covered window is still to be seen
+  on hardware (STATUS_AUDIT).
+
+**Not chosen.**
+- *Skip the output's request while a control paint is overdue*, so Windows
+  picks the control window. The control frame would run in the same slot
+  between two output frames as a driven one does, so it costs the same; but
+  it still depends on Windows' paint order, and a paint that did not come
+  (a minimised window, another window of the thread on top) would stall
+  the output until a timeout, which is this fix's heuristic again.
+- *Drive the control window from the loop always*, dropping
+  `request_redraw`. It would change the paint behaviour everywhere it works
+  today, and lose winit's expose redraws.
+- *Raise the control window or post paints at it.* The field already showed
+  nudges do nothing, and raising it would cover the projector.
+
+**Test.** `stats::tests`:
+`a_painted_control_window_is_never_driven_by_the_loop`,
+`a_control_window_with_no_paints_is_run_by_the_loop_at_its_own_period`
+(the mini PC's state),
+`a_blocked_loop_is_not_a_window_without_paints` and
+`the_loop_hands_back_only_to_a_prompt_paint`;
+`a_minute_is_summarised_once_with_late_frames_counted` checks the perf line's
+unpainted count. Linux and llvmpipe cannot reproduce the paint order, so the
+acceptance test is the mini PC (MINIPC.md).
+
+**Would reopen:** the mini PC's log showing the takeover line with the
+control count still at 0 (then the frame itself fails, not its scheduling),
+or a loop-driven 2 Hz control window costing the output frames.
