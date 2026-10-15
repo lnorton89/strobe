@@ -5,7 +5,9 @@
   "LICENSE": "MIT",
   "DESCRIPTION": "A garden of vivid, glowing flowers in three depth layers over black: inked petal veins, beaded pollen centres, blooms that unfurl and sway, and drifting pollen. Bass pushes the blooms open, mids stir the garden, highs sparkle the pollen, hits flash the colour. Entirely procedural.",
   "PASSES": [
-    { "TARGET": "clock", "WIDTH": 1, "HEIGHT": 1, "FLOAT": true, "DOUBLE_BUFFER": true, "WRAP": "clamp", "FILTER": "nearest", "FULL_PRECISION": true }
+    { "TARGET": "clock", "WIDTH": 1, "HEIGHT": 1, "FLOAT": true, "DOUBLE_BUFFER": true, "WRAP": "clamp", "FILTER": "nearest", "FULL_PRECISION": true },
+    { "TARGET": "back", "WIDTH": "$WIDTH/2", "HEIGHT": "$HEIGHT/2", "FLOAT": true, "WRAP": "clamp" },
+    { "TARGET": "front", "WIDTH": "$WIDTH/2", "HEIGHT": "$HEIGHT/2", "FLOAT": true, "WRAP": "clamp" }
   ],
   "CONTROLS": [
     { "NAME": "density", "TYPE": "slider smooth", "MIN": 0.6, "MAX": 1.8, "DEFAULT": 1.0, "PARAMS": 0.03, "UI_GROUP": "shape" },
