@@ -258,6 +258,39 @@ fn a_buffer_reading_itself_accumulates_exactly() -> Result<()> {
 }
 
 #[test]
+fn a_resize_that_wipes_the_buffers_restarts_iframe_so_they_initialise_again() -> Result<()> {
+    // buffer_feedback's Buffer A writes 0.25 on `iFrame == 0` and adds 1/255
+    // a frame after that. `resize` restarts the `$WIDTH` buffers from black,
+    // so it must restart `iFrame` too (D91), even though the 1x1 clock pass
+    // keeps its size (D287): otherwise the buffer never initialises again
+    // and counts up from black.
+    let (_, scene) = import("buffer_feedback")?;
+    for api in BOTH {
+        let frames = 20;
+        let Some(frame) = render(api, &scene, frames, full_precision(), |frame, tweaks| {
+            match frame {
+                10 => tweaks.player.resize([SIZE[0] / 2, SIZE[1] / 2])?,
+                11 => tweaks.player.resize(SIZE)?,
+                _ => {}
+            }
+            Ok(())
+        })?
+        else {
+            continue;
+        };
+        // Frames 11 to 19 ran after the last wipe: 0.25 + 9/255.
+        let expected = (0.25 * 255.0 + 9.0_f32).round() as u8;
+        let got = frame.center()[0];
+        assert!(
+            got.abs_diff(expected) <= 1,
+            "{api:?}: after the resize Buffer A should start again from 0.25 \
+             (expected about {expected}), got {got}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn reading_a_later_buffer_gives_the_previous_frame() -> Result<()> {
     // A = N/255. B reads A, which ran earlier this frame: N. D = C + 1/255.
     // C reads D, which runs *after* C, so it sees D's previous frame:
