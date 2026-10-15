@@ -1601,22 +1601,7 @@ fn control(link: &Link, inputs: &Receiver<Input>, pictured: &mut bool) -> io::Re
             }
         }
         if authenticated && now >= next_send {
-            let mut bytes = 128;
-            while batch.len() < 32 {
-                let Some(event) = pending.take().or_else(|| inputs.try_recv().ok()) else {
-                    break;
-                };
-                if paused {
-                    continue;
-                }
-                let length = serde_json::to_vec(&event).map_err(io::Error::other)?.len() + 1;
-                if bytes + length > strobe_remote::MAX_MESSAGE_BYTES {
-                    pending = Some(event);
-                    break;
-                }
-                bytes += length;
-                batch.push(event);
-            }
+            next_batch(&mut pending, inputs, paused, &mut batch)?;
             if !batch.is_empty() {
                 connection.send(&ClientMessage::DesktopInput {
                     events: std::mem::take(&mut batch),
@@ -1629,6 +1614,50 @@ fn control(link: &Link, inputs: &Receiver<Input>, pictured: &mut bool) -> io::Re
             connection.send(&ClientMessage::Ping {})?;
             next_ping = now + Duration::from_secs(5);
         }
+    }
+    Ok(())
+}
+
+/// Fills `batch` with the input waiting in `inputs`, at most 32 events and
+/// one message's bytes; an event that does not fit waits in `pending`.
+/// While `paused`, what is waiting is dropped instead.
+///
+/// A pointer move that follows another move replaces it, so a run of
+/// moves goes as its latest position. A batch leaves every 150 ms, and a
+/// 500 or 1000 Hz mouse makes more moves than 32 a batch can carry: sent
+/// one each, they filled the queue from the frame loop and ended the
+/// connection. Edges and text keep their own slots and their order.
+fn next_batch(
+    pending: &mut Option<Input>,
+    inputs: &Receiver<Input>,
+    paused: bool,
+    batch: &mut Vec<Input>,
+) -> io::Result<()> {
+    let mut bytes = 128;
+    while batch.len() < 32 {
+        let Some(event) = pending.take().or_else(|| inputs.try_recv().ok()) else {
+            break;
+        };
+        if paused {
+            continue;
+        }
+        let length = serde_json::to_vec(&event).map_err(io::Error::other)?.len() + 1;
+        if matches!(event, Input::Move { .. })
+            && let Some(last @ Input::Move { .. }) = batch.last_mut()
+        {
+            let replaced = serde_json::to_vec(&*last).map_err(io::Error::other)?.len() + 1;
+            if bytes - replaced + length <= strobe_remote::MAX_MESSAGE_BYTES {
+                bytes = bytes - replaced + length;
+                *last = event;
+                continue;
+            }
+        }
+        if bytes + length > strobe_remote::MAX_MESSAGE_BYTES {
+            *pending = Some(event);
+            break;
+        }
+        bytes += length;
+        batch.push(event);
     }
     Ok(())
 }
@@ -3258,6 +3287,47 @@ mod tests {
             .is_empty(),
             "local disconnect toolbar is never sent to host"
         );
+    }
+
+    #[test]
+    fn a_fast_mouse_is_sent_as_its_latest_position_and_never_fills_the_queue() -> Result<()> {
+        // A batch leaves every 150 ms with at most 32 events, so 213 a
+        // second. A 500 or 1000 Hz mouse makes more pointer moves than
+        // that, and the 512-event queue between the frame loop and the
+        // worker filled within a second or two of steady movement: the
+        // connection was then ended as "input could not reach the host".
+        let (sender, inputs) = sync_channel(512);
+        let at = |n: u16| {
+            let x = f32::from(n) / 1000.0;
+            Input::Move { x, y: x }
+        };
+        let press = Input::Button {
+            x: 0.5,
+            y: 0.5,
+            button: 0,
+            down: true,
+            modifiers: Modifiers::default(),
+        };
+        for n in 0..400 {
+            sender.try_send(at(n))?;
+        }
+        sender.try_send(press.clone())?;
+        for n in 400..500 {
+            sender.try_send(at(n))?;
+        }
+        let mut pending = None;
+        let mut batch = Vec::new();
+        next_batch(&mut pending, &inputs, false, &mut batch)?;
+        assert_eq!(
+            batch,
+            vec![at(399), press, at(499)],
+            "each run of moves is its last position, and the press keeps its place"
+        );
+        assert!(
+            inputs.try_recv().is_err() && pending.is_none(),
+            "nothing is left behind"
+        );
+        Ok(())
     }
 
     #[test]
