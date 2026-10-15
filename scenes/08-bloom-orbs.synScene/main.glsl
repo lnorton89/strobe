@@ -1,4 +1,9 @@
 // Bloom Orbs — Strobe base library, tier 2.
+//
+// The lights are smooth 1/d^2 glows (the saturated core is about 14 pixels
+// wide at 1080p), so the light pass renders at half size and the output pass
+// reads it back with bilinear filtering. d^2 comes from a dot product, not a
+// length squared.
 
 vec4 blur(sampler2D src, vec2 dir) {
     // 9-tap Gaussian using linear filtering to read two texels per tap.
@@ -20,9 +25,9 @@ vec4 renderMain(void) {
             float r = 0.08 + 0.38 * fract(fi * 0.618034);
             vec2 c = vec2(cos(a), sin(a)) * r * (1.0 + syn_BassLevel * 0.25);
             float size = 0.004 + 0.01 * _hash11(fi) + syn_BassHits * 0.006;
-            float d = length(p - c);
+            vec2 v = p - c;
             vec3 hue = _hsv2rgb(vec3(fract(fi * 0.137 + TIME * 0.02), 0.75, 1.0));
-            col += hue * size / max(d * d * 60.0, 0.0005);
+            col += hue * size / max(dot(v, v) * 60.0, 0.0005);
         }
         return vec4(col, 1.0);
     }
