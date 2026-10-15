@@ -341,6 +341,7 @@ impl ScenePlayer {
                         pass_index,
                         extra: extras,
                     });
+                    dump_fragment(&def.title, caps.dialect, index, &source);
                     let compiled = Rc::new(build_program(
                         gl,
                         &def,
@@ -1307,6 +1308,33 @@ fn pass_size(pass: &PassDef, render_size: [i32; 2]) -> [i32; 2] {
 /// it, so a pinned scene renders at its own design size throughout.
 fn final_size(pinned: Option<[i32; 2]>, requested: [i32; 2]) -> [i32; 2] {
     pinned.map_or(requested, |[w, h]| [w.max(1), h.max(1)])
+}
+
+/// Writes one pass's assembled fragment shader to the folder named by
+/// `STROBE_DUMP_GLSL`, when it is set, as `<title>.<dialect>.pass<N>.frag`.
+/// Debugging only: it runs at scene load, never per frame, and a failed
+/// write is logged and otherwise ignored.
+fn dump_fragment(title: &str, dialect: assemble::Dialect, pass: usize, source: &str) {
+    const ENV: &str = "STROBE_DUMP_GLSL";
+    let Some(dir) = std::env::var_os(ENV) else {
+        return;
+    };
+    let label = match dialect {
+        assemble::Dialect::Glsl330 => "glsl330",
+        assemble::Dialect::Glsl410 => "glsl410",
+        assemble::Dialect::Es300 => "es300",
+    };
+    let stem: String = title
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect();
+    let dir = Path::new(&dir);
+    let path = dir.join(format!("{stem}.{label}.pass{pass}.frag"));
+    let written = std::fs::create_dir_all(dir).and_then(|()| std::fs::write(&path, source));
+    match written {
+        Ok(()) => log::info!("{ENV}: wrote {}", path.display()),
+        Err(error) => log::warn!("{ENV}: could not write {}: {error}", path.display()),
+    }
 }
 
 /// One pass's fragment shader: what the driver compiles, and what the user

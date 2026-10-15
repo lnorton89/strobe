@@ -41,6 +41,7 @@ setup, saves it beside the logs, and exits. Attach it to bug reports.
 | `STROBE_NO_CRASH_MONITOR=1` | Do not start the crash monitor process or attach the native crash handler. Use it under a debugger. |
 | `STROBE_DIAG_DIR` | Replace the base directory above. |
 | `STROBE_REQUIRE_HEADLESS_GL=1` | Make the headless-GL tests fail instead of skip when no EGL device exists. CI's Linux job sets it. |
+| `STROBE_DUMP_GLSL=<dir>` | Write each pass's assembled fragment shader to `<dir>` when a scene loads, as `<title>.<dialect>.pass<N>.frag` (dialect `glsl330`, `glsl410` or `es300`). Use it to compare what the desktop and ANGLE drivers are given. A failed write is a log warning. |
 
 ## Context loss and `STROBE_FAULT`
 

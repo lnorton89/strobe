@@ -6812,3 +6812,38 @@ follow-up) and `docs/research/angle-backends.md`.
 - Apple announcing OpenGL's removal, which moves G-07 up but does not
   change the choice;
 - naga's SPIR-V reader taking the corpus.
+
+### D293: global initializers run in `main` on desktop too (2026-10-15)
+
+The corpus scene sprinkles rendered all black on native GL (RX 580, Intel
+HD 620, Vega 3) and correctly on ANGLE. Its code declares a global set from
+the pixel coordinate, `vec2 uv = _uv;`. Strobe's `_xy`, `_uv` and `_uvc` are
+globals that `main` fills, and a desktop driver runs a non-constant global
+initializer before `main`, so `uv` was (0, 0) on every pixel. ES never
+showed it, because D192 already moves global initializers to the top of
+`main`, after the coordinates are set.
+
+`fixups::hoist_global_initializers` now runs for every dialect, with
+`Branches::for_dialect(false, …)` on desktop so `#ifdef GL_ES` blocks are
+skipped there. D192's argument for equivalence holds unchanged: a global can
+only be read from a function, every function runs from `main`, and the
+assignments keep their source order. `STROBE_DUMP_GLSL` writes each pass's
+assembled source at load, which is how the two dialects were compared.
+
+Found and fixed on the AMD desktop (task A13) and reviewed here.
+
+**Evidence.** `assemble` test
+`a_global_initializer_runs_after_the_coordinates_in_every_dialect`, and
+`render.rs` `a_global_initialized_from_the_coordinates_sees_them_in_both_dialects`.
+On the RX 580, sprinkles is no longer all black on desktop, and the
+90-scene corpus stays 90/90 in both dialects with no other change to the
+all-black lists.
+
+**Not explained by this:** PLUS, black on ES only. After 600 frames sprinkles
+on ANGLE shows a small centre ring where native fills the frame; that
+divergence predates this change and is not yet understood.
+
+**Would reopen:** a driver that rejects a global declared without an
+initializer and assigned in `main` (none known), or a scene that relies on
+a global initializer running before `main` (GLSL has no way to observe
+that).
