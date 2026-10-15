@@ -13,6 +13,8 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- control a venue's show machine with a trust file, reconnecting by itself ([`4da7d2b`](https://github.com/lnorton89/strobe/commit/4da7d2b80445aa3f3116a19ff9dbbd2be132f435))
+- a controller id for a laptop and the Host header a trusted proof binds to ([`3196ef4`](https://github.com/lnorton89/strobe/commit/3196ef4bf8b496ca92640b48ea7449a7ac0e6b00))
 - **app:** --audio ambient, the synthetic track without its beat ([`ac94a3c`](https://github.com/lnorton89/strobe/commit/ac94a3cc5ddf8da8804993cb918f47e5346a724d))
 - **app:** one click on a scene card makes it live, and LIB flips between Scenes and Controls ([`f400de0`](https://github.com/lnorton89/strobe/commit/f400de000dd442a319cd2f53eb7ad0a6420e9134))
 - **app:** venue mode launch flags and trust file on the host ([`c9eed9b`](https://github.com/lnorton89/strobe/commit/c9eed9b730571074c3b2cf884012e725f9e4efa0))
@@ -34,6 +36,8 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- a trust file that cannot be read brings up the form instead of failing silently ([`5b1dac6`](https://github.com/lnorton89/strobe/commit/5b1dac6826af36a7484ef178196147e9f9b49686))
+- a trusted controller restarts its backoff only after a frame, not on pairing ([`102f796`](https://github.com/lnorton89/strobe/commit/102f79669d6cbf21e81ed77975da7040c6f543a9))
 - **gfx:** upload texture rows tightly packed, not at GL's 4-byte alignment ([`971b694`](https://github.com/lnorton89/strobe/commit/971b6945d9c88d52a48ed1e25fc02928c09b545d))
 - **scene:** run global initializers in main on desktop too, so sprinkles is not black ([`0037fcf`](https://github.com/lnorton89/strobe/commit/0037fcf71b4f17d00ea6e41c883f1433662c98b4))
 - **app:** keep the output's swap wait while the loop drives the control window ([`c812236`](https://github.com/lnorton89/strobe/commit/c812236b22ae922ee557529d3d974933c9646097))
@@ -71,6 +75,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Documentation
 
 - --audio ambient in the user guide ([`fdcb76a`](https://github.com/lnorton89/strobe/commit/fdcb76a2600197ce212167a6a374ffad2b79ac06))
+- D294, the laptop side of venue mode, in the guide, roadmap and audit ([`5f09af9`](https://github.com/lnorton89/strobe/commit/5f09af93ef6ab4cf83ed234c68dfce699bb41875))
 - D292 makes ANGLE's Vulkan and Metal backends the second backend ([`f782cee`](https://github.com/lnorton89/strobe/commit/f782ceee4fd29dc2cd2e7e9858095435e0988ca0))
 - run the G-03 spike over the full Synesthesia corpus ([`ea4491e`](https://github.com/lnorton89/strobe/commit/ea4491e6159759db954482b0ea5fd475ab59a2b0))
 - D291 one-click scenes and the Scenes and Controls pages ([`2195446`](https://github.com/lnorton89/strobe/commit/21954467351570cf613a3baea5f82134a3bbeef3))
