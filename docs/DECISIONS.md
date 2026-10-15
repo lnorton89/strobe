@@ -7225,3 +7225,40 @@ offscreen window to the largest target (or use a WGL pbuffer), and look at the
 app's output window for scenes whose literal passes exceed it (`neon_city`);
 if it is a pixel-count limit independent of the window, it is a driver bug to
 report and to route around by a minimum target size.
+
+### D297: heavy library scenes are cut for the venue GPU by exact culling first, then by drawing smooth fields smaller (2026-10-15)
+
+The venue's Vega 3 at 1080p ran 04, 05, 08, 13, 14 and 16 at 12.6 to 21.2 ms
+(60 fps needs under 16.7). Goal: about 10 ms, same look. Order of
+preference, as asked: cheaper exact math, then smaller passes for smooth
+fields, then a lower default quality (not needed). Per scene (numbers in
+BENCHMARKS.md):
+
+- **Exact where possible.** 04 rejects cells by a distance bound before
+  hashing them (pixel-identical). 14 rejects candidate cells and pollen
+  cells before hashing, and skips the middle layer under opaque front
+  petals (to within 0.05%). 13 skips the bubble work in cells not born this
+  frame (identical).
+- **Smooth fields at reduced size via D11 expressions.** 05's warp fields
+  at `$WIDTH/3`, 08's lights at `$WIDTH/2`, 13's and 16's broad noise at
+  `$WIDTH/4`, 14's out-of-focus back and front layers at `$WIDTH/2`.
+  Thresholds, edges, the outer fbm, the in-focus layer and the pollen stay
+  full size. Stored as float (RGBA16F, filtered); no scene needs
+  FULL_PRECISION filtering, which ANGLE may not offer for 32F. 05 stores
+  q-0.5 and r-0.5 because half floats are finest near zero and the warp
+  multiplies the error.
+- **Why not a per-light data texture for 08.** Exact, but it replaces ALU
+  with two RGBA32F fetches per light per pixel (quarter rate on GCN) and was
+  slower on llvmpipe.
+- **Feedback scenes (13, 16) cannot stay bit-exact** when their injected
+  fields change at all: even storing the full-size noise through an fp16
+  texture moved 16 by 0.5%. At 720p 13 differs 0.26% and 16 1.5%, with the
+  same layout and palette. 16 keeps its finer colour and grain noise at full
+  size because moving them raised the error to 3%.
+- **llvmpipe understates ALU work.** It is bound by texture sampling and
+  trig; Vega is not. 16 shows 0.94 on llvmpipe for a change that removes
+  about half its feedback-pass arithmetic. Projections in BENCHMARKS.md are
+  llvmpipe ratios and are not measurements of the venue machine.
+
+**Would reopen:** a Vega 3 measurement that disagrees (then 16 gets its
+colour-band noise moved too, or a lower default `scale`).
