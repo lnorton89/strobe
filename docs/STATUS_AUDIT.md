@@ -91,12 +91,31 @@ tracks every known unfinished implementation and validation task across the proj
   `phone_pairing_is_unaffected_by_a_trust_file`,
   `version_one_traffic_is_byte_for_byte_what_it_was`; `venue::tests` and
   `cli::tests::venue_mode_flags_need_the_remote_and_are_off_by_default`.
-- [ ] Venue mode, controller side: `--control HOST:PORT --remote-trust FILE`,
-  the trust-file field in the connection form and automatic reconnect with
-  backoff are not built (they wait on D286's viewer stages). Also unverified:
-  a Windows host reading a trust file from the user profile, two physical
-  machines, a host restart while the laptop is connected, and a four-hour
-  soak.
+- [x] Venue mode, controller side (2026-10-15, D294). Evidence, all on
+  loopback in the Linux container: `trusted::tests`
+  (`the_proof_is_the_protocols_published_vector`,
+  `the_host_accepts_what_the_handshake_makes_and_only_for_the_host_dialled`,
+  `a_challenge_nobody_asked_for_is_refused_and_so_is_a_second`,
+  `the_retry_schedule_doubles_to_fifteen_seconds_and_stays_there`,
+  `a_controller_id_is_valid_and_survives_odd_computer_names`);
+  `trust::tests::a_generated_controller_id_is_always_valid_and_keeps_the_name_readable`;
+  `desktop::tests` with a real host:
+  `a_trusted_controller_connects_with_no_approval_and_keeps_the_secret_to_itself`,
+  `the_wrong_trust_file_is_refused_once_and_says_why_without_retrying`,
+  `a_trusted_controller_finds_a_restarted_host_by_itself_and_takes_its_lease_back`,
+  `disconnect_stops_the_retrying`,
+  `a_trusted_controller_shut_out_of_the_lease_backs_off_rather_than_hammering`,
+  `the_kill_switch_is_retried_once_and_then_refused`,
+  `a_challenge_nobody_asked_for_is_not_signed_and_ends_the_connection`,
+  `the_viewer_says_reconnecting_with_the_attempt_and_keeps_the_last_image`,
+  `the_form_remembers_a_path_and_a_launch_with_control_decides_the_first_action`;
+  `cli::tests::control_names_a_host_and_takes_the_trust_file_for_the_laptop`;
+  `shell_tests::the_connect_form_offers_a_trust_file_in_place_of_the_code`.
+- [ ] Venue mode, on real machines: a Windows host reading a trust file from
+  the user profile, a laptop controlling a physical show machine over Wi-Fi,
+  a host restart and a Wi-Fi drop while connected (do the retries land within
+  the 15 s cap on a real network, and is the lease taken back?), the
+  controller's file permissions on Windows, and a four-hour soak.
 - [ ] Full desktop remote: two physical Strobe desktops over Wi-Fi, reconnect
   after loss/sleep, minimized host, a host control window covered by the
   fullscreen output (does it still redraw and capture?), the fenced capture

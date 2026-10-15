@@ -3223,6 +3223,7 @@ dependencies = [
  "log",
  "serde",
  "serde_json",
+ "sha1",
  "strobe-audio",
  "strobe-autocontrol",
  "strobe-diag",

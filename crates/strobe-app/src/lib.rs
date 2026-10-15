@@ -39,6 +39,8 @@
 //! - [`brand`]: the window and taskbar icon (D190).
 //! - [`venue`]: venue mode's launch-time pieces (D288), the trust file for an
 //!   unattended show machine.
+//! - [`trusted`]: the laptop's half of venue mode (D294), the trust-file
+//!   proof, the retry schedule and the refusal texts.
 //! - [`cli`]: the command line.
 //! - [`corpus`]: the scene-corpus compatibility harness behind
 //!   `strobe-corpus` and `cargo xtask corpus` (D195).
@@ -79,6 +81,7 @@ pub mod session;
 pub mod show;
 pub mod snapshot;
 pub mod stats;
+pub mod trusted;
 pub mod ui;
 pub mod venue;
 pub mod workspace;

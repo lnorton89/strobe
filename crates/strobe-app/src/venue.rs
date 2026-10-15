@@ -34,9 +34,12 @@ pub fn made_text(path: &Path) -> String {
          your user profile, copy it only to the laptop you will control from, and never post \
          it.\n\n\
          On the show machine:\n  strobe --remote --allow-desktop-control --remote-trust \"{path}\"\n\n\
-         Copy the file to the laptop you will control from. The laptop's side \
-         (strobe --control HOST:PORT --remote-trust FILE) is not in this build yet; until it \
-         is, pair the laptop with the code and Approve at the show machine.\n\n\
+         Copy the file to the laptop you will control from, then on the laptop (HOST is the \
+         show machine's address, shown in its Settings > Remote; the port is 47812 unless you \
+         changed it):\n  strobe --control HOST:47812 --remote-trust \"PATH-TO-THE-COPY\"\n\n\
+         It opens straight into the show machine's window and reconnects by itself if the \
+         machine restarts or the network drops, until you press Disconnect. The same \
+         option is in Settings > Control another Strobe > Use a trust file.\n\n\
          The secret is never sent over the network; a controller proves it holds the file.",
         path = path.display()
     )
@@ -140,7 +143,8 @@ mod tests {
         let text = made_text(Path::new("C:/Users/me/venue.trust"));
         for needle in [
             "--remote --allow-desktop-control --remote-trust",
-            "not in this build yet",
+            "strobe --control HOST:47812 --remote-trust",
+            "reconnects by itself",
             "venue.trust",
             "never sent",
         ] {

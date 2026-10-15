@@ -368,10 +368,37 @@ read once at launch. If the file cannot be used, Strobe says so in its log and
 carries on without trusted pairing, so the show still starts. Nothing here is
 saved: after a restart the switches come from the command line again.
 
-**4. The laptop.** The laptop side, `strobe --control HOST:PORT
---remote-trust FILE`, which opens straight into the viewer and reconnects by
-itself after a host restart or a Wi-Fi drop, is not in this build yet (see
-D288). Until then use the pairing code and **Approve** at the host.
+**4. The laptop.** Copy the trust file to the laptop (step 2), then start
+Strobe there with the show machine's address:
+
+```text
+strobe --control 192.168.1.50:47812 --remote-trust "C:\Users\you\venue.trust"
+```
+
+`192.168.1.50` is the show machine's address, shown in its **Settings >
+Remote** (and in its log); the port is `47812` unless you started it with
+`--remote-port`. A bare IP takes `47812`. The laptop opens straight into the
+show machine's window, with no click anywhere, and reads the file when it
+connects. `--control` is for the laptop only: it cannot be combined with
+`--remote`. Without `--remote-trust`, `--control HOST:PORT` opens
+**Settings > Control another Strobe** with the address filled in, for pairing
+with a code.
+
+Or, from the running laptop, open **Settings > Control another Strobe**, type
+the address, tick **Use a trust file (venue mode)**, type or paste the file's
+path and press **Connect to desktop**. Strobe remembers the path (never the
+file's contents) and the choice for next time.
+
+**If the connection drops, the laptop reconnects by itself.** After a host
+restart, a Wi-Fi blip or the show machine booting later than the laptop, the
+viewer keeps the last image dimmed and says **Reconnecting... (attempt N)**
+and why. It tries again after 1 s, 2 s, 4 s, 8 s and then every 15 s, for as
+long as it takes, and takes the controls back when the host answers. Press
+**Disconnect** to stop. If the host says no, it stops and says why instead:
+the file is not the one the host was started with, the controller was
+revoked at the host, or the host was not started with `--remote
+--allow-desktop-control --remote-trust FILE`. **Reconnect** tries the file
+again once you have fixed it. (Pairing by code keeps its manual **Reconnect**.)
 
 What you see at the host: the title bar says **Desktop controlled remotely**
 while the laptop is in control, and **Settings > Remote** lists the laptop as
