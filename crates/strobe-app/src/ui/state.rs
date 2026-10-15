@@ -284,6 +284,8 @@ pub struct UiState {
     pub library_page: super::browser::LibraryPage,
     /// Synesthesia's scenes in the library (D271): the switch is saved.
     pub synesthesia: SynesthesiaState,
+    /// What the "Control another Strobe" form remembers (D294). Saved.
+    pub remote: crate::prefs::RemotePref,
     /// The Settings pane's layout name field. Not saved.
     pub layout_name: String,
     theme_id: String,
@@ -373,6 +375,7 @@ impl UiState {
                 show: prefs.synesthesia.show,
                 note: String::new(),
             },
+            remote: prefs.remote.clone(),
             layout_name: String::new(),
             last_scene: prefs.last_scene.clone(),
             theme_id: prefs.theme.clone(),
@@ -418,6 +421,7 @@ impl UiState {
         prefs.synesthesia = crate::prefs::SynesthesiaPref {
             show: self.synesthesia.show,
         };
+        prefs.remote.clone_from(&self.remote);
         prefs
     }
 
@@ -544,6 +548,9 @@ impl UiState {
         self.watch.folder.hash(&mut hasher);
         self.watch.enabled.hash(&mut hasher);
         self.synesthesia.show.hash(&mut hasher);
+        self.remote.trust_file.hash(&mut hasher);
+        self.remote.use_trust.hash(&mut hasher);
+        self.remote.controller_id.hash(&mut hasher);
         for (name, layout) in &self.layouts {
             name.hash(&mut hasher);
             layout.order.hash(&mut hasher);
