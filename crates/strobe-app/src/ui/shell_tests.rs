@@ -643,7 +643,7 @@ fn sample_lan(on: bool, desktop: bool) -> crate::lan::LanView {
             (phone("c00000001", "iPhone at 192.168.1.23"), true),
             (phone("c00000002", "iPad at 192.168.1.24"), false),
         ],
-        connections: 2,
+        connected: 2,
         desktop_controlled: desktop,
     }
 }

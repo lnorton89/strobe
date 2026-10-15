@@ -140,10 +140,10 @@ fn running(ui: &mut Ui, theme: &Palette, panel: &LanPanel<'_>, actions: &mut Vec
     });
     ui.label(
         egui::RichText::new(format!(
-            "{} connection{} open. Windows may ask whether Strobe may accept connections: allow \
+            "{} paired device{} connected. Windows may ask whether Strobe may accept connections: allow \
              it on private networks only.",
-            view.connections,
-            if view.connections == 1 { "" } else { "s" }
+            view.connected,
+            if view.connected == 1 { "" } else { "s" }
         ))
         .small()
         .color(theme::rgb(theme.text_muted)),

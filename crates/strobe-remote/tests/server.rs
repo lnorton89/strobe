@@ -901,8 +901,29 @@ fn pairing_needs_the_code_and_the_desktop_and_then_commands_run() -> Result<()> 
         unauthorized["code"], "unauthorized",
         "no commands before pairing"
     );
+    // The refused socket is open but is nobody's connection: the desktop's
+    // "connected" count and the title bar must not include it.
+    assert!(
+        !rig.server.connections().is_empty()
+            && rig
+                .server
+                .connections()
+                .iter()
+                .all(|c| !c.is_authenticated()),
+        "a refused socket is open and not authenticated: {:?}",
+        rig.server.connections()
+    );
 
     let (client_id, token, mut ws) = pair(&rig)?;
+    assert_eq!(
+        rig.server
+            .connections()
+            .iter()
+            .filter(|c| c.is_authenticated())
+            .count(),
+        1,
+        "only the paired client counts, not the refused socket beside it"
+    );
     assert_eq!(token.len(), 64, "a 256-bit token");
     assert!(rig.clients.contains(&client_id), "listed on the desktop");
     assert!(rig.server.pairing_code().is_none(), "the code was used up");
