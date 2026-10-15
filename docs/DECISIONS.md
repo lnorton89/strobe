@@ -7157,9 +7157,11 @@ after 600 frames on ANGLE where native fills the frame (D293 notes both).
 `STROBE_DUMP_GLSL` shows the two dialects' sources are identical apart
 from the header, so the difference is in the drivers. Both scenes take
 `pow` of a negative base, which GLSL leaves undefined:
-- `sprinkles` takes `pow(1 - (r + g), 0.25)` of its own state and clamps
-  the result to `0..1`. `r + g` passes 1 in the grown pattern.
-- `PLUS` takes `pow(noise - 0.5, 1.0)` for two sizes of its pattern.
+- `sprinkles` takes a fractional power of one minus the sum of two of its
+  state channels, and clamps the result to `0..1`. The sum passes 1 in the
+  grown pattern, so the base goes negative.
+- `PLUS` takes the first power of centred noise, negative about half the
+  time, for two sizes of its pattern.
 
 The drivers' answers:
 - **Native Windows GL** behaves as `exp2(y * log2(x))`, which is NaN for
