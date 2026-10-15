@@ -1575,14 +1575,19 @@ fn ten_thousand_set_uniform_calls_in_one_update_are_cheap() -> Result<()> {
         }
     "#;
     let mut rig = Rig::new(script, &[])?;
-    // The first frame creates the 200 uniforms; time a steady-state frame.
+    // The first frame creates the 200 uniforms; time steady-state frames.
+    // The best of five is the cost: a wall-clock time on a shared machine
+    // (CI, or several builds at once) only ever adds to it.
     rig.step();
-    let started = Instant::now();
-    let out = rig.step();
-    let elapsed = started.elapsed();
-    println!("10,000 setUniform calls in one update: {elapsed:?}");
-    assert_eq!(out.status, ScriptStatus::Running, "{:?}", out.console);
-    assert_eq!(out.uniforms.len(), 200, "200 distinct names");
+    let mut elapsed = Duration::MAX;
+    for _ in 0..5 {
+        let started = Instant::now();
+        let out = rig.step();
+        elapsed = elapsed.min(started.elapsed());
+        assert_eq!(out.status, ScriptStatus::Running, "{:?}", out.console);
+        assert_eq!(out.uniforms.len(), 200, "200 distinct names");
+    }
+    println!("10,000 setUniform calls in one update (best of 5): {elapsed:?}");
     assert!(
         elapsed < Duration::from_millis(50),
         "10,000 setUniform calls took {elapsed:?}, budget 50 ms"
