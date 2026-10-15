@@ -46,6 +46,7 @@
 //! llvmpipe: absolute numbers are CPU rasterisation, but the *ranking* of
 //! scenes and the effect of a renderer change hold.
 
+mod bisect;
 mod probe;
 mod readback;
 
@@ -134,6 +135,12 @@ struct Cli {
     /// frames come out black (D296).
     #[arg(long)]
     probe: bool,
+    /// D296 experiment (throwaway): bisect why scene draws into targets
+    /// over 16384 pixels never land while the probe's do. Uses the first
+    /// scene `--filter` matches in `--library` (05 when no filter) and
+    /// `--size` as the failing size. Writes `bisect.md`.
+    #[arg(long)]
+    bisect: bool,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -259,6 +266,17 @@ fn run(gl: &Gl, caps: &Caps, context: &str, size: [i32; 2], cli: &Cli) -> Result
     // scenes' doing.
     gl.clear_errors();
     std::fs::create_dir_all(&cli.out).with_context(|| format!("creating {}", cli.out.display()))?;
+    if cli.bisect {
+        let filter = cli.filter.as_deref().unwrap_or("05");
+        let scene_dir = strobe_scene::load::scan(&cli.library)?
+            .into_iter()
+            .find(|dir| strobe_scene::load::folder_title(dir).contains(filter))
+            .ok_or_else(|| anyhow!("no scene in {} matches {filter}", cli.library.display()))?;
+        let report = bisect::run(gl, caps, context, size, &scene_dir, &cli.out)?;
+        println!("{report}");
+        std::fs::write(cli.out.join("bisect.md"), &report)?;
+        return Ok(());
+    }
     if cli.probe {
         let (report, passed) = probe::run(gl, caps, context, size)?;
         println!("{report}");

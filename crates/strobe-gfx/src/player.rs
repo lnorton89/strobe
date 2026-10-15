@@ -1247,6 +1247,12 @@ impl ScenePlayer {
         &self.output().texture
     }
 
+    /// D296 experiment (throwaway): the finished frame's own framebuffer,
+    /// so the bisect can draw into the exact object the player draws into.
+    pub fn output_framebuffer(&self) -> &Framebuffer {
+        &self.output().fbo
+    }
+
     /// Draws the finished frame into the default framebuffer, letterboxed
     /// to `window` pixels.
     pub fn present(&self, window: [i32; 2]) {

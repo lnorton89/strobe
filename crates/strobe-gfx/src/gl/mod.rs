@@ -37,6 +37,7 @@
 
 pub mod context;
 pub mod debug;
+pub mod state;
 pub mod trace;
 pub mod window;
 
@@ -64,6 +65,9 @@ pub struct Gl {
     /// The opt-in record of framebuffer traffic (`STROBE_GL_TRACE`); shared
     /// by every clone. See [`trace`].
     trace: Rc<trace::Trace>,
+    /// D296 experiment (throwaway): the armed draw-time state capture; see
+    /// [`state`]. Shared by every clone.
+    capture: Rc<state::Capture>,
     /// `!Send` and `!Sync`: the context is current on one thread only.
     _thread: PhantomData<*const ()>,
 }
@@ -310,6 +314,7 @@ impl Gl {
             lost: Rc::new(Cell::new(false)),
             compiles: Rc::new(Cell::new(0)),
             trace: Rc::new(trace::Trace::from_env()),
+            capture: Rc::new(state::Capture::default()),
             _thread: PhantomData,
         }
     }
@@ -538,6 +543,9 @@ impl Gl {
     pub fn draw_fullscreen_triangle(&self) {
         if self.trace.on() {
             self.trace.draw();
+        }
+        if self.capture.armed() {
+            self.capture_now();
         }
         // SAFETY: current-context invariant; no vertex buffer is read, the
         // vertex shader derives positions from gl_VertexID.
