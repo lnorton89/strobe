@@ -115,6 +115,9 @@ struct Scenario {
     /// (the palette entry, or a failed connection's retry): Settings
     /// scrolls to it and focuses the address.
     reveal_connect: bool,
+    /// The connect form has "Use a trust file" ticked, with a path in it
+    /// (venue mode, D294).
+    trust_form: bool,
     /// The Editor refused a Save and reload: its `scene.json` does not
     /// parse (D263).
     editor_invalid: bool,
@@ -182,6 +185,7 @@ const BASE: Scenario = Scenario {
     desktop_access: false,
     palette: None,
     reveal_connect: false,
+    trust_form: false,
     editor_invalid: false,
     tagging: false,
     generate: false,
@@ -211,6 +215,14 @@ fn scenarios() -> Vec<Scenario> {
             name: "settings at the control another strobe form",
             lan: true,
             reveal_connect: true,
+            panes: &[Pane::Settings],
+            ..BASE
+        },
+        Scenario {
+            name: "the connect form with a trust file",
+            lan: true,
+            reveal_connect: true,
+            trust_form: true,
             panes: &[Pane::Settings],
             ..BASE
         },
@@ -1112,6 +1124,10 @@ fn draw_events(
     if scenario.reveal_connect {
         desktop_controller.reveal_form();
     }
+    if scenario.trust_form {
+        desktop_controller.use_trust = true;
+        desktop_controller.trust_path = "C:\\Users\\you\\venue.trust".to_string();
+    }
     let mut shell_state = ShellState::default();
     let mut actions = Vec::new();
     let mut all_actions = Vec::new();
@@ -1712,7 +1728,7 @@ fn screenshots_when_asked() -> Result<()> {
 }
 
 /// The states the desktop viewer draws (D275), named for their pictures.
-const VIEWER_STATES: [(&str, crate::desktop::Staged); 9] = [
+const VIEWER_STATES: [(&str, crate::desktop::Staged); 12] = [
     ("viewer live", crate::desktop::Staged::Live),
     (
         "viewer waiting for approval",
@@ -1740,6 +1756,18 @@ const VIEWER_STATES: [(&str, crate::desktop::Staged); 9] = [
         crate::desktop::Staged::TimedOutReconnect,
     ),
     ("viewer pairing refused", crate::desktop::Staged::Refused),
+    (
+        "viewer trusted and live",
+        crate::desktop::Staged::TrustedLive,
+    ),
+    (
+        "viewer trusted and reconnecting",
+        crate::desktop::Staged::Retrying(7),
+    ),
+    (
+        "viewer trust file refused",
+        crate::desktop::Staged::TrustRefused,
+    ),
 ];
 
 /// Draws the viewer in `how` at `size` for `frames` frames, as the app does
@@ -1858,6 +1886,50 @@ fn the_connect_form_is_its_own_section_with_a_hint_not_a_value() -> Result<()> {
     assert!(
         !rows.iter().any(|line| line.contains("192.168.1.20:47812")),
         "no address that could be mistaken for a value: {rows:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn the_connect_form_offers_a_trust_file_in_place_of_the_code() -> Result<()> {
+    let at = |trust_form| Scenario {
+        lan: true,
+        reveal_connect: true,
+        trust_form,
+        panes: &[Pane::Settings],
+        ..BASE
+    };
+    let rows = |trust_form| -> Result<Vec<String>> {
+        let drawn = draw(at(trust_form), (1440.0, 900.0), 20)?;
+        Ok(texts(&drawn).into_iter().map(|(_, line, _)| line).collect())
+    };
+    let code = rows(false)?;
+    assert!(
+        code.iter().any(|line| line.contains("Use a trust file")),
+        "the option is there, off: {code:?}"
+    );
+    assert!(
+        code.iter().any(|line| line.starts_with("Pairing code")),
+        "off: the code field: {code:?}"
+    );
+    assert!(
+        !code.iter().any(|line| line.starts_with("Trust file")),
+        "off: no path field: {code:?}"
+    );
+    let trust = rows(true)?;
+    assert!(
+        trust.iter().any(|line| line.contains("venue.trust")),
+        "on: the remembered path is in the field: {trust:?}"
+    );
+    assert!(
+        !trust.iter().any(|line| line.starts_with("Pairing code")),
+        "on: the code field is gone: {trust:?}"
+    );
+    assert!(
+        trust
+            .iter()
+            .any(|line| line.contains("--remote-trust") || line.contains("never its contents")),
+        "on: says what the host needs and what is remembered: {trust:?}"
     );
     Ok(())
 }

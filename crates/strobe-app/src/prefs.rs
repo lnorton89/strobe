@@ -146,6 +146,25 @@ pub struct Prefs {
     pub library_page: String,
     /// Synesthesia's own scenes in the library (D271).
     pub synesthesia: SynesthesiaPref,
+    /// Controlling another Strobe (D294): the trust file's path and this
+    /// laptop's controller id.
+    pub remote: RemotePref,
+}
+
+/// What the "Control another Strobe" form remembers (D294). The trust
+/// file's **path** is saved, never its contents: the secret stays in the
+/// file, which is the only place it should be.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RemotePref {
+    /// The trust file, as typed; empty for none.
+    pub trust_file: String,
+    /// Whether the form connects with the trust file rather than a code.
+    pub use_trust: bool,
+    /// This computer's id on a host's list: `name-1a2b3c4d`, made once and
+    /// kept, so the host can tell this laptop from another and revoke it by
+    /// name. Empty until the first launch makes one.
+    pub controller_id: String,
 }
 
 /// Whether the library lists Synesthesia's scenes where it is installed
@@ -294,6 +313,7 @@ impl Prefs {
             side_tab: String::new(),
             library_page: String::new(),
             synesthesia: SynesthesiaPref::default(),
+            remote: RemotePref::default(),
         }
     }
 
@@ -517,9 +537,26 @@ mod tests {
             enabled: true,
         };
         prefs.synesthesia = SynesthesiaPref { show: false };
-        let back = Prefs::from_text(&prefs.to_text().map_err(anyhow::Error::msg)?)
-            .map_err(anyhow::Error::msg)?;
+        prefs.remote = RemotePref {
+            trust_file: "C:\\Users\\me\\venue.trust".to_string(),
+            use_trust: true,
+            controller_id: "t480-1a2b3c4d".to_string(),
+        };
+        let text = prefs.to_text().map_err(anyhow::Error::msg)?;
+        let back = Prefs::from_text(&text).map_err(anyhow::Error::msg)?;
         assert_eq!(back, prefs, "what was written is what is read");
+        assert!(
+            text.contains("venue.trust") && !text.to_lowercase().contains("secret"),
+            "the file's path is saved and no word of its contents: {text}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_file_from_before_venue_mode_has_no_remote_section_and_loads() -> Result<()> {
+        let back = Prefs::from_text("theme = \"graphite\"\n").map_err(anyhow::Error::msg)?;
+        assert_eq!(back.remote, RemotePref::default(), "nothing remembered yet");
+        assert!(!back.remote.use_trust, "and the code is the default");
         Ok(())
     }
 
