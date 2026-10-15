@@ -1285,7 +1285,8 @@ fn pause(stop: &AtomicBool, wait: Duration) -> bool {
 fn work(link: &Link, inputs: &Receiver<Input>) {
     let mut attempt: u32 = 0;
     loop {
-        let ended = control(link, inputs);
+        let mut pictured = false;
+        let ended = control(link, inputs, &mut pictured);
         // However the connection ended, its socket closes now. The
         // interrupter in the slot is a second handle on it, so dropping the
         // connection alone would leave it open: after a timeout the host
@@ -1323,9 +1324,12 @@ fn work(link: &Link, inputs: &Receiver<Input>) {
             end(&link.view, how, reason);
             return;
         }
-        // A connection that got as far as being live starts the schedule
-        // again; one that never connected keeps counting.
-        attempt = if started {
+        // A connection that brought the host's picture starts the schedule
+        // again; one that never got that far keeps counting. Being paired is
+        // not enough: a host that pairs this laptop and then refuses it the
+        // lease (another controller holds it) would otherwise be asked again
+        // every second for the whole show.
+        attempt = if pictured {
             1
         } else {
             attempt.saturating_add(1)
@@ -1358,7 +1362,9 @@ fn work(link: &Link, inputs: &Receiver<Input>) {
     }
 }
 
-fn control(link: &Link, inputs: &Receiver<Input>) -> io::Result<()> {
+/// One connection, until it ends or `stop` is set. `pictured` is set once a
+/// frame from the host has arrived on it.
+fn control(link: &Link, inputs: &Receiver<Input>, pictured: &mut bool) -> io::Result<()> {
     let Link {
         address,
         code,
@@ -1405,9 +1411,15 @@ fn control(link: &Link, inputs: &Receiver<Input>) -> io::Result<()> {
             paused = true;
         }
         if now.duration_since(heard) > Duration::from_secs(15) && authenticated {
+            // A trusted connection reconnects by itself; only a code needs
+            // pairing again.
             return Err(io::Error::new(
                 io::ErrorKind::TimedOut,
-                "Host stopped responding; pair again",
+                if trust.is_some() {
+                    "the host stopped responding"
+                } else {
+                    "Host stopped responding; pair again"
+                },
             ));
         }
         let message = connection.receive()?;
@@ -1431,7 +1443,11 @@ fn control(link: &Link, inputs: &Receiver<Input>) -> io::Result<()> {
             // not answer is one that is not there: the worker retries.
             return Err(io::Error::new(
                 io::ErrorKind::TimedOut,
-                "the host did not approve in time",
+                if trust.is_some() {
+                    "the host did not answer the trust file in time"
+                } else {
+                    "the host did not approve in time"
+                },
             ));
         }
         if let Some(message) = message {
@@ -1497,6 +1513,7 @@ fn control(link: &Link, inputs: &Receiver<Input>) -> io::Result<()> {
                     jpeg,
                 } => {
                     let image = decode(size, &jpeg)?;
+                    *pictured = true;
                     last_frame = Instant::now();
                     paused = false;
                     let mut view = view.lock().unwrap_or_else(PoisonError::into_inner);
@@ -2894,6 +2911,75 @@ mod tests {
         std::thread::sleep(trusted::backoff(1) + trusted::backoff(2));
         assert!(!app.desktop.active(), "nobody took the lease");
         assert!(server.connections().is_empty(), "nobody is connected");
+        server.stop();
+        Ok(())
+    }
+
+    #[test]
+    fn a_trusted_controller_shut_out_of_the_lease_backs_off_rather_than_hammering() -> Result<()> {
+        // Two laptops with the same file but different ids: the host pairs
+        // the second, then refuses it the lease (one desktop at a time) and
+        // it is dropped. Being paired is not being live; it must not restart
+        // the schedule at 1 s every time, or it would pair and drop once a
+        // second for the whole show.
+        let scratch = Scratch::new("lease")?;
+        let file = scratch.0.join("venue.trust");
+        let secret = venue_trust::create_file(&file)?;
+        let (server, app) = trusted_host(&secret, 0)?;
+        let mut first = trusted_controller(&file, server.addr());
+        first.connect();
+        within(Duration::from_secs(5), || app.desktop.active())?;
+        let mut second = trusted_controller(&file, server.addr());
+        second.controller_id = "other-laptop-00000000".into();
+        second.connect();
+        within(
+            Duration::from_secs(10),
+            || matches!(stage_of(&second), Stage::Reconnecting(n) if n >= 3),
+        )
+        .map_err(|error| {
+            anyhow::anyhow!(
+                "{error}: the attempts should count up (1 s, 2 s, ...), not start again at 1; \
+                 stuck at {:?}",
+                stage_of(&second)
+            )
+        })?;
+        assert!(app.desktop.active(), "the first laptop keeps the lease");
+        second.disconnect();
+        first.disconnect();
+        server.stop();
+        Ok(())
+    }
+
+    #[test]
+    fn the_kill_switch_is_retried_once_and_then_refused() -> Result<()> {
+        let scratch = Scratch::new("kill")?;
+        let file = scratch.0.join("venue.trust");
+        let secret = venue_trust::create_file(&file)?;
+        let (server, app) = trusted_host(&secret, 0)?;
+        let mut controller = trusted_controller(&file, server.addr());
+        controller.connect();
+        within(Duration::from_secs(5), || app.desktop.active())?;
+        app.desktop.publish([32, 32], a_frame()?);
+        within(Duration::from_secs(5), || {
+            controller
+                .view
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .ready
+        })?;
+        // What Lan::set_desktop(false) does at the host.
+        app.desktop.enable(false);
+        server.revoke_desktop();
+        within(Duration::from_secs(5), || {
+            stage_of(&controller) == Stage::Ended(End::Refused)
+        })?;
+        let note = controller.note();
+        assert!(
+            note.contains("does not offer trusted pairing right now"),
+            "{note}"
+        );
+        assert!(!app.desktop.active(), "and nothing holds the lease");
+        controller.disconnect();
         server.stop();
         Ok(())
     }

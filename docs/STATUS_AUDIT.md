@@ -104,6 +104,8 @@ tracks every known unfinished implementation and validation task across the proj
   `the_wrong_trust_file_is_refused_once_and_says_why_without_retrying`,
   `a_trusted_controller_finds_a_restarted_host_by_itself_and_takes_its_lease_back`,
   `disconnect_stops_the_retrying`,
+  `a_trusted_controller_shut_out_of_the_lease_backs_off_rather_than_hammering`,
+  `the_kill_switch_is_retried_once_and_then_refused`,
   `a_challenge_nobody_asked_for_is_not_signed_and_ends_the_connection`,
   `the_viewer_says_reconnecting_with_the_attempt_and_keeps_the_last_image`,
   `the_form_remembers_a_path_and_a_launch_with_control_decides_the_first_action`;

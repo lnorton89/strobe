@@ -6980,8 +6980,11 @@ blinks.
   no (a closed socket, a timeout, connection refused, a pause for failed
   proofs), set `Reconnecting(n)`, wait `trusted::backoff(n)` and try again.
   The schedule is 1 s, 2 s, 4 s, 8 s, then 15 s for ever. A connection that
-  went live starts it again at attempt 1; one that never connected keeps
-  counting. The viewer keeps the last image, dimmed and read-only (D286),
+  brought the host's picture starts it again at attempt 1; one that never got
+  that far keeps counting. Being paired is not enough (review fix): a second
+  laptop that the host pairs and then refuses the lease, because another
+  controller holds it, would otherwise pair and drop once a second for the
+  whole show. The viewer keeps the last image, dimmed and read-only (D286),
   under a card that says "Reconnecting... (attempt N)" and why, and the
   toolbar button reads **Disconnect**. The wait is in 50 ms slices that look
   at the stop flag, so Disconnect ends it at once; input typed while away is
@@ -7013,7 +7016,9 @@ the label *trusted*; a wrong file refused once, the worker ended after the
 first backoff would have fired; the host stopped and restarted on the same
 port with the controller back by itself and the lease taken again; Disconnect
 with the host back on the same port, and nobody connects; a host that
-volunteers a challenge is not answered. Shell tests for the form's option and
+volunteers a challenge is not answered; a second laptop shut out of the lease
+backs off rather than retrying every second; the kill switch retried once and
+then refused. Shell tests for the form's option and
 viewer states for Reconnecting and a refused file.
 
 **Not verified:** two physical machines, a real Wi-Fi drop, Windows, a
