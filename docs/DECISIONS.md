@@ -7664,6 +7664,12 @@ still 0, hue still 0.25, the scene's control kept. It failed before.
 
 ### D314: missed refreshes lower the render scale even when the mean GPU time is under budget; a minimised control window draws nothing (2026-10-16)
 
+**Amended by D315** after M18: a late drop is now judged on the misses after
+it and undone when they do not fall, the climb back after one waits for 30 s
+without misses, misses are counted from each window's span rather than from
+intervals over 1.5 periods, and a covered, paint-starved control window runs
+only its chores between 5 s heartbeats.
+
 **Context.** Task M16 on the venue mini PC (Vega 3, fullscreen 1920x1080
 output, vsync at 60 Hz; [`hardware/MINIPC.md`](hardware/MINIPC.md)) held
 13-chromatic-rise for minutes. With adaptive resolution on it ran 42.6 to
@@ -7819,3 +7825,168 @@ compositor, the swap, the control window); the scale stepping down on a
 scene that was presenting every frame; oscillation on the projector; or a
 show from a phone or MIDI with the console minimised that does not change
 scenes.
+
+### D315: a late drop must cut the misses or it is undone; misses are counted from the window's span; a covered, starved control window runs only its chores (2026-10-16)
+
+**Context.** Task M18 put D314 on the venue mini PC
+([`hardware/MINIPC.md`](hardware/MINIPC.md)). On the new scenes it was
+clean: holding 16-acid-mirror stepped 1.00 -> 0.90 -> 0.80 and ran 59.4 fps
+with 0.2% late. On the old 13 (13.6 ms at 1.0) it hunted. It stepped
+1.00 -> 0.90 -> 0.80, which took it from 42.5 to about 52 fps. At 0.80 the
+GPU took 9.1 ms and about 4.3% of frames were still late. Four minutes
+later, at a 21/480 window, it went 0.80 -> 0.70, and the mean rule climbed
+0.70 -> 0.75 2.7 s later. Then 0.75 -> 0.65, and back to 0.70 and 0.75.
+So the misses that remained were not the pixels'. D314's climb gate did not
+hold either: the prediction at 0.75 (7.2 ms) was under 0.85 of the lowest
+GPU time a late drop had been made at (11.3 ms). Two more facts came out:
+- **Minimised versus covered.** Minimised (0 control redraws), 13 missed
+  1.2%; covered by the output and driven by the loop (about 117 control
+  frames a minute, D290), 4.2%.
+- **The intervals are not quantised.** It ran at 52 fps with only 1.2% of
+  intervals over 25 ms, so most of the lost refreshes hid in intervals of
+  about 19 ms.
+
+**Decision.**
+- **A late drop is judged by its outcome.** After its cooldown, the
+  controller counts `JUDGE_WINDOWS` (2) windows, four seconds at 60 Hz, as
+  many as triggered the drop. The drop is kept when the share of refreshes
+  missed fell to `LATE_MIN_CUT` (0.5) of the share that triggered it, or
+  below the drop line (under `LATE_PER_WINDOW` per window). Otherwise it is
+  undone: the scale goes back to where it was, the change carries a
+  `LateFutile` and the log says "left the display's refreshes missed (x%
+  before, y% after) ... (D315)". `late_floor` then stops the late rule from
+  lowering below that scale until the scene changes (`reset_measurements`,
+  or `set_scale` after a context rebuild). Why the numbers:
+  - Halving, because at the counts involved (10 to 25 misses in 240 frames)
+    the count's own noise is about a third of it, so a halving is a real
+    change.
+  - Locked until the scene changes, not for D280's expiring lock, because
+    each retry costs about eight seconds of judder and a resize. The misses
+    that remain are not the scene's resolution, and nothing in a held scene
+    changes that.
+  - Below the floor, the mean rule still works.
+  - Only one late drop is judged at a time: the next waits for the verdict.
+  - A late drop that pays may be followed by another, judged in turn. Run 5's
+    two steps both paid, since its misses fell to 0.2%.
+  - On M18 run 2's pattern, 1.00 -> 0.90 pays (25/240 to 11/240) and
+    0.90 -> 0.80 does not (11/240 to about 10/240). It goes back to 0.90 and
+    stays there.
+- **No climbing back from a late drop until the misses have stayed away.**
+  While a late drop stands, a raise also needs `CLEAR_WINDOWS_TO_RAISE` (15)
+  windows in a row with fewer than `LATE_CLEAR_PER_WINDOW` (2) refreshes
+  missed each. That is 30 s at 59.5 fps or better, as well as D314's GPU
+  prediction.
+  - 30 s because the misses follow the music. A climb that brings them back
+    costs four seconds of judder plus a drop, so the evidence for one should
+    be long. Half a minute is still short against a cue, so a scene that gets
+    cheaper does come back.
+  - Every change restarts the count, so each step up waits its own 30 s.
+  - The prediction stays as well. Without it, 13 at 0.90 with no misses
+    would climb after 30 s, miss again at 0.95 and drop: one cycle every
+    40 s.
+- **Misses are counted from each window's span (the measurement fix).** A
+  window's refreshes missed are now `round(span / cadence - frames)`. The
+  span is the sum of its 120 intervals, each capped at `STALL_CADENCES` (3).
+  - This is exact for the presented rate whatever the jitter. A timestamp
+    that lands late on one frame lands early on the next, so jitter cancels
+    over the window, where counting intervals over 1.5 periods sees 52 fps
+    made of 19 ms intervals as no misses at all.
+  - With vsync-quantised intervals it counts exactly what the old rule
+    counted (a 33.3 ms interval is one miss), so the thresholds keep their
+    meaning.
+  - A stall counts as two misses at most: it is one event, and a 400 ms
+    shader compile must not fill a window by itself.
+  - On a 144 Hz display held to the 60 Hz cadence, frames every 13.9 ms give
+    a negative shortfall, which counts as zero.
+  - `LATE_FACTOR` is gone.
+- **The load gate stays at 0.6 of the cadence.** The evidence does not
+  support a higher one. Run 5's second drop came at 10.3 ms of GPU (0.62)
+  and paid. Run 2's third came at 11.6 ms (0.70) and did not. A gate high
+  enough to stop run 2 would have stopped run 5's good step, so the gate only
+  keeps cheap scenes out, and the outcome decides the rest.
+- **A covered, paint-starved control window runs only its chores.**
+  - When the event loop drives the control window (D290's takeover), the
+    window is covered by the fullscreen output on its own monitor
+    (`control_covered`), it is not streamed to a desktop remote, and no input
+    has come to it, the loop-driven frame runs `control_chores`. That is the
+    same work as for a minimised window (D314): queued actions, deferred
+    loads, the playlist compile on the current surface, saves.
+  - A full draw still runs every `COVERED_HEARTBEAT` (5 s), and at once when
+    input arrives (a key pressed in the focused, covered window), so egui's
+    state and the picture shown the moment it is uncovered are never more
+    than five seconds old.
+  - That is about 12 full draws a minute instead of about 117. Each skipped
+    draw is a make-current on the control surface, the switch D216 and D221
+    found taking the output's refresh.
+- **Why covered and starved, and not starved alone.** Starved does not mean
+  unseen. Windows starves every window below a constantly dirty one in
+  z-order, on any monitor. A fullscreen output on a second monitor, above a
+  control window the operator is looking at, starves it too, and then the
+  loop-driven frames are the only ones it gets. That case keeps drawing at
+  2 Hz as before. If the control window comes on top, Windows paints it
+  again, `ControlDrive` hands back (D290) and it draws normally.
+
+**The interval measurement, and a better signal.**
+- **How it is measured.** `FrameStats::begin` takes `Instant::now()` at the
+  top of `scene_frame`, when the output's `RedrawRequested` is handled. That
+  is a CPU timestamp after the previous swap returned, plus whatever the event
+  loop did in between: `about_to_wait`, a loop-driven control frame and its
+  make-current (D290, D216), imports, the D221 `glFinish`. It is quantised to
+  vertical blank only as far as the swap itself blocks until vertical blank.
+  On Vega 3 the wait sits in the swap (D290), but under DWM composition a
+  swap can also return when the frame is queued.
+- **What the span fix covers.** Counting from the window's span makes the
+  count right without changing where the timestamp is taken.
+- **Better signals, not built.** The display's own counters say which
+  refresh each frame was shown on:
+  - `WGL_OML_sync_control` (`wglGetSyncValuesOML`: MSC and SBC per swap,
+    where an MSC step over 1 is a missed refresh);
+  - `DwmGetCompositionTimingInfo` (`cFramesMissed`, `cFramesDropped` and the
+    vertical-blank time for a composed window);
+  - on ANGLE, DXGI frame statistics through `EGL_CHROMIUM_sync_control`
+    (`eglGetSyncValuesCHROMIUM`).
+
+  Each is a per-frame driver call, which this codebase keeps out of the
+  frame loop. Each needs a capability decided once in `caps` and a fallback.
+  None is known to be exposed by the mini PC's driver. Worth a probe on the
+  mini PC before building.
+
+**Not chosen.**
+- *A higher load gate.* See above: the evidence puts a helpful drop (10.3 ms)
+  and a useless one (11.6 ms) on the wrong sides of any single line.
+- *D280's expiring, doubling lock for late drops.* Each retry is about eight
+  seconds of judder on a scene whose misses have already been shown not to
+  be its pixels. A scene change is the moment the answer can differ.
+- *Skipping the covered control frames entirely.* egui would then take keys
+  pressed in the focused window only when it is uncovered, and the first
+  picture shown on uncovering would be from whenever it last drew.
+- *Timestamping after the swap instead of at frame start.* It is nearer to
+  vertical blank on drivers whose wait is in the swap, but not on NVIDIA,
+  where the wait is in the next make-current (D216), or under DWM. The
+  span-based count makes it unnecessary for the controller.
+
+**Test.** `strobe_gfx::adaptive::tests`:
+`misses_that_do_not_follow_the_scale_stop_the_late_rule` (M18 run 2: 10% late
+at 1.0, about 4% at every scale below while the GPU time falls; ten minutes,
+at most three changes, ending at 0.90 with the step to 0.80 undone and the
+late floor at 0.90),
+`a_late_drop_is_not_climbed_back_from_until_the_misses_have_stayed_away`,
+`intervals_that_are_not_quantised_still_count_as_missed_refreshes` (19.2 ms
+every frame is seen, and 20/13.3 ms jitter is not),
+`a_stall_counts_as_two_missed_refreshes_at_most`,
+`missing_refreshes_lower_step_by_step_while_each_step_helps`,
+`a_scene_whose_misses_and_cost_ignore_the_scale_ends_where_it_started`, and
+D314's tests unchanged otherwise. Among those: the M16 pattern, the steady
+10 ms scene, the cheap scene with late frames, the 200 ms hitch, the
+borderline scene, 144 Hz and no display period. The climb-back test now
+gives each step its 30 s. `strobe_app::perf::tests::a_late_drop_that_cuts_no_misses_is_undone_and_says_so`.
+The covered control window's chores cannot be reproduced off Windows; Task M19
+in MINIPC.md is the acceptance test.
+
+**Would reopen:**
+- M19 still changing the scale after its first minute on the held 13.
+- A step that paid on the projector being undone (the verdict too strict).
+- A covered control window frozen, or more than five seconds stale, when
+  uncovered.
+- A probe of `WGL_OML_sync_control` or the DWM timing info showing the span
+  count disagrees with the display's own count.
