@@ -5,7 +5,8 @@
 //               per-minute perf line; and the control window's pacing
 //               (make-current pacer, swap policy, paint-starvation drive).
 //
-// Dependencies: std only
+// Dependencies: std; strobe-gfx (adaptive::MissCount, the missed-refresh
+//               count the perf line shares with the adaptive controller)
 // ============================================================================
 
 //! Frame statistics.
@@ -18,6 +19,7 @@
 //! audience sees. Both are exponential moving averages.
 
 use std::time::{Duration, Instant};
+use strobe_gfx::adaptive::{MissCount, cadence_for};
 
 /// Weight of the newest sample in the averages.
 const SMOOTHING: f32 = 0.1;
@@ -108,16 +110,17 @@ impl FrameStats {
 pub const PERF_WINDOW: Duration = Duration::from_secs(60);
 
 /// A frame counts as late when its interval is this many frame budgets.
+/// Kept for comparison with older logs; the missed-refresh count beside it
+/// is what the adaptive controller acts on (D316).
 const LATE_FACTOR: f32 = 1.5;
 
 /// A minute of frame timings, summarised for the log.
 ///
 /// TORNADO T10 ran a fullscreen show at 48 to 56 fps with the GPU busy for
 /// under 3 ms a frame, and nothing in the log said where the time went.
-/// One line a minute (frame rate, late frames, the worst gap, GPU time, the
-/// render scale and the control window's whole redraw, swap included)
-/// settles that kind of
-/// question from a soak's log alone. Recording is a few additions; the
+/// One line a minute (frame rate, late frames, refreshes missed, the worst
+/// gap, GPU time, the render scale and the control window's whole redraw,
+/// swap included) settles that kind of question from a soak's log alone. Recording is a few additions; the
 /// line is formatted once a minute, never per frame.
 #[derive(Debug, Default)]
 pub struct PerfWindow {
@@ -125,6 +128,9 @@ pub struct PerfWindow {
     last_frame: Option<Instant>,
     frames: u32,
     late: u32,
+    /// Refreshes missed, counted exactly as the adaptive controller counts
+    /// them (D316).
+    misses: MissCount,
     worst_ms: f32,
     gpu_sum: f32,
     gpu_frames: u32,
@@ -179,6 +185,7 @@ impl PerfWindow {
             if ms > budget_ms * LATE_FACTOR {
                 self.late += 1;
             }
+            self.misses.add(ms, cadence_for(budget_ms));
         }
         self.last_frame = Some(now);
         self.frames += 1;
@@ -223,11 +230,14 @@ impl PerfWindow {
             format!("{:.2}-{:.2}", self.scale_low, self.scale_high)
         };
         let line = format!(
-            "perf: {:.1} fps over {:.0} s, {} late of {} frames, worst gap {:.1} ms, \
-             gpu {:.2} ms, scale {scale}, control {} redraws {:.2} ms (worst {:.1} ms, \
-             {} unpainted): make-current {:.2}, layout {:.2}, paint {:.2}, swap {:.2} ms",
+            "perf: {:.1} fps over {:.0} s, missed {} refreshes ({:.1}% of frames), {} late of \
+             {} frames, worst gap {:.1} ms, gpu {:.2} ms, scale {scale}, control {} redraws \
+             {:.2} ms (worst {:.1} ms, {} unpainted): make-current {:.2}, layout {:.2}, paint \
+             {:.2}, swap {:.2} ms",
             self.frames as f32 / span,
             span,
+            self.misses.missed(),
+            self.misses.share() * 100.0,
             self.late,
             self.frames,
             self.worst_ms,
@@ -710,7 +720,12 @@ mod tests {
             // Every tenth frame misses a vertical blank.
             let gap = if i % 10 == 9 { 33_333 } else { 16_667 };
             at += Duration::from_micros(gap);
-            window.frame(at, 16.67, Some(2.0), if i < 1800 { 1.0 } else { 0.9 });
+            window.frame(
+                at,
+                1000.0 / 60.0,
+                Some(2.0),
+                if i < 1800 { 1.0 } else { 0.9 },
+            );
             if i % 2 == 0 {
                 window.control(ControlTimes {
                     total: Duration::from_millis(3),
@@ -728,7 +743,13 @@ mod tests {
         let line = window
             .take_due(at + Duration::from_secs(1))
             .unwrap_or_default();
-        assert!(line.contains("360 late of 3600"), "{line}");
+        assert!(line.contains("360 late of 3600 frames"), "{line}");
+        // 360 intervals of two periods: 360 refreshes missed over the 3599
+        // intervals, the controller's own count (D316).
+        assert!(
+            line.contains("missed 360 refreshes (10.0% of frames)"),
+            "{line}"
+        );
         assert!(line.contains("worst gap 33.3 ms"), "{line}");
         assert!(line.contains("gpu 2.00 ms, scale 0.90-1.00"), "{line}");
         assert!(line.contains("control 1800 redraws 3.00 ms"), "{line}");

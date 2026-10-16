@@ -515,50 +515,99 @@ projector, 390 s each; numbers from the `perf:` lines of minutes 2 to 6. The
   full draw every 5 s (and at once for a key pressed in it), as a minimised
   one does. That is about 12 draws a minute instead of about 117.
 
-### Task M19, to run: D315 on the projector
+## D315 on the projector: the verdict was too strict (2026-10-16, Task M19, D315 -> D316)
 
-The same five runs as M18, on the build that carries D315, against the M18
-"after" build (keep it as `strobe-m18.exe`):
+The five M18 runs again, on the D315 build (d76e320), 390 s each, numbers
+from the `perf:` lines of minutes 2 to 6. The soak was paused for them from
+15:03:16 to 15:36:59.
+
+| Run | Build and setup | fps | Late | Control redraws | Scale |
+|---|---|---|---|---|---|
+| 1 | 12ef170 (D314), OLD 13 | 52.5 | 4.4% | | hunting, as M18 run 2 |
+| 2 | d76e320 (D315), OLD 13, control covered | 42.6 | 8.0% | 11-12 a minute | locked at 1.00 |
+| 3 | d76e320, OLD 13, control minimised | 42.7 | 9.2% | 0 | locked at 1.00 |
+| 4 | `--no-adaptive --render-scale 1`, OLD 13 | 42.2 | | | 1.00 |
+| 5 | d76e320, the new scenes, holding `16-acid-mirror` | 49.2 | 0.6% | | locked at 1.00 |
+
+"Late" is the perf line's count of intervals over 1.5 periods; the adaptive
+lines count refreshes missed from the window's span (D315), so their shares
+are much larger.
+
+**The adaptive lines:**
+- **Run 2:** 7.8 s, 1.00 -> 0.90, "97 refreshes missed over the last 240
+  frames ... GPU 13.8 ms (D314)". 13.4 s: "left the display's refreshes missed
+  (40.4% before, 25.8% after) ... back to 1.00 ... until the scene changes
+  (D315)".
+- **Run 3:** the same lock, 40.4% to 24.6%.
+- **Run 5:** 7.0 s, 1.00 -> 0.90, "55 refreshes missed over the last 240 ...
+  GPU 12.0". 12.2 s: "left the display's refreshes missed (22.9% before,
+  14.2% after) ... back to 1.00".
+
+**What it showed:**
+- **The covered-window part of D315 works.** Run 2's control window drew
+  11-12 times a minute, as intended, and covered and minimised now miss
+  alike (8.0% against 9.2%).
+- **The verdict was a regression.** A 0.10 step that pays cuts the misses by
+  35-40% here (40 to 26%, 23 to 14%), and it takes two steps to clear the
+  vsync edge. D315 asked for a halving, so it undid the first step and
+  locked at 1.00. Scene 16 fell from M18's 59.4 fps at 0.80 to 49.2 fps, and
+  the old 13 from about 52 fps at 0.80 to 42.6.
+- **Two counts, two meanings.** The perf line's "late" (1-9%) and the
+  adaptive lines' "refreshes missed" (25-40%) measured different things,
+  which confused the reading.
+
+**What changed (D316):**
+- A late step pays when it cuts the missed share by at least a fifth and by
+  at least 5 points; the next step is then allowed. Only a step that cuts
+  less is undone and locked.
+- On the M18/M19 shares (old 13: 40% at 1.0, 25% at 0.90, 15% at 0.80, about
+  10.5% at 0.70), that is two steps to 0.80, and a try at 0.70 undone (4.5
+  points). On 16 (23%, 14%, about 0) it is two steps to 0.80, both kept.
+- The perf line now leads with the same count the controller uses:
+  `missed N refreshes (X% of frames)`, then the old `N late of M frames`
+  unchanged. The adaptive lines say "missed N refreshes over the last M frames
+  (X% of frames)", and an undo says "cut too few missed refreshes (x% of
+  frames before, y% after)".
+
+### Task M20, to run: D316 on the projector
+
+The same five runs, 390 s each, on the D316 build, with the D315 build kept
+as `strobe-m19.exe`:
 
 ```powershell
 cd $env:USERPROFILE\strobe
 git fetch origin
-Copy-Item target\release\strobe.exe target\release\strobe-m18.exe
-git switch <the D315 branch>
+Copy-Item target\release\strobe.exe target\release\strobe-m19.exe
+git switch <the D316 branch>
 cargo build --release -p strobe-app
 ```
 
-1. `strobe-m18.exe`, OLD 13 (`m16-hold13.toml`): the before, expected as M18
-   run 2 (hunting).
-2. `strobe.exe`, OLD 13, the control window covered by the output (as M18
-   run 2).
-3. `strobe.exe`, OLD 13, the control window minimised (as M18 run 3).
+1. `strobe-m19.exe`, OLD 13 (`m16-hold13.toml`): the before, expected as M19
+   run 2 (locked at 1.00, about 42.6 fps).
+2. `strobe.exe`, OLD 13, the control window covered by the output.
+3. `strobe.exe`, OLD 13, the control window minimised.
 4. `strobe.exe --no-adaptive --render-scale 1`, OLD 13: the control.
-5. `strobe.exe`, the new scenes, holding `16-acid-mirror` (as M18 run 5).
+5. `strobe.exe`, the new scenes, holding `16-acid-mirror`.
 
-Each 390 s, with the usual `--library`, `--no-synesthesia --output-monitor 1
---fullscreen --audio ambient`. Write down, from the `perf:` lines of minutes
-2 to 6, fps, late frames, GPU ms, `scale` and `control N redraws`, and every
-`adaptive resolution:` line.
+Use the usual `--library`, `--no-synesthesia --output-monitor 1 --fullscreen
+--audio ambient`. Write down, from the `perf:` lines of minutes 2 to 6: fps,
+`missed N refreshes (X% of frames)`, the old `late` count, GPU ms, `scale`
+and `control N redraws`; and every `adaptive resolution:` line.
 
 **Expected:**
-- **Run 2:** 1.00 -> 0.90 in the first 10 s. Perhaps a step to 0.80 and, if
-  that does not halve the misses, one line `... left the display's refreshes
-  missed (x% before, y% after) ... back to 0.90 ... (D315)` about 4.5 s later.
-  Then no change for the rest of the run: one `scale` value in every perf
-  line from minute 2. `control` about 12 redraws a minute, not about 117, and
-  the late share closer to run 3's than to M18 run 2's 4.2%.
-- **Run 3:** as run 2, with `control 0 redraws`.
-- **Run 5:** as M18 run 5: steps that pay are kept (59 fps or better, at
-  0.80 or 0.90).
-- **Every run:** the playlist and any remote command still work with the
-  control window covered; uncovering it (Esc on the output, or Alt-Tab)
-  shows a live UI within a second.
+- **Runs 2 and 3:** 1.00 -> 0.90 by about 8 s and 0.90 -> 0.80 about 4.5 s
+  later, both kept. Perhaps a try at 0.70 that is undone ("cut too few missed
+  refreshes ... back to 0.80"), and nothing after the first minute. About
+  52 fps at 0.80, as M18, with a missed share near 15%.
+- **Run 5:** two steps to 0.80, both kept, then steady; about 59 fps, the
+  missed share near 0, as M18 run 5.
+- **Every run:** the perf line's missed share agrees with the adaptive lines'
+  shares for the same minute; the control window as in M19 (11-12 redraws a
+  minute covered, 0 minimised).
 
-**What would reopen D315:** any scale change after minute 1 in run 2 or 3
-(hunting again); run 5 undoing a step that paid (the verdict is too strict);
-the control window frozen or more than 5 s stale when uncovered; or a key
-pressed in the covered control window that takes more than a heartbeat to act.
+**What would reopen D316:** any scale change after the first minute (the
+hunting is back); run 5 below about 59 fps or not at 0.80 (a step that paid
+was undone); runs 2 and 3 below 0.75 (the floor on returns is too loose).
 
 ## Still to do here
 
@@ -566,8 +615,8 @@ pressed in the covered control window that takes more than a heartbeat to act.
   Disconnect.
 - Re-measure the D310 scenes (section above). `14-electric-bloom` is
   expected to be the one still above 10 ms.
-- Task M19 (section above): D315's verdict on late drops, the slow climb
-  back and the covered control window's chores, the same five runs as M18.
+- Task M20 (section above): D316's verdict on late drops, the same five
+  runs as M19.
 
 - Native strobe-bench and control generation in session 1: does a hidden
   window on AMD WGL draw at all (M3b)?

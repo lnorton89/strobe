@@ -38,8 +38,8 @@ which backend proved a claim.
 ### In flight
 
 - **Adaptive resolution watches missed refreshes, not only the mean GPU time
-  (2026-10-16, D314, D315), D314 run on the projector (M18), D315 built and
-  unit-tested:**
+  (2026-10-16, D314-D316), D314 and D315 run on the projector (M18, M19),
+  D316 built and unit-tested:**
   the venue mini PC showed scene 13 at 42-45 fps with a 13.6 ms mean under
   the 16.7 ms budget, about 9% of frames a refresh late, and the controller
   never moved (M16). Each presented output frame's interval now feeds the
@@ -58,7 +58,12 @@ which backend proved a claim.
   the scene changes; climbing back after a late drop waits for 30 s without
   misses; misses are counted from each window's span (the CPU timestamps are
   not quantised to the refresh); a covered, paint-starved control window runs
-  only its chores between 5 s full draws. Open: `hardware/MINIPC.md` Task M19.
+  only its chores between 5 s full draws. M19: the covered window works, but
+  the halving test undid steps that paid and locked 13 and 16 at 1.00 (16
+  fell from 59.4 to 49.2 fps). D316: a step pays when it cuts the missed
+  share by a fifth and by 5 points (the old 13 ends at 0.80, 16 at 0.80),
+  and the perf line leads with the controller's own missed-refresh count.
+  Open: `hardware/MINIPC.md` Task M20.
 
 - **`pow` of a negative base on ANGLE (2026-10-15, D301), built, not yet re-run
   on the RX 580:** the ES dialect writes `pow(x, y)` as `exp2(log2(x) * (y))`,
@@ -568,9 +573,9 @@ never per frame.
   it (D261); both are checked on llvmpipe only, not yet on ANGLE hardware
   or the owner's corpus. The base library is written ES-clean.
 - Adaptive-resolution thresholds are validated on one machine, the T480.
-  The missed-refresh rule (D314) was run on the mini PC (M18); its D315
-  verdict and climb gate are checked on synthetic frame sequences only, and
-  Task M19 is their hardware test.
+  The missed-refresh rule (D314) and D315's verdict were run on the mini PC
+  (M18, M19); D316's verdict thresholds are checked on synthetic sequences
+  built from those runs' shares only, and Task M20 is their hardware test.
 - Native crash capture cannot see a bare `abort()` on Windows, which is a
   fast-fail ([DEBUGGING.md](DEBUGGING.md)).
 

@@ -64,13 +64,17 @@
 //!   windows in a row with at least [`LATE_PER_WINDOW`] missed each lower
 //!   the scale by one step of about 15% of the area, as long as the GPU is
 //!   busy enough to be the cause ([`LATE_MIN_LOAD`] of the cadence).
-//! - **A late drop must pay for itself too (D315).** The misses may not be
-//!   the GPU's. After the drop's cooldown, [`JUDGE_WINDOWS`] windows are
-//!   counted; unless the share missed fell to [`LATE_MIN_CUT`] of what
-//!   triggered the drop, or under the drop line, the drop is undone and the
+//! - **A late drop must pay for itself too (D315, D316).** The misses may
+//!   not be the GPU's. After the drop's cooldown, [`JUDGE_WINDOWS`] windows
+//!   are counted. The drop stands when the misses fell under the drop line,
+//!   or fell by at least [`LATE_MIN_CUT`] of what they were and by at least
+//!   [`LATE_MIN_CUT_POINTS`] of the frames; otherwise it is undone and the
 //!   late rule may not lower below that scale again until the scene changes
 //!   ([`AdaptiveScale::late_floor`]). The mini PC's M18 hunted 0.65-0.80
-//!   without this: misses that stayed at 4% whatever the scale.
+//!   without a verdict; M19 showed D315's halving test was too strict: a
+//!   0.10 step that pays cuts the misses by 35-40%, and it takes two.
+//!   [`MissCount`] is the one count of missed refreshes, shared with the
+//!   per-minute perf line so the two always agree.
 //! - **Climbing back after a late drop is slow (D314, D315).** The GPU time
 //!   the frames were late at is remembered, and the scale climbs back only
 //!   to a size predicted to cost clearly less than that
@@ -174,11 +178,23 @@ pub const CLEAR_WINDOWS_TO_RAISE: u32 = 15;
 /// at 60 Hz, as many as triggered it.
 pub const JUDGE_WINDOWS: u32 = 2;
 
-/// A late drop pays when the share of refreshes missed after it is at most
-/// this fraction of the share that triggered it (or under the drop line).
-/// At the counts involved (about 10 to 25 misses in 240 frames) the count's
-/// own noise is roughly a third of it, so halving is a real change.
-pub const LATE_MIN_CUT: f32 = 0.5;
+/// The least relative cut in the share of refreshes missed for a late drop
+/// to pay (D316): a fifth of what triggered it. A 0.10 step removes about a
+/// fifth of the pixels, and where the GPU is the cause it cut the misses by
+/// 35-40% on the mini PC (M19: 40 -> 26% and 23 -> 14% of frames); a step
+/// that does under half of that is mostly not the GPU. At 40% over 240
+/// frames the count's own noise is about 4 points, a tenth of it, so a fifth
+/// is two of those. D315 asked for a halving, which undid steps that paid.
+pub const LATE_MIN_CUT: f32 = 0.2;
+
+/// The least absolute cut, in share of frames, for a late drop to pay
+/// (D316): 5 points, about 3 fps at 60 Hz. Each step costs a fifth of the
+/// pixels, and less than that is not worth the sharpness; it is also about
+/// twice the count's noise at the shares where the returns run out (15% of
+/// 240 frames is 36 misses, give or take 6). On the old 13 it stops the
+/// late rule at 0.80 (15% -> 10.5% at 0.70 is 4.5 points) where M18 had
+/// hunted 0.65-0.80 for 2 fps.
+pub const LATE_MIN_CUT_POINTS: f32 = 0.05;
 
 /// Missing windows in a row before a drop: four seconds of judder at 60 Hz.
 /// One burst (a heavy beat, a transition, a hitch) fills one window, not two.
@@ -248,6 +264,57 @@ struct LateProbe {
     windows: u32,
 }
 
+/// The cadence presented frames are judged against for a display `period_ms`:
+/// that period, never faster than [`FASTEST_CADENCE_MS`].
+pub fn cadence_for(period_ms: f32) -> f32 {
+    period_ms.max(FASTEST_CADENCE_MS)
+}
+
+/// Refreshes missed over a run of presented frames (D315, D316): the
+/// refreshes that passed (each interval over the cadence, capped at
+/// [`STALL_CADENCES`]) minus the frames shown. A timestamp that lands late
+/// on one frame lands early on the next, so jitter cancels over the run,
+/// where counting intervals over a threshold would not. The controller's
+/// windows and the per-minute perf line both count with this, so the log
+/// and the scale changes say the same thing.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct MissCount {
+    frames: u32,
+    refreshes: f32,
+}
+
+impl MissCount {
+    /// Adds one presented frame that came `interval_ms` after the last, on
+    /// a display judged at `cadence_ms`.
+    pub fn add(&mut self, interval_ms: f32, cadence_ms: f32) {
+        if !interval_ms.is_finite() || interval_ms < 0.0 || cadence_ms <= 0.0 {
+            return;
+        }
+        self.frames += 1;
+        self.refreshes += interval_ms.min(cadence_ms * STALL_CADENCES) / cadence_ms;
+    }
+
+    /// Frames counted.
+    pub fn frames(&self) -> u32 {
+        self.frames
+    }
+
+    /// Refreshes missed: refreshes that passed minus frames shown, never
+    /// below zero.
+    pub fn missed(&self) -> u32 {
+        (self.refreshes - self.frames as f32).round().max(0.0) as u32
+    }
+
+    /// Refreshes missed per frame shown, 0 with no frames.
+    pub fn share(&self) -> f32 {
+        if self.frames == 0 {
+            0.0
+        } else {
+            self.missed() as f32 / self.frames as f32
+        }
+    }
+}
+
 /// A drop made because presented frames kept missing the display's
 /// refresh, as [`AdaptiveScale::missed`] reports it.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -291,10 +358,8 @@ pub struct AdaptiveScale {
     /// The display cadence the late rule judges intervals against, or
     /// `None` when the rule is off.
     cadence_ms: Option<f32>,
-    /// Intervals counted in the current window, and their span in
-    /// milliseconds (each capped at [`STALL_CADENCES`]).
-    window_frames: u32,
-    window_ms: f32,
+    /// The current window's count.
+    window: MissCount,
     /// Missing windows in a row, and the refreshes missed and frames over
     /// them.
     late_windows: u32,
@@ -339,8 +404,7 @@ impl AdaptiveScale {
             next_lock: LOCK_FRAMES,
             undone: None,
             cadence_ms: None,
-            window_frames: 0,
-            window_ms: 0.0,
+            window: MissCount::default(),
             late_windows: 0,
             late_run: 0,
             late_run_frames: 0,
@@ -390,7 +454,7 @@ impl AdaptiveScale {
     pub fn set_display_period(&mut self, period_ms: Option<f32>) {
         let cadence = period_ms
             .filter(|ms| ms.is_finite() && *ms > 0.0)
-            .map(|ms| ms.max(FASTEST_CADENCE_MS));
+            .map(cadence_for);
         if cadence != self.cadence_ms {
             self.cadence_ms = cadence;
             self.restart_window();
@@ -413,19 +477,13 @@ impl AdaptiveScale {
         if !interval_ms.is_finite() || interval_ms < 0.0 || self.cooldown > 0 {
             return;
         }
-        self.window_frames += 1;
-        self.window_ms += interval_ms.min(cadence * STALL_CADENCES);
-        if self.window_frames < LATE_WINDOW {
+        self.window.add(interval_ms, cadence);
+        if self.window.frames() < LATE_WINDOW {
             return;
         }
-        // Refreshes that passed minus frames shown. A timestamp that lands
-        // late on one frame lands early on the next, so jitter cancels over
-        // the window where a per-interval threshold would not (D315).
-        let refreshes = self.window_ms / cadence;
-        let missed = (refreshes - self.window_frames as f32).round().max(0.0) as u32;
-        let frames = self.window_frames;
-        self.window_frames = 0;
-        self.window_ms = 0.0;
+        let missed = self.window.missed();
+        let frames = self.window.frames();
+        self.window = MissCount::default();
         if missed >= LATE_PER_WINDOW {
             self.late_windows += 1;
             self.late_run += missed;
@@ -451,8 +509,7 @@ impl AdaptiveScale {
 
     /// Starts the late count over, for a change of scale or cadence.
     fn restart_window(&mut self) {
-        self.window_frames = 0;
-        self.window_ms = 0.0;
+        self.window = MissCount::default();
         self.late_windows = 0;
         self.late_run = 0;
         self.late_run_frames = 0;
@@ -725,10 +782,10 @@ impl AdaptiveScale {
     }
 
     /// Judges the last late drop once [`JUDGE_WINDOWS`] windows after its
-    /// cooldown are in: unless the share of refreshes missed fell to
-    /// [`LATE_MIN_CUT`] of what triggered it, or under the drop line, goes
-    /// back to the scale it left and stops the late rule there until the
-    /// scene changes. Returns that scale (D315).
+    /// cooldown are in: unless the misses fell under the drop line, or by
+    /// both [`LATE_MIN_CUT`] of what triggered it and [`LATE_MIN_CUT_POINTS`]
+    /// of the frames, goes back to the scale it left and stops the late rule
+    /// there until the scene changes. Returns that scale (D315, D316).
     fn judge_late_drop(&mut self) -> Option<f32> {
         let probe = self.late_probe?;
         if probe.windows < JUDGE_WINDOWS || probe.frames == 0 {
@@ -737,7 +794,9 @@ impl AdaptiveScale {
         self.late_probe = None;
         let share_after = probe.missed as f32 / probe.frames as f32;
         let under_the_line = share_after * (LATE_WINDOW as f32) < LATE_PER_WINDOW as f32;
-        if under_the_line || share_after <= probe.share_before * LATE_MIN_CUT {
+        let cut = probe.share_before - share_after;
+        let pays = cut >= probe.share_before * LATE_MIN_CUT && cut >= LATE_MIN_CUT_POINTS;
+        if under_the_line || pays {
             return None;
         }
         let from = probe.from.min(self.max);
@@ -1230,6 +1289,157 @@ mod tests {
             c.scale()
         );
         assert_eq!(c.late_floor(), None, "nothing undone");
+    }
+
+    /// Runs `frames` frames of a scene measured on the mini PC (D316): GPU
+    /// `cost(s)` and refreshes missed on `share(s)` of the frames at scale
+    /// `s`, spread evenly. Returns every change as (frame, from, to, the
+    /// late verdict that undid a drop, if this change is one).
+    fn measured(
+        c: &mut AdaptiveScale,
+        frames: u32,
+        cost: impl Fn(f32) -> f32,
+        share: impl Fn(f32) -> f32,
+    ) -> Vec<(u32, f32, f32, Option<LateFutile>)> {
+        let mut owed = 0.0_f32;
+        let mut changes = Vec::new();
+        for i in 0..frames {
+            let s = c.scale();
+            owed += share(s);
+            let late = owed >= 1.0;
+            if late {
+                owed -= 1.0;
+            }
+            c.presented(if late { 2.0 * PERIOD } else { PERIOD });
+            if let Some(to) = c.observe(cost(s)) {
+                changes.push((i, s, to, c.late_undone()));
+            }
+        }
+        changes
+    }
+
+    /// The old 13 on the mini PC, as M18 and M19 measured it: refreshes
+    /// missed on about 40% of the frames at 1.0, 25% at 0.90, 15% at 0.80
+    /// (52 fps), 10-11% at 0.70 and below (54-55 fps). The GPU time falls
+    /// less than the area (M18 run 2 dropped from 0.80 at 11.6 ms).
+    fn old_13_share(s: f32) -> f32 {
+        if s > 0.95 {
+            0.40
+        } else if s > 0.85 {
+            0.25
+        } else if s > 0.75 {
+            0.15
+        } else if s > 0.675 {
+            0.105
+        } else {
+            0.10
+        }
+    }
+
+    #[test]
+    fn the_old_13_steps_while_each_step_pays_and_stops_at_0_80() {
+        // M19 run 2 locked at 1.00 (40% -> 26% failed D315's halving) and ran
+        // 42.6 fps; M18 run 2 hunted 0.65-0.80. Two steps pay, the third
+        // (15% -> 10.5%, 4.5 points) does not, and it holds at 0.80.
+        let mut c = sixty_hz();
+        let changes = measured(&mut c, 60 * 60 * 10, |s| 6.0 + 7.8 * s * s, old_13_share);
+        let scales: Vec<f32> = changes.iter().map(|(_, _, to, _)| *to).collect();
+        assert!(
+            changes.len() == 4
+                && (scales[0] - 0.9).abs() < 1e-4
+                && (scales[1] - 0.8).abs() < 1e-4
+                && (scales[2] - 0.7).abs() < 1e-4
+                && (scales[3] - 0.8).abs() < 1e-4
+                && changes[3].3.is_some(),
+            "1.00 -> 0.90 -> 0.80, a try at 0.70 undone, nothing more: {changes:?}"
+        );
+        assert!(
+            changes.iter().all(|(frame, ..)| *frame < 60 * 30),
+            "all within the first half minute, none in ten minutes after: {changes:?}"
+        );
+        assert!((c.scale() - 0.8).abs() < 1e-4, "holds 0.80: {}", c.scale());
+    }
+
+    #[test]
+    fn a_scene_whose_misses_clear_by_0_80_steps_twice_and_holds() {
+        // 16-acid-mirror (M18 run 5, M19 run 5): 23% at 1.0, 14% at 0.90
+        // (D315 undid this step: 59.4 fps became 49.2), none at 0.80. GPU
+        // 12.0 ms at 1.0 and 10.3 at 0.90, as logged.
+        let mut c = sixty_hz();
+        let changes = measured(
+            &mut c,
+            60 * 60 * 10,
+            |s| 3.0 + 9.0 * s * s,
+            |s| {
+                if s > 0.95 {
+                    0.23
+                } else if s > 0.85 {
+                    0.14
+                } else {
+                    0.002
+                }
+            },
+        );
+        assert!(
+            changes.len() == 2 && changes.iter().all(|(.., undone)| undone.is_none()),
+            "1.00 -> 0.90 -> 0.80, both kept: {changes:?}"
+        );
+        assert!((c.scale() - 0.8).abs() < 1e-4, "holds 0.80: {}", c.scale());
+        assert_eq!(c.late_floor(), None, "nothing undone");
+    }
+
+    #[test]
+    fn a_step_that_cuts_too_little_is_undone_by_either_test() {
+        // 30% -> 26%: 4 points and 13%, under both lines.
+        let mut c = sixty_hz();
+        let changes = measured(
+            &mut c,
+            3600,
+            |s| 13.6 * s * s,
+            |s| if s > 0.95 { 0.30 } else { 0.26 },
+        );
+        assert!(
+            changes.len() == 2 && changes[1].3.is_some() && c.late_floor() == Some(1.0),
+            "one try, undone, and stopped at 1.00: {changes:?}"
+        );
+        // 8% -> 6%: a quarter, but 2 points.
+        let mut c = sixty_hz();
+        let changes = measured(
+            &mut c,
+            3600,
+            |s| 13.6 * s * s,
+            |s| if s > 0.95 { 0.08 } else { 0.06 },
+        );
+        assert!(
+            changes.len() == 2 && changes[1].3.is_some(),
+            "a small share's small cut is not worth the pixels: {changes:?}"
+        );
+    }
+
+    #[test]
+    fn the_miss_count_is_refreshes_passed_minus_frames_shown() {
+        let mut count = MissCount::default();
+        for _ in 0..90 {
+            count.add(PERIOD, PERIOD);
+        }
+        for _ in 0..10 {
+            count.add(2.0 * PERIOD, PERIOD);
+        }
+        assert_eq!(count.frames(), 100, "frames");
+        assert_eq!(count.missed(), 10, "one per double interval");
+        assert!(
+            (count.share() - 0.1).abs() < 1e-6,
+            "share {}",
+            count.share()
+        );
+        count.add(1000.0, PERIOD);
+        assert_eq!(count.missed(), 12, "a stall counts two at most");
+        count.add(f32::NAN, PERIOD);
+        assert_eq!(count.frames(), 101, "nonsense is ignored");
+        assert!(
+            (cadence_for(1000.0 / 144.0) - FASTEST_CADENCE_MS).abs() < 1e-4,
+            "144 Hz is judged at 60"
+        );
     }
 
     #[test]
