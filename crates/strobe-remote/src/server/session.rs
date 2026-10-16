@@ -476,22 +476,20 @@ impl<'a> Session<'a> {
                     }
                 }
             }
-            Phase::Authenticated(_) => {
-                if let Some(id) = &self.trusted_client {
-                    // The trusted pairing belongs to the switch it was
-                    // proved under: with it off the session ends, whatever
-                    // raced.
-                    if !self.shared.remote.desktop.enabled() {
-                        return Err(End::Close(close::POLICY, "desktop control disabled"));
-                    }
-                    // And to its entry in the list. A revoke, a revoke all
-                    // or a reconnect that replaced it can land between the
-                    // pairing and this connection being marked with its
-                    // client id, which would leave the session running
-                    // with nothing on the list to revoke.
-                    if !self.shared.clients.contains(id) {
-                        return Err(End::Close(close::POLICY, "revoked on the desktop"));
-                    }
+            Phase::Authenticated(id) => {
+                // The trusted pairing belongs to the switch it was proved
+                // under: with it off the session ends, whatever raced.
+                if self.trusted_client.is_some() && !self.shared.remote.desktop.enabled() {
+                    return Err(End::Close(close::POLICY, "desktop control disabled"));
+                }
+                // Every session belongs to its entry in the list. A revoke,
+                // a revoke all or a trusted reconnect that replaced it can
+                // land between the authentication (a token, an approval or
+                // a proof) and this connection being marked with its client
+                // id, which would leave the session running with nothing on
+                // the list to revoke.
+                if !self.shared.clients.contains(&id) {
+                    return Err(End::Close(close::POLICY, "revoked on the desktop"));
                 }
             }
         }

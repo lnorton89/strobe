@@ -133,10 +133,9 @@ impl Capture {
             self.gpu = None;
         }
         self.collect(desktop);
-        if now < self.due || self.gpu.as_ref().is_some_and(|gpu| gpu.pending.is_some()) {
+        if self.gpu.as_ref().is_some_and(|gpu| gpu.pending.is_some()) || !self.take_due(now) {
             return;
         }
-        self.due = now + STREAM_PERIOD;
         if size.contains(&0) {
             // Minimised: nothing to show. The controller sees its image go
             // stale and disables its input until frames come back.
@@ -149,6 +148,26 @@ impl Capture {
             return;
         }
         self.start(gl, size);
+    }
+
+    /// Whether a capture is due at `now`; when it is, the next one is
+    /// scheduled.
+    ///
+    /// The next is due a little under [`STREAM_PERIOD`] on. A control
+    /// window the event loop runs at the stream's own rate (covered, with a
+    /// lease: D290) has its frames that far apart as the loop schedules
+    /// them, but `now` is read after make_current, which can wait up to a
+    /// vertical blank for the output; without the slack, a frame read a
+    /// few ms earlier than the last was not due, and the image came every
+    /// 400 ms. In view, at 30 Hz, it is still a capture every sixth frame.
+    fn take_due(&mut self, now: Instant) -> bool {
+        /// Covers make_current's wait, up to a 60 Hz refresh and more.
+        const SLACK: Duration = Duration::from_millis(25);
+        if now < self.due {
+            return false;
+        }
+        self.due = now + STREAM_PERIOD.saturating_sub(SLACK);
+        true
     }
 
     fn start(&mut self, gl: &strobe_gfx::gl::Gl, size: [u32; 2]) {
@@ -529,6 +548,9 @@ pub struct Controller {
     /// The waiting card's heading and time line, and the whole second they
     /// were formatted for: they change once a second, not every frame.
     waiting: Option<(u64, String, String)>,
+    /// The stage and readiness the viewer last drew, so the app redraws it
+    /// when the worker changes either ([`Self::needs_redraw`]).
+    shown: Option<(Stage, bool)>,
 }
 
 impl Default for Controller {
@@ -556,6 +578,7 @@ impl Default for Controller {
             approval_limit: APPROVAL_TIMEOUT,
             reveal: false,
             waiting: None,
+            shown: None,
         }
     }
 }
@@ -762,12 +785,23 @@ impl Controller {
         }
         self.started = None;
         self.waiting = None;
+        self.shown = None;
         self.texture = None;
         self.texture_context = None;
         self.revision = 0;
         self.focused = false;
         self.input_note.clear();
         self.input_frame = None;
+    }
+
+    /// Whether the viewer has something new to draw: an image from the
+    /// host, or a stage or readiness the worker changed since the last
+    /// [`Self::show`]. The app redraws an idle viewer slowly and brings the
+    /// next redraw forward for this (D302). One lock, no allocation.
+    pub fn needs_redraw(&self) -> bool {
+        let view = self.view.lock().unwrap_or_else(PoisonError::into_inner);
+        (view.image.is_some() && view.revision != self.revision)
+            || self.shown != Some((view.stage, view.ready))
     }
 
     /// Status for Settings or the always-visible viewer toolbar.
@@ -868,6 +902,7 @@ impl Controller {
                 view.trusted,
             )
         };
+        self.shown = Some((stage, ready));
         ui.horizontal_wrapped(|ui| {
             ui.strong(format!("Controlling {}", self.address));
             let leave = match stage {
@@ -1601,22 +1636,7 @@ fn control(link: &Link, inputs: &Receiver<Input>, pictured: &mut bool) -> io::Re
             }
         }
         if authenticated && now >= next_send {
-            let mut bytes = 128;
-            while batch.len() < 32 {
-                let Some(event) = pending.take().or_else(|| inputs.try_recv().ok()) else {
-                    break;
-                };
-                if paused {
-                    continue;
-                }
-                let length = serde_json::to_vec(&event).map_err(io::Error::other)?.len() + 1;
-                if bytes + length > strobe_remote::MAX_MESSAGE_BYTES {
-                    pending = Some(event);
-                    break;
-                }
-                bytes += length;
-                batch.push(event);
-            }
+            next_batch(&mut pending, inputs, paused, &mut batch)?;
             if !batch.is_empty() {
                 connection.send(&ClientMessage::DesktopInput {
                     events: std::mem::take(&mut batch),
@@ -1629,6 +1649,50 @@ fn control(link: &Link, inputs: &Receiver<Input>, pictured: &mut bool) -> io::Re
             connection.send(&ClientMessage::Ping {})?;
             next_ping = now + Duration::from_secs(5);
         }
+    }
+    Ok(())
+}
+
+/// Fills `batch` with the input waiting in `inputs`, at most 32 events and
+/// one message's bytes; an event that does not fit waits in `pending`.
+/// While `paused`, what is waiting is dropped instead.
+///
+/// A pointer move that follows another move replaces it, so a run of
+/// moves goes as its latest position. A batch leaves every 150 ms, and a
+/// 500 or 1000 Hz mouse makes more moves than 32 a batch can carry: sent
+/// one each, they filled the queue from the frame loop and ended the
+/// connection. Edges and text keep their own slots and their order.
+fn next_batch(
+    pending: &mut Option<Input>,
+    inputs: &Receiver<Input>,
+    paused: bool,
+    batch: &mut Vec<Input>,
+) -> io::Result<()> {
+    let mut bytes = 128;
+    while batch.len() < 32 {
+        let Some(event) = pending.take().or_else(|| inputs.try_recv().ok()) else {
+            break;
+        };
+        if paused {
+            continue;
+        }
+        let length = serde_json::to_vec(&event).map_err(io::Error::other)?.len() + 1;
+        if matches!(event, Input::Move { .. })
+            && let Some(last @ Input::Move { .. }) = batch.last_mut()
+        {
+            let replaced = serde_json::to_vec(&*last).map_err(io::Error::other)?.len() + 1;
+            if bytes - replaced + length <= strobe_remote::MAX_MESSAGE_BYTES {
+                bytes = bytes - replaced + length;
+                *last = event;
+                continue;
+            }
+        }
+        if bytes + length > strobe_remote::MAX_MESSAGE_BYTES {
+            *pending = Some(event);
+            break;
+        }
+        bytes += length;
+        batch.push(event);
     }
     Ok(())
 }
@@ -2195,6 +2259,33 @@ mod tests {
             "Connection refused.",
             "a sentence"
         );
+    }
+
+    #[test]
+    fn the_viewer_asks_for_a_redraw_only_for_something_new() {
+        let ctx = egui::Context::default();
+        let size = Vec2::new(640.0, 480.0);
+        let mut viewer = Controller::staged("192.168.1.20:47812", Staged::Live);
+        assert!(viewer.needs_redraw(), "never drawn");
+        look(&mut viewer, &ctx, size);
+        assert!(!viewer.needs_redraw(), "drawn, and nothing has changed");
+        viewer
+            .view
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .revision = 2;
+        assert!(viewer.needs_redraw(), "a new image from the host");
+        look(&mut viewer, &ctx, size);
+        assert!(!viewer.needs_redraw(), "that image drawn");
+        viewer
+            .view
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .ready = false;
+        assert!(viewer.needs_redraw(), "the host's image paused");
+        look(&mut viewer, &ctx, size);
+        end(&viewer.view, End::Lost, "gone".into());
+        assert!(viewer.needs_redraw(), "the connection ended");
     }
 
     #[test]
@@ -3258,6 +3349,81 @@ mod tests {
             .is_empty(),
             "local disconnect toolbar is never sent to host"
         );
+    }
+
+    #[test]
+    fn a_control_window_driven_at_the_stream_rate_captures_on_every_frame() {
+        // While a lease is held, a covered control window is run by the event
+        // loop every STREAM_PERIOD (D290), apart as the loop schedules them.
+        // The capture reads its clock after make_current, which can wait up
+        // to a vertical blank for the output, so one frame's reading can be
+        // a few ms later than the next's. That next frame was then not due,
+        // by those few ms, and the controller got an image every 400 ms.
+        let mut driven = Capture::default();
+        let mut in_view = Capture::default();
+        let start = Instant::now();
+        // What make_current waited in each frame, in ms.
+        let waits = [12_u64, 1, 15, 0, 9, 2, 16, 3];
+        let captured = (0_u32..)
+            .zip(waits)
+            .filter(|(n, wait)| {
+                driven.take_due(start + STREAM_PERIOD * *n + Duration::from_millis(*wait))
+            })
+            .count();
+        assert_eq!(
+            captured,
+            waits.len(),
+            "a frame driven at the stream's rate captures every time"
+        );
+        // In view, the window redraws at 30 Hz: still about five a second.
+        let captured = (0_u64..60)
+            .filter(|n| in_view.take_due(start + Duration::from_millis(33 * n)))
+            .count();
+        assert!(
+            (9..=11).contains(&captured),
+            "{captured} captures in two seconds of 30 Hz frames"
+        );
+    }
+
+    #[test]
+    fn a_fast_mouse_is_sent_as_its_latest_position_and_never_fills_the_queue() -> Result<()> {
+        // A batch leaves every 150 ms with at most 32 events, so 213 a
+        // second. A 500 or 1000 Hz mouse makes more pointer moves than
+        // that, and the 512-event queue between the frame loop and the
+        // worker filled within a second or two of steady movement: the
+        // connection was then ended as "input could not reach the host".
+        let (sender, inputs) = sync_channel(512);
+        let at = |n: u16| {
+            let x = f32::from(n) / 1000.0;
+            Input::Move { x, y: x }
+        };
+        let press = Input::Button {
+            x: 0.5,
+            y: 0.5,
+            button: 0,
+            down: true,
+            modifiers: Modifiers::default(),
+        };
+        for n in 0..400 {
+            sender.try_send(at(n))?;
+        }
+        sender.try_send(press.clone())?;
+        for n in 400..500 {
+            sender.try_send(at(n))?;
+        }
+        let mut pending = None;
+        let mut batch = Vec::new();
+        next_batch(&mut pending, &inputs, false, &mut batch)?;
+        assert_eq!(
+            batch,
+            vec![at(399), press, at(499)],
+            "each run of moves is its last position, and the press keeps its place"
+        );
+        assert!(
+            inputs.try_recv().is_err() && pending.is_none(),
+            "nothing is left behind"
+        );
+        Ok(())
     }
 
     #[test]
