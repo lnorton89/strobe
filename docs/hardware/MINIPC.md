@@ -329,34 +329,28 @@ created (`gl::prime`) and reads it back. At debug level the log says
 `GL prime: one 16x16 draw landed in N us (D311)`; a prime that does not land
 is a warning.
 
-### Task M15, to run: the fix on this machine
+### Task M17 part 1: the fix verified (2026-10-16, master b8789bf)
 
-Update to master with D311 and build the bench, in session 1 as before, with
-**no** `STROBE_D296_*` variables set. Send back the four output folders and
-logs.
+Run as written for Task M15, in session 1 alongside the soak, with no
+`STROBE_D296_*` variable set, over the default library (16 scenes).
 
-```powershell
-cd $env:USERPROFILE\strobe
-cargo build --release -p strobe-bench
-Get-ChildItem Env:STROBE_D296_* | Remove-Item
-$env:STROBE_LOG = "info,strobe_gfx=debug"
-$env:STROBE_LOG_STDERR = "1"
-$b = "target\release\strobe-bench.exe"
+- **Native 640x360:** no black frame, no warning.
+  `GL prime: one 16x16 draw landed in 128667 us (D311)`.
+- **Native 1920x1080:** no black frame. Prime landed in 98767 us. Means:
+  01 2.76, 04 12.49, 05 11.72, 08 8.45, 09 47.25, 10 381.49, 12 80.31,
+  13 10.11, 14 20.36, 15 15.86, 16 17.30 ms.
+- **ANGLE 640x360:** no black frame, prime 47149 us, timings within a few
+  per cent of native.
+- **Native 640x360 with `STROBE_GL_NO_PRIME=1`:** scenes 01-07 black again,
+  then 08 and every later scene render. 08's first passes are
+  `$WIDTH/4 x $HEIGHT/4` (160x90 = 14400 pixels, under the threshold), so
+  its first draw primes the context by accident: an independent
+  confirmation of the M14 mechanism. Only 7 of 16 were black, so the
+  bench's "every frame black" error did not trip.
 
-cmd /c "$b --context window --gl native --size 640x360 --out target\m15-native-360 > target\m15-native-360.log 2>&1"
-cmd /c "$b --context window --gl native --size 1920x1080 --out target\m15-native-1080 > target\m15-native-1080.log 2>&1"
-# The control: ANGLE never showed the bug.
-cmd /c "$b --context window --gl angle --size 640x360 --out target\m15-angle-360 > target\m15-angle-360.log 2>&1"
-# The prime switched off, to show it is what fixes this (expect black again).
-$env:STROBE_GL_NO_PRIME = "1"
-cmd /c "$b --context window --gl native --size 640x360 --out target\m15-noprime-360 > target\m15-noprime-360.log 2>&1"
-Remove-Item Env:STROBE_GL_NO_PRIME
-```
-
-Expected: the two native runs have no all-black warnings, and every PNG and
-the contact sheet show the scenes. Each log has the `GL prime: ... landed`
-line. ANGLE matches. The `noprime` run should be black as before; if it is
-not, this driver no longer needs the prime (see D311, "Would reopen").
+The prime costs 47-129 ms once per context on this driver: the first draw a
+context makes is slow, and the prime now pays it instead of the first
+scene. That is once per run and once per context recovery.
 
 ## D290 verified on the projector (2026-10-15, Task M5)
 
@@ -396,33 +390,30 @@ Host and controller both ran on the mini PC, over 127.0.0.1.
   the card said it retried "about every 15 s" when the wait is 1, 2, 4, 8,
   then 15 s.
 
-## Re-measuring the D310 scene pass (not run yet)
+## The D310 scene pass measured (2026-10-16, Task M17 part 2)
 
-D310 makes 04, 05, 08, 13, 14 and 16 cheaper. Its numbers are llvmpipe
-ratios ([BENCHMARKS.md](../BENCHMARKS.md)), not Vega 3 measurements. To
-measure them here, build the branch that carries D310 and time each scene
-before and after, alternating, at 1920x1080:
+1920x1080, native WGL, `--show-window --window-size 1920x1080 --size
+1920x1080 --filter <scene>`, alternating the scenes before D310 (6923fa5, in
+a temporary worktree) and after (b8789bf). No black frames in any of the 12
+runs. Means, with p95 in brackets:
 
-```powershell
-cd $env:USERPROFILE\strobe
-git fetch origin
-git worktree add ..\strobe-before origin/master   # the scenes before D310
-git switch <the D310 branch>
-cargo build --release -p strobe-bench
-$b = ".\target\release\strobe-bench.exe"
-foreach ($s in "04-", "05-", "08-", "13-", "14-", "16-") {
-  & $b --context window --gl native --show-window --window-size 1920x1080 --size 1920x1080 --library ..\strobe-before\scenes --filter $s --out "target\vega-before\$s"
-  & $b --context window --gl native --show-window --window-size 1920x1080 --size 1920x1080 --library scenes --filter $s --out "target\vega-after\$s"
-}
-```
+| Scene | Before | After | fps before → after |
+|---|---|---|---|
+| 04-voronoi-glass | 21.00 (28.75) | 10.68 (12.57) | 47.6 → 93.6 |
+| 05-domain-warp | 25.62 (33.10) | 9.96 (11.88) | 39.0 → 100.4 |
+| 08-bloom-orbs | 17.50 (25.78) | 7.71 (13.22) | 57.1 → 129.6 |
+| 13-chromatic-rise | 16.04 (18.23) | 8.51 (12.50) | 62.3 → 117.5 |
+| 14-electric-bloom | 22.17 (30.28) | 18.74 (26.88) | 45.1 → 53.4 |
+| 16-acid-mirror | 15.51 (24.11) | 14.92 (17.83) | 64.5 → 67.0 |
 
-Open the PNGs before trusting a time. Native WGL drew black above about
-160x90 here (D296, section above), in about 0.2 ms. If the frames are
-black, the times mean nothing. Run the same loop with `--gl angle` and
-`target\vega-angle-before` / `target\vega-angle-after` instead; ANGLE
-matched the app in session 1. The figures D310 started from are the app's
-GPU times at 1920x1080, so playing each scene in the app and reading its
-GPU ms is the other check.
+- **Looks:** 04 and 16 are pixel-identical. 05 and 08 differ by under half a
+  level on average. 13 matches to the eye; its largest differences are
+  isolated pixels flipping between adjacent posterise bands. 14 is
+  indistinguishable.
+- **Compile times** fell as well: 04 205 → 25 ms, 08 280 → 98, 13 428 →
+  121, 14 729 → 63, 16 479 → 94.
+- **Still over budget at 1080p:** 14 (18.7 ms) and 16 (14.9 ms, p95 17.8).
+  D310's "Would reopen" names the next step for each.
 
 ## Still to do here
 
