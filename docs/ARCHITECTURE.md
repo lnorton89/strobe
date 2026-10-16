@@ -144,7 +144,8 @@ threads only ever hand values *to* it.
    recovery policy (see "Context loss"). Hidden only: poll the timer ring and
    stop here if it is full
 1. dt from the clock (fixed in screenshot mode); shown only, the interval since
-   the last presented frame goes to AdaptiveScale's missed-refresh count (D314);
+   the last presented frame goes to AdaptiveScale's missed-refresh count (D314,
+   D315: counted from each window's span, so CPU-timestamp jitter cancels);
    window and render-size housekeeping
 1b. Show control (`Running::drain_remote`, `app::remote`): take up to 256 queued
     MIDI and OSC events (never blocks), run each through `strobe_io::Engine`,

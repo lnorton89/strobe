@@ -459,57 +459,106 @@ scale. A minimised control window now draws nothing: run C's 116 redraws a
 minute were the undecorated window keeping a client area when minimised,
 which the old 0x0 check missed.
 
-### Task M18, to run: the new controller on the projector
+## The missed-refresh rule on the projector (2026-10-16, Task M18, D314 -> D315)
 
-Compare the build before D314 with the build that carries it, on the same
-hold-13 playlist, 6 minutes each, launched exactly as M16's run B (the
-scheduled task in session 1, fullscreen on the projector, adaptive on, no
-`--remote`).
+Five runs through the scheduled task in session 1, fullscreen on the
+projector, 390 s each; numbers from the `perf:` lines of minutes 2 to 6. The
+33 h soak was paused for them, from 13:55:38 to 14:29:13. "OLD 13" is
+`13-chromatic-rise` as it was before D310 (13.6 ms at scale 1.0), held by
+`jaja-show\playlists\m16-hold13.toml`.
+
+| Run | Build and setup | fps | Late | Scale |
+|---|---|---|---|---|
+| 1 | before (6ca5248), OLD 13 | 42.5 | 11.9% | 1.00 |
+| 2 | after (D314), OLD 13 | 53.2 | 4.2% | hunted 0.65-0.80 |
+| 3 | after, OLD 13, control window minimised | 51.5 | 1.2% | 1.00 -> 0.90 (7.7 s) -> 0.80 (129 s), then steady |
+| 4 | `--no-adaptive --render-scale 1`, OLD 13 | 42.3 | 8.2% | 1.00 |
+| 5 | after, the new scenes, holding `16-acid-mirror` | 59.4 | 0.2% | 1.00 -> 0.90 (10 s) -> 0.80 (42 s), then steady |
+
+**Run 2's adaptive lines:**
+- 8.4 s 1.00 -> 0.90: 25/240 missed, GPU 13.6 ms (D314)
+- 14.1 s 0.90 -> 0.80: 11/240, GPU 11.3 (D314)
+- 242.0 s 0.80 -> 0.70: 21/480, GPU 11.6 (D314)
+- 244.7 s 0.70 -> 0.75: mean rule, GPU 7.2 ms against 16.7
+- 257.1 s 0.75 -> 0.65: 28/600, GPU 10.9 (D314)
+- 259.7 s 0.65 -> 0.70: mean rule, GPU 6.4
+- 262.3 s 0.70 -> 0.75: mean rule, GPU 7.3
+
+**What it showed:**
+- **D314 works where the GPU is the cause.** Run 5 is clean: two steps and
+  59.4 fps. Run 2's first step took 13 from 42.5 to about 52 fps.
+- **Below that the misses are not the GPU's.** At 0.80, 13 takes 9.1 ms of
+  GPU and still runs about 52 fps with about 4.3% late. Further steps did not
+  stop the misses, and the mean rule climbed straight back each time (7.2 ms
+  predicted at 0.75 is under 0.85 x 11.6 ms, so D314's climb gate let it).
+  That is the hunting.
+- **The control window costs refreshes once the GPU is not the bottleneck.**
+  Run 2, covered and driven by the loop (about 117 control frames a minute,
+  D290), missed 4.2%; run 3, minimised, 1.2%. Run 3 logged `control 0
+  redraws`, which confirms the D314 minimised fix.
+- **The intervals are not quantised.** 52 fps on a 60 Hz display with only
+  1.2% of intervals over 25 ms means many sit around 19 ms: the timestamps are
+  taken on the CPU at the start of each output frame, after the event loop's
+  own work, not at vertical blank.
+
+**What changed (D315):**
+- A late drop is judged on the misses after it: unless they halve, or fall
+  under the drop line, it is undone and the late rule lowers no further on
+  that scene until the scene changes.
+- After a late drop, the scale climbs back only after 30 s with (almost) no
+  missed refreshes, as well as under D314's GPU prediction.
+- Missed refreshes are counted from each window's span (refreshes that
+  passed minus frames shown), which is exact whatever the jitter, instead of
+  counting intervals over 1.5 periods. A stall counts as two misses at most.
+- A control window that is covered by the fullscreen output and starved of
+  paints runs only its non-drawing work in its loop-driven frames, with a
+  full draw every 5 s (and at once for a key pressed in it), as a minimised
+  one does. That is about 12 draws a minute instead of about 117.
+
+### Task M19, to run: D315 on the projector
+
+The same five runs as M18, on the build that carries D315, against the M18
+"after" build (keep it as `strobe-m18.exe`):
 
 ```powershell
 cd $env:USERPROFILE\strobe
 git fetch origin
-# Keep the M16 build as the "before" binary.
-Copy-Item target\release\strobe.exe target\release\strobe-m16.exe
-git switch <the D314 branch>
+Copy-Item target\release\strobe.exe target\release\strobe-m18.exe
+git switch <the D315 branch>
 cargo build --release -p strobe-app
 ```
 
-Run it four times through the scheduled task, 6 minutes each, and keep each
-run's newest log from `%LOCALAPPDATA%\strobe\logs\`:
+1. `strobe-m18.exe`, OLD 13 (`m16-hold13.toml`): the before, expected as M18
+   run 2 (hunting).
+2. `strobe.exe`, OLD 13, the control window covered by the output (as M18
+   run 2).
+3. `strobe.exe`, OLD 13, the control window minimised (as M18 run 3).
+4. `strobe.exe --no-adaptive --render-scale 1`, OLD 13: the control.
+5. `strobe.exe`, the new scenes, holding `16-acid-mirror` (as M18 run 5).
 
-1. `strobe-m16.exe` with `--playlist jaja-show\playlists\m16-hold13.toml`
-   (and the usual `--library`, `--no-synesthesia --output-monitor 1
-   --fullscreen --audio ambient`): the before.
-2. `strobe.exe`, the same flags: the after.
-3. `strobe.exe` again with the control window minimised (as M16 run C).
-4. `strobe.exe --no-adaptive --render-scale 1`, the same flags: the control,
-   which should still look like M16 run D.
+Each 390 s, with the usual `--library`, `--no-synesthesia --output-monitor 1
+--fullscreen --audio ambient`. Write down, from the `perf:` lines of minutes
+2 to 6, fps, late frames, GPU ms, `scale` and `control N redraws`, and every
+`adaptive resolution:` line.
 
-For each, write down from the `perf:` lines of minutes 2 to 6: fps, late
-frames per minute, GPU ms, the `scale` field and the control redraw count;
-and every `adaptive resolution:` line.
+**Expected:**
+- **Run 2:** 1.00 -> 0.90 in the first 10 s. Perhaps a step to 0.80 and, if
+  that does not halve the misses, one line `... left the display's refreshes
+  missed (x% before, y% after) ... back to 0.90 ... (D315)` about 4.5 s later.
+  Then no change for the rest of the run: one `scale` value in every perf
+  line from minute 2. `control` about 12 redraws a minute, not about 117, and
+  the late share closer to run 3's than to M18 run 2's 4.2%.
+- **Run 3:** as run 2, with `control 0 redraws`.
+- **Run 5:** as M18 run 5: steps that pay are kept (59 fps or better, at
+  0.80 or 0.90).
+- **Every run:** the playlist and any remote command still work with the
+  control window covered; uncovering it (Esc on the output, or Alt-Tab)
+  shows a live UI within a second.
 
-**Expected for run 2:**
-- within about 6 s of the scene starting (the 1 s hold, then two 2 s
-  windows), one line like `adaptive resolution: render scale 1.00 -> 0.90:
-  21 of the last 240 frames missed the display's refresh (16.7 ms cadence)
-  with GPU 13.6 ms against a 16.7 ms budget (D314)`; perhaps a second step to
-  0.80 about 4.5 s later, and no further;
-- from minute 2 on: `scale 0.90` (or `0.80`) in every perf line, no climbing
-  back, fps at or above 59, and late frames down to about 1% (36 a minute) or
-  fewer.
-
-**Expected for run 3:** as run 2, and `control 0 redraws` while the window
-is minimised; restored, it redraws again at once.
-
-**What would reopen D314:** run 2 still at 42-45 fps after the scale has
-stepped down (the misses are not the GPU's: look at the compositor, the
-swap or the control window instead), the scale moving back and forth from
-minute to minute, or run 1 against run 2 showing new late frames on a scene
-that held 60 fps before. If the playlist has a second cue, check that a cue
-change still plays (the minimised window now loads scenes from the event
-loop).
+**What would reopen D315:** any scale change after minute 1 in run 2 or 3
+(hunting again); run 5 undoing a step that paid (the verdict is too strict);
+the control window frozen or more than 5 s stale when uncovered; or a key
+pressed in the covered control window that takes more than a heartbeat to act.
 
 ## Still to do here
 
@@ -517,9 +566,8 @@ loop).
   Disconnect.
 - Re-measure the D310 scenes (section above). `14-electric-bloom` is
   expected to be the one still above 10 ms.
-- Task M18 (section above): the missed-refresh rule (D314) on the hold-13
-  playlist, before and after, 6 minutes each, and the minimised control
-  window at `control 0 redraws`.
+- Task M19 (section above): D315's verdict on late drops, the slow climb
+  back and the covered control window's chores, the same five runs as M18.
 
 - Native strobe-bench and control generation in session 1: does a hidden
   window on AMD WGL draw at all (M3b)?

@@ -50,7 +50,9 @@
 //!   the remote passes, the desktop capture and the playlist compile all
 //!   live in that frame, so a show with nobody at the console needs it.
 //!   While the window is minimised the frame draws nothing and runs only
-//!   those parts that do not draw (`control_chores`, D314).
+//!   those parts that do not draw (`control_chores`, D314), and so do the
+//!   loop-driven frames of a window covered by the fullscreen output, but
+//!   for a full draw every `COVERED_HEARTBEAT` (D315).
 //! - **A perf line** is logged once a minute (`stats::PerfWindow`): frame
 //!   rate, late frames, the worst gap, GPU time, the render scale and the
 //!   control window's redraw cost, so a soak's log alone says where frames
@@ -168,6 +170,15 @@ const CONTROL_PERIOD: Duration = Duration::from_millis(33);
 /// it (see [`Running::update_covered`]): enough to keep its state moving,
 /// too seldom for its swap to cost the show a vertical blank.
 const COVERED_PERIOD: Duration = Duration::from_millis(500);
+
+/// How often a control window that is both covered by the fullscreen output
+/// and starved of paints (D290) is still drawn in full (D315): its other
+/// loop-driven frames only run `control_chores`. Often enough that egui's
+/// state, and the picture shown the moment the output stops covering it,
+/// are never more than five seconds old; a tenth of D290's 2 Hz, each of
+/// which takes the shared context and on the mini PC cost the show
+/// refreshes (M18: 4.2% missed covered and driven, 1.2% minimised).
+const COVERED_HEARTBEAT: Duration = Duration::from_secs(5);
 /// How often the control window redraws while it shows another Strobe's
 /// window (the desktop viewer) and nothing has changed: enough for its
 /// waiting card's clock. A new image from the host, a change of stage and
@@ -773,6 +784,9 @@ struct Running {
     /// window that a fullscreen output covers, so the output frame takes
     /// over the compiling when the control window has gone quiet.
     last_control_frame: Instant,
+    /// When the control window last drew in full, for
+    /// [`COVERED_HEARTBEAT`] (D315).
+    last_control_draw: Instant,
 }
 
 /// A scene that did not load, for the banner.
@@ -959,6 +973,7 @@ impl Running {
             last_cue: None,
             ready_frames: None,
             last_control_frame: Instant::now(),
+            last_control_draw: Instant::now(),
             ui_state,
             shell: ShellState::default(),
             playing: None,
@@ -1521,7 +1536,11 @@ impl Running {
                 ControlStep::RunHere => true,
             };
             if run_here {
-                self.redraw_control(true);
+                if self.control_behind_output(now) {
+                    self.control_chores(now);
+                } else {
+                    self.redraw_control(true);
+                }
                 if self.rebuild.is_some() {
                     return Instant::now();
                 }
@@ -1545,8 +1564,32 @@ impl Running {
         size.width == 0 || size.height == 0 || (window.is_minimized() == Some(true) && !streaming)
     }
 
+    /// Whether a loop-driven control frame should skip drawing (D315): the
+    /// window is covered by the fullscreen output on its monitor and Windows
+    /// withholds its paints (D290), it is not streamed to a desktop remote
+    /// (D275), no input has come to it, and it drew within
+    /// [`COVERED_HEARTBEAT`]. Covered as well as starved, because starved
+    /// alone does not mean unseen: a windowed or second-monitor output
+    /// above it in z-order starves a control window the operator is looking
+    /// at, and those loop-driven frames are the only ones it gets.
+    fn control_behind_output(&mut self, now: Instant) -> bool {
+        if !self.control_covered
+            || !self.control_drive.driving()
+            || self.lan.desktop().is_some_and(|desktop| desktop.active())
+        {
+            return false;
+        }
+        // A key pressed in the focused, covered window is egui's to handle
+        // now, not at the next heartbeat.
+        if std::mem::take(&mut self.control_input) {
+            return false;
+        }
+        now.saturating_duration_since(self.last_control_draw) < COVERED_HEARTBEAT
+    }
+
     /// The parts of a control frame that do not draw, for a minimised
-    /// control window (D314): queued actions, a scene load asked for by a
+    /// control window (D314) or one covered and starved of paints (D315):
+    /// queued actions, a scene load asked for by a
     /// remote, MIDI or a cue, the playlist's compile step, and saving
     /// settings. Without them a show run from a phone or a MIDI controller
     /// with the console minimised would never load the next scene, since a
@@ -4328,8 +4371,9 @@ impl Running {
         }
         let measured = self.stats.begin(started);
         if shown {
-            // The interval since the last frame swapped to the output: on a
-            // vsynced display, a whole number of refreshes (D314).
+            // The interval since the last frame start, a CPU timestamp: not
+            // quantised to the refresh, so the controller counts misses over
+            // a window's span, where the jitter cancels (D314, D315).
             self.stack
                 .perf
                 .presented(self.stats.last_interval() * 1000.0, started);
@@ -4524,11 +4568,27 @@ impl Running {
             self.resize_now = true;
             return;
         }
+        if let Some(late) = change.late_futile {
+            log::info!(
+                "adaptive resolution: lowering the render scale {:.2} -> {:.2} left the display's \
+                 refreshes missed ({:.1}% before, {:.1}% after), so the misses are not this \
+                 scene's resolution; back to {:.2}, and missed refreshes lower it no further \
+                 until the scene changes (D315)",
+                late.scale,
+                late.tried,
+                late.share_before * 100.0,
+                late.share_after * 100.0,
+                change.to
+            );
+            self.render_scale = change.to;
+            self.resize_now = true;
+            return;
+        }
         if let Some(missed) = change.missed {
             log::info!(
-                "adaptive resolution: render scale {:.2} -> {:.2}: {} of the last {} frames missed \
-                 the display's refresh ({:.1} ms cadence) with GPU {:.1} ms against a {:.1} ms \
-                 budget (D314)",
+                "adaptive resolution: render scale {:.2} -> {:.2}: {} refreshes missed over the \
+                 last {} frames ({:.1} ms cadence) with GPU {:.1} ms against a {:.1} ms budget \
+                 (D314)",
                 change.from,
                 change.to,
                 missed.late,
@@ -4565,6 +4625,7 @@ impl Running {
             }
             return;
         }
+        self.last_control_draw = began;
         let size = self.stack.control.window().inner_size();
         let current_began = Instant::now();
         if !self.make_current(Surface::Control) {
