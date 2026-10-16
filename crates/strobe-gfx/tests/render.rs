@@ -1946,3 +1946,19 @@ fn every_reserved_glsl_word_fails_to_compile_as_a_control() -> Result<()> {
     }
     Ok(())
 }
+
+#[test]
+fn a_comment_that_is_not_ascii_compiles() -> Result<()> {
+    // The loader reads a file that is not UTF-8 with U+FFFD for each bad
+    // byte (`load::read_text`), and real comments carry `©` and accents.
+    // The compiler must take both, in both dialects.
+    let shader = "// \u{a9} Ren\u{e9} \u{fffd}\n\
+                  /* \u{fffd} */ vec4 renderMain() { return vec4(1.0, 0.0, 0.0, 1.0); }";
+    for api in BOTH {
+        let Some(px) = render_center(api, Options::default(), "{}", shader, 1)? else {
+            continue;
+        };
+        assert_eq!(px[0], 255, "{api:?}: rendered");
+    }
+    Ok(())
+}

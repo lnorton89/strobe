@@ -129,7 +129,7 @@ fn expand_into(
             out.push('\n');
             continue;
         }
-        let Ok(included) = fs::read_to_string(&path) else {
+        let Ok(included) = crate::load::read_text(&path) else {
             out.push_str(line);
             out.push('\n');
             continue;
