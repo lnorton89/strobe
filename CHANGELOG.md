@@ -13,6 +13,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- adaptive resolution steps down on missed refreshes, not only the mean GPU time (D314) ([`32e3cc8`](https://github.com/lnorton89/strobe/commit/32e3cc8e5e9dc4cfdf24797dce2a297e094041f6))
 - **audio:** on Linux fall back to a pulse or pipewire input when the default will not open ([`084c6db`](https://github.com/lnorton89/strobe/commit/084c6db0236026f7ad9dd3b45c7f1bd51b6c7345))
 - control a venue's show machine with a trust file, reconnecting by itself ([`4da7d2b`](https://github.com/lnorton89/strobe/commit/4da7d2b80445aa3f3116a19ff9dbbd2be132f435))
 - a controller id for a laptop and the Host header a trusted proof binds to ([`3196ef4`](https://github.com/lnorton89/strobe/commit/3196ef4bf8b496ca92640b48ea7449a7ac0e6b00))
@@ -39,6 +40,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- a minimised control window draws nothing but still loads, acts and compiles (D314) ([`83a4d1b`](https://github.com/lnorton89/strobe/commit/83a4d1bb06f35ee70861031adcbeb176453243a3))
 - a scene file that is not UTF-8 loads instead of failing the scene ([`2c48e0b`](https://github.com/lnorton89/strobe/commit/2c48e0b0221d790499d5a83ba7c70082658249bf))
 - a rebuilt GL context keeps the operator's meta settings ([`323555d`](https://github.com/lnorton89/strobe/commit/323555d9953b9e2c83f5a0bf1ff464bc1392ce86))
 - refuse a control named after a GLSL keyword or an SSF library name ([`4d2a198`](https://github.com/lnorton89/strobe/commit/4d2a19801a514d3e186d579ff4fddb3df92e6cab))
