@@ -137,6 +137,11 @@ pub enum Value {
     One(f32),
     /// One number per component (an XY pad, a colour).
     Many(Vec<f32>),
+    /// Anything else a hand-edited file holds (`true`, `"0.5"`, `null`, a
+    /// list with a string in it). Read so that one odd value does not lose
+    /// the whole preset; applying it is reported and skips that control.
+    /// Never captured.
+    Other(serde_json::Value),
 }
 
 /// A named set of control values.
@@ -285,6 +290,12 @@ fn apply_values(
                 problems.push(format!(
                     "{what}control \"{name}\" has {dims} component(s), the preset gives {}",
                     xs.len()
+                ));
+                continue;
+            }
+            Value::Other(raw) => {
+                problems.push(format!(
+                    "{what}control \"{name}\" has {raw}, which is not a number"
                 ));
                 continue;
             }
@@ -627,6 +638,26 @@ mod tests {
             Some(&Value::One(2.0)),
             "read past the mark"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn one_value_that_is_not_a_number_does_not_lose_the_whole_preset() -> Result<()> {
+        // Hand-written: a toggle as `true`, a slider as text, a NaN that a
+        // JSON writer turned into null. Each is reported; the rest applies.
+        let preset = Preset::from_text(
+            r#"{ "scene": { "speed": 2, "on": true, "mode": "1", "tint": null } }"#,
+        )?;
+        let mut scene = scene_bank()?;
+        let mut meta = crate::meta::bank()?;
+        let problems = preset.apply(&mut scene, &mut meta);
+        assert_eq!(value(&scene, "speed")?, vec![2.0], "the good one applied");
+        assert_eq!(problems.len(), 3, "one line per odd value: {problems:?}");
+        assert!(
+            problems.iter().any(|p| p.contains("\"on\"")),
+            "names the control: {problems:?}"
+        );
+        assert_eq!(value(&scene, "on")?, vec![0.0], "left alone");
         Ok(())
     }
 
