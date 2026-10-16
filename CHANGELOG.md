@@ -39,6 +39,15 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **scenes:** acid mirror keeps its noise in the feedback pass (D310) ([`f1dbff6`](https://github.com/lnorton89/strobe/commit/f1dbff6fa196238b38db6c9c27728b5df9889c48))
+- **scenes:** electric bloom draws every layer at full size again (D310) ([`12831be`](https://github.com/lnorton89/strobe/commit/12831be5f996f55e46e079f0cd94f0fb50af7555))
+- **gfx:** prime every GL context with one 16x16 draw, so AMD WGL stops dropping large draws (D311) ([`94cf8e6`](https://github.com/lnorton89/strobe/commit/94cf8e6c5c6cbbf001ee05b15a46f32a2137322c))
+- **app:** the desktop viewer redraws for a new image or input, not at 30 Hz ([`6fb033a`](https://github.com/lnorton89/strobe/commit/6fb033a6df6442c4cbecd8d92458ce1083939524))
+- **app:** a covered host window streams at 5 Hz, not every 400 ms ([`6f8a95c`](https://github.com/lnorton89/strobe/commit/6f8a95cf8a66657cf3391320da8cd37e73e05f85))
+- **app:** a fast mouse no longer ends a desktop remote session ([`3799cc0`](https://github.com/lnorton89/strobe/commit/3799cc04faca96ba3bac4c8125a662e8006a1609))
+- **remote:** a session ends once its client is no longer paired ([`ec438a2`](https://github.com/lnorton89/strobe/commit/ec438a25886d6be8e45954fecb991fb88537cc86))
+- **remote:** pointer moves no longer fill the host's input queue ([`4297f51`](https://github.com/lnorton89/strobe/commit/4297f51f8e8a86d881c64d5763f0b7125f7144eb))
+- **remote:** stopping never waits on a wake-up connection ([`7b183e5`](https://github.com/lnorton89/strobe/commit/7b183e5a2e592453192b125b31afbf4d2cafbd19))
 - spell out pow on GLSL ES so a negative base is NaN as on native GL (D301) ([`1fde3b8`](https://github.com/lnorton89/strobe/commit/1fde3b8c45ba30ecc6c73fe8b03c688668d63517))
 - **show:** a slow scene no longer stretches its cue past real time (D299) ([`97b2d20`](https://github.com/lnorton89/strobe/commit/97b2d20f7f1fcc31b9942efc93d4d057b331ef50))
 - **show:** an unpainted control window alone does not make an output close quit ([`9965bf2`](https://github.com/lnorton89/strobe/commit/9965bf2d675cbe3f01b23ad1cba8d336b8a3d2ee))
@@ -91,10 +100,18 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Performance
 
+- **scenes:** acid mirror evaluates its broad noise at reduced size ([`2ae8956`](https://github.com/lnorton89/strobe/commit/2ae895621129475ef8e5d40965eae838f7b7ba04))
+- **scenes:** electric bloom draws its soft back and front layers at half size ([`b452e56`](https://github.com/lnorton89/strobe/commit/b452e569e8906909f9541e8d1576223fa2505d9d))
+- **scenes:** chromatic rise evaluates its broad noise at a quarter size ([`4580a46`](https://github.com/lnorton89/strobe/commit/4580a467d15a691c4d55634afcbc183c1c1177b6))
+- **scenes:** bloom orbs draws its lights at half size ([`7b9ba9c`](https://github.com/lnorton89/strobe/commit/7b9ba9c3565a47be500455dd95e0d21807287568))
+- **scenes:** domain warp evaluates its inner warp fields at a third of the size ([`9eeb9bf`](https://github.com/lnorton89/strobe/commit/9eeb9bf812587343ca0e3d812fd42c5e25cbd39c))
+- **scenes:** voronoi glass rejects cells by distance before hashing them ([`9c31b06`](https://github.com/lnorton89/strobe/commit/9c31b061034736833a155f4f45d288570fc64782))
 - **ui:** library cards borrow their name, folder and byline instead of copying them each frame ([`30f10f9`](https://github.com/lnorton89/strobe/commit/30f10f94a2eaf260398a6dd89f5f4eb90db6421a))
 
 ### Documentation
 
+- D310 after review, with llvmpipe ratios and the Vega 3 re-measurement ([`ff4338a`](https://github.com/lnorton89/strobe/commit/ff4338a562de6982db45b3ee8c5ad2bc1e4805e3))
+- benchmark and log the venue-GPU scene pass (D297) ([`a1d107f`](https://github.com/lnorton89/strobe/commit/a1d107f64332f87d5d0a0c4563510977d2d37463))
 - describe D301's two scene constructs in words ([`ba39557`](https://github.com/lnorton89/strobe/commit/ba39557969031b49c31dec18f935ca8e525fc2f6))
 - the AMD check for D301, Q28 on native pow, and the roadmap entry ([`79a17cb`](https://github.com/lnorton89/strobe/commit/79a17cb016dd8ebb06ab4a0012238a4adbc44b73))
 - allow strobe.exe through Windows Firewall before an unattended venue start ([`85af6ce`](https://github.com/lnorton89/strobe/commit/85af6ced99bead3e8b2fd9387f6e7b0f61e072d7))
