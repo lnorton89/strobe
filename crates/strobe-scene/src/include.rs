@@ -134,7 +134,7 @@ fn expand_into(
             out.push('\n');
             continue;
         };
-        let included = crate::load::newlines(&included);
+        let included = crate::load::clean(included);
         let _ = writeln!(out, "#line 1 {}", source::INCLUDED);
         let parent = path
             .parent()
@@ -261,6 +261,20 @@ mod tests {
         );
         let none = search_path_with(&env, None);
         assert_eq!(none, vec![extra.0.clone()], "no install, no lib");
+        Ok(())
+    }
+
+    #[test]
+    fn an_included_files_byte_order_mark_is_dropped() -> Result<()> {
+        let scene = Scratch::new("bom")?;
+        fs::write(
+            scene.0.join("lib.glsl"),
+            "\u{feff}float lib() { return 1.0; }\r\n",
+        )?;
+        let main = "#include \"lib.glsl\"\nvec4 renderMain() { return vec4(lib()); }\n";
+        let out = expand(main.to_string(), &scene.0, &[]);
+        assert!(!out.contains('\u{feff}'), "no mark: {out:?}");
+        assert!(out.contains("float lib()"), "the file is in: {out}");
         Ok(())
     }
 
