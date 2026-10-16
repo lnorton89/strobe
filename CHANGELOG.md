@@ -40,6 +40,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- a late drop that does not cut the missed refreshes is undone, and the covered control window runs only its chores (D315) ([`d5378a8`](https://github.com/lnorton89/strobe/commit/d5378a8e0c9551926c22177acbe8bbbd4b274883))
 - a minimised control window draws nothing but still loads, acts and compiles (D314) ([`83a4d1b`](https://github.com/lnorton89/strobe/commit/83a4d1bb06f35ee70861031adcbeb176453243a3))
 - a scene file that is not UTF-8 loads instead of failing the scene ([`2c48e0b`](https://github.com/lnorton89/strobe/commit/2c48e0b0221d790499d5a83ba7c70082658249bf))
 - a rebuilt GL context keeps the operator's meta settings ([`323555d`](https://github.com/lnorton89/strobe/commit/323555d9953b9e2c83f5a0bf1ff464bc1392ce86))
