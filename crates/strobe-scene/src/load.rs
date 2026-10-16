@@ -66,13 +66,8 @@ impl SceneFolder {
     pub fn load(dir: &Path) -> Result<Self, SceneError> {
         let read = |name: &str| -> Result<Option<String>, SceneError> {
             let path = dir.join(name);
-            match fs::read_to_string(&path) {
-                // Windows line endings, as 50 of 64 real Synesthesia shaders
-                // have, break `\` continuations on ANGLE and double its
-                // error line numbers (TORNADO T2, D193). One newline form
-                // everywhere costs nothing on the desktop path.
-                Ok(text) if text.contains('\r') => Ok(Some(newlines(&text))),
-                Ok(text) => Ok(Some(text)),
+            match read_text(&path) {
+                Ok(text) => Ok(Some(clean(text))),
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
                 Err(source) => Err(SceneError::Io { path, source }),
             }
@@ -103,6 +98,43 @@ impl SceneFolder {
         })
     }
 }
+
+/// The text of a scene file. A file that is not valid UTF-8, as a Windows
+/// editor saves in its legacy code page (`©` as the byte 0xA9 in a
+/// comment), is read with each such byte as U+FFFD instead of failing the
+/// scene: in a comment or a credit nothing depends on it, and in code the
+/// driver names the line.
+pub fn read_text(path: &Path) -> std::io::Result<String> {
+    let bytes = fs::read(path)?;
+    Ok(match String::from_utf8(bytes) {
+        Ok(text) => text,
+        Err(error) => String::from_utf8_lossy(error.as_bytes()).into_owned(),
+    })
+}
+
+/// A scene file's text as the rest of Strobe wants it: without a leading
+/// byte-order mark and with every line ending as one `\n`.
+///
+/// Windows editors save UTF-8 with a byte-order mark. In `scene.json` it is
+/// not JSON, and in a shader it is a character no GLSL compiler accepts,
+/// placed after the preamble where the driver's error names generated code.
+/// Windows line endings, as 50 of 64 real Synesthesia shaders have, break
+/// `\` continuations on ANGLE and double its error line numbers (TORNADO
+/// T2, D193). One newline form everywhere costs nothing on the desktop path.
+pub fn clean(text: String) -> String {
+    let text = match text.strip_prefix(BYTE_ORDER_MARK) {
+        Some(rest) => rest.to_string(),
+        None => text,
+    };
+    if text.contains('\r') {
+        newlines(&text)
+    } else {
+        text
+    }
+}
+
+/// U+FEFF at the start of a file: a byte-order mark, not text.
+pub const BYTE_ORDER_MARK: char = '\u{feff}';
 
 /// `text` with every line ending as one `\n`.
 ///
@@ -317,6 +349,69 @@ mod tests {
         let scene = loaded?;
         assert!(!scene.shader.contains('\r'), "no carriage returns left");
         assert_eq!(scene.shader.lines().count(), 3, "same lines");
+        Ok(())
+    }
+
+    #[test]
+    fn a_byte_order_mark_is_not_part_of_any_scene_file() -> anyhow::Result<()> {
+        // Windows editors save UTF-8 with a byte-order mark. In scene.json it
+        // is not JSON, and in a shader it is a character no GLSL compiler
+        // accepts, so it is dropped at load like a carriage return.
+        let dir = std::env::temp_dir().join(format!("strobe-bom-{}", std::process::id()));
+        std::fs::create_dir_all(&dir)?;
+        std::fs::write(
+            dir.join("scene.json"),
+            "\u{feff}{ \"CONTROLS\": [ { \"NAME\": \"amount\", \"TYPE\": \"slider\" } ] }",
+        )?;
+        std::fs::write(
+            dir.join("main.glsl"),
+            "\u{feff}vec4 renderMain() { return vec4(amount); }\n",
+        )?;
+        std::fs::write(dir.join("script.js"), "\u{feff}function update(dt) {}\n")?;
+        let loaded = SceneFolder::load(&dir);
+        std::fs::remove_dir_all(&dir)?;
+        let scene = loaded?;
+        assert_eq!(scene.def.controls.len(), 1, "scene.json read");
+        assert!(
+            scene.shader.starts_with("vec4"),
+            "no mark in the shader: {:?}",
+            scene.shader.get(..8)
+        );
+        assert!(
+            scene
+                .script
+                .as_deref()
+                .is_some_and(|script| script.starts_with("function")),
+            "nor in the script"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_file_that_is_not_utf8_still_loads() -> anyhow::Result<()> {
+        // A shader saved by a Windows editor in its legacy code page, with
+        // a `©` (0xA9) in a comment and an `é` (0xE9) in the credit. GLSL
+        // compilers take any byte in a comment (render test
+        // `a_comment_that_is_not_ascii_compiles`).
+        let dir = std::env::temp_dir().join(format!("strobe-cp1252-{}", std::process::id()));
+        std::fs::create_dir_all(&dir)?;
+        std::fs::write(dir.join("scene.json"), b"{ \"CREDIT\": \"Ren\xe9\" }")?;
+        std::fs::write(
+            dir.join("main.glsl"),
+            b"// \xa9 2021\nvec4 renderMain() { return vec4(1.0); }\n",
+        )?;
+        let loaded = SceneFolder::load(&dir);
+        std::fs::remove_dir_all(&dir)?;
+        let scene = loaded?;
+        assert!(
+            scene.shader.contains("vec4 renderMain()"),
+            "the shader is read"
+        );
+        assert_eq!(
+            scene.def.credit.as_deref(),
+            Some("Ren\u{fffd}"),
+            "the byte that is not UTF-8 becomes U+FFFD"
+        );
         Ok(())
     }
 

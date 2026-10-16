@@ -68,8 +68,11 @@ pub enum SceneError {
         second: String,
     },
 
-    /// A control or pass reuses a name Strobe already declares as a uniform.
-    #[error("`{0}` is a built-in uniform and cannot be redeclared")]
+    /// A control or pass uses a GLSL keyword, or a name the assembler or the
+    /// SSF library already declares, defines or calls.
+    #[error(
+        "`{0}` is a GLSL keyword or a name the SSF preamble already uses, so it cannot be declared"
+    )]
     ReservedName(String),
 
     /// A value array has the wrong number of components for its control.

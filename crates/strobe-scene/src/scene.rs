@@ -211,7 +211,11 @@ pub struct SceneDef {
 impl SceneDef {
     /// Parses and validates `scene.json` text. `fallback_title` names the
     /// scene when `TITLE` is absent (normally the folder name).
+    /// A leading byte-order mark, as Windows editors write, is skipped.
     pub fn parse(json: &str, fallback_title: &str) -> Result<Self, SceneError> {
+        let json = json
+            .strip_prefix(crate::load::BYTE_ORDER_MARK)
+            .unwrap_or(json);
         let raw: RawScene = serde_json::from_str(json)?;
         Self::from_raw(&raw, fallback_title)
     }
@@ -620,6 +624,14 @@ fn size_fraction(
 mod tests {
     use super::*;
     use anyhow::Result;
+
+    #[test]
+    fn scene_json_with_a_byte_order_mark_parses() -> Result<()> {
+        // What the editor's reload check (D263) parses, not only the loader.
+        let def = SceneDef::parse("\u{feff}{ \"TITLE\": \"marked\" }", "folder")?;
+        assert_eq!(def.title, "marked", "read past the mark");
+        Ok(())
+    }
 
     #[test]
     fn an_empty_scene_has_one_final_pass() -> Result<()> {

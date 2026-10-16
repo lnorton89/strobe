@@ -7598,3 +7598,66 @@ large target); a driver update that renders correctly with
 `STROBE_GL_NO_PRIME=1` (the workaround could go, though it costs little to
 keep); a driver on which the prime itself measurably slows context creation
 or warns.
+
+### D312: a name that can never compile is refused at load, by name; a reserved-for-future word is left to the driver (2026-10-16)
+
+**Context.** The loader already refused names the assembler declares
+(`TIME`, `_uv`, the audio uniforms), because as a control they redeclare a
+uniform and fail with an error at a line of generated code. Three more kinds
+failed the same way and loaded anyway: a GLSL keyword (`smooth`, `flat`,
+`in`, `default`, `vec3`), a built-in the SSF library calls (`texture`,
+`mix`, `fract`, `length`, `step`), whose uniform hides the function from
+the library, and a name the library defines (`_rotate`, `_Media_Contrast`,
+the object-like `#define syn_InputLevel`, whose control the macro silently
+replaces with `syn_Level`). `smooth`, `default` and `mix` are plausible
+control names.
+
+**Decision.** `names::is_reserved` also refuses GLSL 3.30's keywords
+(`KEYWORDS`, `is_type_name`), the preamble's object-like macros
+(`texture2D`, `texture2DLod`), and every name the SSF library defines or
+calls, read from its source once (`library_names`). The error names the
+control. Controls, pass targets, images, cube maps, transition uniforms and
+script uniforms all go through it.
+
+**Not refused.** Words GLSL only reserves for the future (`half`,
+`filter`, `input`, `output`, `double`, `hvec2`) and the words only ES
+reserves (`sample`, `patch`). Mesa refuses the first set on both paths,
+but a lenient driver may not, and a scene that plays there must still load.
+Built-ins the library never calls (`distance`, `sign`) shadow nothing the
+author did not write.
+
+**Evidence.** `render.rs`
+`every_reserved_glsl_word_fails_to_compile_as_a_control`: every refused
+name, as a control returned from `renderMain`, either fails to compile or
+does not reach the shader, in both dialects; the names left alone work.
+`names` test `names_that_can_never_compile_are_reserved`. Every scene in
+`scenes/` still loads.
+
+**Would reopen:** a real scene that plays in Synesthesia with a refused
+name, which would mean its library differs from ours there.
+
+### D313: a rebuilt GL context gives the meta controls back, not only the scene's (2026-10-16)
+
+**Context.** D207 left a gap it named: "a context rebuild (D66) still
+resets meta". Recovery saved the scene's control targets, reloaded the
+scene into a fresh session and put them back, but the fresh session's meta
+bank started at its defaults. An operator who had faded master to 0 got the
+full picture back on the projector the moment a driver reset was recovered,
+and a hue, mirror or Limit Colors set for the room was gone.
+
+**Decision.** `Session::control_targets` saves both banks' targets
+(`session::Targets`), and `restore_control_targets` puts both back after
+the reload, after the scene's default preset, as for the scene's own
+controls. The operator's live value wins over the preset here, unlike a
+scene change (D207), because the scene did not change: the rebuild should
+be invisible. The meta bank is the same fixed list in every session, so the
+indices hold.
+
+**Not covered.** A playlist's rebuild reloads the show from its cue
+(`Show::reload_spec`) and still starts its meta at the defaults; the same
+targets could be handed to the show's first session.
+
+**Evidence.** `script_meta.rs`
+`a_rebuilt_context_gives_the_operators_meta_settings_back`: master at 0 and
+hue at 0.25, saved, scene reloaded into a fresh session, restored: master
+still 0, hue still 0.25, the scene's control kept. It failed before.
