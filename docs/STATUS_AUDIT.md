@@ -221,8 +221,11 @@ Linux and llvmpipe cannot prove any of these:
 
   Not yet: the same on the T480's iGPU, whose earlier 30-minute run (Task
   17) held one scene.
-- [ ] Offscreen frames render on AMD native WGL at any size (D296, fixed
-  pending verification by D311). The mini PC's Vega 3 dropped draws into
+- [x] Offscreen frames render on AMD native WGL at any size (D296, fixed by
+  D311; verified on the mini PC's Vega 3, MINIPC.md Task M17, 2026-10-16:
+  the default library at 640x360 and 1920x1080 on native WGL, no black frame,
+  `GL prime: one 16x16 draw landed`, ANGLE matching, and with
+  `STROBE_GL_NO_PRIME=1` scenes 01-07 black again). The mini PC's Vega 3 dropped draws into
   targets over 16384 pixels until the context had drawn into a small one
   (MINIPC.md M11-M14); every context is now primed with one 16x16 draw
   (`gl::prime`). Headless evidence covers only the prime's clean state, not

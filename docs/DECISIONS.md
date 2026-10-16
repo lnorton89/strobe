@@ -7590,7 +7590,7 @@ a driver still needs it.
 (`Bindings::FRESH`, no GL error), a second prime lands and leaves bindings
 and viewport unchanged, and a 640x360 render afterwards is green everywhere.
 llvmpipe never had the AMD bug, so no container can show that the prime
-fixes it; MINIPC.md Task M15 is that check.
+fixes it; MINIPC.md Task M15 is that check. It ran as Task M17 on 2026-10-16 and passed; the prime took 47-129 ms there, the driver's first-draw cost.
 
 **Would reopen:** M15 still black at 640x360 or 1920x1080 on native WGL (the
 prime is not enough: then a larger first draw, or a draw before each new

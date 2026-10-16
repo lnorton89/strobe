@@ -46,12 +46,14 @@ which backend proved a claim.
   the corpus black lists, sprinkles and PLUS on native and ANGLE) and Q28.
 
 - **Six heavy scenes made cheaper for the venue's Vega 3 (2026-10-15, D310),
-  measured on llvmpipe only:** exact culling or arithmetic in 04, 13, 14 and
+  measured on the Vega 3 at 1080p (MINIPC.md Task M17, 2026-10-16): 04
+  21.0 → 10.7 ms, 05 25.6 → 10.0, 08 17.5 → 7.7, 13 16.0 → 8.5, 14 22.2 →
+  18.7, 16 15.5 → 14.9; 04 and 16 pixel-identical, the others visually the
+  same. 14 and 16 are still at or over the 16.7 ms budget there.** Exact culling or arithmetic in 04, 13, 14 and
   16, and 05's warp fields, 08's lights and 13's broad noise drawn at reduced
   size. The review put 14's layers and 16's noise back at full size, which
   had changed their look. The llvmpipe ratios are in BENCHMARKS.md;
-  projecting them onto the Vega 3 is an estimate, not a measurement. Open: the before/after run in
-  `hardware/MINIPC.md` ("Re-measuring the D310 scene pass").
+  the Vega 3 numbers above are the real ones.
 
 - **Linux support (2026-10-15, D295), documented and built, not yet seen on
   real Linux hardware:** the README has a Linux section (Debian and Ubuntu
@@ -108,16 +110,17 @@ which backend proved a claim.
   2 Hz (5 Hz with a desktop remote), until Windows paints it promptly again.
   Open: the mini-PC verification in MINIPC.md.
 
-- **AMD native WGL renders black above about 160x90 offscreen (D296), fixed,
-  pending verification on the mini PC (D311):** root-caused there (MINIPC.md
+- **AMD native WGL renders black above about 160x90 offscreen (D296), fixed
+  by D311 and verified on the mini PC (Task M17, 2026-10-16):** root-caused there (MINIPC.md
   M11-M14): the Vega 3's driver drops every draw into a target over 16384
   pixels (64 KiB of RGBA8) until the context has drawn into a small target
   once; after that, everything lands. The app escaped it because egui draws
   first; the bench, corpus and autocontrol did not. Every GL context now does
   one 16x16 draw when it is created (`gl::prime`, from `Gl::from_loader`),
   with the state restored; headless-tested for clean state in both dialects,
-  which cannot reproduce the bug. Open: MINIPC.md Task M15, the bench at
-  640x360 and 1920x1080 on native WGL with no D296 switches.
+  which cannot reproduce the bug. On the Vega 3 the prime costs 47-129 ms
+  once per context (the driver's first-draw cost, paid there instead of by
+  the first scene).
 
 - **Render scale and pinned scenes (D280), built, not yet re-run on the
   RX 580:** a scene with a root `WIDTH` x `HEIGHT`, a literal buffer pass of

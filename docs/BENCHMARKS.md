@@ -95,6 +95,24 @@ texture is different, so the real ratios will differ. Re-measure on the
 mini PC (`hardware/MINIPC.md`, "Re-measuring the D310 scene pass") before
 ticking anything in STATUS_AUDIT.
 
+**Measured on the Vega 3 (2026-10-16, MINIPC.md Task M17),** 1920x1080,
+native WGL, `--show-window --window-size 1920x1080`, before (6923fa5) and
+after (b8789bf) alternating. Image difference on a 4-pixel grid, per channel
+of 255.
+
+| Scene | Before ms (p95) | After ms (p95) | After / before | Image change |
+|---|---|---|---|---|
+| 04-voronoi-glass | 21.00 (28.75) | 10.68 (12.57) | 0.51 | identical |
+| 05-domain-warp | 25.62 (33.10) | 9.96 (11.88) | 0.39 | mean 0.37, max 16 |
+| 08-bloom-orbs | 17.50 (25.78) | 7.71 (13.22) | 0.44 | mean 0.04, max 5 |
+| 13-chromatic-rise | 16.04 (18.23) | 8.51 (12.50) | 0.53 | mean 0.66; isolated pixels flip between posterise bands |
+| 14-electric-bloom | 22.17 (30.28) | 18.74 (26.88) | 0.85 | mean 0.01, max 4 |
+| 16-acid-mirror | 15.51 (24.11) | 14.92 (17.83) | 0.96 | identical |
+
+The GPU ratios came out better than llvmpipe's for 05, 08 and 13 and about
+the same for the rest. Compile times fell too (14 729 → 63 ms, 13 428 →
+121 ms).
+
 **Per scene:**
 - **04** is exact. A cell is skipped before it is hashed when its box is
   already farther than the best point (nearest search), or when it cannot
