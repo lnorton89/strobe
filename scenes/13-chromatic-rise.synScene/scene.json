@@ -6,6 +6,7 @@
   "DESCRIPTION": "Paint dragged through a feedback loop: long shear drags and a curl-noise swirl advect and smear the previous frame into fibrous, combed striations, clusters of small ringed bubbles are stamped in, and the result is edge-embossed, posterised into hard acid-green, lemon, cyan, violet and magenta steps and inked with dark contours. Inspired by the owner's URBAN ASSAULT - RISE video (https://youtu.be/w0JcYtmRr0U); procedural interpretation, not a reconstruction of the TouchDesigner network. Bass drives the drag and smear, bass hits jump the colour phase, highs thicken the striations; it still flows on its own in silence (reactivity 0).",
   "PASSES": [
     {"TARGET": "clock", "WIDTH": 1, "HEIGHT": 1, "FLOAT": true, "DOUBLE_BUFFER": true, "WRAP": "clamp", "FILTER": "nearest", "FULL_PRECISION": true},
+    {"TARGET": "flowfield", "WIDTH": "$WIDTH/4", "HEIGHT": "$HEIGHT/4", "FLOAT": true, "WRAP": "clamp"},
     {"TARGET": "field", "WIDTH": "$WIDTH", "HEIGHT": "$HEIGHT", "FLOAT": true, "DOUBLE_BUFFER": true}
   ],
   "CONTROLS": [
