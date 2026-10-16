@@ -7828,6 +7828,11 @@ scenes.
 
 ### D315: a late drop must cut the misses or it is undone; misses are counted from the window's span; a covered, starved control window runs only its chores (2026-10-16)
 
+**Amended by D316** after M19: the halving test undid steps that paid
+(40 -> 26%, 23 -> 14%) and locked scenes at 1.00. A late step now pays when it
+cuts the missed share by a fifth and by 5 points, and the perf line counts
+missed refreshes with the controller's own `MissCount`.
+
 **Context.** Task M18 put D314 on the venue mini PC
 ([`hardware/MINIPC.md`](hardware/MINIPC.md)). On the new scenes it was
 clean: holding 16-acid-mirror stepped 1.00 -> 0.90 -> 0.80 and ran 59.4 fps
@@ -7990,3 +7995,91 @@ in MINIPC.md is the acceptance test.
   uncovered.
 - A probe of `WGL_OML_sync_control` or the DWM timing info showing the span
   count disagrees with the display's own count.
+
+### D316: a late step pays when it cuts the misses by a fifth and by 5 points; the perf line counts misses as the controller does (2026-10-16)
+
+**Context.** Task M19 ([`hardware/MINIPC.md`](hardware/MINIPC.md)) ran
+D315 on the venue mini PC:
+- **The covered control window works.** It drew 11-12 times a minute, and
+  covered and minimised now miss alike.
+- **The verdict did not.** On the old 13, 1.00 -> 0.90 cut the missed share
+  from 40.4% to 25.8% of frames. D315 wanted a halving, so it undid the step
+  and locked at 1.00: 42.6 fps, where M18 ran about 52 at 0.80. On 16-acid-
+  mirror, 22.9% fell to 14.2%; undone, 49.2 fps, where M18 ran 59.4 at 0.80.
+- **Why the halving was wrong.** A 0.10 step that pays cuts the misses by
+  35-40% on this machine, and it takes two steps to clear the vsync edge.
+- **Two counts.** The perf line's "late" (intervals over 1.5 periods, 1-9%)
+  and the adaptive lines' "refreshes missed" (the span count, 25-40%) read as
+  two different numbers for one show.
+
+**Decision.**
+- **The test for a late step.** It pays when the misses fall under the drop
+  line, or when they fall by both:
+  - at least `LATE_MIN_CUT` (0.2) of the share that triggered it;
+  - at least `LATE_MIN_CUT_POINTS` (0.05) of the frames, in absolute terms.
+
+  A step that pays allows the next. Only a step that cuts less is undone, and
+  then the late rule stops at that scale until the scene changes, as in D315.
+- **Why a fifth.** A 0.10 step removes about a fifth of the pixels. Where the
+  GPU is the cause, it cut the misses by 35-40% (M19: 40 -> 26%, 23 -> 14%),
+  so a step doing less than half of that is mostly not the GPU. At 40% over
+  240 frames the count's noise is about 4 points (a tenth), so a fifth is two
+  of those.
+- **Why 5 points.** It is the floor on returns: about 3 fps at 60 Hz, for a
+  step that costs a fifth of the pixels. It is also about twice the count's
+  noise where the returns run out: 15% of 240 frames is 36 misses, give or
+  take 6.
+- **Where it lands on the shares M18 and M19 imply.** For the old 13 those
+  are 40% at 1.0, 25% at 0.90, 15% at 0.80 (52 fps) and about 10.5% at 0.70
+  (54-55 fps):
+  - 1.00 -> 0.90 cuts 15 points (38%) and pays;
+  - 0.90 -> 0.80 cuts 10 points (40%) and pays;
+  - 0.80 -> 0.70 cuts 4.5 points and is undone, so it ends at 0.80 instead of
+    hunting 0.65-0.80 for 2 fps.
+
+  For 16 (23%, 14%, about 0) both steps pay and it holds at 0.80. D315's M18
+  run 2 shape (10% to about 4.3% to 4.3%) still ends at 0.90 with the second
+  step undone.
+- **One count, shared.** `adaptive::MissCount` holds the span count (each
+  interval over the cadence, capped at `STALL_CADENCES`, minus the frames)
+  with `cadence_for`, and both the controller's windows and `PerfWindow` use
+  it.
+  - The perf line now starts `perf: N fps over S s, missed N refreshes (X% of
+    frames), ...`, followed by the old `N late of M frames, worst gap ...`.
+    That field is kept unchanged, with the same text and position relative to
+    `worst gap`, for anything reading older logs. Nothing in this repository
+    parses it; the docs quote it.
+  - The adaptive line reads "render scale a -> b: missed N refreshes over the
+    last M frames (X% of frames, ... cadence) ...", and an undo reads "cut too
+    few missed refreshes (x% of frames before, y% after) ... (D315, D316)".
+  - The share is missed refreshes per frame shown, in both places.
+
+**Not chosen.**
+- *A relative cut alone.* It would keep stepping on a small share whose cuts
+  are within noise (8% -> 6%) and spend pixels for 1 fps.
+- *An absolute cut alone.* At large shares, 5 points can be noise-sized
+  relative to the count.
+- *Replacing the old late count in the perf line.* Older logs and the
+  hardware notes quote it; the two now sit side by side with labels.
+
+**Test.** `strobe_gfx::adaptive::tests`:
+- `the_old_13_steps_while_each_step_pays_and_stops_at_0_80` (M18 run 2 and M19
+  run 2: 1.00 -> 0.90 -> 0.80, a try at 0.70 undone, all within 30 s, then
+  ten minutes without a change);
+- `a_scene_whose_misses_clear_by_0_80_steps_twice_and_holds` (16, M18 and M19
+  run 5);
+- `a_step_that_cuts_too_little_is_undone_by_either_test`;
+- `the_miss_count_is_refreshes_passed_minus_frames_shown`.
+
+D314's and D315's tests all pass unchanged, including the M16 pattern, 144 Hz,
+the hitch, the borderline scene and D315's M18 run 2 shape. The perf line's
+missed count is checked in
+`stats::tests::a_minute_is_summarised_once_with_late_frames_counted`. Task
+M20 in MINIPC.md is the hardware test.
+
+**Would reopen:**
+- M20 changing the scale after its first minute (hunting again).
+- 16 not holding 0.80 at about 59 fps (a step that paid undone).
+- The old 13 going below 0.75 (the floor on returns too loose).
+- The perf line's missed share disagreeing with the adaptive lines' for the
+  same minute.
