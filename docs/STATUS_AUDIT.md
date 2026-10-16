@@ -235,6 +235,25 @@ Linux and llvmpipe cannot prove any of these:
   1920x1080 with no `STROBE_D296_*` variables, no all-black warnings, the
   `GL prime: ... landed` log line, `--gl angle` matching, and black again
   with `STROBE_GL_NO_PRIME=1`.
+- [x] Adaptive resolution lowers the scale for missed refreshes with the
+  mean GPU time under budget, keeps only the steps that cut the misses, and
+  neither hunts nor climbs back (D314-D316). Verified on the mini PC's Vega 3
+  at 1920x1080, 60 Hz (MINIPC.md Task M20, 2026-10-16):
+  - the old 13 went from 42.5 fps to 58.5 fps at 0.70 (2.6% missed), with
+    every step kept and no undo or climb, covered and minimised alike;
+  - 16-acid-mirror held 59.8 fps at 0.80;
+  - `--no-adaptive` ran 42.6 fps with 40.7% missed, which the new count
+    explains exactly;
+  - a covered, paint-starved control window drew 11-12 times a minute
+    (D315), and a minimised one not at all (D314).
+
+  Synthetic evidence: `strobe_gfx::adaptive::tests`, about 40 sequences
+  including M16, M18, M19 and M20.
+- [ ] The third late step follows a paid step within seconds (D317). In M20
+  it waited three to four minutes behind the load line. Built and
+  unit-tested
+  (`the_third_step_follows_a_paid_step_without_waiting_for_the_load_line`).
+  Acceptance test: MINIPC.md Task M21, the old 13 at 0.70 within 30 s.
 - [x] Keep commands, environment, logs, screenshots and failed outcomes in
   [hardware/T480.md](hardware/T480.md).
 

@@ -63,7 +63,9 @@
 //!   long intervals undercounts; the span is exact). [`LATE_WINDOWS_TO_DROP`]
 //!   windows in a row with at least [`LATE_PER_WINDOW`] missed each lower
 //!   the scale by one step of about 15% of the area, as long as the GPU is
-//!   busy enough to be the cause ([`LATE_MIN_LOAD`] of the cadence).
+//!   busy enough to be the cause ([`LATE_MIN_LOAD`] of the cadence), or a
+//!   late step on this scene has already paid (D317: then the misses are
+//!   known to follow the scale, and the next step is judged like the last).
 //! - **A late drop must pay for itself too (D315, D316).** The misses may
 //!   not be the GPU's. After the drop's cooldown, [`JUDGE_WINDOWS`] windows
 //!   are counted. The drop stands when the misses fell under the drop line,
@@ -204,7 +206,11 @@ pub const LATE_WINDOWS_TO_DROP: u32 = 2;
 /// are blamed on the GPU. Below it the misses come from somewhere the
 /// render scale cannot reach (the CPU, the compositor, another window), and
 /// lowering would cost sharpness for nothing; it also bounds how far the
-/// late rule alone can take a scene.
+/// late rule alone can take a scene. Once a late step on the scene has paid
+/// it no longer applies (D317): the verdict is better evidence than the
+/// load. M20 sat at 0.80 for three to four minutes, 52 fps and 14% missed,
+/// because 13's 9.1 ms there was under this line until a loud passage
+/// lifted the average past it; the step it then took paid (14% -> 2.7%).
 pub const LATE_MIN_LOAD: f32 = 0.6;
 
 /// The area one late drop keeps. Each drop is one small step (1.0 -> 0.90,
@@ -361,10 +367,17 @@ pub struct AdaptiveScale {
     /// The current window's count.
     window: MissCount,
     /// Missing windows in a row, and the refreshes missed and frames over
-    /// them.
+    /// the last [`LATE_WINDOWS_TO_DROP`] of them (D317: the run as a whole
+    /// grew to 99 windows in M20 and was reported as the trigger).
     late_windows: u32,
     late_run: u32,
     late_run_frames: u32,
+    /// The last missing window's count, for the run above.
+    last_missed: u32,
+    last_frames: u32,
+    /// A late step on this scene paid: its misses follow the scale, so the
+    /// load line no longer gates the next (D317).
+    late_proven: bool,
     /// Clear windows in a row.
     clear_windows: u32,
     /// The late drop being judged.
@@ -408,6 +421,9 @@ impl AdaptiveScale {
             late_windows: 0,
             late_run: 0,
             late_run_frames: 0,
+            last_missed: 0,
+            last_frames: 0,
+            late_proven: false,
             clear_windows: 0,
             late_probe: None,
             late_floor: None,
@@ -485,9 +501,17 @@ impl AdaptiveScale {
         let frames = self.window.frames();
         self.window = MissCount::default();
         if missed >= LATE_PER_WINDOW {
+            // The trigger is the last two windows, not the whole run.
+            let (before, before_frames) = if self.late_windows > 0 {
+                (self.last_missed, self.last_frames)
+            } else {
+                (0, 0)
+            };
             self.late_windows += 1;
-            self.late_run += missed;
-            self.late_run_frames += frames;
+            self.late_run = before + missed;
+            self.late_run_frames = before_frames + frames;
+            self.last_missed = missed;
+            self.last_frames = frames;
         } else {
             self.late_windows = 0;
             self.late_run = 0;
@@ -513,6 +537,8 @@ impl AdaptiveScale {
         self.late_windows = 0;
         self.late_run = 0;
         self.late_run_frames = 0;
+        self.last_missed = 0;
+        self.last_frames = 0;
         self.clear_windows = 0;
     }
 
@@ -575,6 +601,7 @@ impl AdaptiveScale {
         self.under = 0;
         self.late_ms = None;
         self.late_probe = None;
+        self.late_proven = false;
         self.restart_window();
     }
 
@@ -647,11 +674,12 @@ impl AdaptiveScale {
         }
 
         // One late drop at a time: the next waits for this one's verdict.
+        // A step that paid shows the misses follow the scale (D317).
         let late = self.late_windows >= LATE_WINDOWS_TO_DROP
             && self.late_probe.is_none()
             && self
                 .cadence_ms
-                .is_some_and(|cadence| average >= cadence * LATE_MIN_LOAD);
+                .is_some_and(|cadence| self.late_proven || average >= cadence * LATE_MIN_LOAD);
         let target = if self.over >= DROP_AFTER {
             // Area-proportional: aim a little under budget so one drop is
             // usually enough.
@@ -797,6 +825,7 @@ impl AdaptiveScale {
         let cut = probe.share_before - share_after;
         let pays = cut >= probe.share_before * LATE_MIN_CUT && cut >= LATE_MIN_CUT_POINTS;
         if under_the_line || pays {
+            self.late_proven = true;
             return None;
         }
         let from = probe.from.min(self.max);
@@ -1358,6 +1387,92 @@ mod tests {
             "all within the first half minute, none in ten minutes after: {changes:?}"
         );
         assert!((c.scale() - 0.8).abs() < 1e-4, "holds 0.80: {}", c.scale());
+    }
+
+    #[test]
+    fn the_third_step_follows_a_paid_step_without_waiting_for_the_load_line() {
+        // M20 run 2 on the mini PC: 40% of frames missed at 1.00, 26.7% at
+        // 0.90, 14% at 0.80 (52.6 fps), 2.6% at 0.70 (58.5 fps); GPU 13.6,
+        // 11.2, 9.1 and 7.3 ms. At 0.80 the GPU is under the 10 ms load line,
+        // and the step to 0.70 waited three to four minutes for a loud
+        // passage. Once a step has paid, the next follows its verdict.
+        let mut c = sixty_hz();
+        let mut owed = 0.0_f32;
+        let mut changes = Vec::new();
+        for i in 0..60 * 60 * 10_u32 {
+            let s = c.scale();
+            owed += if s > 0.95 {
+                0.404
+            } else if s > 0.85 {
+                0.267
+            } else if s > 0.75 {
+                0.14
+            } else {
+                0.026
+            };
+            let late = owed >= 1.0;
+            if late {
+                owed -= 1.0;
+            }
+            c.presented(if late { 2.0 * PERIOD } else { PERIOD });
+            if let Some(to) = c.observe(1.16 + 12.44 * s * s) {
+                changes.push((i, s, to, c.missed(), c.late_undone()));
+            }
+        }
+        assert!(
+            changes.len() == 3 && changes.iter().all(|change| change.4.is_none()),
+            "three steps, none undone: {changes:?}"
+        );
+        assert!(
+            changes
+                .last()
+                .is_some_and(|(frame, _, to, ..)| (*to - 0.7).abs() < 1e-4 && *frame < 60 * 30),
+            "0.70 within 30 s: {changes:?}"
+        );
+        assert!(
+            changes.iter().all(|(.., missed, _)| missed
+                .is_some_and(|m| m.frames == LATE_WINDOWS_TO_DROP * LATE_WINDOW)),
+            "each step reports the two windows that triggered it: {changes:?}"
+        );
+        assert!(
+            (c.scale() - 0.7).abs() < 1e-4,
+            "and holds 0.70: {}",
+            c.scale()
+        );
+    }
+
+    #[test]
+    fn a_long_run_of_missing_windows_reports_only_the_last_two() {
+        // The load line holds the step (8 ms), and 15% of frames miss for a
+        // minute: the trigger reported is two windows, not thirty.
+        let mut c = sixty_hz();
+        let mut owed = 0.0_f32;
+        for _ in 0..3600 {
+            owed += 0.15;
+            let late = owed >= 1.0;
+            if late {
+                owed -= 1.0;
+            }
+            c.presented(if late { 2.0 * PERIOD } else { PERIOD });
+            assert_eq!(c.observe(8.0), None, "under the load line, no step");
+        }
+        // Over the line now: the step reports the last two windows.
+        let mut reported = None;
+        for _ in 0..600 {
+            owed += 0.15;
+            let late = owed >= 1.0;
+            if late {
+                owed -= 1.0;
+            }
+            c.presented(if late { 2.0 * PERIOD } else { PERIOD });
+            if c.observe(12.0).is_some() {
+                reported = reported.or(c.missed());
+            }
+        }
+        assert!(
+            reported.is_some_and(|m| m.frames == 2 * LATE_WINDOW && m.late >= 30 && m.late <= 42),
+            "two windows of about 15%: {reported:?}"
+        );
     }
 
     #[test]
