@@ -39,6 +39,11 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- a scene file that is not UTF-8 loads instead of failing the scene ([`2c48e0b`](https://github.com/lnorton89/strobe/commit/2c48e0b0221d790499d5a83ba7c70082658249bf))
+- a rebuilt GL context keeps the operator's meta settings ([`323555d`](https://github.com/lnorton89/strobe/commit/323555d9953b9e2c83f5a0bf1ff464bc1392ce86))
+- refuse a control named after a GLSL keyword or an SSF library name ([`4d2a198`](https://github.com/lnorton89/strobe/commit/4d2a19801a514d3e186d579ff4fddb3df92e6cab))
+- one value that is not a number no longer loses a whole preset ([`7570e62`](https://github.com/lnorton89/strobe/commit/7570e624147c1d0cc7b8443e68a075669fbda2d4))
+- a byte-order mark no longer fails a scene, shader, include or preset ([`8502269`](https://github.com/lnorton89/strobe/commit/8502269e70644761c9c24d6a10fc5f67b349fb34))
 - **scenes:** acid mirror keeps its noise in the feedback pass (D310) ([`f1dbff6`](https://github.com/lnorton89/strobe/commit/f1dbff6fa196238b38db6c9c27728b5df9889c48))
 - **scenes:** electric bloom draws every layer at full size again (D310) ([`12831be`](https://github.com/lnorton89/strobe/commit/12831be5f996f55e46e079f0cd94f0fb50af7555))
 - **gfx:** prime every GL context with one 16x16 draw, so AMD WGL stops dropping large draws (D311) ([`94cf8e6`](https://github.com/lnorton89/strobe/commit/94cf8e6c5c6cbbf001ee05b15a46f32a2137322c))
