@@ -2,7 +2,8 @@
 // Module:       script_meta (integration test)
 // Description:  A scene's script.js writes meta/ controls; the session's
 //               meta bank must receive them, ease them, and leave the
-//               scene's own controls alone.
+//               scene's own controls alone; the operator's meta settings come
+//               back after a rebuilt GL context.
 //
 // Dependencies: anyhow; strobe-app (Session, AudioInput); strobe-gfx
 //               (headless context)
@@ -108,5 +109,49 @@ fn a_script_write_to_a_meta_control_reaches_the_sessions_meta_bank() -> Result<(
             "{api:?}: the scene's own `brightness` control is untouched"
         );
     }
+    Ok(())
+}
+
+#[test]
+fn a_rebuilt_context_gives_the_operators_meta_settings_back() -> Result<()> {
+    // A lost GL context reloads the scene into a fresh session (D66) and
+    // puts back what the operator had set. Master at 0 is a blackout: the
+    // reloaded scene must not come back at full brightness.
+    let scene = TempScene::new(
+        "rebuild",
+        r#"{ "CONTROLS": [ { "NAME": "amount", "TYPE": "slider", "DEFAULT": 0.5 } ] }"#,
+        "vec4 renderMain() { return vec4(amount, 0.0, 0.0, 1.0); }",
+        "function update(dt) {}",
+    )?;
+    let Some(headless) = context(Api::DesktopCore33)? else {
+        return Ok(());
+    };
+    let gl = headless.gl();
+    let caps = Caps::from_info(gl.info());
+    let mut audio = AudioInput::new(false);
+    let mut before = Session::load(gl, &caps, &scene.0, "rebuild", [32, 18], 0.0, &mut audio)
+        .map_err(|e| anyhow!("load failed: {e}"))?;
+    let master = before
+        .meta
+        .find("master")
+        .ok_or_else(|| anyhow!("no master"))?;
+    let hue = before.meta.find("hue").ok_or_else(|| anyhow!("no hue"))?;
+    before.meta.set(master, None, &[0.0]);
+    before.meta.set(hue, None, &[0.25]);
+    before.controls.set(0, None, &[0.75]);
+    let carried = before.control_targets();
+    drop(before);
+
+    let mut after = Session::load(gl, &caps, &scene.0, "rebuild", [32, 18], 0.0, &mut audio)
+        .map_err(|e| anyhow!("reload failed: {e}"))?;
+    after.restore_control_targets(&carried);
+    after.advance(1.0 / 60.0, &mut audio, Mouse::default(), DATE);
+    assert_eq!(meta_output(&after, "master")?, 0.0, "still blacked out");
+    assert_eq!(meta_output(&after, "hue")?, 0.25, "the hue is kept");
+    assert_eq!(
+        after.controls.output(0).map(|values| values[0]),
+        Some(0.75),
+        "and the scene's own control"
+    );
     Ok(())
 }

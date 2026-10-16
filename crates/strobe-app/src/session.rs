@@ -117,6 +117,26 @@ pub enum LoadError {
     Player(#[from] PlayerError),
 }
 
+/// Control targets by bank index, saved from one session to put back into
+/// a fresh load of the same scene ([`Session::control_targets`]).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Targets {
+    /// The scene's own controls.
+    scene: Vec<(usize, Values)>,
+    /// The meta controls.
+    meta: Vec<(usize, Values)>,
+}
+
+/// Every control's target in `bank`, by index; bangs hold no value.
+fn targets_of(bank: &ControlBank) -> Vec<(usize, Values)> {
+    bank.defs()
+        .iter()
+        .enumerate()
+        .filter(|(_, def)| !matches!(def.kind, ControlKind::Bang(_)))
+        .filter_map(|(index, _)| bank.target(index).map(|value| (index, *value)))
+        .collect()
+}
+
 /// What the panels borrow from a session for one frame.
 pub struct PanelParts<'a> {
     /// The scene's design title.
@@ -431,22 +451,24 @@ impl Session {
         self.frame = 0;
     }
 
-    /// The controls' targets (what the operator last asked for), for
-    /// carrying across a rebuilt GL context. Bangs hold no value.
-    pub fn control_targets(&self) -> Vec<(usize, Values)> {
-        self.controls
-            .defs()
-            .iter()
-            .enumerate()
-            .filter(|(_, def)| !matches!(def.kind, ControlKind::Bang(_)))
-            .filter_map(|(index, _)| self.controls.target(index).map(|value| (index, *value)))
-            .collect()
+    /// The targets (what the operator last asked for) of the scene's
+    /// controls and of the meta controls, for carrying across a rebuilt GL
+    /// context. The meta ones matter most: a master faded to 0 must not come
+    /// back at full brightness (D313). Bangs hold no value.
+    pub fn control_targets(&self) -> Targets {
+        Targets {
+            scene: targets_of(&self.controls),
+            meta: targets_of(&self.meta),
+        }
     }
 
     /// Puts targets saved by [`Self::control_targets`] back.
-    pub fn restore_control_targets(&mut self, targets: &[(usize, Values)]) {
-        for (index, values) in targets {
+    pub fn restore_control_targets(&mut self, targets: &Targets) {
+        for (index, values) in &targets.scene {
             self.controls.set(*index, None, values);
+        }
+        for (index, values) in &targets.meta {
+            self.meta.set(*index, None, values);
         }
     }
 
