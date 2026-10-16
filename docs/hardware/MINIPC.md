@@ -569,45 +569,74 @@ are much larger.
   (X% of frames)", and an undo says "cut too few missed refreshes (x% of
   frames before, y% after)".
 
-### Task M20, to run: D316 on the projector
+## D316 on the projector: passed, with a slow third step (2026-10-16, Task M20, D316 -> D317)
 
-The same five runs, 390 s each, on the D316 build, with the D315 build kept
-as `strobe-m19.exe`:
+The five runs again on the D316 build (ccc06de), 390 s each, numbers from the
+`perf:` lines of minutes 2 to 6. The soak was paused from 16:06:44 to
+16:40:12.
 
-```powershell
-cd $env:USERPROFILE\strobe
-git fetch origin
-Copy-Item target\release\strobe.exe target\release\strobe-m19.exe
-git switch <the D316 branch>
-cargo build --release -p strobe-app
-```
+| Run | Build and setup | fps | Missed | Late | GPU ms | Scale | Control |
+|---|---|---|---|---|---|---|---|
+| 1 | M19 build, OLD 13 | 42.5 | | | | locked at 1.00 | |
+| 2 | ccc06de, OLD 13, control covered: three minutes | 52.6 | 14.1% | 1.6% | 9.12 | 0.80 | 11-12 a minute |
+| 2 | the same run, after 241 s | 58.5 | 2.6% | 1.7% | 7.29 | 0.70 | 11-12 a minute |
+| 3 | ccc06de, OLD 13, control minimised | 58.4 | | | | 0.70 (from 180.5 s) | 0 |
+| 4 | `--no-adaptive --render-scale 1`, OLD 13 | 42.6 | 40.7% | | | 1.00 | |
+| 5 | ccc06de, the new scenes, holding `16-acid-mirror` | 59.8 | 0.1-0.5% | | | 0.80 | |
 
-1. `strobe-m19.exe`, OLD 13 (`m16-hold13.toml`): the before, expected as M19
-   run 2 (locked at 1.00, about 42.6 fps).
-2. `strobe.exe`, OLD 13, the control window covered by the output.
-3. `strobe.exe`, OLD 13, the control window minimised.
-4. `strobe.exe --no-adaptive --render-scale 1`, OLD 13: the control.
-5. `strobe.exe`, the new scenes, holding `16-acid-mirror`.
+**The adaptive lines:**
+- **Run 1:** D315's lock, 41.7% -> 25.8%, back to 1.00.
+- **Run 2:**
+  - 8.0 s, 1.00 -> 0.90: "missed 97 refreshes over the last 240 frames
+    (40.4% ...) GPU 13.6";
+  - 13.7 s, 0.90 -> 0.80: "missed 64 ... 240 frames (26.7%) GPU 11.2";
+  - 241.3 s, 0.80 -> 0.70: "missed 1667 refreshes over the last 11880 frames
+    (14.0%) GPU 10.6". It paid (14% -> 2.7%), with no undo and no climb
+    back.
+- **Run 3:** steps at 7.6 s, 13.3 s and 180.5 s ("1222/8760 frames, 13.9%").
+- **Run 5:** 1.00 -> 0.90 at 7.1 s (24.6%), 0.90 -> 0.80 at 12.2 s (14.2%),
+  then steady.
 
-Use the usual `--library`, `--no-synesthesia --output-monitor 1 --fullscreen
---audio ambient`. Write down, from the `perf:` lines of minutes 2 to 6: fps,
-`missed N refreshes (X% of frames)`, the old `late` count, GPU ms, `scale`
-and `control N redraws`; and every `adaptive resolution:` line.
+**What it showed:**
+- **D314-D316 work on the hardware.** Every step that cut the misses was
+  kept, nothing hunted, and nothing climbed back. The old 13 went from 42.5
+  to 58.5 fps and 16 held 59.8 fps.
+- **The missed share explains the frame rate.** Run 4's 40.7% missed is its
+  42.6 fps exactly, and the perf line and the adaptive lines now agree.
+- **The covered control window** drew 11-12 times a minute, and the minimised
+  one not at all.
+- **The third step took three to four minutes.** The scene sat at about
+  52 fps with 14% missed. The step was gated by the load line, not the
+  windows: at 0.80, 13 takes 9.1 ms, under the 10 ms line (0.6 of the
+  cadence). The late rule waited until a loud passage lifted the GPU average
+  to 10.6 ms. Meanwhile the run of missing windows grew to 99 (11880 frames)
+  and was reported whole as the trigger, which is why the log showed 11880
+  frames instead of 240.
+
+**What changed (D317):**
+- Once a late step on a scene has paid, the load line no longer gates the
+  next: the verdict has already shown that the misses follow the scale. The
+  next step is judged like every other (undone and locked if it cuts too
+  little), so the guarantee against hunting is unchanged.
+- The trigger reported, and judged against, is the last two windows, not the
+  whole run.
+
+### Task M21, to run: the third step without the wait
+
+One short hold-13 run on the D317 build, with the control window covered, as
+M20 run 2: `strobe.exe` with `--playlist jaja-show\playlists\m16-hold13.toml`
+and the usual flags, for 120 s.
 
 **Expected:**
-- **Runs 2 and 3:** 1.00 -> 0.90 by about 8 s and 0.90 -> 0.80 about 4.5 s
-  later, both kept. Perhaps a try at 0.70 that is undone ("cut too few missed
-  refreshes ... back to 0.80"), and nothing after the first minute. About
-  52 fps at 0.80, as M18, with a missed share near 15%.
-- **Run 5:** two steps to 0.80, both kept, then steady; about 59 fps, the
-  missed share near 0, as M18 run 5.
-- **Every run:** the perf line's missed share agrees with the adaptive lines'
-  shares for the same minute; the control window as in M19 (11-12 redraws a
-  minute covered, 0 minimised).
+- 1.00 -> 0.90 by about 8 s and 0.90 -> 0.80 by about 14 s, as in M20.
+- 0.80 -> 0.70 about 4.5 s after that, so by about 20 s and well within
+  30 s, reported as "missed N refreshes over the last 240 frames (about 14%
+  ...)".
+- The step to 0.70 kept (no "cut too few missed refreshes" line), no change
+  after, and the minute-2 perf line at about 58 fps with about 2-3% missed.
 
-**What would reopen D316:** any scale change after the first minute (the
-hunting is back); run 5 below about 59 fps or not at 0.80 (a step that paid
-was undone); runs 2 and 3 below 0.75 (the floor on returns is too loose).
+**What would reopen D317:** the step to 0.70 still waiting minutes; a fourth
+step below 0.70 that is then undone again and again; or any climb back.
 
 ## Still to do here
 
@@ -615,8 +644,8 @@ was undone); runs 2 and 3 below 0.75 (the floor on returns is too loose).
   Disconnect.
 - Re-measure the D310 scenes (section above). `14-electric-bloom` is
   expected to be the one still above 10 ms.
-- Task M20 (section above): D316's verdict on late drops, the same five
-  runs as M19.
+- Task M21 (section above): one short hold-13 run, the step to 0.70 within
+  30 s (D317).
 
 - Native strobe-bench and control generation in session 1: does a hidden
   window on AMD WGL draw at all (M3b)?
