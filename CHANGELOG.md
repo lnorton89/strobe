@@ -115,6 +115,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Documentation
 
+- D311 and D310 verified on the Vega 3 (mini PC Task M17) ([`0924b99`](https://github.com/lnorton89/strobe/commit/0924b99c460fba46f2c7a58e4ca7e94cd1e23e0d))
 - D310 after review, with llvmpipe ratios and the Vega 3 re-measurement ([`ff4338a`](https://github.com/lnorton89/strobe/commit/ff4338a562de6982db45b3ee8c5ad2bc1e4805e3))
 - benchmark and log the venue-GPU scene pass (D297) ([`a1d107f`](https://github.com/lnorton89/strobe/commit/a1d107f64332f87d5d0a0c4563510977d2d37463))
 - describe D301's two scene constructs in words ([`ba39557`](https://github.com/lnorton89/strobe/commit/ba39557969031b49c31dec18f935ca8e525fc2f6))
@@ -174,6 +175,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Tests
 
+- drop a blank line the area 4 merge left in the render tests ([`845f087`](https://github.com/lnorton89/strobe/commit/845f08713ca444d6866535ed76701a6f9d050688))
 - **show:** a cue's overrides reach the picture each time its scene plays ([`fc87072`](https://github.com/lnorton89/strobe/commit/fc8707214665cefb88177183eca0e445513bbab8))
 - **script:** time the setUniform budget as the best of five frames ([`b1b97ca`](https://github.com/lnorton89/strobe/commit/b1b97ca329549096453ce47691d75c0b657c16c7))
 - **remote:** give the revoke-all trust assertion a message ([`363a0db`](https://github.com/lnorton89/strobe/commit/363a0db46393abc2ed465de50e9bfc8ea9c12603))
