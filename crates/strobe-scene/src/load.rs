@@ -66,7 +66,7 @@ impl SceneFolder {
     pub fn load(dir: &Path) -> Result<Self, SceneError> {
         let read = |name: &str| -> Result<Option<String>, SceneError> {
             let path = dir.join(name);
-            match fs::read_to_string(&path) {
+            match read_text(&path) {
                 Ok(text) => Ok(Some(clean(text))),
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
                 Err(source) => Err(SceneError::Io { path, source }),
@@ -97,6 +97,19 @@ impl SceneFolder {
             script,
         })
     }
+}
+
+/// The text of a scene file. A file that is not valid UTF-8, as a Windows
+/// editor saves in its legacy code page (`©` as the byte 0xA9 in a
+/// comment), is read with each such byte as U+FFFD instead of failing the
+/// scene: in a comment or a credit nothing depends on it, and in code the
+/// driver names the line.
+pub fn read_text(path: &Path) -> std::io::Result<String> {
+    let bytes = fs::read(path)?;
+    Ok(match String::from_utf8(bytes) {
+        Ok(text) => text,
+        Err(error) => String::from_utf8_lossy(error.as_bytes()).into_owned(),
+    })
 }
 
 /// A scene file's text as the rest of Strobe wants it: without a leading
@@ -370,6 +383,34 @@ mod tests {
                 .as_deref()
                 .is_some_and(|script| script.starts_with("function")),
             "nor in the script"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_file_that_is_not_utf8_still_loads() -> anyhow::Result<()> {
+        // A shader saved by a Windows editor in its legacy code page, with
+        // a `©` (0xA9) in a comment and an `é` (0xE9) in the credit. GLSL
+        // compilers take any byte in a comment (render test
+        // `a_comment_that_is_not_ascii_compiles`).
+        let dir = std::env::temp_dir().join(format!("strobe-cp1252-{}", std::process::id()));
+        std::fs::create_dir_all(&dir)?;
+        std::fs::write(dir.join("scene.json"), b"{ \"CREDIT\": \"Ren\xe9\" }")?;
+        std::fs::write(
+            dir.join("main.glsl"),
+            b"// \xa9 2021\nvec4 renderMain() { return vec4(1.0); }\n",
+        )?;
+        let loaded = SceneFolder::load(&dir);
+        std::fs::remove_dir_all(&dir)?;
+        let scene = loaded?;
+        assert!(
+            scene.shader.contains("vec4 renderMain()"),
+            "the shader is read"
+        );
+        assert_eq!(
+            scene.def.credit.as_deref(),
+            Some("Ren\u{fffd}"),
+            "the byte that is not UTF-8 becomes U+FFFD"
         );
         Ok(())
     }
