@@ -114,8 +114,9 @@ const LATE_FACTOR: f32 = 1.5;
 ///
 /// TORNADO T10 ran a fullscreen show at 48 to 56 fps with the GPU busy for
 /// under 3 ms a frame, and nothing in the log said where the time went.
-/// One line a minute (frame rate, late frames, the worst gap, GPU time and
-/// the control window's whole redraw, swap included) settles that kind of
+/// One line a minute (frame rate, late frames, the worst gap, GPU time, the
+/// render scale and the control window's whole redraw, swap included)
+/// settles that kind of
 /// question from a soak's log alone. Recording is a few additions; the
 /// line is formatted once a minute, never per frame.
 #[derive(Debug, Default)]
@@ -127,6 +128,9 @@ pub struct PerfWindow {
     worst_ms: f32,
     gpu_sum: f32,
     gpu_frames: u32,
+    /// The lowest and highest render scale the frames were drawn at.
+    scale_low: f32,
+    scale_high: f32,
     control_frames: u32,
     control_sum: f32,
     control_worst: f32,
@@ -158,9 +162,17 @@ pub struct ControlTimes {
 
 impl PerfWindow {
     /// Records a scene frame starting at `now`, against a frame budget of
-    /// `budget_ms`, with the GPU time last measured.
-    pub fn frame(&mut self, now: Instant, budget_ms: f32, gpu_ms: Option<f32>) {
+    /// `budget_ms`, with the GPU time last measured and the render scale in
+    /// force.
+    pub fn frame(&mut self, now: Instant, budget_ms: f32, gpu_ms: Option<f32>, scale: f32) {
         self.started.get_or_insert(now);
+        if self.frames == 0 {
+            self.scale_low = scale;
+            self.scale_high = scale;
+        } else {
+            self.scale_low = self.scale_low.min(scale);
+            self.scale_high = self.scale_high.max(scale);
+        }
         if let Some(previous) = self.last_frame {
             let ms = now.duration_since(previous).as_secs_f32() * 1000.0;
             self.worst_ms = self.worst_ms.max(ms);
@@ -205,10 +217,15 @@ impl PerfWindow {
             return None;
         }
         let mean = |sum: f32, n: u32| if n > 0 { sum / n as f32 } else { 0.0 };
+        let scale = if self.scale_high - self.scale_low < 0.005 {
+            format!("{:.2}", self.scale_high)
+        } else {
+            format!("{:.2}-{:.2}", self.scale_low, self.scale_high)
+        };
         let line = format!(
             "perf: {:.1} fps over {:.0} s, {} late of {} frames, worst gap {:.1} ms, \
-             gpu {:.2} ms, control {} redraws {:.2} ms (worst {:.1} ms, {} unpainted): \
-             make-current {:.2}, layout {:.2}, paint {:.2}, swap {:.2} ms",
+             gpu {:.2} ms, scale {scale}, control {} redraws {:.2} ms (worst {:.1} ms, \
+             {} unpainted): make-current {:.2}, layout {:.2}, paint {:.2}, swap {:.2} ms",
             self.frames as f32 / span,
             span,
             self.late,
@@ -693,7 +710,7 @@ mod tests {
             // Every tenth frame misses a vertical blank.
             let gap = if i % 10 == 9 { 33_333 } else { 16_667 };
             at += Duration::from_micros(gap);
-            window.frame(at, 16.67, Some(2.0));
+            window.frame(at, 16.67, Some(2.0), if i < 1800 { 1.0 } else { 0.9 });
             if i % 2 == 0 {
                 window.control(ControlTimes {
                     total: Duration::from_millis(3),
@@ -713,7 +730,7 @@ mod tests {
             .unwrap_or_default();
         assert!(line.contains("360 late of 3600"), "{line}");
         assert!(line.contains("worst gap 33.3 ms"), "{line}");
-        assert!(line.contains("gpu 2.00 ms"), "{line}");
+        assert!(line.contains("gpu 2.00 ms, scale 0.90-1.00"), "{line}");
         assert!(line.contains("control 1800 redraws 3.00 ms"), "{line}");
         assert!(line.contains("900 unpainted"), "{line}");
         assert!(

@@ -50,8 +50,9 @@
 //!   the remote passes, the desktop capture and the playlist compile all
 //!   live in that frame, so a show with nobody at the console needs it.
 //! - **A perf line** is logged once a minute (`stats::PerfWindow`): frame
-//!   rate, late frames, the worst gap, GPU time and the control window's
-//!   redraw cost, so a soak's log alone says where frames went.
+//!   rate, late frames, the worst gap, GPU time, the render scale and the
+//!   control window's redraw cost, so a soak's log alone says where frames
+//!   went.
 //!
 //! The scene is never rendered inside the control window's redraw, so a slow
 //! control window cannot slow the show down. The control window's preview
@@ -422,9 +423,13 @@ impl Stack {
             .map_err(|e| format!("Could not open the control window: {e}"))?;
         // Output waits for vertical blank; control must not, or two vsynced
         // swaps in one loop would halve the frame rate.
-        if let Err(e) = gfx.set_vsync(&output, true) {
-            log::warn!("output vsync: {e}");
-        }
+        let vsync = match gfx.set_vsync(&output, true) {
+            Ok(()) => true,
+            Err(e) => {
+                log::warn!("output vsync: {e}");
+                false
+            }
+        };
         if let Err(e) = gfx.set_vsync(&control, false) {
             log::warn!("control vsync: {e}");
         }
@@ -449,12 +454,16 @@ impl Stack {
             .window()
             .current_monitor()
             .and_then(|monitor| monitor.refresh_rate_millihertz());
-        let perf = Performance::new(
+        let mut perf = Performance::new(
             GpuTimer::new(gfx.gl(), gfx.caps()),
             start.max,
             start.adaptive,
             perf::budget_for(refresh),
         );
+        // Missed refreshes lower the scale too, where there are refreshes
+        // to miss (D314).
+        perf.set_vsync(vsync);
+        perf.set_refresh(refresh);
         log::info!(
             "GPU timing {}; frame budget {:.2} ms ({}); adaptive resolution {}",
             if perf.has_timer() {
@@ -4257,10 +4266,18 @@ impl Running {
             }
         }
         let measured = self.stats.begin(started);
+        if shown {
+            // The interval since the last frame swapped to the output: on a
+            // vsynced display, a whole number of refreshes (D314).
+            self.stack
+                .perf
+                .presented(self.stats.last_interval() * 1000.0, started);
+        }
         self.perf_log.frame(
             started,
             self.stack.perf.budget_ms(),
             self.stack.perf.gpu_ms(),
+            self.render_scale,
         );
         if let Some(line) = self.perf_log.take_due(started) {
             log::info!("{line}");
@@ -4441,6 +4458,23 @@ impl Running {
                 futile.before_ms,
                 futile.after_ms,
                 change.to
+            );
+            self.render_scale = change.to;
+            self.resize_now = true;
+            return;
+        }
+        if let Some(missed) = change.missed {
+            log::info!(
+                "adaptive resolution: render scale {:.2} -> {:.2}: {} of the last {} frames missed \
+                 the display's refresh ({:.1} ms cadence) with GPU {:.1} ms against a {:.1} ms \
+                 budget (D314)",
+                change.from,
+                change.to,
+                missed.late,
+                missed.frames,
+                missed.cadence_ms,
+                change.gpu_ms,
+                change.budget_ms
             );
             self.render_scale = change.to;
             self.resize_now = true;
