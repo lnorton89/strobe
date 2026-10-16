@@ -424,12 +424,111 @@ matched the app in session 1. The figures D310 started from are the app's
 GPU times at 1920x1080, so playing each scene in the app and reading its
 GPU ms is the other check.
 
+## 42-45 fps on a 13.6 ms scene: the mean was under budget (2026-10-16, Task M16, D314)
+
+The question: why do the heavy scenes show about 42-47 fps on the projector
+when their GPU time is under the 16.7 ms frame? Scene `13-chromatic-rise`
+was held for minutes with the hold-13 playlist
+(`jaja-show\playlists\m16-hold13.toml`), fullscreen 1920x1080, vsync at
+60 Hz, through the scheduled task in session 1. Numbers from the `perf:`
+lines.
+
+| Run | Build and setup | fps | GPU ms | Late |
+|---|---|---|---|---|
+| A | adaptive on, with `--remote` | 44.6 | 12.41 | 7.0% |
+| B | adaptive on, without `--remote` | 44.0 | 12.64 | 8.8% |
+| C | as B, control window minimised | 42.6 | 13.62 | 10.2% |
+| D | `--no-adaptive --render-scale 1` | 42.2 | 13.6 | about 9% |
+| E | show-night build 4460897 | 42.5-42.8 | | |
+| F | master build, synthetic audio | 42.2-42.3 | | |
+
+- **Adaptive resolution** went 1.00 -> 0.90 -> 0.95 once and then sat; in
+  one run it never moved.
+- **The same pattern** holds for scenes 04, 05, 08, 14 and 16: GPU 12.6 to
+  13.8 ms, about 47 fps over a 33 h soak.
+- **Not the CPU** (strobe about 5%) and not thermal throttling.
+- **Not `--remote`** (A against B), **not the D290 control frames** (E logged
+  0 to 1 control redraws a minute and is no faster; C, minimised, still logged
+  about 116 loop-driven redraws a minute), and **not a regression** (E, the
+  show-night build, is the same as F, master).
+
+**Conclusion.** Scene 13 costs about 13.6 ms of GPU at full size. That is
+under the 16.7 ms budget on average, so the adaptive controller, which
+watched only the mean, had nothing to lower. But enough frames (GPU spikes,
+plus the present and compositor overhead the timer does not see) straddle
+the vsync boundary that the presented rate is a mix of 16.7 and 33.3 ms
+intervals, 42-45 fps.
+
+**What changed (D314).** The controller now also counts presented frames
+that miss the refresh, and steps the scale down (1.00 -> 0.90 -> 0.80) when
+about 4% or more of the frames miss for four seconds while the GPU is busy
+enough to be the cause. It does not climb back into the judder unless the
+scene gets clearly cheaper. The per-minute perf line now also gives the
+scale. A minimised control window now draws nothing: run C's 116 redraws a
+minute were the undecorated window keeping a client area when minimised,
+which the old 0x0 check missed.
+
+### Task M18, to run: the new controller on the projector
+
+Compare the build before D314 with the build that carries it, on the same
+hold-13 playlist, 6 minutes each, launched exactly as M16's run B (the
+scheduled task in session 1, fullscreen on the projector, adaptive on, no
+`--remote`).
+
+```powershell
+cd $env:USERPROFILE\strobe
+git fetch origin
+# Keep the M16 build as the "before" binary.
+Copy-Item target\release\strobe.exe target\release\strobe-m16.exe
+git switch <the D314 branch>
+cargo build --release -p strobe-app
+```
+
+Run it four times through the scheduled task, 6 minutes each, and keep each
+run's newest log from `%LOCALAPPDATA%\strobe\logs\`:
+
+1. `strobe-m16.exe` with `--playlist jaja-show\playlists\m16-hold13.toml`
+   (and the usual `--library`, `--no-synesthesia --output-monitor 1
+   --fullscreen --audio ambient`): the before.
+2. `strobe.exe`, the same flags: the after.
+3. `strobe.exe` again with the control window minimised (as M16 run C).
+4. `strobe.exe --no-adaptive --render-scale 1`, the same flags: the control,
+   which should still look like M16 run D.
+
+For each, write down from the `perf:` lines of minutes 2 to 6: fps, late
+frames per minute, GPU ms, the `scale` field and the control redraw count;
+and every `adaptive resolution:` line.
+
+**Expected for run 2:**
+- within about 6 s of the scene starting (the 1 s hold, then two 2 s
+  windows), one line like `adaptive resolution: render scale 1.00 -> 0.90:
+  21 of the last 240 frames missed the display's refresh (16.7 ms cadence)
+  with GPU 13.6 ms against a 16.7 ms budget (D314)`; perhaps a second step to
+  0.80 about 4.5 s later, and no further;
+- from minute 2 on: `scale 0.90` (or `0.80`) in every perf line, no climbing
+  back, fps at or above 59, and late frames down to about 1% (36 a minute) or
+  fewer.
+
+**Expected for run 3:** as run 2, and `control 0 redraws` while the window
+is minimised; restored, it redraws again at once.
+
+**What would reopen D314:** run 2 still at 42-45 fps after the scale has
+stepped down (the misses are not the GPU's: look at the compositor, the
+swap or the control window instead), the scale moving back and forth from
+minute to minute, or run 1 against run 2 showing new late frames on a scene
+that held 60 fps before. If the playlist has a second cue, check that a cue
+change still plays (the minimised window now loads scenes from the event
+loop).
+
 ## Still to do here
 
 - Run a two-machine venue-mode test with the laptop (loopback is M6), and
   Disconnect.
 - Re-measure the D310 scenes (section above). `14-electric-bloom` is
   expected to be the one still above 10 ms.
+- Task M18 (section above): the missed-refresh rule (D314) on the hold-13
+  playlist, before and after, 6 minutes each, and the minimised control
+  window at `control 0 redraws`.
 
 - Native strobe-bench and control generation in session 1: does a hidden
   window on AMD WGL draw at all (M3b)?

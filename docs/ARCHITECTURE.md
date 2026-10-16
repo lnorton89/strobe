@@ -143,7 +143,9 @@ threads only ever hand values *to* it.
    the control surface (hidden); a failure skips the frame and goes to the
    recovery policy (see "Context loss"). Hidden only: poll the timer ring and
    stop here if it is full
-1. dt from the clock (fixed in screenshot mode); window and render-size housekeeping
+1. dt from the clock (fixed in screenshot mode); shown only, the interval since
+   the last presented frame goes to AdaptiveScale's missed-refresh count (D314);
+   window and render-size housekeeping
 1b. Show control (`Running::drain_remote`, `app::remote`): take up to 256 queued
     MIDI and OSC events (never blocks), run each through `strobe_io::Engine`,
     which writes the live session's scene and meta `ControlBank`s directly and
@@ -381,7 +383,10 @@ records (`failures.rs`), so the log, the console and a crash report agree.
 - **Performance** (`perf.rs`): GPU time from a four-slot ring of timer
   queries feeds `AdaptiveScale`; budget is one refresh period of the output
   monitor; the render-scale slider is the ceiling; nothing changes in the
-  first second after a scene load. See D64.
+  first second after a scene load. See D64. Shown with vsync and a known
+  refresh rate, each presented frame's interval feeds it too, and sustained
+  missed refreshes step the scale down even with the mean under budget
+  (D314).
 
 ## Scene player internals (`strobe-gfx/src/player.rs`)
 
