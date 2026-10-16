@@ -3,6 +3,9 @@
   "IMAGE_PATH": "thumbnail.jpg",
   "CREDIT": "Strobe",
   "DESCRIPTION": "Three nested layers of fractal noise warping each other: marbled smoke. Benchmark tier 3: heavy ALU, ~60 noise lookups per pixel.",
+  "PASSES": [
+    { "TARGET": "warpfield", "WIDTH": "$WIDTH/3", "HEIGHT": "$HEIGHT/3", "FLOAT": true, "WRAP": "clamp" }
+  ],
   "CONTROLS": [
     { "NAME": "warp", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 8.0, "DEFAULT": 4.0, "PARAMS": 0.03, "UI_GROUP": "shape" },
     { "NAME": "zoom", "TYPE": "slider smooth", "MIN": 0.5, "MAX": 6.0, "DEFAULT": 2.5, "PARAMS": 0.03, "UI_GROUP": "shape" },

@@ -396,11 +396,40 @@ Host and controller both ran on the mini PC, over 127.0.0.1.
   the card said it retried "about every 15 s" when the wait is 1, 2, 4, 8,
   then 15 s.
 
+## Re-measuring the D310 scene pass (not run yet)
+
+D310 makes 04, 05, 08, 13, 14 and 16 cheaper. Its numbers are llvmpipe
+ratios ([BENCHMARKS.md](../BENCHMARKS.md)), not Vega 3 measurements. To
+measure them here, build the branch that carries D310 and time each scene
+before and after, alternating, at 1920x1080:
+
+```powershell
+cd $env:USERPROFILE\strobe
+git fetch origin
+git worktree add ..\strobe-before origin/master   # the scenes before D310
+git switch <the D310 branch>
+cargo build --release -p strobe-bench
+$b = ".\target\release\strobe-bench.exe"
+foreach ($s in "04-", "05-", "08-", "13-", "14-", "16-") {
+  & $b --context window --gl native --show-window --window-size 1920x1080 --size 1920x1080 --library ..\strobe-before\scenes --filter $s --out "target\vega-before\$s"
+  & $b --context window --gl native --show-window --window-size 1920x1080 --size 1920x1080 --library scenes --filter $s --out "target\vega-after\$s"
+}
+```
+
+Open the PNGs before trusting a time. Native WGL drew black above about
+160x90 here (D296, section above), in about 0.2 ms. If the frames are
+black, the times mean nothing. Run the same loop with `--gl angle` and
+`target\vega-angle-before` / `target\vega-angle-after` instead; ANGLE
+matched the app in session 1. The figures D310 started from are the app's
+GPU times at 1920x1080, so playing each scene in the app and reading its
+GPU ms is the other check.
+
 ## Still to do here
 
 - Run a two-machine venue-mode test with the laptop (loopback is M6), and
   Disconnect.
-- Make `14-electric-bloom` cheaper on the Vega 3, or let it scale.
+- Re-measure the D310 scenes (section above). `14-electric-bloom` is
+  expected to be the one still above 10 ms.
 
 - Native strobe-bench and control generation in session 1: does a hidden
   window on AMD WGL draw at all (M3b)?

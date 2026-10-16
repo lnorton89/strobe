@@ -32,15 +32,19 @@ float pingPong(float x) { return 1.0 - abs(1.0 - 2.0 * fract(x * 0.5)); }
 // Acid path: greens and lemon dominate, then amber, magenta, violet,
 // cobalt and cyan streaks, and back to green.
 vec3 acidPalette(float x) {
+    // The eight blends cover disjoint ranges of x, so each earlier one is
+    // already 1 and each later one still 0 wherever a blend is in progress:
+    // the chain of mixes is the first colour plus each blend's weight times
+    // its step, which is the same arithmetic with one multiply-add per stop.
     vec3 c = vec3(0.05, 0.92, 0.10);
-    c = mix(c, vec3(0.00, 1.00, 0.45), smoothstep(0.00, 0.12, x));
-    c = mix(c, vec3(0.62, 1.00, 0.02), smoothstep(0.12, 0.26, x));
-    c = mix(c, vec3(1.00, 0.88, 0.00), smoothstep(0.26, 0.38, x));
-    c = mix(c, vec3(1.00, 0.10, 0.70), smoothstep(0.38, 0.50, x));
-    c = mix(c, vec3(0.50, 0.08, 1.00), smoothstep(0.50, 0.58, x));
-    c = mix(c, vec3(0.02, 0.30, 1.00), smoothstep(0.58, 0.66, x));
-    c = mix(c, vec3(0.00, 0.92, 1.00), smoothstep(0.66, 0.74, x));
-    c = mix(c, vec3(0.05, 0.92, 0.10), smoothstep(0.74, 0.88, x));
+    c += smoothstep(0.00, 0.12, x) * vec3(-0.05, 0.08, 0.35);
+    c += smoothstep(0.12, 0.26, x) * vec3(0.62, 0.00, -0.43);
+    c += smoothstep(0.26, 0.38, x) * vec3(0.38, -0.12, -0.02);
+    c += smoothstep(0.38, 0.50, x) * vec3(0.00, -0.78, 0.70);
+    c += smoothstep(0.50, 0.58, x) * vec3(-0.50, -0.02, 0.30);
+    c += smoothstep(0.58, 0.66, x) * vec3(-0.48, 0.22, 0.00);
+    c += smoothstep(0.66, 0.74, x) * vec3(-0.02, 0.62, 0.00);
+    c += smoothstep(0.74, 0.88, x) * vec3(0.05, 0.00, -0.90);
     return c;
 }
 
@@ -208,9 +212,15 @@ vec4 finalPass() {
     vec3 light = normalize(vec3(-0.45, 0.55, 0.7));
     float diff = max(dot(n, light), 0.0);
     vec3 refl = reflect(-light, n);
-    float spec = pow(max(refl.z, 0.0), 48.0);
-    float sheen = pow(max(refl.z, 0.0), 6.0);
-    float rim = pow(1.0 - n.z, 2.0);
+    // Fixed integer powers by repeated squaring, not exp2(log2).
+    float rz = max(refl.z, 0.0);
+    float rz2 = rz * rz;
+    float rz4 = rz2 * rz2;
+    float rz8 = rz4 * rz4;
+    float rz16 = rz8 * rz8;
+    float spec = rz16 * rz16 * rz16;
+    float sheen = rz4 * rz2;
+    float rim = (1.0 - n.z) * (1.0 - n.z);
 
     float idx = pingPong(s * bands + hue - 0.06 + 1.7 * detail * (c.a - 0.5) + 0.15 * n.x * relief + 0.45 * smoothstep(0.3, 0.75, c.b));
     vec3 col = acidPalette(idx);
@@ -231,10 +241,12 @@ vec4 finalPass() {
     float hw = max(length(vec2(sE.z - sW.z, sN.z - sS.z)) * 0.4, 1e-4);
     float dl = abs(fract(hv) - 0.5) / hw;
     float line = (1.0 - smoothstep(0.6, 1.4, dl)) * (1.0 - smoothstep(0.18, 0.4, hw));
-    float k = floor(hv);
-    vec3 lineCol = acidPalette(0.40 + 0.34 * fract(k * 0.618034));
-    lineCol = mix(lineCol, vec3(1.0), step(0.78, fract(k * 0.371)));
-    col = mix(col, lineCol * (0.55 + 0.6 * diff), line * streaks * smoothstep(0.55, 0.8, d));
+    if (line > 0.0) {
+        float k = floor(hv);
+        vec3 lineCol = acidPalette(0.40 + 0.34 * fract(k * 0.618034));
+        lineCol = mix(lineCol, vec3(1.0), step(0.78, fract(k * 0.371)));
+        col = mix(col, lineCol * (0.55 + 0.6 * diff), line * streaks * smoothstep(0.55, 0.8, d));
+    }
 
     // A thin dark rim at the edge of the paint, then a crisp cut to black.
     col *= 0.3 + 0.7 * smoothstep(0.5, 0.6, d);

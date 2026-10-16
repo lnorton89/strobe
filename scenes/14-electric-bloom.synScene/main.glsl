@@ -10,6 +10,10 @@
 //
 // Two passes: a one-texel clock integrates the sway speed so mids can make
 // the garden stir without the pattern jumping, then the garden is drawn.
+// The layers are drawn front to back, each premultiplied, so a layer is
+// skipped wherever the ones in front of it are already opaque (D310). All
+// three stay at full size: the beaded centres and their rings are sharp on
+// every layer, and a half-size buffer blurred them visibly.
 
 float flowRate() {
     return speed * (1.0 + 0.8 * clamp(syn_MidLevel, 0.0, 1.0) * reactivity);
@@ -78,7 +82,6 @@ void flower(vec2 d, vec3 hv, vec2 id, float layer, float T, float bass, float hi
     // A curling stem down from the flower, behind it: ink outline, then a
     // dark leaf-green core. It stays inside the 0.78-cell reach of the flower.
     float hue0 = hue + 0.88 + 0.95 * pow(hv.x, 1.35) + layer * 0.07 + 0.10 * kick;
-    vec3 V0 = vivid(hue0);
     if (stems > 0.01 && layer > 0.5 && d.y < 0.0) {
         float yl = -d.y;
         float len = 0.30 + 0.30 * hw.y;
@@ -98,6 +101,7 @@ void flower(vec2 d, vec3 hv, vec2 id, float layer, float T, float bass, float hi
     if (rho > min(1.75, 0.78 / R)) { return; }
 
     // Glow: a wide halo in the petal colour and a hot centre.
+    vec3 V0 = vivid(hue0);
     float g1 = exp(-rho * rho * 2.6) * (0.28 + 0.30 * o);
     float g2 = exp(-rho * rho * 30.0) * (0.5 + 1.1 * bass * reactivity + 0.8 * kick);
     glowc = (V0 * g1 + vec3(1.0, 0.78, 0.35) * g2) * glow;
@@ -193,6 +197,62 @@ void flower(vec2 d, vec3 hv, vec2 id, float layer, float T, float bass, float hi
 
 }
 
+// Layer L (0 back, 1 middle, 2 front) at p, premultiplied: rgb is what the
+// layer adds over whatever is behind it (its petals' colour times coverage,
+// plus its glow) and a is its coverage, so the stack is
+// col = col * (1 - a) + rgb. pxs is one pixel in screen heights.
+vec4 layer(int L, vec2 p, float T, float bass, float high, float kick, float pxs) {
+    float fl = float(L);                        // 0 back, 1 middle, 2 front
+    float S = (L == 0 ? 3.7 : (L == 1 ? 2.3 : 1.3)) * density;
+    float ang = (L == 0 ? 0.42 : (L == 1 ? -0.27 : 0.16));
+    float occ = (L == 0 ? 0.78 : (L == 1 ? 0.68 : 0.46));
+    float bright = (L == 0 ? 0.42 : (L == 1 ? 0.78 : 1.0));
+    float aaMul = (L == 0 ? 2.6 : (L == 1 ? 1.0 : 4.5));
+    float c = cos(ang);
+    float s = sin(ang);
+    vec2 q = mat2(c, -s, s, c) * p * S;
+    // Parallax drift: the near layer slides faster than the far one.
+    q += vec2(0.11, 0.07 + 0.05 * fl) * (0.4 + 0.6 * fl) * T * 0.35 + vec2(7.3 * fl, 2.9 * fl);
+    // A slow wobble bends the arrangement away from any lattice.
+    q += 0.18 * vec2(sin(q.y * 0.9 + T * 0.13 + fl), sin(q.x * 0.8 - T * 0.11 + 2.0 * fl));
+    vec2 id0 = floor(q);
+    vec2 f = fract(q);
+    vec2 sgn = vec2(f.x < 0.5 ? -1.0 : 1.0, f.y < 0.5 ? -1.0 : 1.0);
+    float pxc = pxs * S;
+
+    vec3 lc = vec3(0.0);
+    float la = 0.0;
+    float lz = -1.0;
+    vec3 lg = vec3(0.0);
+    for (int k = 0; k < 4; k++) {
+        vec2 off = vec2(float(k - 2 * (k / 2)), float(k / 2)) * sgn;
+        // A centre sits within 0.22 of the middle of its cell, so a cell whose
+        // centre box is farther than the 0.78 reach cannot reach the pixel:
+        // skip it before hashing it.
+        vec2 nearBox = max(abs(f - off - 0.5) - 0.22, 0.0);
+        if (dot(nearBox, nearBox) > 0.6084) { continue; }
+        vec2 id = id0 + off;
+        vec3 hv = _hash32(id + fl * 31.7);
+        if (hv.z > occ) { continue; }
+        vec2 cen = off + 0.5 + (hv.xy - 0.5) * 0.44;
+        vec2 dv = f - cen;
+        if (dot(dv, dv) > 0.6084) { continue; }
+        vec3 fc;
+        float fa;
+        vec3 fg;
+        float fz;
+        flower(dv, hv, id, fl, T, bass, high, kick, pxc, aaMul, fc, fa, fg, fz);
+        lg += fg;
+        if (fa > 0.0) {
+            if (fz > lz) { lc = mix(lc, fc, fa); la = max(la, fa); lz = fz; }
+            else { lc = mix(fc, lc, la); la = max(la, fa); }
+        }
+    }
+    // The back layers sink into a cool haze; glow always adds on top.
+    vec3 tint = mix(vec3(1.0), vec3(0.55, 0.62, 1.0), (1.0 - bright) * 0.8);
+    return vec4(lc * la * bright * tint + lg * bright, la);
+}
+
 vec4 garden(void) {
     float T = texelFetch(clock, ivec2(0), 0).y;
     float bass = clamp(syn_BassLevel, 0.0, 1.0);
@@ -202,56 +262,25 @@ vec4 garden(void) {
     p *= 1.0 - 0.035 * bass * reactivity;
     float pxs = 1.0 / RENDERSIZE.y;                 // one pixel, in screen heights
 
-    vec3 col = vec3(0.0);
-    for (int L = 0; L < 3; L++) {
-        float fl = float(L);                        // 0 back, 1 middle, 2 front
-        float S = (L == 0 ? 3.7 : (L == 1 ? 2.3 : 1.3)) * density;
-        float ang = (L == 0 ? 0.42 : (L == 1 ? -0.27 : 0.16));
-        float occ = (L == 0 ? 0.78 : (L == 1 ? 0.68 : 0.46));
-        float bright = (L == 0 ? 0.42 : (L == 1 ? 0.78 : 1.0));
-        float aaMul = (L == 0 ? 2.6 : (L == 1 ? 1.0 : 4.5));
-        float c = cos(ang);
-        float s = sin(ang);
-        vec2 q = mat2(c, -s, s, c) * p * S;
-        // Parallax drift: the near layer slides faster than the far one.
-        q += vec2(0.11, 0.07 + 0.05 * fl) * (0.4 + 0.6 * fl) * T * 0.35 + vec2(7.3 * fl, 2.9 * fl);
-        // A slow wobble bends the arrangement away from any lattice.
-        q += 0.18 * vec2(sin(q.y * 0.9 + T * 0.13 + fl), sin(q.x * 0.8 - T * 0.11 + 2.0 * fl));
-        vec2 id0 = floor(q);
-        vec2 f = fract(q);
-        vec2 sgn = vec2(f.x < 0.5 ? -1.0 : 1.0, f.y < 0.5 ? -1.0 : 1.0);
-        float pxc = pxs * S;
-
-        vec3 lc = vec3(0.0);
-        float la = 0.0;
-        float lz = -1.0;
-        vec3 lg = vec3(0.0);
-        for (int k = 0; k < 4; k++) {
-            vec2 off = vec2(float(k - 2 * (k / 2)), float(k / 2)) * sgn;
-            vec2 id = id0 + off;
-            vec3 hv = _hash32(id + fl * 31.7);
-            if (hv.z > occ) { continue; }
-            vec2 cen = off + 0.5 + (hv.xy - 0.5) * 0.44;
-            vec2 dv = f - cen;
-            if (dot(dv, dv) > 0.6084) { continue; }
-            vec3 fc;
-            float fa;
-            vec3 fg;
-            float fz;
-            flower(dv, hv, id, fl, T, bass, high, kick, pxc, aaMul, fc, fa, fg, fz);
-            lg += fg;
-            if (fa > 0.0) {
-                if (fz > lz) { lc = mix(lc, fc, fa); la = max(la, fa); lz = fz; }
-                else { lc = mix(fc, lc, la); la = max(la, fa); }
-            }
+    // Front to back. Where a layer is opaque (its petals' interiors) nothing
+    // behind it shows, so the layers behind are not drawn there; what they
+    // would add is at most 0.05% of their colour.
+    const float OPAQUE = 0.9995;
+    vec4 fr = layer(2, p, T, bass, high, kick, pxs);
+    vec3 col = fr.rgb;
+    if (fr.a < OPAQUE) {
+        vec4 m = layer(1, p, T, bass, high, kick, pxs);
+        vec3 behind = m.rgb;
+        if (m.a < OPAQUE) {
+            behind += layer(0, p, T, bass, high, kick, pxs).rgb * (1.0 - m.a);
         }
-        // The back layers sink into a cool haze; glow always adds on top.
-        vec3 tint = mix(vec3(1.0), vec3(0.55, 0.62, 1.0), (1.0 - bright) * 0.8);
-        col = col * (1.0 - la) + lc * la * bright * tint;
-        col += lg * bright;
+        col = behind * (1.0 - fr.a) + fr.rgb;
     }
 
-    // Drifting pollen: two sparse layers of soft specks.
+    // Drifting pollen: two sparse layers of soft specks. Only a cell that
+    // has a speck, and only a pixel within its reach (the halo's 0.28 cell,
+    // or the speck's antialiased edge where that is wider, at a tiny output
+    // size), pays for the rest.
     for (int P = 0; P < 2; P++) {
         float fp = float(P);
         float PS = (P == 0 ? 11.0 : 6.5);
@@ -259,13 +288,15 @@ vec4 garden(void) {
         vec2 pid = floor(pq);
         vec2 pf = fract(pq);
         vec3 ph = _hash32(pid + fp * 17.0);
+        if (ph.x + 0.2 * fp < 0.5) { continue; }
         vec2 pos = 0.5 + (ph.xy - 0.5) * 0.24 + 0.10 * vec2(sin(T * (0.5 + ph.z) + ph.x * 30.0),
                                                            cos(T * (0.4 + ph.y) + ph.z * 30.0));
         float rr = (P == 0 ? 0.055 : 0.075) * (0.6 + 0.8 * ph.z);
         float aap = pxs * PS * 1.5;
         float dist = length(pf - pos);
-        float speck = (1.0 - smoothstep(rr - aap, rr + aap, dist)) * step(0.5, ph.x + 0.2 * fp);
-        float halo = exp(-dist * dist / (rr * rr * 5.0)) * (1.0 - smoothstep(0.10, 0.28, dist)) * step(0.5, ph.x + 0.2 * fp);
+        if (dist >= max(0.28, rr + aap)) { continue; }
+        float speck = 1.0 - smoothstep(rr - aap, rr + aap, dist);
+        float halo = exp(-dist * dist / (rr * rr * 5.0)) * (1.0 - smoothstep(0.10, 0.28, dist));
         float tw = 0.45 + 0.55 * sin(T * 2.0 + ph.y * 40.0);
         float spark = step(0.80 - 0.4 * high, fract(ph.z * 91.0 + floor(T * 4.0 + ph.y * 9.0) * 0.37));
         float amount = pollen * (0.35 + 0.65 * tw + 1.6 * high * spark);

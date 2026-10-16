@@ -4,7 +4,13 @@
 // Pass 0 ("clock", one texel) integrates the speed controls, so moving a
 // slider never jumps the pattern, and gives the frame delta.
 //
-// Pass 1 ("field", double-buffered) is a paint-drag feedback loop. Each
+// Pass 1 ("flowfield", quarter size) evaluates the three broad noise fields
+// the loop steers by (the flow, the tint islands and the large height
+// islands). They change over seconds and have features hundreds of pixels
+// wide, so bilinear filtering of a quarter-size copy is indistinguishable
+// and the full-size pass pays for one noise lookup instead of eleven.
+//
+// Pass 2 ("field", double-buffered) is a paint-drag feedback loop. Each
 // frame it advects last frame's height and tint along a flow made of long
 // shear lanes (the drags) and a curl-noise swirl, smears them along the flow
 // (so streamlines turn into hair-like fibres), sharpens across the flow,
@@ -12,6 +18,7 @@
 // pass edge-detects and embosses that field, posterises it into hard acid
 // colour steps and darkens the contours.
 //
+// Flowfield channels: rg = flow, b = tint target, a = large height islands.
 // Field channels: r = height (fine, bounded 0..1), g = tint (large islands),
 // a = 1 once written (a cleared target reads 0, which re-seeds the field).
 
@@ -61,6 +68,12 @@ float tintAt(vec2 p, float t) {
     return clamp((n - 0.5) * 3.2 + 0.5, 0.0, 1.0);
 }
 
+vec4 flowPass(void) {
+    float t = texelFetch(clock, ivec2(0), 0).y;
+    vec2 p = _uvc;
+    return vec4(flowAt(p, t), tintAt(p, t), _noise(p * 2.6 + vec2(t * 0.03, 1.7)));
+}
+
 vec4 fieldPass(void) {
     float asp = RENDERSIZE.x / RENDERSIZE.y;
     vec2 px = 1.0 / RENDERSIZE;
@@ -75,11 +88,12 @@ vec4 fieldPass(void) {
     float high = clamp(syn_HighLevel, 0.0, 1.0) * reactivity;
 
     // Broad islands decide colour, texture roughness and smear length.
-    float tint = tintAt(p, t);
+    vec4 ff = texture(flowfield, _uv);
+    float tint = ff.b;
     float rough = smoothstep(0.3, 0.7, tint);
 
     // Advect: sample upstream along the flow.
-    vec2 vel = flowAt(p, t) * flow * 0.0032 * frames * (1.0 + 1.6 * bass + 0.9 * hit);
+    vec2 vel = ff.rg * flow * 0.0032 * frames * (1.0 + 1.6 * bass + 0.9 * hit);
     vec2 uvS = _uv - vel / vec2(asp, 1.0);
     // Direction fades to nothing where the flow stalls, so no hatching there.
     vec2 vT = vel * RENDERSIZE;
@@ -120,11 +134,13 @@ vec4 fieldPass(void) {
     h += (fib - 0.5) * (0.03 + 0.10 * rough + 0.05 * high);
     g += (fib - 0.5) * 0.03;
     // Large islands of height, so the fine fibres ride on broad shapes.
-    h = mix(h, _noise(p * 2.6 + vec2(t * 0.03, 1.7)) * 1.3 - 0.15, 0.03);
+    h = mix(h, ff.a * 1.3 - 0.15, 0.03);
 
     // Bubbles: one disc per grid cell, born once per cycle where a slow
     // cluster mask is high, then dragged away by the flow like everything
     // else. Birth is on the clock, once per period at any frame rate.
+    // Most cells are not born this frame, so the rest of the work is skipped
+    // for them.
     const float cells = 20.0;
     vec2 bp = p * cells + vec2(0.0, 7.0);
     vec2 cell = floor(bp);
@@ -132,17 +148,19 @@ vec4 fieldPass(void) {
     vec4 rn = _hash42(cell);
     const float period = 0.4;
     float ph = TIME + rn.z * period;
-    float cyc = floor(ph / period);
     float born = step(mod(ph, period), clk.w);
-    float roll = _hash12(cell + cyc * 17.3);
-    float cluster = smoothstep(0.52, 0.66, _noise(p * 3.1 + vec2(-t * 0.04, t * 0.03)));
-    float want = born * step(roll, bubbles * (0.04 + 0.96 * cluster));
-    float rad = 0.30 + 0.16 * rn.w;
-    float dc = length(f - (rn.xy - 0.5) * 0.3);
-    float disc = want * (1.0 - smoothstep(rad - 0.05, rad, dc));
-    float core = smoothstep(rad * 0.35, rad * 0.75, dc);
-    h = mix(h, fract(roll * 7.0 + cyc * 0.37 + 0.3 * core), disc);
-    g = mix(g, fract(roll * 5.0 + 0.3), disc * 0.6);
+    if (born > 0.0) {
+        float cyc = floor(ph / period);
+        float roll = _hash12(cell + cyc * 17.3);
+        float cluster = smoothstep(0.52, 0.66, _noise(p * 3.1 + vec2(-t * 0.04, t * 0.03)));
+        float want = step(roll, bubbles * (0.04 + 0.96 * cluster));
+        float rad = 0.30 + 0.16 * rn.w;
+        float dc = length(f - (rn.xy - 0.5) * 0.3);
+        float disc = want * (1.0 - smoothstep(rad - 0.05, rad, dc));
+        float core = smoothstep(rad * 0.35, rad * 0.75, dc);
+        h = mix(h, fract(roll * 7.0 + cyc * 0.37 + 0.3 * core), disc);
+        g = mix(g, fract(roll * 5.0 + 0.3), disc * 0.6);
+    }
 
     // Tint follows slowly moving islands.
     g = mix(g, tint, (0.012 + 0.01 * hit) * frames);
@@ -165,14 +183,20 @@ vec3 acid(float x) {
 
 vec4 postPass(void) {
     vec2 uv = _uv;
-    vec2 px = 1.0 / RENDERSIZE;
     float high = clamp(syn_HighLevel, 0.0, 1.0) * reactivity;
 
-    vec2 c = texture(field, uv).rg;
-    float hl = texture(field, uv - vec2(px.x, 0.0)).r;
-    float hr = texture(field, uv + vec2(px.x, 0.0)).r;
-    float hd = texture(field, uv - vec2(0.0, px.y)).r;
-    float hu = texture(field, uv + vec2(0.0, px.y)).r;
+    // The field is the output's size, so its texels sit exactly on the
+    // pixels and a point fetch (wrapped at the edge, as the sampler was) is
+    // what a bilinear tap at a texel centre returns.
+    ivec2 ip = ivec2(_xy);
+    ivec2 sz = ivec2(RENDERSIZE);
+    ivec2 lo = ivec2(ip.x > 0 ? ip.x - 1 : sz.x - 1, ip.y > 0 ? ip.y - 1 : sz.y - 1);
+    ivec2 hi = ivec2(ip.x < sz.x - 1 ? ip.x + 1 : 0, ip.y < sz.y - 1 ? ip.y + 1 : 0);
+    vec2 c = texelFetch(field, ip, 0).rg;
+    float hl = texelFetch(field, ivec2(lo.x, ip.y), 0).r;
+    float hr = texelFetch(field, ivec2(hi.x, ip.y), 0).r;
+    float hd = texelFetch(field, ivec2(ip.x, lo.y), 0).r;
+    float hu = texelFetch(field, ivec2(ip.x, hi.y), 0).r;
     vec2 grad = vec2(hr - hl, hu - hd);
     float edge = length(grad);
 
@@ -209,6 +233,7 @@ vec4 postPass(void) {
 
 vec4 renderMain(void) {
     if (PASSINDEX == 0) { return clockPass(); }
-    if (PASSINDEX == 1) { return fieldPass(); }
+    if (PASSINDEX == 1) { return flowPass(); }
+    if (PASSINDEX == 2) { return fieldPass(); }
     return postPass();
 }
