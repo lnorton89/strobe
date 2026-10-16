@@ -7426,3 +7426,40 @@ rests on the scenes' reported pictures. The check on the AMD desktop is in
 **Would reopen:** an AMD or Intel measurement where native `pow` of a
 negative base is not NaN, or a scene that draws worse on ANGLE because of
 the rewrite.
+
+### D312: a name that can never compile is refused at load, by name; a reserved-for-future word is left to the driver (2026-10-16)
+
+**Context.** The loader already refused names the assembler declares
+(`TIME`, `_uv`, the audio uniforms), because as a control they redeclare a
+uniform and fail with an error at a line of generated code. Three more kinds
+failed the same way and loaded anyway: a GLSL keyword (`smooth`, `flat`,
+`in`, `default`, `vec3`), a built-in the SSF library calls (`texture`,
+`mix`, `fract`, `length`, `step`), whose uniform hides the function from
+the library, and a name the library defines (`_rotate`, `_Media_Contrast`,
+the object-like `#define syn_InputLevel`, whose control the macro silently
+replaces with `syn_Level`). `smooth`, `default` and `mix` are plausible
+control names.
+
+**Decision.** `names::is_reserved` also refuses GLSL 3.30's keywords
+(`KEYWORDS`, `is_type_name`), the preamble's object-like macros
+(`texture2D`, `texture2DLod`), and every name the SSF library defines or
+calls, read from its source once (`library_names`). The error names the
+control. Controls, pass targets, images, cube maps, transition uniforms and
+script uniforms all go through it.
+
+**Not refused.** Words GLSL only reserves for the future (`half`,
+`filter`, `input`, `output`, `double`, `hvec2`) and the words only ES
+reserves (`sample`, `patch`). Mesa refuses the first set on both paths,
+but a lenient driver may not, and a scene that plays there must still load.
+Built-ins the library never calls (`distance`, `sign`) shadow nothing the
+author did not write.
+
+**Evidence.** `render.rs`
+`every_reserved_glsl_word_fails_to_compile_as_a_control`: every refused
+name, as a control returned from `renderMain`, either fails to compile or
+does not reach the shader, in both dialects; the names left alone work.
+`names` test `names_that_can_never_compile_are_reserved`. Every scene in
+`scenes/` still loads.
+
+**Would reopen:** a real scene that plays in Synesthesia with a refused
+name, which would mean its library differs from ours there.

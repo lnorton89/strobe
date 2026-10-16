@@ -1849,3 +1849,100 @@ fn offscreen_rendering_never_touches_the_default_framebuffer() -> Result<()> {
     }
     Ok(())
 }
+
+/// Whether a control called `name`, at 0.5, reaches the red channel of a
+/// scene that returns it: `false` when the scene does not compile or reads
+/// something else under that name. Built around the loader's name check,
+/// so that the names it refuses can be tried.
+fn reaches_the_shader(headless: &Headless, name: &str) -> Result<bool> {
+    let gl = headless.gl();
+    let caps = Caps::from_info(gl.info());
+    let mut scene = folder(
+        r#"{ "CONTROLS": [ {"NAME": "placeholder", "TYPE": "slider", "DEFAULT": 0.5} ] }"#,
+        &format!("vec4 renderMain() {{ return vec4({name}, 0.0, 0.0, 1.0); }}"),
+    )?;
+    for control in &mut scene.def.controls {
+        control.name = name.to_string();
+    }
+    let Ok(mut player) = ScenePlayer::new(gl, &caps, &scene, [8, 8], Options::default()) else {
+        return Ok(false);
+    };
+    let controls = ControlBank::new(scene.def.controls.clone())?;
+    let audio = vec![0.0; SCALARS.len()];
+    player.render(&FrameInputs {
+        time: 0.0,
+        frame: 0,
+        mouse: Mouse::default(),
+        audio: &audio,
+        controls: &controls,
+        transitions: &[],
+    });
+    let pixels = player.read_output();
+    Ok(pixels.first().is_some_and(|red| near(*red, 128)))
+}
+
+#[test]
+fn every_reserved_glsl_word_fails_to_compile_as_a_control() -> Result<()> {
+    // The loader refuses these names (`names::is_reserved`) so that the
+    // error names the control instead of a line of generated code, or a
+    // macro silently swallowing it. This is the evidence that none of them
+    // could have worked, in either dialect.
+    let types = [
+        "vec2",
+        "ivec3",
+        "bvec4",
+        "uvec2",
+        "mat2",
+        "mat4x3",
+        "sampler1D",
+        "sampler2DRect",
+        "isamplerBuffer",
+        "usampler2DMSArray",
+        "sampler1DArrayShadow",
+        "samplerCubeShadow",
+    ];
+    let mut refused: Vec<&str> = strobe_scene::names::KEYWORDS.to_vec();
+    refused.extend(types);
+    refused.extend(strobe_scene::names::library_names().iter().copied());
+    refused.extend(["texture2D", "texture2DLod"]);
+    for api in BOTH {
+        let Some(headless) = context(api)? else {
+            continue;
+        };
+        for name in &refused {
+            assert!(
+                strobe_scene::names::is_reserved(name),
+                "`{name}` is refused by the loader"
+            );
+            assert!(
+                !reaches_the_shader(&headless, name)?,
+                "{api:?}: a control called `{name}` worked, so refusing it refuses a working scene"
+            );
+        }
+        // Words only reserved for a future GLSL, and built-ins the library
+        // never calls, are left to the driver: here, these work.
+        let usable: &[&str] = match api {
+            Api::Gles30 => &["distance", "sign", "noise", "color", "IMG_PIXEL"],
+            Api::DesktopCore33 => &[
+                "sample",
+                "patch",
+                "distance",
+                "sign",
+                "noise",
+                "color",
+                "IMG_PIXEL",
+            ],
+        };
+        for name in usable {
+            assert!(
+                !strobe_scene::names::is_reserved(name),
+                "`{name}` is not refused"
+            );
+            assert!(
+                reaches_the_shader(&headless, name)?,
+                "{api:?}: a control called `{name}` should work"
+            );
+        }
+    }
+    Ok(())
+}
