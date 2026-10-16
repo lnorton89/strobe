@@ -7148,6 +7148,10 @@ or a real Linux GPU that needs more than `hardware.graphics.enable`.
 
 ### D296: tracing and probing the "black above ~160x90" AMD WGL failure; no behaviour change yet (2026-10-15)
 
+**Superseded in part by D311:** the cause is AMD's driver dropping draws
+into targets over 64 KiB until a context has drawn into a small one, and
+every context is now primed with one such draw. The tools below stay.
+
 **Context.** On the JaJa mini-PC (Vega 3, Adrenalin 26.5.2, native WGL),
 `strobe-bench --context window --gl native --filter 05` renders correctly at
 100x60, 160x90, 161x90 and 160x91 and renders all black, in about 0.2 ms, at
@@ -7468,3 +7472,75 @@ renders while the viewer is up; whether to pause it is a separate question.
 
 **Would reopen:** a viewer that feels sluggish to point with (the input pull
 is the lever), or a host stream faster than 5 Hz.
+
+### D311: every GL context is primed with one draw into a 16x16 target, for AMD WGL's dropped large draws (2026-10-15)
+
+**Context.** D296's black frames on the venue mini PC (AMD Ryzen APU,
+Radeon Vega 3, native WGL, driver 31.0.21925.1001) are now root-caused on the
+hardware, through the throwaway `d296-experiment` branch's bisect
+(`strobe-bench --bisect` and its `STROBE_D296_*` switches; not merged). The
+runs are in [`hardware/MINIPC.md`](hardware/MINIPC.md), M11 to M14:
+
+- **M11.** Clears land in every target; draws into any target over 16384
+  pixels (exactly 64 KiB of RGBA8) never write a pixel, with no GL error and
+  no debug message. Reading each new target back (`glReadPixels`) or
+  `glFinish` after creating it leaves the bench black; clearing it red
+  leaves it red. A read or a finish does not unwedge the driver.
+- **M12.** Every stage of the bisect lands (state, shader, vertex stage,
+  target), yet trivial scenes through the bench loop stay black.
+- **M13.** One frame (`--warmup 0 --frames 1`) at 640x360 is black, and so
+  is every frame count up to 150; 128x128 is fine. Frame count is not the
+  trigger.
+- **M14 (decisive).** The player path run first in the process: a solid
+  green scene at 640x360 writes 0 %; the very next draw, the same scene at
+  128x128, 100 %; 640x360 again, 100 %; and every later draw at any size,
+  with new `ScenePlayer`s and new targets, 100 %. With `STROBE_D296_PRIME`
+  (one 1-frame 128x128 scene before the bench loop) every 640x360 scene
+  renders; without it every one is black.
+
+So on this driver, draws into colour targets over 64 KiB are dropped until
+the context has made one draw into a small target. The app escaped it at the
+show because egui's small draws come first; the bench, the corpus and
+autocontrol draw a large target first and got nothing.
+
+**Decision.** Every context is primed once, when it is built: `gl::prime`,
+run from `Gl::from_loader`. One 16x16 RGBA8 texture and framebuffer, a
+program in the context's dialect (`#version 330 core` or `300 es`) drawing
+one full-screen triangle in constant green, a clear, one draw, and a read
+of the 16 x 16 pixels; then framebuffer 0, program 0, vertex array 0 and no
+2D texture bound, the viewport and unpack alignment as they were, and the
+objects freed by their owning types. The outcome is logged once: a
+`debug` line with the time when it lands, a `warn` when it does not land,
+leaves a GL error, or cannot be built. A failed prime never fails context
+creation. `STROBE_GL_NO_PRIME=1` skips it, so the hardware can show whether
+a driver still needs it.
+
+- **Why per context, in `from_loader`.** It is the one place a `Gl` is
+  built: the headless EGL context (`gl::context`) and every windowed context
+  (`gl::window`, the app's output and control windows, the bench's,
+  corpus's and autocontrol's hidden window, a context rebuilt after a loss or
+  an ANGLE fail-over) all go through it. The wedge belongs to a context, not
+  the process, so a new context needs its own prime, and nothing above
+  `gl` has to remember it. Not in a frame: the frame loop pays nothing.
+- **Why the read-back.** It is not what primes (M11), but every recipe that
+  unwedged the driver on the hardware read its pixels back after the small
+  draw (the bisect's probe, the M14 runs, `STROBE_D296_PRIME`), so this one
+  matches them. It also says whether the prime's own draw landed, which the
+  log reports. It is one 1 KiB read at context creation, through the
+  existing `read_rgba8`; no per-frame path is added.
+- **Cost.** About a millisecond on llvmpipe, two tiny shader compiles
+  included (measured in the bench's debug log); once per context.
+
+**Test.** `the_context_prime_leaves_the_state_clean`
+(`strobe-gfx/tests/render.rs`, both dialects): a new context reads as fresh
+(`Bindings::FRESH`, no GL error), a second prime lands and leaves bindings
+and viewport unchanged, and a 640x360 render afterwards is green everywhere.
+llvmpipe never had the AMD bug, so no container can show that the prime
+fixes it; MINIPC.md Task M15 is that check.
+
+**Would reopen:** M15 still black at 640x360 or 1920x1080 on native WGL (the
+prime is not enough: then a larger first draw, or a draw before each new
+large target); a driver update that renders correctly with
+`STROBE_GL_NO_PRIME=1` (the workaround could go, though it costs little to
+keep); a driver on which the prime itself measurably slows context creation
+or warns.
