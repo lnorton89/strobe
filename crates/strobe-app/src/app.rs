@@ -38,7 +38,9 @@
 //!   laptop, where egui's tessellation and the extra swap are a real cost
 //!   and 30 Hz is plenty for sliders. While the fullscreen output covers
 //!   it, it redraws at 2 Hz instead (`update_covered`, TORNADO T10).
-//!   The frame normally runs on the control window's `RedrawRequested`,
+//!   While it shows another Strobe's window (the desktop viewer) it redraws
+//!   for a new image, a change of stage or the person's input, and every
+//!   [`VIEWER_PERIOD`] otherwise (D302). The frame normally runs on the control window's `RedrawRequested`,
 //!   which winit delivers on Windows only from a `WM_PAINT`. Windows makes
 //!   that message for the topmost dirty window first, so an output above
 //!   the control window that is dirty again every pass takes every paint.
@@ -164,6 +166,12 @@ const CONTROL_PERIOD: Duration = Duration::from_millis(33);
 /// it (see [`Running::update_covered`]): enough to keep its state moving,
 /// too seldom for its swap to cost the show a vertical blank.
 const COVERED_PERIOD: Duration = Duration::from_millis(500);
+/// How often the control window redraws while it shows another Strobe's
+/// window (the desktop viewer) and nothing has changed: enough for its
+/// waiting card's clock. A new image from the host, a change of stage and
+/// the person's input each bring the next redraw forward, to at most
+/// [`CONTROL_PERIOD`] after the last (D302).
+const VIEWER_PERIOD: Duration = Duration::from_millis(500);
 /// How long a window size must hold still before the scene is resized.
 const RESIZE_SETTLE: Duration = Duration::from_millis(150);
 /// How often the monitor list is re-read.
@@ -627,6 +635,11 @@ struct Running {
     /// When the next scene frame is due, shown or hidden.
     next_output: Instant,
     next_control: Instant,
+    /// When the control window's last redraw was requested.
+    control_asked: Instant,
+    /// Input reached the control window since its last redraw request; a
+    /// desktop viewer redraws for it (D302).
+    control_input: bool,
     /// The control window has shown it is above the output (it gained focus
     /// or the pointer reached it) since the output last went fullscreen.
     control_on_top: bool,
@@ -970,6 +983,8 @@ impl Running {
             control_covered: false,
             next_output: now,
             next_control: now,
+            control_asked: now,
+            control_input: false,
             actions: launch_action.into_iter().collect(),
             start_time: if screenshot.is_some() {
                 SCREENSHOT_START
@@ -1443,7 +1458,16 @@ impl Running {
                 }
             }
         }
+        if self.desktop_controller.active()
+            && !self.control_unseen()
+            && (std::mem::take(&mut self.control_input) | self.desktop_controller.needs_redraw())
+        {
+            // The viewer redraws for something new, never faster than the
+            // ordinary window (D302).
+            self.next_control = self.next_control.min(self.control_asked + CONTROL_PERIOD);
+        }
         if now >= self.next_control {
+            self.control_asked = now;
             let window = self.stack.control.window();
             window.request_redraw();
             // A minimised window has nothing to draw (`redraw_control` returns
@@ -1455,17 +1479,12 @@ impl Running {
             } else {
                 self.control_drive.due(now)
             };
-            let period = if self.control_unseen() {
-                if self.lan.desktop().is_some_and(|desktop| desktop.active()) {
-                    crate::desktop::STREAM_PERIOD
-                } else {
-                    COVERED_PERIOD
-                }
-            } else if self.control_pacer.is_slow() {
-                crate::stats::SLOW_PERIOD
-            } else {
-                CONTROL_PERIOD
-            };
+            let period = control_period(ControlFacts {
+                unseen: self.control_unseen(),
+                streaming: self.lan.desktop().is_some_and(|desktop| desktop.active()),
+                slow: self.control_pacer.is_slow(),
+                viewing: self.desktop_controller.active(),
+            });
             self.next_control = now + period;
             let run_here = match step {
                 ControlStep::Request => false,
@@ -1618,6 +1637,9 @@ impl Running {
         }
         let is_control = id == self.stack.control.window().id();
         let is_output = id == self.stack.output.window().id();
+        if is_control && is_input(&event) {
+            self.control_input = true;
+        }
         if let WindowEvent::HoveredFile(path) = &event {
             self.import_state.drop_hover = true;
             self.drop_hint = Some(intake::hint(&intake::classify(path)));
@@ -3730,9 +3752,14 @@ impl Running {
                         self.ui_state.panes.open(Pane::Settings);
                     }
                 }
-                Action::DisconnectDesktop => self.desktop_controller.disconnect(),
+                Action::DisconnectDesktop => {
+                    self.desktop_controller.disconnect();
+                    // The local window is back: not the viewer's pace (D302).
+                    self.next_control = Instant::now();
+                }
                 Action::ControlAnotherDesktop => {
                     self.desktop_controller.disconnect();
+                    self.next_control = Instant::now();
                     self.desktop_controller.reveal_form();
                     self.ui_state.panes.open(Pane::Settings);
                 }
@@ -4955,6 +4982,57 @@ fn hidden_period(budget_ms: f32) -> Duration {
     Duration::from_secs_f32(budget_ms / 1000.0).max(OUTPUT_PERIOD)
 }
 
+/// Whether `event` is the person acting on a window (or the window
+/// changing under them), which a desktop viewer redraws for (D302).
+fn is_input(event: &WindowEvent) -> bool {
+    matches!(
+        event,
+        WindowEvent::CursorMoved { .. }
+            | WindowEvent::CursorEntered { .. }
+            | WindowEvent::CursorLeft { .. }
+            | WindowEvent::MouseInput { .. }
+            | WindowEvent::MouseWheel { .. }
+            | WindowEvent::KeyboardInput { .. }
+            | WindowEvent::ModifiersChanged(_)
+            | WindowEvent::Ime(_)
+            | WindowEvent::Touch(_)
+            | WindowEvent::Focused(_)
+            | WindowEvent::Resized(_)
+            | WindowEvent::ScaleFactorChanged { .. }
+    )
+}
+
+/// What decides how often the control window redraws.
+#[derive(Debug, Clone, Copy)]
+struct ControlFacts {
+    /// Nobody can see it: the fullscreen output covers it, or Windows has
+    /// stopped painting it (D290).
+    unseen: bool,
+    /// A desktop remote holds the lease on this window (D275).
+    streaming: bool,
+    /// Making it current waits for the output's swap (D221).
+    slow: bool,
+    /// It shows another Strobe's window (the desktop viewer, D275).
+    viewing: bool,
+}
+
+/// The time between control-window redraws.
+fn control_period(facts: ControlFacts) -> Duration {
+    if facts.unseen {
+        if facts.streaming {
+            crate::desktop::STREAM_PERIOD
+        } else {
+            COVERED_PERIOD
+        }
+    } else if facts.viewing {
+        VIEWER_PERIOD
+    } else if facts.slow {
+        crate::stats::SLOW_PERIOD
+    } else {
+        CONTROL_PERIOD
+    }
+}
+
 /// A render size that could not be allocated, so the resize to it is tried
 /// again every [`ResizeBackoff::RETRY`] instead of every settle period, and
 /// reported once rather than several times a second.
@@ -5695,5 +5773,42 @@ mod tests {
         assert_eq!(hidden_period(2.0), OUTPUT_PERIOD, "a 500 Hz monitor");
         assert_eq!(hidden_period(0.0), OUTPUT_PERIOD, "zero budget");
         assert_eq!(hidden_period(f32::NAN), OUTPUT_PERIOD, "nan budget");
+    }
+
+    #[test]
+    fn a_desktop_viewer_with_nothing_new_redraws_slower_than_the_host_streams() {
+        // A controller on the same two-core laptop as its host redrew its
+        // viewer at 30 Hz for images that change five times a second at
+        // most, and cost the host's show 210 late frames a minute. A new
+        // image or the person's input brings the next redraw forward
+        // (`Running::viewer_due`); with neither there is nothing to draw.
+        let viewing = ControlFacts {
+            unseen: false,
+            streaming: false,
+            slow: false,
+            viewing: true,
+        };
+        assert!(
+            control_period(viewing) > crate::desktop::STREAM_PERIOD,
+            "idle viewer: {:?}",
+            control_period(viewing)
+        );
+        assert_eq!(
+            control_period(ControlFacts {
+                viewing: false,
+                ..viewing
+            }),
+            CONTROL_PERIOD,
+            "the ordinary window in view keeps its 30 Hz"
+        );
+        assert_eq!(
+            control_period(ControlFacts {
+                unseen: true,
+                streaming: true,
+                ..viewing
+            }),
+            crate::desktop::STREAM_PERIOD,
+            "a covered host window with a lease keeps the stream's rate (D290)"
+        );
     }
 }

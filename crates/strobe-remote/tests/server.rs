@@ -1051,6 +1051,25 @@ fn tokens_rotate_and_a_revoked_client_is_dropped_and_refused() -> Result<()> {
 }
 
 #[test]
+fn a_session_ends_when_its_client_leaves_the_list_even_unmarked() -> Result<()> {
+    // `Server::revoke` closes the connections already marked with the
+    // client's id. A revoke (or a revoke all) that lands between a token's
+    // `authenticate`, or an approval, and the connection being marked finds
+    // nothing to close, and the phone went on running commands with a dead
+    // token for as long as it stayed connected. This removes the record
+    // behind the listener's back, which is the state that race leaves.
+    let rig = rig()?;
+    let (client_id, _token, mut ws) = pair(&rig)?;
+    ensure!(rig.clients.revoke(&client_id), "it was paired");
+    assert_eq!(
+        ws.closed()?,
+        1008,
+        "a session whose client is no longer paired is closed as revoked"
+    );
+    Ok(())
+}
+
+#[test]
 fn paired_clients_survive_a_restart_and_revoke_all_clears_them() -> Result<()> {
     let dir: PathBuf =
         std::env::temp_dir().join(format!("strobe-remote-restart-{}", std::process::id()));
