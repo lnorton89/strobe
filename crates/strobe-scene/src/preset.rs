@@ -230,9 +230,13 @@ impl Preset {
         Ok(text)
     }
 
-    /// Reads a preset from JSON.
+    /// Reads a preset from JSON. A leading byte-order mark, as Windows
+    /// editors write into a hand-edited preset, is skipped.
     pub fn from_text(text: &str) -> Result<Self, serde_json::Error> {
-        serde_json::from_str(text)
+        serde_json::from_str(
+            text.strip_prefix(crate::load::BYTE_ORDER_MARK)
+                .unwrap_or(text),
+        )
     }
 }
 
@@ -612,6 +616,17 @@ mod tests {
         assert_eq!(value(&other, "on")?, vec![1.0], "toggle");
         assert_eq!(value(&other_meta, "hue")?, vec![0.5], "meta");
         assert_eq!(value(&other_meta, "master")?, vec![1.0], "master untouched");
+        Ok(())
+    }
+
+    #[test]
+    fn a_hand_written_preset_saved_with_a_byte_order_mark_reads() -> Result<()> {
+        let preset = Preset::from_text("\u{feff}{ \"scene\": { \"speed\": 2 } }")?;
+        assert_eq!(
+            preset.scene.get("speed"),
+            Some(&Value::One(2.0)),
+            "read past the mark"
+        );
         Ok(())
     }
 
