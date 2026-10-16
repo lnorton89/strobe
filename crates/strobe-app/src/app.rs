@@ -49,9 +49,12 @@
 //!   until a paint answers promptly again ([`ControlDrive`], D290). Actions,
 //!   the remote passes, the desktop capture and the playlist compile all
 //!   live in that frame, so a show with nobody at the console needs it.
+//!   While the window is minimised the frame draws nothing and runs only
+//!   those parts that do not draw (`control_chores`, D314).
 //! - **A perf line** is logged once a minute (`stats::PerfWindow`): frame
-//!   rate, late frames, the worst gap, GPU time and the control window's
-//!   redraw cost, so a soak's log alone says where frames went.
+//!   rate, late frames, the worst gap, GPU time, the render scale and the
+//!   control window's redraw cost, so a soak's log alone says where frames
+//!   went.
 //!
 //! The scene is never rendered inside the control window's redraw, so a slow
 //! control window cannot slow the show down. The control window's preview
@@ -421,9 +424,13 @@ impl Stack {
             .map_err(|e| format!("Could not open the control window: {e}"))?;
         // Output waits for vertical blank; control must not, or two vsynced
         // swaps in one loop would halve the frame rate.
-        if let Err(e) = gfx.set_vsync(&output, true) {
-            log::warn!("output vsync: {e}");
-        }
+        let vsync = match gfx.set_vsync(&output, true) {
+            Ok(()) => true,
+            Err(e) => {
+                log::warn!("output vsync: {e}");
+                false
+            }
+        };
         if let Err(e) = gfx.set_vsync(&control, false) {
             log::warn!("control vsync: {e}");
         }
@@ -448,12 +455,16 @@ impl Stack {
             .window()
             .current_monitor()
             .and_then(|monitor| monitor.refresh_rate_millihertz());
-        let perf = Performance::new(
+        let mut perf = Performance::new(
             GpuTimer::new(gfx.gl(), gfx.caps()),
             start.max,
             start.adaptive,
             perf::budget_for(refresh),
         );
+        // Missed refreshes lower the scale too, where there are refreshes
+        // to miss (D314).
+        perf.set_vsync(vsync);
+        perf.set_refresh(refresh);
         log::info!(
             "GPU timing {}; frame budget {:.2} ms ({}); adaptive resolution {}",
             if perf.has_timer() {
@@ -1467,12 +1478,11 @@ impl Running {
         }
         if now >= self.next_control {
             self.control_asked = now;
-            let window = self.stack.control.window();
-            window.request_redraw();
-            // A minimised window has nothing to draw (`redraw_control` returns
-            // at once), and a screenshot captures only what was painted.
-            let size = window.inner_size();
-            let minimized = size.width == 0 || size.height == 0;
+            self.stack.control.window().request_redraw();
+            // A minimised window has nothing to draw: its frame runs only
+            // the parts that do not draw (D314), and a screenshot captures
+            // only what was painted.
+            let minimized = self.control_minimized();
             let step = if minimized || self.screenshot.is_some() {
                 ControlStep::Request
             } else {
@@ -1485,6 +1495,12 @@ impl Running {
                 viewing: self.desktop_controller.active(),
             });
             self.next_control = now + period;
+            if minimized && self.screenshot.is_none() {
+                self.control_chores(now);
+                if self.rebuild.is_some() {
+                    return Instant::now();
+                }
+            }
             let run_here = match step {
                 ControlStep::Request => false,
                 ControlStep::TakeOver { waited, times } => {
@@ -1512,6 +1528,61 @@ impl Running {
             }
         }
         self.next_output.min(self.next_control)
+    }
+
+    /// Whether the control window is minimised, so a frame of it would draw
+    /// nothing anyone sees. The size alone does not say: on Windows an
+    /// undecorated window (the custom title bar, D132) keeps a client area
+    /// when minimised, and the mini PC ran about 116 full control frames a
+    /// minute in that state (M16). `is_minimized` is a window-system query
+    /// (`IsIconic` on Windows), made at the control window's rate, never
+    /// per output frame. A window streamed to a desktop remote (D275) still
+    /// draws, since the viewer sees it.
+    fn control_minimized(&self) -> bool {
+        let window = self.stack.control.window();
+        let size = window.inner_size();
+        let streaming = self.lan.desktop().is_some_and(|desktop| desktop.active());
+        size.width == 0 || size.height == 0 || (window.is_minimized() == Some(true) && !streaming)
+    }
+
+    /// The parts of a control frame that do not draw, for a minimised
+    /// control window (D314): queued actions, a scene load asked for by a
+    /// remote, MIDI or a cue, the playlist's compile step, and saving
+    /// settings. Without them a show run from a phone or a MIDI controller
+    /// with the console minimised would never load the next scene, since a
+    /// load is asked for in one frame and done in the next control frame.
+    /// The browser's preview waits for the window to come back. Counts as a
+    /// control frame for `redraw_output`'s compile backstop, since it
+    /// compiles too.
+    fn control_chores(&mut self, now: Instant) {
+        self.last_control_frame = now;
+        self.ui_state.tick(now);
+        self.remote.persist(now);
+        if self.rebuild.is_some() {
+            return;
+        }
+        let mut actions = std::mem::take(&mut self.actions);
+        self.apply(&mut actions);
+        self.actions = actions;
+        // Nobody sees "preparing", so there is nothing to wait for.
+        if let Some(index) = self.pending_load.take() {
+            self.load(index);
+        }
+        let compiling = self
+            .stack
+            .show
+            .as_ref()
+            .is_some_and(|show| show.phase() == Phase::Compiling);
+        // The surface the scene frame keeps current: no extra switch, so no
+        // wait for the output's swap (D216).
+        let surface = if self.output_visible {
+            Surface::Output
+        } else {
+            Surface::Control
+        };
+        if compiling && self.rebuild.is_none() && self.make_current(surface) {
+            self.compile_show_step();
+        }
     }
 
     /// Whether nobody can see the control window: the fullscreen output
@@ -4256,10 +4327,18 @@ impl Running {
             }
         }
         let measured = self.stats.begin(started);
+        if shown {
+            // The interval since the last frame swapped to the output: on a
+            // vsynced display, a whole number of refreshes (D314).
+            self.stack
+                .perf
+                .presented(self.stats.last_interval() * 1000.0, started);
+        }
         self.perf_log.frame(
             started,
             self.stack.perf.budget_ms(),
             self.stack.perf.gpu_ms(),
+            self.render_scale,
         );
         if let Some(line) = self.perf_log.take_due(started) {
             log::info!("{line}");
@@ -4445,6 +4524,23 @@ impl Running {
             self.resize_now = true;
             return;
         }
+        if let Some(missed) = change.missed {
+            log::info!(
+                "adaptive resolution: render scale {:.2} -> {:.2}: {} of the last {} frames missed \
+                 the display's refresh ({:.1} ms cadence) with GPU {:.1} ms against a {:.1} ms \
+                 budget (D314)",
+                change.from,
+                change.to,
+                missed.late,
+                missed.frames,
+                missed.cadence_ms,
+                change.gpu_ms,
+                change.budget_ms
+            );
+            self.render_scale = change.to;
+            self.resize_now = true;
+            return;
+        }
         log::info!(
             "adaptive resolution: render scale {:.2} -> {:.2} (GPU {:.1} ms against a {:.1} ms budget)",
             change.from,
@@ -4462,10 +4558,14 @@ impl Running {
     fn redraw_control(&mut self, unpainted: bool) {
         let began = Instant::now();
         self.last_control_frame = began;
-        let size = self.stack.control.window().inner_size();
-        if size.width == 0 || size.height == 0 {
+        if self.control_minimized() {
+            // A paint for a minimised window: nothing to draw (D314).
+            if self.screenshot.is_none() {
+                self.control_chores(began);
+            }
             return;
         }
+        let size = self.stack.control.window().inner_size();
         let current_began = Instant::now();
         if !self.make_current(Surface::Control) {
             return;

@@ -7661,3 +7661,161 @@ targets could be handed to the show's first session.
 `a_rebuilt_context_gives_the_operators_meta_settings_back`: master at 0 and
 hue at 0.25, saved, scene reloaded into a fresh session, restored: master
 still 0, hue still 0.25, the scene's control kept. It failed before.
+
+### D314: missed refreshes lower the render scale even when the mean GPU time is under budget; a minimised control window draws nothing (2026-10-16)
+
+**Context.** Task M16 on the venue mini PC (Vega 3, fullscreen 1920x1080
+output, vsync at 60 Hz; [`hardware/MINIPC.md`](hardware/MINIPC.md)) held
+13-chromatic-rise for minutes. With adaptive resolution on it ran 42.6 to
+44.6 fps, a mean GPU time of 12.4 to 13.6 ms and 7 to 10% late frames, and
+the scale went 1.00 -> 0.90 -> 0.95 once and then sat (in one run it never
+moved). `--no-adaptive --render-scale 1` gave the same: 42.2 fps, 13.6 ms,
+about 9% late. Scenes 04, 05, 08, 14 and 16 behaved alike (12.6 to 13.8 ms,
+about 47 fps over a 33 h soak). The machine was not CPU-bound (strobe about
+5%) or throttled, `--remote` and the D290 control frames made no difference,
+and a show-night build did the same, so it is not a regression.
+
+**Why the controller settled.** `AdaptiveScale` (D64, D280) is fed one
+number per frame, the GPU timer's measurement of the scene work and the blit
+to the output, and smooths it into an exponential average (weight 0.1). It
+lowers the scale when that average stays over 1.05 budgets for 12 samples in
+a row, and raises it one step after 120 samples under 0.70 budgets; the
+budget is one refresh period of the output's monitor. At 13.6 ms of 16.7 the
+load is 0.82: no drop, no raise. The one move seen fits a hitch: on a
+13.6 ms scene a single sample of about 140 ms or more holds the average over
+the drop line for the 12 samples a drop needs (a 200 ms one for 14), and a
+140 ms one lands on 0.90; there the load was 0.66, under the raise line, so
+two seconds later it rose to 0.95 (0.74, between the lines) and sat. Meanwhile the GPU's spikes, plus the present and
+compositor overhead the timer does not see, pushed about one frame in eleven
+past vertical blank: the audience saw a mix of 16.7 and 33.3 ms intervals,
+42 to 45 fps. The mean was the wrong signal for "is the show smooth".
+
+**Decision.**
+- **The presented interval is a second signal.** Each output frame that is
+  swapped to a shown output reports the interval since the previous one
+  (`Performance::presented`, from `scene_frame`'s existing `FrameStats`
+  interval; arithmetic only, no allocation, no GL query). The controller
+  counts, per window of `LATE_WINDOW` (120) frames, the intervals longer than
+  `LATE_FACTOR` (1.5) display cadences, the perf line's definition of late.
+  Intervals inside a change's cooldown are left out (the first frames at a
+  new size pay for its targets).
+- **The rule.** When `LATE_WINDOWS_TO_DROP` (2) windows in a row each have at
+  least `LATE_PER_WINDOW` (5, about 4%) late frames, and the GPU average is at
+  least `LATE_MIN_LOAD` (0.6) of the cadence, the scale drops one step:
+  `quantise_down(scale * sqrt(LATE_AREA))` with `LATE_AREA` 0.85, which is
+  1.00 -> 0.90 -> 0.80 -> 0.70. M16's 7 to 10% is two to three times the
+  threshold; the shipped scenes that held 60 fps on this machine (M2) ran 0
+  to 1.3%. Two windows is four seconds of judder at 60 Hz, and a burst (a
+  heavy beat, a transition, one hitch) fills one window, not two. The step
+  is small because the late share says that frames miss, not by how much;
+  each step re-measures after the cooldown and two fresh windows (about
+  4.5 s). The load floor keeps a cheap scene at 1.0 whatever else is costing
+  frames (the CPU, the compositor, another window) and bounds how far the
+  late rule alone can take a scene: 13 at 13.6 ms can go to 0.80 (8.7 ms)
+  and no further on lateness.
+- **Climbing back has a memory.** A late drop records the GPU average the
+  frames were late at (the lowest such, since the measurements were last
+  forgotten). A raise then also needs the area-proportional prediction for
+  the next step under `RECLIMB_MARGIN` (0.85) of that, and no window
+  currently missing. Without it a steady scene at 0.90 (load 0.66, under the
+  raise line) climbs back into the judder two seconds later; with it, 13 stays
+  at 0.90, while a scene whose cost drops (a quiet passage) climbs back to
+  1.0. Area-proportional prediction over-predicts for a scene with fixed
+  costs, so the gate errs towards staying down. A new scene, a context
+  rebuild or a new ceiling forgets the memory.
+- **D280 still judges.** A late drop is a drop: it is measured against the
+  GPU time before it, undone when it cut too little, and locked after two
+  such verdicts, so a scene whose misses are not its pixels ends at the scale
+  it had.
+- **One hitch no longer moves the mean far.** A sample enters the average as
+  at most `HITCH_CAP` (2) times the larger of the average and the budget, so a
+  200 ms frame on a 13.6 ms scene lifts the average to 15.6 ms, under the drop
+  line. A scene that really got heavier gets there a few samples later, as
+  the cap rises with the average. The first sample after the measurements
+  were forgotten is taken as it is (the hold after a load covers its hitches).
+- **The cadence is the display's period, never faster than 60 Hz**
+  (`FASTEST_CADENCE_MS`). The output loop presents at the display's rate
+  through vsync (capped at 144 Hz by `OUTPUT_PERIOD`), and the GPU budget
+  stays one refresh period as D64 set it; only the late rule is held at
+  60 Hz, so on a 144 Hz monitor a frame shown every second refresh (13.9 ms)
+  is not late, and lateness means under about 40 fps.
+- **When the rule is off.** With the refresh rate unknown (the budget is then
+  the assumed 60 Hz), with the output's vsync not set, with the output hidden
+  (nothing is presented, so `presented` is not called), while the scene pins
+  its final pass, during the hold after a load, and with adaptation off
+  (`--no-adaptive`) or without timer queries. In all of those the mean alone
+  decides, exactly as before; an explicit `--render-scale` stays the ceiling.
+  An unknown rate falls back to today's behaviour rather than to a 60 Hz
+  cadence because a display that is really at 30 or 50 Hz would then read as
+  late on every frame.
+- **The log says why.** A late drop logs "adaptive resolution: render scale
+  1.00 -> 0.90: N of the last M frames missed the display's refresh (16.7 ms
+  cadence) with GPU x ms against a 16.7 ms budget (D314)", and the per-minute
+  perf line now carries the scale (`scale 0.90`, or `0.85-0.90` when it moved
+  in that minute), which is what Task M18 compares.
+
+**The minimised control window (the same run's small item).** M16 run C
+logged about 116 loop-driven control redraws a minute with the control window
+minimised. The existing guard (`schedule` and `redraw_control` skip a window
+whose client area is 0x0) does not fire on Windows for the undecorated window
+the custom title bar uses (D132): it keeps a client area when minimised. The
+redraws cost nothing measurable, but they drew a window nobody sees. Now
+`control_minimized` also asks winit's `is_minimized` (`IsIconic` on Windows;
+asked at the control window's rate, never per output frame), and a minimised
+window's frame runs `control_chores` instead of drawing: queued actions, the
+load a remote, MIDI or LAN command asked for (`request_load` defers a load to
+the next control frame, so skipping the frame outright would have left a show
+run from a phone or MIDI with the console minimised unable to change scenes),
+the playlist's compile step on the surface the scene frame keeps current, and
+the settings and mapping saves. That also sets `last_control_frame`, so
+`redraw_output`'s `CONTROL_QUIET` backstop does not compile twice. The
+browser's preview scene waits for the window to come back. A window streamed
+to a desktop remote (D275) keeps drawing while minimised, since the viewer
+sees it; a screenshot run keeps its old behaviour. Before this, a decorated
+minimised window (0x0) ran nothing at all, so remote and MIDI scene loads
+also waited for it to be restored; they now run.
+
+**Not chosen.**
+- *The 90th percentile of GPU time over a window.* It needs a sorted window or
+  a histogram per frame, and it still misses the present and compositor
+  overhead the timer cannot see, which M16 suggests is part of the miss. The
+  late share measures the outcome itself; the GPU average stays as the guard
+  that the GPU is plausibly the cause.
+- *A lower mean target* (dropping above, say, 0.8 budgets). It would lower
+  every scene in that band, including ones that present every frame on time,
+  and would still not know about the overhead.
+- *Expiring the climb memory on a timer.* A probe back up every few minutes
+  on a steady scene is a few seconds of judder each time. The memory is
+  forgotten with the scene, and a cheaper passage climbs on its own.
+- *Skipping the minimised control frame outright.* As above, it would strand
+  deferred scene loads; `control_chores` keeps them.
+
+**Test.** `strobe_gfx::adaptive::tests`, on synthetic frame sequences:
+`missed_refreshes_lower_the_scale_with_the_mean_under_budget` (the M16
+pattern: 13.6 ms mean, one interval in eleven 33 ms; one step within the two
+windows, the change reports the late count, then five minutes without
+climbing back), `missing_refreshes_lower_step_by_step_until_they_stop`,
+`a_late_scene_under_the_raise_line_at_full_size_is_still_lowered`,
+`a_steady_ten_ms_scene_stays_at_full_resolution`,
+`a_cheap_scene_is_not_lowered_for_late_frames_it_does_not_cause`,
+`an_isolated_hitch_does_not_change_the_scale` (200 ms on a 13.6 ms scene),
+`a_short_burst_of_late_frames_does_not_change_the_scale`,
+`a_lowered_scene_whose_cost_drops_climbs_back`,
+`a_borderline_scene_does_not_oscillate` (about 4% late at 1.0, ten minutes,
+at most one change), `late_drops_that_cut_no_gpu_time_are_undone_and_locked`,
+`two_period_frames_on_a_144_hz_display_are_not_late`,
+`with_no_display_period_late_frames_are_ignored` and
+`a_new_scene_forgets_the_late_ceiling`. `strobe_app::perf::tests`:
+`missed_refreshes_are_watched_only_with_vsync_and_a_known_rate`,
+`the_m16_pattern_lowers_the_scale_and_the_change_says_why` and
+`late_frames_in_the_hold_after_a_scene_load_are_not_counted`. The perf line's
+scale is in `a_minute_is_summarised_once_with_late_frames_counted`. The
+minimised path cannot be reproduced off Windows; the acceptance test for
+both halves is the projector, Task M18 in MINIPC.md.
+
+**Would reopen:** M18 still at 42 to 45 fps after the scale has stepped down
+(then the misses are not the GPU's, and the lever is elsewhere: the
+compositor, the swap, the control window); the scale stepping down on a
+scene that was presenting every frame; oscillation on the projector; or a
+show from a phone or MIDI with the console minimised that does not change
+scenes.

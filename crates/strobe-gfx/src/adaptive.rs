@@ -1,7 +1,8 @@
 // ============================================================================
 // Module:       strobe_gfx::adaptive
 // Description:  Adaptive render scale: lowers resolution when the GPU misses
-//               its frame budget and raises it back when there is headroom.
+//               its frame budget or the display's refreshes are being missed,
+//               and raises it back when there is headroom.
 //
 // Dependencies: None; pure arithmetic over measured frame times.
 // ============================================================================
@@ -49,12 +50,36 @@
 //!   probe then locks it again for twice as long, up to
 //!   [`MAX_LOCK_FRAMES`]. A scene change lifts it
 //!   ([`AdaptiveScale::reset_measurements`]); raising is always allowed.
+//! - **Missed refreshes count, not only the mean (D314).** A scene whose
+//!   mean GPU time sits under the budget can still miss vertical blank on
+//!   enough frames (GPU spikes, present and compositor overhead) that the
+//!   audience sees 42-45 fps, a mix of one- and two-period intervals; the
+//!   mini PC did this for minutes with the mean rule satisfied (M16). So
+//!   the caller also reports each presented frame's interval
+//!   ([`AdaptiveScale::presented`]). An interval over [`LATE_FACTOR`]
+//!   display cadences is late; [`LATE_WINDOWS_TO_DROP`] windows in a row of
+//!   [`LATE_WINDOW`] frames with at least [`LATE_PER_WINDOW`] late each lower
+//!   the scale by one step of about 15% of the area, as long as the GPU is
+//!   busy enough to be the cause ([`LATE_MIN_LOAD`] of the cadence). The
+//!   GPU time the frames were late at is remembered, and the scale climbs
+//!   back only to a size predicted to cost clearly less than that
+//!   ([`RECLIMB_MARGIN`]), so a steady scene does not climb into the same
+//!   judder every few seconds while a scene that gets cheaper still does.
+//!   The cadence is the display's period but never faster than 60 Hz
+//!   ([`FASTEST_CADENCE_MS`]), so a 144 Hz monitor's two-period frames are
+//!   not late. With no known display period (an unknown refresh rate, a
+//!   hidden output with nothing presented) the rule is off and only the
+//!   mean decides, as before.
 
 /// Scale changes are multiples of this.
 pub const STEP: f32 = 0.05;
 
 /// Smoothing for the frame-time average: the weight of the newest sample.
 const EMA_WEIGHT: f32 = 0.1;
+
+/// The most one sample may enter the average as, in multiples of the
+/// larger of the average and the budget.
+const HITCH_CAP: f32 = 2.0;
 
 /// Over budget by more than this fraction triggers a drop.
 const DROP_THRESHOLD: f32 = 1.05;
@@ -102,6 +127,47 @@ pub const LOCK_FRAMES: u32 = 1800;
 /// The longest a lock lasts: four minutes at 60 Hz.
 pub const MAX_LOCK_FRAMES: u32 = 8 * LOCK_FRAMES;
 
+/// A presented interval longer than this many display cadences missed at
+/// least one refresh: a 33.3 ms frame at 60 Hz is late, a 20 ms one that
+/// only jittered is not. The same line as the per-minute perf log's.
+pub const LATE_FACTOR: f32 = 1.5;
+
+/// The fastest cadence the late rule holds the output to: 60 Hz. A faster
+/// display's period is not the target, so a 144 Hz monitor showing a 10 ms
+/// scene every second refresh (13.9 ms) is not missing anything.
+pub const FASTEST_CADENCE_MS: f32 = 1000.0 / 60.0;
+
+/// Presented frames the late share is counted over: two seconds at 60 Hz.
+pub const LATE_WINDOW: u32 = 120;
+
+/// Late frames in one window that count it as missing refreshes: 5 of 120,
+/// about 4%, or two or three visible judders a second. M16 measured 7 to
+/// 10%; the shipped scenes that held 60 fps on the mini PC ran 0 to 1.3%.
+pub const LATE_PER_WINDOW: u32 = 5;
+
+/// Missing windows in a row before a drop: four seconds of judder at 60 Hz.
+/// One burst (a heavy beat, a transition, a hitch) fills one window, not two.
+pub const LATE_WINDOWS_TO_DROP: u32 = 2;
+
+/// The least GPU load, as a fraction of the cadence, at which late frames
+/// are blamed on the GPU. Below it the misses come from somewhere the
+/// render scale cannot reach (the CPU, the compositor, another window), and
+/// lowering would cost sharpness for nothing; it also bounds how far the
+/// late rule alone can take a scene.
+pub const LATE_MIN_LOAD: f32 = 0.6;
+
+/// The area one late drop keeps. Each drop is one small step (1.0 -> 0.90,
+/// 0.90 -> 0.80 after quantising down), because the late share does not say
+/// how far over the edge the frames are, only that they are.
+const LATE_AREA: f32 = 0.85;
+
+/// After a late drop, raising is allowed only to a scale whose predicted
+/// GPU time (area-proportional, which over-predicts for a scene with fixed
+/// costs) is under this fraction of the GPU time the frames were late at.
+/// Without it a steady scene climbs back into the same judder two seconds
+/// after leaving it.
+pub const RECLIMB_MARGIN: f32 = 0.85;
+
 /// A lowering that did not cut the GPU time, as [`AdaptiveScale::undone`]
 /// and [`AdaptiveScale::futile`] report it.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -117,6 +183,18 @@ pub struct Futile {
     /// Frames lowering is locked at `scale` for, or `None` when this was
     /// the first strike and the controller may try again.
     pub lock_frames: Option<u32>,
+}
+
+/// A drop made because presented frames kept missing the display's
+/// refresh, as [`AdaptiveScale::missed`] reports it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Missed {
+    /// Late frames over the windows that caused the drop.
+    pub late: u32,
+    /// Frames presented over those windows.
+    pub frames: u32,
+    /// The display cadence the intervals were judged against.
+    pub cadence_ms: f32,
 }
 
 /// The controller.
@@ -147,6 +225,21 @@ pub struct AdaptiveScale {
     next_lock: u32,
     /// The futile drop the last [`Self::observe`] undid.
     undone: Option<Futile>,
+    /// The display cadence the late rule judges intervals against, or
+    /// `None` when the rule is off.
+    cadence_ms: Option<f32>,
+    /// Intervals and late ones counted in the current window.
+    window_frames: u32,
+    window_late: u32,
+    /// Missing windows in a row, and the late frames and frames over them.
+    late_windows: u32,
+    late_run: u32,
+    late_run_frames: u32,
+    /// The smoothed GPU time frames were missing refreshes at, since the
+    /// measurements were last forgotten: the ceiling for climbing back.
+    late_ms: Option<f32>,
+    /// The late drop the last [`Self::observe`] made.
+    missed: Option<Missed>,
 }
 
 impl AdaptiveScale {
@@ -172,6 +265,14 @@ impl AdaptiveScale {
             lock_left: 0,
             next_lock: LOCK_FRAMES,
             undone: None,
+            cadence_ms: None,
+            window_frames: 0,
+            window_late: 0,
+            late_windows: 0,
+            late_run: 0,
+            late_run_frames: 0,
+            late_ms: None,
+            missed: None,
         }
     }
 
@@ -186,6 +287,70 @@ impl AdaptiveScale {
     /// returned is that undoing.
     pub fn undone(&self) -> Option<Futile> {
         self.undone
+    }
+
+    /// The late drop the last [`Self::observe`] made, when the scale it
+    /// returned is one: presented frames kept missing the refresh.
+    pub fn missed(&self) -> Option<Missed> {
+        self.missed
+    }
+
+    /// The display's refresh period in milliseconds, or `None` when it is
+    /// unknown: the late rule is then off. The cadence judged against is
+    /// this period, never faster than [`FASTEST_CADENCE_MS`].
+    pub fn set_display_period(&mut self, period_ms: Option<f32>) {
+        let cadence = period_ms
+            .filter(|ms| ms.is_finite() && *ms > 0.0)
+            .map(|ms| ms.max(FASTEST_CADENCE_MS));
+        if cadence != self.cadence_ms {
+            self.cadence_ms = cadence;
+            self.restart_window();
+        }
+    }
+
+    /// The cadence the late rule judges against, while it is on.
+    pub fn cadence_ms(&self) -> Option<f32> {
+        self.cadence_ms
+    }
+
+    /// Records one presented frame's interval since the one before, in
+    /// milliseconds. It only counts; [`Self::observe`] decides. Intervals
+    /// inside a cooldown are left out, since the first frames at a new size
+    /// pay for its targets.
+    pub fn presented(&mut self, interval_ms: f32) {
+        let Some(cadence) = self.cadence_ms else {
+            return;
+        };
+        if !interval_ms.is_finite() || interval_ms < 0.0 || self.cooldown > 0 {
+            return;
+        }
+        self.window_frames += 1;
+        if interval_ms > cadence * LATE_FACTOR {
+            self.window_late += 1;
+        }
+        if self.window_frames < LATE_WINDOW {
+            return;
+        }
+        if self.window_late >= LATE_PER_WINDOW {
+            self.late_windows += 1;
+            self.late_run += self.window_late;
+            self.late_run_frames += self.window_frames;
+        } else {
+            self.late_windows = 0;
+            self.late_run = 0;
+            self.late_run_frames = 0;
+        }
+        self.window_frames = 0;
+        self.window_late = 0;
+    }
+
+    /// Starts the late count over, for a change of scale or cadence.
+    fn restart_window(&mut self) {
+        self.window_frames = 0;
+        self.window_late = 0;
+        self.late_windows = 0;
+        self.late_run = 0;
+        self.late_run_frames = 0;
     }
 
     /// The current render scale.
@@ -245,6 +410,8 @@ impl AdaptiveScale {
         self.probe_frames = 0;
         self.over = 0;
         self.under = 0;
+        self.late_ms = None;
+        self.restart_window();
     }
 
     /// Clears every verdict, for a new scene: it may depend on resolution
@@ -261,11 +428,23 @@ impl AdaptiveScale {
     /// changed, so the caller resizes only then.
     pub fn observe(&mut self, gpu_ms: f32) -> Option<f32> {
         self.undone = None;
+        self.missed = None;
         if !gpu_ms.is_finite() || gpu_ms < 0.0 {
             return None;
         }
+        // One hitch enters the average as at most twice the larger of the
+        // average and the budget. Uncapped, a 200 ms frame on a 13.6 ms
+        // scene held the average over the drop line for 14 frames, two more
+        // than a drop needs (D314). A scene that really got heavier still
+        // gets there a few frames later: the cap rises with the average.
+        // The first sample after the measurements were forgotten starts
+        // the average as it is (a scene load's own hitches are held off by
+        // the caller).
         let average = match self.average_ms {
-            Some(average) => average + (gpu_ms - average) * EMA_WEIGHT,
+            Some(average) => {
+                let sample = gpu_ms.min(HITCH_CAP * average.max(self.budget_ms));
+                average + (sample - average) * EMA_WEIGHT
+            }
             None => gpu_ms,
         };
         self.average_ms = Some(average);
@@ -297,12 +476,40 @@ impl AdaptiveScale {
             self.under = 0;
         }
 
+        let late = self.late_windows >= LATE_WINDOWS_TO_DROP
+            && self
+                .cadence_ms
+                .is_some_and(|cadence| average >= cadence * LATE_MIN_LOAD);
         let target = if self.over >= DROP_AFTER {
             // Area-proportional: aim a little under budget so one drop is
             // usually enough.
             quantise_down(self.scale * (0.9 / load).sqrt())
+        } else if late {
+            // Refreshes are being missed with the mean under budget: one
+            // small step, and remember what the GPU took while they were.
+            self.late_ms = Some(self.late_ms.map_or(average, |ms| ms.min(average)));
+            self.missed = self.cadence_ms.map(|cadence_ms| Missed {
+                late: self.late_run,
+                frames: self.late_run_frames,
+                cadence_ms,
+            });
+            quantise_down(self.scale * LATE_AREA.sqrt())
         } else if self.under >= RAISE_AFTER {
-            quantise(self.scale + STEP)
+            let up = quantise(self.scale + STEP);
+            // Not while refreshes are being missed, and after a late drop
+            // only to a size predicted to cost clearly less than the GPU
+            // time the frames were late at.
+            let ratio = up / self.scale.max(STEP);
+            let predicted = average * ratio * ratio;
+            if self.late_windows > 0
+                || self
+                    .late_ms
+                    .is_some_and(|late_ms| predicted > late_ms * RECLIMB_MARGIN)
+            {
+                self.under = 0;
+                return None;
+            }
+            up
         } else {
             return None;
         };
@@ -312,8 +519,14 @@ impl AdaptiveScale {
             .map_or(self.min, |futile| futile.scale.max(self.min));
         let target = target.clamp(floor.min(self.max), self.max);
         if (target - self.scale).abs() < STEP * 0.5 {
+            // At the floor, the lock or the ceiling: nothing to change. A
+            // late step that could not be taken counts its windows afresh;
+            // anything else leaves the late count running.
             self.over = 0;
             self.under = 0;
+            if self.missed.take().is_some() {
+                self.restart_window();
+            }
             return None;
         }
         if target < self.scale {
@@ -329,6 +542,7 @@ impl AdaptiveScale {
         self.over = 0;
         self.under = 0;
         self.cooldown = COOLDOWN_FRAMES;
+        self.restart_window();
         // The average was measured at the old size; scale it to the new
         // area so the next decision does not act on stale load.
         self.average_ms = None;
@@ -374,6 +588,7 @@ impl AdaptiveScale {
         self.over = 0;
         self.under = 0;
         self.cooldown = COOLDOWN_FRAMES;
+        self.restart_window();
         self.average_ms = None;
         Some(from)
     }
@@ -727,6 +942,274 @@ mod tests {
             simulate_cost(&mut c, |_| 4.0, 1500),
             1.0,
             "headroom still raises the scale"
+        );
+    }
+
+    // ------------------------------------------------- missed refreshes (D314)
+
+    /// One refresh period at 60 Hz.
+    const PERIOD: f32 = 1000.0 / 60.0;
+
+    /// A controller on a 60 Hz display, as the app builds one.
+    fn sixty_hz() -> AdaptiveScale {
+        let mut c = AdaptiveScale::new(PERIOD, 0.25, 1.0);
+        c.set_display_period(Some(PERIOD));
+        c
+    }
+
+    /// What a run of [`present`] saw.
+    #[derive(Debug, Default)]
+    struct Run {
+        /// Scale changes.
+        changes: u32,
+        /// The frame of the first change, if any.
+        first_change: Option<u32>,
+        /// The late drop reported with the first change that was one.
+        missed: Option<Missed>,
+        /// The lowest scale reached.
+        lowest: f32,
+    }
+
+    /// Feeds `frames` frames presented on a vsynced 60 Hz display. For
+    /// frame `i` at scale `s`, `frame(s, i)` gives the GPU time and whether
+    /// the frame missed its refresh (an interval of two periods, else one).
+    fn present(
+        c: &mut AdaptiveScale,
+        frames: u32,
+        mut frame: impl FnMut(f32, u32) -> (f32, bool),
+    ) -> Run {
+        let mut run = Run {
+            lowest: c.scale(),
+            ..Run::default()
+        };
+        for i in 0..frames {
+            let (gpu_ms, late) = frame(c.scale(), i);
+            c.presented(if late { 2.0 * PERIOD } else { PERIOD });
+            if c.observe(gpu_ms).is_some() {
+                run.changes += 1;
+                run.first_change = run.first_change.or(Some(i));
+                run.missed = run.missed.or(c.missed());
+            }
+            run.lowest = run.lowest.min(c.scale());
+        }
+        run
+    }
+
+    /// The mini PC's scene 13 (M16): 13.6 ms of GPU at full size, area
+    /// proportional, and one frame in eleven (9%) a refresh late while the
+    /// scale is above 0.92. A slight wobble keeps the mean honest.
+    fn chromatic_rise(s: f32, i: u32) -> (f32, bool) {
+        let wobble = 1.0 + 0.05 * ((i % 7) as f32 - 3.0) / 3.0;
+        (13.6 * s * s * wobble, s > 0.92 && i.is_multiple_of(11))
+    }
+
+    /// A repeatable noise in -1..1 for frame `i`.
+    fn noise(i: u32) -> f32 {
+        let x = i.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+        let x = x ^ (x >> 15);
+        let x = x.wrapping_mul(0x2c1b_3c6d);
+        let x = x ^ (x >> 12);
+        (x >> 8) as f32 / (1_u32 << 24) as f32 * 2.0 - 1.0
+    }
+
+    #[test]
+    fn missed_refreshes_lower_the_scale_with_the_mean_under_budget() {
+        // The M16 pattern: the mean (13.6 of 16.7 ms) never trips the old
+        // rule, but 9% of the intervals are 33 ms.
+        let mut c = sixty_hz();
+        let run = present(&mut c, 600, chromatic_rise);
+        assert!(c.scale() < 1.0, "lowered within 10 s: {}", c.scale());
+        assert!(
+            run.first_change
+                .is_some_and(|frame| frame <= 2 * LATE_WINDOW + 10),
+            "within the two windows it takes: {run:?}"
+        );
+        assert!(
+            run.missed
+                .is_some_and(|m| m.late >= 2 * LATE_PER_WINDOW && m.frames == 2 * LATE_WINDOW),
+            "and the change says how many frames were late: {run:?}"
+        );
+        let settled = c.scale();
+        assert!(
+            (settled - 0.9).abs() < 1e-4,
+            "one step, to where the frames stop missing: {settled}"
+        );
+        let after = present(&mut c, 60 * 60 * 5, chromatic_rise);
+        assert_eq!(
+            after.changes, 0,
+            "and it stays there for five minutes without climbing back into the judder: {after:?}"
+        );
+    }
+
+    #[test]
+    fn missing_refreshes_lower_step_by_step_until_they_stop() {
+        // Late above 0.85, so one step is not enough.
+        let mut c = sixty_hz();
+        present(&mut c, 3600, |s, i| {
+            (13.6 * s * s, s > 0.85 && i.is_multiple_of(11))
+        });
+        assert!(
+            (c.scale() - 0.8).abs() < 1e-4,
+            "two steps, 1.0 -> 0.9 -> 0.8: {}",
+            c.scale()
+        );
+    }
+
+    #[test]
+    fn a_late_scene_under_the_raise_line_at_full_size_is_still_lowered() {
+        // 11 ms is 0.66 of the budget: the raise rule keeps asking to go
+        // above the ceiling, which must not keep restarting the late count.
+        // Half a window of GPU samples first, so the two counts are out of
+        // step, as the timer's lag makes them in the app.
+        let mut c = sixty_hz();
+        for _ in 0..LATE_WINDOW / 2 {
+            c.observe(11.0);
+        }
+        let run = present(&mut c, 600, |s, i| {
+            (11.0 * s * s, s > 0.92 && i.is_multiple_of(11))
+        });
+        assert!(
+            (c.scale() - 0.9).abs() < 1e-4,
+            "one step down: {run:?}, now {}",
+            c.scale()
+        );
+    }
+
+    #[test]
+    fn late_drops_that_cut_no_gpu_time_are_undone_and_locked() {
+        // D280 still applies: a scene whose cost is not its resolution, and
+        // frames late whatever the scale.
+        let mut c = sixty_hz();
+        present(&mut c, 1500, |_, i| (13.6, i.is_multiple_of(11)));
+        assert_eq!(c.scale(), 1.0, "back where it started: {}", c.scale());
+        assert!(
+            c.futile().is_some_and(|f| f.lock_frames.is_some()),
+            "and lowering is locked: {:?}",
+            c.futile()
+        );
+    }
+
+    #[test]
+    fn a_steady_ten_ms_scene_stays_at_full_resolution() {
+        let mut c = sixty_hz();
+        let run = present(&mut c, 60 * 60 * 5, |_, _| (10.0, false));
+        assert_eq!(run.changes, 0, "no change: {run:?}");
+        assert_eq!(c.scale(), 1.0, "full resolution");
+    }
+
+    #[test]
+    fn a_cheap_scene_is_not_lowered_for_late_frames_it_does_not_cause() {
+        // 8 ms of a 16.7 ms cadence, and 20% of the frames late anyway:
+        // something else is missing the refresh, not this GPU.
+        let mut c = sixty_hz();
+        let run = present(&mut c, 60 * 60, |_, i| (8.0, i.is_multiple_of(5)));
+        assert_eq!(run.changes, 0, "no change: {run:?}");
+        assert_eq!(c.scale(), 1.0, "full resolution");
+    }
+
+    #[test]
+    fn an_isolated_hitch_does_not_change_the_scale() {
+        // The worst case for the mean: a scene already at 13.6 ms.
+        let mut c = sixty_hz();
+        let mut run = present(&mut c, 600, |_, _| (13.6, false));
+        c.presented(200.0);
+        if c.observe(200.0).is_some() {
+            run.changes += 1;
+        }
+        let after = present(&mut c, 600, |_, _| (13.6, false));
+        assert_eq!(
+            run.changes + after.changes,
+            0,
+            "one 200 ms frame changes nothing: {run:?} {after:?}"
+        );
+        assert_eq!(c.scale(), 1.0, "full resolution");
+    }
+
+    #[test]
+    fn a_short_burst_of_late_frames_does_not_change_the_scale() {
+        // Thirty late frames in a row (a heavy second, a transition) fill
+        // one window, not two.
+        let mut c = sixty_hz();
+        let run = present(&mut c, 1200, |_, i| (13.6, (300..330).contains(&i)));
+        assert_eq!(run.changes, 0, "a burst is not a trend: {run:?}");
+    }
+
+    #[test]
+    fn a_lowered_scene_whose_cost_drops_climbs_back() {
+        let mut c = sixty_hz();
+        present(&mut c, 1200, chromatic_rise);
+        assert!(c.scale() < 1.0, "lowered first: {}", c.scale());
+        // A quiet passage: half the cost, nothing late.
+        let run = present(&mut c, 60 * 30, |s, _| (6.8 * s * s, false));
+        assert_eq!(c.scale(), 1.0, "back to full resolution: {run:?}");
+    }
+
+    #[test]
+    fn a_borderline_scene_does_not_oscillate() {
+        // 12.4 ms with a 20% spread, late when the GPU time plus 2 ms of
+        // present overhead crosses the period: about 4% late at full size,
+        // the drop line, and none at 0.9.
+        let mut c = sixty_hz();
+        let run = present(&mut c, 60 * 60 * 10, |s, i| {
+            let ms = 12.4 * s * s * (1.0 + 0.2 * noise(i));
+            (ms, ms + 2.0 > PERIOD)
+        });
+        assert!(
+            run.changes <= 1,
+            "at most one drop in ten minutes, never back and forth: {run:?}"
+        );
+        assert!(run.lowest >= 0.9 - 1e-4, "and not far: {run:?}");
+    }
+
+    #[test]
+    fn two_period_frames_on_a_144_hz_display_are_not_late() {
+        // The budget is the 144 Hz period; the late rule's cadence is held
+        // at 60 Hz, so a frame shown every second refresh (13.9 ms) is fine.
+        let period = 1000.0 / 144.0;
+        let mut c = AdaptiveScale::new(period, 0.25, 1.0);
+        c.set_display_period(Some(period));
+        assert!(
+            c.cadence_ms()
+                .is_some_and(|ms| (ms - FASTEST_CADENCE_MS).abs() < 1e-4),
+            "cadence held at 60 Hz: {:?}",
+            c.cadence_ms()
+        );
+        let mut changes = 0;
+        for _ in 0..3600 {
+            c.presented(2.0 * period);
+            if c.observe(6.5).is_some() {
+                changes += 1;
+            }
+        }
+        assert_eq!(changes, 0, "no change");
+        assert_eq!(c.scale(), 1.0, "full resolution");
+    }
+
+    #[test]
+    fn with_no_display_period_late_frames_are_ignored() {
+        // An unknown refresh rate: the mean alone decides, as before D314.
+        let mut c = AdaptiveScale::new(PERIOD, 0.25, 1.0);
+        let run = present(&mut c, 3600, chromatic_rise);
+        assert_eq!(run.changes, 0, "no change: {run:?}");
+        c.set_display_period(Some(PERIOD));
+        c.set_display_period(None);
+        assert_eq!(c.cadence_ms(), None, "and the rule can be switched off");
+    }
+
+    #[test]
+    fn a_new_scene_forgets_the_late_ceiling() {
+        let mut c = sixty_hz();
+        present(&mut c, 1200, chromatic_rise);
+        assert!(c.scale() < 1.0, "lowered: {}", c.scale());
+        c.reset_measurements();
+        // The same cost with nothing late, which the first scene's ceiling
+        // held at 0.9: as a new scene it climbs on ordinary headroom (to
+        // 0.95, where the mean is no longer under the raise line).
+        let run = present(&mut c, 600, |s, _| (13.6 * s * s, false));
+        assert!(
+            run.changes > 0 && c.scale() > 0.9,
+            "climbs once the ceiling is forgotten: {run:?}, now {}",
+            c.scale()
         );
     }
 }
