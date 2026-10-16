@@ -1927,7 +1927,6 @@ fn the_context_prime_leaves_the_state_clean() -> Result<()> {
     Ok(())
 }
 
-
 /// Whether a control called `name`, at 0.5, reaches the red channel of a
 /// scene that returns it: `false` when the scene does not compile or reads
 /// something else under that name. Built around the loader's name check,
