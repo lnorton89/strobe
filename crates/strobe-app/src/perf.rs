@@ -39,6 +39,14 @@
 //!   stops lowering for a while (30 s at 60 Hz, doubling on each re-lock)
 //!   or until the scene changes. The change says so and the log gives the
 //!   numbers.
+//! - **Missed refreshes lower it too (D314).** Each presented output
+//!   frame's interval goes to the controller ([`Performance::presented`]),
+//!   which lowers the scale a step when frames keep missing the display's
+//!   refresh even though the mean GPU time is under budget. Only while the
+//!   output is shown with vsync on and the monitor's refresh rate is known:
+//!   a hidden output presents nothing, without vsync an interval says
+//!   nothing about refreshes, and with an unknown rate there is no period to
+//!   miss. Then the mean alone decides, as before.
 //! - **No timer, no adaptation.** On a context without timer queries the
 //!   toggle has nothing to measure, so the scale stays where the slider
 //!   puts it and the status bar says so.
@@ -46,7 +54,7 @@
 use crate::session;
 use std::time::{Duration, Instant};
 use strobe_gfx::GpuTimer;
-use strobe_gfx::adaptive::{AdaptiveScale, Futile};
+use strobe_gfx::adaptive::{AdaptiveScale, Futile, Missed};
 
 /// The budget when the monitor reports no refresh rate: 60 Hz.
 pub const FALLBACK_BUDGET_MS: f32 = 1000.0 / 60.0;
@@ -71,6 +79,9 @@ pub struct ScaleChange {
     /// Set when this change is the controller undoing a drop that did not
     /// cut the GPU time (`to` is then the scale it went back to).
     pub futile: Option<Futile>,
+    /// Set when this change is a step down because presented frames kept
+    /// missing the display's refresh (D314).
+    pub missed: Option<Missed>,
 }
 
 /// The budget for a monitor refresh rate in millihertz, as winit reports it.
@@ -79,6 +90,13 @@ pub fn budget_for(refresh_millihertz: Option<u32>) -> f32 {
         Some(mhz) if mhz > 0 => 1.0e6 / mhz as f32,
         Some(_) | None => FALLBACK_BUDGET_MS,
     }
+}
+
+/// The display's refresh period for a rate in millihertz, when it is known.
+fn period_for(refresh_millihertz: Option<u32>) -> Option<f32> {
+    refresh_millihertz
+        .filter(|mhz| *mhz > 0)
+        .map(|mhz| 1.0e6 / mhz as f32)
 }
 
 /// GPU timing and the adaptive controller.
@@ -97,6 +115,10 @@ pub struct Performance {
     hold_until: Option<Instant>,
     /// The size the live scene pins its final pass to (D280), if it does.
     pinned: Option<[i32; 2]>,
+    /// The output monitor's refresh period, when it reports one.
+    period_ms: Option<f32>,
+    /// Whether the output's swap waits for vertical blank.
+    vsync: bool,
 }
 
 impl Performance {
@@ -114,6 +136,8 @@ impl Performance {
             gpu_ms: None,
             hold_until: None,
             pinned: None,
+            period_ms: None,
+            vsync: false,
         }
     }
 
@@ -161,7 +185,7 @@ impl Performance {
     /// at the ceiling.
     pub fn set_enabled(&mut self, enabled: bool) {
         if enabled && !self.enabled {
-            self.adaptive = controller(self.adaptive.budget_ms(), self.max);
+            self.rebuild();
         }
         self.enabled = enabled;
     }
@@ -169,7 +193,35 @@ impl Performance {
     /// Sets the manual maximum scale (the slider).
     pub fn set_max(&mut self, max: f32) {
         self.max = session::clamp_scale(max);
+        self.rebuild();
+    }
+
+    /// A fresh controller at the ceiling, with the budget and display
+    /// period in force.
+    fn rebuild(&mut self) {
         self.adaptive = controller(self.adaptive.budget_ms(), self.max);
+        self.apply_period();
+    }
+
+    /// Tells the controller the display period its late rule judges
+    /// presented intervals against: none without vsync, since an unpaced
+    /// interval says nothing about refreshes (D314).
+    fn apply_period(&mut self) {
+        let period = self.period_ms.filter(|_| self.vsync);
+        self.adaptive.set_display_period(period);
+    }
+
+    /// Records whether the output's swap waits for vertical blank. Without
+    /// it, only the mean GPU time decides.
+    pub fn set_vsync(&mut self, vsync: bool) {
+        self.vsync = vsync;
+        self.apply_period();
+    }
+
+    /// The cadence presented frames are judged against, while missed
+    /// refreshes are being watched (D314).
+    pub fn cadence_ms(&self) -> Option<f32> {
+        self.adaptive.cadence_ms()
     }
 
     /// Resumes the controller at `scale`, for a rebuilt GL context: the
@@ -183,6 +235,10 @@ impl Performance {
     /// Adopts the output monitor's refresh rate. Returns whether the budget
     /// changed enough to matter.
     pub fn set_refresh(&mut self, refresh_millihertz: Option<u32>) -> bool {
+        // Before the budget check: 60 Hz reported and 60 Hz assumed have the
+        // same budget, but only a reported one has a period to miss.
+        self.period_ms = period_for(refresh_millihertz);
+        self.apply_period();
         let budget = budget_for(refresh_millihertz);
         if (budget - self.adaptive.budget_ms()).abs() < 0.05 {
             return false;
@@ -214,6 +270,21 @@ impl Performance {
     /// Whether the live scene pins its final pass, so the scale is moot.
     pub fn pinned(&self) -> Option<[i32; 2]> {
         self.pinned
+    }
+
+    /// Records the interval, in milliseconds, between this presented output
+    /// frame and the last, for the missed-refresh rule (D314). Call it only
+    /// for frames that are swapped to a shown output. Arithmetic only.
+    pub fn presented(&mut self, interval_ms: f32, now: Instant) {
+        if !self.adapting() || self.pinned.is_some() || self.held(now) {
+            return;
+        }
+        self.adaptive.presented(interval_ms);
+    }
+
+    /// Whether `now` is inside the hold after a scene load.
+    fn held(&self, now: Instant) -> bool {
+        self.hold_until.is_some_and(|until| now < until)
     }
 
     /// Starts timing the output frame's GPU work.
@@ -265,10 +336,7 @@ impl Performance {
             Some(average) => average + (ms - average) * DISPLAY_SMOOTHING,
             None => ms,
         });
-        if !self.adapting()
-            || self.pinned.is_some()
-            || self.hold_until.is_some_and(|until| now < until)
-        {
+        if !self.adapting() || self.pinned.is_some() || self.held(now) {
             return None;
         }
         let from = self.adaptive.scale();
@@ -279,6 +347,7 @@ impl Performance {
             gpu_ms: ms,
             budget_ms: self.adaptive.budget_ms(),
             futile: self.adaptive.undone(),
+            missed: self.adaptive.missed(),
         })
     }
 
@@ -380,6 +449,7 @@ mod tests {
             gpu_ms: 0.0,
             budget_ms: 0.0,
             futile: None,
+            missed: None,
         });
         assert!(change.to < change.from, "scale must drop: {change:?}");
         assert!(
@@ -498,5 +568,86 @@ mod tests {
             "a drop is not called futile: {changes:?}"
         );
         assert!((perf.scale() - 1.0).abs() < 1e-6, "ends at 1.0");
+    }
+
+    /// Presents `count` frames at `now` on a 60 Hz display: GPU `ms` at full
+    /// size, area proportional, and one frame in eleven a refresh late while
+    /// the scale is above 0.92 (the M16 pattern). The first change.
+    fn shown_m16(perf: &mut Performance, ms: f32, now: Instant, count: u32) -> Option<ScaleChange> {
+        let period = 1000.0 / 60.0;
+        let mut change = None;
+        for i in 0..count {
+            let scale = perf.scale();
+            let interval = if scale > 0.92 && i.is_multiple_of(11) {
+                2.0 * period
+            } else {
+                period
+            };
+            perf.presented(interval, now);
+            change = change.or(perf.feed(ms * scale * scale, now));
+        }
+        change
+    }
+
+    #[test]
+    fn missed_refreshes_are_watched_only_with_vsync_and_a_known_rate() {
+        let mut perf = measuring(1.0);
+        assert_eq!(perf.cadence_ms(), None, "nothing known yet");
+        perf.set_refresh(Some(60_000));
+        assert_eq!(perf.cadence_ms(), None, "no vsync, no refreshes to miss");
+        perf.set_vsync(true);
+        assert!(
+            perf.cadence_ms()
+                .is_some_and(|ms| (ms - 1000.0 / 60.0).abs() < 1e-3),
+            "60 Hz with vsync: {:?}",
+            perf.cadence_ms()
+        );
+        perf.set_refresh(None);
+        assert_eq!(perf.cadence_ms(), None, "an unknown rate turns it off");
+        perf.set_refresh(Some(60_000));
+        perf.set_max(0.9);
+        assert!(
+            perf.cadence_ms().is_some(),
+            "a rebuilt controller keeps watching"
+        );
+    }
+
+    #[test]
+    fn the_m16_pattern_lowers_the_scale_and_the_change_says_why() {
+        let mut perf = measuring(1.0);
+        perf.set_vsync(true);
+        perf.set_refresh(Some(60_000));
+        let change = shown_m16(&mut perf, 13.6, Instant::now(), 600);
+        assert!(
+            change.is_some_and(|c| c.to < c.from
+                && c.missed.is_some_and(|m| m.late > 0 && m.frames > 0)
+                && c.futile.is_none()),
+            "a step down for the missed refreshes: {change:?}"
+        );
+        let mut unknown = measuring(1.0);
+        unknown.set_vsync(true);
+        assert_eq!(
+            shown_m16(&mut unknown, 13.6, Instant::now(), 600),
+            None,
+            "with the rate unknown, the mean alone decides, as before"
+        );
+    }
+
+    #[test]
+    fn late_frames_in_the_hold_after_a_scene_load_are_not_counted() {
+        let mut perf = measuring(1.0);
+        perf.set_vsync(true);
+        perf.set_refresh(Some(60_000));
+        let loaded = Instant::now();
+        perf.scene_loaded(loaded, None);
+        shown_m16(&mut perf, 13.6, loaded + Duration::from_millis(500), 600);
+        let after = loaded + HOLD + Duration::from_millis(10);
+        let mut change = None;
+        for _ in 0..100 {
+            perf.presented(1000.0 / 60.0, after);
+            change = perf.feed(13.6, after).or(change);
+        }
+        assert_eq!(change, None, "the load's own judder is not held against it");
+        assert!((perf.scale() - 1.0).abs() < 1e-6, "full resolution");
     }
 }

@@ -66,6 +66,29 @@ GPUs.
 
 ## Results
 
+### 2026-10-16: the presented rate against the GPU mean, venue mini PC (Vega 3), Task M16
+
+In the app, not the bench: `13-chromatic-rise` held fullscreen at 1920x1080,
+vsync at 60 Hz, numbers from the per-minute `perf:` lines (full table in
+[hardware/MINIPC.md](hardware/MINIPC.md), M16).
+
+| Setup | fps | GPU ms | Late frames |
+|---|---|---|---|
+| Adaptive on | 42.6-44.6 | 12.41-13.62 | 7.0-10.2% |
+| `--no-adaptive --render-scale 1` | 42.2 | 13.6 | about 9% |
+
+- **What it changed:** a mean GPU time under budget is not a smooth show.
+  At 0.82 of the frame, about one frame in eleven still missed vertical
+  blank, and the adaptive controller, which watched only the mean, never
+  lowered the scale. Scenes 04, 05, 08, 14 and 16 (12.6-13.8 ms) did the
+  same at about 47 fps. D314 adds the missed-refresh rule: the controller
+  now steps the scale down when about 4% or more of the presented frames miss
+  for four seconds with the GPU at 60% of the cadence or more, and the perf
+  line carries the scale. Before and after on the projector is Task M18.
+- **For reading GPU times in this file:** on a vsynced display, a scene needs
+  real headroom under 16.7 ms, not just a mean under it, to present every
+  frame. On this machine 12.4-13.8 ms was not enough.
+
 ### 2026-10-15: venue-GPU pass on 04, 05, 08, 13, 14 and 16 (D310), Mesa llvmpipe
 
 Target: the venue mini PC's Vega 3 at 1920x1080. The owner's figures for

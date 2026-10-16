@@ -37,6 +37,21 @@ which backend proved a claim.
 
 ### In flight
 
+- **Adaptive resolution watches missed refreshes, not only the mean GPU time
+  (2026-10-16, D314), built and unit-tested, not yet run on the projector:**
+  the venue mini PC showed scene 13 at 42-45 fps with a 13.6 ms mean under
+  the 16.7 ms budget, about 9% of frames a refresh late, and the controller
+  never moved (M16). Each presented output frame's interval now feeds the
+  controller; four seconds with about 4% or more late, and the GPU at 60% of
+  the cadence or more, lower the scale one step (1.00 -> 0.90 -> 0.80), and it
+  climbs back only when the scene gets clearly cheaper. Off without vsync,
+  with an unknown refresh rate or a hidden output; the cadence is never
+  faster than 60 Hz, so 144 Hz monitors are unaffected. A single hitch no
+  longer moves the mean far enough to drop. The perf line gives the scale. A
+  minimised control window now draws nothing (the undecorated window kept a
+  client area, so the old 0x0 check missed it), but still runs deferred scene
+  loads, actions and the playlist compile. Open: `hardware/MINIPC.md` Task M18.
+
 - **`pow` of a negative base on ANGLE (2026-10-15, D301), built, not yet re-run
   on the RX 580:** the ES dialect writes `pow(x, y)` as `exp2(log2(x) * (y))`,
   the native drivers' sequence, because Direct3D's compiler answers a negative
@@ -545,6 +560,8 @@ never per frame.
   it (D261); both are checked on llvmpipe only, not yet on ANGLE hardware
   or the owner's corpus. The base library is written ES-clean.
 - Adaptive-resolution thresholds are validated on one machine, the T480.
+  The missed-refresh rule (D314) is checked on synthetic frame sequences
+  only; the mini PC's Task M18 is its hardware test.
 - Native crash capture cannot see a bare `abort()` on Windows, which is a
   fast-fail ([DEBUGGING.md](DEBUGGING.md)).
 
