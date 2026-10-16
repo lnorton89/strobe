@@ -7998,6 +7998,11 @@ in MINIPC.md is the acceptance test.
 
 ### D316: a late step pays when it cuts the misses by a fifth and by 5 points; the perf line counts misses as the controller does (2026-10-16)
 
+**Verified on the projector in M20; amended by D317:** after a late step
+pays, the load line no longer gates the next one (M20's third step waited
+three to four minutes behind it), and the trigger reported is the last two
+windows.
+
 **Context.** Task M19 ([`hardware/MINIPC.md`](hardware/MINIPC.md)) ran
 D315 on the venue mini PC:
 - **The covered control window works.** It drew 11-12 times a minute, and
@@ -8083,3 +8088,75 @@ M20 in MINIPC.md is the hardware test.
 - The old 13 going below 0.75 (the floor on returns too loose).
 - The perf line's missed share disagreeing with the adaptive lines' for the
   same minute.
+
+### D317: after a late step pays, the load line no longer gates the next; the trigger is the last two windows (2026-10-16)
+
+**Context.** Task M20 ([`hardware/MINIPC.md`](hardware/MINIPC.md)) passed
+D314-D316 on the venue mini PC:
+- the old 13 went from 42.5 to 58.5 fps at 0.70;
+- 16 held 59.8 fps at 0.80;
+- every step that cut the misses was kept, with no hunting and no climb
+  back.
+
+One delay remained. On the old 13, 0.90 -> 0.80 paid at 13.7 s, but the
+step to 0.70 came only at 241 s; minimised, at 180.5 s. Meanwhile the scene
+sat at about 52 fps with 14% of frames missed. The step that did come paid
+(14% -> 2.7%). The log reported it as "missed 1667 refreshes over the last
+11880 frames".
+
+**Cause.** Not the windows, and not the cooldown. Two missing windows in a
+row were there all along, 99 of them by the end. The load line blocked the
+step: `LATE_MIN_LOAD` (D314) lets the late rule act only with the GPU
+average at 0.6 of the cadence or more, 10 ms at 60 Hz. At 0.80, 13 takes
+9.1 ms, so the step waited until a loud passage lifted the average to
+10.6 ms. The 11880 frames were the whole run of missing windows, which
+`late_run` kept summing and reported as the trigger.
+
+**Decision.**
+- **A step that paid lifts the load line for the scene.** When the D316
+  verdict keeps a late step (the misses fell under the drop line, or by a
+  fifth and 5 points), `late_proven` is set, and later late steps on that
+  scene no longer need the GPU at 0.6 of the cadence.
+  - The line exists to keep misses the scale cannot reach from costing
+    pixels. A step that paid is better evidence than the load that these
+    misses follow the scale.
+  - The next step is judged exactly like the last: undone and locked if it
+    cuts too little. So the guarantee against hunting (one undo, then a
+    floor until the scene changes) is unchanged, and at most one extra
+    step is ever tried on its strength.
+  - `late_proven` is forgotten with the measurements: on a new scene, a
+    context rebuild or a new ceiling.
+  - On the M20 sequence the third step now follows the second's verdict at
+    once. The second step's judged windows were already two missing windows,
+    so 0.70 comes at about 19 s instead of 241.
+- **The trigger is the last two windows.** `late_run` is now the last
+  `LATE_WINDOWS_TO_DROP` missing windows, not the whole run, so the log says
+  "missed N refreshes over the last 240 frames". The verdict's "before"
+  share is then the share just before the step, which is what its "after" is
+  compared with.
+
+**Not chosen.**
+- *A lower load line* (say 0.5). It would let a first step act on misses that
+  are not the GPU's on cheaper scenes, which is what the line is for. M18
+  showed misses at 4% that no step could cut.
+- *Lifting the line after any step.* A first step is still a guess, and the
+  verdict is what turns a guess into evidence.
+
+**Test.** `strobe_gfx::adaptive::tests`:
+- `the_third_step_follows_a_paid_step_without_waiting_for_the_load_line`.
+  This is M20 run 2's shares (40.4%, 26.7%, 14%, 2.6%) and GPU (13.6, 11.2,
+  9.1, 7.3 ms). It expects three steps kept, 0.70 within 30 s, each step
+  reporting 240 frames, and 0.70 held for ten minutes. It fails with the
+  load line back in place.
+- `a_long_run_of_missing_windows_reports_only_the_last_two`.
+
+All of D314-D316's tests pass unchanged. That includes the old 13 stopping
+at 0.80 when its step to 0.70 cuts only 4.5 points, D315's M18 run 2 shape,
+and the cheap scene with late frames, which never takes a first step.
+Hardware: MINIPC.md Task M21.
+
+**Would reopen:**
+- M21's step to 0.70 still waiting.
+- A proven scene stepping below its useful scale and being undone repeatedly.
+- A first step taken on misses that are not the GPU's, now that one paid step
+  lifts the line.
