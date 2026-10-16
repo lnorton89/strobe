@@ -37,6 +37,7 @@ setup, saves it beside the logs, and exits. Attach it to bug reports.
 | `STROBE_LOG_STDERR=1` | Mirror log lines to stderr. Debug builds do it anyway. The Windows release build has no console, so this is for a console build on a test laptop, and for runs under Xvfb. |
 | `STROBE_GL_DEBUG` | Driver debug output (`KHR_debug`), routed to the log under the target `gl_driver`. Unset: warnings and errors in debug builds, errors only in release. `1` or `all`: everything. `errors`, `warn`, `info` pick a level. `0` or `off` turns it off. Old Intel drivers without `KHR_debug` report that it is unavailable. `STROBE_LOG=gl_driver=debug` shows the notification-level messages too. |
 | `STROBE_GL_TRACE` | Records where the renderer binds, draws, clears, blits and reads: the framebuffer (0 is the window's) and viewport of each, once per distinct event, under the log target `gl_trace`, with a count summary (`strobe-bench` prints it at the end). `1` turns it on; a number caps the distinct events kept. The first time each viewport is set it is read back from the driver and a mismatch warns, which shows a driver clamping it. Off by default and free when off; for a machine that renders black (D296). `strobe-bench --probe` is the companion. |
+| `STROBE_GL_NO_PRIME=1` | Skip the once-per-context prime: the 16x16 draw every GL context makes when it is created, because AMD's WGL driver drops draws into targets over 16384 pixels until a context has drawn into a small one (D311). For checking whether a driver still needs it; expect black offscreen frames on the mini PC's Vega 3 with it set. `STROBE_LOG=strobe_gfx=debug` shows the prime's `GL prime: ... landed in N us` line. |
 | `STROBE_FAULT` | Fault injection, to exercise context-loss recovery without a broken driver. See below. |
 | `STROBE_FINISH_AFTER_SWAP` | Whether the output waits (`glFinish`) for each swap to complete, so switching the context to the control window does not (D221). Unset: only after the control window has been seen waiting (NVIDIA, windowed output), and not while a fullscreen output covers it. `1`: always. `0`: never. |
 | `STROBE_NO_CRASH_MONITOR=1` | Do not start the crash monitor process or attach the native crash handler. Use it under a debugger. |
@@ -153,7 +154,9 @@ run, grep the log for `perf:`.
    context.
 5. Frames black on one machine and fine on another: `STROBE_GL_TRACE=1`, and
    for the bench `--probe` (D296, `hardware/MINIPC.md`). `STROBE_GL_DEBUG` is
-   also read by `strobe-bench` and `strobe-autocontrol`, off unless set.
+   also read by `strobe-bench` and `strobe-autocontrol`, off unless set. A
+   `GL prime` warning in the log means the once-per-context prime (D311)
+   did not land, and large targets may be black on an AMD WGL driver.
 
 ## Crashes
 

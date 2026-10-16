@@ -221,6 +221,17 @@ Linux and llvmpipe cannot prove any of these:
 
   Not yet: the same on the T480's iGPU, whose earlier 30-minute run (Task
   17) held one scene.
+- [ ] Offscreen frames render on AMD native WGL at any size (D296, fixed
+  pending verification by D311). The mini PC's Vega 3 dropped draws into
+  targets over 16384 pixels until the context had drawn into a small one
+  (MINIPC.md M11-M14); every context is now primed with one 16x16 draw
+  (`gl::prime`). Headless evidence covers only the prime's clean state, not
+  the fix: `the_context_prime_leaves_the_state_clean`
+  (`strobe-gfx/tests/render.rs`, both dialects). Acceptance test, MINIPC.md
+  Task M15: `strobe-bench --context window --gl native` at 640x360 and
+  1920x1080 with no `STROBE_D296_*` variables, no all-black warnings, the
+  `GL prime: ... landed` log line, `--gl angle` matching, and black again
+  with `STROBE_GL_NO_PRIME=1`.
 - [x] Keep commands, environment, logs, screenshots and failed outcomes in
   [hardware/T480.md](hardware/T480.md).
 

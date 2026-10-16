@@ -18,6 +18,7 @@
 use anyhow::{Result, anyhow};
 use std::path::PathBuf;
 use strobe_gfx::gl::trace::Event;
+use strobe_gfx::gl::{Bindings, prime};
 use strobe_gfx::{
     Api, AudioTextures, Caps, FrameInputs, GpuTimer, Headless, Mouse, Options, ScenePlayer,
 };
@@ -1846,6 +1847,82 @@ fn offscreen_rendering_never_touches_the_default_framebuffer() -> Result<()> {
             presented.iter().any(Event::touches_default_framebuffer),
             "{api:?}: the trace must see present() write the default framebuffer: {presented:?}"
         );
+    }
+    Ok(())
+}
+
+/// D311: every context is primed when it is built (`gl::prime`), with one
+/// draw into a 16x16 target, because the mini PC's AMD WGL driver drops
+/// draws into targets over 16384 pixels until the context has drawn into a
+/// small one. llvmpipe never had that bug, so this cannot show that the
+/// prime fixes it (only the mini PC can, MINIPC.md Task M15). What it pins
+/// is that the prime is clean: a new context looks untouched (nothing
+/// bound, the GL default unpack alignment, no pending error), a second
+/// prime lands and changes neither bindings nor viewport, and a 640x360
+/// offscreen render afterwards, above the AMD threshold, is right.
+#[test]
+fn the_context_prime_leaves_the_state_clean() -> Result<()> {
+    const SIZE: [i32; 2] = [640, 360];
+    for api in BOTH {
+        let Some(headless) = context(api)? else {
+            continue;
+        };
+        let gl = headless.gl();
+        assert_eq!(
+            gl.bindings(),
+            Bindings::FRESH,
+            "{api:?}: a primed context must look like a fresh one"
+        );
+        assert_eq!(gl.error(), None, "{api:?}: the prime left a GL error");
+
+        let viewport = gl.viewport_box();
+        let primed = prime::run(gl).map_err(|e| anyhow!("{api:?}: prime: {e}"))?;
+        assert!(
+            primed.landed && primed.errors == 0,
+            "{api:?}: the prime's own draw must land cleanly: {primed:?}"
+        );
+        assert_eq!(
+            gl.bindings(),
+            Bindings::FRESH,
+            "{api:?}: the prime must unbind everything it bound"
+        );
+        assert_eq!(
+            gl.viewport_box(),
+            viewport,
+            "{api:?}: the prime must put the viewport back"
+        );
+
+        let caps = Caps::from_info(gl.info());
+        let scene = folder(
+            "{}",
+            "vec4 renderMain() { return vec4(0.0, 1.0, 0.0, 1.0); }",
+        )?;
+        let controls = ControlBank::new(scene.def.controls.clone())?;
+        let audio = vec![0.0; SCALARS.len()];
+        let mut player = ScenePlayer::new(gl, &caps, &scene, SIZE, Options::default())?;
+        player.render(&FrameInputs {
+            time: 0.0,
+            frame: 0,
+            mouse: Mouse::default(),
+            audio: &audio,
+            controls: &controls,
+            transitions: &[],
+        });
+        let pixels = player.read_output();
+        assert_eq!(
+            pixels.len(),
+            (SIZE[0] * SIZE[1] * 4) as usize,
+            "{api:?}: the read-back is the requested size"
+        );
+        assert!(
+            pixels
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .all(|px| *px == [0, 255, 0, 255]),
+            "{api:?}: every pixel of a 640x360 render after the prime is green"
+        );
+        assert_eq!(gl.error(), None, "{api:?}: GL error after the render");
     }
     Ok(())
 }
