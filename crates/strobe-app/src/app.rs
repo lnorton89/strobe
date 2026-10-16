@@ -4570,10 +4570,10 @@ impl Running {
         }
         if let Some(late) = change.late_futile {
             log::info!(
-                "adaptive resolution: lowering the render scale {:.2} -> {:.2} left the display's \
-                 refreshes missed ({:.1}% before, {:.1}% after), so the misses are not this \
+                "adaptive resolution: lowering the render scale {:.2} -> {:.2} cut too few missed \
+                 refreshes ({:.1}% of frames before, {:.1}% after), so the rest are not this \
                  scene's resolution; back to {:.2}, and missed refreshes lower it no further \
-                 until the scene changes (D315)",
+                 until the scene changes (D315, D316)",
                 late.scale,
                 late.tried,
                 late.share_before * 100.0,
@@ -4586,13 +4586,14 @@ impl Running {
         }
         if let Some(missed) = change.missed {
             log::info!(
-                "adaptive resolution: render scale {:.2} -> {:.2}: {} refreshes missed over the \
-                 last {} frames ({:.1} ms cadence) with GPU {:.1} ms against a {:.1} ms budget \
-                 (D314)",
+                "adaptive resolution: render scale {:.2} -> {:.2}: missed {} refreshes over the \
+                 last {} frames ({:.1}% of frames, {:.1} ms cadence) with GPU {:.1} ms against a \
+                 {:.1} ms budget (D314)",
                 change.from,
                 change.to,
                 missed.late,
                 missed.frames,
+                missed.late as f32 * 100.0 / missed.frames.max(1) as f32,
                 missed.cadence_ms,
                 change.gpu_ms,
                 change.budget_ms
