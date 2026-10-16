@@ -54,7 +54,7 @@
 use crate::session;
 use std::time::{Duration, Instant};
 use strobe_gfx::GpuTimer;
-use strobe_gfx::adaptive::{AdaptiveScale, Futile, Missed};
+use strobe_gfx::adaptive::{AdaptiveScale, Futile, LateFutile, Missed};
 
 /// The budget when the monitor reports no refresh rate: 60 Hz.
 pub const FALLBACK_BUDGET_MS: f32 = 1000.0 / 60.0;
@@ -82,6 +82,9 @@ pub struct ScaleChange {
     /// Set when this change is a step down because presented frames kept
     /// missing the display's refresh (D314).
     pub missed: Option<Missed>,
+    /// Set when this change is the controller undoing a late drop that did
+    /// not cut the misses (`to` is the scale it went back to, D315).
+    pub late_futile: Option<LateFutile>,
 }
 
 /// The budget for a monitor refresh rate in millihertz, as winit reports it.
@@ -348,6 +351,7 @@ impl Performance {
             budget_ms: self.adaptive.budget_ms(),
             futile: self.adaptive.undone(),
             missed: self.adaptive.missed(),
+            late_futile: self.adaptive.late_undone(),
         })
     }
 
@@ -450,6 +454,7 @@ mod tests {
             budget_ms: 0.0,
             futile: None,
             missed: None,
+            late_futile: None,
         });
         assert!(change.to < change.from, "scale must drop: {change:?}");
         assert!(
@@ -649,5 +654,32 @@ mod tests {
         }
         assert_eq!(change, None, "the load's own judder is not held against it");
         assert!((perf.scale() - 1.0).abs() < 1e-6, "full resolution");
+    }
+
+    #[test]
+    fn a_late_drop_that_cuts_no_misses_is_undone_and_says_so() {
+        // Misses at every scale (D315): the drop is undone, and the change
+        // that undoes it carries the verdict for the log.
+        let mut perf = measuring(1.0);
+        perf.set_vsync(true);
+        perf.set_refresh(Some(60_000));
+        let period = 1000.0 / 60.0;
+        let now = Instant::now();
+        let mut changes = Vec::new();
+        for i in 0..1200_u32 {
+            let scale = perf.scale();
+            let late = i.is_multiple_of(11);
+            perf.presented(if late { 2.0 * period } else { period }, now);
+            changes.extend(perf.feed(13.6 * scale * scale, now));
+        }
+        assert_eq!(changes.len(), 2, "a drop and its undoing: {changes:?}");
+        let undo = changes.last().copied();
+        assert!(
+            undo.is_some_and(|c| c.to > c.from
+                && c.late_futile.is_some_and(|f| f.share_after > 0.05)
+                && c.missed.is_none()),
+            "the undo says the misses stayed: {undo:?}"
+        );
+        assert!((perf.scale() - 1.0).abs() < 1e-6, "back at full size");
     }
 }
