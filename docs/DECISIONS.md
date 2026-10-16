@@ -7463,3 +7463,29 @@ does not reach the shader, in both dialects; the names left alone work.
 
 **Would reopen:** a real scene that plays in Synesthesia with a refused
 name, which would mean its library differs from ours there.
+
+### D313: a rebuilt GL context gives the meta controls back, not only the scene's (2026-10-16)
+
+**Context.** D207 left a gap it named: "a context rebuild (D66) still
+resets meta". Recovery saved the scene's control targets, reloaded the
+scene into a fresh session and put them back, but the fresh session's meta
+bank started at its defaults. An operator who had faded master to 0 got the
+full picture back on the projector the moment a driver reset was recovered,
+and a hue, mirror or Limit Colors set for the room was gone.
+
+**Decision.** `Session::control_targets` saves both banks' targets
+(`session::Targets`), and `restore_control_targets` puts both back after
+the reload, after the scene's default preset, as for the scene's own
+controls. The operator's live value wins over the preset here, unlike a
+scene change (D207), because the scene did not change: the rebuild should
+be invisible. The meta bank is the same fixed list in every session, so the
+indices hold.
+
+**Not covered.** A playlist's rebuild reloads the show from its cue
+(`Show::reload_spec`) and still starts its meta at the defaults; the same
+targets could be handed to the show's first session.
+
+**Evidence.** `script_meta.rs`
+`a_rebuilt_context_gives_the_operators_meta_settings_back`: master at 0 and
+hue at 0.25, saved, scene reloaded into a fresh session, restored: master
+still 0, hue still 0.25, the scene's control kept. It failed before.

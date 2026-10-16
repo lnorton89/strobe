@@ -144,7 +144,6 @@ use strobe_gfx::{Compositor, GlChoice, GpuTimer, MediaRequest, Post, SwapWindow,
 use strobe_io::{Banks, Output};
 use strobe_playlist::{Command, Playlist, ResumePoint};
 use strobe_remote::bridge::Answer;
-use strobe_scene::control::def::Values;
 use strobe_scene::meta::MetaValues;
 use strobe_shadertoy::listener::{Listener, ListenerConfig, Token};
 use winit::application::ApplicationHandler;
@@ -550,8 +549,8 @@ struct Resume {
     index: usize,
     /// Its clock, in seconds.
     time: f32,
-    /// The operator's control values.
-    controls: Vec<(usize, Values)>,
+    /// The operator's control values, the scene's and the meta ones.
+    controls: session::Targets,
 }
 
 /// What a rebuild carries over from the context it replaces.
@@ -1243,7 +1242,7 @@ impl Running {
                 Resume {
                     index,
                     time: session.map_or(self.start_time, Session::time),
-                    controls: session.map_or_else(Vec::new, Session::control_targets),
+                    controls: session.map(Session::control_targets).unwrap_or_default(),
                 }
             }),
             scale: self.render_scale,
