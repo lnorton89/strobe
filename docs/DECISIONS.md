@@ -10566,3 +10566,26 @@ seconds to go.
 
 **Would reopen:** a system clock that is wrong in a way the show should not
 follow (it would want a clock of its own, which D76 avoids).
+
+### D438: an atomic write syncs its temporary file before the rename (2026-10-17)
+
+**What.** `strobe_playlist::file::write_atomic`, which the playlist Save
+and the resume file use, and the Editor's `write_atomically` now write the
+temporary file, `sync_all` it, and only then rename it over the target. A
+failed write removes the temporary file. `prefs` and `snapshot` already did
+this.
+
+**Why.** The rename made the write atomic against a crash, not against a
+power cut. Without the sync, NTFS (and ext4 without `auto_da_alloc`) can
+commit the rename before the data, and after a power cut the file is
+empty. For resume.toml the show then starts over from the test card. For
+a playlist file the show has nothing to play. The venue machine runs on a
+power strip that people switch off at the end of the night. Found in the
+playlist sweep (D430-D437), which noted that no test can make it fail.
+
+**Cost.** One fsync per save. Resume writes happen every 5 s on their own
+thread (`show::resume`), never on the frame thread. A playlist or scene
+save is a click.
+
+**Would reopen:** a disk on which the sync is slow enough to delay the
+resume write by more than its 5 s period.
