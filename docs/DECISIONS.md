@@ -9261,3 +9261,43 @@ in the message, say) are still separate entries.
 
 **Would reopen:** a source whose repeats differ only in a counter or a time,
 which would need its own throttle at the source, as D325 did for scripts.
+
+### D390: speed and traveler controls integrate in `f64`; the shader's copy is never wrapped (2026-10-17)
+
+**Context.** A `speed` or `traveler` control's output is the integral of
+its rate (D125, D197, D246). `ControlBank` summed it in `f32`, one frame's
+step at a time. Hours into a show the sum is large, and every addition
+rounds to the `f32` spacing there, always the same way for a steady step,
+so the pace drifts: four hours at 2/s and 60 fps ended at 28710.04 instead
+of 28800, each frame stepping 0.033203 instead of 0.033333. Worse, a
+control slowed after a long fast stretch stops: three hours at 10/s reach
+about 1.1e5, where the spacing is 0.0078, and a step of 0.1/60 is under
+half of it, so a minute at 0.1/s moved the output by exactly 0.
+
+**Decision.** Each speed or traveler control keeps its integral in an
+`f64` (`State::integral`), adds each frame's step to it in `f64`, and sets
+the output, which is what the uniform and scripts read, to that integral
+rounded to `f32`. Nothing is wrapped. A speed control is the integral that
+replaced a `TIME * k` term (D125), and shaders use it the way they use
+`TIME`: in `sin`, but just as often as a noise coordinate or an offset,
+where any wrap is a visible jump. A wrap would also change what a shader
+sees, which this change must not. In the first minute the new output
+differs from the old by the old sum's own error, under 0.0015 at 2/s (0.2
+after ten minutes, where the `f32` sum had already fallen behind), a phase
+no picture shows.
+
+**What is left.** The uniform is still an `f32`, so its value is the exact
+integral to half the `f32` spacing at its size: four hours at 2/s, within
+0.00098 of 28800, and a frame's step is 0.033333 to within one spacing
+(0.00195), alternating between neighbouring values instead of being
+wrong in one direction. That rounding does not accumulate and needs a
+shader that multiplies the value by tens before it shows. Wrapping the
+shader's copy is Q29.
+
+**Test.** `a_speed_control_keeps_its_pace_four_hours_in` (4 h at 60 fps:
+within half an `f32` step of the exact sum, and the next frame's step
+within one) and `a_control_slowed_after_hours_at_speed_still_moves` (3 h at
+10/s, then a minute at 0.1/s moves 6, for a speed and a traveler control).
+Both fail on the `f32` sum (89.96 behind; moved 0).
+
+**Would reopen:** an answer to Q29.
