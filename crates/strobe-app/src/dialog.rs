@@ -33,9 +33,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 static UNATTENDED: AtomicBool = AtomicBool::new(false);
 
 /// Marks this run as unattended: failures are logged, never shown in a box
-/// that would wait for a click.
+/// that would wait for a click. Call it before
+/// `strobe_diag::crash::start_monitor`: the crash monitor is a second
+/// process, and it learns this when it is started.
 pub fn set_unattended() {
     UNATTENDED.store(true, Ordering::Relaxed);
+    strobe_diag::notify::set_unattended();
 }
 use strobe_diag::notify::{CrashKind, CrashNotice};
 

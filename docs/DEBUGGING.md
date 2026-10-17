@@ -21,7 +21,7 @@ they never touch a real profile). Inside it:
 
 | Path | What |
 |---|---|
-| `logs/` | One session log per run, newest first, the last 10 kept. The first lines say the build, the filter, and any filter directive that did not parse. Times are seconds since process start. |
+| `logs/` | One session log per run, newest first, the last 10 kept. A file stops at 64 MiB with a line saying so (D380); the console and crash reports keep the newest lines. The first lines say the build, the filter, and any filter directive that did not parse. Times are seconds since process start. |
 | `crashes/crash-*.txt` | A readable report: the panic or crash summary, the session context (GL renderer, backend, scene, render size, frame count), recent structured failures, and the tail of the log. |
 | `crashes/crash-*.dmp` | A minidump of a *native* crash (a driver access violation, a stack overflow, an abort), written by a second process. A panic has a `.txt` only, and a panic followed by `panic = "abort"` shares one stem. |
 | `run/` | The crash monitor's socket file (Windows and macOS). Linux uses an abstract socket with no file. |
@@ -162,10 +162,26 @@ run, grep the log for `perf:`.
 
 A panic writes `crash-*.txt` with a backtrace. A native crash writes
 `crash-*.txt` and `crash-*.dmp`; the **monitor** process shows the message
-box, so it works even when the app cannot open a window. A crash in the
+box, so it works even when the app cannot open a window. The box goes up
+after the crashed app has been let go, so the app exits at once and does not
+wait for the click. An unattended run (`--screenshot`) raises no box from
+either process; the files are written as usual. A crash in the
 first moments, before the monitor link is up, is not captured. A bare
 `abort()` on Windows is a fast-fail that bypasses exception filters and
 leaves no minidump (the `.txt` of a panic that led to it still exists).
+
+**Before sharing crash files.** A `.txt` report names only the `STROBE_*`
+variables and `RUST_BACKTRACE`, but its paths (the log file, the data
+directory, `STROBE_DIAG_DIR`) contain the user name, and its log tail has
+the scene names and the LAN addresses of paired phones. A `.dmp` is the
+crashed process's memory. On Linux it also carries the process's whole
+environment (`/proc/<pid>/environ`, and the top of the main thread's
+stack), so `STROBE_SHADERTOY_KEY` and any other secret set in the
+environment is in it: this was checked by crashing `crash_demo` with a
+dummy key set. A Windows dump is written with `MiniDumpNormal` (stacks and
+modules, no environment block); that is still to be confirmed on the T480.
+Keep the Shadertoy key in `shadertoy.key` rather than the environment, and
+send a `.dmp` only to whoever is debugging it.
 
 ### Symbolicating a `.dmp`
 

@@ -195,23 +195,56 @@ impl Display for Failure {
     }
 }
 
-static RECENT: Mutex<VecDeque<Failure>> = Mutex::new(VecDeque::new());
+/// One remembered failure and how many times it was reported.
+struct Kept {
+    failure: Failure,
+    times: u32,
+}
+
+impl Kept {
+    /// The failure as the UI and reports see it: a repeated one carries a
+    /// `repeated=N` line.
+    fn shown(&self) -> Failure {
+        if self.times > 1 {
+            self.failure.clone().detail("repeated", self.times)
+        } else {
+            self.failure.clone()
+        }
+    }
+}
+
+static RECENT: Mutex<VecDeque<Kept>> = Mutex::new(VecDeque::new());
 
 /// Logs `failure` at error level and remembers it for the UI.
+///
+/// A failure identical to one already kept (a device that drops out every
+/// few seconds, a resize the driver keeps refusing) is not kept twice: the
+/// earlier entry moves to the newest place and counts the repeat (D381).
+/// So [`KEPT`] distinct failures survive one that keeps coming back.
 pub fn report(failure: Failure) {
     log::error!(target: "strobe_diag::failure", "{failure}");
     let mut recent = RECENT.lock().unwrap_or_else(PoisonError::into_inner);
-    if recent.len() == KEPT {
-        recent.pop_front();
-    }
-    recent.push_back(failure);
+    let earlier = recent
+        .iter()
+        .position(|kept| kept.failure == failure)
+        .and_then(|at| recent.remove(at));
+    let times = match earlier {
+        Some(kept) => kept.times.saturating_add(1),
+        None => {
+            if recent.len() >= KEPT {
+                recent.pop_front();
+            }
+            1
+        }
+    };
+    recent.push_back(Kept { failure, times });
 }
 
-/// The newest `count` failures, oldest first.
+/// The newest `count` distinct failures, oldest first.
 pub fn recent(count: usize) -> Vec<Failure> {
     let recent = RECENT.lock().unwrap_or_else(PoisonError::into_inner);
     let skip = recent.len().saturating_sub(count);
-    recent.iter().skip(skip).cloned().collect()
+    recent.iter().skip(skip).map(Kept::shown).collect()
 }
 
 /// [`recent`] that never waits for the lock, for crash handlers.
@@ -220,13 +253,17 @@ pub fn try_recent(count: usize) -> Vec<Failure> {
         return Vec::new();
     };
     let skip = recent.len().saturating_sub(count);
-    recent.iter().skip(skip).cloned().collect()
+    recent.iter().skip(skip).map(Kept::shown).collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use anyhow::Result;
+
+    /// The tests that fill the shared list take turns, so one cannot evict
+    /// what another is checking.
+    static SERIAL: Mutex<()> = Mutex::new(());
 
     #[test]
     fn a_failure_renders_in_the_documented_shape() -> Result<()> {
@@ -278,6 +315,7 @@ mod tests {
 
     #[test]
     fn reported_failures_are_kept_in_order_and_bounded() -> Result<()> {
+        let _turn = SERIAL.lock().unwrap_or_else(PoisonError::into_inner);
         for index in 0..(KEPT + 5) {
             report(Failure::new(Subsystem::Script, "eval").message(format!("boom {index}")));
         }
@@ -289,6 +327,47 @@ mod tests {
             "newest last"
         );
         assert_eq!(recent(2).len(), 2, "recent(n) returns n");
+        Ok(())
+    }
+
+    #[test]
+    fn a_failure_that_keeps_coming_back_does_not_push_the_others_out() -> Result<()> {
+        let _turn = SERIAL.lock().unwrap_or_else(PoisonError::into_inner);
+        report(
+            Failure::new(Subsystem::Shader, "link")
+                .scene("flood-test-cathedral")
+                .message("the one that matters"),
+        );
+        let flapping = Failure::new(Subsystem::Audio, "capture")
+            .asset("flood-test-usb")
+            .message("device disconnected")
+            .action("using synthetic audio");
+        for _ in 0..(2 * KEPT) {
+            report(flapping.clone());
+        }
+        let all = recent(KEPT);
+        assert!(
+            all.iter()
+                .any(|kept| kept.root_message() == "the one that matters"),
+            "an earlier failure was pushed out by one repeated failure"
+        );
+        let repeats: Vec<String> = all
+            .iter()
+            .filter(|kept| kept.to_string().contains("flood-test-usb"))
+            .map(ToString::to_string)
+            .collect();
+        assert_eq!(repeats.len(), 1, "the repeats are one entry: {repeats:?}");
+        assert!(
+            repeats
+                .iter()
+                .any(|text| text.contains(&format!("repeated={}", 2 * KEPT))),
+            "the entry says how often: {repeats:?}"
+        );
+        assert!(
+            all.last()
+                .is_some_and(|newest| newest.to_string().contains("flood-test-usb")),
+            "a repeat counts as the newest"
+        );
         Ok(())
     }
 }
