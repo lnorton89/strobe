@@ -1280,6 +1280,170 @@ fn the_legacy_uniforms_object_is_sealed_too() -> Result<()> {
     Ok(())
 }
 
+// ---- the caller's output, reused ------------------------------------------------
+
+impl Rig {
+    /// One frame into `output`, then the bank tick, as the app does.
+    fn step_into(&mut self, output: &mut FrameOutput) {
+        let inputs = ScriptInputs {
+            frame_count: self.frame,
+            ..ScriptInputs::default()
+        };
+        self.host
+            .frame_into(DT, &inputs, &mut self.bank, &mut self.meta, output);
+        self.bank.tick(DT);
+        self.meta.tick(DT);
+        self.frame += 1;
+    }
+}
+
+#[test]
+fn a_frame_into_the_callers_output_matches_a_frame_that_returns_one() -> Result<()> {
+    let script = r#"
+        function update() {
+            setUniform("a", FRAMECOUNT);
+            setUniform("b", 1, 2);
+            if (FRAMECOUNT === 1) console.log("hello");
+        }
+    "#;
+    let mut kept = Rig::new(script, &[])?;
+    let mut fresh = Rig::new(script, &[])?;
+    let mut output = FrameOutput::default();
+    for frame in 0..4 {
+        kept.step_into(&mut output);
+        let expected = fresh.step();
+        assert_eq!(
+            output.uniforms, expected.uniforms,
+            "frame {frame}: uniforms"
+        );
+        assert_eq!(output.console, expected.console, "frame {frame}: console");
+        assert_eq!(output.status, expected.status, "frame {frame}: status");
+    }
+    assert!(
+        output.console.is_empty(),
+        "the console of an earlier frame was cleared, not kept: {:?}",
+        output.console
+    );
+    Ok(())
+}
+
+#[test]
+fn bound_uniforms_follow_the_order_they_were_bound_in() -> Result<()> {
+    let script = r#"
+        function update() {
+            setUniform("first", 1);
+            setUniform("clash", 9);
+            setUniform("last", FRAMECOUNT, 4);
+        }
+    "#;
+    let mut rig = Rig::new(script, &[])?;
+    let mut output = FrameOutput::default();
+    rig.step_into(&mut output);
+    assert!(output.bound.is_empty(), "nothing is bound yet");
+    rig.host.seal_uniforms();
+    rig.host.bind_uniforms(["last", "first"]);
+    let mut now = Vec::new();
+    rig.host.bound_uniforms_into(&mut now);
+    assert_eq!(
+        now,
+        [[0.0, 4.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]],
+        "readable at once, before another frame"
+    );
+    rig.step_into(&mut output);
+    rig.step_into(&mut output);
+    assert_eq!(
+        output.bound,
+        [[2.0, 4.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]],
+        "each frame carries them in bound order, without `clash`"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_restarted_script_binds_a_declared_uniform_it_sets_late() -> Result<()> {
+    // The shaders were compiled with `late` and `early`, in that order. This
+    // run of the script publishes `early` from its first frame and `late`
+    // only once a beat is heard.
+    let script = r#"
+        function update() {
+            setUniform("early", 1);
+            if (FRAMECOUNT >= 2) setUniform("late", 5);
+            setUniform("unknown", 3);
+        }
+    "#;
+    let mut rig = Rig::new(script, &[])?;
+    let mut output = FrameOutput::default();
+    rig.step_into(&mut output);
+    rig.host.seal_uniforms_to(["late", "early"]);
+    rig.step_into(&mut output);
+    assert_eq!(
+        output.bound,
+        [[0.0; 4], [1.0, 0.0, 0.0, 0.0]],
+        "`late` reads as zeros until it is set"
+    );
+    assert_eq!(
+        errors(&output).len(),
+        1,
+        "`unknown` is refused, and said so once: {:?}",
+        output.console
+    );
+    rig.step_into(&mut output);
+    assert_eq!(
+        output.bound,
+        [[5.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]],
+        "and then it is found in its place"
+    );
+    assert!(
+        errors(&output).is_empty(),
+        "and it is not said again: {:?}",
+        output.console
+    );
+    Ok(())
+}
+
+#[test]
+fn steady_state_frames_refill_the_same_buffers() -> Result<()> {
+    // The host cannot count its own allocations (no `unsafe`, so no counting
+    // allocator), so this pins what makes a frame allocation-free: after the
+    // first frames the output's vectors keep their storage.
+    let script = r#"
+        function update() {
+            setUniform("a", FRAMECOUNT);
+            setUniform("b", 1, 2, 3);
+            setUniform("c", 0.5);
+        }
+    "#;
+    let mut rig = Rig::new(script, &[])?;
+    let mut output = FrameOutput::default();
+    rig.step_into(&mut output);
+    rig.host.seal_uniforms();
+    rig.host.bind_uniforms(["c", "a", "b"]);
+    for _ in 0..3 {
+        rig.step_into(&mut output);
+    }
+    let uniforms = (output.uniforms.as_ptr(), output.uniforms.capacity());
+    let bound = (output.bound.as_ptr(), output.bound.capacity());
+    let console = output.console.capacity();
+    for frame in 0..200 {
+        rig.step_into(&mut output);
+        assert_eq!(output.uniforms.len(), 3, "frame {frame}: uniforms");
+        assert_eq!(output.bound.len(), 3, "frame {frame}: bound");
+        assert_eq!(output.status, ScriptStatus::Running, "frame {frame}");
+    }
+    assert_eq!(
+        (output.uniforms.as_ptr(), output.uniforms.capacity()),
+        uniforms,
+        "the uniform list stayed where it was"
+    );
+    assert_eq!(
+        (output.bound.as_ptr(), output.bound.capacity()),
+        bound,
+        "the bound values stayed where they were"
+    );
+    assert_eq!(output.console.capacity(), console, "and the console");
+    Ok(())
+}
+
 // ---- lifecycle ------------------------------------------------------------------
 
 #[test]

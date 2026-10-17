@@ -27,6 +27,18 @@
 //! uniforms behind, so values go to a `pending` slot and only
 //! [`UniformStore::commit`] makes them current; [`UniformStore::discard`]
 //! throws them away and the previous frame's values stay in force.
+//!
+//! ## Binding
+//!
+//! The app uploads the script's uniforms in the order its shaders declared
+//! them, which is not the order the script first set them in (a name the
+//! scene already declares is left out). [`UniformStore::bind`] resolves that
+//! list of names to slots once, when the store is sealed, and
+//! [`UniformStore::bound_into`] then reads the values in that order with no
+//! name lookups and, into a buffer that has grown to size, no allocation. A
+//! bound name the script has not set yet (a restarted script that declares it
+//! only later) is resolved when its slot is created, which is the only time
+//! binding costs anything after the seal.
 
 use crate::output::ScriptUniform;
 use std::collections::{HashMap, HashSet};
@@ -67,6 +79,11 @@ pub(crate) struct UniformStore {
     dirty: Vec<usize>,
     /// The names declared when the store was sealed; `None` until then.
     declared: Option<HashSet<Arc<str>>>,
+    /// For each name given to [`UniformStore::bind`], in that order, its
+    /// slot, or `None` while the script has not created it.
+    bound: Vec<Option<usize>>,
+    /// Bound names still without a slot, each with its place in `bound`.
+    unresolved: Vec<(Arc<str>, usize)>,
 }
 
 /// How many floats a type holds.
@@ -111,6 +128,7 @@ impl UniformStore {
                     committed: None,
                     pending: None,
                 });
+                self.resolve(&name, position);
                 self.index.insert(name, position);
                 position
             }
@@ -132,6 +150,22 @@ impl UniformStore {
         } else {
             SetOutcome::Coerced(slot.ty)
         }
+    }
+
+    /// Points every bound name still waiting for a slot at `position`, the
+    /// slot just created for `name`.
+    fn resolve(&mut self, name: &Arc<str>, position: usize) {
+        if self.unresolved.is_empty() {
+            return;
+        }
+        let bound = &mut self.bound;
+        self.unresolved.retain(|(waiting, place)| {
+            let matched = waiting == name;
+            if matched && let Some(entry) = bound.get_mut(*place) {
+                *entry = Some(position);
+            }
+            !matched
+        });
     }
 
     /// Makes this frame's staged values current.
@@ -181,22 +215,63 @@ impl UniformStore {
     /// has been committed: for a script started again under shaders that
     /// were compiled for an earlier start of it. A name in `names` not set
     /// yet may still be set; any other new name is refused.
+    ///
+    /// The names are also [bound](Self::bind), in the order given, because
+    /// they are the shaders' uniforms in the order the shaders declared them.
     pub(crate) fn seal_to<'a>(&mut self, names: impl IntoIterator<Item = &'a str>) {
-        self.declared = Some(names.into_iter().map(Arc::from).collect());
+        let names: Vec<&str> = names.into_iter().collect();
+        self.declared = Some(names.iter().copied().map(Arc::from).collect());
+        self.bind(names);
+    }
+
+    /// Resolves `names` to slots, once, so that [`Self::bound_into`] can read
+    /// their values in this order without looking anything up. Replaces an
+    /// earlier binding. A name with no slot yet is resolved when the script
+    /// creates one.
+    pub(crate) fn bind<'a>(&mut self, names: impl IntoIterator<Item = &'a str>) {
+        self.bound.clear();
+        self.unresolved.clear();
+        for (place, name) in names.into_iter().enumerate() {
+            let slot = self.index.get(name).copied();
+            if slot.is_none() {
+                self.unresolved.push((Arc::from(name), place));
+            }
+            self.bound.push(slot);
+        }
+    }
+
+    /// Writes the committed value of each bound name into `out`, in the
+    /// order they were bound; a name the script has not committed reads as
+    /// zeros. Clears `out` first and reuses its capacity.
+    pub(crate) fn bound_into(&self, out: &mut Vec<[f32; 4]>) {
+        out.clear();
+        out.extend(self.bound.iter().map(|slot| {
+            slot.and_then(|position| self.slots.get(position))
+                .and_then(|slot| slot.committed)
+                .unwrap_or([0.0; 4])
+        }));
     }
 
     /// Every committed uniform, in first-appearance order.
+    #[cfg(test)]
     pub(crate) fn snapshot(&self) -> Vec<ScriptUniform> {
-        self.slots
-            .iter()
-            .filter_map(|slot| {
-                slot.committed.map(|value| ScriptUniform {
-                    name: Arc::clone(&slot.name),
-                    ty: slot.ty,
-                    value,
-                })
+        let mut out = Vec::new();
+        self.snapshot_into(&mut out);
+        out
+    }
+
+    /// [`Self::snapshot`] into `out`, which is cleared first and keeps its
+    /// capacity, so a frame after the first allocates nothing: a name is
+    /// shared, not copied.
+    pub(crate) fn snapshot_into(&self, out: &mut Vec<ScriptUniform>) {
+        out.clear();
+        out.extend(self.slots.iter().filter_map(|slot| {
+            slot.committed.map(|value| ScriptUniform {
+                name: Arc::clone(&slot.name),
+                ty: slot.ty,
+                value,
             })
-            .collect()
+        }));
     }
 }
 
@@ -299,6 +374,131 @@ mod tests {
             store.set("half", &[1.0]),
             SetOutcome::Refused,
             "the shaders were compiled without it"
+        );
+    }
+
+    /// The values `bound_into` reads, as a plain vector.
+    fn bound(store: &UniformStore) -> Vec<[f32; 4]> {
+        let mut out = Vec::new();
+        store.bound_into(&mut out);
+        out
+    }
+
+    #[test]
+    fn bound_values_come_in_the_bound_order_not_the_order_they_were_set_in() {
+        let mut store = UniformStore::default();
+        store.set("first", &[1.0]);
+        store.set("clash", &[9.0]);
+        store.set("last", &[3.0, 4.0]);
+        store.commit();
+        store.seal();
+        // The shaders were built without `clash`, and in a different order.
+        store.bind(["last", "first"]);
+        assert_eq!(
+            bound(&store),
+            [[3.0, 4.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]],
+            "bound order, `clash` left out"
+        );
+        store.set("first", &[7.0]);
+        assert_eq!(
+            bound(&store)[1],
+            [1.0, 0.0, 0.0, 0.0],
+            "a staged value is not current until it is committed"
+        );
+        store.commit();
+        assert_eq!(bound(&store)[1], [7.0, 0.0, 0.0, 0.0], "and then it is");
+    }
+
+    #[test]
+    fn a_bound_name_the_script_sets_later_is_found_when_its_slot_appears() {
+        let mut store = UniformStore::default();
+        store.set("other", &[1.0]);
+        store.commit();
+        // A script started again: `late` is declared by the shaders but this
+        // run has not set it yet.
+        store.seal_to(["late", "other"]);
+        assert_eq!(
+            bound(&store),
+            [[0.0; 4], [1.0, 0.0, 0.0, 0.0]],
+            "an unset name reads as zeros"
+        );
+        assert_eq!(
+            store.set("late", &[5.0, 6.0]),
+            SetOutcome::Stored,
+            "a declared name may still be created"
+        );
+        assert_eq!(
+            bound(&store)[0],
+            [0.0; 4],
+            "staged, so still zero until the frame commits"
+        );
+        store.commit();
+        assert_eq!(
+            bound(&store),
+            [[5.0, 6.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]],
+            "found without any lookup by name"
+        );
+        assert!(
+            store.unresolved.is_empty(),
+            "nothing is left waiting: {:?}",
+            store.unresolved
+        );
+    }
+
+    #[test]
+    fn a_discarded_first_write_leaves_a_bound_name_at_zero() {
+        let mut store = UniformStore::default();
+        store.seal_to(["a"]);
+        store.set("a", &[2.0]);
+        store.discard();
+        assert_eq!(
+            bound(&store),
+            [[0.0; 4]],
+            "a faulted frame published nothing"
+        );
+        store.set("a", &[3.0]);
+        store.commit();
+        assert_eq!(
+            bound(&store),
+            [[3.0, 0.0, 0.0, 0.0]],
+            "the next good frame did"
+        );
+    }
+
+    #[test]
+    fn steady_state_reads_reuse_their_buffers() {
+        let mut store = UniformStore::default();
+        for name in ["a", "b", "c"] {
+            store.set(name, &[1.0, 2.0]);
+        }
+        store.commit();
+        store.seal();
+        store.bind(["c", "a", "b"]);
+        let mut uniforms = Vec::new();
+        let mut values = Vec::new();
+        store.snapshot_into(&mut uniforms);
+        store.bound_into(&mut values);
+        let (uniforms_at, uniforms_capacity) = (uniforms.as_ptr(), uniforms.capacity());
+        let (values_at, values_capacity) = (values.as_ptr(), values.capacity());
+        for frame in 0..100_u16 {
+            for name in ["a", "b", "c"] {
+                store.set(name, &[f32::from(frame), 2.0]);
+            }
+            store.commit();
+            store.snapshot_into(&mut uniforms);
+            store.bound_into(&mut values);
+            assert_eq!(uniforms.len(), 3, "frame {frame}: every uniform listed");
+            assert_eq!(values.len(), 3, "frame {frame}: every bound value read");
+        }
+        assert_eq!(
+            (uniforms.as_ptr(), uniforms.capacity()),
+            (uniforms_at, uniforms_capacity),
+            "the uniform list was refilled in place"
+        );
+        assert_eq!(
+            (values.as_ptr(), values.capacity()),
+            (values_at, values_capacity),
+            "the bound values were refilled in place"
         );
     }
 }
