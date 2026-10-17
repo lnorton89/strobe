@@ -88,6 +88,16 @@ fn render(extra: &[(String, String)], machine: Option<&SystemInfo>) -> String {
                     .ram_bytes
                     .map_or_else(|| "unknown".to_string(), system::format_bytes),
             );
+            if info.timed_out {
+                row(
+                    &mut text,
+                    "probe",
+                    &format!(
+                        "system probe timed out after {}s; fields marked unknown were not read",
+                        system::PROBE_BUDGET.as_secs()
+                    ),
+                );
+            }
         }
         None => row(&mut text, "probe", "still running when this was written"),
     }
@@ -152,6 +162,25 @@ mod tests {
         ] {
             assert!(report.contains(needle), "missing `{needle}` in:\n{report}");
         }
+        Ok(())
+    }
+
+    #[test]
+    fn a_probe_that_timed_out_says_so_in_the_report() -> Result<()> {
+        let info = SystemInfo {
+            timed_out: true,
+            ..SystemInfo::default()
+        };
+        let report = render(&[], Some(&info));
+        assert!(
+            report.contains("system probe timed out"),
+            "timeout not stated in:\n{report}"
+        );
+        let healthy = render(&[], Some(&SystemInfo::default()));
+        assert!(
+            !healthy.contains("timed out"),
+            "a finished probe must not claim a timeout:\n{healthy}"
+        );
         Ok(())
     }
 
