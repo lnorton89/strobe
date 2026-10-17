@@ -9180,3 +9180,32 @@ nothing), with the message if they were its only arguments.
 
 **Would reopen:** a sender for which an out-of-range value should be ignored
 rather than pinned to the end of the range.
+
+### D376: a macro counter at the top of its range picks up past the existing ids (2026-10-17)
+
+**Context.** `MacroSet` hands out ids from a saved counter (`next_id`, D175),
+and a file edited by hand can set it to `u32::MAX`. `add` then computed
+`next_id + 1`: a panic in a debug build and a wrap to 0 in a release one
+(id 0 means "no id", and the next add would then repair the duplicate). The
+same sum was in `repair`, which `add` calls first.
+
+**Decision.** Checked arithmetic, and a recovery that keeps `add` infallible
+(it has many callers, and a refused add would leave an operator with a file
+they must find and edit before they can pin anything). When the counter
+cannot go up, it is set to one past the highest id in the set, which is what
+`repair` already documents it as ("past all of them"). A set that holds
+`u32::MAX` itself has nothing past its highest, so it gets the smallest id
+not in the set, and the counter is left alone. If no id is free at all (four
+billion macros) `add` adds nothing and returns 0. The one cost: an id above
+the highest in the set may have belonged to a macro deleted earlier, and a
+mapping that named it would now drive the new macro. That needs a counter
+already corrupted, and the first rule of this module (ids are not reused) is
+otherwise kept.
+
+**Test.** `a_counter_at_the_top_of_its_range_picks_up_past_the_existing_ids`,
+`a_macro_holding_the_highest_possible_id_leaves_the_smallest_free_one` and
+`repairing_duplicates_with_the_counter_at_the_top_does_not_overflow` (all
+three panicked with "attempt to add with overflow" before the change).
+
+**Would reopen:** a UI path that can show an error on add, if refusing is
+preferred to recovering.
