@@ -54,7 +54,7 @@
 use crate::session;
 use std::time::{Duration, Instant};
 use strobe_gfx::GpuTimer;
-use strobe_gfx::adaptive::{AdaptiveScale, Futile, LateFutile, Missed};
+use strobe_gfx::adaptive::{AdaptiveScale, Deferral, Futile, LateFutile, Missed};
 
 /// The budget when the monitor reports no refresh rate: 60 Hz.
 pub const FALLBACK_BUDGET_MS: f32 = 1000.0 / 60.0;
@@ -95,6 +95,20 @@ pub fn budget_for(refresh_millihertz: Option<u32>) -> f32 {
     }
 }
 
+/// The log line for a verdict put off (D318, D320).
+fn deferral_line(deferral: &Deferral) -> String {
+    format!(
+        "adaptive resolution: verdict on {:.2} -> {:.2} put off ({} of {}): window disturbed \
+         (worst gap {:.0} ms, GPU {:+.0}%) (D318)",
+        deferral.from,
+        deferral.tried,
+        deferral.count,
+        strobe_gfx::adaptive::MAX_DEFERRALS,
+        deferral.worst_ms,
+        (deferral.gpu_ratio - 1.0) * 100.0
+    )
+}
+
 /// The display's refresh period for a rate in millihertz, when it is known.
 fn period_for(refresh_millihertz: Option<u32>) -> Option<f32> {
     refresh_millihertz
@@ -118,6 +132,9 @@ pub struct Performance {
     hold_until: Option<Instant>,
     /// The size the live scene pins its final pass to (D280), if it does.
     pinned: Option<[i32; 2]>,
+    /// The last line logged about the controller that was not a scale
+    /// change: a verdict put off, or a lock that ran out (D320).
+    last_note: Option<String>,
     /// The output monitor's refresh period, when it reports one.
     period_ms: Option<f32>,
     /// Whether the output's swap waits for vertical blank.
@@ -141,6 +158,7 @@ impl Performance {
             pinned: None,
             period_ms: None,
             vsync: false,
+            last_note: None,
         }
     }
 
@@ -343,7 +361,19 @@ impl Performance {
             return None;
         }
         let from = self.adaptive.scale();
-        let to = self.adaptive.observe(ms)?;
+        let changed = self.adaptive.observe(ms);
+        // What the controller did without changing the scale, once each:
+        // rare, so formatting here is not a per-frame cost (D320).
+        if let Some(deferral) = self.adaptive.deferred() {
+            self.note(deferral_line(&deferral));
+        }
+        if let Some(scale) = self.adaptive.lock_ran_out() {
+            self.note(format!(
+                "adaptive resolution: the lock at {scale:.2} ran out; missed refreshes may \
+                 lower the scale again (D318)"
+            ));
+        }
+        let to = changed?;
         Some(ScaleChange {
             from,
             to,
@@ -353,6 +383,18 @@ impl Performance {
             missed: self.adaptive.missed(),
             late_futile: self.adaptive.late_undone(),
         })
+    }
+
+    /// The last line logged about the controller that was not a scale
+    /// change (D320).
+    pub fn last_note(&self) -> Option<&str> {
+        self.last_note.as_deref()
+    }
+
+    /// Logs `line` at info and keeps it as [`Self::last_note`].
+    fn note(&mut self, line: String) {
+        log::info!("{line}");
+        self.last_note = Some(line);
     }
 
     /// Frees the GL queries. The context must be current.
@@ -681,5 +723,84 @@ mod tests {
             "the undo says the misses stayed: {undo:?}"
         );
         assert!((perf.scale() - 1.0).abs() < 1e-6, "back at full size");
+    }
+
+    #[test]
+    fn a_put_off_verdict_is_logged_with_what_disturbed_it() {
+        // M24 run A's shape (D320): 42% missed whatever the scale for the
+        // first 15 s, with 140 ms stalls, then the old 13's own shares.
+        let mut perf = measuring(1.0);
+        perf.set_vsync(true);
+        perf.set_refresh(Some(60_000));
+        let period = 1000.0 / 60.0;
+        let now = Instant::now();
+        let mut owed = 0.0_f32;
+        let mut notes = Vec::new();
+        for i in 0..60 * 40_u32 {
+            let scale = perf.scale();
+            let disturbed = i < 60 * 15;
+            owed += if disturbed {
+                0.42
+            } else if scale > 0.95 {
+                0.404
+            } else if scale > 0.85 {
+                0.267
+            } else {
+                0.14
+            };
+            let late = owed >= 1.0;
+            if late {
+                owed -= 1.0;
+            }
+            let interval = if disturbed && i % 120 == 60 {
+                140.0
+            } else if late {
+                2.0 * period
+            } else {
+                period
+            };
+            perf.presented(interval, now);
+            perf.feed(1.16 + 12.44 * scale * scale, now);
+            if let Some(note) = perf.last_note()
+                && notes.last() != Some(&note.to_string())
+            {
+                notes.push(note.to_string());
+            }
+        }
+        assert!(
+            notes.first().is_some_and(|line| line
+                .contains("verdict on 1.00 -> 0.90 put off (1 of 4)")
+                && line.contains("worst gap 140 ms")),
+            "the first put-off verdict is logged: {notes:?}"
+        );
+    }
+
+    #[test]
+    fn a_late_lock_running_out_is_logged() {
+        // Misses whatever the scale: a lock at 1.00, which runs out after
+        // 60 s and says so (D320).
+        let mut perf = measuring(1.0);
+        perf.set_vsync(true);
+        perf.set_refresh(Some(60_000));
+        let period = 1000.0 / 60.0;
+        let now = Instant::now();
+        let mut ran_out_at = None;
+        for i in 0..60 * 90_u32 {
+            let late = i.is_multiple_of(11);
+            perf.presented(if late { 2.0 * period } else { period }, now);
+            perf.feed(13.6, now);
+            if ran_out_at.is_none()
+                && perf
+                    .last_note()
+                    .is_some_and(|line| line.contains("lock at 1.00 ran out"))
+            {
+                ran_out_at = Some(i);
+            }
+        }
+        assert!(
+            ran_out_at.is_some_and(|frame| frame > 60 * 60),
+            "the expiry is logged, a minute after the lock: {ran_out_at:?}, {:?}",
+            perf.last_note()
+        );
     }
 }

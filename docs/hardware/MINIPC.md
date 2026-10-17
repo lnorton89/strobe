@@ -712,34 +712,72 @@ paused from 17:49:56 to 17:57:20.
   - A real change (14% or more) still steps within about 4 s.
 - **The stall behaviour is unchanged,** and now documented (D319).
 
-### Task M24, to run: a disturbance inside a verdict, and a long hold
+## A disturbance inside a verdict, and a long hold (2026-10-17, Task M24, D319 -> D320)
 
-Hold-13 on the D319 build, the control window covered.
+Hold-13 on the D319 build (40ad1b1), the old scenes, control window covered.
+The soak was paused from 18:26:53 to 18:44:55.
 
-1. **Run A, a short disturbance inside the first verdict.** Start strobe,
-   then at about 9 s start `strobe-bench --context window --gl native --size
-   640x360 --filter 10- --frames 1000000` (scene 10, small enough that strobe
-   keeps presenting; the frame count only keeps it running), and stop it
-   (Ctrl+C or `Stop-Process`) at about 13 s.
-2. **Run B, a longer one.** The same, stopped at about 40 s.
-3. **Run C, a 10-minute hold** of 13, with nothing else running.
+| Run | Load | Steps | Result |
+|---|---|---|---|
+| A | bench (640x360, scene 10) +9.4 s to +13.1 s | 8.0 s 1.00 -> 0.90 (40.8%); 21.3 s 0.90 -> 0.80, "over the last 480 frames (36.7%)"; 26.4 s 0.80 -> 0.70 (13.8%) | 58.5 fps at 0.70 from minute 2; worst gap in minute 1, 201 ms |
+| B | the same, +9.0 s to +40.0 s | 7.7 s 1.00 -> 0.90; 48.5 s 0.90 -> 0.80, "over the last 600 frames (83.2%)"; 53.7 s 0.80 -> 0.70 | 58.1-58.4 fps at 0.70; no lock |
+| C | none, 600 s | 7.7 s, 13.4 s, 18.5 s to 0.70; 244.7 s 0.70 -> 0.60, "missed 58 refreshes over the last 600 frames (9.7%) ... GPU 9.1 ms"; back up 283.6 s (0.65) and 314.1 s (0.70) | held 0.70 at about 58.5 fps to 600 s |
+
+**What it showed:**
+- **D318's deferral works.** In run A the first verdict was put off through
+  the bench and then paid. In run B it was put off through the whole 31 s
+  load, then paid. Neither run locked, so the lock and its expiry still
+  have not been seen on the hardware.
+- **Why run B's deferral outlasted "4 x 4 s".** The deferral budget is
+  counted in windows, not seconds: four deferrals of two 120-frame windows,
+  960 presented frames.
+  - Under the bench the output presented far fewer frames, so those windows
+    took most of the 31 s.
+  - Windows during a load are counted, not thrown away. Each stalled
+    interval counts as 2 missed refreshes at most.
+  - The verdict was taken on the first undisturbed windows once the load
+    ended.
+- **Run C stepped down for a Windows stall.** The 244.7 s trigger's windows
+  held a 915 ms system stall: a Volume Shadow Copy / System Restore snapshot,
+  logged as Application/VSS event 8231 in the same second. A settled scale
+  stepped on it, then climbed back about 70 s later.
+
+**What changed (D320):**
+- A window holding a stall (a frame over 6 cadences), and the one after it,
+  no longer count towards a settled scale's evidence. A recurring stall then
+  never steps a settled scene down, which is right: stalls do not follow the
+  render scale. A scene's first, unsettled half minute keeps the two-window
+  rule.
+- Every put-off verdict logs a line, for example
+  `adaptive resolution: verdict on 1.00 -> 0.90 put off (1 of 4): window
+  disturbed (worst gap 201 ms, GPU +12%) (D318)`. A lock running out logs
+  `adaptive resolution: the lock at 0.80 ran out; missed refreshes may lower
+  the scale again (D318)`. The lock itself was already logged, with its
+  length.
+
+**Windows snapshots on this machine.** VSS / System Restore snapshots here
+cluster around 18:30-19:10 local each day, about three a day. That is show
+hours. Each one can stall every program for close to a second. Since D320
+the controller ignores them on a settled scale, but the output still shows
+the stall. The fix is on the machine: move or turn off the scheduled
+restore points before a show. That belongs in the venue runbook, which is
+kept with the show kit in the private `jaja-strobe-assets` repository, not
+in this one.
+
+### Task M25, to run: the deferral lines on the projector
+
+One 10-minute hold-13 on the D320 build, the control window covered. At
+about 9 s, start `strobe-bench --context window --gl native --size 640x360
+--filter 10- --frames 1000000` and stop it at about 13 s, as in M24 run A.
 
 **Expected:**
-- **Run A:** the first step at about 8 s, and its verdict put off (no lock
-  line) until the bench stops. Then the steps to 0.70, with nothing locked.
-  If a "cut too few missed refreshes" line does appear, it names a
-  60 s lock, and the steps follow after it.
-- **Run B:** either deferrals and then a verdict once the bench stops, or a
-  lock that heals: the "for 3600 frames" line, then steps about 60 s later.
-  The run should be at 0.70 or 0.80 by about 100 s at the latest.
-- **Run C:** 0.70 by about 20 s, and then no change for the 10 minutes:
-  every perf line from minute 2 at `scale 0.70`, no step to 0.60.
-
-**What would reopen D319:**
-- Run C stepping below 0.70 with the missed share near 3% (the settled line
-  is too loose).
-- A scene getting heavier mid-hold and not stepping within about 10 s (too
-  strict).
+- At least one `verdict on 1.00 -> 0.90 put off (n of 4): window disturbed
+  (worst gap ... ms, GPU ...%) (D318)` line between about 12 s and 20 s.
+- Then the steps to 0.70, and no change for the rest of the 10 minutes,
+  even if a system stall lands in the hold (`worst gap` in a perf line
+  without a scale change).
+- If a lock does happen, its line names the length, and a `the lock at ...
+  ran out` line follows about 60 s later.
 
 ## Still to do here
 
@@ -747,9 +785,10 @@ Hold-13 on the D319 build, the control window covered.
   Disconnect.
 - Re-measure the D310 scenes (section above). `14-electric-bloom` is
   expected to be the one still above 10 ms.
-- Task M24 (section above): a short and a longer bench disturbance inside
-  a verdict (D318's deferral and healing lock), and a 10-minute hold-13 with
-  no creep below 0.70 (D319).
+- Task M25 (section above): a 10-minute hold-13 with a short bench load,
+  checking the deferral lines (D320).
+- Move or turn off the scheduled System Restore / VSS snapshots before a
+  show (about three a day, 18:30-19:10 local; M24).
 
 - Native strobe-bench and control generation in session 1: does a hidden
   window on AMD WGL draw at all (M3b)?
