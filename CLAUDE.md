@@ -34,7 +34,8 @@ cargo xtask brand [--check]                               # icon PNGs + .ico fro
 cargo test --workspace                                    # everything
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo fmt --all -- --check
-cargo clippy --workspace --exclude strobe-script --exclude strobe-app --all-targets --all-features --target x86_64-pc-windows-msvc -- -D warnings
+cargo clippy --workspace --exclude strobe-script --exclude strobe-app --exclude strobe-shadertoy --all-targets --all-features --target x86_64-pc-windows-msvc -- -D warnings
+cargo clippy -p strobe-shadertoy --no-default-features --all-targets --target x86_64-pc-windows-msvc -- -D warnings
 cargo run --release -p strobe-bench -- --size 1280x720     # benchmark + frames
 ```
 
@@ -49,7 +50,9 @@ edited by hand. Releases follow the order in `CONTRIBUTING.md`: write the
 section with `--release` first, tag after, never move a tag.
 
 The Windows cross-check excludes `strobe-script`, and `strobe-app` with
-it because the app depends on the script crate. QuickJS is C, and
+it because the app depends on the script crate. `strobe-shadertoy` is checked
+separately without its `net` feature, whose TLS (`ring`) also compiles C
+for MSVC (D110); `cargo xtask ci` runs both steps. QuickJS is C, and
 compiling it for MSVC needs the Windows SDK, so only a real Windows build
 checks those two for Windows: CI's `windows` job, or the T480. The app has
 no `#[cfg(windows)]` code of its own (its Windows branches are `cfg!`
