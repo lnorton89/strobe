@@ -9554,3 +9554,54 @@ of the poisoned lock.
 
 **Would reopen:** nothing expected. Any new global registry in this crate
 should follow the same rule: no caller-supplied code under its lock.
+
+### D400: the output's monitor is followed by what it is, not by its place in the list (2026-10-17)
+
+**Context.** The output's monitor was an index into the monitor list, and
+the list is read again every `MONITOR_REFRESH` (2 s). Unplug a projector, or
+let Windows renumber its displays after a change, and the same index names
+another monitor, possibly the operator's own; F11 (or `--fullscreen` after
+an earlier choice) then put the show fullscreen there. The handle cannot be
+kept instead: Windows can issue a new `HMONITOR` after a display change.
+
+**Decision.** `output_monitor::Chosen` keeps the chosen monitor's
+`Identity` (the name the system gives it, `\\.\DISPLAY2` on Windows, its
+desktop position and its size) and finds it again in each new list:
+
+- **as it was**, the same name, position and size;
+- **changed**, the one monitor with the same name and either the same
+  position (a new mode: a projector that renegotiated after a blink) or the
+  same size (the desktop rearranged). It needs a name, and exactly one
+  candidate; with two, or without a name, nothing is chosen rather than a
+  guess. The new identity is kept, so the next change is measured from it;
+- **gone**: nothing is chosen. F11 does what it did before anything was
+  chosen, fullscreen on the monitor the output is on, and the picker shows
+  no choice. The identity is remembered, so a projector that comes back is
+  chosen again; choosing another monitor replaces it. Moved, lost and found
+  are each logged once (D400 in the line).
+
+It is a pure type over plain data, tested without winit. The list is read
+where it was (every 2 s, never per frame).
+
+**Not done.** A fullscreen output is not moved back by itself when its
+projector returns. Windows moves a fullscreen window off a display that
+goes away; whether it moves it back, and whether doing it ourselves mid-show
+is welcome, is for the venue to say. The operator presses F11 twice (or
+picks the monitor) to put it back.
+
+**Test.** `output_monitor::tests`:
+`an_unplugged_monitor_never_leaves_its_place_to_another` (the old index
+names another monitor after the unplug; the choice follows its monitor,
+is dropped when that one goes, and comes back with it),
+`a_reordered_list_keeps_the_same_monitor`,
+`a_monitor_whose_mode_or_place_changed_is_followed_by_its_name`,
+`a_partial_match_is_never_a_guess_between_two_or_without_a_name` and
+`choosing_past_the_end_changes_nothing`.
+
+**Not verified:** unplugging and replugging a projector on the mini PC
+(STATUS_AUDIT), and what `MonitorHandle::name` reports there after a
+replug.
+
+**Would reopen:** a replugged projector coming back under another name
+(then the choice stays empty and the operator picks again), or a venue that
+wants the output moved back automatically.

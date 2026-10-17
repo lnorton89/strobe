@@ -35,6 +35,8 @@
 //! - [`recovery`], [`fault`]: surviving a lost GL context (the policy, as a
 //!   pure state machine) and `STROBE_FAULT`, which injects one to test it.
 //! - [`localtime`]: local wall-clock time for `strobe_Date`.
+//! - [`output_monitor`]: the monitor chosen for the output, followed across
+//!   display changes by what it is rather than its place in the list (D400).
 //! - [`screenshot`]: the `--screenshot` verification mode.
 //! - [`brand`]: the window and taskbar icon (D190).
 //! - [`venue`]: venue mode's launch-time pieces (D288), the trust file for an
@@ -70,6 +72,7 @@ pub mod library;
 pub mod localtime;
 pub mod motion;
 pub mod mouse;
+pub mod output_monitor;
 pub mod palette;
 pub mod perf;
 pub mod prefs;
