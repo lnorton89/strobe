@@ -40,6 +40,14 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- a Shadertoy global initialised from iResolution or iTime sees its value (D361) ([`8376fe9`](https://github.com/lnorton89/strobe/commit/8376fe910476767ca25f8f6cf9e504089d0a02c1))
+- a rewritten import token file is made owner-only on Unix ([`167308a`](https://github.com/lnorton89/strobe/commit/167308aea92bb6d58c9e1768b54d16c92ef779ea))
+- a Shadertoy helper named like an SSF library function compiles (D360) ([`44b64aa`](https://github.com/lnorton89/strobe/commit/44b64aa58a91e25c84abf2e98245984719a8a782))
+- a very long shader id no longer makes a folder name too long to write ([`76834e7`](https://github.com/lnorton89/strobe/commit/76834e7b3b3c577532329b733086a1e4349d4e90))
+- a shader titled like a Windows device gets a folder Windows can make ([`edb67a3`](https://github.com/lnorton89/strobe/commit/edb67a3ebfadcc1ec3707f44b205ce74b3020d65))
+- an API key file saved by Notepad with a byte-order mark is read ([`d0d40e3`](https://github.com/lnorton89/strobe/commit/d0d40e363e0af509efa24e3d634a82f548c79426))
+- a Shadertoy export saved with a byte-order mark imports ([`4c19d30`](https://github.com/lnorton89/strobe/commit/4c19d308f27de457e0bbf59ad81539da8e1af8ff))
+- a shader's title, author or tab name cannot break its generated comment lines ([`c041a33`](https://github.com/lnorton89/strobe/commit/c041a3351c403df8a9e384e1cbaaaa21124c7ef7))
 - a script's `throw undefined` is reported as what it threw, not as out of memory ([`c18a9e3`](https://github.com/lnorton89/strobe/commit/c18a9e30ca841bb3191d8bd182799b64a65b4889))
 - setup and update declared with a top-level let or const run instead of being silently ignored (D326) ([`6198199`](https://github.com/lnorton89/strobe/commit/6198199fc38b1a0fbde5cc9adddbd53ae934d776))
 - a script fault that keeps coming back is logged and reported once, not thirty times a second (D325) ([`40ff39e`](https://github.com/lnorton89/strobe/commit/40ff39e19e45613253b1d09559748102e11d0f6c))
