@@ -9291,3 +9291,34 @@ real `sleep 30`; unix only) and `a_probe_that_timed_out_says_so_in_the_report`
 **Would reopen:** a Windows machine where an honest probe needs more than ten
 seconds, which would want the probe moved off the report's critical path
 (report first, probe appended).
+
+### D396: only the newest twenty crash pairs are kept, ordered by modification time (2026-10-17)
+
+**Context.** `crashes/` was never pruned. A show that crashes on every launch
+(a driver fault on a venue machine, a bad scene in a startup playlist) adds a
+minidump of several megabytes each time, on a disk the session logs (D40,
+D380) already share, until the disk is full.
+
+**Decision.** `report::prune_crashes` keeps the newest `KEEP_CRASHES` (20)
+crash pairs, a `crash-<stem>.txt` with its `crash-<stem>.dmp`, and deletes
+the rest whole. It runs from `strobe_diag::init` at start-up, once, before
+the show; it is never called from the frame loop, and the monitor does not
+prune (the app that crashed is the one that starts next and prunes then, with
+the new report already counted). A pair is as new as its newest file, since
+the monitor appends to the `.txt` after the dump is written. Files that are
+not `crash-*.txt` / `crash-*.dmp` are not touched.
+
+The order is **file modification time, not the timestamp in the name**
+(`rotate.rs`). The name comes from the wall clock, and a machine with a dead
+CMOS battery and no NTP boots in 2001 or at the BIOS default; its newest
+reports then sort first by name and name-ordered pruning deletes the ones
+just written. Ties in time fall back to name order so the result does not
+depend on listing order. Twenty is about two shows' worth of bad nights,
+and at a few MB a dump the directory stays under a hundred megabytes.
+
+**Test.** `only_the_newest_crash_pairs_survive_and_pairs_stay_whole`,
+`a_clock_that_went_backwards_does_not_cost_the_newest_crash`,
+`a_pair_is_as_new_as_its_newest_member` (`strobe-diag`, `report.rs`).
+
+**Would reopen:** a need to keep crashes by size or age rather than count, or
+to prune during a long session (an app that restarts itself in-process).

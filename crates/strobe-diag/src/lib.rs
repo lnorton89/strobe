@@ -60,6 +60,7 @@ pub mod notify;
 pub mod panic_hook;
 pub mod paths;
 pub mod report;
+mod rotate;
 pub mod system;
 
 pub use panic_hook::install_panic_hook;
@@ -85,6 +86,11 @@ pub fn init() -> Session {
         context::set("log.file", path.display());
     }
     install_panic_hook();
+    // Old crash files go now, at start-up, never during a show (D396).
+    let pruned = report::prune_crashes(&paths::crashes_dir(), report::KEEP_CRASHES);
+    if pruned > 0 {
+        log::info!("removed {pruned} files of old crash reports");
+    }
     system::probe_in_background();
     log::info!("strobe {} starting", buildinfo::summary());
     Session { log_file }
