@@ -147,6 +147,9 @@ pub(crate) struct State {
     pub(crate) commands: Vec<Command>,
     /// Registered event handlers, in registration order.
     pub(crate) handlers: Vec<Handler>,
+    /// Functions passed by value as callbacks so far, each kept in the
+    /// callbacks registry as `#<n>` (`natives::CALLBACKS`).
+    pub(crate) function_callbacks: usize,
     /// Messages already logged once.
     once: HashSet<String>,
     /// The final-pass downsample, or empty when there is none.
@@ -163,6 +166,7 @@ impl State {
             console: Vec::new(),
             commands: Vec::new(),
             handlers: Vec::new(),
+            function_callbacks: 0,
             once: HashSet::new(),
             final_pass: Vec::new(),
             // xorshift cannot leave the all-zero state.

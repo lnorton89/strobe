@@ -23,7 +23,9 @@
 //! 4. **Promise jobs.** Callbacks the frame queued (`then`, the rest of an
 //!    `async` function after an `await`) run now, as any engine runs them
 //!    once the script returns, under the same deadline. Loading runs them
-//!    after `setup()` the same way.
+//!    after `setup()` the same way. A promise still rejected with no handler
+//!    once they have run is a console error, once per distinct reason, as a
+//!    browser reports `unhandledrejection` after its microtasks (D413).
 //! 5. **Harvest.** The deprecated `uniforms` object is scanned, then the
 //!    frame's uniforms are committed (or, after a fault, discarded) and the
 //!    queued control writes are applied to the bank.
@@ -49,12 +51,12 @@ use crate::budget::Budget;
 use crate::error::ScriptError;
 use crate::events::Source;
 use crate::inputs::{FINAL_PASS_BYTES, ScriptInputs};
-use crate::natives::{display, install, stage_uniform};
+use crate::natives::{callbacks, display, install, stage_uniform};
 use crate::output::{ConsoleLevel, FrameOutput, ScriptStatus};
 use crate::shared::{Command, Shared, Target};
 use rquickjs::context::EvalOptions;
 use rquickjs::{Context, Ctx, Exception, Function, Object, Persistent, Runtime, Value};
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 use strobe_scene::audio::{SCALARS, silent_value};
@@ -117,6 +119,70 @@ struct Globals {
     lexical_update: Option<Persistent<Function<'static>>>,
 }
 
+/// Most rejected promises remembered between two drains. A script that
+/// rejects thousands in one frame reports the first ones; the rest are not
+/// kept, so the list cannot grow with it.
+const MAX_PENDING_REJECTIONS: usize = 64;
+
+/// Promises rejected with no handler, and the reason's text, since the
+/// last [`drain_rejections`]. Filled by the runtime's rejection tracker and
+/// emptied after every load and frame, so no handle in it outlives the
+/// runtime (a [`Persistent`] that does makes the runtime abort).
+type Rejections = Rc<RefCell<Vec<(Persistent<Value<'static>>, String)>>>;
+
+/// Installs QuickJS's host rejection tracker on `runtime`. The engine calls
+/// it with `is_handled == false` when a promise is rejected and nothing
+/// handles it yet, and with `true` when a handler is attached to such a
+/// promise later (`p.catch(...)` after `Promise.reject`, or an `await`), so
+/// a rejection still listed when the jobs have run was never handled.
+fn track_rejections(runtime: &Runtime, rejections: &Rejections) {
+    let pending = Rc::clone(rejections);
+    runtime.set_host_promise_rejection_tracker(Some(Box::new(
+        move |ctx: Ctx<'_>, promise: Value<'_>, reason: Value<'_>, is_handled: bool| {
+            let Ok(mut pending) = pending.try_borrow_mut() else {
+                return;
+            };
+            if is_handled {
+                pending.retain(|(kept, _)| {
+                    kept.clone()
+                        .restore(&ctx)
+                        .map_or(true, |kept| kept != promise)
+                });
+            } else if pending.len() < MAX_PENDING_REJECTIONS {
+                // An `Error` reads as its message and line; anything else
+                // (`Promise.reject("why")`) as itself.
+                let is_error = reason
+                    .as_object()
+                    .is_some_and(|object| Exception::from_object(object.clone()).is_some());
+                let text = if is_error {
+                    describe_thrown(&ctx, reason)
+                } else {
+                    display(&ctx, &reason)
+                };
+                pending.push((Persistent::save(&ctx, promise), text));
+            }
+        },
+    )));
+}
+
+/// Reports every rejection [`track_rejections`] still holds as a console
+/// error, once per distinct text (D325's rule for faults), and empties the
+/// list. A rejection is the script's business, not a fault (D322): the
+/// frame stands and its uniforms are kept.
+fn drain_rejections(rejections: &Rejections, shared: &Shared) {
+    let pending = std::mem::take(&mut *rejections.borrow_mut());
+    if pending.is_empty() {
+        return;
+    }
+    let mut state = shared.state.borrow_mut();
+    for (_, text) in pending {
+        state.log_once(
+            ConsoleLevel::Error,
+            &format!("{SCRIPT_NAME}: unhandled promise rejection: {text}"),
+        );
+    }
+}
+
 /// One QuickJS runtime driving one scene's `script.js`.
 ///
 /// Not `Send`: build it and call [`Self::frame`] on the same thread.
@@ -125,12 +191,24 @@ pub struct ScriptHost {
     // context and runtime that own what they point at.
     globals: Globals,
     shared: Rc<Shared>,
+    /// Rejected promises not handled yet; empty between frames.
+    rejections: Rejections,
     context: Context,
     runtime: Runtime,
     budget: Budget,
     consecutive_faults: u32,
     disabled: bool,
     last_fault: Option<String>,
+}
+
+impl Drop for ScriptHost {
+    /// Lets go of any rejected promise still held while the runtime is
+    /// alive; the fields (the runtime among them) drop after this.
+    fn drop(&mut self) {
+        if let Ok(mut pending) = self.rejections.try_borrow_mut() {
+            pending.clear();
+        }
+    }
 }
 
 impl std::fmt::Debug for ScriptHost {
@@ -149,7 +227,12 @@ fn describe(ctx: &Ctx<'_>, error: rquickjs::Error) -> String {
     if !matches!(error, rquickjs::Error::Exception) {
         return error.to_string();
     }
-    let thrown = ctx.catch();
+    describe_thrown(ctx, ctx.catch())
+}
+
+/// A thrown (or rejected) value as one line of text: an `Error`'s message
+/// and the first line of its stack, or the value itself.
+fn describe_thrown<'js>(ctx: &Ctx<'js>, thrown: Value<'js>) -> String {
     let exception = thrown
         .as_object()
         .and_then(|object| Exception::from_object(object.clone()));
@@ -418,6 +501,8 @@ impl ScriptHost {
         })));
         let context = Context::full(&runtime)?;
         let shared = Rc::new(Shared::new(controls, meta, budget.seed, deadline));
+        let rejections = Rejections::default();
+        track_rejections(&runtime, &rejections);
 
         shared.deadline.set(Some(Instant::now() + budget.load));
         let built = context.with(|ctx| -> Result<Globals, ScriptError> {
@@ -452,12 +537,16 @@ impl ScriptHost {
                 .map_err(|message| ScriptError::Load { message })
         });
         shared.deadline.set(None);
+        // Before anything returns, so a load that fails drops no handle
+        // after the runtime.
+        drain_rejections(&rejections, &shared);
         let globals = built?;
         shared.state.borrow_mut().uniforms.commit();
 
         Ok(Self {
             globals,
             shared,
+            rejections,
             context,
             runtime,
             budget,
@@ -560,6 +649,7 @@ impl ScriptHost {
                 self.context.with(|ctx| self.harvest_legacy_uniforms(&ctx));
             });
         self.shared.deadline.set(None);
+        drain_rejections(&self.rejections, &self.shared);
 
         let status = match outcome {
             Ok(()) => {
@@ -698,9 +788,17 @@ impl ScriptHost {
             let Some((callback, value, previous)) = due else {
                 continue;
             };
-            let function: Value<'js> = globals
+            // A name on the global object first, so a script that reassigns
+            // a `function` callback is followed; then the callbacks kept at
+            // registration (a `const` one, or one passed by value, D414).
+            let mut function: Value<'js> = globals
                 .get(&*callback)
                 .map_err(|error| describe(ctx, error))?;
+            if !function.is_function() {
+                function = callbacks(ctx)
+                    .and_then(|kept| kept.get(&*callback))
+                    .map_err(|error| describe(ctx, error))?;
+            }
             if let Some(function) = function.as_function() {
                 function
                     .call::<_, ()>((f64::from(value), f64::from(previous)))

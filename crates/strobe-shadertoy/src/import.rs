@@ -36,6 +36,12 @@
 //! until the new one is complete (the writer swaps them in one rename), so
 //! a failed re-import leaves the old scene intact (D113).
 //!
+//! Only an earlier import of the **same shader** is ever replaced. A folder
+//! of the same name that is anything else (a scene the person made, an
+//! import edited into another shader, something unreadable) is
+//! [`ImportError::NotReplaceable`], with or without `replace`, so no
+//! "Replace?" is offered for it and nothing is deleted (D418).
+//!
 //! ## What is reported
 //!
 //! A converted-with-loss shader is a success with [`Imported::warnings`];
@@ -139,6 +145,20 @@ pub enum ImportError {
         /// The scene's title.
         title: String,
     },
+    /// A folder of the scene's name is in the library and is not an import
+    /// of this shader, so it is never replaced, even when asked (D418).
+    #[error(
+        "{folder} is already in the library and {reason}, so it was left as it is; rename \
+         or move it to import this shader"
+    )]
+    NotReplaceable {
+        /// The existing folder.
+        dir: PathBuf,
+        /// Its name.
+        folder: String,
+        /// What it is instead.
+        reason: String,
+    },
     /// The folder could not be written.
     #[error("{0}")]
     Write(#[from] WriteError),
@@ -177,6 +197,13 @@ pub fn import_json(text: &str, options: &ImportOptions<'_>) -> Result<Imported, 
 
     let target = options.library.join(&converted.folder_name);
     let existed = target.exists();
+    if existed && let Some(reason) = not_an_import_of(&target, shader.info.id.as_deref()) {
+        return Err(ImportError::NotReplaceable {
+            dir: target,
+            folder: converted.folder_name,
+            reason,
+        });
+    }
     if existed && !options.replace {
         return Err(ImportError::Exists {
             dir: target,
@@ -229,14 +256,16 @@ pub fn import_json(text: &str, options: &ImportOptions<'_>) -> Result<Imported, 
     }
 
     // Texture files in the scene: everything under images/ that is not the
-    // placeholder or the pending list.
+    // placeholder or the pending list. A texture is never named like either
+    // (D417), so the names are compared whole: a texture named after one
+    // is `tex-st_black.png`, which still counts.
     let textures_found = converted
         .files
         .keys()
         .filter(|path| {
             path.starts_with("images/")
-                && !path.ends_with("st_black.png")
-                && !path.ends_with("pending-assets.json")
+                && path.as_str() != "images/st_black.png"
+                && path.as_str() != "images/pending-assets.json"
         })
         .count();
 
@@ -253,6 +282,41 @@ pub fn import_json(text: &str, options: &ImportOptions<'_>) -> Result<Imported, 
     })
 }
 
+/// Why the existing folder `dir` is not an earlier import of the shader
+/// `id`, or `None` when it is: its `scene.json` has a `SOURCE` of kind
+/// `shadertoy` with the same `id` (both absent counts as the same, for a
+/// shader exported without one). Read once, before anything is fetched or
+/// written.
+fn not_an_import_of(dir: &Path, id: Option<&str>) -> Option<String> {
+    let text = match std::fs::read_to_string(dir.join("scene.json")) {
+        Ok(text) => text,
+        Err(error) => return Some(format!("its scene.json cannot be read ({error})")),
+    };
+    let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
+    let scene: serde_json::Value = match serde_json::from_str(text) {
+        Ok(scene) => scene,
+        Err(error) => return Some(format!("its scene.json is not valid JSON ({error})")),
+    };
+    let source = scene.get("SOURCE");
+    let field = |key: &str| {
+        source
+            .and_then(|source| source.get(key))
+            .and_then(serde_json::Value::as_str)
+    };
+    if field("kind") != Some("shadertoy") {
+        return Some("is not a Shadertoy import".to_string());
+    }
+    let existing = field("id");
+    if existing != id {
+        return Some(format!(
+            "is the import of Shadertoy shader {}, not {}",
+            existing.unwrap_or("(no id)"),
+            id.unwrap_or("(no id)")
+        ));
+    }
+    None
+}
+
 /// Reads `path` (a Shadertoy export) and imports it.
 pub fn import_file(path: &Path, options: &ImportOptions<'_>) -> Result<Imported, ImportError> {
     let read = |reason: String| ImportError::Read {
@@ -266,8 +330,41 @@ pub fn import_file(path: &Path, options: &ImportOptions<'_>) -> Result<Imported,
             meta.len()
         )));
     }
-    let text = std::fs::read_to_string(path).map_err(|e| read(e.to_string()))?;
+    let bytes = std::fs::read(path).map_err(|e| read(e.to_string()))?;
+    let text = decode_text(bytes).map_err(read)?;
     import_json(&text, options)
+}
+
+/// A JSON file's text: UTF-8 (a BOM is left for [`Shader::from_json`] to
+/// skip), or UTF-16 when it starts with a little- or big-endian byte-order
+/// mark, as PowerShell 5's `>` redirect and `Out-File` write it (D416).
+fn decode_text(bytes: Vec<u8>) -> Result<String, String> {
+    let big_endian = match bytes.get(..2) {
+        Some([0xff, 0xfe]) => false,
+        Some([0xfe, 0xff]) => true,
+        Some(_) | None => {
+            return String::from_utf8(bytes).map_err(|_| {
+                "the file is not UTF-8 text (save it as UTF-8, or as UTF-16 with a byte-order \
+                 mark)"
+                    .to_string()
+            });
+        }
+    };
+    let body = bytes.get(2..).unwrap_or_default();
+    let (units, rest) = body.as_chunks::<2>();
+    if !rest.is_empty() {
+        return Err("the file starts as UTF-16 but has an odd number of bytes".to_string());
+    }
+    let units = units.iter().map(|pair| {
+        if big_endian {
+            u16::from_be_bytes(*pair)
+        } else {
+            u16::from_le_bytes(*pair)
+        }
+    });
+    char::decode_utf16(units)
+        .collect::<Result<String, _>>()
+        .map_err(|error| format!("the file starts as UTF-16 but is not valid UTF-16: {error}"))
 }
 
 /// Fetches shader `id` from the REST API and imports it.
@@ -495,6 +592,44 @@ mod tests {
     }
 
     #[test]
+    fn replace_refuses_a_folder_that_is_not_an_import_of_the_same_shader() -> Result<()> {
+        // The folder an import would take can hold something else: a scene
+        // the person wrote and named the same, or an import edited into
+        // another shader. "Replace" must not delete it.
+        let library = scratch("not-ours")?;
+        let first = import_json(SINGLE, &ImportOptions::offline(&library))?;
+        let folder = first.dir.clone();
+        let others = [
+            r#"{ "TITLE": "my own scene" }"#,
+            r#"{ "SOURCE": { "kind": "shadertoy", "id": "Other1" } }"#,
+            "not json at all",
+        ];
+        for scene in others {
+            std::fs::write(folder.join("scene.json"), scene)?;
+            for replace in [false, true] {
+                let result = import_json(
+                    SINGLE,
+                    &ImportOptions {
+                        replace,
+                        ..ImportOptions::offline(&library)
+                    },
+                );
+                assert!(
+                    matches!(&result, Err(ImportError::NotReplaceable { folder, .. }) if !folder.is_empty()),
+                    "`{scene}`, replace {replace}: refused, got {result:?}"
+                );
+                assert_eq!(
+                    std::fs::read_to_string(folder.join("scene.json"))?,
+                    scene,
+                    "`{scene}`: the folder is left as it was"
+                );
+            }
+        }
+        std::fs::remove_dir_all(&library)?;
+        Ok(())
+    }
+
+    #[test]
     fn re_importing_asks_before_it_downloads() -> Result<()> {
         let library = scratch("ask-first")?;
         import_json(MISSING_TEXTURE, &ImportOptions::offline(&library))?;
@@ -523,6 +658,48 @@ mod tests {
         assert_eq!(*fetch.hits.borrow(), 0, "no request before the answer");
         std::fs::remove_dir_all(&library)?;
         std::fs::remove_dir_all(&cache_dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn a_utf16_export_with_a_byte_order_mark_imports() -> Result<()> {
+        // PowerShell 5's `>` and `Out-File` write UTF-16 LE with a BOM; some
+        // Windows tools write the big-endian form.
+        let dir = scratch("utf16")?;
+        for (name, big_endian) in [("le.json", false), ("be.json", true)] {
+            let mut bytes: Vec<u8> = if big_endian {
+                vec![0xfe, 0xff]
+            } else {
+                vec![0xff, 0xfe]
+            };
+            for unit in SINGLE.encode_utf16() {
+                let pair = if big_endian {
+                    unit.to_be_bytes()
+                } else {
+                    unit.to_le_bytes()
+                };
+                bytes.extend_from_slice(&pair);
+            }
+            let file = dir.join(name);
+            std::fs::write(&file, &bytes)?;
+            let library = dir.join(format!("library-{name}"));
+            let done = import_file(&file, &ImportOptions::offline(&library))?;
+            assert!(done.dir.join("main.glsl").is_file(), "{name}: imported");
+        }
+        // Half a code unit, and a lone surrogate, are not text.
+        for (name, bytes) in [
+            ("odd.json", vec![0xff, 0xfe, 0x7b]),
+            ("lone.json", vec![0xff, 0xfe, 0x00, 0xd8]),
+        ] {
+            let file = dir.join(name);
+            std::fs::write(&file, bytes)?;
+            let error = import_file(&file, &ImportOptions::offline(&dir.join("unused")))
+                .err()
+                .map(|e| e.to_string())
+                .unwrap_or_default();
+            assert!(error.contains("UTF-16"), "{name}: `{error}`");
+        }
+        std::fs::remove_dir_all(&dir)?;
         Ok(())
     }
 

@@ -3,7 +3,8 @@
 // Description:  A validated control: typed, named, with its range and default
 //               resolved to one component per uniform dimension.
 //
-// Dependencies: crate::json (raw input), crate::control::kind, crate::error
+// Dependencies: crate::json (raw input), crate::control::kind, crate::error;
+//               log (a dropdown kept despite a mismatch)
 // ============================================================================
 
 //! Control definitions.
@@ -18,6 +19,9 @@
 //!   to `MIN + t * (MAX - MIN)` either way.
 //! - A single number where the control has several dimensions applies to
 //!   all of them.
+//!
+//! - A dropdown whose `LABELS` and `VALUES` differ in length keeps the
+//!   options both lists give, with a warning (D412).
 //!
 //! What *is* rejected is ambiguity a show cannot recover from: an array
 //! with the wrong number of components, a dropdown with no options, a name
@@ -72,12 +76,15 @@ impl ControlDef {
             return Err(SceneError::ReservedName(name));
         }
         // Real Synesthesia scenes have controls with only NAME, MIN, MAX and
-        // DEFAULT (7 in 65 on TORNADO, D193). With no TYPE, two default
-        // components make an xy pad and anything else a slider.
+        // DEFAULT (7 in 65 on TORNADO, D193). With no TYPE, the default's
+        // components pick the one type with that many: two make an xy pad,
+        // three a colour (the only vec3), four a colour with alpha (dropped,
+        // as for a typed colour), and anything else a slider (D412, Q32).
         let ty = if raw.ty.trim().is_empty() {
             match raw.default.as_ref().map(|d| d.to_vec().len()) {
                 Some(2) => "xy",
-                _ => "slider",
+                Some(3 | 4) => "color",
+                Some(_) | None => "slider",
             }
         } else {
             raw.ty.as_str()
@@ -232,23 +239,42 @@ fn components(
     Ok(out)
 }
 
-/// A dropdown's labels and values, each filled in from the other.
+/// A dropdown's labels and values, each filled in from the other. An empty
+/// list counts as absent.
+///
+/// When both are given with different lengths, the options are the ones
+/// both lists give: label `i` with value `i`, as far as the shorter list
+/// goes. Neither a value nor a label is invented, the scene keeps playing,
+/// and the mismatch is logged (D412). What Synesthesia does with such a
+/// control is not known (Q32).
 fn dropdown_options(name: &str, raw: &RawControl) -> Result<(Vec<String>, Vec<f32>), SceneError> {
-    match (&raw.labels, &raw.values) {
-        (Some(labels), Some(values)) if labels.len() == values.len() && !labels.is_empty() => {
-            Ok((labels.clone(), values.clone()))
+    let labels = raw.labels.as_ref().filter(|labels| !labels.is_empty());
+    let values = raw.values.as_ref().filter(|values| !values.is_empty());
+    match (labels, values) {
+        (Some(labels), Some(values)) => {
+            if labels.len() != values.len() {
+                log::warn!(
+                    "dropdown `{name}`: {} LABELS but {} VALUES; keeping the first {} of each",
+                    labels.len(),
+                    values.len(),
+                    labels.len().min(values.len())
+                );
+            }
+            Ok(labels
+                .iter()
+                .zip(values)
+                .map(|(label, value)| (label.clone(), *value))
+                .unzip())
         }
-        (Some(labels), None) if !labels.is_empty() => Ok((
+        (Some(labels), None) => Ok((
             labels.clone(),
             (0..labels.len()).map(|i| i as f32).collect(),
         )),
-        (None, Some(values)) if !values.is_empty() => Ok((
+        (None, Some(values)) => Ok((
             (1..=values.len()).map(|i| format!("option {i}")).collect(),
             values.clone(),
         )),
-        (Some(_), Some(_)) | (Some(_), None) | (None, Some(_)) | (None, None) => {
-            Err(SceneError::Dropdown(name.to_string()))
-        }
+        (None, None) => Err(SceneError::Dropdown(name.to_string())),
     }
 }
 
@@ -340,6 +366,49 @@ mod tests {
         assert!(
             ControlDef::from_raw(&none).is_err(),
             "a dropdown with no options"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_dropdown_whose_labels_and_values_differ_keeps_the_options_both_give() -> Result<()> {
+        // One list longer than the other used to fail the whole scene.
+        let def = control(
+            r#"{ "NAME": "m", "TYPE": "dropdown", "LABELS": ["a", "b", "c"], "VALUES": [5, 7] }"#,
+        )?;
+        assert_eq!(def.labels, vec!["a", "b"], "labels paired with a value");
+        assert_eq!(def.values, vec![5.0, 7.0], "every value kept");
+        assert_eq!(def.max[0], 1.0, "the range is the two options' indices");
+        let def = control(
+            r#"{ "NAME": "m", "TYPE": "dropdown", "LABELS": ["a"], "VALUES": [5, 7, 9] }"#,
+        )?;
+        assert_eq!(
+            (def.labels.len(), def.values.len()),
+            (1, 1),
+            "the shorter list decides"
+        );
+        let def = control(r#"{ "NAME": "m", "TYPE": "dropdown", "LABELS": [], "VALUES": [5] }"#)?;
+        assert_eq!(def.labels, vec!["option 1"], "an empty list is no list");
+        Ok(())
+    }
+
+    #[test]
+    fn an_untyped_control_with_three_or_four_default_components_is_a_colour() -> Result<()> {
+        // Two components make an xy pad (D193); three are a vec3, which only
+        // a colour is, and four a colour with alpha. A slider failed them.
+        for default in ["[0.2, 0.4, 0.6]", "[0.2, 0.4, 0.6, 1.0]"] {
+            let def = control(&format!(r#"{{ "NAME": "tint", "DEFAULT": {default} }}"#))?;
+            assert!(
+                matches!(def.kind, ControlKind::Color { .. }),
+                "{default}: {:?}",
+                def.kind
+            );
+            assert_eq!(def.default, [0.2, 0.4, 0.6], "{default}: the default kept");
+        }
+        let def = control(r#"{ "NAME": "amount", "DEFAULT": 0.5 }"#)?;
+        assert!(
+            matches!(def.kind, ControlKind::Slider(_)),
+            "one component is still a slider"
         );
         Ok(())
     }

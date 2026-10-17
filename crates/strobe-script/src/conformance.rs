@@ -981,6 +981,62 @@ fn re_registering_every_frame_does_not_stack_handlers() -> Result<()> {
     Ok(())
 }
 
+#[test]
+fn callbacks_declared_with_const_or_let_or_passed_as_functions_fire() -> Result<()> {
+    // A top-level `const` or `let` is not a property of the global object
+    // (D326), so a callback declared that way was "no function named".
+    // Passing the function itself is accepted too (D414).
+    let script = r#"
+        let named = 0, arrow = 0, passed = 0, again = 0;
+        const onNamed = (v, p) => { named++; };
+        let onArrow = function (v, p) { arrow++; };
+        const shared = function (v, p) { again++; };
+        function setup() {
+            onChange("myToggle", "onNamed");
+            onOffToOn("myToggle", "onArrow");
+            onChange("myToggle", function (v, p) { passed++; });
+        }
+        function update() {
+            onChange("myToggle", shared);
+            setUniform("seen", named, arrow, passed, again);
+        }
+    "#;
+    let toggle = r#"{ "NAME": "myToggle", "TYPE": "toggle" }"#;
+    let mut rig = Rig::new(script, &[toggle])?;
+    let mut console = Vec::new();
+    for value in [0.0, 0.0, 1.0, 1.0] {
+        rig.set_target("myToggle", &[value])?;
+        rig.bank.tick(DT);
+        let out = rig.step();
+        assert_eq!(out.status, ScriptStatus::Running, "{:?}", out.console);
+        console.extend(out.console.iter().map(|line| line.text.clone()));
+        if value > 0.5 {
+            // Each fired once on the rise; `shared`, registered every
+            // frame, is one handler, not one a frame.
+            expect_uniform(&out, "seen", ExtraType::Vec4, &[1.0, 1.0, 1.0, 1.0])?;
+        }
+    }
+    assert!(console.is_empty(), "no complaint: {console:?}");
+    Ok(())
+}
+
+#[test]
+fn a_callback_that_is_neither_a_name_nor_a_function_is_a_type_error() -> Result<()> {
+    // A malformed call throws, as for every native (see `natives`).
+    let toggle = r#"{ "NAME": "myToggle", "TYPE": "toggle" }"#;
+    let bank = bank(&[toggle])?;
+    let meta = strobe_scene::meta::bank()?;
+    let script = r#"function setup() { onChange("myToggle", 42); }"#;
+    match ScriptHost::new(script, &bank, &meta, relaxed()) {
+        Err(ScriptError::Setup { message }) => assert!(
+            message.contains("onChange") && message.contains("a function or the name of one"),
+            "says what it wants: `{message}`"
+        ),
+        other => return Err(anyhow!("expected a setup error, got {other:?}")),
+    }
+    Ok(())
+}
+
 // ---- textureFinalPass ---------------------------------------------------------
 
 #[test]
@@ -1811,6 +1867,63 @@ fn a_fault_that_keeps_coming_back_is_one_console_error() -> Result<()> {
     }
     assert_eq!(faults, 30, "every odd frame still faults");
     assert_eq!(lines, 1, "but the console says so once");
+    Ok(())
+}
+
+#[test]
+fn an_unhandled_rejection_is_one_console_error_and_a_handled_one_none() -> Result<()> {
+    // A rejected promise nobody handles is lost without a word: the
+    // `async` function's error never reaches the person (D413).
+    let script = r#"
+        Promise.reject(new Error("rejected at load"));
+        function update() {
+            Promise.reject(new Error("nobody listens"));
+            (async function () { throw new Error("thrown in async"); })();
+            var later = Promise.reject(new Error("handled at once"));
+            later.catch(function () {});
+            (async function () {
+                try { await Promise.reject("awaited"); } catch (e) {}
+            })();
+        }
+    "#;
+    let mut rig = Rig::new(script, &[])?;
+    let mut lines: Vec<String> = Vec::new();
+    for _ in 0..10 {
+        let out = rig.step();
+        assert_eq!(out.status, ScriptStatus::Running, "{:?}", out.console);
+        lines.extend(errors(&out).iter().map(|line| (*line).to_string()));
+    }
+    for needle in ["rejected at load", "nobody listens", "thrown in async"] {
+        let count = lines.iter().filter(|line| line.contains(needle)).count();
+        assert_eq!(count, 1, "`{needle}` reported once: {lines:?}");
+    }
+    assert!(
+        lines
+            .iter()
+            .all(|line| !line.contains("handled at once") && !line.contains("awaited")),
+        "a handled rejection is not reported: {lines:?}"
+    );
+    assert!(
+        lines
+            .iter()
+            .all(|line| line.contains("unhandled promise rejection")),
+        "each says what it is: {lines:?}"
+    );
+    // A load that fails with a rejection still held lets go of it before
+    // the runtime goes; a handle that outlives the runtime aborts the
+    // process.
+    let bank = bank(&[])?;
+    let meta = strobe_scene::meta::bank()?;
+    let failed = ScriptHost::new(
+        "Promise.reject(1); throw new Error('no');",
+        &bank,
+        &meta,
+        relaxed(),
+    );
+    assert!(
+        matches!(failed, Err(ScriptError::Load { .. })),
+        "{failed:?}"
+    );
     Ok(())
 }
 

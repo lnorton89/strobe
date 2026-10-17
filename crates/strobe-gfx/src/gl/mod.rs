@@ -284,6 +284,9 @@ pub struct Info {
     pub es_float_render: bool,
     /// `GL_MAX_TEXTURE_SIZE`.
     pub max_texture_size: i32,
+    /// `GL_MAX_TEXTURE_IMAGE_UNITS`: how many textures one fragment shader
+    /// may sample.
+    pub max_texture_units: i32,
     /// Whether `GL_TIME_ELAPSED` queries work: core in desktop GL 3.3 (or
     /// `ARB_timer_query`), and `EXT_disjoint_timer_query` on ES.
     pub gpu_timer: bool,
@@ -457,6 +460,7 @@ impl Gl {
             parsed: (version.major, version.minor, version.is_embedded),
             es_float_render: extensions.contains("GL_EXT_color_buffer_float"),
             max_texture_size: self.get_i32(glow::MAX_TEXTURE_SIZE),
+            max_texture_units: self.get_i32(glow::MAX_TEXTURE_IMAGE_UNITS),
             gpu_timer,
         }
     }

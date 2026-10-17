@@ -575,6 +575,80 @@ fn a_supplied_texture_is_copied_in_with_its_sampler_settings() -> Result<()> {
 }
 
 #[test]
+fn texture_file_names_never_collide_with_generated_files_or_each_other() -> Result<()> {
+    // A texture named like the black placeholder or the pending list was
+    // written over by it (or over it), and two URLs ending in the same
+    // name shared one file, so one channel showed the other's picture.
+    let code = "void mainImage(out vec4 c, in vec2 p) { c = texture(iChannel0, p) + \
+                texture(iChannel1, p) + texture(iChannel2, p) + texture(iChannel3, p); }";
+    let urls = [
+        "/media/a/st_black.png",
+        "https://x.test/pending-assets.json",
+        "/media/a/x.png",
+        "https://x.test/b/X.png",
+    ];
+    let inputs: Vec<Value> = urls
+        .iter()
+        .enumerate()
+        .map(|(channel, src)| json!({ "channel": channel, "ctype": "texture", "src": src }))
+        .collect();
+    let shader = shader(json!([pass("image", "Image", code, json!(inputs))]))?;
+    let first = convert(&shader, &Options::default())?;
+    let mut names: Vec<String> = first
+        .pending_assets
+        .iter()
+        .map(|asset| asset.file.to_ascii_lowercase())
+        .collect();
+    names.sort();
+    names.dedup();
+    assert_eq!(
+        names.len(),
+        4,
+        "four files, case aside: {:?}",
+        first.pending_assets
+    );
+    assert!(
+        names
+            .iter()
+            .all(|name| name != "st_black.png" && name != "pending-assets.json"),
+        "none is a generated file: {names:?}"
+    );
+    // Supply the first three, each by the name the pending list gave it,
+    // with bytes of its own; the fourth stays missing, so the black
+    // placeholder and the pending list are written beside them.
+    let mut options = Options::default();
+    for (index, asset) in first.pending_assets.iter().enumerate().take(3) {
+        options
+            .assets
+            .insert(asset.file.clone(), vec![index as u8 + 1; 4]);
+    }
+    let converted = convert(&shader, &options)?;
+    for index in 0..3_u8 {
+        let bytes = vec![index + 1; 4];
+        assert_eq!(
+            converted
+                .files
+                .values()
+                .filter(|file| **file == bytes)
+                .count(),
+            1,
+            "texture {index} is one file of its own"
+        );
+    }
+    let black = converted
+        .files
+        .get("images/st_black.png")
+        .ok_or_else(|| anyhow!("no black placeholder"))?;
+    assert!(black.starts_with(b"\x89PNG"), "the placeholder is intact");
+    let pending: Value = serde_json::from_str(text(&converted, "images/pending-assets.json")?)?;
+    assert!(
+        pending.to_string().contains("X.png"),
+        "the pending list is intact and names the missing one: {pending}"
+    );
+    Ok(())
+}
+
+#[test]
 fn the_original_json_can_travel_with_the_scene() -> Result<()> {
     let shader = Shader::from_json(&fixture("single_image")?)?;
     let original = fixture("single_image")?;
