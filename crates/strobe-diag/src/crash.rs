@@ -46,7 +46,7 @@
 //! ## What the app must do
 //!
 //! 1. First thing in `main()`, before anything else:
-//!    `if run_monitor_if_requested(std::env::args()) { return; }`
+//!    `if run_monitor_if_requested(std::env::args_os()) { return; }`
 //! 2. On the **main thread**, call [`start_monitor`] and keep the returned
 //!    handle alive until exit. Attaching on the main thread is what gives
 //!    the main thread a stack-overflow-safe signal stack.
@@ -72,6 +72,7 @@ use crate::report::{self, CrashReport};
 use crate::{context, failure, logger, native, panic_hook, paths};
 use crash_handler::{CrashContext, CrashEventResult, CrashHandler};
 use minidumper::{Client, LoopAction, MinidumpBinary, Server, ServerHandler, SocketName};
+use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -275,17 +276,27 @@ fn bind_socket<R>(name: &str, then: impl FnOnce(SocketName<'_>) -> R) -> R {
 /// Runs the monitor if `args` asks for it, blocking until it is done.
 /// Returns `true` when this process was a monitor, in which case `main`
 /// must return immediately.
-pub fn run_monitor_if_requested(args: impl IntoIterator<Item = String>) -> bool {
-    let mut args = args.into_iter();
+///
+/// Pass `std::env::args_os()`, not `std::env::args()`: this runs before the
+/// panic hook exists, and `args()` panics on an argument that is not valid
+/// Unicode (a Latin-1 file name on Linux), which would end the run with no
+/// log and no report.
+pub fn run_monitor_if_requested<I>(args: I) -> bool
+where
+    I: IntoIterator,
+    I::Item: Into<OsString>,
+{
+    let mut args = args.into_iter().map(Into::into);
     while let Some(arg) = args.next() {
         if arg == MONITOR_ARG {
-            match args.next() {
-                Some(name) => {
+            match args.next().map(OsString::into_string) {
+                Some(Ok(name)) => {
                     if args.next().is_some_and(|flag| flag == UNATTENDED_ARG) {
                         notify::set_unattended();
                     }
                     run_monitor(&name);
                 }
+                Some(Err(_)) => write_stderr("strobe crash monitor: socket name is not Unicode"),
                 None => write_stderr("strobe crash monitor: missing socket name"),
             }
             return true;
@@ -805,6 +816,18 @@ mod tests {
         assert!(
             !run_monitor_if_requested(["strobe.exe".to_string(), "--diagnose".to_string()]),
             "ordinary arguments must not start a monitor"
+        );
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_argument_that_is_not_unicode_is_not_a_monitor_request() -> Result<()> {
+        use std::os::unix::ffi::OsStringExt as _;
+        let latin1 = OsString::from_vec(b"caf\xe9.synScene".to_vec());
+        assert!(
+            !run_monitor_if_requested([OsString::from("strobe"), latin1]),
+            "a Latin-1 file name is an ordinary argument"
         );
         Ok(())
     }

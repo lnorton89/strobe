@@ -36,7 +36,7 @@
 //!     //    because the monitor process reports native crashes with it.
 //!     strobe_diag::notify::set_notifier(|notice| show_message_box(notice));
 //!     // 2. If this process is the crash monitor, run it and exit.
-//!     if strobe_diag::crash::run_monitor_if_requested(std::env::args()) { return; }
+//!     if strobe_diag::crash::run_monitor_if_requested(std::env::args_os()) { return; }
 //!     // 3. Logging, panic hook, background system probe.
 //!     let session = strobe_diag::init();
 //!     // 4. `--diagnose` prints `strobe_diag::diag::system_report(&[])` and exits.
