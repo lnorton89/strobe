@@ -9337,3 +9337,26 @@ sum (45 s behind at 60 fps).
 
 **Would reopen:** an answer to Q29, or a host that wants the scene clock
 on a wall clock instead of summed frames.
+
+### D392: a playlist's show time counts in `f64` too (2026-10-17)
+
+**Context.** A playlist reads its beat (tempo, confidence, `syn_BeatTime`,
+the downbeat) from an audio frame evaluated at its own show time, which
+never restarts. With live audio the time is ignored; with the synthetic
+track (`--audio synthetic`, or `--audio auto` after the microphone is
+lost) the beat is a function of it. That time was an `f32` summed from the
+wall-clock steps, with D391's defect: four hours in it was 45 s behind at
+60 fps, so the beats the playlist counted ran 0.4 % slower than the cue
+clock (`f64`) they are compared with, 1.6 % at 144 fps.
+
+**Decision.** The show time is a `SceneClock` (D391), the same `f64` sum
+read as `f32`. The playlist clock's own times were already `f64` and the
+live beat counter is a whole number, exact in `f32` up to 16.7 million
+beats (over 1200 hours at 220 BPM), so nothing else on the playlist path
+grows out of precision.
+
+**Test.** `the_scene_clock_keeps_real_time_four_hours_in` covers the type.
+The show loop needs a GL context and a library to run, and its use of the
+clock is the three lines that changed.
+
+**Would reopen:** as D391.

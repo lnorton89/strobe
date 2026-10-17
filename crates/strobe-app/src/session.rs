@@ -97,23 +97,24 @@ pub const RENDER_SCALE: RangeInclusive<f32> = 0.25..=1.0;
 
 /// A scene's `TIME`: the frames' `dt` summed in `f64`, read as `f32`
 /// (D391). Never wrapped, since shaders use `TIME` as a coordinate as often
-/// as a phase (Q29).
+/// as a phase (Q29). A playlist's show time, which the audio it hears is
+/// evaluated at, is one too (D392).
 #[derive(Debug, Clone, Copy, PartialEq)]
-struct SceneClock(f64);
+pub(crate) struct SceneClock(f64);
 
 impl SceneClock {
     /// A clock at `start` seconds.
-    fn at(start: f32) -> Self {
+    pub(crate) fn at(start: f32) -> Self {
         Self(f64::from(start))
     }
 
     /// Moves the clock on by `dt` seconds.
-    fn advance(&mut self, dt: f32) {
+    pub(crate) fn advance(&mut self, dt: f32) {
         self.0 += f64::from(dt);
     }
 
     /// The time, as the shader and the script see it.
-    fn seconds(self) -> f32 {
+    pub(crate) fn seconds(self) -> f32 {
         self.0 as f32
     }
 }
