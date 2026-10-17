@@ -1,4 +1,4 @@
-#0 scale Shape Float default=[6.0] range=[0.0]..[12.0] name=scale sites=[main.glsl:31:19] literal="6.0"
-#1 time scale Motion Float default=[0.8] range=[0.0]..[1.6] name=speed sites=[main.glsl:39:34] literal="iTime * 0.8"
-#2 colour Colour Colour default=[0.95, 0.8, 0.35] range=[0.0, 0.0, 0.0]..[1.0, 1.0, 1.0] name=color role=low sites=[main.glsl:43:20] literal="vec3(0.95, 0.80, 0.35)"
-#3 colour Colour Colour default=[0.1, 0.25, 0.55] range=[0.0, 0.0, 0.0]..[1.0, 1.0, 1.0] name=color role=high sites=[main.glsl:43:44] literal="vec3(0.10, 0.25, 0.55)"
+#0 scale Shape Float default=[6.0] range=[0.0]..[12.0] name=scale sites=[main.glsl:29:19] literal="6.0"
+#1 time scale Motion Float default=[0.8] range=[0.0]..[1.6] name=speed sites=[main.glsl:37:34] literal="iTime * 0.8"
+#2 colour Colour Colour default=[0.95, 0.8, 0.35] range=[0.0, 0.0, 0.0]..[1.0, 1.0, 1.0] name=color role=low sites=[main.glsl:41:20] literal="vec3(0.95, 0.80, 0.35)"
+#3 colour Colour Colour default=[0.1, 0.25, 0.55] range=[0.0, 0.0, 0.0]..[1.0, 1.0, 1.0] name=color role=high sites=[main.glsl:41:44] literal="vec3(0.10, 0.25, 0.55)"
