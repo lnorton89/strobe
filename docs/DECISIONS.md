@@ -9960,3 +9960,39 @@ mapped as a button with a threshold far from the middle and swept through it
 and back within one stalled frame (the peak is folded away), or an OSC flood
 crowding out OSC triggers, which would want the same treatment keyed by
 address.
+
+### D422: a driver message repeated every frame is counted, and summarised once a minute (2026-10-17)
+
+**Context.** Driver debug output (D44, `gl::debug`) was rate limited per
+(source, type, id) to five messages in each one-second window, with the
+suppressed count added to the first line of the next window. A message the
+driver repeats every frame therefore still wrote five full lines a second:
+72,000 over a four-hour show, each building a `DriverMessage` (a `String`)
+and a `format!` for the count, burying everything else in the session log
+and its 64 MiB cap (D380). The other GL error path was checked and is not a
+problem: `glGetError` is read only at context set-up (`drain_gl_errors` in
+the app), by the bench and the corpus run, and in tests, never per frame,
+and `STROBE_GL_TRACE` already logs each distinct event once (D296).
+
+**Decision.** `RateLimiter` logs each distinct message in full
+`FULL_REPEATS` (5) times. After that its repeats are only counted, and one
+line every `SUMMARY_EVERY` (60 s), at the message's own level, says
+`... (repeated N times in the last 60 s)`. A message absent for a minute
+starts over: the next one is logged in full with the count it had pending
+(`N identical messages suppressed`) and gets five full lines again, so a
+problem that comes back later in the show is visible as itself. A counted
+repeat is a lock and a lookup in a map that already holds its key; the
+summary line formats the driver's text straight into the logger; neither
+allocates in this code. Only full lines build a `DriverMessage` and go into
+the ring the UI console reads. No GL is called from the callback, as before.
+
+**Test.** `a_message_repeated_every_frame_for_four_hours_logs_a_few_hundred_lines`
+(864,000 messages at 60 fps: five full lines and at most 240 summaries,
+every repeat but the last minute's counted in one; the one-second window
+logged 72,000), `a_message_that_goes_quiet_is_logged_in_full_again_with_its_count`,
+and the existing burst and per-id tests, renamed to the new constants.
+
+**Would reopen:** a driver whose distinct ids churn past the limiter's 256
+(it forgets them all and starts over, as before), or an operator who needs
+every occurrence with its time, which `STROBE_GL_DEBUG` with a debugger on the
+synchronous callback already gives.

@@ -225,7 +225,10 @@ Linux and llvmpipe cannot prove any of these:
   - 60 fps, with 0 to 4 late frames a minute.
 
   Not yet: the same on the T480's iGPU, whose earlier 30-minute run (Task
-  17) held one scene.
+  17) held one scene. A driver message repeated every frame can no longer
+  grow the log by five lines a second: five full lines, then one summary a
+  minute (D422; `gl::debug` tests, a simulated four-hour flood); a real
+  driver doing so has not been seen.
 - [x] Offscreen frames render on AMD native WGL at any size (D296, fixed by
   D311; verified on the mini PC's Vega 3, MINIPC.md Task M17, 2026-10-16:
   the default library at 640x360 and 1920x1080 on native WGL, no black frame,
