@@ -1445,6 +1445,67 @@ fn a_macro_key_drives_its_macro_while_held() -> Result<()> {
 }
 
 #[test]
+fn a_macro_key_let_go_while_a_text_field_has_focus_still_lets_the_macro_go() -> Result<()> {
+    // Q is held (the macro goes up), Ctrl+K opens the palette, whose field
+    // takes focus, and Q is let go while the field has it.
+    let drawn = draw_events(
+        Scenario {
+            mapped: true,
+            ..BASE
+        },
+        (1440.0, 900.0),
+        vec![
+            vec![press(egui::Key::Q, egui::Modifiers::NONE)],
+            Vec::new(),
+            vec![ctrl_k()],
+            Vec::new(),
+            vec![release(egui::Key::Q)],
+            Vec::new(),
+        ],
+    )?;
+    let keys: Vec<&Action> = drawn
+        .all_actions
+        .iter()
+        .filter(|a| matches!(a, Action::MacroKey { .. }))
+        .collect();
+    assert!(
+        matches!(
+            keys.as_slice(),
+            [
+                Action::MacroKey { down: true, .. },
+                Action::MacroKey { down: false, .. }
+            ]
+        ),
+        "the release reaches the macro, or it stays up: {:?}",
+        drawn.all_actions
+    );
+    // A press into the field is typing, never a macro.
+    let typing = draw_events(
+        Scenario {
+            mapped: true,
+            ..BASE
+        },
+        (1440.0, 900.0),
+        vec![
+            vec![ctrl_k()],
+            Vec::new(),
+            vec![press(egui::Key::Q, egui::Modifiers::NONE), typed("q")],
+            vec![release(egui::Key::Q)],
+            Vec::new(),
+        ],
+    )?;
+    assert!(
+        !typing
+            .all_actions
+            .iter()
+            .any(|a| matches!(a, Action::MacroKey { .. })),
+        "Q typed into the palette drives no macro: {:?}",
+        typing.all_actions
+    );
+    Ok(())
+}
+
+#[test]
 fn a_key_pressed_while_capturing_rebinds_and_fires_nothing() -> Result<()> {
     let scenario = Scenario {
         capturing: Some(crate::commands::CommandId::TapTempo),
