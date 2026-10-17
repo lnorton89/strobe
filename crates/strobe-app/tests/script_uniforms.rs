@@ -314,3 +314,55 @@ fn a_script_that_never_names_texture_final_pass_pays_for_no_readback() -> Result
     );
     Ok(())
 }
+
+#[test]
+fn uniforms_reach_the_right_slots_when_a_name_is_dropped_and_after_a_restart() -> Result<()> {
+    // `fade` clashes with a transition uniform, so the shaders are built without it
+    // while the script still sets it first: the script's order and the
+    // shaders' differ, and the values are bound to the shaders' names once,
+    // at the seal and again at a restart, not looked up by name each frame.
+    let scene = TempScene::new(
+        "bound",
+        r#"{ "HARD_TRANSITIONS": [ { "UNIFORM": "fade", "VALUES": [0.0] } ] }"#,
+        "vec4 renderMain() { return vec4(first, second, fade, 1.0); }",
+        "function update(dt) { setUniform('fade', 0.9); setUniform('second', 0.25); \
+         setUniform('first', 0.5); }",
+    )?;
+    for api in BOTH {
+        let Some(headless) = context(api)? else {
+            continue;
+        };
+        let gl = headless.gl();
+        let caps = Caps::from_info(gl.info());
+        let mut audio = AudioInput::new(false);
+        let mut session = Session::load(gl, &caps, &scene.0, "bound", [32, 18], 0.0, &mut audio)
+            .map_err(|e| anyhow!("{api:?}: load failed: {e}"))?;
+        let names: Vec<&str> = session
+            .player
+            .extras()
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect();
+        assert_eq!(
+            names,
+            ["second", "first"],
+            "{api:?}: the clashing name is left out"
+        );
+        for restarted in [false, true] {
+            if restarted {
+                session.restart_script(&mut audio, 0.0);
+            }
+            session.advance(1.0 / 60.0, &mut audio, Mouse::default(), DATE);
+            if let Some(code) = gl.error() {
+                return Err(anyhow!("{api:?}: GL error 0x{code:x}"));
+            }
+            let px = centre(&session)?;
+            assert!(
+                near(px[0], 128) && near(px[1], 64) && near(px[2], 0),
+                "{api:?} restarted={restarted}: first 0.5 and second 0.25 reach their own \
+                 uniforms, and the transition stays at 0: {px:?}"
+            );
+        }
+    }
+    Ok(())
+}

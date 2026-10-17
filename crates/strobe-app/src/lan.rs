@@ -22,6 +22,12 @@
 //! [`PUBLISH_PERIOD`] it publishes the state a phone shows; the bridge sends
 //! nothing when nothing changed.
 //!
+//! The address a phone opens is worked out when the listener starts and
+//! again every [`URL_REFRESH`] (D341). For a listener bound to every
+//! interface, working it out opens a UDP socket to ask the operating system
+//! which address it would use, so it is not done on every control-window
+//! frame; a changed lease still shows up within the period.
+//!
 //! The paired-client list (a small JSON file) is read from the data
 //! directory once, the first time the control window or a start asks for it,
 //! and revoking works with the listener off.
@@ -44,6 +50,11 @@ pub const MAX_PER_FRAME: usize = 8;
 /// How often the state is published: often enough that a press shows on
 /// the phone at once, rarely enough to cost nothing.
 pub const PUBLISH_PERIOD: Duration = Duration::from_millis(100);
+
+/// How long the address shown to the operator is trusted before the system
+/// is asked again. A DHCP change takes at most this long to show; asking
+/// every control frame cost a socket about thirty times a second (D341).
+const URL_REFRESH: Duration = Duration::from_secs(10);
 
 /// Commands the bridge holds before the listener answers `Busy`.
 const QUEUE: usize = 16;
@@ -140,6 +151,43 @@ pub struct LanView {
     pub venue: bool,
 }
 
+/// The address a phone opens, remembered between asks.
+#[derive(Debug, Default)]
+struct UrlCache {
+    text: String,
+    /// When `text` was worked out; `None` when it has not been.
+    at: Option<Instant>,
+}
+
+impl UrlCache {
+    /// Remembers `text` as worked out at `now`.
+    fn set(&mut self, now: Instant, text: String) {
+        self.text = text;
+        self.at = Some(now);
+    }
+
+    /// Forgets the address, so the next [`Self::refresh`] asks.
+    fn clear(&mut self) {
+        self.text.clear();
+        self.at = None;
+    }
+
+    /// Asks `ask` for the address if there is none or it is [`URL_REFRESH`]
+    /// old at `now`, and says whether that changed the text.
+    fn refresh(&mut self, now: Instant, ask: impl FnOnce() -> String) -> bool {
+        let fresh = self
+            .at
+            .is_some_and(|at| now.saturating_duration_since(at) < URL_REFRESH);
+        if fresh {
+            return false;
+        }
+        let text = ask();
+        let changed = text != self.text;
+        self.set(now, text);
+        changed
+    }
+}
+
 /// The LAN remote.
 #[derive(Debug)]
 pub struct Lan {
@@ -169,6 +217,8 @@ pub struct Lan {
     retry_at: Option<Instant>,
     note: String,
     failed: bool,
+    /// The address shown while the listener runs (D341).
+    url: UrlCache,
     published: Option<Instant>,
     snapshot: Snapshot,
 }
@@ -191,6 +241,7 @@ impl Lan {
             retry_at: None,
             note: "Off".to_string(),
             failed: false,
+            url: UrlCache::default(),
             published: None,
             snapshot: Snapshot::default(),
         }
@@ -323,10 +374,12 @@ impl Lan {
         });
         match started {
             Ok((server, app_end)) => {
+                let url = server.url();
                 self.note = match &self.proxied {
                     Some(name) => format!("On: https://{name} (through your proxy)"),
-                    None => format!("On: {}", server.url()),
+                    None => format!("On: {url}"),
                 };
+                self.url.set(Instant::now(), url);
                 self.failed = false;
                 if std::mem::take(&mut self.desktop_at_start) {
                     self.desktop_enabled = true;
@@ -368,6 +421,7 @@ impl Lan {
         }
         // The bridge first, so a command in flight is answered Unavailable.
         self.app_end = None;
+        self.url.clear();
         if let Some(server) = self.server.take() {
             server.stop();
         }
@@ -514,6 +568,12 @@ impl Lan {
 
     /// What the UI shows this frame.
     pub fn view(&mut self) -> LanView {
+        self.view_at(Instant::now())
+    }
+
+    /// [`Self::view`] at `now`: the address is asked for again only when it
+    /// is [`URL_REFRESH`] old, and the "On: ..." line follows it if it moved.
+    pub fn view_at(&mut self, now: Instant) -> LanView {
         let clients = self.clients().list();
         let Some(server) = &self.server else {
             return LanView {
@@ -524,6 +584,9 @@ impl Lan {
                 ..LanView::default()
             };
         };
+        if self.url.refresh(now, || server.url()) && self.proxied.is_none() {
+            self.note = format!("On: {}", self.url.text);
+        }
         let connections = server.connections();
         let connected = |id: &str| {
             connections
@@ -532,7 +595,7 @@ impl Lan {
         };
         LanView {
             running: true,
-            url: Some(server.url()),
+            url: Some(self.url.text.clone()),
             warning: server.warning().map(str::to_string),
             note: self.note.clone(),
             failed: false,
@@ -609,6 +672,89 @@ mod tests {
             2,
             "two clients among four sockets"
         );
+    }
+
+    #[test]
+    fn the_address_is_asked_for_once_per_period_not_once_per_frame() {
+        let start = Instant::now();
+        let asked = std::cell::Cell::new(0_u32);
+        let mut cache = UrlCache::default();
+        let ask = |text: &str| {
+            asked.set(asked.get() + 1);
+            text.to_string()
+        };
+        assert!(
+            cache.refresh(start, || ask("http://192.168.1.20:47812/")),
+            "the first ask fills it"
+        );
+        for frame in 1..=300_u64 {
+            let now = start + Duration::from_millis(frame * 33);
+            assert!(
+                !cache.refresh(now, || ask("http://192.168.1.99:47812/")),
+                "frame {frame}: inside the period nothing is asked"
+            );
+        }
+        assert_eq!(asked.get(), 1, "ten seconds of frames made one ask");
+        assert_eq!(
+            cache.text, "http://192.168.1.20:47812/",
+            "and kept its answer"
+        );
+
+        let later = start + URL_REFRESH;
+        assert!(
+            cache.refresh(later, || ask("http://192.168.1.99:47812/")),
+            "a new lease shows up once the period is over"
+        );
+        assert_eq!(cache.text, "http://192.168.1.99:47812/", "the new address");
+        assert!(
+            !cache.refresh(later + URL_REFRESH, || ask("http://192.168.1.99:47812/")),
+            "asked again, the same answer is no change"
+        );
+        assert_eq!(asked.get(), 3, "one ask per period");
+
+        cache.clear();
+        assert!(
+            cache.refresh(later + URL_REFRESH, || ask("http://10.0.0.5:47812/")),
+            "a cleared cache asks at once"
+        );
+        assert_eq!(asked.get(), 4, "after a stop and start");
+    }
+
+    #[test]
+    fn a_running_remote_does_not_ask_for_its_address_every_frame() -> Result<()> {
+        let mut lan = Lan::new(std::env::temp_dir(), None, 0, false);
+        lan.address = "127.0.0.1".into();
+        lan.port = "47815".into();
+        lan.start();
+        if !lan.running() {
+            // The port is taken on this machine; nothing else to check.
+            return Ok(());
+        }
+        let primed = lan.url.at;
+        assert!(primed.is_some(), "starting worked the address out");
+        let url = lan.view().url;
+        assert_eq!(
+            url.as_deref(),
+            Some("http://127.0.0.1:47815/"),
+            "the view carries it"
+        );
+        let soon = Instant::now() + URL_REFRESH / 2;
+        assert_eq!(lan.view_at(soon).url, url, "same address");
+        assert_eq!(lan.url.at, primed, "a view inside the period asked nothing");
+        let overdue = Instant::now() + URL_REFRESH * 2;
+        assert_eq!(
+            lan.view_at(overdue).url,
+            url,
+            "same address after a refresh"
+        );
+        assert_eq!(
+            lan.url.at,
+            Some(overdue),
+            "a view past the period asked again"
+        );
+        lan.stop();
+        assert!(lan.url.at.is_none(), "stopping forgets the address");
+        Ok(())
     }
 
     #[test]

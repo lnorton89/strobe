@@ -54,6 +54,10 @@
 //! recompiled (D161). A uniform whose name clashes with something the
 //! scene declares is dropped with a warning.
 //!
+//! The sealed uniforms are bound to the player's declared order once, at the
+//! seal (D340), so a frame hands the player the script's values as they come,
+//! with no lookup by name and no vector built.
+//!
 //! The previous frames' 64x36 downsample (`textureFinalPass`) comes from an
 //! asynchronous pixel-buffer readback the player runs only when the script
 //! mentions `textureFinalPass` (D162). It is a few frames old, and black
@@ -61,7 +65,7 @@
 
 use crate::audio::AudioInput;
 use crate::failures;
-use crate::script::{self, Harvest, ScriptRun, ScriptState};
+use crate::script::{self, ScriptRun, ScriptState};
 use std::ops::RangeInclusive;
 use std::path::{Path, PathBuf};
 use strobe_diag::failure;
@@ -72,7 +76,7 @@ use strobe_scene::control::def::Values;
 use strobe_scene::control::{ControlBank, ControlKind};
 use strobe_scene::preset::{self, Preset};
 use strobe_scene::{SceneError, SceneFolder};
-use strobe_script::ScriptInputs;
+use strobe_script::{ScriptInputs, ScriptUniform};
 
 /// The script function whose mention turns the final-pass readback on.
 const FINAL_PASS_CALL: &str = "textureFinalPass";
@@ -186,8 +190,6 @@ pub struct Session {
     /// The text of `script.js` when its script started, for
     /// [`Self::restart_script`].
     script_source: Option<String>,
-    /// Scratch for the script's uniform values, in the player's order.
-    extra_values: Vec<[f32; 4]>,
     transitions: Vec<f32>,
     frame: u64,
     time: f32,
@@ -227,7 +229,7 @@ impl Session {
         });
         // The script's first frame comes before the player, so the uniforms
         // it creates are known when the shaders are compiled.
-        let harvest = script.as_mut().map(|run| {
+        if let Some(run) = script.as_mut() {
             let frame = audio.frame_at(start);
             run.load_frame(
                 FIRST_FRAME_DT,
@@ -239,10 +241,10 @@ impl Session {
                 },
                 &mut controls,
                 &mut meta,
-            )
-        });
-        let extras = harvest.as_ref().map_or_else(Vec::new, |harvest| {
-            script::usable_extras(&scene.def, extras_of(harvest))
+            );
+        }
+        let extras = script.as_ref().map_or_else(Vec::new, |run| {
+            script::usable_extras(&scene.def, extras_of(run.uniforms()))
         });
         if !extras.is_empty() {
             log::info!("script uniforms compiled in at load: {}", names_of(&extras));
@@ -258,9 +260,11 @@ impl Session {
         {
             player.enable_final_pass_readback()?;
         }
-        // The shaders now hold every uniform the script may ever send.
+        // The shaders now hold every uniform the script may ever send. Their
+        // names are resolved to the script's uniforms here, once, so a frame
+        // looks none up (D340).
         if let Some(run) = script.as_mut() {
-            run.seal_uniforms();
+            run.seal_uniforms(player.extras().iter().map(|(name, _)| name.as_str()));
         }
         let script_source = script.as_ref().and(scene.script);
         let mut session = Self {
@@ -275,14 +279,11 @@ impl Session {
             active_preset: None,
             script,
             script_source,
-            extra_values: Vec::new(),
             transitions,
             frame: 0,
             time: start,
         };
-        if let Some(harvest) = &harvest {
-            session.send_script_uniforms(harvest);
-        }
+        session.send_script_uniforms();
         let (presets, problems) = preset::load_all(dir);
         for problem in problems {
             log::warn!("{name}: preset: {problem}");
@@ -479,7 +480,7 @@ impl Session {
             }
         };
         let frame = audio.frame_at(start);
-        let harvest = run.load_frame(
+        run.load_frame(
             FIRST_FRAME_DT,
             &ScriptInputs {
                 time: start,
@@ -492,7 +493,7 @@ impl Session {
         );
         run.seal_uniforms_to(self.player.extras().iter().map(|(name, _)| name.as_str()));
         self.script = Some(run);
-        self.send_script_uniforms(&harvest);
+        self.send_script_uniforms();
     }
 
     /// The targets (what the operator last asked for) of the scene's
@@ -542,7 +543,7 @@ impl Session {
         self.time += dt;
         let audio = audio.frame_at(self.time);
         if let Some(run) = self.script.as_mut() {
-            let harvest = run.frame(
+            run.frame(
                 dt,
                 &ScriptInputs {
                     time: self.time,
@@ -557,7 +558,7 @@ impl Session {
                 &mut self.controls,
                 &mut self.meta,
             );
-            self.send_script_uniforms(&harvest);
+            self.player.set_script_uniforms(run.values());
         }
         // A Shadertoy import's speed controls run at its clock's rate, so a
         // generated one follows st_speed as iTime does (D246); any other
@@ -587,25 +588,19 @@ impl Session {
     }
 
     /// Hands the script's uniform values to the player, in the order the
-    /// player declared them.
-    fn send_script_uniforms(&mut self, harvest: &Harvest) {
-        self.extra_values.clear();
-        for (name, _) in self.player.extras() {
-            let value = harvest
-                .uniforms
-                .iter()
-                .find(|uniform| *uniform.name == **name)
-                .map_or([0.0; 4], |uniform| uniform.value);
-            self.extra_values.push(value);
+    /// player declared them. The script already holds them in that order
+    /// (D340), so this is one copy into the player's buffer.
+    fn send_script_uniforms(&mut self) {
+        if let Some(run) = self.script.as_ref() {
+            self.player.set_script_uniforms(run.values());
         }
-        self.player.set_script_uniforms(&self.extra_values);
     }
 }
 
-/// The `(name, type)` pairs of a harvest, the shape the assembler takes.
-fn extras_of(harvest: &Harvest) -> Vec<(String, ExtraType)> {
-    harvest
-        .uniforms
+/// The `(name, type)` pairs of a script's uniforms, the shape the assembler
+/// takes.
+fn extras_of(uniforms: &[ScriptUniform]) -> Vec<(String, ExtraType)> {
+    uniforms
         .iter()
         .map(|uniform| (uniform.name.to_string(), uniform.ty))
         .collect()
