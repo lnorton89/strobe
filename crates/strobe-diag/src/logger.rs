@@ -373,9 +373,10 @@ impl SessionFile {
             return;
         }
         let length = u64::try_from(text.len()).map_or(u64::MAX, |bytes| bytes.saturating_add(1));
-        // The logger cannot log its own failure; the next write tries again.
         if self.written.saturating_add(length) > self.limit {
             self.full = true;
+            // The logger cannot log its own failure, and this is the file's
+            // last line either way.
             writeln!(
                 self.file,
                 "diag: this session log reached its cap of {} bytes; later lines are not \
@@ -383,6 +384,7 @@ impl SessionFile {
                 self.limit
             )
             .ok();
+            // As above: nothing more is written to this file.
             self.file.flush().ok();
             return;
         }
