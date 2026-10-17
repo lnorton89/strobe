@@ -327,14 +327,20 @@ impl UiState {
 
     /// State built from `prefs`, with no writer.
     pub fn from_prefs(prefs: &Prefs) -> Self {
+        Self::from_prefs_forcing(prefs, env_wants_reduced_motion())
+    }
+
+    /// [`Self::from_prefs`], with `STROBE_REDUCED_MOTION`'s answer passed
+    /// in.
+    fn from_prefs_forcing(prefs: &Prefs, env_reduced: bool) -> Self {
         let catalog = Catalog::load();
         for (source, reason) in catalog.problems() {
             log::warn!("theme {source} not used: {reason}");
         }
         // The environment can force reduced motion on (an accessibility
-        // switch that does not need the settings pane to reach).
-        let reduced = prefs.reduced_motion || env_wants_reduced_motion();
-        crate::motion::set_reduced(reduced);
+        // switch that does not need the settings pane to reach), for this
+        // run: the saved switch stays the operator's own.
+        crate::motion::set_reduced(prefs.reduced_motion || env_reduced);
         let mut state = Self {
             panes: prefs.to_panes(),
             browser: BrowserState {
@@ -384,7 +390,7 @@ impl UiState {
             layout_name: String::new(),
             last_scene: prefs.last_scene.clone(),
             theme_id: prefs.theme.clone(),
-            reduced_motion: reduced,
+            reduced_motion: prefs.reduced_motion,
             catalog,
             theme_changed: true,
             density: super::theme::Density::from_key(&prefs.density).unwrap_or_default(),
@@ -485,7 +491,8 @@ impl UiState {
         std::mem::take(&mut self.theme_changed)
     }
 
-    /// Whether reduced motion is on.
+    /// Whether the operator turned reduced motion on (the Settings switch;
+    /// `STROBE_REDUCED_MOTION` may force it on besides, unsaved).
     pub fn reduced_motion(&self) -> bool {
         self.reduced_motion
     }
@@ -917,6 +924,25 @@ mod tests {
             "the unreadable file was written over and nothing kept it"
         );
         Ok(())
+    }
+
+    #[test]
+    fn reduced_motion_forced_by_the_environment_is_not_saved_as_the_operators_choice() {
+        let state = UiState::from_prefs_forcing(&Prefs::default(), true);
+        assert!(
+            !state.to_prefs().reduced_motion,
+            "STROBE_REDUCED_MOTION is for this run; the file keeps the operator's own switch"
+        );
+        let prefs = Prefs {
+            reduced_motion: true,
+            ..Prefs::default()
+        };
+        let state = UiState::from_prefs_forcing(&prefs, false);
+        assert!(
+            state.to_prefs().reduced_motion,
+            "the operator's own choice is kept"
+        );
+        assert!(state.reduced_motion(), "and shown");
     }
 
     #[test]
