@@ -419,7 +419,13 @@ impl Engine {
                 Drive::Applied => applied += 1,
                 Drive::Waiting => waiting = true,
                 Drive::Idle => {}
-                Drive::Unavailable(why) => unavailable = Some(why),
+                Drive::Unavailable(why) => {
+                    // The fader's readings are not seen while its control is
+                    // away, so the last one must not count towards a
+                    // crossing when the control comes back.
+                    mapping.runtime.pickup.reset();
+                    unavailable = Some(why);
+                }
             }
         }
         if !matched
@@ -859,6 +865,43 @@ mod tests {
         assert!(
             near(rig.value("speed")?, 10.0 * 100.0 / 127.0),
             "{}",
+            rig.value("speed")?
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_fader_moved_while_its_control_was_away_does_not_jump_it_on_return() -> Result<()> {
+        let mut rig = Rig::new()?;
+        rig.map(7, Target::control("speed"));
+        // speed is at 0.5; the fader rests low, not picked up.
+        assert_eq!(rig.cc(7, 25), Outcome::Waiting, "far below");
+        // A scene without speed plays, and the fader is pushed up meanwhile.
+        let raw: RawControl = serde_json::from_str(r#"{ "NAME": "other", "TYPE": "slider" }"#)?;
+        let mut other = ControlBank::new(vec![ControlDef::from_raw(&raw)?])?;
+        let source = Source::MidiCc {
+            device: Some("pad".into()),
+            channel: 1,
+            controller: 7,
+        };
+        let mut banks = Banks {
+            scene: Some(&mut other),
+            meta: Some(&mut rig.meta),
+        };
+        let away = rig
+            .engine
+            .handle(&source, Signal::Analog(0.8), &mut banks, &mut rig.out);
+        assert!(matches!(away, Outcome::Unavailable(_)), "{away:?}");
+        // speed's scene is back, still at 0.5. The fader's next reading is
+        // at 0.81: it never travelled through 0.5 while it was being read.
+        assert_eq!(
+            rig.cc(7, 103),
+            Outcome::Waiting,
+            "no crossing was seen, so no pickup"
+        );
+        assert!(
+            near(rig.value("speed")?, 5.0),
+            "not dragged to the fader: {}",
             rig.value("speed")?
         );
         Ok(())
