@@ -764,20 +764,34 @@ restore points before a show. That belongs in the venue runbook, which is
 kept with the show kit in the private `jaja-strobe-assets` repository, not
 in this one.
 
-### Task M25, to run: the deferral lines on the projector
+### Task M25: the deferral lines on the projector (2026-10-17, cdfeb5c)
 
-One 10-minute hold-13 on the D320 build, the control window covered. At
-about 9 s, start `strobe-bench --context window --gl native --size 640x360
---filter 10- --frames 1000000` and stop it at about 13 s, as in M24 run A.
+One 600 s hold-13 on the old scenes, the control window covered, with the
+640x360 scene-10 bench from +9.0 s to +13.0 s. Soak paused 19:11:36 to
+19:22:35.
 
-**Expected:**
-- At least one `verdict on 1.00 -> 0.90 put off (n of 4): window disturbed
-  (worst gap ... ms, GPU ...%) (D318)` line between about 12 s and 20 s.
-- Then the steps to 0.70, and no change for the rest of the 10 minutes,
-  even if a system stall lands in the hold (`worst gap` in a perf line
-  without a scale change).
-- If a lock does happen, its line names the length, and a `the lock at ...
-  ran out` line follows about 60 s later.
+| Time | Line |
+|---|---|
+| 7.7 s | 1.00 -> 0.90, 40.8% missed, GPU 13.6 ms |
+| 16.2 s | verdict on 1.00 -> 0.90 put off (1 of 4): worst gap 159 ms, GPU -16% |
+| 21.2 s | 0.90 -> 0.80, 25.4% missed |
+| 26.3 s | 0.80 -> 0.70, 14.2% missed |
+| 257.8 s | 0.70 -> 0.60, 9.2% missed over 600 frames, GPU 8.9 ms |
+| 378.2 s | 0.60 -> 0.65 (mean rule, GPU 6.0 ms) |
+| 408.7 s | 0.65 -> 0.70 (GPU 6.4 ms) |
+
+Per-minute perf from minute 2: 58.1-59.7 fps, 0.4-3.3% missed, worst gaps
+28-35 ms, control 11-12 redraws. No VSS event in the run.
+
+- **The put-off line works** and the steps reach 0.70 by 26 s.
+- **The step at 257.8 s is content, not noise or a stall:** no gap over
+  35 ms in that minute, GPU 8.9 ms against 7.27 at steady state. Old 13 has
+  a heavier passage about 245-260 s into a hold; M24 run C's step (244.7 s)
+  was the same passage, with the snapshot landing on it. The scale dips to
+  0.60 for about 2.5 minutes and returns, at 58-59 fps throughout. This is
+  the controller adapting to the scene, as intended.
+- **Not a show concern:** the shipped 13 (D310) costs 8.5 ms at full size
+  on this machine and needs no scaling.
 
 ## Still to do here
 
