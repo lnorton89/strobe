@@ -119,6 +119,25 @@ fn lines(text: &str) -> u32 {
     text.matches('\n').count() as u32
 }
 
+/// `text` made safe to sit inside a generated `//` comment: control
+/// characters (a `\r` ends a GLSL line as `\n` does) become spaces, and
+/// anything outside ASCII becomes `?`, as the dialect stage does for the
+/// author's own comments (D94). The shader's title, author and tab names
+/// come from the JSON, so they may hold any of these.
+fn comment_text(text: &str) -> String {
+    text.chars()
+        .map(|c| {
+            if c.is_ascii_control() || c.is_control() {
+                ' '
+            } else if c.is_ascii() {
+                c
+            } else {
+                '?'
+            }
+        })
+        .collect()
+}
+
 /// The GLSL file for one pass.
 pub(super) fn pass_file(plan: &Plan, pass: &PlannedPass, shader: &Shader) -> Generated {
     let used = |name: &str| pass.idents.contains(name);
@@ -274,24 +293,24 @@ pub(super) fn pass_file(plan: &Plan, pass: &PlannedPass, shader: &Shader) -> Gen
     };
 
     let info = &shader.info;
+    let pass_name = comment_text(&pass.name);
     let mut out = String::new();
     let _ = writeln!(
         out,
         "// ---- Strobe import of Shadertoy {} \"{}\" by {} (generated) ----",
-        info.id.as_deref().unwrap_or("?"),
-        info.name.as_deref().unwrap_or("?").replace('\n', " "),
-        info.username.as_deref().unwrap_or("?").replace('\n', " "),
+        comment_text(info.id.as_deref().unwrap_or("?")),
+        comment_text(info.name.as_deref().unwrap_or("?")),
+        comment_text(info.username.as_deref().unwrap_or("?")),
     );
     let _ = writeln!(
         out,
-        "// Pass: {}. Shim above the first marker; Shadertoy code below, unedited.",
-        pass.name
+        "// Pass: {pass_name}. Shim above the first marker; Shadertoy code below, unedited."
     );
     let _ = writeln!(
         out,
         "// Tab line 1 is file line {} for {}{}.",
         code_line,
-        pass.name,
+        pass_name,
         common_line.map_or_else(String::new, |l| format!(", {l} for Common"))
     );
     out.push_str(&body);
@@ -308,7 +327,7 @@ pub(super) fn pass_file(plan: &Plan, pass: &PlannedPass, shader: &Shader) -> Gen
         out,
         "{}{}{}",
         super::TAB_MARKER_PREFIX,
-        pass.name,
+        pass_name,
         super::TAB_MARKER_SUFFIX
     );
     out.push_str(&code);
