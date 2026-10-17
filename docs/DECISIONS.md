@@ -9322,3 +9322,25 @@ and at a few MB a dump the directory stays under a hundred megabytes.
 
 **Would reopen:** a need to keep crashes by size or age rather than count, or
 to prune during a long session (an app that restarts itself in-process).
+
+### D397: session logs are pruned by modification time, not by name (2026-10-17)
+
+**Context.** D40 keeps ten session logs and chose the victims by sorting
+file names, which embed a UTC timestamp ("name order is age order"). That
+holds only while the clock never goes backwards. A laptop with a dead CMOS
+battery and no network time boots at the BIOS default (often 2001 or 2009)
+until something corrects it; the sessions run in that window are named as
+if older than every earlier one, so the next start deleted them first and
+kept ten sessions from before the reset. The test for it (a log from 2001
+among logs from 2026) deleted the newest log.
+
+**Decision.** `prune_old_logs` orders by the file's modification time
+(`rotate.rs`, shared with the crash pruning of D396), with name order only
+to break exact ties. The file names are unchanged. The mtime of an old log
+is its last write, which for a log is the end of that session.
+
+**Test.** `a_clock_that_went_backwards_does_not_cost_the_newest_logs`
+(`strobe-diag`, `logger.rs`; it deleted the newest log before the change).
+
+**Would reopen:** file systems that do not keep modification times (none
+Strobe runs on).
