@@ -271,12 +271,14 @@ impl Capture {
 
 /// The capture worker: encode, publish, and give the buffer back.
 fn encoder(frames: &Receiver<CaptureFrame>, give_back: &SyncSender<Vec<u8>>) {
+    let mut ladder = Ladder::default();
     while let Ok(mut frame) = frames.recv() {
         if frame.desktop.active() {
-            match encode(frame.size, &mut frame.pixels) {
-                Ok(bytes) => frame
-                    .desktop
-                    .publish(frame.size, strobe_remote::client::encode_image(&bytes)),
+            match encode(frame.size, &mut frame.pixels, &mut ladder) {
+                Ok(encoded) => frame.desktop.publish(
+                    encoded.size,
+                    strobe_remote::client::encode_image(&encoded.jpeg),
+                ),
                 Err(error) => {
                     log::warn!("desktop capture: {error}");
                     frame.desktop.capture_failed(
@@ -300,7 +302,79 @@ impl Drop for Capture {
     }
 }
 
-fn encode(size: [u32; 2], pixels: &mut [u8]) -> Result<Vec<u8>, image::ImageError> {
+/// The encoder's steps from the best picture to the smallest, as (how many
+/// times smaller each edge is, JPEG quality). A capture tries them in turn
+/// until one fits [`MAX_JPEG`] (D406).
+const LADDER: [(u32, u8); 8] = [
+    (1, 90),
+    (1, 75),
+    (1, 60),
+    (1, 45),
+    (2, 75),
+    (2, 60),
+    (2, 45),
+    (4, 60),
+];
+
+/// Captures in a row that fit in a third of [`MAX_JPEG`] before the
+/// encoder tries the next better step again: five seconds at the stream
+/// rate, so a picture that only just fits a step is not encoded twice
+/// every other capture.
+const CLIMB_AFTER: u32 = 25;
+
+/// Where on [`LADDER`] the encoder is, kept from capture to capture so a
+/// steady picture is encoded once.
+#[derive(Debug, Default)]
+struct Ladder {
+    step: usize,
+    easy: u32,
+}
+
+/// One encoded capture: what was sent and at what size.
+struct Encoded {
+    size: [u32; 2],
+    jpeg: Vec<u8>,
+}
+
+fn limit_error(why: &str) -> image::ImageError {
+    image::ImageError::IoError(io::Error::new(io::ErrorKind::InvalidData, why))
+}
+
+/// `rgb` (`size`, top-down) made `factor` times smaller on each edge, each
+/// pixel the mean of the block it covers.
+fn shrink(rgb: &[u8], size: [u32; 2], factor: u32) -> (Vec<u8>, [u32; 2]) {
+    let factor = factor.max(1) as usize;
+    let [width, height] = size.map(|edge| edge as usize);
+    let small = [(width / factor).max(1), (height / factor).max(1)];
+    let mut out = Vec::with_capacity(small[0] * small[1] * 3);
+    for y in 0..small[1] {
+        for x in 0..small[0] {
+            let mut sum = [0_u32; 3];
+            let mut count = 0_u32;
+            for row in (y * factor..(y + 1) * factor).take_while(|row| *row < height) {
+                let start = (row * width + x * factor) * 3;
+                let end = (row * width + ((x + 1) * factor).min(width)) * 3;
+                for pixel in rgb.get(start..end).unwrap_or_default().as_chunks::<3>().0 {
+                    for (total, channel) in sum.iter_mut().zip(pixel) {
+                        *total += u32::from(*channel);
+                    }
+                    count += 1;
+                }
+            }
+            let count = count.max(1);
+            out.extend(sum.map(|total| (total / count) as u8));
+        }
+    }
+    (out, small.map(|edge| edge as u32))
+}
+
+/// Encodes a bottom-up RGBA capture, from `ladder`'s step down until it
+/// fits [`MAX_JPEG`]; it fails only when the smallest step is too big.
+fn encode(
+    size: [u32; 2],
+    pixels: &mut [u8],
+    ladder: &mut Ladder,
+) -> Result<Encoded, image::ImageError> {
     let [width, height] = size;
     let stride = width as usize * 4;
     if width == 0
@@ -325,20 +399,61 @@ fn encode(size: [u32; 2], pixels: &mut [u8]) -> Result<Vec<u8>, image::ImageErro
         .iter()
         .flat_map(|pixel| pixel[..3].iter().copied())
         .collect();
-    let mut jpeg = Vec::new();
-    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 90).encode(
-        &rgb,
-        width,
-        height,
-        image::ExtendedColorType::Rgb8,
-    )?;
-    if jpeg.len() > MAX_JPEG {
-        return Err(image::ImageError::IoError(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "capture exceeds JPEG limit",
-        )));
+    let mut shrunk: Option<(u32, Vec<u8>, [u32; 2])> = None;
+    let mut step = ladder.step.min(LADDER.len() - 1);
+    loop {
+        let Some(&(factor, quality)) = LADDER.get(step) else {
+            return Err(limit_error("capture exceeds JPEG limit"));
+        };
+        let (source, source_size) = if factor == 1 {
+            (rgb.as_slice(), size)
+        } else {
+            if shrunk.as_ref().is_none_or(|(made, _, _)| *made != factor) {
+                let (small, small_size) = shrink(&rgb, size, factor);
+                shrunk = Some((factor, small, small_size));
+            }
+            match shrunk.as_ref() {
+                Some((_, small, small_size)) => (small.as_slice(), *small_size),
+                None => (rgb.as_slice(), size),
+            }
+        };
+        let mut jpeg = Vec::new();
+        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, quality).encode(
+            source,
+            source_size[0],
+            source_size[1],
+            image::ExtendedColorType::Rgb8,
+        )?;
+        if jpeg.len() <= MAX_JPEG {
+            // Back up a step only after a run of captures with room to spare.
+            ladder.easy = if step > 0 && jpeg.len() <= MAX_JPEG / 3 {
+                ladder.easy + 1
+            } else {
+                0
+            };
+            ladder.step = step;
+            if ladder.easy >= CLIMB_AFTER {
+                ladder.step = step - 1;
+                ladder.easy = 0;
+            }
+            return Ok(Encoded {
+                size: source_size,
+                jpeg,
+            });
+        }
+        ladder.easy = 0;
+        step += 1;
+        if step >= LADDER.len() {
+            ladder.step = LADDER.len() - 1;
+            return Err(limit_error("capture exceeds JPEG limit"));
+        }
+        log::debug!(
+            "desktop capture: {} KiB is over the limit; trying {}x smaller at quality {} (D406)",
+            jpeg.len() / 1024,
+            LADDER.get(step).map_or(1, |(factor, _)| *factor),
+            LADDER.get(step).map_or(0, |(_, quality)| *quality)
+        );
     }
-    Ok(jpeg)
 }
 
 #[derive(Default)]
@@ -2636,8 +2751,14 @@ mod tests {
             .ok_or_else(|| anyhow::anyhow!("approval request missing"))?;
         assert!(server.decide(request.id, true), "approved on the host");
         eventually(|| app.desktop.active())?;
-        let jpeg =
-            strobe_remote::client::encode_image(&encode([32, 32], &mut vec![200; 32 * 32 * 4])?);
+        let jpeg = strobe_remote::client::encode_image(
+            &encode(
+                [32, 32],
+                &mut vec![200; 32 * 32 * 4],
+                &mut Ladder::default(),
+            )?
+            .jpeg,
+        );
         app.desktop.publish([32, 32], jpeg.clone());
         eventually(|| {
             controller
@@ -2846,10 +2967,14 @@ mod tests {
     }
 
     fn a_frame() -> Result<String> {
-        Ok(strobe_remote::client::encode_image(&encode(
-            [32, 32],
-            &mut vec![200; 32 * 32 * 4],
-        )?))
+        Ok(strobe_remote::client::encode_image(
+            &encode(
+                [32, 32],
+                &mut vec![200; 32 * 32 * 4],
+                &mut Ladder::default(),
+            )?
+            .jpeg,
+        ))
     }
 
     #[test]
@@ -3590,6 +3715,67 @@ mod tests {
         );
     }
 
+    /// A window of noise, bottom-up RGBA as the readback gives it: the
+    /// worst a noisy preview can be.
+    fn noise(size: [u32; 2]) -> Vec<u8> {
+        let mut state = 0x2545_f491_u32;
+        (0..size[0] as usize * size[1] as usize * 4)
+            .map(|_| {
+                state ^= state << 13;
+                state ^= state >> 17;
+                state ^= state << 5;
+                state.to_le_bytes()[0]
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_capture_too_big_for_the_wire_is_sent_smaller_rather_than_ending_the_session() -> Result<()>
+    {
+        // A 2560x1600 window of noise is over 3 MiB at quality 90 (4K is
+        // about 7 MiB); it used to end the session
+        // ("capture exceeds JPEG limit", D406).
+        let size = [2560, 1600];
+        let mut ladder = Ladder::default();
+        let encoded = encode(size, &mut noise(size), &mut ladder)?;
+        assert!(encoded.jpeg.len() <= MAX_JPEG, "within the limit");
+        assert!(ladder.step > 0, "on a lower step: {ladder:?}");
+        let decoded = decode(
+            encoded.size,
+            &strobe_remote::client::encode_image(&encoded.jpeg),
+        )?;
+        assert_eq!(
+            decoded.size,
+            [encoded.size[0] as usize, encoded.size[1] as usize],
+            "the viewer reads the size that was sent"
+        );
+        // The next capture starts where this one fitted: one encode.
+        let settled = ladder.step;
+        let again = encode(size, &mut noise(size), &mut ladder)?;
+        assert_eq!(again.size, encoded.size, "the same step");
+        assert_eq!(ladder.step, settled, "and it stays there");
+
+        // A quiet picture afterwards climbs back after a run of easy
+        // captures, one step at a time (small, so the test stays quick).
+        for _ in 0..CLIMB_AFTER {
+            let _ = encode([64, 64], &mut vec![90_u8; 64 * 64 * 4], &mut ladder)?;
+        }
+        assert_eq!(ladder.step, settled - 1, "one step back up");
+        Ok(())
+    }
+
+    #[test]
+    fn a_shrunk_capture_averages_its_blocks() {
+        // Two by two pixels, top row black and white, bottom row white.
+        let rgb = [0, 0, 0, 255, 255, 255, 255, 255, 255, 255, 255, 255];
+        let (small, size) = shrink(&rgb, [2, 2], 2);
+        assert_eq!(size, [1, 1], "half on each edge");
+        assert_eq!(small, [191, 191, 191], "the mean of the block");
+        // An odd edge drops the column that does not fill a block.
+        let (_, size) = shrink(&[0; 5 * 3 * 3], [5, 3], 2);
+        assert_eq!(size, [2, 1], "floor of each edge");
+    }
+
     #[test]
     fn jpeg_round_trip_flips_bottom_up_capture_and_checks_dimensions() -> Result<()> {
         let mut pixels = Vec::new();
@@ -3602,7 +3788,7 @@ mod tests {
                 });
             }
         }
-        let bytes = encode([32, 32], &mut pixels)?;
+        let bytes = encode([32, 32], &mut pixels, &mut Ladder::default())?.jpeg;
         let jpeg = strobe_remote::client::encode_image(&bytes);
         let decoded = decode([32, 32], &jpeg)?;
         assert!(
