@@ -381,7 +381,7 @@ pub fn convert(shader: &Shader, options: &Options) -> Result<Converted, ConvertE
     }
     if !plan.pending.is_empty() {
         files.insert(
-            "images/pending-assets.json".to_string(),
+            format!("images/{}", names::PENDING_FILE_NAME),
             scene_json::pending_assets(&plan.pending).into_bytes(),
         );
     }

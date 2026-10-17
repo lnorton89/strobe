@@ -9780,3 +9780,37 @@ half code unit and a lone surrogate are refused naming UTF-16. It failed
 before with the UTF-8 error.
 
 **Would reopen:** a real export in UTF-16 without a byte-order mark.
+
+### D417: a texture's file name is never a generated file's or another URL's (2026-10-17)
+
+**Context.** A texture's file under `images/` was the base name of its URL,
+made safe. Three things could share a name: a texture called `st_black.png`
+and the black placeholder written for a missing texture (the placeholder
+won, so the texture read black), one called `pending-assets.json` and the
+pending list (one overwrote the other), and two URLs ending in the same name
+(`/media/a/x.png`, `https://host/b/x.png`), which got one file and so one
+picture for both channels. On Windows, names that differ only in case
+collide too.
+
+**Decision.** The converter names each texture URL once, in the order the
+passes and channels are read, so a second conversion of the same shader
+names them the same and the pending list's names stay valid (D95):
+- the URL's own base name, as before, so a Shadertoy media file keeps
+  its name and a person's asset folder still matches;
+- `tex-` in front when that name is one the converter writes under
+  `images/` itself (an `st_` name, or the pending list's), ignoring case;
+- `-2`, `-3`... before the extension when another URL already has it,
+  ignoring case;
+- the same URL read by several channels keeps one file.
+
+`import_json`'s count of textures found compares the two generated paths
+whole, so a `tex-st_black.png` still counts.
+
+**Test.** `texture_file_names_never_collide_with_generated_files_or_each_other`
+(`strobe-shadertoy` convert tests): `st_black.png`, `pending-assets.json`,
+`x.png` and `X.png` get four names, none generated; with three supplied and
+one missing, each supplied texture is a file of its own and the placeholder
+and the pending list are intact. It failed before with two `x.png`s and the
+generated names.
+
+**Would reopen:** nothing expected.
