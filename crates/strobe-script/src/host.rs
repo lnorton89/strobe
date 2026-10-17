@@ -642,7 +642,10 @@ impl ScriptHost {
         let mut state = self.shared.state.borrow_mut();
         state.uniforms.discard();
         self.consecutive_faults += 1;
-        state.log(ConsoleLevel::Error, format!("{SCRIPT_NAME}: {message}"));
+        // Once per distinct message: a fault that comes back every other
+        // frame never disables the script, and would otherwise be thirty
+        // lines a second. The status still reports every faulted frame.
+        state.log_once(ConsoleLevel::Error, &format!("{SCRIPT_NAME}: {message}"));
         self.last_fault = Some(message.to_string());
         if self.consecutive_faults >= MAX_CONSECUTIVE_FAULTS {
             self.disabled = true;

@@ -36,8 +36,9 @@
 //! - Every frame runs under a deadline (4 ms by default). `while (true) {}`
 //!   is interrupted, the frame returns, and the last good uniforms stay in
 //!   force.
-//! - An exception or an interrupt is a *fault*: it is logged with its line,
-//!   reported in [`FrameOutput::status`], and the frame's uniforms are
+//! - An exception or an interrupt is a *fault*: it is logged with its line
+//!   (once per distinct message), reported in [`FrameOutput::status`]
+//!   every time, and the frame's uniforms are
 //!   discarded. Three faulted frames in a row disable the script until the
 //!   host is rebuilt, which is what a reload does.
 //!

@@ -8568,3 +8568,30 @@ and then sets the uniform its shader reads. Before, the load failed with
 
 **Would reopen:** a first frame long enough at load to be felt as a
 hitch, which would argue for a smaller load budget for that frame.
+
+### D325: a script fault that keeps coming back is logged and reported once (2026-10-17)
+
+**Context.** A script is disabled after three faulted frames in a row
+(D62). One that throws on every other frame, or on every beat
+(`if (syn_BassHits > 0.5) missing()`), never gets there: each good frame
+resets the streak. Every streak's first fault was a structured `SCRIPT`
+failure, and every faulted frame a console error, so such a script wrote
+thirty failure reports and thirty error lines a second for as long as it
+played. They filled the log and the UI console, and pushed everything else
+out of the 100 failures a crash report carries.
+
+**Decision.** The host logs a fault's console line once per distinct
+message (`log_once`, the rule that already covers unknown names), and the
+app reports a streak's first fault as a failure only for a message it has
+not reported before, up to 32 distinct messages per script start. The
+status still says `Faulted` on every faulted frame and the UI shows the
+latest message, so a fault that keeps happening stays visible. A script
+started again (a reload, a re-cue, D323) reports afresh.
+
+**Test.** `a_fault_that_keeps_coming_back_is_reported_once` (`strobe-app`,
+`script.rs`: 30 reports before, 1 after) and
+`a_fault_that_keeps_coming_back_is_one_console_error` (`strobe-script`
+conformance).
+
+**Would reopen:** an operator who needs to see how often a fault recurs;
+the answer would be a count beside the UI state, not more lines.
