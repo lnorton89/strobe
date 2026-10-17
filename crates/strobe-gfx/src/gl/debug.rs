@@ -24,9 +24,13 @@
 //!   which is cheaper but may report on another thread.
 //! - **Rate limited.** A message repeated every frame would bury the log
 //!   and cost a formatted string per frame. Each distinct
-//!   (source, type, id) is passed through at most [`MAX_PER_WINDOW`] times
-//!   per [`WINDOW`]; the next message after a quiet window reports how
-//!   many were suppressed.
+//!   (source, type, id) is logged in full [`FULL_REPEATS`] times; after
+//!   that its repeats are only counted, and one line every
+//!   [`SUMMARY_EVERY`] says how many there were. A driver that reports the
+//!   same error every frame of a four-hour show writes about 250 lines, not
+//!   864,000 (or the 72,000 of the earlier five-a-second limit), and a
+//!   counted repeat allocates nothing (D422). A message that has not been
+//!   seen for [`SUMMARY_EVERY`] is logged in full again when it returns.
 //! - **Never panics.** The callback runs inside the driver, across an FFI
 //!   boundary; a panic there would abort. It takes poisoned locks as they
 //!   are, and is wrapped in `catch_unwind` regardless.
@@ -54,11 +58,13 @@ use std::time::{Duration, Instant};
 /// The log target for driver messages.
 pub const TARGET: &str = "gl_driver";
 
-/// Times one distinct message passes through per [`WINDOW`].
-pub const MAX_PER_WINDOW: u32 = 5;
+/// Times one distinct message is logged in full before its repeats are
+/// only counted.
+pub const FULL_REPEATS: u32 = 5;
 
-/// The rate-limit window.
-pub const WINDOW: Duration = Duration::from_secs(1);
+/// How often a message that keeps repeating gets its one summary line, and
+/// how long it must be absent to be logged in full again.
+pub const SUMMARY_EVERY: Duration = Duration::from_secs(60);
 
 /// Driver messages kept for the UI.
 const KEPT: usize = 64;
@@ -158,12 +164,18 @@ impl DriverMessage {
     /// The level a message is logged at: its severity's, but never below
     /// `warn` for something the driver typed as an error.
     pub fn level(&self) -> log::Level {
-        let level = self.severity.log_level();
-        if self.kind == "error" {
-            level.min(log::Level::Warn)
-        } else {
-            level
-        }
+        level_of(self.severity, self.kind)
+    }
+}
+
+/// The level a message of `severity` and `kind` is logged at (see
+/// [`DriverMessage::level`]).
+fn level_of(severity: Severity, kind: &str) -> log::Level {
+    let level = severity.log_level();
+    if kind == "error" {
+        level.min(log::Level::Warn)
+    } else {
+        level
     }
 }
 
@@ -197,56 +209,83 @@ fn kind_name(raw: u32) -> &'static str {
 /// What the limiter decided.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Admit {
-    /// Log it; `suppressed` earlier repeats were dropped.
+    /// Log it in full; `suppressed` earlier repeats were only counted.
     Pass {
-        /// Messages with this key dropped since the last one logged.
+        /// Messages with this key counted since the last line about it.
         suppressed: u32,
     },
-    /// Drop it.
+    /// Log one line saying the message was repeated `repeated` times over
+    /// the last `span`, this one included.
+    Summary {
+        /// Repeats counted since the last line about this message.
+        repeated: u32,
+        /// How long since that line.
+        span: Duration,
+    },
+    /// Count it and log nothing.
     Drop,
 }
 
+/// What the limiter remembers about one message.
 #[derive(Debug, Clone, Copy)]
-struct Window {
-    started: Instant,
-    passed: u32,
-    suppressed: u32,
+struct Seen {
+    /// Times it was logged in full since it last went quiet.
+    full: u32,
+    /// Repeats counted since the last line about it.
+    counted: u32,
+    /// When the last line about it was written.
+    reported: Instant,
+    /// When it last arrived.
+    last: Instant,
 }
 
-/// Allows [`MAX_PER_WINDOW`] messages per key per [`WINDOW`]. Time is
-/// passed in so the behavior is testable.
+/// Logs each key in full [`FULL_REPEATS`] times, then once per
+/// [`SUMMARY_EVERY`] as a count; a key quiet for [`SUMMARY_EVERY`] starts
+/// over. Time is passed in so the behavior is testable. Admitting a key
+/// already tracked allocates nothing.
 #[derive(Debug, Default)]
 pub struct RateLimiter {
-    windows: HashMap<(u32, u32, u32), Window>,
+    seen: HashMap<(u32, u32, u32), Seen>,
 }
 
 impl RateLimiter {
     /// Decides whether a message with `key` at time `now` is logged.
     pub fn admit(&mut self, key: (u32, u32, u32), now: Instant) -> Admit {
-        if self.windows.len() >= LIMITER_CAPACITY && !self.windows.contains_key(&key) {
-            self.windows.clear();
+        if self.seen.len() >= LIMITER_CAPACITY && !self.seen.contains_key(&key) {
+            self.seen.clear();
         }
-        let window = self.windows.entry(key).or_insert(Window {
-            started: now,
-            passed: 0,
-            suppressed: 0,
+        let seen = self.seen.entry(key).or_insert(Seen {
+            full: 0,
+            counted: 0,
+            reported: now,
+            last: now,
         });
-        if now.duration_since(window.started) >= WINDOW {
-            let suppressed = window.suppressed;
-            *window = Window {
-                started: now,
-                passed: 1,
-                suppressed: 0,
+        let quiet = now.saturating_duration_since(seen.last) >= SUMMARY_EVERY;
+        seen.last = now;
+        if quiet {
+            let suppressed = seen.counted;
+            *seen = Seen {
+                full: 1,
+                counted: 0,
+                reported: now,
+                last: now,
             };
             return Admit::Pass { suppressed };
         }
-        if window.passed < MAX_PER_WINDOW {
-            window.passed += 1;
-            Admit::Pass { suppressed: 0 }
-        } else {
-            window.suppressed += 1;
-            Admit::Drop
+        if seen.full < FULL_REPEATS {
+            seen.full += 1;
+            seen.reported = now;
+            return Admit::Pass { suppressed: 0 };
         }
+        seen.counted = seen.counted.saturating_add(1);
+        let span = now.saturating_duration_since(seen.reported);
+        if span < SUMMARY_EVERY {
+            return Admit::Drop;
+        }
+        let repeated = seen.counted;
+        seen.counted = 0;
+        seen.reported = now;
+        Admit::Summary { repeated, span }
     }
 }
 
@@ -262,24 +301,46 @@ fn on_message(source: u32, kind: u32, id: u32, severity: u32, text: &str) {
             .get_or_insert_with(RateLimiter::default)
             .admit((source, kind, id), Instant::now())
     };
-    let Admit::Pass { suppressed } = admitted else {
-        return;
+    let suppressed = match admitted {
+        Admit::Drop => return,
+        Admit::Summary { repeated, span } => {
+            // Formatted straight into the logger: nothing is built here.
+            log::log!(
+                target: TARGET,
+                level_of(Severity::from_raw(severity), kind_name(kind)),
+                "{}/{} id={}: {} (repeated {repeated} times in the last {} s)",
+                source_name(source),
+                kind_name(kind),
+                id,
+                text.trim_end(),
+                span.as_secs()
+            );
+            return;
+        }
+        Admit::Pass { suppressed } => suppressed,
     };
     let message = DriverMessage::from_raw(source, kind, id, severity, text);
-    log::log!(
-        target: TARGET,
-        message.level(),
-        "{}/{} id={}: {}{}",
-        message.source,
-        message.kind,
-        message.id,
-        message.text,
-        if suppressed > 0 {
-            format!(" ({suppressed} identical messages suppressed)")
-        } else {
-            String::new()
-        }
-    );
+    if suppressed > 0 {
+        log::log!(
+            target: TARGET,
+            message.level(),
+            "{}/{} id={}: {} ({suppressed} identical messages suppressed)",
+            message.source,
+            message.kind,
+            message.id,
+            message.text
+        );
+    } else {
+        log::log!(
+            target: TARGET,
+            message.level(),
+            "{}/{} id={}: {}",
+            message.source,
+            message.kind,
+            message.id,
+            message.text
+        );
+    }
     let mut recent = RECENT.lock().unwrap_or_else(PoisonError::into_inner);
     if recent.len() == KEPT {
         recent.pop_front();
@@ -428,7 +489,7 @@ mod tests {
     fn the_limiter_passes_a_burst_then_drops() -> Result<()> {
         let mut limiter = RateLimiter::default();
         let start = Instant::now();
-        for _ in 0..MAX_PER_WINDOW {
+        for _ in 0..FULL_REPEATS {
             assert_eq!(
                 limiter.admit(key(), start),
                 Admit::Pass { suppressed: 0 },
@@ -445,22 +506,67 @@ mod tests {
     }
 
     #[test]
-    fn the_limiter_reports_suppressed_counts_after_the_window() -> Result<()> {
+    fn a_message_repeated_every_frame_for_four_hours_logs_a_few_hundred_lines() -> Result<()> {
+        // A driver that reports the same error on every frame of a show at
+        // 60 fps. The earlier one-second window logged five a second,
+        // 72,000 lines over four hours.
         let mut limiter = RateLimiter::default();
         let start = Instant::now();
-        for _ in 0..(MAX_PER_WINDOW + 3) {
+        let frames: u32 = 60 * 60 * 60 * 4;
+        let mut full = 0_u32;
+        let mut summaries = Vec::new();
+        for frame in 0..frames {
+            let now = start + Duration::from_secs_f64(f64::from(frame) / 60.0);
+            match limiter.admit(key(), now) {
+                Admit::Pass { .. } => full += 1,
+                Admit::Summary { repeated, span } => summaries.push((repeated, span)),
+                Admit::Drop => {}
+            }
+        }
+        assert_eq!(full, FULL_REPEATS, "the first five in full, then never");
+        assert!(
+            summaries.len() <= 240,
+            "one summary a minute at most: {}",
+            summaries.len()
+        );
+        let lines = full as usize + summaries.len();
+        assert!(lines < 250, "{lines} lines for {frames} messages");
+        let counted: u32 = summaries.iter().map(|(repeated, _)| repeated).sum();
+        assert!(
+            frames - full - counted < 60 * 60,
+            "every repeat is counted in a summary but the last minute's: {counted}"
+        );
+        assert!(
+            summaries
+                .iter()
+                .all(|(repeated, span)| *span >= SUMMARY_EVERY && *repeated > 3_000),
+            "each summary covers a minute of repeats: {:?}",
+            summaries.first()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_message_that_goes_quiet_is_logged_in_full_again_with_its_count() -> Result<()> {
+        let mut limiter = RateLimiter::default();
+        let start = Instant::now();
+        for _ in 0..(FULL_REPEATS + 3) {
             limiter.admit(key(), start);
         }
+        let back = start + SUMMARY_EVERY + Duration::from_secs(1);
         assert_eq!(
-            limiter.admit(key(), start + WINDOW),
+            limiter.admit(key(), back),
             Admit::Pass { suppressed: 3 },
-            "next window reports the three dropped"
+            "back after a quiet minute: in full, with the three counted"
         );
-        assert_eq!(
-            limiter.admit(key(), start + WINDOW),
-            Admit::Pass { suppressed: 0 },
-            "and starts counting afresh"
-        );
+        for _ in 1..FULL_REPEATS {
+            assert_eq!(
+                limiter.admit(key(), back),
+                Admit::Pass { suppressed: 0 },
+                "and a fresh allowance"
+            );
+        }
+        assert_eq!(limiter.admit(key(), back), Admit::Drop, "then counted");
         Ok(())
     }
 
@@ -468,7 +574,7 @@ mod tests {
     fn different_ids_are_limited_independently() -> Result<()> {
         let mut limiter = RateLimiter::default();
         let start = Instant::now();
-        for _ in 0..(MAX_PER_WINDOW * 2) {
+        for _ in 0..(FULL_REPEATS * 2) {
             limiter.admit(key(), start);
         }
         let other = (glow::DEBUG_SOURCE_API, glow::DEBUG_TYPE_ERROR, 2);
