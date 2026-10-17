@@ -108,6 +108,13 @@ pub(super) fn slug(text: &str) -> String {
         .collect::<String>()
 }
 
+/// Names Windows keeps for devices whatever follows the first dot, so a
+/// folder called `con.synScene` cannot be made.
+const WINDOWS_DEVICES: [&str; 24] = [
+    "CON", "PRN", "AUX", "NUL", "COM0", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7",
+    "COM8", "COM9", "LPT0", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+];
+
 /// `<slug>-<id>.synScene`, or whichever half exists.
 pub(super) fn folder_name(title: &str, id: Option<&str>) -> String {
     let slug = slug(title);
@@ -119,6 +126,11 @@ pub(super) fn folder_name(title: &str, id: Option<&str>) -> String {
     let stem = match (slug.is_empty(), id.as_deref()) {
         (true, None | Some("")) => "shadertoy".to_string(),
         (true, Some(id)) => format!("shadertoy-{id}"),
+        (false, None | Some(""))
+            if WINDOWS_DEVICES.contains(&slug.to_ascii_uppercase().as_str()) =>
+        {
+            format!("shadertoy-{slug}")
+        }
         (false, None | Some("")) => slug,
         (false, Some(id)) => format!("{slug}-{id}"),
     };
@@ -191,6 +203,30 @@ mod tests {
             folder_name("x", Some("../..")),
             "x.synScene",
             "an id cannot escape the folder"
+        );
+    }
+
+    #[test]
+    fn a_title_that_is_a_windows_device_name_gets_a_folder_windows_can_make() {
+        // `CON.synScene` is the console on Windows 10, whatever the
+        // extension; with an id the stem is `con-ID` and safe.
+        for title in ["CON", "nul", "Aux", "prn", "COM1", "lpt9"] {
+            let name = folder_name(title, None);
+            let stem = name.split('.').next().unwrap_or_default();
+            assert!(
+                !WINDOWS_DEVICES.contains(&stem.to_ascii_uppercase().as_str()),
+                "{title} -> {name}"
+            );
+        }
+        assert_eq!(
+            folder_name("Con", Some("XsXXDn")),
+            "con-XsXXDn.synScene",
+            "with an id nothing changes"
+        );
+        assert_eq!(
+            folder_name("Console", None),
+            "console.synScene",
+            "only the exact names"
         );
     }
 
