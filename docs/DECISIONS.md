@@ -8787,3 +8787,29 @@ the MIDI hardware checks in STATUS_AUDIT (show control, area-9 sweep).
 
 **Would reopen:** a controller whose note offs are routinely lost mid-show
 without the device going away, which would want a timeout instead.
+
+### D373: a fader that cannot reach its control picks it up at the nearest end of its reach (2026-10-17)
+
+**Context.** Soft takeover (D174) waits until the fader reaches the
+control's value. A mapping's `range`, or a macro's (D175), can keep the fader
+out of part of the control's range, and a preset, a scene default, a script
+or the inspector can put the control there. The fader then could never reach
+it: the MAP pane said "waiting for pickup" for as long as the control stayed
+put, and moving the fader did nothing at all.
+
+**Decision.** For the pickup comparison the control's value is clamped into
+what the mapping can reach (`shape(0)` to `shape(1)`, either way round). A
+fader at the end of its reach nearest the control has met it, engages, and
+from then on drives the control as usual; the step is the distance from the
+control to the edge of the reach, the least any write by this fader could
+make. A control inside the reach behaves exactly as before. A mapping with
+an empty range (`[0.5, 0.5]`, a fixed value) now sets its value on the first
+message instead of never.
+
+**Test.** `a_fader_whose_range_cannot_reach_the_control_picks_it_up_at_the_nearest_end`
+(a fader limited to the lower half, the control at 0.8: waiting forever
+before, engaged at the top of its travel after).
+
+**Would reopen:** an operator who would rather a narrowed fader stayed dead
+until the control came back into its reach, which would be a per-mapping
+option.
