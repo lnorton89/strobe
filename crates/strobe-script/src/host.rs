@@ -497,6 +497,16 @@ impl ScriptHost {
         self.shared.state.borrow_mut().uniforms.seal()
     }
 
+    /// Seals the script's uniforms with exactly `names` declared: the
+    /// uniforms the shaders were compiled with when this script is a fresh
+    /// start of one that already ran under them (a playlist cueing its
+    /// scene again). As with [`Self::seal_uniforms`], any other new name
+    /// is refused from then on, while a declared name not set yet may
+    /// still be set.
+    pub fn seal_uniforms_to<'a>(&mut self, names: impl IntoIterator<Item = &'a str>) {
+        self.shared.state.borrow_mut().uniforms.seal_to(names);
+    }
+
     /// Copies the final-pass downsample where `textureFinalPass` reads it.
     fn stage_final_pass(&self, inputs: &ScriptInputs<'_>) {
         let mut state = self.shared.state.borrow_mut();

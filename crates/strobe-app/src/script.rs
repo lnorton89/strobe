@@ -140,6 +140,12 @@ impl ScriptRun {
         self.host.seal_uniforms();
     }
 
+    /// Seals the script's uniforms to `names`, the ones the shaders were
+    /// compiled with, for a script started again under them (D323).
+    pub fn seal_uniforms_to<'a>(&mut self, names: impl IntoIterator<Item = &'a str>) {
+        self.host.seal_uniforms_to(names);
+    }
+
     /// Updates [`Self::state`] and reports the transitions that matter.
     fn track(&mut self, status: ScriptStatus) {
         let message = self

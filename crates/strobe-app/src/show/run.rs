@@ -953,7 +953,7 @@ impl Show {
 
     /// Starts the next scene rendering small, so a feedback scene is not
     /// black when its cue starts.
-    fn warm_up(&mut self, index: usize, env: &Env<'_>) {
+    fn warm_up(&mut self, index: usize, env: &mut Env<'_>) {
         let Some(scene) = self
             .clock
             .timeline()
@@ -979,7 +979,7 @@ impl Show {
         if let Some(old) = self.warming.take() {
             self.park(old.scene, old.session);
         }
-        let Some(mut session) = self.unpark(&scene) else {
+        let Some(mut session) = self.unpark(&scene, env) else {
             return;
         };
         self.prepare(&mut session, index, env.start_time, env.media);
@@ -1110,7 +1110,7 @@ impl Show {
                     Some(session)
                 }
             },
-            None => self.unpark(&scene).and_then(|mut session| {
+            None => self.unpark(&scene, env).and_then(|mut session| {
                 self.prepare(&mut session, index, env.start_time, media);
                 match session.player.resize(env.full_size) {
                     Ok(()) => Some(session),
@@ -1158,12 +1158,13 @@ impl Show {
         session.meta.carry_unchanged_from(&before);
     }
 
-    /// Takes `scene` out of the cache for a new cue, every pass cleared.
-    /// Parking keeps what a resize does not touch: a literal-size or
-    /// `FIXED_SIZE` pass (D287), and all of a scene that pins its final
-    /// pass (D280). A cue starts its scene's clock at the beginning, so its
-    /// buffers start there too, as they did before D287 (D297).
-    fn unpark(&mut self, scene: &SceneRef) -> Option<Session> {
+    /// Takes `scene` out of the cache for a new cue, every pass cleared and
+    /// its script started over. Parking keeps what a resize does not touch:
+    /// a literal-size or `FIXED_SIZE` pass (D287), and all of a scene that
+    /// pins its final pass (D280). A cue starts its scene's clock at the
+    /// beginning, so its buffers start there too, as they did before D287
+    /// (D297), and so does its script's state (D323).
+    fn unpark(&mut self, scene: &SceneRef, env: &mut Env<'_>) -> Option<Session> {
         let mut session = self.cache.take(scene)?;
         if let Err(error) = session.player.restart() {
             log::warn!(
@@ -1171,6 +1172,7 @@ impl Show {
                 session.name
             );
         }
+        session.restart_script(env.audio, env.start_time);
         Some(session)
     }
 

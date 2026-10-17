@@ -8501,3 +8501,45 @@ loaded.
 
 **Would reopen:** evidence that Synesthesia runs a script's promise jobs at
 another point, or not at all.
+
+### D323: a scene cued again starts its script over too (2026-10-17)
+
+**Context.** D297 made a playlist cue start its scene from the beginning:
+clock, frame count and buffers. The scene's `script.js` was left out. Its
+QuickJS state (counters, accumulated phases, its handlers' previous values,
+a fault streak or a disabled script) carried over from the cue that played
+last, an hour earlier in a long show, while `TIME` and `FRAMECOUNT` started
+again. A script that counts its own frames began its second cue at 303
+where its first had ended at 180, and the first cue itself began with the
+two frames that loading and priming had already run.
+
+**Decision.** `Show::unpark`, the one place a cue takes its scene out of
+the cache, calls `Session::restart_script` after `ScenePlayer::restart`. It
+does what `Session::load` did with the script: evaluate `script.js` again,
+run `setup()`, run the first frame at the cue's start with the audio there.
+Then `prepare` resets the controls and applies the preset and the cue's
+overrides, so the cue's settings still win over what `setup()` wrote, as
+they did before. The new script's uniforms are sealed to the ones the
+shaders were compiled with (`ScriptHost::seal_uniforms_to`), so a restart
+compiles nothing and a uniform the shaders know keeps arriving even if the
+new start has not set it yet. A script that no longer starts is a `SCRIPT`
+failure and the cue plays without it, as at load. A cue that follows a cue
+of the same scene keeps the live session, script included, as D297 keeps
+its picture.
+
+**Cost.** The restart runs on the render thread when the cue warms up,
+about two seconds before it plays, under the script's load budget (250 ms
+at most; the 48 scripts in the private corpus start in half a millisecond
+or less, release build, on the development container). It is paid once per
+cue change, never per frame.
+
+**Test.** `a_scene_cued_again_starts_its_script_fresh_too`
+(`strobe-app/tests/show.rs`, both dialects): a script counting its frames
+into a uniform, another scene, the script scene again. Without the restart
+the third cue begins at 303, past the first cue's 180; with it the count
+starts over, still reaches the shader, and nothing is compiled.
+
+**Would reopen:** a show that wants a script's state to persist across
+cues (a long-running simulation), which would be a cue setting, as D297
+says for buffers; or a script whose `setup()` is slow enough that the
+warm-up hitch shows.
