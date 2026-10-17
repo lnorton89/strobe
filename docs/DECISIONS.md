@@ -9712,3 +9712,34 @@ the host stays as strict as it was.
 (failed before with `Move { x: NaN }`).
 
 **Would reopen:** nothing expected.
+
+### D405: a remote click's modifiers are let go before the next remote input (2026-10-17)
+
+**Context.** The host turns a remote button or key into egui events with a
+`ModifiersChanged` first (`HostInput::translate`), and egui keeps the last
+one it saw. Pointer moves and scrolls carry no modifiers on the wire, so
+after a remote Ctrl+click the host's egui held Ctrl until the controller's
+next key or click: hovering and dragging went on as Ctrl-held, and the
+slider rail treats a Shift-held click differently.
+
+**Decision.** The wire is unchanged (its messages are frozen by the golden
+tests, D288). On the host, a button release that carried modifiers, with no
+other remote button or key held, marks them to be let go, and the next
+`translate` call (the next control frame that has remote input) begins with
+`ModifiersChanged(NONE)`. Not in the release's own pass: egui reads
+modifiers per pass, and the click that a Ctrl+click or Shift+click decides
+is read on the release (`ui::controls` and the playlist read
+`input.modifiers` there), so a reset in that pass would make every modified
+click a plain one. A key in between states its own modifiers and cancels the
+mark; Reset clears it.
+
+**Not chosen.** *Modifiers on every pointer move*: a protocol change for a
+field the host can infer.
+
+**Test.** `desktop::tests::a_remote_ctrl_click_leaves_no_ctrl_held_at_the_host`
+(failed before: Ctrl still held after the click and a move), which also
+checks that the release's own pass still sees Ctrl.
+
+**Would reopen:** a controller holding a modifier across clicks and moves
+expecting the host to see it held between them (it sees it again on the
+next click or key, which carries it).
