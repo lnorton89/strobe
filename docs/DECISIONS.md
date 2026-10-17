@@ -9814,3 +9814,35 @@ and the pending list are intact. It failed before with two `x.png`s and the
 generated names.
 
 **Would reopen:** nothing expected.
+
+### D418: "Replace" only ever replaces an earlier import of the same shader (2026-10-17)
+
+**Context.** D113's re-import asks before replacing a scene folder of the
+same name (`ImportError::Exists`, then "Replace?" in the app and the
+userscript, `--force` on the command line), and the writer then swaps the
+old folder out and deletes it. Nothing checked what that folder was. A scene
+the person made and named the same, or an import they had edited into
+another shader, was offered for replacement like a stale import and deleted
+on a click.
+
+**Decision.** Before anything is fetched or written, `import_json` reads the
+existing folder's `scene.json`. Only a `SOURCE` of kind `shadertoy` with the
+same `id` (both absent counts as the same, for an export without one) is an
+earlier import of this shader, and only that is answered with `Exists` and
+replaced on request. Anything else (another `SOURCE`, none, a `scene.json`
+that is missing or not JSON) is the new `ImportError::NotReplaceable`, with or
+without `replace`: the message names the folder and what it is instead, says
+it was left as it is, and asks for it to be renamed or moved. Because the
+refusal comes before `Exists`, no "Replace?" is offered for such a folder at
+all, so the app needs no change: it shows any error other than `Exists` as a
+failed import (`strobe-app/src/import.rs`), and the listener and the command
+line report it as text.
+
+**Test.** `replace_refuses_a_folder_that_is_not_an_import_of_the_same_shader`
+(`strobe-shadertoy`, `import.rs`): a hand-made `scene.json`, an import of
+another id and a file that is not JSON in the folder an import would take
+are each refused, with and without `replace`, and left byte for byte. Before,
+`replace` overwrote the hand-made scene.
+
+**Would reopen:** a person who wants to overwrite a hand-edited import on
+purpose; the answer would be a separate, explicit "overwrite anyway".

@@ -36,6 +36,12 @@
 //! until the new one is complete (the writer swaps them in one rename), so
 //! a failed re-import leaves the old scene intact (D113).
 //!
+//! Only an earlier import of the **same shader** is ever replaced. A folder
+//! of the same name that is anything else (a scene the person made, an
+//! import edited into another shader, something unreadable) is
+//! [`ImportError::NotReplaceable`], with or without `replace`, so no
+//! "Replace?" is offered for it and nothing is deleted (D418).
+//!
 //! ## What is reported
 //!
 //! A converted-with-loss shader is a success with [`Imported::warnings`];
@@ -139,6 +145,20 @@ pub enum ImportError {
         /// The scene's title.
         title: String,
     },
+    /// A folder of the scene's name is in the library and is not an import
+    /// of this shader, so it is never replaced, even when asked (D418).
+    #[error(
+        "{folder} is already in the library and {reason}, so it was left as it is; rename \
+         or move it to import this shader"
+    )]
+    NotReplaceable {
+        /// The existing folder.
+        dir: PathBuf,
+        /// Its name.
+        folder: String,
+        /// What it is instead.
+        reason: String,
+    },
     /// The folder could not be written.
     #[error("{0}")]
     Write(#[from] WriteError),
@@ -177,6 +197,13 @@ pub fn import_json(text: &str, options: &ImportOptions<'_>) -> Result<Imported, 
 
     let target = options.library.join(&converted.folder_name);
     let existed = target.exists();
+    if existed && let Some(reason) = not_an_import_of(&target, shader.info.id.as_deref()) {
+        return Err(ImportError::NotReplaceable {
+            dir: target,
+            folder: converted.folder_name,
+            reason,
+        });
+    }
     if existed && !options.replace {
         return Err(ImportError::Exists {
             dir: target,
@@ -253,6 +280,41 @@ pub fn import_json(text: &str, options: &ImportOptions<'_>) -> Result<Imported, 
         textures_missing: converted.pending_assets.len(),
         warnings,
     })
+}
+
+/// Why the existing folder `dir` is not an earlier import of the shader
+/// `id`, or `None` when it is: its `scene.json` has a `SOURCE` of kind
+/// `shadertoy` with the same `id` (both absent counts as the same, for a
+/// shader exported without one). Read once, before anything is fetched or
+/// written.
+fn not_an_import_of(dir: &Path, id: Option<&str>) -> Option<String> {
+    let text = match std::fs::read_to_string(dir.join("scene.json")) {
+        Ok(text) => text,
+        Err(error) => return Some(format!("its scene.json cannot be read ({error})")),
+    };
+    let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
+    let scene: serde_json::Value = match serde_json::from_str(text) {
+        Ok(scene) => scene,
+        Err(error) => return Some(format!("its scene.json is not valid JSON ({error})")),
+    };
+    let source = scene.get("SOURCE");
+    let field = |key: &str| {
+        source
+            .and_then(|source| source.get(key))
+            .and_then(serde_json::Value::as_str)
+    };
+    if field("kind") != Some("shadertoy") {
+        return Some("is not a Shadertoy import".to_string());
+    }
+    let existing = field("id");
+    if existing != id {
+        return Some(format!(
+            "is the import of Shadertoy shader {}, not {}",
+            existing.unwrap_or("(no id)"),
+            id.unwrap_or("(no id)")
+        ));
+    }
+    None
 }
 
 /// Reads `path` (a Shadertoy export) and imports it.
@@ -526,6 +588,44 @@ mod tests {
         );
         std::fs::remove_dir_all(&library)?;
         std::fs::remove_dir_all(&cache_dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn replace_refuses_a_folder_that_is_not_an_import_of_the_same_shader() -> Result<()> {
+        // The folder an import would take can hold something else: a scene
+        // the person wrote and named the same, or an import edited into
+        // another shader. "Replace" must not delete it.
+        let library = scratch("not-ours")?;
+        let first = import_json(SINGLE, &ImportOptions::offline(&library))?;
+        let folder = first.dir.clone();
+        let others = [
+            r#"{ "TITLE": "my own scene" }"#,
+            r#"{ "SOURCE": { "kind": "shadertoy", "id": "Other1" } }"#,
+            "not json at all",
+        ];
+        for scene in others {
+            std::fs::write(folder.join("scene.json"), scene)?;
+            for replace in [false, true] {
+                let result = import_json(
+                    SINGLE,
+                    &ImportOptions {
+                        replace,
+                        ..ImportOptions::offline(&library)
+                    },
+                );
+                assert!(
+                    matches!(&result, Err(ImportError::NotReplaceable { folder, .. }) if !folder.is_empty()),
+                    "`{scene}`, replace {replace}: refused, got {result:?}"
+                );
+                assert_eq!(
+                    std::fs::read_to_string(folder.join("scene.json"))?,
+                    scene,
+                    "`{scene}`: the folder is left as it was"
+                );
+            }
+        }
+        std::fs::remove_dir_all(&library)?;
         Ok(())
     }
 
