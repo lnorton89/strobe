@@ -88,9 +88,8 @@ pub enum SceneError {
         found: usize,
     },
 
-    /// A dropdown has neither `LABELS` nor `VALUES`, or they disagree in
-    /// length.
-    #[error("dropdown `{0}` needs LABELS or VALUES, of equal length when both are given")]
+    /// A dropdown has neither `LABELS` nor `VALUES` (or both are empty).
+    #[error("dropdown `{0}` needs LABELS or VALUES")]
     Dropdown(String),
 
     /// A pass size could not be understood.

@@ -154,8 +154,6 @@ fn library_names() -> &'static LibraryNames {
 struct Parts {
     /// Global declarations.
     decls: String,
-    /// Statements for `strobe_begin`.
-    init: String,
     /// `#define`s placed after the shim, before the author's code.
     macros: String,
 }
@@ -257,38 +255,38 @@ pub(super) fn pass_file(plan: &Plan, pass: &PlannedPass, shader: &Shader) -> Gen
     if used("iSampleRate") {
         parts.macros.push_str("#define iSampleRate 44100.0\n");
     }
+    // The two arrays are array constructors, not globals: the ES rewrite
+    // moves a non-constant global initialiser into `main` only for a value
+    // type (D192), so an array global could only be filled in
+    // `strobe_begin()`, after the author's globals had read it as zero
+    // (D361's gap, D415). Built from the clock texel and the samplers, they
+    // read the same in a global initialiser, a function, or as an argument.
     if used("iChannelTime") {
-        parts
-            .decls
-            .push_str("float strobe_iChannelTime[4] = float[4](0.0, 0.0, 0.0, 0.0);\n");
-        parts
-            .macros
-            .push_str("#define iChannelTime strobe_iChannelTime\n");
-        for (slot, binding) in pass.channels.iter().enumerate() {
-            if *binding == Some(Binding::Audio) {
-                let _ = writeln!(
-                    parts.init,
-                    "    strobe_iChannelTime[{slot}] = strobe_clock.x;"
-                );
+        let slots = pass.channels.map(|binding| match binding {
+            Some(Binding::Audio) => "strobe_clock.x".to_string(),
+            Some(Binding::Buffer(_) | Binding::Image(_) | Binding::Black) | None => {
+                "0.0".to_string()
             }
-        }
+        });
+        let _ = writeln!(
+            parts.macros,
+            "#define iChannelTime float[4]({})",
+            slots.join(", ")
+        );
     }
     if used("iChannelResolution") {
-        parts.decls.push_str(
-            "vec3 strobe_iChannelResolution[4] = vec3[4](vec3(0.0), vec3(0.0), vec3(0.0), vec3(0.0));\n",
+        let slots = pass.channels.map(|binding| match binding {
+            Some(binding) => format!(
+                "vec3(vec2(textureSize({}, 0)), 1.0)",
+                plan.sampler_name(binding)
+            ),
+            None => "vec3(0.0)".to_string(),
+        });
+        let _ = writeln!(
+            parts.macros,
+            "#define iChannelResolution vec3[4]({})",
+            slots.join(", ")
         );
-        parts
-            .macros
-            .push_str("#define iChannelResolution strobe_iChannelResolution\n");
-        for (slot, binding) in pass.channels.iter().enumerate() {
-            if let Some(binding) = binding {
-                let _ = writeln!(
-                    parts.init,
-                    "    strobe_iChannelResolution[{slot}] = vec3(vec2(textureSize({}, 0)), 1.0);",
-                    plan.sampler_name(*binding)
-                );
-            }
-        }
     }
     for (slot, binding) in pass.channels.iter().enumerate() {
         if used(&format!("iChannel{slot}"))
@@ -352,7 +350,6 @@ pub(super) fn pass_file(plan: &Plan, pass: &PlannedPass, shader: &Shader) -> Gen
         );
     }
     body.push_str("void strobe_begin() {\n");
-    body.push_str(&parts.init);
     if image {
         body.push_str(
             "    strobe_fragCoord = (gl_FragCoord.xy - 0.5 * RENDERSIZE) / st_zoom + 0.5 * RENDERSIZE;\n",

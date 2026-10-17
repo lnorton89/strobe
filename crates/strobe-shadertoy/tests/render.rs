@@ -695,3 +695,38 @@ fn a_global_initialised_from_a_shadertoy_uniform_sees_its_value() -> Result<()> 
     }
     Ok(())
 }
+
+#[test]
+fn a_global_initialised_from_a_channel_array_sees_its_value() -> Result<()> {
+    // D361 left `iChannelTime` and `iChannelResolution` filled in
+    // `strobe_begin()`, after the author's globals were initialised, so a
+    // global read from one was zero. Channel 0 is music: its time is
+    // `iTime` and its resolution the 512-wide audio texture.
+    let code = "vec3 C = iChannelResolution[0];\n\
+                float T = iChannelTime[0];\n\
+                void mainImage(out vec4 c, in vec2 p) {\n\
+                \x20   c = vec4(C.x / 512.0, T, iChannelTime[1] + iChannelResolution[1].x, 1.0);\n\
+                }";
+    let json = serde_json::json!({
+        "ver": "0.1",
+        "info": { "id": "Tst101", "name": "channel arrays", "username": "strobe-tests" },
+        "renderpass": [ { "type": "image", "name": "Image", "code": code,
+                          "inputs": [ { "id": "a", "src": "/media/a/x.mp3", "ctype": "music",
+                                        "channel": 0 } ],
+                          "outputs": [] } ]
+    })
+    .to_string();
+    let (_, scene) = import_text(&json, "global-channel-arrays")?;
+    for api in BOTH {
+        // 31 frames: the last has TIME 0.5.
+        let Some(frame) = render(api, &scene, 31, full_precision(), |_, _| Ok(()))? else {
+            continue;
+        };
+        let [r, g, b, _] = frame.center();
+        assert!(
+            r == 255 && near(g, 128) && b == 0,
+            "{api:?}: C.x 512 -> 255, T 0.5 -> 128, unbound channel 1 zero; got ({r}, {g}, {b})"
+        );
+    }
+    Ok(())
+}

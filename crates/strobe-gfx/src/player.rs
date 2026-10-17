@@ -154,9 +154,9 @@ enum Source {
     ShadertoyAudio,
     Pass(usize),
     Image(usize),
-    /// A declared cube map, by its position in `SceneDef::cubemaps`. Its
-    /// unit is reserved like every other, so a samplerCube never shares a
-    /// unit with a sampler2D, which GL rejects at draw time.
+    /// A declared cube map, by its position in `SceneDef::cubemaps`. Like
+    /// every active sampler it has a unit of its own, so a samplerCube never
+    /// shares a unit with a sampler2D, which GL rejects at draw time.
     Cubemap(usize),
 }
 
@@ -298,6 +298,7 @@ impl ScenePlayer {
         let requested = [render_size[0].max(1), render_size[1].max(1)];
         let pinned = strobe_scene::pin::pinned_size(scene);
         let render_size = final_size(pinned, requested);
+        check_absolute_sizes(&def, texture_limit(caps))?;
 
         let vertex_src = assemble::vertex(caps.dialect);
         let vertex =
@@ -344,6 +345,7 @@ impl ScenePlayer {
                     dump_fragment(&def.title, caps.dialect, index, &source);
                     let compiled = Rc::new(build_program(
                         gl,
+                        caps,
                         &def,
                         extras,
                         &vertex,
@@ -774,6 +776,7 @@ impl ScenePlayer {
     /// `iFrame` is the case that matters (D91). Runs once per resize.
     fn passes_to_restart(&self, render_size: [i32; 2]) -> Vec<bool> {
         let last = self.def.final_pass();
+        let max_edge = texture_limit(&self.caps);
         let mut restart: Vec<bool> = self
             .def
             .passes
@@ -781,7 +784,7 @@ impl ScenePlayer {
             .zip(&self.passes)
             .enumerate()
             .map(|(index, (pass, state))| {
-                index == last || pass_size(pass, render_size) != state.size
+                index == last || pass_size(pass, render_size, max_edge) != state.size
             })
             .collect();
         loop {
@@ -1020,7 +1023,7 @@ impl ScenePlayer {
                 });
                 continue;
             }
-            let size = pass_size(pass, render_size);
+            let size = pass_size(pass, render_size, texture_limit(&self.caps));
             // A pass the resize leaves at the same size keeps its texture,
             // framebuffer and contents (D287): a one-texel clock pass or a
             // literal-size data pass must not restart on every probe. Unless
@@ -1294,12 +1297,51 @@ fn adopt_one(old: &mut PassState, new: &mut PassState) {
 
 /// A pass's size at `render_size`. A FIXED_SIZE pass keeps its own grid
 /// (D191); every other pass follows the render size, and so the render
-/// scale (D11). Not for the final pass, which is the render size.
-fn pass_size(pass: &PassDef, render_size: [i32; 2]) -> [i32; 2] {
+/// scale (D11), up to `max_edge` (`GL_MAX_TEXTURE_SIZE`) a side, as the
+/// host clamps the render size itself (D410). [`check_absolute_sizes`] has
+/// refused a fixed size past it at load. Not for the final pass, which is
+/// the render size.
+fn pass_size(pass: &PassDef, render_size: [i32; 2], max_edge: i32) -> [i32; 2] {
+    let edge =
+        |render: i32, scale: f32| ((render as f32 * scale).round() as i32).clamp(1, max_edge);
     pass.fixed.unwrap_or([
-        ((render_size[0] as f32 * pass.scale[0]).round() as i32).max(1),
-        ((render_size[1] as f32 * pass.scale[1]).round() as i32).max(1),
+        edge(render_size[0], pass.scale[0]),
+        edge(render_size[1], pass.scale[1]),
     ])
+}
+
+/// The largest texture side the context allows, from [`Caps`] (never asked
+/// of the driver here). A context that reported no positive limit is taken
+/// to have none, rather than one of a pixel.
+fn texture_limit(caps: &Caps) -> i32 {
+    match caps.info.max_texture_size {
+        limit if limit > 0 => limit,
+        _ => i32::MAX,
+    }
+}
+
+/// Refuses a scene with a pass of absolute size (a literal size, D194, or
+/// `FIXED_SIZE`, D191) larger than `max_edge` (`GL_MAX_TEXTURE_SIZE`, from
+/// [`Caps`]) on either side, naming the pass, its size and the limit. GL
+/// would refuse the texture, and the error would come back as a framebuffer
+/// status naming neither. Such a pass cannot shrink to fit: its size is the
+/// one the shader was written against. Checked once, before anything is
+/// allocated (D410).
+fn check_absolute_sizes(def: &SceneDef, max_edge: i32) -> Result<(), PlayerError> {
+    for (index, pass) in def.passes.iter().enumerate() {
+        let Some([width, height]) = pass.fixed else {
+            continue;
+        };
+        if width > max_edge || height > max_edge {
+            return Err(PlayerError::Resource(format!(
+                "pass {index} (`{}`) is {width}x{height} pixels, larger than this GPU's texture \
+                 limit of {max_edge} pixels a side; give it a smaller WIDTH and HEIGHT, or a \
+                 $WIDTH/$HEIGHT expression, which follows the output",
+                pass.target.as_deref().unwrap_or("unnamed")
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// The final pass's size for a `requested` render size: the scene's pinned
@@ -1352,6 +1394,7 @@ struct Fragment<'a> {
 /// Compiles and links one pass program and resolves its locations.
 fn build_program(
     gl: &Gl,
+    caps: &Caps,
     def: &SceneDef,
     extras: &[(String, ExtraType)],
     vertex: &crate::gl::Shader,
@@ -1373,16 +1416,26 @@ fn build_program(
     let loc = |name: &str| gl.uniform_location(&program, name);
 
     gl.use_program(&program);
+    // Only the samplers the linked program uses take a unit, numbered from
+    // 0 in this program, so a scene that declares many images or passes and
+    // reads a few never runs past the driver's units (D411). Each program
+    // keeps its own list, so its numbering is nobody else's business; every
+    // active sampler still has a unit of its own, so a samplerCube never
+    // shares one with a sampler2D, which GL rejects at draw time.
+    let limit = u32::try_from(caps.info.max_texture_units).unwrap_or(0);
     let mut samplers = Vec::new();
     let mut unit = 0_u32;
+    let mut wanted = 0_u32;
     let mut assign = |name: &str, source: Source| {
-        if let Some(location) = gl.uniform_location(&program, name) {
+        let Some(location) = gl.uniform_location(&program, name) else {
+            return;
+        };
+        wanted += 1;
+        if limit == 0 || unit < limit {
             gl.uniform_i32(&location, unit as i32);
             samplers.push((source, unit));
+            unit += 1;
         }
-        // Units are reserved whether or not the sampler is active, so a
-        // sampler's unit never depends on what the driver optimised out.
-        unit += 1;
     };
     assign("syn_FinalPass", Source::FinalPass);
     assign("syn_Media", Source::Media);
@@ -1399,6 +1452,17 @@ fn build_program(
     }
     for (i, cube) in def.cubemaps.iter().enumerate() {
         assign(&cube.name, Source::Cubemap(i));
+    }
+    // A driver normally refuses this at link time; one that does not would
+    // leave the samplers past the last unit reading whatever unit 0 holds.
+    if limit > 0 && wanted > limit {
+        return Err(PlayerError::Program {
+            pass,
+            message: format!(
+                "link: the pass samples {wanted} textures, and this GPU allows {limit} in one \
+                 pass (GL_MAX_TEXTURE_IMAGE_UNITS)"
+            ),
+        });
     }
 
     Ok(Compiled {

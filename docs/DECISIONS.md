@@ -9554,3 +9554,295 @@ of the poisoned lock.
 
 **Would reopen:** nothing expected. Any new global registry in this crate
 should follow the same rule: no caller-supplied code under its lock.
+
+### D410: a pass larger than the texture limit is refused by name; a relative one is clamped to it (2026-10-17)
+
+**Context.** A pass of absolute size (a literal `WIDTH`/`HEIGHT`, D194, or
+`FIXED_SIZE`, D191) wider or taller than `GL_MAX_TEXTURE_SIZE` failed the
+load as "GL resource: framebuffer incomplete (status 0x8cd6)": GL refused the
+texture, and the error named neither the pass nor the limit. A relative pass
+(`$WIDTH*4`) followed the render size past the limit the same way, although
+the host clamps the render size itself to that limit
+(`session::render_size`).
+
+**Decision.** At load, before anything is allocated, `ScenePlayer` refuses a
+pass whose absolute size is past the limit cached in `Caps`
+(`Info::max_texture_size`, read once with the context), naming the pass, its
+size and the limit, and suggesting a smaller size or an expression. It cannot
+be shrunk instead: its size is the one its shader was written against. A
+relative pass is clamped to the limit on each side, like the render size, so
+it still follows the output (D11) and only stops where the GPU does. Nothing
+per frame asks the driver anything. The error is a `PlayerError::Resource`,
+because `strobe-app` matches `PlayerError` exhaustively and a new variant is
+its change to make.
+
+**Test.** `a_literal_pass_larger_than_the_texture_limit_is_a_load_error_naming_it`
+and `a_relative_pass_past_the_texture_limit_is_clamped_to_it` (`strobe-gfx`
+render tests, both dialects). Both failed before with the framebuffer status.
+
+**Would reopen:** a real scene with a literal pass past a common GPU's limit
+that plays in Synesthesia, which would mean Synesthesia clamps or scales it.
+
+### D411: only the samplers a pass program uses take texture units (2026-10-17)
+
+**Context.** `build_program` gave a unit to every possible sampler, in a
+fixed order (the five built-in ones, then every pass target, image and cube
+map the scene declares), whether or not the linked program used it, "so a
+sampler's unit never depends on what the driver optimised out". A scene with
+many images or passes that each pass reads a few of ran its unit numbers
+past the driver's: `glUniform1i` refused the unit, the sampler stayed at unit
+0, and the pass read the wrong texture with a GL error each frame. On a GPU
+that is 16 to 32 units a stage.
+
+**Decision.** Units are numbered from 0 over the active samplers only, in the
+same order. Each program keeps its own `(source, unit)` list and binds from
+it, so no unit has to agree across programs, and every active sampler still
+has a unit of its own (a samplerCube never shares one with a sampler2D).
+A program that samples more textures than `GL_MAX_TEXTURE_IMAGE_UNITS`
+(read once into `Info::max_texture_units` with the context) fails the load
+naming the count and the limit, for a driver that does not refuse it at
+link time itself. The draw path is unchanged.
+
+**Test.** `only_the_samplers_a_pass_reads_take_texture_units` (300 declared
+images, one read: it failed with GL error 0x501 before) and
+`a_pass_reading_more_textures_than_the_gpu_allows_fails_to_load`
+(`strobe-gfx` render tests, both dialects).
+
+**Would reopen:** nothing expected; the unit numbers were never visible to a
+scene.
+
+### D412: a dropdown with mismatched lists and an untyped three-component control load (2026-10-17)
+
+**Context.** Two control shapes failed the whole scene at load: a dropdown
+whose `LABELS` and `VALUES` differ in length (`SceneError::Dropdown`), and a
+control with no `TYPE` and a three-component `DEFAULT`, which D193's rule
+(two components make an xy pad, anything else a slider) made a slider with a
+`DEFAULT` of the wrong arity (`SceneError::Arity`). One control took every
+other control, pass and shader down with it, where the rest of the loader
+prefers playing a scene to refusing it (D193).
+
+**Decision.**
+- The dropdown keeps the options both lists give: label `i` with value
+  `i`, up to the shorter list's length. No value and no label is invented,
+  and the mismatch is a logged warning naming the control and both counts.
+  An empty list counts as absent, so `LABELS: []` with `VALUES` is the
+  `VALUES`-only form. A dropdown with neither list is still an error: it has
+  no option to show.
+- An untyped control's `DEFAULT` picks the one type with that many
+  components: two an xy pad (D193), three or four a `color` (the only
+  `vec3`; a fourth component, alpha, is dropped as for a typed colour, R2),
+  anything else a slider. The uniform is then the `vec3` the shader most
+  likely reads.
+
+Synesthesia's behaviour with either shape is not known (Q32). Neither is in
+the private corpus or the SSF documentation; both rules keep a scene that
+Strobe refused, and change nothing for a scene that loaded.
+
+`strobe-scene` now depends on `log`, for the warning.
+
+**Test.** `a_dropdown_whose_labels_and_values_differ_keeps_the_options_both_give`
+and `an_untyped_control_with_three_or_four_default_components_is_a_colour`
+(`strobe-scene`, `control/def.rs`). Both failed before with the errors above.
+
+**Would reopen:** Q32's answer, if Synesthesia refuses either shape or reads
+it another way (pads the shorter list, or makes the untyped control a slider
+of the first component).
+
+### D413: a promise rejection nobody handles is a console error, once per reason (2026-10-17)
+
+**Context.** D322 left a rejected promise as the script's business, "as in a
+browser with no rejection handler". A browser does report one, though: an
+`unhandledrejection` event and a console error once its microtasks have run.
+Strobe reported nothing, so an `async` function that threw (a typo inside
+`async function load() { ... }`) failed with no word anywhere.
+
+**Decision.** `ScriptHost` installs QuickJS's host rejection tracker
+(`Runtime::set_host_promise_rejection_tracker`, which rquickjs 0.14
+exposes). The engine calls it when a promise is rejected with no handler,
+and again when a handler is attached to one later (`p.catch` after
+`Promise.reject`, an `await`), which takes it off the list. After the load
+and after every frame, once the promise jobs have run (D322), each rejection
+still listed is a console error, `script.js: unhandled promise rejection:
+<message (line)>`, logged once per distinct text as D325 does for faults.
+It is not a fault: the frame and its uniforms stand, and the status stays
+`Running`. This supersedes "its rejection is not reported" in D322.
+
+The list holds a handle to each promise only until the end of the load or
+frame that rejected it, and at most 64 of them, and it is emptied before any
+return (a failed load included) and on drop, so no handle outlives the
+runtime. Nothing is added to a frame with no rejection beyond one check of
+an empty list.
+
+**Test.** `an_unhandled_rejection_is_one_console_error_and_a_handled_one_none`
+(`strobe-script` conformance): a rejection at load, one each frame and an
+`async` throw are each one line across ten frames; a rejection handled at
+once and an awaited one are none; a load that fails with a rejection held
+returns its error. It failed before with no line at all.
+
+**Would reopen:** a real script that rejects on purpose every frame and an
+operator who finds the one line noise; or evidence that Synesthesia reports
+rejections in its own console in another form.
+
+### D414: an event callback may be a `let`/`const` function or the function itself (2026-10-17)
+
+**Context.** `onChange` and the other four registrations took the callback's
+name and checked it on the global object. A callback declared with a
+top-level `let` or `const` (`const onBeat = (v) => {...}`) is a global
+binding that is not a property there (D326), so it was refused as "there is
+no function named `onBeat`" and never fired. Passing the function itself
+(`onChange("x", fn)`, how most JavaScript APIs take a callback) failed the
+conversion to a string with an engine message, and in `setup()` that took
+the whole script down.
+
+**Decision.** A name that is not a function on the global object is
+resolved once, at registration, as a lexical binding (a plain identifier
+only, evaluated as `typeof name === 'function' ? name : undefined`, so a
+callback name is never run as code), and the function is kept under that
+name in a hidden registry: a prototype-less object on a non-enumerable,
+non-writable global, `__strobeCallbacks`. A function passed by value is kept
+there as `#<n>`, once per distinct function (compared by identity), so a
+script that registers the same function every frame has one handler, as with
+a name. At most 64 distinct functions are kept; past that the registration
+is a console error asking for the same function or a name, so a fresh closure
+every frame cannot grow the heap. A callback that is neither a string nor a
+function throws a `TypeError`, as every malformed native call does. When a
+handler fires, the global object is read first, so a script that reassigns a
+`function` callback is still followed, then the registry. A lexical callback
+is the function its binding held when it was first registered, as D326 keeps
+a lexical `update`. A missing name is still the same console error.
+
+This supersedes D326's "Event callbacks are unchanged". Synesthesia's own
+handling of either form is not verified; both are supersets, since every
+call that worked before works the same.
+
+**Test.** `callbacks_declared_with_const_or_let_or_passed_as_functions_fire`
+(a `const` arrow, a `let` function, a function literal in `setup()` and a
+`const` passed every frame from `update()`, each firing once on the rise)
+and `a_callback_that_is_neither_a_name_nor_a_function_is_a_type_error`
+(`strobe-script` conformance). Both failed before at `setup()`.
+
+**Would reopen:** a real script that relies on a lexical callback being
+re-read after reassignment, or evidence that Synesthesia refuses one.
+
+### D415: `iChannelTime` and `iChannelResolution` are array constructors, so a global sees them (2026-10-17)
+
+**Context.** D361 made each Shadertoy value the shim defines a global's
+initialiser, so `vec2 R = iResolution.xy;` at global scope sees it. It left
+the two arrays out: on ES the assembler moves a non-constant global
+initialiser into `main` only for a value type (D192), so the arrays stayed
+zero-initialised globals filled in `strobe_begin()`, after the author's
+globals had been initialised. `float T = iChannelTime[0];` or
+`vec3 C = iChannelResolution[0];` at global scope read zero, on both
+dialects.
+
+**Decision.** The author's name is `#define`d to an array constructor built
+from the clock texel and the pass's samplers, with the channels it does not
+bind at zero:
+`#define iChannelResolution vec3[4](vec3(vec2(textureSize(strobe_ShadertoyAudio, 0)), 1.0), vec3(0.0), vec3(0.0), vec3(0.0))`,
+and `float[4](strobe_clock.x, 0.0, 0.0, 0.0)` for an audio channel's time.
+It reads the same in a global initialiser (a value type, which the ES
+rewrite hoists in order, after the shim's `strobe_clock`), in a function, or
+passed whole as an argument. It uses only `strobe_` and `st_` names, which an
+author's code cannot declare (D92), so D91's reason for globals (an author
+redefining `TIME`) does not apply. Hoisting array globals on ES instead was
+not done: it would turn every constant lookup table in an SSF scene into a
+per-pixel array copy at the top of `main` on ANGLE. The shim's
+`strobe_begin()` no longer fills anything, and the music golden moved; the
+`strobe-autocontrol` goldens did not.
+
+**Test.** `a_global_initialised_from_a_channel_array_sees_its_value`
+(`strobe-shadertoy` render tests, both dialects): channel 0 is music, and
+the globals read 512 and `iTime`, channel 1 zero. It read zero before.
+
+**Would reopen:** a driver that refuses to index an array constructor, or a
+shader that assigns into `iChannelTime` (a uniform on Shadertoy, so not
+expected).
+
+### D416: a Shadertoy export saved as UTF-16 with a byte-order mark imports (2026-10-17)
+
+**Context.** `import_file` read the export with `read_to_string`, so a file
+saved as UTF-16 failed with "stream did not contain valid UTF-8". That is
+what Windows PowerShell 5 writes by default for `>` and `Out-File`, which is
+how a person on the T480 is likely to save the JSON a browser console
+printed.
+
+**Decision.** The file is read as bytes. One that starts with `FF FE` or
+`FE FF` is decoded as UTF-16, little- or big-endian; an odd byte count or an
+unpaired surrogate is an error that says the file starts as UTF-16 but is not
+valid. Anything else must be UTF-8, as before (a UTF-8 BOM is still skipped
+by `Shader::from_json`), and the error now says to save it as UTF-8 or as
+UTF-16 with a byte-order mark. UTF-16 without a mark is not guessed at, and
+the listener and the REST path, which receive UTF-8 over HTTP, are unchanged.
+
+**Test.** `a_utf16_export_with_a_byte_order_mark_imports` (`strobe-shadertoy`,
+`import.rs`): the same shader saved little- and big-endian imports; a
+half code unit and a lone surrogate are refused naming UTF-16. It failed
+before with the UTF-8 error.
+
+**Would reopen:** a real export in UTF-16 without a byte-order mark.
+
+### D417: a texture's file name is never a generated file's or another URL's (2026-10-17)
+
+**Context.** A texture's file under `images/` was the base name of its URL,
+made safe. Three things could share a name: a texture called `st_black.png`
+and the black placeholder written for a missing texture (the placeholder
+won, so the texture read black), one called `pending-assets.json` and the
+pending list (one overwrote the other), and two URLs ending in the same name
+(`/media/a/x.png`, `https://host/b/x.png`), which got one file and so one
+picture for both channels. On Windows, names that differ only in case
+collide too.
+
+**Decision.** The converter names each texture URL once, in the order the
+passes and channels are read, so a second conversion of the same shader
+names them the same and the pending list's names stay valid (D95):
+- the URL's own base name, as before, so a Shadertoy media file keeps
+  its name and a person's asset folder still matches;
+- `tex-` in front when that name is one the converter writes under
+  `images/` itself (an `st_` name, or the pending list's), ignoring case;
+- `-2`, `-3`... before the extension when another URL already has it,
+  ignoring case;
+- the same URL read by several channels keeps one file.
+
+`import_json`'s count of textures found compares the two generated paths
+whole, so a `tex-st_black.png` still counts.
+
+**Test.** `texture_file_names_never_collide_with_generated_files_or_each_other`
+(`strobe-shadertoy` convert tests): `st_black.png`, `pending-assets.json`,
+`x.png` and `X.png` get four names, none generated; with three supplied and
+one missing, each supplied texture is a file of its own and the placeholder
+and the pending list are intact. It failed before with two `x.png`s and the
+generated names.
+
+**Would reopen:** nothing expected.
+
+### D418: "Replace" only ever replaces an earlier import of the same shader (2026-10-17)
+
+**Context.** D113's re-import asks before replacing a scene folder of the
+same name (`ImportError::Exists`, then "Replace?" in the app and the
+userscript, `--force` on the command line), and the writer then swaps the
+old folder out and deletes it. Nothing checked what that folder was. A scene
+the person made and named the same, or an import they had edited into
+another shader, was offered for replacement like a stale import and deleted
+on a click.
+
+**Decision.** Before anything is fetched or written, `import_json` reads the
+existing folder's `scene.json`. Only a `SOURCE` of kind `shadertoy` with the
+same `id` (both absent counts as the same, for an export without one) is an
+earlier import of this shader, and only that is answered with `Exists` and
+replaced on request. Anything else (another `SOURCE`, none, a `scene.json`
+that is missing or not JSON) is the new `ImportError::NotReplaceable`, with or
+without `replace`: the message names the folder and what it is instead, says
+it was left as it is, and asks for it to be renamed or moved. Because the
+refusal comes before `Exists`, no "Replace?" is offered for such a folder at
+all, so the app needs no change: it shows any error other than `Exists` as a
+failed import (`strobe-app/src/import.rs`), and the listener and the command
+line report it as text.
+
+**Test.** `replace_refuses_a_folder_that_is_not_an_import_of_the_same_shader`
+(`strobe-shadertoy`, `import.rs`): a hand-made `scene.json`, an import of
+another id and a file that is not JSON in the folder an import would take
+are each refused, with and without `replace`, and left byte for byte. Before,
+`replace` overwrote the hand-made scene.
+
+**Would reopen:** a person who wants to overwrite a hand-edited import on
+purpose; the answer would be a separate, explicit "overwrite anyway".
