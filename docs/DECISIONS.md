@@ -9834,3 +9834,30 @@ shortened to 300 ms there.
 **Would reopen:** TLS (D288's list), after which a token is no longer
 replayable and the same client id could supersede at once; or a controller
 whose pings are delayed past 12 s on a congested venue network.
+
+### D408: the control window's view models still allocate each control frame (2026-10-17)
+
+**Context.** A sweep flagged that `Lan::view` and the macro strip build
+fresh vectors on every control frame: the strip a `Vec<Card>`, each with a
+cloned `Macro`, a badge `String` and a tooltip joined from its mappings;
+`Lan::view` the client list, the connection list and the strings of a
+`LanView`. CLAUDE.md's rule is that per-frame paths do not allocate.
+
+**Decision.** Left as they are, for now. They are not the simple fix the
+sweep hoped for: the strip's cards come from `Remote::evaluate`, which
+itself returns a freshly built `Evaluated` (one resolution per mapping and
+per macro) every control frame, and `Lan::view` reads the listener's
+client and connection lists, which strobe-remote hands out as owned copies
+under its locks with no revision to cache against. Removing the card clones
+alone would leave both underneath. Doing it properly means revision counters
+on the clients list, the connection table and the pairing state in
+strobe-remote, and a cached evaluation in `Remote`, which is a refactor of
+its own. The cost is bounded (a few dozen small allocations at most 30
+times a second, on the control window's frame, which runs at 2 Hz covered,
+or only its chores when starved, D206, D290, D315), and none of it is on the
+output's frame, which the rule exists for.
+
+**Would reopen:** a profile of the control frame on the mini PC showing
+these allocations matter, or the revision counters arriving for another
+reason; then the strip and `LanView` should be cached against them, as the
+palette's listing is (D262).
