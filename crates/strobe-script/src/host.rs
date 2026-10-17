@@ -150,11 +150,15 @@ fn describe(ctx: &Ctx<'_>, error: rquickjs::Error) -> String {
         .and_then(|object| Exception::from_object(object.clone()));
     let Some(exception) = exception else {
         // QuickJS cannot build an Error object once the heap is full, so a
-        // memory-limit breach surfaces as an exception with no value.
-        if thrown.is_null() || thrown.is_undefined() {
-            return "out of memory (the engine raised an exception with no value)".to_string();
+        // memory-limit breach surfaces as a thrown `null`, or as no value at
+        // all. A script's own `throw null` looks the same, so the text
+        // names both; `throw undefined` is only ever the script's.
+        if thrown.is_null() || thrown.type_of() == rquickjs::Type::Uninitialized {
+            return "out of memory (the engine raised null, which a full heap throws; or the \
+                    script threw null)"
+                .to_string();
         }
-        return display(ctx, &thrown);
+        return format!("uncaught {}", display(ctx, &thrown));
     };
     let message = exception.message().unwrap_or_default();
     let location = exception.stack().and_then(|stack| {

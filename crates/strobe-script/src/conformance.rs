@@ -1722,6 +1722,32 @@ fn a_memory_limit_breach_faults_cleanly_and_recovers() -> Result<()> {
 }
 
 #[test]
+fn throwing_undefined_is_not_reported_as_out_of_memory() -> Result<()> {
+    let mut rig = Rig::new("function update() { throw undefined; }", &[])?;
+    let out = rig.step();
+    assert_eq!(
+        out.status,
+        ScriptStatus::Faulted { consecutive: 1 },
+        "throw undefined faults"
+    );
+    let fault = rig.host.last_fault().unwrap_or_default().to_string();
+    assert!(
+        !fault.contains("memory") && fault.contains("undefined"),
+        "it is reported as what it threw, got `{fault}`"
+    );
+    // A full heap throws null, so `throw null` cannot be told apart from
+    // one; the message names both.
+    let mut rig = Rig::new("function update() { throw null; }", &[])?;
+    rig.step();
+    let fault = rig.host.last_fault().unwrap_or_default().to_string();
+    assert!(
+        fault.contains("memory") && fault.contains("threw null"),
+        "throw null names both readings, got `{fault}`"
+    );
+    Ok(())
+}
+
+#[test]
 fn runaway_recursion_is_a_fault_not_a_crash() -> Result<()> {
     let script = "function r(n) { return r(n + 1) + 1; } function update() { r(0); }";
     let mut rig = Rig::new(script, &[])?;
