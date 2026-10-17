@@ -8623,3 +8623,24 @@ Synesthesia might have ignored now runs, which is what its author meant.
 
 **Would reopen:** evidence that Synesthesia ignores a lexical `update` and
 a real scene that depends on that.
+
+### D350: a key capture ends when its field is no longer drawn (2026-10-17)
+
+**Context.** Change in Settings' Keyboard section (D208), and Set on a
+macro's key in MAP (D228), wait for the next key, and while they wait every
+shortcut is off (the capture is passed to `keys::handle` as a modal). Only
+the field reads the key that ends the wait. Closing Settings with its own
+button, opening another main pane over it, closing MAP or deselecting the
+macro left the capture waiting with no field to end it: B, Space, the
+arrows and F11 did nothing, with nothing on screen to say why, until the
+pane was found again.
+
+**Decision.** At the start of each control frame, a capture whose field
+will not be drawn (Settings is not the main view; MAP is not, or the
+macro waiting is not the one selected) is cancelled, as Esc would cancel
+it, and the keyboard is the shortcuts' again.
+
+**Test.** `ui::shell_tests::a_capture_whose_field_is_gone_gives_the_keyboard_back`.
+
+**Would reopen:** a shortcut editor drawn somewhere other than these two
+panes.
