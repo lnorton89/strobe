@@ -47,7 +47,7 @@ use crate::downbeat::{BANDS, Downbeat};
 use crate::frame::{AudioFrame, Layout};
 use crate::onset::BeatPicker;
 use crate::signal::Signal;
-use crate::smoothing::{Follower, Logistic, PeakTracker, blend, decay};
+use crate::smoothing::{DcBlocker, Follower, Logistic, PeakTracker, blend, decay};
 use crate::spectrum::Spectra;
 use crate::tempo::{BPM_DEFAULT, BeatGrid, Tempo};
 
@@ -201,6 +201,8 @@ pub struct Analyzer {
     written: u64,
     /// Total samples covered by hops processed so far.
     hop_end: u64,
+    /// Removes a constant input offset before anything measures it.
+    dc: DcBlocker,
 
     /// Forward transform plan.
     fft: Arc<dyn RealToComplex<f32>>,
@@ -218,6 +220,9 @@ pub struct Analyzer {
     previous_magnitude: Vec<f32>,
     /// The latest waveform samples.
     wave: Vec<f32>,
+    /// All-zero magnitudes: what the textures are built from while the
+    /// input is stalled, so they fall dark instead of holding the last hop.
+    silent_magnitude: Vec<f32>,
 
     /// Running RMS maximum per channel.
     rms_peak: [PeakTracker; CHANNELS],
@@ -336,6 +341,7 @@ impl Analyzer {
             history: vec![0.0; HISTORY_LEN],
             written: 0,
             hop_end: 0,
+            dc: DcBlocker::new(sample_rate),
             fft_in: fft.make_input_vec(),
             fft_out: fft.make_output_vec(),
             fft_scratch: fft.make_scratch_vec(),
@@ -344,6 +350,7 @@ impl Analyzer {
             magnitude: vec![0.0; bins],
             previous_magnitude: vec![0.0; bins],
             wave: vec![0.0; WAVE_LEN],
+            silent_magnitude: vec![0.0; bins],
             rms_peak: [PeakTracker::new(RMS_FLOOR); CHANNELS],
             flux_peak: [PeakTracker::new(FLUX_FLOOR); CHANNELS],
             flux_average: [0.0; CHANNELS],
@@ -392,6 +399,33 @@ impl Analyzer {
         self.sample_rate
     }
 
+    /// Reads input at `sample_rate` from now on (a device reopened at
+    /// another rate), clamped like [`Analyzer::with_layout`]'s.
+    ///
+    /// Only what is measured in samples starts over: the input history,
+    /// the band edges, the tempo estimator's envelope and the spectrum
+    /// spans. Everything a scene or the operator sees carries on: the
+    /// clocks, the beat counter and grid, levels, presence, the tracked
+    /// tempo and a tapped or nudged one (D328). The same rate does nothing.
+    pub fn set_sample_rate(&mut self, sample_rate: u32) {
+        let sample_rate = sample_rate.clamp(8_000, 192_000) as f32;
+        if sample_rate == self.sample_rate {
+            return;
+        }
+        let bins = self.magnitude.len();
+        self.sample_rate = sample_rate;
+        self.hop_dt = HOP as f32 / sample_rate;
+        self.bands = BandLayout::new(sample_rate, FFT_LEN);
+        self.history.fill(0.0);
+        self.written = 0;
+        self.hop_end = 0;
+        self.dc = DcBlocker::new(sample_rate);
+        self.magnitude.fill(0.0);
+        self.previous_magnitude.fill(0.0);
+        self.tempo.set_rate(1.0 / self.hop_dt);
+        self.spectra = Spectra::new(self.layout, sample_rate, bins);
+    }
+
     /// The texture sizes this analyser produces.
     pub fn layout(&self) -> Layout {
         self.layout
@@ -404,18 +438,21 @@ impl Analyzer {
 
     /// Appends mono samples. Never blocks, never allocates. Non-finite
     /// samples count as silence, and magnitudes above 8 are clipped so one
-    /// bad driver value cannot poison the normalisers.
+    /// bad driver value cannot poison the normalisers. A constant offset is
+    /// removed (a 10 Hz high-pass, D327): it is not sound, and it would
+    /// read as bass.
     ///
     /// If more than about 0.3 s of samples are pushed without an
     /// [`Analyzer::analyze`], the oldest are skipped rather than queued
     /// without bound.
     pub fn push(&mut self, samples: &[f32]) {
         for sample in samples {
-            let clean = if sample.is_finite() {
+            let finite = if sample.is_finite() {
                 sample.clamp(-8.0, 8.0)
             } else {
                 0.0
             };
+            let clean = self.dc.step(finite).clamp(-8.0, 8.0);
             let slot = (self.written as usize) & HISTORY_MASK;
             if let Some(cell) = self.history.get_mut(slot) {
                 *cell = clean;
@@ -492,7 +529,12 @@ impl Analyzer {
         } else {
             self.starved = 0.0;
         }
-        self.copy_wave();
+        if self.starved > STARVE_AFTER {
+            // No samples: the waveform is flat, not the last one frozen.
+            self.wave.fill(0.0);
+        } else {
+            self.copy_wave();
+        }
         self.advance_outputs(dt);
         self.fill_frame(dt);
         &self.frame
@@ -768,8 +810,15 @@ impl Analyzer {
             *texel = self.trail.get(index).copied().unwrap_or([0.0; 4]);
         }
 
+        // A stalled input draws silence, as the levels already fall to it;
+        // the hop's own magnitudes stay put for the next hop's flux.
+        let magnitude = if self.starved > STARVE_AFTER {
+            &self.silent_magnitude
+        } else {
+            &self.magnitude
+        };
         self.spectra
-            .update(&self.magnitude, &self.wave, dt, &mut self.frame);
+            .update(magnitude, &self.wave, dt, &mut self.frame);
     }
 }
 

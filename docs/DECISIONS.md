@@ -8624,6 +8624,100 @@ Synesthesia might have ignored now runs, which is what its author meant.
 **Would reopen:** evidence that Synesthesia ignores a lexical `update` and
 a real scene that depends on that.
 
+### D327: the analyser removes a constant input offset before measuring anything (2026-10-17)
+
+**Context.** Cheap USB microphones and line inputs often sit a little off
+zero. A constant offset is not sound, but the Hann window leaks it into FFT
+bin 1 (about 23 Hz at 48 kHz), which is the bass band's lowest bin. An
+offset of 0.005 (about -46 dBFS) in a silent room read as
+`syn_BassLevel` 1.0 forever: the running-peak normaliser scaled it to full,
+the room counted as "music playing" (so the beat oscillators, `syn_FadeInOut`
+and the tempo kept running), and the raw energy the song-structure events
+use (D226, D237) never fell to "absent", so a gap could not be heard. The
+waveform channels drew the offset too.
+
+**Decision.** `Analyzer::push` runs every sample through a one-pole DC
+blocker (`smoothing::DcBlocker`, corner 10 Hz, half the bass band's 20 Hz
+lower edge) after the finite/clip check and before the history ring. A
+55 Hz kick loses under 2 %. The first sample primes the filter, so a stream
+that opens off-centre gives no click; outputs under 1e-20 are flushed to
+zero so a tail in digital silence never runs in the slow subnormal range.
+Everything downstream (bands, flux, energy, waveform, Shadertoy row) sees
+the filtered signal.
+
+**Test.** `a_dc_offset_in_a_silent_room_reads_as_silence` (offsets 0.005
+and -0.02 for 10 s: levels under 0.05, fade under 0.2, raw energy absent,
+waveform centred) and `the_dc_blocker_removes_an_offset_and_keeps_a_tone`.
+The tempo, beat and downbeat fixtures are unchanged.
+
+**Would reopen:** a scene that wants sub-10 Hz content, or a measured
+difference against Synesthesia's own bass reading on the same input.
+
+### D328: a device that reopens at another sample rate retunes the analyser, it does not rebuild it (2026-10-17)
+
+**Context.** The capture worker built a fresh `Analyzer` whenever a device
+opened at a rate other than the current one. With cpal 0.18 that is not
+rare mid-show: on Windows a default-device stream reports a change of the
+system default as `StreamInvalidated`, the worker reopens the new default,
+and a USB microphone plugged in during a show is commonly 44.1 kHz beside a
+48 kHz built-in input (or the reverse). The rebuild reset every clock a
+scene reads (`syn_Time`, `syn_BassTime`, `syn_CurvedTime`), the beat
+counter `syn_BeatTime` the playlist counts bars on, the beat grid, levels
+and presence, and dropped the operator's tapped or nudged tempo, which D61
+promised survives for the whole run.
+
+**Decision.** `Analyzer::set_sample_rate` replaces only what is measured in
+samples: the history ring, the band bin ranges, the DC blocker (D327), the
+FFT magnitudes, the tempo estimator's envelope (`Tempo::set_rate`, which
+keeps the tracked tempo and any manual one) and the spectrum spans. The
+worker calls it through `worker::follow_rate` on every open; the same rate
+(after the 8-192 kHz clamp) is a no-op, so a device above 192 kHz no longer
+rebuilds the analyser on each reopen either. Tempo confidence falls and
+recovers as the new envelope fills (about 3 s), as after any silence.
+
+**Test.** `a_device_at_another_rate_keeps_the_clocks_and_the_tapped_tempo`
+(`capture::worker`): 48 kHz kicks with a tapped 100 BPM, then 44.1 kHz; the
+clocks and beat counter do not go back, the tapped tempo holds, and a
+60 Hz tone at the new rate lands in the bass band.
+
+**Would reopen:** a reason to treat a device change as a new session (the
+song detector already resets on any change of source, D237).
+
+### D329: `--audio ambient` runs its clocks smoothly; the synthetic track's jump on the beat (2026-10-17)
+
+**Context.** `--audio ambient` is for a show with no microphone: scenes
+keep moving "without flashing on a beat the room cannot hear". It zeroed
+the hits and beat triggers and swelled the levels, but kept the synthetic
+track's clocks, and those are beats in disguise. The synthetic `syn_Time`
+(and the Mid, MidHigh and High clocks) is `time * (0.6 + level)` with a
+level that pulses with the kick, not an integral, so it steps on every
+beat by an amount that grows with the time: at one hour, +722 and then
+-327 between consecutive 60 fps frames. `syn_BassTime` steps by a whole
+unit on each beat, and `syn_BeatTime` jumps at each beat.
+
+**Decision.** `Ambient::calm` (`strobe-app/src/audio.rs`) replaces them:
+each band clock is the closed-form integral of `0.6 + swell(band)` (the
+synthetic track's rate law with ambient's own swell), computed in `f64`;
+`syn_CurvedTime` runs at the synthetic curved rate at the swell's centre;
+`syn_BeatTime` is `time * BPM / 60`. They never step and never run back,
+at the start of a show or four hours in. `syn_BPM` and the BPM sine and
+triangle shapes stay the synthetic track's.
+
+**Not changed here:** the plain synthetic track (`strobe_scene::synthetic`),
+which `--audio synthetic` uses and `--audio auto` falls back to when a
+device is lost, has the same `syn_Time` defect. It is outside the audio
+sweep's scope and is reported to the owner. The ambient textures are still
+the synthetic ones scaled to 35 %, so `syn_Spectrum` and `syn_LevelTrail`
+still pulse gently with the kick.
+
+**Test.** `ambient_clocks_run_smoothly_hours_into_a_show` (every clock
+moves between 0 and 0.1 per 60 fps frame at 0 s, 1 h and 4 h);
+`ambient_frames_keep_the_clocks_and_drop_the_beat` now checks the clock
+runs and the tempo is the synthetic one.
+
+**Would reopen:** a scene that needs ambient's clocks to match the
+synthetic track's exactly.
+
 ### D340: a script frame refills buffers the caller keeps, and the uniform order is bound once at the seal (2026-10-17)
 
 **Context.** A script frame built its result from scratch: `snapshot()` made

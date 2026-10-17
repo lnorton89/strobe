@@ -297,6 +297,16 @@ impl Tempo {
         }
     }
 
+    /// Follows an onset envelope now sampled `rate` times a second (the
+    /// input's sample rate changed). The envelope heard so far is in the
+    /// old rate's steps, so estimation starts over; the tracked tempo and
+    /// the operator's tap or nudge are kept.
+    pub(crate) fn set_rate(&mut self, rate: f32) {
+        self.estimator = Estimator::new(rate);
+        self.since_estimate = 0;
+        self.estimate_every = (ESTIMATE_INTERVAL * rate).round().max(1.0) as u32;
+    }
+
     /// Feeds one onset-strength sample.
     pub(crate) fn observe(&mut self, onset: f32) {
         self.estimator.push(onset);

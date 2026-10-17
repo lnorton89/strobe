@@ -179,6 +179,39 @@ fn silence_gives_the_silent_values_and_never_nan() -> Result<()> {
 }
 
 #[test]
+fn a_dc_offset_in_a_silent_room_reads_as_silence() -> Result<()> {
+    // Cheap USB microphones and line inputs often sit a little off zero.
+    // A constant offset is not sound: through the Hann window it leaks
+    // into the first bins, which the bass band covers, and must not read
+    // as bass, as music playing, or as raw energy.
+    for offset in [0.005_f32, -0.02] {
+        let signal = vec![offset; RATE as usize * 10];
+        let frame = fixtures::last_frame(&signal, RATE, FPS);
+        let bass = get(&frame, "syn_BassLevel")?;
+        let level = get(&frame, "syn_Level")?;
+        let fade = get(&frame, "syn_FadeInOut")?;
+        assert!(bass < 0.05, "offset {offset}: BassLevel {bass}");
+        assert!(level < 0.05, "offset {offset}: Level {level}");
+        assert!(
+            fade < 0.2,
+            "offset {offset}: FadeInOut {fade} says music is playing"
+        );
+        assert!(
+            frame.energy[0] < crate::events::ABSENT,
+            "offset {offset}: raw energy {} is not silence",
+            frame.energy[0]
+        );
+        let waveform = frame.spectrum.iter().map(|texel| texel[3]);
+        let off_centre = waveform.fold(0.0_f32, |most, v| most.max((v - 0.5).abs()));
+        assert!(
+            off_centre < 0.01,
+            "offset {offset}: the waveform sits {off_centre} off its centre"
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn hostile_input_never_produces_nan() -> Result<()> {
     let mut signal = fixtures::noise(1.0, 2.0, RATE);
     for (i, sample) in signal.iter_mut().enumerate() {
@@ -567,6 +600,54 @@ fn a_stalled_input_decays_to_silence() -> Result<()> {
     assert!(
         level < 0.01,
         "no new samples for 3 s means silence, got {level}"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_stalled_input_darkens_the_spectrum_and_centres_the_waveform() -> Result<()> {
+    // WASAPI loopback delivers no packets while nothing plays, and a lost
+    // device delivers none while it is reopened. The textures must fall to
+    // silence with the levels, not hold the last hop on screen.
+    let mut analyzer = Analyzer::new(RATE);
+    offline::run(
+        &mut analyzer,
+        &fixtures::tone(200.0, 0.5, 2.0, RATE),
+        FPS,
+        |_, _| {},
+    );
+    let lit = |frame: &AudioFrame| {
+        frame
+            .spectrum
+            .iter()
+            .map(|texel| texel[0].max(texel[1]).max(texel[2]))
+            .fold(0.0_f32, f32::max)
+    };
+    assert!(lit(analyzer.frame()) > 0.5, "the tone lights the spectrum");
+    for _ in 0..180 {
+        analyzer.analyze(1.0 / 60.0);
+    }
+    let frame = analyzer.frame();
+    let brightest = lit(frame);
+    assert!(
+        brightest < 0.05,
+        "3 s without samples still shows a spectrum at {brightest}"
+    );
+    let wave = frame
+        .spectrum
+        .iter()
+        .map(|texel| (texel[3] - 0.5).abs())
+        .fold(0.0_f32, f32::max);
+    assert!(wave < 1e-6, "the waveform is still drawn {wave} off centre");
+    let width = frame.shadertoy_width();
+    let (toy_spectrum, toy_wave) = frame.shadertoy.split_at(width);
+    assert!(
+        toy_spectrum.iter().all(|byte| *byte < 13),
+        "the Shadertoy spectrum row stays lit"
+    );
+    assert!(
+        toy_wave.iter().all(|byte| *byte == 128),
+        "the Shadertoy waveform row is not centred"
     );
     Ok(())
 }

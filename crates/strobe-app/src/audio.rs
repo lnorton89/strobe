@@ -88,6 +88,9 @@ pub struct AudioInput {
     devices: Vec<DeviceInfo>,
     listing: Option<Receiver<Listed>>,
     choice: DeviceChoice,
+    /// The device the capture being opened was started with; a different
+    /// `choice` made meanwhile is passed on when it arrives.
+    opening: DeviceChoice,
     reactivity: f32,
     speed: f32,
     /// The meta controls' reactivity and audio speed (D184). The effective
@@ -116,21 +119,44 @@ pub struct AudioInput {
 
 /// The synthetic track without a beat (`--audio ambient`): hits and beat
 /// triggers held at zero, levels a slow swell, the textures damped. The
-/// clocks and the smooth tempo shapes keep running, so scenes still move.
-/// Indices are resolved once; per frame it only writes into the frame.
+/// clocks keep running so scenes still move, but smoothly: the synthetic
+/// track's own clocks jump on every beat (its `syn_Time` is the scene time
+/// times a level that pulses with the kick, so the jump grows with the
+/// time and is hundreds of units an hour in), and a clock that jumps on
+/// the beat is a beat. Here each band clock is the exact integral of its
+/// band's swell, `syn_CurvedTime` runs at a steady rate and `syn_BeatTime`
+/// counts beats evenly (D329). The smooth tempo shapes are the synthetic
+/// track's. Indices are resolved once; per frame it only writes into the
+/// frame.
 #[derive(Debug)]
 struct Ambient {
     /// Scalars held at zero: hits, beat triggers, the twitcher.
     zero: Vec<usize>,
     /// Level scalars, replaced by the swell.
     levels: Vec<usize>,
+    /// Band clocks, each with the band whose swell drives it.
+    clocks: Vec<(usize, usize)>,
+    /// `syn_CurvedTime`.
+    curved: Option<usize>,
+    /// `syn_BeatTime`.
+    beat_time: Option<usize>,
+    /// `syn_BPM`, which sets `syn_BeatTime`'s rate.
+    bpm: Option<usize>,
 }
 
 impl Ambient {
     /// How much of the synthetic textures' amplitude is kept.
     const TEXTURE_GAIN: f32 = 0.35;
     /// The swell's period in seconds.
-    const SWELL_PERIOD: f32 = 16.0;
+    const SWELL_PERIOD: f64 = 16.0;
+    /// The swell's centre and depth.
+    const SWELL: (f64, f64) = (0.35, 0.1);
+    /// How far each band's swell is out of step with the previous band's,
+    /// in radians.
+    const BAND_SHIFT: f64 = 0.7;
+    /// A band clock runs at this plus its band's level, as the synthetic
+    /// track's do.
+    const CLOCK_BASE: f64 = 0.6;
 
     fn new() -> Self {
         const ZERO: &[&str] = &[
@@ -151,32 +177,74 @@ impl Ambient {
             "syn_MidHighLevel",
             "syn_HighLevel",
         ];
-        let find = |names: &[&str]| {
-            names
-                .iter()
-                .filter_map(|name| SCALARS.iter().position(|scalar| scalar == name))
-                .collect()
-        };
+        const CLOCKS: &[&str] = &[
+            "syn_Time",
+            "syn_BassTime",
+            "syn_MidTime",
+            "syn_MidHighTime",
+            "syn_HighTime",
+        ];
+        let index = |name: &str| SCALARS.iter().position(|scalar| *scalar == name);
+        let find = |names: &[&str]| names.iter().filter_map(|name| index(name)).collect();
         Self {
             zero: find(ZERO),
             levels: find(LEVELS),
+            clocks: CLOCKS
+                .iter()
+                .enumerate()
+                .filter_map(|(band, name)| Some((index(name)?, band)))
+                .collect(),
+            curved: index("syn_CurvedTime"),
+            beat_time: index("syn_BeatTime"),
+            bpm: index("syn_BPM"),
         }
+    }
+
+    /// The swell of `band` at `time`: each band a little out of step with
+    /// the others.
+    fn swell(time: f64, band: usize) -> f64 {
+        let omega = std::f64::consts::TAU / Self::SWELL_PERIOD;
+        Self::SWELL.0 + Self::SWELL.1 * (omega * time + band as f64 * Self::BAND_SHIFT).sin()
+    }
+
+    /// The clock of `band` at `time`: the integral from 0 of
+    /// `CLOCK_BASE + swell(band)`, so it never steps and never runs back.
+    fn clock(time: f64, band: usize) -> f64 {
+        let omega = std::f64::consts::TAU / Self::SWELL_PERIOD;
+        let shift = band as f64 * Self::BAND_SHIFT;
+        (Self::CLOCK_BASE + Self::SWELL.0) * time
+            + Self::SWELL.1 / omega * (shift.cos() - (omega * time + shift).cos())
     }
 
     /// Calms a frame the synthetic track just filled for scene time `time`.
     fn calm(&self, time: f32, frame: &mut AudioFrame) {
-        let phase = time * std::f32::consts::TAU / Self::SWELL_PERIOD;
-        for &index in &self.zero {
-            if let Some(value) = frame.scalars.get_mut(index) {
-                *value = 0.0;
+        let time = f64::from(time);
+        let bpm = self
+            .bpm
+            .and_then(|index| frame.scalars.get(index))
+            .copied()
+            .filter(|bpm| bpm.is_finite() && *bpm > 0.0)
+            .unwrap_or(120.0);
+        let mut set = |index: usize, value: f64| {
+            if let Some(slot) = frame.scalars.get_mut(index) {
+                *slot = value as f32;
             }
+        };
+        for &index in &self.zero {
+            set(index, 0.0);
         }
         for (band, &index) in self.levels.iter().enumerate() {
-            // Each band a little out of step with the others.
-            let swell = 0.35 + 0.1 * (phase + band as f32 * 0.7).sin();
-            if let Some(value) = frame.scalars.get_mut(index) {
-                *value = swell;
-            }
+            set(index, Self::swell(time, band));
+        }
+        for &(index, band) in &self.clocks {
+            set(index, Self::clock(time, band));
+        }
+        if let Some(index) = self.curved {
+            // The synthetic track's curved rate at the swell's centre.
+            set(index, (0.5 + 1.5 * Self::SWELL.0 * Self::SWELL.0) * time);
+        }
+        if let Some(index) = self.beat_time {
+            set(index, time * f64::from(bpm) / 60.0);
         }
         for texel in frame
             .spectrum
@@ -212,6 +280,7 @@ impl AudioInput {
             devices: Vec::new(),
             listing: None,
             choice: DeviceChoice::default(),
+            opening: DeviceChoice::default(),
             reactivity: 1.0,
             speed: 1.0,
             meta_gain: [1.0, 1.0],
@@ -273,6 +342,7 @@ impl AudioInput {
     }
 
     fn start_capture(&mut self) {
+        self.opening = self.choice.clone();
         let config = CaptureConfig {
             device: self.choice.clone(),
             layout: Layout::default(),
@@ -327,6 +397,10 @@ impl AudioInput {
                     capture.set_reactivity(gains[0]);
                     capture.set_audio_speed(gains[1]);
                     self.pushed_gain = gains;
+                    if self.choice != self.opening {
+                        // Chosen in Settings while this capture was opening.
+                        capture.select_device(self.choice.clone());
+                    }
                     self.capture = Some(capture);
                     self.starting = None;
                 }
@@ -663,8 +737,12 @@ mod tests {
                 frame.scalars[level]
             );
             assert!(
-                frame.scalars[time] == synthetic[time] && frame.scalars[bpm] == synthetic[bpm],
-                "clocks and tempo are the synthetic track's at {t}"
+                frame.scalars[time] > 0.0 || step == 0,
+                "the clock runs at {t}"
+            );
+            assert!(
+                frame.scalars[bpm] == synthetic[bpm],
+                "the tempo is the synthetic track's at {t}"
             );
         }
         assert!(beat_seen, "the plain synthetic track does have a beat");
@@ -714,6 +792,71 @@ mod tests {
             "NaN is neutral, negative is zero"
         );
         Ok(())
+    }
+
+    #[test]
+    fn ambient_clocks_run_smoothly_hours_into_a_show() -> Result<()> {
+        // A clock that jumps on the beat is a beat. Scenes drive motion
+        // from these, so in ambient they must glide, an hour in as at the
+        // start: no step between frames larger than a few frames' worth.
+        const CLOCKS: &[&str] = &[
+            "syn_Time",
+            "syn_BassTime",
+            "syn_MidTime",
+            "syn_MidHighTime",
+            "syn_HighTime",
+            "syn_CurvedTime",
+            "syn_BeatTime",
+        ];
+        let mut calm = AudioInput::new(false).with_ambient(true);
+        for start in [0.0_f32, 3600.0, 4.0 * 3600.0] {
+            let mut previous = calm.frame_at(start).scalars.clone();
+            for step in 1..=120 {
+                let t = start + step as f32 / 60.0;
+                let frame = calm.frame_at(t);
+                for name in CLOCKS {
+                    let Some(index) = SCALARS.iter().position(|scalar| scalar == name) else {
+                        anyhow::bail!("{name} is a scalar");
+                    };
+                    let moved = frame.scalars[index] - previous[index];
+                    assert!(
+                        (0.0..0.1).contains(&moved),
+                        "{name} moved {moved} in one frame at {t} s"
+                    );
+                }
+                previous.clone_from(&frame.scalars);
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn a_device_chosen_while_capture_is_opening_is_used() -> Result<()> {
+        // Opening capture runs on a thread and can take seconds on WASAPI.
+        // A device picked in Settings meanwhile must reach the capture once
+        // it arrives, not be shown as chosen and silently ignored.
+        const ID: &str = "strobe-test-no-such-device";
+        let mut input = AudioInput::new(true);
+        input.select_device(DeviceChoice::ById(ID.to_string()));
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while input.capture.is_none() && Instant::now() < deadline {
+            input.frame_at(0.0);
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let Some(capture) = &input.capture else {
+            anyhow::bail!("capture never started");
+        };
+        // The worker reopens on its next pass (10 ms); allow it a few.
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let mut error = None;
+        while Instant::now() < deadline {
+            error = capture.status().last_error;
+            if error.as_deref().is_some_and(|text| text.contains(ID)) {
+                return Ok(());
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        anyhow::bail!("the capture never tried the chosen device; last error {error:?}")
     }
 
     #[test]
