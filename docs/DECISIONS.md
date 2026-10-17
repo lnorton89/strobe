@@ -9116,6 +9116,100 @@ before, engaged at the top of its travel after).
 until the control came back into its reach, which would be a per-mapping
 option.
 
+### D374: the OSC listener binds again after a socket error, with a bounded backoff (2026-10-17)
+
+**Context.** The listener (D171) ended on any socket error other than a
+timeout or a reset: it reported `OscError`, dropped the socket and waited for
+a bind command, which only the operator toggling OSC off and on in the MAP
+pane sends. On a laptop whose network goes down mid-show (Windows reports
+the interface vanishing as a read error) OSC stayed dead after the network
+came back, and the first sign was a controller that did nothing.
+
+**Decision.** The listener remembers the address it was asked for. After such
+an error it closes the socket, reports the error, and binds the address again
+after 1, 2, 4 and 8 seconds and then every 15 (`listener::retry_delay`),
+until a bind works, a new bind or off command arrives, or the hub shuts down.
+It waits for a command with `recv_timeout`, so switching OSC off, moving it
+or quitting is acted on at once, not at the end of the wait. A failure is
+reported when its text differs from the last one reported, so a network that
+stays down says "the OSC socket failed" once and the bind's reason once, not
+once per try; a bind that works reports `OscListening` as at first start,
+which takes the pane out of its error state. The backoff starts over only
+after the socket has read something (a quiet 50 ms wait counts), so a socket
+that binds and fails at once keeps backing off instead of going round at one
+second. A bind that fails at the operator's request (port in use) is not
+retried: they are looking at it, and another program may keep the port.
+Timeouts, resets and interrupted reads still do nothing, as before.
+
+The socket is behind a small trait (`Transport`, `Datagrams`) so the tests
+script a network that fails; the delay function is a parameter.
+
+**Test.** `a_socket_error_is_retried_with_backoff_and_each_failure_is_reported_once`,
+`the_backoff_starts_over_once_the_socket_has_worked`,
+`switching_osc_off_while_it_waits_to_retry_stops_it_for_good`,
+`a_new_bind_command_during_the_wait_is_acted_on_at_once`,
+`shutdown_does_not_wait_for_a_long_backoff` and
+`the_retry_schedule_backs_off_and_then_settles`. Four of the six failed
+before the change (the listener never came back). Not exercised: a real
+interface going down, which needs a Windows machine (STATUS_AUDIT, show
+control).
+
+**Would reopen:** a network that flaps faster than the backoff, where a
+listener that is down for up to 15 s after the network returns is too slow
+(the steady delay would come down), or a request for the initial bind to
+retry too.
+
+### D375: a double beyond the f32 range is clamped, not turned into infinity (2026-10-17)
+
+**Context.** `Arg::Float` is documented as finite, and the decoder drops NaN
+and infinity (D172) so a control is never handed one. A double was checked
+for finiteness as a double and then narrowed with `as f32`, which turns a
+finite `1e300` into `inf`: the guarantee was broken for any double above
+about 3.4e38, and the infinity went on to the mapper and the controls.
+
+**Decision.** A finite double is clamped to `-f32::MAX..=f32::MAX` before the
+narrowing, as a long is clamped to the i32 range. Clamping rather than
+dropping, because the sender meant "very large" and the control the value
+reaches clamps to its own range anyway: a fader at `1e300` is at the top.
+NaN and real infinities, as a float or a double, are still dropped (they mean
+nothing), with the message if they were its only arguments.
+
+**Test.** `a_double_too_big_for_a_float_is_the_biggest_float_not_infinity`
+(`Float(inf)` before the change) and
+`what_is_not_a_number_is_dropped_whatever_its_width`.
+
+**Would reopen:** a sender for which an out-of-range value should be ignored
+rather than pinned to the end of the range.
+
+### D376: a macro counter at the top of its range picks up past the existing ids (2026-10-17)
+
+**Context.** `MacroSet` hands out ids from a saved counter (`next_id`, D175),
+and a file edited by hand can set it to `u32::MAX`. `add` then computed
+`next_id + 1`: a panic in a debug build and a wrap to 0 in a release one
+(id 0 means "no id", and the next add would then repair the duplicate). The
+same sum was in `repair`, which `add` calls first.
+
+**Decision.** Checked arithmetic, and a recovery that keeps `add` infallible
+(it has many callers, and a refused add would leave an operator with a file
+they must find and edit before they can pin anything). When the counter
+cannot go up, it is set to one past the highest id in the set, which is what
+`repair` already documents it as ("past all of them"). A set that holds
+`u32::MAX` itself has nothing past its highest, so it gets the smallest id
+not in the set, and the counter is left alone. If no id is free at all (four
+billion macros) `add` adds nothing and returns 0. The one cost: an id above
+the highest in the set may have belonged to a macro deleted earlier, and a
+mapping that named it would now drive the new macro. That needs a counter
+already corrupted, and the first rule of this module (ids are not reused) is
+otherwise kept.
+
+**Test.** `a_counter_at_the_top_of_its_range_picks_up_past_the_existing_ids`,
+`a_macro_holding_the_highest_possible_id_leaves_the_smallest_free_one` and
+`repairing_duplicates_with_the_counter_at_the_top_does_not_overflow` (all
+three panicked with "attempt to add with overflow" before the change).
+
+**Would reopen:** a UI path that can show an error on add, if refusing is
+preferred to recovering.
+
 ### D380: a session log stops at 64 MiB (2026-10-17)
 
 **Context.** D40 rotates session logs across runs (ten are kept) but put no

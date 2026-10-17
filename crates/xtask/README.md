@@ -22,7 +22,7 @@ Every command runs from the workspace root regardless of where it is invoked
 
 | Command | What |
 |---|---|
-| `cargo xtask ci` | Runs locally, in CI's order, and stops at the first failure: `rustfmt`, `clippy`, `test`, the Windows cross-check clippy, `cargo-deny`, and the changelog check. |
+| `cargo xtask ci` | Runs locally, in CI's order, and stops at the first failure: `rustfmt`, `clippy`, `clippy no-midi` (Linux), `test`, the Windows cross-check clippy, `cargo-deny`, and the changelog check. |
 | `cargo xtask changelog` | Regenerates `CHANGELOG.md` from conventional-commit subjects. |
 | `cargo xtask bench -- <args>` | `cargo run --release -p strobe-bench -- <args>`. |
 
@@ -66,6 +66,11 @@ Environment: `cargo xtask ci` sets `STROBE_REQUIRE_HEADLESS_GL=1` for the test
 step on Linux (unless you already set it or pass `--allow-gl-skip`), so a
 missing Mesa EGL fails loudly instead of every renderer test skipping. It also
 honours `CARGO` and `RUSTC` if set.
+
+`clippy no-midi` is `cargo clippy -p strobe-io --no-default-features
+--all-targets -- -D warnings`: the show-control crate without its `midi`
+feature, which `--all-features` never builds. It runs on Linux only and is
+skipped, with that reason, elsewhere.
 
 Some steps skip with a stated reason and the command that enables them: the
 Windows clippy when the `x86_64-pc-windows-msvc` standard library is not
