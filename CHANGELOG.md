@@ -40,6 +40,14 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- an atomic write syncs its temporary file before the rename (D438) ([`f65ea18`](https://github.com/lnorton89/strobe/commit/f65ea18f11a7535dba371a5e338c1054fdc6cdf0))
+- an anchored show waiting for its time follows the wall clock (D437) ([`e7caa66`](https://github.com/lnorton89/strobe/commit/e7caa6698538e54c89c32383b99cf4013d003f37))
+- Hold is refused until a cue is playing (D436) ([`78bdc8d`](https://github.com/lnorton89/strobe/commit/78bdc8debd5b7cb1ba9177c1630ef2916d6c9405))
+- a save that changes nothing the show plays is not a reload (D435) ([`80d4f71`](https://github.com/lnorton89/strobe/commit/80d4f71f3a026d90deb5a48acb7e300b34fac5f9))
+- a hold survives a reload or an edit of the playlist (D433) ([`bce7306`](https://github.com/lnorton89/strobe/commit/bce7306a321a80dedecf13de3c5adde32a0e8400))
+- an edit above the live cue no longer moves the show to another cue (D432) ([`f6a7202`](https://github.com/lnorton89/strobe/commit/f6a7202d02a5490a8d5049cab2c837af2da45f7d))
+- a held cue is not moved on by an audio event (D431) ([`bf56e9a`](https://github.com/lnorton89/strobe/commit/bf56e9ae9bb4988312873f615435447210eda86c))
+- an anchored show is placed in the run nearest now across midnight (D430) ([`c77ad3b`](https://github.com/lnorton89/strobe/commit/c77ad3bbcb522f02a89cfbb72599ddf504822354))
 - a GL driver message repeated every frame is summarised once a minute (D422) ([`0a82f75`](https://github.com/lnorton89/strobe/commit/0a82f75e6b2cb3a21206d205f80eeeef576875c8))
 - a MIDI fader flood keeps its latest value and cannot crowd out a note (D421) ([`10f669c`](https://github.com/lnorton89/strobe/commit/10f669c56757893a3521591da7738fd97081a4ae))
 - an audio stream that stops calling back without an error is noticed and reopened (D420) ([`c17c6e7`](https://github.com/lnorton89/strobe/commit/c17c6e70f4f7f89e7f719c679aca8223dd1b4e0e))
@@ -191,6 +199,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Performance
 
+- a warm-up the show no longer needs is parked at once (D434) ([`11a9105`](https://github.com/lnorton89/strobe/commit/11a910505c978fdb6f97b4c3451c637fca14558e))
 - the LAN address shown to the operator is cached and refreshed every 10 seconds (D341) ([`7447859`](https://github.com/lnorton89/strobe/commit/744785983788543f979ac31897a910e07bff9325))
 - a script frame allocates nothing of its own, and uniforms are bound once at the seal (D340) ([`4f263af`](https://github.com/lnorton89/strobe/commit/4f263af168d25b912960ace27e29ed15cf6d30a4))
 - **scenes:** acid mirror evaluates its broad noise at reduced size ([`2ae8956`](https://github.com/lnorton89/strobe/commit/2ae895621129475ef8e5d40965eae838f7b7ba04))
@@ -207,6 +216,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Documentation
 
+- record the playlist and show-run bug sweep (D430-D437) ([`2131c8a`](https://github.com/lnorton89/strobe/commit/2131c8a7d50ca329b812e43677da2acdd627b503))
 - record why the control window's view models still allocate, and the follow-ups in the roadmap ([`9477813`](https://github.com/lnorton89/strobe/commit/94778131d5ffb62b988210844bcdb33ebdf31108))
 - record the follow-up bug sweep of scenes, the player, scripts and Shadertoy import (D410-D418) ([`b20d232`](https://github.com/lnorton89/strobe/commit/b20d23276f243813f1b30aff877ec614cd7fc86d))
 - list every clock that grows with show time, and open the Shadertoy clock and mic-switch questions ([`50167e2`](https://github.com/lnorton89/strobe/commit/50167e20d6ae6ac4c8f8bd388cc9365f5e57e1e4))
