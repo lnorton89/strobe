@@ -44,10 +44,11 @@ use std::sync::mpsc::Receiver;
 mod device {
     use super::{MidiControl, MidiSettings, Receiver, Tx};
     use crate::event::{DeviceInfo, Event, InputEvent, Status};
-    use crate::message::{device_keys, parse};
+    use crate::message::{MidiMessage, device_keys, parse};
     use midir::{MidiInput, MidiInputConnection, MidiInputPort};
     use std::collections::{HashMap, HashSet};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::mpsc::RecvTimeoutError;
     use std::time::{Duration, Instant};
 
@@ -66,12 +67,78 @@ mod device {
         port: MidiInputPort,
     }
 
+    /// One open device.
+    struct Open {
+        /// The id of the port it was opened on.
+        id: String,
+        /// The notes it is holding down.
+        held: Arc<Held>,
+        /// Closed when dropped.
+        connection: MidiInputConnection<()>,
+    }
+
+    /// The notes one device is holding down, 16 channels of 128, so that
+    /// when the device goes away (unplugged, switched off, MIDI turned off)
+    /// its pads are let go rather than left held (D372). midir's callback
+    /// thread writes it and the worker reads it once the connection is
+    /// closed, so no ordering between the two is needed.
+    #[derive(Debug, Default)]
+    struct Held {
+        bits: [AtomicU64; 32],
+    }
+
+    impl Held {
+        /// The word and bit for a note on a channel.
+        fn slot(channel: u8, note: u8) -> (usize, u64) {
+            let index = usize::from(channel & 0x0F) * 128 + usize::from(note & 0x7F);
+            (index / 64, 1 << (index % 64))
+        }
+
+        /// Notes a message from the device.
+        fn track(&self, message: MidiMessage) {
+            match message {
+                MidiMessage::NoteOn { channel, note, .. } => {
+                    let (word, bit) = Self::slot(channel, note);
+                    if let Some(bits) = self.bits.get(word) {
+                        bits.fetch_or(bit, Ordering::Relaxed);
+                    }
+                }
+                MidiMessage::NoteOff { channel, note } => {
+                    let (word, bit) = Self::slot(channel, note);
+                    if let Some(bits) = self.bits.get(word) {
+                        bits.fetch_and(!bit, Ordering::Relaxed);
+                    }
+                }
+                MidiMessage::ControlChange { .. }
+                | MidiMessage::PitchBend { .. }
+                | MidiMessage::ProgramChange { .. } => {}
+            }
+        }
+
+        /// A note off for every note still down, which are then up.
+        fn release(&self, mut each: impl FnMut(MidiMessage)) {
+            for (word, bits) in self.bits.iter().enumerate() {
+                let mut down = bits.swap(0, Ordering::Relaxed);
+                while down != 0 {
+                    let index = word * 64 + down.trailing_zeros() as usize;
+                    down &= down - 1;
+                    let (Ok(channel), Ok(note)) =
+                        (u8::try_from(index / 128), u8::try_from(index % 128))
+                    else {
+                        continue;
+                    };
+                    each(MidiMessage::NoteOff { channel, note });
+                }
+            }
+        }
+    }
+
     struct Worker {
         tx: Tx,
         settings: MidiSettings,
         scanner: Option<MidiInput>,
-        /// Each open device by key, with the id of the port it was opened on.
-        open: HashMap<String, (String, MidiInputConnection<()>)>,
+        /// Each open device by key.
+        open: HashMap<String, Open>,
         /// Devices that would not open, by key: the port tried, and why.
         failed: HashMap<String, (String, String)>,
         published: Option<Vec<DeviceInfo>>,
@@ -129,12 +196,9 @@ mod device {
                 }
             }
             let present = self.list();
-            let disabled: HashSet<&str> = self
-                .settings
-                .disabled_devices
-                .iter()
-                .map(String::as_str)
-                .collect();
+            // Owned, so a device can be closed while it is consulted.
+            let disabled: HashSet<String> =
+                self.settings.disabled_devices.iter().cloned().collect();
 
             let listed: Vec<(&str, &str)> = present
                 .iter()
@@ -143,11 +207,11 @@ mod device {
             let gone = stale(
                 self.open
                     .iter()
-                    .map(|(key, (id, _))| (key.as_str(), id.as_str())),
+                    .map(|(key, open)| (key.as_str(), open.id.as_str())),
                 &listed,
             );
             for key in gone {
-                self.open.remove(&key);
+                self.close(&key);
                 log::info!("MIDI device lost: {key}");
                 self.tx.status(Status::DeviceLost(key));
             }
@@ -158,17 +222,22 @@ mod device {
 
             for device in &present {
                 if disabled.contains(device.key.as_str()) {
-                    self.open.remove(&device.key);
+                    self.close(&device.key);
                     continue;
                 }
                 if self.open.contains_key(&device.key) || self.failed.contains_key(&device.key) {
                     continue;
                 }
-                match self.connect(device) {
+                let held = Arc::new(Held::default());
+                match self.connect(device, Arc::clone(&held)) {
                     Ok(connection) => {
                         log::info!("MIDI device opened: {} ({})", device.key, device.name);
-                        self.open
-                            .insert(device.key.clone(), (device.id.clone(), connection));
+                        let open = Open {
+                            id: device.id.clone(),
+                            held,
+                            connection,
+                        };
+                        self.open.insert(device.key.clone(), open);
                         self.tx.status(Status::DeviceFound(device.key.clone()));
                     }
                     Err(error) => {
@@ -216,7 +285,11 @@ mod device {
                 .collect()
         }
 
-        fn connect(&self, device: &Present) -> Result<MidiInputConnection<()>, String> {
+        fn connect(
+            &self,
+            device: &Present,
+            held: Arc<Held>,
+        ) -> Result<MidiInputConnection<()>, String> {
             let input = MidiInput::new("strobe-in").map_err(|e| e.to_string())?;
             let tx = self.tx.clone();
             let key: Arc<str> = Arc::from(device.key.as_str());
@@ -226,6 +299,7 @@ mod device {
                     "strobe-input",
                     move |_timestamp, bytes, ()| {
                         if let Some(message) = parse(bytes) {
+                            held.track(message);
                             tx.send(Event::Input(InputEvent::Midi {
                                 device: Arc::clone(&key),
                                 message,
@@ -237,8 +311,27 @@ mod device {
                 .map_err(|e| e.to_string())
         }
 
+        /// Closes `key`'s connection, if it is open, and lets go of the
+        /// notes it was holding: their note offs can no longer arrive, and a
+        /// momentary pad would otherwise stay on (D372).
+        fn close(&mut self, key: &str) {
+            let Some(open) = self.open.remove(key) else {
+                return;
+            };
+            drop(open.connection);
+            let device: Arc<str> = Arc::from(key);
+            open.held.release(|message| {
+                self.tx.send(Event::Input(InputEvent::Midi {
+                    device: Arc::clone(&device),
+                    message,
+                }));
+            });
+        }
+
         fn close_all(&mut self) {
-            for (key, _) in self.open.drain() {
+            let keys: Vec<String> = self.open.keys().cloned().collect();
+            for key in keys {
+                self.close(&key);
                 self.tx.status(Status::DeviceLost(key));
             }
             self.failed.clear();
@@ -272,7 +365,109 @@ mod device {
 
     #[cfg(test)]
     mod tests {
-        use super::stale;
+        use super::{Held, stale};
+        use crate::message::{MidiMessage, parse};
+
+        #[test]
+        fn the_notes_a_device_holds_are_let_go_when_it_closes() {
+            let held = Held::default();
+            // A pad held on channel 10, another pressed and released, a
+            // key held on channel 16 at the top note, and a fader.
+            let session: [&[u8]; 6] = [
+                &[0x99, 36, 100],
+                &[0x99, 37, 90],
+                &[0x89, 37, 0],
+                &[0x9F, 127, 1],
+                &[0x99, 38, 1],
+                &[0x99, 38, 0],
+            ];
+            for bytes in session {
+                if let Some(message) = parse(bytes) {
+                    held.track(message);
+                }
+            }
+            held.track(MidiMessage::ControlChange {
+                channel: 0,
+                controller: 7,
+                value: 64,
+            });
+            let mut released = Vec::new();
+            held.release(|message| released.push(message));
+            assert_eq!(
+                released,
+                vec![
+                    MidiMessage::NoteOff {
+                        channel: 9,
+                        note: 36
+                    },
+                    MidiMessage::NoteOff {
+                        channel: 15,
+                        note: 127
+                    },
+                ],
+                "only what is still down, a velocity-0 note on counting as a release"
+            );
+            let mut again = Vec::new();
+            held.release(|message| again.push(message));
+            assert!(again.is_empty(), "released once: {again:?}");
+        }
+
+        #[test]
+        fn a_momentary_pad_held_on_a_device_that_goes_away_is_let_go() -> anyhow::Result<()> {
+            use crate::engine::{Banks, Engine};
+            use crate::event::{InputEvent, Source};
+            use crate::mapping::{ButtonMode, Mapping};
+            use crate::target::Target;
+            use std::sync::Arc;
+            use strobe_scene::control::{ControlBank, ControlDef};
+            use strobe_scene::json::RawControl;
+
+            let raw: RawControl = serde_json::from_str(r#"{ "NAME": "on", "TYPE": "toggle" }"#)?;
+            let mut scene = ControlBank::new(vec![ControlDef::from_raw(&raw)?])?;
+            let mut engine = Engine::default();
+            let pad = Source::MidiNote {
+                device: Some("pad".into()),
+                channel: 10,
+                note: 36,
+            };
+            let mut mapping = Mapping::new(pad, Target::control("on"));
+            mapping.button = ButtonMode::Momentary;
+            engine.mappings.push(mapping);
+            let held = Held::default();
+            let mut feed = |message: MidiMessage, scene: &mut ControlBank| -> anyhow::Result<f32> {
+                let event = InputEvent::Midi {
+                    device: Arc::from("pad"),
+                    message,
+                };
+                let (source, signal) =
+                    Source::of(&event).ok_or_else(|| anyhow::anyhow!("a source"))?;
+                let mut banks = Banks {
+                    scene: Some(scene),
+                    meta: None,
+                };
+                engine.handle(&source, signal, &mut banks, &mut Vec::new());
+                Ok(banks
+                    .scene
+                    .and_then(|bank| bank.target(0).map(|v| v[0]))
+                    .unwrap_or(-1.0))
+            };
+            let press = parse(&[0x99, 36, 100]).ok_or_else(|| anyhow::anyhow!("parse"))?;
+            held.track(press);
+            assert!(
+                (feed(press, &mut scene)? - 1.0).abs() < 1e-6,
+                "on while the pad is held"
+            );
+            // The cable is pulled: no note off will ever come. Closing the
+            // connection sends the ones the device still owed.
+            let mut owed = Vec::new();
+            held.release(|message| owed.push(message));
+            let mut last = 1.0;
+            for message in owed {
+                last = feed(message, &mut scene)?;
+            }
+            assert!(last.abs() < 1e-6, "let go: {last}");
+            Ok(())
+        }
 
         fn sorted(mut keys: Vec<String>) -> Vec<String> {
             keys.sort();

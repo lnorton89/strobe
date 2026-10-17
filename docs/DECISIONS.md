@@ -8760,3 +8760,30 @@ three times for three messages; once before the fix) and
 **Would reopen:** a controller that repeats a note on while a pad is held
 (none known; poly aftertouch is a different message, which is not parsed),
 which would want the repeat filtered per source kind.
+
+### D372: a MIDI device that goes away lets go of the notes it was holding (2026-10-17)
+
+**Context.** A pad mapped as momentary holds its control on until its note
+off arrives. When the device is unplugged, switched off in the MAP pane, or
+MIDI is turned off while a pad is held, that note off can never arrive: the
+control stayed on (a slider at the top of its reach, a toggle on) until the
+device came back and the pad was pressed and released again.
+
+**Decision.** Each open device's callback keeps a 2048-bit set of the notes
+it is holding (16 channels of 128, atomics, no allocation). When the worker
+closes a connection for any reason it first drops it (so the callback has
+stopped) and then queues a note off, with the device's key, for every note
+still down, ahead of the `DeviceLost` report. The mapper treats them as any
+other release, so this works for a mapping on one device and on any device.
+CCs are not touched: a fader stays where it is physically, and a CC button
+stuck above its threshold is left alone, since a CC has no "held" meaning
+the worker could know.
+
+**Test.** `the_notes_a_device_holds_are_let_go_when_it_closes` (recorded
+bytes, a velocity-0 note on counted as a release) and
+`a_momentary_pad_held_on_a_device_that_goes_away_is_let_go` (through the
+mapper). The worker's close path itself needs a controller to exercise; see
+the hardware checks in STATUS_AUDIT.
+
+**Would reopen:** a controller whose note offs are routinely lost mid-show
+without the device going away, which would want a timeout instead.
