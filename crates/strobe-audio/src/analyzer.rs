@@ -399,6 +399,33 @@ impl Analyzer {
         self.sample_rate
     }
 
+    /// Reads input at `sample_rate` from now on (a device reopened at
+    /// another rate), clamped like [`Analyzer::with_layout`]'s.
+    ///
+    /// Only what is measured in samples starts over: the input history,
+    /// the band edges, the tempo estimator's envelope and the spectrum
+    /// spans. Everything a scene or the operator sees carries on: the
+    /// clocks, the beat counter and grid, levels, presence, the tracked
+    /// tempo and a tapped or nudged one (D328). The same rate does nothing.
+    pub fn set_sample_rate(&mut self, sample_rate: u32) {
+        let sample_rate = sample_rate.clamp(8_000, 192_000) as f32;
+        if sample_rate == self.sample_rate {
+            return;
+        }
+        let bins = self.magnitude.len();
+        self.sample_rate = sample_rate;
+        self.hop_dt = HOP as f32 / sample_rate;
+        self.bands = BandLayout::new(sample_rate, FFT_LEN);
+        self.history.fill(0.0);
+        self.written = 0;
+        self.hop_end = 0;
+        self.dc = DcBlocker::new(sample_rate);
+        self.magnitude.fill(0.0);
+        self.previous_magnitude.fill(0.0);
+        self.tempo.set_rate(1.0 / self.hop_dt);
+        self.spectra = Spectra::new(self.layout, sample_rate, bins);
+    }
+
     /// The texture sizes this analyser produces.
     pub fn layout(&self) -> Layout {
         self.layout

@@ -189,9 +189,7 @@ pub(crate) fn run(
             shared.set_state(CaptureState::Recovering);
             match device::open(&choice) {
                 Ok(opened) => {
-                    if opened.sample_rate != analyzer.sample_rate() as u32 {
-                        analyzer = Analyzer::with_layout(opened.sample_rate, layout);
-                    }
+                    follow_rate(&mut analyzer, opened.sample_rate);
                     log::info!("capturing `{}` at {} Hz", opened.name, opened.sample_rate);
                     warned = None;
                     {
@@ -264,6 +262,14 @@ pub(crate) fn run(
     }
 }
 
+/// Makes `analyzer` read audio at `sample_rate`, the rate of a device
+/// just opened. It is retuned, not rebuilt: a device that comes back at
+/// another rate must not reset the scene's clocks or the tapped tempo
+/// (D328).
+fn follow_rate(analyzer: &mut Analyzer, sample_rate: u32) {
+    analyzer.set_sample_rate(sample_rate);
+}
+
 /// Swaps a copy of `frame` into the shared slot, reusing the previously
 /// published frame's allocation when the render thread has let go of it.
 fn publish(shared: &Shared, frame: &AudioFrame, spare: &mut Option<Arc<AudioFrame>>) {
@@ -283,7 +289,80 @@ fn publish(shared: &Shared, frame: &AudioFrame, spare: &mut Option<Arc<AudioFram
 #[cfg(test)]
 mod tests {
     use super::*;
-    use anyhow::Result;
+    use crate::{fixtures, offline};
+    use anyhow::{Result, anyhow};
+
+    #[test]
+    fn a_device_at_another_rate_keeps_the_clocks_and_the_tapped_tempo() -> Result<()> {
+        // A replugged or newly default device can open at another rate
+        // (44.1 kHz after 48 kHz). The scene's clocks, the beat counter and
+        // the operator's tapped tempo must carry on through the reopen.
+        let layout = Layout::default();
+        let mut analyzer = Analyzer::with_layout(48_000, layout);
+        analyzer.tap(10.0);
+        analyzer.tap(10.6);
+        analyzer.tap(11.2);
+        offline::run(
+            &mut analyzer,
+            &fixtures::kicks(128.0, 6.0, 48_000),
+            60.0,
+            |_, _| {},
+        );
+        let read = |analyzer: &Analyzer, name: &str| {
+            analyzer
+                .frame()
+                .scalar(name)
+                .ok_or_else(|| anyhow!("no scalar {name}"))
+        };
+        let time = read(&analyzer, "syn_Time")?;
+        let bass_time = read(&analyzer, "syn_BassTime")?;
+        let beats = read(&analyzer, "syn_BeatTime")?;
+        assert!(time > 1.0 && beats > 4.0, "the clocks ran: {time}, {beats}");
+
+        follow_rate(&mut analyzer, 44_100);
+        analyzer.analyze(1.0 / 60.0);
+
+        assert_eq!(
+            analyzer.sample_rate(),
+            44_100.0,
+            "the analyser follows the device"
+        );
+        assert!(
+            read(&analyzer, "syn_Time")? >= time,
+            "syn_Time went back from {time}"
+        );
+        assert!(
+            read(&analyzer, "syn_BassTime")? >= bass_time,
+            "syn_BassTime went back from {bass_time}"
+        );
+        assert!(
+            read(&analyzer, "syn_BeatTime")? >= beats,
+            "syn_BeatTime went back from {beats}"
+        );
+        assert!(analyzer.manual_tempo(), "the tapped tempo was dropped");
+        let bpm = read(&analyzer, "syn_BPM")?;
+        assert!(
+            (bpm - 100.0).abs() < 1.0,
+            "the tempo is the tapped 100, got {bpm}"
+        );
+
+        // And the analyser reads the new rate correctly afterwards.
+        offline::run(
+            &mut analyzer,
+            &fixtures::tone(60.0, 0.5, 2.0, 44_100),
+            60.0,
+            |_, _| {},
+        );
+        // The running peak still remembers the louder kicks, so the tone is
+        // not full scale; it must land in the bass band, not the highs.
+        let bass = read(&analyzer, "syn_BassLevel")?;
+        let high = read(&analyzer, "syn_HighLevel")?;
+        assert!(
+            bass > 0.5 && high < 0.05,
+            "a 60 Hz tone at 44.1 kHz reads as bass: bass {bass}, high {high}"
+        );
+        Ok(())
+    }
 
     #[test]
     fn a_first_failure_reopens_at_once_and_repeats_back_off_to_the_retry_period() -> Result<()> {
