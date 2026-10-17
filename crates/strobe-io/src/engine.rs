@@ -503,6 +503,10 @@ fn drive(
             }
         }
         Target::Command { id } => fire(cfg, runtime, signal, out, || Output::Command(id.clone())),
+        // Both count from 1, and the app takes one off: a zero would reach
+        // the first.
+        Target::Cue { number: 0 } => Drive::Unavailable("cue numbers start at 1".to_string()),
+        Target::FavSlot { slot: 0 } => Drive::Unavailable("fav slots start at 1".to_string()),
         Target::Cue { number } => fire(cfg, runtime, signal, out, || Output::Cue(*number)),
         Target::FavSlot { slot } => fire(cfg, runtime, signal, out, || Output::FavSlot(*slot)),
         Target::Preset { name } => fire(cfg, runtime, signal, out, || Output::Preset(name.clone())),
@@ -1193,6 +1197,32 @@ mod tests {
             ],
             "outputs in order"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn fav_slot_and_cue_zero_recall_nothing() -> Result<()> {
+        let mut rig = Rig::new()?;
+        // The app counts both from 1 and subtracts one, so a zero reached
+        // fav slot 1 and cue 1.
+        rig.osc("/strobe/fav/0", Signal::Button(true));
+        for (note, target) in [
+            (70, Target::FavSlot { slot: 0 }),
+            (71, Target::Cue { number: 0 }),
+        ] {
+            let source = Source::MidiNote {
+                device: None,
+                channel: 1,
+                note,
+            };
+            rig.engine.mappings.push(Mapping::new(source, target));
+            let outcome = rig.note(note, true);
+            assert!(
+                matches!(outcome, Outcome::Unavailable(_)),
+                "says why: {outcome:?}"
+            );
+        }
+        assert!(rig.out.is_empty(), "nothing recalled: {:?}", rig.out);
         Ok(())
     }
 
