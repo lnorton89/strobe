@@ -8644,3 +8644,27 @@ it, and the keyboard is the shortcuts' again.
 
 **Would reopen:** a shortcut editor drawn somewhere other than these two
 panes.
+
+### D351: the output window's keys carry their modifiers (2026-10-17)
+
+**Context.** The output window has no UI, so its keys are mapped in
+`app.rs` with the command table, and D134 and D178 say "modifiers are not
+tracked there". Untracked, a modified key was not ignored: it was the
+plain key. Shift+Right, the default Skip section, stepped to the next cue
+instead; Ctrl+B, Ctrl+R and Ctrl+E blacked out, restarted and extended;
+an operator's Shift+B bound to Blackout on ran the Blackout toggle. A
+projector-side keyboard is exactly where a wrong command is least
+welcome.
+
+**Decision.** The app keeps the output window's modifiers
+(`WindowEvent::ModifiersChanged`, cleared when the window loses focus) and
+`chord_of` builds the same chord egui builds in the control window:
+`command` is Ctrl, or Cmd on macOS, plus Shift and Alt. A chord the table
+does not hold runs nothing, as in the control window. Esc still leaves
+fullscreen first, whatever is held. Macro keys (D228) are still read only
+in the control window.
+
+**Test.** `app::tests::output_window_keys_keep_their_modifiers`.
+
+**Would reopen:** a window system whose `ModifiersChanged` is unreliable
+for an undecorated fullscreen window, seen on a real machine.
