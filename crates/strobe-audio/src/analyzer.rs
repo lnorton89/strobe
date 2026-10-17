@@ -220,6 +220,9 @@ pub struct Analyzer {
     previous_magnitude: Vec<f32>,
     /// The latest waveform samples.
     wave: Vec<f32>,
+    /// All-zero magnitudes: what the textures are built from while the
+    /// input is stalled, so they fall dark instead of holding the last hop.
+    silent_magnitude: Vec<f32>,
 
     /// Running RMS maximum per channel.
     rms_peak: [PeakTracker; CHANNELS],
@@ -347,6 +350,7 @@ impl Analyzer {
             magnitude: vec![0.0; bins],
             previous_magnitude: vec![0.0; bins],
             wave: vec![0.0; WAVE_LEN],
+            silent_magnitude: vec![0.0; bins],
             rms_peak: [PeakTracker::new(RMS_FLOOR); CHANNELS],
             flux_peak: [PeakTracker::new(FLUX_FLOOR); CHANNELS],
             flux_average: [0.0; CHANNELS],
@@ -498,7 +502,12 @@ impl Analyzer {
         } else {
             self.starved = 0.0;
         }
-        self.copy_wave();
+        if self.starved > STARVE_AFTER {
+            // No samples: the waveform is flat, not the last one frozen.
+            self.wave.fill(0.0);
+        } else {
+            self.copy_wave();
+        }
         self.advance_outputs(dt);
         self.fill_frame(dt);
         &self.frame
@@ -774,8 +783,15 @@ impl Analyzer {
             *texel = self.trail.get(index).copied().unwrap_or([0.0; 4]);
         }
 
+        // A stalled input draws silence, as the levels already fall to it;
+        // the hop's own magnitudes stay put for the next hop's flux.
+        let magnitude = if self.starved > STARVE_AFTER {
+            &self.silent_magnitude
+        } else {
+            &self.magnitude
+        };
         self.spectra
-            .update(&self.magnitude, &self.wave, dt, &mut self.frame);
+            .update(magnitude, &self.wave, dt, &mut self.frame);
     }
 }
 
