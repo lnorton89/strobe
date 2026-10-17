@@ -599,3 +599,46 @@ fn asking_for_a_shared_program_falls_back_for_an_import() -> Result<()> {
     );
     Ok(())
 }
+
+#[test]
+fn a_title_author_or_tab_name_cannot_break_the_generated_comments() -> Result<()> {
+    // The shader's name, author and tab names are copied into comment lines
+    // above the author's code. A carriage return ends a GLSL line comment as
+    // a newline does, so these would turn the rest of the line into code;
+    // non-ASCII text in a comment is what the dialect stage replaces for
+    // drivers that reject it (D94).
+    let text = serde_json::json!({
+        "ver": "0.1",
+        "info": { "id": "Tst200", "name": "Caf\u{e9} \u{2606}\rvoid broken",
+                  "username": "\u{5c71}\u{7530}\r#error injected" },
+        "renderpass": [
+            { "type": "buffer", "name": "Buffer A\n#error tab", "code":
+              "void mainImage(out vec4 c, in vec2 p) { c = vec4(0.5); }",
+              "inputs": [], "outputs": [ { "id": 257, "channel": 0 } ] },
+            { "type": "image", "name": "Image", "code":
+              "void mainImage(out vec4 c, in vec2 p) { c = texture(iChannel0, p / iResolution.xy); }",
+              "inputs": [ { "id": 257, "channel": 0, "type": "buffer" } ], "outputs": [] }
+        ]
+    })
+    .to_string();
+    let (converted, scene) = import_text(&text, "hostile-names")?;
+    for api in BOTH {
+        let Some(frame) = render(api, &scene, 2, Options::default(), |_, _| Ok(()))? else {
+            continue;
+        };
+        let [r, _, _, _] = frame.center();
+        assert!(
+            near(r, 128),
+            "{api:?}: the buffer's 0.5 reaches the image, got {r}"
+        );
+    }
+    for (path, bytes) in &converted.files {
+        if path.ends_with(".glsl") {
+            assert!(
+                bytes.iter().all(|b| b.is_ascii() && *b != b'\r'),
+                "{path} must be plain ASCII with \\n line ends"
+            );
+        }
+    }
+    Ok(())
+}
