@@ -1815,6 +1815,63 @@ fn a_fault_that_keeps_coming_back_is_one_console_error() -> Result<()> {
 }
 
 #[test]
+fn an_unhandled_rejection_is_one_console_error_and_a_handled_one_none() -> Result<()> {
+    // A rejected promise nobody handles is lost without a word: the
+    // `async` function's error never reaches the person (D413).
+    let script = r#"
+        Promise.reject(new Error("rejected at load"));
+        function update() {
+            Promise.reject(new Error("nobody listens"));
+            (async function () { throw new Error("thrown in async"); })();
+            var later = Promise.reject(new Error("handled at once"));
+            later.catch(function () {});
+            (async function () {
+                try { await Promise.reject("awaited"); } catch (e) {}
+            })();
+        }
+    "#;
+    let mut rig = Rig::new(script, &[])?;
+    let mut lines: Vec<String> = Vec::new();
+    for _ in 0..10 {
+        let out = rig.step();
+        assert_eq!(out.status, ScriptStatus::Running, "{:?}", out.console);
+        lines.extend(errors(&out).iter().map(|line| (*line).to_string()));
+    }
+    for needle in ["rejected at load", "nobody listens", "thrown in async"] {
+        let count = lines.iter().filter(|line| line.contains(needle)).count();
+        assert_eq!(count, 1, "`{needle}` reported once: {lines:?}");
+    }
+    assert!(
+        lines
+            .iter()
+            .all(|line| !line.contains("handled at once") && !line.contains("awaited")),
+        "a handled rejection is not reported: {lines:?}"
+    );
+    assert!(
+        lines
+            .iter()
+            .all(|line| line.contains("unhandled promise rejection")),
+        "each says what it is: {lines:?}"
+    );
+    // A load that fails with a rejection still held lets go of it before
+    // the runtime goes; a handle that outlives the runtime aborts the
+    // process.
+    let bank = bank(&[])?;
+    let meta = strobe_scene::meta::bank()?;
+    let failed = ScriptHost::new(
+        "Promise.reject(1); throw new Error('no');",
+        &bank,
+        &meta,
+        relaxed(),
+    );
+    assert!(
+        matches!(failed, Err(ScriptError::Load { .. })),
+        "{failed:?}"
+    );
+    Ok(())
+}
+
+#[test]
 fn a_good_frame_resets_the_strike_count() -> Result<()> {
     let script = r#"
         function update() {
