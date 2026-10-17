@@ -47,7 +47,7 @@ use crate::downbeat::{BANDS, Downbeat};
 use crate::frame::{AudioFrame, Layout};
 use crate::onset::BeatPicker;
 use crate::signal::Signal;
-use crate::smoothing::{Follower, Logistic, PeakTracker, blend, decay};
+use crate::smoothing::{DcBlocker, Follower, Logistic, PeakTracker, blend, decay};
 use crate::spectrum::Spectra;
 use crate::tempo::{BPM_DEFAULT, BeatGrid, Tempo};
 
@@ -201,6 +201,8 @@ pub struct Analyzer {
     written: u64,
     /// Total samples covered by hops processed so far.
     hop_end: u64,
+    /// Removes a constant input offset before anything measures it.
+    dc: DcBlocker,
 
     /// Forward transform plan.
     fft: Arc<dyn RealToComplex<f32>>,
@@ -336,6 +338,7 @@ impl Analyzer {
             history: vec![0.0; HISTORY_LEN],
             written: 0,
             hop_end: 0,
+            dc: DcBlocker::new(sample_rate),
             fft_in: fft.make_input_vec(),
             fft_out: fft.make_output_vec(),
             fft_scratch: fft.make_scratch_vec(),
@@ -404,18 +407,21 @@ impl Analyzer {
 
     /// Appends mono samples. Never blocks, never allocates. Non-finite
     /// samples count as silence, and magnitudes above 8 are clipped so one
-    /// bad driver value cannot poison the normalisers.
+    /// bad driver value cannot poison the normalisers. A constant offset is
+    /// removed (a 10 Hz high-pass, D327): it is not sound, and it would
+    /// read as bass.
     ///
     /// If more than about 0.3 s of samples are pushed without an
     /// [`Analyzer::analyze`], the oldest are skipped rather than queued
     /// without bound.
     pub fn push(&mut self, samples: &[f32]) {
         for sample in samples {
-            let clean = if sample.is_finite() {
+            let finite = if sample.is_finite() {
                 sample.clamp(-8.0, 8.0)
             } else {
                 0.0
             };
+            let clean = self.dc.step(finite).clamp(-8.0, 8.0);
             let slot = (self.written as usize) & HISTORY_MASK;
             if let Some(cell) = self.history.get_mut(slot) {
                 *cell = clean;

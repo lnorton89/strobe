@@ -139,9 +139,86 @@ impl Logistic {
     }
 }
 
+/// A one-pole high-pass that removes a constant offset from the input.
+///
+/// Cheap microphones and line inputs often sit a little off zero. The
+/// offset is not sound, but through the analysis window it leaks into the
+/// lowest FFT bins, which are the bass band's, and read as bass that never
+/// stops (D327). `y[n] = x[n] - x[n-1] + r * y[n-1]` with the corner at
+/// [`DcBlocker::CORNER_HZ`], far below the 20 Hz bass edge.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct DcBlocker {
+    /// The pole, `exp(-2 pi corner / rate)`.
+    pole: f32,
+    /// The previous input, once one has been seen.
+    last_in: Option<f32>,
+    /// The previous output.
+    last_out: f32,
+}
+
+impl DcBlocker {
+    /// The corner frequency in Hz: a 55 Hz kick loses under 2 %.
+    const CORNER_HZ: f32 = 10.0;
+    /// Outputs smaller than this are flushed to zero, so a decaying tail in
+    /// digital silence never reaches the slow subnormal range.
+    const FLUSH: f32 = 1.0e-20;
+
+    /// A blocker for audio at `sample_rate` Hz.
+    pub(crate) fn new(sample_rate: f32) -> Self {
+        let pole = (-std::f32::consts::TAU * Self::CORNER_HZ / sample_rate.max(1.0)).exp();
+        Self {
+            pole,
+            last_in: None,
+            last_out: 0.0,
+        }
+    }
+
+    /// Filters one sample. The first sample primes the filter instead of
+    /// stepping from zero, so a stream that opens off-centre gives no click.
+    pub(crate) fn step(&mut self, x: f32) -> f32 {
+        let previous = self.last_in.unwrap_or(x);
+        let mut y = x - previous + self.pole * self.last_out;
+        if y.abs() < Self::FLUSH {
+            y = 0.0;
+        }
+        self.last_in = Some(x);
+        self.last_out = y;
+        y
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_dc_blocker_removes_an_offset_and_keeps_a_tone() {
+        let rate = 48_000.0;
+        let mut blocker = DcBlocker::new(rate);
+        let mut peak = 0.0_f32;
+        let mut last = 0.0_f32;
+        for n in 0..48_000 {
+            let tone = 0.5 * (std::f32::consts::TAU * 55.0 * n as f32 / rate).sin();
+            last = blocker.step(0.2 + tone);
+            if n > 24_000 {
+                peak = peak.max(last.abs());
+            }
+        }
+        assert!(
+            (peak - 0.5).abs() < 0.02,
+            "a 55 Hz tone keeps its amplitude, got {peak}"
+        );
+        let mut silent = DcBlocker::new(rate);
+        let mut out = 1.0_f32;
+        for _ in 0..48_000 {
+            out = silent.step(0.2);
+        }
+        assert!(
+            out == 0.0,
+            "a constant offset is removed outright, got {out}"
+        );
+        assert!(last.is_finite(), "the output stays finite");
+    }
 
     #[test]
     fn blend_is_step_size_independent() {

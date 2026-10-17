@@ -8623,3 +8623,32 @@ Synesthesia might have ignored now runs, which is what its author meant.
 
 **Would reopen:** evidence that Synesthesia ignores a lexical `update` and
 a real scene that depends on that.
+
+### D327: the analyser removes a constant input offset before measuring anything (2026-10-17)
+
+**Context.** Cheap USB microphones and line inputs often sit a little off
+zero. A constant offset is not sound, but the Hann window leaks it into FFT
+bin 1 (about 23 Hz at 48 kHz), which is the bass band's lowest bin. An
+offset of 0.005 (about -46 dBFS) in a silent room read as
+`syn_BassLevel` 1.0 forever: the running-peak normaliser scaled it to full,
+the room counted as "music playing" (so the beat oscillators, `syn_FadeInOut`
+and the tempo kept running), and the raw energy the song-structure events
+use (D226, D237) never fell to "absent", so a gap could not be heard. The
+waveform channels drew the offset too.
+
+**Decision.** `Analyzer::push` runs every sample through a one-pole DC
+blocker (`smoothing::DcBlocker`, corner 10 Hz, half the bass band's 20 Hz
+lower edge) after the finite/clip check and before the history ring. A
+55 Hz kick loses under 2 %. The first sample primes the filter, so a stream
+that opens off-centre gives no click; outputs under 1e-20 are flushed to
+zero so a tail in digital silence never runs in the slow subnormal range.
+Everything downstream (bands, flux, energy, waveform, Shadertoy row) sees
+the filtered signal.
+
+**Test.** `a_dc_offset_in_a_silent_room_reads_as_silence` (offsets 0.005
+and -0.02 for 10 s: levels under 0.05, fade under 0.2, raw energy absent,
+waveform centred) and `the_dc_blocker_removes_an_offset_and_keeps_a_tone`.
+The tempo, beat and downbeat fixtures are unchanged.
+
+**Would reopen:** a scene that wants sub-10 Hz content, or a measured
+difference against Synesthesia's own bass reading on the same input.
