@@ -9647,3 +9647,38 @@ and `an_untyped_control_with_three_or_four_default_components_is_a_colour`
 **Would reopen:** Q32's answer, if Synesthesia refuses either shape or reads
 it another way (pads the shorter list, or makes the untyped control a slider
 of the first component).
+
+### D413: a promise rejection nobody handles is a console error, once per reason (2026-10-17)
+
+**Context.** D322 left a rejected promise as the script's business, "as in a
+browser with no rejection handler". A browser does report one, though: an
+`unhandledrejection` event and a console error once its microtasks have run.
+Strobe reported nothing, so an `async` function that threw (a typo inside
+`async function load() { ... }`) failed with no word anywhere.
+
+**Decision.** `ScriptHost` installs QuickJS's host rejection tracker
+(`Runtime::set_host_promise_rejection_tracker`, which rquickjs 0.14
+exposes). The engine calls it when a promise is rejected with no handler,
+and again when a handler is attached to one later (`p.catch` after
+`Promise.reject`, an `await`), which takes it off the list. After the load
+and after every frame, once the promise jobs have run (D322), each rejection
+still listed is a console error, `script.js: unhandled promise rejection:
+<message (line)>`, logged once per distinct text as D325 does for faults.
+It is not a fault: the frame and its uniforms stand, and the status stays
+`Running`. This supersedes "its rejection is not reported" in D322.
+
+The list holds a handle to each promise only until the end of the load or
+frame that rejected it, and at most 64 of them, and it is emptied before any
+return (a failed load included) and on drop, so no handle outlives the
+runtime. Nothing is added to a frame with no rejection beyond one check of
+an empty list.
+
+**Test.** `an_unhandled_rejection_is_one_console_error_and_a_handled_one_none`
+(`strobe-script` conformance): a rejection at load, one each frame and an
+`async` throw are each one line across ten frames; a rejection handled at
+once and an awaited one are none; a load that fails with a rejection held
+returns its error. It failed before with no line at all.
+
+**Would reopen:** a real script that rejects on purpose every frame and an
+operator who finds the one line noise; or evidence that Synesthesia reports
+rejections in its own console in another form.
