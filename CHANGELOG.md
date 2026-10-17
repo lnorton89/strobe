@@ -40,9 +40,17 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- a browser-listener import no longer ends the Import panel's own import early or leaves a Replace prompt in the app ([`31e852b`](https://github.com/lnorton89/strobe/commit/31e852b83deeb35361d3172aa20a064c7b1bbc18))
+- a fav slot with no preset recalled on the playing scene restores its starting look and clears the active preset ([`dac49c8`](https://github.com/lnorton89/strobe/commit/dac49c83af80776edf4e95bad0f7bfc9ded4a904))
+- STROBE_REDUCED_MOTION no longer saves reduced motion into ui.toml as the operator's own choice ([`522bc17`](https://github.com/lnorton89/strobe/commit/522bc17ad73abd60c288c51c5688a5f69df218e3))
+- an unreadable ui.toml is kept as ui.toml.bak instead of being written over with the defaults (D352) ([`53a3cef`](https://github.com/lnorton89/strobe/commit/53a3cef750e2aa5110a59579937719dadcac5617))
+- saving ui.toml or show-control.json never renames another Strobe's half-written temporary file ([`4aef115`](https://github.com/lnorton89/strobe/commit/4aef115c9c541b78115b34861fd60ef28300d7cb))
 - an input chosen while capture is still opening is no longer ignored ([`8ee2f52`](https://github.com/lnorton89/strobe/commit/8ee2f52162d21244e268dbc71ca1113bd94323b6))
 - --audio ambient's clocks glide instead of jumping on every beat ([`fbe8c80`](https://github.com/lnorton89/strobe/commit/fbe8c8067376b36194317dfc0085660f40988fe4))
 - a Shadertoy global initialised from iResolution or iTime sees its value (D361) ([`8376fe9`](https://github.com/lnorton89/strobe/commit/8376fe910476767ca25f8f6cf9e504089d0a02c1))
+- keys pressed over the output window keep their modifiers, so Shift+Right skips the section and Ctrl+B does not black out (D351) ([`412f1c9`](https://github.com/lnorton89/strobe/commit/412f1c97fe478c5c9cc5aab6ce65e304e8b8874b))
+- a key capture whose field is closed gives the keyboard back instead of leaving every shortcut dead (D350) ([`3346eb6`](https://github.com/lnorton89/strobe/commit/3346eb6438962d7864d88852a4935c27c43d4097))
+- a macro key let go while a text field or the palette has focus lets its macro go ([`41fe3a4`](https://github.com/lnorton89/strobe/commit/41fe3a4c1ec482c71ba53f32d201a4aaea76a78f))
 - a rewritten import token file is made owner-only on Unix ([`167308a`](https://github.com/lnorton89/strobe/commit/167308aea92bb6d58c9e1768b54d16c92ef779ea))
 - a Shadertoy helper named like an SSF library function compiles (D360) ([`44b64aa`](https://github.com/lnorton89/strobe/commit/44b64aa58a91e25c84abf2e98245984719a8a782))
 - a very long shader id no longer makes a folder name too long to write ([`76834e7`](https://github.com/lnorton89/strobe/commit/76834e7b3b3c577532329b733086a1e4349d4e90))
