@@ -119,13 +119,12 @@ pub struct AudioInput {
 
 /// The synthetic track without a beat (`--audio ambient`): hits and beat
 /// triggers held at zero, levels a slow swell, the textures damped. The
-/// clocks keep running so scenes still move, but smoothly: the synthetic
-/// track's own clocks jump on every beat (its `syn_Time` is the scene time
-/// times a level that pulses with the kick, so the jump grows with the
-/// time and is hundreds of units an hour in), and a clock that jumps on
-/// the beat is a beat. Here each band clock is the exact integral of its
-/// band's swell, `syn_CurvedTime` runs at a steady rate and `syn_BeatTime`
-/// counts beats evenly (D329). The smooth tempo shapes are the synthetic
+/// clocks keep running so scenes still move, but without the beat: the
+/// synthetic track's clocks are smooth integrals (D330), yet their rates
+/// still follow the kick, and a clock that surges on the beat is a beat.
+/// Here each band clock is the exact integral of its band's swell and
+/// `syn_CurvedTime` runs at a steady rate (D329). `syn_BeatTime`, which
+/// counts beats evenly, and the smooth tempo shapes are the synthetic
 /// track's. Indices are resolved once; per frame it only writes into the
 /// frame.
 #[derive(Debug)]
@@ -138,10 +137,6 @@ struct Ambient {
     clocks: Vec<(usize, usize)>,
     /// `syn_CurvedTime`.
     curved: Option<usize>,
-    /// `syn_BeatTime`.
-    beat_time: Option<usize>,
-    /// `syn_BPM`, which sets `syn_BeatTime`'s rate.
-    bpm: Option<usize>,
 }
 
 impl Ambient {
@@ -195,8 +190,6 @@ impl Ambient {
                 .filter_map(|(band, name)| Some((index(name)?, band)))
                 .collect(),
             curved: index("syn_CurvedTime"),
-            beat_time: index("syn_BeatTime"),
-            bpm: index("syn_BPM"),
         }
     }
 
@@ -219,12 +212,6 @@ impl Ambient {
     /// Calms a frame the synthetic track just filled for scene time `time`.
     fn calm(&self, time: f32, frame: &mut AudioFrame) {
         let time = f64::from(time);
-        let bpm = self
-            .bpm
-            .and_then(|index| frame.scalars.get(index))
-            .copied()
-            .filter(|bpm| bpm.is_finite() && *bpm > 0.0)
-            .unwrap_or(120.0);
         let mut set = |index: usize, value: f64| {
             if let Some(slot) = frame.scalars.get_mut(index) {
                 *slot = value as f32;
@@ -242,9 +229,6 @@ impl Ambient {
         if let Some(index) = self.curved {
             // The synthetic track's curved rate at the swell's centre.
             set(index, (0.5 + 1.5 * Self::SWELL.0 * Self::SWELL.0) * time);
-        }
-        if let Some(index) = self.beat_time {
-            set(index, time * f64::from(bpm) / 60.0);
         }
         for texel in frame
             .spectrum

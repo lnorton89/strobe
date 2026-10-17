@@ -19,8 +19,9 @@
 //! | `downbeat` | the frame's `downbeat` | used only at [`DOWNBEAT_CONFIDENCE`] or above |
 //!
 //! The live analyser's `syn_BeatTime` counts detected beats; the synthetic
-//! track's is `beat index + phase^0.25`. Either way the clock only needs a
-//! position that steps once per beat and never runs backwards. A bar is
+//! track's is the beat position, `time * BPM / 60` (D330). Either way the
+//! clock only needs a position whose integer part steps once per beat and
+//! never runs backwards. A bar is
 //! `floor((beats - downbeat) / 4)`: the analyser's downbeat estimate
 //! (D233) says which count starts a bar, and while it is unsure (a kick on
 //! every beat gives it nothing to go on) bars are counted from the
