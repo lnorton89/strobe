@@ -9389,3 +9389,30 @@ only).
 
 **Would reopen:** monitors dying in the field (add the restart), or a
 `minidumper` release that gives `ping` a timeout and its own channel.
+
+### D399: `context::set` formats its value before taking the lock (2026-10-17)
+
+**Context.** `set(key, value: impl Display)` called `value.to_string()` while
+holding the `FACTS` mutex. The value's `Display` is the caller's code. If it
+panics, the panic hook (`panic_hook`, which reads `context::snapshot()` for the
+report) runs on the panicking thread *before* unwinding, so it asked for a
+lock that same thread still held. `std`'s mutex is not reentrant: the process
+hung inside its own crash reporter, the worst place for it, and with
+`panic = "abort"` nothing after the hook ever ran.
+
+**Decision.** `set` formats first and locks second, so no foreign code ever
+runs under the facts lock. As a related hardening, `try_snapshot` (the
+crash-handler read) now reads through a poisoned lock like every other
+accessor does instead of returning `None` for the rest of the process: with
+the old `set`, an unwinding `Display` poisoned the mutex and every later crash
+report lost its context.
+
+**Test.** `a_display_that_panics_does_not_hold_the_facts_lock` (`strobe-diag`,
+`context.rs`). It runs a panicking `Display` under `catch_unwind` on a named
+thread, with a temporary panic hook that does a non-blocking `try_snapshot`
+(so a held lock fails the test instead of hanging it). It failed before the
+change, and `try_snapshot_gives_up_instead_of_waiting` failed with it because
+of the poisoned lock.
+
+**Would reopen:** nothing expected. Any new global registry in this crate
+should follow the same rule: no caller-supplied code under its lock.
