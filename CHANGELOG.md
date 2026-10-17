@@ -132,6 +132,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Documentation
 
+- roadmap brought up to date (D290 verified, D301 failed on hardware, adaptive work done) ([`9a4ed26`](https://github.com/lnorton89/strobe/commit/9a4ed26946fb7fec54fc6d8c34cd8c5e3e46b47c))
 - D320 verified on the projector (mini PC Task M25) ([`ecb880b`](https://github.com/lnorton89/strobe/commit/ecb880b943543d11a8fbf1f024bca011d78d181f))
 - D311 and D310 verified on the Vega 3 (mini PC Task M17) ([`0924b99`](https://github.com/lnorton89/strobe/commit/0924b99c460fba46f2c7a58e4ca7e94cd1e23e0d))
 - D310 after review, with llvmpipe ratios and the Vega 3 re-measurement ([`ff4338a`](https://github.com/lnorton89/strobe/commit/ff4338a562de6982db45b3ee8c5ad2bc1e4805e3))
