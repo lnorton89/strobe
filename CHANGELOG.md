@@ -40,6 +40,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- a stall does not step a settled scale; put-off verdicts and lock expiry are logged (D320) ([`031d5d0`](https://github.com/lnorton89/strobe/commit/031d5d0fe86437742941fe34355858de55dd98cd))
 - a settled scale steps again only when recent misses average 1.5 times the drop line (D319) ([`f8ea5cd`](https://github.com/lnorton89/strobe/commit/f8ea5cd968e080420f3e0ff11613337ff6a49b26))
 - the late lock expires with backoff, and a verdict on disturbed windows is put off (D318) ([`3cba150`](https://github.com/lnorton89/strobe/commit/3cba150de1c5cbd5f39b7bead9ccd82038914462))
 - after a late step pays, the load line no longer gates the next one (D317) ([`b5fb2cf`](https://github.com/lnorton89/strobe/commit/b5fb2cf1f9ace58bee5f26f8186e0d580fb4c5ba))
