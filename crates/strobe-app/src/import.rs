@@ -115,6 +115,9 @@ pub struct Done {
     pub input: Input,
     /// What happened.
     pub result: Result<Imported, ImportError>,
+    /// It came from the browser listener, which answered the browser
+    /// itself; the Import panel never queued it.
+    pub from_listener: bool,
 }
 
 /// What the worker needs to know.
@@ -235,6 +238,7 @@ fn work(queue: &Receiver<Job>, finished: &std::sync::mpsc::Sender<Done>, config:
         }
         if finished
             .send(Done {
+                from_listener: job.reply.is_some(),
                 input: job.input,
                 result,
             })
@@ -341,8 +345,28 @@ impl State {
 
     /// Applies a finished job: updates the status and prompt, and logs what
     /// a person should see in the console. Returns what to do to the library.
+    ///
+    /// A job from the browser listener was never counted by [`Self::queued`]
+    /// and its browser has had its answer (and asks its own "replace?"), so
+    /// it leaves the count and the prompt alone, and shows on the status
+    /// line only while the panel has no import of its own running.
     pub fn finished(&mut self, done: Done) -> Outcome {
+        if done.from_listener {
+            let shown = self.in_flight == 0;
+            let (status, prompt) = (self.status.clone(), self.prompt.take());
+            let outcome = self.apply(done);
+            self.prompt = prompt;
+            if !shown || matches!(outcome, Outcome::Exists(_)) {
+                self.status = status;
+            }
+            return outcome;
+        }
         self.in_flight = self.in_flight.saturating_sub(1);
+        self.apply(done)
+    }
+
+    /// [`Self::finished`]'s status line, prompt and log lines for `done`.
+    fn apply(&mut self, done: Done) -> Outcome {
         match done.result {
             Ok(imported) => {
                 let verb = if imported.replaced {
@@ -545,6 +569,7 @@ mod tests {
         assert_eq!(state.in_flight, 1, "in flight");
 
         let outcome = state.finished(Done {
+            from_listener: false,
             input: input.clone(),
             result: Ok(imported(false, 0)),
         });
@@ -561,6 +586,7 @@ mod tests {
 
         state.queued(&input);
         state.finished(Done {
+            from_listener: false,
             input: input.clone(),
             result: Ok(imported(true, 2)),
         });
@@ -585,6 +611,7 @@ mod tests {
             title: "Tunnel".to_string(),
         });
         let outcome = state.finished(Done {
+            from_listener: false,
             input: input.clone(),
             result: exists,
         });
@@ -617,10 +644,74 @@ mod tests {
     }
 
     #[test]
+    fn a_browser_import_leaves_the_panels_own_import_alone() {
+        let mut state = State::default();
+        let mine = Input::Text("C:\\shaders\\tunnel.json".to_string());
+        let browser = Input::Json {
+            text: "{}".to_string(),
+            origin: Some("https://www.shadertoy.com/view/XsXXDn".to_string()),
+        };
+        state.queued(&mine);
+        let outcome = state.finished(Done {
+            from_listener: true,
+            input: browser.clone(),
+            result: Ok(imported(false, 0)),
+        });
+        assert_eq!(
+            outcome,
+            Outcome::Imported(PathBuf::from("scenes/x.synScene")),
+            "the browser's scene is still added"
+        );
+        assert_eq!(
+            state.in_flight, 1,
+            "the panel's own import is still running"
+        );
+        assert_eq!(
+            state.status,
+            Status::Working("Importing tunnel.json…".to_string()),
+            "and its line still says so"
+        );
+        let outcome = state.finished(Done {
+            from_listener: true,
+            input: browser.clone(),
+            result: Err(ImportError::Exists {
+                dir: PathBuf::from("d"),
+                folder: "f".to_string(),
+                title: "Tunnel".to_string(),
+            }),
+        });
+        assert_eq!(outcome, Outcome::Exists(PathBuf::from("d")), "exists");
+        assert!(
+            state.prompt.is_none(),
+            "the browser was answered and asks its own question; the app asks nothing"
+        );
+        state.finished(Done {
+            from_listener: false,
+            input: mine,
+            result: Ok(imported(false, 0)),
+        });
+        assert_eq!(
+            state.in_flight, 0,
+            "the panel's import ends with its own job"
+        );
+        state.finished(Done {
+            from_listener: true,
+            input: browser,
+            result: Ok(imported(false, 0)),
+        });
+        assert_eq!(
+            state.status,
+            Status::Done("Imported \"X\".".to_string()),
+            "with the panel idle, a browser import is shown on its line"
+        );
+    }
+
+    #[test]
     fn a_failure_shows_the_converters_words_and_changes_nothing() {
         let mut state = State::default();
         state.queued(&Input::Text("x".to_string()));
         let outcome = state.finished(Done {
+            from_listener: false,
             input: Input::Text("x".to_string()),
             result: Err(ImportError::Input("no file at x".to_string())),
         });
