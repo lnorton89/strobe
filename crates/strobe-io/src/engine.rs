@@ -621,6 +621,14 @@ fn drive_control(
                         .map_or(0.0, |(def, target)| {
                             def.normalize(component, target.get(component).copied().unwrap_or(0.0))
                         });
+                // A control outside what this mapping can reach (its range,
+                // a macro's) is met at the nearest end of the reach; it
+                // could never be met at all otherwise (D373).
+                let (low, high) = {
+                    let (a, b) = (cfg.shape(0.0, outer), cfg.shape(1.0, outer));
+                    if a <= b { (a, b) } else { (b, a) }
+                };
+                let current = current.clamp(low, high);
                 match runtime.pickup.filter(cfg.takeover, wanted, current) {
                     Some(value) => value,
                     None => return Drive::Waiting,
@@ -906,6 +914,32 @@ mod tests {
         assert!(
             near(rig.value("speed")?, 5.0),
             "not dragged to the fader: {}",
+            rig.value("speed")?
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_fader_whose_range_cannot_reach_the_control_picks_it_up_at_the_nearest_end() -> Result<()> {
+        let mut rig = Rig::new()?;
+        rig.map(7, Target::control("speed")).range = [0.0, 0.5];
+        // A preset put speed at 8 of 10, beyond what this fader may reach.
+        let speed = rig.scene.find("speed").ok_or_else(|| anyhow!("speed"))?;
+        rig.scene.set(speed, None, &[8.0]);
+        let mut outcomes = Vec::new();
+        for value in [0, 32, 64, 100, 127] {
+            outcomes.push(rig.cc(7, value));
+        }
+        assert_eq!(
+            outcomes.last(),
+            Some(&Outcome::Applied(1)),
+            "at the top of its reach the fader has met the control: {outcomes:?}"
+        );
+        assert!(near(rig.value("speed")?, 5.0), "{}", rig.value("speed")?);
+        rig.cc(7, 64);
+        assert!(
+            near(rig.value("speed")?, 10.0 * 0.5 * 64.0 / 127.0),
+            "and drives it from there: {}",
             rig.value("speed")?
         );
         Ok(())

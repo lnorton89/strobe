@@ -19,7 +19,9 @@
 //! and must be picked up anew.
 //!
 //! The comparison is in the control's own normalised terms, after the
-//! mapping's range, curve and inversion, so it works for any of them.
+//! mapping's range, curve and inversion, so it works for any of them. A
+//! control outside what the mapping can reach is compared at the nearest end
+//! of the reach, so a narrowed fader still picks it up there (D373).
 //!
 //! [`Pickup`] holds the state for one mapping and is a pure function of the
 //! values it is shown.
