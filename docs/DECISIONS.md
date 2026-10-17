@@ -9743,3 +9743,40 @@ checks that the release's own pass still sees Ctrl.
 **Would reopen:** a controller holding a modifier across clicks and moves
 expecting the host to see it held between them (it sees it again on the
 next click or key, which carries it).
+
+### D406: a capture over the JPEG limit is sent at a lower quality or a smaller size (2026-10-17)
+
+**Context.** The host encoded every capture of its control window at JPEG
+quality 90 and, when that came to more than `MAX_JPEG` (2 MiB, D275), sent
+`capture_failed`, which ends the desktop session. A big window with a noisy
+picture in it does that: 2560x1600 of noise is over 3 MiB at quality 90, a
+4K window about 7 MiB, and even quality 30 leaves 4K noise over the limit.
+Halving each edge averages the noise away (4K noise halved is about
+0.4 MiB at quality 45).
+
+**Decision.** The encoder worker walks a fixed ladder, from the best picture
+to the smallest, until a capture fits: quality 90, 75, 60 and 45 at full
+size, then 75, 60 and 45 at half size on each edge (a 2x2 box mean), then 60
+at a quarter. It remembers the step that fitted, so a steady picture costs
+one encode a capture, and goes one step back up only after 25 captures in a
+row (five seconds at the stream rate) that fit in a third of the limit, so a
+picture just over a step is not encoded twice every other capture. A
+smaller capture is published with its own size; the viewer already reads
+the size from each frame, and its input is fractions of the image, so
+pointing is unchanged (the host maps fractions onto its own window). Only a
+capture still over the limit at the last step ends the session, with the
+existing message. The work stays on the encoder thread, never the frame
+loop; a step down costs extra encodes of that one capture, and the queue of
+one skips the next capture while it runs.
+
+**Test.** `desktop::tests::a_capture_too_big_for_the_wire_is_sent_smaller_rather_than_ending_the_session`
+(failed before with "capture exceeds JPEG limit"; checks the decoded size is
+the one sent, the step is kept, and the climb back) and
+`a_shrunk_capture_averages_its_blocks`.
+
+**Not verified:** a 4K host window on hardware, and how sharp a halved
+picture reads on the controller.
+
+**Would reopen:** a controller that needs full resolution of a noisy window
+(then the limit, not the ladder, is the lever), or encode time at 4K
+holding the stream well under 5 Hz on the mini PC.
