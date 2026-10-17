@@ -56,6 +56,18 @@ impl Tx {
     pub(crate) fn status(&self, status: Status) {
         self.send(Event::Status(status));
     }
+
+    /// A queue of `capacity` and its receiving end, with no hub behind it,
+    /// for a worker's tests.
+    #[cfg(test)]
+    pub(crate) fn detached(capacity: usize) -> (Self, Receiver<Event>) {
+        let (queue, events) = sync_channel(capacity);
+        let tx = Self {
+            queue,
+            dropped: Arc::new(AtomicU64::new(0)),
+        };
+        (tx, events)
+    }
 }
 
 /// A command for the OSC worker.
@@ -69,6 +81,13 @@ pub(crate) enum OscControl {
 /// A command for the MIDI worker.
 pub(crate) enum MidiControl {
     /// New settings.
+    #[cfg_attr(
+        not(feature = "midi"),
+        expect(
+            dead_code,
+            reason = "only the device worker reads the settings; the build without `midi` just waits to be stopped"
+        )
+    )]
     Settings(MidiSettings),
     /// Look at the ports again now.
     Rescan,

@@ -29,13 +29,14 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
 use std::thread::JoinHandle;
-use std::time::Duration;
 
 /// Messages that can wait for the thread.
 const QUEUE: usize = 256;
 
-/// The least time between two readings of the output port list.
-const RESCAN: Duration = Duration::from_secs(2);
+/// The least time between two readings of the output port list. Only the
+/// device thread reads it, so a build without `midi` does not have it.
+#[cfg(feature = "midi")]
+const RESCAN: std::time::Duration = std::time::Duration::from_secs(2);
 
 enum Job {
     Send(MidiOut),

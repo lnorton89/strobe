@@ -193,6 +193,10 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libegl1 libegl-mesa0 libgl1-mesa-dri libglx-mesa0 libxkbcommon-dev libxkbcommon-x11-0 libx11-xcb1 libxcursor1 libxi6 libxrandr2 xvfb libasound2-dev pkg-config
       - name: Clippy
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      # --all-features keeps `midi` on. This builds strobe-io the way a
+      # MIDI-less build does, where code only the device layer reads is dead.
+      - name: Clippy (strobe-io without MIDI)
+        run: cargo clippy -p strobe-io --no-default-features --all-targets -- -D warnings
       - name: Test
         env:
           STROBE_REQUIRE_HEADLESS_GL: "1"
