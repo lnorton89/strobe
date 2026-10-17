@@ -6,7 +6,7 @@ in [DECISIONS.md](DECISIONS.md), the evidence-based gap list in
 [STATUS_AUDIT.md](STATUS_AUDIT.md), and real-hardware results in
 [hardware/T480.md](hardware/T480.md).
 
-_Last updated: 2026-10-17 (adaptive resolution follows missed refreshes, verified on the venue Vega 3, D314-D320; every GL context primed for AMD WGL, D311; bug sweeps of LAN/desktop remote, scene loading and controls, and JS scripts, D302, D312-D313, D321-D326); 2026-10-15 (six heavy scenes cheaper for the Vega 3, D310; `pow` of a negative base on ANGLE, D301; Linux support documented, with a Nix flake, D295; one click on a scene card makes it live, and LIB has Scenes and Controls pages, D291); 2026-10-14 (the control window follows Synesthesia's layout, D281-D285; v0.1.0 tagged and published; earlier claims reconciled with D199-D238 and the T480 and TORNADO records)._
+_Last updated: 2026-10-17 (the synthetic audio track's clocks are integrals, smooth four hours into a show, D330; adaptive resolution follows missed refreshes, verified on the venue Vega 3, D314-D320; every GL context primed for AMD WGL, D311; bug sweeps of LAN/desktop remote, scene loading and controls, and JS scripts, D302, D312-D313, D321-D326); 2026-10-15 (six heavy scenes cheaper for the Vega 3, D310; `pow` of a negative base on ANGLE, D301; Linux support documented, with a Nix flake, D295; one click on a scene card makes it live, and LIB has Scenes and Controls pages, D291); 2026-10-14 (the control window follows Synesthesia's layout, D281-D285; v0.1.0 tagged and published; earlier claims reconciled with D199-D238 and the T480 and TORNADO records)._
 
 ## Now
 
