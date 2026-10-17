@@ -40,6 +40,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- the synthetic track's clocks glide instead of jumping on every beat, hours into a show (D330) ([`3e88c07`](https://github.com/lnorton89/strobe/commit/3e88c0736eb18abdb6d068569b21bfde51f82f2b))
 - a browser-listener import no longer ends the Import panel's own import early or leaves a Replace prompt in the app ([`31e852b`](https://github.com/lnorton89/strobe/commit/31e852b83deeb35361d3172aa20a064c7b1bbc18))
 - a fav slot with no preset recalled on the playing scene restores its starting look and clears the active preset ([`dac49c8`](https://github.com/lnorton89/strobe/commit/dac49c83af80776edf4e95bad0f7bfc9ded4a904))
 - STROBE_REDUCED_MOTION no longer saves reduced motion into ui.toml as the operator's own choice ([`522bc17`](https://github.com/lnorton89/strobe/commit/522bc17ad73abd60c288c51c5688a5f69df218e3))
