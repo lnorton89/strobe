@@ -1058,6 +1058,68 @@ mod tests {
     }
 
     #[test]
+    fn a_source_with_no_release_fires_every_time_it_is_sent() -> Result<()> {
+        use crate::event::{InputEvent, OscMessage};
+        use crate::message::MidiMessage;
+        use std::sync::Arc;
+        let mut rig = Rig::new()?;
+        let program = InputEvent::Midi {
+            device: Arc::from("pad"),
+            message: MidiMessage::ProgramChange {
+                channel: 0,
+                program: 5,
+            },
+        };
+        let go = InputEvent::Osc(OscMessage {
+            address: "/go".into(),
+            args: Vec::new(),
+        });
+        for (event, id) in [(&program, "next_scene"), (&go, "toggle_blackout")] {
+            let (source, _) = Source::of(event).ok_or_else(|| anyhow!("a source"))?;
+            rig.engine
+                .mappings
+                .push(Mapping::new(source.for_any_device(), Target::command(id)));
+        }
+        for _ in 0..3 {
+            for event in [&program, &go] {
+                let (source, signal) = Source::of(event).ok_or_else(|| anyhow!("a source"))?;
+                rig.send(source, signal);
+            }
+        }
+        let fired = |id: &str| {
+            rig.out
+                .iter()
+                .filter(|o| **o == Output::Command(id.into()))
+                .count()
+        };
+        assert_eq!(fired("next_scene"), 3, "a program change has no release");
+        assert_eq!(fired("toggle_blackout"), 3, "an OSC trigger has no release");
+        Ok(())
+    }
+
+    #[test]
+    fn a_press_after_a_lost_release_is_still_a_press() -> Result<()> {
+        let mut rig = Rig::new()?;
+        let source = Source::MidiNote {
+            device: None,
+            channel: 1,
+            note: 36,
+        };
+        rig.engine
+            .mappings
+            .push(Mapping::new(source, Target::control("on")));
+        rig.note(36, true);
+        // The note off was dropped (a full queue, an unplugged cable).
+        rig.note(36, true);
+        rig.note(36, false);
+        assert!(
+            near(rig.value("on")?, 0.0),
+            "the second press toggled it off again"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn cue_fav_and_preset_targets_produce_outputs() -> Result<()> {
         let mut rig = Rig::new()?;
         for (note, target) in [
