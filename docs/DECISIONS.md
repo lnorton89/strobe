@@ -8708,3 +8708,28 @@ past it moves it, a stop clears it).
 
 **Would reopen:** a platform network-change notification that is cheap to
 subscribe to, which would replace the timer.
+
+### D370: OSC arrays nest no deeper than bundles may (2026-10-17)
+
+**Context.** D172 bounded bundle nesting before `rosc` sees a datagram,
+because `rosc` decodes bundles recursively. Arrays in a message's type tags
+(`,[[[...]]]`) were not bounded. `rosc` builds them with an explicit stack,
+but dropping the decoded message recurses once per level: one 64 KB
+datagram holds 32,000 levels, and dropping them overflowed the OSC thread's
+2 MiB stack. Release builds abort, so anyone who could reach the port (only
+this machine by default, the LAN with "All network interfaces") could take
+the output down with one packet.
+
+**Decision.** `osc::nesting_ok` also reads each message's type tags, found
+where `rosc` will look (string padding counts from the datagram's start, also
+inside a bundle), and refuses a datagram that opens more than `MAX_DEPTH` (4)
+arrays inside one another. Arrays are dropped as arguments anyway (D172), so
+nothing usable is refused; a message with a shallow array keeps its other
+arguments.
+
+**Test.** `deeply_nested_arrays_are_refused_on_a_listener_sized_stack` (it
+aborted the test binary before the fix) and
+`shallow_arrays_still_decode_and_are_dropped_as_arguments`.
+
+**Would reopen:** a sender that needs arrays, which would want them decoded
+rather than dropped.
