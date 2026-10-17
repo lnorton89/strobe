@@ -2110,3 +2110,66 @@ fn a_relative_pass_past_the_texture_limit_is_clamped_to_it() -> Result<()> {
     }
     Ok(())
 }
+
+#[test]
+fn only_the_samplers_a_pass_reads_take_texture_units() -> Result<()> {
+    // Units were reserved for every declared image, read or not, so with
+    // enough images the one read got a unit past the driver's last, and its
+    // sampler was never set: GL errors, and the wrong picture. 300 is past
+    // llvmpipe's unit numbers; a GPU's (16 to 32 a stage) run out far sooner.
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("many-images");
+    std::fs::create_dir_all(&dir)?;
+    let mut red = image::RgbaImage::new(1, 1);
+    red.put_pixel(0, 0, image::Rgba([255, 0, 0, 255]));
+    red.save(dir.join("red.png"))?;
+    let mut images: Vec<String> = (0..300)
+        .map(|i| format!(r#"{{"NAME": "unused{i}", "PATH": "missing{i}.png"}}"#))
+        .collect();
+    images.push(r#"{"NAME": "last", "PATH": "red.png"}"#.to_string());
+    let json = format!(r#"{{ "IMAGES": [ {} ] }}"#, images.join(", "));
+    let shader = "vec4 renderMain() { return vec4(texture(last, vec2(0.5)).rgb, 1.0); }";
+    for api in BOTH {
+        let mut scene = folder(&json, shader)?;
+        scene.dir = dir.clone();
+        let Some(px) = render_folder(api, Options::default(), &scene, 1, |_| {})? else {
+            continue;
+        };
+        assert_eq!(
+            [px[0], px[1], px[2]],
+            [255, 0, 0],
+            "{api:?}: the one image read is the one shown"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn a_pass_reading_more_textures_than_the_gpu_allows_fails_to_load() -> Result<()> {
+    // The driver refuses this at link time, or the player does, by the count
+    // `Caps` holds; either way the scene does not load with samplers unset.
+    for api in BOTH {
+        let Some(headless) = context(api)? else {
+            continue;
+        };
+        let gl = headless.gl();
+        let caps = Caps::from_info(gl.info());
+        let count = caps.info.max_texture_units + 4;
+        let images: Vec<String> = (0..count)
+            .map(|i| format!(r#"{{"NAME": "pic{i}", "PATH": "missing{i}.png"}}"#))
+            .collect();
+        let json = format!(r#"{{ "IMAGES": [ {} ] }}"#, images.join(", "));
+        let sum: Vec<String> = (0..count)
+            .map(|i| format!("texture(pic{i}, _uv)"))
+            .collect();
+        let shader = format!("vec4 renderMain() {{ return {}; }}", sum.join(" + "));
+        let scene = folder(&json, &shader)?;
+        let loaded = ScenePlayer::new(gl, &caps, &scene, [32, 18], Options::default());
+        assert!(
+            loaded.is_err(),
+            "{api:?}: {count} textures in one pass, past its {} units, must not load",
+            caps.info.max_texture_units
+        );
+        assert_eq!(gl.error(), None, "{api:?}: and no GL error is left behind");
+    }
+    Ok(())
+}

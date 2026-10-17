@@ -9582,3 +9582,31 @@ render tests, both dialects). Both failed before with the framebuffer status.
 
 **Would reopen:** a real scene with a literal pass past a common GPU's limit
 that plays in Synesthesia, which would mean Synesthesia clamps or scales it.
+
+### D411: only the samplers a pass program uses take texture units (2026-10-17)
+
+**Context.** `build_program` gave a unit to every possible sampler, in a
+fixed order (the five built-in ones, then every pass target, image and cube
+map the scene declares), whether or not the linked program used it, "so a
+sampler's unit never depends on what the driver optimised out". A scene with
+many images or passes that each pass reads a few of ran its unit numbers
+past the driver's: `glUniform1i` refused the unit, the sampler stayed at unit
+0, and the pass read the wrong texture with a GL error each frame. On a GPU
+that is 16 to 32 units a stage.
+
+**Decision.** Units are numbered from 0 over the active samplers only, in the
+same order. Each program keeps its own `(source, unit)` list and binds from
+it, so no unit has to agree across programs, and every active sampler still
+has a unit of its own (a samplerCube never shares one with a sampler2D).
+A program that samples more textures than `GL_MAX_TEXTURE_IMAGE_UNITS`
+(read once into `Info::max_texture_units` with the context) fails the load
+naming the count and the limit, for a driver that does not refuse it at
+link time itself. The draw path is unchanged.
+
+**Test.** `only_the_samplers_a_pass_reads_take_texture_units` (300 declared
+images, one read: it failed with GL error 0x501 before) and
+`a_pass_reading_more_textures_than_the_gpu_allows_fails_to_load`
+(`strobe-gfx` render tests, both dialects).
+
+**Would reopen:** nothing expected; the unit numbers were never visible to a
+scene.

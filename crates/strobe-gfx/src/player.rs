@@ -154,9 +154,9 @@ enum Source {
     ShadertoyAudio,
     Pass(usize),
     Image(usize),
-    /// A declared cube map, by its position in `SceneDef::cubemaps`. Its
-    /// unit is reserved like every other, so a samplerCube never shares a
-    /// unit with a sampler2D, which GL rejects at draw time.
+    /// A declared cube map, by its position in `SceneDef::cubemaps`. Like
+    /// every active sampler it has a unit of its own, so a samplerCube never
+    /// shares a unit with a sampler2D, which GL rejects at draw time.
     Cubemap(usize),
 }
 
@@ -345,6 +345,7 @@ impl ScenePlayer {
                     dump_fragment(&def.title, caps.dialect, index, &source);
                     let compiled = Rc::new(build_program(
                         gl,
+                        caps,
                         &def,
                         extras,
                         &vertex,
@@ -1393,6 +1394,7 @@ struct Fragment<'a> {
 /// Compiles and links one pass program and resolves its locations.
 fn build_program(
     gl: &Gl,
+    caps: &Caps,
     def: &SceneDef,
     extras: &[(String, ExtraType)],
     vertex: &crate::gl::Shader,
@@ -1414,16 +1416,26 @@ fn build_program(
     let loc = |name: &str| gl.uniform_location(&program, name);
 
     gl.use_program(&program);
+    // Only the samplers the linked program uses take a unit, numbered from
+    // 0 in this program, so a scene that declares many images or passes and
+    // reads a few never runs past the driver's units (D411). Each program
+    // keeps its own list, so its numbering is nobody else's business; every
+    // active sampler still has a unit of its own, so a samplerCube never
+    // shares one with a sampler2D, which GL rejects at draw time.
+    let limit = u32::try_from(caps.info.max_texture_units).unwrap_or(0);
     let mut samplers = Vec::new();
     let mut unit = 0_u32;
+    let mut wanted = 0_u32;
     let mut assign = |name: &str, source: Source| {
-        if let Some(location) = gl.uniform_location(&program, name) {
+        let Some(location) = gl.uniform_location(&program, name) else {
+            return;
+        };
+        wanted += 1;
+        if limit == 0 || unit < limit {
             gl.uniform_i32(&location, unit as i32);
             samplers.push((source, unit));
+            unit += 1;
         }
-        // Units are reserved whether or not the sampler is active, so a
-        // sampler's unit never depends on what the driver optimised out.
-        unit += 1;
     };
     assign("syn_FinalPass", Source::FinalPass);
     assign("syn_Media", Source::Media);
@@ -1440,6 +1452,17 @@ fn build_program(
     }
     for (i, cube) in def.cubemaps.iter().enumerate() {
         assign(&cube.name, Source::Cubemap(i));
+    }
+    // A driver normally refuses this at link time; one that does not would
+    // leave the samplers past the last unit reading whatever unit 0 holds.
+    if limit > 0 && wanted > limit {
+        return Err(PlayerError::Program {
+            pass,
+            message: format!(
+                "link: the pass samples {wanted} textures, and this GPU allows {limit} in one \
+                 pass (GL_MAX_TEXTURE_IMAGE_UNITS)"
+            ),
+        });
     }
 
     Ok(Compiled {
