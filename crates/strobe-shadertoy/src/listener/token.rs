@@ -73,6 +73,13 @@ impl Token {
             options.mode(0o600);
         }
         let mut file = options.open(&path)?;
+        // `mode` applies only to a file being created; a damaged one that
+        // was already there keeps its permissions unless they are set.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+        }
         file.write_all(token.0.as_bytes())?;
         file.write_all(b"\n")?;
         Ok(token)
@@ -163,6 +170,30 @@ mod tests {
             assert_eq!(mode & 0o077, 0, "group/other have no access: {mode:o}");
         }
         std::fs::remove_dir_all(&dir)?;
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_damaged_file_others_could_read_is_made_private_when_rewritten() -> Result<()> {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = std::env::temp_dir().join(format!("strobe-token-open-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir)?;
+        let path = dir.join(TOKEN_FILE);
+        // Made by hand or restored from a backup: readable by everyone.
+        std::fs::write(&path, "not a token\n")?;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644))?;
+        let token = Token::load_or_create(&dir)?;
+        let mode = std::fs::metadata(&path)?.permissions().mode();
+        let stored = std::fs::read_to_string(&path)?;
+        std::fs::remove_dir_all(&dir)?;
+        assert_eq!(stored.trim(), token.expose(), "the new token is stored");
+        assert_eq!(
+            mode & 0o077,
+            0,
+            "the secret must not stay readable by others: {mode:o}"
+        );
         Ok(())
     }
 
