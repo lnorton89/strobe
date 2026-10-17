@@ -10303,3 +10303,42 @@ and the existing burst and per-id tests, renamed to the new constants.
 (it forgets them all and starts over, as before), or an operator who needs
 every occurrence with its time, which `STROBE_GL_DEBUG` with a debugger on the
 synchronous callback already gives.
+
+### D430: an anchored show is placed in the run nearest now, not in today's from midnight (2026-10-17)
+
+**Context.** The wall clock measured "now" from today's anchor, with one
+exception for a play-once show still running from yesterday's. Two venue
+cases went wrong, both silently and for the whole night:
+
+- A **looping** show anchored at 22:00, restarted by the launcher at 00:30
+  after a crash, was told to wait 21 h 30 min. The output stayed black for
+  the rest of the night, and the resume point is ignored for an anchored
+  playlist (D155), so nothing else put it back.
+- A show **anchored after midnight** (00:30) on a machine started the
+  evening before (23:00) was "finished today" if it plays once (the 00:30
+  run of that morning was long over), and so never started; a looping one
+  started at once, 22 h 30 min into itself.
+
+**Decision.** `Timeline::elapsed_at` places "now" in the run it belongs to:
+
+- **Play once:** before today's anchor, yesterday's run if it is still on
+  (as before); after today's run has ended, tomorrow's anchor is waited for
+  if it is nearer than that end was. Otherwise the show is finished for the
+  day, as before (a 09:00 show is finished at 15:00).
+- **Loop:** a loop never ends, so it belongs to the nearer of the last
+  anchor and the next. A 22:00 loop is on from 22:00 to 10:00 and waits
+  from 10:00 to 22:00.
+
+Nothing changes for a show that starts and is restarted on the same side of
+midnight, and the clock still only syncs to the wall clock at start (D76).
+
+**Test.** `a_looping_show_restarted_after_midnight_carries_on` (00:30 is pass
+5 of a 22:00 loop of 30-minute passes; before, it waited 21 h 30 min) and
+`a_show_anchored_after_midnight_waits_for_it_from_the_evening_before` (both
+loop modes wait 90 minutes at 23:00 for 00:30; before, the play-once show
+ended and the loop started), with the existing midnight and anchor tests
+unchanged.
+
+**Would reopen:** a loop meant to play for more than twelve hours after its
+anchor and to be restarted late in that time (it would want an end time on
+the anchor), or a venue whose "show day" boundary should be a fixed hour.

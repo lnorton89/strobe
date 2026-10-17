@@ -1572,6 +1572,75 @@ fn a_show_that_runs_past_midnight_picks_up_after_midnight() -> Result<()> {
 }
 
 #[test]
+fn a_looping_show_restarted_after_midnight_carries_on() -> Result<()> {
+    // A loop from 22:00 that plays all night, and the launcher restarts
+    // Strobe at 00:30: the show is 2 h 30 min in, not 21 h 30 min from
+    // starting (the output was black for the rest of the night).
+    let mut playlist = show(&[600.0; 3], TransitionSpec::cut(), LoopMode::Loop);
+    playlist.anchor = WallClockAnchor::from_hm(22, 0);
+    let mut clock = clock_for(&playlist);
+    let half_past_midnight = 30.0 * 60.0;
+    assert_eq!(
+        clock.sync_to_wall_clock(half_past_midnight),
+        Some(Placement::Playing {
+            pass: 5,
+            index: 0,
+            offset: 0.0
+        }),
+        "150 minutes of 30-minute passes: the start of pass 5"
+    );
+    assert_eq!(current(&clock)?, 0, "the clock followed");
+
+    // In the afternoon, the evening's anchor is the nearer one: wait.
+    let mut afternoon = clock_for(&playlist);
+    assert_eq!(
+        afternoon.sync_to_wall_clock(15.0 * 3600.0),
+        Some(Placement::Waiting {
+            seconds_until_start: 7.0 * 3600.0
+        }),
+        "at 15:00 the 22:00 loop waits for its start"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_show_anchored_after_midnight_waits_for_it_from_the_evening_before() -> Result<()> {
+    // The show starts at 00:30 and the venue PC is switched on at 23:00.
+    let half_past_midnight = WallClockAnchor::from_hm(0, 30);
+    let eleven = 23.0 * 3600.0;
+    let mut once = show(&[3600.0; 4], TransitionSpec::cut(), LoopMode::Stop);
+    once.anchor = half_past_midnight;
+    let mut clock = clock_for(&once);
+    assert_eq!(
+        clock.sync_to_wall_clock(eleven),
+        Some(Placement::Waiting {
+            seconds_until_start: 5400.0
+        }),
+        "a play-once show waits 90 minutes, not 'finished today'"
+    );
+    assert_eq!(clock.state(), ClockState::Idle, "and has not ended");
+
+    let mut looping = show(&[3600.0; 4], TransitionSpec::cut(), LoopMode::Loop);
+    looping.anchor = half_past_midnight;
+    let mut clock = clock_for(&looping);
+    assert_eq!(
+        clock.sync_to_wall_clock(eleven),
+        Some(Placement::Waiting {
+            seconds_until_start: 5400.0
+        }),
+        "a loop waits too, instead of starting 22 h 30 min into itself"
+    );
+
+    // Two hours after a 09:00 show ended, it is over for the day, as before.
+    let mut morning = show(&[3600.0; 4], TransitionSpec::cut(), LoopMode::Stop);
+    morning.anchor = WallClockAnchor::from_hm(9, 0);
+    let mut clock = clock_for(&morning);
+    clock.sync_to_wall_clock(15.0 * 3600.0);
+    assert_eq!(clock.state(), ClockState::Ended, "finished for today");
+    Ok(())
+}
+
+#[test]
 fn syncing_to_a_failed_cue_moves_to_the_next_playable_one() -> Result<()> {
     let mut clock = anchored(&[100.0, 100.0, 100.0], LoopMode::Stop);
     clock.mark_failed(1);
