@@ -3,7 +3,7 @@
 // Description:  The crate's only file I/O: load and save a playlist, and the
 //               atomic write both it and resume points use.
 //
-// Dependencies: crate::parse, crate::write, crate::error, std::fs
+// Dependencies: crate::parse, crate::write, crate::error, std::fs, std::io
 // ============================================================================
 
 //! Loading and saving.
@@ -50,14 +50,26 @@ pub fn save(playlist: &Playlist, path: &Path) -> Result<(), PlaylistError> {
     write_atomic(path, &text)
 }
 
-/// Writes `text` to `path` by way of a sibling temporary file.
+/// Writes `text` to `path` by way of a sibling temporary file. The
+/// temporary file is synced before the rename: without it, a power cut soon
+/// after the rename can leave an empty file on NTFS, and the next start then
+/// has no show or no resume point (D438).
 pub(crate) fn write_atomic(path: &Path, text: &str) -> Result<(), PlaylistError> {
+    use std::io::Write as _;
     let io = |source| PlaylistError::Io {
         path: path.to_path_buf(),
         source,
     };
     let temp = temp_path(path);
-    fs::write(&temp, text).map_err(io)?;
+    let written = fs::File::create(&temp).and_then(|mut file| {
+        file.write_all(text.as_bytes())?;
+        file.sync_all()
+    });
+    if let Err(source) = written {
+        // Do not leave a partial temporary file behind.
+        let _ = fs::remove_file(&temp);
+        return Err(io(source));
+    }
     if let Err(source) = fs::rename(&temp, path) {
         // Do not leave the temporary file behind if the rename failed.
         let _ = fs::remove_file(&temp);

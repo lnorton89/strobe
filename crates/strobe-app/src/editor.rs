@@ -350,12 +350,23 @@ pub fn latest_backup(root: &Path, name: &str, file: &str) -> Option<String> {
     std::fs::read_to_string(newest).ok()
 }
 
-/// Writes `text` to `path` through a temporary file beside it.
+/// Writes `text` to `path` through a temporary file beside it, synced
+/// before the rename so a power cut leaves the old file or the new one, not
+/// an empty one (D438).
 pub fn write_atomically(path: &Path, text: &str) -> io::Result<()> {
+    use std::io::Write as _;
     let mut temporary = path.as_os_str().to_owned();
     temporary.push(".strobe-tmp");
     let temporary = PathBuf::from(temporary);
-    std::fs::write(&temporary, text)?;
+    let written = std::fs::File::create(&temporary).and_then(|mut file| {
+        file.write_all(text.as_bytes())?;
+        file.sync_all()
+    });
+    if let Err(error) = written {
+        // Best-effort cleanup; the write's own error is the one returned.
+        let _ = std::fs::remove_file(&temporary);
+        return Err(error);
+    }
     std::fs::rename(&temporary, path)
 }
 
