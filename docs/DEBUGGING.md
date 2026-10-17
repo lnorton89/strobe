@@ -21,7 +21,7 @@ they never touch a real profile). Inside it:
 
 | Path | What |
 |---|---|
-| `logs/` | One session log per run, newest first, the last 10 kept. The first lines say the build, the filter, and any filter directive that did not parse. Times are seconds since process start. |
+| `logs/` | One session log per run, newest first, the last 10 kept. A file stops at 64 MiB with a line saying so (D380); the console and crash reports keep the newest lines. The first lines say the build, the filter, and any filter directive that did not parse. Times are seconds since process start. |
 | `crashes/crash-*.txt` | A readable report: the panic or crash summary, the session context (GL renderer, backend, scene, render size, frame count), recent structured failures, and the tail of the log. |
 | `crashes/crash-*.dmp` | A minidump of a *native* crash (a driver access violation, a stack overflow, an abort), written by a second process. A panic has a `.txt` only, and a panic followed by `panic = "abort"` shares one stem. |
 | `run/` | The crash monitor's socket file (Windows and macOS). Linux uses an abstract socket with no file. |

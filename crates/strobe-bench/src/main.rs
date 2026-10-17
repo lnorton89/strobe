@@ -207,6 +207,7 @@ fn main() -> Result<()> {
         filter: strobe_diag::filter::Filter::from_env(),
         dir: None,
         stderr: true,
+        max_file_bytes: strobe_diag::logger::MAX_FILE_BYTES,
     });
     let size = parse_size(&cli.size)?;
     let window_size = cli
