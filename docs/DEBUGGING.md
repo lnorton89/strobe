@@ -170,6 +170,19 @@ first moments, before the monitor link is up, is not captured. A bare
 `abort()` on Windows is a fast-fail that bypasses exception filters and
 leaves no minidump (the `.txt` of a panic that led to it still exists).
 
+**Before sharing crash files.** A `.txt` report names only the `STROBE_*`
+variables and `RUST_BACKTRACE`, but its paths (the log file, the data
+directory, `STROBE_DIAG_DIR`) contain the user name, and its log tail has
+the scene names and the LAN addresses of paired phones. A `.dmp` is the
+crashed process's memory. On Linux it also carries the process's whole
+environment (`/proc/<pid>/environ`, and the top of the main thread's
+stack), so `STROBE_SHADERTOY_KEY` and any other secret set in the
+environment is in it: this was checked by crashing `crash_demo` with a
+dummy key set. A Windows dump is written with `MiniDumpNormal` (stacks and
+modules, no environment block); that is still to be confirmed on the T480.
+Keep the Shadertoy key in `shadertoy.key` rather than the environment, and
+send a `.dmp` only to whoever is debugging it.
+
 ### Symbolicating a `.dmp`
 
 You need the debug information of the *same build*. For a local release
