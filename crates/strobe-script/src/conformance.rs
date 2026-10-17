@@ -1601,6 +1601,31 @@ fn three_faulted_frames_in_a_row_disable_the_script() -> Result<()> {
 }
 
 #[test]
+fn a_fault_that_keeps_coming_back_is_one_console_error() -> Result<()> {
+    // Never three in a row, so never disabled: without the once rule this
+    // is thirty error lines a second for as long as the scene plays.
+    let script = r#"
+        function update() { if (FRAMECOUNT % 2 === 1) throw new Error("odd frame"); }
+    "#;
+    let mut rig = Rig::new(script, &[])?;
+    let mut lines = 0;
+    let mut faults = 0;
+    for _ in 0..60 {
+        let out = rig.step();
+        if matches!(out.status, ScriptStatus::Faulted { .. }) {
+            faults += 1;
+        }
+        lines += errors(&out)
+            .iter()
+            .filter(|line| line.contains("odd frame"))
+            .count();
+    }
+    assert_eq!(faults, 30, "every odd frame still faults");
+    assert_eq!(lines, 1, "but the console says so once");
+    Ok(())
+}
+
+#[test]
 fn a_good_frame_resets_the_strike_count() -> Result<()> {
     let script = r#"
         function update() {
