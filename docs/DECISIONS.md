@@ -8167,6 +8167,11 @@ Hardware: MINIPC.md Task M21.
 
 ### D318: the late lock expires with backoff, and a verdict on disturbed windows is put off (2026-10-17)
 
+**M22 ran clean (the paths here were not exercised; M24 provokes them); amended
+by D319:** a settled scale needs the recent windows at 1.5 times the drop line
+to step again, after M23 crept from 0.70 to 0.60 on noise. D319 also
+documents how a competitor's stalls are waited out.
+
 **Context.** Task M21 ([`hardware/MINIPC.md`](hardware/MINIPC.md)) confirmed
 D317's fast third step. Run B reached 0.70 at 18.7 s and then 0.60, holding
 59.9 fps. Run A found a real risk. It was launched about 10 s after the
@@ -8256,3 +8261,97 @@ Hardware: MINIPC.md Task M22.
 - A verdict on a quiet machine put off again and again.
 - A scene that never settles because each retry pays and is then climbed
   back from. The 30 s clear rule (D315) should prevent that.
+
+### D319: a settled scale needs the recent windows at 1.5 times the drop line to step again; a competitor's stalls are waited out (2026-10-17)
+
+**Context.** On the venue mini PC ([`hardware/MINIPC.md`](hardware/MINIPC.md)),
+M22 ran two clean hold-13 runs, one launched 1.4 s after another strobe
+exited. Both reached 0.70 by 18.5 s at 58.4-58.6 fps, with no lock. M23 put
+`strobe-bench` (10-volume-clouds, 1080p) on the same GPU for part of each
+run. The controller took no step while the bench ran (2.6 s stalls, about
+17 fps), then stepped normally to 0.70 once it stopped. Run B then held
+0.70 for about two minutes at 2.6-2.7% missed, and at 185 s took a fourth
+step to 0.60 on "13 refreshes over the last 240 frames (5.4%)". That was
+noise.
+- At 2.7%, a 120-frame window averages 3.2 misses, and holds the 5 of the
+  drop line about one time in four.
+- So two windows in a row get there about one time in twenty, about once
+  every 40 s on average. A held scene creeps down a step.
+- The step then paid, since the after-windows were under the line as before,
+  and was kept.
+
+**Decision.**
+- **A settled scale needs stronger evidence.** A scale is settled once a
+  late verdict on it has paid (until the scale next changes), or after
+  `STEADY_WINDOWS` (15) windows at it (30 s at 60 Hz). A late step from a
+  settled scale needs the misses over the last `RECENT_WINDOWS` (5)
+  windows, or as many as there are and at least 2, to average
+  `SETTLED_FACTOR` (1.5) times the drop line: 7.5 a window, 6.25% of the
+  frames, 37.5 in 600. Before a scale settles (a scene's first half minute,
+  or just after a mean-rule change) the D314 rule stands, so a scene that
+  starts heavy still steps within four seconds.
+- **The noise.** At 2.7% over 600 frames, the expected count is 16, give or
+  take 4, and the line is 5 of those away.
+  - Binomial chance is about 2 in a million a check. A 30-minute hold has
+    about 900 checks, so about 1 in 500 of creeping once in that half hour.
+  - If misses bunch to twice chance's variance, it is about 1 in 10,000 a
+    check.
+  - Just after arriving, with only 2 windows, the line is 15 against an
+    expected 6.5: about 0.25% once, then 0.02% and 0.003% as the third and
+    fourth windows come in.
+  - Against M23's one creep in two minutes, or D314's one time in twenty
+    every 2 s, this is the change asked for.
+- **Real changes.** The shares a real change brought (14-40% missed, M18-M23)
+  clear it fast. At 14% a window holds 17, so two such windows on top of
+  three quiet ones make 40, which is 4 s. At 40% one window nearly does it.
+- **What it gives up.** A share between the drop line and 1.5 times it
+  (4.2-6.25%, 56-57.5 fps) is left alone once settled. On D315's M18-run-2
+  shape (4.3% at 0.90), the step to 0.80 is no longer even tried.
+- **What is unchanged.** The fast third step after a paid verdict (D317)
+  still uses the verdict's own windows: at 14% they clear the settled line
+  at once. M21 run B's fourth step (8.3%) would still be taken, and it paid.
+  The lock retries after D318's expiry happen at a settled scale, so they
+  too need the stronger evidence, which means fewer pointless retries for
+  misses near the line.
+- **Why not more windows in a row, or the share alone.** Needing, say, 4
+  windows in a row at the line still crosses on noise about 0.3% of the
+  time per window (0.23 to the fourth power), and it is slower for real
+  changes. A higher share on two windows is noisier than the same share
+  over five. Averaging over up to 10 s at 1.5 times is both quieter and
+  faster.
+- **Stalls under a competing load (no change, documented).** Windows are
+  counted in presented frames, so while another program's work stalls
+  strobe's frames (2.6 s gaps in M23), a window simply takes longer, and
+  each stalled interval counts as 2 missed refreshes at most
+  (`STALL_CADENCES`). The stalls neither fill windows by themselves nor are
+  thrown away. The first step after such a load may be triggered by
+  windows that spanned it (M23 run B: 68.3%), but it is judged on the
+  windows after it. D318 checks only the verdict's windows for
+  disturbance, not the trigger's, so a recurring stall cannot keep a step
+  open. M23 showed the result: no step under the load, then the normal
+  steps once it ended. That is left as it is.
+
+**Test.** `strobe_gfx::adaptive::tests`:
+- `a_settled_scale_does_not_creep_down_on_noise`: the M20 descent to 0.70,
+  then 30 minutes at 2.7% drawn at random, five seeds, and no step. It fails
+  without this change.
+- `a_settled_scale_still_steps_for_a_real_change`: two minutes settled at
+  0.70, then 14% missed; a step within 10 s, three seeds.
+
+Existing tests adjusted:
+- `misses_that_do_not_follow_the_scale_stop_the_late_rule` now expects one
+  step and none from 0.90.
+- `missing_refreshes_lower_step_by_step_while_each_step_helps` now uses 20%
+  and 8.3%, so its second step clears the settled line.
+- `a_long_run_of_missing_windows_reports_only_the_last_two` is renamed
+  `…_reports_only_the_recent_ones`. A minute at one scale is settled, so it
+  now reports the recent 600 frames.
+
+Everything else passes unchanged. Hardware: MINIPC.md Task M24 (run C, a
+10-minute hold with no creep below 0.70).
+
+**Would reopen:**
+- A settled scene creeping on the projector.
+- A real mid-hold change, such as a heavier scene or another app on the GPU,
+  not stepping within about 10 s.
+- A show where 56-57.5 fps at a settled scale is judged not good enough.

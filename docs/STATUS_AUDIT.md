@@ -261,7 +261,18 @@ Linux and llvmpipe cannot prove any of these:
   (`a_verdict_on_a_disturbed_window_is_put_off_and_a_false_lock_heals`,
   `a_lock_on_an_undetected_disturbance_heals_within_the_minute`, and the
   backoff checks in the resolution-independent tests). Acceptance test:
-  MINIPC.md Task M22.
+  MINIPC.md Task M24 runs A and B (M22's launch 1.4 s after another strobe
+  exited ran clean, so these paths were not exercised there).
+- [ ] A settled scale does not creep down on noise (D319). M23 run B held
+  0.70 for two minutes at 2.7% missed, then stepped to 0.60 on two windows
+  that reached the drop line by chance. Built and unit-tested
+  (`a_settled_scale_does_not_creep_down_on_noise`, five seeds over 30
+  minutes; `a_settled_scale_still_steps_for_a_real_change`). Acceptance
+  test: MINIPC.md Task M24 run C, ten minutes at 0.70.
+- [x] A competing GPU load is waited out (D319, documented). Verified in
+  MINIPC.md M23: with `strobe-bench` rendering 10-volume-clouds at 1080p on
+  the same GPU (2.6 s stalls, about 17 fps), no step was taken under the
+  load, then the normal steps to 0.70 followed once it ended (58.6 fps).
 - [x] Keep commands, environment, logs, screenshots and failed outcomes in
   [hardware/T480.md](hardware/T480.md).
 
