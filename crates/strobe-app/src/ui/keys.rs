@@ -160,10 +160,15 @@ pub fn handle(ctx: &Context, model: &mut Model<'_>, modal_open: bool, actions: &
     for command in commands.into_iter().flatten() {
         run(command, model, actions);
     }
-    if !focus.text_edit && !focus.modal {
-        for (chord, pressed) in loose.into_iter().flatten() {
-            macro_key(model, chord, pressed, actions);
+    for (chord, pressed) in loose.into_iter().flatten() {
+        // A press into a text field or a modal is typing, not a macro. A
+        // release always reaches the macro its press drove: the field (the
+        // palette's, say) may have taken focus while the key was held, and
+        // dropping the release would leave the macro up.
+        if pressed && (focus.text_edit || focus.modal) {
+            continue;
         }
+        macro_key(model, chord, pressed, actions);
     }
 }
 
