@@ -488,17 +488,35 @@ impl Saver {
 }
 
 /// Writes `text` to `path` through a temporary file and a rename.
+///
+/// The temporary file is this process's own (`ui.toml.<pid>.tmp`): two
+/// Strobes saving at once each rename a whole file of their own, so the
+/// last writer wins with a whole file, never a mix of the two. It is synced
+/// before the rename, so a power cut leaves the old file or the new one,
+/// not an empty one.
 fn write_atomically(path: &Path, text: &str) -> Result<(), String> {
+    use std::io::Write as _;
     if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent)
             .map_err(|e| format!("creating {}: {e}", parent.display()))?;
     }
     let mut temporary = path.as_os_str().to_owned();
-    temporary.push(".tmp");
+    temporary.push(format!(".{}.tmp", std::process::id()));
     let temporary = PathBuf::from(temporary);
-    std::fs::write(&temporary, text)
-        .map_err(|e| format!("writing {}: {e}", temporary.display()))?;
-    std::fs::rename(&temporary, path).map_err(|e| format!("replacing {}: {e}", path.display()))
+    let written = std::fs::File::create(&temporary).and_then(|mut file| {
+        file.write_all(text.as_bytes())?;
+        file.sync_all()
+    });
+    if let Err(error) = written {
+        // Best-effort cleanup; the write's own error is the one reported.
+        let _ = std::fs::remove_file(&temporary);
+        return Err(format!("writing {}: {error}", temporary.display()));
+    }
+    std::fs::rename(&temporary, path).map_err(|e| {
+        // Best-effort cleanup; the rename's error is the one reported.
+        let _ = std::fs::remove_file(&temporary);
+        format!("replacing {}: {e}", path.display())
+    })
 }
 
 #[cfg(test)]
@@ -700,6 +718,27 @@ mod tests {
         std::fs::remove_dir_all(&dir)?;
         assert!(text.contains("second"), "the newest save wins: {text}");
         assert_eq!(leftovers, 1, "only the real file remains");
+        Ok(())
+    }
+
+    #[test]
+    fn a_save_never_writes_into_another_strobes_temporary_file() -> Result<()> {
+        let dir = std::env::temp_dir().join(format!("strobe-prefs-tmp-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir)?;
+        let file = dir.join(FILE);
+        // A second Strobe on this machine (or an older build) is halfway
+        // through writing the same file: its temporary file is not ours to
+        // truncate, or its rename would put a mix of the two in place.
+        let theirs = dir.join(format!("{FILE}.tmp"));
+        std::fs::write(&theirs, "half = ")?;
+        let result = write_atomically(&file, "mine = 1\n");
+        let left = std::fs::read_to_string(&theirs);
+        let written = std::fs::read_to_string(&file);
+        std::fs::remove_dir_all(&dir)?;
+        result.map_err(anyhow::Error::msg)?;
+        assert_eq!(left?, "half = ", "the other writer's file is untouched");
+        assert_eq!(written?, "mine = 1\n", "and ours is in place");
         Ok(())
     }
 
