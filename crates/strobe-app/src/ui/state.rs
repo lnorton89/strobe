@@ -303,10 +303,15 @@ impl UiState {
     /// The state saved in the preferences file, with the writer running.
     /// Reads the file (blocking), so it belongs at start-up only.
     pub fn load() -> Self {
-        let path = crate::prefs::path();
+        Self::load_from(crate::prefs::path())
+    }
+
+    /// [`Self::load`] from the file at `path`.
+    fn load_from(path: std::path::PathBuf) -> Self {
         let (prefs, problem) = Prefs::load(&path);
         if let Some(problem) = problem {
             log::warn!("UI preferences not used: {problem}");
+            crate::prefs::keep_a_copy(&path);
         }
         let mut state = Self::from_prefs(&prefs);
         state.saver = Some(Saver::start(path));
@@ -874,6 +879,44 @@ mod tests {
             crate::ui::theme::Density::Comfortable,
             "a density this build does not know falls back to the default"
         );
+    }
+
+    #[test]
+    fn an_unreadable_file_is_kept_before_the_defaults_are_written_over_it() -> anyhow::Result<()> {
+        let dir = std::env::temp_dir().join(format!("strobe-ui-bad-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir)?;
+        let file = dir.join(crate::prefs::FILE);
+        // A hand edit with one typo: the favourites and the layouts in it
+        // are the operator's, and none of them can be read.
+        let original = "[browser]\nfavourites = [\"05-domain-warp\", \"tunnel\"\n\
+                        [layouts.show]\norder = [\"browser\"]\n";
+        std::fs::write(&file, original)?;
+        let mut state = UiState::load_from(file.clone());
+        let start = Instant::now();
+        state.tick(start);
+        state.panes.open(Pane::Settings);
+        state.tick(start + Duration::from_millis(33));
+        state.finish();
+        let mut kept = Vec::new();
+        for entry in std::fs::read_dir(&dir)? {
+            let path = entry?.path();
+            if std::fs::read_to_string(&path).is_ok_and(|text| text == original) {
+                kept.push(path);
+            }
+        }
+        let written = std::fs::read_to_string(&file)?;
+        std::fs::remove_dir_all(&dir)?;
+        assert!(
+            Prefs::from_text(&written)
+                .is_ok_and(|prefs| prefs.panes.get("settings").is_some_and(|pane| pane.open)),
+            "the new state was written: {written}"
+        );
+        assert!(
+            !kept.is_empty(),
+            "the unreadable file was written over and nothing kept it"
+        );
+        Ok(())
     }
 
     #[test]
