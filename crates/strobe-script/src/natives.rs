@@ -123,7 +123,9 @@ fn read_components<'js>(
     match single {
         Some(value) => {
             if let Some(array) = value.as_array() {
-                for index in 0..array.len() {
+                // One past `max` is enough to know there are too many; the
+                // watchdog cannot stop a native loop over a huge array.
+                for index in 0..array.len().min(max + 1) {
                     push(
                         ctx,
                         &mut out,

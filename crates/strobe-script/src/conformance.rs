@@ -429,6 +429,32 @@ fn set_control_writes_raw_values_and_lands_in_the_same_frame() -> Result<()> {
 }
 
 #[test]
+fn a_huge_array_handed_to_set_control_is_read_only_as_far_as_it_needs() -> Result<()> {
+    // The watchdog cannot stop a native function, so one that walked a
+    // hundred million holes would hold the frame for seconds.
+    let script = r#"
+        var big = [0.25, 0.5, 0.75];
+        big.length = 100000000;
+        function update() { setControl("myColor", big); }
+    "#;
+    let mut rig = Rig::with_budget(script, &[COLOR], Budget::default())?;
+    let started = Instant::now();
+    let out = rig.step();
+    let elapsed = started.elapsed();
+    assert_eq!(out.status, ScriptStatus::Running, "{:?}", out.console);
+    assert!(
+        elapsed < Duration::from_millis(200),
+        "the call read three components, not the whole array: took {elapsed:?}"
+    );
+    assert_eq!(
+        rig.target("myColor", 3)?,
+        vec![0.25, 0.5, 0.75],
+        "the components it needs"
+    );
+    Ok(())
+}
+
+#[test]
 fn set_control_clamps_to_the_control_range() -> Result<()> {
     let mut rig = Rig::new(
         r#"function update() { setControl("mySlider", 99); }"#,
