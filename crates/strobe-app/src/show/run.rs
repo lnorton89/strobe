@@ -760,6 +760,22 @@ impl Show {
             self.park(out.scene, out.session);
             self.blend = None;
         }
+        // A scene warmed for a cue the clock no longer goes to next (a jump,
+        // a step back or a skip in the last seconds of a cue, or +30 s) would
+        // otherwise render beside the live one for the whole of the cue the
+        // show went to (D434).
+        let stale = self
+            .warming
+            .as_ref()
+            .is_some_and(|warm| self.clock.warming() != Some(warm.index));
+        if stale && let Some(warm) = self.warming.take() {
+            log::info!(
+                "playlist: cue {} is no longer next; {} stops warming",
+                warm.index + 1,
+                warm.session.name
+            );
+            self.park(warm.scene, warm.session);
+        }
 
         if let Some(session) = env.active.as_mut() {
             session.advance(dt, env.audio, env.mouse, env.date);

@@ -1079,6 +1079,36 @@ fn warm_up_fires_once_two_seconds_before_the_end() -> Result<()> {
 }
 
 #[test]
+fn extending_a_warming_cue_calls_the_warm_up_off_until_its_new_lead() -> Result<()> {
+    let mut clock = cuts(&[10.0, 10.0]);
+    let mut now = 0.0;
+    run(&mut clock, &mut now, 8.5, Grid::SILENT);
+    assert_eq!(clock.warming(), Some(1), "warming 1.5 s before the end");
+    assert!(clock.extend(30.0), "+30 s");
+    assert_eq!(
+        clock.warming(),
+        None,
+        "31.5 s from the end, nothing should be warming"
+    );
+    let events = only(&run(&mut clock, &mut now, 29.6, Grid::SILENT));
+    assert_eq!(
+        events,
+        vec![ClockEvent::WarmUp { index: 1 }],
+        "the warm-up fires again two seconds before the new end"
+    );
+    assert_eq!(clock.warming(), Some(1), "and the clock says so");
+
+    // A small extension that stays inside the lead keeps it warming.
+    assert!(clock.extend(0.05), "+0.05 s");
+    assert_eq!(clock.warming(), Some(1), "still within two seconds");
+    assert!(
+        only(&run(&mut clock, &mut now, 0.5, Grid::SILENT)).is_empty(),
+        "and no second warm-up for it"
+    );
+    Ok(())
+}
+
+#[test]
 fn a_short_cue_warms_up_the_moment_it_starts() -> Result<()> {
     let mut clock = cuts(&[10.0, 1.0, 10.0]);
     let mut now = 0.0;
