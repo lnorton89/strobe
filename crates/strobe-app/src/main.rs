@@ -59,7 +59,7 @@ fn main() -> ExitCode {
     // 1 and 2: before anything that can fail, because the monitor process
     // reports native crashes with the notifier.
     strobe_diag::notify::set_notifier(|notice| dialog::show_error(&dialog::crash_text(notice)));
-    if strobe_diag::crash::run_monitor_if_requested(std::env::args()) {
+    if strobe_diag::crash::run_monitor_if_requested(std::env::args_os()) {
         return ExitCode::SUCCESS;
     }
     // 3.

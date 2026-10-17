@@ -64,6 +64,25 @@ pub(crate) struct Args {
     out: Option<PathBuf>,
 }
 
+impl Args {
+    /// The arguments with relative paths taken from `cwd`, the directory the
+    /// command was run in. `main` changes into the workspace root before
+    /// running anything, so a relative `crash.dmp` typed in a crashes
+    /// folder inside the repository would otherwise be looked for at the
+    /// root and not found.
+    pub(crate) fn anchored(self, cwd: &Path) -> Self {
+        Self {
+            dump: cwd.join(self.dump),
+            symbols: self
+                .symbols
+                .into_iter()
+                .map(|path| cwd.join(path))
+                .collect(),
+            out: self.out.map(|path| cwd.join(path)),
+        }
+    }
+}
+
 /// A parsed `MODULE` line from a `.sym` file.
 #[derive(Debug, PartialEq, Eq)]
 struct Module {
@@ -274,6 +293,26 @@ mod tests {
             PathBuf::from("strobe").join("0A1B2C3D0").join("strobe.sym"),
             "a binary's symbols are <name>/<id>/<name>.sym"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn relative_paths_are_taken_from_where_the_command_was_run() -> Result<()> {
+        let cwd = std::env::temp_dir().join("crashes");
+        let elsewhere = std::env::temp_dir().join("strobe.pdb");
+        let args = Args {
+            dump: PathBuf::from("crash-20261017-061205.dmp"),
+            symbols: vec![PathBuf::from("crash_demo.pdb"), elsewhere.clone()],
+            out: Some(PathBuf::from("stack.txt")),
+        }
+        .anchored(&cwd);
+        assert_eq!(args.dump, cwd.join("crash-20261017-061205.dmp"), "the dump");
+        assert_eq!(
+            args.symbols,
+            vec![cwd.join("crash_demo.pdb"), elsewhere],
+            "a relative symbol file moves, an absolute one does not"
+        );
+        assert_eq!(args.out, Some(cwd.join("stack.txt")), "the output");
         Ok(())
     }
 

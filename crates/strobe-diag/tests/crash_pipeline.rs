@@ -53,9 +53,15 @@ fn scratch(name: &str) -> PathBuf {
 
 /// Runs the demo in `mode` and returns the crashes directory.
 fn run_demo(mode: &str, dir: &Path) -> Result<PathBuf> {
+    run_demo_with(mode, dir, &[])
+}
+
+/// [`run_demo`] with extra environment variables.
+fn run_demo_with(mode: &str, dir: &Path, env: &[(&str, &str)]) -> Result<PathBuf> {
     fs::create_dir_all(dir)?;
     Command::new(demo_path()?)
         .arg(mode)
+        .envs(env.iter().copied())
         .env("STROBE_DIAG_DIR", dir)
         .env_remove("STROBE_LOG")
         .env_remove("STROBE_NO_CRASH_MONITOR")
@@ -162,5 +168,122 @@ fn a_clean_run_leaves_a_log_and_no_crash_files() -> Result<()> {
     fs::remove_dir_all(&dir)?;
     assert!(text.contains("demo finished normally"), "log was:\n{text}");
     assert_eq!(crash_files, 0, "a clean run must not leave crash files");
+    Ok(())
+}
+
+/// The monitor's notice is a message box that waits for a click. The
+/// crashed app must not wait with it: until the monitor acknowledges the
+/// dump the app sits frozen inside its crash handler, so an unattended show
+/// (or a launcher waiting to restart it) would stay stuck on a hung window
+/// for as long as nobody dismisses the box.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_crashed_app_exits_while_the_monitor_notice_is_still_up() -> Result<()> {
+    let dir = scratch("held-notice");
+    fs::create_dir_all(&dir)?;
+    let mut child = Command::new(demo_path()?)
+        .arg("abort")
+        .env("STROBE_DIAG_DIR", &dir)
+        .env("STROBE_DEMO_NOTIFY_HOLD_MS", "20000")
+        .env_remove("STROBE_LOG")
+        .env_remove("STROBE_NO_CRASH_MONITOR")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .context("starting crash_demo abort")?;
+    let crashes = dir.join("crashes");
+    let dumps = wait_for(&crashes, "dmp");
+    let started = Instant::now();
+    let mut exited = None;
+    while started.elapsed() < Duration::from_secs(8) {
+        if let Some(status) = child.try_wait()? {
+            exited = Some(status);
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    if exited.is_none() {
+        // Leave nothing running when the check fails.
+        child.kill().ok();
+        child.wait().ok();
+    }
+    let report = wait_for(&crashes, "txt");
+    fs::remove_dir_all(&dir).ok();
+    dumps?;
+    report?;
+    assert!(
+        exited.is_some(),
+        "the crashed app was still alive 8 s after its dump, held by the monitor's notice"
+    );
+    Ok(())
+}
+
+/// A file name that is not valid Unicode on the command line must not end
+/// the run before the logger and the panic hook exist.
+#[cfg(target_os = "linux")]
+#[test]
+fn an_argument_that_is_not_unicode_does_not_stop_the_run() -> Result<()> {
+    use std::os::unix::ffi::OsStringExt as _;
+    let dir = scratch("latin1");
+    fs::create_dir_all(&dir)?;
+    let output = Command::new(demo_path()?)
+        .arg("ok")
+        .arg(std::ffi::OsString::from_vec(b"caf\xe9.synScene".to_vec()))
+        .env("STROBE_DIAG_DIR", &dir)
+        .env_remove("STROBE_LOG")
+        .output()
+        .context("running crash_demo ok")?;
+    let logs = wait_for(&dir.join("logs"), "log");
+    fs::remove_dir_all(&dir).ok();
+    assert!(
+        output.status.success(),
+        "the demo failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    logs?;
+    Ok(())
+}
+
+/// Whether `path` appears within `limit`.
+#[cfg(target_os = "linux")]
+fn appears(path: &Path, limit: Duration) -> bool {
+    let started = Instant::now();
+    while started.elapsed() < limit {
+        if path.exists() {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    path.exists()
+}
+
+/// A run marked unattended (a screenshot run, a worker) must not leave a
+/// message box behind in its monitor: the box would wait for a click, and
+/// whatever waits for the run's process tree would wait with it.
+#[cfg(target_os = "linux")]
+#[test]
+fn an_unattended_run_raises_no_notice_from_its_monitor() -> Result<()> {
+    let watched = scratch("watched");
+    let crashes = run_demo("abort", &watched)?;
+    let watched_report = wait_for(&crashes, "txt");
+    let watched_told = appears(&watched.join("notified"), Duration::from_secs(10));
+
+    let quiet = scratch("unattended");
+    let crashes = run_demo_with("abort", &quiet, &[("STROBE_DEMO_UNATTENDED", "1")])?;
+    let quiet_report = wait_for(&crashes, "txt");
+    let quiet_dump = wait_for(&crashes, "dmp");
+    // The notice would follow the report at once.
+    let quiet_told = appears(&quiet.join("notified"), Duration::from_secs(2));
+    fs::remove_dir_all(&watched).ok();
+    fs::remove_dir_all(&quiet).ok();
+
+    watched_report?;
+    assert!(watched_told, "a watched run's monitor raises its notice");
+    quiet_report?;
+    quiet_dump?;
+    assert!(
+        !quiet_told,
+        "the monitor of an unattended run raised a notice"
+    );
     Ok(())
 }

@@ -9115,3 +9115,55 @@ before, engaged at the top of its travel after).
 **Would reopen:** an operator who would rather a narrowed fader stayed dead
 until the control came back into its reach, which would be a per-mapping
 option.
+
+### D380: a session log stops at 64 MiB (2026-10-17)
+
+**Context.** D40 rotates session logs across runs (ten are kept) but put no
+limit on one session's file. Something that logs on every frame (a GL error
+the driver repeats, a warning nobody throttled) writes until the show ends:
+at a few hundred lines a second that is over a gigabyte in a four-hour show,
+and ten such sessions are kept, on a mini PC whose disk may be small. A
+full disk does not stop the show (writes fail quietly), but it takes the
+crash reports, `ui.toml` and the resume point with it.
+
+**Decision.** The writer counts the bytes it puts in the session file and
+stops at `logger::MAX_FILE_BYTES` (64 MiB), writing one last line that says
+the cap was reached. The ring is not affected, so the UI console and any
+crash report still carry the newest lines; stderr mirroring goes on. The
+file keeps its head, which holds the build, the GL facts and whatever
+started the flood. An ordinary show logs well under a megabyte, so the cap
+is only ever met by a flood or by a deliberate `STROBE_LOG=trace` run.
+Worst case on disk is now ten files of 64 MiB.
+
+**Test.** `a_session_file_stops_growing_at_its_cap` (`strobe-diag`,
+`logger.rs`).
+
+**Would reopen:** a hang that needs the end of a long, flooded session
+rather than its start; the answer would be a second, rolling tail file.
+
+### D381: a failure reported again moves up the list instead of taking a new place (2026-10-17)
+
+**Context.** D45 keeps the last 100 structured failures for the UI and for
+crash reports (which carry the newest 20). D325 stopped one source, a
+script faulting every other frame, from filling that list. Others remain:
+a USB audio interface that drops out every few seconds is one `AUDIO`
+failure per dropout for as long as the show runs, and a resize that fails
+reports again each time adaptive resolution steps back between two sizes
+(the app's backoff only remembers the last size). Half an hour of either
+pushed every other failure out, so a crash report listed twenty copies of
+the dropout and not the shader failure that came first.
+
+**Decision.** `failure::report` compares a new failure with those it keeps
+(every field: subsystem, phase, scene, asset, path, details, message,
+action). An identical one is not kept twice: the earlier entry moves to the
+newest place and counts the repeat, and `recent` shows it with a
+`repeated=N` line. The list therefore holds the 100 most recent *distinct*
+failures. Every report is still logged in full at `error`, so the session
+log keeps the timeline. Failures that differ in any field (a frame number
+in the message, say) are still separate entries.
+
+**Test.** `a_failure_that_keeps_coming_back_does_not_push_the_others_out`
+(`strobe-diag`, `failure.rs`).
+
+**Would reopen:** a source whose repeats differ only in a counter or a time,
+which would need its own throttle at the source, as D325 did for scripts.
