@@ -127,6 +127,8 @@ fn workspace_root() -> Result<PathBuf> {
 fn run() -> Result<()> {
     let cli = Cli::parse();
     let root = workspace_root()?;
+    // Paths a person typed are relative to where they typed them.
+    let invoked_from = std::env::current_dir().context("could not read the current directory")?;
     std::env::set_current_dir(&root).with_context(|| {
         format!(
             "could not change into the workspace root {}",
@@ -138,7 +140,7 @@ fn run() -> Result<()> {
         Command::Changelog { check, release } => changelog::run(check, release.as_deref()),
         Command::Bench { args } => bench::run(&args),
         Command::Corpus { args } => corpus::run(&args),
-        Command::Symbolicate(args) => symbolicate::run(&args),
+        Command::Symbolicate(args) => symbolicate::run(&args.anchored(&invoked_from)),
         Command::Brand { check } => brand::run(check),
     }
 }
