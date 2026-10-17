@@ -8652,3 +8652,33 @@ The tempo, beat and downbeat fixtures are unchanged.
 
 **Would reopen:** a scene that wants sub-10 Hz content, or a measured
 difference against Synesthesia's own bass reading on the same input.
+
+### D328: a device that reopens at another sample rate retunes the analyser, it does not rebuild it (2026-10-17)
+
+**Context.** The capture worker built a fresh `Analyzer` whenever a device
+opened at a rate other than the current one. With cpal 0.18 that is not
+rare mid-show: on Windows a default-device stream reports a change of the
+system default as `StreamInvalidated`, the worker reopens the new default,
+and a USB microphone plugged in during a show is commonly 44.1 kHz beside a
+48 kHz built-in input (or the reverse). The rebuild reset every clock a
+scene reads (`syn_Time`, `syn_BassTime`, `syn_CurvedTime`), the beat
+counter `syn_BeatTime` the playlist counts bars on, the beat grid, levels
+and presence, and dropped the operator's tapped or nudged tempo, which D61
+promised survives for the whole run.
+
+**Decision.** `Analyzer::set_sample_rate` replaces only what is measured in
+samples: the history ring, the band bin ranges, the DC blocker (D327), the
+FFT magnitudes, the tempo estimator's envelope (`Tempo::set_rate`, which
+keeps the tracked tempo and any manual one) and the spectrum spans. The
+worker calls it through `worker::follow_rate` on every open; the same rate
+(after the 8-192 kHz clamp) is a no-op, so a device above 192 kHz no longer
+rebuilds the analyser on each reopen either. Tempo confidence falls and
+recovers as the new envelope fills (about 3 s), as after any silence.
+
+**Test.** `a_device_at_another_rate_keeps_the_clocks_and_the_tapped_tempo`
+(`capture::worker`): 48 kHz kicks with a tapped 100 BPM, then 44.1 kHz; the
+clocks and beat counter do not go back, the tapped tempo holds, and a
+60 Hz tone at the new rate lands in the bass band.
+
+**Would reopen:** a reason to treat a device change as a new session (the
+song detector already resets on any change of source, D237).
