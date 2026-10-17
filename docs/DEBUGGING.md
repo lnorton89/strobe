@@ -170,6 +170,13 @@ first moments, before the monitor link is up, is not captured. A bare
 `abort()` on Windows is a fast-fail that bypasses exception filters and
 leaves no minidump (the `.txt` of a panic that led to it still exists).
 
+If the monitor process dies while the show runs (antivirus, task manager,
+out of memory), a watcher thread notices within 30 seconds and reports one
+`DIAGNOSTICS` failure, "the crash monitor process exited while Strobe was
+still running", in the log and the failure list. From then on a native crash
+leaves no minidump (a panic still writes its `.txt`); restart Strobe to
+re-arm (D398).
+
 The report's System section comes from a probe whose child processes
 (PowerShell on Windows) share a ten-second budget (D395). If WMI hangs, the
 child is killed, the report is still written, and the section says
