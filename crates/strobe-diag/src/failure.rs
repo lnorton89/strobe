@@ -58,6 +58,8 @@ pub enum Subsystem {
     Io,
     /// The command line, before anything started.
     Arguments,
+    /// Strobe's own diagnostics: crash capture, logging.
+    Diagnostics,
 }
 
 impl Subsystem {
@@ -72,6 +74,7 @@ impl Subsystem {
             Self::Playlist => "PLAYLIST",
             Self::Io => "IO",
             Self::Arguments => "ARGUMENTS",
+            Self::Diagnostics => "DIAGNOSTICS",
         }
     }
 }

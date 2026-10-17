@@ -46,7 +46,7 @@
 
 use crate::clock::{self, Utc};
 use crate::filter::Filter;
-use crate::{buildinfo, paths};
+use crate::{buildinfo, paths, rotate};
 use log::{Level, Log, Metadata, Record};
 use std::collections::VecDeque;
 use std::fs::{self, File, OpenOptions};
@@ -55,7 +55,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, sync_channel};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 /// Records kept in the in-memory ring.
 pub const RING_LINES: usize = 2000;
@@ -322,14 +322,16 @@ fn open_session_file(dir: &Path) -> std::io::Result<(File, PathBuf)> {
     Ok((file, path))
 }
 
-/// Deletes all but the newest `keep` session logs in `dir`. Names embed a
-/// UTC timestamp, so name order is age order. Returns how many were
-/// deleted; deletion failures (a log still open elsewhere) are skipped.
+/// Deletes all but the newest `keep` session logs in `dir`, returning how
+/// many were deleted. Age is the file's modification time, not the timestamp
+/// in its name: after a clock reset (a dead CMOS battery, no NTP) the newest
+/// logs carry the oldest-looking names, and name order would delete them
+/// first (D397). Deletion failures (a log still open elsewhere) are skipped.
 pub fn prune_old_logs(dir: &Path, keep: usize) -> usize {
     let Ok(entries) = fs::read_dir(dir) else {
         return 0;
     };
-    let mut logs: Vec<PathBuf> = entries
+    let logs: Vec<(PathBuf, SystemTime)> = entries
         .filter_map(Result::ok)
         .map(|entry| entry.path())
         .filter(|path| {
@@ -337,11 +339,13 @@ pub fn prune_old_logs(dir: &Path, keep: usize) -> usize {
                 .and_then(|name| name.to_str())
                 .is_some_and(|name| name.starts_with("strobe-") && name.ends_with(".log"))
         })
+        .map(|path| {
+            let time = rotate::modified(&path);
+            (path, time)
+        })
         .collect();
-    logs.sort();
-    let excess = logs.len().saturating_sub(keep);
-    logs.iter()
-        .take(excess)
+    rotate::beyond_newest(logs, keep)
+        .iter()
         .filter(|path| fs::remove_file(path).is_ok())
         .count()
 }
@@ -725,6 +729,50 @@ mod tests {
         let count = fs::read_dir(&dir)?.count();
         fs::remove_dir_all(&dir)?;
         assert_eq!(count, KEEP_LOGS, "ten logs including {}", path.display());
+        Ok(())
+    }
+
+    #[test]
+    fn a_clock_that_went_backwards_does_not_cost_the_newest_logs() -> Result<()> {
+        let dir = scratch("prune-clock");
+        fs::create_dir_all(&dir)?;
+        let now = SystemTime::now();
+        // Twelve ordinary sessions, a minute apart, then two run after the
+        // clock was reset to 2001: they sort first by name but are newest.
+        let mut files = Vec::new();
+        for index in 0..12_u64 {
+            files.push((
+                format!("strobe-20261001-0000{index:02}-1.log"),
+                20_000 - index,
+            ));
+        }
+        files.push(("strobe-20010101-000000-1.log".to_string(), 20));
+        files.push(("strobe-20010101-000100-1.log".to_string(), 10));
+        for (name, age) in files {
+            let path = dir.join(name);
+            fs::write(&path, "x")?;
+            File::options()
+                .write(true)
+                .open(&path)?
+                .set_modified(now - Duration::from_secs(age))?;
+        }
+        let removed = prune_old_logs(&dir, 10);
+        let mut left: Vec<String> = fs::read_dir(&dir)?
+            .filter_map(Result::ok)
+            .filter_map(|entry| entry.file_name().into_string().ok())
+            .collect();
+        left.sort();
+        fs::remove_dir_all(&dir)?;
+        assert_eq!(removed, 4, "fourteen logs, ten kept: {left:?}");
+        for newest in [
+            "strobe-20010101-000000-1.log",
+            "strobe-20010101-000100-1.log",
+        ] {
+            assert!(
+                left.contains(&newest.to_string()),
+                "{newest} deleted: {left:?}"
+            );
+        }
         Ok(())
     }
 }

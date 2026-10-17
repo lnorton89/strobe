@@ -9261,3 +9261,158 @@ in the message, say) are still separate entries.
 
 **Would reopen:** a source whose repeats differ only in a counter or a time,
 which would need its own throttle at the source, as D325 did for scripts.
+
+### D395: the system probe has a ten-second budget, and a timeout is stated in the report (2026-10-17)
+
+**Context.** The crash monitor writes its `.txt` with `probe_system: true`,
+which waits for the system facts. On Windows two of them (OS version, RAM)
+come from PowerShell and WMI, run with `Command::output()`. A WMI service
+that hangs (it does, on machines mid-update or with a broken repository)
+would hang the monitor before the report was written, and the report is the
+one thing a crash must leave behind.
+
+**Decision.** The probe's child processes share one deadline,
+`system::PROBE_BUDGET` (ten seconds). A child still running at the deadline
+is killed and reaped, the remaining child processes are not started, and
+`SystemInfo::timed_out` is set. The System section of the report then has a
+`probe` row saying "system probe timed out after 10s", so a person reading
+`unknown` knows why. Stdout is read on a helper thread, so a grandchild that
+keeps the pipe open cannot hold the caller past the deadline either. The
+file-based facts (Linux, CPU model from the environment) never wait on a
+child and are unaffected. Ten seconds, not three: a cold PowerShell on a
+2012 laptop with antivirus can take several seconds and a slow answer is
+better than none.
+
+**Test.** `a_hung_tool_is_killed_at_the_deadline`,
+`once_the_budget_is_spent_no_more_tools_are_started` (`system.rs`, run a
+real `sleep 30`; unix only) and `a_probe_that_timed_out_says_so_in_the_report`
+(`diag.rs`).
+
+**Would reopen:** a Windows machine where an honest probe needs more than ten
+seconds, which would want the probe moved off the report's critical path
+(report first, probe appended).
+
+### D396: only the newest twenty crash pairs are kept, ordered by modification time (2026-10-17)
+
+**Context.** `crashes/` was never pruned. A show that crashes on every launch
+(a driver fault on a venue machine, a bad scene in a startup playlist) adds a
+minidump of several megabytes each time, on a disk the session logs (D40,
+D380) already share, until the disk is full.
+
+**Decision.** `report::prune_crashes` keeps the newest `KEEP_CRASHES` (20)
+crash pairs, a `crash-<stem>.txt` with its `crash-<stem>.dmp`, and deletes
+the rest whole. It runs from `strobe_diag::init` at start-up, once, before
+the show; it is never called from the frame loop, and the monitor does not
+prune (the app that crashed is the one that starts next and prunes then, with
+the new report already counted). A pair is as new as its newest file, since
+the monitor appends to the `.txt` after the dump is written. Files that are
+not `crash-*.txt` / `crash-*.dmp` are not touched.
+
+The order is **file modification time, not the timestamp in the name**
+(`rotate.rs`). The name comes from the wall clock, and a machine with a dead
+CMOS battery and no NTP boots in 2001 or at the BIOS default; its newest
+reports then sort first by name and name-ordered pruning deletes the ones
+just written. Ties in time fall back to name order so the result does not
+depend on listing order. Twenty is about two shows' worth of bad nights,
+and at a few MB a dump the directory stays under a hundred megabytes.
+
+**Test.** `only_the_newest_crash_pairs_survive_and_pairs_stay_whole`,
+`a_clock_that_went_backwards_does_not_cost_the_newest_crash`,
+`a_pair_is_as_new_as_its_newest_member` (`strobe-diag`, `report.rs`).
+
+**Would reopen:** a need to keep crashes by size or age rather than count, or
+to prune during a long session (an app that restarts itself in-process).
+
+### D397: session logs are pruned by modification time, not by name (2026-10-17)
+
+**Context.** D40 keeps ten session logs and chose the victims by sorting
+file names, which embed a UTC timestamp ("name order is age order"). That
+holds only while the clock never goes backwards. A laptop with a dead CMOS
+battery and no network time boots at the BIOS default (often 2001 or 2009)
+until something corrects it; the sessions run in that window are named as
+if older than every earlier one, so the next start deleted them first and
+kept ten sessions from before the reset. The test for it (a log from 2001
+among logs from 2026) deleted the newest log.
+
+**Decision.** `prune_old_logs` orders by the file's modification time
+(`rotate.rs`, shared with the crash pruning of D396), with name order only
+to break exact ties. The file names are unchanged. The mtime of an old log
+is its last write, which for a log is the end of that session.
+
+**Test.** `a_clock_that_went_backwards_does_not_cost_the_newest_logs`
+(`strobe-diag`, `logger.rs`; it deleted the newest log before the change).
+
+**Would reopen:** file systems that do not keep modification times (none
+Strobe runs on).
+
+### D398: a dead crash monitor is noticed by asking the process, not the socket (2026-10-17)
+
+**Context.** D43 puts native crash capture in a second process. If that
+process dies mid-show (antivirus quarantines it, someone ends it in the task
+manager, the OOM killer takes it), the app's `CrashHandler` stays attached to
+a socket nobody reads and the next driver fault leaves nothing, with no sign
+anywhere that capture had stopped.
+
+**Decision.** `start_monitor` also starts a small thread, `strobe-crash-watch`,
+that wakes every 30 s (`WATCH_INTERVAL`) and calls `Child::try_wait` on the
+monitor process. If it has exited, one `DIAGNOSTICS` failure goes through
+`failure::report` ("the crash monitor process exited while Strobe was still
+running", with the exit status; action: native crashes are no longer
+captured, restart to re-arm), which lands in the log, the failure list and
+later crash reports. Dropping the `MonitorHandle` first drops the thread's
+stop channel, so a normal shutdown (the monitor exits when the app
+disconnects) is never reported. `Subsystem::Diagnostics` is new for it.
+
+**Why not `minidumper::Client::ping`.** The client does expose a `ping`, but
+it sends on the same socket the crash handler uses and then does a blocking
+`recv` for the reply, with no timeout. `request_dump` likewise waits on a
+`recv` for the dump acknowledgement. A ping in flight when the app crashes
+can read that acknowledgement instead of the pong, and the crashed app, which
+is sitting in its handler, then waits forever for an ack that was already
+consumed: a frozen window on the projector in place of a crash. Not worth it
+for a liveness check; the process handle answers the same question without
+touching the socket.
+
+**Not built: restarting the monitor.** The crash handler's closure owns an
+`Arc<OnceLock<Client>>`, and a `OnceLock` cannot be re-armed. Replacing the
+client would need a swappable slot readable from the signal handler without
+blocking (a `try_lock` on a mutex the watcher also takes), a new socket name
+and a second connector, all in code that runs inside a crashing process. That
+is a heavy mechanism for a rare event, and the failure report tells the
+person to restart. Reopen it if monitors turn out to die often in practice.
+
+**Test.** `a_monitor_that_dies_is_noticed_at_the_next_poll`,
+`a_living_monitor_is_never_reported_and_stopping_ends_the_watch` and
+`a_lost_monitor_becomes_one_diagnostics_failure` (`strobe-diag`, `crash.rs`;
+the first two use a real `sleep` process as a stand-in for the monitor, unix
+only).
+
+**Would reopen:** monitors dying in the field (add the restart), or a
+`minidumper` release that gives `ping` a timeout and its own channel.
+
+### D399: `context::set` formats its value before taking the lock (2026-10-17)
+
+**Context.** `set(key, value: impl Display)` called `value.to_string()` while
+holding the `FACTS` mutex. The value's `Display` is the caller's code. If it
+panics, the panic hook (`panic_hook`, which reads `context::snapshot()` for the
+report) runs on the panicking thread *before* unwinding, so it asked for a
+lock that same thread still held. `std`'s mutex is not reentrant: the process
+hung inside its own crash reporter, the worst place for it, and with
+`panic = "abort"` nothing after the hook ever ran.
+
+**Decision.** `set` formats first and locks second, so no foreign code ever
+runs under the facts lock. As a related hardening, `try_snapshot` (the
+crash-handler read) now reads through a poisoned lock like every other
+accessor does instead of returning `None` for the rest of the process: with
+the old `set`, an unwinding `Display` poisoned the mutex and every later crash
+report lost its context.
+
+**Test.** `a_display_that_panics_does_not_hold_the_facts_lock` (`strobe-diag`,
+`context.rs`). It runs a panicking `Display` under `catch_unwind` on a named
+thread, with a temporary panic hook that does a non-blocking `try_snapshot`
+(so a held lock fails the test instead of hanging it). It failed before the
+change, and `try_snapshot_gives_up_instead_of_waiting` failed with it because
+of the poisoned lock.
+
+**Would reopen:** nothing expected. Any new global registry in this crate
+should follow the same rule: no caller-supplied code under its lock.

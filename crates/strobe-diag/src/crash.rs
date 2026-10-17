@@ -58,6 +58,13 @@
 //! captured. `STROBE_NO_CRASH_MONITOR=1` turns the whole mechanism off,
 //! which is what to do under a debugger.
 //!
+//! A monitor that dies mid-show (killed by antivirus, the task manager, an
+//! out-of-memory killer) would leave capture silently off. A thread started
+//! by [`start_monitor`] asks the monitor's process every thirty seconds
+//! whether it has exited, and reports it once through
+//! [`failure::report`](crate::failure::report) (D398). Capture comes back by
+//! restarting the app; the monitor is not respawned.
+//!
 //! ## Platform notes
 //!
 //! The socket is a Linux abstract-namespace socket, or a Unix-domain socket
@@ -67,6 +74,7 @@
 //! minidump; a *panic* still leaves its text report, which is written
 //! before the abort.
 
+use crate::failure::{Failure, Subsystem};
 use crate::notify::{self, CrashKind, CrashNotice};
 use crate::report::{self, CrashReport};
 use crate::{context, failure, logger, native, panic_hook, paths};
@@ -78,6 +86,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -100,6 +109,9 @@ const CONNECT_RETRY: Duration = Duration::from_millis(25);
 
 /// How long a monitor waits for its app before giving up and exiting.
 const MONITOR_PATIENCE: Duration = Duration::from_secs(60);
+
+/// How often the app checks that its monitor process is still alive.
+const WATCH_INTERVAL: Duration = Duration::from_secs(30);
 
 /// Structured failures sent with a crash.
 const FAILURE_TAIL: usize = 20;
@@ -504,7 +516,10 @@ impl ServerHandler for MonitorHandler {
 /// Keeps native crash capture alive. Drop it at the end of `main`.
 pub struct MonitorHandle {
     _handler: CrashHandler,
-    child: Child,
+    child: Arc<Mutex<Child>>,
+    pid: u32,
+    /// Dropping this stops the watcher thread; see [`watch_monitor`].
+    stop_watch: Option<Sender<()>>,
     client: Arc<OnceLock<Client>>,
 }
 
@@ -531,7 +546,7 @@ impl MonitorHandle {
 
     /// The monitor process id.
     pub fn monitor_pid(&self) -> u32 {
-        self.child.id()
+        self.pid
     }
 }
 
@@ -542,12 +557,15 @@ impl Drop for MonitorHandle {
     /// `Start-Process -Wait`, a CI step, a launcher) waits with it. Found on
     /// the T480: a screenshot run finished in 5.5 s and exited after 60.
     fn drop(&mut self) {
+        // Before the monitor can exit: a shutdown is not a death to report.
+        drop(self.stop_watch.take());
         if !self.is_connected() {
+            let mut child = self.child.lock().unwrap_or_else(PoisonError::into_inner);
             // The monitor is abandoned (crash capture is off, logged above);
             // it may already have exited.
-            self.child.kill().ok();
+            child.kill().ok();
             // Reaps the monitor; its status is not needed.
-            self.child.wait().ok();
+            child.wait().ok();
         }
     }
 }
@@ -589,11 +607,79 @@ pub fn start_monitor() -> Option<MonitorHandle> {
         child.id()
     );
     spawn_connector(Arc::clone(&client), name);
+    let pid = child.id();
+    let child = Arc::new(Mutex::new(child));
+    let stop_watch = spawn_watcher(Arc::clone(&child));
     Some(MonitorHandle {
         _handler: handler,
         child,
+        pid,
+        stop_watch,
         client,
     })
+}
+
+/// Starts the thread that notices the monitor dying. Returns the sender
+/// whose drop stops it, or `None` if no thread could be made (capture still
+/// works; only the notice is lost).
+fn spawn_watcher(child: Arc<Mutex<Child>>) -> Option<Sender<()>> {
+    let (stop, stopped) = mpsc::channel();
+    let spawned = std::thread::Builder::new()
+        .name("strobe-crash-watch".to_string())
+        .spawn(move || {
+            if let Some(status) = watch_monitor(&child, &stopped, WATCH_INTERVAL) {
+                report_monitor_gone(&status);
+            }
+        });
+    match spawned {
+        Ok(_) => Some(stop),
+        Err(error) => {
+            log::warn!("crash monitor watcher not started: {error}");
+            None
+        }
+    }
+}
+
+/// Polls the monitor process every `interval` until it has exited (returning
+/// how, for the report) or `stopped` is closed or sent to (returning `None`).
+///
+/// The process is asked, not the socket. `minidumper`'s `Client::ping` sends a
+/// ping and then blocks on a `recv` of the same socket the crash handler
+/// waits on for its dump acknowledgement, so a ping in flight when the app
+/// crashes could take that acknowledgement: the crashed app would then wait
+/// forever on a projector, and the ping has no timeout either. `try_wait`
+/// shares nothing with the crash path (D398).
+fn watch_monitor(
+    child: &Mutex<Child>,
+    stopped: &Receiver<()>,
+    interval: Duration,
+) -> Option<String> {
+    loop {
+        match stopped.recv_timeout(interval) {
+            Err(RecvTimeoutError::Timeout) => {}
+            Ok(()) | Err(RecvTimeoutError::Disconnected) => return None,
+        }
+        let mut child = child.lock().unwrap_or_else(PoisonError::into_inner);
+        // An error from the query leaves the monitor's state unknown; the
+        // next poll asks again.
+        if let Ok(Some(status)) = child.try_wait() {
+            return Some(status.to_string());
+        }
+    }
+}
+
+/// Tells the person, once, that native crash capture has stopped.
+fn report_monitor_gone(status: &str) {
+    failure::report(
+        Failure::new(Subsystem::Diagnostics, "crash capture")
+            .message(format!(
+                "the crash monitor process exited while Strobe was still running ({status})"
+            ))
+            .action(
+                "native crashes (driver faults, stack overflows) are no longer captured; \
+                 panics still write a report. Restart Strobe to re-arm capture",
+            ),
+    );
 }
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
@@ -867,6 +953,86 @@ mod tests {
             name, "crash-20261008-120000.dmp",
             "dump shares the panic stem"
         );
+        Ok(())
+    }
+
+    /// A long-running process standing in for the monitor.
+    #[cfg(unix)]
+    fn stand_in_monitor() -> Result<Arc<Mutex<Child>>> {
+        let child = Command::new("sleep")
+            .arg("60")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()?;
+        Ok(Arc::new(Mutex::new(child)))
+    }
+
+    #[cfg(unix)]
+    fn kill_and_reap(child: &Mutex<Child>) {
+        let mut child = child.lock().unwrap_or_else(PoisonError::into_inner);
+        // Test cleanup; the process may already be gone.
+        child.kill().ok();
+        // Reaping is all that matters here.
+        child.wait().ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_monitor_that_dies_is_noticed_at_the_next_poll() -> Result<()> {
+        let child = stand_in_monitor()?;
+        let (_keep_open, stopped) = mpsc::channel();
+        child
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .kill()?;
+        let started = Instant::now();
+        let status = watch_monitor(&child, &stopped, Duration::from_millis(20));
+        kill_and_reap(&child);
+        let status = status.ok_or_else(|| anyhow!("a dead monitor went unnoticed"))?;
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "noticing took {:?}",
+            started.elapsed()
+        );
+        assert!(!status.is_empty(), "the exit status is reported");
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_living_monitor_is_never_reported_and_stopping_ends_the_watch() -> Result<()> {
+        let child = stand_in_monitor()?;
+        let (stop, stopped) = mpsc::channel::<()>();
+        let watched = Arc::clone(&child);
+        let watcher = std::thread::spawn(move || {
+            watch_monitor(&watched, &stopped, Duration::from_millis(10))
+        });
+        // Many polls pass with the monitor alive.
+        std::thread::sleep(Duration::from_millis(200));
+        drop(stop);
+        let outcome = watcher
+            .join()
+            .map_err(|_| anyhow!("the watcher thread panicked"))?;
+        kill_and_reap(&child);
+        assert_eq!(outcome, None, "a living monitor must not be reported");
+        Ok(())
+    }
+
+    #[test]
+    fn a_lost_monitor_becomes_one_diagnostics_failure() -> Result<()> {
+        report_monitor_gone("exit status: 7");
+        let reported = failure::recent(failure::KEPT)
+            .iter()
+            .map(ToString::to_string)
+            .find(|text| text.contains("exit status: 7"))
+            .ok_or_else(|| anyhow!("nothing was reported"))?;
+        for needle in ["DIAGNOSTICS", "crash monitor", "no longer captured"] {
+            assert!(
+                reported.contains(needle),
+                "missing `{needle}` in:\n{reported}"
+            );
+        }
         Ok(())
     }
 

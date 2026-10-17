@@ -21,9 +21,9 @@ they never touch a real profile). Inside it:
 
 | Path | What |
 |---|---|
-| `logs/` | One session log per run, newest first, the last 10 kept. A file stops at 64 MiB with a line saying so (D380); the console and crash reports keep the newest lines. The first lines say the build, the filter, and any filter directive that did not parse. Times are seconds since process start. |
+| `logs/` | One session log per run, newest first, the last 10 kept (ordered by file modification time, so a clock reset does not delete the newest, D397). A file stops at 64 MiB with a line saying so (D380); the console and crash reports keep the newest lines. The first lines say the build, the filter, and any filter directive that did not parse. Times are seconds since process start. |
 | `crashes/crash-*.txt` | A readable report: the panic or crash summary, the session context (GL renderer, backend, scene, render size, frame count), recent structured failures, and the tail of the log. |
-| `crashes/crash-*.dmp` | A minidump of a *native* crash (a driver access violation, a stack overflow, an abort), written by a second process. A panic has a `.txt` only, and a panic followed by `panic = "abort"` shares one stem. |
+| `crashes/crash-*.dmp` | A minidump of a *native* crash (a driver access violation, a stack overflow, an abort), written by a second process. A panic has a `.txt` only, and a panic followed by `panic = "abort"` shares one stem. The newest 20 `.txt`/`.dmp` pairs are kept; older ones are deleted at start-up, by file modification time, not by the name (D396). Copy a crash you want to keep out of the folder. |
 | `run/` | The crash monitor's socket file (Windows and macOS). Linux uses an abstract socket with no file. |
 
 `strobe --diagnose` prints a report of the machine, build, GL and audio
@@ -169,6 +169,19 @@ either process; the files are written as usual. A crash in the
 first moments, before the monitor link is up, is not captured. A bare
 `abort()` on Windows is a fast-fail that bypasses exception filters and
 leaves no minidump (the `.txt` of a panic that led to it still exists).
+
+If the monitor process dies while the show runs (antivirus, task manager,
+out of memory), a watcher thread notices within 30 seconds and reports one
+`DIAGNOSTICS` failure, "the crash monitor process exited while Strobe was
+still running", in the log and the failure list. From then on a native crash
+leaves no minidump (a panic still writes its `.txt`); restart Strobe to
+re-arm (D398).
+
+The report's System section comes from a probe whose child processes
+(PowerShell on Windows) share a ten-second budget (D395). If WMI hangs, the
+child is killed, the report is still written, and the section says
+`probe  system probe timed out after 10s`; the OS and RAM lines are then
+`unknown`.
 
 **Before sharing crash files.** A `.txt` report names only the `STROBE_*`
 variables and `RUST_BACKTRACE`, but its paths (the log file, the data
