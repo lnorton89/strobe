@@ -9554,3 +9554,31 @@ of the poisoned lock.
 
 **Would reopen:** nothing expected. Any new global registry in this crate
 should follow the same rule: no caller-supplied code under its lock.
+
+### D410: a pass larger than the texture limit is refused by name; a relative one is clamped to it (2026-10-17)
+
+**Context.** A pass of absolute size (a literal `WIDTH`/`HEIGHT`, D194, or
+`FIXED_SIZE`, D191) wider or taller than `GL_MAX_TEXTURE_SIZE` failed the
+load as "GL resource: framebuffer incomplete (status 0x8cd6)": GL refused the
+texture, and the error named neither the pass nor the limit. A relative pass
+(`$WIDTH*4`) followed the render size past the limit the same way, although
+the host clamps the render size itself to that limit
+(`session::render_size`).
+
+**Decision.** At load, before anything is allocated, `ScenePlayer` refuses a
+pass whose absolute size is past the limit cached in `Caps`
+(`Info::max_texture_size`, read once with the context), naming the pass, its
+size and the limit, and suggesting a smaller size or an expression. It cannot
+be shrunk instead: its size is the one its shader was written against. A
+relative pass is clamped to the limit on each side, like the render size, so
+it still follows the output (D11) and only stops where the GPU does. Nothing
+per frame asks the driver anything. The error is a `PlayerError::Resource`,
+because `strobe-app` matches `PlayerError` exhaustively and a new variant is
+its change to make.
+
+**Test.** `a_literal_pass_larger_than_the_texture_limit_is_a_load_error_naming_it`
+and `a_relative_pass_past_the_texture_limit_is_clamped_to_it` (`strobe-gfx`
+render tests, both dialects). Both failed before with the framebuffer status.
+
+**Would reopen:** a real scene with a literal pass past a common GPU's limit
+that plays in Synesthesia, which would mean Synesthesia clamps or scales it.

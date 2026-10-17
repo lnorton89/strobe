@@ -2039,3 +2039,74 @@ fn a_comment_that_is_not_ascii_compiles() -> Result<()> {
     }
     Ok(())
 }
+
+#[test]
+fn a_literal_pass_larger_than_the_texture_limit_is_a_load_error_naming_it() -> Result<()> {
+    // A literal size is absolute pixels (D194), so it cannot follow the
+    // output down. GL refuses the texture and the framebuffer is then
+    // incomplete, which says nothing about which pass or why.
+    for api in BOTH {
+        let Some(headless) = context(api)? else {
+            continue;
+        };
+        let gl = headless.gl();
+        let caps = Caps::from_info(gl.info());
+        let limit = caps.info.max_texture_size;
+        if limit >= 100_000 {
+            continue;
+        }
+        let json = r#"{ "PASSES": [ {"TARGET": "huge", "WIDTH": 100000, "HEIGHT": 4} ] }"#;
+        let scene = folder(json, "vec4 renderMain() { return texture(huge, _uv); }")?;
+        let error = ScenePlayer::new(gl, &caps, &scene, [32, 18], Options::default())
+            .err()
+            .map(|e| e.to_string())
+            .unwrap_or_default();
+        assert!(
+            error.contains("huge")
+                && error.contains("100000")
+                && error.contains(&limit.to_string()),
+            "{api:?}: the error names the pass, its size and the limit: `{error}`"
+        );
+        assert_eq!(gl.error(), None, "{api:?}: and no GL error is left behind");
+    }
+    Ok(())
+}
+
+#[test]
+fn a_relative_pass_past_the_texture_limit_is_clamped_to_it() -> Result<()> {
+    // `$WIDTH*4` at a render size half the limit wide asks for twice the
+    // limit. The render size itself is clamped to the limit by the host; a
+    // relative pass follows it (D11) and is clamped the same way.
+    for api in BOTH {
+        let Some(headless) = context(api)? else {
+            continue;
+        };
+        let gl = headless.gl();
+        let caps = Caps::from_info(gl.info());
+        let limit = caps.info.max_texture_size;
+        let json = r#"{ "PASSES": [ {"TARGET": "wide", "WIDTH": "$WIDTH*4", "HEIGHT": "$HEIGHT",
+                        "FILTER": "nearest"} ] }"#;
+        let shader = format!(
+            "vec4 renderMain() {{\n\
+             if (PASSINDEX == 0) {{ return vec4(RENDERSIZE.x / {limit}.0, RENDERSIZE.y / 255.0, 0.0, 1.0); }}\n\
+             return vec4(texture(wide, vec2(0.5)).rg, 0.0, 1.0); }}"
+        );
+        let scene = folder(json, &shader)?;
+        let controls = ControlBank::new(scene.def.controls.clone())?;
+        let mut player = ScenePlayer::new(gl, &caps, &scene, [limit / 2, 4], Options::default())?;
+        render_frame(&mut player, &controls, 0);
+        if let Some(code) = gl.error() {
+            return Err(anyhow!("{api:?}: GL error 0x{code:x}"));
+        }
+        let pixels = player.read_output();
+        let px = pixels
+            .get(0..4)
+            .ok_or_else(|| anyhow!("readback too short"))?;
+        assert_eq!(
+            [px[0], px[1]],
+            [255, 4],
+            "{api:?}: the pass is the limit wide (x4 would be twice it) and the output's height tall"
+        );
+    }
+    Ok(())
+}

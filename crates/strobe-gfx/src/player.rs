@@ -298,6 +298,7 @@ impl ScenePlayer {
         let requested = [render_size[0].max(1), render_size[1].max(1)];
         let pinned = strobe_scene::pin::pinned_size(scene);
         let render_size = final_size(pinned, requested);
+        check_absolute_sizes(&def, texture_limit(caps))?;
 
         let vertex_src = assemble::vertex(caps.dialect);
         let vertex =
@@ -774,6 +775,7 @@ impl ScenePlayer {
     /// `iFrame` is the case that matters (D91). Runs once per resize.
     fn passes_to_restart(&self, render_size: [i32; 2]) -> Vec<bool> {
         let last = self.def.final_pass();
+        let max_edge = texture_limit(&self.caps);
         let mut restart: Vec<bool> = self
             .def
             .passes
@@ -781,7 +783,7 @@ impl ScenePlayer {
             .zip(&self.passes)
             .enumerate()
             .map(|(index, (pass, state))| {
-                index == last || pass_size(pass, render_size) != state.size
+                index == last || pass_size(pass, render_size, max_edge) != state.size
             })
             .collect();
         loop {
@@ -1020,7 +1022,7 @@ impl ScenePlayer {
                 });
                 continue;
             }
-            let size = pass_size(pass, render_size);
+            let size = pass_size(pass, render_size, texture_limit(&self.caps));
             // A pass the resize leaves at the same size keeps its texture,
             // framebuffer and contents (D287): a one-texel clock pass or a
             // literal-size data pass must not restart on every probe. Unless
@@ -1294,12 +1296,51 @@ fn adopt_one(old: &mut PassState, new: &mut PassState) {
 
 /// A pass's size at `render_size`. A FIXED_SIZE pass keeps its own grid
 /// (D191); every other pass follows the render size, and so the render
-/// scale (D11). Not for the final pass, which is the render size.
-fn pass_size(pass: &PassDef, render_size: [i32; 2]) -> [i32; 2] {
+/// scale (D11), up to `max_edge` (`GL_MAX_TEXTURE_SIZE`) a side, as the
+/// host clamps the render size itself (D410). [`check_absolute_sizes`] has
+/// refused a fixed size past it at load. Not for the final pass, which is
+/// the render size.
+fn pass_size(pass: &PassDef, render_size: [i32; 2], max_edge: i32) -> [i32; 2] {
+    let edge =
+        |render: i32, scale: f32| ((render as f32 * scale).round() as i32).clamp(1, max_edge);
     pass.fixed.unwrap_or([
-        ((render_size[0] as f32 * pass.scale[0]).round() as i32).max(1),
-        ((render_size[1] as f32 * pass.scale[1]).round() as i32).max(1),
+        edge(render_size[0], pass.scale[0]),
+        edge(render_size[1], pass.scale[1]),
     ])
+}
+
+/// The largest texture side the context allows, from [`Caps`] (never asked
+/// of the driver here). A context that reported no positive limit is taken
+/// to have none, rather than one of a pixel.
+fn texture_limit(caps: &Caps) -> i32 {
+    match caps.info.max_texture_size {
+        limit if limit > 0 => limit,
+        _ => i32::MAX,
+    }
+}
+
+/// Refuses a scene with a pass of absolute size (a literal size, D194, or
+/// `FIXED_SIZE`, D191) larger than `max_edge` (`GL_MAX_TEXTURE_SIZE`, from
+/// [`Caps`]) on either side, naming the pass, its size and the limit. GL
+/// would refuse the texture, and the error would come back as a framebuffer
+/// status naming neither. Such a pass cannot shrink to fit: its size is the
+/// one the shader was written against. Checked once, before anything is
+/// allocated (D410).
+fn check_absolute_sizes(def: &SceneDef, max_edge: i32) -> Result<(), PlayerError> {
+    for (index, pass) in def.passes.iter().enumerate() {
+        let Some([width, height]) = pass.fixed else {
+            continue;
+        };
+        if width > max_edge || height > max_edge {
+            return Err(PlayerError::Resource(format!(
+                "pass {index} (`{}`) is {width}x{height} pixels, larger than this GPU's texture \
+                 limit of {max_edge} pixels a side; give it a smaller WIDTH and HEIGHT, or a \
+                 $WIDTH/$HEIGHT expression, which follows the output",
+                pass.target.as_deref().unwrap_or("unnamed")
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// The final pass's size for a `requested` render size: the scene's pinned
