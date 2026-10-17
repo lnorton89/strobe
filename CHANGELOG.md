@@ -40,6 +40,12 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- a non-Unicode argument no longer kills the app before logging starts ([`da6a65f`](https://github.com/lnorton89/strobe/commit/da6a65f17b59793648bef936c9d451429c0fdb47))
+- cargo xtask symbolicate finds a dump given relative to where it was run ([`22ec132`](https://github.com/lnorton89/strobe/commit/22ec1326f71a4c460901941dd6676adcfc7ad87e))
+- a failure that keeps coming back no longer pushes the others out (D381) ([`59141af`](https://github.com/lnorton89/strobe/commit/59141afb7a4510fa5c49a6fb60fb85ff4412db53))
+- a session log stops growing at 64 MiB (D380) ([`6b16957`](https://github.com/lnorton89/strobe/commit/6b16957f7ca31e649c4711d181b4155ed2b4958e))
+- an unattended run's crash monitor raises no message box ([`f3a5b11`](https://github.com/lnorton89/strobe/commit/f3a5b11b1a34640915433fdedae82c5568e1c0b9))
+- the crash monitor lets the crashed app die before its notice ([`f76de82`](https://github.com/lnorton89/strobe/commit/f76de824c69e2860126355f5e7fc4d5dac74b34e))
 - the synthetic track's clocks glide instead of jumping on every beat, hours into a show (D330) ([`3e88c07`](https://github.com/lnorton89/strobe/commit/3e88c0736eb18abdb6d068569b21bfde51f82f2b))
 - a fader whose range cannot reach its control picks it up at the nearest end instead of never (D373) ([`a7d4505`](https://github.com/lnorton89/strobe/commit/a7d45055e391db36a86264c6998f3d49f9e090f5))
 - a MIDI device that is unplugged or switched off lets go of the pads it was holding (D372) ([`faf8b7f`](https://github.com/lnorton89/strobe/commit/faf8b7fa266fe873488fff3b5c3d0d5171616037))
@@ -162,8 +168,13 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **scenes:** voronoi glass rejects cells by distance before hashing them ([`9c31b06`](https://github.com/lnorton89/strobe/commit/9c31b061034736833a155f4f45d288570fc64782))
 - **ui:** library cards borrow their name, folder and byline instead of copying them each frame ([`30f10f9`](https://github.com/lnorton89/strobe/commit/30f10f94a2eaf260398a6dd89f5f4eb90db6421a))
 
+### Changed
+
+- say why the session log cap's closing writes are discarded (D267) ([`5e03e9a`](https://github.com/lnorton89/strobe/commit/5e03e9a2c5a1a20964935eeb0f65f2e88d8b0adc))
+
 ### Documentation
 
+- say what a crash report and a minidump give away before they are shared ([`a5fe877`](https://github.com/lnorton89/strobe/commit/a5fe877dc310d787c36939abd9a677b0d5cf9495))
 - record the show-control bug sweep in the roadmap ([`7e7869c`](https://github.com/lnorton89/strobe/commit/7e7869c63d1b3b4b2faaeb1e3630784a2f2b542d))
 - list the show-control fixes a real MIDI controller still has to confirm ([`f6274c5`](https://github.com/lnorton89/strobe/commit/f6274c5b50103c70d1681d762e6be9154c268379))
 - CLAUDE.md's Windows cross-check commands match what xtask ci runs ([`5655035`](https://github.com/lnorton89/strobe/commit/56550355745134e5c8010d1d986ba6efda746aa1))
