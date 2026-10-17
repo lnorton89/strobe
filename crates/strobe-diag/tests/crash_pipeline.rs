@@ -53,9 +53,15 @@ fn scratch(name: &str) -> PathBuf {
 
 /// Runs the demo in `mode` and returns the crashes directory.
 fn run_demo(mode: &str, dir: &Path) -> Result<PathBuf> {
+    run_demo_with(mode, dir, &[])
+}
+
+/// [`run_demo`] with extra environment variables.
+fn run_demo_with(mode: &str, dir: &Path, env: &[(&str, &str)]) -> Result<PathBuf> {
     fs::create_dir_all(dir)?;
     Command::new(demo_path()?)
         .arg(mode)
+        .envs(env.iter().copied())
         .env("STROBE_DIAG_DIR", dir)
         .env_remove("STROBE_LOG")
         .env_remove("STROBE_NO_CRASH_MONITOR")
@@ -208,6 +214,50 @@ fn a_crashed_app_exits_while_the_monitor_notice_is_still_up() -> Result<()> {
     assert!(
         exited.is_some(),
         "the crashed app was still alive 8 s after its dump, held by the monitor's notice"
+    );
+    Ok(())
+}
+
+/// Whether `path` appears within `limit`.
+#[cfg(target_os = "linux")]
+fn appears(path: &Path, limit: Duration) -> bool {
+    let started = Instant::now();
+    while started.elapsed() < limit {
+        if path.exists() {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    path.exists()
+}
+
+/// A run marked unattended (a screenshot run, a worker) must not leave a
+/// message box behind in its monitor: the box would wait for a click, and
+/// whatever waits for the run's process tree would wait with it.
+#[cfg(target_os = "linux")]
+#[test]
+fn an_unattended_run_raises_no_notice_from_its_monitor() -> Result<()> {
+    let watched = scratch("watched");
+    let crashes = run_demo("abort", &watched)?;
+    let watched_report = wait_for(&crashes, "txt");
+    let watched_told = appears(&watched.join("notified"), Duration::from_secs(10));
+
+    let quiet = scratch("unattended");
+    let crashes = run_demo_with("abort", &quiet, &[("STROBE_DEMO_UNATTENDED", "1")])?;
+    let quiet_report = wait_for(&crashes, "txt");
+    let quiet_dump = wait_for(&crashes, "dmp");
+    // The notice would follow the report at once.
+    let quiet_told = appears(&quiet.join("notified"), Duration::from_secs(2));
+    fs::remove_dir_all(&watched).ok();
+    fs::remove_dir_all(&quiet).ok();
+
+    watched_report?;
+    assert!(watched_told, "a watched run's monitor raises its notice");
+    quiet_report?;
+    quiet_dump?;
+    assert!(
+        !quiet_told,
+        "the monitor of an unattended run raised a notice"
     );
     Ok(())
 }

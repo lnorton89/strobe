@@ -84,6 +84,10 @@ use std::time::{Duration, Instant};
 /// followed by the socket name.
 pub const MONITOR_ARG: &str = "--strobe-crash-monitor";
 
+/// Follows the socket name when the app was marked unattended
+/// ([`notify::set_unattended`]), so the monitor raises no notice either.
+const UNATTENDED_ARG: &str = "--strobe-unattended";
+
 /// `STROBE_NO_CRASH_MONITOR=1` disables native crash capture.
 pub const DISABLE_ENV: &str = "STROBE_NO_CRASH_MONITOR";
 
@@ -276,7 +280,12 @@ pub fn run_monitor_if_requested(args: impl IntoIterator<Item = String>) -> bool 
     while let Some(arg) = args.next() {
         if arg == MONITOR_ARG {
             match args.next() {
-                Some(name) => run_monitor(&name),
+                Some(name) => {
+                    if args.next().is_some_and(|flag| flag == UNATTENDED_ARG) {
+                        notify::set_unattended();
+                    }
+                    run_monitor(&name);
+                }
                 None => write_stderr("strobe crash monitor: missing socket name"),
             }
             return true;
@@ -591,6 +600,7 @@ fn spawn_monitor_process(exe: &Path, name: &str) -> std::io::Result<Child> {
     command
         .arg(MONITOR_ARG)
         .arg(name)
+        .args(notify::is_unattended().then_some(UNATTENDED_ARG))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
