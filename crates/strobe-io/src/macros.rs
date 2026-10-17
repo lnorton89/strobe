@@ -108,13 +108,41 @@ pub struct MacroSet {
 }
 
 impl MacroSet {
-    /// Adds a macro and returns its id.
+    /// Adds a macro and returns its id. Ids are never reused (see the module
+    /// docs), except after a hand-edited counter left none to hand out
+    /// (D376). With no id free at all (it would take four
+    /// billion macros) nothing is added and the result is 0, which no macro
+    /// has.
     pub fn add(&mut self, mut new: Macro) -> u32 {
         self.repair();
-        self.next_id += 1;
-        new.id = self.next_id;
+        let Some(id) = self.fresh_id() else {
+            return 0;
+        };
+        new.id = id;
         self.macros.push(new);
-        self.next_id
+        id
+    }
+
+    /// An id no macro in the set has, and the counter moved past it where it
+    /// can be.
+    ///
+    /// Normally the counter plus one. A file edited by hand can leave the
+    /// counter at `u32::MAX`, where that is an overflow: the counter then
+    /// picks up again past the highest id in the set, which is what
+    /// [`Self::repair`] promises of it. Only a set that holds `u32::MAX`
+    /// itself has no id past its highest, and gets the smallest free one.
+    fn fresh_id(&mut self) -> Option<u32> {
+        if let Some(next) = self.next_id.checked_add(1) {
+            self.next_id = next;
+            return Some(next);
+        }
+        let highest = self.macros.iter().map(|m| m.id).max().unwrap_or(0);
+        if let Some(next) = highest.checked_add(1) {
+            self.next_id = next;
+            return Some(next);
+        }
+        let taken: std::collections::HashSet<u32> = self.macros.iter().map(|m| m.id).collect();
+        (1..=u32::MAX).find(|id| !taken.contains(id))
     }
 
     /// Adds a macro for `target` unless the set already has one for it
@@ -289,20 +317,27 @@ impl MacroSet {
     }
 
     /// Makes ids unique and `next_id` past all of them: a file edited by
-    /// hand may have left zeros or duplicates.
+    /// hand may have left zeros, duplicates or a counter at the top of its
+    /// range.
     pub fn repair(&mut self) {
         let mut seen = std::collections::HashSet::new();
-        let mut next = self
-            .next_id
-            .max(self.macros.iter().map(|m| m.id).max().unwrap_or(0));
-        for m in &mut self.macros {
+        let mut stale = Vec::new();
+        for (index, m) in self.macros.iter().enumerate() {
             if m.id == 0 || !seen.insert(m.id) {
-                next += 1;
-                m.id = next;
-                seen.insert(next);
+                stale.push(index);
             }
         }
-        self.next_id = next;
+        let highest = self.macros.iter().map(|m| m.id).max().unwrap_or(0);
+        self.next_id = self.next_id.max(highest);
+        for index in stale {
+            // None only when every id is taken, which cannot happen.
+            let Some(id) = self.fresh_id() else {
+                break;
+            };
+            if let Some(m) = self.macros.get_mut(index) {
+                m.id = id;
+            }
+        }
     }
 }
 
@@ -404,6 +439,70 @@ mod tests {
         );
         let next = set.add(Macro::new("D", Target::control("d")));
         assert!(!ids.contains(&next), "a fresh id");
+        Ok(())
+    }
+
+    fn ids(set: &MacroSet) -> Vec<u32> {
+        set.all().iter().map(|m| m.id).collect()
+    }
+
+    #[test]
+    fn a_counter_at_the_top_of_its_range_picks_up_past_the_existing_ids() -> Result<()> {
+        // A hand-edited file: `next_id` is u32::MAX, so `+ 1` would overflow
+        // (a panic in a debug build, a wrap to 0 in a release one).
+        let text = r#"{ "macros": [
+            { "id": 1, "name": "A", "target": { "kind": "control", "name": "a" } },
+            { "id": 7, "name": "B", "target": { "kind": "control", "name": "b" } }
+        ], "next_id": 4294967295 }"#;
+        let mut set: MacroSet = serde_json::from_str(text)?;
+        assert_eq!(
+            set.add(Macro::new("C", Target::control("c"))),
+            8,
+            "past the highest id in the set"
+        );
+        assert_eq!(
+            set.add(Macro::new("D", Target::control("d"))),
+            9,
+            "and the counter works normally again"
+        );
+        assert_eq!(ids(&set), vec![1, 7, 8, 9], "all unique");
+        Ok(())
+    }
+
+    #[test]
+    fn a_macro_holding_the_highest_possible_id_leaves_the_smallest_free_one() {
+        let mut set = set();
+        set.next_id = u32::MAX;
+        if let Some(last) = set.macros.last_mut() {
+            last.id = u32::MAX;
+        }
+        // ids are now 1, 2, MAX.
+        assert_eq!(set.add(Macro::new("D", Target::control("d"))), 3, "the gap");
+        assert_eq!(
+            set.add(Macro::new("E", Target::control("e"))),
+            4,
+            "the next"
+        );
+        let mut all = ids(&set);
+        all.sort_unstable();
+        all.dedup();
+        assert_eq!(all.len(), 5, "no id twice: {all:?}");
+    }
+
+    #[test]
+    fn repairing_duplicates_with_the_counter_at_the_top_does_not_overflow() -> Result<()> {
+        let text = r#"{ "macros": [
+            { "id": 5, "name": "A", "target": { "kind": "control", "name": "a" } },
+            { "id": 5, "name": "B", "target": { "kind": "control", "name": "b" } },
+            { "id": 0, "name": "C", "target": { "kind": "control", "name": "c" } }
+        ], "next_id": 4294967295 }"#;
+        let mut set: MacroSet = serde_json::from_str(text)?;
+        set.repair();
+        let mut all = ids(&set);
+        all.sort_unstable();
+        all.dedup();
+        assert_eq!(all.len(), 3, "unique: {all:?}");
+        assert!(all.iter().all(|id| *id > 0), "non-zero: {all:?}");
         Ok(())
     }
 
