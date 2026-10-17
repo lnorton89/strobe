@@ -40,7 +40,10 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- a playlist's show time counts in f64, so its synthetic beat keeps pace ([`e3eccdc`](https://github.com/lnorton89/strobe/commit/e3eccdc9c94c1728e8284405a2eb88cbe968b3c3))
+- the scene clock counts in f64, so TIME keeps real time hours in ([`1cfd28c`](https://github.com/lnorton89/strobe/commit/1cfd28c00cdc72f08e23d19839d5f0c1d0b68b5f))
 - format a context value before taking the facts lock ([`a326870`](https://github.com/lnorton89/strobe/commit/a326870f8cd1bd9eae6fbff9e6b59a1b105e586c))
+- speed and traveler controls integrate in f64, so they keep their pace hours in ([`55040f8`](https://github.com/lnorton89/strobe/commit/55040f86699780b3cafc8a17cfc10e2223f467f6))
 - report once when the crash monitor dies during a show ([`604ae7a`](https://github.com/lnorton89/strobe/commit/604ae7affaa62d87952808b4300f073065c421c1))
 - prune session logs by modification time, not by file name ([`95a940a`](https://github.com/lnorton89/strobe/commit/95a940ad4b4d2c0db8146e23e7db29b0a71ee791))
 - keep only the newest twenty crash reports and minidumps ([`991de58`](https://github.com/lnorton89/strobe/commit/991de5808a81cd1007732684991771523ad37bc3))
@@ -183,6 +186,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Documentation
 
+- list every clock that grows with show time, and open the Shadertoy clock and mic-switch questions ([`50167e2`](https://github.com/lnorton89/strobe/commit/50167e20d6ae6ac4c8f8bd388cc9365f5e57e1e4))
 - record the show-control sweep follow-ups in the roadmap ([`0e6706d`](https://github.com/lnorton89/strobe/commit/0e6706d57b8252da9a379db1b04d3bf57c8d3f42))
 - say what a crash report and a minidump give away before they are shared ([`a5fe877`](https://github.com/lnorton89/strobe/commit/a5fe877dc310d787c36939abd9a677b0d5cf9495))
 - record the show-control bug sweep in the roadmap ([`7e7869c`](https://github.com/lnorton89/strobe/commit/7e7869c63d1b3b4b2faaeb1e3630784a2f2b542d))
