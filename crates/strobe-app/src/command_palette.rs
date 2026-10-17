@@ -304,16 +304,24 @@ impl Listing {
     pub fn clear(&mut self) {
         self.built_from = None;
         self.ranked_for = None;
+        // An opening palette's highlight follows nothing from before.
+        self.ranked.clear();
     }
 
     /// Brings the entries and the ranking up to date with `sources`,
     /// `layouts` and `query`. Allocates only when one of them changed.
     /// Returns whether the ranking was made again.
+    ///
+    /// `selected`, the highlighted row, stays on the entry it was on when
+    /// the entries are built again (a scene starts playing, the library
+    /// changes): the row it is at now, or none if it is gone, so Enter
+    /// never runs an entry the operator did not see highlighted (D403).
     pub fn update<'k>(
         &mut self,
         sources: Sources<'_>,
         layouts: impl Iterator<Item = &'k String> + Clone,
         query: &str,
+        selected: &mut Option<usize>,
     ) -> bool {
         let fresh = self.built_from.as_ref().is_some_and(|built| {
             built.availability == sources.availability
@@ -322,7 +330,13 @@ impl Listing {
                 && built.presets.as_slice() == sources.presets
                 && built.layouts.iter().eq(layouts.clone())
         });
+        let mut kept = None;
         if !fresh {
+            let highlighted = selected.and_then(|row| self.ranked.get(row).copied());
+            let mut old = std::mem::take(&mut self.items);
+            kept = highlighted
+                .filter(|index| *index < old.len())
+                .map(|index| old.swap_remove(index));
             let layouts: Vec<String> = layouts.cloned().collect();
             self.items = items(sources.bindings, sources.availability, &layouts);
             self.items.extend(content_items(
@@ -347,7 +361,37 @@ impl Listing {
             Some(text) => query.clone_into(text),
             None => self.ranked_for = Some(query.to_owned()),
         }
+        if let Some(kept) = kept {
+            *selected = self.row_of(&kept);
+        }
         true
+    }
+
+    /// The row now showing `item`: the same target and title, or else the
+    /// one entry of the same kind, title and category (a scene whose
+    /// library index moved). `None` when it is gone or cannot be told.
+    fn row_of(&self, item: &Item) -> Option<usize> {
+        let at = |same: &dyn Fn(&Item) -> bool| {
+            self.ranked
+                .iter()
+                .position(|index| self.items.get(*index).is_some_and(same))
+        };
+        if let Some(row) = at(&|other| other.target == item.target && other.title == item.title) {
+            return Some(row);
+        }
+        let kind = std::mem::discriminant(&item.target);
+        let similar = |other: &Item| {
+            std::mem::discriminant(&other.target) == kind
+                && other.title == item.title
+                && other.category == item.category
+        };
+        let row = at(&similar)?;
+        let twins = self
+            .ranked
+            .iter()
+            .filter(|index| self.items.get(**index).is_some_and(similar))
+            .count();
+        (twins == 1).then_some(row)
     }
 
     /// Every entry.
@@ -804,6 +848,85 @@ mod tests {
         assert_eq!(content.len(), 4, "two entries a scene, no presets");
     }
 
+    /// The title at `row` of the listing.
+    fn title_at(listing: &Listing, row: Option<usize>) -> Option<&str> {
+        row.and_then(|row| listing.ranked().get(row))
+            .and_then(|index| listing.items().get(*index))
+            .map(|item| item.title.as_str())
+    }
+
+    #[test]
+    fn the_highlight_stays_on_its_entry_when_the_list_changes_under_it() {
+        let bindings = Bindings::default();
+        let layouts = std::collections::BTreeMap::<String, ()>::new();
+        let before = library(&["01-aurora", "02-tunnel", "03-autumn"]);
+        let none: Vec<String> = Vec::new();
+        let sources = Sources {
+            bindings: &bindings,
+            availability: Availability::default(),
+            library: &before,
+            library_rev: 1,
+            playing: Some(1),
+            presets: &none,
+        };
+        let mut listing = Listing::default();
+        let mut selected = Some(0);
+        listing.update(sources, layouts.keys(), "autumn", &mut selected);
+        // The operator moves the highlight down to Load: 03-autumn.
+        let row = listing.ranked().iter().position(|index| {
+            listing
+                .items()
+                .get(*index)
+                .is_some_and(|item| item.title == "Load: 03-autumn")
+        });
+        assert!(row.is_some(), "the scene is listed");
+        selected = row;
+        // Then 03-autumn's neighbour starts playing (a cue, a phone), with
+        // presets that match the query better, and a scene dropped into the
+        // library ahead of it moves its index.
+        let after = library(&["00-autumn-leaves", "01-aurora", "02-tunnel", "03-autumn"]);
+        let presets = vec!["Autumn".to_string(), "Autumn dusk".to_string()];
+        let changed = Sources {
+            library: &after,
+            library_rev: 2,
+            playing: Some(1),
+            presets: &presets,
+            ..sources
+        };
+        let stale = selected;
+        listing.update(changed, layouts.keys(), "autumn", &mut selected);
+        assert_ne!(
+            title_at(&listing, stale),
+            Some("Load: 03-autumn"),
+            "the old row names another entry now"
+        );
+        assert_eq!(
+            title_at(&listing, selected),
+            Some("Load: 03-autumn"),
+            "the highlight followed its entry"
+        );
+        let target = selected
+            .and_then(|row| listing.ranked().get(row))
+            .and_then(|index| listing.items().get(*index))
+            .map(|item| item.target.clone());
+        assert_eq!(target, Some(Target::LoadScene(3)), "at its new index");
+
+        // An entry that went away takes the highlight with it: Enter then
+        // runs nothing rather than a neighbour.
+        let gone = library(&["00-autumn-leaves", "01-aurora", "02-tunnel"]);
+        listing.update(
+            Sources {
+                library: &gone,
+                library_rev: 3,
+                ..changed
+            },
+            layouts.keys(),
+            "autumn",
+            &mut selected,
+        );
+        assert_eq!(selected, None, "nothing highlighted");
+    }
+
     #[test]
     fn a_listing_is_built_and_ranked_only_when_something_changed() {
         let library = library(&["01-aurora", "02-tunnel"]);
@@ -820,11 +943,11 @@ mod tests {
         };
         let mut listing = Listing::default();
         assert!(
-            listing.update(sources, layouts.keys(), "tun"),
+            listing.update(sources, layouts.keys(), "tun", &mut None),
             "the first update ranks"
         );
         assert!(
-            !listing.update(sources, layouts.keys(), "tun"),
+            !listing.update(sources, layouts.keys(), "tun", &mut None),
             "the same sources and query: nothing to do"
         );
         let first = listing
@@ -834,7 +957,7 @@ mod tests {
             .map(|item| item.title.as_str());
         assert_eq!(first, Some("Load: 02-tunnel"), "ranked for the query");
         assert!(
-            listing.update(sources, layouts.keys(), "aur"),
+            listing.update(sources, layouts.keys(), "aur", &mut None),
             "a new query ranks again"
         );
         let moved_on = Sources {
@@ -842,7 +965,7 @@ mod tests {
             ..sources
         };
         assert!(
-            listing.update(moved_on, layouts.keys(), "aur"),
+            listing.update(moved_on, layouts.keys(), "aur", &mut None),
             "a changed library builds again"
         );
         let other_presets = vec!["Calm".to_string()];
@@ -853,7 +976,8 @@ mod tests {
                     ..moved_on
                 },
                 layouts.keys(),
-                "aur"
+                "aur",
+                &mut None
             ),
             "another scene's presets build again"
         );

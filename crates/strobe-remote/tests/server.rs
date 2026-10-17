@@ -697,6 +697,55 @@ fn desktop_control_requires_pairing_and_opt_in_and_is_exclusive() -> Result<()> 
 }
 
 #[test]
+fn a_code_paired_desktop_reconnecting_takes_back_its_own_dead_lease_only() -> Result<()> {
+    // A Wi-Fi drop leaves the old connection open at the host, holding the
+    // lease, until its idle timeout (D407).
+    let dead_lease = Duration::from_millis(300);
+    let rig = rig_with(
+        Limits {
+            dead_lease,
+            ..limits()
+        },
+        Clients::in_memory(),
+    )?;
+    rig.desktop.enable(true);
+    let (_, token, mut old) = pair_as(&rig, true)?;
+    old.send(&json!({"type":"desktop_open"}))?;
+    eventually("lease", || rig.desktop.active())?;
+    // The same desktop again at once, its old connection still talking:
+    // the lease is not taken from a live connection, even by its own token.
+    old.send(&json!({"type":"ping"}))?;
+    let (token, mut fresh) = authenticate(&rig, &token)?;
+    fresh.send(&json!({"type":"desktop_open"}))?;
+    assert_eq!(
+        fresh.until("error")?["code"],
+        "unavailable",
+        "a live lease stays where it is"
+    );
+    // Another paired desktop never takes it, however quiet the holder is.
+    let (_, _, mut other) = pair_as(&rig, true)?;
+    std::thread::sleep(dead_lease * 2);
+    other.send(&json!({"type":"desktop_open"}))?;
+    assert_eq!(
+        other.until("error")?["code"],
+        "unavailable",
+        "one desktop at a time"
+    );
+    // The old connection has been silent past the dead-lease time: the
+    // same paired desktop takes the lease back.
+    let (_, mut back) = authenticate(&rig, &token)?;
+    back.send(&json!({"type":"desktop_open"}))?;
+    assert_eq!(old.closed()?, 1008, "the dead connection was closed");
+    rig.desktop.publish([16, 16], "after-reconnect".into());
+    assert_eq!(
+        back.until("desktop_frame")?["jpeg"],
+        "after-reconnect",
+        "the reconnected desktop has the lease"
+    );
+    Ok(())
+}
+
+#[test]
 fn native_desktop_transport_pairs_and_reads_large_frames_without_affecting_phones() -> Result<()> {
     use strobe_remote::{ClientMessage, ServerMessage};
     let rig = rig()?;
