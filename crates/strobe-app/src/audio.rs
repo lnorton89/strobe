@@ -88,6 +88,9 @@ pub struct AudioInput {
     devices: Vec<DeviceInfo>,
     listing: Option<Receiver<Listed>>,
     choice: DeviceChoice,
+    /// The device the capture being opened was started with; a different
+    /// `choice` made meanwhile is passed on when it arrives.
+    opening: DeviceChoice,
     reactivity: f32,
     speed: f32,
     /// The meta controls' reactivity and audio speed (D184). The effective
@@ -277,6 +280,7 @@ impl AudioInput {
             devices: Vec::new(),
             listing: None,
             choice: DeviceChoice::default(),
+            opening: DeviceChoice::default(),
             reactivity: 1.0,
             speed: 1.0,
             meta_gain: [1.0, 1.0],
@@ -338,6 +342,7 @@ impl AudioInput {
     }
 
     fn start_capture(&mut self) {
+        self.opening = self.choice.clone();
         let config = CaptureConfig {
             device: self.choice.clone(),
             layout: Layout::default(),
@@ -392,6 +397,10 @@ impl AudioInput {
                     capture.set_reactivity(gains[0]);
                     capture.set_audio_speed(gains[1]);
                     self.pushed_gain = gains;
+                    if self.choice != self.opening {
+                        // Chosen in Settings while this capture was opening.
+                        capture.select_device(self.choice.clone());
+                    }
                     self.capture = Some(capture);
                     self.starting = None;
                 }
@@ -819,6 +828,35 @@ mod tests {
             }
         }
         Ok(())
+    }
+
+    #[test]
+    fn a_device_chosen_while_capture_is_opening_is_used() -> Result<()> {
+        // Opening capture runs on a thread and can take seconds on WASAPI.
+        // A device picked in Settings meanwhile must reach the capture once
+        // it arrives, not be shown as chosen and silently ignored.
+        const ID: &str = "strobe-test-no-such-device";
+        let mut input = AudioInput::new(true);
+        input.select_device(DeviceChoice::ById(ID.to_string()));
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while input.capture.is_none() && Instant::now() < deadline {
+            input.frame_at(0.0);
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let Some(capture) = &input.capture else {
+            anyhow::bail!("capture never started");
+        };
+        // The worker reopens on its next pass (10 ms); allow it a few.
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let mut error = None;
+        while Instant::now() < deadline {
+            error = capture.status().last_error;
+            if error.as_deref().is_some_and(|text| text.contains(ID)) {
+                return Ok(());
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        anyhow::bail!("the capture never tried the chosen device; last error {error:?}")
     }
 
     #[test]
