@@ -9262,6 +9262,144 @@ in the message, say) are still separate entries.
 **Would reopen:** a source whose repeats differ only in a counter or a time,
 which would need its own throttle at the source, as D325 did for scripts.
 
+### D390: speed and traveler controls integrate in `f64`; the shader's copy is never wrapped (2026-10-17)
+
+**Context.** A `speed` or `traveler` control's output is the integral of
+its rate (D125, D197, D246). `ControlBank` summed it in `f32`, one frame's
+step at a time. Hours into a show the sum is large, and every addition
+rounds to the `f32` spacing there, always the same way for a steady step,
+so the pace drifts: four hours at 2/s and 60 fps ended at 28710.04 instead
+of 28800, each frame stepping 0.033203 instead of 0.033333. Worse, a
+control slowed after a long fast stretch stops: three hours at 10/s reach
+about 1.1e5, where the spacing is 0.0078, and a step of 0.1/60 is under
+half of it, so a minute at 0.1/s moved the output by exactly 0.
+
+**Decision.** Each speed or traveler control keeps its integral in an
+`f64` (`State::integral`), adds each frame's step to it in `f64`, and sets
+the output, which is what the uniform and scripts read, to that integral
+rounded to `f32`. Nothing is wrapped. A speed control is the integral that
+replaced a `TIME * k` term (D125), and shaders use it the way they use
+`TIME`: in `sin`, but just as often as a noise coordinate or an offset,
+where any wrap is a visible jump. A wrap would also change what a shader
+sees, which this change must not. In the first minute the new output
+differs from the old by the old sum's own error, under 0.0015 at 2/s (0.2
+after ten minutes, where the `f32` sum had already fallen behind), a phase
+no picture shows.
+
+**What is left.** The uniform is still an `f32`, so its value is the exact
+integral to half the `f32` spacing at its size: four hours at 2/s, within
+0.00098 of 28800, and a frame's step is 0.033333 to within one spacing
+(0.00195), alternating between neighbouring values instead of being
+wrong in one direction. That rounding does not accumulate and needs a
+shader that multiplies the value by tens before it shows. Wrapping the
+shader's copy is Q29.
+
+**Test.** `a_speed_control_keeps_its_pace_four_hours_in` (4 h at 60 fps:
+within half an `f32` step of the exact sum, and the next frame's step
+within one) and `a_control_slowed_after_hours_at_speed_still_moves` (3 h at
+10/s, then a minute at 0.1/s moves 6, for a speed and a traveler control).
+Both fail on the `f32` sum (89.96 behind; moved 0).
+
+**Would reopen:** an answer to Q29.
+
+### D391: the scene clock counts in `f64`; `TIME` is its rounded copy (2026-10-17)
+
+**Context.** `Session` kept the scene clock, `TIME`, as an `f32` and added
+each frame's `dt` to it. Past 8192 s the `f32` spacing is 0.00098 s, and a
+frame's 1/60 s is 17.07 of those, so every frame added exactly 17: the
+scene ran 0.4 % slow, 1.6 % at 144 fps (7.11 rounds to 7) and 6 % at
+240 fps. Four hours of frames read 14 355.02 s at 60 fps and 14 210.39 s
+at 144. The same `TIME` drives the synthetic track's clocks and tempo
+(which play from the scene clock), the Shadertoy clock pass's `dt` (D91),
+image sequences and scripts, so all of them slowed with it. A playlist
+restarts the clock on each cue (D151), so only a scene left playing for
+hours, a long cue or Perform without a playlist, reached that range.
+
+**Decision.** The clock is a `SceneClock`: the sum in `f64`, rounded to
+`f32` once per frame for the shader's `TIME`, the script's `TIME` and the
+audio frame's time. The script keeps the `f32` value, not the `f64`, so a
+script and its shader agree on the time. Nothing is wrapped: shaders use
+`TIME` as a coordinate as often as a phase, and wrapping it is Q29. A
+Synesthesia-faithful `TIME` is a float uniform too, and nothing the
+project has read says Synesthesia wraps it.
+
+**After.** Four hours in, `TIME` is the exact sum to within half the
+`f32` spacing (0.0005 s), at any frame rate, with no drift. A frame's step
+is `dt` to within one spacing (0.00098 s): the rounding alternates 17 and
+18 spacings at 60 fps instead of always 17. The `f32` uniform cannot do
+better without a wrap. In the first minutes the values are the same as
+before to within the old sum's own error (under 0.001 s after a minute).
+
+**Test.** `the_scene_clock_keeps_real_time_four_hours_in` (`session.rs`:
+4 h at 60 and at 144 fps, within half an `f32` step of the exact sum, and
+a second of frames each within one step of `dt`). It fails on the `f32`
+sum (45 s behind at 60 fps).
+
+**Would reopen:** an answer to Q29, or a host that wants the scene clock
+on a wall clock instead of summed frames.
+
+### D392: a playlist's show time counts in `f64` too (2026-10-17)
+
+**Context.** A playlist reads its beat (tempo, confidence, `syn_BeatTime`,
+the downbeat) from an audio frame evaluated at its own show time, which
+never restarts. With live audio the time is ignored; with the synthetic
+track (`--audio synthetic`, or `--audio auto` after the microphone is
+lost) the beat is a function of it. That time was an `f32` summed from the
+wall-clock steps, with D391's defect: four hours in it was 45 s behind at
+60 fps, so the beats the playlist counted ran 0.4 % slower than the cue
+clock (`f64`) they are compared with, 1.6 % at 144 fps.
+
+**Decision.** The show time is a `SceneClock` (D391), the same `f64` sum
+read as `f32`. The playlist clock's own times were already `f64` and the
+live beat counter is a whole number, exact in `f32` up to 16.7 million
+beats (over 1200 hours at 220 BPM), so nothing else on the playlist path
+grows out of precision.
+
+**Test.** `the_scene_clock_keeps_real_time_four_hours_in` covers the type.
+The show loop needs a GL context and a library to run, and its use of the
+clock is the three lines that changed.
+
+**Would reopen:** as D391.
+
+### D393: every clock that grows with show time, and what each one's precision is (2026-10-17)
+
+**Context.** Two bug sweeps flagged `f32` clocks that lose precision as a
+show runs. The goal is a show that looks the same four hours in as at
+minute one. This is the whole list, from a search of every crate for sums
+of `dt` and for clocks a shader, a script or the playlist reads. "Spacing"
+is the gap between neighbouring `f32` values at the clock's size four hours
+in.
+
+| Value | Kept as | Four hours in | Verdict |
+|---|---|---|---|
+| Speed and traveler control outputs | `f64` sum, `f32` uniform | within half a spacing (0.001 at 28 800) | fixed, D390; wrap is Q29 |
+| Scene `TIME` (`Session`) | `f64` sum, `f32` uniform and script value | within 0.0005 s | fixed, D391; wrap is Q29 |
+| A playlist's show time (its audio frame's time) | `f64` sum, `f32` to the audio | within 0.0005 s | fixed, D392 |
+| Playlist cue clock, elapsed, waits (`strobe-playlist`) | `f64` | exact | was already right |
+| `syn_Time`, band clocks, `syn_CurvedTime` (analyser) | `f64` sums, `f32` uniforms | half a spacing (0.004 at 1e5) | CPU side was already exact; uniform is Q29 |
+| Synthetic and ambient clocks | closed forms in `f64` (D329, D330) of the `f32` scene time | as `TIME` | right once `TIME` is (D391) |
+| `syn_BeatTime` (analyser) | whole-beat counter, `u64` | exact to 16.7 M beats | fine |
+| `syn_BPMTwitcher` and the synthetic `syn_BeatTime`; BPM sine and triangle | `f64` beat position, `f32` uniform; the shapes take its fraction in `f64` first | 0.002 of a beat at 28 800 beats; the shapes exact | fine; the shapes are already "value mod period" |
+| Shadertoy `iTime` (clock pass texel, RGBA32F) | `f32` sum on the GPU | equal to `TIME` at default speed; slowed late it runs fast or freezes | left, Q30 |
+| One-texel clocks in scenes 13 to 16 | `f32` sum on the GPU | as `iTime` | left with `iTime`, Q30 |
+| `FRAMECOUNT` | `u64`, `f32` uniform | exact (864 000 at 60 fps) | fine to 77 h at 60 fps, 32 h at 144; restarts per cue |
+| `strobe_Date` seconds of day (`iDate.w`) | `f32` | spacing 0.0078 s near midnight | bounded, and Shadertoy's own is `f32`; left |
+| Analyser silence and starvation timers, song and event detectors | `f32` sums | compared with thresholds of seconds | only ever compared with a threshold; left |
+| Bang counters | `f32` count of presses | exact to 16.7 M presses | not a clock |
+
+**Decision.** Keep every sum exact on the CPU and leave the `f32` the
+shader reads unwrapped. `TIME` and the clocks shaders read like it are
+used as coordinates (`noise(uv + TIME)`, `uv.x + TIME * 0.1`) as often as
+phases, so a wrap is a visible jump; nothing read so far says Synesthesia
+wraps them; and a wrap would change what a scene shows, which a precision
+fix must not. The two changes this leaves open are questions, not fixes:
+wrapping (Q29) and moving the Shadertoy clock to the host (Q30). Clocks
+that jump when the audio source changes mid-show (D330's "Not changed")
+are Q31: the continuity design is written there, and it is not built,
+because the synthetic track is evaluated at each caller's own time.
+
+**Would reopen:** an answer to Q29, Q30 or Q31.
+
 ### D395: the system probe has a ten-second budget, and a timeout is stated in the report (2026-10-17)
 
 **Context.** The crash monitor writes its `.txt` with `probe_system: true`,

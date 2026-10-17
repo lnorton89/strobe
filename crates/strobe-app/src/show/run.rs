@@ -59,7 +59,7 @@ use super::view::{self, CueRow};
 use super::watch::{self, Watch};
 use crate::audio::AudioInput;
 use crate::library::Library;
-use crate::session::Session;
+use crate::session::{SceneClock, Session};
 use std::path::{Path, PathBuf};
 use strobe_audio::events::{Event, EventDetector};
 use strobe_audio::song::SongDetector;
@@ -213,7 +213,9 @@ pub struct Show {
     song: SongDetector,
     /// The audio source the song detector last heard; a change resets it.
     song_source: Option<crate::audio::Source>,
-    show_time: f32,
+    /// The show's own clock, which the audio the playlist hears is
+    /// evaluated at: summed in `f64`, as a scene's is (D392).
+    show_time: SceneClock,
     events: Vec<ClockEvent>,
     waiting: Option<f64>,
     resume_in: Option<ResumePoint>,
@@ -284,7 +286,7 @@ impl Show {
             structure: EventDetector::default(),
             song: SongDetector::new(),
             song_source: None,
-            show_time: 0.0,
+            show_time: SceneClock::at(0.0),
             events: Vec::with_capacity(64),
             waiting: None,
             resume_in: resume,
@@ -723,9 +725,9 @@ impl Show {
         } else {
             dt
         };
-        self.show_time += wall;
+        self.show_time.advance(wall);
         if !self.pace_anchor(env, wall) {
-            let frame = env.audio.frame_at(self.show_time);
+            let frame = env.audio.frame_at(self.show_time.seconds());
             let beat = self.reader.read(&frame.scalars, frame.downbeat);
             let [whole, bass] = frame.energy;
             let source = env.audio.source();

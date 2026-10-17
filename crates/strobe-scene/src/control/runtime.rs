@@ -22,7 +22,11 @@
 //!   a second: `alpha = 1 - (1 - PARAMS)^(dt * 60)`. At 60 fps that is
 //!   exactly `PARAMS`; at any other rate it covers the same ground in the
 //!   same wall-clock time.
-//! - **speed** integrates: the target is a rate per second.
+//! - **speed** integrates: the target is a rate per second. The sum is
+//!   kept in `f64` and only the shader's copy is `f32` (D390): an `f32`
+//!   sum hours into a show rounds every frame's step to its own coarse
+//!   spacing, so the pace drifts, and a control slowed after running fast
+//!   stops moving at all.
 //! - **bang** outputs `MAX` for exactly one frame per press, then `MIN`;
 //!   presses between frames are counted, never lost. `bang smooth` runs an
 //!   attack/decay envelope; `bang counter` adds one per press.
@@ -50,6 +54,10 @@ struct State {
     attacking: bool,
     /// `traveler`: the rate, easing toward the target.
     rate: Values,
+    /// `speed` and `traveler`: the integral, of which `output` is the
+    /// rounded copy (D390). Never wrapped: what a shader does with it is
+    /// its own affair, as with `TIME`.
+    integral: [f64; MAX_DIMENSIONS],
     /// A glide a macro asked for (D227): the output eases to the target
     /// with this time constant, in seconds, whatever the control's own
     /// smoothing, until another write or arrival ends it.
@@ -389,6 +397,7 @@ fn initial_state(def: &ControlDef) -> State {
         count: 0.0,
         attacking: false,
         rate: def.default,
+        integral: [0.0; MAX_DIMENSIONS],
         glide: None,
     }
 }
@@ -444,7 +453,8 @@ fn step(def: &ControlDef, state: &mut State, dt: f32, rate: f32) {
         | ControlKind::Knob(Mode::Speed)
         | ControlKind::Xy(Mode::Speed) => {
             for i in 0..dims {
-                state.output[i] += state.target[i] * dt * rate;
+                state.integral[i] += f64::from(state.target[i]) * f64::from(dt) * f64::from(rate);
+                state.output[i] = state.integral[i] as f32;
             }
         }
         ControlKind::Slider(Mode::Traveler)
@@ -452,7 +462,8 @@ fn step(def: &ControlDef, state: &mut State, dt: f32, rate: f32) {
         | ControlKind::Xy(Mode::Traveler) => {
             ease(&mut state.rate, &state.target);
             for i in 0..dims {
-                state.output[i] += state.rate[i] * dt;
+                state.integral[i] += f64::from(state.rate[i]) * f64::from(dt);
+                state.output[i] = state.integral[i] as f32;
             }
         }
         ControlKind::Dropdown { smooth } => {
@@ -565,6 +576,70 @@ mod tests {
             "half a second at 2/s, got {}",
             out(&b, 0)
         );
+        Ok(())
+    }
+
+    /// The spacing of `f32` values just above `x` (for `x >= 0`).
+    fn ulp(x: f32) -> f32 {
+        f32::from_bits(x.to_bits() + 1) - x
+    }
+
+    #[test]
+    fn a_speed_control_keeps_its_pace_four_hours_in() -> Result<()> {
+        // D390: summed in f32, 4 h at 2/s and 60 fps ended at 28710.04
+        // instead of 28800, each frame's step 0.033203 instead of 0.033333.
+        const FRAMES: u32 = 4 * 3600 * 60;
+        let dt = 1.0_f32 / 60.0;
+        let mut b = bank(&[r#"{ "NAME": "s", "TYPE": "slider speed", "MIN": 0, "MAX": 2 }"#])?;
+        b.set(0, None, &[2.0]);
+        for _ in 0..FRAMES {
+            b.tick(dt);
+        }
+        let exact = |frames: u32| f64::from(frames) * 2.0 * f64::from(dt);
+        let at = out(&b, 0);
+        let error = (f64::from(at) - exact(FRAMES)).abs();
+        assert!(
+            error <= f64::from(ulp(at)) / 2.0,
+            "4 h in: {at}, exact {}, error {error} beyond half an f32 step",
+            exact(FRAMES)
+        );
+        b.tick(dt);
+        let step = out(&b, 0) - at;
+        let true_step = (exact(FRAMES + 1) - exact(FRAMES)) as f32;
+        assert!(
+            (step - true_step).abs() <= ulp(at),
+            "a frame's step 4 h in is {step}, not {true_step} to one f32 step"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_control_slowed_after_hours_at_speed_still_moves() -> Result<()> {
+        // D390: summed in f32, 3 h at 10/s reached about 1.1e5, where a
+        // step of 0.1/60 is under half the f32 spacing: the output froze.
+        let dt = 1.0_f32 / 60.0;
+        let mut b = bank(&[
+            r#"{ "NAME": "s", "TYPE": "slider speed", "MIN": 0, "MAX": 10 }"#,
+            r#"{ "NAME": "t", "TYPE": "slider traveler", "MIN": 0, "MAX": 10, "PARAMS": 1.0 }"#,
+        ])?;
+        b.set(0, None, &[10.0]);
+        b.set(1, None, &[10.0]);
+        for _ in 0..3 * 3600 * 60 {
+            b.tick(dt);
+        }
+        let before = [out(&b, 0), out(&b, 1)];
+        b.set(0, None, &[0.1]);
+        b.set(1, None, &[0.1]);
+        for _ in 0..60 * 60 {
+            b.tick(dt);
+        }
+        for (index, start) in before.into_iter().enumerate() {
+            let moved = out(&b, index) - start;
+            assert!(
+                (moved - 6.0).abs() < 0.05,
+                "control {index} from {start}: a minute at 0.1/s moved {moved}, not 6"
+            );
+        }
         Ok(())
     }
 
