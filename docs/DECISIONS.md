@@ -8706,9 +8706,9 @@ triangle shapes stay the synthetic track's.
 **Not changed here:** the plain synthetic track (`strobe_scene::synthetic`),
 which `--audio synthetic` uses and `--audio auto` falls back to when a
 device is lost, has the same `syn_Time` defect. It is outside the audio
-sweep's scope and is reported to the owner. The ambient textures are still
-the synthetic ones scaled to 35 %, so `syn_Spectrum` and `syn_LevelTrail`
-still pulse gently with the kick.
+sweep's scope and is reported to the owner; D330 has since fixed it. The
+ambient textures are still the synthetic ones scaled to 35 %, so
+`syn_Spectrum` and `syn_LevelTrail` still pulse gently with the kick.
 
 **Test.** `ambient_clocks_run_smoothly_hours_into_a_show` (every clock
 moves between 0 and 0.1 per 60 fps frame at 0 s, 1 h and 4 h);
@@ -8860,3 +8860,83 @@ the ES rewrite does not hoist, so they are still filled in
 
 **Would reopen:** a driver that rejects a non-constant global initialiser
 on the desktop path.
+
+### D330: the synthetic track's clocks are integrals of their rates, smooth four hours in (2026-10-17)
+
+**Context.** D329 smoothed `--audio ambient`'s clocks but left the plain
+synthetic track (`strobe_scene::synthetic`) alone. Its `syn_Time`, and the
+Mid, MidHigh and High clocks with it, was `time * (0.6 + level)`, and
+`syn_CurvedTime` was `time * (0.5 + 1.5 level²)`, with a level that pulses
+with the kick. Those are products, not integrals, so the clocks stepped on
+every beat by an amount that grows with the time: between consecutive
+60 fps frames, about +725 and -333 one hour in and +2949 and -1332 four
+hours in.
+`--audio synthetic` plays this track, `--audio auto` falls back to it when
+the microphone is lost mid-show, and `strobe-bench` and `strobe-autocontrol`
+render with it. A scene that moves on these clocks stuttered wildly, worse
+the longer a venue show (four hours) ran. `syn_BeatTime` was
+`beat + phase^0.25`, which covers 0.43 of a beat in a beat's first frame,
+and `syn_BassTime` (`beat + 1 - e^(-4 phase)`) stepped by 0.018 on each beat.
+
+**Decision.** Every synthetic clock is the closed-form integral from 0 of
+its rate, evaluated in `f64` (`synthetic::clocks`), so the track stays a
+pure function of time (two bench runs still give identical images), costs
+a few `exp`, `sin` and `cos` per frame and allocates nothing:
+
+- `syn_Time`, `syn_MidTime`, `syn_MidHighTime`, `syn_HighTime`: the same
+  rate law as before, `0.6 + syn_Level`, now integrated exactly. Each
+  envelope in `pulse` has a closed-form integral: the kick and the hat
+  restart every beat, so a whole beat adds a constant; the swell is a sine;
+  `|sin 1.7t|` adds 2 per half turn; and kick times swell sums the whole
+  beats as a geometric series of complex exponentials, periodic over the
+  swell's 64 beats, so the beat index is taken modulo 64 and nothing grows
+  with the hours.
+- `syn_BassTime`: the kick-shaped surge it had, normalised so each beat
+  adds exactly one; it is continuous across the beat.
+- `syn_CurvedTime`: runs at `0.5 + 1.5 m²` with `m` the level averaged over
+  a beat (kick, hat and wobble at their means), so it is convex in the
+  loudness and follows the sixteen-bar swell. The instantaneous `level²`
+  has no closed-form integral (the wobble and the beat are incommensurate),
+  and summing from 0 numerically would not be a pure function of time
+  without cost growing with the show.
+- `syn_BeatTime`: `time * BPM / 60`, advancing evenly. Its integer part
+  steps at the same instants as before, so the playlist clock's beats and
+  bars (`show::beat`) and scenes that read `floor(syn_BeatTime)` are
+  unchanged. `syn_BPMTwitcher` keeps `beat + phase^0.25`: a snap on the beat
+  is what a twitcher is for (ambient still zeroes it).
+
+Levels, hits, presence, tempo shapes and textures are unchanged. The
+ambient source no longer overrides `syn_BeatTime`, which the synthetic
+track now computes the same way; its band and curved clocks stay its own
+(D329), because their rates follow ambient's swell, not the kick.
+
+**Consequences.** `strobe-bench` frames change for the scenes whose image
+depends on a clock's fractional part at the captured time: 02, 03, 04, 05
+and 09 at the default `--start 2` (checked by rendering the library before
+and after, 320x180, llvmpipe). 07 reads only `floor(syn_BeatTime)` and 13's
+`syn_BassTime` term did not move a pixel. The repository keeps no image
+goldens; the autocontrol goldens pin analysis and rewrite text, and the
+Shadertoy goldens pin generated GLSL, so none of them moved. Autocontrol's
+measured scores use the synthetic audio and may shift slightly for a shader
+whose candidate interacts with a clock.
+
+**Not changed:** switching between live and synthetic audio when a device
+drops or returns still jumps every clock from the analyser's value to the
+synthetic track's (which counts from scene time 0) and back. Continuity
+offsets in the app's source switch would fix the motion, but the live
+`syn_BeatTime` offset must stay a whole number of beats for the
+analyser's downbeat estimate (D233) and the playlist clock to keep their
+bar lines, and the live clocks would carry the offset for the rest of the
+run. That is a design change of its own, left to the owner.
+
+**Test.** `strobe_scene::synthetic::tests`:
+`the_clocks_glide_and_never_run_back_hours_into_a_show` (every clock moves
+forward by 0 to 0.15 per 60 fps frame over twenty beats at 0 h, 1 h and
+4 h), `the_level_clock_is_the_integral_of_its_rate` (closed form against a
+400 000-step midpoint sum of `0.6 + syn_Level`, two windows, within 1e-5
+per second), `the_beat_clocks_count_one_per_beat`, and
+`the_same_time_gives_the_same_values` (bit-identical output, hours in
+included). D329's ambient tests still pass on the shared `syn_BeatTime`.
+
+**Would reopen:** a scene that needs `syn_CurvedTime` to follow each kick,
+or a measured cost of the clocks on the T480's frame path.
