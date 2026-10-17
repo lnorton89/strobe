@@ -1370,6 +1370,23 @@ fn an_endless_promise_chain_is_interrupted() -> Result<()> {
 }
 
 #[test]
+fn setup_and_update_declared_with_const_or_let_run_too() -> Result<()> {
+    // A top-level `const` or `let` is a global binding but not a property
+    // of the global object, so a host that only reads `globalThis.update`
+    // never calls it, and the script silently does nothing.
+    let script = r#"
+        let calls = 0;
+        const setup = () => { calls++; };
+        let update = function (dt) { setUniform("seen", calls, dt > 0 ? 1 : 0); };
+    "#;
+    let mut rig = Rig::new(script, &[])?;
+    let out = rig.step();
+    assert_eq!(out.status, ScriptStatus::Running, "{:?}", out.console);
+    expect_uniform(&out, "seen", ExtraType::Vec2, &[1.0, 1.0])?;
+    Ok(())
+}
+
+#[test]
 fn a_script_with_neither_setup_nor_update_is_fine() -> Result<()> {
     let mut rig = Rig::new("var x = 1;", &[])?;
     let out = rig.step();

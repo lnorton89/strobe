@@ -48,7 +48,7 @@ use crate::natives::{display, install, stage_uniform};
 use crate::output::{ConsoleLevel, FrameOutput, ScriptStatus};
 use crate::shared::{Command, Shared, Target};
 use rquickjs::context::EvalOptions;
-use rquickjs::{Context, Ctx, Exception, Object, Persistent, Runtime, Value};
+use rquickjs::{Context, Ctx, Exception, Function, Object, Persistent, Runtime, Value};
 use std::cell::Cell;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -105,6 +105,11 @@ struct Globals {
     vectors: Vec<VectorGlobal>,
     /// `_mouse`, `_click`, `_muv`, `_muvc`, in that order.
     mouse: Vec<Persistent<Object<'static>>>,
+    /// `update` when the script declared it with a top-level `let` or
+    /// `const`, which the global object does not carry (see
+    /// [`lifecycle`]). `None` for `function update`, which is looked up on
+    /// the global object each frame, so a script may reassign it.
+    lexical_update: Option<Persistent<Function<'static>>>,
 }
 
 /// One QuickJS runtime driving one scene's `script.js`.
@@ -190,6 +195,24 @@ fn run_jobs(runtime: &Runtime, deadline: &Cell<Option<Instant>>) -> Result<(), S
     }
 }
 
+/// The script's `setup` or `update` (`name`), however it was declared.
+///
+/// `function update` and `var update` make a property of the global
+/// object. A top-level `let` or `const` (`const update = (dt) => ...`) makes
+/// a global binding that is *not* a property, so reading `globalThis` alone
+/// would never find it and the script would silently do nothing. Failing
+/// the property, the name is read as an expression. Called once at load,
+/// so the evaluation costs nothing per frame.
+fn lifecycle<'js>(ctx: &Ctx<'js>, name: &str) -> rquickjs::Result<Option<Function<'js>>> {
+    let value: Value<'js> = ctx.globals().get(name)?;
+    if let Some(function) = value.as_function() {
+        return Ok(Some(function.clone()));
+    }
+    let value: Value<'js> =
+        ctx.eval(format!("typeof {name} === 'function' ? {name} : undefined"))?;
+    Ok(value.as_function().cloned())
+}
+
 /// Overwrites `keys` on `object` with `values`.
 fn write_fields(object: &Object<'_>, keys: &[&str], values: &[f32]) -> rquickjs::Result<()> {
     for (key, value) in keys.iter().zip(values) {
@@ -262,6 +285,7 @@ impl Globals {
             scalars,
             vectors,
             mouse,
+            lexical_update: None,
         })
     }
 
@@ -392,7 +416,7 @@ impl ScriptHost {
             let inputs: Value<'_> = ctx.eval(INPUTS_PRELUDE)?;
             ctx.globals().set("inputs", inputs)?;
             ctx.globals().set("uniforms", Object::new(ctx.clone())?)?;
-            let globals = Globals::build(&ctx, controls)?;
+            let mut globals = Globals::build(&ctx, controls)?;
             globals.write(&ctx, &ScriptInputs::default(), controls)?;
 
             if let Err(error) = ctx.eval_with_options::<Value<'_>, _>(source, script_options()) {
@@ -400,8 +424,11 @@ impl ScriptHost {
                     message: describe(&ctx, error),
                 });
             }
-            let setup: Value<'_> = ctx.globals().get("setup")?;
-            if let Some(function) = setup.as_function()
+            if !ctx.globals().get::<_, Value<'_>>("update")?.is_function() {
+                globals.lexical_update =
+                    lifecycle(&ctx, "update")?.map(|function| Persistent::save(&ctx, function));
+            }
+            if let Some(function) = lifecycle(&ctx, "setup")?
                 && let Err(error) = function.call::<_, ()>(())
             {
                 return Err(ScriptError::Setup {
@@ -561,7 +588,17 @@ impl ScriptHost {
         let update: Value<'js> = globals
             .get("update")
             .map_err(|error| describe(ctx, error))?;
-        if let Some(function) = update.as_function() {
+        let update = match (update.as_function(), &self.globals.lexical_update) {
+            (Some(function), _) => Some(function.clone()),
+            (None, Some(saved)) => Some(
+                saved
+                    .clone()
+                    .restore(ctx)
+                    .map_err(|error| describe(ctx, error))?,
+            ),
+            (None, None) => None,
+        };
+        if let Some(function) = update {
             function
                 .call::<_, ()>((f64::from(dt),))
                 .map_err(|error| describe(ctx, error))?;
