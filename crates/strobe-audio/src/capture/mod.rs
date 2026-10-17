@@ -35,6 +35,7 @@
 //! pass, so a UI thread can call them freely.
 
 mod device;
+mod watchdog;
 mod worker;
 
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU8, AtomicU32, AtomicU64, Ordering};
