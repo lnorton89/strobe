@@ -29,8 +29,10 @@
 //! A script is third-party code running on the render thread in front of
 //! an audience, so the host assumes it will misbehave.
 //!
-//! - Each host owns its own interpreter, capped at 64 MiB and a 1 MiB
-//!   stack, so a runaway scene cannot starve another.
+//! - Each host owns its own interpreter, capped at 64 MiB and a 256 KiB
+//!   stack, so a runaway scene cannot starve another, and runaway recursion
+//!   throws inside the script before it reaches the end of a Windows main
+//!   thread's 1 MiB stack (D321).
 //! - Every frame runs under a deadline (4 ms by default). `while (true) {}`
 //!   is interrupted, the frame returns, and the last good uniforms stay in
 //!   force.

@@ -1563,6 +1563,38 @@ fn runaway_recursion_is_a_fault_not_a_crash() -> Result<()> {
     Ok(())
 }
 
+#[test]
+fn runaway_recursion_on_a_one_mib_thread_is_a_fault_not_a_stack_overflow() -> Result<()> {
+    // A Windows executable's main thread, where the frame loop and so the
+    // script run, has a 1 MiB stack. The script's own stack limit must fit
+    // inside it with room for the app's frames, or deep recursion runs off
+    // the end of the real stack and the process dies.
+    const WINDOWS_MAIN_THREAD_STACK: usize = 1024 * 1024;
+    let worker = std::thread::Builder::new()
+        .stack_size(WINDOWS_MAIN_THREAD_STACK)
+        .spawn(|| -> Result<ScriptStatus> {
+            let script = "function r(n) { return r(n + 1) + 1; } function update() { r(0); }";
+            let mut rig = Rig::with_budget(
+                script,
+                &[],
+                Budget {
+                    max_stack: Budget::default().max_stack,
+                    ..relaxed()
+                },
+            )?;
+            Ok(rig.step().status)
+        })?;
+    let status = worker
+        .join()
+        .map_err(|_| anyhow!("the script thread died"))??;
+    assert_eq!(
+        status,
+        ScriptStatus::Faulted { consecutive: 1 },
+        "the recursion is stopped inside the script"
+    );
+    Ok(())
+}
+
 // ---- performance ------------------------------------------------------------------
 
 #[test]

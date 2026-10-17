@@ -8446,3 +8446,30 @@ All other tests pass unchanged. Hardware: MINIPC.md Task M25.
 - A machine whose stalls come every few seconds, so that a settled scale
   never collects evidence. Then the skip would need a limit.
 - M25 showing no deferral line where the bench lands in a verdict.
+
+### D321: a script's stack cap is 256 KiB, so runaway recursion throws instead of killing the process (2026-10-17)
+
+**Context.** QuickJS checks its own stack depth against a limit counted
+down from where the interpreter was created, on the caller's thread; it has
+no stack of its own. `Budget::max_stack` was 1 MiB, QuickJS's default. A
+Windows executable's main thread, where the frame loop and so every
+`script.js` run, has 1 MiB in all, part of it already used by the app. So
+`function r() { return r() + 1; }` ran off the end of the real stack before
+QuickJS's check fired: a stack overflow, which kills the process, on the
+platform the show runs on. Linux's 8 MiB main thread and the test harness's
+2 MiB threads hid it.
+
+**Decision.** The default cap is 256 KiB. Deep recursion is then a
+`RangeError` inside the script, a fault like any other: the frame's
+uniforms are discarded and three in a row disable the script. 256 KiB is
+about 350 nested JavaScript calls (measured, debug and release alike) and
+leaves three quarters of a 1 MiB thread to the app's own frames, including
+when a scene is loaded from deeper in the UI than the frame loop runs.
+
+**Test.** `runaway_recursion_on_a_one_mib_thread_is_a_fault_not_a_stack_overflow`
+(`strobe-script` conformance) runs the recursion on a thread with a 1 MiB
+stack. With the old cap the test process aborts with a stack overflow.
+
+**Would reopen:** a real scene that recurses deeper than about 350 calls.
+The answer then is a bigger main-thread stack for `strobe.exe` (a linker
+`/STACK` reserve), after which the cap can grow with it.
