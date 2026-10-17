@@ -18,7 +18,10 @@
 //! `rosc` sees it, [`nesting_ok`] walks the bundle structure with an explicit
 //! depth limit ([`MAX_DEPTH`]); `rosc` decodes bundles recursively, a 64 KB
 //! packet can nest thousands deep, and release builds abort on a stack
-//! overflow. The result is also bounded: at most [`MAX_MESSAGES`] messages per
+//! overflow. The same limit applies to arrays in a message's type tags
+//! (`,[[[...]]]`): `rosc` builds those without recursing, but dropping
+//! 30,000 nested arrays recurses once per level and overflows the OSC
+//! thread's stack just the same. The result is also bounded: at most [`MAX_MESSAGES`] messages per
 //! datagram, [`MAX_ARGS`] arguments per message, and addresses of at most
 //! [`MAX_ADDRESS`] bytes. Arguments Strobe cannot use (strings, blobs,
 //! colours, MIDI, timestamps, arrays) are dropped; a message that *had*
@@ -105,22 +108,27 @@ pub enum DecodeError {
 }
 
 /// Whether `bytes` (a message or a bundle) is well-formed to a depth of
-/// [`MAX_DEPTH`]. Needs no allocation and no recursion deeper than that.
+/// [`MAX_DEPTH`], for bundles and for arrays in a message's type tags.
+/// Needs no allocation and no recursion deeper than that.
 pub fn nesting_ok(bytes: &[u8]) -> bool {
-    walk(bytes, 0)
+    walk(bytes, 0, 0)
 }
 
-fn walk(bytes: &[u8], depth: usize) -> bool {
+/// `bytes` starts `offset` bytes into the datagram: `rosc` pads strings to
+/// four bytes counted from the datagram's start, so the type tags are found
+/// where it will look for them.
+fn walk(bytes: &[u8], offset: usize, depth: usize) -> bool {
     const HEADER: &[u8] = b"#bundle\0";
     if !bytes.starts_with(HEADER) {
-        return true;
+        return arrays_ok(bytes, offset);
     }
     if depth >= MAX_DEPTH {
         return false;
     }
     // 8 bytes of "#bundle\0", then an 8-byte time tag, then elements, each
     // a big-endian i32 size and that many bytes.
-    let Some(mut rest) = bytes.get(16..) else {
+    let mut at = 16;
+    let Some(mut rest) = bytes.get(at..) else {
         return false;
     };
     while !rest.is_empty() {
@@ -133,10 +141,41 @@ fn walk(bytes: &[u8], depth: usize) -> bool {
         let Some((element, after)) = tail.split_at_checked(size) else {
             return false;
         };
-        if !walk(element, depth + 1) {
+        if !walk(element, offset + at + 4, depth + 1) {
             return false;
         }
+        at += 4 + size;
         rest = after;
+    }
+    true
+}
+
+/// Whether the message in `bytes` (`offset` into the datagram) opens no
+/// more than [`MAX_DEPTH`] arrays inside one another. Anything that is not
+/// laid out as a message is left for `rosc` to refuse.
+fn arrays_ok(bytes: &[u8], offset: usize) -> bool {
+    let Some(address_end) = bytes.iter().position(|b| *b == 0) else {
+        return true;
+    };
+    let after = address_end + 1;
+    let tags_start = after + (4 - (offset + after) % 4) % 4;
+    let Some(tags) = bytes.get(tags_start..) else {
+        return true;
+    };
+    let tags = tags.split(|b| *b == 0).next().unwrap_or_default();
+    // `rosc` skips the first character (the comma) whatever it is.
+    let mut open = 0_usize;
+    for tag in tags.iter().skip(1) {
+        match tag {
+            b'[' => {
+                open += 1;
+                if open > MAX_DEPTH {
+                    return false;
+                }
+            }
+            b']' => open = open.saturating_sub(1),
+            _ => {}
+        }
     }
     true
 }
@@ -506,6 +545,67 @@ mod tests {
         }
         assert!(!nesting_ok(&bytes), "rejected by the guard");
         assert!(decode(&bytes).is_err(), "and by decode");
+    }
+
+    /// A message whose type tags open `depth` arrays and close them again:
+    /// `,[[[...]]]` with no data, which `rosc` builds into `depth` nested
+    /// arrays.
+    fn nested_arrays(depth: usize) -> Vec<u8> {
+        let mut bytes = b"/x\0\0".to_vec();
+        bytes.push(b',');
+        bytes.extend(std::iter::repeat_n(b'[', depth));
+        bytes.extend(std::iter::repeat_n(b']', depth));
+        bytes.push(0);
+        while !bytes.len().is_multiple_of(4) {
+            bytes.push(0);
+        }
+        bytes
+    }
+
+    #[test]
+    fn deeply_nested_arrays_are_refused_on_a_listener_sized_stack() -> Result<()> {
+        // 32,000 levels fit one datagram. `rosc` builds them without
+        // recursing, but dropping the result recurses once per level, which
+        // overflows the OSC thread's stack and aborts the app: anyone who
+        // can reach the port could take the projector down.
+        let bytes = nested_arrays(32_000);
+        assert!(bytes.len() <= 65_507, "fits one UDP datagram");
+        let worker = std::thread::Builder::new()
+            .stack_size(2 * 1024 * 1024)
+            .spawn(move || decode(&bytes).is_err())?;
+        let refused = worker
+            .join()
+            .map_err(|_| anyhow!("the decoder thread died"))?;
+        assert!(refused, "refused before rosc builds it");
+        Ok(())
+    }
+
+    #[test]
+    fn shallow_arrays_still_decode_and_are_dropped_as_arguments() -> Result<()> {
+        let mut bytes = b"/x\0\0".to_vec();
+        bytes.extend_from_slice(b",f[f]\0\0\0");
+        bytes.extend_from_slice(&0.5_f32.to_be_bytes());
+        bytes.extend_from_slice(&0.25_f32.to_be_bytes());
+        assert_eq!(
+            decode(&bytes)?[0].args,
+            vec![Arg::Float(0.5)],
+            "the float outside the array is kept"
+        );
+        assert!(
+            decode(&nested_arrays(MAX_DEPTH))?.is_empty(),
+            "arrays as deep as bundles may go decode, and carry nothing usable"
+        );
+        assert!(
+            decode(&nested_arrays(MAX_DEPTH + 1)).is_err(),
+            "one deeper is refused"
+        );
+        let inner = nested_arrays(MAX_DEPTH + 1);
+        let mut wrapped = b"#bundle\0".to_vec();
+        wrapped.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 1]);
+        wrapped.extend_from_slice(&i32::try_from(inner.len())?.to_be_bytes());
+        wrapped.extend_from_slice(&inner);
+        assert!(!nesting_ok(&wrapped), "and inside a bundle");
+        Ok(())
     }
 
     #[test]

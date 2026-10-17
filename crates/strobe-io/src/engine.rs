@@ -419,7 +419,13 @@ impl Engine {
                 Drive::Applied => applied += 1,
                 Drive::Waiting => waiting = true,
                 Drive::Idle => {}
-                Drive::Unavailable(why) => unavailable = Some(why),
+                Drive::Unavailable(why) => {
+                    // The fader's readings are not seen while its control is
+                    // away, so the last one must not count towards a
+                    // crossing when the control comes back.
+                    mapping.runtime.pickup.reset();
+                    unavailable = Some(why);
+                }
             }
         }
         if !matched
@@ -497,6 +503,10 @@ fn drive(
             }
         }
         Target::Command { id } => fire(cfg, runtime, signal, out, || Output::Command(id.clone())),
+        // Both count from 1, and the app takes one off: a zero would reach
+        // the first.
+        Target::Cue { number: 0 } => Drive::Unavailable("cue numbers start at 1".to_string()),
+        Target::FavSlot { slot: 0 } => Drive::Unavailable("fav slots start at 1".to_string()),
         Target::Cue { number } => fire(cfg, runtime, signal, out, || Output::Cue(*number)),
         Target::FavSlot { slot } => fire(cfg, runtime, signal, out, || Output::FavSlot(*slot)),
         Target::Preset { name } => fire(cfg, runtime, signal, out, || Output::Preset(name.clone())),
@@ -611,6 +621,14 @@ fn drive_control(
                         .map_or(0.0, |(def, target)| {
                             def.normalize(component, target.get(component).copied().unwrap_or(0.0))
                         });
+                // A control outside what this mapping can reach (its range,
+                // a macro's) is met at the nearest end of the reach; it
+                // could never be met at all otherwise (D373).
+                let (low, high) = {
+                    let (a, b) = (cfg.shape(0.0, outer), cfg.shape(1.0, outer));
+                    if a <= b { (a, b) } else { (b, a) }
+                };
+                let current = current.clamp(low, high);
                 match runtime.pickup.filter(cfg.takeover, wanted, current) {
                     Some(value) => value,
                     None => return Drive::Waiting,
@@ -865,6 +883,69 @@ mod tests {
     }
 
     #[test]
+    fn a_fader_moved_while_its_control_was_away_does_not_jump_it_on_return() -> Result<()> {
+        let mut rig = Rig::new()?;
+        rig.map(7, Target::control("speed"));
+        // speed is at 0.5; the fader rests low, not picked up.
+        assert_eq!(rig.cc(7, 25), Outcome::Waiting, "far below");
+        // A scene without speed plays, and the fader is pushed up meanwhile.
+        let raw: RawControl = serde_json::from_str(r#"{ "NAME": "other", "TYPE": "slider" }"#)?;
+        let mut other = ControlBank::new(vec![ControlDef::from_raw(&raw)?])?;
+        let source = Source::MidiCc {
+            device: Some("pad".into()),
+            channel: 1,
+            controller: 7,
+        };
+        let mut banks = Banks {
+            scene: Some(&mut other),
+            meta: Some(&mut rig.meta),
+        };
+        let away = rig
+            .engine
+            .handle(&source, Signal::Analog(0.8), &mut banks, &mut rig.out);
+        assert!(matches!(away, Outcome::Unavailable(_)), "{away:?}");
+        // speed's scene is back, still at 0.5. The fader's next reading is
+        // at 0.81: it never travelled through 0.5 while it was being read.
+        assert_eq!(
+            rig.cc(7, 103),
+            Outcome::Waiting,
+            "no crossing was seen, so no pickup"
+        );
+        assert!(
+            near(rig.value("speed")?, 5.0),
+            "not dragged to the fader: {}",
+            rig.value("speed")?
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_fader_whose_range_cannot_reach_the_control_picks_it_up_at_the_nearest_end() -> Result<()> {
+        let mut rig = Rig::new()?;
+        rig.map(7, Target::control("speed")).range = [0.0, 0.5];
+        // A preset put speed at 8 of 10, beyond what this fader may reach.
+        let speed = rig.scene.find("speed").ok_or_else(|| anyhow!("speed"))?;
+        rig.scene.set(speed, None, &[8.0]);
+        let mut outcomes = Vec::new();
+        for value in [0, 32, 64, 100, 127] {
+            outcomes.push(rig.cc(7, value));
+        }
+        assert_eq!(
+            outcomes.last(),
+            Some(&Outcome::Applied(1)),
+            "at the top of its reach the fader has met the control: {outcomes:?}"
+        );
+        assert!(near(rig.value("speed")?, 5.0), "{}", rig.value("speed")?);
+        rig.cc(7, 64);
+        assert!(
+            near(rig.value("speed")?, 10.0 * 0.5 * 64.0 / 127.0),
+            "and drives it from there: {}",
+            rig.value("speed")?
+        );
+        Ok(())
+    }
+
+    #[test]
     fn a_change_from_the_ui_makes_the_fader_pick_the_control_up_again() -> Result<()> {
         let mut rig = Rig::new()?;
         rig.map(7, Target::control("speed"));
@@ -1058,6 +1139,68 @@ mod tests {
     }
 
     #[test]
+    fn a_source_with_no_release_fires_every_time_it_is_sent() -> Result<()> {
+        use crate::event::{InputEvent, OscMessage};
+        use crate::message::MidiMessage;
+        use std::sync::Arc;
+        let mut rig = Rig::new()?;
+        let program = InputEvent::Midi {
+            device: Arc::from("pad"),
+            message: MidiMessage::ProgramChange {
+                channel: 0,
+                program: 5,
+            },
+        };
+        let go = InputEvent::Osc(OscMessage {
+            address: "/go".into(),
+            args: Vec::new(),
+        });
+        for (event, id) in [(&program, "next_scene"), (&go, "toggle_blackout")] {
+            let (source, _) = Source::of(event).ok_or_else(|| anyhow!("a source"))?;
+            rig.engine
+                .mappings
+                .push(Mapping::new(source.for_any_device(), Target::command(id)));
+        }
+        for _ in 0..3 {
+            for event in [&program, &go] {
+                let (source, signal) = Source::of(event).ok_or_else(|| anyhow!("a source"))?;
+                rig.send(source, signal);
+            }
+        }
+        let fired = |id: &str| {
+            rig.out
+                .iter()
+                .filter(|o| **o == Output::Command(id.into()))
+                .count()
+        };
+        assert_eq!(fired("next_scene"), 3, "a program change has no release");
+        assert_eq!(fired("toggle_blackout"), 3, "an OSC trigger has no release");
+        Ok(())
+    }
+
+    #[test]
+    fn a_press_after_a_lost_release_is_still_a_press() -> Result<()> {
+        let mut rig = Rig::new()?;
+        let source = Source::MidiNote {
+            device: None,
+            channel: 1,
+            note: 36,
+        };
+        rig.engine
+            .mappings
+            .push(Mapping::new(source, Target::control("on")));
+        rig.note(36, true);
+        // The note off was dropped (a full queue, an unplugged cable).
+        rig.note(36, true);
+        rig.note(36, false);
+        assert!(
+            near(rig.value("on")?, 0.0),
+            "the second press toggled it off again"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn cue_fav_and_preset_targets_produce_outputs() -> Result<()> {
         let mut rig = Rig::new()?;
         for (note, target) in [
@@ -1088,6 +1231,32 @@ mod tests {
             ],
             "outputs in order"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn fav_slot_and_cue_zero_recall_nothing() -> Result<()> {
+        let mut rig = Rig::new()?;
+        // The app counts both from 1 and subtracts one, so a zero reached
+        // fav slot 1 and cue 1.
+        rig.osc("/strobe/fav/0", Signal::Button(true));
+        for (note, target) in [
+            (70, Target::FavSlot { slot: 0 }),
+            (71, Target::Cue { number: 0 }),
+        ] {
+            let source = Source::MidiNote {
+                device: None,
+                channel: 1,
+                note,
+            };
+            rig.engine.mappings.push(Mapping::new(source, target));
+            let outcome = rig.note(note, true);
+            assert!(
+                matches!(outcome, Outcome::Unavailable(_)),
+                "says why: {outcome:?}"
+            );
+        }
+        assert!(rig.out.is_empty(), "nothing recalled: {:?}", rig.out);
         Ok(())
     }
 

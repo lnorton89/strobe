@@ -9010,3 +9010,108 @@ the ES rewrite does not hoist, so they are still filled in
 
 **Would reopen:** a driver that rejects a non-constant global initialiser
 on the desktop path.
+
+### D370: OSC arrays nest no deeper than bundles may (2026-10-17)
+
+**Context.** D172 bounded bundle nesting before `rosc` sees a datagram,
+because `rosc` decodes bundles recursively. Arrays in a message's type tags
+(`,[[[...]]]`) were not bounded. `rosc` builds them with an explicit stack,
+but dropping the decoded message recurses once per level: one 64 KB
+datagram holds 32,000 levels, and dropping them overflowed the OSC thread's
+2 MiB stack. Release builds abort, so anyone who could reach the port (only
+this machine by default, the LAN with "All network interfaces") could take
+the output down with one packet.
+
+**Decision.** `osc::nesting_ok` also reads each message's type tags, found
+where `rosc` will look (string padding counts from the datagram's start, also
+inside a bundle), and refuses a datagram that opens more than `MAX_DEPTH` (4)
+arrays inside one another. Arrays are dropped as arguments anyway (D172), so
+nothing usable is refused; a message with a shallow array keeps its other
+arguments.
+
+**Test.** `deeply_nested_arrays_are_refused_on_a_listener_sized_stack` (it
+aborted the test binary before the fix) and
+`shallow_arrays_still_decode_and_are_dropped_as_arguments`.
+
+**Would reopen:** a sender that needs arrays, which would want them decoded
+rather than dropped.
+
+### D371: a button press with no release between is a press again (2026-10-17)
+
+**Context.** A mapping remembers whether its source is held
+(`mapping::Runtime`) and acted only on the edge from up to down. Some sources
+never go up: a MIDI program change, and an OSC trigger (no argument, `N`,
+`I`, or a lone `T`) are each read as a press with no release. Mapped to a
+command, a cue or a toggle, they worked **once** and then never again until
+the app restarted: "program 5 is next scene" changed scene on the first
+press only. A note off lost to a full queue (D171) or a pulled cable did the
+same to a pad: the next press was swallowed.
+
+**Decision.** `Runtime::edge` reports a press for every button-down signal,
+including one that arrives while the source is already down. A release is
+still reported once. Analog sources keep the threshold and its hysteresis
+(D173), so a fader resting above the line does not fire repeatedly, and the
+keyboard's macro keys are unaffected (the UI already filters key repeat).
+The built-in OSC addresses were already stateless.
+
+**Test.** `a_source_with_no_release_fires_every_time_it_is_sent` (a program
+change and an argument-less OSC address, each mapped to a command, fire
+three times for three messages; once before the fix) and
+`a_press_after_a_lost_release_is_still_a_press`.
+
+**Would reopen:** a controller that repeats a note on while a pad is held
+(none known; poly aftertouch is a different message, which is not parsed),
+which would want the repeat filtered per source kind.
+
+### D372: a MIDI device that goes away lets go of the notes it was holding (2026-10-17)
+
+**Context.** A pad mapped as momentary holds its control on until its note
+off arrives. When the device is unplugged, switched off in the MAP pane, or
+MIDI is turned off while a pad is held, that note off can never arrive: the
+control stayed on (a slider at the top of its reach, a toggle on) until the
+device came back and the pad was pressed and released again.
+
+**Decision.** Each open device's callback keeps a 2048-bit set of the notes
+it is holding (16 channels of 128, atomics, no allocation). When the worker
+closes a connection for any reason it first drops it (so the callback has
+stopped) and then queues a note off, with the device's key, for every note
+still down, ahead of the `DeviceLost` report. The mapper treats them as any
+other release, so this works for a mapping on one device and on any device.
+CCs are not touched: a fader stays where it is physically, and a CC button
+stuck above its threshold is left alone, since a CC has no "held" meaning
+the worker could know.
+
+**Test.** `the_notes_a_device_holds_are_let_go_when_it_closes` (recorded
+bytes, a velocity-0 note on counted as a release) and
+`a_momentary_pad_held_on_a_device_that_goes_away_is_let_go` (through the
+mapper). The worker's close path itself needs a controller to exercise; see
+the MIDI hardware checks in STATUS_AUDIT (show control, area-9 sweep).
+
+**Would reopen:** a controller whose note offs are routinely lost mid-show
+without the device going away, which would want a timeout instead.
+
+### D373: a fader that cannot reach its control picks it up at the nearest end of its reach (2026-10-17)
+
+**Context.** Soft takeover (D174) waits until the fader reaches the
+control's value. A mapping's `range`, or a macro's (D175), can keep the fader
+out of part of the control's range, and a preset, a scene default, a script
+or the inspector can put the control there. The fader then could never reach
+it: the MAP pane said "waiting for pickup" for as long as the control stayed
+put, and moving the fader did nothing at all.
+
+**Decision.** For the pickup comparison the control's value is clamped into
+what the mapping can reach (`shape(0)` to `shape(1)`, either way round). A
+fader at the end of its reach nearest the control has met it, engages, and
+from then on drives the control as usual; the step is the distance from the
+control to the edge of the reach, the least any write by this fader could
+make. A control inside the reach behaves exactly as before. A mapping with
+an empty range (`[0.5, 0.5]`, a fixed value) now sets its value on the first
+message instead of never.
+
+**Test.** `a_fader_whose_range_cannot_reach_the_control_picks_it_up_at_the_nearest_end`
+(a fader limited to the lower half, the control at 0.8: waiting forever
+before, engaged at the top of its travel after).
+
+**Would reopen:** an operator who would rather a narrowed fader stayed dead
+until the control came back into its reach, which would be a per-mapping
+option.

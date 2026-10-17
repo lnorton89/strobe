@@ -853,6 +853,14 @@ survives export.
   held by another program on WinMM, message rates), Windows or the T480 for any
   of it, OSC from another machine (`--osc-all-interfaces` was only bound, never
   reached from a LAN), and a person's use of Learn with a controller.
+  The area-9 sweep (2026-10-17) added logic tested without hardware that a
+  controller must confirm: with two identical controllers, unplugging the
+  first leaves the second working (now under the plain key; the MAP pane shows
+  it reconnecting); a momentary pad held while its cable is pulled lets its
+  control go (D372); a program change mapped to a command fires every time
+  (D371); and a replug faster than the one-second poll (on ALSA it comes back
+  on a new `client:port` and is reopened; on WinMM the port id may be the same
+  and the old handle dead, which nothing here detects yet).
 - [~] LAN remote v1 (D250-D254, 2026-10-13). **Verified, with evidence:**
   - the listener over real loopback sockets in CI
     (`crates/strobe-remote/tests/server.rs`, 17 tests): the page and its
