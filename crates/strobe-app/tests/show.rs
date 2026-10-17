@@ -784,6 +784,79 @@ fn a_scene_cued_again_starts_fresh_rather_than_from_its_last_cues_buffers() -> R
     Ok(())
 }
 
+/// A script that counts its own frames and shows the count in red, over
+/// [`COUNT_SCALE`].
+const SCRIPT_COUNTER: &str = "var frames = 0;\n\
+    function setup() { setUniform('frames', 0); }\n\
+    function update() { frames++; setUniform('frames', frames); }\n";
+const SCRIPT_COUNTER_SHADER: &str =
+    "vec4 renderMain() { return vec4(frames / 400.0, 0.0, 0.0, 1.0); }";
+
+#[test]
+fn a_scene_cued_again_starts_its_script_fresh_too() -> Result<()> {
+    for api in BOTH {
+        let Some(headless) = context(api)? else {
+            continue;
+        };
+        let library = library_of(
+            &format!("recue-script-{api:?}"),
+            &[
+                ("scripted", "{}", SCRIPT_COUNTER_SHADER),
+                ("red", "{}", RED_SHADER),
+            ],
+        )?;
+        std::fs::write(
+            library.root.join("scripted.synScene").join("script.js"),
+            SCRIPT_COUNTER,
+        )?;
+        let mut rig = Rig::new(&headless)?;
+        let mut playlist = Playlist::new("recue-script");
+        let mut section = Section::new("all");
+        for scene in ["scripted", "red", "scripted"] {
+            section.cues.push(cue_of(scene, 3.0, TransitionSpec::cut()));
+        }
+        playlist.sections.push(section);
+        let mut show = Show::new(None, playlist, &library.library, None, None);
+        rig.load(&mut show)?;
+        let compiles = rig.gl.shader_compiles();
+        let count = |rig: &Rig<'_>| -> Result<f32> {
+            Ok(f32::from(live_centre(rig)?[0]) / 255.0 * COUNT_SCALE)
+        };
+        let mut end_of_first = None;
+        let mut start_of_third = None;
+        for _ in 0..(8 * 60) {
+            rig.frame(&mut show);
+            match show.clock().current() {
+                Some(0) => end_of_first = Some(count(&rig)?),
+                Some(2) if start_of_third.is_none() => start_of_third = Some(count(&rig)?),
+                _ => {}
+            }
+        }
+        let (Some(first), Some(third)) = (end_of_first, start_of_third) else {
+            return Err(anyhow!("{api:?}: the scripted cues did not both play"));
+        };
+        assert!(
+            third > 60.0,
+            "{api:?}: the restarted script still reaches its uniform, counted {third:.0}"
+        );
+        assert_eq!(
+            rig.gl.shader_compiles(),
+            compiles,
+            "{api:?}: starting the script over compiled nothing"
+        );
+        // As with the passes (D297): the third cue's script has run only
+        // through its warm-up, about 120 frames. One that carried the first
+        // cue's state would count on from about 300.
+        assert!(
+            third < first,
+            "{api:?}: a re-cued scene's script starts over: the first cue ended at \
+             {first:.0} frames, the third began at {third:.0}"
+        );
+        show.finish();
+    }
+    Ok(())
+}
+
 #[test]
 fn a_cues_overrides_reach_the_picture_every_time_its_scene_plays() -> Result<()> {
     for api in BOTH {

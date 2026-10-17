@@ -181,6 +181,9 @@ pub struct Session {
     /// The preset last recalled or saved, for storing into a fav slot.
     pub active_preset: Option<String>,
     script: Option<ScriptRun>,
+    /// The text of `script.js` when its script started, for
+    /// [`Self::restart_script`].
+    script_source: Option<String>,
     /// Scratch for the script's uniform values, in the player's order.
     extra_values: Vec<[f32; 4]>,
     transitions: Vec<f32>,
@@ -257,6 +260,7 @@ impl Session {
         if let Some(run) = script.as_mut() {
             run.seal_uniforms();
         }
+        let script_source = script.as_ref().and(scene.script);
         let mut session = Self {
             name: name.to_string(),
             dir: dir.to_path_buf(),
@@ -268,6 +272,7 @@ impl Session {
             presets: Vec::new(),
             active_preset: None,
             script,
+            script_source,
             extra_values: Vec::new(),
             transitions,
             frame: 0,
@@ -449,6 +454,43 @@ impl Session {
     pub fn restart_clock(&mut self, start: f32) {
         self.time = start;
         self.frame = 0;
+    }
+
+    /// Starts the scene's script over, as loading the scene did: `script.js`
+    /// is evaluated again, `setup()` runs, and the script's first frame runs
+    /// at `start` with the audio there, so its control writes land before
+    /// whatever the caller applies next. Its uniforms are sealed to the ones
+    /// the shaders were compiled with, so nothing is compiled. A playlist
+    /// does this when it cues the scene again (D323): a cue starts its scene
+    /// from the beginning, script included. A script that no longer starts
+    /// is reported and the scene carries on without it, as at load.
+    pub fn restart_script(&mut self, audio: &mut AudioInput, start: f32) {
+        let Some(source) = self.script_source.as_deref() else {
+            return;
+        };
+        let mut run = match ScriptRun::start(source, &self.name, &self.controls, &self.meta) {
+            Ok(run) => run,
+            Err(error) => {
+                failure::report(failures::script_load(&self.name, &error));
+                self.script = None;
+                return;
+            }
+        };
+        let frame = audio.frame_at(start);
+        let harvest = run.frame(
+            FIRST_FRAME_DT,
+            &ScriptInputs {
+                time: start,
+                frame_count: 0,
+                audio: &frame.scalars,
+                ..ScriptInputs::default()
+            },
+            &mut self.controls,
+            &mut self.meta,
+        );
+        run.seal_uniforms_to(self.player.extras().iter().map(|(name, _)| name.as_str()));
+        self.script = Some(run);
+        self.send_script_uniforms(&harvest);
     }
 
     /// The targets (what the operator last asked for) of the scene's

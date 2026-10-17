@@ -177,6 +177,14 @@ impl UniformStore {
             .collect()
     }
 
+    /// Seals the store with exactly `names` as the declared set, whatever
+    /// has been committed: for a script started again under shaders that
+    /// were compiled for an earlier start of it. A name in `names` not set
+    /// yet may still be set; any other new name is refused.
+    pub(crate) fn seal_to<'a>(&mut self, names: impl IntoIterator<Item = &'a str>) {
+        self.declared = Some(names.into_iter().map(Arc::from).collect());
+    }
+
     /// Every committed uniform, in first-appearance order.
     pub(crate) fn snapshot(&self) -> Vec<ScriptUniform> {
         self.slots
@@ -261,6 +269,24 @@ mod tests {
             .map(|uniform| uniform.name.to_string())
             .collect();
         assert_eq!(names, ["a"], "the refused name never appears");
+    }
+
+    #[test]
+    fn sealing_to_a_list_declares_exactly_that_list() {
+        let mut store = UniformStore::default();
+        store.set("mine", &[1.0]);
+        store.commit();
+        store.seal_to(["compiled"]);
+        assert_eq!(
+            store.set("compiled", &[2.0, 3.0]),
+            SetOutcome::Stored,
+            "a listed name not set before the seal is still accepted"
+        );
+        assert_eq!(
+            store.set("mine", &[1.0]),
+            SetOutcome::Refused,
+            "a committed name the list leaves out is refused"
+        );
     }
 
     #[test]
