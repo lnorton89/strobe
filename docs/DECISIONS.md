@@ -9902,3 +9902,61 @@ the T480 (STATUS_AUDIT, audio removed and reconnected).
 needs catching too (it would want WASAPI's device notifications, the `wasapi`
 crate escape hatch in AGENT_RESEARCH), or a stalled chosen device that should
 fall back to the default input rather than be retried.
+
+### D421: a fader flood keeps its latest value and cannot crowd out a note (2026-10-17)
+
+**Context.** D171 put every MIDI and OSC event in one bounded queue of 2048
+that drops the newest message when full. The bound held, but what it dropped
+did not discriminate: a fader swept while the frame loop was stalled (a
+scene compile, a Windows window drag, which holds the loop for as long as the
+mouse is down), or a controller stuck sending, filled the queue with CCs in
+about two seconds at 1 kHz, and every note on and note off after that was
+dropped. D371 already named "a note off lost to a full queue" as a way a pad
+got stuck. Clock and transport messages are not at risk: `message::parse`
+ignores system messages, so they never reach the queue.
+
+**Decision.** The hub keeps two bounded queues behind the same `Tx::send`.
+
+- **Continuous values** (CC, pitch bend) go to a table of at most `LATEST`
+  (1024) entries, each the newest value for one source, a source being
+  (device, channel, controller) or (device, channel) for the wheel. A new
+  value replaces its source's newest waiting entry; a fader swept a thousand
+  times during a stall is one entry with its last position. One exception
+  keeps CC buttons working: a value in the other half of the range from the
+  waiting one (at 64) becomes a new entry instead of replacing it, so a
+  nanoKONTROL2-style button's 127 and 0 both arrive even when the press and
+  the release land within one frame, and a sweep across the middle costs one
+  extra entry. A table that is full drops the new source and counts it in
+  `Status::Dropped`, as before.
+- **Everything else** (notes, program changes, OSC and status reports) keeps
+  its order in the existing channel of `QUEUE` (2048). Faders no longer share
+  it, so no fader flood can fill it.
+
+`Hub::drain` takes the ordered events first and then the latest values, up
+to the same per-frame cap (256 in the app), leaving the rest for the next
+frame. The table is a `Vec` allocated once at its full size behind a
+`Mutex`; the MIDI callback holds the lock to update one entry, and the drain
+to move at most 256 small entries, so neither waits on anything slow and
+nothing is allocated per message beyond the event, as before. Within one
+frame a CC and a note from the same device may now be applied in the other
+order than they were played; mappings act on them independently, so nothing
+observable depends on it. OSC is unchanged (its messages carry no fader or
+button kind to coalesce by).
+
+**Test.** `hub::tests`: `a_fader_flood_keeps_the_latest_value_and_never_drops_a_note`
+(100,000 CCs and pitch bends with 200 notes, nothing drained: all 200 notes in
+order, one entry per source with its last value, nothing dropped; before,
+the notes after the first 2048 messages were lost),
+`a_cc_button_press_and_release_in_one_frame_both_arrive`,
+`the_same_controller_on_two_devices_or_channels_is_two_sources`,
+`the_table_of_latest_values_is_bounded_and_counts_what_it_drops` (every CC on
+every channel: 1024 kept, 896 counted, the note off still delivered first),
+and the updated `drain_takes_no_more_than_it_is_asked_for`. Not exercised: a
+real controller's flood (STATUS_AUDIT, MIDI hardware).
+
+**Would reopen:** a mapping that depends on a fader's intermediate values
+within one frame (none: an analog mapping writes the latest position), a fader
+mapped as a button with a threshold far from the middle and swept through it
+and back within one stalled frame (the peak is folded away), or an OSC flood
+crowding out OSC triggers, which would want the same treatment keyed by
+address.
