@@ -605,6 +605,54 @@ fn a_stalled_input_decays_to_silence() -> Result<()> {
 }
 
 #[test]
+fn a_stalled_input_darkens_the_spectrum_and_centres_the_waveform() -> Result<()> {
+    // WASAPI loopback delivers no packets while nothing plays, and a lost
+    // device delivers none while it is reopened. The textures must fall to
+    // silence with the levels, not hold the last hop on screen.
+    let mut analyzer = Analyzer::new(RATE);
+    offline::run(
+        &mut analyzer,
+        &fixtures::tone(200.0, 0.5, 2.0, RATE),
+        FPS,
+        |_, _| {},
+    );
+    let lit = |frame: &AudioFrame| {
+        frame
+            .spectrum
+            .iter()
+            .map(|texel| texel[0].max(texel[1]).max(texel[2]))
+            .fold(0.0_f32, f32::max)
+    };
+    assert!(lit(analyzer.frame()) > 0.5, "the tone lights the spectrum");
+    for _ in 0..180 {
+        analyzer.analyze(1.0 / 60.0);
+    }
+    let frame = analyzer.frame();
+    let brightest = lit(frame);
+    assert!(
+        brightest < 0.05,
+        "3 s without samples still shows a spectrum at {brightest}"
+    );
+    let wave = frame
+        .spectrum
+        .iter()
+        .map(|texel| (texel[3] - 0.5).abs())
+        .fold(0.0_f32, f32::max);
+    assert!(wave < 1e-6, "the waveform is still drawn {wave} off centre");
+    let width = frame.shadertoy_width();
+    let (toy_spectrum, toy_wave) = frame.shadertoy.split_at(width);
+    assert!(
+        toy_spectrum.iter().all(|byte| *byte < 13),
+        "the Shadertoy spectrum row stays lit"
+    );
+    assert!(
+        toy_wave.iter().all(|byte| *byte == 128),
+        "the Shadertoy waveform row is not centred"
+    );
+    Ok(())
+}
+
+#[test]
 fn tap_tempo_and_nudge_override_the_estimate() -> Result<()> {
     let mut analyzer = Analyzer::new(RATE);
     analyzer.tap(0.0);
