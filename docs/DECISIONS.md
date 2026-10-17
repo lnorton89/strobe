@@ -8595,3 +8595,31 @@ conformance).
 
 **Would reopen:** an operator who needs to see how often a fault recurs;
 the answer would be a count beside the UI state, not more lines.
+
+### D326: `setup` and `update` declared with a top-level `let` or `const` run too (2026-10-17)
+
+**Context.** The host found `setup` and `update` by reading them off the
+global object. `function update` and `var update` put a property there; a
+top-level `let` or `const` (`const update = (dt) => { ... }`, the way much
+modern JavaScript is written) makes a global binding that, by the
+language's rules, is not a property of the global object. Such a script
+loaded without a word and then did nothing, every frame.
+
+**Decision.** After `script.js` is evaluated, a `setup` or `update` that is
+not a function on the global object is looked up as a global name
+(`host::lifecycle`, one evaluation at load, nothing per frame). A lexical
+`update` is kept as a persistent handle; a `function update` is still read
+off the global object each frame, so a script that reassigns it keeps
+working. Event callbacks are unchanged: they are named by string, and a
+callback declared with `const` is still reported as "there is no function
+named ...", which at least says what is wrong.
+
+Synesthesia's own behaviour with a lexical `update` is not verified. This
+is a superset: every script that ran before runs the same, and a script
+Synesthesia might have ignored now runs, which is what its author meant.
+
+**Test.** `setup_and_update_declared_with_const_or_let_run_too`
+(`strobe-script` conformance).
+
+**Would reopen:** evidence that Synesthesia ignores a lexical `update` and
+a real scene that depends on that.
