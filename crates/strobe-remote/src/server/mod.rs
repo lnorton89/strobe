@@ -104,6 +104,11 @@ pub struct Limits {
     pub auth_timeout: Duration,
     /// How long a connection may send nothing at all.
     pub idle_timeout: Duration,
+    /// How long the connection holding the desktop lease may send nothing
+    /// before the same paired desktop, connecting again, takes the lease
+    /// back from it (D407). The native controller pings every 5 s, so this
+    /// is two missed pings and a margin.
+    pub dead_lease: Duration,
     /// How long one write may take before the client is dropped as slow.
     pub write_timeout: Duration,
     /// How long a command waits for the app's answer.
@@ -121,6 +126,7 @@ impl Default for Limits {
             handshake_timeout: Duration::from_secs(5),
             auth_timeout: Duration::from_secs(120),
             idle_timeout: Duration::from_secs(30),
+            dead_lease: Duration::from_secs(12),
             write_timeout: Duration::from_secs(2),
             command_timeout: Duration::from_secs(1),
         }
@@ -237,6 +243,8 @@ struct Conn {
     client_id: Option<String>,
     /// Set by a revoke: the connection closes on its next tick.
     revoked: bool,
+    /// When a message last arrived on it, for [`Shared::reclaim_dead_lease`].
+    heard: Instant,
 }
 
 /// What the accept thread, every connection and the server share.
@@ -298,6 +306,36 @@ impl Shared {
                 self.remote.desktop.release(conn.id);
             }
         }
+    }
+
+    /// Notes that a message arrived on connection `conn`.
+    fn heard(&self, conn: u64) {
+        if let Some(entry) = lock(&self.conns).iter_mut().find(|c| c.id == conn) {
+            entry.heard = Instant::now();
+        }
+    }
+
+    /// A paired desktop asks for the lease that another of its own
+    /// connections holds (D407). If that connection has been silent for
+    /// [`Limits::dead_lease`] it is gone (a Wi-Fi drop the host has not yet
+    /// noticed): it is closed and gives up the lease, so `conn` can take it.
+    /// A live connection, or another client's, keeps it. Returns whether a
+    /// lease was freed.
+    fn reclaim_dead_lease(&self, conn: u64, client_id: &str) -> bool {
+        let now = Instant::now();
+        let mut freed = false;
+        for other in lock(&self.conns).iter_mut() {
+            if other.id != conn
+                && other.client_id.as_deref() == Some(client_id)
+                && self.remote.desktop.owns(other.id)
+                && now.saturating_duration_since(other.heard) >= self.limits.dead_lease
+            {
+                other.revoked = true;
+                self.remote.desktop.release(other.id);
+                freed = true;
+            }
+        }
+        freed
     }
 
     /// Whether connection `conn`'s client was revoked.
@@ -608,6 +646,7 @@ fn accept_loop(socket: &TcpListener, shared: &Arc<Shared>) {
             stream: handle,
             client_id: None,
             revoked: false,
+            heard: Instant::now(),
         });
         let spawned = std::thread::Builder::new()
             .name("strobe-remote-conn".to_string())
