@@ -303,7 +303,9 @@ pub struct Output {
 impl Shader {
     /// Parses a shader from JSON text, in either the API shape or the bare
     /// export shape.
+    /// A leading byte-order mark (Windows editors write one) is skipped.
     pub fn from_json(text: &str) -> Result<Self, ModelError> {
+        let text = text.strip_prefix('\u{feff}').unwrap_or(text);
         let value: Value = serde_json::from_str(text)?;
         Self::from_value(value)
     }
@@ -545,6 +547,18 @@ mod tests {
                 .unwrap_or_default();
             assert!(message.contains(needle), "`{text}` -> {message}");
         }
+    }
+
+    #[test]
+    fn a_byte_order_mark_from_a_windows_editor_is_ignored() -> Result<()> {
+        // Notepad and PowerShell 5's `Set-Content -Encoding UTF8` save UTF-8
+        // with a BOM; serde_json reads it as a stray character.
+        assert_eq!(
+            Shader::from_json(&format!("\u{feff}{BARE}"))?,
+            Shader::from_json(BARE)?,
+            "a BOM is not part of the JSON"
+        );
+        Ok(())
     }
 
     #[test]
