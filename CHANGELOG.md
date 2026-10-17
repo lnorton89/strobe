@@ -41,15 +41,23 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Fixed
 
 - say why the lexical callback lookup throws its exception away (D267, D414) ([`64f838f`](https://github.com/lnorton89/strobe/commit/64f838f2f7cee351af8950d86b84ee38dedd09b2))
+- a code-paired desktop takes back its own lease from a dead connection ([`25e3999`](https://github.com/lnorton89/strobe/commit/25e399955d72a4c7c66c8d7001e7f8fe820e3017))
 - a Shadertoy re-import never replaces a folder that is not an import of the same shader (D418) ([`92d577b`](https://github.com/lnorton89/strobe/commit/92d577b0cf83a667128e2a6d13c418f0a557ec71))
+- a desktop capture over the JPEG limit is sent smaller, not dropped ([`eb241d5`](https://github.com/lnorton89/strobe/commit/eb241d56a3693ff2ca1876f6284f380dd77b7022))
 - a Shadertoy texture's file name never collides with a generated file or another URL (D417) ([`8e2bf60`](https://github.com/lnorton89/strobe/commit/8e2bf600ebf2c17b6205d42c7f648e53d311d82d))
 - a Shadertoy export saved as UTF-16 with a byte-order mark imports (D416) ([`b39cb71`](https://github.com/lnorton89/strobe/commit/b39cb71a843caee5a5dfbd0f47862bc9b6ecc530))
 - a Shadertoy global initialised from iChannelTime or iChannelResolution sees its value (D415) ([`ef8028e`](https://github.com/lnorton89/strobe/commit/ef8028efb38519a7b586157a376859253c64846f))
+- a remote Ctrl+click leaves no Ctrl held in the host's UI ([`80d916b`](https://github.com/lnorton89/strobe/commit/80d916b9e5b9f8ff47a131de2c8efccb1729d0e0))
 - event callbacks declared with let or const fire, and a function may be passed itself (D414) ([`de57140`](https://github.com/lnorton89/strobe/commit/de57140f339e50a137773e1788e50a5c5556a6c7))
+- a desktop viewer squeezed to no width sends no NaN to the host ([`3044cb2`](https://github.com/lnorton89/strobe/commit/3044cb2cf95d25fed0386bb7f54222471640727a))
 - a script's unhandled promise rejection is a console error, once per reason (D413) ([`2cfb5e4`](https://github.com/lnorton89/strobe/commit/2cfb5e4677a4518d3953fc7100300e20f0b28bbf))
+- the palette's highlight stays on its entry when the list is rebuilt ([`576acd3`](https://github.com/lnorton89/strobe/commit/576acd367977ba0b73c72cb9990a97e90d978c1d))
 - a dropdown with mismatched lists and an untyped vec3 control keep their scene (D412) ([`40234ce`](https://github.com/lnorton89/strobe/commit/40234cefbcef58d725383fbf691d322229f86234))
+- a crowded frame never drops a macro key's release ([`3ebab54`](https://github.com/lnorton89/strobe/commit/3ebab54c79e515780560e27962d3da739e5e983f))
 - only the samplers a pass reads take texture units (D411) ([`9f0af44`](https://github.com/lnorton89/strobe/commit/9f0af4435351ecb324be30f42396299876ea1664))
+- a control window that loses focus lets go of its held macro keys ([`5d9234e`](https://github.com/lnorton89/strobe/commit/5d9234e0bc4517b9ac8d79330d3a2b64d3010246))
 - a pass past the texture limit is refused by name, and a relative one is clamped (D410) ([`0862236`](https://github.com/lnorton89/strobe/commit/0862236155d26ea87c287e33dc4da51c30057c0d))
+- the output's monitor is followed by what it is, not its place in the list ([`57f2add`](https://github.com/lnorton89/strobe/commit/57f2add0e3cc023bfa605b64bd943999d743bc3e))
 - a playlist's show time counts in f64, so its synthetic beat keeps pace ([`e3eccdc`](https://github.com/lnorton89/strobe/commit/e3eccdc9c94c1728e8284405a2eb88cbe968b3c3))
 - the scene clock counts in f64, so TIME keeps real time hours in ([`1cfd28c`](https://github.com/lnorton89/strobe/commit/1cfd28c00cdc72f08e23d19839d5f0c1d0b68b5f))
 - format a context value before taking the facts lock ([`a326870`](https://github.com/lnorton89/strobe/commit/a326870f8cd1bd9eae6fbff9e6b59a1b105e586c))
@@ -196,6 +204,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Documentation
 
+- record why the control window's view models still allocate, and the follow-ups in the roadmap ([`9477813`](https://github.com/lnorton89/strobe/commit/94778131d5ffb62b988210844bcdb33ebdf31108))
 - record the follow-up bug sweep of scenes, the player, scripts and Shadertoy import (D410-D418) ([`b20d232`](https://github.com/lnorton89/strobe/commit/b20d23276f243813f1b30aff877ec614cd7fc86d))
 - list every clock that grows with show time, and open the Shadertoy clock and mic-switch questions ([`50167e2`](https://github.com/lnorton89/strobe/commit/50167e20d6ae6ac4c8f8bd388cc9365f5e57e1e4))
 - record the show-control sweep follow-ups in the roadmap ([`0e6706d`](https://github.com/lnorton89/strobe/commit/0e6706d57b8252da9a379db1b04d3bf57c8d3f42))
