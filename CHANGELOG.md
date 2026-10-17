@@ -122,6 +122,8 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Performance
 
+- the LAN address shown to the operator is cached and refreshed every 10 seconds (D341) ([`7447859`](https://github.com/lnorton89/strobe/commit/744785983788543f979ac31897a910e07bff9325))
+- a script frame allocates nothing of its own, and uniforms are bound once at the seal (D340) ([`4f263af`](https://github.com/lnorton89/strobe/commit/4f263af168d25b912960ace27e29ed15cf6d30a4))
 - **scenes:** acid mirror evaluates its broad noise at reduced size ([`2ae8956`](https://github.com/lnorton89/strobe/commit/2ae895621129475ef8e5d40965eae838f7b7ba04))
 - **scenes:** electric bloom draws its soft back and front layers at half size ([`b452e56`](https://github.com/lnorton89/strobe/commit/b452e569e8906909f9541e8d1576223fa2505d9d))
 - **scenes:** chromatic rise evaluates its broad noise at a quarter size ([`4580a46`](https://github.com/lnorton89/strobe/commit/4580a467d15a691c4d55634afcbc183c1c1177b6))
@@ -194,6 +196,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Tests
 
+- the load-budget script test survives a descheduled thread on a loaded machine ([`cce6520`](https://github.com/lnorton89/strobe/commit/cce65203c63f64a2eb4d8792c97e6f1d41ce46bc))
 - drop a blank line the area 4 merge left in the render tests ([`845f087`](https://github.com/lnorton89/strobe/commit/845f08713ca444d6866535ed76701a6f9d050688))
 - **show:** a cue's overrides reach the picture each time its scene plays ([`fc87072`](https://github.com/lnorton89/strobe/commit/fc8707214665cefb88177183eca0e445513bbab8))
 - **script:** time the setUniform budget as the best of five frames ([`b1b97ca`](https://github.com/lnorton89/strobe/commit/b1b97ca329549096453ce47691d75c0b657c16c7))
