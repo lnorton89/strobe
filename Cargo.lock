@@ -3393,6 +3393,7 @@ dependencies = [
  "strobe-diag",
  "strobe-gfx",
  "strobe-scene",
+ "strobe-ssf-lib",
  "thiserror 2.0.21",
  "ureq",
 ]

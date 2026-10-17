@@ -95,6 +95,8 @@ impl ApiKey {
         let file = data_dir.join(KEY_FILE);
         match std::fs::read_to_string(&file) {
             Ok(text) => {
+                // Notepad's "UTF-8 with BOM" starts the file with one.
+                let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
                 let first = text.lines().next().unwrap_or_default();
                 Self::parse(first).ok_or_else(|| KeyError::Invalid {
                     source_name: file.display().to_string(),
@@ -159,6 +161,18 @@ mod tests {
             "a blank variable is no variable"
         );
         std::fs::remove_dir_all(&dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn a_key_file_saved_by_notepad_is_read() -> Result<()> {
+        // Notepad's "UTF-8 with BOM", and CRLF line ends.
+        let dir = std::env::temp_dir().join(format!("strobe-key-bom-{}", std::process::id()));
+        std::fs::create_dir_all(&dir)?;
+        std::fs::write(dir.join(KEY_FILE), "\u{feff}Bd8tWD\r\n")?;
+        let found = ApiKey::find_with(None, &dir).map(|key| key.expose().to_string());
+        std::fs::remove_dir_all(&dir)?;
+        assert_eq!(found?, "Bd8tWD", "the BOM is not part of the key");
         Ok(())
     }
 

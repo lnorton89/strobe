@@ -599,3 +599,99 @@ fn asking_for_a_shared_program_falls_back_for_an_import() -> Result<()> {
     );
     Ok(())
 }
+
+#[test]
+fn a_title_author_or_tab_name_cannot_break_the_generated_comments() -> Result<()> {
+    // The shader's name, author and tab names are copied into comment lines
+    // above the author's code. A carriage return ends a GLSL line comment as
+    // a newline does, so these would turn the rest of the line into code;
+    // non-ASCII text in a comment is what the dialect stage replaces for
+    // drivers that reject it (D94).
+    let text = serde_json::json!({
+        "ver": "0.1",
+        "info": { "id": "Tst200", "name": "Caf\u{e9} \u{2606}\rvoid broken",
+                  "username": "\u{5c71}\u{7530}\r#error injected" },
+        "renderpass": [
+            { "type": "buffer", "name": "Buffer A\n#error tab", "code":
+              "void mainImage(out vec4 c, in vec2 p) { c = vec4(0.5); }",
+              "inputs": [], "outputs": [ { "id": 257, "channel": 0 } ] },
+            { "type": "image", "name": "Image", "code":
+              "void mainImage(out vec4 c, in vec2 p) { c = texture(iChannel0, p / iResolution.xy); }",
+              "inputs": [ { "id": 257, "channel": 0, "type": "buffer" } ], "outputs": [] }
+        ]
+    })
+    .to_string();
+    let (converted, scene) = import_text(&text, "hostile-names")?;
+    for api in BOTH {
+        let Some(frame) = render(api, &scene, 2, Options::default(), |_, _| Ok(()))? else {
+            continue;
+        };
+        let [r, _, _, _] = frame.center();
+        assert!(
+            near(r, 128),
+            "{api:?}: the buffer's 0.5 reaches the image, got {r}"
+        );
+    }
+    for (path, bytes) in &converted.files {
+        if path.ends_with(".glsl") {
+            assert!(
+                bytes.iter().all(|b| b.is_ascii() && *b != b'\r'),
+                "{path} must be plain ASCII with \\n line ends"
+            );
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn a_helper_named_like_an_ssf_library_function_is_the_shaders_own() -> Result<()> {
+    // Every pass is compiled after the SSF function library, which defines
+    // `_noise(vec2)`, `_rand(vec2)` and `_rotate(vec2, float)`, and the
+    // macro `_loadUserImage`. A Shadertoy shader knows nothing of it, so the
+    // same names are its own helpers.
+    let code = "float _noise(vec2 p) { return 0.25; }\n\
+                float _rand(vec2 p) { return 0.25; }\n\
+                vec2 _rotate(vec2 v, float a) { return v; }\n\
+                float _loadUserImage(vec2 p) { return 0.0; }\n\
+                void mainImage(out vec4 c, in vec2 p) {\n\
+                \x20   c = vec4(_noise(p) + _rand(p) + _rotate(vec2(0.0), 1.0).x\n\
+                \x20       + _loadUserImage(p), 0.0, 0.0, 1.0);\n\
+                }";
+    let (_, scene) = import_text(&inline(code), "ssf-names")?;
+    for api in BOTH {
+        let Some(frame) = render(api, &scene, 1, Options::default(), |_, _| Ok(()))? else {
+            continue;
+        };
+        let [r, _, _, _] = frame.center();
+        assert!(
+            near(r, 128),
+            "{api:?}: the shader's own helpers run, got {r}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn a_global_initialised_from_a_shadertoy_uniform_sees_its_value() -> Result<()> {
+    // WebGL accepts a uniform in a global initialiser (ANGLE allows it "for
+    // legacy compatibility"), and `vec2 R = iResolution.xy;` is a common
+    // Shadertoy idiom. Here the green channel is 1 only when R is the
+    // real frame size, and red is the x fraction of the pixel.
+    let code = "vec2 R = iResolution.xy;\n\
+                vec3 M = vec3(iMouse.xy, 1.0);\n\
+                void mainImage(out vec4 c, in vec2 p) {\n\
+                \x20   c = vec4(p.x / max(R.x, 1.0), R.x > 1.0 ? 1.0 : 0.0, M.z, 1.0);\n\
+                }";
+    let (_, scene) = import_text(&inline(code), "global-uniform")?;
+    for api in BOTH {
+        let Some(frame) = render(api, &scene, 1, Options::default(), |_, _| Ok(()))? else {
+            continue;
+        };
+        let [r, g, _, _] = frame.center();
+        assert!(
+            g == 255 && near(r, 128),
+            "{api:?}: R must be iResolution.xy, got red {r} green {g}"
+        );
+    }
+    Ok(())
+}

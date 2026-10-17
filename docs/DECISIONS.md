@@ -8708,3 +8708,61 @@ past it moves it, a stop clears it).
 
 **Would reopen:** a platform network-change notification that is cheap to
 subscribe to, which would replace the timer.
+
+### D360: a Shadertoy pass's names that the SSF library declares are the shader's own (2026-10-17)
+
+**Context.** Every pass of an import is compiled after the SSF function
+library (`strobe-ssf-lib`), which declares `_noise`, `_rand`, `_rotate`,
+`_palette`, `_map` and some ninety more at global scope, plus a few macros
+(`_loadUserImage`, `syn_InputLevel`). D91 aliased away the assembler's
+own globals (`PI`, `_uv`...) when a shader declared them too, but not the
+library's, so a shader with its own `float _noise(vec2)` failed with
+"function `_noise` redefined" on both dialects.
+
+**Decision.** A Shadertoy shader knows nothing of the SSF library, so any
+library name a pass uses is the shader's own. The shim aliases it like
+the assembler's names (`#define _noise strobe_user__noise`), after an
+`#undef` when the library name is a macro (redefining a macro with another
+body is an error). The names are read from the library's source once per
+process (functions and constants at global scope, and `#define`s), so a
+name added to the library later is covered without a list to keep.
+`strobe-shadertoy` now depends on `strobe-ssf-lib` for that source.
+
+**Not covered:** the assembler preamble's ISF macros (`IMG_PIXEL`,
+`IMG_NORM_PIXEL`, `IMG_SIZE`); a shader that `#define`s one of those still
+fails as a macro redefinition. No Shadertoy shader is known to.
+
+**Test.** `a_helper_named_like_an_ssf_library_function_is_the_shaders_own`
+(`strobe-shadertoy` render tests, both dialects).
+
+**Would reopen:** an imported scene whose code is later edited to call the
+SSF library on purpose (the alias would hide the library function from it).
+
+### D361: the shim's Shadertoy values are global initialisers, so an author's global sees them (2026-10-17)
+
+**Context.** D91 set `strobe_iResolution`, `strobe_iTime`, `strobe_iMouse`
+and the rest in `strobe_begin()`, the first thing `renderMain` does. WebGL
+accepts a uniform in a global initialiser (ANGLE allows it "for legacy
+compatibility"), and Shadertoy code uses that: `vec2 R = iResolution.xy;`
+at global scope. Globals are initialised before `renderMain` runs, so such
+a global read the shim's value before it was set: zero. The frame divided
+by zero and came out wrong, on both dialects.
+
+**Decision.** Each value the shim `#define`s an author's name to is that
+global's initialiser (`vec3 strobe_iResolution = vec3(RENDERSIZE, 1.0);`),
+and the clock texel is a global too. Desktop GLSL initialises globals in
+declaration order before `main`; on ES the assembler moves non-constant
+initialisers to the top of `main`, keeping that order (D192). The shim's
+globals come before the author's code, so the author's globals see them.
+This supersedes "sets globals in `strobe_begin()`" in D91; everything else
+there stands. Pass files are three lines shorter and the goldens moved.
+
+**Not covered:** `iChannelTime` and `iChannelResolution` are arrays, which
+the ES rewrite does not hoist, so they are still filled in
+`strobe_begin()`; a global initialised from one of them still reads zero.
+
+**Test.** `a_global_initialised_from_a_shadertoy_uniform_sees_its_value`
+(`strobe-shadertoy` render tests, both dialects).
+
+**Would reopen:** a driver that rejects a non-constant global initialiser
+on the desktop path.
