@@ -9682,3 +9682,44 @@ returns its error. It failed before with no line at all.
 **Would reopen:** a real script that rejects on purpose every frame and an
 operator who finds the one line noise; or evidence that Synesthesia reports
 rejections in its own console in another form.
+
+### D414: an event callback may be a `let`/`const` function or the function itself (2026-10-17)
+
+**Context.** `onChange` and the other four registrations took the callback's
+name and checked it on the global object. A callback declared with a
+top-level `let` or `const` (`const onBeat = (v) => {...}`) is a global
+binding that is not a property there (D326), so it was refused as "there is
+no function named `onBeat`" and never fired. Passing the function itself
+(`onChange("x", fn)`, how most JavaScript APIs take a callback) failed the
+conversion to a string with an engine message, and in `setup()` that took
+the whole script down.
+
+**Decision.** A name that is not a function on the global object is
+resolved once, at registration, as a lexical binding (a plain identifier
+only, evaluated as `typeof name === 'function' ? name : undefined`, so a
+callback name is never run as code), and the function is kept under that
+name in a hidden registry: a prototype-less object on a non-enumerable,
+non-writable global, `__strobeCallbacks`. A function passed by value is kept
+there as `#<n>`, once per distinct function (compared by identity), so a
+script that registers the same function every frame has one handler, as with
+a name. At most 64 distinct functions are kept; past that the registration
+is a console error asking for the same function or a name, so a fresh closure
+every frame cannot grow the heap. A callback that is neither a string nor a
+function throws a `TypeError`, as every malformed native call does. When a
+handler fires, the global object is read first, so a script that reassigns a
+`function` callback is still followed, then the registry. A lexical callback
+is the function its binding held when it was first registered, as D326 keeps
+a lexical `update`. A missing name is still the same console error.
+
+This supersedes D326's "Event callbacks are unchanged". Synesthesia's own
+handling of either form is not verified; both are supersets, since every
+call that worked before works the same.
+
+**Test.** `callbacks_declared_with_const_or_let_or_passed_as_functions_fire`
+(a `const` arrow, a `let` function, a function literal in `setup()` and a
+`const` passed every frame from `update()`, each firing once on the rise)
+and `a_callback_that_is_neither_a_name_nor_a_function_is_a_type_error`
+(`strobe-script` conformance). Both failed before at `setup()`.
+
+**Would reopen:** a real script that relies on a lexical callback being
+re-read after reassignment, or evidence that Synesthesia refuses one.

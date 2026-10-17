@@ -51,7 +51,7 @@ use crate::budget::Budget;
 use crate::error::ScriptError;
 use crate::events::Source;
 use crate::inputs::{FINAL_PASS_BYTES, ScriptInputs};
-use crate::natives::{display, install, stage_uniform};
+use crate::natives::{callbacks, display, install, stage_uniform};
 use crate::output::{ConsoleLevel, FrameOutput, ScriptStatus};
 use crate::shared::{Command, Shared, Target};
 use rquickjs::context::EvalOptions;
@@ -788,9 +788,17 @@ impl ScriptHost {
             let Some((callback, value, previous)) = due else {
                 continue;
             };
-            let function: Value<'js> = globals
+            // A name on the global object first, so a script that reassigns
+            // a `function` callback is followed; then the callbacks kept at
+            // registration (a `const` one, or one passed by value, D414).
+            let mut function: Value<'js> = globals
                 .get(&*callback)
                 .map_err(|error| describe(ctx, error))?;
+            if !function.is_function() {
+                function = callbacks(ctx)
+                    .and_then(|kept| kept.get(&*callback))
+                    .map_err(|error| describe(ctx, error))?;
+            }
             if let Some(function) = function.as_function() {
                 function
                     .call::<_, ()>((f64::from(value), f64::from(previous)))
