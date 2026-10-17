@@ -1494,22 +1494,30 @@ fn an_endless_loop_in_update_is_interrupted_and_the_frame_returns() -> Result<()
 
 #[test]
 fn the_load_frame_runs_under_the_load_budget_and_later_frames_do_not() -> Result<()> {
+    // 150 ms of work: far past a 4 ms frame, well inside a 2 s load. The
+    // margin matters on a loaded machine: the loop ends on wall time, so a
+    // thread descheduled past the end between two interrupt checks would
+    // otherwise finish without ever being interrupted.
     let script = r#"
         function update() {
-            var until = Date.now() + 20;
+            var until = Date.now() + 150;
             while (Date.now() < until) {}
             setUniform("ready", 1);
         }
     "#;
-    // The default budgets, on purpose: 4 ms a frame, 250 ms to load.
-    let mut rig = Rig::with_budget(script, &[], Budget::default())?;
+    let budget = Budget {
+        frame: Duration::from_millis(4),
+        load: Duration::from_secs(2),
+        ..Budget::default()
+    };
+    let mut rig = Rig::with_budget(script, &[], budget)?;
     let loading = rig
         .host
         .load_frame(DT, &ScriptInputs::default(), &mut rig.bank, &mut rig.meta);
     assert_eq!(
         loading.status,
         ScriptStatus::Running,
-        "20 ms is inside the load budget: {:?}",
+        "150 ms is inside a 2 s load budget: {:?}",
         loading.console
     );
     expect_uniform(&loading, "ready", ExtraType::Float, &[1.0])?;
