@@ -115,8 +115,14 @@ pub fn handle(ctx: &Context, model: &mut Model<'_>, modal_open: bool, actions: &
     // Keys that are no command, pressed or let go, for the macros (D228).
     let mut loose: [Option<(Chord, bool)>; MAX_PER_FRAME] = [None; MAX_PER_FRAME];
     let mut loose_count = 0;
+    // The window lost focus this frame: no release may follow (D401).
+    let mut focus_lost = false;
     ctx.input(|input| {
         for event in &input.events {
+            if matches!(event, egui::Event::WindowFocused(false)) {
+                focus_lost = true;
+                continue;
+            }
             let egui::Event::Key {
                 key,
                 pressed,
@@ -169,6 +175,18 @@ pub fn handle(ctx: &Context, model: &mut Model<'_>, modal_open: bool, actions: &
             continue;
         }
         macro_key(model, chord, pressed, actions);
+    }
+    if focus_lost {
+        release_held_macros(model, actions);
+    }
+}
+
+/// Lets go of every macro a key is holding up. A window that loses focus
+/// may never hear those keys' releases: winit reports none on macOS or
+/// Wayland, and egui only forgets the keys were down (D401).
+fn release_held_macros(model: &mut Model<'_>, actions: &mut Vec<Action>) {
+    for (_, id) in model.ui.macro_keys_held.drain(..) {
+        actions.push(Action::MacroKey { id, down: false });
     }
 }
 

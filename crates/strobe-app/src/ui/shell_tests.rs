@@ -1451,6 +1451,66 @@ fn a_macro_key_drives_its_macro_while_held() -> Result<()> {
     Ok(())
 }
 
+/// The macro edges among `actions`, as `true` for down.
+fn macro_edges(actions: &[Action]) -> Vec<bool> {
+    actions
+        .iter()
+        .filter_map(|action| {
+            if let Action::MacroKey { down, .. } = action {
+                Some(*down)
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+#[test]
+fn a_window_that_loses_focus_lets_its_held_macros_go() -> Result<()> {
+    // Q is held and the window loses focus (Alt+Tab, a click on the
+    // output). macOS and Wayland report no release for it, and egui only
+    // forgets the key, so without this the macro stays up (D401).
+    let drawn = draw_events(
+        Scenario {
+            mapped: true,
+            ..BASE
+        },
+        (1440.0, 900.0),
+        vec![
+            vec![press(egui::Key::Q, egui::Modifiers::NONE)],
+            Vec::new(),
+            vec![egui::Event::WindowFocused(false)],
+            Vec::new(),
+        ],
+    )?;
+    assert_eq!(
+        macro_edges(&drawn.all_actions),
+        [true, false],
+        "down, then up on focus loss: {:?}",
+        drawn.all_actions
+    );
+    // Windows and X11 send the release as well: still one release.
+    let drawn = draw_events(
+        Scenario {
+            mapped: true,
+            ..BASE
+        },
+        (1440.0, 900.0),
+        vec![
+            vec![press(egui::Key::Q, egui::Modifiers::NONE)],
+            vec![release(egui::Key::Q), egui::Event::WindowFocused(false)],
+            Vec::new(),
+        ],
+    )?;
+    assert_eq!(
+        macro_edges(&drawn.all_actions),
+        [true, false],
+        "one release, not two: {:?}",
+        drawn.all_actions
+    );
+    Ok(())
+}
+
 #[test]
 fn a_macro_key_let_go_while_a_text_field_has_focus_still_lets_the_macro_go() -> Result<()> {
     // Q is held (the macro goes up), Ctrl+K opens the palette, whose field

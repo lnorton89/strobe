@@ -9605,3 +9605,37 @@ replug.
 **Would reopen:** a replugged projector coming back under another name
 (then the choice stays empty and the operator picks again), or a venue that
 wants the output moved back automatically.
+
+### D401: a control window that loses focus lets go of the macros its keys hold (2026-10-17)
+
+**Context.** A macro key (D228) holds its macro up from its press to its
+release. Whether the release comes when the control window loses focus with
+the key still down depends on the platform. Read in winit 0.30.13 and
+egui 0.36.2:
+
+- **Windows** synthesizes key-up events on `WM_KILLFOCUS` for every key
+  still down (`keyboard.rs`, `synthesize_kbd_state`); **X11** does the same
+  on focus-out. egui-winit drops synthetic *presses* but passes synthetic
+  releases on, so `keys::handle` sees the release there.
+- **macOS and Wayland** send nothing (every macOS key event is
+  `is_synthetic: false`; nothing is synthesized on Wayland's leave).
+- **egui** on `WindowFocused(false)` clears its own `keys_down` and
+  modifiers, but emits no `Key { pressed: false }` event, and the macro
+  strip reads only those events.
+
+So on macOS and Wayland a macro held while the operator switched windows
+stayed up until its key was pressed and let go again. Windows was fine.
+
+**Decision.** `keys::handle` reads `WindowFocused(false)` among the frame's
+events and, after the frame's key edges, lets go of every macro a key holds
+(`macro_keys_held` is drained, one `MacroKey { down: false }` each). Where a
+release did arrive first, the macro is no longer held, so nothing is sent
+twice. It costs nothing in a frame without a focus change.
+
+**Test.** `ui::shell_tests::a_window_that_loses_focus_lets_its_held_macros_go`
+(failed before: the macro went down and never up), including the Windows
+order (release, then focus loss) with exactly one release.
+
+**Would reopen:** a platform that reports focus loss without
+`WindowFocused(false)` reaching egui (a context rebuild drops the control
+window's events while it runs: `rebuild.is_some()` in `window_event`).
