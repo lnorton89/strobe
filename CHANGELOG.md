@@ -40,6 +40,11 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- format a context value before taking the facts lock ([`a326870`](https://github.com/lnorton89/strobe/commit/a326870f8cd1bd9eae6fbff9e6b59a1b105e586c))
+- report once when the crash monitor dies during a show ([`604ae7a`](https://github.com/lnorton89/strobe/commit/604ae7affaa62d87952808b4300f073065c421c1))
+- prune session logs by modification time, not by file name ([`95a940a`](https://github.com/lnorton89/strobe/commit/95a940ad4b4d2c0db8146e23e7db29b0a71ee791))
+- keep only the newest twenty crash reports and minidumps ([`991de58`](https://github.com/lnorton89/strobe/commit/991de5808a81cd1007732684991771523ad37bc3))
+- give the crash monitor's system probe a ten-second budget ([`b3ef10d`](https://github.com/lnorton89/strobe/commit/b3ef10d14dd355a5c9dad43307d80da2ceeeb2b8))
 - a macro counter at u32::MAX no longer overflows on add (D376) ([`2654061`](https://github.com/lnorton89/strobe/commit/2654061b0753250c8cb9450dab52698a752ae0a4))
 - an OSC double beyond the f32 range is clamped, not infinite (D375) ([`dc7b880`](https://github.com/lnorton89/strobe/commit/dc7b8800a16d1e706ac259b7355c7c657034ae37))
 - the OSC listener binds again after a socket error (D374) ([`8d0a789`](https://github.com/lnorton89/strobe/commit/8d0a789851711b66486729da09249b5621b6371d))
