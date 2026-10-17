@@ -273,6 +273,32 @@ fn a_malformed_set_uniform_is_a_script_fault_with_a_line() -> Result<()> {
 }
 
 #[test]
+fn a_value_no_f32_can_hold_reaches_the_shader_as_zero() -> Result<()> {
+    // 1e39 is a finite double but past f32::MAX, so a plain cast makes it
+    // infinity, which a shader turns into NaN on the first multiply by 0.
+    let script = r#"
+        function update(dt) {
+            setUniform("odd", NaN, Infinity, 1e39, -1e39);
+            setUniform("fine", 3.0e38);
+        }
+    "#;
+    let mut rig = Rig::new(script, &[])?;
+    let out = rig.step();
+    assert_eq!(out.status, ScriptStatus::Running, "{:?}", out.console);
+    let odd = uniform(&out, "odd")?;
+    assert_eq!(
+        odd.value, [0.0; 4],
+        "NaN, infinities and out-of-range doubles all become zero"
+    );
+    expect_uniform(&out, "fine", ExtraType::Float, &[])?;
+    assert!(
+        uniform(&out, "fine")?.value[0] == 3.0e38,
+        "a large value f32 can hold is kept"
+    );
+    Ok(())
+}
+
+#[test]
 fn a_uniform_keeps_its_first_type_and_warns_once() -> Result<()> {
     let script = r#"
         function update(dt) {
@@ -399,6 +425,32 @@ fn set_control_writes_raw_values_and_lands_in_the_same_frame() -> Result<()> {
     );
     assert_eq!(rig.output("myXyPad", 2)?, vec![-1.0, 0.5], "xy pad");
     assert_eq!(rig.output("myColor", 3)?, vec![0.4, 0.5, 0.6], "colour");
+    Ok(())
+}
+
+#[test]
+fn a_huge_array_handed_to_set_control_is_read_only_as_far_as_it_needs() -> Result<()> {
+    // The watchdog cannot stop a native function, so one that walked a
+    // hundred million holes would hold the frame for seconds.
+    let script = r#"
+        var big = [0.25, 0.5, 0.75];
+        big.length = 100000000;
+        function update() { setControl("myColor", big); }
+    "#;
+    let mut rig = Rig::with_budget(script, &[COLOR], Budget::default())?;
+    let started = Instant::now();
+    let out = rig.step();
+    let elapsed = started.elapsed();
+    assert_eq!(out.status, ScriptStatus::Running, "{:?}", out.console);
+    assert!(
+        elapsed < Duration::from_millis(200),
+        "the call read three components, not the whole array: took {elapsed:?}"
+    );
+    assert_eq!(
+        rig.target("myColor", 3)?,
+        vec![0.25, 0.5, 0.75],
+        "the components it needs"
+    );
     Ok(())
 }
 
@@ -1270,6 +1322,71 @@ fn state_persists_across_frames() -> Result<()> {
 }
 
 #[test]
+fn promise_callbacks_run_by_the_end_of_the_frame_that_queued_them() -> Result<()> {
+    // Every JavaScript engine runs queued promise callbacks once the
+    // script returns. Never running them loses the callback and keeps
+    // every queued job alive, so a script that awaits once a frame grows
+    // the heap until it hits the memory cap.
+    let script = r#"
+        var resolved = 0;
+        var loaded = 0;
+        Promise.resolve().then(function () { loaded = 1; });
+        async function tick() { await null; resolved++; }
+        function update() {
+            setUniform("seen", resolved, loaded);
+            tick();
+        }
+    "#;
+    let mut rig = Rig::new(script, &[])?;
+    let mut out = rig.step();
+    for _ in 0..2 {
+        out = rig.step();
+    }
+    assert_eq!(out.status, ScriptStatus::Running, "{:?}", out.console);
+    expect_uniform(&out, "seen", ExtraType::Vec2, &[2.0, 1.0])?;
+    Ok(())
+}
+
+#[test]
+fn an_endless_promise_chain_is_interrupted() -> Result<()> {
+    let script = r#"
+        function again() { Promise.resolve().then(again); }
+        function update() { again(); }
+    "#;
+    let mut rig = Rig::with_budget(script, &[], Budget::default())?;
+    let started = Instant::now();
+    let out = rig.step();
+    assert!(
+        started.elapsed() < Duration::from_millis(200),
+        "the chain was cut at the budget, took {:?}",
+        started.elapsed()
+    );
+    assert_eq!(
+        out.status,
+        ScriptStatus::Faulted { consecutive: 1 },
+        "an endless chain is a fault"
+    );
+    Ok(())
+}
+
+#[test]
+fn setup_and_update_declared_with_const_or_let_run_too() -> Result<()> {
+    // A top-level `const` or `let` is a global binding but not a property
+    // of the global object, so a host that only reads `globalThis.update`
+    // never calls it, and the script silently does nothing.
+    let script = r#"
+        let calls = 0;
+        const setup = () => { calls++; };
+        let update = function (dt) { setUniform("seen", calls, dt > 0 ? 1 : 0); };
+    "#;
+    let mut rig = Rig::new(script, &[])?;
+    let out = rig.step();
+    assert_eq!(out.status, ScriptStatus::Running, "{:?}", out.console);
+    expect_uniform(&out, "seen", ExtraType::Vec2, &[1.0, 1.0])?;
+    Ok(())
+}
+
+#[test]
 fn a_script_with_neither_setup_nor_update_is_fine() -> Result<()> {
     let mut rig = Rig::new("var x = 1;", &[])?;
     let out = rig.step();
@@ -1376,6 +1493,35 @@ fn an_endless_loop_in_update_is_interrupted_and_the_frame_returns() -> Result<()
 }
 
 #[test]
+fn the_load_frame_runs_under_the_load_budget_and_later_frames_do_not() -> Result<()> {
+    let script = r#"
+        function update() {
+            var until = Date.now() + 20;
+            while (Date.now() < until) {}
+            setUniform("ready", 1);
+        }
+    "#;
+    // The default budgets, on purpose: 4 ms a frame, 250 ms to load.
+    let mut rig = Rig::with_budget(script, &[], Budget::default())?;
+    let loading = rig
+        .host
+        .load_frame(DT, &ScriptInputs::default(), &mut rig.bank, &mut rig.meta);
+    assert_eq!(
+        loading.status,
+        ScriptStatus::Running,
+        "20 ms is inside the load budget: {:?}",
+        loading.console
+    );
+    expect_uniform(&loading, "ready", ExtraType::Float, &[1.0])?;
+    assert_eq!(
+        rig.step().status,
+        ScriptStatus::Faulted { consecutive: 1 },
+        "but not inside a frame's"
+    );
+    Ok(())
+}
+
+#[test]
 fn an_endless_event_handler_is_interrupted_too() -> Result<()> {
     let script = r#"
         function spin() { while (true) {} }
@@ -1472,6 +1618,31 @@ fn three_faulted_frames_in_a_row_disable_the_script() -> Result<()> {
 }
 
 #[test]
+fn a_fault_that_keeps_coming_back_is_one_console_error() -> Result<()> {
+    // Never three in a row, so never disabled: without the once rule this
+    // is thirty error lines a second for as long as the scene plays.
+    let script = r#"
+        function update() { if (FRAMECOUNT % 2 === 1) throw new Error("odd frame"); }
+    "#;
+    let mut rig = Rig::new(script, &[])?;
+    let mut lines = 0;
+    let mut faults = 0;
+    for _ in 0..60 {
+        let out = rig.step();
+        if matches!(out.status, ScriptStatus::Faulted { .. }) {
+            faults += 1;
+        }
+        lines += errors(&out)
+            .iter()
+            .filter(|line| line.contains("odd frame"))
+            .count();
+    }
+    assert_eq!(faults, 30, "every odd frame still faults");
+    assert_eq!(lines, 1, "but the console says so once");
+    Ok(())
+}
+
+#[test]
 fn a_good_frame_resets_the_strike_count() -> Result<()> {
     let script = r#"
         function update() {
@@ -1551,6 +1722,32 @@ fn a_memory_limit_breach_faults_cleanly_and_recovers() -> Result<()> {
 }
 
 #[test]
+fn throwing_undefined_is_not_reported_as_out_of_memory() -> Result<()> {
+    let mut rig = Rig::new("function update() { throw undefined; }", &[])?;
+    let out = rig.step();
+    assert_eq!(
+        out.status,
+        ScriptStatus::Faulted { consecutive: 1 },
+        "throw undefined faults"
+    );
+    let fault = rig.host.last_fault().unwrap_or_default().to_string();
+    assert!(
+        !fault.contains("memory") && fault.contains("undefined"),
+        "it is reported as what it threw, got `{fault}`"
+    );
+    // A full heap throws null, so `throw null` cannot be told apart from
+    // one; the message names both.
+    let mut rig = Rig::new("function update() { throw null; }", &[])?;
+    rig.step();
+    let fault = rig.host.last_fault().unwrap_or_default().to_string();
+    assert!(
+        fault.contains("memory") && fault.contains("threw null"),
+        "throw null names both readings, got `{fault}`"
+    );
+    Ok(())
+}
+
+#[test]
 fn runaway_recursion_is_a_fault_not_a_crash() -> Result<()> {
     let script = "function r(n) { return r(n + 1) + 1; } function update() { r(0); }";
     let mut rig = Rig::new(script, &[])?;
@@ -1559,6 +1756,38 @@ fn runaway_recursion_is_a_fault_not_a_crash() -> Result<()> {
         out.status,
         ScriptStatus::Faulted { consecutive: 1 },
         "stack overflow throws inside the script"
+    );
+    Ok(())
+}
+
+#[test]
+fn runaway_recursion_on_a_one_mib_thread_is_a_fault_not_a_stack_overflow() -> Result<()> {
+    // A Windows executable's main thread, where the frame loop and so the
+    // script run, has a 1 MiB stack. The script's own stack limit must fit
+    // inside it with room for the app's frames, or deep recursion runs off
+    // the end of the real stack and the process dies.
+    const WINDOWS_MAIN_THREAD_STACK: usize = 1024 * 1024;
+    let worker = std::thread::Builder::new()
+        .stack_size(WINDOWS_MAIN_THREAD_STACK)
+        .spawn(|| -> Result<ScriptStatus> {
+            let script = "function r(n) { return r(n + 1) + 1; } function update() { r(0); }";
+            let mut rig = Rig::with_budget(
+                script,
+                &[],
+                Budget {
+                    max_stack: Budget::default().max_stack,
+                    ..relaxed()
+                },
+            )?;
+            Ok(rig.step().status)
+        })?;
+    let status = worker
+        .join()
+        .map_err(|_| anyhow!("the script thread died"))??;
+    assert_eq!(
+        status,
+        ScriptStatus::Faulted { consecutive: 1 },
+        "the recursion is stopped inside the script"
     );
     Ok(())
 }

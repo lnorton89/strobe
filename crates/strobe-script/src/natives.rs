@@ -65,14 +65,12 @@ impl Components {
 /// A script number as a finite `f32`. Booleans count as 0 and 1, since
 /// toggles are numbers in SSF and `setControl("t", true)` is a natural
 /// thing to write. NaN and infinities become zero: a uniform full of NaN
-/// is a black screen with no explanation.
+/// is a black screen with no explanation. So does a double past
+/// `f32::MAX`, which the cast would turn into an infinity.
 fn to_f32<'js>(ctx: &Ctx<'js>, value: &Value<'js>) -> Result<f32> {
     if let Some(number) = value.as_number() {
-        return Ok(if number.is_finite() {
-            number as f32
-        } else {
-            0.0
-        });
+        let single = number as f32;
+        return Ok(if single.is_finite() { single } else { 0.0 });
     }
     if let Some(flag) = value.as_bool() {
         return Ok(if flag { 1.0 } else { 0.0 });
@@ -125,7 +123,9 @@ fn read_components<'js>(
     match single {
         Some(value) => {
             if let Some(array) = value.as_array() {
-                for index in 0..array.len() {
+                // One past `max` is enough to know there are too many; the
+                // watchdog cannot stop a native loop over a huge array.
+                for index in 0..array.len().min(max + 1) {
                     push(
                         ctx,
                         &mut out,

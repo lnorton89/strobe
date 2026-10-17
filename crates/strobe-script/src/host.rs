@@ -20,7 +20,11 @@
 //!    value with last frame's and calls its callback if the condition
 //!    holds, in registration order.
 //! 3. **`update(dt)`.**
-//! 4. **Harvest.** The deprecated `uniforms` object is scanned, then the
+//! 4. **Promise jobs.** Callbacks the frame queued (`then`, the rest of an
+//!    `async` function after an `await`) run now, as any engine runs them
+//!    once the script returns, under the same deadline. Loading runs them
+//!    after `setup()` the same way.
+//! 5. **Harvest.** The deprecated `uniforms` object is scanned, then the
 //!    frame's uniforms are committed (or, after a fault, discarded) and the
 //!    queued control writes are applied to the bank.
 //!
@@ -44,10 +48,10 @@ use crate::natives::{display, install, stage_uniform};
 use crate::output::{ConsoleLevel, FrameOutput, ScriptStatus};
 use crate::shared::{Command, Shared, Target};
 use rquickjs::context::EvalOptions;
-use rquickjs::{Context, Ctx, Exception, Object, Persistent, Runtime, Value};
+use rquickjs::{Context, Ctx, Exception, Function, Object, Persistent, Runtime, Value};
 use std::cell::Cell;
 use std::rc::Rc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use strobe_scene::audio::{SCALARS, silent_value};
 use strobe_scene::control::{ControlBank, ControlKind};
 
@@ -101,6 +105,11 @@ struct Globals {
     vectors: Vec<VectorGlobal>,
     /// `_mouse`, `_click`, `_muv`, `_muvc`, in that order.
     mouse: Vec<Persistent<Object<'static>>>,
+    /// `update` when the script declared it with a top-level `let` or
+    /// `const`, which the global object does not carry (see
+    /// [`lifecycle`]). `None` for `function update`, which is looked up on
+    /// the global object each frame, so a script may reassign it.
+    lexical_update: Option<Persistent<Function<'static>>>,
 }
 
 /// One QuickJS runtime driving one scene's `script.js`.
@@ -112,8 +121,7 @@ pub struct ScriptHost {
     globals: Globals,
     shared: Rc<Shared>,
     context: Context,
-    // Held so the runtime lives as long as the host; not otherwise read.
-    _runtime: Runtime,
+    runtime: Runtime,
     budget: Budget,
     consecutive_faults: u32,
     disabled: bool,
@@ -142,11 +150,15 @@ fn describe(ctx: &Ctx<'_>, error: rquickjs::Error) -> String {
         .and_then(|object| Exception::from_object(object.clone()));
     let Some(exception) = exception else {
         // QuickJS cannot build an Error object once the heap is full, so a
-        // memory-limit breach surfaces as an exception with no value.
-        if thrown.is_null() || thrown.is_undefined() {
-            return "out of memory (the engine raised an exception with no value)".to_string();
+        // memory-limit breach surfaces as a thrown `null`, or as no value at
+        // all. A script's own `throw null` looks the same, so the text
+        // names both; `throw undefined` is only ever the script's.
+        if thrown.is_null() || thrown.type_of() == rquickjs::Type::Uninitialized {
+            return "out of memory (the engine raised null, which a full heap throws; or the \
+                    script threw null)"
+                .to_string();
         }
-        return display(ctx, &thrown);
+        return format!("uncaught {}", display(ctx, &thrown));
     };
     let message = exception.message().unwrap_or_default();
     let location = exception.stack().and_then(|stack| {
@@ -160,6 +172,49 @@ fn describe(ctx: &Ctx<'_>, error: rquickjs::Error) -> String {
         Some(location) => format!("{message} ({location})"),
         None => message,
     }
+}
+
+/// Runs every queued promise job, including the ones those jobs queue,
+/// until the queue is empty or `deadline` passes. A job that throws past
+/// the script's reach (an interrupt, the memory cap) is the fault text;
+/// so is a chain that is still going at the deadline.
+///
+/// It asks for a job even when none is queued, because that also moves
+/// QuickJS's stack reference to this call's depth: the stack cap (D321)
+/// then counts from where frames run, not from where the scene loaded.
+fn run_jobs(runtime: &Runtime, deadline: &Cell<Option<Instant>>) -> Result<(), String> {
+    loop {
+        match runtime.execute_pending_job() {
+            Ok(true) => {}
+            Ok(false) => return Ok(()),
+            Err(error) => {
+                return Err(error
+                    .0
+                    .with(|ctx| describe(&ctx, rquickjs::Error::Exception)));
+            }
+        }
+        if runtime.is_job_pending() && deadline.get().is_some_and(|limit| Instant::now() >= limit) {
+            return Err("interrupted: promise callbacks still queued at the deadline".to_string());
+        }
+    }
+}
+
+/// The script's `setup` or `update` (`name`), however it was declared.
+///
+/// `function update` and `var update` make a property of the global
+/// object. A top-level `let` or `const` (`const update = (dt) => ...`) makes
+/// a global binding that is *not* a property, so reading `globalThis` alone
+/// would never find it and the script would silently do nothing. Failing
+/// the property, the name is read as an expression. Called once at load,
+/// so the evaluation costs nothing per frame.
+fn lifecycle<'js>(ctx: &Ctx<'js>, name: &str) -> rquickjs::Result<Option<Function<'js>>> {
+    let value: Value<'js> = ctx.globals().get(name)?;
+    if let Some(function) = value.as_function() {
+        return Ok(Some(function.clone()));
+    }
+    let value: Value<'js> =
+        ctx.eval(format!("typeof {name} === 'function' ? {name} : undefined"))?;
+    Ok(value.as_function().cloned())
 }
 
 /// Overwrites `keys` on `object` with `values`.
@@ -234,6 +289,7 @@ impl Globals {
             scalars,
             vectors,
             mouse,
+            lexical_update: None,
         })
     }
 
@@ -364,7 +420,7 @@ impl ScriptHost {
             let inputs: Value<'_> = ctx.eval(INPUTS_PRELUDE)?;
             ctx.globals().set("inputs", inputs)?;
             ctx.globals().set("uniforms", Object::new(ctx.clone())?)?;
-            let globals = Globals::build(&ctx, controls)?;
+            let mut globals = Globals::build(&ctx, controls)?;
             globals.write(&ctx, &ScriptInputs::default(), controls)?;
 
             if let Err(error) = ctx.eval_with_options::<Value<'_>, _>(source, script_options()) {
@@ -372,8 +428,11 @@ impl ScriptHost {
                     message: describe(&ctx, error),
                 });
             }
-            let setup: Value<'_> = ctx.globals().get("setup")?;
-            if let Some(function) = setup.as_function()
+            if !ctx.globals().get::<_, Value<'_>>("update")?.is_function() {
+                globals.lexical_update =
+                    lifecycle(&ctx, "update")?.map(|function| Persistent::save(&ctx, function));
+            }
+            if let Some(function) = lifecycle(&ctx, "setup")?
                 && let Err(error) = function.call::<_, ()>(())
             {
                 return Err(ScriptError::Setup {
@@ -381,6 +440,11 @@ impl ScriptHost {
                 });
             }
             Ok(globals)
+        });
+        let built = built.and_then(|globals| {
+            run_jobs(&runtime, &shared.deadline)
+                .map(|()| globals)
+                .map_err(|message| ScriptError::Load { message })
         });
         shared.deadline.set(None);
         let globals = built?;
@@ -390,7 +454,7 @@ impl ScriptHost {
             globals,
             shared,
             context,
-            _runtime: runtime,
+            runtime,
             budget,
             consecutive_faults: 0,
             disabled: false,
@@ -413,16 +477,48 @@ impl ScriptHost {
         controls: &mut ControlBank,
         meta: &mut ControlBank,
     ) -> FrameOutput {
+        self.frame_within(self.budget.frame, dt, inputs, controls, meta)
+    }
+
+    /// Runs the frame the scene's load runs before its shaders are
+    /// compiled, exactly as [`Self::frame`] but under [`Budget::load`]: it
+    /// is paid while the scene loads, not on screen, and the uniforms it
+    /// publishes are the ones the shaders declare. Cut at the frame budget,
+    /// a first `update` that does set-up work would fault on a slow machine
+    /// only, and its uniforms would never be declared (D324).
+    pub fn load_frame(
+        &mut self,
+        dt: f32,
+        inputs: &ScriptInputs<'_>,
+        controls: &mut ControlBank,
+        meta: &mut ControlBank,
+    ) -> FrameOutput {
+        self.frame_within(self.budget.load, dt, inputs, controls, meta)
+    }
+
+    /// [`Self::frame`] under a deadline of `budget` from now.
+    fn frame_within(
+        &mut self,
+        budget: Duration,
+        dt: f32,
+        inputs: &ScriptInputs<'_>,
+        controls: &mut ControlBank,
+        meta: &mut ControlBank,
+    ) -> FrameOutput {
         if self.disabled {
             return self.finish(ScriptStatus::Disabled);
         }
         self.stage_final_pass(inputs);
 
-        self.shared
-            .deadline
-            .set(Some(Instant::now() + self.budget.frame));
+        self.shared.deadline.set(Some(Instant::now() + budget));
         let bank: &ControlBank = controls;
-        let outcome = self.context.with(|ctx| self.run(&ctx, dt, inputs, bank));
+        let outcome = self
+            .context
+            .with(|ctx| self.run(&ctx, dt, inputs, bank))
+            .and_then(|()| run_jobs(&self.runtime, &self.shared.deadline))
+            .map(|()| {
+                self.context.with(|ctx| self.harvest_legacy_uniforms(&ctx));
+            });
         self.shared.deadline.set(None);
 
         let status = match outcome {
@@ -458,6 +554,16 @@ impl ScriptHost {
         self.shared.state.borrow_mut().uniforms.seal()
     }
 
+    /// Seals the script's uniforms with exactly `names` declared: the
+    /// uniforms the shaders were compiled with when this script is a fresh
+    /// start of one that already ran under them (a playlist cueing its
+    /// scene again). As with [`Self::seal_uniforms`], any other new name
+    /// is refused from then on, while a declared name not set yet may
+    /// still be set.
+    pub fn seal_uniforms_to<'a>(&mut self, names: impl IntoIterator<Item = &'a str>) {
+        self.shared.state.borrow_mut().uniforms.seal_to(names);
+    }
+
     /// Copies the final-pass downsample where `textureFinalPass` reads it.
     fn stage_final_pass(&self, inputs: &ScriptInputs<'_>) {
         let mut state = self.shared.state.borrow_mut();
@@ -486,12 +592,21 @@ impl ScriptHost {
         let update: Value<'js> = globals
             .get("update")
             .map_err(|error| describe(ctx, error))?;
-        if let Some(function) = update.as_function() {
+        let update = match (update.as_function(), &self.globals.lexical_update) {
+            (Some(function), _) => Some(function.clone()),
+            (None, Some(saved)) => Some(
+                saved
+                    .clone()
+                    .restore(ctx)
+                    .map_err(|error| describe(ctx, error))?,
+            ),
+            (None, None) => None,
+        };
+        if let Some(function) = update {
             function
                 .call::<_, ()>((f64::from(dt),))
                 .map_err(|error| describe(ctx, error))?;
         }
-        self.harvest_legacy_uniforms(ctx);
         Ok(())
     }
 
@@ -568,7 +683,10 @@ impl ScriptHost {
         let mut state = self.shared.state.borrow_mut();
         state.uniforms.discard();
         self.consecutive_faults += 1;
-        state.log(ConsoleLevel::Error, format!("{SCRIPT_NAME}: {message}"));
+        // Once per distinct message: a fault that comes back every other
+        // frame never disables the script, and would otherwise be thirty
+        // lines a second. The status still reports every faulted frame.
+        state.log_once(ConsoleLevel::Error, &format!("{SCRIPT_NAME}: {message}"));
         self.last_fault = Some(message.to_string());
         if self.consecutive_faults >= MAX_CONSECUTIVE_FAULTS {
             self.disabled = true;

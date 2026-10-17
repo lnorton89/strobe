@@ -9,10 +9,18 @@
 //! Execution budget.
 //!
 //! The defaults are the ones the design settled on: a script gets 4 ms of
-//! a 16.6 ms frame, a 64 MiB heap and a 1 MiB stack. They are fields
+//! a 16.6 ms frame, a 64 MiB heap and a 256 KiB stack. They are fields
 //! rather than constants so a test can shrink them to provoke a breach
 //! quickly, and so a slow machine can be given more time without a
 //! rebuild.
+//!
+//! The stack cap is QuickJS's own check, counted down from where the
+//! interpreter was created, not a stack of its own: the script runs on the
+//! caller's thread. A Windows executable's main thread, which runs the
+//! frame loop, has 1 MiB in all, so QuickJS's 1 MiB default let runaway
+//! recursion run off the end of the real stack and kill the process
+//! instead of throwing (D321). 256 KiB is about 350 nested JavaScript
+//! calls and leaves three quarters of that thread to the app.
 
 use std::time::Duration;
 
@@ -29,6 +37,8 @@ pub struct Budget {
     /// Heap cap in bytes; an allocation past it throws inside the script.
     pub memory_limit: usize,
     /// Native stack cap in bytes; deeper recursion throws inside the script.
+    /// It must fit, with room to spare, in the stack of the thread that
+    /// builds and runs the host.
     pub max_stack: usize,
     /// Seed for `randomizeControl` and `randomizeGroup`. The same seed and
     /// the same calls give the same values, which is what makes a
@@ -43,7 +53,7 @@ impl Default for Budget {
             frame: Duration::from_millis(4),
             load: Duration::from_millis(250),
             memory_limit: 64 * MIB,
-            max_stack: MIB,
+            max_stack: 256 * 1024,
             seed: 0x5EED_5EED_5EED_5EED,
         }
     }

@@ -8446,3 +8446,180 @@ All other tests pass unchanged. Hardware: MINIPC.md Task M25.
 - A machine whose stalls come every few seconds, so that a settled scale
   never collects evidence. Then the skip would need a limit.
 - M25 showing no deferral line where the bench lands in a verdict.
+
+### D321: a script's stack cap is 256 KiB, so runaway recursion throws instead of killing the process (2026-10-17)
+
+**Context.** QuickJS checks its own stack depth against a limit counted
+down from where the interpreter was created, on the caller's thread; it has
+no stack of its own. `Budget::max_stack` was 1 MiB, QuickJS's default. A
+Windows executable's main thread, where the frame loop and so every
+`script.js` run, has 1 MiB in all, part of it already used by the app. So
+`function r() { return r() + 1; }` ran off the end of the real stack before
+QuickJS's check fired: a stack overflow, which kills the process, on the
+platform the show runs on. Linux's 8 MiB main thread and the test harness's
+2 MiB threads hid it.
+
+**Decision.** The default cap is 256 KiB. Deep recursion is then a
+`RangeError` inside the script, a fault like any other: the frame's
+uniforms are discarded and three in a row disable the script. 256 KiB is
+about 350 nested JavaScript calls (measured, debug and release alike) and
+leaves three quarters of a 1 MiB thread to the app's own frames, including
+when a scene is loaded from deeper in the UI than the frame loop runs.
+
+**Test.** `runaway_recursion_on_a_one_mib_thread_is_a_fault_not_a_stack_overflow`
+(`strobe-script` conformance) runs the recursion on a thread with a 1 MiB
+stack. With the old cap the test process aborts with a stack overflow.
+
+**Would reopen:** a real scene that recurses deeper than about 350 calls.
+The answer then is a bigger main-thread stack for `strobe.exe` (a linker
+`/STACK` reserve), after which the cap can grow with it.
+
+### D322: a script's promise callbacks run at the end of the frame that queued them (2026-10-17)
+
+**Context.** QuickJS queues promise reactions (`then`, the rest of an
+`async` function after an `await`) and leaves running them to the embedder.
+`strobe-script` never did. A queued callback was lost, and every queued job
+stayed allocated, so a script that awaited once a frame grew its heap until
+the 64 MiB cap faulted it and then disabled it.
+
+**Decision.** After `update(dt)` the host runs every queued job, including
+the ones those jobs queue, under the frame's deadline, and only then scans
+the legacy `uniforms` object and commits. Loading does the same after
+`setup()`, under the load deadline. A job that throws past the script's
+reach (an interrupt, the memory cap), or a chain still running at the
+deadline, is a fault like a throwing `update`. A promise that rejects is
+the script's business: its rejection is not reported, as in a browser with
+no rejection handler (nothing in Synesthesia's documentation says
+otherwise). Asking for jobs, even from an empty queue, also moves QuickJS's
+stack reference to the depth frames run at, so from the second frame on
+D321's cap is measured from there rather than from wherever the scene was
+loaded.
+
+**Test.** `promise_callbacks_run_by_the_end_of_the_frame_that_queued_them`
+(a top-level `then` and an `async` function awaited each frame) and
+`an_endless_promise_chain_is_interrupted`, in `strobe-script` conformance.
+
+**Would reopen:** evidence that Synesthesia runs a script's promise jobs at
+another point, or not at all.
+
+### D323: a scene cued again starts its script over too (2026-10-17)
+
+**Context.** D297 made a playlist cue start its scene from the beginning:
+clock, frame count and buffers. The scene's `script.js` was left out. Its
+QuickJS state (counters, accumulated phases, its handlers' previous values,
+a fault streak or a disabled script) carried over from the cue that played
+last, an hour earlier in a long show, while `TIME` and `FRAMECOUNT` started
+again. A script that counts its own frames began its second cue at 303
+where its first had ended at 180, and the first cue itself began with the
+two frames that loading and priming had already run.
+
+**Decision.** `Show::unpark`, the one place a cue takes its scene out of
+the cache, calls `Session::restart_script` after `ScenePlayer::restart`. It
+does what `Session::load` did with the script: evaluate `script.js` again,
+run `setup()`, run the first frame at the cue's start with the audio there.
+Then `prepare` resets the controls and applies the preset and the cue's
+overrides, so the cue's settings still win over what `setup()` wrote, as
+they did before. The new script's uniforms are sealed to the ones the
+shaders were compiled with (`ScriptHost::seal_uniforms_to`), so a restart
+compiles nothing and a uniform the shaders know keeps arriving even if the
+new start has not set it yet. A script that no longer starts is a `SCRIPT`
+failure and the cue plays without it, as at load. A cue that follows a cue
+of the same scene keeps the live session, script included, as D297 keeps
+its picture.
+
+**Cost.** The restart runs on the render thread when the cue warms up,
+about two seconds before it plays, under the script's load budget (250 ms
+at most; the 48 scripts in the private corpus start in half a millisecond
+or less, release build, on the development container). It is paid once per
+cue change, never per frame.
+
+**Test.** `a_scene_cued_again_starts_its_script_fresh_too`
+(`strobe-app/tests/show.rs`, both dialects): a script counting its frames
+into a uniform, another scene, the script scene again. Without the restart
+the third cue begins at 303, past the first cue's 180; with it the count
+starts over, still reaches the shader, and nothing is compiled.
+
+**Would reopen:** a show that wants a script's state to persist across
+cues (a long-running simulation), which would be a cue setting, as D297
+says for buffers; or a script whose `setup()` is slow enough that the
+warm-up hitch shows.
+
+### D324: the script frame a load runs before compiling gets the load budget, not a frame's (2026-10-17)
+
+**Context.** D62 runs a script's first frame before the shaders are
+compiled, so the uniforms it publishes are declared. That frame ran under
+the 4 ms frame budget. A first `update` that does set-up work (building a
+table on `FRAMECOUNT === 0`), or one that meets a garbage collection, can
+pass 4 ms on a 2012 laptop while taking 1 ms on the machine it was written
+on. Cut there, the frame faulted, its uniforms were discarded and never
+declared, and a shader reading one failed to compile: the scene would not
+load, on slow machines only.
+
+**Decision.** `ScriptHost::load_frame` runs a frame exactly as `frame`
+does, under `Budget::load` (250 ms, the budget `script.js` and `setup()`
+already get). `Session::load` and `Session::restart_script` (D323) use it
+for that one frame; every frame on screen keeps the 4 ms budget.
+
+**Test.** `a_first_update_slower_than_a_frame_still_declares_its_uniforms`
+(`strobe-app/tests/script_uniforms.rs`): a first `update` that takes 20 ms
+and then sets the uniform its shader reads. Before, the load failed with
+"`ready` undeclared". `the_load_frame_runs_under_the_load_budget_and_later_frames_do_not`
+(`strobe-script` conformance) pins the two budgets.
+
+**Would reopen:** a first frame long enough at load to be felt as a
+hitch, which would argue for a smaller load budget for that frame.
+
+### D325: a script fault that keeps coming back is logged and reported once (2026-10-17)
+
+**Context.** A script is disabled after three faulted frames in a row
+(D62). One that throws on every other frame, or on every beat
+(`if (syn_BassHits > 0.5) missing()`), never gets there: each good frame
+resets the streak. Every streak's first fault was a structured `SCRIPT`
+failure, and every faulted frame a console error, so such a script wrote
+thirty failure reports and thirty error lines a second for as long as it
+played. They filled the log and the UI console, and pushed everything else
+out of the 100 failures a crash report carries.
+
+**Decision.** The host logs a fault's console line once per distinct
+message (`log_once`, the rule that already covers unknown names), and the
+app reports a streak's first fault as a failure only for a message it has
+not reported before, up to 32 distinct messages per script start. The
+status still says `Faulted` on every faulted frame and the UI shows the
+latest message, so a fault that keeps happening stays visible. A script
+started again (a reload, a re-cue, D323) reports afresh.
+
+**Test.** `a_fault_that_keeps_coming_back_is_reported_once` (`strobe-app`,
+`script.rs`: 30 reports before, 1 after) and
+`a_fault_that_keeps_coming_back_is_one_console_error` (`strobe-script`
+conformance).
+
+**Would reopen:** an operator who needs to see how often a fault recurs;
+the answer would be a count beside the UI state, not more lines.
+
+### D326: `setup` and `update` declared with a top-level `let` or `const` run too (2026-10-17)
+
+**Context.** The host found `setup` and `update` by reading them off the
+global object. `function update` and `var update` put a property there; a
+top-level `let` or `const` (`const update = (dt) => { ... }`, the way much
+modern JavaScript is written) makes a global binding that, by the
+language's rules, is not a property of the global object. Such a script
+loaded without a word and then did nothing, every frame.
+
+**Decision.** After `script.js` is evaluated, a `setup` or `update` that is
+not a function on the global object is looked up as a global name
+(`host::lifecycle`, one evaluation at load, nothing per frame). A lexical
+`update` is kept as a persistent handle; a `function update` is still read
+off the global object each frame, so a script that reassigns it keeps
+working. Event callbacks are unchanged: they are named by string, and a
+callback declared with `const` is still reported as "there is no function
+named ...", which at least says what is wrong.
+
+Synesthesia's own behaviour with a lexical `update` is not verified. This
+is a superset: every script that ran before runs the same, and a script
+Synesthesia might have ignored now runs, which is what its author meant.
+
+**Test.** `setup_and_update_declared_with_const_or_let_run_too`
+(`strobe-script` conformance).
+
+**Would reopen:** evidence that Synesthesia ignores a lexical `update` and
+a real scene that depends on that.
