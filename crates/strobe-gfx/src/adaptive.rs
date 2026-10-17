@@ -90,7 +90,10 @@
 //!   twenty, so a held scene crept down a step (M23). The misses over the
 //!   last [`RECENT_WINDOWS`] windows (up to 10 s) must then average
 //!   [`SETTLED_FACTOR`] times the drop line (6.25%). A real change (14-40%
-//!   missed) clears that within two windows.
+//!   missed) clears that within two windows. A window holding a stall (a
+//!   frame over [`HITCH_CADENCES`]), and the one after it, are left out of
+//!   that average (D320): M24's settled 0.70 stepped to 0.60 on a 915 ms
+//!   Windows snapshot stall, which no scale can cut.
 //! - **Climbing back after a late drop is slow (D314, D315).** The GPU time
 //!   the frames were late at is remembered, and the scale climbs back only
 //!   to a size predicted to cost clearly less than that
@@ -232,6 +235,11 @@ pub const MAX_LATE_LOCK_FRAMES: u32 = 4 * LATE_LOCK_FRAMES;
 /// step (D318). M21 run A's first minute had a 142 ms gap.
 pub const HITCH_CADENCES: f32 = 6.0;
 
+/// Windows left out of a settled scale's recent misses from the one holding
+/// a stall on (D320): that window, and the next, where the frames queued
+/// behind the stall catch up.
+pub const STALL_SKIP_WINDOWS: u32 = 2;
+
 /// A step down whose judged windows show the GPU time above this many times
 /// what it was before the step was disturbed (D318): a smaller picture
 /// cannot cost more, so something else is loading the GPU. M21 run A: 14.9
@@ -345,8 +353,27 @@ struct LateProbe {
     gpu_frames: u32,
     /// A judged window held a frame over [`HITCH_CADENCES`] (D318).
     disturbed: bool,
+    /// The longest interval in the judged windows (D320, for the log).
+    worst_ms: f32,
     /// Verdicts put off so far (D318).
     deferrals: u32,
+}
+
+/// A late verdict put off because its windows were disturbed, as
+/// [`AdaptiveScale::deferred`] reports it (D318, D320).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Deferral {
+    /// The scale the step left.
+    pub from: f32,
+    /// The scale it is at, waiting for its verdict.
+    pub tried: f32,
+    /// The longest interval in the disturbed windows, in milliseconds.
+    pub worst_ms: f32,
+    /// The GPU time over the disturbed windows against before the step, as
+    /// a ratio (1.12 is 12% up).
+    pub gpu_ratio: f32,
+    /// This deferral's number, from 1 to [`MAX_DEFERRALS`].
+    pub count: u32,
 }
 
 /// The cadence presented frames are judged against for a display `period_ms`:
@@ -473,6 +500,13 @@ pub struct AdaptiveScale {
     steady_windows: u32,
     /// The last late verdict at this scale paid: it is settled (D319).
     late_settled: bool,
+    /// Windows still to leave out of [`Self::recent`] after a stall (D320).
+    stall_skip: u32,
+    /// The verdict the last [`Self::observe`] put off (D320).
+    deferred: Option<Deferral>,
+    /// The scale whose late lock the last [`Self::observe`] saw run out
+    /// (D320).
+    lock_ran_out: Option<f32>,
     /// Clear windows in a row.
     clear_windows: u32,
     /// The late drop being judged.
@@ -529,6 +563,9 @@ impl AdaptiveScale {
             recent_next: 0,
             steady_windows: 0,
             late_settled: false,
+            stall_skip: 0,
+            deferred: None,
+            lock_ran_out: None,
             clear_windows: 0,
             late_probe: None,
             late_floor: None,
@@ -563,6 +600,18 @@ impl AdaptiveScale {
     /// not fall, when the scale it returned is that undoing (D315).
     pub fn late_undone(&self) -> Option<LateFutile> {
         self.late_undone
+    }
+
+    /// The verdict the last [`Self::observe`] put off for fresh windows,
+    /// when it did (D320: one log line each).
+    pub fn deferred(&self) -> Option<Deferral> {
+        self.deferred
+    }
+
+    /// The scale whose late lock ran out in the last [`Self::observe`], when
+    /// one did: missed refreshes may lower it again (D320).
+    pub fn lock_ran_out(&self) -> Option<f32> {
+        self.lock_ran_out
     }
 
     /// The scale the late rule lowers no further than, after a late drop
@@ -607,7 +656,8 @@ impl AdaptiveScale {
         }
         let missed = self.window.missed();
         let frames = self.window.frames();
-        let hitch = self.window.worst_ms() > cadence * HITCH_CADENCES;
+        let worst = self.window.worst_ms();
+        let hitch = worst > cadence * HITCH_CADENCES;
         self.window = MissCount::default();
         if missed >= LATE_PER_WINDOW {
             // The trigger is the last two windows, not the whole run.
@@ -626,11 +676,20 @@ impl AdaptiveScale {
             self.late_run = 0;
             self.late_run_frames = 0;
         }
-        if let Some(slot) = self.recent.get_mut(self.recent_next) {
-            *slot = missed;
+        // A stall is not the scene's: its window and the next stay out of
+        // a settled scale's evidence (D320).
+        if hitch {
+            self.stall_skip = STALL_SKIP_WINDOWS;
         }
-        self.recent_next = (self.recent_next + 1) % RECENT_WINDOWS;
-        self.recent_len = (self.recent_len + 1).min(RECENT_WINDOWS);
+        if self.stall_skip > 0 {
+            self.stall_skip -= 1;
+        } else {
+            if let Some(slot) = self.recent.get_mut(self.recent_next) {
+                *slot = missed;
+            }
+            self.recent_next = (self.recent_next + 1) % RECENT_WINDOWS;
+            self.recent_len = (self.recent_len + 1).min(RECENT_WINDOWS);
+        }
         self.steady_windows = self.steady_windows.saturating_add(1);
         if missed < LATE_CLEAR_PER_WINDOW {
             self.clear_windows = self.clear_windows.saturating_add(1);
@@ -644,6 +703,9 @@ impl AdaptiveScale {
             probe.frames += frames;
             probe.windows += 1;
             probe.disturbed |= hitch;
+        }
+        if let Some(probe) = self.late_probe.as_mut() {
+            probe.worst_ms = probe.worst_ms.max(worst);
         }
     }
 
@@ -659,6 +721,7 @@ impl AdaptiveScale {
         self.recent = [0; RECENT_WINDOWS];
         self.recent_len = 0;
         self.recent_next = 0;
+        self.stall_skip = 0;
         self.steady_windows = 0;
         self.late_settled = false;
     }
@@ -764,6 +827,8 @@ impl AdaptiveScale {
         self.undone = None;
         self.missed = None;
         self.late_undone = None;
+        self.deferred = None;
+        self.lock_ran_out = None;
         if !gpu_ms.is_finite() || gpu_ms < 0.0 {
             return None;
         }
@@ -906,6 +971,7 @@ impl AdaptiveScale {
                 gpu_sum: 0.0,
                 gpu_frames: 0,
                 disturbed: false,
+                worst_ms: 0.0,
                 deferrals: 0,
             }),
             Some(_) | None => None,
@@ -997,6 +1063,18 @@ impl AdaptiveScale {
         let gpu_rose = probe.gpu_frames > 0
             && probe.gpu_sum / probe.gpu_frames as f32 > probe.before_ms * GPU_RISE;
         if (probe.disturbed || gpu_rose) && probe.deferrals < MAX_DEFERRALS {
+            let gpu_ratio = if probe.gpu_frames > 0 {
+                probe.gpu_sum / probe.gpu_frames as f32 / probe.before_ms.max(f32::EPSILON)
+            } else {
+                1.0
+            };
+            self.deferred = Some(Deferral {
+                from: probe.from,
+                tried: self.scale,
+                worst_ms: probe.worst_ms,
+                gpu_ratio,
+                count: probe.deferrals + 1,
+            });
             self.late_probe = Some(LateProbe {
                 missed: 0,
                 frames: 0,
@@ -1004,6 +1082,7 @@ impl AdaptiveScale {
                 gpu_sum: 0.0,
                 gpu_frames: 0,
                 disturbed: false,
+                worst_ms: 0.0,
                 deferrals: probe.deferrals + 1,
                 ..probe
             });
@@ -1041,7 +1120,7 @@ impl AdaptiveScale {
         if self.late_floor.is_some() {
             self.late_lock_left = self.late_lock_left.saturating_sub(1);
             if self.late_lock_left == 0 {
-                self.late_floor = None;
+                self.lock_ran_out = self.late_floor.take();
             }
         }
         if self.futile.is_none() {
@@ -1619,6 +1698,7 @@ mod tests {
         let mut owed = 0.0_f32;
         let mut changes = Vec::new();
         let disturbed_until = 60 * 15;
+        let mut deferrals = Vec::new();
         for i in 0..60 * 60 * 3_u32 {
             let s = c.scale();
             let disturbed = i < disturbed_until;
@@ -1649,10 +1729,18 @@ mod tests {
             if let Some(to) = c.observe(gpu) {
                 changes.push((i, s, to, c.late_undone()));
             }
+            deferrals.extend(c.deferred());
         }
         assert!(
             changes.iter().all(|change| change.3.is_none()),
             "nothing locked: {changes:?}"
+        );
+        assert!(
+            deferrals.first().is_some_and(|d| d.count == 1
+                && (d.from - 1.0).abs() < 1e-4
+                && (d.tried - 0.9).abs() < 1e-4
+                && d.worst_ms >= 140.0),
+            "each put-off verdict is reported, with what disturbed it (D320): {deferrals:?}"
         );
         assert!(
             changes
@@ -1813,6 +1901,23 @@ mod tests {
         frames: u32,
         share: impl Fn(u32) -> f32,
     ) -> Vec<(u32, f32, f32)> {
+        held_at_0_70_with(c, seed, frames, |i, chance| {
+            if chance.next() < share(i) {
+                2.0 * PERIOD
+            } else {
+                PERIOD
+            }
+        })
+    }
+
+    /// [`held_at_0_70`] with each frame's interval from `interval(frame,
+    /// chance)` (D320).
+    fn held_at_0_70_with(
+        c: &mut AdaptiveScale,
+        seed: u64,
+        frames: u32,
+        mut interval: impl FnMut(u32, &mut Chance) -> f32,
+    ) -> Vec<(u32, f32, f32)> {
         let mut owed = 0.0_f32;
         for _ in 0..60 * 40 {
             let s = c.scale();
@@ -1836,13 +1941,38 @@ mod tests {
         let mut changes = Vec::new();
         for i in 0..frames {
             let s = c.scale();
-            let late = chance.next() < share(i);
-            c.presented(if late { 2.0 * PERIOD } else { PERIOD });
+            c.presented(interval(i, &mut chance));
             if let Some(to) = c.observe(1.16 + 12.44 * s * s) {
                 changes.push((i, s, to));
             }
         }
         changes
+    }
+
+    #[test]
+    fn a_settled_scale_does_not_step_for_a_system_stall() {
+        // M24 run C: settled at 0.70 with about 2.7% missed, then at 244 s a
+        // 915 ms Windows snapshot (VSS) stall, and the frames behind it
+        // catching up: "missed 58 refreshes over the last 600 frames
+        // (9.7%)", and a step to 0.60 that it climbed back from. A stall is
+        // not the scene's resolution: no step (D320).
+        let stall_at = 60 * 240;
+        for seed in [1, 2, 3, 2026, 1017] {
+            let mut c = sixty_hz();
+            let changes = held_at_0_70_with(&mut c, seed, 60 * 60 * 10, |i, chance| {
+                if i == stall_at {
+                    915.0
+                } else if (stall_at + 1..stall_at + 40).contains(&i) || chance.next() < 0.027 {
+                    2.0 * PERIOD
+                } else {
+                    PERIOD
+                }
+            });
+            assert!(
+                (c.scale() - 0.7).abs() < 1e-4 && changes.is_empty(),
+                "seed {seed}: no step for the stall: {changes:?}"
+            );
+        }
     }
 
     #[test]
