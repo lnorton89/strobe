@@ -1857,6 +1857,10 @@ fn text_chunks(text: &str, paste: bool) -> Vec<Input> {
 pub struct HostInput {
     keys: Vec<(egui::Key, egui::Modifiers)>,
     buttons: Vec<(egui::PointerButton, Pos2, egui::Modifiers)>,
+    /// A click with modifiers ended with nothing else held: they are let
+    /// go before the next input, in a later pass than the release, so the
+    /// click itself still sees them (D405).
+    release_modifiers: bool,
 }
 
 impl HostInput {
@@ -1866,6 +1870,9 @@ impl HostInput {
     }
     /// Convert validated wire inputs to the host's ordinary egui events.
     pub fn translate(&mut self, events: &[Input], size: Vec2, out: &mut Vec<Event>) {
+        if std::mem::take(&mut self.release_modifiers) {
+            out.push(Event::ModifiersChanged(egui::Modifiers::NONE));
+        }
         for input in events {
             match input {
                 Input::Move { x, y } => {
@@ -1898,6 +1905,15 @@ impl HostInput {
                         pressed: *down,
                         modifiers: mods,
                     });
+                    // Moves carry no modifiers, so the ones this click set
+                    // would stay held at the host until the next key. With
+                    // nothing else held they go before the next input; not
+                    // in this pass, where a Shift+click or Ctrl+click reads
+                    // them on the release (D405).
+                    self.release_modifiers = !*down
+                        && mods != egui::Modifiers::NONE
+                        && self.buttons.is_empty()
+                        && self.keys.is_empty();
                 }
                 Input::Scroll {
                     x,
@@ -1917,6 +1933,8 @@ impl HostInput {
                     if let Some(key) = egui::Key::from_name(key) {
                         let mods = egui_modifiers(*mods);
                         out.push(Event::ModifiersChanged(mods));
+                        // A key states the modifiers itself.
+                        self.release_modifiers = false;
                         let repeat = *down && self.keys.iter().any(|(held, _)| *held == key);
                         self.keys.retain(|(held, _)| *held != key);
                         if *down {
@@ -1955,6 +1973,7 @@ impl HostInput {
                     }
                     out.push(Event::PointerGone);
                     out.push(Event::ModifiersChanged(egui::Modifiers::default()));
+                    self.release_modifiers = false;
                 }
             }
         }
@@ -3479,6 +3498,55 @@ mod tests {
             "nothing is left behind"
         );
         Ok(())
+    }
+
+    #[test]
+    fn a_remote_ctrl_click_leaves_no_ctrl_held_at_the_host() {
+        // Pointer moves carry no modifiers, so the Ctrl a click brought
+        // used to stay in the host's egui until the next key (D405).
+        let ctrl = Modifiers {
+            ctrl: true,
+            ..Modifiers::default()
+        };
+        let click = |down| Input::Button {
+            x: 0.5,
+            y: 0.5,
+            button: 0,
+            down,
+            modifiers: ctrl,
+        };
+        let ctx = egui::Context::default();
+        let mut host = HostInput::default();
+        let mut held_after = Vec::new();
+        for wire in [
+            vec![click(true)],
+            vec![Input::Move { x: 0.6, y: 0.5 }],
+            vec![click(false)],
+            vec![Input::Move { x: 0.7, y: 0.5 }],
+        ] {
+            let mut events = Vec::new();
+            host.translate(&wire, Vec2::new(800.0, 600.0), &mut events);
+            let output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        Pos2::ZERO,
+                        Vec2::new(800.0, 600.0),
+                    )),
+                    focused: true,
+                    events,
+                    ..Default::default()
+                },
+                |_| {},
+            );
+            output.drop_without_applying_deltas();
+            held_after.push(ctx.input(|input| input.modifiers.ctrl));
+        }
+        assert_eq!(
+            held_after,
+            [true, true, true, false],
+            "Ctrl is held from the press through the drag and the release (a \
+             Ctrl+click reads it there), and let go before the next input"
+        );
     }
 
     #[test]
