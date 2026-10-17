@@ -8473,3 +8473,31 @@ stack. With the old cap the test process aborts with a stack overflow.
 **Would reopen:** a real scene that recurses deeper than about 350 calls.
 The answer then is a bigger main-thread stack for `strobe.exe` (a linker
 `/STACK` reserve), after which the cap can grow with it.
+
+### D322: a script's promise callbacks run at the end of the frame that queued them (2026-10-17)
+
+**Context.** QuickJS queues promise reactions (`then`, the rest of an
+`async` function after an `await`) and leaves running them to the embedder.
+`strobe-script` never did. A queued callback was lost, and every queued job
+stayed allocated, so a script that awaited once a frame grew its heap until
+the 64 MiB cap faulted it and then disabled it.
+
+**Decision.** After `update(dt)` the host runs every queued job, including
+the ones those jobs queue, under the frame's deadline, and only then scans
+the legacy `uniforms` object and commits. Loading does the same after
+`setup()`, under the load deadline. A job that throws past the script's
+reach (an interrupt, the memory cap), or a chain still running at the
+deadline, is a fault like a throwing `update`. A promise that rejects is
+the script's business: its rejection is not reported, as in a browser with
+no rejection handler (nothing in Synesthesia's documentation says
+otherwise). Asking for jobs, even from an empty queue, also moves QuickJS's
+stack reference to the depth frames run at, so from the second frame on
+D321's cap is measured from there rather than from wherever the scene was
+loaded.
+
+**Test.** `promise_callbacks_run_by_the_end_of_the_frame_that_queued_them`
+(a top-level `then` and an `async` function awaited each frame) and
+`an_endless_promise_chain_is_interrupted`, in `strobe-script` conformance.
+
+**Would reopen:** evidence that Synesthesia runs a script's promise jobs at
+another point, or not at all.

@@ -21,7 +21,7 @@
 //! ```text
 //! ScriptHost::new(source, &controls, &meta, Budget::default())  evaluate, setup()
 //! ScriptHost::frame(dt, &inputs, &mut controls, &mut meta)     once per frame
-//!     write globals → dispatch events → update(dt) → harvest
+//!     write globals → dispatch events → update(dt) → promise jobs → harvest
 //! ```
 //!
 //! ## Containment

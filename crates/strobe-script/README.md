@@ -105,6 +105,9 @@ the CI `windows` job and the T480 check it on Windows.
   any control write and applied to the meta bank passed to `frame`, with the
   same clamping and toggle rules. Unknown meta names are one console error.
   Scripts cannot read meta values (Q21).
+- **Promise callbacks** (D322): `then` callbacks and the rest of an `async`
+  function after an `await` run at the end of the frame that queued them,
+  after `update(dt)` and under the same deadline; at load, after `setup()`.
 - **Event threshold**: "on" is `value >= 0.5`. A handler takes the current
   value as its previous one on frame one, so edge handlers do not fire just
   because the scene started.
