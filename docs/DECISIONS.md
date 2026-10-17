@@ -8091,6 +8091,10 @@ M20 in MINIPC.md is the hardware test.
 
 ### D317: after a late step pays, the load line no longer gates the next; the trigger is the last two windows (2026-10-16)
 
+**Verified in M21 (0.70 at 18.7 s); amended by D318:** the late lock now
+expires (60 s, doubling to 4 min) and a verdict on disturbed windows is put
+off, after a first launch locked at 1.00 for the night.
+
 **Context.** Task M20 ([`hardware/MINIPC.md`](hardware/MINIPC.md)) passed
 D314-D316 on the venue mini PC:
 - the old 13 went from 42.5 to 58.5 fps at 0.70;
@@ -8160,3 +8164,95 @@ Hardware: MINIPC.md Task M21.
 - A proven scene stepping below its useful scale and being undone repeatedly.
 - A first step taken on misses that are not the GPU's, now that one paid step
   lifts the line.
+
+### D318: the late lock expires with backoff, and a verdict on disturbed windows is put off (2026-10-17)
+
+**Context.** Task M21 ([`hardware/MINIPC.md`](hardware/MINIPC.md)) confirmed
+D317's fast third step. Run B reached 0.70 at 18.7 s and then 0.60, holding
+59.9 fps. Run A found a real risk. It was launched about 10 s after the
+soak's strobe exited.
+- **The trigger.** The first step's trigger showed 42.5% missed with the GPU
+  at 14.9 ms (13 normally takes 13.6).
+- **The verdict.** The verdict's windows at 0.90 still showed 42.1%. D316
+  judged that futile and locked the late rule at 1.00 "until the scene
+  changes".
+- **The cost.** The first minute had a 142 ms gap and 50% missed; from the
+  second on it was a steady 42.6 fps at 1.00. In a show where the scene is
+  held, that lock can last the night: about 16 fps lost, on a judgement made
+  against a transient (most likely DWM or the driver tearing down the
+  previous process's fullscreen context).
+
+**Decision.**
+- **The late lock expires.** A futile late step stops the late rule at its
+  scale for `LATE_LOCK_FRAMES` (3600 GPU samples, 60 s at 60 Hz). Each
+  further failure doubles it, up to `MAX_LATE_LOCK_FRAMES` (14400, 4 min),
+  and a step that pays resets it. A scene change still lifts it at once.
+  - **The cost of a retry.** A retry that fails again costs about 8 s: four
+    to judge at the lower size, plus two resizes that restart feedback
+    scenes from black. At 60 s that is an eighth of the time, briefly. With
+    the backoff (60, 120, 240 s) a scene whose misses truly ignore its scale
+    pays about 8 s in 240 (3%) from the third retry on.
+  - **The benefit.** A false lock costs a minute instead of a night. Run A's
+    retry at about 75 s would step on to 0.70 by about 85 s.
+  - The log names the lock: "... no further for 3600 frames (about 60 s at
+    60 Hz) or until the scene changes (D315, D316, D318)".
+- **A verdict on disturbed windows is put off.** The judged windows are
+  disturbed when either:
+  - one of them holds a frame over `HITCH_CADENCES` (6) cadences, 100 ms at
+    60 Hz (a stall that is no evidence for or against a step); or
+  - the GPU time over them is above `GPU_RISE` (1.05) times what it was
+    before the step (a smaller picture cannot cost more, so something else
+    is loading the GPU).
+
+  A futile verdict on disturbed windows is then not taken. Fresh windows are
+  collected instead, up to `MAX_DEFERRALS` (4) times. A verdict that pays is
+  taken as it is: a disturbance only makes a step look worse.
+  - **Why four.** Waiting costs no judder, only the lower step's sharpness
+    for the while. Four deferrals (16 s) outlast a teardown like run A's,
+    and still give a machine that is always disturbed a verdict, and with it
+    the lock's backoff, rather than a step held open.
+  - **What is not checked.** The trigger windows' own disturbance is not
+    checked. A disturbed trigger only makes a step that is then judged, and
+    treating it as a reason not to lock would let a machine with a recurring
+    stall hunt.
+- **Run B's fourth step stands.** It paid (8.3% -> 0.1%) and gave a steady
+  59.9 fps at 0.60, where M20's 0.70 had shown 2.7%; the scene's state
+  differs from run to run. A "good enough" share above the drop line was
+  considered and not added. The drop line (5 missed refreshes in 120, about
+  57.5 fps) already is that level: under it, no step is taken. Above it, the
+  owner's aim is a steady 60, and a step that cuts the misses by a fifth and
+  5 points is worth its pixels by D316's own reckoning.
+
+**Not chosen.**
+- *A lock that never expires* (D315-D317). One disturbed verdict cost a
+  night's frames.
+- *No lock, only judging.* A scene whose misses ignore the scale would retry
+  every few seconds, which is M18's hunting.
+- *Judging the trigger's GPU time against a "steady state".* At a scene's
+  first seconds there is no steady state to compare with. The rise test on
+  the verdict's windows and the expiring lock cover the case without one.
+
+**Test.** `strobe_gfx::adaptive::tests`:
+- `a_verdict_on_a_disturbed_window_is_put_off_and_a_false_lock_heals`
+  (run A: 15 s of 42% missed whatever the scale, 140 ms stalls and the GPU
+  10% up; no lock, 0.80 within 90 s, ends at 0.70);
+- `a_lock_on_an_undetected_disturbance_heals_within_the_minute` (the same
+  disturbance with no stall or GPU rise: the first verdict locks, the lock
+  expires, 0.80 within 90 s, ends at 0.70).
+
+The resolution-independent tests now check the backoff
+(`backs_off`). Every change after the first lock is a retry (one step down,
+then undone back), each waits out the lock before it, the locks double to
+the 4-minute cap, and the run spends no more than 5% of its time below the
+settled scale. That covers `misses_that_do_not_follow_the_scale_stop_the_late_rule`,
+`the_old_13_steps_while_each_step_pays_and_stops_at_0_80` and
+`a_scene_whose_misses_and_cost_ignore_the_scale_ends_where_it_started`
+(at most 10 changes in ten minutes). All other tests pass unchanged.
+Hardware: MINIPC.md Task M22.
+
+**Would reopen:**
+- M22 locking at 1.00 for longer than the stated lock.
+- A held scene retrying more often than the backoff.
+- A verdict on a quiet machine put off again and again.
+- A scene that never settles because each retry pays and is then climbed
+  back from. The 30 s clear rule (D315) should prevent that.

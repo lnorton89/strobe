@@ -4573,12 +4573,15 @@ impl Running {
                 "adaptive resolution: lowering the render scale {:.2} -> {:.2} cut too few missed \
                  refreshes ({:.1}% of frames before, {:.1}% after), so the rest are not this \
                  scene's resolution; back to {:.2}, and missed refreshes lower it no further \
-                 until the scene changes (D315, D316)",
+                 for {} frames (about {} s at 60 Hz) or until the scene changes (D315, D316, \
+                 D318)",
                 late.scale,
                 late.tried,
                 late.share_before * 100.0,
                 late.share_after * 100.0,
-                change.to
+                change.to,
+                late.lock_frames,
+                late.lock_frames / 60
             );
             self.render_scale = change.to;
             self.resize_now = true;
