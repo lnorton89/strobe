@@ -8955,3 +8955,30 @@ Worst case on disk is now ten files of 64 MiB.
 
 **Would reopen:** a hang that needs the end of a long, flooded session
 rather than its start; the answer would be a second, rolling tail file.
+
+### D381: a failure reported again moves up the list instead of taking a new place (2026-10-17)
+
+**Context.** D45 keeps the last 100 structured failures for the UI and for
+crash reports (which carry the newest 20). D325 stopped one source, a
+script faulting every other frame, from filling that list. Others remain:
+a USB audio interface that drops out every few seconds is one `AUDIO`
+failure per dropout for as long as the show runs, and a resize that fails
+reports again each time adaptive resolution steps back between two sizes
+(the app's backoff only remembers the last size). Half an hour of either
+pushed every other failure out, so a crash report listed twenty copies of
+the dropout and not the shader failure that came first.
+
+**Decision.** `failure::report` compares a new failure with those it keeps
+(every field: subsystem, phase, scene, asset, path, details, message,
+action). An identical one is not kept twice: the earlier entry moves to the
+newest place and counts the repeat, and `recent` shows it with a
+`repeated=N` line. The list therefore holds the 100 most recent *distinct*
+failures. Every report is still logged in full at `error`, so the session
+log keeps the timeline. Failures that differ in any field (a frame number
+in the message, say) are still separate entries.
+
+**Test.** `a_failure_that_keeps_coming_back_does_not_push_the_others_out`
+(`strobe-diag`, `failure.rs`).
+
+**Would reopen:** a source whose repeats differ only in a counter or a time,
+which would need its own throttle at the source, as D325 did for scripts.
