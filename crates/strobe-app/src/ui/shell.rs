@@ -98,6 +98,25 @@ pub const HANDLE: f32 = 28.0;
 /// scroll.
 const BANNER_SHARE: f32 = 0.5;
 
+/// Ends a key capture whose field will not be drawn this frame: Settings
+/// closed (or hidden behind another main pane) while a shortcut waited for
+/// its key, or MAP closed or its macro deselected while a macro's key did.
+/// Only the field reads the key that ends a capture, and a capture owns the
+/// keyboard, so one left waiting would turn every shortcut off unseen
+/// (D350).
+fn drop_unseen_captures(model: &mut Model<'_>) {
+    let main = model.ui.panes.shown_in(workspace::Dock::Main);
+    if main != Some(Pane::Settings) {
+        model.ui.hotkeys.capturing = None;
+    }
+    let map = &mut *model.remote.ui;
+    if map.key_capture.is_some()
+        && (main != Some(Pane::Map) || map.selected_macro != map.key_capture)
+    {
+        map.key_capture = None;
+    }
+}
+
 /// Draws the whole control window.
 pub fn show(ui: &mut Ui, shell: &mut ShellState, model: &mut Model<'_>, actions: &mut Vec<Action>) {
     let theme = theme::palette();
@@ -108,6 +127,7 @@ pub fn show(ui: &mut Ui, shell: &mut ShellState, model: &mut Model<'_>, actions:
     }
     // The palette owns the keyboard while it is open, as the modal does.
     let palette_open = model.ui.command_palette.open;
+    drop_unseen_captures(model);
     // Capturing a new shortcut owns the keyboard too (D208).
     let capturing = model.ui.hotkeys.capturing.is_some() || model.remote.ui.key_capture.is_some();
     keys::handle(
