@@ -8733,3 +8733,30 @@ aborted the test binary before the fix) and
 
 **Would reopen:** a sender that needs arrays, which would want them decoded
 rather than dropped.
+
+### D371: a button press with no release between is a press again (2026-10-17)
+
+**Context.** A mapping remembers whether its source is held
+(`mapping::Runtime`) and acted only on the edge from up to down. Some sources
+never go up: a MIDI program change, and an OSC trigger (no argument, `N`,
+`I`, or a lone `T`) are each read as a press with no release. Mapped to a
+command, a cue or a toggle, they worked **once** and then never again until
+the app restarted: "program 5 is next scene" changed scene on the first
+press only. A note off lost to a full queue (D171) or a pulled cable did the
+same to a pad: the next press was swallowed.
+
+**Decision.** `Runtime::edge` reports a press for every button-down signal,
+including one that arrives while the source is already down. A release is
+still reported once. Analog sources keep the threshold and its hysteresis
+(D173), so a fader resting above the line does not fire repeatedly, and the
+keyboard's macro keys are unaffected (the UI already filters key repeat).
+The built-in OSC addresses were already stateless.
+
+**Test.** `a_source_with_no_release_fires_every_time_it_is_sent` (a program
+change and an argument-less OSC address, each mapped to a command, fire
+three times for three messages; once before the fix) and
+`a_press_after_a_lost_release_is_still_a_press`.
+
+**Would reopen:** a controller that repeats a note on while a pad is held
+(none known; poly aftertouch is a different message, which is not parsed),
+which would want the repeat filtered per source kind.

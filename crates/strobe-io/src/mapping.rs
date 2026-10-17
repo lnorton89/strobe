@@ -85,22 +85,29 @@ pub struct Edge {
 
 impl Runtime {
     /// Folds a signal into the held state and reports the change.
+    ///
+    /// A button press while the source is already down is a press again
+    /// (D371): a program change and an OSC trigger (no argument, `N`, `I`,
+    /// a lone `T`) have no release at all, and a note off can be lost (a
+    /// full queue, a pulled cable). Waiting for a release that never comes
+    /// would make every later press do nothing.
     pub fn edge(&mut self, signal: Signal, threshold: f32) -> Edge {
         let was = self.down;
-        let now = match signal {
-            Signal::Button(down) => down,
+        let (now, again) = match signal {
+            Signal::Button(down) => (down, down && was),
             Signal::Analog(x) => {
-                if was {
+                let now = if was {
                     x >= threshold - HYSTERESIS
                 } else {
                     x >= threshold
-                }
+                };
+                (now, false)
             }
         };
         self.down = now;
         Edge {
             down: now,
-            pressed: now && !was,
+            pressed: (now && !was) || again,
             released: was && !now,
         }
     }
@@ -468,8 +475,16 @@ mod tests {
     fn a_button_source_reports_its_own_edges() {
         let mut rt = Runtime::default();
         assert!(rt.edge(Signal::Button(true), 0.5).pressed, "down");
-        assert!(!rt.edge(Signal::Button(true), 0.5).pressed, "repeat");
+        let again = rt.edge(Signal::Button(true), 0.5);
+        assert!(
+            again.pressed && again.down && !again.released,
+            "a press with no release between is a press again (D371)"
+        );
         assert!(rt.edge(Signal::Button(false), 0.5).released, "up");
+        assert!(
+            !rt.edge(Signal::Button(false), 0.5).released,
+            "a second release is nothing"
+        );
     }
 
     #[test]
