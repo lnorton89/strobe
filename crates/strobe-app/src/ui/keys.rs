@@ -80,8 +80,9 @@ pub fn captured(ctx: &Context) -> Capture {
     })
 }
 
-/// The most key presses handled in one frame; a held-down burst beyond this
-/// is not a performance gesture.
+/// The most key presses handled in one frame, for commands and for macros
+/// each; a held-down burst beyond this is not a performance gesture.
+/// Releases are never capped (D402).
 const MAX_PER_FRAME: usize = 8;
 
 /// Maps an egui key to a command key: the named keys by hand, letters,
@@ -112,9 +113,9 @@ pub fn handle(ctx: &Context, model: &mut Model<'_>, modal_open: bool, actions: &
     let bindings = model.remote.bindings;
     let mut commands: [Option<CommandId>; MAX_PER_FRAME] = [None; MAX_PER_FRAME];
     let mut count = 0;
-    // Keys that are no command, pressed or let go, for the macros (D228).
-    let mut loose: [Option<(Chord, bool)>; MAX_PER_FRAME] = [None; MAX_PER_FRAME];
-    let mut loose_count = 0;
+    // Presses of keys that are no command, for the macros (D228). Their
+    // releases are not counted: a dropped release leaves a macro up (D402).
+    let mut loose_presses = 0;
     // The window lost focus this frame: no release may follow (D401).
     let mut focus_lost = false;
     ctx.input(|input| {
@@ -147,34 +148,30 @@ pub fn handle(ctx: &Context, model: &mut Model<'_>, modal_open: bool, actions: &
             } else {
                 None
             };
-            match command {
-                Some(command) => {
-                    if let Some(slot) = commands.get_mut(count) {
-                        *slot = Some(command);
-                        count += 1;
-                    }
+            if let Some(command) = command {
+                if let Some(slot) = commands.get_mut(count) {
+                    *slot = Some(command);
+                    count += 1;
                 }
-                None => {
-                    if let Some(slot) = loose.get_mut(loose_count) {
-                        *slot = Some((chord, *pressed));
-                        loose_count += 1;
-                    }
-                }
+                continue;
             }
+            // A press into a text field or a modal is typing, not a macro.
+            // A release always reaches the macro its press drove: the field
+            // (the palette's, say) may have taken focus while the key was
+            // held, and dropping the release would leave the macro up. The
+            // edges are handled in the order they came, so a press and its
+            // release in one frame leave the macro down.
+            if *pressed {
+                if focus.text_edit || focus.modal || loose_presses >= MAX_PER_FRAME {
+                    continue;
+                }
+                loose_presses += 1;
+            }
+            macro_key(model, chord, *pressed, actions);
         }
     });
     for command in commands.into_iter().flatten() {
         run(command, model, actions);
-    }
-    for (chord, pressed) in loose.into_iter().flatten() {
-        // A press into a text field or a modal is typing, not a macro. A
-        // release always reaches the macro its press drove: the field (the
-        // palette's, say) may have taken focus while the key was held, and
-        // dropping the release would leave the macro up.
-        if pressed && (focus.text_edit || focus.modal) {
-            continue;
-        }
-        macro_key(model, chord, pressed, actions);
     }
     if focus_lost {
         release_held_macros(model, actions);

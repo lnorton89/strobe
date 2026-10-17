@@ -1512,6 +1512,48 @@ fn a_window_that_loses_focus_lets_its_held_macros_go() -> Result<()> {
 }
 
 #[test]
+fn a_macro_release_is_never_dropped_in_a_crowded_frame() -> Result<()> {
+    // Q is held; then one frame carries more key edges than a frame
+    // handles (a stalled control frame, a remote batch) with Q's release
+    // last. Presses past the cap may go; the release may not (D402).
+    let crowd = [
+        egui::Key::A,
+        egui::Key::C,
+        egui::Key::D,
+        egui::Key::G,
+        egui::Key::H,
+        egui::Key::I,
+        egui::Key::J,
+        egui::Key::M,
+        egui::Key::N,
+    ];
+    let mut busy: Vec<egui::Event> = crowd
+        .iter()
+        .map(|key| press(*key, egui::Modifiers::NONE))
+        .collect();
+    busy.push(release(egui::Key::Q));
+    let drawn = draw_events(
+        Scenario {
+            mapped: true,
+            ..BASE
+        },
+        (1440.0, 900.0),
+        vec![
+            vec![press(egui::Key::Q, egui::Modifiers::NONE)],
+            busy,
+            Vec::new(),
+        ],
+    )?;
+    assert_eq!(
+        macro_edges(&drawn.all_actions),
+        [true, false],
+        "the release past the cap still lets the macro go: {:?}",
+        drawn.all_actions
+    );
+    Ok(())
+}
+
+#[test]
 fn a_macro_key_let_go_while_a_text_field_has_focus_still_lets_the_macro_go() -> Result<()> {
     // Q is held (the macro goes up), Ctrl+K opens the palette, whose field
     // takes focus, and Q is let go while the field has it.

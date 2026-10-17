@@ -9639,3 +9639,25 @@ order (release, then focus loss) with exactly one release.
 **Would reopen:** a platform that reports focus loss without
 `WindowFocused(false)` reaching egui (a context rebuild drops the control
 window's events while it runs: `rebuild.is_some()` in `window_event`).
+
+### D402: a frame never drops a key release (2026-10-17)
+
+**Context.** `keys::handle` kept at most `MAX_PER_FRAME` (8) key edges that
+are no command per frame, presses and releases together, in a fixed array,
+and dropped the rest silently. A frame with more (a control frame that ran
+late, D290's starved window catching up, or a desktop remote's batch) could
+drop a macro key's release, and the macro stayed up.
+
+**Decision.** Releases are not counted and never dropped; only presses are
+capped, at the same 8 for macros as for commands. The macro edges are
+handled as they are read, in their order, so a press and its release in one
+frame still go down and up, and nothing is stored for them (no array, no
+allocation). Commands are still collected and run after the frame's edges;
+a frame that holds both now sends the macro actions first, which nothing
+depends on.
+
+**Test.** `ui::shell_tests::a_macro_release_is_never_dropped_in_a_crowded_frame`
+(nine presses and Q's release in one frame; failed before with the macro
+left down).
+
+**Would reopen:** nothing expected.
