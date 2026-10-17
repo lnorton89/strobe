@@ -216,6 +216,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Documentation
 
+- record the show build's first soak day and the first lock expiry on hardware (M26) ([`9c6a2a4`](https://github.com/lnorton89/strobe/commit/9c6a2a4209cef96f3ac5d98379788f7adbabd2e4))
 - record the playlist and show-run bug sweep (D430-D437) ([`2131c8a`](https://github.com/lnorton89/strobe/commit/2131c8a7d50ca329b812e43677da2acdd627b503))
 - record why the control window's view models still allocate, and the follow-ups in the roadmap ([`9477813`](https://github.com/lnorton89/strobe/commit/94778131d5ffb62b988210844bcdb33ebdf31108))
 - record the follow-up bug sweep of scenes, the player, scripts and Shadertoy import (D410-D418) ([`b20d232`](https://github.com/lnorton89/strobe/commit/b20d23276f243813f1b30aff877ec614cd7fc86d))
