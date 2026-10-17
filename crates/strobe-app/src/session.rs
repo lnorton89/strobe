@@ -54,6 +54,14 @@
 //! recompiled (D161). A uniform whose name clashes with something the
 //! scene declares is dropped with a warning.
 //!
+//! ## The scene clock
+//!
+//! `TIME` is the sum of the frames' `dt` since the scene (or its cue)
+//! started. The sum is kept in `f64` and rounded to `f32` only for the
+//! shader, the script and the audio (`SceneClock`, D391): an `f32` sum
+//! four hours in rounds each frame's step to a whole number of its coarse
+//! spacing, and the scene ran 45 s behind at 60 fps, 190 s at 144.
+//!
 //! The sealed uniforms are bound to the player's declared order once, at the
 //! seal (D340), so a frame hands the player the script's values as they come,
 //! with no lookup by name and no vector built.
@@ -86,6 +94,29 @@ const FIRST_FRAME_DT: f32 = 1.0 / 60.0;
 
 /// The render scales the UI offers.
 pub const RENDER_SCALE: RangeInclusive<f32> = 0.25..=1.0;
+
+/// A scene's `TIME`: the frames' `dt` summed in `f64`, read as `f32`
+/// (D391). Never wrapped, since shaders use `TIME` as a coordinate as often
+/// as a phase (Q29).
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct SceneClock(f64);
+
+impl SceneClock {
+    /// A clock at `start` seconds.
+    fn at(start: f32) -> Self {
+        Self(f64::from(start))
+    }
+
+    /// Moves the clock on by `dt` seconds.
+    fn advance(&mut self, dt: f32) {
+        self.0 += f64::from(dt);
+    }
+
+    /// The time, as the shader and the script see it.
+    fn seconds(self) -> f32 {
+        self.0 as f32
+    }
+}
 
 /// Smallest render target edge, so a minimised or tiny window still has a
 /// valid framebuffer.
@@ -192,7 +223,7 @@ pub struct Session {
     script_source: Option<String>,
     transitions: Vec<f32>,
     frame: u64,
-    time: f32,
+    time: SceneClock,
 }
 
 impl Session {
@@ -281,7 +312,7 @@ impl Session {
             script_source,
             transitions,
             frame: 0,
-            time: start,
+            time: SceneClock::at(start),
         };
         session.send_script_uniforms();
         let (presets, problems) = preset::load_all(dir);
@@ -451,7 +482,7 @@ impl Session {
 
     /// The scene clock, in seconds.
     pub fn time(&self) -> f32 {
-        self.time
+        self.time.seconds()
     }
 
     /// Draws one frame (the scene is at its load size, tiny for a parked
@@ -468,7 +499,7 @@ impl Session {
     /// (D151): a scene that played an hour ago starts its next cue at its
     /// start, not at an hour.
     pub fn restart_clock(&mut self, start: f32) {
-        self.time = start;
+        self.time = SceneClock::at(start);
         self.frame = 0;
     }
 
@@ -553,13 +584,14 @@ impl Session {
     /// The script's `FRAMECOUNT` runs one ahead of the shader's, because
     /// its first frame already ran at load.
     pub fn advance(&mut self, dt: f32, audio: &mut AudioInput, mouse: Mouse, date: [f32; 4]) {
-        self.time += dt;
-        let audio = audio.frame_at(self.time);
+        self.time.advance(dt);
+        let time = self.time.seconds();
+        let audio = audio.frame_at(time);
         if let Some(run) = self.script.as_mut() {
             run.frame(
                 dt,
                 &ScriptInputs {
-                    time: self.time,
+                    time,
                     frame_count: self.frame + 1,
                     audio: &audio.scalars,
                     mouse: mouse.mouse,
@@ -589,7 +621,7 @@ impl Session {
             shadertoy: Some(&audio.shadertoy),
         });
         self.player.render(&FrameInputs {
-            time: self.time,
+            time,
             frame: self.frame,
             mouse,
             audio: &audio.scalars,
@@ -701,6 +733,57 @@ mod tests {
             "no preset is active, so storing a fav now stores none"
         );
         Ok(())
+    }
+
+    /// The spacing of `f32` values just above `x` (for `x >= 0`).
+    fn ulp(x: f32) -> f32 {
+        f32::from_bits(x.to_bits() + 1) - x
+    }
+
+    #[test]
+    fn the_scene_clock_keeps_real_time_four_hours_in() -> anyhow::Result<()> {
+        // D391: summed in f32, 4 h of frames read 14355.02 at 60 fps and
+        // 14210.39 at 144, and each frame stepped 0.0166016 (60 fps) and
+        // 0.0068359 (144 fps) instead of 1/60 and 1/144.
+        for fps in [60_u32, 144] {
+            let frames = 4 * 3600 * fps;
+            let dt = 1.0 / fps as f32;
+            let mut clock = SceneClock::at(0.0);
+            for _ in 0..frames {
+                clock.advance(dt);
+            }
+            let exact = |frames: u32| f64::from(frames) * f64::from(dt);
+            let at = clock.seconds();
+            let error = (f64::from(at) - exact(frames)).abs();
+            anyhow::ensure!(
+                error <= f64::from(ulp(at)) / 2.0,
+                "{fps} fps, 4 h in: TIME {at}, exact {}, error {error}",
+                exact(frames)
+            );
+            let mut steps = (f32::MAX, f32::MIN);
+            for _ in 0..fps {
+                let before = clock.seconds();
+                clock.advance(dt);
+                let step = clock.seconds() - before;
+                steps = (steps.0.min(step), steps.1.max(step));
+            }
+            anyhow::ensure!(
+                steps.0 >= dt - ulp(at) && steps.1 <= dt + ulp(at),
+                "{fps} fps, 4 h in: a frame steps {steps:?}, not {dt} to one f32 step"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn the_scene_clock_counts_from_its_start() {
+        let mut clock = SceneClock::at(2.0);
+        clock.advance(0.5);
+        assert!(
+            (clock.seconds() - 2.5).abs() < f32::EPSILON,
+            "2 s plus half a second, got {}",
+            clock.seconds()
+        );
     }
 
     #[test]
