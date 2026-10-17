@@ -9261,3 +9261,33 @@ in the message, say) are still separate entries.
 
 **Would reopen:** a source whose repeats differ only in a counter or a time,
 which would need its own throttle at the source, as D325 did for scripts.
+
+### D395: the system probe has a ten-second budget, and a timeout is stated in the report (2026-10-17)
+
+**Context.** The crash monitor writes its `.txt` with `probe_system: true`,
+which waits for the system facts. On Windows two of them (OS version, RAM)
+come from PowerShell and WMI, run with `Command::output()`. A WMI service
+that hangs (it does, on machines mid-update or with a broken repository)
+would hang the monitor before the report was written, and the report is the
+one thing a crash must leave behind.
+
+**Decision.** The probe's child processes share one deadline,
+`system::PROBE_BUDGET` (ten seconds). A child still running at the deadline
+is killed and reaped, the remaining child processes are not started, and
+`SystemInfo::timed_out` is set. The System section of the report then has a
+`probe` row saying "system probe timed out after 10s", so a person reading
+`unknown` knows why. Stdout is read on a helper thread, so a grandchild that
+keeps the pipe open cannot hold the caller past the deadline either. The
+file-based facts (Linux, CPU model from the environment) never wait on a
+child and are unaffected. Ten seconds, not three: a cold PowerShell on a
+2012 laptop with antivirus can take several seconds and a slow answer is
+better than none.
+
+**Test.** `a_hung_tool_is_killed_at_the_deadline`,
+`once_the_budget_is_spent_no_more_tools_are_started` (`system.rs`, run a
+real `sleep 30`; unix only) and `a_probe_that_timed_out_says_so_in_the_report`
+(`diag.rs`).
+
+**Would reopen:** a Windows machine where an honest probe needs more than ten
+seconds, which would want the probe moved off the report's critical path
+(report first, probe appended).
