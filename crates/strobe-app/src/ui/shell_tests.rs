@@ -98,6 +98,9 @@ struct Scenario {
     imported: bool,
     /// The shortcut editor waits for a key for this command.
     capturing: Option<crate::commands::CommandId>,
+    /// The MAP pane's key field waits for a key for this macro, which is
+    /// not the macro selected there (D228).
+    macro_capture: Option<u32>,
     /// The shortcut editor shows a clash (tap tempo wanted blackout's B).
     clash: bool,
     /// A cue is selected in the LIST pane, so its card shows (D213), and
@@ -178,6 +181,7 @@ const BASE: Scenario = Scenario {
     generated: false,
     imported: false,
     capturing: None,
+    macro_capture: None,
     clash: false,
     cue_selected: false,
     density: crate::ui::theme::Density::Comfortable,
@@ -1090,7 +1094,10 @@ fn draw_events(
         playlist_ui.preview =
             Some(strobe_playlist::generate(&snapshot, &spec).map_err(|error| error.to_string()));
     }
-    let mut map_ui = MapUi::default();
+    let mut map_ui = MapUi {
+        key_capture: scenario.macro_capture,
+        ..MapUi::default()
+    };
     let bindings = crate::commands::Bindings::default();
     let mut remote = sample_remote(scenario.mapped)?;
     let presets = vec!["Slow burn".to_string(), "Peak".to_string()];
@@ -1445,6 +1452,67 @@ fn a_macro_key_drives_its_macro_while_held() -> Result<()> {
 }
 
 #[test]
+fn a_macro_key_let_go_while_a_text_field_has_focus_still_lets_the_macro_go() -> Result<()> {
+    // Q is held (the macro goes up), Ctrl+K opens the palette, whose field
+    // takes focus, and Q is let go while the field has it.
+    let drawn = draw_events(
+        Scenario {
+            mapped: true,
+            ..BASE
+        },
+        (1440.0, 900.0),
+        vec![
+            vec![press(egui::Key::Q, egui::Modifiers::NONE)],
+            Vec::new(),
+            vec![ctrl_k()],
+            Vec::new(),
+            vec![release(egui::Key::Q)],
+            Vec::new(),
+        ],
+    )?;
+    let keys: Vec<&Action> = drawn
+        .all_actions
+        .iter()
+        .filter(|a| matches!(a, Action::MacroKey { .. }))
+        .collect();
+    assert!(
+        matches!(
+            keys.as_slice(),
+            [
+                Action::MacroKey { down: true, .. },
+                Action::MacroKey { down: false, .. }
+            ]
+        ),
+        "the release reaches the macro, or it stays up: {:?}",
+        drawn.all_actions
+    );
+    // A press into the field is typing, never a macro.
+    let typing = draw_events(
+        Scenario {
+            mapped: true,
+            ..BASE
+        },
+        (1440.0, 900.0),
+        vec![
+            vec![ctrl_k()],
+            Vec::new(),
+            vec![press(egui::Key::Q, egui::Modifiers::NONE), typed("q")],
+            vec![release(egui::Key::Q)],
+            Vec::new(),
+        ],
+    )?;
+    assert!(
+        !typing
+            .all_actions
+            .iter()
+            .any(|a| matches!(a, Action::MacroKey { .. })),
+        "Q typed into the palette drives no macro: {:?}",
+        typing.all_actions
+    );
+    Ok(())
+}
+
+#[test]
 fn a_key_pressed_while_capturing_rebinds_and_fires_nothing() -> Result<()> {
     let scenario = Scenario {
         capturing: Some(crate::commands::CommandId::TapTempo),
@@ -1484,6 +1552,45 @@ fn a_key_pressed_while_capturing_rebinds_and_fires_nothing() -> Result<()> {
         cancelled.all_actions,
         vec![Action::SetBlackout(true)],
         "Esc cancels without closing a pane; the next B is blackout again"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_capture_whose_field_is_gone_gives_the_keyboard_back() -> Result<()> {
+    // Change was clicked for tap tempo, then the Settings pane was closed
+    // with its own button before a key came: the field that waited for the
+    // key is no longer drawn, so nothing can end the capture there.
+    let settings_closed = Scenario {
+        capturing: Some(crate::commands::CommandId::TapTempo),
+        ..BASE
+    };
+    let drawn = draw_events(
+        settings_closed,
+        (1440.0, 900.0),
+        vec![vec![press(egui::Key::B, egui::Modifiers::NONE)], Vec::new()],
+    )?;
+    assert_eq!(
+        drawn.all_actions,
+        vec![Action::SetBlackout(true)],
+        "B is blackout again, not a dead key"
+    );
+    // The same for a macro's key, Set and then the macro deselected (or
+    // MAP closed).
+    let macro_deselected = Scenario {
+        macro_capture: Some(1),
+        mapped: true,
+        ..BASE
+    };
+    let drawn = draw_events(
+        macro_deselected,
+        (1440.0, 900.0),
+        vec![vec![press(egui::Key::B, egui::Modifiers::NONE)], Vec::new()],
+    )?;
+    assert_eq!(
+        drawn.all_actions,
+        vec![Action::SetBlackout(true)],
+        "B is blackout again after a macro's key capture lost its field"
     );
     Ok(())
 }

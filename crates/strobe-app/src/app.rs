@@ -157,7 +157,7 @@ use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalPosition};
 use winit::event::{ElementState, KeyEvent, MouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow};
-use winit::keyboard::{Key, NamedKey};
+use winit::keyboard::{Key, ModifiersState, NamedKey};
 use winit::monitor::MonitorHandle;
 use winit::window::{Fullscreen, Window, WindowAttributes, WindowId};
 
@@ -653,6 +653,9 @@ struct Running {
     /// Whether the output window is shown. Tracked here because winit cannot
     /// report visibility on X11 or Wayland.
     output_visible: bool,
+    /// The modifiers held over the output window, so its keys are the
+    /// same chords as the control window's (D351).
+    output_modifiers: ModifiersState,
     /// When the next scene frame is due, shown or hidden.
     next_output: Instant,
     next_control: Instant,
@@ -1004,6 +1007,7 @@ impl Running {
             output_monitor: None,
             last_monitor_refresh: now,
             output_visible: cli.show_output,
+            output_modifiers: ModifiersState::empty(),
             control_on_top: true,
             control_covered: false,
             next_output: now,
@@ -1812,6 +1816,11 @@ impl Running {
             if let Some(button) = button {
                 self.mouse.button(button, *state == ElementState::Pressed);
             }
+        } else if is_output && let WindowEvent::ModifiersChanged(modifiers) = &event {
+            self.output_modifiers = modifiers.state();
+        } else if is_output && matches!(event, WindowEvent::Focused(false)) {
+            // Keys let go in another window are never reported here.
+            self.output_modifiers = ModifiersState::empty();
         } else if is_output && let WindowEvent::KeyboardInput { event: key, .. } = &event {
             // The control window's keys go through egui, where focus is
             // known (`ui::keys`); the output window has no UI, so its keys
@@ -1848,7 +1857,8 @@ impl Running {
     }
 
     /// A key pressed in the output window: the same commands as the control
-    /// window, with no text field to respect. Esc leaves fullscreen first.
+    /// window, with no text field to respect, and the same modifiers
+    /// (D351). Esc leaves fullscreen first.
     fn output_key(&mut self, key: &KeyEvent) {
         if key.state != ElementState::Pressed || key.repeat {
             return;
@@ -1860,7 +1870,7 @@ impl Running {
             self.stack.output.window().set_fullscreen(None);
             return;
         }
-        let Some(chord) = chord_of(&key.logical_key) else {
+        let Some(chord) = chord_of(&key.logical_key, self.output_modifiers) else {
             return;
         };
         if let Some(command) = commands::dispatch_with(chord, Focus::default(), &self.bindings)
@@ -4232,9 +4242,7 @@ impl Running {
                 Some(name) => self.recall_preset(&name),
                 None => {
                     if let Some(session) = self.stack.session.as_mut() {
-                        for index in 0..session.controls.defs().len() {
-                            session.controls.set_default(index);
-                        }
+                        session.reset_to_start();
                     }
                 }
             }
@@ -5268,9 +5276,25 @@ fn closing_quits(facts: CloseFacts) -> bool {
         || facts.output_fills_control_monitor
 }
 
-/// The chord a key press in the output window stands for. Modifiers are
-/// not tracked there, so only plain keys exist.
-fn chord_of(key: &Key) -> Option<commands::Chord> {
+/// The chord a key press in the output window stands for, with the
+/// modifiers held (D351): `command` is Ctrl, or Cmd on macOS, as egui has
+/// it in the control window.
+fn chord_of(key: &Key, modifiers: ModifiersState) -> Option<commands::Chord> {
+    let plain = plain_chord_of(key)?;
+    Some(commands::Chord {
+        command: if cfg!(target_os = "macos") {
+            modifiers.super_key()
+        } else {
+            modifiers.control_key()
+        },
+        shift: modifiers.shift_key(),
+        alt: modifiers.alt_key(),
+        ..plain
+    })
+}
+
+/// [`chord_of`]'s key, with no modifiers.
+fn plain_chord_of(key: &Key) -> Option<commands::Chord> {
     use commands::{Chord, Key as K};
     const FUNCTION: [NamedKey; 12] = [
         NamedKey::F1,
@@ -5835,7 +5859,7 @@ mod tests {
 
     #[test]
     fn output_window_keys_map_to_the_same_commands() {
-        let key = |text: &str| chord_of(&Key::Character(text.into()));
+        let key = |text: &str| chord_of(&Key::Character(text.into()), ModifiersState::empty());
         assert_eq!(
             key("b"),
             Some(commands::Chord::plain(commands::Key::B)),
@@ -5860,21 +5884,69 @@ mod tests {
             "and an unbound one runs nothing"
         );
         assert_eq!(
-            chord_of(&Key::Named(NamedKey::F5)),
+            chord_of(&Key::Named(NamedKey::F5), ModifiersState::empty()),
             Some(commands::Chord::plain(commands::Key::Function(5))),
             "F5"
         );
         assert_eq!(
-            chord_of(&Key::Named(NamedKey::F11)),
+            chord_of(&Key::Named(NamedKey::F11), ModifiersState::empty()),
             Some(commands::Chord::plain(commands::Key::F11)),
             "F11 keeps its variant"
         );
         assert_eq!(
-            chord_of(&Key::Named(NamedKey::ArrowRight)),
+            chord_of(&Key::Named(NamedKey::ArrowRight), ModifiersState::empty()),
             Some(commands::Chord::plain(commands::Key::Right)),
             "right"
         );
-        assert_eq!(chord_of(&Key::Named(NamedKey::Tab)), None, "tab");
+        assert_eq!(
+            chord_of(&Key::Named(NamedKey::Tab), ModifiersState::empty()),
+            None,
+            "tab"
+        );
+    }
+
+    #[test]
+    fn output_window_keys_keep_their_modifiers() {
+        let command = if cfg!(target_os = "macos") {
+            ModifiersState::SUPER
+        } else {
+            ModifiersState::CONTROL
+        };
+        let run = |key: Key, modifiers: ModifiersState| {
+            chord_of(&key, modifiers).and_then(|chord| commands::dispatch(chord, Focus::default()))
+        };
+        assert_eq!(
+            run(Key::Named(NamedKey::ArrowRight), ModifiersState::SHIFT),
+            Some(CommandId::SkipSection),
+            "Shift+Right skips the section, as in the control window, not next cue"
+        );
+        assert_eq!(
+            run(Key::Character("b".into()), command),
+            None,
+            "Ctrl+B is no command, so it does not black out the show"
+        );
+        assert_eq!(
+            run(Key::Character("r".into()), ModifiersState::ALT),
+            None,
+            "Alt+R does not restart the cue"
+        );
+        assert_eq!(
+            run(Key::Character("b".into()), ModifiersState::empty()),
+            Some(CommandId::ToggleBlackout),
+            "plain B still blacks out"
+        );
+        let (bindings, problems) = Bindings::from_config(
+            &[("blackout_on".to_string(), "Shift+B".to_string())]
+                .into_iter()
+                .collect(),
+        );
+        assert!(problems.is_empty(), "{problems:?}");
+        assert_eq!(
+            chord_of(&Key::Character("B".into()), ModifiersState::SHIFT)
+                .and_then(|chord| commands::dispatch_with(chord, Focus::default(), &bindings)),
+            Some(CommandId::BlackoutOn),
+            "an operator's Shift+B reaches its command from the output window too"
+        );
     }
 
     #[test]
