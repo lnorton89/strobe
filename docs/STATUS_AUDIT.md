@@ -272,12 +272,13 @@ Linux and llvmpipe cannot prove any of these:
   - neither run locked, and both ended at 0.70 at about 58.5 fps.
 
   The log lines that show each deferral came after (D320, Task M25).
-- [ ] A late lock heals (D318). The lock and its expiry have not happened
-  on the hardware yet (M22-M24 never locked). Unit-tested
+- [x] A late lock heals (D318). Unit-tested
   (`a_lock_on_an_undetected_disturbance_heals_within_the_minute`, the
-  backoff checks); the expiry now logs a line (D320). Acceptance test: a
-  `the lock at ... ran out` line about 60 s after a lock line, on the mini
-  PC.
+  backoff checks); the expiry logs a line (D320). Verified on the mini PC
+  (MINIPC.md Task M26, 51f2620, 2026-10-17). At 9797.7 s, 0.90 -> 0.80
+  cut 15-neon-ribbon-flow's missed refreshes from 11.2% to 6.7%, under
+  D316's 5-point floor. It was undone and locked, and `the lock at 0.90
+  ran out` followed at 9863.7 s, 66 s later.
 - [x] A settled scale does not creep down on noise (D319). M23 run B held
   0.70 for two minutes at 2.7% missed, then stepped to 0.60 on two windows
   that reached the drop line by chance. Verified on the mini PC (MINIPC.md
