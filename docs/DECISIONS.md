@@ -8264,6 +8264,11 @@ Hardware: MINIPC.md Task M22.
 
 ### D319: a settled scale needs the recent windows at 1.5 times the drop line to step again; a competitor's stalls are waited out (2026-10-17)
 
+**Verified in M24 (ten minutes at 0.70 with no step on noise); amended by
+D320:** a window holding a stall, and the one after it, are left out of a
+settled scale's evidence, after a 915 ms Windows snapshot stall stepped the
+settled 0.70 to 0.60. Put-off verdicts and lock expiry are now logged.
+
 **Context.** On the venue mini PC ([`hardware/MINIPC.md`](hardware/MINIPC.md)),
 M22 ran two clean hold-13 runs, one launched 1.4 s after another strobe
 exited. Both reached 0.70 by 18.5 s at 58.4-58.6 fps, with no lock. M23 put
@@ -8355,3 +8360,89 @@ Everything else passes unchanged. Hardware: MINIPC.md Task M24 (run C, a
 - A real mid-hold change, such as a heavier scene or another app on the GPU,
   not stepping within about 10 s.
 - A show where 56-57.5 fps at a settled scale is judged not good enough.
+
+### D320: a stall does not step a settled scale; put-off verdicts and lock expiry are logged (2026-10-17)
+
+**Context.** Task M24 ([`hardware/MINIPC.md`](hardware/MINIPC.md)) on the
+venue mini PC:
+- **Runs A and B.** D318's deferral worked. Bench loads of 4 s and 31 s
+  landed in the first verdict; it was put off and then paid, with no lock.
+  The log, though, showed only the step that finally came ("over the last
+  480 frames"), so the deferrals could only be inferred.
+- **Run C.** The 10-minute hold settled at 0.70, then at 244.7 s stepped to
+  0.60 on "missed 58 refreshes over the last 600 frames (9.7%)". The
+  windows held a 915 ms system stall, a Volume Shadow Copy / System Restore
+  snapshot (Application/VSS event 8231 in the same second). It climbed back
+  70 s later.
+
+On this machine those snapshots come about three times a day, around
+18:30-19:10 local: show hours.
+
+**Decision.**
+- **A stall does not count towards a settled scale's evidence.** A window
+  holding an interval over `HITCH_CADENCES` (6 cadences, 100 ms at 60 Hz,
+  D318's definition) is left out of the recent windows D319 averages. So
+  is the window after it (`STALL_SKIP_WINDOWS` = 2), where the frames
+  queued behind the stall catch up.
+  - I chose this over counting the stall's misses as zero. Run C's 58 misses
+    were mostly the catch-up frames around the 915 ms interval, not the
+    interval itself, which counts 2 at most (`STALL_CADENCES`). Leaving the
+    windows out takes both.
+  - A real change still steps within about 10 s. Its windows hold no stall,
+    and two of them at 14% clear the settled line (D319).
+  - A recurring stall therefore never steps a settled scene down. That is
+    right: a stall stops every program on the machine, and no render scale
+    shortens it.
+  - A scene's first, unsettled half minute keeps D314's two-window rule
+    unchanged, where a stall can still be part of a trigger. The step that
+    follows is judged on the windows after it, and D318 puts off a verdict
+    on a stalled window.
+- **Put-off verdicts are logged.** Each deferral logs one INFO line:
+  "adaptive resolution: verdict on 1.00 -> 0.90 put off (1 of 4): window
+  disturbed (worst gap 201 ms, GPU +12%) (D318)". The controller reports it
+  through `AdaptiveScale::deferred`, with the longest interval and the GPU
+  ratio over the disturbed windows, and `Performance` formats and logs it.
+  It is rare, so the string is not a per-frame cost.
+- **A lock running out is logged.** "adaptive resolution: the lock at 0.80
+  ran out; missed refreshes may lower the scale again (D318)", reported via
+  `AdaptiveScale::lock_ran_out`. The lock itself was already logged with its
+  length on the undo line (D318).
+- **Why run B's deferral outlasted "4 x 4 s".** The deferral budget is
+  counted in windows: 4 deferrals of 2 windows of 120 presented frames, 960
+  frames. In seconds that is 16 only at 60 fps. Under the bench the output
+  presented far fewer frames, so the same windows spanned the 31 s load.
+  - The windows were not thrown away; each stalled interval counted 2
+    missed refreshes at most.
+  - The verdict came from the first undisturbed windows once the load ended.
+  - This is the intended behaviour. A competitor that halves the frame rate
+    stretches the wait in proportion, and the wait costs sharpness, not
+    judder.
+- **The snapshots themselves are the machine's business.** The controller
+  now ignores them on a settled scale, but the output still freezes for up
+  to a second. The scheduled restore points should be moved or turned off
+  before a show. That belongs in the venue runbook (kept with the show kit
+  in the private `jaja-strobe-assets` repository), and MINIPC.md's to-do
+  list says so.
+
+**Test.**
+- `strobe_gfx::adaptive::tests::a_settled_scale_does_not_step_for_a_system_stall`.
+  Run C's shape: settled at 0.70 with 2.7% missed at random, then one 915 ms
+  stall and 39 catch-up frames; five seeds, no step. It fails with the skip
+  removed.
+- `a_settled_scale_still_steps_for_a_real_change` (D319) still steps within
+  10 s.
+- `a_verdict_on_a_disturbed_window_is_put_off_and_a_false_lock_heals` now
+  checks that the first deferral is reported (1 of 4, 1.00 -> 0.90, worst
+  gap 140 ms).
+- `strobe_app::perf::tests::a_put_off_verdict_is_logged_with_what_disturbed_it`
+  (the M24 run A shape) checks the log line's text.
+- `a_late_lock_running_out_is_logged` checks the expiry line about a minute
+  after the lock.
+
+All other tests pass unchanged. Hardware: MINIPC.md Task M25.
+
+**Would reopen:**
+- A settled scene not stepping for a real, stall-free change.
+- A machine whose stalls come every few seconds, so that a settled scale
+  never collects evidence. Then the skip would need a limit.
+- M25 showing no deferral line where the bench lands in a verdict.

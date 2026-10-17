@@ -254,21 +254,38 @@ Linux and llvmpipe cannot prove any of these:
   PC (MINIPC.md Task M21 run B, 2026-10-17): 0.80 -> 0.70 at 18.7 s, then
   0.60 at 27.6 s (it paid, 8.3% -> 0.1%), and 59.9 fps in minute 2.
   Unit test: `the_third_step_follows_a_paid_step_without_waiting_for_the_load_line`.
-- [ ] A late lock heals and a disturbed verdict waits (D318). M21 run A,
-  launched about 10 s after another strobe exited, locked at 1.00 for the
-  night on windows with a 142 ms gap and the GPU at 14.9 ms against 13.6.
-  Built and unit-tested
-  (`a_verdict_on_a_disturbed_window_is_put_off_and_a_false_lock_heals`,
-  `a_lock_on_an_undetected_disturbance_heals_within_the_minute`, and the
-  backoff checks in the resolution-independent tests). Acceptance test:
-  MINIPC.md Task M24 runs A and B (M22's launch 1.4 s after another strobe
-  exited ran clean, so these paths were not exercised there).
-- [ ] A settled scale does not creep down on noise (D319). M23 run B held
+- [x] A disturbed verdict waits (D318). M21 run A, launched about 10 s
+  after another strobe exited, had locked at 1.00 for the night on windows
+  with a 142 ms gap and the GPU at 14.9 ms against 13.6. Verified on the
+  mini PC (MINIPC.md Task M24, 2026-10-17):
+  - a bench load of 4 s (run A) and of 31 s (run B) landed in the first
+    verdict;
+  - each verdict was put off and then paid once the load ended;
+  - neither run locked, and both ended at 0.70 at about 58.5 fps.
+
+  The log lines that show each deferral came after (D320, Task M25).
+- [ ] A late lock heals (D318). The lock and its expiry have not happened
+  on the hardware yet (M22-M24 never locked). Unit-tested
+  (`a_lock_on_an_undetected_disturbance_heals_within_the_minute`, the
+  backoff checks); the expiry now logs a line (D320). Acceptance test: a
+  `the lock at ... ran out` line about 60 s after a lock line, on the mini
+  PC.
+- [x] A settled scale does not creep down on noise (D319). M23 run B held
   0.70 for two minutes at 2.7% missed, then stepped to 0.60 on two windows
-  that reached the drop line by chance. Built and unit-tested
-  (`a_settled_scale_does_not_creep_down_on_noise`, five seeds over 30
-  minutes; `a_settled_scale_still_steps_for_a_real_change`). Acceptance
-  test: MINIPC.md Task M24 run C, ten minutes at 0.70.
+  that reached the drop line by chance. Verified on the mini PC (MINIPC.md
+  Task M24 run C, 2026-10-17): ten minutes at 0.70 and about 58.5 fps with
+  no step on noise. Its one step, at 244.7 s, came from a 915 ms Windows
+  snapshot stall (the next item). Unit tests:
+  `a_settled_scale_does_not_creep_down_on_noise`, with five seeds over
+  30 minutes, and `a_settled_scale_still_steps_for_a_real_change`.
+- [ ] A system stall does not step a settled scale, and put-off verdicts
+  and lock expiry are logged (D320). M24 run C stepped 0.70 -> 0.60 on a
+  915 ms VSS snapshot stall (Application/VSS event 8231), then climbed
+  back. Built and unit-tested
+  (`a_settled_scale_does_not_step_for_a_system_stall`, five seeds;
+  `a_put_off_verdict_is_logged_with_what_disturbed_it`;
+  `a_late_lock_running_out_is_logged`). Acceptance test: MINIPC.md Task
+  M25.
 - [x] A competing GPU load is waited out (D319, documented). Verified in
   MINIPC.md M23: with `strobe-bench` rendering 10-volume-clouds at 1080p on
   the same GPU (2.6 s stalls, about 17 fps), no step was taken under the
