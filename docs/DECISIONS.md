@@ -8623,3 +8623,60 @@ Synesthesia might have ignored now runs, which is what its author meant.
 
 **Would reopen:** evidence that Synesthesia ignores a lexical `update` and
 a real scene that depends on that.
+
+### D340: a script frame refills buffers the caller keeps, and the uniform order is bound once at the seal (2026-10-17)
+
+**Context.** A script frame built its result from scratch: `snapshot()` made
+a new vector of every uniform, `finish` took the console, and
+`Session::send_script_uniforms` then searched that vector by name for each
+uniform the player declares, 30 to 60 times a second. `ScriptRun::track` also
+built a `String` ("unknown fault") on every frame, healthy or not. The
+`script.rs` docs said "it allocates a little each frame". That breaks the
+rule that per-frame paths allocate nothing, on the machines (2012 laptops)
+where allocator time is most visible.
+
+**Decision.**
+- `ScriptHost::frame_into` and `load_frame_into` clear a `FrameOutput` the
+  caller keeps and refill it. `frame` and `load_frame` stay, as a fresh
+  `FrameOutput` plus a call to the `_into` form, so behaviour and every
+  existing caller are unchanged. `ScriptRun` owns the output and exposes
+  `uniforms()` (what the script published, for compiling at load) and
+  `values()`.
+- A new `FrameOutput::bound` carries the values the app uploads, in the
+  player's declared order, with no names. `UniformStore::bind` resolves that
+  list of names to slots **once**, in `ScriptRun::seal_uniforms(shader_order)`
+  at load and, because `seal_uniforms_to(names)` already receives the
+  player's names in order, at a D323 restart. A frame then reads slots by
+  index. The player's order is not the script's (a name that clashes with a
+  pass target, image, cubemap or transition uniform is left out of the
+  shaders, D62), which is why the list is bound by name and not by position.
+- A bound name the script has not set yet (a restarted script that creates a
+  declared uniform only later) waits in a small list and is pointed at its
+  slot when the slot is created, the one moment a name is hashed after the
+  seal. Reads before then are zeros, which is what the name search gave. A
+  name the shaders do not declare is still refused (D161), so nothing late can
+  ever need a recompile: D161 is unchanged.
+- `ScriptRun::track` builds the fault text only for a fault, and a script
+  that is already disabled returns at once.
+
+**What is still allocated.** A line the script logs (a `String` per line),
+the fault path, and the engine's own work: `setUniform` copies its name out
+of the engine as a `String` per call, and QuickJS allocates for whatever the
+script creates. Those are the script's cost and are inside its 4 ms budget;
+the host's own per-frame vectors are gone.
+
+**Test.** No counting allocator: it needs `unsafe`, which the build allows
+only in `strobe-gfx/src/gl/` and `strobe-diag/src/native.rs`, and none of the
+repo's tests use one. So the tests pin what makes the frame allocation-free:
+the output's `uniforms`/`bound` vectors keep their pointer and capacity across
+hundreds of frames (`steady_state_frames_refill_the_same_buffers`,
+`a_healthy_frame_refills_the_same_buffers`, `steady_state_reads_reuse_their_buffers`),
+and the binding is correct when the order differs, after a restart, for a
+late-created declared uniform and after a discarded frame (conformance,
+`uniforms.rs`, `script.rs`, and `uniforms_reach_the_right_slots_when_a_name_is_dropped_and_after_a_restart`
+on headless GL in both dialects).
+
+**Would reopen:** a measured cost in the engine's own allocation per
+`setUniform` call, which would mean caching the name's `Arc<str>` by the
+string's atom, or a counting-allocator test in `strobe-diag` if the unsafe
+boundary ever gets a home for one.
