@@ -9661,3 +9661,33 @@ depends on.
 left down).
 
 **Would reopen:** nothing expected.
+
+### D403: the palette's highlight stays on its entry when the list changes under it (2026-10-17)
+
+**Context.** The command palette keeps its entries and their ranking until
+what they come from changes (D262): the library, the playing scene, its
+presets, the layouts, what is available. The highlight was a row number.
+When the list was built again while the palette was open (a cue started the
+next scene, a phone or MIDI loaded one, a scene arrived in the watched
+folder), the same row could hold another entry, and Enter ran that one. With
+"autumn" typed and *Load: 03-autumn* highlighted, a scene starting whose
+presets are *Autumn* and *Autumn dusk* put *Apply preset: Autumn* on that
+row.
+
+**Decision.** When `Listing::update` builds the entries again, it takes the
+highlighted entry out of the old list and, after ranking, puts the highlight
+on the row that now shows it: the same target and title, or else the one
+entry of the same kind, title and category (a scene whose library index
+moved). If it is gone, or two entries could be it, nothing is highlighted,
+so Enter runs nothing until the operator moves; that is the safe answer in a
+show. Typing still puts the highlight on the first row, as before. Opening
+the palette forgets the last ranking, so its first row is highlighted rather
+than whatever was highlighted when it was last open. Nothing more is
+allocated per frame: the lookup runs only when the list was built again.
+
+**Test.** `command_palette::tests::the_highlight_stays_on_its_entry_when_the_list_changes_under_it`
+(failed before, highlighting *Apply preset: Autumn*), with the entry's
+removal leaving nothing highlighted.
+
+**Would reopen:** an operator expecting the highlight to stay on a row
+rather than an entry (it never did on purpose).
