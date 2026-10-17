@@ -20,7 +20,11 @@
 //!    value with last frame's and calls its callback if the condition
 //!    holds, in registration order.
 //! 3. **`update(dt)`.**
-//! 4. **Harvest.** The deprecated `uniforms` object is scanned, then the
+//! 4. **Promise jobs.** Callbacks the frame queued (`then`, the rest of an
+//!    `async` function after an `await`) run now, as any engine runs them
+//!    once the script returns, under the same deadline. Loading runs them
+//!    after `setup()` the same way.
+//! 5. **Harvest.** The deprecated `uniforms` object is scanned, then the
 //!    frame's uniforms are committed (or, after a fault, discarded) and the
 //!    queued control writes are applied to the bank.
 //!
@@ -112,8 +116,7 @@ pub struct ScriptHost {
     globals: Globals,
     shared: Rc<Shared>,
     context: Context,
-    // Held so the runtime lives as long as the host; not otherwise read.
-    _runtime: Runtime,
+    runtime: Runtime,
     budget: Budget,
     consecutive_faults: u32,
     disabled: bool,
@@ -159,6 +162,31 @@ fn describe(ctx: &Ctx<'_>, error: rquickjs::Error) -> String {
     match location {
         Some(location) => format!("{message} ({location})"),
         None => message,
+    }
+}
+
+/// Runs every queued promise job, including the ones those jobs queue,
+/// until the queue is empty or `deadline` passes. A job that throws past
+/// the script's reach (an interrupt, the memory cap) is the fault text;
+/// so is a chain that is still going at the deadline.
+///
+/// It asks for a job even when none is queued, because that also moves
+/// QuickJS's stack reference to this call's depth: the stack cap (D321)
+/// then counts from where frames run, not from where the scene loaded.
+fn run_jobs(runtime: &Runtime, deadline: &Cell<Option<Instant>>) -> Result<(), String> {
+    loop {
+        match runtime.execute_pending_job() {
+            Ok(true) => {}
+            Ok(false) => return Ok(()),
+            Err(error) => {
+                return Err(error
+                    .0
+                    .with(|ctx| describe(&ctx, rquickjs::Error::Exception)));
+            }
+        }
+        if runtime.is_job_pending() && deadline.get().is_some_and(|limit| Instant::now() >= limit) {
+            return Err("interrupted: promise callbacks still queued at the deadline".to_string());
+        }
     }
 }
 
@@ -382,6 +410,11 @@ impl ScriptHost {
             }
             Ok(globals)
         });
+        let built = built.and_then(|globals| {
+            run_jobs(&runtime, &shared.deadline)
+                .map(|()| globals)
+                .map_err(|message| ScriptError::Load { message })
+        });
         shared.deadline.set(None);
         let globals = built?;
         shared.state.borrow_mut().uniforms.commit();
@@ -390,7 +423,7 @@ impl ScriptHost {
             globals,
             shared,
             context,
-            _runtime: runtime,
+            runtime,
             budget,
             consecutive_faults: 0,
             disabled: false,
@@ -422,7 +455,13 @@ impl ScriptHost {
             .deadline
             .set(Some(Instant::now() + self.budget.frame));
         let bank: &ControlBank = controls;
-        let outcome = self.context.with(|ctx| self.run(&ctx, dt, inputs, bank));
+        let outcome = self
+            .context
+            .with(|ctx| self.run(&ctx, dt, inputs, bank))
+            .and_then(|()| run_jobs(&self.runtime, &self.shared.deadline))
+            .map(|()| {
+                self.context.with(|ctx| self.harvest_legacy_uniforms(&ctx));
+            });
         self.shared.deadline.set(None);
 
         let status = match outcome {
@@ -491,7 +530,6 @@ impl ScriptHost {
                 .call::<_, ()>((f64::from(dt),))
                 .map_err(|error| describe(ctx, error))?;
         }
-        self.harvest_legacy_uniforms(ctx);
         Ok(())
     }
 

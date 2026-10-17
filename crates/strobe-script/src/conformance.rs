@@ -1270,6 +1270,54 @@ fn state_persists_across_frames() -> Result<()> {
 }
 
 #[test]
+fn promise_callbacks_run_by_the_end_of_the_frame_that_queued_them() -> Result<()> {
+    // Every JavaScript engine runs queued promise callbacks once the
+    // script returns. Never running them loses the callback and keeps
+    // every queued job alive, so a script that awaits once a frame grows
+    // the heap until it hits the memory cap.
+    let script = r#"
+        var resolved = 0;
+        var loaded = 0;
+        Promise.resolve().then(function () { loaded = 1; });
+        async function tick() { await null; resolved++; }
+        function update() {
+            setUniform("seen", resolved, loaded);
+            tick();
+        }
+    "#;
+    let mut rig = Rig::new(script, &[])?;
+    let mut out = rig.step();
+    for _ in 0..2 {
+        out = rig.step();
+    }
+    assert_eq!(out.status, ScriptStatus::Running, "{:?}", out.console);
+    expect_uniform(&out, "seen", ExtraType::Vec2, &[2.0, 1.0])?;
+    Ok(())
+}
+
+#[test]
+fn an_endless_promise_chain_is_interrupted() -> Result<()> {
+    let script = r#"
+        function again() { Promise.resolve().then(again); }
+        function update() { again(); }
+    "#;
+    let mut rig = Rig::with_budget(script, &[], Budget::default())?;
+    let started = Instant::now();
+    let out = rig.step();
+    assert!(
+        started.elapsed() < Duration::from_millis(200),
+        "the chain was cut at the budget, took {:?}",
+        started.elapsed()
+    );
+    assert_eq!(
+        out.status,
+        ScriptStatus::Faulted { consecutive: 1 },
+        "an endless chain is a fault"
+    );
+    Ok(())
+}
+
+#[test]
 fn a_script_with_neither_setup_nor_update_is_fine() -> Result<()> {
     let mut rig = Rig::new("var x = 1;", &[])?;
     let out = rig.step();
