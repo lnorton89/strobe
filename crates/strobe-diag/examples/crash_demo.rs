@@ -67,7 +67,7 @@ fn main() {
             std::thread::sleep(Duration::from_millis(millis));
         }
     });
-    if strobe_diag::crash::run_monitor_if_requested(std::env::args()) {
+    if strobe_diag::crash::run_monitor_if_requested(std::env::args_os()) {
         return;
     }
     let session = strobe_diag::init();
@@ -99,7 +99,10 @@ fn main() {
             .action("scene skipped; previous scene keeps playing"),
     );
 
-    let mode = std::env::args().nth(1).unwrap_or_else(|| "ok".to_string());
+    let mode = std::env::args_os()
+        .nth(1)
+        .and_then(|mode| mode.into_string().ok())
+        .unwrap_or_else(|| "ok".to_string());
     match mode.as_str() {
         "panic" | "panic-abort-profile" => {
             let values = std::hint::black_box(vec![1_u8, 2, 3]);

@@ -218,6 +218,32 @@ fn a_crashed_app_exits_while_the_monitor_notice_is_still_up() -> Result<()> {
     Ok(())
 }
 
+/// A file name that is not valid Unicode on the command line must not end
+/// the run before the logger and the panic hook exist.
+#[cfg(target_os = "linux")]
+#[test]
+fn an_argument_that_is_not_unicode_does_not_stop_the_run() -> Result<()> {
+    use std::os::unix::ffi::OsStringExt as _;
+    let dir = scratch("latin1");
+    fs::create_dir_all(&dir)?;
+    let output = Command::new(demo_path()?)
+        .arg("ok")
+        .arg(std::ffi::OsString::from_vec(b"caf\xe9.synScene".to_vec()))
+        .env("STROBE_DIAG_DIR", &dir)
+        .env_remove("STROBE_LOG")
+        .output()
+        .context("running crash_demo ok")?;
+    let logs = wait_for(&dir.join("logs"), "log");
+    fs::remove_dir_all(&dir).ok();
+    assert!(
+        output.status.success(),
+        "the demo failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    logs?;
+    Ok(())
+}
+
 /// Whether `path` appears within `limit`.
 #[cfg(target_os = "linux")]
 fn appears(path: &Path, limit: Duration) -> bool {
