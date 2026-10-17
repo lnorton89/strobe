@@ -24,7 +24,7 @@ freeze or crash the output.
 
 | Item | What |
 |---|---|
-| `ScriptHost` | One per scene instance. `new(source, &controls, &meta, Budget)` evaluates `script.js` and runs `setup()`; `frame(dt, &inputs, &mut controls, &mut meta)` runs one frame; `seal_uniforms()`, `last_fault()`, `is_disabled()`. `meta` is `strobe_scene::meta::bank()`. |
+| `ScriptHost` | One per scene instance. `new(source, &controls, &meta, Budget)` evaluates `script.js` and runs `setup()`; `frame(dt, &inputs, &mut controls, &mut meta)` runs one frame; `load_frame` runs the load-time frame under the load budget (D324); `seal_uniforms()`, `last_fault()`, `is_disabled()`. `meta` is `strobe_scene::meta::bank()`. |
 | `ScriptInputs` | One frame's inputs: `time`, `frame_count`, `audio` scalars in `SCALARS` order, mouse (`mouse`, `click`, `muv`, `muvc`) and an optional 64x36 RGB8 `final_pass` downsample. `Default` is a silent room. |
 | `FrameOutput` | `uniforms` (name, GLSL type, value), `console` lines, `status`; `extras()` gives the `(name, type)` list the shader assembler takes. |
 | `ScriptStatus` | `Running`, `Faulted { consecutive }` or `Disabled`. |

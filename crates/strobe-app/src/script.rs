@@ -39,7 +39,8 @@ use strobe_scene::assemble::ExtraType;
 use strobe_scene::control::ControlBank;
 use strobe_scene::scene::SceneDef;
 use strobe_script::{
-    Budget, ConsoleLevel, ScriptError, ScriptHost, ScriptInputs, ScriptStatus, ScriptUniform,
+    Budget, ConsoleLevel, FrameOutput, ScriptError, ScriptHost, ScriptInputs, ScriptStatus,
+    ScriptUniform,
 };
 
 /// The log target script output is written under.
@@ -119,6 +120,11 @@ impl ScriptRun {
         meta: &mut ControlBank,
     ) -> Harvest {
         let output = self.host.frame(dt, inputs, controls, meta);
+        self.harvest(output)
+    }
+
+    /// Logs a frame's console, tracks its status and keeps its uniforms.
+    fn harvest(&mut self, output: FrameOutput) -> Harvest {
         for line in &output.console {
             let level = match line.level {
                 ConsoleLevel::Log => log::Level::Info,
@@ -131,6 +137,20 @@ impl ScriptRun {
         Harvest {
             uniforms: output.uniforms,
         }
+    }
+
+    /// Runs the frame a load runs before the shaders are compiled: as
+    /// [`Self::frame`], but under the script's load budget rather than a
+    /// frame's (D324).
+    pub fn load_frame(
+        &mut self,
+        dt: f32,
+        inputs: &ScriptInputs<'_>,
+        controls: &mut ControlBank,
+        meta: &mut ControlBank,
+    ) -> Harvest {
+        let output = self.host.load_frame(dt, inputs, controls, meta);
+        self.harvest(output)
     }
 
     /// Seals the script's uniforms: the shaders have been compiled with
