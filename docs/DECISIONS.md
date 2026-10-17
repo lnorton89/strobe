@@ -9691,3 +9691,24 @@ removal leaving nothing highlighted.
 
 **Would reopen:** an operator expecting the highlight to stay on a row
 rather than an entry (it never did on purpose).
+
+### D404: a viewer image with no width or height sends no NaN (2026-10-17)
+
+**Context.** The desktop viewer (D275) sends pointer positions as fractions
+of the image it shows: `(pos - rect.min) / rect.size`. egui fits the image
+to the room it has (`ImageFit::Fraction`), so a controller window dragged
+down to nothing gives it a rect of zero width or height. A pointer on that
+rect's edge (which `contains` still accepts) or a button release while the
+viewer has focus (sent wherever the pointer is) divided by zero, and NaN
+failed `valid_inputs` at the host, which ends the connection ("desktop input
+refused").
+
+**Decision.** A fraction of an extent that is not positive, or that is not
+finite, is 0, the image's near edge. Nothing else changes: a release is
+still sent, so the host never keeps a button down, and the bounds check at
+the host stays as strict as it was.
+
+**Test.** `desktop::tests::a_viewer_image_with_no_width_or_height_sends_only_valid_input`
+(failed before with `Move { x: NaN }`).
+
+**Would reopen:** nothing expected.
