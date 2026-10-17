@@ -69,6 +69,13 @@ pub(crate) enum OscControl {
 /// A command for the MIDI worker.
 pub(crate) enum MidiControl {
     /// New settings.
+    #[cfg_attr(
+        not(feature = "midi"),
+        expect(
+            dead_code,
+            reason = "only the device worker reads the settings; the build without `midi` just waits to be stopped"
+        )
+    )]
     Settings(MidiSettings),
     /// Look at the ports again now.
     Rescan,

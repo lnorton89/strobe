@@ -48,6 +48,7 @@ It is these, plus `cargo deny check` and the changelog check:
 ```bash
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo clippy -p strobe-io --no-default-features --all-targets -- -D warnings   # Linux
 cargo test --workspace
 cargo clippy --workspace --exclude strobe-script --exclude strobe-app --all-targets --all-features --target x86_64-pc-windows-msvc -- -D warnings
 ```
