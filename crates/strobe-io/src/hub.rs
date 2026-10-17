@@ -56,6 +56,18 @@ impl Tx {
     pub(crate) fn status(&self, status: Status) {
         self.send(Event::Status(status));
     }
+
+    /// A queue of `capacity` and its receiving end, with no hub behind it,
+    /// for a worker's tests.
+    #[cfg(test)]
+    pub(crate) fn detached(capacity: usize) -> (Self, Receiver<Event>) {
+        let (queue, events) = sync_channel(capacity);
+        let tx = Self {
+            queue,
+            dropped: Arc::new(AtomicU64::new(0)),
+        };
+        (tx, events)
+    }
 }
 
 /// A command for the OSC worker.
