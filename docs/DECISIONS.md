@@ -9723,3 +9723,37 @@ and `a_callback_that_is_neither_a_name_nor_a_function_is_a_type_error`
 
 **Would reopen:** a real script that relies on a lexical callback being
 re-read after reassignment, or evidence that Synesthesia refuses one.
+
+### D415: `iChannelTime` and `iChannelResolution` are array constructors, so a global sees them (2026-10-17)
+
+**Context.** D361 made each Shadertoy value the shim defines a global's
+initialiser, so `vec2 R = iResolution.xy;` at global scope sees it. It left
+the two arrays out: on ES the assembler moves a non-constant global
+initialiser into `main` only for a value type (D192), so the arrays stayed
+zero-initialised globals filled in `strobe_begin()`, after the author's
+globals had been initialised. `float T = iChannelTime[0];` or
+`vec3 C = iChannelResolution[0];` at global scope read zero, on both
+dialects.
+
+**Decision.** The author's name is `#define`d to an array constructor built
+from the clock texel and the pass's samplers, with the channels it does not
+bind at zero:
+`#define iChannelResolution vec3[4](vec3(vec2(textureSize(strobe_ShadertoyAudio, 0)), 1.0), vec3(0.0), vec3(0.0), vec3(0.0))`,
+and `float[4](strobe_clock.x, 0.0, 0.0, 0.0)` for an audio channel's time.
+It reads the same in a global initialiser (a value type, which the ES
+rewrite hoists in order, after the shim's `strobe_clock`), in a function, or
+passed whole as an argument. It uses only `strobe_` and `st_` names, which an
+author's code cannot declare (D92), so D91's reason for globals (an author
+redefining `TIME`) does not apply. Hoisting array globals on ES instead was
+not done: it would turn every constant lookup table in an SSF scene into a
+per-pixel array copy at the top of `main` on ANGLE. The shim's
+`strobe_begin()` no longer fills anything, and the music golden moved; the
+`strobe-autocontrol` goldens did not.
+
+**Test.** `a_global_initialised_from_a_channel_array_sees_its_value`
+(`strobe-shadertoy` render tests, both dialects): channel 0 is music, and
+the globals read 512 and `iTime`, channel 1 zero. It read zero before.
+
+**Would reopen:** a driver that refuses to index an array constructor, or a
+shader that assigns into `iChannelTime` (a uniform on Shadertoy, so not
+expected).
