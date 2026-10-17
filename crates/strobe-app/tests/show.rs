@@ -1033,6 +1033,79 @@ fn saving_the_playlist_leaves_the_live_scene_alone_unless_its_cue_changed() -> R
 }
 
 #[test]
+fn deleting_a_cue_above_the_live_one_keeps_the_show_on_the_live_cue() -> Result<()> {
+    let Some(headless) = context(Api::DesktopCore33)? else {
+        return Ok(());
+    };
+    let library = library_of(
+        "edit-above",
+        &[
+            ("red", "{}", RED_SHADER),
+            ("green", "{}", GREEN_SHADER),
+            ("tint", AMOUNT_JSON, AMOUNT_SHADER),
+        ],
+    )?;
+    let mut rig = Rig::new(&headless)?;
+    let mut playlist = Playlist::new("edit above");
+    let mut section = Section::new("all");
+    for scene in ["red", "green", "tint"] {
+        section
+            .cues
+            .push(cue_of(scene, 30.0, TransitionSpec::cut()));
+    }
+    playlist.sections.push(section);
+    let mut show = Show::new(None, playlist, &library.library, None, None);
+    rig.load(&mut show)?;
+    rig.frame(&mut show);
+    show.command(Command::JumpTo(1));
+    for _ in 0..120 {
+        rig.frame(&mut show);
+    }
+    let played = show.clock().elapsed();
+    let time = |rig: &Rig<'_>| rig.active.as_ref().map_or(0.0, |s| s.time());
+    let before = time(&rig);
+
+    // In the LIST pane, the operator deletes the cue that already played.
+    let at = strobe_app::show::edit::At { section: 0, cue: 0 };
+    let (edited, _) = strobe_app::show::edit::apply(
+        show.playlist(),
+        at,
+        &strobe_app::show::edit::CueEdit::Delete,
+    )
+    .map_err(|why| anyhow!("the delete was refused: {why}"))?;
+    show.replace_playlist(edited, &library.library);
+    rig.load(&mut show)?;
+    rig.frame(&mut show);
+
+    let current = show
+        .clock()
+        .current()
+        .ok_or_else(|| anyhow!("nothing is playing after the edit"))?;
+    assert_eq!(
+        show.cue_scene(current),
+        Some("green"),
+        "still on the green cue, now the first"
+    );
+    assert!(
+        show.clock().elapsed() >= played,
+        "at the same offset: {played} then {}",
+        show.clock().elapsed()
+    );
+    let centre = live_centre(&rig)?;
+    assert!(
+        centre[1] > 250 && centre[0] == 0,
+        "the picture is still green: {centre:?}"
+    );
+    assert!(
+        time(&rig) >= before,
+        "the live scene carried on rather than restarting: {before} then {}",
+        time(&rig)
+    );
+    show.finish();
+    Ok(())
+}
+
+#[test]
 fn a_show_that_ends_a_second_time_clears_its_resume_point_again() -> Result<()> {
     let Some(headless) = context(Api::DesktopCore33)? else {
         return Ok(());

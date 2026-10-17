@@ -71,12 +71,11 @@ use strobe_playlist::{
     ResolvedCue, ResumePoint, SceneRef, SkipReason, Timeline, TimelineConfig, TransitionKind,
 };
 
-/// Whether `new` is the same authored cue as `old`, with the same look:
-/// what [`Show::prepare`] would apply is unchanged.
+/// Whether `new` has the same look as `old`, the cue that was live before a
+/// replace: what [`Show::prepare`] would apply is unchanged. Its position
+/// may differ, since an edit above it moves it (D432).
 fn same_cue(old: &ResolvedCue, new: &ResolvedCue) -> bool {
-    old.section == new.section
-        && old.cue == new.cue
-        && old.scene == new.scene
+    old.scene == new.scene
         && old.preset == new.preset
         && old.media == new.media
         && old.overrides == new.overrides
@@ -674,7 +673,13 @@ impl Show {
     /// is meant to be the same show, D158). The old clock's position is
     /// restored once the new scenes are compiled.
     pub fn replace_playlist(&mut self, playlist: Playlist, library: &Library) {
-        let point = self.clock.resume_point().or_else(|| self.resume_in.take());
+        // An edit above the live cue shifts its authored position, so the
+        // point is carried to where that cue now is (D432).
+        let point = self
+            .clock
+            .resume_point()
+            .or_else(|| self.resume_in.take())
+            .map(|point| point.follow(&self.playlist, &playlist));
         if let Some(live) = self.clock.current_cue() {
             self.carried = Some(live.resolved.clone());
         }

@@ -10368,3 +10368,44 @@ the held cue on.
 
 **Would reopen:** an operator who wants a held cue to wait for "the next drop
 after I let go" rather than the next one heard after the release (a latch).
+
+### D432: a replaced playlist follows the live cue to where it now is (2026-10-17)
+
+**Context.** A hot reload (D158) and every LIST pane edit (D213, D230) go
+through `Show::replace_playlist`, which puts the new clock back on the old
+one's resume point, leniently. The point names the cue by its authored
+position, section and index. Deleting, duplicating, inserting or moving a
+cue *above* the live one shifts that index, so the point named a neighbour:
+with `a b c d` playing `c`, deleting `a` cut the show to `d` at `c`'s
+offset; moving `c` up cut it back to `b`, which then played again. Tidying
+the list during a show, which the pane exists for, threw the show onto
+another cue. The comparison that keeps the live scene untouched (D158) also
+compared positions, so even a correct landing would have restarted the
+live scene's clock and lost the operator's changes.
+
+**Decision.** `ResumePoint::follow(old, new)` carries the point into the
+edited playlist by what the cue is, not where it was: if the cue at the
+saved position is unchanged, the point stays; otherwise the nearest cue of
+`new` equal to it in every field (scene, preset, media, settings,
+overrides, enabled) is the one, preferring a section of the same name, then
+the nearest section, then the nearest cue; if there is none, the live cue
+itself was edited or removed and the position is kept, as before. The
+offset and pass are kept. `replace_playlist` applies it to every point it
+carries, and `same_cue` compares only what `prepare` would apply, so the
+live scene carries on where it lands. Resume at launch is unchanged: it is
+still refused when the identity differs (D73, D155).
+
+Known limit: when the live cue was edited *and* an exact copy of its old
+self exists elsewhere (a Duplicate, then an edit to the original), the
+point goes to the copy. It shows the same look, so the picture does not
+change; the edited cue is then behind the show.
+
+**Test.** `strobe-playlist` `resume::tests::a_point_follows_its_cue_when_cues_above_it_move`
+(delete, insert and move above, a section added before, an edit after) and
+`a_point_on_a_cue_that_was_edited_or_removed_keeps_its_position`;
+`strobe-app/tests/show.rs::deleting_a_cue_above_the_live_one_keeps_the_show_on_the_live_cue`
+on headless GL: green stays live at its offset, its clock running on. Before
+the change the show cut to the next cue's scene.
+
+**Would reopen:** cues that carry a stable id in the file, which would make
+the search unnecessary.
