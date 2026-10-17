@@ -1033,6 +1033,50 @@ fn saving_the_playlist_leaves_the_live_scene_alone_unless_its_cue_changed() -> R
 }
 
 #[test]
+fn a_held_cue_stays_held_through_an_edit_to_the_playlist() -> Result<()> {
+    let Some(headless) = context(Api::DesktopCore33)? else {
+        return Ok(());
+    };
+    let library = library_of(
+        "edit-held",
+        &[("red", "{}", RED_SHADER), ("green", "{}", GREEN_SHADER)],
+    )?;
+    let mut rig = Rig::new(&headless)?;
+    let mut playlist = Playlist::new("edit held");
+    let mut section = Section::new("all");
+    section.cues.push(cue_of("red", 2.0, TransitionSpec::cut()));
+    section
+        .cues
+        .push(cue_of("green", 2.0, TransitionSpec::cut()));
+    playlist.sections.push(section);
+    let mut show = Show::new(None, playlist, &library.library, None, None);
+    rig.load(&mut show)?;
+    for _ in 0..60 {
+        rig.frame(&mut show);
+    }
+    // The operator holds the first scene, then lengthens the next cue.
+    show.command(Command::Hold);
+    let at = strobe_app::show::edit::At { section: 0, cue: 1 };
+    let longer = strobe_app::show::edit::CueEdit::SetDuration(Some(DurationSpec::Seconds(60.0)));
+    let (edited, _) = strobe_app::show::edit::apply(show.playlist(), at, &longer)
+        .map_err(|why| anyhow!("the edit was refused: {why}"))?;
+    show.replace_playlist(edited, &library.library);
+    rig.load(&mut show)?;
+    // Three seconds: past what was left of the 2-second cue.
+    for _ in 0..180 {
+        rig.frame(&mut show);
+    }
+    assert!(show.clock().is_held(), "the hold survived the edit");
+    assert_eq!(
+        show.clock().current(),
+        Some(0),
+        "and the held cue is still on"
+    );
+    show.finish();
+    Ok(())
+}
+
+#[test]
 fn deleting_a_cue_above_the_live_one_keeps_the_show_on_the_live_cue() -> Result<()> {
     let Some(headless) = context(Api::DesktopCore33)? else {
         return Ok(());

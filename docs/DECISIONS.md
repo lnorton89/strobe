@@ -10409,3 +10409,31 @@ the change the show cut to the next cue's scene.
 
 **Would reopen:** cues that carry a stable id in the file, which would make
 the search unnecessary.
+
+### D433: a hold survives a reload or an edit of the playlist (2026-10-17)
+
+**Context.** `Show::replace_playlist` (a hot reload, D158; every LIST pane
+edit, D213; Generate's "Add to playlist") builds a new `PlaylistClock`, and
+a new clock starts unheld. An operator holding a scene (a speech, a late
+act) who then fixed the next cue's length in the LIST pane, or whose file
+was saved from an editor, lost the hold without touching it: the cue's clock
+ran on, and a cue with little time left moved on within seconds. The
+transport's `HELD` went out, which was the only sign.
+
+**Decision.** `replace_playlist` reads the old clock's hold and holds the
+new clock if it was held. The restore (`restore_lenient`, a fresh start or
+the wall clock) does not touch the hold, so the cue the show lands on stays
+frozen until a person releases it. The new clock announces the hold
+(`HoldChanged(true)`), which the show logs as `playlist: held`. Blackout
+needs nothing: the app's flag is the one the output reads, and
+`SetBlackout` keeps the clock's in step (D156). A context rebuild still
+starts unheld (it reloads from the resume point, which has no hold in it).
+
+**Test.** `strobe-app/tests/show.rs::a_held_cue_stays_held_through_an_edit_to_the_playlist`
+on headless GL: hold one second into a 2-second cue, lengthen the next cue,
+play three seconds: still held, still on the first cue. Before, the hold was
+gone and the show had moved to the second cue.
+
+**Would reopen:** a reload that should release a hold on purpose (none known:
+Hold and Space are the release), or a hold kept across a restart, which would
+put it in `resume.toml`.

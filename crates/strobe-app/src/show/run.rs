@@ -694,7 +694,13 @@ impl Show {
         self.composited = false;
         let mut old = std::mem::replace(&mut self.cache, SceneCache::new(Vec::new()));
         let timeline = Timeline::from_playlist(&playlist, &TimelineConfig::default());
+        let held = self.clock.is_held();
         self.clock = PlaylistClock::new(timeline, ClockConfig::default());
+        // A held cue stays held through an edit: the operator let go of
+        // nothing (D433).
+        if held {
+            self.clock.hold();
+        }
         self.playlist = playlist;
         self.rebuild_tables(library, Some(&mut old));
         self.waiting = None;
