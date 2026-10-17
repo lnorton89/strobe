@@ -9301,3 +9301,39 @@ within one) and `a_control_slowed_after_hours_at_speed_still_moves` (3 h at
 Both fail on the `f32` sum (89.96 behind; moved 0).
 
 **Would reopen:** an answer to Q29.
+
+### D391: the scene clock counts in `f64`; `TIME` is its rounded copy (2026-10-17)
+
+**Context.** `Session` kept the scene clock, `TIME`, as an `f32` and added
+each frame's `dt` to it. Past 8192 s the `f32` spacing is 0.00098 s, and a
+frame's 1/60 s is 17.07 of those, so every frame added exactly 17: the
+scene ran 0.4 % slow, 1.6 % at 144 fps (7.11 rounds to 7) and 6 % at
+240 fps. Four hours of frames read 14 355.02 s at 60 fps and 14 210.39 s
+at 144. The same `TIME` drives the synthetic track's clocks and tempo
+(which play from the scene clock), the Shadertoy clock pass's `dt` (D91),
+image sequences and scripts, so all of them slowed with it. A playlist
+restarts the clock on each cue (D151), so only a scene left playing for
+hours, a long cue or Perform without a playlist, reached that range.
+
+**Decision.** The clock is a `SceneClock`: the sum in `f64`, rounded to
+`f32` once per frame for the shader's `TIME`, the script's `TIME` and the
+audio frame's time. The script keeps the `f32` value, not the `f64`, so a
+script and its shader agree on the time. Nothing is wrapped: shaders use
+`TIME` as a coordinate as often as a phase, and wrapping it is Q29. A
+Synesthesia-faithful `TIME` is a float uniform too, and nothing the
+project has read says Synesthesia wraps it.
+
+**After.** Four hours in, `TIME` is the exact sum to within half the
+`f32` spacing (0.0005 s), at any frame rate, with no drift. A frame's step
+is `dt` to within one spacing (0.00098 s): the rounding alternates 17 and
+18 spacings at 60 fps instead of always 17. The `f32` uniform cannot do
+better without a wrap. In the first minutes the values are the same as
+before to within the old sum's own error (under 0.001 s after a minute).
+
+**Test.** `the_scene_clock_keeps_real_time_four_hours_in` (`session.rs`:
+4 h at 60 and at 144 fps, within half an `f32` step of the exact sum, and
+a second of frames each within one step of `dt`). It fails on the `f32`
+sum (45 s behind at 60 fps).
+
+**Would reopen:** an answer to Q29, or a host that wants the scene clock
+on a wall clock instead of summed frames.
