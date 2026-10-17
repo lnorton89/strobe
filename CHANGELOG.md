@@ -40,14 +40,20 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- an input chosen while capture is still opening is no longer ignored ([`8ee2f52`](https://github.com/lnorton89/strobe/commit/8ee2f52162d21244e268dbc71ca1113bd94323b6))
+- --audio ambient's clocks glide instead of jumping on every beat ([`fbe8c80`](https://github.com/lnorton89/strobe/commit/fbe8c8067376b36194317dfc0085660f40988fe4))
 - a Shadertoy global initialised from iResolution or iTime sees its value (D361) ([`8376fe9`](https://github.com/lnorton89/strobe/commit/8376fe910476767ca25f8f6cf9e504089d0a02c1))
 - a rewritten import token file is made owner-only on Unix ([`167308a`](https://github.com/lnorton89/strobe/commit/167308aea92bb6d58c9e1768b54d16c92ef779ea))
 - a Shadertoy helper named like an SSF library function compiles (D360) ([`44b64aa`](https://github.com/lnorton89/strobe/commit/44b64aa58a91e25c84abf2e98245984719a8a782))
 - a very long shader id no longer makes a folder name too long to write ([`76834e7`](https://github.com/lnorton89/strobe/commit/76834e7b3b3c577532329b733086a1e4349d4e90))
 - a shader titled like a Windows device gets a folder Windows can make ([`edb67a3`](https://github.com/lnorton89/strobe/commit/edb67a3ebfadcc1ec3707f44b205ce74b3020d65))
+- a device reopened at another sample rate keeps the clocks and tapped tempo ([`11ddc14`](https://github.com/lnorton89/strobe/commit/11ddc14a1e36516e09bf44360e8269eef0ed41de))
 - an API key file saved by Notepad with a byte-order mark is read ([`d0d40e3`](https://github.com/lnorton89/strobe/commit/d0d40e363e0af509efa24e3d634a82f548c79426))
 - a Shadertoy export saved with a byte-order mark imports ([`4c19d30`](https://github.com/lnorton89/strobe/commit/4c19d308f27de457e0bbf59ad81539da8e1af8ff))
 - a shader's title, author or tab name cannot break its generated comment lines ([`c041a33`](https://github.com/lnorton89/strobe/commit/c041a3351c403df8a9e384e1cbaaaa21124c7ef7))
+- the spectrum and waveform fall silent when the input stalls ([`a313277`](https://github.com/lnorton89/strobe/commit/a3132776d417e2ae03de57e1bcb797e28c7a3431))
+- a microphone's DC offset no longer reads as bass that never stops ([`31e395a`](https://github.com/lnorton89/strobe/commit/31e395a6f8b43b2f437df69e44595b34d5c07976))
+- copying the live audio frame no longer allocates on every render frame ([`2cc9d74`](https://github.com/lnorton89/strobe/commit/2cc9d7491543e67cc6a5578b0ff01841034fe801))
 - a script's `throw undefined` is reported as what it threw, not as out of memory ([`c18a9e3`](https://github.com/lnorton89/strobe/commit/c18a9e30ca841bb3191d8bd182799b64a65b4889))
 - setup and update declared with a top-level let or const run instead of being silently ignored (D326) ([`6198199`](https://github.com/lnorton89/strobe/commit/6198199fc38b1a0fbde5cc9adddbd53ae934d776))
 - a script fault that keeps coming back is logged and reported once, not thirty times a second (D325) ([`40ff39e`](https://github.com/lnorton89/strobe/commit/40ff39e19e45613253b1d09559748102e11d0f6c))
@@ -142,6 +148,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Documentation
 
+- CLAUDE.md's Windows cross-check commands match what xtask ci runs ([`5655035`](https://github.com/lnorton89/strobe/commit/56550355745134e5c8010d1d986ba6efda746aa1))
 - roadmap brought up to date (D290 verified, D301 failed on hardware, adaptive work done) ([`9a4ed26`](https://github.com/lnorton89/strobe/commit/9a4ed26946fb7fec54fc6d8c34cd8c5e3e46b47c))
 - D320 verified on the projector (mini PC Task M25) ([`ecb880b`](https://github.com/lnorton89/strobe/commit/ecb880b943543d11a8fbf1f024bca011d78d181f))
 - D311 and D310 verified on the Vega 3 (mini PC Task M17) ([`0924b99`](https://github.com/lnorton89/strobe/commit/0924b99c460fba46f2c7a58e4ca7e94cd1e23e0d))
@@ -204,6 +211,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Tests
 
+- re-bless the autocontrol goldens for the shorter Shadertoy shim (D361) ([`ec6ff4c`](https://github.com/lnorton89/strobe/commit/ec6ff4cd2421d293cda452c88981de3cccca1ef7))
 - the load-budget script test survives a descheduled thread on a loaded machine ([`cce6520`](https://github.com/lnorton89/strobe/commit/cce65203c63f64a2eb4d8792c97e6f1d41ce46bc))
 - drop a blank line the area 4 merge left in the render tests ([`845f087`](https://github.com/lnorton89/strobe/commit/845f08713ca444d6866535ed76701a6f9d050688))
 - **show:** a cue's overrides reach the picture each time its scene plays ([`fc87072`](https://github.com/lnorton89/strobe/commit/fc8707214665cefb88177183eca0e445513bbab8))
