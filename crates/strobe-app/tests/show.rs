@@ -118,6 +118,8 @@ struct Rig<'a> {
     active: Option<Session>,
     compositor: Compositor,
     audio: AudioInput,
+    /// The wall clock's time of day, local seconds since midnight.
+    seconds_of_day: f32,
 }
 
 impl<'a> Rig<'a> {
@@ -131,6 +133,7 @@ impl<'a> Rig<'a> {
             active: None,
             compositor,
             audio: AudioInput::new(false),
+            seconds_of_day: 0.0,
         })
     }
 
@@ -144,7 +147,7 @@ impl<'a> Rig<'a> {
             full_size: SIZE,
             start_time: 0.0,
             mouse: Mouse::default(),
-            date: [2026.0, 9.0, 10.0, 0.0],
+            date: [2026.0, 9.0, 10.0, self.seconds_of_day],
             media: None,
         }
     }
@@ -348,6 +351,96 @@ fn a_reloaded_playlist_compiles_only_what_is_new_and_keeps_its_place() -> Result
         Some(0),
         "the show is back on the cue it was on"
     );
+    show.finish();
+    Ok(())
+}
+
+#[test]
+fn an_anchored_show_starts_when_the_corrected_wall_clock_says_so() -> Result<()> {
+    let Some(headless) = context(Api::DesktopCore33)? else {
+        return Ok(());
+    };
+    let library = TempLibrary::new("anchor-clock")?;
+    let mut rig = Rig::new(&headless)?;
+    let mut playlist = Playlist::new("tonight");
+    playlist.anchor = strobe_playlist::WallClockAnchor::from_hm(22, 0);
+    let mut section = Section::new("all");
+    section
+        .cues
+        .push(cue_of("red", 60.0, TransitionSpec::cut()));
+    section
+        .cues
+        .push(cue_of("green", 60.0, TransitionSpec::cut()));
+    playlist.sections.push(section);
+    let mut show = Show::new(None, playlist, &library.library, None, None);
+    // The venue PC's clock is two hours slow: it says 20:00 at 21:59:58.
+    rig.seconds_of_day = 20.0 * 3600.0;
+    rig.load(&mut show)?;
+    let wait = show
+        .waiting_for_anchor()
+        .ok_or_else(|| anyhow!("the show should wait for 22:00"))?;
+    assert!(
+        (wait - 7200.0).abs() < 1.0,
+        "two hours by the slow clock: {wait}"
+    );
+    for _ in 0..10 {
+        rig.frame(&mut show);
+    }
+    // The clock is put right (a time zone fixed, a time sync).
+    rig.seconds_of_day = 22.0 * 3600.0 - 2.0;
+    for _ in 0..(3 * 60) {
+        rig.frame(&mut show);
+        rig.seconds_of_day += DT;
+    }
+    assert_eq!(
+        show.waiting_for_anchor(),
+        None,
+        "22:00 by the corrected clock has come"
+    );
+    assert_eq!(show.clock().current(), Some(0), "and the show is on");
+    show.finish();
+    Ok(())
+}
+
+#[test]
+fn saving_the_file_unchanged_mid_crossfade_leaves_the_crossfade_alone() -> Result<()> {
+    let Some(headless) = context(Api::DesktopCore33)? else {
+        return Ok(());
+    };
+    let library = TempLibrary::new("same-save")?;
+    let mut rig = Rig::new(&headless)?;
+    let mut playlist = Playlist::new("same save");
+    let mut section = Section::new("all");
+    section
+        .cues
+        .push(cue_of("red", 2.0, TransitionSpec::crossfade(1.0)));
+    section
+        .cues
+        .push(cue_of("green", 2.0, TransitionSpec::crossfade(1.0)));
+    playlist.sections.push(section);
+    let mut show = Show::new(None, playlist.clone(), &library.library, None, None);
+    rig.load(&mut show)?;
+    // 2.3 s: 0.3 s into the crossfade to green.
+    for _ in 0..138 {
+        rig.frame(&mut show);
+    }
+    let fading = show
+        .clock()
+        .transition()
+        .ok_or_else(|| anyhow!("no crossfade under way"))?;
+    assert!(show.composited(), "the output is the mix");
+
+    // The operator presses Ctrl+S in the editor; the file reads back the same.
+    show.replace_playlist(playlist, &library.library);
+    assert_eq!(show.phase(), Phase::Ready, "nothing to reload");
+    rig.frame(&mut show);
+    let still = show
+        .clock()
+        .transition()
+        .ok_or_else(|| anyhow!("the crossfade was cut short"))?;
+    assert_eq!(still.id, fading.id, "the same crossfade");
+    assert!(still.progress > fading.progress, "and it runs on");
+    assert!(show.composited(), "the output is still the mix");
     show.finish();
     Ok(())
 }
@@ -1027,6 +1120,177 @@ fn saving_the_playlist_leaves_the_live_scene_alone_unless_its_cue_changed() -> R
     assert!(
         (edited_amount - 0.9).abs() < 1e-4,
         "an edit to the live cue takes effect: {edited_amount}"
+    );
+    show.finish();
+    Ok(())
+}
+
+#[test]
+fn a_warm_up_the_show_no_longer_needs_is_parked_at_once() -> Result<()> {
+    let Some(headless) = context(Api::DesktopCore33)? else {
+        return Ok(());
+    };
+    let library = TempLibrary::new("stale-warm")?;
+    let mut rig = Rig::new(&headless)?;
+    let mut playlist = Playlist::new("stale warm");
+    let mut section = Section::new("all");
+    for scene in ["red", "green", "blue"] {
+        section.cues.push(cue_of(scene, 3.0, TransitionSpec::cut()));
+    }
+    playlist.sections.push(section);
+    let mut show = Show::new(None, playlist, &library.library, None, None);
+    rig.load(&mut show)?;
+    // 1.5 s into a 3-second cue: green is warming for the next one.
+    for _ in 0..90 {
+        rig.frame(&mut show);
+    }
+    assert_eq!(show.warming_cue(), Some(1), "green warms for cue 2");
+    assert_eq!(show.parked_count(), 1, "blue is parked; red is live");
+
+    // +30 s: the next cue is half a minute away again.
+    show.command(Command::Extend(30.0));
+    rig.frame(&mut show);
+    assert_eq!(
+        show.parked_count(),
+        2,
+        "green went back to the cache instead of rendering for 30 s"
+    );
+    for _ in 0..(30 * 60) {
+        rig.frame(&mut show);
+    }
+    assert_eq!(
+        show.warming_cue(),
+        Some(1),
+        "and warms again before the end"
+    );
+
+    // A jump to the last cue in the last seconds of this one.
+    show.command(Command::JumpTo(2));
+    for _ in 0..3 {
+        rig.frame(&mut show);
+    }
+    assert_eq!(show.clock().current(), Some(2), "blue is live");
+    assert_eq!(
+        show.parked_count(),
+        2,
+        "red and green are parked; nothing renders beside blue"
+    );
+    show.finish();
+    Ok(())
+}
+
+#[test]
+fn a_held_cue_stays_held_through_an_edit_to_the_playlist() -> Result<()> {
+    let Some(headless) = context(Api::DesktopCore33)? else {
+        return Ok(());
+    };
+    let library = library_of(
+        "edit-held",
+        &[("red", "{}", RED_SHADER), ("green", "{}", GREEN_SHADER)],
+    )?;
+    let mut rig = Rig::new(&headless)?;
+    let mut playlist = Playlist::new("edit held");
+    let mut section = Section::new("all");
+    section.cues.push(cue_of("red", 2.0, TransitionSpec::cut()));
+    section
+        .cues
+        .push(cue_of("green", 2.0, TransitionSpec::cut()));
+    playlist.sections.push(section);
+    let mut show = Show::new(None, playlist, &library.library, None, None);
+    rig.load(&mut show)?;
+    for _ in 0..60 {
+        rig.frame(&mut show);
+    }
+    // The operator holds the first scene, then lengthens the next cue.
+    show.command(Command::Hold);
+    let at = strobe_app::show::edit::At { section: 0, cue: 1 };
+    let longer = strobe_app::show::edit::CueEdit::SetDuration(Some(DurationSpec::Seconds(60.0)));
+    let (edited, _) = strobe_app::show::edit::apply(show.playlist(), at, &longer)
+        .map_err(|why| anyhow!("the edit was refused: {why}"))?;
+    show.replace_playlist(edited, &library.library);
+    rig.load(&mut show)?;
+    // Three seconds: past what was left of the 2-second cue.
+    for _ in 0..180 {
+        rig.frame(&mut show);
+    }
+    assert!(show.clock().is_held(), "the hold survived the edit");
+    assert_eq!(
+        show.clock().current(),
+        Some(0),
+        "and the held cue is still on"
+    );
+    show.finish();
+    Ok(())
+}
+
+#[test]
+fn deleting_a_cue_above_the_live_one_keeps_the_show_on_the_live_cue() -> Result<()> {
+    let Some(headless) = context(Api::DesktopCore33)? else {
+        return Ok(());
+    };
+    let library = library_of(
+        "edit-above",
+        &[
+            ("red", "{}", RED_SHADER),
+            ("green", "{}", GREEN_SHADER),
+            ("tint", AMOUNT_JSON, AMOUNT_SHADER),
+        ],
+    )?;
+    let mut rig = Rig::new(&headless)?;
+    let mut playlist = Playlist::new("edit above");
+    let mut section = Section::new("all");
+    for scene in ["red", "green", "tint"] {
+        section
+            .cues
+            .push(cue_of(scene, 30.0, TransitionSpec::cut()));
+    }
+    playlist.sections.push(section);
+    let mut show = Show::new(None, playlist, &library.library, None, None);
+    rig.load(&mut show)?;
+    rig.frame(&mut show);
+    show.command(Command::JumpTo(1));
+    for _ in 0..120 {
+        rig.frame(&mut show);
+    }
+    let played = show.clock().elapsed();
+    let time = |rig: &Rig<'_>| rig.active.as_ref().map_or(0.0, |s| s.time());
+    let before = time(&rig);
+
+    // In the LIST pane, the operator deletes the cue that already played.
+    let at = strobe_app::show::edit::At { section: 0, cue: 0 };
+    let (edited, _) = strobe_app::show::edit::apply(
+        show.playlist(),
+        at,
+        &strobe_app::show::edit::CueEdit::Delete,
+    )
+    .map_err(|why| anyhow!("the delete was refused: {why}"))?;
+    show.replace_playlist(edited, &library.library);
+    rig.load(&mut show)?;
+    rig.frame(&mut show);
+
+    let current = show
+        .clock()
+        .current()
+        .ok_or_else(|| anyhow!("nothing is playing after the edit"))?;
+    assert_eq!(
+        show.cue_scene(current),
+        Some("green"),
+        "still on the green cue, now the first"
+    );
+    assert!(
+        show.clock().elapsed() >= played,
+        "at the same offset: {played} then {}",
+        show.clock().elapsed()
+    );
+    let centre = live_centre(&rig)?;
+    assert!(
+        centre[1] > 250 && centre[0] == 0,
+        "the picture is still green: {centre:?}"
+    );
+    assert!(
+        time(&rig) >= before,
+        "the live scene carried on rather than restarting: {before} then {}",
+        time(&rig)
     );
     show.finish();
     Ok(())

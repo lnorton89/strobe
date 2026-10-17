@@ -858,6 +858,36 @@ fn a_song_change_ends_a_listening_cue_but_not_during_a_transition() -> Result<()
     Ok(())
 }
 
+#[test]
+fn a_held_cue_is_not_moved_on_by_an_audio_event() -> Result<()> {
+    let mut playlist = show(&[100.0, 100.0], TransitionSpec::cut(), LoopMode::Stop);
+    playlist.defaults.advance = Some(AdvanceMode::FirstOf(vec![
+        AdvanceMode::Timer,
+        AdvanceMode::AudioEvent(AudioEventKind::Drop),
+        AdvanceMode::AudioEvent(AudioEventKind::SongChange),
+    ]));
+    let mut clock = clock_for(&playlist);
+    clock.tick(0.0, &BeatInfo::SILENT);
+    // The operator holds the scene through a speech; the DJ drops.
+    clock.hold();
+    for kind in [AudioEventKind::Drop, AudioEventKind::SongChange] {
+        assert!(
+            !clock.apply(Command::AudioEvent(kind)),
+            "{kind:?} is ignored while held"
+        );
+    }
+    assert_eq!(current(&clock)?, 0, "the held cue stays on");
+    assert!(clock.next_cue(), "a person can still move it on");
+    assert_eq!(current(&clock)?, 1, "next");
+    clock.unhold();
+    assert!(
+        clock.audio_event(AudioEventKind::Drop),
+        "released, the cue listens again"
+    );
+    assert_eq!(clock.state(), ClockState::Ended, "and the drop ended it");
+    Ok(())
+}
+
 // ---- failed cues ---------------------------------------------------------------
 
 #[test]
@@ -1044,6 +1074,36 @@ fn warm_up_fires_once_two_seconds_before_the_end() -> Result<()> {
         clock.warming(),
         None,
         "cleared when the next cue starts, until its own warm-up"
+    );
+    Ok(())
+}
+
+#[test]
+fn extending_a_warming_cue_calls_the_warm_up_off_until_its_new_lead() -> Result<()> {
+    let mut clock = cuts(&[10.0, 10.0]);
+    let mut now = 0.0;
+    run(&mut clock, &mut now, 8.5, Grid::SILENT);
+    assert_eq!(clock.warming(), Some(1), "warming 1.5 s before the end");
+    assert!(clock.extend(30.0), "+30 s");
+    assert_eq!(
+        clock.warming(),
+        None,
+        "31.5 s from the end, nothing should be warming"
+    );
+    let events = only(&run(&mut clock, &mut now, 29.6, Grid::SILENT));
+    assert_eq!(
+        events,
+        vec![ClockEvent::WarmUp { index: 1 }],
+        "the warm-up fires again two seconds before the new end"
+    );
+    assert_eq!(clock.warming(), Some(1), "and the clock says so");
+
+    // A small extension that stays inside the lead keeps it warming.
+    assert!(clock.extend(0.05), "+0.05 s");
+    assert_eq!(clock.warming(), Some(1), "still within two seconds");
+    assert!(
+        only(&run(&mut clock, &mut now, 0.5, Grid::SILENT)).is_empty(),
+        "and no second warm-up for it"
     );
     Ok(())
 }
@@ -1568,6 +1628,75 @@ fn a_show_that_runs_past_midnight_picks_up_after_midnight() -> Result<()> {
         }),
         "at 04:00 the 23:00 show is over and the next one is waited for"
     );
+    Ok(())
+}
+
+#[test]
+fn a_looping_show_restarted_after_midnight_carries_on() -> Result<()> {
+    // A loop from 22:00 that plays all night, and the launcher restarts
+    // Strobe at 00:30: the show is 2 h 30 min in, not 21 h 30 min from
+    // starting (the output was black for the rest of the night).
+    let mut playlist = show(&[600.0; 3], TransitionSpec::cut(), LoopMode::Loop);
+    playlist.anchor = WallClockAnchor::from_hm(22, 0);
+    let mut clock = clock_for(&playlist);
+    let half_past_midnight = 30.0 * 60.0;
+    assert_eq!(
+        clock.sync_to_wall_clock(half_past_midnight),
+        Some(Placement::Playing {
+            pass: 5,
+            index: 0,
+            offset: 0.0
+        }),
+        "150 minutes of 30-minute passes: the start of pass 5"
+    );
+    assert_eq!(current(&clock)?, 0, "the clock followed");
+
+    // In the afternoon, the evening's anchor is the nearer one: wait.
+    let mut afternoon = clock_for(&playlist);
+    assert_eq!(
+        afternoon.sync_to_wall_clock(15.0 * 3600.0),
+        Some(Placement::Waiting {
+            seconds_until_start: 7.0 * 3600.0
+        }),
+        "at 15:00 the 22:00 loop waits for its start"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_show_anchored_after_midnight_waits_for_it_from_the_evening_before() -> Result<()> {
+    // The show starts at 00:30 and the venue PC is switched on at 23:00.
+    let half_past_midnight = WallClockAnchor::from_hm(0, 30);
+    let eleven = 23.0 * 3600.0;
+    let mut once = show(&[3600.0; 4], TransitionSpec::cut(), LoopMode::Stop);
+    once.anchor = half_past_midnight;
+    let mut clock = clock_for(&once);
+    assert_eq!(
+        clock.sync_to_wall_clock(eleven),
+        Some(Placement::Waiting {
+            seconds_until_start: 5400.0
+        }),
+        "a play-once show waits 90 minutes, not 'finished today'"
+    );
+    assert_eq!(clock.state(), ClockState::Idle, "and has not ended");
+
+    let mut looping = show(&[3600.0; 4], TransitionSpec::cut(), LoopMode::Loop);
+    looping.anchor = half_past_midnight;
+    let mut clock = clock_for(&looping);
+    assert_eq!(
+        clock.sync_to_wall_clock(eleven),
+        Some(Placement::Waiting {
+            seconds_until_start: 5400.0
+        }),
+        "a loop waits too, instead of starting 22 h 30 min into itself"
+    );
+
+    // Two hours after a 09:00 show ended, it is over for the day, as before.
+    let mut morning = show(&[3600.0; 4], TransitionSpec::cut(), LoopMode::Stop);
+    morning.anchor = WallClockAnchor::from_hm(9, 0);
+    let mut clock = clock_for(&morning);
+    clock.sync_to_wall_clock(15.0 * 3600.0);
+    assert_eq!(clock.state(), ClockState::Ended, "finished for today");
     Ok(())
 }
 

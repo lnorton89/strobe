@@ -821,6 +821,23 @@ survives export.
     reloading` and compiles only the new scene; saving a broken one keeps
     the playing playlist and shows `line 3, column 13: "3mn" is not a
     duration ...`.
+  - the show-run bug sweep (D430-D437, 2026-10-17), by unit tests and
+    headless GL in `crates/strobe-app/tests/show.rs` only, no hardware run:
+    an anchored show restarted after midnight or anchored after it is placed
+    in the right run (`a_looping_show_restarted_after_midnight_carries_on`,
+    `a_show_anchored_after_midnight_waits_for_it_from_the_evening_before`)
+    and its wait follows a corrected system clock
+    (`an_anchored_show_starts_when_the_corrected_wall_clock_says_so`); a
+    held cue ignores audio events, keeps its hold through an edit, and Hold
+    is refused before a cue plays (`a_held_cue_is_not_moved_on_by_an_audio_event`,
+    `a_held_cue_stays_held_through_an_edit_to_the_playlist`,
+    `hold_before_the_show_starts_is_refused_and_leaves_nothing_latched`); an
+    edit above the live cue keeps the show on it
+    (`deleting_a_cue_above_the_live_one_keeps_the_show_on_the_live_cue`); an
+    unchanged save leaves a crossfade alone
+    (`saving_the_file_unchanged_mid_crossfade_leaves_the_crossfade_alone`);
+    a warm-up the show no longer needs is parked
+    (`a_warm_up_the_show_no_longer_needs_is_parked_at_once`).
   - on the T480 (Task 14, release, native GL): the same demo closed with 0
     runtime compiles, loaded in about 0.27 s, and ran its transitions at
     60 fps, with GPU rising from 0.4-0.8 ms to about 1.2-1.3 ms during each

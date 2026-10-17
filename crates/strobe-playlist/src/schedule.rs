@@ -94,21 +94,44 @@ pub fn elapsed_since_anchor(anchor: WallClockAnchor, now_seconds_of_day: f64) ->
 
 impl Timeline {
     /// Seconds into the show at `now_seconds_of_day`, from `anchor`: like
-    /// [`elapsed_since_anchor`], except that before today's anchor the run
-    /// that began at yesterday's is still on if it has not ended yet (a
-    /// show that crosses midnight, restarted after it). Only a playlist
-    /// that plays once ends; a looping one waits for its anchor, as before.
+    /// [`elapsed_since_anchor`], except where the day boundary would put
+    /// the show in the wrong run (D430). The anchor recurs every day, so
+    /// "now" is measured from the run it belongs to:
+    ///
+    /// - **A playlist that plays once**, before today's anchor, is still in
+    ///   the run that began at yesterday's if that has not ended (a show
+    ///   that crosses midnight, restarted after it). After today's run has
+    ///   ended, it waits for tomorrow's anchor if that is nearer than the
+    ///   end was (a 00:30 show, the machine started at 23:00); otherwise it
+    ///   is finished for the day.
+    /// - **A looping playlist** never ends, so it belongs to the nearer of
+    ///   the last anchor and the next: restarted at 00:30, a 22:00 loop
+    ///   carries on; started at 23:00, a 00:30 loop waits for it.
     pub fn elapsed_at(&self, anchor: WallClockAnchor, now_seconds_of_day: f64) -> f64 {
+        let day = f64::from(SECONDS_PER_DAY);
         let elapsed = elapsed_since_anchor(anchor, now_seconds_of_day);
-        let yesterday = elapsed + f64::from(SECONDS_PER_DAY);
-        let plays_once = match self.loop_mode() {
-            LoopMode::Stop => true,
-            LoopMode::Loop | LoopMode::LoopSection => false,
-        };
-        if elapsed < 0.0 && plays_once && yesterday < self.total_runtime() {
-            yesterday
-        } else {
-            elapsed
+        let total = self.total_runtime();
+        match self.loop_mode() {
+            LoopMode::Stop => {
+                let yesterday = elapsed + day;
+                let until_tomorrow = day - elapsed;
+                if elapsed < 0.0 && yesterday < total {
+                    yesterday
+                } else if elapsed >= total && until_tomorrow < elapsed - total {
+                    -until_tomorrow
+                } else {
+                    elapsed
+                }
+            }
+            LoopMode::Loop | LoopMode::LoopSection => {
+                if elapsed < 0.0 && elapsed + day < -elapsed {
+                    elapsed + day
+                } else if elapsed > 0.0 && day - elapsed < elapsed {
+                    elapsed - day
+                } else {
+                    elapsed
+                }
+            }
         }
     }
 

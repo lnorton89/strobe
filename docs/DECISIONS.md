@@ -10303,3 +10303,266 @@ and the existing burst and per-id tests, renamed to the new constants.
 (it forgets them all and starts over, as before), or an operator who needs
 every occurrence with its time, which `STROBE_GL_DEBUG` with a debugger on the
 synchronous callback already gives.
+
+### D430: an anchored show is placed in the run nearest now, not in today's from midnight (2026-10-17)
+
+**Context.** The wall clock measured "now" from today's anchor, with one
+exception for a play-once show still running from yesterday's. Two venue
+cases went wrong, both silently and for the whole night:
+
+- A **looping** show anchored at 22:00, restarted by the launcher at 00:30
+  after a crash, was told to wait 21 h 30 min. The output stayed black for
+  the rest of the night, and the resume point is ignored for an anchored
+  playlist (D155), so nothing else put it back.
+- A show **anchored after midnight** (00:30) on a machine started the
+  evening before (23:00) was "finished today" if it plays once (the 00:30
+  run of that morning was long over), and so never started; a looping one
+  started at once, 22 h 30 min into itself.
+
+**Decision.** `Timeline::elapsed_at` places "now" in the run it belongs to:
+
+- **Play once:** before today's anchor, yesterday's run if it is still on
+  (as before); after today's run has ended, tomorrow's anchor is waited for
+  if it is nearer than that end was. Otherwise the show is finished for the
+  day, as before (a 09:00 show is finished at 15:00).
+- **Loop:** a loop never ends, so it belongs to the nearer of the last
+  anchor and the next. A 22:00 loop is on from 22:00 to 10:00 and waits
+  from 10:00 to 22:00.
+
+Nothing changes for a show that starts and is restarted on the same side of
+midnight, and the clock still only syncs to the wall clock at start (D76).
+
+**Test.** `a_looping_show_restarted_after_midnight_carries_on` (00:30 is pass
+5 of a 22:00 loop of 30-minute passes; before, it waited 21 h 30 min) and
+`a_show_anchored_after_midnight_waits_for_it_from_the_evening_before` (both
+loop modes wait 90 minutes at 23:00 for 00:30; before, the play-once show
+ended and the loop started), with the existing midnight and anchor tests
+unchanged.
+
+**Would reopen:** a loop meant to play for more than twelve hours after its
+anchor and to be restarted late in that time (it would want an end time on
+the anchor), or a venue whose "show day" boundary should be a fixed hour.
+
+### D431: a held cue is not moved on by a drop, a breakdown or a new song (2026-10-17)
+
+**Context.** Hold freezes the cue's clock (D76, D156) so that the scene stays
+up until a person lets go: through a speech, an MC's set, a break. A cue
+whose advance includes an audio event (`audio-drop`, `audio-breakdown`,
+`audio-song`, alone or in a `first-of` list with the timer) still moved on
+when the event came, held or not: `PlaylistClock::audio_event` checked only
+for a transition in progress. The DJ's first drop after the speech took the
+held scene away, while the transport still said `HELD`.
+
+**Decision.** `audio_event` ignores every event while the cue is held, as it
+does during a transition (D237). An event is the cue ending itself, as its
+timer would, and hold stops exactly that. The commands a person gives (Next,
+Previous, a jump, skip section) still work while held, and once released the
+cue listens again. An event heard while held is not remembered for later:
+it described the music at that moment, not after the release. The show still
+logs each event it hears.
+
+**Test.** `a_held_cue_is_not_moved_on_by_an_audio_event`: a timer-or-drop-
+or-song cue, held, ignores a drop and a song change and stays on; Next still
+moves it; released, a drop ends it. Before the change the first drop moved
+the held cue on.
+
+**Would reopen:** an operator who wants a held cue to wait for "the next drop
+after I let go" rather than the next one heard after the release (a latch).
+
+### D432: a replaced playlist follows the live cue to where it now is (2026-10-17)
+
+**Context.** A hot reload (D158) and every LIST pane edit (D213, D230) go
+through `Show::replace_playlist`, which puts the new clock back on the old
+one's resume point, leniently. The point names the cue by its authored
+position, section and index. Deleting, duplicating, inserting or moving a
+cue *above* the live one shifts that index, so the point named a neighbour:
+with `a b c d` playing `c`, deleting `a` cut the show to `d` at `c`'s
+offset; moving `c` up cut it back to `b`, which then played again. Tidying
+the list during a show, which the pane exists for, threw the show onto
+another cue. The comparison that keeps the live scene untouched (D158) also
+compared positions, so even a correct landing would have restarted the
+live scene's clock and lost the operator's changes.
+
+**Decision.** `ResumePoint::follow(old, new)` carries the point into the
+edited playlist by what the cue is, not where it was: if the cue at the
+saved position is unchanged, the point stays; otherwise the nearest cue of
+`new` equal to it in every field (scene, preset, media, settings,
+overrides, enabled) is the one, preferring a section of the same name, then
+the nearest section, then the nearest cue; if there is none, the live cue
+itself was edited or removed and the position is kept, as before. The
+offset and pass are kept. `replace_playlist` applies it to every point it
+carries, and `same_cue` compares only what `prepare` would apply, so the
+live scene carries on where it lands. Resume at launch is unchanged: it is
+still refused when the identity differs (D73, D155).
+
+Known limit: when the live cue was edited *and* an exact copy of its old
+self exists elsewhere (a Duplicate, then an edit to the original), the
+point goes to the copy. It shows the same look, so the picture does not
+change; the edited cue is then behind the show.
+
+**Test.** `strobe-playlist` `resume::tests::a_point_follows_its_cue_when_cues_above_it_move`
+(delete, insert and move above, a section added before, an edit after) and
+`a_point_on_a_cue_that_was_edited_or_removed_keeps_its_position`;
+`strobe-app/tests/show.rs::deleting_a_cue_above_the_live_one_keeps_the_show_on_the_live_cue`
+on headless GL: green stays live at its offset, its clock running on. Before
+the change the show cut to the next cue's scene.
+
+**Would reopen:** cues that carry a stable id in the file, which would make
+the search unnecessary.
+
+### D433: a hold survives a reload or an edit of the playlist (2026-10-17)
+
+**Context.** `Show::replace_playlist` (a hot reload, D158; every LIST pane
+edit, D213; Generate's "Add to playlist") builds a new `PlaylistClock`, and
+a new clock starts unheld. An operator holding a scene (a speech, a late
+act) who then fixed the next cue's length in the LIST pane, or whose file
+was saved from an editor, lost the hold without touching it: the cue's clock
+ran on, and a cue with little time left moved on within seconds. The
+transport's `HELD` went out, which was the only sign.
+
+**Decision.** `replace_playlist` reads the old clock's hold and holds the
+new clock if it was held. The restore (`restore_lenient`, a fresh start or
+the wall clock) does not touch the hold, so the cue the show lands on stays
+frozen until a person releases it. The new clock announces the hold
+(`HoldChanged(true)`), which the show logs as `playlist: held`. Blackout
+needs nothing: the app's flag is the one the output reads, and
+`SetBlackout` keeps the clock's in step (D156). A context rebuild still
+starts unheld (it reloads from the resume point, which has no hold in it).
+
+**Test.** `strobe-app/tests/show.rs::a_held_cue_stays_held_through_an_edit_to_the_playlist`
+on headless GL: hold one second into a 2-second cue, lengthen the next cue,
+play three seconds: still held, still on the first cue. Before, the hold was
+gone and the show had moved to the second cue.
+
+**Would reopen:** a reload that should release a hold on purpose (none known:
+Hold and Space are the release), or a hold kept across a restart, which would
+put it in `resume.toml`.
+
+### D434: a warm-up the show no longer needs is parked at once (2026-10-17)
+
+**Context.** Two seconds before a cue ends the next scene starts rendering
+at half each edge (D153) and stays out of the cache until its cue starts or
+another warm-up replaces it. Three common commands left it rendering for a
+whole cue instead:
+
+- **a jump, Previous or skip section** in those two seconds went somewhere
+  else, and the warming scene was parked only at the *next* cue's warm-up,
+  minutes later;
+- **+30 s** (`Extend`) put the end half a minute away, but the clock's
+  `warmed` flag stayed set, so the scene warmed for 32 s and its warm-up
+  never fired again.
+
+Each time a second scene drew beside the live one for minutes, which costs
+the old laptops Strobe targets the frame rate D64 then takes out of the
+live scene's resolution, and it held a third session's targets out of the
+cache beside a transition's two (D151).
+
+**Decision.** `PlaylistClock::extend` clears `warmed` when the new end is
+further away than the warm-up lead, so the warm-up fires again that far
+before it; an extension that stays inside the lead keeps the warm-up. Each
+frame, after the clock's events, `Show::frame` parks a warming scene whose
+cue is not the one the clock says is warming (`PlaylistClock::warming`),
+with an `info` line. A cue reached that way starts cold, as any command does
+(D153). Hold is unchanged: a held cue keeps its successor warm, since the
+clock still names it.
+
+**Test.** `strobe-playlist` `extending_a_warming_cue_calls_the_warm_up_off_until_its_new_lead`
+(+30 s at 1.5 s from the end: nothing warming, then one `WarmUp` two seconds
+before the new end; +0.05 s keeps it), and
+`strobe-app/tests/show.rs::a_warm_up_the_show_no_longer_needs_is_parked_at_once`
+on headless GL (after +30 s and after a jump the warming scene is back in
+the cache the next frame). Before, the extended cue kept its warm-up and the
+jump left it rendering.
+
+**Would reopen:** a held cue that should stop warming its successor (it costs
+the same as any warm-up, for as long as the hold).
+
+### D435: a save that changes nothing the show plays is not a reload (2026-10-17)
+
+**Context.** The file watcher (D158) reloads on every settled change of the
+playlist file's modification time or size, and a reload goes through
+`Show::replace_playlist`, which is a rebuild: the transition in flight is
+dropped (the outgoing scene is parked and the output cuts to the incoming
+one), the next scene's warm-up is parked (so it starts cold, and a feedback
+scene from black), and a beat-locked cue waiting for its downbeat starts its
+wait again. That is the accepted price of a real edit. It was also paid for
+saves that change nothing: Ctrl+S out of habit in the editor that has the
+file open, a format-on-save that writes the same text, an edit to a comment
+only, a sync or backup tool that rewrites the file. Mid-crossfade, each was a
+visible cut.
+
+**Decision.** `replace_playlist` returns at once, with an `info` line, when
+the new playlist equals the one playing (`Playlist`'s `PartialEq`: the parsed
+model, so comments and layout do not count). The watcher has already taken
+the new stamp, so the same save is not looked at again. Nothing else is
+lost by skipping: a reload never retried a failed scene (the cache keeps its
+failures, D158) and the playlist's file and folder do not change. The LIST
+pane's edits and Generate go the same way, and an edit that changes nothing
+(a duration set to what it was) is skipped as well.
+
+**Test.** `strobe-app/tests/show.rs::saving_the_file_unchanged_mid_crossfade_leaves_the_crossfade_alone`
+on headless GL: 0.3 s into a crossfade, the same playlist is handed in; the
+show stays ready, the same transition runs on and the output is still the
+mix. Before, the show went back to loading and the crossfade was gone.
+
+**Would reopen:** a reason to reload an unchanged playlist on purpose (for
+example to retry scenes that failed, which would then want its own command).
+
+### D436: Hold needs a cue that is playing (2026-10-17)
+
+**Context.** `PlaylistClock::hold` latches whatever state the clock is in,
+and the app passed every Hold through. Pressed before the show started (the
+precompile, or an anchored show waiting for its time) or after it ended, it
+held a clock with no cue. Nothing showed it: the transport has no cue to
+mark `HELD`, and the remote's state reports `held: false` while the show
+waits, so its button still read "Hold". When the show then started, the
+first cue was frozen and stayed up all night. Space, a MIDI pad mapped to
+`toggle_hold` and the remote's button were all ways to do it, and on the
+remote a second press, meant to hold, released it instead.
+
+**Decision.** `Show::command` refuses Hold, and ToggleHold when it would
+hold, while the clock has no current cue, with an `info` line, and returns
+`false` as for any command that did nothing. Releasing is always allowed.
+The clock itself is unchanged, so a reload still carries a hold onto the
+new clock before it is restored (D433). A Hold pressed during the second or
+so a reload takes to load is refused too and needs pressing again.
+
+**Test.** `show::run::tests::hold_before_the_show_starts_is_refused_and_leaves_nothing_latched`
+(an anchored show not yet started: Hold and ToggleHold refused, nothing
+held, blackout still toggles; no GL needed). Before, the clock was left held.
+
+**Would reopen:** a wish to arm a hold before the show starts, which would
+want the transport and the remote to show it.
+
+### D437: an anchored show waiting for its time asks the wall clock each frame (2026-10-17)
+
+**Context.** When an anchored show is loaded early, `start::plan` reads the
+time of day once and the show counted the wait down from frame time
+(`Show::pace_anchor`), asking the wall clock again only when the countdown
+reached zero. A system clock corrected during the wait therefore moved the
+start by the size of the correction. On a venue PC whose clock was two hours
+slow at boot (a wrong time zone after an update, a drifted clock with a
+flat battery), fixing the clock at 19:00 still left Strobe waiting the two
+hours it had computed: a 22:00 show started at midnight, and the wall-clock
+sync then placed it two hours in. A daylight-saving change during a wait
+did the same by an hour. The app's `strobe_Date` already follows the system
+clock and refreshes its zone offset every couple of seconds (D112).
+
+**Decision.** While the show waits, each frame places "now" (the frame's
+`strobe_Date` seconds of day) on the timeline with `Timeline::elapsed_at`
+and `Timeline::place`: still `Waiting`, the time left is updated for the
+transport and the remote; anything else, the clock is synced to the wall
+clock as before (on schedule, or finished). It is arithmetic and a binary
+search over the cues, with no allocation. The frame-time countdown is gone.
+The clock still syncs to the wall clock only until the show starts (D76).
+Screenshot mode is unaffected in practice: its date was already the real
+one, so an anchored capture never was deterministic.
+
+**Test.** `strobe-app/tests/show.rs::an_anchored_show_starts_when_the_corrected_wall_clock_says_so`
+on headless GL: loaded at 20:00 by a slow clock for a 22:00 anchor (a two-hour
+wait), the clock is set to 21:59:58 and three seconds later the first cue is
+playing. Before, the show was still waiting, with two hours less three
+seconds to go.
+
+**Would reopen:** a system clock that is wrong in a way the show should not
+follow (it would want a clock of its own, which D76 avoids).

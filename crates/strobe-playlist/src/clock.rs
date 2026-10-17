@@ -574,7 +574,9 @@ impl PlaylistClock {
     }
 
     /// Adds `seconds` to the active cue's length (negative shortens it, but
-    /// never below zero). Cancels a pending downbeat wait.
+    /// never below zero). Cancels a pending downbeat wait. An extension that
+    /// puts the end back beyond the warm-up lead calls the warm-up off; it
+    /// fires again that far before the new end (D434).
     pub fn extend(&mut self, seconds: f64) -> bool {
         if !matches!(self.state, ClockState::Playing) || !seconds.is_finite() {
             return false;
@@ -582,6 +584,12 @@ impl PlaylistClock {
         self.extension = (self.extension + seconds).max(-self.base_len);
         self.lock_bar = None;
         self.lock_waited = 0.0;
+        if self
+            .remaining()
+            .is_some_and(|remaining| remaining > self.config.warmup_lead)
+        {
+            self.warmed = false;
+        }
         true
     }
 
@@ -627,9 +635,11 @@ impl PlaylistClock {
     /// An audio event happened. If the active cue's advance mode listens
     /// for it, goes to the next cue. Ignored while a transition runs: the
     /// cue it brings in has only just started, and an event then would
-    /// cut that transition short with another (D237).
+    /// cut that transition short with another (D237). Ignored while held:
+    /// an event is the cue ending itself, as its timer does, and hold keeps
+    /// the cue on until it is released (D431).
     pub fn audio_event(&mut self, kind: AudioEventKind) -> bool {
-        if self.transition().is_some() {
+        if self.held || self.transition().is_some() {
             return false;
         }
         let listens = self
