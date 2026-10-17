@@ -41,6 +41,13 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Fixed
 
 - the synthetic track's clocks glide instead of jumping on every beat, hours into a show (D330) ([`3e88c07`](https://github.com/lnorton89/strobe/commit/3e88c0736eb18abdb6d068569b21bfde51f82f2b))
+- a fader whose range cannot reach its control picks it up at the nearest end instead of never (D373) ([`a7d4505`](https://github.com/lnorton89/strobe/commit/a7d45055e391db36a86264c6998f3d49f9e090f5))
+- a MIDI device that is unplugged or switched off lets go of the pads it was holding (D372) ([`faf8b7f`](https://github.com/lnorton89/strobe/commit/faf8b7fa266fe873488fff3b5c3d0d5171616037))
+- /strobe/fav/0 and a mapping to fav slot or cue 0 no longer recall slot 1 or cue 1 ([`cbd2560`](https://github.com/lnorton89/strobe/commit/cbd2560782c1d414dda0b0e987c38824fdcb4dd8))
+- a fader moved while its control was missing from the scene no longer jumps the control when it returns ([`53dbcf5`](https://github.com/lnorton89/strobe/commit/53dbcf5e4f3eca17a4a1fecadd37c40325d4bf39))
+- unplugging one of two identical MIDI controllers no longer silences the other ([`af2d75f`](https://github.com/lnorton89/strobe/commit/af2d75f2f8e787a631a330b51b36067e00b9069c))
+- a program change or OSC trigger mapped to a command fires every time, not only the first (D371) ([`87acc56`](https://github.com/lnorton89/strobe/commit/87acc56504ae450198dcbed8ba0778d05e7e4b9a))
+- OSC datagrams with deeply nested arrays are refused instead of overflowing the listener's stack (D370) ([`61ec6ad`](https://github.com/lnorton89/strobe/commit/61ec6adbf61f80baeba511860e6a1312a8a7535c))
 - a browser-listener import no longer ends the Import panel's own import early or leaves a Replace prompt in the app ([`31e852b`](https://github.com/lnorton89/strobe/commit/31e852b83deeb35361d3172aa20a064c7b1bbc18))
 - a fav slot with no preset recalled on the playing scene restores its starting look and clears the active preset ([`dac49c8`](https://github.com/lnorton89/strobe/commit/dac49c83af80776edf4e95bad0f7bfc9ded4a904))
 - STROBE_REDUCED_MOTION no longer saves reduced motion into ui.toml as the operator's own choice ([`522bc17`](https://github.com/lnorton89/strobe/commit/522bc17ad73abd60c288c51c5688a5f69df218e3))
@@ -157,6 +164,8 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Documentation
 
+- record the show-control bug sweep in the roadmap ([`7e7869c`](https://github.com/lnorton89/strobe/commit/7e7869c63d1b3b4b2faaeb1e3630784a2f2b542d))
+- list the show-control fixes a real MIDI controller still has to confirm ([`f6274c5`](https://github.com/lnorton89/strobe/commit/f6274c5b50103c70d1681d762e6be9154c268379))
 - CLAUDE.md's Windows cross-check commands match what xtask ci runs ([`5655035`](https://github.com/lnorton89/strobe/commit/56550355745134e5c8010d1d986ba6efda746aa1))
 - roadmap brought up to date (D290 verified, D301 failed on hardware, adaptive work done) ([`9a4ed26`](https://github.com/lnorton89/strobe/commit/9a4ed26946fb7fec54fc6d8c34cd8c5e3e46b47c))
 - D320 verified on the projector (mini PC Task M25) ([`ecb880b`](https://github.com/lnorton89/strobe/commit/ecb880b943543d11a8fbf1f024bca011d78d181f))
