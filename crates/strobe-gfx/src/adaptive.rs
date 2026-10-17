@@ -71,8 +71,14 @@
 //!   are counted. The drop stands when the misses fell under the drop line,
 //!   or fell by at least [`LATE_MIN_CUT`] of what they were and by at least
 //!   [`LATE_MIN_CUT_POINTS`] of the frames; otherwise it is undone and the
-//!   late rule may not lower below that scale again until the scene changes
-//!   ([`AdaptiveScale::late_floor`]). The mini PC's M18 hunted 0.65-0.80
+//!   late rule may not lower below that scale again for [`LATE_LOCK_FRAMES`]
+//!   (60 s), doubling on each failed retry up to [`MAX_LATE_LOCK_FRAMES`]
+//!   (4 min), or until the scene changes ([`AdaptiveScale::late_floor`],
+//!   D318). A verdict whose windows were disturbed (a frame over
+//!   [`HITCH_CADENCES`] cadences, or the GPU time up by [`GPU_RISE`] after a
+//!   step down) is put off for fresh windows, up to [`MAX_DEFERRALS`] times,
+//!   rather than locked on (D318: M21's first launch locked for the night on
+//!   a window disturbed by the previous process's teardown). The mini PC's M18 hunted 0.65-0.80
 //!   without a verdict; M19 showed D315's halving test was too strict: a
 //!   0.10 step that pays cuts the misses by 35-40%, and it takes two.
 //!   [`MissCount`] is the one count of missed refreshes, shared with the
@@ -198,6 +204,40 @@ pub const LATE_MIN_CUT: f32 = 0.2;
 /// hunted 0.65-0.80 for 2 fps.
 pub const LATE_MIN_CUT_POINTS: f32 = 0.05;
 
+/// How long a late step that did not pay stops the late rule at its scale,
+/// the first time: 60 s at 60 Hz (D318). A retry that fails again costs
+/// about 8 s (four of judging at the lower size, and two resizes, which
+/// restart feedback scenes from black); once a minute that is about an
+/// eighth of the time at the worst, and it falls fast with the backoff. A
+/// false lock (M21 run A) heals within a minute instead of lasting as long as
+/// the scene is held, which in a show can be the whole night.
+pub const LATE_LOCK_FRAMES: u32 = 3600;
+
+/// The longest a late lock lasts after repeated failures: four minutes at
+/// 60 Hz (60, 120, 240 s). A scene whose misses truly ignore its scale then
+/// pays about 8 s in 240, 3% of the time, for the chance to heal.
+pub const MAX_LATE_LOCK_FRAMES: u32 = 4 * LATE_LOCK_FRAMES;
+
+/// A window with any interval over this many cadences (100 ms at 60 Hz) is
+/// disturbed: a stall that is not the scene's (a process exiting, a driver
+/// tearing down a context, a compile), and no evidence for or against a
+/// step (D318). M21 run A's first minute had a 142 ms gap.
+pub const HITCH_CADENCES: f32 = 6.0;
+
+/// A step down whose judged windows show the GPU time above this many times
+/// what it was before the step was disturbed (D318): a smaller picture
+/// cannot cost more, so something else is loading the GPU. M21 run A: 14.9
+/// ms where 13 takes 13.6.
+pub const GPU_RISE: f32 = 1.05;
+
+/// Times a verdict on disturbed windows is put off for fresh ones before it
+/// is taken anyway (D318): sixteen more seconds at most, enough to outlast a
+/// teardown like M21 run A's, after which a machine that is always disturbed
+/// still gets a verdict (and the lock's retries) rather than a step held
+/// open. Waiting costs no judder, only the lower scale's sharpness for the
+/// while.
+pub const MAX_DEFERRALS: u32 = 4;
+
 /// Missing windows in a row before a drop: four seconds of judder at 60 Hz.
 /// One burst (a heavy beat, a transition, a hitch) fills one window, not two.
 pub const LATE_WINDOWS_TO_DROP: u32 = 2;
@@ -247,7 +287,8 @@ pub struct Futile {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LateFutile {
     /// The scale that was lowered from, and went back to: the late rule
-    /// lowers no further than this until the scene changes.
+    /// lowers no further than this for `lock_frames` or until the scene
+    /// changes.
     pub scale: f32,
     /// The scale that was tried.
     pub tried: f32,
@@ -255,6 +296,8 @@ pub struct LateFutile {
     pub share_before: f32,
     /// Share missed over the judged windows after it.
     pub share_after: f32,
+    /// Frames the late rule stays stopped at `scale` for (D318).
+    pub lock_frames: u32,
 }
 
 /// The windows after a late drop, collected to judge it.
@@ -268,6 +311,15 @@ struct LateProbe {
     missed: u32,
     frames: u32,
     windows: u32,
+    /// The smoothed GPU time before the step, and the GPU time summed over
+    /// the judged windows (D318).
+    before_ms: f32,
+    gpu_sum: f32,
+    gpu_frames: u32,
+    /// A judged window held a frame over [`HITCH_CADENCES`] (D318).
+    disturbed: bool,
+    /// Verdicts put off so far (D318).
+    deferrals: u32,
 }
 
 /// The cadence presented frames are judged against for a display `period_ms`:
@@ -287,6 +339,7 @@ pub fn cadence_for(period_ms: f32) -> f32 {
 pub struct MissCount {
     frames: u32,
     refreshes: f32,
+    worst_ms: f32,
 }
 
 impl MissCount {
@@ -298,6 +351,12 @@ impl MissCount {
         }
         self.frames += 1;
         self.refreshes += interval_ms.min(cadence_ms * STALL_CADENCES) / cadence_ms;
+        self.worst_ms = self.worst_ms.max(interval_ms);
+    }
+
+    /// The longest interval counted, uncapped.
+    pub fn worst_ms(&self) -> f32 {
+        self.worst_ms
     }
 
     /// Frames counted.
@@ -382,8 +441,13 @@ pub struct AdaptiveScale {
     clear_windows: u32,
     /// The late drop being judged.
     late_probe: Option<LateProbe>,
-    /// The late rule lowers no further than this until the scene changes.
+    /// The late rule lowers no further than this until the lock runs out or
+    /// the scene changes.
     late_floor: Option<f32>,
+    /// Frames until [`Self::late_floor`] expires, and how long the next
+    /// late lock lasts (D318).
+    late_lock_left: u32,
+    late_next_lock: u32,
     /// The futile late drop the last [`Self::observe`] undid.
     late_undone: Option<LateFutile>,
     /// The smoothed GPU time frames were missing refreshes at, since the
@@ -427,6 +491,8 @@ impl AdaptiveScale {
             clear_windows: 0,
             late_probe: None,
             late_floor: None,
+            late_lock_left: 0,
+            late_next_lock: LATE_LOCK_FRAMES,
             late_undone: None,
             late_ms: None,
             missed: None,
@@ -459,7 +525,8 @@ impl AdaptiveScale {
     }
 
     /// The scale the late rule lowers no further than, after a late drop
-    /// that did not cut the misses, until the scene changes (D315).
+    /// that did not cut the misses, until its lock runs out or the scene
+    /// changes (D315, D318).
     pub fn late_floor(&self) -> Option<f32> {
         self.late_floor
     }
@@ -499,6 +566,7 @@ impl AdaptiveScale {
         }
         let missed = self.window.missed();
         let frames = self.window.frames();
+        let hitch = self.window.worst_ms() > cadence * HITCH_CADENCES;
         self.window = MissCount::default();
         if missed >= LATE_PER_WINDOW {
             // The trigger is the last two windows, not the whole run.
@@ -528,6 +596,7 @@ impl AdaptiveScale {
             probe.missed += missed;
             probe.frames += frames;
             probe.windows += 1;
+            probe.disturbed |= hitch;
         }
     }
 
@@ -614,6 +683,8 @@ impl AdaptiveScale {
         self.next_lock = LOCK_FRAMES;
         self.undone = None;
         self.late_floor = None;
+        self.late_lock_left = 0;
+        self.late_next_lock = LATE_LOCK_FRAMES;
         self.late_undone = None;
     }
 
@@ -651,6 +722,13 @@ impl AdaptiveScale {
                 self.probe_frames += 1;
             }
             return None;
+        }
+        // The GPU time over a late step's judged windows (D318).
+        if let Some(probe) = self.late_probe.as_mut()
+            && probe.windows < JUDGE_WINDOWS
+        {
+            probe.gpu_sum += gpu_ms;
+            probe.gpu_frames += 1;
         }
 
         if let Some(back) = self.judge_drop() {
@@ -750,6 +828,11 @@ impl AdaptiveScale {
                 missed: 0,
                 frames: 0,
                 windows: 0,
+                before_ms: average,
+                gpu_sum: 0.0,
+                gpu_frames: 0,
+                disturbed: false,
+                deferrals: 0,
             }),
             Some(_) | None => None,
         };
@@ -813,7 +896,10 @@ impl AdaptiveScale {
     /// cooldown are in: unless the misses fell under the drop line, or by
     /// both [`LATE_MIN_CUT`] of what triggered it and [`LATE_MIN_CUT_POINTS`]
     /// of the frames, goes back to the scale it left and stops the late rule
-    /// there until the scene changes. Returns that scale (D315, D316).
+    /// there for the late lock (doubling on each repeat) or until the scene
+    /// changes. A futile verdict on disturbed windows is put off for fresh
+    /// ones first, up to [`MAX_DEFERRALS`] times. Returns that scale (D315,
+    /// D316, D318).
     fn judge_late_drop(&mut self) -> Option<f32> {
         let probe = self.late_probe?;
         if probe.windows < JUDGE_WINDOWS || probe.frames == 0 {
@@ -826,16 +912,39 @@ impl AdaptiveScale {
         let pays = cut >= probe.share_before * LATE_MIN_CUT && cut >= LATE_MIN_CUT_POINTS;
         if under_the_line || pays {
             self.late_proven = true;
+            self.late_next_lock = LATE_LOCK_FRAMES;
+            return None;
+        }
+        // A smaller picture cannot cost more: a GPU time up after the step,
+        // or a stall in the judged windows, says something else was going
+        // on. Judge on fresh windows instead (D318).
+        let gpu_rose = probe.gpu_frames > 0
+            && probe.gpu_sum / probe.gpu_frames as f32 > probe.before_ms * GPU_RISE;
+        if (probe.disturbed || gpu_rose) && probe.deferrals < MAX_DEFERRALS {
+            self.late_probe = Some(LateProbe {
+                missed: 0,
+                frames: 0,
+                windows: 0,
+                gpu_sum: 0.0,
+                gpu_frames: 0,
+                disturbed: false,
+                deferrals: probe.deferrals + 1,
+                ..probe
+            });
             return None;
         }
         let from = probe.from.min(self.max);
+        let lock_frames = self.late_next_lock;
         self.late_undone = Some(LateFutile {
             scale: from,
             tried: self.scale,
             share_before: probe.share_before,
             share_after,
+            lock_frames,
         });
         self.late_floor = Some(from);
+        self.late_lock_left = lock_frames;
+        self.late_next_lock = lock_frames.saturating_mul(2).min(MAX_LATE_LOCK_FRAMES);
         // The GPU judge's anchor described the drop just undone.
         self.anchor = None;
         self.probe_ms = 0.0;
@@ -852,6 +961,13 @@ impl AdaptiveScale {
     /// Counts a lock down by one frame. When it runs out the scene may be
     /// lowered again, and one more futile probe locks it again.
     fn tick_lock(&mut self) {
+        // The late lock runs out too (D318); the next one lasts longer.
+        if self.late_floor.is_some() {
+            self.late_lock_left = self.late_lock_left.saturating_sub(1);
+            if self.late_lock_left == 0 {
+                self.late_floor = None;
+            }
+        }
         if self.futile.is_none() {
             return;
         }
@@ -1365,27 +1481,185 @@ mod tests {
         }
     }
 
+    /// Checks that after `changes[settled_at]`, the undo that set the late
+    /// lock at `settled`, every change is a retry (one step down, then its
+    /// undoing back to `settled`), that each retry waits out the lock before
+    /// it, that the locks double up to the cap, and that the run spends no
+    /// more than 5% of its `frames` below `settled` (D318: no hunting).
+    fn backs_off(
+        changes: &[(u32, f32, f32, Option<LateFutile>)],
+        settled_at: usize,
+        settled: f32,
+        frames: u32,
+    ) {
+        let mut locked_at = changes.get(settled_at).map(|c| c.0).unwrap_or(0);
+        let mut lock = changes
+            .get(settled_at)
+            .and_then(|c| c.3)
+            .map_or(0, |u| u.lock_frames);
+        let mut below = 0;
+        let mut pairs = changes.iter().skip(settled_at + 1);
+        while let Some(down) = pairs.next() {
+            assert!(
+                down.3.is_none() && (down.1 - settled).abs() < 1e-4 && down.2 < settled,
+                "a retry steps down from {settled}: {down:?} in {changes:?}"
+            );
+            assert!(
+                down.0 >= locked_at + lock,
+                "only once the {lock}-frame lock has run out: {down:?} in {changes:?}"
+            );
+            let Some(back) = pairs.next() else {
+                below += frames - down.0;
+                break;
+            };
+            let undone = back.3;
+            assert!(
+                undone.is_some() && (back.2 - settled).abs() < 1e-4,
+                "and is undone back to {settled}: {back:?} in {changes:?}"
+            );
+            let next = undone.map_or(0, |u| u.lock_frames);
+            assert!(
+                next >= lock && next <= MAX_LATE_LOCK_FRAMES,
+                "the lock backs off to the cap: {lock} then {next}"
+            );
+            below += back.0 - down.0;
+            locked_at = back.0;
+            lock = next;
+        }
+        assert!(
+            below * 20 <= frames,
+            "no more than 5% of the time below {settled}: {below} of {frames} frames"
+        );
+    }
+
+    #[test]
+    fn a_verdict_on_a_disturbed_window_is_put_off_and_a_false_lock_heals() {
+        // M21 run A: launched seconds after another strobe exited, 13 ran
+        // its first 15 s at 42% missed whatever the scale, with 140 ms
+        // stalls and its GPU time up from 13.6 to 14.9 ms. D317 locked at
+        // 1.00 for the night; now the verdict waits for fresh windows, and
+        // the M20 steps follow.
+        let mut c = sixty_hz();
+        let mut owed = 0.0_f32;
+        let mut changes = Vec::new();
+        let disturbed_until = 60 * 15;
+        for i in 0..60 * 60 * 3_u32 {
+            let s = c.scale();
+            let disturbed = i < disturbed_until;
+            owed += if disturbed {
+                0.42
+            } else if s > 0.95 {
+                0.404
+            } else if s > 0.85 {
+                0.267
+            } else if s > 0.75 {
+                0.14
+            } else {
+                0.026
+            };
+            let late = owed >= 1.0;
+            if late {
+                owed -= 1.0;
+            }
+            let interval = if disturbed && i % 120 == 60 {
+                140.0
+            } else if late {
+                2.0 * PERIOD
+            } else {
+                PERIOD
+            };
+            c.presented(interval);
+            let gpu = (1.16 + 12.44 * s * s) * if disturbed { 1.1 } else { 1.0 };
+            if let Some(to) = c.observe(gpu) {
+                changes.push((i, s, to, c.late_undone()));
+            }
+        }
+        assert!(
+            changes.iter().all(|change| change.3.is_none()),
+            "nothing locked: {changes:?}"
+        );
+        assert!(
+            changes
+                .iter()
+                .find(|(_, _, to, _)| *to <= 0.8 + 1e-4)
+                .is_some_and(|(frame, ..)| *frame < 60 * 90),
+            "0.80 or lower within 90 s: {changes:?}"
+        );
+        assert!(
+            (c.scale() - 0.7).abs() < 1e-4,
+            "and on to 0.70: {}",
+            c.scale()
+        );
+    }
+
+    #[test]
+    fn a_lock_on_an_undetected_disturbance_heals_within_the_minute() {
+        // The same, but the disturbance shows only as misses (no stall, no
+        // GPU rise): the first verdict locks, and the lock expires.
+        let mut c = sixty_hz();
+        let mut owed = 0.0_f32;
+        let mut changes = Vec::new();
+        for i in 0..60 * 60 * 3_u32 {
+            let s = c.scale();
+            owed += if i < 60 * 15 {
+                0.42
+            } else if s > 0.95 {
+                0.404
+            } else if s > 0.85 {
+                0.267
+            } else if s > 0.75 {
+                0.14
+            } else {
+                0.026
+            };
+            let late = owed >= 1.0;
+            if late {
+                owed -= 1.0;
+            }
+            c.presented(if late { 2.0 * PERIOD } else { PERIOD });
+            if let Some(to) = c.observe(1.16 + 12.44 * s * s) {
+                changes.push((i, s, to, c.late_undone()));
+            }
+        }
+        assert!(
+            changes.get(1).is_some_and(|change| change.3.is_some()),
+            "the first verdict locked: {changes:?}"
+        );
+        assert!(
+            changes
+                .iter()
+                .find(|(_, _, to, _)| *to <= 0.8 + 1e-4)
+                .is_some_and(|(frame, ..)| *frame < 60 * 90),
+            "0.80 or lower within 90 s: {changes:?}"
+        );
+        assert!(
+            (c.scale() - 0.7).abs() < 1e-4,
+            "ends at 0.70: {}",
+            c.scale()
+        );
+    }
+
     #[test]
     fn the_old_13_steps_while_each_step_pays_and_stops_at_0_80() {
         // M19 run 2 locked at 1.00 (40% -> 26% failed D315's halving) and ran
         // 42.6 fps; M18 run 2 hunted 0.65-0.80. Two steps pay, the third
         // (15% -> 10.5%, 4.5 points) does not, and it holds at 0.80.
         let mut c = sixty_hz();
-        let changes = measured(&mut c, 60 * 60 * 10, |s| 6.0 + 7.8 * s * s, old_13_share);
+        let frames = 60 * 60 * 10;
+        let changes = measured(&mut c, frames, |s| 6.0 + 7.8 * s * s, old_13_share);
         let scales: Vec<f32> = changes.iter().map(|(_, _, to, _)| *to).collect();
         assert!(
-            changes.len() == 4
+            changes.len() >= 4
                 && (scales[0] - 0.9).abs() < 1e-4
                 && (scales[1] - 0.8).abs() < 1e-4
                 && (scales[2] - 0.7).abs() < 1e-4
                 && (scales[3] - 0.8).abs() < 1e-4
-                && changes[3].3.is_some(),
-            "1.00 -> 0.90 -> 0.80, a try at 0.70 undone, nothing more: {changes:?}"
+                && changes[3].3.is_some()
+                && changes[3].0 < 60 * 30,
+            "1.00 -> 0.90 -> 0.80 and a try at 0.70 undone, in the first 30 s: {changes:?}"
         );
-        assert!(
-            changes.iter().all(|(frame, ..)| *frame < 60 * 30),
-            "all within the first half minute, none in ten minutes after: {changes:?}"
-        );
+        // After that only the lock's retries (D318), backing off.
+        backs_off(&changes, 3, 0.8, frames);
         assert!((c.scale() - 0.8).abs() < 1e-4, "holds 0.80: {}", c.scale());
     }
 
@@ -1578,21 +1852,14 @@ mod tests {
             }
         }
         assert!(
-            changes.len() <= 3,
-            "two steps down and one back, then nothing for ten minutes: {changes:?}"
+            changes.len() >= 3
+                && changes[2]
+                    .3
+                    .is_some_and(|u| (u.tried - 0.8).abs() < 1e-4 && (u.scale - 0.9).abs() < 1e-4),
+            "two steps down, the step to 0.8 undone: {changes:?}"
         );
-        assert!(
-            changes
-                .last()
-                .is_some_and(|(_, _, to, undone)| (*to - 0.9).abs() < 1e-4
-                    && undone.is_some_and(|u| (u.tried - 0.8).abs() < 1e-4)),
-            "the step to 0.8 cut nothing and was undone: {changes:?}"
-        );
-        assert!(
-            c.late_floor().is_some_and(|f| (f - 0.9).abs() < 1e-4),
-            "and the late rule stops there: {:?}",
-            c.late_floor()
-        );
+        // Then only the lock's retries, backing off (D318), and never lower.
+        backs_off(&changes, 2, 0.9, 60 * 60 * 10);
         assert!((c.scale() - 0.9).abs() < 1e-4, "ends at 0.9: {}", c.scale());
     }
 
@@ -1662,9 +1929,17 @@ mod tests {
         // first late drop is judged on the misses and undone, and the late
         // rule stops at full size.
         let mut c = sixty_hz();
-        let run = present(&mut c, 60 * 60 * 5, |_, i| (13.6, i.is_multiple_of(11)));
-        assert_eq!(c.scale(), 1.0, "back where it started: {run:?}");
-        assert_eq!(run.changes, 2, "one probe, one undo: {run:?}");
+        let frames = 60 * 60 * 10;
+        let changes = measured(&mut c, frames, |_| 13.6, |_| 1.0 / 11.0);
+        assert_eq!(c.scale(), 1.0, "back where it started: {changes:?}");
+        assert!(
+            changes.len() >= 2 && changes[1].3.is_some(),
+            "one probe, one undo: {changes:?}"
+        );
+        // Retried rarely: after 60, 120 and 240 s locks, about 8 changes
+        // in ten minutes, never more than one step down (D318).
+        backs_off(&changes, 1, 1.0, frames);
+        assert!(changes.len() <= 10, "rare retries: {changes:?}");
         assert_eq!(c.late_floor(), Some(1.0), "and the late rule is stopped");
         c.reset_measurements();
         assert_eq!(c.late_floor(), None, "until the scene changes");
