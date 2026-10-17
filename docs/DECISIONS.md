@@ -8623,3 +8623,32 @@ Synesthesia might have ignored now runs, which is what its author meant.
 
 **Would reopen:** evidence that Synesthesia ignores a lexical `update` and
 a real scene that depends on that.
+
+### D360: a Shadertoy pass's names that the SSF library declares are the shader's own (2026-10-17)
+
+**Context.** Every pass of an import is compiled after the SSF function
+library (`strobe-ssf-lib`), which declares `_noise`, `_rand`, `_rotate`,
+`_palette`, `_map` and some ninety more at global scope, plus a few macros
+(`_loadUserImage`, `syn_InputLevel`). D91 aliased away the assembler's
+own globals (`PI`, `_uv`...) when a shader declared them too, but not the
+library's, so a shader with its own `float _noise(vec2)` failed with
+"function `_noise` redefined" on both dialects.
+
+**Decision.** A Shadertoy shader knows nothing of the SSF library, so any
+library name a pass uses is the shader's own. The shim aliases it like
+the assembler's names (`#define _noise strobe_user__noise`), after an
+`#undef` when the library name is a macro (redefining a macro with another
+body is an error). The names are read from the library's source once per
+process (functions and constants at global scope, and `#define`s), so a
+name added to the library later is covered without a list to keep.
+`strobe-shadertoy` now depends on `strobe-ssf-lib` for that source.
+
+**Not covered:** the assembler preamble's ISF macros (`IMG_PIXEL`,
+`IMG_NORM_PIXEL`, `IMG_SIZE`); a shader that `#define`s one of those still
+fails as a macro redefinition. No Shadertoy shader is known to.
+
+**Test.** `a_helper_named_like_an_ssf_library_function_is_the_shaders_own`
+(`strobe-shadertoy` render tests, both dialects).
+
+**Would reopen:** an imported scene whose code is later edited to call the
+SSF library on purpose (the alias would hide the library function from it).

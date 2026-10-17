@@ -3,7 +3,8 @@
 // Description:  Generates each pass's GLSL file: the uniform shim, the
 //               Common and pass code, and the entry point.
 //
-// Dependencies: super::plan, super::names, crate::model
+// Dependencies: super::plan, super::names, crate::{model, glsl};
+//               strobe-ssf-lib (the names it declares)
 // ============================================================================
 
 //! The uniform shim.
@@ -47,8 +48,11 @@
 //! unchanged: no host-side state, nothing for the app to wire (D91).
 
 use super::plan::{Binding, Plan, PlannedPass, Role};
+use crate::glsl::{self, Kind, Token};
 use crate::model::Shader;
+use std::collections::BTreeSet;
 use std::fmt::Write as _;
+use std::sync::OnceLock;
 
 /// Where a pass's pieces start, for `SOURCE.passes` and error mapping.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -81,6 +85,68 @@ const ASSEMBLER_NAMES: &[&str] = &[
     "_muv",
     "_muvc",
 ];
+
+/// What the SSF function library, compiled ahead of every pass, declares
+/// at global scope: its functions and constants, and its macros.
+struct LibraryNames {
+    declared: BTreeSet<String>,
+    macros: BTreeSet<String>,
+}
+
+/// The SSF library's global names, read from its source once. A Shadertoy
+/// shader knows nothing of that library, so any of these names it uses is
+/// its own (a `float _noise(vec2)` helper), and is aliased away as
+/// [`ASSEMBLER_NAMES`] are; otherwise the driver sees a redefinition.
+fn library_names() -> &'static LibraryNames {
+    static NAMES: OnceLock<LibraryNames> = OnceLock::new();
+    NAMES.get_or_init(|| {
+        let mut names = LibraryNames {
+            declared: BTreeSet::new(),
+            macros: BTreeSet::new(),
+        };
+        let tokens: Vec<Token<'_>> = glsl::lex(strobe_ssf_lib::LIBRARY)
+            .into_iter()
+            .filter(|t| !matches!(t.kind, Kind::Space | Kind::LineComment | Kind::BlockComment))
+            .collect();
+        let mut depth = 0_i32;
+        for (at, token) in tokens.iter().enumerate() {
+            match (token.kind, token.text) {
+                (Kind::Directive, text) => {
+                    if let Some(("define", body)) = glsl::split_directive(text)
+                        && let Some(name) = glsl::lex_directive_body(body)
+                            .into_iter()
+                            .find(|t| t.kind == Kind::Ident)
+                    {
+                        names.macros.insert(name.text.to_string());
+                    }
+                }
+                (Kind::Punct, "{") => depth += 1,
+                (Kind::Punct, "}") => depth -= 1,
+                // `<type> <name>` followed by `(`, `=`, `;` or `[` at
+                // global scope declares `<name>`.
+                (Kind::Ident, name) if depth == 0 && at > 0 => {
+                    let after_type = tokens.get(at - 1).is_some_and(|t| t.kind == Kind::Ident);
+                    let declares = tokens
+                        .get(at + 1)
+                        .is_some_and(|t| matches!(t.text, "(" | "=" | ";" | "["));
+                    if after_type && declares {
+                        names.declared.insert(name.to_string());
+                    }
+                }
+                (
+                    Kind::Ident
+                    | Kind::Number
+                    | Kind::Punct
+                    | Kind::Space
+                    | Kind::LineComment
+                    | Kind::BlockComment,
+                    _,
+                ) => {}
+            }
+        }
+        names
+    })
+}
 
 /// The pieces of the shim, filled as the pass's names are found.
 #[derive(Default)]
@@ -237,6 +303,27 @@ pub(super) fn pass_file(plan: &Plan, pass: &PlannedPass, shader: &Shader) -> Gen
     let mut aliases = String::new();
     for name in ASSEMBLER_NAMES {
         if used(name) && !pass.macros.contains(*name) {
+            let _ = writeln!(aliases, "#define {name} strobe_user_{name}");
+        }
+    }
+    // Names the SSF library declares or defines, which are the author's
+    // own here. A library macro is undefined first: redefining a macro
+    // with another body is an error.
+    let library = library_names();
+    let library_used: BTreeSet<&String> = library
+        .declared
+        .iter()
+        .chain(&library.macros)
+        .filter(|name| used(name))
+        .collect();
+    for name in library_used {
+        if ASSEMBLER_NAMES.contains(&name.as_str()) {
+            continue;
+        }
+        if library.macros.contains(name) {
+            let _ = writeln!(aliases, "#undef {name}");
+        }
+        if !pass.macros.contains(name) {
             let _ = writeln!(aliases, "#define {name} strobe_user_{name}");
         }
     }
