@@ -1450,6 +1450,35 @@ fn an_endless_loop_in_update_is_interrupted_and_the_frame_returns() -> Result<()
 }
 
 #[test]
+fn the_load_frame_runs_under_the_load_budget_and_later_frames_do_not() -> Result<()> {
+    let script = r#"
+        function update() {
+            var until = Date.now() + 20;
+            while (Date.now() < until) {}
+            setUniform("ready", 1);
+        }
+    "#;
+    // The default budgets, on purpose: 4 ms a frame, 250 ms to load.
+    let mut rig = Rig::with_budget(script, &[], Budget::default())?;
+    let loading = rig
+        .host
+        .load_frame(DT, &ScriptInputs::default(), &mut rig.bank, &mut rig.meta);
+    assert_eq!(
+        loading.status,
+        ScriptStatus::Running,
+        "20 ms is inside the load budget: {:?}",
+        loading.console
+    );
+    expect_uniform(&loading, "ready", ExtraType::Float, &[1.0])?;
+    assert_eq!(
+        rig.step().status,
+        ScriptStatus::Faulted { consecutive: 1 },
+        "but not inside a frame's"
+    );
+    Ok(())
+}
+
+#[test]
 fn an_endless_event_handler_is_interrupted_too() -> Result<()> {
     let script = r#"
         function spin() { while (true) {} }

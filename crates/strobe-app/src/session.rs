@@ -46,7 +46,9 @@
 //! published (in `setup()` or in that first `update`) in every pass
 //! program, then seals the script's uniforms. That frame is part of the
 //! scene's life, not a probe: it runs with the real audio at the scene's
-//! start and a 60 Hz step, and the scene's second frame is its next.
+//! start and a 60 Hz step, and the scene's second frame is its next. It
+//! runs under the script's load budget, not a frame's (D324), since it is
+//! paid while the scene loads.
 //! A script that publishes a *new* uniform later (say, only once a beat is
 //! heard) has that write refused with one console error; nothing is
 //! recompiled (D161). A uniform whose name clashes with something the
@@ -227,7 +229,7 @@ impl Session {
         // it creates are known when the shaders are compiled.
         let harvest = script.as_mut().map(|run| {
             let frame = audio.frame_at(start);
-            run.frame(
+            run.load_frame(
                 FIRST_FRAME_DT,
                 &ScriptInputs {
                     time: start,
@@ -477,7 +479,7 @@ impl Session {
             }
         };
         let frame = audio.frame_at(start);
-        let harvest = run.frame(
+        let harvest = run.load_frame(
             FIRST_FRAME_DT,
             &ScriptInputs {
                 time: start,

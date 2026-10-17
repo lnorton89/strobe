@@ -51,7 +51,7 @@ use rquickjs::context::EvalOptions;
 use rquickjs::{Context, Ctx, Exception, Object, Persistent, Runtime, Value};
 use std::cell::Cell;
 use std::rc::Rc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use strobe_scene::audio::{SCALARS, silent_value};
 use strobe_scene::control::{ControlBank, ControlKind};
 
@@ -446,14 +446,40 @@ impl ScriptHost {
         controls: &mut ControlBank,
         meta: &mut ControlBank,
     ) -> FrameOutput {
+        self.frame_within(self.budget.frame, dt, inputs, controls, meta)
+    }
+
+    /// Runs the frame the scene's load runs before its shaders are
+    /// compiled, exactly as [`Self::frame`] but under [`Budget::load`]: it
+    /// is paid while the scene loads, not on screen, and the uniforms it
+    /// publishes are the ones the shaders declare. Cut at the frame budget,
+    /// a first `update` that does set-up work would fault on a slow machine
+    /// only, and its uniforms would never be declared (D324).
+    pub fn load_frame(
+        &mut self,
+        dt: f32,
+        inputs: &ScriptInputs<'_>,
+        controls: &mut ControlBank,
+        meta: &mut ControlBank,
+    ) -> FrameOutput {
+        self.frame_within(self.budget.load, dt, inputs, controls, meta)
+    }
+
+    /// [`Self::frame`] under a deadline of `budget` from now.
+    fn frame_within(
+        &mut self,
+        budget: Duration,
+        dt: f32,
+        inputs: &ScriptInputs<'_>,
+        controls: &mut ControlBank,
+        meta: &mut ControlBank,
+    ) -> FrameOutput {
         if self.disabled {
             return self.finish(ScriptStatus::Disabled);
         }
         self.stage_final_pass(inputs);
 
-        self.shared
-            .deadline
-            .set(Some(Instant::now() + self.budget.frame));
+        self.shared.deadline.set(Some(Instant::now() + budget));
         let bank: &ControlBank = controls;
         let outcome = self
             .context

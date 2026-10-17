@@ -8543,3 +8543,28 @@ starts over, still reaches the shader, and nothing is compiled.
 cues (a long-running simulation), which would be a cue setting, as D297
 says for buffers; or a script whose `setup()` is slow enough that the
 warm-up hitch shows.
+
+### D324: the script frame a load runs before compiling gets the load budget, not a frame's (2026-10-17)
+
+**Context.** D62 runs a script's first frame before the shaders are
+compiled, so the uniforms it publishes are declared. That frame ran under
+the 4 ms frame budget. A first `update` that does set-up work (building a
+table on `FRAMECOUNT === 0`), or one that meets a garbage collection, can
+pass 4 ms on a 2012 laptop while taking 1 ms on the machine it was written
+on. Cut there, the frame faulted, its uniforms were discarded and never
+declared, and a shader reading one failed to compile: the scene would not
+load, on slow machines only.
+
+**Decision.** `ScriptHost::load_frame` runs a frame exactly as `frame`
+does, under `Budget::load` (250 ms, the budget `script.js` and `setup()`
+already get). `Session::load` and `Session::restart_script` (D323) use it
+for that one frame; every frame on screen keeps the 4 ms budget.
+
+**Test.** `a_first_update_slower_than_a_frame_still_declares_its_uniforms`
+(`strobe-app/tests/script_uniforms.rs`): a first `update` that takes 20 ms
+and then sets the uniform its shader reads. Before, the load failed with
+"`ready` undeclared". `the_load_frame_runs_under_the_load_budget_and_later_frames_do_not`
+(`strobe-script` conformance) pins the two budgets.
+
+**Would reopen:** a first frame long enough at load to be felt as a
+hitch, which would argue for a smaller load budget for that frame.
