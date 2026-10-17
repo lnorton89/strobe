@@ -27,6 +27,7 @@ net = ["dep:ureq"]
 
 [dependencies]
 strobe-scene.workspace = true
+strobe-ssf-lib.workspace = true
 strobe-diag.workspace = true
 serde.workspace = true
 serde_json.workspace = true

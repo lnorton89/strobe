@@ -57,8 +57,10 @@ strobe-remote ◀── strobe-app  (serde, sha1, sha2, getrandom; depends on no
   It renders a scene given a `FrameInputs` (time, audio values, controls).
 - `strobe-audio` and `strobe-script` must not depend on `strobe-gfx`.
   They produce values, and the app hands those values to the player.
-- `strobe-shadertoy` depends on `strobe-scene` only, to validate what it
-  generates with `SceneDef::parse`. `strobe-gfx` must never depend on it;
+- `strobe-shadertoy` depends on `strobe-scene`, to validate what it
+  generates with `SceneDef::parse`, and on `strobe-ssf-lib`, to alias away
+  a shader's names that the library compiled ahead of it also declares
+  (D360). `strobe-gfx` must never depend on it;
   its render tests take `strobe-gfx` as a dev-dependency instead.
 - `strobe-autocontrol` depends on `strobe-scene`, `strobe-ssf-lib`, the
   tokenizer and tab markers of `strobe-shadertoy`, and `strobe-gfx` (to

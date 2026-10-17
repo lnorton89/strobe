@@ -1,13 +1,11 @@
 // ---- Strobe import of Shadertoy Tst002 "Common and image" by strobe-tests (generated) ----
 // Pass: Image. Shim above the first marker; Shadertoy code below, unedited.
-// Tab line 1 is file line 29 for Image, 23 for Common.
+// Tab line 1 is file line 27 for Image, 21 for Common.
 vec2 strobe_fragCoord = vec2(0.0);
-vec3 strobe_iResolution;
-float strobe_iTime;
+vec4 strobe_clock = texelFetch(st_clock, ivec2(0, 0), 0);
+vec3 strobe_iResolution = vec3(RENDERSIZE, 1.0);
+float strobe_iTime = strobe_clock.x;
 void strobe_begin() {
-    vec4 strobe_clock = texelFetch(st_clock, ivec2(0, 0), 0);
-    strobe_iResolution = vec3(RENDERSIZE, 1.0);
-    strobe_iTime = strobe_clock.x;
     strobe_fragCoord = (gl_FragCoord.xy - 0.5 * RENDERSIZE) / st_zoom + 0.5 * RENDERSIZE;
 }
 vec4 strobe_end(vec4 c) {

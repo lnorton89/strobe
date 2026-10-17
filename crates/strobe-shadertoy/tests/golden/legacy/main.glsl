@@ -1,11 +1,10 @@
 // ---- Strobe import of Shadertoy Tst006 "Legacy style" by strobe-tests (generated) ----
 // Pass: Image. Shim above the first marker; Shadertoy code below, unedited.
-// Tab line 1 is file line 20 for Image.
+// Tab line 1 is file line 19 for Image.
 vec2 strobe_fragCoord = vec2(0.0);
-vec3 strobe_iResolution;
+vec3 strobe_iResolution = vec3(RENDERSIZE, 1.0);
 vec4 strobe_gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
 void strobe_begin() {
-    strobe_iResolution = vec3(RENDERSIZE, 1.0);
     strobe_fragCoord = (gl_FragCoord.xy - 0.5 * RENDERSIZE) / st_zoom + 0.5 * RENDERSIZE;
 }
 vec4 strobe_end(vec4 c) {

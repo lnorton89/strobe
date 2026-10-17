@@ -3,7 +3,8 @@
 // Description:  Generates each pass's GLSL file: the uniform shim, the
 //               Common and pass code, and the entry point.
 //
-// Dependencies: super::plan, super::names, crate::model
+// Dependencies: super::plan, super::names, crate::{model, glsl};
+//               strobe-ssf-lib (the names it declares)
 // ============================================================================
 
 //! The uniform shim.
@@ -24,7 +25,8 @@
 //! ## Why globals and `#define`s
 //!
 //! `iResolution`, `iMouse` and friends are `#define`d to **globals the
-//! shim sets at the top of `renderMain`**, not to expressions over Strobe's
+//! shim initialises from Strobe's uniforms** (so an author's global
+//! initialised from one sees its value, D361), not to expressions over Strobe's
 //! uniforms, because the shim's definitions must keep working even if the
 //! author's code redefines a name the shim's expressions use (`TIME`,
 //! `RENDERSIZE`). All shim code that touches Strobe's names is *above*
@@ -47,8 +49,11 @@
 //! unchanged: no host-side state, nothing for the app to wire (D91).
 
 use super::plan::{Binding, Plan, PlannedPass, Role};
+use crate::glsl::{self, Kind, Token};
 use crate::model::Shader;
+use std::collections::BTreeSet;
 use std::fmt::Write as _;
+use std::sync::OnceLock;
 
 /// Where a pass's pieces start, for `SOURCE.passes` and error mapping.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -82,6 +87,68 @@ const ASSEMBLER_NAMES: &[&str] = &[
     "_muvc",
 ];
 
+/// What the SSF function library, compiled ahead of every pass, declares
+/// at global scope: its functions and constants, and its macros.
+struct LibraryNames {
+    declared: BTreeSet<String>,
+    macros: BTreeSet<String>,
+}
+
+/// The SSF library's global names, read from its source once. A Shadertoy
+/// shader knows nothing of that library, so any of these names it uses is
+/// its own (a `float _noise(vec2)` helper), and is aliased away as
+/// [`ASSEMBLER_NAMES`] are; otherwise the driver sees a redefinition.
+fn library_names() -> &'static LibraryNames {
+    static NAMES: OnceLock<LibraryNames> = OnceLock::new();
+    NAMES.get_or_init(|| {
+        let mut names = LibraryNames {
+            declared: BTreeSet::new(),
+            macros: BTreeSet::new(),
+        };
+        let tokens: Vec<Token<'_>> = glsl::lex(strobe_ssf_lib::LIBRARY)
+            .into_iter()
+            .filter(|t| !matches!(t.kind, Kind::Space | Kind::LineComment | Kind::BlockComment))
+            .collect();
+        let mut depth = 0_i32;
+        for (at, token) in tokens.iter().enumerate() {
+            match (token.kind, token.text) {
+                (Kind::Directive, text) => {
+                    if let Some(("define", body)) = glsl::split_directive(text)
+                        && let Some(name) = glsl::lex_directive_body(body)
+                            .into_iter()
+                            .find(|t| t.kind == Kind::Ident)
+                    {
+                        names.macros.insert(name.text.to_string());
+                    }
+                }
+                (Kind::Punct, "{") => depth += 1,
+                (Kind::Punct, "}") => depth -= 1,
+                // `<type> <name>` followed by `(`, `=`, `;` or `[` at
+                // global scope declares `<name>`.
+                (Kind::Ident, name) if depth == 0 && at > 0 => {
+                    let after_type = tokens.get(at - 1).is_some_and(|t| t.kind == Kind::Ident);
+                    let declares = tokens
+                        .get(at + 1)
+                        .is_some_and(|t| matches!(t.text, "(" | "=" | ";" | "["));
+                    if after_type && declares {
+                        names.declared.insert(name.to_string());
+                    }
+                }
+                (
+                    Kind::Ident
+                    | Kind::Number
+                    | Kind::Punct
+                    | Kind::Space
+                    | Kind::LineComment
+                    | Kind::BlockComment,
+                    _,
+                ) => {}
+            }
+        }
+        names
+    })
+}
+
 /// The pieces of the shim, filled as the pass's names are found.
 #[derive(Default)]
 struct Parts {
@@ -94,11 +161,18 @@ struct Parts {
 }
 
 impl Parts {
-    /// A global `strobe_<name>` of type `glsl`, set to `value` in
-    /// `strobe_begin`, which the author's `<name>` is defined to mean.
+    /// A global `strobe_<name>` of type `glsl`, initialised to `value`,
+    /// which the author's `<name>` is defined to mean.
+    ///
+    /// The value is the global's initialiser, not an assignment in
+    /// `strobe_begin`: WebGL accepts a uniform in a global initialiser and
+    /// Shadertoy code relies on it (`vec2 R = iResolution.xy;`). Globals
+    /// are initialised in declaration order before `renderMain` runs (on ES
+    /// the assembler moves the initialisers to the top of `main` in that
+    /// order, D192), so the author's globals below see these values; an
+    /// assignment in `strobe_begin` came too late and left them zero.
     fn define(&mut self, name: &str, glsl: &str, value: &str) {
-        let _ = writeln!(self.decls, "{glsl} strobe_{name};");
-        let _ = writeln!(self.init, "    strobe_{name} = {value};");
+        let _ = writeln!(self.decls, "{glsl} strobe_{name} = {value};");
         let _ = writeln!(self.macros, "#define {name} strobe_{name}");
     }
 }
@@ -119,6 +193,25 @@ fn lines(text: &str) -> u32 {
     text.matches('\n').count() as u32
 }
 
+/// `text` made safe to sit inside a generated `//` comment: control
+/// characters (a `\r` ends a GLSL line as `\n` does) become spaces, and
+/// anything outside ASCII becomes `?`, as the dialect stage does for the
+/// author's own comments (D94). The shader's title, author and tab names
+/// come from the JSON, so they may hold any of these.
+fn comment_text(text: &str) -> String {
+    text.chars()
+        .map(|c| {
+            if c.is_ascii_control() || c.is_control() {
+                ' '
+            } else if c.is_ascii() {
+                c
+            } else {
+                '?'
+            }
+        })
+        .collect()
+}
+
 /// The GLSL file for one pass.
 pub(super) fn pass_file(plan: &Plan, pass: &PlannedPass, shader: &Shader) -> Generated {
     let used = |name: &str| pass.idents.contains(name);
@@ -129,8 +222,8 @@ pub(super) fn pass_file(plan: &Plan, pass: &PlannedPass, shader: &Shader) -> Gen
 
     if needs_clock {
         parts
-            .init
-            .push_str("    vec4 strobe_clock = texelFetch(st_clock, ivec2(0, 0), 0);\n");
+            .decls
+            .push_str("vec4 strobe_clock = texelFetch(st_clock, ivec2(0, 0), 0);\n");
     }
     if used("iResolution") {
         parts.define("iResolution", "vec3", "vec3(RENDERSIZE, 1.0)");
@@ -221,6 +314,27 @@ pub(super) fn pass_file(plan: &Plan, pass: &PlannedPass, shader: &Shader) -> Gen
             let _ = writeln!(aliases, "#define {name} strobe_user_{name}");
         }
     }
+    // Names the SSF library declares or defines, which are the author's
+    // own here. A library macro is undefined first: redefining a macro
+    // with another body is an error.
+    let library = library_names();
+    let library_used: BTreeSet<&String> = library
+        .declared
+        .iter()
+        .chain(&library.macros)
+        .filter(|name| used(name))
+        .collect();
+    for name in library_used {
+        if ASSEMBLER_NAMES.contains(&name.as_str()) {
+            continue;
+        }
+        if library.macros.contains(name) {
+            let _ = writeln!(aliases, "#undef {name}");
+        }
+        if !pass.macros.contains(name) {
+            let _ = writeln!(aliases, "#define {name} strobe_user_{name}");
+        }
+    }
     // GLSL ES 3.00 forbids redefining a built-in; desktop GLSL lets it hide.
     for name in &pass.shadowed {
         let _ = writeln!(
@@ -274,24 +388,24 @@ pub(super) fn pass_file(plan: &Plan, pass: &PlannedPass, shader: &Shader) -> Gen
     };
 
     let info = &shader.info;
+    let pass_name = comment_text(&pass.name);
     let mut out = String::new();
     let _ = writeln!(
         out,
         "// ---- Strobe import of Shadertoy {} \"{}\" by {} (generated) ----",
-        info.id.as_deref().unwrap_or("?"),
-        info.name.as_deref().unwrap_or("?").replace('\n', " "),
-        info.username.as_deref().unwrap_or("?").replace('\n', " "),
+        comment_text(info.id.as_deref().unwrap_or("?")),
+        comment_text(info.name.as_deref().unwrap_or("?")),
+        comment_text(info.username.as_deref().unwrap_or("?")),
     );
     let _ = writeln!(
         out,
-        "// Pass: {}. Shim above the first marker; Shadertoy code below, unedited.",
-        pass.name
+        "// Pass: {pass_name}. Shim above the first marker; Shadertoy code below, unedited."
     );
     let _ = writeln!(
         out,
         "// Tab line 1 is file line {} for {}{}.",
         code_line,
-        pass.name,
+        pass_name,
         common_line.map_or_else(String::new, |l| format!(", {l} for Common"))
     );
     out.push_str(&body);
@@ -308,7 +422,7 @@ pub(super) fn pass_file(plan: &Plan, pass: &PlannedPass, shader: &Shader) -> Gen
         out,
         "{}{}{}",
         super::TAB_MARKER_PREFIX,
-        pass.name,
+        pass_name,
         super::TAB_MARKER_SUFFIX
     );
     out.push_str(&code);
