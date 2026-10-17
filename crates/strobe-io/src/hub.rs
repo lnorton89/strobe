@@ -1,9 +1,11 @@
 // ============================================================================
 // Module:       strobe_io::hub
 // Description:  The worker threads (MIDI and OSC) behind one handle, and the
-//               bounded queue they deliver into.
+//               bounded queues they deliver into: one for events in order,
+//               one for the latest value of each fader.
 //
-// Dependencies: std (threads, mpsc, net); crate::{event, config, midi, osc}
+// Dependencies: std (threads, mpsc, net); crate::{event, config, message,
+//               midi, osc}
 // ============================================================================
 
 //! The I/O hub (D171).
@@ -11,12 +13,25 @@
 //! Two worker threads, one per transport, own every blocking call: the MIDI
 //! worker enumerates and opens devices, the OSC worker sits in `recv_from`.
 //! They never touch app state. They hand the app typed [`Event`]s through
-//! one **bounded** queue ([`QUEUE`] events) with `try_send`: a full queue
-//! drops the newest message and counts it, because a stalled frame loop must
-//! never push back into a driver callback, and a flood of fader messages is
-//! exactly the thing that should be thinned. The app calls [`Hub::drain`] once
-//! per scene frame; it takes at most the number it is told to and never
-//! blocks.
+//! two **bounded** queues, and a full one drops the newest message and
+//! counts it, because a stalled frame loop must never push back into a
+//! driver callback.
+//!
+//! - **Continuous MIDI values** (a CC, a pitch bend) wait in a table of at
+//!   most [`LATEST`] entries holding the **newest value per source** (device,
+//!   channel, controller): a fader sweep at 1 kHz, or a controller stuck
+//!   sending, while the frame loop is stalled replaces one entry instead of
+//!   piling up. A CC that crosses the middle of its range (64) is kept as a
+//!   new entry rather than folded into the last one, so a CC button's press
+//!   and release (127 then 0) both arrive even if both land within one frame
+//!   (D421).
+//! - **Everything else** (notes, program changes, OSC, status reports) keeps
+//!   its order in a channel of [`QUEUE`] events. Faders no longer share it,
+//!   so a flood of them can never fill it and drop a note off.
+//!
+//! The app calls [`Hub::drain`] once per scene frame; it takes the ordered
+//! events first, then the latest values, at most the number it is told to in
+//! all, and never blocks.
 //!
 //! The app commands the workers through small channels
 //! ([`Hub::set_osc`], [`Hub::set_midi`], [`Hub::rescan_midi`]); those calls
@@ -27,26 +42,134 @@
 //! most one OSC wake-up.
 
 use crate::config::{MidiSettings, OscSettings};
-use crate::event::{Event, Status};
+use crate::event::{Event, InputEvent, Status};
+use crate::message::MidiMessage;
 use crate::{listener, midi};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender, SyncSender, channel, sync_channel};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::JoinHandle;
 
-/// How many events the queue holds before it starts dropping.
+/// How many ordered events the queue holds before it starts dropping.
 pub const QUEUE: usize = 2048;
 
-/// The workers' end of the queue.
+/// How many continuous MIDI values (each the newest for its source, or for
+/// one half of a CC's range) wait at once before new ones are dropped.
+pub const LATEST: usize = 1024;
+
+/// A source of continuous MIDI values on one device.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Continuous {
+    /// A CC: its channel and controller.
+    Control(u8, u8),
+    /// The pitch wheel on a channel.
+    Bend(u8),
+}
+
+impl Continuous {
+    /// The source `message` is a value of, and whether the value is in the
+    /// top half of a CC's range; `None` for a discrete message, which is
+    /// never folded into another.
+    fn of(message: &MidiMessage) -> Option<(Self, bool)> {
+        match *message {
+            MidiMessage::ControlChange {
+                channel,
+                controller,
+                value,
+            } => Some((Self::Control(channel, controller), value >= 64)),
+            MidiMessage::PitchBend { channel, .. } => Some((Self::Bend(channel), false)),
+            MidiMessage::NoteOn { .. }
+            | MidiMessage::NoteOff { .. }
+            | MidiMessage::ProgramChange { .. } => None,
+        }
+    }
+}
+
+/// One continuous value waiting for the app.
+#[derive(Debug)]
+struct Pending {
+    device: Arc<str>,
+    source: Continuous,
+    /// Which half of a CC's range the value is in.
+    high: bool,
+    message: MidiMessage,
+}
+
+/// The continuous values waiting for the app, oldest source first.
+#[derive(Debug)]
+struct Latest {
+    pending: Vec<Pending>,
+}
+
+impl Latest {
+    /// An empty table. It never grows past [`LATEST`], so offering a value
+    /// never allocates.
+    fn new() -> Self {
+        Self {
+            pending: Vec::with_capacity(LATEST),
+        }
+    }
+
+    /// Takes `message`, a value of `source` on `device`. It replaces the
+    /// newest waiting value of the same source when that one is in the same
+    /// half of the range, and joins the end of the table otherwise. `false`
+    /// when the table is full and the value was dropped.
+    fn offer(
+        &mut self,
+        device: &Arc<str>,
+        source: Continuous,
+        high: bool,
+        message: MidiMessage,
+    ) -> bool {
+        if let Some(newest) = self
+            .pending
+            .iter_mut()
+            .rev()
+            .find(|p| p.source == source && *p.device == **device)
+            && newest.high == high
+        {
+            newest.message = message;
+            return true;
+        }
+        if self.pending.len() >= LATEST {
+            return false;
+        }
+        self.pending.push(Pending {
+            device: Arc::clone(device),
+            source,
+            high,
+            message,
+        });
+        true
+    }
+}
+
+/// The workers' end of the queues.
 #[derive(Clone)]
 pub(crate) struct Tx {
     queue: SyncSender<Event>,
+    latest: Arc<Mutex<Latest>>,
     dropped: Arc<AtomicU64>,
 }
 
 impl Tx {
-    /// Queues an event, or counts it as dropped. Never blocks.
+    /// Queues an event, or counts it as dropped. A continuous MIDI value
+    /// goes to the table of latest values, whose lock [`Hub::drain`] holds
+    /// only to move at most [`LATEST`] small entries; nothing else waits.
     pub(crate) fn send(&self, event: Event) {
+        if let Event::Input(InputEvent::Midi { device, message }) = &event
+            && let Some((source, high)) = Continuous::of(message)
+        {
+            let kept = self
+                .latest
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .offer(device, source, high, *message);
+            if !kept {
+                self.dropped.fetch_add(1, Ordering::Relaxed);
+            }
+            return;
+        }
         if self.queue.try_send(event).is_err() {
             self.dropped.fetch_add(1, Ordering::Relaxed);
         }
@@ -58,12 +181,14 @@ impl Tx {
     }
 
     /// A queue of `capacity` and its receiving end, with no hub behind it,
-    /// for a worker's tests.
+    /// for a worker's tests. Continuous MIDI values go to a table nothing
+    /// drains; the OSC worker sends none.
     #[cfg(test)]
     pub(crate) fn detached(capacity: usize) -> (Self, Receiver<Event>) {
         let (queue, events) = sync_channel(capacity);
         let tx = Self {
             queue,
+            latest: Arc::new(Mutex::new(Latest::new())),
             dropped: Arc::new(AtomicU64::new(0)),
         };
         (tx, events)
@@ -98,6 +223,7 @@ pub(crate) enum MidiControl {
 /// The handle on both workers.
 pub struct Hub {
     events: Receiver<Event>,
+    latest: Arc<Mutex<Latest>>,
     osc: Sender<OscControl>,
     midi: Sender<MidiControl>,
     dropped: Arc<AtomicU64>,
@@ -111,9 +237,11 @@ impl Hub {
     /// reported as a status and the hub carries on without it.
     pub fn start(midi_settings: &MidiSettings, osc_settings: &OscSettings) -> Self {
         let (queue, events) = sync_channel(QUEUE);
+        let latest = Arc::new(Mutex::new(Latest::new()));
         let dropped = Arc::new(AtomicU64::new(0));
         let tx = Tx {
             queue,
+            latest: Arc::clone(&latest),
             dropped: Arc::clone(&dropped),
         };
         let (osc_ctl, osc_rx) = channel();
@@ -143,6 +271,7 @@ impl Hub {
         }
         let hub = Self {
             events,
+            latest,
             osc: osc_ctl,
             midi: midi_ctl,
             dropped,
@@ -175,15 +304,29 @@ impl Hub {
         let _ = self.midi.send(MidiControl::Rescan);
     }
 
-    /// Moves up to `max` queued events into `out`, oldest first, without
-    /// blocking. When messages were dropped since the last call, a
+    /// Moves up to `max` queued events into `out` without blocking: the
+    /// ordered ones oldest first, then the latest continuous values, oldest
+    /// source first. When messages were dropped since the last call, a
     /// [`Status::Dropped`] with the new total is appended.
     pub fn drain(&mut self, max: usize, out: &mut Vec<Event>) {
-        for _ in 0..max {
+        let mut taken = 0;
+        while taken < max {
             match self.events.try_recv() {
                 Ok(event) => out.push(event),
                 Err(_) => break,
             }
+            taken += 1;
+        }
+        let room = max - taken;
+        if room > 0 {
+            let mut latest = self.latest.lock().unwrap_or_else(PoisonError::into_inner);
+            let count = room.min(latest.pending.len());
+            out.extend(latest.pending.drain(..count).map(|pending| {
+                Event::Input(InputEvent::Midi {
+                    device: pending.device,
+                    message: pending.message,
+                })
+            }));
         }
         let total = self.dropped.load(Ordering::Relaxed);
         if total != self.reported_dropped {
@@ -333,24 +476,65 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn a_full_queue_drops_and_counts_instead_of_blocking() -> Result<()> {
-        let (queue, events) = sync_channel(2);
+    /// A hub with no workers behind it whose ordered queue holds
+    /// `capacity`, and the workers' end of it.
+    fn rig(capacity: usize) -> (Tx, Hub) {
+        let (queue, events) = sync_channel(capacity);
+        let latest = Arc::new(Mutex::new(Latest::new()));
         let dropped = Arc::new(AtomicU64::new(0));
         let tx = Tx {
             queue,
+            latest: Arc::clone(&latest),
             dropped: Arc::clone(&dropped),
         };
-        let (osc, _osc_rx) = channel();
-        let (midi, _midi_rx) = channel();
-        let mut hub = Hub {
+        // The workers' ends are dropped: the hub's shutdown messages then
+        // go nowhere, which it allows.
+        let (osc, _) = channel();
+        let (midi, _) = channel();
+        let hub = Hub {
             events,
+            latest,
             osc,
             midi,
             dropped,
             reported_dropped: 0,
             threads: Vec::new(),
         };
+        (tx, hub)
+    }
+
+    /// Sends `message` from `device` as the MIDI callback does.
+    fn midi(tx: &Tx, device: &Arc<str>, message: MidiMessage) {
+        tx.send(Event::Input(InputEvent::Midi {
+            device: Arc::clone(device),
+            message,
+        }));
+    }
+
+    fn cc(channel: u8, controller: u8, value: u8) -> MidiMessage {
+        MidiMessage::ControlChange {
+            channel,
+            controller,
+            value,
+        }
+    }
+
+    /// The MIDI messages in `events`, with their devices, in order.
+    fn messages(events: &[Event]) -> Vec<(String, MidiMessage)> {
+        events
+            .iter()
+            .filter_map(|event| match event {
+                Event::Input(InputEvent::Midi { device, message }) => {
+                    Some((device.to_string(), *message))
+                }
+                Event::Input(InputEvent::Osc(_)) | Event::Status(_) => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_full_queue_drops_and_counts_instead_of_blocking() -> Result<()> {
+        let (tx, mut hub) = rig(2);
         let started = Instant::now();
         for _ in 0..10 {
             tx.status(Status::OscStopped);
@@ -379,30 +563,181 @@ mod tests {
 
     #[test]
     fn drain_takes_no_more_than_it_is_asked_for() -> Result<()> {
-        let (queue, events) = sync_channel(16);
-        let dropped = Arc::new(AtomicU64::new(0));
-        let tx = Tx {
-            queue,
-            dropped: Arc::clone(&dropped),
-        };
-        let (osc, _a) = channel();
-        let (midi, _b) = channel();
-        let mut hub = Hub {
-            events,
-            osc,
-            midi,
-            dropped,
-            reported_dropped: 0,
-            threads: Vec::new(),
-        };
+        let (tx, mut hub) = rig(16);
+        let device: Arc<str> = Arc::from("faders");
         for _ in 0..10 {
             tx.status(Status::OscStopped);
+        }
+        for controller in 0..4 {
+            midi(&tx, &device, cc(0, controller, 10));
         }
         let mut out = Vec::new();
         hub.drain(4, &mut out);
         assert_eq!(out.len(), 4, "four");
+        hub.drain(8, &mut out);
+        assert_eq!(out.len(), 12, "the six ordered ones, then two faders");
         hub.drain(100, &mut out);
-        assert_eq!(out.len(), 10, "the rest on the next call");
+        assert_eq!(out.len(), 14, "the last two faders on the next call");
+        Ok(())
+    }
+
+    #[test]
+    fn a_fader_flood_keeps_the_latest_value_and_never_drops_a_note() -> Result<()> {
+        // A stalled frame loop (a shader compile, a window drag on Windows)
+        // while a fader sweeps at 1 kHz and a wheel is held moving, with a
+        // pad played through it: 100,000 continuous messages and 200 notes,
+        // nothing drained. Before D421 they shared one queue of 2048, which
+        // the fader filled in two seconds; every note after that, note offs
+        // included, was dropped.
+        let (tx, mut hub) = rig(QUEUE);
+        let device: Arc<str> = Arc::from("nanoKONTROL2");
+        let mut notes = Vec::new();
+        for i in 0..100_000_u32 {
+            let value = 64 + u8::try_from(i % 64)?;
+            midi(&tx, &device, cc(0, 7, value));
+            let bend = u16::try_from(i % 16_384)?;
+            midi(
+                &tx,
+                &device,
+                MidiMessage::PitchBend {
+                    channel: 1,
+                    value: bend,
+                },
+            );
+            if i % 1000 == 0 {
+                let note = u8::try_from(i / 1000)?;
+                let on = MidiMessage::NoteOn {
+                    channel: 9,
+                    note,
+                    velocity: 100,
+                };
+                let off = MidiMessage::NoteOff { channel: 9, note };
+                midi(&tx, &device, on);
+                midi(&tx, &device, off);
+                notes.extend([on, off]);
+            }
+        }
+        let mut out = Vec::new();
+        hub.drain(usize::MAX, &mut out);
+        assert!(
+            !out.iter()
+                .any(|event| matches!(event, Event::Status(Status::Dropped(_)))),
+            "nothing was dropped"
+        );
+        let got = messages(&out);
+        let played: Vec<MidiMessage> = got
+            .iter()
+            .map(|(_, message)| *message)
+            .filter(|message| Continuous::of(message).is_none())
+            .collect();
+        assert_eq!(played, notes, "every note on and off, in order");
+        let continuous: Vec<MidiMessage> = got
+            .iter()
+            .map(|(_, message)| *message)
+            .filter(|message| Continuous::of(message).is_some())
+            .collect();
+        assert_eq!(
+            continuous,
+            vec![
+                cc(0, 7, 64 + u8::try_from(99_999 % 64)?),
+                MidiMessage::PitchBend {
+                    channel: 1,
+                    value: u16::try_from(99_999 % 16_384)?,
+                },
+            ],
+            "one entry per source, holding its latest value"
+        );
+        assert_eq!(out.len(), 202, "the queue held 202 events, not 200,200");
+        Ok(())
+    }
+
+    #[test]
+    fn a_cc_button_press_and_release_in_one_frame_both_arrive() -> Result<()> {
+        // A nanoKONTROL2 button is a CC: 127 down, 0 up. Pressed twice
+        // within one stalled frame, the presses must survive coalescing; a
+        // fader moving within one half of its range still folds.
+        let (tx, mut hub) = rig(QUEUE);
+        let device: Arc<str> = Arc::from("nanoKONTROL2");
+        for value in [127, 0, 127, 0] {
+            midi(&tx, &device, cc(0, 41, value));
+        }
+        for value in [10, 20, 30] {
+            midi(&tx, &device, cc(0, 0, value));
+        }
+        let mut out = Vec::new();
+        hub.drain(usize::MAX, &mut out);
+        let values: Vec<MidiMessage> = messages(&out).into_iter().map(|(_, m)| m).collect();
+        assert_eq!(
+            values,
+            vec![
+                cc(0, 41, 127),
+                cc(0, 41, 0),
+                cc(0, 41, 127),
+                cc(0, 41, 0),
+                cc(0, 0, 30),
+            ],
+            "each press and release, and the fader's latest value"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn the_same_controller_on_two_devices_or_channels_is_two_sources() -> Result<()> {
+        let (tx, mut hub) = rig(QUEUE);
+        let left: Arc<str> = Arc::from("deck A");
+        let right: Arc<str> = Arc::from("deck B");
+        for value in [1, 2, 3] {
+            midi(&tx, &left, cc(0, 7, value));
+            midi(&tx, &right, cc(0, 7, value + 10));
+            midi(&tx, &left, cc(1, 7, value + 20));
+        }
+        let mut out = Vec::new();
+        hub.drain(usize::MAX, &mut out);
+        assert_eq!(
+            messages(&out),
+            vec![
+                ("deck A".to_string(), cc(0, 7, 3)),
+                ("deck B".to_string(), cc(0, 7, 13)),
+                ("deck A".to_string(), cc(1, 7, 23)),
+            ],
+            "latest per (device, channel, controller)"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn the_table_of_latest_values_is_bounded_and_counts_what_it_drops() -> Result<()> {
+        // A controller sending every CC on every channel (more sources than
+        // the table holds) cannot grow it, and still cannot crowd out a note.
+        let (tx, mut hub) = rig(QUEUE);
+        let device: Arc<str> = Arc::from("flood");
+        let mut sent = 0_u64;
+        for channel in 0..16 {
+            for controller in 0..120 {
+                midi(&tx, &device, cc(channel, controller, 5));
+                sent += 1;
+            }
+        }
+        let off = MidiMessage::NoteOff {
+            channel: 0,
+            note: 60,
+        };
+        midi(&tx, &device, off);
+        let mut out = Vec::new();
+        hub.drain(usize::MAX, &mut out);
+        let dropped = sent - LATEST as u64;
+        assert_eq!(
+            out.last(),
+            Some(&Event::Status(Status::Dropped(dropped))),
+            "the sources past the table's size are counted"
+        );
+        let got = messages(&out);
+        assert_eq!(got.len(), LATEST + 1, "the table and the note");
+        assert_eq!(
+            got.first().map(|(_, m)| *m),
+            Some(off),
+            "the note off was kept, and comes first"
+        );
         Ok(())
     }
 

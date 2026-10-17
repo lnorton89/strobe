@@ -30,8 +30,10 @@
 //!   appears. Nothing here can take the app down.
 //!
 //! Each open device's callback runs on midir's own thread. It parses the
-//! bytes ([`crate::message::parse`]) and `try_send`s; it never blocks, never
-//! allocates beyond the event, and drops what it cannot queue.
+//! bytes ([`crate::message::parse`]) and hands the message to the hub, which
+//! keeps only the latest value of a CC or pitch bend per source and queues
+//! notes and program changes in order (D421); it never blocks on the app,
+//! never allocates beyond the event, and drops what it cannot queue.
 //!
 //! Without the `midi` feature this module only reports that MIDI is not
 //! built in.
