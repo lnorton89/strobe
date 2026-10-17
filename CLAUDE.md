@@ -34,14 +34,15 @@ cargo xtask brand [--check]                               # icon PNGs + .ico fro
 cargo test --workspace                                    # everything
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo fmt --all -- --check
+cargo clippy -p strobe-io --no-default-features --all-targets -- -D warnings   # Linux; the build with MIDI off
 cargo clippy --workspace --exclude strobe-script --exclude strobe-app --exclude strobe-shadertoy --all-targets --all-features --target x86_64-pc-windows-msvc -- -D warnings
 cargo clippy -p strobe-shadertoy --no-default-features --all-targets --target x86_64-pc-windows-msvc -- -D warnings
 cargo run --release -p strobe-bench -- --size 1280x720     # benchmark + frames
 ```
 
 All of these are clean on the branch, and CI enforces them. A warning is
-a build failure. `cargo xtask ci` runs the lot (fmt, clippy, tests, the
-Windows cross-clippy when the target is installed, cargo-deny when
+a build failure. `cargo xtask ci` runs the lot (fmt, clippy, the no-MIDI
+`strobe-io` clippy on Linux, tests, the Windows cross-clippy when the target is installed, cargo-deny when
 installed, the changelog check, the brand check); a skipped step says why.
 
 `CHANGELOG.md` is **generated** from conventional-commit subjects by

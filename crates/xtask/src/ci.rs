@@ -14,14 +14,20 @@
 //!
 //! 1. `cargo fmt --all -- --check`
 //! 2. `cargo clippy --workspace --all-targets --all-features -- -D warnings`
-//! 3. `cargo test --workspace --all-features`
-//! 4. the same clippy for `x86_64-pc-windows-msvc`, when that target's
+//! 3. `cargo clippy -p strobe-io --no-default-features --all-targets -- -D
+//!    warnings`, on Linux only: the show-control crate without its MIDI
+//!    device layer (the `midi` feature), which the all-features run above
+//!    never compiles. Code that only the `midi` build reads is dead there,
+//!    and `-D warnings` makes that a failure. One small crate, and the
+//!    workspace dependencies are already built, so it costs seconds.
+//! 4. `cargo test --workspace --all-features`
+//! 5. the same clippy for `x86_64-pc-windows-msvc`, when that target's
 //!    standard library is installed and the host is not already Windows
 //!    (and `strobe-shadertoy` without its `net` feature, which needs a C
 //!    compiler for MSVC)
-//! 5. `cargo deny check`, when `cargo-deny` is installed
-//! 6. the changelog check
-//! 7. the brand check: the icon PNGs and `.ico` match a fresh render of
+//! 6. `cargo deny check`, when `cargo-deny` is installed
+//! 7. the changelog check
+//! 8. the brand check: the icon PNGs and `.ico` match a fresh render of
 //!    their SVG sources (`cargo xtask brand --check`)
 //!
 //! It **stops at the first failure**. Later steps usually fail for the same
@@ -224,6 +230,32 @@ fn plan(args: &Args) -> Result<Vec<Step>> {
                     "warnings",
                 ],
                 env: Vec::new(),
+            },
+        },
+        Step {
+            name: "clippy no-midi",
+            // The `midi` feature is on by default and `--all-features` keeps
+            // it on, so without this step nothing builds the crate the way a
+            // MIDI-less build does, and dead code there (a constant only the
+            // device thread reads) would go unseen. Linux only: it is the
+            // same Rust on every host, and one platform is enough to catch
+            // it; the others would only pay for another build.
+            action: if cfg!(target_os = "linux") {
+                Action::Cargo {
+                    args: vec![
+                        "clippy",
+                        "-p",
+                        "strobe-io",
+                        "--no-default-features",
+                        "--all-targets",
+                        "--",
+                        "-D",
+                        "warnings",
+                    ],
+                    env: Vec::new(),
+                }
+            } else {
+                Action::Skip("Linux only; CI's Linux job runs it".to_owned())
             },
         },
         Step {

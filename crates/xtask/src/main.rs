@@ -67,9 +67,10 @@ struct Cli {
 /// One subcommand per job.
 #[derive(Subcommand, Debug)]
 enum Command {
-    /// Run locally exactly what CI runs: fmt, clippy, tests, the Windows
-    /// cross-check, cargo-deny and the changelog check. Stops at the first
-    /// failure and says which step it was.
+    /// Run locally exactly what CI runs: fmt, clippy, the no-MIDI strobe-io
+    /// clippy (Linux), tests, the Windows cross-check, cargo-deny and the
+    /// changelog check. Stops at the first failure and says which step it
+    /// was.
     Ci(ci::Args),
     /// Regenerate CHANGELOG.md from the git history.
     Changelog {
