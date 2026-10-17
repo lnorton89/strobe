@@ -642,3 +642,31 @@ fn a_title_author_or_tab_name_cannot_break_the_generated_comments() -> Result<()
     }
     Ok(())
 }
+
+#[test]
+fn a_helper_named_like_an_ssf_library_function_is_the_shaders_own() -> Result<()> {
+    // Every pass is compiled after the SSF function library, which defines
+    // `_noise(vec2)`, `_rand(vec2)` and `_rotate(vec2, float)`, and the
+    // macro `_loadUserImage`. A Shadertoy shader knows nothing of it, so the
+    // same names are its own helpers.
+    let code = "float _noise(vec2 p) { return 0.25; }\n\
+                float _rand(vec2 p) { return 0.25; }\n\
+                vec2 _rotate(vec2 v, float a) { return v; }\n\
+                float _loadUserImage(vec2 p) { return 0.0; }\n\
+                void mainImage(out vec4 c, in vec2 p) {\n\
+                \x20   c = vec4(_noise(p) + _rand(p) + _rotate(vec2(0.0), 1.0).x\n\
+                \x20       + _loadUserImage(p), 0.0, 0.0, 1.0);\n\
+                }";
+    let (_, scene) = import_text(&inline(code), "ssf-names")?;
+    for api in BOTH {
+        let Some(frame) = render(api, &scene, 1, Options::default(), |_, _| Ok(()))? else {
+            continue;
+        };
+        let [r, _, _, _] = frame.center();
+        assert!(
+            near(r, 128),
+            "{api:?}: the shader's own helpers run, got {r}"
+        );
+    }
+    Ok(())
+}
