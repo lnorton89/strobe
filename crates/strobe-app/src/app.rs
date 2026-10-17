@@ -4242,9 +4242,7 @@ impl Running {
                 Some(name) => self.recall_preset(&name),
                 None => {
                     if let Some(session) = self.stack.session.as_mut() {
-                        for index in 0..session.controls.defs().len() {
-                            session.controls.set_default(index);
-                        }
+                        session.reset_to_start();
                     }
                 }
             }
