@@ -26,6 +26,11 @@
 //! than stalling a frame. [`flush`] is the synchronous escape hatch the
 //! crash paths use: it asks the writer to flush and waits, with a timeout.
 //!
+//! A session file stops at [`MAX_FILE_BYTES`] (D380). Something that logs
+//! on every frame would otherwise fill the disk of an unattended machine
+//! over a long show, ten sessions at a time. The file then ends with a line
+//! saying so; the ring, and so the console and crash reports, keep going.
+//!
 //! The ring holds the last [`RING_LINES`] records. A record that spans
 //! several lines (a failure report) is one entry. The UI console reads it
 //! with [`recent_lines`], and so do crash reports.
@@ -58,6 +63,10 @@ pub const RING_LINES: usize = 2000;
 /// Session logs kept on disk, newest first, including the current one.
 pub const KEEP_LOGS: usize = 10;
 
+/// The most a session file grows to (D380). An ordinary four-hour show
+/// logs well under a megabyte; past this, something is logging per frame.
+pub const MAX_FILE_BYTES: u64 = 64 * 1024 * 1024;
+
 /// Records that may wait for the writer thread before new ones are dropped.
 const CHANNEL_DEPTH: usize = 8192;
 
@@ -73,6 +82,8 @@ pub struct LoggerConfig {
     pub dir: Option<PathBuf>,
     /// Whether to mirror lines to stderr.
     pub stderr: bool,
+    /// Bytes after which the session file takes no more lines.
+    pub max_file_bytes: u64,
 }
 
 impl LoggerConfig {
@@ -85,6 +96,7 @@ impl LoggerConfig {
             dir: Some(paths::logs_dir()),
             stderr: cfg!(debug_assertions)
                 || std::env::var("STROBE_LOG_STDERR").is_ok_and(|value| value == "1"),
+            max_file_bytes: MAX_FILE_BYTES,
         }
     }
 }
@@ -137,7 +149,7 @@ impl Logger {
                 }
             });
         let path = opened.as_ref().map(|(_, path)| path.clone());
-        let file = opened.map(|(file, _)| BufWriter::new(file));
+        let file = opened.map(|(file, _)| SessionFile::new(file, config.max_file_bytes));
 
         let sink = if file.is_some() || config.stderr {
             spawn_writer(file, config.stderr, Arc::clone(&dropped))
@@ -334,8 +346,59 @@ pub fn prune_old_logs(dir: &Path, keep: usize) -> usize {
         .count()
 }
 
+/// The session file as the writer thread sees it: a buffered file that
+/// takes lines until [`MAX_FILE_BYTES`] (or the configured cap) is reached.
+struct SessionFile {
+    file: BufWriter<File>,
+    written: u64,
+    limit: u64,
+    full: bool,
+}
+
+impl SessionFile {
+    fn new(file: File, limit: u64) -> Self {
+        Self {
+            file: BufWriter::new(file),
+            written: 0,
+            limit,
+            full: false,
+        }
+    }
+
+    /// Writes one record and its newline, unless the cap is reached; the
+    /// first record that would cross it is replaced by a note saying why
+    /// the file ends there.
+    fn line(&mut self, text: &str) {
+        if self.full {
+            return;
+        }
+        let length = u64::try_from(text.len()).map_or(u64::MAX, |bytes| bytes.saturating_add(1));
+        // The logger cannot log its own failure; the next write tries again.
+        if self.written.saturating_add(length) > self.limit {
+            self.full = true;
+            writeln!(
+                self.file,
+                "diag: this session log reached its cap of {} bytes; later lines are not \
+                 written here (the console and any crash report keep the newest)",
+                self.limit
+            )
+            .ok();
+            self.file.flush().ok();
+            return;
+        }
+        if writeln!(self.file, "{text}").is_ok() {
+            self.written = self.written.saturating_add(length);
+        }
+    }
+
+    fn flush(&mut self) {
+        // The logger cannot log its own failure; the next write tries again.
+        self.file.flush().ok();
+    }
+}
+
 fn spawn_writer(
-    file: Option<BufWriter<File>>,
+    file: Option<SessionFile>,
     stderr: bool,
     dropped: Arc<AtomicU64>,
 ) -> std::io::Result<SyncSender<Message>> {
@@ -348,7 +411,7 @@ fn spawn_writer(
 
 fn writer_loop(
     rx: &Receiver<Message>,
-    mut file: Option<BufWriter<File>>,
+    mut file: Option<SessionFile>,
     stderr: bool,
     dropped: &AtomicU64,
 ) {
@@ -364,18 +427,16 @@ fn writer_loop(
             handle(Message::Line(note.into()), file.as_mut(), stderr);
         }
         if let Some(file) = file.as_mut() {
-            // The logger cannot log its own failure; the next write tries
-            // again.
-            file.flush().ok();
+            file.flush();
         }
     }
 }
 
-fn handle(message: Message, file: Option<&mut BufWriter<File>>, stderr: bool) {
+fn handle(message: Message, file: Option<&mut SessionFile>, stderr: bool) {
     match message {
         Message::Line(text) => {
             if let Some(file) = file {
-                writeln!(file, "{text}").ok();
+                file.line(&text);
             }
             if stderr {
                 writeln!(std::io::stderr(), "{text}").ok();
@@ -383,9 +444,7 @@ fn handle(message: Message, file: Option<&mut BufWriter<File>>, stderr: bool) {
         }
         Message::Flush(ack) => {
             if let Some(file) = file {
-                // The logger cannot log its own failure; the next write tries
-                // again.
-                file.flush().ok();
+                file.flush();
             }
             // The flusher stopped waiting; the flush happened anyway.
             ack.send(()).ok();
@@ -463,6 +522,7 @@ mod tests {
             filter: Filter::parse(spec, LevelFilter::Info),
             dir: None,
             stderr: false,
+            max_file_bytes: MAX_FILE_BYTES,
         })
     }
 
@@ -556,6 +616,7 @@ mod tests {
             filter: Filter::parse("info", LevelFilter::Info),
             dir: Some(dir.clone()),
             stderr: false,
+            max_file_bytes: MAX_FILE_BYTES,
         });
         emit(&logger, Level::Info, "t", "written to disk");
         assert!(
@@ -569,6 +630,50 @@ mod tests {
         assert!(
             text.contains("Strobe session started"),
             "header missing: {text}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_session_file_stops_growing_at_its_cap() -> Result<()> {
+        let dir = scratch("cap");
+        let cap = 16 * 1024;
+        let logger = Logger::new(LoggerConfig {
+            filter: Filter::parse("info", LevelFilter::Info),
+            dir: Some(dir.clone()),
+            stderr: false,
+            max_file_bytes: cap,
+        });
+        let line = "x".repeat(200);
+        for index in 0..1000 {
+            emit(&logger, Level::Info, "t", &format!("{index} {line}"));
+            if index % 100 == 0 {
+                // Keep the writer's channel from overflowing; a dropped
+                // line would not test the cap.
+                logger.flush_within(Duration::from_secs(5));
+            }
+        }
+        assert!(
+            logger.flush_within(Duration::from_secs(5)),
+            "flush timed out"
+        );
+        let path = logger.path().ok_or_else(|| anyhow!("no log file"))?;
+        let text = fs::read_to_string(path)?;
+        fs::remove_dir_all(&dir)?;
+        let size = u64::try_from(text.len())?;
+        assert!(
+            size <= cap + 512,
+            "the file grew to {size} bytes past its {cap}-byte cap"
+        );
+        assert!(
+            text.contains("reached its cap"),
+            "the file says why it stops: {}",
+            text.lines().last().unwrap_or_default()
+        );
+        let newest = logger.recent(1).concat();
+        assert!(
+            newest.contains("999 "),
+            "the ring keeps the newest lines: {newest}"
         );
         Ok(())
     }

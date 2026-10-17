@@ -8930,3 +8930,28 @@ the ES rewrite does not hoist, so they are still filled in
 
 **Would reopen:** a driver that rejects a non-constant global initialiser
 on the desktop path.
+
+### D380: a session log stops at 64 MiB (2026-10-17)
+
+**Context.** D40 rotates session logs across runs (ten are kept) but put no
+limit on one session's file. Something that logs on every frame (a GL error
+the driver repeats, a warning nobody throttled) writes until the show ends:
+at a few hundred lines a second that is over a gigabyte in a four-hour show,
+and ten such sessions are kept, on a mini PC whose disk may be small. A
+full disk does not stop the show (writes fail quietly), but it takes the
+crash reports, `ui.toml` and the resume point with it.
+
+**Decision.** The writer counts the bytes it puts in the session file and
+stops at `logger::MAX_FILE_BYTES` (64 MiB), writing one last line that says
+the cap was reached. The ring is not affected, so the UI console and any
+crash report still carry the newest lines; stderr mirroring goes on. The
+file keeps its head, which holds the build, the GL facts and whatever
+started the flood. An ordinary show logs well under a megabyte, so the cap
+is only ever met by a flood or by a deliberate `STROBE_LOG=trace` run.
+Worst case on disk is now ten files of 64 MiB.
+
+**Test.** `a_session_file_stops_growing_at_its_cap` (`strobe-diag`,
+`logger.rs`).
+
+**Would reopen:** a hang that needs the end of a long, flooded session
+rather than its start; the answer would be a second, rolling tail file.
