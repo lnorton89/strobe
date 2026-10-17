@@ -266,8 +266,41 @@ pub fn import_file(path: &Path, options: &ImportOptions<'_>) -> Result<Imported,
             meta.len()
         )));
     }
-    let text = std::fs::read_to_string(path).map_err(|e| read(e.to_string()))?;
+    let bytes = std::fs::read(path).map_err(|e| read(e.to_string()))?;
+    let text = decode_text(bytes).map_err(read)?;
     import_json(&text, options)
+}
+
+/// A JSON file's text: UTF-8 (a BOM is left for [`Shader::from_json`] to
+/// skip), or UTF-16 when it starts with a little- or big-endian byte-order
+/// mark, as PowerShell 5's `>` redirect and `Out-File` write it (D416).
+fn decode_text(bytes: Vec<u8>) -> Result<String, String> {
+    let big_endian = match bytes.get(..2) {
+        Some([0xff, 0xfe]) => false,
+        Some([0xfe, 0xff]) => true,
+        Some(_) | None => {
+            return String::from_utf8(bytes).map_err(|_| {
+                "the file is not UTF-8 text (save it as UTF-8, or as UTF-16 with a byte-order \
+                 mark)"
+                    .to_string()
+            });
+        }
+    };
+    let body = bytes.get(2..).unwrap_or_default();
+    let (units, rest) = body.as_chunks::<2>();
+    if !rest.is_empty() {
+        return Err("the file starts as UTF-16 but has an odd number of bytes".to_string());
+    }
+    let units = units.iter().map(|pair| {
+        if big_endian {
+            u16::from_be_bytes(*pair)
+        } else {
+            u16::from_le_bytes(*pair)
+        }
+    });
+    char::decode_utf16(units)
+        .collect::<Result<String, _>>()
+        .map_err(|error| format!("the file starts as UTF-16 but is not valid UTF-16: {error}"))
 }
 
 /// Fetches shader `id` from the REST API and imports it.
@@ -523,6 +556,48 @@ mod tests {
         assert_eq!(*fetch.hits.borrow(), 0, "no request before the answer");
         std::fs::remove_dir_all(&library)?;
         std::fs::remove_dir_all(&cache_dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn a_utf16_export_with_a_byte_order_mark_imports() -> Result<()> {
+        // PowerShell 5's `>` and `Out-File` write UTF-16 LE with a BOM; some
+        // Windows tools write the big-endian form.
+        let dir = scratch("utf16")?;
+        for (name, big_endian) in [("le.json", false), ("be.json", true)] {
+            let mut bytes: Vec<u8> = if big_endian {
+                vec![0xfe, 0xff]
+            } else {
+                vec![0xff, 0xfe]
+            };
+            for unit in SINGLE.encode_utf16() {
+                let pair = if big_endian {
+                    unit.to_be_bytes()
+                } else {
+                    unit.to_le_bytes()
+                };
+                bytes.extend_from_slice(&pair);
+            }
+            let file = dir.join(name);
+            std::fs::write(&file, &bytes)?;
+            let library = dir.join(format!("library-{name}"));
+            let done = import_file(&file, &ImportOptions::offline(&library))?;
+            assert!(done.dir.join("main.glsl").is_file(), "{name}: imported");
+        }
+        // Half a code unit, and a lone surrogate, are not text.
+        for (name, bytes) in [
+            ("odd.json", vec![0xff, 0xfe, 0x7b]),
+            ("lone.json", vec![0xff, 0xfe, 0x00, 0xd8]),
+        ] {
+            let file = dir.join(name);
+            std::fs::write(&file, bytes)?;
+            let error = import_file(&file, &ImportOptions::offline(&dir.join("unused")))
+                .err()
+                .map(|e| e.to_string())
+                .unwrap_or_default();
+            assert!(error.contains("UTF-16"), "{name}: `{error}`");
+        }
+        std::fs::remove_dir_all(&dir)?;
         Ok(())
     }
 

@@ -9757,3 +9757,26 @@ the globals read 512 and `iTime`, channel 1 zero. It read zero before.
 **Would reopen:** a driver that refuses to index an array constructor, or a
 shader that assigns into `iChannelTime` (a uniform on Shadertoy, so not
 expected).
+
+### D416: a Shadertoy export saved as UTF-16 with a byte-order mark imports (2026-10-17)
+
+**Context.** `import_file` read the export with `read_to_string`, so a file
+saved as UTF-16 failed with "stream did not contain valid UTF-8". That is
+what Windows PowerShell 5 writes by default for `>` and `Out-File`, which is
+how a person on the T480 is likely to save the JSON a browser console
+printed.
+
+**Decision.** The file is read as bytes. One that starts with `FF FE` or
+`FE FF` is decoded as UTF-16, little- or big-endian; an odd byte count or an
+unpaired surrogate is an error that says the file starts as UTF-16 but is not
+valid. Anything else must be UTF-8, as before (a UTF-8 BOM is still skipped
+by `Shader::from_json`), and the error now says to save it as UTF-8 or as
+UTF-16 with a byte-order mark. UTF-16 without a mark is not guessed at, and
+the listener and the REST path, which receive UTF-8 over HTTP, are unchanged.
+
+**Test.** `a_utf16_export_with_a_byte_order_mark_imports` (`strobe-shadertoy`,
+`import.rs`): the same shader saved little- and big-endian imports; a
+half code unit and a lone surrogate are refused naming UTF-16. It failed
+before with the UTF-8 error.
+
+**Would reopen:** a real export in UTF-16 without a byte-order mark.
