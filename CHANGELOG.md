@@ -40,6 +40,9 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- a GL driver message repeated every frame is summarised once a minute (D422) ([`0a82f75`](https://github.com/lnorton89/strobe/commit/0a82f75e6b2cb3a21206d205f80eeeef576875c8))
+- a MIDI fader flood keeps its latest value and cannot crowd out a note (D421) ([`10f669c`](https://github.com/lnorton89/strobe/commit/10f669c56757893a3521591da7738fd97081a4ae))
+- an audio stream that stops calling back without an error is noticed and reopened (D420) ([`c17c6e7`](https://github.com/lnorton89/strobe/commit/c17c6e70f4f7f89e7f719c679aca8223dd1b4e0e))
 - say why the lexical callback lookup throws its exception away (D267, D414) ([`64f838f`](https://github.com/lnorton89/strobe/commit/64f838f2f7cee351af8950d86b84ee38dedd09b2))
 - a code-paired desktop takes back its own lease from a dead connection ([`25e3999`](https://github.com/lnorton89/strobe/commit/25e399955d72a4c7c66c8d7001e7f8fe820e3017))
 - a Shadertoy re-import never replaces a folder that is not an import of the same shader (D418) ([`92d577b`](https://github.com/lnorton89/strobe/commit/92d577b0cf83a667128e2a6d13c418f0a557ec71))
