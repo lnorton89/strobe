@@ -24,9 +24,21 @@
 //! simply lacks those lines), and [`info`] waits for it (the `--diagnose`
 //! report). Every field is optional: a failed probe is an absent line, not
 //! an error. Child processes are started without a console window.
+//!
+//! The whole probe has a budget ([`PROBE_BUDGET`], ten seconds) shared by
+//! every child process it starts. A PowerShell or WMI query that hangs is
+//! killed when the budget runs out, the remaining queries are skipped, and
+//! [`SystemInfo::timed_out`] is set so the report says "system probe timed
+//! out" instead of the monitor waiting forever and never writing it (D395).
 
-use std::process::Command;
+use std::io::Read;
+use std::process::{Child, Command, Stdio};
 use std::sync::OnceLock;
+use std::sync::mpsc;
+use std::time::{Duration, Instant};
+
+/// How long the probe may spend on child processes in total.
+pub const PROBE_BUDGET: Duration = Duration::from_secs(10);
 
 /// What the probe learned. Missing facts are `None`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -39,6 +51,9 @@ pub struct SystemInfo {
     pub cpu_cores: Option<usize>,
     /// Installed physical memory in bytes.
     pub ram_bytes: Option<u64>,
+    /// A child process outlived [`PROBE_BUDGET`] and was killed, so fields
+    /// that need one may be missing.
+    pub timed_out: bool,
 }
 
 static CACHE: OnceLock<SystemInfo> = OnceLock::new();
@@ -70,13 +85,19 @@ pub fn info() -> &'static SystemInfo {
 }
 
 fn probe() -> SystemInfo {
+    probe_within(PROBE_BUDGET)
+}
+
+fn probe_within(budget: Duration) -> SystemInfo {
+    let mut tools = Tools::new(budget);
     SystemInfo {
-        os: os_version(),
-        cpu_model: cpu_model(),
+        os: os_version(&mut tools),
+        cpu_model: cpu_model(&mut tools),
         cpu_cores: std::thread::available_parallelism()
             .ok()
             .map(std::num::NonZeroUsize::get),
-        ram_bytes: ram_bytes(),
+        ram_bytes: ram_bytes(&mut tools),
+        timed_out: tools.timed_out,
     }
 }
 
@@ -92,17 +113,116 @@ pub fn format_bytes(bytes: u64) -> String {
     }
 }
 
-/// Runs a tool and returns its trimmed stdout, or `None` on any failure.
-fn run(program: &str, args: &[&str]) -> Option<String> {
-    let mut command = Command::new(program);
-    command.args(args);
-    hide_console(&mut command);
-    let output = command.output().ok()?;
-    if !output.status.success() {
-        return None;
+/// Child processes the probe may start, sharing one deadline.
+struct Tools {
+    deadline: Instant,
+    /// A child was killed at the deadline; nothing more is started.
+    timed_out: bool,
+}
+
+impl Tools {
+    fn new(budget: Duration) -> Self {
+        Self {
+            deadline: Instant::now() + budget,
+            timed_out: false,
+        }
     }
-    let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    (!text.is_empty()).then_some(text)
+
+    /// Runs a tool and returns its trimmed stdout, or `None` on any failure
+    /// or when the budget is spent. A child still running at the deadline is
+    /// killed and reaped.
+    fn run(&mut self, program: &str, args: &[&str]) -> Option<String> {
+        if self.timed_out {
+            return None;
+        }
+        let mut command = Command::new(program);
+        command.args(args);
+        let remaining = self.deadline.saturating_duration_since(Instant::now());
+        match run_command(command, remaining) {
+            Ran::Output(text) => text,
+            Ran::TimedOut => {
+                log::warn!("system probe: `{program}` did not finish in time and was killed");
+                self.timed_out = true;
+                None
+            }
+        }
+    }
+}
+
+/// How one child process ended.
+#[derive(Debug, PartialEq, Eq)]
+enum Ran {
+    /// It finished (or never started): its trimmed stdout if it succeeded
+    /// and printed something.
+    Output(Option<String>),
+    /// It was still running after the allowed time and was killed.
+    TimedOut,
+}
+
+/// Runs `command` for at most `limit`. Stdout is read on a helper thread so
+/// that a child which fills the pipe, or exits while a grandchild keeps the
+/// pipe open, cannot hold this thread past the limit.
+fn run_command(mut command: Command, limit: Duration) -> Ran {
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    hide_console(&mut command);
+    let Ok(mut child) = command.spawn() else {
+        return Ran::Output(None);
+    };
+    let Some(mut stdout) = child.stdout.take() else {
+        kill_and_reap(&mut child);
+        return Ran::Output(None);
+    };
+    let (sender, receiver) = mpsc::channel();
+    let reader = std::thread::Builder::new()
+        .name("strobe-sysinfo-read".to_string())
+        .spawn(move || {
+            let mut bytes = Vec::new();
+            // A read error ends the output early; what was read is used.
+            stdout.read_to_end(&mut bytes).ok();
+            // The receiver is gone after a timeout, which is fine.
+            sender.send(bytes).ok();
+        });
+    if reader.is_err() {
+        // The child's output cannot be read; do not leave it running.
+        kill_and_reap(&mut child);
+        return Ran::Output(None);
+    }
+    let started = Instant::now();
+    let Ok(bytes) = receiver.recv_timeout(limit) else {
+        kill_and_reap(&mut child);
+        return Ran::TimedOut;
+    };
+    // The pipe closed, so the child is exiting; give it what is left of the
+    // time to report its status.
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break Some(status),
+            Ok(None) if started.elapsed() < limit => {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            Ok(None) => {
+                kill_and_reap(&mut child);
+                return Ran::TimedOut;
+            }
+            Err(_) => break None,
+        }
+    };
+    if !status.is_some_and(|status| status.success()) {
+        return Ran::Output(None);
+    }
+    let text = String::from_utf8_lossy(&bytes).trim().to_string();
+    Ran::Output((!text.is_empty()).then_some(text))
+}
+
+/// Kills a child and reaps it so it does not linger as a zombie.
+fn kill_and_reap(child: &mut Child) {
+    // Killing a process that has just exited by itself fails harmlessly.
+    child.kill().ok();
+    // Only reaping matters; the status of a killed child is not needed.
+    child.wait().ok();
 }
 
 /// Stops a child process from flashing a console window over the output.
@@ -139,7 +259,7 @@ fn parse_os_release(text: &str) -> Option<String> {
         .map(|value| value.trim().trim_matches('"').to_string())
 }
 
-fn os_version() -> Option<String> {
+fn os_version(tools: &mut Tools) -> Option<String> {
     if cfg!(target_os = "linux") {
         let name = std::fs::read_to_string("/etc/os-release")
             .ok()
@@ -154,55 +274,59 @@ fn os_version() -> Option<String> {
             (None, None) => None,
         }
     } else if cfg!(windows) {
-        run(
-            "powershell",
-            &[
-                "-NoProfile",
-                "-NonInteractive",
-                "-Command",
-                "$o = Get-CimInstance Win32_OperatingSystem; \
+        tools
+            .run(
+                "powershell",
+                &[
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    "$o = Get-CimInstance Win32_OperatingSystem; \
                  \"$($o.Caption) $($o.Version) build $($o.BuildNumber) $($o.OSArchitecture)\"",
-            ],
-        )
-        .or_else(|| run("cmd", &["/c", "ver"]))
+                ],
+            )
+            .or_else(|| tools.run("cmd", &["/c", "ver"]))
     } else if cfg!(target_os = "macos") {
-        run("sw_vers", &["-productVersion"]).map(|version| format!("macOS {version}"))
+        tools
+            .run("sw_vers", &["-productVersion"])
+            .map(|version| format!("macOS {version}"))
     } else {
         Some(std::env::consts::OS.to_string())
     }
 }
 
-fn cpu_model() -> Option<String> {
+fn cpu_model(tools: &mut Tools) -> Option<String> {
     if cfg!(target_os = "linux") {
         let text = std::fs::read_to_string("/proc/cpuinfo").ok()?;
         proc_field(&text, "model name").or_else(|| proc_field(&text, "Hardware"))
     } else if cfg!(windows) {
         std::env::var("PROCESSOR_IDENTIFIER").ok()
     } else if cfg!(target_os = "macos") {
-        run("sysctl", &["-n", "machdep.cpu.brand_string"])
+        tools.run("sysctl", &["-n", "machdep.cpu.brand_string"])
     } else {
         None
     }
 }
 
-fn ram_bytes() -> Option<u64> {
+fn ram_bytes(tools: &mut Tools) -> Option<u64> {
     if cfg!(target_os = "linux") {
         let text = std::fs::read_to_string("/proc/meminfo").ok()?;
         parse_meminfo_total(&text)
     } else if cfg!(windows) {
-        run(
-            "powershell",
-            &[
-                "-NoProfile",
-                "-NonInteractive",
-                "-Command",
-                "(Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory",
-            ],
-        )?
-        .parse()
-        .ok()
+        tools
+            .run(
+                "powershell",
+                &[
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    "(Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory",
+                ],
+            )?
+            .parse()
+            .ok()
     } else if cfg!(target_os = "macos") {
-        run("sysctl", &["-n", "hw.memsize"])?.parse().ok()
+        tools.run("sysctl", &["-n", "hw.memsize"])?.parse().ok()
     } else {
         None
     }
@@ -251,9 +375,65 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn a_hung_tool_is_killed_at_the_deadline() -> Result<()> {
+        let mut command = Command::new("sleep");
+        command.arg("30");
+        let started = Instant::now();
+        let ran = run_command(command, Duration::from_millis(300));
+        let took = started.elapsed();
+        assert_eq!(ran, Ran::TimedOut, "a 30 s sleep must time out");
+        assert!(
+            took < Duration::from_secs(5),
+            "the call waited {took:?} for a hung child"
+        );
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_tool_that_finishes_returns_its_output() -> Result<()> {
+        let mut command = Command::new("echo");
+        command.arg("  hello  ");
+        let ran = run_command(command, Duration::from_secs(10));
+        assert_eq!(ran, Ran::Output(Some("hello".to_string())), "echo output");
+        let mut failing = Command::new("false");
+        failing.arg("ignored");
+        assert_eq!(
+            run_command(failing, Duration::from_secs(10)),
+            Ran::Output(None),
+            "a failing tool is an absent fact, not a timeout"
+        );
+        let missing = Command::new("strobe-no-such-tool-anywhere");
+        assert_eq!(
+            run_command(missing, Duration::from_secs(10)),
+            Ran::Output(None),
+            "a tool that cannot start is an absent fact"
+        );
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn once_the_budget_is_spent_no_more_tools_are_started() -> Result<()> {
+        let mut tools = Tools::new(Duration::from_millis(200));
+        let started = Instant::now();
+        assert_eq!(tools.run("sleep", &["30"]), None, "the hung tool");
+        assert!(tools.timed_out, "the timeout is recorded");
+        // `echo` would succeed, so a `None` here is the skipped start.
+        assert_eq!(tools.run("echo", &["x"]), None, "no start after timeout");
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "the budget was not enforced"
+        );
+        Ok(())
+    }
+
     #[test]
     fn the_probe_finds_at_least_the_core_count() -> Result<()> {
         let probed = probe();
+        assert!(!probed.timed_out, "a healthy probe does not time out");
         assert!(
             probed.cpu_cores.is_some_and(|cores| cores >= 1),
             "core count missing: {probed:?}"

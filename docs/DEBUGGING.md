@@ -170,6 +170,12 @@ first moments, before the monitor link is up, is not captured. A bare
 `abort()` on Windows is a fast-fail that bypasses exception filters and
 leaves no minidump (the `.txt` of a panic that led to it still exists).
 
+The report's System section comes from a probe whose child processes
+(PowerShell on Windows) share a ten-second budget (D395). If WMI hangs, the
+child is killed, the report is still written, and the section says
+`probe  system probe timed out after 10s`; the OS and RAM lines are then
+`unknown`.
+
 **Before sharing crash files.** A `.txt` report names only the `STROBE_*`
 variables and `RUST_BACKTRACE`, but its paths (the log file, the data
 directory, `STROBE_DIAG_DIR`) contain the user name, and its log tail has
