@@ -865,7 +865,10 @@ survives export.
   control go (D372); a program change mapped to a command fires every time
   (D371); and a replug faster than the one-second poll (on ALSA it comes back
   on a new `client:port` and is reopened; on WinMM the port id may be the same
-  and the old handle dead, which nothing here detects yet).
+  and the old handle dead, which nothing here detects yet). A fader flood
+  while the frame loop is stalled keeps the latest value per source and no
+  longer drops notes (D421; `hub::tests`, 100,000 CCs and 200 notes with
+  nothing drained); a real controller's message rate is still to be seen.
 - [~] LAN remote v1 (D250-D254, 2026-10-13). **Verified, with evidence:**
   - the listener over real loopback sockets in CI
     (`crates/strobe-remote/tests/server.rs`, 17 tests): the page and its

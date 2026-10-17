@@ -70,8 +70,9 @@ strobe-remote ◀── strobe-app  (serde, sha1, sha2, getrandom; depends on no
   and presets) and on `rosc` and `midir`, and **never on `strobe-gfx`**, a
   window or egui. It writes controls only through `ControlBank`, so toggle,
   bang and smoothing semantics have one implementation (D170). Its two worker
-  threads own every blocking call and hand typed events to the app through a
-  bounded queue the app drains once per frame (D171).
+  threads own every blocking call and hand typed events to the app through
+  bounded queues the app drains once per frame: notes, OSC and status in
+  order, and the latest value of each MIDI fader (D171, D421).
 - `strobe-remote` depends on no other Strobe crate and never on a window,
   egui or `strobe-gfx`. Its listener runs on threads of its own and reaches
   the app only through `bridge`: commands in on a bounded queue, a
