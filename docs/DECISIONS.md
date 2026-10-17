@@ -8682,3 +8682,38 @@ clocks and beat counter do not go back, the tapped tempo holds, and a
 
 **Would reopen:** a reason to treat a device change as a new session (the
 song detector already resets on any change of source, D237).
+
+### D329: `--audio ambient` runs its clocks smoothly; the synthetic track's jump on the beat (2026-10-17)
+
+**Context.** `--audio ambient` is for a show with no microphone: scenes
+keep moving "without flashing on a beat the room cannot hear". It zeroed
+the hits and beat triggers and swelled the levels, but kept the synthetic
+track's clocks, and those are beats in disguise. The synthetic `syn_Time`
+(and the Mid, MidHigh and High clocks) is `time * (0.6 + level)` with a
+level that pulses with the kick, not an integral, so it steps on every
+beat by an amount that grows with the time: at one hour, +722 and then
+-327 between consecutive 60 fps frames. `syn_BassTime` steps by a whole
+unit on each beat, and `syn_BeatTime` jumps at each beat.
+
+**Decision.** `Ambient::calm` (`strobe-app/src/audio.rs`) replaces them:
+each band clock is the closed-form integral of `0.6 + swell(band)` (the
+synthetic track's rate law with ambient's own swell), computed in `f64`;
+`syn_CurvedTime` runs at the synthetic curved rate at the swell's centre;
+`syn_BeatTime` is `time * BPM / 60`. They never step and never run back,
+at the start of a show or four hours in. `syn_BPM` and the BPM sine and
+triangle shapes stay the synthetic track's.
+
+**Not changed here:** the plain synthetic track (`strobe_scene::synthetic`),
+which `--audio synthetic` uses and `--audio auto` falls back to when a
+device is lost, has the same `syn_Time` defect. It is outside the audio
+sweep's scope and is reported to the owner. The ambient textures are still
+the synthetic ones scaled to 35 %, so `syn_Spectrum` and `syn_LevelTrail`
+still pulse gently with the kick.
+
+**Test.** `ambient_clocks_run_smoothly_hours_into_a_show` (every clock
+moves between 0 and 0.1 per 60 fps frame at 0 s, 1 h and 4 h);
+`ambient_frames_keep_the_clocks_and_drop_the_beat` now checks the clock
+runs and the tempo is the synthetic one.
+
+**Would reopen:** a scene that needs ambient's clocks to match the
+synthetic track's exactly.
