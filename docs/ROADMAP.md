@@ -38,8 +38,8 @@ which backend proved a claim.
 ### In flight
 
 - **Adaptive resolution watches missed refreshes, not only the mean GPU time
-  (2026-10-16, D314-D320), verified on the projector (M18-M25; only D318's
-  lock expiry has not been seen on hardware):**
+  (2026-10-16, D314-D320), verified on the projector (M18-M26; D318's
+  lock and its expiry seen in the M26 soak):**
   the venue mini PC showed scene 13 at 42-45 fps with a 13.6 ms mean under
   the 16.7 ms budget, about 9% of frames a refresh late, and the controller
   never moved (M16). Each presented output frame's interval now feeds the

@@ -793,14 +793,59 @@ Per-minute perf from minute 2: 58.1-59.7 fps, 0.4-3.3% missed, worst gaps
 - **Not a show concern:** the shipped 13 (D310) costs 8.5 ms at full size
   on this machine and needs no scaling.
 
+## The show build's first day: the heavy scenes fixed, and a lock that ran out (2026-10-17, Task M26, 51f2620)
+
+The M9 soak moved from 6ca5248 to master 51f2620 (D310's cheaper scenes,
+D311 to D320) at 23:33:06 on 2026-10-16. The playlist resumed at cue 3 of
+loop pass 1, from the old soak's resume point; the test card was not
+replayed. The first daily report came at 02:57, 3.4 h in.
+
+- **Health:** no reboot, no restart, no WARN or ERROR besides the startup
+  robustness line. Private memory was 214 MB at +10 min and 223 MB at 3.4 h,
+  with 477 handles both times. The session log was 114 KB, about 0.8 MB a
+  day. resume.toml was written 1 s before the check.
+- **First 10 minutes:** no prime WARN, so the D311 prime landed. The perf
+  lines carry the missed-refresh and scale fields.
+
+Per scene, over 203 perf windows (157 inside one cue):
+
+| Scene | Windows | fps avg (min) | GPU ms | Missed % | Scale | 6ca5248 fps |
+|---|---|---|---|---|---|---|
+| 01-aurora-gradient | 9 | 59.9 (59.9) | 1.87 | 0.1 | 1.00 | |
+| 02-plasma-pulse | 13 | 59.9 (59.9) | 2.26 | 0.1 | 1.00 | |
+| 03-kaleido-tunnel | 10 | 59.9 (59.9) | 2.78 | 0.1 | 1.00 | |
+| 04-voronoi-glass | 8 | 59.9 (59.9) | 8.21 | 0.1 | 1.00 | 48.3 |
+| 05-domain-warp | 12 | 59.9 (59.9) | 7.60 | 0.1 | 1.00 | 47.8 |
+| 06-feedback-trails | 16 | 59.9 (59.6) | 2.52 | 0.1 | 1.00 | |
+| 07-reaction-diffusion | 13 | 59.9 (59.9) | 4.91 | 0.1 | 1.00 | |
+| 08-bloom-orbs | 16 | 59.9 (59.9) | 5.00 | 0.1 | 1.00 | 47.7 |
+| 11-script-orbits | 11 | 59.9 (59.9) | 3.57 | 0.1 | 1.00 | |
+| 13-chromatic-rise | 12 | 59.8 (59.4) | 6.48 | 0.4 | 1.00 | 42.9 |
+| 14-electric-bloom | 17 | 59.5 (59.0) | 8.81 | 0.8 | 0.70-0.80 | 46.7 |
+| 15-neon-ribbon-flow | 10 | 58.6 (54.7) | 9.31 | 2.4 | 0.90 | 52.7 |
+| 16-acid-mirror | 10 | 59.8 (59.3) | 8.22 | 0.4 | 0.80 | 47.0 |
+
+Overall: 59.5 fps and 0.68% of refreshes missed, against 53.5 fps and 2.5%
+late on day 1 of 6ca5248. `15-neon-ribbon-flow` is now the weakest scene.
+
+**The D318 lock and its expiry, on hardware for the first time** (2 of 99
+adaptive lines; the scene held at 0.90 was 15-neon-ribbon-flow):
+
+| Time | Line |
+|---|---|
+| 9797.7 s | lowering 0.90 -> 0.80 cut too few missed refreshes (11.2% before, 6.7% after), so back to 0.90, locked for 3600 frames or until the scene changes (D315, D316, D318) |
+| 9863.7 s | the lock at 0.90 ran out; missed refreshes may lower the scale again (D318) |
+
+The step cut 40% of the misses but only 4.5 points, under D316's 5-point
+floor, so it was undone. The lock ran out 66 s later, as designed.
+
+Next: rebuild on master 3c1bde1 (D400-D438) and restart, with
+strobe-6ca5248.exe kept as the rollback.
+
 ## Still to do here
 
 - Run a two-machine venue-mode test with the laptop (loopback is M6), and
   Disconnect.
-- Re-measure the D310 scenes (section above). `14-electric-bloom` is
-  expected to be the one still above 10 ms.
-- Task M25 (section above): a 10-minute hold-13 with a short bench load,
-  checking the deferral lines (D320).
 - Move or turn off the scheduled System Restore / VSS snapshots before a
   show (about three a day, 18:30-19:10 local; M24).
 
