@@ -10153,3 +10153,153 @@ are each refused, with and without `replace`, and left byte for byte. Before,
 
 **Would reopen:** a person who wants to overwrite a hand-edited import on
 purpose; the answer would be a separate, explicit "overwrite anyway".
+
+### D420: an input stream that stops calling back without an error is noticed and reopened (2026-10-17)
+
+**Context.** The capture worker (D22, D266) learnt of a lost device only
+through cpal's error callback. On Windows WASAPI an unplugged or sleeping USB
+microphone can instead leave the stream "playing" with no further data
+callbacks and no error. Nothing noticed: the state stayed `Running`, the
+status bar said "Audio live", the analyser decayed to silence, and the show
+went on unreactive until someone restarted the app or changed the device.
+The worker read the ring every pass but never asked whether anything had
+arrived.
+
+**Decision.** A small pure state machine, `capture::watchdog::Watchdog`, is
+told on each 10 ms worker pass whether the ring held any samples. A stream
+that delivers nothing for `STALL_AFTER` (3 s) is stalled; it is reported
+once per stream. Silence is not a stall: a working device in a quiet room
+still delivers buffers of zeros, so its ring fills and it counts as heard.
+A loopback stream (an output device captured on Windows) is never watched,
+because WASAPI delivers no packets to a loopback client while nothing is
+playing, so there no callbacks *is* silence.
+
+On a stall the worker logs one `warn` (`` `name` stopped delivering audio
+(3 s with no samples and no error); reopening it``; repeats in a row are
+`debug`), puts the reason in `CaptureStatus::last_error`, goes to
+`SilentFallback` and drops the stream. That is the state a lost device
+already produced, so the app needs no change: the status bar, side panel,
+diagnostics and the remote badge say "No audio input", the visuals move to
+the synthetic track, and a device that had been live is reported as one
+`AUDIO` failure. The device the person chose is then opened again (for the
+default input that re-resolves the system default): at once after the first
+stall, then after 2, 4, 8 and at most 16 s (`stall_delay`) for streams that
+open and stay mute, so a dead device costs one open every few seconds at
+most, never one per pass or per frame. After a stall a reopened stream stays
+in `SilentFallback` ("waiting for `name` to deliver audio again") until its
+first samples arrive, then goes to `Running` with one `info` line, so a
+device that keeps opening mute does not flash "live" and re-announce itself
+every few seconds. Choosing another device starts the record afresh. The
+check is a few `Instant` comparisons on the worker thread: no lock, no
+allocation, nothing on the render thread.
+
+**Test.** `capture::watchdog::tests`:
+`silence_that_still_calls_back_is_never_a_stall` (ten minutes of zero-filled
+buffers), `a_stream_that_stops_calling_back_is_a_stall_within_the_limit`
+(noticed 3 s after the last samples, once),
+`short_gaps_and_a_slow_first_buffer_are_not_stalls`,
+`a_device_that_keeps_stalling_is_reopened_on_a_backoff_and_recovers` (0, 2,
+4, 8, 16, 16 s, then recovered and counted afresh) and
+`the_stall_backoff_never_overflows`. Before the change there was no stall
+detection at all. Not exercised: a real WASAPI device going mute, which needs
+the T480 (STATUS_AUDIT, audio removed and reconnected).
+
+**Would reopen:** a device whose healthy callbacks are more than 3 s apart
+(none known; WASAPI's shared-mode period is 10 ms), a loopback stall that
+needs catching too (it would want WASAPI's device notifications, the `wasapi`
+crate escape hatch in AGENT_RESEARCH), or a stalled chosen device that should
+fall back to the default input rather than be retried.
+
+### D421: a fader flood keeps its latest value and cannot crowd out a note (2026-10-17)
+
+**Context.** D171 put every MIDI and OSC event in one bounded queue of 2048
+that drops the newest message when full. The bound held, but what it dropped
+did not discriminate: a fader swept while the frame loop was stalled (a
+scene compile, a Windows window drag, which holds the loop for as long as the
+mouse is down), or a controller stuck sending, filled the queue with CCs in
+about two seconds at 1 kHz, and every note on and note off after that was
+dropped. D371 already named "a note off lost to a full queue" as a way a pad
+got stuck. Clock and transport messages are not at risk: `message::parse`
+ignores system messages, so they never reach the queue.
+
+**Decision.** The hub keeps two bounded queues behind the same `Tx::send`.
+
+- **Continuous values** (CC, pitch bend) go to a table of at most `LATEST`
+  (1024) entries, each the newest value for one source, a source being
+  (device, channel, controller) or (device, channel) for the wheel. A new
+  value replaces its source's newest waiting entry; a fader swept a thousand
+  times during a stall is one entry with its last position. One exception
+  keeps CC buttons working: a value in the other half of the range from the
+  waiting one (at 64) becomes a new entry instead of replacing it, so a
+  nanoKONTROL2-style button's 127 and 0 both arrive even when the press and
+  the release land within one frame, and a sweep across the middle costs one
+  extra entry. A table that is full drops the new source and counts it in
+  `Status::Dropped`, as before.
+- **Everything else** (notes, program changes, OSC and status reports) keeps
+  its order in the existing channel of `QUEUE` (2048). Faders no longer share
+  it, so no fader flood can fill it.
+
+`Hub::drain` takes the ordered events first and then the latest values, up
+to the same per-frame cap (256 in the app), leaving the rest for the next
+frame. The table is a `Vec` allocated once at its full size behind a
+`Mutex`; the MIDI callback holds the lock to update one entry, and the drain
+to move at most 256 small entries, so neither waits on anything slow and
+nothing is allocated per message beyond the event, as before. Within one
+frame a CC and a note from the same device may now be applied in the other
+order than they were played; mappings act on them independently, so nothing
+observable depends on it. OSC is unchanged (its messages carry no fader or
+button kind to coalesce by).
+
+**Test.** `hub::tests`: `a_fader_flood_keeps_the_latest_value_and_never_drops_a_note`
+(100,000 CCs and pitch bends with 200 notes, nothing drained: all 200 notes in
+order, one entry per source with its last value, nothing dropped; before,
+the notes after the first 2048 messages were lost),
+`a_cc_button_press_and_release_in_one_frame_both_arrive`,
+`the_same_controller_on_two_devices_or_channels_is_two_sources`,
+`the_table_of_latest_values_is_bounded_and_counts_what_it_drops` (every CC on
+every channel: 1024 kept, 896 counted, the note off still delivered first),
+and the updated `drain_takes_no_more_than_it_is_asked_for`. Not exercised: a
+real controller's flood (STATUS_AUDIT, MIDI hardware).
+
+**Would reopen:** a mapping that depends on a fader's intermediate values
+within one frame (none: an analog mapping writes the latest position), a fader
+mapped as a button with a threshold far from the middle and swept through it
+and back within one stalled frame (the peak is folded away), or an OSC flood
+crowding out OSC triggers, which would want the same treatment keyed by
+address.
+
+### D422: a driver message repeated every frame is counted, and summarised once a minute (2026-10-17)
+
+**Context.** Driver debug output (D44, `gl::debug`) was rate limited per
+(source, type, id) to five messages in each one-second window, with the
+suppressed count added to the first line of the next window. A message the
+driver repeats every frame therefore still wrote five full lines a second:
+72,000 over a four-hour show, each building a `DriverMessage` (a `String`)
+and a `format!` for the count, burying everything else in the session log
+and its 64 MiB cap (D380). The other GL error path was checked and is not a
+problem: `glGetError` is read only at context set-up (`drain_gl_errors` in
+the app), by the bench and the corpus run, and in tests, never per frame,
+and `STROBE_GL_TRACE` already logs each distinct event once (D296).
+
+**Decision.** `RateLimiter` logs each distinct message in full
+`FULL_REPEATS` (5) times. After that its repeats are only counted, and one
+line every `SUMMARY_EVERY` (60 s), at the message's own level, says
+`... (repeated N times in the last 60 s)`. A message absent for a minute
+starts over: the next one is logged in full with the count it had pending
+(`N identical messages suppressed`) and gets five full lines again, so a
+problem that comes back later in the show is visible as itself. A counted
+repeat is a lock and a lookup in a map that already holds its key; the
+summary line formats the driver's text straight into the logger; neither
+allocates in this code. Only full lines build a `DriverMessage` and go into
+the ring the UI console reads. No GL is called from the callback, as before.
+
+**Test.** `a_message_repeated_every_frame_for_four_hours_logs_a_few_hundred_lines`
+(864,000 messages at 60 fps: five full lines and at most 240 summaries,
+every repeat but the last minute's counted in one; the one-second window
+logged 72,000), `a_message_that_goes_quiet_is_logged_in_full_again_with_its_count`,
+and the existing burst and per-id tests, renamed to the new constants.
+
+**Would reopen:** a driver whose distinct ids churn past the limiter's 256
+(it forgets them all and starts over, as before), or an operator who needs
+every occurrence with its time, which `STROBE_GL_DEBUG` with a debugger on the
+synchronous callback already gives.

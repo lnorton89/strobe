@@ -196,6 +196,11 @@ Linux and llvmpipe cannot prove any of these:
 - [ ] Exercise audio absent, present, removed and reconnected, and verify
   the UI and log state transitions. Live capture is verified so far;
   removal and reconnection are not.
+  A stream that stops calling back with no error (a mute WASAPI device) is
+  now noticed within 3 s, shown as "No audio input" and reopened on a
+  backoff (D420); the logic is tested without hardware
+  (`capture::watchdog::tests`), and a real device going mute on the T480 is
+  still to be seen.
 - [x] Benchmark scenes at fixed resolution, recording GPU frame time,
   render scale, backend and driver, with CPU time kept separate
   ([BENCHMARKS.md](BENCHMARKS.md), 2026-10-09).
@@ -220,7 +225,10 @@ Linux and llvmpipe cannot prove any of these:
   - 60 fps, with 0 to 4 late frames a minute.
 
   Not yet: the same on the T480's iGPU, whose earlier 30-minute run (Task
-  17) held one scene.
+  17) held one scene. A driver message repeated every frame can no longer
+  grow the log by five lines a second: five full lines, then one summary a
+  minute (D422; `gl::debug` tests, a simulated four-hour flood); a real
+  driver doing so has not been seen.
 - [x] Offscreen frames render on AMD native WGL at any size (D296, fixed by
   D311; verified on the mini PC's Vega 3, MINIPC.md Task M17, 2026-10-16:
   the default library at 640x360 and 1920x1080 on native WGL, no black frame,
@@ -867,7 +875,10 @@ survives export.
   control go (D372); a program change mapped to a command fires every time
   (D371); and a replug faster than the one-second poll (on ALSA it comes back
   on a new `client:port` and is reopened; on WinMM the port id may be the same
-  and the old handle dead, which nothing here detects yet).
+  and the old handle dead, which nothing here detects yet). A fader flood
+  while the frame loop is stalled keeps the latest value per source and no
+  longer drops notes (D421; `hub::tests`, 100,000 CCs and 200 notes with
+  nothing drained); a real controller's message rate is still to be seen.
 - [~] LAN remote v1 (D250-D254, 2026-10-13). **Verified, with evidence:**
   - the listener over real loopback sockets in CI
     (`crates/strobe-remote/tests/server.rs`, 17 tests): the page and its

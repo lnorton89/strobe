@@ -153,6 +153,10 @@ pub(crate) struct Opened {
     pub(crate) sample_rate: u32,
     /// The device's display name.
     pub(crate) name: String,
+    /// Whether this is an output device captured by loopback, which
+    /// delivers nothing at all while nothing plays, so the stall watchdog
+    /// leaves it alone (D420).
+    pub(crate) loopback: bool,
 }
 
 /// Finds the device `choice` names.
@@ -297,7 +301,8 @@ fn open_device(device: &cpal::Device) -> Result<Opened, CaptureError> {
 
     // A render device has no input configs; its output config describes the
     // loopback format.
-    let supported = if device.supports_input() {
+    let loopback = !device.supports_input();
+    let supported = if !loopback {
         device.default_input_config()
     } else {
         device.default_output_config()
@@ -337,6 +342,7 @@ fn open_device(device: &cpal::Device) -> Result<Opened, CaptureError> {
         glitches: health.glitches,
         sample_rate,
         name,
+        loopback,
     })
 }
 
