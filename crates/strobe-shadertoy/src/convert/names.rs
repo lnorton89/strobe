@@ -102,11 +102,13 @@ pub(super) fn slug(text: &str) -> String {
             out.push('-');
         }
     }
-    out.trim_end_matches('-')
-        .chars()
-        .take(40)
-        .collect::<String>()
+    let capped: String = out.chars().take(40).collect();
+    capped.trim_end_matches('-').to_string()
 }
+
+/// The most id characters a folder name keeps. Real ids are six; the
+/// JSON's can be anything, and a file name has 255 bytes.
+const MAX_ID_IN_NAME: usize = 32;
 
 /// Names Windows keeps for devices whatever follows the first dot, so a
 /// folder called `con.synScene` cannot be made.
@@ -121,6 +123,7 @@ pub(super) fn folder_name(title: &str, id: Option<&str>) -> String {
     let id = id.map(|id| {
         id.chars()
             .filter(char::is_ascii_alphanumeric)
+            .take(MAX_ID_IN_NAME)
             .collect::<String>()
     });
     let stem = match (slug.is_empty(), id.as_deref()) {
@@ -227,6 +230,23 @@ mod tests {
             folder_name("Console", None),
             "console.synScene",
             "only the exact names"
+        );
+    }
+
+    #[test]
+    fn a_long_id_or_title_still_gives_a_short_tidy_folder_name() {
+        // The id comes from the JSON; a file system refuses a name of more
+        // than 255 bytes, which failed the import.
+        let name = folder_name("Tunnel", Some(&"Ab1".repeat(200)));
+        assert!(name.len() <= 100, "{} bytes: {name}", name.len());
+        assert!(name.starts_with("tunnel-Ab1"), "{name}");
+        // Cutting a title at 40 characters must not leave a dash before
+        // the id's own dash.
+        let title = format!("{} b", "a".repeat(39));
+        assert_eq!(
+            folder_name(&title, Some("XsXXDn")),
+            format!("{}-XsXXDn.synScene", "a".repeat(39)),
+            "no double dash"
         );
     }
 
