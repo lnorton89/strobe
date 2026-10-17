@@ -10342,3 +10342,29 @@ unchanged.
 **Would reopen:** a loop meant to play for more than twelve hours after its
 anchor and to be restarted late in that time (it would want an end time on
 the anchor), or a venue whose "show day" boundary should be a fixed hour.
+
+### D431: a held cue is not moved on by a drop, a breakdown or a new song (2026-10-17)
+
+**Context.** Hold freezes the cue's clock (D76, D156) so that the scene stays
+up until a person lets go: through a speech, an MC's set, a break. A cue
+whose advance includes an audio event (`audio-drop`, `audio-breakdown`,
+`audio-song`, alone or in a `first-of` list with the timer) still moved on
+when the event came, held or not: `PlaylistClock::audio_event` checked only
+for a transition in progress. The DJ's first drop after the speech took the
+held scene away, while the transport still said `HELD`.
+
+**Decision.** `audio_event` ignores every event while the cue is held, as it
+does during a transition (D237). An event is the cue ending itself, as its
+timer would, and hold stops exactly that. The commands a person gives (Next,
+Previous, a jump, skip section) still work while held, and once released the
+cue listens again. An event heard while held is not remembered for later:
+it described the music at that moment, not after the release. The show still
+logs each event it hears.
+
+**Test.** `a_held_cue_is_not_moved_on_by_an_audio_event`: a timer-or-drop-
+or-song cue, held, ignores a drop and a song change and stays on; Next still
+moves it; released, a drop ends it. Before the change the first drop moved
+the held cue on.
+
+**Would reopen:** an operator who wants a held cue to wait for "the next drop
+after I let go" rather than the next one heard after the release (a latch).
