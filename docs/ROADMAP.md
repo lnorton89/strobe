@@ -6,7 +6,7 @@ in [DECISIONS.md](DECISIONS.md), the evidence-based gap list in
 [STATUS_AUDIT.md](STATUS_AUDIT.md), and real-hardware results in
 [hardware/T480.md](hardware/T480.md).
 
-_Last updated: 2026-10-15 (six heavy scenes cheaper for the Vega 3, D310; `pow` of a negative base on ANGLE, D301; Linux support documented, with a Nix flake, D295; one click on a scene card makes it live, and LIB has Scenes and Controls pages, D291); 2026-10-14 (the control window follows Synesthesia's layout, D281-D285; v0.1.0 tagged and published; earlier claims reconciled with D199-D238 and the T480 and TORNADO records)._
+_Last updated: 2026-10-17 (adaptive resolution follows missed refreshes, verified on the venue Vega 3, D314-D320; every GL context primed for AMD WGL, D311; bug sweeps of LAN/desktop remote, scene loading and controls, and JS scripts, D302, D312-D313, D321-D326); 2026-10-15 (six heavy scenes cheaper for the Vega 3, D310; `pow` of a negative base on ANGLE, D301; Linux support documented, with a Nix flake, D295; one click on a scene card makes it live, and LIB has Scenes and Controls pages, D291); 2026-10-14 (the control window follows Synesthesia's layout, D281-D285; v0.1.0 tagged and published; earlier claims reconciled with D199-D238 and the T480 and TORNADO records)._
 
 ## Now
 
@@ -38,8 +38,8 @@ which backend proved a claim.
 ### In flight
 
 - **Adaptive resolution watches missed refreshes, not only the mean GPU time
-  (2026-10-16, D314-D320), D314-D319 verified on the projector (M20-M24;
-  D318's lock expiry not yet seen), D320 built and unit-tested:**
+  (2026-10-16, D314-D320), verified on the projector (M18-M25; only D318's
+  lock expiry has not been seen on hardware):**
   the venue mini PC showed scene 13 at 42-45 fps with a 13.6 ms mean under
   the 16.7 ms budget, about 9% of frames a refresh late, and the controller
   never moved (M16). Each presented output frame's interval now feeds the
@@ -83,8 +83,11 @@ which backend proved a claim.
   and the snapshots' schedule on the venue machine (about three a day,
   18:30-19:10).
 
-- **`pow` of a negative base on ANGLE (2026-10-15, D301), built, not yet re-run
-  on the RX 580:** the ES dialect writes `pow(x, y)` as `exp2(log2(x) * (y))`,
+- **`pow` of a negative base on ANGLE (2026-10-15, D301), built, and it does
+  NOT fix the bug on hardware (AMD.md Task A15, RX 580): ANGLE gives the same
+  pixels with and without it, because Direct3D's `log2` also takes `|x|`.
+  The rewrite is harmless and stays; the redo (an explicit sign test giving
+  a real NaN) is parked until the owner asks for it:** the ES dialect writes `pow(x, y)` as `exp2(log2(x) * (y))`,
   the native drivers' sequence, because Direct3D's compiler answers a negative
   base with `|x|^y` (sprinkles stopped growing, a centre ring after 600 frames)
   and folds `pow(x, 1.0)` (PLUS black). Integer powers of 2 or more and literal
@@ -147,14 +150,16 @@ which backend proved a claim.
   section with a Ctrl+K entry, and the host counts only authenticated
   clients as connected. The T480 to RX 580 re-test of these states is open.
 
-- **Control frames without paints (2026-10-15, D290), built, not yet re-run
-  on the mini PC:** at the JaJa show the fullscreen output took every
+- **Control frames without paints (2026-10-15, D290), verified on the mini
+  PC (Task M5: takeover at 3.5 s, about 119 driven redraws a minute, the
+  playlist 14/14 at 60 fps); since D315 a covered control window that is not
+  streamed draws only every 5 s and runs its chores in between:** at the JaJa show the fullscreen output took every
   `WM_PAINT`, so the control window ran 0 frames a minute and the playlist,
   UI actions and desktop remote stopped with it (fca44a5 restarted only the
   playlist). When a control redraw request goes unanswered for 250 ms and
   4 loop passes, `about_to_wait` now runs the whole control frame itself, at
   2 Hz (5 Hz with a desktop remote), until Windows paints it promptly again.
-  Open: the mini-PC verification in MINIPC.md.
+
 
 - **AMD native WGL renders black above about 160x90 offscreen (D296), fixed
   by D311 and verified on the mini PC (Task M17, 2026-10-16):** root-caused there (MINIPC.md
