@@ -278,8 +278,15 @@ Linux and llvmpipe cannot prove any of these:
   snapshot stall (the next item). Unit tests:
   `a_settled_scale_does_not_creep_down_on_noise`, with five seeds over
   30 minutes, and `a_settled_scale_still_steps_for_a_real_change`.
-- [ ] A system stall does not step a settled scale, and put-off verdicts
-  and lock expiry are logged (D320). M24 run C stepped 0.70 -> 0.60 on a
+- [x] A system stall does not step a settled scale, and put-off verdicts
+  and lock expiry are logged (D320). Verified on the mini PC (MINIPC.md
+  Task M25, 2026-10-17): the put-off line appeared at 16.2 s ("worst gap
+  159 ms, GPU -16%"), 0.70 came at 26.3 s. Its one later step (0.70 ->
+  0.60 at 257.8 s, 9.2% missed over 10 s, GPU 8.9 against 7.27 ms, no
+  stall over 35 ms, no VSS event) was old 13's heavier passage about
+  250 s into a hold, real load rather than noise; the scale was back at
+  0.70 by 409 s and the run held 58-59.7 fps throughout. The same passage
+  coincided with M24 run C's snapshot. M24 run C stepped 0.70 -> 0.60 on a
   915 ms VSS snapshot stall (Application/VSS event 8231), then climbed
   back. Built and unit-tested
   (`a_settled_scale_does_not_step_for_a_system_stall`, five seeds;
