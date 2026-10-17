@@ -33,10 +33,24 @@ use crate::output::ConsoleLevel;
 use crate::shared::{Command, Shared, Target};
 use crate::uniforms::SetOutcome;
 use rquickjs::function::{Opt, Rest};
+use rquickjs::object::Property;
 use rquickjs::{Coerced, Ctx, Exception, FromJs, Function, Object, Result, Value};
 use std::collections::HashMap;
 use std::rc::Rc;
 use strobe_scene::names::{is_glsl_identifier, is_reserved, normalize};
+
+/// The hidden global object holding the event callbacks the global object
+/// does not carry: a function declared with a top-level `let` or `const`,
+/// under its name, and a function passed by value, under `#<n>` (D414). It
+/// is not enumerable, so `printGlobalKeys` and `for (k in globalThis)` do
+/// not list it, and not writable, so a script cannot replace it.
+pub(crate) const CALLBACKS: &str = "__strobeCallbacks";
+
+/// Most distinct functions a script may pass by value as callbacks. One
+/// that registers a fresh closure every frame would otherwise keep every
+/// one of them alive; past this it is told to pass the same function, or a
+/// name.
+const MAX_FUNCTION_CALLBACKS: usize = 64;
 
 /// Most components any script value is read as: a `vec4`.
 const MAX_UNIFORM_COMPONENTS: usize = 4;
@@ -369,40 +383,132 @@ fn group_operation(shared: &Shared, function: &str, name: &str, operation: Opera
 }
 
 /// `onChange` and friends: validate once, register once.
+///
+/// `callback` is a function's name or the function itself. A name is
+/// looked up on the global object when the handler fires, as before; one
+/// that is not a property there (a top-level `let` or `const`, D326) is
+/// resolved once, here, and kept in [`CALLBACKS`] under its name. A
+/// function value is kept there too, once per distinct function, so a
+/// script that registers the same one every frame still has one handler
+/// (D414). Anything else is a malformed call and throws.
 fn register_handler<'js>(
     ctx: &Ctx<'js>,
     shared: &Shared,
     function: &str,
     kind: EventKind,
     target: &str,
-    callback: &str,
-) {
-    let mut state = shared.state.borrow_mut();
+    callback: &Value<'js>,
+) -> Result<()> {
     let Some(&source) = shared.names.sources.get(&normalize(target)) else {
-        state.log_once(
+        shared.state.borrow_mut().log_once(
             ConsoleLevel::Warn,
             &format!("{function}: no input named `{target}`"),
         );
-        return;
+        return Ok(());
     };
-    let defined = ctx
-        .globals()
-        .get::<_, Value<'js>>(callback)
-        .is_ok_and(|value| value.is_function());
-    if !defined {
-        state.log_once(
-            ConsoleLevel::Error,
-            &format!("{function}(`{target}`): there is no function named `{callback}`"),
-        );
-        return;
-    }
-    let handler = Handler::new(kind, source, Rc::from(callback));
+    let Some(key) = callback_key(ctx, shared, function, target, callback)? else {
+        return Ok(());
+    };
+    let handler = Handler::new(kind, source, Rc::from(key));
+    let mut state = shared.state.borrow_mut();
     if !state
         .handlers
         .iter()
         .any(|existing| existing.same_as(&handler))
     {
         state.handlers.push(handler);
+    }
+    Ok(())
+}
+
+/// The name a handler finds `callback` by when it fires: on the global
+/// object first, then in [`CALLBACKS`]. `None`, after a console error,
+/// when there is nothing to call.
+fn callback_key<'js>(
+    ctx: &Ctx<'js>,
+    shared: &Shared,
+    function: &str,
+    target: &str,
+    callback: &Value<'js>,
+) -> Result<Option<String>> {
+    if let Some(name) = callback.as_string() {
+        let name = name.to_string()?;
+        if ctx
+            .globals()
+            .get::<_, Value<'js>>(name.as_str())?
+            .is_function()
+        {
+            return Ok(Some(name));
+        }
+        let kept = callbacks(ctx)?;
+        if kept.get::<_, Value<'js>>(name.as_str())?.is_function() {
+            return Ok(Some(name));
+        }
+        if let Some(lexical) = lexical_function(ctx, &name) {
+            kept.set(name.as_str(), lexical)?;
+            return Ok(Some(name));
+        }
+        shared.state.borrow_mut().log_once(
+            ConsoleLevel::Error,
+            &format!("{function}(`{target}`): there is no function named `{name}`"),
+        );
+        return Ok(None);
+    }
+    if !callback.is_function() {
+        return Err(Exception::throw_type(
+            ctx,
+            &format!("{function}(`{target}`): the callback must be a function or the name of one"),
+        ));
+    }
+    let kept = callbacks(ctx)?;
+    // The count is read and written in separate borrows: reading the
+    // registry runs no script code, but nothing here holds the state
+    // across a call into the engine either way.
+    let count = shared.state.borrow().function_callbacks;
+    for slot in 0..count {
+        let key = format!("#{slot}");
+        if kept.get::<_, Value<'js>>(key.as_str())? == *callback {
+            return Ok(Some(key));
+        }
+    }
+    if count >= MAX_FUNCTION_CALLBACKS {
+        shared.state.borrow_mut().log_once(
+            ConsoleLevel::Error,
+            &format!(
+                "{function}(`{target}`): more than {MAX_FUNCTION_CALLBACKS} different functions \
+                 passed as callbacks; pass the same function each time, or its name"
+            ),
+        );
+        return Ok(None);
+    }
+    let key = format!("#{count}");
+    kept.set(key.as_str(), callback.clone())?;
+    shared.state.borrow_mut().function_callbacks = count + 1;
+    Ok(Some(key))
+}
+
+/// The [`CALLBACKS`] object.
+pub(crate) fn callbacks<'js>(ctx: &Ctx<'js>) -> Result<Object<'js>> {
+    ctx.globals().get(CALLBACKS)
+}
+
+/// The function a top-level `let` or `const` named `name` holds, if any.
+/// Only a plain identifier is evaluated, so a callback "name" can never be
+/// code; an evaluation that throws (a reserved word) finds nothing.
+fn lexical_function<'js>(ctx: &Ctx<'js>, name: &str) -> Option<Function<'js>> {
+    let mut chars = name.chars();
+    let starts = chars
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || matches!(c, '_' | '$'));
+    if !starts || !chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '$')) {
+        return None;
+    }
+    match ctx.eval::<Value<'js>, _>(format!("typeof {name} === 'function' ? {name} : undefined")) {
+        Ok(value) => value.as_function().cloned(),
+        Err(_) => {
+            let _ = ctx.catch();
+            None
+        }
     }
 }
 
@@ -564,8 +670,8 @@ fn event_registrar<'js>(
     let shared = Rc::clone(shared);
     Function::new(
         ctx.clone(),
-        move |ctx: Ctx<'js>, target: String, callback: String| {
-            register_handler(&ctx, &shared, function, kind, &target, &callback);
+        move |ctx: Ctx<'js>, target: String, callback: Value<'js>| -> Result<()> {
+            register_handler(&ctx, &shared, function, kind, &target, &callback)
         },
     )
 }
@@ -660,6 +766,10 @@ pub(crate) fn install<'js>(ctx: &Ctx<'js>, shared: &Rc<Shared>) -> Result<()> {
         group_operator(ctx, shared, "defaultGroup", Operation::Default)?,
     )?;
 
+    // No prototype, so a name such as `toString` finds nothing inherited.
+    let kept = Object::new(ctx.clone())?;
+    kept.set_prototype(None)?;
+    globals.prop(CALLBACKS, Property::from(kept))?;
     for (function, kind) in [
         ("onChange", EventKind::Change),
         ("onOffToOn", EventKind::OffToOn),

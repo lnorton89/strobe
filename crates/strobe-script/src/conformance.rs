@@ -981,6 +981,62 @@ fn re_registering_every_frame_does_not_stack_handlers() -> Result<()> {
     Ok(())
 }
 
+#[test]
+fn callbacks_declared_with_const_or_let_or_passed_as_functions_fire() -> Result<()> {
+    // A top-level `const` or `let` is not a property of the global object
+    // (D326), so a callback declared that way was "no function named".
+    // Passing the function itself is accepted too (D414).
+    let script = r#"
+        let named = 0, arrow = 0, passed = 0, again = 0;
+        const onNamed = (v, p) => { named++; };
+        let onArrow = function (v, p) { arrow++; };
+        const shared = function (v, p) { again++; };
+        function setup() {
+            onChange("myToggle", "onNamed");
+            onOffToOn("myToggle", "onArrow");
+            onChange("myToggle", function (v, p) { passed++; });
+        }
+        function update() {
+            onChange("myToggle", shared);
+            setUniform("seen", named, arrow, passed, again);
+        }
+    "#;
+    let toggle = r#"{ "NAME": "myToggle", "TYPE": "toggle" }"#;
+    let mut rig = Rig::new(script, &[toggle])?;
+    let mut console = Vec::new();
+    for value in [0.0, 0.0, 1.0, 1.0] {
+        rig.set_target("myToggle", &[value])?;
+        rig.bank.tick(DT);
+        let out = rig.step();
+        assert_eq!(out.status, ScriptStatus::Running, "{:?}", out.console);
+        console.extend(out.console.iter().map(|line| line.text.clone()));
+        if value > 0.5 {
+            // Each fired once on the rise; `shared`, registered every
+            // frame, is one handler, not one a frame.
+            expect_uniform(&out, "seen", ExtraType::Vec4, &[1.0, 1.0, 1.0, 1.0])?;
+        }
+    }
+    assert!(console.is_empty(), "no complaint: {console:?}");
+    Ok(())
+}
+
+#[test]
+fn a_callback_that_is_neither_a_name_nor_a_function_is_a_type_error() -> Result<()> {
+    // A malformed call throws, as for every native (see `natives`).
+    let toggle = r#"{ "NAME": "myToggle", "TYPE": "toggle" }"#;
+    let bank = bank(&[toggle])?;
+    let meta = strobe_scene::meta::bank()?;
+    let script = r#"function setup() { onChange("myToggle", 42); }"#;
+    match ScriptHost::new(script, &bank, &meta, relaxed()) {
+        Err(ScriptError::Setup { message }) => assert!(
+            message.contains("onChange") && message.contains("a function or the name of one"),
+            "says what it wants: `{message}`"
+        ),
+        other => return Err(anyhow!("expected a setup error, got {other:?}")),
+    }
+    Ok(())
+}
+
 // ---- textureFinalPass ---------------------------------------------------------
 
 #[test]
