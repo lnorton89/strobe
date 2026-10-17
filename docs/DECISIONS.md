@@ -10437,3 +10437,42 @@ gone and the show had moved to the second cue.
 **Would reopen:** a reload that should release a hold on purpose (none known:
 Hold and Space are the release), or a hold kept across a restart, which would
 put it in `resume.toml`.
+
+### D434: a warm-up the show no longer needs is parked at once (2026-10-17)
+
+**Context.** Two seconds before a cue ends the next scene starts rendering
+at half each edge (D153) and stays out of the cache until its cue starts or
+another warm-up replaces it. Three common commands left it rendering for a
+whole cue instead:
+
+- **a jump, Previous or skip section** in those two seconds went somewhere
+  else, and the warming scene was parked only at the *next* cue's warm-up,
+  minutes later;
+- **+30 s** (`Extend`) put the end half a minute away, but the clock's
+  `warmed` flag stayed set, so the scene warmed for 32 s and its warm-up
+  never fired again.
+
+Each time a second scene drew beside the live one for minutes, which costs
+the old laptops Strobe targets the frame rate D64 then takes out of the
+live scene's resolution, and it held a third session's targets out of the
+cache beside a transition's two (D151).
+
+**Decision.** `PlaylistClock::extend` clears `warmed` when the new end is
+further away than the warm-up lead, so the warm-up fires again that far
+before it; an extension that stays inside the lead keeps the warm-up. Each
+frame, after the clock's events, `Show::frame` parks a warming scene whose
+cue is not the one the clock says is warming (`PlaylistClock::warming`),
+with an `info` line. A cue reached that way starts cold, as any command does
+(D153). Hold is unchanged: a held cue keeps its successor warm, since the
+clock still names it.
+
+**Test.** `strobe-playlist` `extending_a_warming_cue_calls_the_warm_up_off_until_its_new_lead`
+(+30 s at 1.5 s from the end: nothing warming, then one `WarmUp` two seconds
+before the new end; +0.05 s keeps it), and
+`strobe-app/tests/show.rs::a_warm_up_the_show_no_longer_needs_is_parked_at_once`
+on headless GL (after +30 s and after a jump the warming scene is back in
+the cache the next frame). Before, the extended cue kept its warm-up and the
+jump left it rendering.
+
+**Would reopen:** a held cue that should stop warming its successor (it costs
+the same as any warm-up, for as long as the hold).

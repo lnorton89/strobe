@@ -1033,6 +1033,60 @@ fn saving_the_playlist_leaves_the_live_scene_alone_unless_its_cue_changed() -> R
 }
 
 #[test]
+fn a_warm_up_the_show_no_longer_needs_is_parked_at_once() -> Result<()> {
+    let Some(headless) = context(Api::DesktopCore33)? else {
+        return Ok(());
+    };
+    let library = TempLibrary::new("stale-warm")?;
+    let mut rig = Rig::new(&headless)?;
+    let mut playlist = Playlist::new("stale warm");
+    let mut section = Section::new("all");
+    for scene in ["red", "green", "blue"] {
+        section.cues.push(cue_of(scene, 3.0, TransitionSpec::cut()));
+    }
+    playlist.sections.push(section);
+    let mut show = Show::new(None, playlist, &library.library, None, None);
+    rig.load(&mut show)?;
+    // 1.5 s into a 3-second cue: green is warming for the next one.
+    for _ in 0..90 {
+        rig.frame(&mut show);
+    }
+    assert_eq!(show.warming_cue(), Some(1), "green warms for cue 2");
+    assert_eq!(show.parked_count(), 1, "blue is parked; red is live");
+
+    // +30 s: the next cue is half a minute away again.
+    show.command(Command::Extend(30.0));
+    rig.frame(&mut show);
+    assert_eq!(
+        show.parked_count(),
+        2,
+        "green went back to the cache instead of rendering for 30 s"
+    );
+    for _ in 0..(30 * 60) {
+        rig.frame(&mut show);
+    }
+    assert_eq!(
+        show.warming_cue(),
+        Some(1),
+        "and warms again before the end"
+    );
+
+    // A jump to the last cue in the last seconds of this one.
+    show.command(Command::JumpTo(2));
+    for _ in 0..3 {
+        rig.frame(&mut show);
+    }
+    assert_eq!(show.clock().current(), Some(2), "blue is live");
+    assert_eq!(
+        show.parked_count(),
+        2,
+        "red and green are parked; nothing renders beside blue"
+    );
+    show.finish();
+    Ok(())
+}
+
+#[test]
 fn a_held_cue_stays_held_through_an_edit_to_the_playlist() -> Result<()> {
     let Some(headless) = context(Api::DesktopCore33)? else {
         return Ok(());
