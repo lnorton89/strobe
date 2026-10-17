@@ -8680,3 +8680,31 @@ on headless GL in both dialects).
 `setUniform` call, which would mean caching the name's `Arc<str>` by the
 string's atom, or a counting-allocator test in `strobe-diag` if the unsafe
 boundary ever gets a home for one.
+
+### D341: the LAN address shown to the operator is cached and refreshed every 10 seconds (2026-10-17)
+
+**Context.** `Lan::view()` runs every control-window frame and called
+`Server::url()`. For a listener bound to every interface that works out the
+LAN address by opening a UDP socket and `connect`ing it (`net::lan_address`),
+a driver round trip about 30 times a second for as long as Settings or the
+title bar was drawn.
+
+**Decision.** `Lan` keeps the address in a small cache. It is filled when the
+listener starts (the same string the "On: ..." line used) and cleared when it
+stops. `view_at(now)` asks `Server::url()` again only when the cached one is
+10 seconds old (`URL_REFRESH`), so a DHCP change still shows within 10 s, and
+when the address moved the "On: ..." line follows it (unless the listener is
+behind a proxy, whose line names the proxy). No network-change event exists
+on all three platforms from std, and a timer needs no new dependency. The
+listener itself is unaffected: it is bound to the address it was given, and
+`Host` checks (D252) never use this string.
+
+**Test.** `the_address_is_asked_for_once_per_period_not_once_per_frame`
+(ten seconds of 30 Hz frames make one ask, a new lease shows after the period,
+a cleared cache asks at once) and
+`a_running_remote_does_not_ask_for_its_address_every_frame` (a real loopback
+listener: a view inside the period leaves the cache's timestamp alone, one
+past it moves it, a stop clears it).
+
+**Would reopen:** a platform network-change notification that is cheap to
+subscribe to, which would replace the timer.
