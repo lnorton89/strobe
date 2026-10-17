@@ -18,7 +18,8 @@
 //!   shows them in colour by level).
 //! - **Faults.** A thrown exception or a blown budget discards the frame's
 //!   uniforms and keeps the last good ones. The *first* fault of a streak
-//!   and the disabling are reported as structured `SCRIPT` failures; the
+//!   (once per distinct message, D325) and the disabling are reported as
+//!   structured `SCRIPT` failures; the
 //!   UI shows the state ([`ScriptState`]) beside the scene's controls so a
 //!   dead script is visible without reading the log.
 //! - **Uniforms.** What the script creates with `setUniform` is returned for
@@ -39,7 +40,8 @@ use strobe_scene::assemble::ExtraType;
 use strobe_scene::control::ControlBank;
 use strobe_scene::scene::SceneDef;
 use strobe_script::{
-    Budget, ConsoleLevel, ScriptError, ScriptHost, ScriptInputs, ScriptStatus, ScriptUniform,
+    Budget, ConsoleLevel, FrameOutput, ScriptError, ScriptHost, ScriptInputs, ScriptStatus,
+    ScriptUniform,
 };
 
 /// The log target script output is written under.
@@ -77,6 +79,9 @@ pub struct ScriptRun {
     host: ScriptHost,
     scene: String,
     state: ScriptState,
+    /// Fault messages already reported as failures, so a fault that comes
+    /// back streak after streak is reported once.
+    reported: HashSet<String>,
 }
 
 impl std::fmt::Debug for ScriptRun {
@@ -101,6 +106,7 @@ impl ScriptRun {
             host,
             scene: scene.to_string(),
             state: ScriptState::Running,
+            reported: HashSet::new(),
         })
     }
 
@@ -119,6 +125,11 @@ impl ScriptRun {
         meta: &mut ControlBank,
     ) -> Harvest {
         let output = self.host.frame(dt, inputs, controls, meta);
+        self.harvest(output)
+    }
+
+    /// Logs a frame's console, tracks its status and keeps its uniforms.
+    fn harvest(&mut self, output: FrameOutput) -> Harvest {
         for line in &output.console {
             let level = match line.level {
                 ConsoleLevel::Log => log::Level::Info,
@@ -133,11 +144,31 @@ impl ScriptRun {
         }
     }
 
+    /// Runs the frame a load runs before the shaders are compiled: as
+    /// [`Self::frame`], but under the script's load budget rather than a
+    /// frame's (D324).
+    pub fn load_frame(
+        &mut self,
+        dt: f32,
+        inputs: &ScriptInputs<'_>,
+        controls: &mut ControlBank,
+        meta: &mut ControlBank,
+    ) -> Harvest {
+        let output = self.host.load_frame(dt, inputs, controls, meta);
+        self.harvest(output)
+    }
+
     /// Seals the script's uniforms: the shaders have been compiled with
     /// what it published so far, so a later new name is refused with a
     /// console error instead of ever causing a recompile (D161).
     pub fn seal_uniforms(&mut self) {
         self.host.seal_uniforms();
+    }
+
+    /// Seals the script's uniforms to `names`, the ones the shaders were
+    /// compiled with, for a script started again under them (D323).
+    pub fn seal_uniforms_to<'a>(&mut self, names: impl IntoIterator<Item = &'a str>) {
+        self.host.seal_uniforms_to(names);
     }
 
     /// Updates [`Self::state`] and reports the transitions that matter.
@@ -155,7 +186,13 @@ impl ScriptRun {
                 self.state = ScriptState::Running;
             }
             ScriptStatus::Faulted { consecutive } => {
-                if consecutive == 1 {
+                // Distinct faults past this many are left to the UI state
+                // and the script's console.
+                const MAX_REPORTED: usize = 32;
+                if consecutive == 1
+                    && self.reported.len() < MAX_REPORTED
+                    && self.reported.insert(message.clone())
+                {
                     failure::report(
                         Failure::new(Subsystem::Script, "update")
                             .scene(&self.scene)
@@ -297,6 +334,44 @@ mod tests {
         assert!(
             matches!(run.state(), ScriptState::Disabled { message } if message.contains("boom")),
             "disabled with the reason: {:?}",
+            run.state()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_fault_that_keeps_coming_back_is_reported_once() -> Result<()> {
+        // A script that throws on every other frame (or on every beat)
+        // never reaches three in a row, so it is never disabled. Each
+        // streak used to be a new failure report: thirty a second, pushing
+        // everything else out of the failure history and the log.
+        const SCENE: &str = "intermittent-fault-scene";
+        let (_, mut bank) = controls("{}")?;
+        let mut meta = strobe_scene::meta::bank()?;
+        let mut run = ScriptRun::start(
+            "function update() { if (FRAMECOUNT % 2 === 1) throw new Error('odd frame'); }",
+            SCENE,
+            &bank,
+            &meta,
+        )?;
+        for frame in 0..60 {
+            let inputs = ScriptInputs {
+                frame_count: frame,
+                ..ScriptInputs::default()
+            };
+            run.frame(1.0 / 60.0, &inputs, &mut bank, &mut meta);
+        }
+        let reports = failure::recent(failure::KEPT)
+            .iter()
+            .filter(|reported| reported.to_string().contains(SCENE))
+            .count();
+        assert_eq!(
+            reports, 1,
+            "the same fault is reported once, not per streak"
+        );
+        assert!(
+            matches!(run.state(), ScriptState::Faulted { .. }),
+            "the state still shows it: {:?}",
             run.state()
         );
         Ok(())

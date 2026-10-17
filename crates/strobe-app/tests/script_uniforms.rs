@@ -143,6 +143,36 @@ fn a_uniform_made_in_setup_is_also_declared_at_load() -> Result<()> {
 }
 
 #[test]
+fn a_first_update_slower_than_a_frame_still_declares_its_uniforms() -> Result<()> {
+    // The load-time frame is paid while the scene loads, not on screen. A
+    // first update that does its set-up work (here 20 ms of it, as a heavy
+    // one might take on a 2012 laptop) must not be cut at the 4 ms frame
+    // budget: its uniforms would then be discarded, never declared, and the
+    // shader that reads them would not compile, on slow machines only.
+    let scene = TempScene::new(
+        "slow-first",
+        "{}",
+        "vec4 renderMain() { return vec4(ready, 0.0, 0.0, 1.0); }",
+        "function update(dt) {\n\
+           if (FRAMECOUNT === 0) { var until = Date.now() + 20; while (Date.now() < until) {} }\n\
+           setUniform('ready', 1.0);\n\
+         }",
+    )?;
+    let Some(headless) = context(Api::DesktopCore33)? else {
+        return Ok(());
+    };
+    let gl = headless.gl();
+    let caps = Caps::from_info(gl.info());
+    let mut audio = AudioInput::new(false);
+    let mut session = Session::load(gl, &caps, &scene.0, "slow-first", [32, 18], 0.0, &mut audio)
+        .map_err(|e| anyhow!("load failed: {e}"))?;
+    session.advance(1.0 / 60.0, &mut audio, Mouse::default(), DATE);
+    let px = centre(&session)?;
+    assert!(near(px[0], 255), "`ready` reaches the shader, got {px:?}");
+    Ok(())
+}
+
+#[test]
 fn a_uniform_that_appears_later_is_refused_and_nothing_compiles_after_load() -> Result<()> {
     let scene = TempScene::new(
         "late",
