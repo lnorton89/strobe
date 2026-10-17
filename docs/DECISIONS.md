@@ -9610,3 +9610,40 @@ images, one read: it failed with GL error 0x501 before) and
 
 **Would reopen:** nothing expected; the unit numbers were never visible to a
 scene.
+
+### D412: a dropdown with mismatched lists and an untyped three-component control load (2026-10-17)
+
+**Context.** Two control shapes failed the whole scene at load: a dropdown
+whose `LABELS` and `VALUES` differ in length (`SceneError::Dropdown`), and a
+control with no `TYPE` and a three-component `DEFAULT`, which D193's rule
+(two components make an xy pad, anything else a slider) made a slider with a
+`DEFAULT` of the wrong arity (`SceneError::Arity`). One control took every
+other control, pass and shader down with it, where the rest of the loader
+prefers playing a scene to refusing it (D193).
+
+**Decision.**
+- The dropdown keeps the options both lists give: label `i` with value
+  `i`, up to the shorter list's length. No value and no label is invented,
+  and the mismatch is a logged warning naming the control and both counts.
+  An empty list counts as absent, so `LABELS: []` with `VALUES` is the
+  `VALUES`-only form. A dropdown with neither list is still an error: it has
+  no option to show.
+- An untyped control's `DEFAULT` picks the one type with that many
+  components: two an xy pad (D193), three or four a `color` (the only
+  `vec3`; a fourth component, alpha, is dropped as for a typed colour, R2),
+  anything else a slider. The uniform is then the `vec3` the shader most
+  likely reads.
+
+Synesthesia's behaviour with either shape is not known (Q32). Neither is in
+the private corpus or the SSF documentation; both rules keep a scene that
+Strobe refused, and change nothing for a scene that loaded.
+
+`strobe-scene` now depends on `log`, for the warning.
+
+**Test.** `a_dropdown_whose_labels_and_values_differ_keeps_the_options_both_give`
+and `an_untyped_control_with_three_or_four_default_components_is_a_colour`
+(`strobe-scene`, `control/def.rs`). Both failed before with the errors above.
+
+**Would reopen:** Q32's answer, if Synesthesia refuses either shape or reads
+it another way (pads the shorter list, or makes the untyped control a slider
+of the first component).
