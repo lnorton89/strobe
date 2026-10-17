@@ -8783,7 +8783,7 @@ the worker could know.
 bytes, a velocity-0 note on counted as a release) and
 `a_momentary_pad_held_on_a_device_that_goes_away_is_let_go` (through the
 mapper). The worker's close path itself needs a controller to exercise; see
-the hardware checks in STATUS_AUDIT.
+the MIDI hardware checks in STATUS_AUDIT (show control, area-9 sweep).
 
 **Would reopen:** a controller whose note offs are routinely lost mid-show
 without the device going away, which would want a timeout instead.
