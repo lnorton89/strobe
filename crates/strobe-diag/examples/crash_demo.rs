@@ -21,6 +21,11 @@
 //!
 //! Output goes to `STROBE_DIAG_DIR` if set, else the per-user data
 //! directory. Set `STROBE_LOG=debug` for more log.
+//!
+//! `STROBE_DEMO_NOTIFY_HOLD_MS=<ms>` makes the notifier wait that long
+//! before it returns, as a message box does until someone clicks it. The
+//! crash pipeline test uses it to check that a crashed app is not kept
+//! alive while the monitor's notice is up.
 
 use std::time::Duration;
 use strobe_diag::context;
@@ -49,6 +54,12 @@ fn main() {
             "NOTIFIER ({kind}): {}\n  report: {:?}\n  dump:   {:?}",
             notice.summary, notice.report, notice.dump
         );
+        let hold = std::env::var("STROBE_DEMO_NOTIFY_HOLD_MS")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok());
+        if let Some(millis) = hold {
+            std::thread::sleep(Duration::from_millis(millis));
+        }
     });
     if strobe_diag::crash::run_monitor_if_requested(std::env::args()) {
         return;

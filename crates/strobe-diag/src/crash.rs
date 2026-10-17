@@ -25,9 +25,18 @@
 //!        │  crash!
 //!        ├─ send context, failures, log ───▶ stores them
 //!        └─ request_dump(CrashContext) ────▶ reads the app's memory,
-//!                                            writes crash-*.dmp and crash-*.txt,
+//!                                            writes crash-*.dmp
+//!   (waits for the ack) ◀──── ack ─────────  lets the app go
+//!   dies                                     writes crash-*.txt,
 //!                                            runs the notifier (message box)
 //! ```
+//!
+//! The order matters. The crashed app sits inside its crash handler until
+//! the monitor acknowledges the dump, and `minidumper` sends that ack only
+//! after its `on_minidump_created` callback returns. The report and the
+//! notice are therefore left until the server loop has returned: a message
+//! box that waits for a click must never keep a hung, frozen app on the
+//! projector, or stop a launcher from seeing it exit.
 //!
 //! The monitor is the same executable started as
 //! `strobe.exe --strobe-crash-monitor <socket>`. It never opens a window or
@@ -295,10 +304,12 @@ fn run_monitor(name: &str) {
     let connected = Arc::new(AtomicBool::new(false));
     spawn_watchdog(Arc::clone(&shutdown), Arc::clone(&connected));
 
+    let dir = paths::crashes_dir();
+    let state = Arc::new(Mutex::new(MonitorState::default()));
     let handler = MonitorHandler {
-        dir: paths::crashes_dir(),
+        dir: dir.clone(),
         connected,
-        state: Mutex::new(MonitorState::default()),
+        state: Arc::clone(&state),
     };
     if let Err(error) = server.run(Box::new(handler), &shutdown, None) {
         write_stderr(&format!("strobe crash monitor: server stopped: {error}"));
@@ -307,6 +318,15 @@ fn run_monitor(name: &str) {
         // Best effort: a stale socket file is removed again before the next
         // bind.
         fs::remove_file(name).ok();
+    }
+    // The server has acknowledged the dump by now, so the crashed app is
+    // free to die while the report is written and the notice is up.
+    let notice = state
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .finish(&dir);
+    if let Some(notice) = notice {
+        notify::notify(&notice);
     }
 }
 
@@ -331,36 +351,24 @@ fn spawn_watchdog(shutdown: Arc<AtomicBool>, connected: Arc<AtomicBool>) {
 struct MonitorState {
     received: Received,
     stem: Option<String>,
+    /// The dump's path, or why it was not written. Kept here until the
+    /// server has acknowledged the dump and let the crashed app go.
+    dump: Option<Result<PathBuf, String>>,
 }
 
-struct MonitorHandler {
-    dir: PathBuf,
-    connected: Arc<AtomicBool>,
-    state: Mutex<MonitorState>,
-}
-
-impl MonitorHandler {
-    fn state(&self) -> std::sync::MutexGuard<'_, MonitorState> {
-        self.state.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-
+impl MonitorState {
     /// Writes the companion report (or annotates the panic report) and
-    /// tells the person.
-    fn finish(&self, result: Result<MinidumpBinary, minidumper::Error>) {
-        let (dump, dump_error) = match result {
-            Ok(mut binary) => {
-                // The crash path must not fail; a short dump is still read,
-                // and its error is reported below.
-                binary.file.flush().ok();
-                (Some(binary.path), None)
-            }
-            Err(error) => (None, Some(error.to_string())),
+    /// returns what to tell the person; `None` when there was no dump
+    /// request, or when the panic hook has already told them.
+    fn finish(&mut self, dir: &Path) -> Option<CrashNotice> {
+        let (dump, dump_error) = match self.dump.take()? {
+            Ok(path) => (Some(path), None),
+            Err(error) => (None, Some(error)),
         };
-        let state = self.state();
 
         // An abort that followed a panic: the panic hook already wrote and
         // announced the report. Point it at the dump and stay quiet.
-        if let Some(panic_report) = &state.received.panic_report {
+        if let Some(panic_report) = &self.received.panic_report {
             if let Some(dump) = &dump {
                 append(
                     panic_report,
@@ -370,33 +378,43 @@ impl MonitorHandler {
                     ),
                 );
             }
-            return;
+            return None;
         }
 
-        let report = state
-            .received
-            .report(dump.as_deref(), dump_error.as_deref());
-        let written = match (&state.stem, &dump) {
-            (Some(stem), _) => report::write_text(&self.dir, stem, &report.render()),
+        let report = self.received.report(dump.as_deref(), dump_error.as_deref());
+        let written = match (&self.stem, &dump) {
+            (Some(stem), _) => report::write_text(dir, stem, &report.render()),
             (None, Some(dump)) => report::write_text(
-                &self.dir,
+                dir,
                 &dump
                     .file_stem()
                     .map_or_else(String::new, |stem| stem.to_string_lossy().into_owned()),
                 &report.render(),
             ),
-            (None, None) => report::claim_stem(&self.dir)
-                .and_then(|stem| report::write_text(&self.dir, &stem, &report.render())),
+            (None, None) => report::claim_stem(dir)
+                .and_then(|stem| report::write_text(dir, &stem, &report.render())),
         };
         let report_path = written
             .map_err(|error| write_stderr(&format!("strobe crash monitor: report: {error}")))
             .ok();
-        notify::notify(&CrashNotice {
+        Some(CrashNotice {
             kind: CrashKind::Native,
             summary: report.headline,
             report: report_path,
             dump,
-        });
+        })
+    }
+}
+
+struct MonitorHandler {
+    dir: PathBuf,
+    connected: Arc<AtomicBool>,
+    state: Arc<Mutex<MonitorState>>,
+}
+
+impl MonitorHandler {
+    fn state(&self) -> std::sync::MutexGuard<'_, MonitorState> {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
 
@@ -426,8 +444,20 @@ impl ServerHandler for MonitorHandler {
         Ok((file, path))
     }
 
+    /// Records the outcome and stops the server. The report and the notice
+    /// wait for [`run_monitor`]: `minidumper` acknowledges the dump only
+    /// after this returns, and the crashed app waits for that ack.
     fn on_minidump_created(&self, result: Result<MinidumpBinary, minidumper::Error>) -> LoopAction {
-        self.finish(result);
+        let outcome = match result {
+            Ok(mut binary) => {
+                // The crash path must not fail; a short dump is still read,
+                // and its error is reported below.
+                binary.file.flush().ok();
+                Ok(binary.path)
+            }
+            Err(error) => Err(error.to_string()),
+        };
+        self.state().dump = Some(outcome);
         LoopAction::Exit
     }
 
@@ -787,7 +817,7 @@ mod tests {
         let handler = MonitorHandler {
             dir: dir.clone(),
             connected: Arc::new(AtomicBool::new(false)),
-            state: Mutex::new(MonitorState::default()),
+            state: Arc::new(Mutex::new(MonitorState::default())),
         };
         handler.on_message(
             KIND_PANIC_REPORT,
@@ -804,6 +834,32 @@ mod tests {
             name, "crash-20261008-120000.dmp",
             "dump shares the panic stem"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn the_report_and_notice_come_from_the_recorded_dump() -> Result<()> {
+        let dir =
+            std::env::temp_dir().join(format!("strobe-diag-test-{}-finish", std::process::id()));
+        fs::create_dir_all(&dir)?;
+        let mut state = MonitorState::default();
+        let nothing = state.finish(&dir);
+        state
+            .received
+            .apply(KIND_CRASH_INFO, b"native crash: SIGSEGV");
+        state.stem = Some("crash-20261008-120001".to_string());
+        state.dump = Some(Ok(dir.join("crash-20261008-120001.dmp")));
+        let notice = state.finish(&dir);
+        let report = dir.join("crash-20261008-120001.txt");
+        let written = report.is_file();
+        let again = state.finish(&dir);
+        fs::remove_dir_all(&dir)?;
+        assert!(nothing.is_none(), "no dump request, nothing to tell");
+        let notice = notice.ok_or_else(|| anyhow!("a dump must be announced"))?;
+        assert_eq!(notice.kind, CrashKind::Native, "a native notice");
+        assert_eq!(notice.report.as_deref(), Some(report.as_path()), "report");
+        assert!(written, "the companion report is written");
+        assert!(again.is_none(), "one dump is announced once");
         Ok(())
     }
 }

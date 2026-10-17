@@ -164,3 +164,50 @@ fn a_clean_run_leaves_a_log_and_no_crash_files() -> Result<()> {
     assert_eq!(crash_files, 0, "a clean run must not leave crash files");
     Ok(())
 }
+
+/// The monitor's notice is a message box that waits for a click. The
+/// crashed app must not wait with it: until the monitor acknowledges the
+/// dump the app sits frozen inside its crash handler, so an unattended show
+/// (or a launcher waiting to restart it) would stay stuck on a hung window
+/// for as long as nobody dismisses the box.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_crashed_app_exits_while_the_monitor_notice_is_still_up() -> Result<()> {
+    let dir = scratch("held-notice");
+    fs::create_dir_all(&dir)?;
+    let mut child = Command::new(demo_path()?)
+        .arg("abort")
+        .env("STROBE_DIAG_DIR", &dir)
+        .env("STROBE_DEMO_NOTIFY_HOLD_MS", "20000")
+        .env_remove("STROBE_LOG")
+        .env_remove("STROBE_NO_CRASH_MONITOR")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .context("starting crash_demo abort")?;
+    let crashes = dir.join("crashes");
+    let dumps = wait_for(&crashes, "dmp");
+    let started = Instant::now();
+    let mut exited = None;
+    while started.elapsed() < Duration::from_secs(8) {
+        if let Some(status) = child.try_wait()? {
+            exited = Some(status);
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    if exited.is_none() {
+        // Leave nothing running when the check fails.
+        child.kill().ok();
+        child.wait().ok();
+    }
+    let report = wait_for(&crashes, "txt");
+    fs::remove_dir_all(&dir).ok();
+    dumps?;
+    report?;
+    assert!(
+        exited.is_some(),
+        "the crashed app was still alive 8 s after its dump, held by the monitor's notice"
+    );
+    Ok(())
+}
