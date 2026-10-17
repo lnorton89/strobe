@@ -83,6 +83,14 @@
 //!   0.10 step that pays cuts the misses by 35-40%, and it takes two.
 //!   [`MissCount`] is the one count of missed refreshes, shared with the
 //!   per-minute perf line so the two always agree.
+//! - **Settled, the next step needs stronger evidence (D319).** Once a late
+//!   step has paid, or after [`STEADY_WINDOWS`] windows (30 s) at a scale,
+//!   two windows at the drop line are not enough: at a steady 2.7% missed,
+//!   two 120-frame windows reach 5 misses each by chance about one time in
+//!   twenty, so a held scene crept down a step (M23). The misses over the
+//!   last [`RECENT_WINDOWS`] windows (up to 10 s) must then average
+//!   [`SETTLED_FACTOR`] times the drop line (6.25%). A real change (14-40%
+//!   missed) clears that within two windows.
 //! - **Climbing back after a late drop is slow (D314, D315).** The GPU time
 //!   the frames were late at is remembered, and the scale climbs back only
 //!   to a size predicted to cost clearly less than that
@@ -241,6 +249,25 @@ pub const MAX_DEFERRALS: u32 = 4;
 /// Missing windows in a row before a drop: four seconds of judder at 60 Hz.
 /// One burst (a heavy beat, a transition, a hitch) fills one window, not two.
 pub const LATE_WINDOWS_TO_DROP: u32 = 2;
+
+/// Windows at one scale after which it counts as settled (D319): 30 s at
+/// 60 Hz, the same half minute the climb back waits for.
+pub const STEADY_WINDOWS: u32 = 15;
+
+/// Windows a settled scale's misses are averaged over (D319): 600 frames,
+/// 10 s at 60 Hz.
+pub const RECENT_WINDOWS: usize = 5;
+
+/// How far over the drop line a settled scale's misses must average before
+/// it steps (D319): 1.5 times, 6.25% of the frames, 37.5 misses in 600.
+/// At M23's steady 2.7% the 600 frames hold 16 misses, give or take 4: the
+/// line is five of those away, about 2 in a million a check by chance (1 in
+/// 500 over a 30-minute hold), against D314's one in twenty. The shares a
+/// real change brought (14-40%, M18-M23) clear it within two windows:
+/// 14% is 17 a window, so two windows on top of three quiet ones are 40.
+/// A share between the line and this (4.2-6.25%, 56-57.5 fps) is left
+/// alone once settled.
+pub const SETTLED_FACTOR: f32 = 1.5;
 
 /// The least GPU load, as a fraction of the cadence, at which late frames
 /// are blamed on the GPU. Below it the misses come from somewhere the
@@ -437,6 +464,15 @@ pub struct AdaptiveScale {
     /// A late step on this scene paid: its misses follow the scale, so the
     /// load line no longer gates the next (D317).
     late_proven: bool,
+    /// The last [`RECENT_WINDOWS`] windows' misses, a ring, how many are in
+    /// it and where the next goes (D319).
+    recent: [u32; RECENT_WINDOWS],
+    recent_len: usize,
+    recent_next: usize,
+    /// Windows since the scale last changed (D319).
+    steady_windows: u32,
+    /// The last late verdict at this scale paid: it is settled (D319).
+    late_settled: bool,
     /// Clear windows in a row.
     clear_windows: u32,
     /// The late drop being judged.
@@ -488,6 +524,11 @@ impl AdaptiveScale {
             last_missed: 0,
             last_frames: 0,
             late_proven: false,
+            recent: [0; RECENT_WINDOWS],
+            recent_len: 0,
+            recent_next: 0,
+            steady_windows: 0,
+            late_settled: false,
             clear_windows: 0,
             late_probe: None,
             late_floor: None,
@@ -585,6 +626,12 @@ impl AdaptiveScale {
             self.late_run = 0;
             self.late_run_frames = 0;
         }
+        if let Some(slot) = self.recent.get_mut(self.recent_next) {
+            *slot = missed;
+        }
+        self.recent_next = (self.recent_next + 1) % RECENT_WINDOWS;
+        self.recent_len = (self.recent_len + 1).min(RECENT_WINDOWS);
+        self.steady_windows = self.steady_windows.saturating_add(1);
         if missed < LATE_CLEAR_PER_WINDOW {
             self.clear_windows = self.clear_windows.saturating_add(1);
         } else {
@@ -609,6 +656,29 @@ impl AdaptiveScale {
         self.last_missed = 0;
         self.last_frames = 0;
         self.clear_windows = 0;
+        self.recent = [0; RECENT_WINDOWS];
+        self.recent_len = 0;
+        self.recent_next = 0;
+        self.steady_windows = 0;
+        self.late_settled = false;
+    }
+
+    /// The evidence for a late step, as (refreshes missed, frames) when it
+    /// is enough: two windows in a row at the drop line, or, once the scale
+    /// is settled (D319), the recent windows averaging [`SETTLED_FACTOR`]
+    /// times it.
+    fn late_evidence(&self) -> Option<(u32, u32)> {
+        if self.late_settled || self.steady_windows >= STEADY_WINDOWS {
+            if self.recent_len < LATE_WINDOWS_TO_DROP as usize {
+                return None;
+            }
+            let missed: u32 = self.recent.iter().take(self.recent_len).sum();
+            let windows = self.recent_len as f32;
+            let needed = SETTLED_FACTOR * LATE_PER_WINDOW as f32 * windows;
+            return (missed as f32 >= needed)
+                .then_some((missed, self.recent_len as u32 * LATE_WINDOW));
+        }
+        (self.late_windows >= LATE_WINDOWS_TO_DROP).then_some((self.late_run, self.late_run_frames))
     }
 
     /// The current render scale.
@@ -753,11 +823,14 @@ impl AdaptiveScale {
 
         // One late drop at a time: the next waits for this one's verdict.
         // A step that paid shows the misses follow the scale (D317).
-        let late = self.late_windows >= LATE_WINDOWS_TO_DROP
-            && self.late_probe.is_none()
-            && self
-                .cadence_ms
-                .is_some_and(|cadence| self.late_proven || average >= cadence * LATE_MIN_LOAD);
+        // Settled, the evidence must be stronger (D319).
+        let evidence = self.late_evidence().filter(|_| {
+            self.late_probe.is_none()
+                && self
+                    .cadence_ms
+                    .is_some_and(|cadence| self.late_proven || average >= cadence * LATE_MIN_LOAD)
+        });
+        let late = evidence.is_some();
         let target = if self.over >= DROP_AFTER {
             // Area-proportional: aim a little under budget so one drop is
             // usually enough.
@@ -766,9 +839,10 @@ impl AdaptiveScale {
             // Refreshes are being missed with the mean under budget: one
             // small step, and remember what the GPU took while they were.
             self.late_ms = Some(self.late_ms.map_or(average, |ms| ms.min(average)));
+            let (late, frames) = evidence.unwrap_or((self.late_run, self.late_run_frames));
             self.missed = self.cadence_ms.map(|cadence_ms| Missed {
-                late: self.late_run,
-                frames: self.late_run_frames,
+                late,
+                frames,
                 cadence_ms,
             });
             // A late drop that did not pay stops the late rule at its scale.
@@ -912,6 +986,8 @@ impl AdaptiveScale {
         let pays = cut >= probe.share_before * LATE_MIN_CUT && cut >= LATE_MIN_CUT_POINTS;
         if under_the_line || pays {
             self.late_proven = true;
+            // Settled here until the scale changes (D319).
+            self.late_settled = true;
             self.late_next_lock = LATE_LOCK_FRAMES;
             return None;
         }
@@ -1415,14 +1491,14 @@ mod tests {
 
     #[test]
     fn missing_refreshes_lower_step_by_step_while_each_step_helps() {
-        // One frame in eight late at full size, one in eighteen at 0.9 (more
-        // than halved, still over the line), none at 0.8.
+        // One frame in five late at full size, one in twelve at 0.9 (more
+        // than halved, and over the settled line of D319), none at 0.8.
         let mut c = sixty_hz();
         let run = present(&mut c, 3600, |s, i| {
             let late = if s > 0.92 {
-                i.is_multiple_of(8)
+                i.is_multiple_of(5)
             } else if s > 0.85 {
-                i.is_multiple_of(18)
+                i.is_multiple_of(12)
             } else {
                 false
             };
@@ -1715,10 +1791,103 @@ mod tests {
         );
     }
 
+    /// A repeatable pseudo-random stream in 0..1, seeded (D319).
+    struct Chance(u64);
+
+    impl Chance {
+        fn next(&mut self) -> f32 {
+            self.0 = self
+                .0
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            (self.0 >> 40) as f32 / (1_u64 << 24) as f32
+        }
+    }
+
+    /// Takes the old 13 down to 0.70 as M20 run 2 did, then runs `frames`
+    /// more frames with each frame missing a refresh at random with chance
+    /// `share(frame)`. Returns the changes after 0.70 was reached.
+    fn held_at_0_70(
+        c: &mut AdaptiveScale,
+        seed: u64,
+        frames: u32,
+        share: impl Fn(u32) -> f32,
+    ) -> Vec<(u32, f32, f32)> {
+        let mut owed = 0.0_f32;
+        for _ in 0..60 * 40 {
+            let s = c.scale();
+            owed += if s > 0.95 {
+                0.404
+            } else if s > 0.85 {
+                0.267
+            } else if s > 0.75 {
+                0.14
+            } else {
+                0.026
+            };
+            let late = owed >= 1.0;
+            if late {
+                owed -= 1.0;
+            }
+            c.presented(if late { 2.0 * PERIOD } else { PERIOD });
+            c.observe(1.16 + 12.44 * s * s);
+        }
+        let mut chance = Chance(seed);
+        let mut changes = Vec::new();
+        for i in 0..frames {
+            let s = c.scale();
+            let late = chance.next() < share(i);
+            c.presented(if late { 2.0 * PERIOD } else { PERIOD });
+            if let Some(to) = c.observe(1.16 + 12.44 * s * s) {
+                changes.push((i, s, to));
+            }
+        }
+        changes
+    }
+
     #[test]
-    fn a_long_run_of_missing_windows_reports_only_the_last_two() {
+    fn a_settled_scale_does_not_creep_down_on_noise() {
+        // M23 run B: two minutes steady at 0.70 with 2.6-2.7% missed, then
+        // a step to 0.60 on 13 misses in 240 frames, which chance gives two
+        // windows in a row about one time in twenty. Thirty minutes at 2.7%,
+        // drawn at random, five seeds: no step.
+        for seed in [1, 2, 3, 2026, 1017] {
+            let mut c = sixty_hz();
+            let changes = held_at_0_70(&mut c, seed, 60 * 60 * 30, |_| 0.027);
+            assert!(
+                (c.scale() - 0.7).abs() < 1e-4 && changes.is_empty(),
+                "seed {seed}: no step from 0.70 in 30 minutes: {changes:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_settled_scale_still_steps_for_a_real_change() {
+        // Two minutes settled at 0.70, then the scene gets heavier (or
+        // another app loads the GPU): 14% missed, as at 0.80 before.
+        let settled = 60 * 120;
+        for seed in [1, 2, 3] {
+            let mut c = sixty_hz();
+            let changes = held_at_0_70(&mut c, seed, settled + 60 * 30, |i| {
+                if i < settled { 0.027 } else { 0.14 }
+            });
+            assert!(
+                changes
+                    .first()
+                    .is_some_and(|(frame, from, to)| *frame >= settled
+                        && *frame < settled + 60 * 10
+                        && (*from - 0.7).abs() < 1e-4
+                        && *to < 0.7),
+                "seed {seed}: a step from 0.70 within 10 s of the change: {changes:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_long_run_of_missing_windows_reports_only_the_recent_ones() {
         // The load line holds the step (8 ms), and 15% of frames miss for a
-        // minute: the trigger reported is two windows, not thirty.
+        // minute: the trigger reported is the recent windows, not thirty
+        // (D317, D319).
         let mut c = sixty_hz();
         let mut owed = 0.0_f32;
         for _ in 0..3600 {
@@ -1744,8 +1913,11 @@ mod tests {
             }
         }
         assert!(
-            reported.is_some_and(|m| m.frames == 2 * LATE_WINDOW && m.late >= 30 && m.late <= 42),
-            "two windows of about 15%: {reported:?}"
+            reported.is_some_and(|m| m.frames == RECENT_WINDOWS as u32 * LATE_WINDOW
+                && m.late >= 75
+                && m.late <= 105),
+            "the recent windows at about 15%, not the minute's run (D319: a minute at one \
+             scale is settled, so the recent windows are the evidence): {reported:?}"
         );
     }
 
@@ -1852,14 +2024,10 @@ mod tests {
             }
         }
         assert!(
-            changes.len() >= 3
-                && changes[2]
-                    .3
-                    .is_some_and(|u| (u.tried - 0.8).abs() < 1e-4 && (u.scale - 0.9).abs() < 1e-4),
-            "two steps down, the step to 0.8 undone: {changes:?}"
+            changes.len() == 1 && (changes[0].2 - 0.9).abs() < 1e-4,
+            "one step, and none from 0.9: 4.3% is over the drop line but under the settled \
+             one (D319), so 0.8 is not even tried: {changes:?}"
         );
-        // Then only the lock's retries, backing off (D318), and never lower.
-        backs_off(&changes, 2, 0.9, 60 * 60 * 10);
         assert!((c.scale() - 0.9).abs() < 1e-4, "ends at 0.9: {}", c.scale());
     }
 

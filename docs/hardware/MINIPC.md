@@ -665,26 +665,81 @@ covered. The soak was paused from 17:06:47 to 17:11:35.
   59.9 fps; the drop line, not a lower "good enough" level, is where the
   stepping stops (see D318).
 
-### Task M22, to run: a launch right after another strobe exits
+## D318 on the projector, and a competitor on the GPU (2026-10-17, Tasks M22 and M23, D318 -> D319)
 
-Two hold-13 runs on the D318 build, the control window covered, 120 s each:
+### M22: launches right after another strobe exits
 
-1. **Run A again.** Start strobe within about 10 s of another strobe
-   exiting: stop the soak, or the run before, and launch at once.
-2. **A normal run,** with nothing exiting before it.
+Two hold-13 runs on the D318 build (76104e9), the control window covered,
+one launched 1.4 s after another strobe exited. The soak was paused from
+about 17:42 to 17:48:13.
+
+- **Both runs** reached 0.70 by 18.5 s, then ran 58.4-58.6 fps with 2.3-2.8%
+  missed. There was no lock and no fourth step.
+- **The M21 disturbance did not recur,** so D318's deferral and expiring
+  lock were not exercised. Task M24 provokes them.
+
+### M23: a second program loading the GPU
+
+The same hold-13 runs, with `strobe-bench` rendering 10-volume-clouds
+fullscreen at 1080p on the same GPU for part of each run. The soak was
+paused from 17:49:56 to 17:57:20.
+
+| Run | Load | During the load | Steps | End |
+|---|---|---|---|---|
+| A | +6.4 s to +21.1 s | no step; worst gap 2.6 s, about 17 fps | 21.8 s (53.8%, GPU 13.6), 27.5 s, 32.7 s | 0.70, 58.6 fps |
+| B | +6.1 s to +46.1 s | no step | 46.4 s (68.3%, GPU 15.4, windows mostly within the load), 52.0 s, 57.2 s; then 185.1 s, 0.70 -> 0.60 on "13 refreshes over the last 240 frames (5.4%)" | 0.60, 59.7 fps |
+
+**What it showed:**
+- **Under a competitor's stalls the controller waits, then steps normally
+  once the load ends.**
+  - The windows are counted in presented frames, so under 2.6 s stalls a
+    window simply takes longer.
+  - Each interval counts as 2 missed refreshes at most (`STALL_CADENCES`), so
+    the stalls do not fill a window by themselves.
+  - Each step is still judged on the windows after it.
+- **Run B crept down on noise.** It held 0.70 for about two minutes at
+  2.6-2.7% missed a minute, then took a fourth step because two 120-frame
+  windows reached the drop line by chance. At 2.7%, a window holds 5 or
+  more misses about one time in four, so two in a row happen about one time
+  in twenty.
+
+**What changed (D319):**
+- **Settled scales need stronger evidence.** Once a late step has paid, or
+  after 30 s at one scale, the scale is settled. The next step then needs
+  the recent windows (up to 10 s) to average 1.5 times the drop line
+  (6.25% missed).
+  - At 2.7%, noise does not get there.
+  - A real change (14% or more) still steps within about 4 s.
+- **The stall behaviour is unchanged,** and now documented (D319).
+
+### Task M24, to run: a disturbance inside a verdict, and a long hold
+
+Hold-13 on the D319 build, the control window covered.
+
+1. **Run A, a short disturbance inside the first verdict.** Start strobe,
+   then at about 9 s start `strobe-bench --context window --gl native --size
+   640x360 --filter 10- --frames 1000000` (scene 10, small enough that strobe
+   keeps presenting; the frame count only keeps it running), and stop it
+   (Ctrl+C or `Stop-Process`) at about 13 s.
+2. **Run B, a longer one.** The same, stopped at about 40 s.
+3. **Run C, a 10-minute hold** of 13, with nothing else running.
 
 **Expected:**
-- **Run 1:** no "cut too few missed refreshes" line in the first minute; if
-  the first verdict's windows are disturbed, it simply comes later. Steps to
-  0.80 or 0.70 within 90 s, and about 58 fps or better by minute 2. If a
-  lock line does appear, it now names its length ("for 3600 frames (about
-  60 s at 60 Hz)"), and the steps follow once it runs out.
-- **Run 2:** as M21 run B: 0.70 (or 0.60) within about 30 s, then steady.
+- **Run A:** the first step at about 8 s, and its verdict put off (no lock
+  line) until the bench stops. Then the steps to 0.70, with nothing locked.
+  If a "cut too few missed refreshes" line does appear, it names a
+  60 s lock, and the steps follow after it.
+- **Run B:** either deferrals and then a verdict once the bench stops, or a
+  lock that heals: the "for 3600 frames" line, then steps about 60 s later.
+  The run should be at 0.70 or 0.80 by about 100 s at the latest.
+- **Run C:** 0.70 by about 20 s, and then no change for the 10 minutes:
+  every perf line from minute 2 at `scale 0.70`, no step to 0.60.
 
-**What would reopen D318:**
-- A lock at 1.00 that outlasts its stated length.
-- Retries more often than the backoff allows.
-- A verdict put off for good on a quiet machine.
+**What would reopen D319:**
+- Run C stepping below 0.70 with the missed share near 3% (the settled line
+  is too loose).
+- A scene getting heavier mid-hold and not stepping within about 10 s (too
+  strict).
 
 ## Still to do here
 
@@ -692,8 +747,9 @@ Two hold-13 runs on the D318 build, the control window covered, 120 s each:
   Disconnect.
 - Re-measure the D310 scenes (section above). `14-electric-bloom` is
   expected to be the one still above 10 ms.
-- Task M22 (section above): a hold-13 launch right after another strobe
-  exits, and a normal run (D318).
+- Task M24 (section above): a short and a longer bench disturbance inside
+  a verdict (D318's deferral and healing lock), and a 10-minute hold-13 with
+  no creep below 0.70 (D319).
 
 - Native strobe-bench and control generation in session 1: does a hidden
   window on AMD WGL draw at all (M3b)?
