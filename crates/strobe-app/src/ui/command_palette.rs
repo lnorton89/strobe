@@ -153,7 +153,9 @@ pub fn draw(ctx: &Context, theme: &Palette, model: &mut Model<'_>, actions: &mut
             || (!just_opened && input.consume_key(Modifiers::COMMAND, Key::K)),
     });
 
-    state.listing.update(sources, layouts.keys(), &state.query);
+    state
+        .listing
+        .update(sources, layouts.keys(), &state.query, &mut state.selected);
     let count = state.listing.ranked().len();
     if keys.up {
         state.selected = moved(state.selected, -1, count);
@@ -218,7 +220,12 @@ pub fn draw(ctx: &Context, theme: &Palette, model: &mut Model<'_>, actions: &mut
                         field.request_focus();
                     }
                     if field.changed() {
-                        state.listing.update(sources, layouts.keys(), &state.query);
+                        state.listing.update(
+                            sources,
+                            layouts.keys(),
+                            &state.query,
+                            &mut state.selected,
+                        );
                         state.selected = (!state.listing.ranked().is_empty()).then_some(0);
                     }
                     ui.add_space(SPACE_SM);

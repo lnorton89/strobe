@@ -647,7 +647,11 @@ struct Running {
 
     monitors: Vec<MonitorHandle>,
     monitor_labels: Vec<String>,
-    output_monitor: Option<usize>,
+    /// What identifies each of `monitors`, in the same order (D400).
+    monitor_ids: Vec<crate::output_monitor::Identity>,
+    /// The output's monitor, followed across refreshes by what it is,
+    /// never by its place in the list (D400).
+    output_monitor: crate::output_monitor::Chosen,
     last_monitor_refresh: Instant,
 
     /// Whether the output window is shown. Tracked here because winit cannot
@@ -1004,7 +1008,8 @@ impl Running {
             resize_backoff: ResizeBackoff::default(),
             monitors: Vec::new(),
             monitor_labels: Vec::new(),
-            output_monitor: None,
+            monitor_ids: Vec::new(),
+            output_monitor: crate::output_monitor::Chosen::default(),
             last_monitor_refresh: now,
             output_visible: cli.show_output,
             output_modifiers: ModifiersState::empty(),
@@ -1724,6 +1729,33 @@ impl Running {
                 )
             })
             .collect();
+        self.monitor_ids.clear();
+        self.monitor_ids.extend(self.monitors.iter().map(|monitor| {
+            crate::output_monitor::Identity {
+                name: monitor.name(),
+                position: [monitor.position().x, monitor.position().y],
+                size: [monitor.size().width, monitor.size().height],
+            }
+        }));
+        let followed = self.output_monitor.follow(&self.monitor_ids);
+        let labels = &self.monitor_labels;
+        let label = |index: usize| labels.get(index).map_or("?", String::as_str);
+        match followed {
+            crate::output_monitor::Followed::Same => {}
+            crate::output_monitor::Followed::Moved { from, to } => log::info!(
+                "output monitor: the list changed; it is {} now (was number {}) (D400)",
+                label(to),
+                from + 1
+            ),
+            crate::output_monitor::Followed::Lost => log::warn!(
+                "output monitor: the chosen monitor is gone; F11 now goes fullscreen where \
+                 the output is, until it comes back or another is chosen (D400)"
+            ),
+            crate::output_monitor::Followed::Found(at) => log::info!(
+                "output monitor: the chosen monitor is back as {} (D400)",
+                label(at)
+            ),
+        }
     }
 
     // --------------------------------------------------------------- events
@@ -1907,6 +1939,7 @@ impl Running {
         }
         let monitor = self
             .output_monitor
+            .index()
             .and_then(|index| self.monitors.get(index))
             .cloned();
         window.set_fullscreen(Some(Fullscreen::Borderless(monitor)));
@@ -1940,6 +1973,7 @@ impl Running {
         log::info!(
             "output placed at launch: monitor {}, fullscreen {}",
             self.output_monitor
+                .index()
                 .map_or_else(|| "as opened".to_string(), |index| (index + 1).to_string()),
             cli.fullscreen
         );
@@ -1949,7 +1983,9 @@ impl Running {
         let Some(monitor) = self.monitors.get(index).cloned() else {
             return;
         };
-        self.output_monitor = Some(index);
+        if !self.output_monitor.choose(index, &self.monitor_ids) {
+            return;
+        }
         let window = self.stack.output.window();
         if window.fullscreen().is_some() {
             window.set_fullscreen(Some(Fullscreen::Borderless(Some(monitor))));
@@ -4865,7 +4901,7 @@ impl Running {
             stats: &self.stats,
             render_scale: &mut self.scale_edit,
             monitors: &self.monitor_labels,
-            output_monitor: self.output_monitor,
+            output_monitor: self.output_monitor.index(),
             output_visible: self.output_visible,
             fullscreen: self.stack.output.window().fullscreen().is_some(),
             maximized: self.stack.control.window().is_maximized(),

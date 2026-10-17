@@ -9555,6 +9555,313 @@ of the poisoned lock.
 **Would reopen:** nothing expected. Any new global registry in this crate
 should follow the same rule: no caller-supplied code under its lock.
 
+### D400: the output's monitor is followed by what it is, not by its place in the list (2026-10-17)
+
+**Context.** The output's monitor was an index into the monitor list, and
+the list is read again every `MONITOR_REFRESH` (2 s). Unplug a projector, or
+let Windows renumber its displays after a change, and the same index names
+another monitor, possibly the operator's own; F11 (or `--fullscreen` after
+an earlier choice) then put the show fullscreen there. The handle cannot be
+kept instead: Windows can issue a new `HMONITOR` after a display change.
+
+**Decision.** `output_monitor::Chosen` keeps the chosen monitor's
+`Identity` (the name the system gives it, `\\.\DISPLAY2` on Windows, its
+desktop position and its size) and finds it again in each new list:
+
+- **as it was**, the same name, position and size;
+- **changed**, the one monitor with the same name and either the same
+  position (a new mode: a projector that renegotiated after a blink) or the
+  same size (the desktop rearranged). It needs a name, and exactly one
+  candidate; with two, or without a name, nothing is chosen rather than a
+  guess. The new identity is kept, so the next change is measured from it;
+- **gone**: nothing is chosen. F11 does what it did before anything was
+  chosen, fullscreen on the monitor the output is on, and the picker shows
+  no choice. The identity is remembered, so a projector that comes back is
+  chosen again; choosing another monitor replaces it. Moved, lost and found
+  are each logged once (D400 in the line).
+
+It is a pure type over plain data, tested without winit. The list is read
+where it was (every 2 s, never per frame).
+
+**Not done.** A fullscreen output is not moved back by itself when its
+projector returns. Windows moves a fullscreen window off a display that
+goes away; whether it moves it back, and whether doing it ourselves mid-show
+is welcome, is for the venue to say. The operator presses F11 twice (or
+picks the monitor) to put it back.
+
+**Test.** `output_monitor::tests`:
+`an_unplugged_monitor_never_leaves_its_place_to_another` (the old index
+names another monitor after the unplug; the choice follows its monitor,
+is dropped when that one goes, and comes back with it),
+`a_reordered_list_keeps_the_same_monitor`,
+`a_monitor_whose_mode_or_place_changed_is_followed_by_its_name`,
+`a_partial_match_is_never_a_guess_between_two_or_without_a_name` and
+`choosing_past_the_end_changes_nothing`.
+
+**Not verified:** unplugging and replugging a projector on the mini PC
+(STATUS_AUDIT), and what `MonitorHandle::name` reports there after a
+replug.
+
+**Would reopen:** a replugged projector coming back under another name
+(then the choice stays empty and the operator picks again), or a venue that
+wants the output moved back automatically.
+
+### D401: a control window that loses focus lets go of the macros its keys hold (2026-10-17)
+
+**Context.** A macro key (D228) holds its macro up from its press to its
+release. Whether the release comes when the control window loses focus with
+the key still down depends on the platform. Read in winit 0.30.13 and
+egui 0.36.2:
+
+- **Windows** synthesizes key-up events on `WM_KILLFOCUS` for every key
+  still down (`keyboard.rs`, `synthesize_kbd_state`); **X11** does the same
+  on focus-out. egui-winit drops synthetic *presses* but passes synthetic
+  releases on, so `keys::handle` sees the release there.
+- **macOS and Wayland** send nothing (every macOS key event is
+  `is_synthetic: false`; nothing is synthesized on Wayland's leave).
+- **egui** on `WindowFocused(false)` clears its own `keys_down` and
+  modifiers, but emits no `Key { pressed: false }` event, and the macro
+  strip reads only those events.
+
+So on macOS and Wayland a macro held while the operator switched windows
+stayed up until its key was pressed and let go again. Windows was fine.
+
+**Decision.** `keys::handle` reads `WindowFocused(false)` among the frame's
+events and, after the frame's key edges, lets go of every macro a key holds
+(`macro_keys_held` is drained, one `MacroKey { down: false }` each). Where a
+release did arrive first, the macro is no longer held, so nothing is sent
+twice. It costs nothing in a frame without a focus change.
+
+**Test.** `ui::shell_tests::a_window_that_loses_focus_lets_its_held_macros_go`
+(failed before: the macro went down and never up), including the Windows
+order (release, then focus loss) with exactly one release.
+
+**Would reopen:** a platform that reports focus loss without
+`WindowFocused(false)` reaching egui (a context rebuild drops the control
+window's events while it runs: `rebuild.is_some()` in `window_event`).
+
+### D402: a frame never drops a key release (2026-10-17)
+
+**Context.** `keys::handle` kept at most `MAX_PER_FRAME` (8) key edges that
+are no command per frame, presses and releases together, in a fixed array,
+and dropped the rest silently. A frame with more (a control frame that ran
+late, D290's starved window catching up, or a desktop remote's batch) could
+drop a macro key's release, and the macro stayed up.
+
+**Decision.** Releases are not counted and never dropped; only presses are
+capped, at the same 8 for macros as for commands. The macro edges are
+handled as they are read, in their order, so a press and its release in one
+frame still go down and up, and nothing is stored for them (no array, no
+allocation). Commands are still collected and run after the frame's edges;
+a frame that holds both now sends the macro actions first, which nothing
+depends on.
+
+**Test.** `ui::shell_tests::a_macro_release_is_never_dropped_in_a_crowded_frame`
+(nine presses and Q's release in one frame; failed before with the macro
+left down).
+
+**Would reopen:** nothing expected.
+
+### D403: the palette's highlight stays on its entry when the list changes under it (2026-10-17)
+
+**Context.** The command palette keeps its entries and their ranking until
+what they come from changes (D262): the library, the playing scene, its
+presets, the layouts, what is available. The highlight was a row number.
+When the list was built again while the palette was open (a cue started the
+next scene, a phone or MIDI loaded one, a scene arrived in the watched
+folder), the same row could hold another entry, and Enter ran that one. With
+"autumn" typed and *Load: 03-autumn* highlighted, a scene starting whose
+presets are *Autumn* and *Autumn dusk* put *Apply preset: Autumn* on that
+row.
+
+**Decision.** When `Listing::update` builds the entries again, it takes the
+highlighted entry out of the old list and, after ranking, puts the highlight
+on the row that now shows it: the same target and title, or else the one
+entry of the same kind, title and category (a scene whose library index
+moved). If it is gone, or two entries could be it, nothing is highlighted,
+so Enter runs nothing until the operator moves; that is the safe answer in a
+show. Typing still puts the highlight on the first row, as before. Opening
+the palette forgets the last ranking, so its first row is highlighted rather
+than whatever was highlighted when it was last open. Nothing more is
+allocated per frame: the lookup runs only when the list was built again.
+
+**Test.** `command_palette::tests::the_highlight_stays_on_its_entry_when_the_list_changes_under_it`
+(failed before, highlighting *Apply preset: Autumn*), with the entry's
+removal leaving nothing highlighted.
+
+**Would reopen:** an operator expecting the highlight to stay on a row
+rather than an entry (it never did on purpose).
+
+### D404: a viewer image with no width or height sends no NaN (2026-10-17)
+
+**Context.** The desktop viewer (D275) sends pointer positions as fractions
+of the image it shows: `(pos - rect.min) / rect.size`. egui fits the image
+to the room it has (`ImageFit::Fraction`), so a controller window dragged
+down to nothing gives it a rect of zero width or height. A pointer on that
+rect's edge (which `contains` still accepts) or a button release while the
+viewer has focus (sent wherever the pointer is) divided by zero, and NaN
+failed `valid_inputs` at the host, which ends the connection ("desktop input
+refused").
+
+**Decision.** A fraction of an extent that is not positive, or that is not
+finite, is 0, the image's near edge. Nothing else changes: a release is
+still sent, so the host never keeps a button down, and the bounds check at
+the host stays as strict as it was.
+
+**Test.** `desktop::tests::a_viewer_image_with_no_width_or_height_sends_only_valid_input`
+(failed before with `Move { x: NaN }`).
+
+**Would reopen:** nothing expected.
+
+### D405: a remote click's modifiers are let go before the next remote input (2026-10-17)
+
+**Context.** The host turns a remote button or key into egui events with a
+`ModifiersChanged` first (`HostInput::translate`), and egui keeps the last
+one it saw. Pointer moves and scrolls carry no modifiers on the wire, so
+after a remote Ctrl+click the host's egui held Ctrl until the controller's
+next key or click: hovering and dragging went on as Ctrl-held, and the
+slider rail treats a Shift-held click differently.
+
+**Decision.** The wire is unchanged (its messages are frozen by the golden
+tests, D288). On the host, a button release that carried modifiers, with no
+other remote button or key held, marks them to be let go, and the next
+`translate` call (the next control frame that has remote input) begins with
+`ModifiersChanged(NONE)`. Not in the release's own pass: egui reads
+modifiers per pass, and the click that a Ctrl+click or Shift+click decides
+is read on the release (`ui::controls` and the playlist read
+`input.modifiers` there), so a reset in that pass would make every modified
+click a plain one. A key in between states its own modifiers and cancels the
+mark; Reset clears it.
+
+**Not chosen.** *Modifiers on every pointer move*: a protocol change for a
+field the host can infer.
+
+**Test.** `desktop::tests::a_remote_ctrl_click_leaves_no_ctrl_held_at_the_host`
+(failed before: Ctrl still held after the click and a move), which also
+checks that the release's own pass still sees Ctrl.
+
+**Would reopen:** a controller holding a modifier across clicks and moves
+expecting the host to see it held between them (it sees it again on the
+next click or key, which carries it).
+
+### D406: a capture over the JPEG limit is sent at a lower quality or a smaller size (2026-10-17)
+
+**Context.** The host encoded every capture of its control window at JPEG
+quality 90 and, when that came to more than `MAX_JPEG` (2 MiB, D275), sent
+`capture_failed`, which ends the desktop session. A big window with a noisy
+picture in it does that: 2560x1600 of noise is over 3 MiB at quality 90, a
+4K window about 7 MiB, and even quality 30 leaves 4K noise over the limit.
+Halving each edge averages the noise away (4K noise halved is about
+0.4 MiB at quality 45).
+
+**Decision.** The encoder worker walks a fixed ladder, from the best picture
+to the smallest, until a capture fits: quality 90, 75, 60 and 45 at full
+size, then 75, 60 and 45 at half size on each edge (a 2x2 box mean), then 60
+at a quarter. It remembers the step that fitted, so a steady picture costs
+one encode a capture, and goes one step back up only after 25 captures in a
+row (five seconds at the stream rate) that fit in a third of the limit, so a
+picture just over a step is not encoded twice every other capture. A
+smaller capture is published with its own size; the viewer already reads
+the size from each frame, and its input is fractions of the image, so
+pointing is unchanged (the host maps fractions onto its own window). Only a
+capture still over the limit at the last step ends the session, with the
+existing message. The work stays on the encoder thread, never the frame
+loop; a step down costs extra encodes of that one capture, and the queue of
+one skips the next capture while it runs.
+
+**Test.** `desktop::tests::a_capture_too_big_for_the_wire_is_sent_smaller_rather_than_ending_the_session`
+(failed before with "capture exceeds JPEG limit"; checks the decoded size is
+the one sent, the step is kept, and the climb back) and
+`a_shrunk_capture_averages_its_blocks`.
+
+**Not verified:** a 4K host window on hardware, and how sharp a halved
+picture reads on the controller.
+
+**Would reopen:** a controller that needs full resolution of a noisy window
+(then the limit, not the ladder, is the lever), or encode time at 4K
+holding the stream well under 5 Hz on the mini PC.
+
+### D407: a code-paired desktop takes back its own lease once the connection holding it has gone silent (2026-10-17)
+
+**Context.** One connection holds the desktop lease (D275). A Wi-Fi drop
+leaves the host's end of the controller's old connection open, holding the
+lease, until its idle timeout (30 s): nothing is read from it, and nothing
+the host writes fails yet. A trusted controller that reconnects proves the
+trust file again and replaces its own record, which closes the old
+connection at once (D288). A code-paired controller reconnects with its
+token, gets the same client id, and was refused "only one desktop can
+control it at a time" for up to 30 s.
+
+**Why not simply let the same client id supersede, as trusted controllers
+do.** A trusted controller's proof cannot be replayed (a fresh nonce, bound
+to the host address, D288), so whoever proves is the holder of the file. A
+token can be: it crosses the LAN in clear (D252, D275), and D275 states the
+known risk as "while the switch is on *and the lease free*, replay a
+sniffed desktop token". Superseding on the token alone would let a passive
+sniffer take the lease from the controller in the middle of the show,
+which today it cannot. That would weaken D275, so it is not done.
+
+**Decision.** The same paired desktop (the same client id, so the same
+token's record) may take the lease from another of its own connections only
+when that connection has sent nothing for `Limits::dead_lease` (12 s). The
+native controller pings every 5 s from its worker thread whatever the UI is
+doing, so a connection silent for two pings and a margin is the dead one.
+The old connection is marked revoked (it closes on its next tick) and
+releases the lease, which also queues the input reset that lets go of
+anything it held; the new connection takes the lease, and the host logs
+it. Every message on a connection now records the time on its entry in the
+connection list (one short lock, on the connection's thread).
+
+What it does not change: a live lease holder (heard within 12 s) keeps the
+lease against its own token as before; another paired desktop never takes
+it, however quiet the holder; phones never have desktop scope; trusted
+pairing is unchanged. A sniffer gains only a lease whose holder the
+controller's own pings say is gone, 12 s after it went quiet instead of
+30 s, which is the "lease free" case D275 already names.
+
+**Not done.** The code-paired viewer still ends on a refusal and offers
+Reconnect (D286, D294); a reconnect pressed within the 12 s is refused once
+more. An automatic retry of `desktop_open` would close that, and is not
+this change.
+
+**Test.** `strobe-remote/tests/server.rs`:
+`a_code_paired_desktop_reconnecting_takes_back_its_own_dead_lease_only`
+(a live holder keeps it, another desktop is refused even after the
+silence, and the same desktop takes it back with the old connection
+closed; failed before, the old connection never closed). The limit is
+shortened to 300 ms there.
+
+**Would reopen:** TLS (D288's list), after which a token is no longer
+replayable and the same client id could supersede at once; or a controller
+whose pings are delayed past 12 s on a congested venue network.
+
+### D408: the control window's view models still allocate each control frame (2026-10-17)
+
+**Context.** A sweep flagged that `Lan::view` and the macro strip build
+fresh vectors on every control frame: the strip a `Vec<Card>`, each with a
+cloned `Macro`, a badge `String` and a tooltip joined from its mappings;
+`Lan::view` the client list, the connection list and the strings of a
+`LanView`. CLAUDE.md's rule is that per-frame paths do not allocate.
+
+**Decision.** Left as they are, for now. They are not the simple fix the
+sweep hoped for: the strip's cards come from `Remote::evaluate`, which
+itself returns a freshly built `Evaluated` (one resolution per mapping and
+per macro) every control frame, and `Lan::view` reads the listener's
+client and connection lists, which strobe-remote hands out as owned copies
+under its locks with no revision to cache against. Removing the card clones
+alone would leave both underneath. Doing it properly means revision counters
+on the clients list, the connection table and the pairing state in
+strobe-remote, and a cached evaluation in `Remote`, which is a refactor of
+its own. The cost is bounded (a few dozen small allocations at most 30
+times a second, on the control window's frame, which runs at 2 Hz covered,
+or only its chores when starved, D206, D290, D315), and none of it is on the
+output's frame, which the rule exists for.
+
+**Would reopen:** a profile of the control frame on the mini PC showing
+these allocations matter, or the revision counters arriving for another
+reason; then the strip and `LanView` should be cached against them, as the
+palette's listing is (D262).
+
 ### D410: a pass larger than the texture limit is refused by name; a relative one is clamped to it (2026-10-17)
 
 **Context.** A pass of absolute size (a literal `WIDTH`/`HEIGHT`, D194, or

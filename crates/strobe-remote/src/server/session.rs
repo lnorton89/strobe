@@ -400,6 +400,7 @@ impl<'a> Session<'a> {
         match self.reader.read(&mut self.stream) {
             Ok(Some(message)) => {
                 self.heard = Instant::now();
+                self.shared.heard(self.conn);
                 self.spend()?;
                 self.message(message)?;
             }
@@ -807,8 +808,21 @@ impl<'a> Session<'a> {
             (Phase::Unauthenticated, ClientMessage::TrustProof { response }) => {
                 self.trust_proof(&response)
             }
-            (Phase::Authenticated(_), ClientMessage::DesktopOpen {}) => {
-                if self.desktop_authorized && self.shared.remote.desktop.acquire(self.conn) {
+            (Phase::Authenticated(client_id), ClientMessage::DesktopOpen {}) => {
+                let desktop = &self.shared.remote.desktop;
+                // Our own earlier connection, gone silent, gives its lease
+                // back (D407); nobody else's ever does.
+                let leased = self.desktop_authorized
+                    && (desktop.acquire(self.conn)
+                        || (self.shared.reclaim_dead_lease(self.conn, &client_id) && {
+                            log::info!(
+                                "remote: client {client_id} reconnected from {}; its earlier \
+                                 connection had gone silent and gave up the desktop lease (D407)",
+                                self.peer
+                            );
+                            desktop.acquire(self.conn)
+                        }));
+                if leased {
                     self.desktop_open = true;
                     self.desktop_revision = None;
                     self.push_state()

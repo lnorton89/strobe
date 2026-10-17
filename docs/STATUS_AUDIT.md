@@ -297,6 +297,13 @@ Linux and llvmpipe cannot prove any of these:
   MINIPC.md M23: with `strobe-bench` rendering 10-volume-clouds at 1080p on
   the same GPU (2.6 s stalls, about 17 fps), no step was taken under the
   load, then the normal steps to 0.70 followed once it ended (58.6 fps).
+- [ ] The output's monitor survives a display change (D400). Unit-tested
+  on plain data (`output_monitor::tests`). Acceptance test on the mini PC:
+  with the output on projector 2, unplug projector 1 (or swap the cables)
+  and confirm the log's `output monitor:` line, that F11 still goes to
+  projector 2, that unplugging projector 2 itself leaves nothing chosen
+  (F11 goes fullscreen where the output is, never by index), and that
+  replugging it logs "back as" and chooses it again.
 - [x] Keep commands, environment, logs, screenshots and failed outcomes in
   [hardware/T480.md](hardware/T480.md).
 
