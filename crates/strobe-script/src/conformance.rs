@@ -273,6 +273,32 @@ fn a_malformed_set_uniform_is_a_script_fault_with_a_line() -> Result<()> {
 }
 
 #[test]
+fn a_value_no_f32_can_hold_reaches_the_shader_as_zero() -> Result<()> {
+    // 1e39 is a finite double but past f32::MAX, so a plain cast makes it
+    // infinity, which a shader turns into NaN on the first multiply by 0.
+    let script = r#"
+        function update(dt) {
+            setUniform("odd", NaN, Infinity, 1e39, -1e39);
+            setUniform("fine", 3.0e38);
+        }
+    "#;
+    let mut rig = Rig::new(script, &[])?;
+    let out = rig.step();
+    assert_eq!(out.status, ScriptStatus::Running, "{:?}", out.console);
+    let odd = uniform(&out, "odd")?;
+    assert_eq!(
+        odd.value, [0.0; 4],
+        "NaN, infinities and out-of-range doubles all become zero"
+    );
+    expect_uniform(&out, "fine", ExtraType::Float, &[])?;
+    assert!(
+        uniform(&out, "fine")?.value[0] == 3.0e38,
+        "a large value f32 can hold is kept"
+    );
+    Ok(())
+}
+
+#[test]
 fn a_uniform_keeps_its_first_type_and_warns_once() -> Result<()> {
     let script = r#"
         function update(dt) {
