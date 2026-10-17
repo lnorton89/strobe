@@ -9360,3 +9360,42 @@ The show loop needs a GL context and a library to run, and its use of the
 clock is the three lines that changed.
 
 **Would reopen:** as D391.
+
+### D393: every clock that grows with show time, and what each one's precision is (2026-10-17)
+
+**Context.** Two bug sweeps flagged `f32` clocks that lose precision as a
+show runs. The goal is a show that looks the same four hours in as at
+minute one. This is the whole list, from a search of every crate for sums
+of `dt` and for clocks a shader, a script or the playlist reads. "Spacing"
+is the gap between neighbouring `f32` values at the clock's size four hours
+in.
+
+| Value | Kept as | Four hours in | Verdict |
+|---|---|---|---|
+| Speed and traveler control outputs | `f64` sum, `f32` uniform | within half a spacing (0.001 at 28 800) | fixed, D390; wrap is Q29 |
+| Scene `TIME` (`Session`) | `f64` sum, `f32` uniform and script value | within 0.0005 s | fixed, D391; wrap is Q29 |
+| A playlist's show time (its audio frame's time) | `f64` sum, `f32` to the audio | within 0.0005 s | fixed, D392 |
+| Playlist cue clock, elapsed, waits (`strobe-playlist`) | `f64` | exact | was already right |
+| `syn_Time`, band clocks, `syn_CurvedTime` (analyser) | `f64` sums, `f32` uniforms | half a spacing (0.004 at 1e5) | CPU side was already exact; uniform is Q29 |
+| Synthetic and ambient clocks | closed forms in `f64` (D329, D330) of the `f32` scene time | as `TIME` | right once `TIME` is (D391) |
+| `syn_BeatTime` (analyser) | whole-beat counter, `u64` | exact to 16.7 M beats | fine |
+| `syn_BPMTwitcher` and the synthetic `syn_BeatTime`; BPM sine and triangle | `f64` beat position, `f32` uniform; the shapes take its fraction in `f64` first | 0.002 of a beat at 28 800 beats; the shapes exact | fine; the shapes are already "value mod period" |
+| Shadertoy `iTime` (clock pass texel, RGBA32F) | `f32` sum on the GPU | equal to `TIME` at default speed; slowed late it runs fast or freezes | left, Q30 |
+| One-texel clocks in scenes 13 to 16 | `f32` sum on the GPU | as `iTime` | left with `iTime`, Q30 |
+| `FRAMECOUNT` | `u64`, `f32` uniform | exact (864 000 at 60 fps) | fine to 77 h at 60 fps, 32 h at 144; restarts per cue |
+| `strobe_Date` seconds of day (`iDate.w`) | `f32` | spacing 0.0078 s near midnight | bounded, and Shadertoy's own is `f32`; left |
+| Analyser silence and starvation timers, song and event detectors | `f32` sums | compared with thresholds of seconds | only ever compared with a threshold; left |
+| Bang counters | `f32` count of presses | exact to 16.7 M presses | not a clock |
+
+**Decision.** Keep every sum exact on the CPU and leave the `f32` the
+shader reads unwrapped. `TIME` and the clocks shaders read like it are
+used as coordinates (`noise(uv + TIME)`, `uv.x + TIME * 0.1`) as often as
+phases, so a wrap is a visible jump; nothing read so far says Synesthesia
+wraps them; and a wrap would change what a scene shows, which a precision
+fix must not. The two changes this leaves open are questions, not fixes:
+wrapping (Q29) and moving the Shadertoy clock to the host (Q30). Clocks
+that jump when the audio source changes mid-show (D330's "Not changed")
+are Q31: the continuity design is written there, and it is not built,
+because the synthetic track is evaluated at each caller's own time.
+
+**Would reopen:** an answer to Q29, Q30 or Q31.
