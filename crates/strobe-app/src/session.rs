@@ -344,6 +344,19 @@ impl Session {
         }
     }
 
+    /// Puts the controls back to the look the scene starts with, for a fav
+    /// slot that names the scene and no preset: the defaults, then the
+    /// `default` preset if the scene has one, as a load or a cue with no
+    /// preset gives (D176). No preset is active afterwards, so a fav stored
+    /// now stores none.
+    pub fn reset_to_start(&mut self) {
+        for index in 0..self.controls.defs().len() {
+            self.controls.set_default(index);
+        }
+        self.apply_startup_preset();
+        self.active_preset = None;
+    }
+
     /// Captures the controls as preset `name`, remembers it in memory and
     /// returns it for the caller to write to disk.
     pub fn capture_preset(&mut self, name: &str) -> Preset {
@@ -623,6 +636,77 @@ fn names_of(extras: &[(String, ExtraType)]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A one-slider scene in the temp directory, removed on drop.
+    struct TempScene(PathBuf);
+
+    impl Drop for TempScene {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// The target of control `name`, first component.
+    fn target(session: &Session, name: &str) -> Option<f32> {
+        session
+            .controls
+            .find(name)
+            .and_then(|index| session.controls.target(index))
+            .map(|values| values[0])
+    }
+
+    #[test]
+    fn a_reset_to_the_start_is_the_default_preset_with_no_preset_active() -> anyhow::Result<()> {
+        let dir = std::env::temp_dir().join(format!(
+            "strobe-session-start-{}.synScene",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir)?;
+        let scene = TempScene(dir);
+        std::fs::write(
+            scene.0.join("scene.json"),
+            r#"{ "CONTROLS": [ { "NAME": "level", "TYPE": "slider", "DEFAULT": 0.5 } ] }"#,
+        )?;
+        std::fs::write(
+            scene.0.join("main.glsl"),
+            "vec4 renderMain() { return vec4(level, 0.0, 0.0, 1.0); }",
+        )?;
+        let headless = match strobe_gfx::Headless::new(strobe_gfx::Api::DesktopCore33) {
+            Ok(headless) => headless,
+            Err(error) if std::env::var_os("STROBE_REQUIRE_HEADLESS_GL").is_none() => {
+                strobe_gfx::skip::note(format_args!("no headless context ({error})"));
+                return Ok(());
+            }
+            Err(error) => return Err(anyhow::anyhow!("headless context required: {error}")),
+        };
+        let gl = headless.gl();
+        let caps = Caps::from_info(gl.info());
+        let mut audio = AudioInput::new(false);
+        let mut session = Session::load(gl, &caps, &scene.0, "start", [16, 16], 0.0, &mut audio)
+            .map_err(|e| anyhow::anyhow!("load failed: {e}"))?;
+        let level = session
+            .controls
+            .find("level")
+            .ok_or_else(|| anyhow::anyhow!("no level control"))?;
+        // The scene's starting look (`default`) has the level at 0.8, and
+        // the operator's "Peak" at 0.2, recalled last.
+        session.controls.set(level, None, &[0.8]);
+        let _ = session.capture_preset(preset::STARTUP);
+        session.controls.set(level, None, &[0.2]);
+        let _ = session.capture_preset("Peak");
+        assert_eq!(session.active_preset.as_deref(), Some("Peak"), "set up");
+        session.reset_to_start();
+        assert_eq!(
+            target(&session, "level"),
+            Some(0.8),
+            "the look the scene starts with, as a load or a cue with no preset gives"
+        );
+        assert_eq!(
+            session.active_preset, None,
+            "no preset is active, so storing a fav now stores none"
+        );
+        Ok(())
+    }
 
     #[test]
     fn full_scale_follows_the_window() {
