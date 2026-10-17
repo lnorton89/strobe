@@ -10533,3 +10533,36 @@ held, blackout still toggles; no GL needed). Before, the clock was left held.
 
 **Would reopen:** a wish to arm a hold before the show starts, which would
 want the transport and the remote to show it.
+
+### D437: an anchored show waiting for its time asks the wall clock each frame (2026-10-17)
+
+**Context.** When an anchored show is loaded early, `start::plan` reads the
+time of day once and the show counted the wait down from frame time
+(`Show::pace_anchor`), asking the wall clock again only when the countdown
+reached zero. A system clock corrected during the wait therefore moved the
+start by the size of the correction. On a venue PC whose clock was two hours
+slow at boot (a wrong time zone after an update, a drifted clock with a
+flat battery), fixing the clock at 19:00 still left Strobe waiting the two
+hours it had computed: a 22:00 show started at midnight, and the wall-clock
+sync then placed it two hours in. A daylight-saving change during a wait
+did the same by an hour. The app's `strobe_Date` already follows the system
+clock and refreshes its zone offset every couple of seconds (D112).
+
+**Decision.** While the show waits, each frame places "now" (the frame's
+`strobe_Date` seconds of day) on the timeline with `Timeline::elapsed_at`
+and `Timeline::place`: still `Waiting`, the time left is updated for the
+transport and the remote; anything else, the clock is synced to the wall
+clock as before (on schedule, or finished). It is arithmetic and a binary
+search over the cues, with no allocation. The frame-time countdown is gone.
+The clock still syncs to the wall clock only until the show starts (D76).
+Screenshot mode is unaffected in practice: its date was already the real
+one, so an anchored capture never was deterministic.
+
+**Test.** `strobe-app/tests/show.rs::an_anchored_show_starts_when_the_corrected_wall_clock_says_so`
+on headless GL: loaded at 20:00 by a slow clock for a 22:00 anchor (a two-hour
+wait), the clock is set to 21:59:58 and three seconds later the first cue is
+playing. Before, the show was still waiting, with two hours less three
+seconds to go.
+
+**Would reopen:** a system clock that is wrong in a way the show should not
+follow (it would want a clock of its own, which D76 avoids).

@@ -118,6 +118,8 @@ struct Rig<'a> {
     active: Option<Session>,
     compositor: Compositor,
     audio: AudioInput,
+    /// The wall clock's time of day, local seconds since midnight.
+    seconds_of_day: f32,
 }
 
 impl<'a> Rig<'a> {
@@ -131,6 +133,7 @@ impl<'a> Rig<'a> {
             active: None,
             compositor,
             audio: AudioInput::new(false),
+            seconds_of_day: 0.0,
         })
     }
 
@@ -144,7 +147,7 @@ impl<'a> Rig<'a> {
             full_size: SIZE,
             start_time: 0.0,
             mouse: Mouse::default(),
-            date: [2026.0, 9.0, 10.0, 0.0],
+            date: [2026.0, 9.0, 10.0, self.seconds_of_day],
             media: None,
         }
     }
@@ -348,6 +351,53 @@ fn a_reloaded_playlist_compiles_only_what_is_new_and_keeps_its_place() -> Result
         Some(0),
         "the show is back on the cue it was on"
     );
+    show.finish();
+    Ok(())
+}
+
+#[test]
+fn an_anchored_show_starts_when_the_corrected_wall_clock_says_so() -> Result<()> {
+    let Some(headless) = context(Api::DesktopCore33)? else {
+        return Ok(());
+    };
+    let library = TempLibrary::new("anchor-clock")?;
+    let mut rig = Rig::new(&headless)?;
+    let mut playlist = Playlist::new("tonight");
+    playlist.anchor = strobe_playlist::WallClockAnchor::from_hm(22, 0);
+    let mut section = Section::new("all");
+    section
+        .cues
+        .push(cue_of("red", 60.0, TransitionSpec::cut()));
+    section
+        .cues
+        .push(cue_of("green", 60.0, TransitionSpec::cut()));
+    playlist.sections.push(section);
+    let mut show = Show::new(None, playlist, &library.library, None, None);
+    // The venue PC's clock is two hours slow: it says 20:00 at 21:59:58.
+    rig.seconds_of_day = 20.0 * 3600.0;
+    rig.load(&mut show)?;
+    let wait = show
+        .waiting_for_anchor()
+        .ok_or_else(|| anyhow!("the show should wait for 22:00"))?;
+    assert!(
+        (wait - 7200.0).abs() < 1.0,
+        "two hours by the slow clock: {wait}"
+    );
+    for _ in 0..10 {
+        rig.frame(&mut show);
+    }
+    // The clock is put right (a time zone fixed, a time sync).
+    rig.seconds_of_day = 22.0 * 3600.0 - 2.0;
+    for _ in 0..(3 * 60) {
+        rig.frame(&mut show);
+        rig.seconds_of_day += DT;
+    }
+    assert_eq!(
+        show.waiting_for_anchor(),
+        None,
+        "22:00 by the corrected clock has come"
+    );
+    assert_eq!(show.clock().current(), Some(0), "and the show is on");
     show.finish();
     Ok(())
 }

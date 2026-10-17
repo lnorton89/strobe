@@ -67,8 +67,9 @@ use strobe_diag::failure::{self, Failure, Subsystem};
 use strobe_gfx::gl::Gl;
 use strobe_gfx::{Blend, Caps, Compositor, MediaRequest, Mouse};
 use strobe_playlist::{
-    AudioEventKind, ClockConfig, ClockEvent, ClockState, Command, Playlist, PlaylistClock,
-    ResolvedCue, ResumePoint, SceneRef, SkipReason, Timeline, TimelineConfig, TransitionKind,
+    AudioEventKind, ClockConfig, ClockEvent, ClockState, Command, Placement, Playlist,
+    PlaylistClock, ResolvedCue, ResumePoint, SceneRef, SkipReason, Timeline, TimelineConfig,
+    TransitionKind,
 };
 
 /// Whether `new` has the same look as `old`, the cue that was live before a
@@ -748,7 +749,7 @@ impl Show {
             dt
         };
         self.show_time.advance(wall);
-        if !self.pace_anchor(env, wall) {
+        if !self.pace_anchor(env) {
             let frame = env.audio.frame_at(self.show_time.seconds());
             let beat = self.reader.read(&frame.scalars, frame.downbeat);
             let [whole, bass] = frame.energy;
@@ -888,18 +889,33 @@ impl Show {
         );
     }
 
-    /// While the show waits for its anchor, counts the wait down and starts
-    /// the schedule when it is over. Returns whether the clock is held back.
-    fn pace_anchor(&mut self, env: &Env<'_>, dt: f32) -> bool {
-        let Some(remaining) = self.waiting.as_mut() else {
+    /// While the show waits for its anchor, asks the wall clock each frame
+    /// how long is left and starts the schedule when it says so. Returns
+    /// whether the clock is held back.
+    ///
+    /// The wait is not a countdown of frame time: a system clock corrected
+    /// while the show waits (a wrong time zone fixed, a drifted clock
+    /// synced, a daylight-saving change) would otherwise start the show as
+    /// late or as early as the correction (D437). Asking is arithmetic on
+    /// the timeline, no allocation.
+    fn pace_anchor(&mut self, env: &Env<'_>) -> bool {
+        if self.waiting.is_none() {
             return false;
-        };
-        *remaining -= f64::from(dt);
-        if *remaining > 0.0 {
+        }
+        let now = f64::from(env.date[3]);
+        let timeline = self.clock.timeline();
+        let placement = timeline
+            .anchor()
+            .map(|anchor| timeline.place(timeline.elapsed_at(anchor, now)));
+        if let Some(Placement::Waiting {
+            seconds_until_start,
+        }) = placement
+        {
+            self.waiting = Some(seconds_until_start);
             return true;
         }
         self.waiting = None;
-        if let Some(placement) = self.clock.sync_to_wall_clock(f64::from(env.date[3])) {
+        if let Some(placement) = self.clock.sync_to_wall_clock(now) {
             log::info!("playlist: the anchor has arrived ({placement:?})");
         }
         false
