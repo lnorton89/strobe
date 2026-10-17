@@ -162,8 +162,9 @@ Scenes react to sound through the default **recording** device.
 - `--audio synthetic` forces the built-in pattern, for testing without
   sound.
 - `--audio ambient` is the built-in pattern with no beat: hits and beat
-  triggers stay at zero and the levels swell slowly, so scenes keep moving
-  without flashing on a beat the room cannot hear. Use it for a show with
+  triggers stay at zero, the levels swell slowly and the audio clocks run
+  smoothly, so scenes keep moving without flashing on a beat the room
+  cannot hear. Use it for a show with
   no microphone.
 
 ## The output

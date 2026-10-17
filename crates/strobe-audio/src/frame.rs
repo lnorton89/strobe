@@ -76,7 +76,10 @@ impl Default for Layout {
 ///
 /// All storage is allocated once, in [`AudioFrame::silent`]. The analyser
 /// overwrites it in place, so a frame's vectors never grow or move.
-#[derive(Clone, Debug, PartialEq)]
+/// `Clone` is written out so that `clone_from` copies into the existing
+/// vectors: a derived `clone_from` is `*self = source.clone()`, which
+/// allocated three vectors on the render thread every frame.
+#[derive(Debug, PartialEq)]
 pub struct AudioFrame {
     /// One value per name in [`SCALARS`], in the same order.
     pub scalars: Vec<f32>,
@@ -110,6 +113,30 @@ pub struct AudioFrame {
     /// 0 to 1. Confidence 0 means no estimate; bars are then counted from
     /// the counter's zero (`downbeat`, D233). Not a uniform.
     pub downbeat: [f32; 2],
+}
+
+impl Clone for AudioFrame {
+    fn clone(&self) -> Self {
+        Self {
+            scalars: self.scalars.clone(),
+            spectrum: self.spectrum.clone(),
+            level_trail: self.level_trail.clone(),
+            shadertoy: self.shadertoy.clone(),
+            energy: self.energy,
+            downbeat: self.downbeat,
+        }
+    }
+
+    /// Copies `source` into this frame's own vectors; allocation-free when
+    /// the sizes match, which they do for frames of one layout.
+    fn clone_from(&mut self, source: &Self) {
+        self.scalars.clone_from(&source.scalars);
+        self.spectrum.clone_from(&source.spectrum);
+        self.level_trail.clone_from(&source.level_trail);
+        self.shadertoy.clone_from(&source.shadertoy);
+        self.energy = source.energy;
+        self.downbeat = source.downbeat;
+    }
 }
 
 impl AudioFrame {
@@ -185,5 +212,35 @@ mod tests {
         assert_eq!(frame.level_trail.len(), 32, "trail width is configurable");
         assert_eq!(frame.shadertoy.len(), 256, "two rows of 128");
         assert_eq!(frame.shadertoy_width(), 128, "width reads back");
+    }
+
+    #[test]
+    fn clone_from_reuses_the_destination_buffers() {
+        // The render thread copies the latest frame into one it keeps
+        // (`Capture::snapshot_into`) every frame; that copy must not
+        // allocate.
+        let mut source = AudioFrame::silent(Layout::default());
+        source.scalars.fill(0.25);
+        source.spectrum.fill([0.5; 4]);
+        source.level_trail.fill([0.75; 4]);
+        source.shadertoy.fill(7);
+        source.energy = [0.1, 0.2];
+        source.downbeat = [2.0, 0.5];
+        let mut destination = AudioFrame::silent(Layout::default());
+        let before = (
+            destination.scalars.as_ptr(),
+            destination.spectrum.as_ptr(),
+            destination.level_trail.as_ptr(),
+            destination.shadertoy.as_ptr(),
+        );
+        destination.clone_from(&source);
+        let after = (
+            destination.scalars.as_ptr(),
+            destination.spectrum.as_ptr(),
+            destination.level_trail.as_ptr(),
+            destination.shadertoy.as_ptr(),
+        );
+        assert_eq!(before, after, "clone_from reallocated the frame's buffers");
+        assert_eq!(destination, source, "clone_from copies every field");
     }
 }
