@@ -303,10 +303,15 @@ impl UiState {
     /// The state saved in the preferences file, with the writer running.
     /// Reads the file (blocking), so it belongs at start-up only.
     pub fn load() -> Self {
-        let path = crate::prefs::path();
+        Self::load_from(crate::prefs::path())
+    }
+
+    /// [`Self::load`] from the file at `path`.
+    fn load_from(path: std::path::PathBuf) -> Self {
         let (prefs, problem) = Prefs::load(&path);
         if let Some(problem) = problem {
             log::warn!("UI preferences not used: {problem}");
+            crate::prefs::keep_a_copy(&path);
         }
         let mut state = Self::from_prefs(&prefs);
         state.saver = Some(Saver::start(path));
@@ -322,14 +327,20 @@ impl UiState {
 
     /// State built from `prefs`, with no writer.
     pub fn from_prefs(prefs: &Prefs) -> Self {
+        Self::from_prefs_forcing(prefs, env_wants_reduced_motion())
+    }
+
+    /// [`Self::from_prefs`], with `STROBE_REDUCED_MOTION`'s answer passed
+    /// in.
+    fn from_prefs_forcing(prefs: &Prefs, env_reduced: bool) -> Self {
         let catalog = Catalog::load();
         for (source, reason) in catalog.problems() {
             log::warn!("theme {source} not used: {reason}");
         }
         // The environment can force reduced motion on (an accessibility
-        // switch that does not need the settings pane to reach).
-        let reduced = prefs.reduced_motion || env_wants_reduced_motion();
-        crate::motion::set_reduced(reduced);
+        // switch that does not need the settings pane to reach), for this
+        // run: the saved switch stays the operator's own.
+        crate::motion::set_reduced(prefs.reduced_motion || env_reduced);
         let mut state = Self {
             panes: prefs.to_panes(),
             browser: BrowserState {
@@ -379,7 +390,7 @@ impl UiState {
             layout_name: String::new(),
             last_scene: prefs.last_scene.clone(),
             theme_id: prefs.theme.clone(),
-            reduced_motion: reduced,
+            reduced_motion: prefs.reduced_motion,
             catalog,
             theme_changed: true,
             density: super::theme::Density::from_key(&prefs.density).unwrap_or_default(),
@@ -480,7 +491,8 @@ impl UiState {
         std::mem::take(&mut self.theme_changed)
     }
 
-    /// Whether reduced motion is on.
+    /// Whether the operator turned reduced motion on (the Settings switch;
+    /// `STROBE_REDUCED_MOTION` may force it on besides, unsaved).
     pub fn reduced_motion(&self) -> bool {
         self.reduced_motion
     }
@@ -874,6 +886,63 @@ mod tests {
             crate::ui::theme::Density::Comfortable,
             "a density this build does not know falls back to the default"
         );
+    }
+
+    #[test]
+    fn an_unreadable_file_is_kept_before_the_defaults_are_written_over_it() -> anyhow::Result<()> {
+        let dir = std::env::temp_dir().join(format!("strobe-ui-bad-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir)?;
+        let file = dir.join(crate::prefs::FILE);
+        // A hand edit with one typo: the favourites and the layouts in it
+        // are the operator's, and none of them can be read.
+        let original = "[browser]\nfavourites = [\"05-domain-warp\", \"tunnel\"\n\
+                        [layouts.show]\norder = [\"browser\"]\n";
+        std::fs::write(&file, original)?;
+        let mut state = UiState::load_from(file.clone());
+        let start = Instant::now();
+        state.tick(start);
+        state.panes.open(Pane::Settings);
+        state.tick(start + Duration::from_millis(33));
+        state.finish();
+        let mut kept = Vec::new();
+        for entry in std::fs::read_dir(&dir)? {
+            let path = entry?.path();
+            if std::fs::read_to_string(&path).is_ok_and(|text| text == original) {
+                kept.push(path);
+            }
+        }
+        let written = std::fs::read_to_string(&file)?;
+        std::fs::remove_dir_all(&dir)?;
+        assert!(
+            Prefs::from_text(&written)
+                .is_ok_and(|prefs| prefs.panes.get("settings").is_some_and(|pane| pane.open)),
+            "the new state was written: {written}"
+        );
+        assert!(
+            !kept.is_empty(),
+            "the unreadable file was written over and nothing kept it"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn reduced_motion_forced_by_the_environment_is_not_saved_as_the_operators_choice() {
+        let state = UiState::from_prefs_forcing(&Prefs::default(), true);
+        assert!(
+            !state.to_prefs().reduced_motion,
+            "STROBE_REDUCED_MOTION is for this run; the file keeps the operator's own switch"
+        );
+        let prefs = Prefs {
+            reduced_motion: true,
+            ..Prefs::default()
+        };
+        let state = UiState::from_prefs_forcing(&prefs, false);
+        assert!(
+            state.to_prefs().reduced_motion,
+            "the operator's own choice is kept"
+        );
+        assert!(state.reduced_motion(), "and shown");
     }
 
     #[test]

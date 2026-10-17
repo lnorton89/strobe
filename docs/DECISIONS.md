@@ -8803,6 +8803,76 @@ past it moves it, a stop clears it).
 **Would reopen:** a platform network-change notification that is cheap to
 subscribe to, which would replace the timer.
 
+### D350: a key capture ends when its field is no longer drawn (2026-10-17)
+
+**Context.** Change in Settings' Keyboard section (D208), and Set on a
+macro's key in MAP (D228), wait for the next key, and while they wait every
+shortcut is off (the capture is passed to `keys::handle` as a modal). Only
+the field reads the key that ends the wait. Closing Settings with its own
+button, opening another main pane over it, closing MAP or deselecting the
+macro left the capture waiting with no field to end it: B, Space, the
+arrows and F11 did nothing, with nothing on screen to say why, until the
+pane was found again.
+
+**Decision.** At the start of each control frame, a capture whose field
+will not be drawn (Settings is not the main view; MAP is not, or the
+macro waiting is not the one selected) is cancelled, as Esc would cancel
+it, and the keyboard is the shortcuts' again.
+
+**Test.** `ui::shell_tests::a_capture_whose_field_is_gone_gives_the_keyboard_back`.
+
+**Would reopen:** a shortcut editor drawn somewhere other than these two
+panes.
+
+### D351: the output window's keys carry their modifiers (2026-10-17)
+
+**Context.** The output window has no UI, so its keys are mapped in
+`app.rs` with the command table, and D134 and D178 say "modifiers are not
+tracked there". Untracked, a modified key was not ignored: it was the
+plain key. Shift+Right, the default Skip section, stepped to the next cue
+instead; Ctrl+B, Ctrl+R and Ctrl+E blacked out, restarted and extended;
+an operator's Shift+B bound to Blackout on ran the Blackout toggle. A
+projector-side keyboard is exactly where a wrong command is least
+welcome.
+
+**Decision.** The app keeps the output window's modifiers
+(`WindowEvent::ModifiersChanged`, cleared when the window loses focus) and
+`chord_of` builds the same chord egui builds in the control window:
+`command` is Ctrl, or Cmd on macOS, plus Shift and Alt. A chord the table
+does not hold runs nothing, as in the control window. Esc still leaves
+fullscreen first, whatever is held. Macro keys (D228) are still read only
+in the control window.
+
+**Test.** `app::tests::output_window_keys_keep_their_modifiers`.
+
+**Would reopen:** a window system whose `ModifiersChanged` is unreliable
+for an undecorated fullscreen window, seen on a real machine.
+
+### D352: an unreadable `ui.toml` is kept as `ui.toml.bak` before it is written over (2026-10-17)
+
+**Context.** A `ui.toml` that does not parse (a hand edit with one typo,
+a cut-off write from a build before the synced write) loaded as the
+defaults, which was the plan. But the first change of anything (a pane
+opened) then wrote the defaults over it, and the favourites (D211), saved
+layouts (D215), watched folder and trust-file path it held were gone for
+good. `show-control.json` has been protected against this since D178.
+
+**Decision.** The same rule for `ui.toml`: when it existed and could not
+be read, it is copied to `ui.toml.bak` at start-up, before the writer
+runs; an existing `.bak` is left alone, since it is the copy from before
+the trouble started. The writer also saves through a temporary file of
+this process's own (`ui.toml.<pid>.tmp`, likewise for `show-control.json`)
+and syncs it before the rename, so two Strobes saving at once, or an older
+build beside this one, each put a whole file in place (last writer wins,
+as before) rather than renaming one another's half-written file, and a
+power cut leaves the old file or the new one.
+
+**Tests.** `ui::state::tests::an_unreadable_file_is_kept_before_the_defaults_are_written_over_it`,
+`prefs::tests::a_save_never_writes_into_another_strobes_temporary_file`.
+
+**Would reopen:** reading a damaged file field by field, keeping what does
+parse, if operators hand-edit `ui.toml` often enough to need it.
+
 ### D360: a Shadertoy pass's names that the SSF library declares are the shader's own (2026-10-17)
 
 **Context.** Every pass of an import is compiled after the SSF function
