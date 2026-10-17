@@ -673,6 +673,17 @@ impl Show {
     /// is meant to be the same show, D158). The old clock's position is
     /// restored once the new scenes are compiled.
     pub fn replace_playlist(&mut self, playlist: Playlist, library: &Library) {
+        // A save that changed nothing the show plays (Ctrl+S out of habit, a
+        // comment, a sync tool touching the file) is not a reload: one would
+        // cut a crossfade short and throw away the next scene's warm-up for
+        // nothing (D435).
+        if playlist == self.playlist {
+            log::info!(
+                "playlist \"{}\": the new version plays the same as the old; nothing to reload",
+                self.playlist.name
+            );
+            return;
+        }
         // An edit above the live cue shifts its authored position, so the
         // point is carried to where that cue now is (D432).
         let point = self

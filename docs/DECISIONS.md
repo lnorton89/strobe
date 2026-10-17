@@ -10476,3 +10476,34 @@ jump left it rendering.
 
 **Would reopen:** a held cue that should stop warming its successor (it costs
 the same as any warm-up, for as long as the hold).
+
+### D435: a save that changes nothing the show plays is not a reload (2026-10-17)
+
+**Context.** The file watcher (D158) reloads on every settled change of the
+playlist file's modification time or size, and a reload goes through
+`Show::replace_playlist`, which is a rebuild: the transition in flight is
+dropped (the outgoing scene is parked and the output cuts to the incoming
+one), the next scene's warm-up is parked (so it starts cold, and a feedback
+scene from black), and a beat-locked cue waiting for its downbeat starts its
+wait again. That is the accepted price of a real edit. It was also paid for
+saves that change nothing: Ctrl+S out of habit in the editor that has the
+file open, a format-on-save that writes the same text, an edit to a comment
+only, a sync or backup tool that rewrites the file. Mid-crossfade, each was a
+visible cut.
+
+**Decision.** `replace_playlist` returns at once, with an `info` line, when
+the new playlist equals the one playing (`Playlist`'s `PartialEq`: the parsed
+model, so comments and layout do not count). The watcher has already taken
+the new stamp, so the same save is not looked at again. Nothing else is
+lost by skipping: a reload never retried a failed scene (the cache keeps its
+failures, D158) and the playlist's file and folder do not change. The LIST
+pane's edits and Generate go the same way, and an edit that changes nothing
+(a duration set to what it was) is skipped as well.
+
+**Test.** `strobe-app/tests/show.rs::saving_the_file_unchanged_mid_crossfade_leaves_the_crossfade_alone`
+on headless GL: 0.3 s into a crossfade, the same playlist is handed in; the
+show stays ready, the same transition runs on and the output is still the
+mix. Before, the show went back to loading and the crossfade was gone.
+
+**Would reopen:** a reason to reload an unchanged playlist on purpose (for
+example to retry scenes that failed, which would then want its own command).

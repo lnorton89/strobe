@@ -352,6 +352,49 @@ fn a_reloaded_playlist_compiles_only_what_is_new_and_keeps_its_place() -> Result
     Ok(())
 }
 
+#[test]
+fn saving_the_file_unchanged_mid_crossfade_leaves_the_crossfade_alone() -> Result<()> {
+    let Some(headless) = context(Api::DesktopCore33)? else {
+        return Ok(());
+    };
+    let library = TempLibrary::new("same-save")?;
+    let mut rig = Rig::new(&headless)?;
+    let mut playlist = Playlist::new("same save");
+    let mut section = Section::new("all");
+    section
+        .cues
+        .push(cue_of("red", 2.0, TransitionSpec::crossfade(1.0)));
+    section
+        .cues
+        .push(cue_of("green", 2.0, TransitionSpec::crossfade(1.0)));
+    playlist.sections.push(section);
+    let mut show = Show::new(None, playlist.clone(), &library.library, None, None);
+    rig.load(&mut show)?;
+    // 2.3 s: 0.3 s into the crossfade to green.
+    for _ in 0..138 {
+        rig.frame(&mut show);
+    }
+    let fading = show
+        .clock()
+        .transition()
+        .ok_or_else(|| anyhow!("no crossfade under way"))?;
+    assert!(show.composited(), "the output is the mix");
+
+    // The operator presses Ctrl+S in the editor; the file reads back the same.
+    show.replace_playlist(playlist, &library.library);
+    assert_eq!(show.phase(), Phase::Ready, "nothing to reload");
+    rig.frame(&mut show);
+    let still = show
+        .clock()
+        .transition()
+        .ok_or_else(|| anyhow!("the crossfade was cut short"))?;
+    assert_eq!(still.id, fading.id, "the same crossfade");
+    assert!(still.progress > fading.progress, "and it runs on");
+    assert!(show.composited(), "the output is still the mix");
+    show.finish();
+    Ok(())
+}
+
 /// One scene, `tint`, whose red channel is its `amount` control, with a
 /// `default` preset (0.5) and a `full` preset (1.0).
 fn preset_library(tag: &str) -> Result<TempLibrary> {
