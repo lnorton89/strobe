@@ -229,14 +229,16 @@ pub fn import_json(text: &str, options: &ImportOptions<'_>) -> Result<Imported, 
     }
 
     // Texture files in the scene: everything under images/ that is not the
-    // placeholder or the pending list.
+    // placeholder or the pending list. A texture is never named like either
+    // (D417), so the names are compared whole: a texture named after one
+    // is `tex-st_black.png`, which still counts.
     let textures_found = converted
         .files
         .keys()
         .filter(|path| {
             path.starts_with("images/")
-                && !path.ends_with("st_black.png")
-                && !path.ends_with("pending-assets.json")
+                && path.as_str() != "images/st_black.png"
+                && path.as_str() != "images/pending-assets.json"
         })
         .count();
 

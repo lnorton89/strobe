@@ -116,6 +116,10 @@ pub(super) struct Plan {
     pub black_used: bool,
     pub warnings: Vec<Warning>,
     pub pending: Vec<PendingAsset>,
+    /// The file name under `images/` each texture URL was given, so a URL
+    /// read by several channels keeps one file and two URLs never share
+    /// one ([`asset_file`]).
+    pub asset_files: BTreeMap<String, String>,
 }
 
 impl Plan {
@@ -318,6 +322,7 @@ pub(super) fn build(shader: &Shader, options: &Options) -> Result<Plan, ConvertE
         images: Vec::new(),
         assets: BTreeMap::new(),
         black_used: false,
+        asset_files: BTreeMap::new(),
         warnings: Vec::new(),
         pending: Vec::new(),
     };
@@ -581,12 +586,12 @@ fn bind(
                     pass: pass.clone(),
                     channel,
                 })?;
-            let file = names::asset_file_name(src);
             let url = if src.starts_with('/') {
                 format!("{MEDIA_HOST}{src}")
             } else {
                 src.to_string()
             };
+            let file = asset_file(plan, &url, src);
             let Some(bytes) = options.assets.get(&file) else {
                 let asset = PendingAsset {
                     pass: pass.clone(),
@@ -623,6 +628,39 @@ fn bind(
             Ok(Binding::Image(index))
         }
     }
+}
+
+/// The file name under `images/` for the texture at `url` (`src` as the
+/// JSON wrote it): the URL's own base name, made safe
+/// ([`names::asset_file_name`]), so a Shadertoy media file keeps the name
+/// its pending list and a person's asset folder use (D417). It can never be
+/// a file the converter writes there itself (a generated name gets a
+/// `tex-` prefix, [`names::is_generated_image`]), nor, ignoring case as
+/// Windows does, the file of another URL (a `-2`, `-3`... before the
+/// extension). The same URL always gets the same file. Names are given in
+/// the order the passes and channels are read, so a second conversion of
+/// the same shader gives the same ones.
+fn asset_file(plan: &mut Plan, url: &str, src: &str) -> String {
+    if let Some(file) = plan.asset_files.get(url) {
+        return file.clone();
+    }
+    let mut base = names::asset_file_name(src);
+    if names::is_generated_image(&base) {
+        base = format!("tex-{base}");
+    }
+    let taken = |plan: &Plan, name: &str| {
+        plan.asset_files
+            .values()
+            .any(|file| file.eq_ignore_ascii_case(name))
+    };
+    let mut file = base.clone();
+    let mut number = 2_usize;
+    while taken(plan, &file) {
+        file = names::numbered_file(&base, number);
+        number += 1;
+    }
+    plan.asset_files.insert(url.to_string(), file.clone());
+    file
 }
 
 /// Filter, wrap and vflip for a texture, with Shadertoy's defaults

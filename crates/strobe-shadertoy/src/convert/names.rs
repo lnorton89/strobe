@@ -43,6 +43,8 @@ pub(super) const CLOCK_FILE: &str = "passes/st_clock.glsl";
 pub(super) const BLACK_IMAGE: &str = "st_black";
 /// Where the black image lives.
 pub(super) const BLACK_FILE: &str = "images/st_black.png";
+/// The pending list's file name under `images/` (D95).
+pub(super) const PENDING_FILE_NAME: &str = "pending-assets.json";
 /// The standard sampler the player provides for audio inputs.
 pub(super) const AUDIO_SAMPLER: &str = "strobe_ShadertoyAudio";
 
@@ -138,6 +140,23 @@ pub(super) fn folder_name(title: &str, id: Option<&str>) -> String {
         (false, Some(id)) => format!("{slug}-{id}"),
     };
     format!("{stem}.synScene")
+}
+
+/// Whether `file`, a name under `images/`, is one the converter may write
+/// there itself, ignoring case: the black placeholder or any other `st_`
+/// file ([`BLACK_FILE`]), or the pending list. A texture is never given one.
+pub(super) fn is_generated_image(file: &str) -> bool {
+    let lower = file.to_ascii_lowercase();
+    lower.starts_with("st_") || lower == PENDING_FILE_NAME
+}
+
+/// `file` with `-<number>` before its extension (`x.png` -> `x-2.png`), or
+/// at the end when it has none.
+pub(super) fn numbered_file(file: &str, number: usize) -> String {
+    match file.rsplit_once('.') {
+        Some((stem, extension)) if !stem.is_empty() => format!("{stem}-{number}.{extension}"),
+        Some(_) | None => format!("{file}-{number}"),
+    }
 }
 
 /// A safe file name for a downloaded asset: the part of `src` after the
