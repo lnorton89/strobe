@@ -28,6 +28,11 @@
 //!    frame's uniforms are committed (or, after a fault, discarded) and the
 //!    queued control writes are applied to the bank.
 //!
+//! [`ScriptHost::frame_into`] fills a [`FrameOutput`] the caller keeps, so a
+//! frame that logs nothing allocates nothing of its own: the uniforms and the
+//! bound values are written over the last frame's, and the console is moved
+//! across line by line.
+//!
 //! The caller then ticks the control bank, so a script's `setControl` is
 //! visible to the shader in the same frame it was made.
 //!
@@ -477,7 +482,25 @@ impl ScriptHost {
         controls: &mut ControlBank,
         meta: &mut ControlBank,
     ) -> FrameOutput {
-        self.frame_within(self.budget.frame, dt, inputs, controls, meta)
+        let mut output = FrameOutput::default();
+        self.frame_into(dt, inputs, controls, meta, &mut output);
+        output
+    }
+
+    /// [`Self::frame`] into an output the caller keeps, which is cleared and
+    /// refilled in place. A caller that runs a frame every frame passes the
+    /// same `output` each time, and once its vectors have grown to size
+    /// the host allocates nothing for it (the script's own work, in the
+    /// engine, is its own).
+    pub fn frame_into(
+        &mut self,
+        dt: f32,
+        inputs: &ScriptInputs<'_>,
+        controls: &mut ControlBank,
+        meta: &mut ControlBank,
+        output: &mut FrameOutput,
+    ) {
+        self.frame_within(self.budget.frame, dt, inputs, controls, meta, output);
     }
 
     /// Runs the frame the scene's load runs before its shaders are
@@ -493,7 +516,22 @@ impl ScriptHost {
         controls: &mut ControlBank,
         meta: &mut ControlBank,
     ) -> FrameOutput {
-        self.frame_within(self.budget.load, dt, inputs, controls, meta)
+        let mut output = FrameOutput::default();
+        self.load_frame_into(dt, inputs, controls, meta, &mut output);
+        output
+    }
+
+    /// [`Self::load_frame`] into an output the caller keeps, as
+    /// [`Self::frame_into`].
+    pub fn load_frame_into(
+        &mut self,
+        dt: f32,
+        inputs: &ScriptInputs<'_>,
+        controls: &mut ControlBank,
+        meta: &mut ControlBank,
+        output: &mut FrameOutput,
+    ) {
+        self.frame_within(self.budget.load, dt, inputs, controls, meta, output);
     }
 
     /// [`Self::frame`] under a deadline of `budget` from now.
@@ -504,9 +542,11 @@ impl ScriptHost {
         inputs: &ScriptInputs<'_>,
         controls: &mut ControlBank,
         meta: &mut ControlBank,
-    ) -> FrameOutput {
+        output: &mut FrameOutput,
+    ) {
         if self.disabled {
-            return self.finish(ScriptStatus::Disabled);
+            self.finish(ScriptStatus::Disabled, output);
+            return;
         }
         self.stage_final_pass(inputs);
 
@@ -530,7 +570,7 @@ impl ScriptHost {
             Err(message) => self.fault(&message),
         };
         self.apply_commands(controls, meta);
-        self.finish(status)
+        self.finish(status, output);
     }
 
     /// The text of the most recent fault, if the script has faulted.
@@ -560,8 +600,30 @@ impl ScriptHost {
     /// scene again). As with [`Self::seal_uniforms`], any other new name
     /// is refused from then on, while a declared name not set yet may
     /// still be set.
+    ///
+    /// `names` are also bound, in the order given, as by
+    /// [`Self::bind_uniforms`]: they are the shaders' uniforms in the order
+    /// the shaders declared them.
     pub fn seal_uniforms_to<'a>(&mut self, names: impl IntoIterator<Item = &'a str>) {
         self.shared.state.borrow_mut().uniforms.seal_to(names);
+    }
+
+    /// Chooses which uniforms [`FrameOutput::bound`] carries and in what
+    /// order: normally the ones the shaders were compiled with, in the order
+    /// they declared them, which can differ from the order the script first
+    /// set them in. The names are resolved to the script's uniforms here,
+    /// once, so a frame looks nothing up. Replaces an earlier choice; takes
+    /// effect from the next frame, and [`Self::bound_uniforms_into`] reads
+    /// it now.
+    pub fn bind_uniforms<'a>(&mut self, names: impl IntoIterator<Item = &'a str>) {
+        self.shared.state.borrow_mut().uniforms.bind(names);
+    }
+
+    /// Writes the current value of each bound uniform into `out`, which is
+    /// cleared first: [`FrameOutput::bound`] as of the last frame, for a
+    /// caller that has just bound or sealed and has no frame to read it from.
+    pub fn bound_uniforms_into(&self, out: &mut Vec<[f32; 4]>) {
+        self.shared.state.borrow().uniforms.bound_into(out);
     }
 
     /// Copies the final-pass downsample where `textureFinalPass` reads it.
@@ -736,13 +798,15 @@ impl ScriptHost {
         state.commands = commands;
     }
 
-    /// Collects the frame's output.
-    fn finish(&self, status: ScriptStatus) -> FrameOutput {
+    /// Collects the frame's output into `output`, over what it held.
+    fn finish(&self, status: ScriptStatus, output: &mut FrameOutput) {
         let mut state = self.shared.state.borrow_mut();
-        FrameOutput {
-            uniforms: state.uniforms.snapshot(),
-            console: std::mem::take(&mut state.console),
-            status,
-        }
+        output.clear();
+        state.uniforms.snapshot_into(&mut output.uniforms);
+        state.uniforms.bound_into(&mut output.bound);
+        // Moved line by line, not swapped, so `state.console` keeps the
+        // capacity it has grown to as well.
+        output.console.append(&mut state.console);
+        output.status = status;
     }
 }

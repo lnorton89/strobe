@@ -53,9 +53,10 @@ pub struct ConsoleLine {
 }
 
 /// The script's health after a frame.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum ScriptStatus {
     /// The frame ran to completion.
+    #[default]
     Running,
     /// The frame threw or ran out of time. Its uniforms were discarded and
     /// the last good ones stay in force. `consecutive` counts faulted
@@ -70,13 +71,19 @@ pub enum ScriptStatus {
 }
 
 /// Everything one [`crate::ScriptHost::frame`] call produced.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct FrameOutput {
     /// Every uniform the script has published, in the order each first
     /// appeared (so the order is stable across frames). Values are the last
     /// good ones: a faulted frame contributes nothing. After
     /// [`crate::ScriptHost::seal_uniforms`] the list can no longer grow.
     pub uniforms: Vec<ScriptUniform>,
+    /// The values of the uniforms named to
+    /// [`crate::ScriptHost::bind_uniforms`] (or
+    /// [`crate::ScriptHost::seal_uniforms_to`]), in that order and with no
+    /// names: what the app uploads. A name the script has not published
+    /// reads as zeros. Empty until something is bound.
+    pub bound: Vec<[f32; 4]>,
     /// Lines for the developer console, in order.
     pub console: Vec<ConsoleLine>,
     /// Whether the script is healthy.
@@ -84,6 +91,15 @@ pub struct FrameOutput {
 }
 
 impl FrameOutput {
+    /// Empties the output, keeping the capacity of its vectors, for
+    /// [`crate::ScriptHost::frame_into`] to refill.
+    pub fn clear(&mut self) {
+        self.uniforms.clear();
+        self.bound.clear();
+        self.console.clear();
+        self.status = ScriptStatus::Running;
+    }
+
     /// The uniforms as `(name, type)` pairs, the shape
     /// [`strobe_scene::assemble::Request::extra`] takes.
     pub fn extras(&self) -> Vec<(String, ExtraType)> {
