@@ -21,7 +21,10 @@
 //! - A device that is open and no longer listed is closed and reported
 //!   ([`Status::DeviceLost`]). It is opened again when it comes back, with the
 //!   same key, so its mappings (which name the key) work again without any
-//!   action.
+//!   action. A connection also remembers midir's id of the port it was
+//!   opened on, and is closed and opened again when its key is listed on
+//!   another port: of two devices with one name, unplugging the first gives
+//!   the second the plain key.
 //! - No MIDI service at all (no ALSA sequencer in a container, no driver) is
 //!   one [`Status::MidiUnavailable`], retried every few seconds in case it
 //!   appears. Nothing here can take the app down.
@@ -57,6 +60,9 @@ mod device {
     struct Present {
         key: String,
         name: String,
+        /// midir's identity of the port (ALSA's `client:port`, WinMM's
+        /// device interface path, CoreMIDI's unique id).
+        id: String,
         port: MidiInputPort,
     }
 
@@ -64,8 +70,10 @@ mod device {
         tx: Tx,
         settings: MidiSettings,
         scanner: Option<MidiInput>,
-        open: HashMap<String, MidiInputConnection<()>>,
-        failed: HashMap<String, String>,
+        /// Each open device by key, with the id of the port it was opened on.
+        open: HashMap<String, (String, MidiInputConnection<()>)>,
+        /// Devices that would not open, by key: the port tried, and why.
+        failed: HashMap<String, (String, String)>,
         published: Option<Vec<DeviceInfo>>,
         unavailable: Option<String>,
         next_retry: Instant,
@@ -128,19 +136,25 @@ mod device {
                 .map(String::as_str)
                 .collect();
 
-            let gone: Vec<String> = self
-                .open
-                .keys()
-                .filter(|key| !present.iter().any(|p| &p.key == *key))
-                .cloned()
+            let listed: Vec<(&str, &str)> = present
+                .iter()
+                .map(|p| (p.key.as_str(), p.id.as_str()))
                 .collect();
+            let gone = stale(
+                self.open
+                    .iter()
+                    .map(|(key, (id, _))| (key.as_str(), id.as_str())),
+                &listed,
+            );
             for key in gone {
                 self.open.remove(&key);
                 log::info!("MIDI device lost: {key}");
                 self.tx.status(Status::DeviceLost(key));
             }
+            // A failure is for one port: the same key on another port (a
+            // replug, a twin unplugged) is tried again.
             self.failed
-                .retain(|key, _| present.iter().any(|p| &p.key == key));
+                .retain(|key, (id, _)| listed.iter().any(|(k, i)| k == key && i == id));
 
             for device in &present {
                 if disabled.contains(device.key.as_str()) {
@@ -153,12 +167,14 @@ mod device {
                 match self.connect(device) {
                     Ok(connection) => {
                         log::info!("MIDI device opened: {} ({})", device.key, device.name);
-                        self.open.insert(device.key.clone(), connection);
+                        self.open
+                            .insert(device.key.clone(), (device.id.clone(), connection));
                         self.tx.status(Status::DeviceFound(device.key.clone()));
                     }
                     Err(error) => {
                         log::warn!("MIDI device {} could not be opened: {error}", device.name);
-                        self.failed.insert(device.key.clone(), error);
+                        self.failed
+                            .insert(device.key.clone(), (device.id.clone(), error));
                     }
                 }
             }
@@ -170,7 +186,7 @@ mod device {
                     name: p.name.clone(),
                     connected: self.open.contains_key(&p.key),
                     disabled: disabled.contains(p.key.as_str()),
-                    error: self.failed.get(&p.key).cloned(),
+                    error: self.failed.get(&p.key).map(|(_, why)| why.clone()),
                 })
                 .collect();
             self.publish(infos);
@@ -191,7 +207,12 @@ mod device {
                 .into_iter()
                 .zip(names)
                 .zip(keys)
-                .map(|((port, name), key)| Present { key, name, port })
+                .map(|((port, name), key)| Present {
+                    key,
+                    name,
+                    id: port.id(),
+                    port,
+                })
                 .collect()
         }
 
@@ -228,6 +249,71 @@ mod device {
                 self.published = Some(infos.clone());
                 self.tx.status(Status::Devices(infos));
             }
+        }
+    }
+
+    /// The keys of `open` connections, as (key, port id), that must be
+    /// closed because of what is `listed` now: the key is gone, or a
+    /// different port has it. A key names a device by its port name
+    /// ([`crate::message::device_keys`]), so it moves: of two devices with one
+    /// name, the second is `#2` until the first is unplugged and then has
+    /// the plain key, and a replug the one-second poll did not see comes back
+    /// on another port. Keeping the connection by key alone left the dead
+    /// one in place and closed the live one.
+    fn stale<'a>(
+        open: impl IntoIterator<Item = (&'a str, &'a str)>,
+        listed: &[(&str, &str)],
+    ) -> Vec<String> {
+        open.into_iter()
+            .filter(|(key, id)| !listed.iter().any(|(k, i)| k == key && i == id))
+            .map(|(key, _)| key.to_string())
+            .collect()
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::stale;
+
+        fn sorted(mut keys: Vec<String>) -> Vec<String> {
+            keys.sort();
+            keys
+        }
+
+        #[test]
+        fn unplugging_one_of_two_identical_devices_keeps_the_other_working() {
+            // Two nanoKONTROL2s on ALSA: the first keeps the plain key, the
+            // second is "#2". Unplug the first: the second now has the
+            // plain key, on its own port.
+            let open = [("nanoKONTROL2", "20:0"), ("nanoKONTROL2 #2", "24:0")];
+            let listed = [("nanoKONTROL2", "24:0")];
+            assert_eq!(
+                sorted(stale(open, &listed)),
+                vec!["nanoKONTROL2".to_string(), "nanoKONTROL2 #2".to_string()],
+                "the dead first connection and the second's old key both close, \
+                 so the device still plugged in is opened again under its new key"
+            );
+        }
+
+        #[test]
+        fn a_device_back_on_another_port_is_reopened() {
+            assert_eq!(
+                stale([("Launchpad", "20:0")], &[("Launchpad", "28:0")]),
+                vec!["Launchpad".to_string()],
+                "a replug the one-second poll did not see"
+            );
+        }
+
+        #[test]
+        fn a_device_on_the_same_port_is_left_alone_and_a_vanished_one_closes() {
+            assert!(
+                stale([("Launchpad", "20:0")], &[("Launchpad", "20:0")]).is_empty(),
+                "nothing changed"
+            );
+            assert_eq!(
+                stale([("Launchpad", "20:0")], &[]),
+                vec!["Launchpad".to_string()],
+                "unplugged"
+            );
         }
     }
 }
