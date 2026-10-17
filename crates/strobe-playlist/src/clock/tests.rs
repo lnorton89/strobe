@@ -858,6 +858,36 @@ fn a_song_change_ends_a_listening_cue_but_not_during_a_transition() -> Result<()
     Ok(())
 }
 
+#[test]
+fn a_held_cue_is_not_moved_on_by_an_audio_event() -> Result<()> {
+    let mut playlist = show(&[100.0, 100.0], TransitionSpec::cut(), LoopMode::Stop);
+    playlist.defaults.advance = Some(AdvanceMode::FirstOf(vec![
+        AdvanceMode::Timer,
+        AdvanceMode::AudioEvent(AudioEventKind::Drop),
+        AdvanceMode::AudioEvent(AudioEventKind::SongChange),
+    ]));
+    let mut clock = clock_for(&playlist);
+    clock.tick(0.0, &BeatInfo::SILENT);
+    // The operator holds the scene through a speech; the DJ drops.
+    clock.hold();
+    for kind in [AudioEventKind::Drop, AudioEventKind::SongChange] {
+        assert!(
+            !clock.apply(Command::AudioEvent(kind)),
+            "{kind:?} is ignored while held"
+        );
+    }
+    assert_eq!(current(&clock)?, 0, "the held cue stays on");
+    assert!(clock.next_cue(), "a person can still move it on");
+    assert_eq!(current(&clock)?, 1, "next");
+    clock.unhold();
+    assert!(
+        clock.audio_event(AudioEventKind::Drop),
+        "released, the cue listens again"
+    );
+    assert_eq!(clock.state(), ClockState::Ended, "and the drop ended it");
+    Ok(())
+}
+
 // ---- failed cues ---------------------------------------------------------------
 
 #[test]
