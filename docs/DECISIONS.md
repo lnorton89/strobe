@@ -9780,3 +9780,57 @@ picture reads on the controller.
 **Would reopen:** a controller that needs full resolution of a noisy window
 (then the limit, not the ladder, is the lever), or encode time at 4K
 holding the stream well under 5 Hz on the mini PC.
+
+### D407: a code-paired desktop takes back its own lease once the connection holding it has gone silent (2026-10-17)
+
+**Context.** One connection holds the desktop lease (D275). A Wi-Fi drop
+leaves the host's end of the controller's old connection open, holding the
+lease, until its idle timeout (30 s): nothing is read from it, and nothing
+the host writes fails yet. A trusted controller that reconnects proves the
+trust file again and replaces its own record, which closes the old
+connection at once (D288). A code-paired controller reconnects with its
+token, gets the same client id, and was refused "only one desktop can
+control it at a time" for up to 30 s.
+
+**Why not simply let the same client id supersede, as trusted controllers
+do.** A trusted controller's proof cannot be replayed (a fresh nonce, bound
+to the host address, D288), so whoever proves is the holder of the file. A
+token can be: it crosses the LAN in clear (D252, D275), and D275 states the
+known risk as "while the switch is on *and the lease free*, replay a
+sniffed desktop token". Superseding on the token alone would let a passive
+sniffer take the lease from the controller in the middle of the show,
+which today it cannot. That would weaken D275, so it is not done.
+
+**Decision.** The same paired desktop (the same client id, so the same
+token's record) may take the lease from another of its own connections only
+when that connection has sent nothing for `Limits::dead_lease` (12 s). The
+native controller pings every 5 s from its worker thread whatever the UI is
+doing, so a connection silent for two pings and a margin is the dead one.
+The old connection is marked revoked (it closes on its next tick) and
+releases the lease, which also queues the input reset that lets go of
+anything it held; the new connection takes the lease, and the host logs
+it. Every message on a connection now records the time on its entry in the
+connection list (one short lock, on the connection's thread).
+
+What it does not change: a live lease holder (heard within 12 s) keeps the
+lease against its own token as before; another paired desktop never takes
+it, however quiet the holder; phones never have desktop scope; trusted
+pairing is unchanged. A sniffer gains only a lease whose holder the
+controller's own pings say is gone, 12 s after it went quiet instead of
+30 s, which is the "lease free" case D275 already names.
+
+**Not done.** The code-paired viewer still ends on a refusal and offers
+Reconnect (D286, D294); a reconnect pressed within the 12 s is refused once
+more. An automatic retry of `desktop_open` would close that, and is not
+this change.
+
+**Test.** `strobe-remote/tests/server.rs`:
+`a_code_paired_desktop_reconnecting_takes_back_its_own_dead_lease_only`
+(a live holder keeps it, another desktop is refused even after the
+silence, and the same desktop takes it back with the old connection
+closed; failed before, the old connection never closed). The limit is
+shortened to 300 ms there.
+
+**Would reopen:** TLS (D288's list), after which a token is no longer
+replayable and the same client id could supersede at once; or a controller
+whose pings are delayed past 12 s on a congested venue network.
