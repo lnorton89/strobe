@@ -1,11 +1,10 @@
 // ---- Strobe import of Shadertoy Tst007 "Music input" by strobe-tests (generated) ----
 // Pass: Image. Shim above the first marker; Shadertoy code below, unedited.
-// Tab line 1 is file line 22 for Image.
+// Tab line 1 is file line 21 for Image.
 vec2 strobe_fragCoord = vec2(0.0);
-vec3 strobe_iResolution;
+vec3 strobe_iResolution = vec3(RENDERSIZE, 1.0);
 vec3 strobe_iChannelResolution[4] = vec3[4](vec3(0.0), vec3(0.0), vec3(0.0), vec3(0.0));
 void strobe_begin() {
-    strobe_iResolution = vec3(RENDERSIZE, 1.0);
     strobe_iChannelResolution[0] = vec3(vec2(textureSize(strobe_ShadertoyAudio, 0)), 1.0);
     strobe_fragCoord = (gl_FragCoord.xy - 0.5 * RENDERSIZE) / st_zoom + 0.5 * RENDERSIZE;
 }

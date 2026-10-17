@@ -110,7 +110,7 @@
       {
         "name": "Buffer A",
         "file": "passes/buffer_a.glsl",
-        "code_line": 14
+        "code_line": 13
       },
       {
         "name": "Buffer B",

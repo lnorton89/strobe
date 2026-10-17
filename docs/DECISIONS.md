@@ -8652,3 +8652,32 @@ fails as a macro redefinition. No Shadertoy shader is known to.
 
 **Would reopen:** an imported scene whose code is later edited to call the
 SSF library on purpose (the alias would hide the library function from it).
+
+### D361: the shim's Shadertoy values are global initialisers, so an author's global sees them (2026-10-17)
+
+**Context.** D91 set `strobe_iResolution`, `strobe_iTime`, `strobe_iMouse`
+and the rest in `strobe_begin()`, the first thing `renderMain` does. WebGL
+accepts a uniform in a global initialiser (ANGLE allows it "for legacy
+compatibility"), and Shadertoy code uses that: `vec2 R = iResolution.xy;`
+at global scope. Globals are initialised before `renderMain` runs, so such
+a global read the shim's value before it was set: zero. The frame divided
+by zero and came out wrong, on both dialects.
+
+**Decision.** Each value the shim `#define`s an author's name to is that
+global's initialiser (`vec3 strobe_iResolution = vec3(RENDERSIZE, 1.0);`),
+and the clock texel is a global too. Desktop GLSL initialises globals in
+declaration order before `main`; on ES the assembler moves non-constant
+initialisers to the top of `main`, keeping that order (D192). The shim's
+globals come before the author's code, so the author's globals see them.
+This supersedes "sets globals in `strobe_begin()`" in D91; everything else
+there stands. Pass files are three lines shorter and the goldens moved.
+
+**Not covered:** `iChannelTime` and `iChannelResolution` are arrays, which
+the ES rewrite does not hoist, so they are still filled in
+`strobe_begin()`; a global initialised from one of them still reads zero.
+
+**Test.** `a_global_initialised_from_a_shadertoy_uniform_sees_its_value`
+(`strobe-shadertoy` render tests, both dialects).
+
+**Would reopen:** a driver that rejects a non-constant global initialiser
+on the desktop path.

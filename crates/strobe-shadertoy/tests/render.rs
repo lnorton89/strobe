@@ -670,3 +670,28 @@ fn a_helper_named_like_an_ssf_library_function_is_the_shaders_own() -> Result<()
     }
     Ok(())
 }
+
+#[test]
+fn a_global_initialised_from_a_shadertoy_uniform_sees_its_value() -> Result<()> {
+    // WebGL accepts a uniform in a global initialiser (ANGLE allows it "for
+    // legacy compatibility"), and `vec2 R = iResolution.xy;` is a common
+    // Shadertoy idiom. Here the green channel is 1 only when R is the
+    // real frame size, and red is the x fraction of the pixel.
+    let code = "vec2 R = iResolution.xy;\n\
+                vec3 M = vec3(iMouse.xy, 1.0);\n\
+                void mainImage(out vec4 c, in vec2 p) {\n\
+                \x20   c = vec4(p.x / max(R.x, 1.0), R.x > 1.0 ? 1.0 : 0.0, M.z, 1.0);\n\
+                }";
+    let (_, scene) = import_text(&inline(code), "global-uniform")?;
+    for api in BOTH {
+        let Some(frame) = render(api, &scene, 1, Options::default(), |_, _| Ok(()))? else {
+            continue;
+        };
+        let [r, g, _, _] = frame.center();
+        assert!(
+            g == 255 && near(r, 128),
+            "{api:?}: R must be iResolution.xy, got red {r} green {g}"
+        );
+    }
+    Ok(())
+}

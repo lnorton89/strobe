@@ -25,7 +25,8 @@
 //! ## Why globals and `#define`s
 //!
 //! `iResolution`, `iMouse` and friends are `#define`d to **globals the
-//! shim sets at the top of `renderMain`**, not to expressions over Strobe's
+//! shim initialises from Strobe's uniforms** (so an author's global
+//! initialised from one sees its value, D361), not to expressions over Strobe's
 //! uniforms, because the shim's definitions must keep working even if the
 //! author's code redefines a name the shim's expressions use (`TIME`,
 //! `RENDERSIZE`). All shim code that touches Strobe's names is *above*
@@ -160,11 +161,18 @@ struct Parts {
 }
 
 impl Parts {
-    /// A global `strobe_<name>` of type `glsl`, set to `value` in
-    /// `strobe_begin`, which the author's `<name>` is defined to mean.
+    /// A global `strobe_<name>` of type `glsl`, initialised to `value`,
+    /// which the author's `<name>` is defined to mean.
+    ///
+    /// The value is the global's initialiser, not an assignment in
+    /// `strobe_begin`: WebGL accepts a uniform in a global initialiser and
+    /// Shadertoy code relies on it (`vec2 R = iResolution.xy;`). Globals
+    /// are initialised in declaration order before `renderMain` runs (on ES
+    /// the assembler moves the initialisers to the top of `main` in that
+    /// order, D192), so the author's globals below see these values; an
+    /// assignment in `strobe_begin` came too late and left them zero.
     fn define(&mut self, name: &str, glsl: &str, value: &str) {
-        let _ = writeln!(self.decls, "{glsl} strobe_{name};");
-        let _ = writeln!(self.init, "    strobe_{name} = {value};");
+        let _ = writeln!(self.decls, "{glsl} strobe_{name} = {value};");
         let _ = writeln!(self.macros, "#define {name} strobe_{name}");
     }
 }
@@ -214,8 +222,8 @@ pub(super) fn pass_file(plan: &Plan, pass: &PlannedPass, shader: &Shader) -> Gen
 
     if needs_clock {
         parts
-            .init
-            .push_str("    vec4 strobe_clock = texelFetch(st_clock, ivec2(0, 0), 0);\n");
+            .decls
+            .push_str("vec4 strobe_clock = texelFetch(st_clock, ivec2(0, 0), 0);\n");
     }
     if used("iResolution") {
         parts.define("iResolution", "vec3", "vec3(RENDERSIZE, 1.0)");
