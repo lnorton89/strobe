@@ -40,6 +40,10 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- a macro counter at u32::MAX no longer overflows on add (D376) ([`2654061`](https://github.com/lnorton89/strobe/commit/2654061b0753250c8cb9450dab52698a752ae0a4))
+- an OSC double beyond the f32 range is clamped, not infinite (D375) ([`dc7b880`](https://github.com/lnorton89/strobe/commit/dc7b8800a16d1e706ac259b7355c7c657034ae37))
+- the OSC listener binds again after a socket error (D374) ([`8d0a789`](https://github.com/lnorton89/strobe/commit/8d0a789851711b66486729da09249b5621b6371d))
+- strobe-io builds clean with the midi feature off, and CI checks it ([`50c6ef8`](https://github.com/lnorton89/strobe/commit/50c6ef8fc2b9296c40ee78ec7d6a4a838fbce12f))
 - a non-Unicode argument no longer kills the app before logging starts ([`da6a65f`](https://github.com/lnorton89/strobe/commit/da6a65f17b59793648bef936c9d451429c0fdb47))
 - cargo xtask symbolicate finds a dump given relative to where it was run ([`22ec132`](https://github.com/lnorton89/strobe/commit/22ec1326f71a4c460901941dd6676adcfc7ad87e))
 - a failure that keeps coming back no longer pushes the others out (D381) ([`59141af`](https://github.com/lnorton89/strobe/commit/59141afb7a4510fa5c49a6fb60fb85ff4412db53))
@@ -174,6 +178,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Documentation
 
+- record the show-control sweep follow-ups in the roadmap ([`0e6706d`](https://github.com/lnorton89/strobe/commit/0e6706d57b8252da9a379db1b04d3bf57c8d3f42))
 - say what a crash report and a minidump give away before they are shared ([`a5fe877`](https://github.com/lnorton89/strobe/commit/a5fe877dc310d787c36939abd9a677b0d5cf9495))
 - record the show-control bug sweep in the roadmap ([`7e7869c`](https://github.com/lnorton89/strobe/commit/7e7869c63d1b3b4b2faaeb1e3630784a2f2b542d))
 - list the show-control fixes a real MIDI controller still has to confirm ([`f6274c5`](https://github.com/lnorton89/strobe/commit/f6274c5b50103c70d1681d762e6be9154c268379))
