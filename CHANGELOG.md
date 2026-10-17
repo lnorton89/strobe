@@ -40,6 +40,15 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- a script's `throw undefined` is reported as what it threw, not as out of memory ([`c18a9e3`](https://github.com/lnorton89/strobe/commit/c18a9e30ca841bb3191d8bd182799b64a65b4889))
+- setup and update declared with a top-level let or const run instead of being silently ignored (D326) ([`6198199`](https://github.com/lnorton89/strobe/commit/6198199fc38b1a0fbde5cc9adddbd53ae934d776))
+- a script fault that keeps coming back is logged and reported once, not thirty times a second (D325) ([`40ff39e`](https://github.com/lnorton89/strobe/commit/40ff39e19e45613253b1d09559748102e11d0f6c))
+- setControl and setUniform read at most one component past what they take from an array ([`7af762c`](https://github.com/lnorton89/strobe/commit/7af762c97b3a4ddcf4695312fe215901f38c9113))
+- a script's load-time frame runs under the load budget, so a slow first update still declares its uniforms (D324) ([`288e932`](https://github.com/lnorton89/strobe/commit/288e932434959afdf431332ed1719b7efd0bd9cd))
+- a scene cued again starts its script over, not from its last cue's state (D323) ([`1b601c6`](https://github.com/lnorton89/strobe/commit/1b601c63ef9b94b0be05aefeaca1302f11865726))
+- a script number past f32::MAX reaches the shader as zero, not infinity ([`80ad935`](https://github.com/lnorton89/strobe/commit/80ad935c3763d796f111df751af7e30ae9527a9b))
+- a script's promise callbacks run at the end of the frame that queued them (D322) ([`c6dbae5`](https://github.com/lnorton89/strobe/commit/c6dbae54beed056743bef629abe3e41915d50252))
+- a script's runaway recursion throws instead of overflowing a 1 MiB thread (D321) ([`a44afd9`](https://github.com/lnorton89/strobe/commit/a44afd95f5d2f47da028f81ca1c580808080a2c8))
 - a stall does not step a settled scale; put-off verdicts and lock expiry are logged (D320) ([`031d5d0`](https://github.com/lnorton89/strobe/commit/031d5d0fe86437742941fe34355858de55dd98cd))
 - a settled scale steps again only when recent misses average 1.5 times the drop line (D319) ([`f8ea5cd`](https://github.com/lnorton89/strobe/commit/f8ea5cd968e080420f3e0ff11613337ff6a49b26))
 - the late lock expires with backoff, and a verdict on disturbed windows is put off (D318) ([`3cba150`](https://github.com/lnorton89/strobe/commit/3cba150de1c5cbd5f39b7bead9ccd82038914462))
