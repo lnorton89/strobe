@@ -1286,7 +1286,30 @@ impl Show {
 
     /// Runs a transport command on the clock. Its effects arrive as events
     /// on the next frame.
+    ///
+    /// Hold needs a cue that is playing. Pressed while the show compiles,
+    /// waits for its anchor or has ended, it would latch a hold nothing
+    /// shows (the transport and the remote have no cue to mark `HELD`) and
+    /// freeze the first cue the show starts, all night (D436). Releasing a
+    /// hold is always allowed.
     pub fn command(&mut self, command: Command) -> bool {
+        let holds = match command {
+            Command::Hold => true,
+            Command::ToggleHold => !self.clock.is_held(),
+            Command::Next
+            | Command::Previous
+            | Command::Unhold
+            | Command::Extend(_)
+            | Command::RestartCue
+            | Command::JumpTo(_)
+            | Command::SkipSection
+            | Command::ToggleBlackout
+            | Command::AudioEvent(_) => false,
+        };
+        if holds && self.clock.current().is_none() {
+            log::info!("playlist: hold ignored; no cue is playing yet");
+            return false;
+        }
         self.clock.apply(command)
     }
 
@@ -1370,6 +1393,41 @@ impl Show {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use strobe_playlist::{Cue, Section, WallClockAnchor};
+
+    /// An anchored show over a library with no scenes in it: loading needs
+    /// no GL, and the clock is idle as it is while compiling or waiting.
+    fn waiting_show() -> Show {
+        let mut playlist = Playlist::new("tonight");
+        playlist.anchor = WallClockAnchor::from_hm(22, 0);
+        let mut section = Section::new("all");
+        section.cues.push(Cue::new(SceneRef::Library("red".into())));
+        playlist.sections.push(section);
+        let library = Library {
+            dir: PathBuf::from("no-library"),
+            entries: Vec::new(),
+        };
+        Show::new(None, playlist, &library, None, None)
+    }
+
+    #[test]
+    fn hold_before_the_show_starts_is_refused_and_leaves_nothing_latched() {
+        let mut show = waiting_show();
+        assert_eq!(show.clock().current(), None, "no cue is playing yet");
+        assert!(
+            !show.command(Command::ToggleHold),
+            "the remote's Hold, before the anchor"
+        );
+        assert!(!show.command(Command::Hold), "the Hold command too");
+        assert!(
+            !show.clock().is_held(),
+            "nothing is held for the first cue to inherit"
+        );
+        assert!(
+            show.command(Command::ToggleBlackout),
+            "other commands are untouched"
+        );
+    }
 
     #[test]
     fn warm_up_renders_half_of_each_edge_but_never_below_the_floor() {

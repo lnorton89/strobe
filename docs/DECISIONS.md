@@ -10507,3 +10507,29 @@ mix. Before, the show went back to loading and the crossfade was gone.
 
 **Would reopen:** a reason to reload an unchanged playlist on purpose (for
 example to retry scenes that failed, which would then want its own command).
+
+### D436: Hold needs a cue that is playing (2026-10-17)
+
+**Context.** `PlaylistClock::hold` latches whatever state the clock is in,
+and the app passed every Hold through. Pressed before the show started (the
+precompile, or an anchored show waiting for its time) or after it ended, it
+held a clock with no cue. Nothing showed it: the transport has no cue to
+mark `HELD`, and the remote's state reports `held: false` while the show
+waits, so its button still read "Hold". When the show then started, the
+first cue was frozen and stayed up all night. Space, a MIDI pad mapped to
+`toggle_hold` and the remote's button were all ways to do it, and on the
+remote a second press, meant to hold, released it instead.
+
+**Decision.** `Show::command` refuses Hold, and ToggleHold when it would
+hold, while the clock has no current cue, with an `info` line, and returns
+`false` as for any command that did nothing. Releasing is always allowed.
+The clock itself is unchanged, so a reload still carries a hold onto the
+new clock before it is restored (D433). A Hold pressed during the second or
+so a reload takes to load is refused too and needs pressing again.
+
+**Test.** `show::run::tests::hold_before_the_show_starts_is_refused_and_leaves_nothing_latched`
+(an anchored show not yet started: Hold and ToggleHold refused, nothing
+held, blackout still toggles; no GL needed). Before, the clock was left held.
+
+**Would reopen:** a wish to arm a hold before the show starts, which would
+want the transport and the remote to show it.
