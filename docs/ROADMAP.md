@@ -38,8 +38,8 @@ which backend proved a claim.
 ### In flight
 
 - **Adaptive resolution watches missed refreshes, not only the mean GPU time
-  (2026-10-16, D314-D317), D314-D316 verified on the projector (M20), D317
-  built and unit-tested:**
+  (2026-10-16, D314-D318), D314-D317 verified on the projector (M20, M21),
+  D318 built and unit-tested:**
   the venue mini PC showed scene 13 at 42-45 fps with a 13.6 ms mean under
   the 16.7 ms budget, about 9% of frames a refresh late, and the controller
   never moved (M16). Each presented output frame's interval now feeds the
@@ -66,7 +66,11 @@ which backend proved a claim.
   M20 passed: the old 13 from 42.5 to 58.5 fps at 0.70, 16 at 59.8 fps at
   0.80, no hunting, no climb back. Its third step waited three to four
   minutes behind the load line; D317 lets a step that paid lift that gate
-  for the next one. Open: `hardware/MINIPC.md` Task M21 (0.70 within 30 s).
+  for the next one; M21 confirmed it (0.70 at 18.7 s, 59.9 fps). M21 also
+  locked at 1.00 for the night on a first launch whose verdict windows a
+  previous process's teardown disturbed; D318 makes the late lock expire (60,
+  120, 240 s) and puts off verdicts on disturbed windows (a frame over 100 ms,
+  or the GPU time up after a step down). Open: `hardware/MINIPC.md` Task M22.
 
 - **`pow` of a negative base on ANGLE (2026-10-15, D301), built, not yet re-run
   on the RX 580:** the ES dialect writes `pow(x, y)` as `exp2(log2(x) * (y))`,
@@ -576,9 +580,10 @@ never per frame.
   it (D261); both are checked on llvmpipe only, not yet on ANGLE hardware
   or the owner's corpus. The base library is written ES-clean.
 - Adaptive-resolution thresholds are validated on one machine, the T480.
-  The missed-refresh rule and its verdict (D314-D316) are verified on the
-  mini PC (M20); D317's faster third step is checked on a synthetic M20
-  sequence only, and Task M21 is its hardware test.
+  The missed-refresh rule, its verdict and the fast third step (D314-D317)
+  are verified on the mini PC (M20, M21); D318's expiring lock and deferred
+  verdicts are checked on synthetic sequences only, and Task M22 is their
+  hardware test.
 - Native crash capture cannot see a bare `abort()` on Windows, which is a
   fast-fail ([DEBUGGING.md](DEBUGGING.md)).
 

@@ -621,22 +621,70 @@ The five runs again on the D316 build (ccc06de), 390 s each, numbers from the
 - The trigger reported, and judged against, is the last two windows, not the
   whole run.
 
-### Task M21, to run: the third step without the wait
+## D317 on the projector: the fast third step, and a false lock (2026-10-17, Task M21, D317 -> D318)
 
-One short hold-13 run on the D317 build, with the control window covered, as
-M20 run 2: `strobe.exe` with `--playlist jaja-show\playlists\m16-hold13.toml`
-and the usual flags, for 120 s.
+Two hold-13 runs on the D317 build (37880a8), with the control window
+covered. The soak was paused from 17:06:47 to 17:11:35.
+
+**Run A, launched about 10 s after the soak's strobe exited:**
+- 8.2 s, 1.00 -> 0.90: "missed 102 ... 240 frames (42.5%) GPU 14.9 ms", where
+  13 normally takes 13.6 ms.
+- 14.5 s: "cut too few missed refreshes (42.5% before, 42.1% after) ... back
+  to 1.00 ... until the scene changes (D315, D316)".
+- First perf minute: 39.8 fps, 50.4% missed, 1137 late, worst gap 142 ms,
+  gpu 14.52. Second minute: 42.6 fps at 1.00, and it stayed locked.
+- A transient load disturbed the verdict's windows, most likely DWM or the
+  driver tearing down the previous process's fullscreen context. The lock
+  that followed lasts as long as the scene is held, which at a show can be
+  the whole night, at a cost of about 16 fps.
+
+**Run B, two minutes later, same exe:**
+
+| Time | Step | Missed before | GPU ms |
+|---|---|---|---|
+| 7.9 s | 1.00 -> 0.90 | 40.8% | 13.6 |
+| 13.5 s | 0.90 -> 0.80 | 26.2% | 11.3 |
+| 18.7 s | 0.80 -> 0.70 | 14.6% | 9.1 |
+| 27.6 s | 0.70 -> 0.60 | 8.3% | 7.2 |
+
+- The third step came at 18.7 s instead of after 3-4 minutes: D317 works.
+- A fourth step followed, because 0.70's windows showed 8.3% here against
+  2.7% in M20. It paid.
+- Minute 1: 55.6 fps. Minute 2: 59.9 fps, 0.1% missed, at 0.60.
+
+**What changed (D318):**
+- The late lock expires: 60 s, then 120 s, then 240 s on each repeated
+  failure, and a paid step resets it. A false lock heals within a minute.
+  A scene whose misses really ignore its scale retries rarely: about 8 s in
+  240 at the cap.
+- A verdict whose judged windows were disturbed is put off for fresh
+  windows, up to four times (16 s), instead of locking. Disturbed means a
+  frame over 6 cadences (100 ms at 60 Hz), or the GPU time higher after a
+  step down than before it. Run A had both.
+- Run B's fourth step stands. It paid (8.3% -> 0.1%) and gave a steady
+  59.9 fps; the drop line, not a lower "good enough" level, is where the
+  stepping stops (see D318).
+
+### Task M22, to run: a launch right after another strobe exits
+
+Two hold-13 runs on the D318 build, the control window covered, 120 s each:
+
+1. **Run A again.** Start strobe within about 10 s of another strobe
+   exiting: stop the soak, or the run before, and launch at once.
+2. **A normal run,** with nothing exiting before it.
 
 **Expected:**
-- 1.00 -> 0.90 by about 8 s and 0.90 -> 0.80 by about 14 s, as in M20.
-- 0.80 -> 0.70 about 4.5 s after that, so by about 20 s and well within
-  30 s, reported as "missed N refreshes over the last 240 frames (about 14%
-  ...)".
-- The step to 0.70 kept (no "cut too few missed refreshes" line), no change
-  after, and the minute-2 perf line at about 58 fps with about 2-3% missed.
+- **Run 1:** no "cut too few missed refreshes" line in the first minute; if
+  the first verdict's windows are disturbed, it simply comes later. Steps to
+  0.80 or 0.70 within 90 s, and about 58 fps or better by minute 2. If a
+  lock line does appear, it now names its length ("for 3600 frames (about
+  60 s at 60 Hz)"), and the steps follow once it runs out.
+- **Run 2:** as M21 run B: 0.70 (or 0.60) within about 30 s, then steady.
 
-**What would reopen D317:** the step to 0.70 still waiting minutes; a fourth
-step below 0.70 that is then undone again and again; or any climb back.
+**What would reopen D318:**
+- A lock at 1.00 that outlasts its stated length.
+- Retries more often than the backoff allows.
+- A verdict put off for good on a quiet machine.
 
 ## Still to do here
 
@@ -644,8 +692,8 @@ step below 0.70 that is then undone again and again; or any climb back.
   Disconnect.
 - Re-measure the D310 scenes (section above). `14-electric-bloom` is
   expected to be the one still above 10 ms.
-- Task M21 (section above): one short hold-13 run, the step to 0.70 within
-  30 s (D317).
+- Task M22 (section above): a hold-13 launch right after another strobe
+  exits, and a normal run (D318).
 
 - Native strobe-bench and control generation in session 1: does a hidden
   window on AMD WGL draw at all (M3b)?

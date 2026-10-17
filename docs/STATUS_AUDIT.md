@@ -249,11 +249,19 @@ Linux and llvmpipe cannot prove any of these:
 
   Synthetic evidence: `strobe_gfx::adaptive::tests`, about 40 sequences
   including M16, M18, M19 and M20.
-- [ ] The third late step follows a paid step within seconds (D317). In M20
-  it waited three to four minutes behind the load line. Built and
-  unit-tested
-  (`the_third_step_follows_a_paid_step_without_waiting_for_the_load_line`).
-  Acceptance test: MINIPC.md Task M21, the old 13 at 0.70 within 30 s.
+- [x] The third late step follows a paid step within seconds (D317). In M20
+  it waited three to four minutes behind the load line. Verified on the mini
+  PC (MINIPC.md Task M21 run B, 2026-10-17): 0.80 -> 0.70 at 18.7 s, then
+  0.60 at 27.6 s (it paid, 8.3% -> 0.1%), and 59.9 fps in minute 2.
+  Unit test: `the_third_step_follows_a_paid_step_without_waiting_for_the_load_line`.
+- [ ] A late lock heals and a disturbed verdict waits (D318). M21 run A,
+  launched about 10 s after another strobe exited, locked at 1.00 for the
+  night on windows with a 142 ms gap and the GPU at 14.9 ms against 13.6.
+  Built and unit-tested
+  (`a_verdict_on_a_disturbed_window_is_put_off_and_a_false_lock_heals`,
+  `a_lock_on_an_undetected_disturbance_heals_within_the_minute`, and the
+  backoff checks in the resolution-independent tests). Acceptance test:
+  MINIPC.md Task M22.
 - [x] Keep commands, environment, logs, screenshots and failed outcomes in
   [hardware/T480.md](hardware/T480.md).
 
