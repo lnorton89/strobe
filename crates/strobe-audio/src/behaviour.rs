@@ -179,6 +179,39 @@ fn silence_gives_the_silent_values_and_never_nan() -> Result<()> {
 }
 
 #[test]
+fn a_dc_offset_in_a_silent_room_reads_as_silence() -> Result<()> {
+    // Cheap USB microphones and line inputs often sit a little off zero.
+    // A constant offset is not sound: through the Hann window it leaks
+    // into the first bins, which the bass band covers, and must not read
+    // as bass, as music playing, or as raw energy.
+    for offset in [0.005_f32, -0.02] {
+        let signal = vec![offset; RATE as usize * 10];
+        let frame = fixtures::last_frame(&signal, RATE, FPS);
+        let bass = get(&frame, "syn_BassLevel")?;
+        let level = get(&frame, "syn_Level")?;
+        let fade = get(&frame, "syn_FadeInOut")?;
+        assert!(bass < 0.05, "offset {offset}: BassLevel {bass}");
+        assert!(level < 0.05, "offset {offset}: Level {level}");
+        assert!(
+            fade < 0.2,
+            "offset {offset}: FadeInOut {fade} says music is playing"
+        );
+        assert!(
+            frame.energy[0] < crate::events::ABSENT,
+            "offset {offset}: raw energy {} is not silence",
+            frame.energy[0]
+        );
+        let waveform = frame.spectrum.iter().map(|texel| texel[3]);
+        let off_centre = waveform.fold(0.0_f32, |most, v| most.max((v - 0.5).abs()));
+        assert!(
+            off_centre < 0.01,
+            "offset {offset}: the waveform sits {off_centre} off its centre"
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn hostile_input_never_produces_nan() -> Result<()> {
     let mut signal = fixtures::noise(1.0, 2.0, RATE);
     for (i, sample) in signal.iter_mut().enumerate() {
