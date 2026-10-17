@@ -9846,3 +9846,59 @@ are each refused, with and without `replace`, and left byte for byte. Before,
 
 **Would reopen:** a person who wants to overwrite a hand-edited import on
 purpose; the answer would be a separate, explicit "overwrite anyway".
+
+### D420: an input stream that stops calling back without an error is noticed and reopened (2026-10-17)
+
+**Context.** The capture worker (D22, D266) learnt of a lost device only
+through cpal's error callback. On Windows WASAPI an unplugged or sleeping USB
+microphone can instead leave the stream "playing" with no further data
+callbacks and no error. Nothing noticed: the state stayed `Running`, the
+status bar said "Audio live", the analyser decayed to silence, and the show
+went on unreactive until someone restarted the app or changed the device.
+The worker read the ring every pass but never asked whether anything had
+arrived.
+
+**Decision.** A small pure state machine, `capture::watchdog::Watchdog`, is
+told on each 10 ms worker pass whether the ring held any samples. A stream
+that delivers nothing for `STALL_AFTER` (3 s) is stalled; it is reported
+once per stream. Silence is not a stall: a working device in a quiet room
+still delivers buffers of zeros, so its ring fills and it counts as heard.
+A loopback stream (an output device captured on Windows) is never watched,
+because WASAPI delivers no packets to a loopback client while nothing is
+playing, so there no callbacks *is* silence.
+
+On a stall the worker logs one `warn` (`` `name` stopped delivering audio
+(3 s with no samples and no error); reopening it``; repeats in a row are
+`debug`), puts the reason in `CaptureStatus::last_error`, goes to
+`SilentFallback` and drops the stream. That is the state a lost device
+already produced, so the app needs no change: the status bar, side panel,
+diagnostics and the remote badge say "No audio input", the visuals move to
+the synthetic track, and a device that had been live is reported as one
+`AUDIO` failure. The device the person chose is then opened again (for the
+default input that re-resolves the system default): at once after the first
+stall, then after 2, 4, 8 and at most 16 s (`stall_delay`) for streams that
+open and stay mute, so a dead device costs one open every few seconds at
+most, never one per pass or per frame. After a stall a reopened stream stays
+in `SilentFallback` ("waiting for `name` to deliver audio again") until its
+first samples arrive, then goes to `Running` with one `info` line, so a
+device that keeps opening mute does not flash "live" and re-announce itself
+every few seconds. Choosing another device starts the record afresh. The
+check is a few `Instant` comparisons on the worker thread: no lock, no
+allocation, nothing on the render thread.
+
+**Test.** `capture::watchdog::tests`:
+`silence_that_still_calls_back_is_never_a_stall` (ten minutes of zero-filled
+buffers), `a_stream_that_stops_calling_back_is_a_stall_within_the_limit`
+(noticed 3 s after the last samples, once),
+`short_gaps_and_a_slow_first_buffer_are_not_stalls`,
+`a_device_that_keeps_stalling_is_reopened_on_a_backoff_and_recovers` (0, 2,
+4, 8, 16, 16 s, then recovered and counted afresh) and
+`the_stall_backoff_never_overflows`. Before the change there was no stall
+detection at all. Not exercised: a real WASAPI device going mute, which needs
+the T480 (STATUS_AUDIT, audio removed and reconnected).
+
+**Would reopen:** a device whose healthy callbacks are more than 3 s apart
+(none known; WASAPI's shared-mode period is 10 ms), a loopback stall that
+needs catching too (it would want WASAPI's device notifications, the `wasapi`
+crate escape hatch in AGENT_RESEARCH), or a stalled chosen device that should
+fall back to the default input rather than be retried.

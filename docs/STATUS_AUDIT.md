@@ -196,6 +196,11 @@ Linux and llvmpipe cannot prove any of these:
 - [ ] Exercise audio absent, present, removed and reconnected, and verify
   the UI and log state transitions. Live capture is verified so far;
   removal and reconnection are not.
+  A stream that stops calling back with no error (a mute WASAPI device) is
+  now noticed within 3 s, shown as "No audio input" and reopened on a
+  backoff (D420); the logic is tested without hardware
+  (`capture::watchdog::tests`), and a real device going mute on the T480 is
+  still to be seen.
 - [x] Benchmark scenes at fixed resolution, recording GPU frame time,
   render scale, backend and driver, with CPU time kept separate
   ([BENCHMARKS.md](BENCHMARKS.md), 2026-10-09).

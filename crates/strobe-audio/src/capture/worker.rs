@@ -4,7 +4,8 @@
 //               ~100 Hz, runs the Analyzer, publishes the latest frame, and
 //               recovers from device loss.
 //
-// Dependencies: arc-swap, log; crate::analyzer, crate::capture (shared state)
+// Dependencies: arc-swap, log; crate::analyzer, crate::capture (shared state,
+//               the stall watchdog)
 // ============================================================================
 
 //! The analysis thread.
@@ -32,6 +33,15 @@
 //! a second at most instead of one every pass (D266). Glitches the stream
 //! survives are not failures; they are summed and logged once a minute.
 //!
+//! A stream can also stop without saying so: no more callbacks and no
+//! error (an unplugged or sleeping USB microphone on WASAPI). The
+//! [`super::watchdog`] notices a stream that has delivered nothing for a few
+//! seconds, and the worker treats it like a lost device: it logs it once,
+//! goes to `SilentFallback` (the app shows "No audio input" and switches to
+//! synthetic audio) and reopens the device on a backoff. After a stall a
+//! reopened stream stays in `SilentFallback` until its first samples arrive,
+//! so a device that opens and stays mute does not flash "live" (D420).
+//!
 //! In `Recovering` and `SilentFallback` the analyser keeps running with no
 //! samples, so levels decay to silence instead of freezing, and frames keep
 //! being published. The render loop never learns the difference except
@@ -45,6 +55,7 @@ use std::time::{Duration, Instant};
 use arc_swap::ArcSwap;
 
 use super::device::{self, DeviceChoice, Opened};
+use super::watchdog::{STALL_AFTER, Watch, Watchdog};
 use super::{CaptureError, CaptureState, CaptureStatus, Controls};
 use crate::analyzer::Analyzer;
 use crate::frame::{AudioFrame, Layout};
@@ -139,6 +150,8 @@ pub(crate) fn run(
     // Survived glitches since the last report.
     let mut glitches: u64 = 0;
     let mut glitch_report = Instant::now() + GLITCH_REPORT;
+    // Whether the live stream is still calling back (D420).
+    let mut watchdog = Watchdog::new(Instant::now());
 
     while !shared.stop.load(Ordering::Acquire) {
         let now = Instant::now();
@@ -152,6 +165,8 @@ pub(crate) fn run(
             choice = new_choice;
             live = None;
             next_retry = now;
+            // Another device starts with a clean record.
+            watchdog = Watchdog::new(now);
         }
         if live
             .as_ref()
@@ -192,16 +207,26 @@ pub(crate) fn run(
                     follow_rate(&mut analyzer, opened.sample_rate);
                     log::info!("capturing `{}` at {} Hz", opened.name, opened.sample_rate);
                     warned = None;
+                    watchdog.opened(now);
+                    // After a stall, "no input" stays up until this stream
+                    // is heard: it may stay as mute as the last one.
+                    let waiting = watchdog.stalled() && !opened.loopback;
                     {
                         let mut status =
                             shared.status.lock().unwrap_or_else(PoisonError::into_inner);
                         status.device = Some(opened.name.clone());
                         status.sample_rate = Some(opened.sample_rate);
-                        status.last_error = None;
+                        status.last_error = waiting.then(|| {
+                            format!("waiting for `{}` to deliver audio again", opened.name)
+                        });
                     }
                     live = Some(opened);
                     opened_at = now;
-                    shared.set_state(CaptureState::Running);
+                    shared.set_state(if waiting {
+                        CaptureState::SilentFallback
+                    } else {
+                        CaptureState::Running
+                    });
                     if let Some(tx) = first_attempt.take() {
                         // The starter stopped waiting (its timeout passed);
                         // capture runs on regardless.
@@ -238,6 +263,9 @@ pub(crate) fn run(
 
         shared.controls.apply(&mut analyzer);
 
+        // Whether the live stream delivered anything since the last pass;
+        // `None` when there is no stream or it is a loopback one.
+        let mut heard = None;
         if let Some(active) = live.as_mut() {
             let waiting = active.consumer.slots();
             if waiting > 0
@@ -247,6 +275,46 @@ pub(crate) fn run(
                 analyzer.push(head);
                 analyzer.push(tail);
                 chunk.commit_all();
+            }
+            if !active.loopback {
+                heard = Some(waiting > 0);
+            }
+        }
+        if let Some(samples) = heard {
+            match watchdog.observe(now, samples) {
+                Watch::Fine => {}
+                Watch::Recovered => {
+                    log::info!("audio input is delivering again");
+                    shared
+                        .status
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .last_error = None;
+                    shared.set_state(CaptureState::Running);
+                }
+                Watch::Stalled { stalls, delay } => {
+                    let name = live.as_ref().map_or("", |active| active.name.as_str());
+                    let text = format!(
+                        "`{name}` stopped delivering audio ({} s with no samples and no error)",
+                        STALL_AFTER.as_secs()
+                    );
+                    if stalls == 1 {
+                        log::warn!("{text}; reopening it");
+                    } else {
+                        log::debug!(
+                            "{text} again ({stalls} in a row); reopening in {} s",
+                            delay.as_secs()
+                        );
+                    }
+                    shared
+                        .status
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .last_error = Some(text);
+                    shared.set_state(CaptureState::SilentFallback);
+                    live = None;
+                    next_retry = now + delay;
+                }
             }
         }
 
