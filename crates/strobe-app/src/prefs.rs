@@ -29,9 +29,11 @@
 //! ## What a bad file does
 //!
 //! Nothing worse than costing the preferences: an unreadable or malformed
-//! file loads as the defaults and the reason goes to the log, every field
-//! has a default so an old file keeps working, and unknown keys and panes
-//! are ignored so an old build can read a newer file.
+//! file loads as the defaults, the reason goes to the log and the file is
+//! copied to `ui.toml.bak` before it is written over ([`keep_a_copy`],
+//! D352), every field has a default so an old file keeps working, and
+//! unknown keys and panes are ignored so an old build can read a newer
+//! file.
 
 use crate::workspace::{Pane, Panes};
 use serde::{Deserialize, Serialize};
@@ -373,6 +375,27 @@ impl Prefs {
                 Self::default(),
                 Some(format!("reading {}: {error}", path.display())),
             ),
+        }
+    }
+}
+
+/// Copies an unreadable preferences file to `ui.toml.bak` before the app
+/// first writes over it (D352), as `show-control.json` is (D178): the
+/// favourites and layouts in a file with one typo are the operator's, and
+/// the defaults are about to replace them. An older copy is not replaced:
+/// it is the one from before the trouble started.
+pub fn keep_a_copy(path: &Path) {
+    let mut backup = path.as_os_str().to_owned();
+    backup.push(".bak");
+    let backup = PathBuf::from(backup);
+    if path.exists() && !backup.exists() {
+        match std::fs::copy(path, &backup) {
+            Ok(_) => log::warn!(
+                "{} could not be read; the original is kept as {}",
+                path.display(),
+                backup.display()
+            ),
+            Err(error) => log::warn!("could not keep a copy of {}: {error}", path.display()),
         }
     }
 }

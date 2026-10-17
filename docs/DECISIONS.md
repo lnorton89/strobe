@@ -8668,3 +8668,28 @@ in the control window.
 
 **Would reopen:** a window system whose `ModifiersChanged` is unreliable
 for an undecorated fullscreen window, seen on a real machine.
+
+### D352: an unreadable `ui.toml` is kept as `ui.toml.bak` before it is written over (2026-10-17)
+
+**Context.** A `ui.toml` that does not parse (a hand edit with one typo,
+a cut-off write from a build before the synced write) loaded as the
+defaults, which was the plan. But the first change of anything (a pane
+opened) then wrote the defaults over it, and the favourites (D211), saved
+layouts (D215), watched folder and trust-file path it held were gone for
+good. `show-control.json` has been protected against this since D178.
+
+**Decision.** The same rule for `ui.toml`: when it existed and could not
+be read, it is copied to `ui.toml.bak` at start-up, before the writer
+runs; an existing `.bak` is left alone, since it is the copy from before
+the trouble started. The writer also saves through a temporary file of
+this process's own (`ui.toml.<pid>.tmp`, likewise for `show-control.json`)
+and syncs it before the rename, so two Strobes saving at once, or an older
+build beside this one, each put a whole file in place (last writer wins,
+as before) rather than renaming one another's half-written file, and a
+power cut leaves the old file or the new one.
+
+**Tests.** `ui::state::tests::an_unreadable_file_is_kept_before_the_defaults_are_written_over_it`,
+`prefs::tests::a_save_never_writes_into_another_strobes_temporary_file`.
+
+**Would reopen:** reading a damaged file field by field, keeping what does
+parse, if operators hand-edit `ui.toml` often enough to need it.
