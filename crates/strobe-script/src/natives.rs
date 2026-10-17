@@ -506,6 +506,9 @@ fn lexical_function<'js>(ctx: &Ctx<'js>, name: &str) -> Option<Function<'js>> {
     match ctx.eval::<Value<'js>, _>(format!("typeof {name} === 'function' ? {name} : undefined")) {
         Ok(value) => value.as_function().cloned(),
         Err(_) => {
+            // The exception (a reserved word, `let` not yet initialised)
+            // only means there is no such function; it is cleared so the
+            // caller's next call starts clean.
             let _ = ctx.catch();
             None
         }
