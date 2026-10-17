@@ -40,6 +40,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- the late lock expires with backoff, and a verdict on disturbed windows is put off (D318) ([`3cba150`](https://github.com/lnorton89/strobe/commit/3cba150de1c5cbd5f39b7bead9ccd82038914462))
 - after a late step pays, the load line no longer gates the next one (D317) ([`b5fb2cf`](https://github.com/lnorton89/strobe/commit/b5fb2cf1f9ace58bee5f26f8186e0d580fb4c5ba))
 - a late step pays when it cuts the missed refreshes by a fifth and by 5 points (D316) ([`b403e2e`](https://github.com/lnorton89/strobe/commit/b403e2ec7fd372d3eb5f7efa7e914280eb2e5d25))
 - a late drop that does not cut the missed refreshes is undone, and the covered control window runs only its chores (D315) ([`d5378a8`](https://github.com/lnorton89/strobe/commit/d5378a8e0c9551926c22177acbe8bbbd4b274883))
