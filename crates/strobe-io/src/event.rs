@@ -46,7 +46,8 @@ use std::sync::Arc;
 /// are dropped when the message is decoded.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Arg {
-    /// A 32-bit or 64-bit float (finite).
+    /// A 32-bit or 64-bit float. Always finite: NaN and infinity are
+    /// dropped on decode, and a double beyond the f32 range is clamped to it.
     Float(f32),
     /// A 32-bit or 64-bit integer.
     Int(i32),

@@ -227,7 +227,11 @@ fn convert(message: &rosc::OscMessage) -> Option<OscMessage> {
 fn arg(value: &rosc::OscType) -> Option<Arg> {
     match value {
         rosc::OscType::Float(x) => x.is_finite().then_some(Arg::Float(*x)),
-        rosc::OscType::Double(x) => x.is_finite().then_some(Arg::Float(*x as f32)),
+        // A finite double can be too big for a float, and `as` would make it
+        // infinity: clamp it to the f32 range, as a long is to the i32's.
+        rosc::OscType::Double(x) => x.is_finite().then_some(Arg::Float(
+            x.clamp(-f64::from(f32::MAX), f64::from(f32::MAX)) as f32,
+        )),
         rosc::OscType::Int(x) => Some(Arg::Int(*x)),
         rosc::OscType::Long(x) => Some(Arg::Int(
             (*x).clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32,
@@ -692,6 +696,50 @@ mod tests {
             vec![Arg::Int(i32::MAX), Arg::Float(0.5), Arg::Impulse],
             "narrowed"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn a_double_too_big_for_a_float_is_the_biggest_float_not_infinity() -> Result<()> {
+        let bytes = packet(
+            "/x",
+            vec![
+                rosc::OscType::Double(1e300),
+                rosc::OscType::Double(-1e300),
+                rosc::OscType::Double(f64::from(f32::MAX)),
+            ],
+        )?;
+        let args = decode(&bytes)?
+            .into_iter()
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("the message was dropped"))?
+            .args;
+        assert_eq!(
+            args,
+            vec![
+                Arg::Float(f32::MAX),
+                Arg::Float(-f32::MAX),
+                Arg::Float(f32::MAX)
+            ],
+            "clamped to the f32 range, every one finite"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn what_is_not_a_number_is_dropped_whatever_its_width() -> Result<()> {
+        for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let double = packet("/x", vec![rosc::OscType::Double(value)])?;
+            assert!(
+                decode(&double)?.is_empty(),
+                "a double {value} is dropped, with its message"
+            );
+            let single = packet("/x", vec![rosc::OscType::Float(value as f32)])?;
+            assert!(
+                decode(&single)?.is_empty(),
+                "a float {value} is dropped, with its message"
+            );
+        }
         Ok(())
     }
 

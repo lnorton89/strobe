@@ -9158,3 +9158,25 @@ control).
 listener that is down for up to 15 s after the network returns is too slow
 (the steady delay would come down), or a request for the initial bind to
 retry too.
+
+### D375: a double beyond the f32 range is clamped, not turned into infinity (2026-10-17)
+
+**Context.** `Arg::Float` is documented as finite, and the decoder drops NaN
+and infinity (D172) so a control is never handed one. A double was checked
+for finiteness as a double and then narrowed with `as f32`, which turns a
+finite `1e300` into `inf`: the guarantee was broken for any double above
+about 3.4e38, and the infinity went on to the mapper and the controls.
+
+**Decision.** A finite double is clamped to `-f32::MAX..=f32::MAX` before the
+narrowing, as a long is clamped to the i32 range. Clamping rather than
+dropping, because the sender meant "very large" and the control the value
+reaches clamps to its own range anyway: a fader at `1e300` is at the top.
+NaN and real infinities, as a float or a double, are still dropped (they mean
+nothing), with the message if they were its only arguments.
+
+**Test.** `a_double_too_big_for_a_float_is_the_biggest_float_not_infinity`
+(`Float(inf)` before the change) and
+`what_is_not_a_number_is_dropped_whatever_its_width`.
+
+**Would reopen:** a sender for which an out-of-range value should be ignored
+rather than pinned to the end of the range.
