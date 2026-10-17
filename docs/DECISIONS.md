@@ -9344,3 +9344,48 @@ is its last write, which for a log is the end of that session.
 
 **Would reopen:** file systems that do not keep modification times (none
 Strobe runs on).
+
+### D398: a dead crash monitor is noticed by asking the process, not the socket (2026-10-17)
+
+**Context.** D43 puts native crash capture in a second process. If that
+process dies mid-show (antivirus quarantines it, someone ends it in the task
+manager, the OOM killer takes it), the app's `CrashHandler` stays attached to
+a socket nobody reads and the next driver fault leaves nothing, with no sign
+anywhere that capture had stopped.
+
+**Decision.** `start_monitor` also starts a small thread, `strobe-crash-watch`,
+that wakes every 30 s (`WATCH_INTERVAL`) and calls `Child::try_wait` on the
+monitor process. If it has exited, one `DIAGNOSTICS` failure goes through
+`failure::report` ("the crash monitor process exited while Strobe was still
+running", with the exit status; action: native crashes are no longer
+captured, restart to re-arm), which lands in the log, the failure list and
+later crash reports. Dropping the `MonitorHandle` first drops the thread's
+stop channel, so a normal shutdown (the monitor exits when the app
+disconnects) is never reported. `Subsystem::Diagnostics` is new for it.
+
+**Why not `minidumper::Client::ping`.** The client does expose a `ping`, but
+it sends on the same socket the crash handler uses and then does a blocking
+`recv` for the reply, with no timeout. `request_dump` likewise waits on a
+`recv` for the dump acknowledgement. A ping in flight when the app crashes
+can read that acknowledgement instead of the pong, and the crashed app, which
+is sitting in its handler, then waits forever for an ack that was already
+consumed: a frozen window on the projector in place of a crash. Not worth it
+for a liveness check; the process handle answers the same question without
+touching the socket.
+
+**Not built: restarting the monitor.** The crash handler's closure owns an
+`Arc<OnceLock<Client>>`, and a `OnceLock` cannot be re-armed. Replacing the
+client would need a swappable slot readable from the signal handler without
+blocking (a `try_lock` on a mutex the watcher also takes), a new socket name
+and a second connector, all in code that runs inside a crashing process. That
+is a heavy mechanism for a rare event, and the failure report tells the
+person to restart. Reopen it if monitors turn out to die often in practice.
+
+**Test.** `a_monitor_that_dies_is_noticed_at_the_next_poll`,
+`a_living_monitor_is_never_reported_and_stopping_ends_the_watch` and
+`a_lost_monitor_becomes_one_diagnostics_failure` (`strobe-diag`, `crash.rs`;
+the first two use a real `sleep` process as a stand-in for the monitor, unix
+only).
+
+**Would reopen:** monitors dying in the field (add the restart), or a
+`minidumper` release that gives `ping` a timeout and its own channel.
