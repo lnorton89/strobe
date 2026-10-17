@@ -67,16 +67,16 @@ use strobe_diag::failure::{self, Failure, Subsystem};
 use strobe_gfx::gl::Gl;
 use strobe_gfx::{Blend, Caps, Compositor, MediaRequest, Mouse};
 use strobe_playlist::{
-    AudioEventKind, ClockConfig, ClockEvent, ClockState, Command, Playlist, PlaylistClock,
-    ResolvedCue, ResumePoint, SceneRef, SkipReason, Timeline, TimelineConfig, TransitionKind,
+    AudioEventKind, ClockConfig, ClockEvent, ClockState, Command, Placement, Playlist,
+    PlaylistClock, ResolvedCue, ResumePoint, SceneRef, SkipReason, Timeline, TimelineConfig,
+    TransitionKind,
 };
 
-/// Whether `new` is the same authored cue as `old`, with the same look:
-/// what [`Show::prepare`] would apply is unchanged.
+/// Whether `new` has the same look as `old`, the cue that was live before a
+/// replace: what [`Show::prepare`] would apply is unchanged. Its position
+/// may differ, since an edit above it moves it (D432).
 fn same_cue(old: &ResolvedCue, new: &ResolvedCue) -> bool {
-    old.section == new.section
-        && old.cue == new.cue
-        && old.scene == new.scene
+    old.scene == new.scene
         && old.preset == new.preset
         && old.media == new.media
         && old.overrides == new.overrides
@@ -674,7 +674,24 @@ impl Show {
     /// is meant to be the same show, D158). The old clock's position is
     /// restored once the new scenes are compiled.
     pub fn replace_playlist(&mut self, playlist: Playlist, library: &Library) {
-        let point = self.clock.resume_point().or_else(|| self.resume_in.take());
+        // A save that changed nothing the show plays (Ctrl+S out of habit, a
+        // comment, a sync tool touching the file) is not a reload: one would
+        // cut a crossfade short and throw away the next scene's warm-up for
+        // nothing (D435).
+        if playlist == self.playlist {
+            log::info!(
+                "playlist \"{}\": the new version plays the same as the old; nothing to reload",
+                self.playlist.name
+            );
+            return;
+        }
+        // An edit above the live cue shifts its authored position, so the
+        // point is carried to where that cue now is (D432).
+        let point = self
+            .clock
+            .resume_point()
+            .or_else(|| self.resume_in.take())
+            .map(|point| point.follow(&self.playlist, &playlist));
         if let Some(live) = self.clock.current_cue() {
             self.carried = Some(live.resolved.clone());
         }
@@ -689,7 +706,13 @@ impl Show {
         self.composited = false;
         let mut old = std::mem::replace(&mut self.cache, SceneCache::new(Vec::new()));
         let timeline = Timeline::from_playlist(&playlist, &TimelineConfig::default());
+        let held = self.clock.is_held();
         self.clock = PlaylistClock::new(timeline, ClockConfig::default());
+        // A held cue stays held through an edit: the operator let go of
+        // nothing (D433).
+        if held {
+            self.clock.hold();
+        }
         self.playlist = playlist;
         self.rebuild_tables(library, Some(&mut old));
         self.waiting = None;
@@ -726,7 +749,7 @@ impl Show {
             dt
         };
         self.show_time.advance(wall);
-        if !self.pace_anchor(env, wall) {
+        if !self.pace_anchor(env) {
             let frame = env.audio.frame_at(self.show_time.seconds());
             let beat = self.reader.read(&frame.scalars, frame.downbeat);
             let [whole, bass] = frame.energy;
@@ -748,6 +771,22 @@ impl Show {
         {
             self.park(out.scene, out.session);
             self.blend = None;
+        }
+        // A scene warmed for a cue the clock no longer goes to next (a jump,
+        // a step back or a skip in the last seconds of a cue, or +30 s) would
+        // otherwise render beside the live one for the whole of the cue the
+        // show went to (D434).
+        let stale = self
+            .warming
+            .as_ref()
+            .is_some_and(|warm| self.clock.warming() != Some(warm.index));
+        if stale && let Some(warm) = self.warming.take() {
+            log::info!(
+                "playlist: cue {} is no longer next; {} stops warming",
+                warm.index + 1,
+                warm.session.name
+            );
+            self.park(warm.scene, warm.session);
         }
 
         if let Some(session) = env.active.as_mut() {
@@ -850,18 +889,33 @@ impl Show {
         );
     }
 
-    /// While the show waits for its anchor, counts the wait down and starts
-    /// the schedule when it is over. Returns whether the clock is held back.
-    fn pace_anchor(&mut self, env: &Env<'_>, dt: f32) -> bool {
-        let Some(remaining) = self.waiting.as_mut() else {
+    /// While the show waits for its anchor, asks the wall clock each frame
+    /// how long is left and starts the schedule when it says so. Returns
+    /// whether the clock is held back.
+    ///
+    /// The wait is not a countdown of frame time: a system clock corrected
+    /// while the show waits (a wrong time zone fixed, a drifted clock
+    /// synced, a daylight-saving change) would otherwise start the show as
+    /// late or as early as the correction (D437). Asking is arithmetic on
+    /// the timeline, no allocation.
+    fn pace_anchor(&mut self, env: &Env<'_>) -> bool {
+        if self.waiting.is_none() {
             return false;
-        };
-        *remaining -= f64::from(dt);
-        if *remaining > 0.0 {
+        }
+        let now = f64::from(env.date[3]);
+        let timeline = self.clock.timeline();
+        let placement = timeline
+            .anchor()
+            .map(|anchor| timeline.place(timeline.elapsed_at(anchor, now)));
+        if let Some(Placement::Waiting {
+            seconds_until_start,
+        }) = placement
+        {
+            self.waiting = Some(seconds_until_start);
             return true;
         }
         self.waiting = None;
-        if let Some(placement) = self.clock.sync_to_wall_clock(f64::from(env.date[3])) {
+        if let Some(placement) = self.clock.sync_to_wall_clock(now) {
             log::info!("playlist: the anchor has arrived ({placement:?})");
         }
         false
@@ -1248,7 +1302,30 @@ impl Show {
 
     /// Runs a transport command on the clock. Its effects arrive as events
     /// on the next frame.
+    ///
+    /// Hold needs a cue that is playing. Pressed while the show compiles,
+    /// waits for its anchor or has ended, it would latch a hold nothing
+    /// shows (the transport and the remote have no cue to mark `HELD`) and
+    /// freeze the first cue the show starts, all night (D436). Releasing a
+    /// hold is always allowed.
     pub fn command(&mut self, command: Command) -> bool {
+        let holds = match command {
+            Command::Hold => true,
+            Command::ToggleHold => !self.clock.is_held(),
+            Command::Next
+            | Command::Previous
+            | Command::Unhold
+            | Command::Extend(_)
+            | Command::RestartCue
+            | Command::JumpTo(_)
+            | Command::SkipSection
+            | Command::ToggleBlackout
+            | Command::AudioEvent(_) => false,
+        };
+        if holds && self.clock.current().is_none() {
+            log::info!("playlist: hold ignored; no cue is playing yet");
+            return false;
+        }
         self.clock.apply(command)
     }
 
@@ -1332,6 +1409,41 @@ impl Show {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use strobe_playlist::{Cue, Section, WallClockAnchor};
+
+    /// An anchored show over a library with no scenes in it: loading needs
+    /// no GL, and the clock is idle as it is while compiling or waiting.
+    fn waiting_show() -> Show {
+        let mut playlist = Playlist::new("tonight");
+        playlist.anchor = WallClockAnchor::from_hm(22, 0);
+        let mut section = Section::new("all");
+        section.cues.push(Cue::new(SceneRef::Library("red".into())));
+        playlist.sections.push(section);
+        let library = Library {
+            dir: PathBuf::from("no-library"),
+            entries: Vec::new(),
+        };
+        Show::new(None, playlist, &library, None, None)
+    }
+
+    #[test]
+    fn hold_before_the_show_starts_is_refused_and_leaves_nothing_latched() {
+        let mut show = waiting_show();
+        assert_eq!(show.clock().current(), None, "no cue is playing yet");
+        assert!(
+            !show.command(Command::ToggleHold),
+            "the remote's Hold, before the anchor"
+        );
+        assert!(!show.command(Command::Hold), "the Hold command too");
+        assert!(
+            !show.clock().is_held(),
+            "nothing is held for the first cue to inherit"
+        );
+        assert!(
+            show.command(Command::ToggleBlackout),
+            "other commands are untouched"
+        );
+    }
 
     #[test]
     fn warm_up_renders_half_of_each_edge_but_never_below_the_floor() {

@@ -3,7 +3,8 @@
 // Description:  The resume point: playlist identity, section, cue, offset and
 //               pass as a few lines of TOML, saved atomically.
 //
-// Dependencies: crate::error, crate::file, crate::parse, serde, toml
+// Dependencies: crate::error, crate::file, crate::model, crate::parse, serde,
+//               toml
 // ============================================================================
 
 //! Resuming after a restart.
@@ -35,6 +36,7 @@
 
 use crate::error::{ParseError, PlaylistError};
 use crate::file::write_atomic;
+use crate::model::Playlist;
 use crate::parse::toml_error;
 use serde::Deserialize;
 use std::path::Path;
@@ -128,6 +130,64 @@ impl ResumePoint {
         })
     }
 
+    /// This point carried from `old` into `new`, an edited version of the
+    /// same playlist (a hot reload, a LIST pane edit), so it still names the
+    /// cue it was saved on (D432).
+    ///
+    /// The authored position alone is not enough: a cue inserted, deleted,
+    /// duplicated or moved above the point's cue shifts it, and the
+    /// position then names a neighbour. So the cue is looked for by what it
+    /// is: unchanged at the same position, the point stays; else the
+    /// nearest cue in `new` equal to it in every field (in a section of the
+    /// same name first, then by distance) is the one; else the cue itself
+    /// was edited or removed, and the point keeps its position, as before.
+    /// The offset and the pass are kept.
+    #[must_use]
+    pub fn follow(self, old: &Playlist, new: &Playlist) -> Self {
+        let Some((section_name, live)) = old
+            .sections
+            .get(self.section)
+            .and_then(|section| Some((section.name.as_str(), section.cues.get(self.cue)?)))
+        else {
+            return self;
+        };
+        let unchanged = new
+            .sections
+            .get(self.section)
+            .and_then(|section| section.cues.get(self.cue))
+            .is_some_and(|cue| cue == live);
+        if unchanged {
+            return self;
+        }
+        let nearest = new
+            .sections
+            .iter()
+            .enumerate()
+            .flat_map(|(section, authored)| {
+                authored
+                    .cues
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, cue)| *cue == live)
+                    .map(move |(cue, _)| (section, cue, authored.name == section_name))
+            })
+            .min_by_key(|&(section, cue, same_name)| {
+                (
+                    !same_name,
+                    section.abs_diff(self.section),
+                    cue.abs_diff(self.cue),
+                )
+            });
+        match nearest {
+            Some((section, cue, _)) => Self {
+                section,
+                cue,
+                ..self
+            },
+            None => self,
+        }
+    }
+
     /// Writes the point to `path`, atomically.
     pub fn save(&self, path: &Path) -> Result<(), PlaylistError> {
         write_atomic(path, &self.to_toml())
@@ -146,6 +206,7 @@ impl ResumePoint {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::{Cue, SceneRef, Section};
     use anyhow::Result;
 
     fn point() -> ResumePoint {
@@ -219,6 +280,100 @@ mod tests {
                 "{bad:?} should be rejected"
             );
         }
+    }
+
+    /// Sections of cues named by their scenes.
+    fn playlist_of(sections: &[(&str, &[&str])]) -> Playlist {
+        let mut playlist = Playlist::new("show");
+        for (name, scenes) in sections {
+            let mut section = Section::new(*name);
+            for scene in *scenes {
+                section
+                    .cues
+                    .push(Cue::new(SceneRef::Library((*scene).into())));
+            }
+            playlist.sections.push(section);
+        }
+        playlist
+    }
+
+    fn at(section: usize, cue: usize) -> ResumePoint {
+        ResumePoint {
+            section,
+            cue,
+            ..point()
+        }
+    }
+
+    fn place(point: ResumePoint) -> (usize, usize) {
+        (point.section, point.cue)
+    }
+
+    #[test]
+    fn a_point_follows_its_cue_when_cues_above_it_move() {
+        let old = playlist_of(&[("s", &["a", "b", "c", "d"])]);
+        // Playing c, 37.5 s in.
+        let live = at(0, 2);
+        for (edit, new, expected) in [
+            (
+                "deleted above",
+                playlist_of(&[("s", &["b", "c", "d"])]),
+                (0, 1),
+            ),
+            (
+                "inserted above",
+                playlist_of(&[("s", &["x", "a", "b", "c", "d"])]),
+                (0, 3),
+            ),
+            (
+                "moved up",
+                playlist_of(&[("s", &["a", "c", "b", "d"])]),
+                (0, 1),
+            ),
+            (
+                "a section added before",
+                playlist_of(&[("intro", &["c", "x"]), ("s", &["a", "b", "c", "d"])]),
+                (1, 2),
+            ),
+            (
+                "a cue after it changed",
+                playlist_of(&[("s", &["a", "b", "c", "x"])]),
+                (0, 2),
+            ),
+        ] {
+            let followed = live.follow(&old, &new);
+            assert_eq!(place(followed), expected, "{edit}");
+            assert_eq!(followed.offset, live.offset, "{edit}: the offset is kept");
+        }
+    }
+
+    #[test]
+    fn a_point_on_a_cue_that_was_edited_or_removed_keeps_its_position() {
+        let old = playlist_of(&[("s", &["a", "b", "c"])]);
+        let mut edited = old.clone();
+        if let Some(cue) = edited
+            .sections
+            .first_mut()
+            .and_then(|section| section.cues.get_mut(1))
+        {
+            cue.preset = Some("full".into());
+        }
+        assert_eq!(
+            place(at(0, 1).follow(&old, &edited)),
+            (0, 1),
+            "the live cue's own edit"
+        );
+        let removed = playlist_of(&[("s", &["a", "c"])]);
+        assert_eq!(
+            place(at(0, 1).follow(&old, &removed)),
+            (0, 1),
+            "the live cue is gone: its position, which is now the next cue"
+        );
+        assert_eq!(
+            place(at(5, 0).follow(&old, &removed)),
+            (5, 0),
+            "a point outside the old playlist is left for the restore to refuse"
+        );
     }
 
     #[test]
