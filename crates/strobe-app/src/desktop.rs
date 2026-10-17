@@ -1753,10 +1753,21 @@ fn egui_modifiers(value: Modifiers) -> egui::Modifiers {
     reason = "only pointer, key and committed text are transferable; local viewport and device events are not"
 )]
 fn outgoing(event: &Event, rect: egui::Rect, focused: bool) -> Vec<Input> {
+    // An image squeezed to no width or height (the window dragged down to
+    // nothing) puts every point at its near edge rather than at NaN, which
+    // the host would refuse by ending the connection (D404).
+    let fraction = |offset: f32, extent: f32| {
+        let value = offset / extent;
+        if extent > 0.0 && value.is_finite() {
+            value
+        } else {
+            0.0
+        }
+    };
     let point = |pos: Pos2| {
         (
-            (pos.x - rect.min.x) / rect.width(),
-            (pos.y - rect.min.y) / rect.height(),
+            fraction(pos.x - rect.min.x, rect.width()),
+            fraction(pos.y - rect.min.y, rect.height()),
         )
     };
     match event {
@@ -3348,6 +3359,50 @@ mod tests {
             )
             .is_empty(),
             "local disconnect toolbar is never sent to host"
+        );
+    }
+
+    #[test]
+    fn a_viewer_image_with_no_width_or_height_sends_only_valid_input() {
+        // The controller's window dragged down to nothing: egui fits the
+        // image to no room at all. A pointer on its edge, or a release
+        // after focus, must not become NaN, which the host refuses by
+        // ending the connection (D404).
+        let at = Pos2::new(40.0, 30.0);
+        let flat = egui::Rect::from_min_max(at, Pos2::new(40.0, 300.0));
+        let thin = egui::Rect::from_min_max(at, Pos2::new(400.0, 30.0));
+        let point = egui::Rect::from_min_max(at, at);
+        let events = [
+            Event::PointerMoved(at),
+            Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+            },
+            Event::PointerButton {
+                pos: Pos2::new(10.0, 10.0),
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            },
+        ];
+        for rect in [flat, thin, point] {
+            for event in &events {
+                let sent = outgoing(event, rect, true);
+                assert!(
+                    sent.is_empty() || strobe_remote::desktop::valid_inputs(&sent),
+                    "{event:?} over {rect:?} sends valid input: {sent:?}"
+                );
+            }
+        }
+        let release = events.get(2).map(|event| outgoing(event, point, true));
+        assert!(
+            matches!(
+                release.as_deref(),
+                Some([Input::Button { down: false, .. }])
+            ),
+            "a release is still sent, so the host does not keep the button down: {release:?}"
         );
     }
 
