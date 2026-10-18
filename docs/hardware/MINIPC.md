@@ -842,6 +842,31 @@ floor, so it was undone. The lock ran out 66 s later, as designed.
 Next: rebuild on master 3c1bde1 (D400-D438) and restart, with
 strobe-6ca5248.exe kept as the rollback.
 
+## The show build's first full day on 3c1bde1 (2026-10-18, Task M26)
+
+The soak switched to master 3c1bde1 (D400-D438) at 03:12:53 on 2026-10-17
+and resumed cue 51 at 160.6 s in. Report at 02:59 the next day, 23.8 h in:
+
+- **Health:** no reboot, no restart, no WARN or ERROR besides the startup
+  robustness line. No "repeated N times" line (D422). The session log was
+  730 KB, about 0.73 MB a day. resume.toml was written every 5.0 s (D438's
+  sync changes nothing visible).
+- **Memory:** private 245 MB, working set 64 MB, 478 handles. The old
+  builds sat at 200-217 MB over several days; 51f2620 went from 214 to
+  223 MB in 3.4 h. With no hourly samples, creep and a plateau cannot be
+  told apart yet; hourly sampling is running.
+- **Playlist:** 315 cue starts, 5 complete loops.
+- **Frames:** 59.6 fps and 0.56% of refreshes missed over 1426 perf
+  windows. The worst gap all day was 56 ms. The scenes that still scale
+  settled at 14-electric-bloom 0.70-0.75, 15-neon-ribbon-flow 0.85-0.90
+  (59.4 fps, up from 58.6) and 16-acid-mirror 0.80.
+- **One lock and its expiry, on 05-domain-warp:** at 35778.6 s, 1.00 ->
+  0.90 for 12.0% missed; at 35783.9 s it was undone (14.6% after) and
+  locked; at 35847.7 s the lock ran out. The worst minute of the day
+  (54.5 fps) was inside it. The minute after was 59.9 fps at 1.00. The GPU
+  rose from 7.6 to 10.3 ms with no stall, so the misses were not this
+  scene's resolution. D315 and D318 did what they are for.
+
 ## Still to do here
 
 - Run a two-machine venue-mode test with the laptop (loopback is M6), and
