@@ -216,6 +216,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Documentation
 
+- scene 13's memory on the mini PC is a flat plateau, not a leak (M26) ([`eab0953`](https://github.com/lnorton89/strobe/commit/eab095334c21f8424c834f4c0719177805d27999))
 - record the first full soak day on 3c1bde1 (M26) ([`ce9b3ef`](https://github.com/lnorton89/strobe/commit/ce9b3ef4a04db26923382a8c57a40be7e892a0ae))
 - record the show build's first soak day and the first lock expiry on hardware (M26) ([`9c6a2a4`](https://github.com/lnorton89/strobe/commit/9c6a2a4209cef96f3ac5d98379788f7adbabd2e4))
 - record the playlist and show-run bug sweep (D430-D437) ([`2131c8a`](https://github.com/lnorton89/strobe/commit/2131c8a7d50ca329b812e43677da2acdd627b503))
