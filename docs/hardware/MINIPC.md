@@ -867,6 +867,29 @@ and resumed cue 51 at 160.6 s in. Report at 02:59 the next day, 23.8 h in:
   rose from 7.6 to 10.3 ms with no stall, so the misses were not this
   scene's resolution. D315 and D318 did what they are for.
 
+### Scene 13's memory, sampled per minute (2026-10-18, Task M26)
+
+Hourly samples on 3c1bde1 read 245, 251 and 288 MB while
+13-chromatic-rise played, against 213-229 MB on every other scene. A
+per-minute sampler then followed all four 13 cues of loop pass 11:
+
+| Cue | Plateau (MB) | After the cue (+35-39 s) |
+|---|---|---|
+| 7 | 245.6 (ramps from 220 over about 2 min) | 229.5 |
+| 21 | 245.5 | 229.3 |
+| 31 | 245.5 (277.0 for one second at +1 s, the crossfade in) | 229.4 |
+| 47 | 245.4 | 213.3 |
+
+Handles stayed at 478 and threads at 14 throughout.
+
+- **No leak, and no growth from pass to pass.** 13 costs a steady +16 MB
+  over the scene before it, released when it is parked. Its field pass is
+  full-size, float and double-buffered, the only one like it in the show.
+  The per-cue hue overrides make no difference.
+- **Short spikes do not add up.** The 277 MB reading is the 3 s crossfade,
+  when both scenes render. The earlier 288 MB reading (cue 47, pass 10, about
+  212 s in) did not recur at the same point in pass 11.
+
 ## Still to do here
 
 - Run a two-machine venue-mode test with the laptop (loopback is M6), and
