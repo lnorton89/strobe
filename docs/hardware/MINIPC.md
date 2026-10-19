@@ -918,8 +918,22 @@ misses, each followed by a lock, against 1 on day 1. Every lock expired in
 60-70 s, and two repeats backed off to 7200 frames. That is D315 and D318
 refusing to chase misses that resolution does not cause.
 
-The harness now launches hidden. The output was made the foreground again
-at 03:09. A re-measure is pending.
+The harness now launches hidden, and the output was made the foreground
+again at 03:09. The re-measure from 03:09 to 04:30 (81 perf windows) is
+back to day 1: 59.6 fps and 0.56% missed overall.
+
+| Scene | Missed % | Scale |
+|---|---|---|
+| 04-voronoi-glass | 0.09 | 1.00 |
+| 05-domain-warp | 0.12 | 1.00 |
+| 13-chromatic-rise | 0.19 | 1.00 |
+| 14-electric-bloom | 0.70 | 0.70-0.80 |
+| 15-neon-ribbon-flow | 1.12 | 0.85-0.90 |
+| 16-acid-mirror | 0.15 | 0.80 |
+
+No undo-and-lock lines since the fix. The firewall dialog still drawn over
+the output costs nothing measurable, unlike the full-size console windows,
+but the audience would see it.
 
 Memory over the day (24 hourly samples): flat at +0.001 MB/h once the
 scene-13 samples are left out. Scene 13 plateaus at 245.4-245.6 MB. Nothing
