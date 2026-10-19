@@ -94,7 +94,7 @@ glutin-winit = { version = "0.5", default-features = false, features = ["egl", "
 winit = { version = "0.30", default-features = false, features = ["rwh_06", "x11", "wayland", "wayland-dlopen"] }
 raw-window-handle = "0.6"
 
-egui = { version = "0.36", default-features = false, features = ["default_fonts"] }
+egui = { version = "0.37", default-features = false, features = ["default_fonts"] }
 egui_glow = { version = "0.36", features = ["winit"] }
 egui-winit = { version = "0.36", default-features = false, features = ["links", "clipboard", "wayland", "x11"] }
 
