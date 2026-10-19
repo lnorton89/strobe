@@ -890,6 +890,45 @@ Handles stayed at 478 and threads at 14 throughout.
   when both scenes render. The earlier 288 MB reading (cue 47, pass 10, about
   212 s in) did not recur at the same point in pass 11.
 
+### Day 2: windows over the output cost 5-11% of refreshes (2026-10-19, Task M26)
+
+The day-2 report on 3c1bde1 (47.8 h, no restart, 11 complete loops, only
+the startup robustness WARN) showed missed refreshes on the heavy scenes
+rising in two steps:
+
+| Hours of the run | 04, 05, 13 missed |
+|---|---|
+| 0-22 | 0.1-0.2% |
+| 24 on (the hourly memory sampler started) | about 5% |
+| 36 on (the per-minute scene-13 sampler started) | about 11% |
+
+The GPU time did not change (about 7.4 ms). The cause was the test harness,
+not Strobe:
+- each sampler launch opened a visible console window, hosted by Windows
+  Terminal, on top of the fullscreen output;
+- at 03:06 the projector showed five console windows, the taskbar and the
+  firewall dialog over the output, which was no longer the foreground
+  window;
+- Windows then composites the output through DWM instead of presenting it
+  directly.
+
+Over the day the adaptive controller stepped 14, 15 and 16 down to
+0.60-0.80 (from 0.75-0.90). It also undid about 30 steps that cut too few
+misses, each followed by a lock, against 1 on day 1. Every lock expired in
+60-70 s, and two repeats backed off to 7200 frames. That is D315 and D318
+refusing to chase misses that resolution does not cause.
+
+The harness now launches hidden. The output was made the foreground again
+at 03:09. A re-measure is pending.
+
+Memory over the day (24 hourly samples): flat at +0.001 MB/h once the
+scene-13 samples are left out. Scene 13 plateaus at 245.4-245.6 MB. Nothing
+grows at 47.8 h.
+
+**For a show:** nothing may sit over the output. The unanswered firewall
+dialog ("allow public and private networks... Strobe") is now drawn on top
+of the projection, and needs someone at the screen (RUNBOOK, "Once, ever").
+
 ## Still to do here
 
 - Run a two-machine venue-mode test with the laptop (loopback is M6), and
