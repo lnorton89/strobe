@@ -214,6 +214,17 @@ which backend proved a claim.
   black, and re-seeds at once after a resize. All four: 1.1x to 1.5x
   `05-domain-warp` on llvmpipe, identical in both dialects, stable to 5 min.
 
+- **Scene 17, Blacklight Carpet (2026-10-19, D439):** an original
+  confetti carpet under a UV tube, after the owner's arcade-carpet photo.
+  Fluorescent confetti, sprinkles and coiled helix streamers on black pile,
+  in five parallax layers that drift along a slowly turning path while the
+  pieces spin and the coils roll. Rendered and inspected at 1920x1080 and
+  640x360 on TORNADO, native GL 3.3 and ANGLE GLES 3.0 identical (max
+  difference 1/255), stable at 6 s, 5 min and 1 h; autocontrol keeps the
+  same 8 controls in both dialects with its controls stripped. 2.2x
+  `05-domain-warp` natively, 2.5x on ANGLE. Open: llvmpipe and old-GPU
+  (HD 4000, Vega 3) timing, and the owner's look at it in motion.
+
 - **Perform UI stage 2** (see item 2): the panes built in stage 1 hold the
   generated-controls review (D202, D219); the full Playlist workspace is
   still to come.

@@ -508,6 +508,27 @@ Silence is cheaper than the audio-on numbers above (bloom 42, ribbon 29,
 acid 26 ms at 1280x720 against 114, 67 and 53 with audio) because the
 synthetic track's kick drives larger flowers and wider glow.
 
+### 2026-10-19: Blacklight Carpet, GTX 1080 Ti (TORNADO)
+
+New scene (D439). TORNADO, driver 582.78, hidden-window context,
+half-float buffers, 1920x1080, 300 timed frames after 90 warm-up at scene
+time 5 s, synthetic 120 BPM audio, two runs each. Not llvmpipe (no EGL
+device on Windows) and not old-GPU data.
+
+| Scene | Native GL 3.3 mean ms (run 1 / run 2) | Ratio | ANGLE GLES 3.0 mean ms | Ratio |
+|---|---:|---:|---:|---:|
+| 05-domain-warp | 0.39 / 0.34 | 1.00 | 0.33 / 0.29 | 1.00 |
+| 15-neon-ribbon-flow | 0.42 / 0.40 | 1.12 | 0.50 / 0.50 | 1.61 |
+| 17-blacklight-carpet | 0.83 / 0.81 | 2.25 | 0.77 / 0.80 | 2.53 |
+
+The first draft was 1.37 ms (3.6x). Turning one layer off at a time put
+0.35-0.45 ms on each of sprinkles, small confetti, streamers and the
+per-layer fibre texture. Applying the texture once per layer only where a
+piece covers the pixel, one cell per sprinkle instead of four, a bound test
+before each piece's wobble and one pile octave brought it to 0.81 ms; what
+remains is spread at 0.1-0.17 ms per layer. Native and ANGLE frames differ
+by at most 1/255.
+
 ## Wanted
 
 - [x] A real-GPU run on the T480: native vs ANGLE, 32F vs 16F, 720p and
