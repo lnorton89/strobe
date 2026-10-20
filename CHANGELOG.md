@@ -13,6 +13,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **scenes:** Blacklight Carpet, UV-lit arcade confetti carpet with coiled helix streamers (D439) ([`d3eb5e9`](https://github.com/lnorton89/strobe/commit/d3eb5e93fab5d1bd40ff3917f971e0ed8b351f8e))
 - adaptive resolution steps down on missed refreshes, not only the mean GPU time (D314) ([`32e3cc8`](https://github.com/lnorton89/strobe/commit/32e3cc8e5e9dc4cfdf24797dce2a297e094041f6))
 - **audio:** on Linux fall back to a pulse or pipewire input when the default will not open ([`084c6db`](https://github.com/lnorton89/strobe/commit/084c6db0236026f7ad9dd3b45c7f1bd51b6c7345))
 - control a venue's show machine with a trust file, reconnecting by itself ([`4da7d2b`](https://github.com/lnorton89/strobe/commit/4da7d2b80445aa3f3116a19ff9dbbd2be132f435))
