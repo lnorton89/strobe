@@ -216,6 +216,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Documentation
 
+- record the soak's clean third day and Windows servicing during it (M26) ([`b9179a1`](https://github.com/lnorton89/strobe/commit/b9179a1dbcbd8f52c6ec59767230dbbc473cb098))
 - the soak is back to day-1 numbers once nothing covers the output (M26) ([`95666f7`](https://github.com/lnorton89/strobe/commit/95666f77f6e300bad014cb94477d30b67f496646))
 - windows over the fullscreen output cost the soak 5-11% of refreshes (M26 day 2) ([`8add971`](https://github.com/lnorton89/strobe/commit/8add971bce03955d8041b04282b6a968d578fbd1))
 - scene 13's memory on the mini PC is a flat plateau, not a leak (M26) ([`eab0953`](https://github.com/lnorton89/strobe/commit/eab095334c21f8424c834f4c0719177805d27999))
