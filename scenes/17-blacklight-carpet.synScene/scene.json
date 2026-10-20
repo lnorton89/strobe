@@ -1,0 +1,26 @@
+{
+  "TITLE": "Blacklight Carpet",
+  "IMAGE_PATH": "thumbnail.png",
+  "CREDIT": "Original Strobe interpretation of 1990s arcade and bowling-alley confetti carpet",
+  "LICENSE": "MIT",
+  "DESCRIPTION": "Confetti carpet under a blacklight. Fluorescent pink, orange, yellow, green, cyan, blue and violet squares, rings, triangles, diamonds, sprinkles and coiled streamers glow on black pile. The layers drift at different speeds along a slowly turning path, the shapes spin and orbit, and the streamers' coils roll along their length. Mids push the drift, bass swells the glow and the shapes, highs make the sprinkles twinkle. Procedural, no reference media.",
+  "PASSES": [
+    { "TARGET": "clock", "WIDTH": 1, "HEIGHT": 1, "FLOAT": true, "DOUBLE_BUFFER": true, "WRAP": "clamp", "FILTER": "nearest", "FULL_PRECISION": true }
+  ],
+  "CONTROLS": [
+    { "NAME": "speed", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 3.0, "DEFAULT": 1.0, "PARAMS": 0.03, "UI_GROUP": "motion" },
+    { "NAME": "drift", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 3.0, "DEFAULT": 1.0, "PARAMS": 0.03, "UI_GROUP": "motion" },
+    { "NAME": "parallax", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 1.0, "DEFAULT": 0.6, "PARAMS": 0.03, "UI_GROUP": "motion" },
+    { "NAME": "spin", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 2.0, "DEFAULT": 1.0, "PARAMS": 0.03, "UI_GROUP": "motion" },
+    { "NAME": "zoom", "TYPE": "slider smooth", "MIN": 0.5, "MAX": 2.0, "DEFAULT": 1.0, "PARAMS": 0.03, "UI_GROUP": "pattern" },
+    { "NAME": "confetti", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 1.0, "DEFAULT": 0.7, "PARAMS": 0.03, "UI_GROUP": "pattern" },
+    { "NAME": "streamers", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 1.0, "DEFAULT": 0.6, "PARAMS": 0.03, "UI_GROUP": "pattern" },
+    { "NAME": "sprinkles", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 1.0, "DEFAULT": 0.8, "PARAMS": 0.03, "UI_GROUP": "pattern" },
+    { "NAME": "hue", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 1.0, "DEFAULT": 0.0, "PARAMS": 0.03, "UI_GROUP": "color" },
+    { "NAME": "glow", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 2.0, "DEFAULT": 1.0, "PARAMS": 0.03, "UI_GROUP": "color" },
+    { "NAME": "blacklight", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 1.0, "DEFAULT": 0.5, "PARAMS": 0.03, "UI_GROUP": "color" },
+    { "NAME": "brightness", "TYPE": "slider smooth", "MIN": 0.4, "MAX": 1.6, "DEFAULT": 1.0, "PARAMS": 0.03, "UI_GROUP": "color" },
+    { "NAME": "reactivity", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 2.0, "DEFAULT": 0.8, "PARAMS": 0.03, "UI_GROUP": "audio" }
+  ],
+  "TAGS": ["retro", "confetti", "blacklight", "neon", "pattern", "audio-reactive"]
+}
