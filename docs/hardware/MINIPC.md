@@ -943,6 +943,41 @@ grows at 47.8 h.
 dialog ("allow public and private networks... Strobe") is now drawn on top
 of the projection, and needs someone at the screen (RUNBOOK, "Once, ever").
 
+### Day 3: clean, and Windows servicing during the soak (2026-10-20, Task M26)
+
+72.0 h on 3c1bde1, the output in the foreground, no console windows on
+screen.
+- **Health:** no restart. Only the startup robustness WARN appeared, and no
+  "repeated" line. Private memory is 213 MB with 478 handles. The session log
+  grows about 0.75 MB a day. resume.toml is written every 5.0 s. 17 complete
+  loops.
+- **Frames:** 59.6 fps with 0.59% missed, the same as day 1. Day 2's dip was
+  the test harness's windows.
+- **Locks:** 2 locks and 2 expiries in 24 h, with no verdict put off.
+- **Memory:** flat. The slope is -0.039 MB/h over all samples and +0.153 MB/h
+  without scene 13. One 267.8 MB sample fell inside a crossfade out of 13.
+
+| Scene | Missed % | Scale |
+|---|---|---|
+| 04-voronoi-glass | 0.10 | 1.00 |
+| 05-domain-warp | 0.44 | 1.00 |
+| 13-chromatic-rise | 0.25 | 1.00 |
+| 14-electric-bloom | 0.92 | 0.75 |
+| 15-neon-ribbon-flow | 1.23 | 0.90 |
+| 16-acid-mirror | 0.54 | 0.80 |
+| the rest | 0.08-0.09 | 1.00 |
+
+**Windows servicing.** The day's worst gap (588 ms, one minute at 54 fps,
+21:20 on 2026-10-19) lines up with Windows doing its own work despite the
+7-day Windows Update pause:
+- a VSS snapshot and a System Restore point "Windows Update";
+- the Microsoft Store updating two apps;
+- two more downloads.
+
+Microsoft Store app updates are not stopped by the Windows Update pause. The
+pause set on show night ends on 2026-10-22, before the next show. The
+owner's options are in the JaJa runbook.
+
 ## Still to do here
 
 - Run a two-machine venue-mode test with the laptop (loopback is M6), and
