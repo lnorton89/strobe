@@ -1282,14 +1282,19 @@ impl Show {
     /// Resizes what the show renders at the full size: the active scene is
     /// the app's, so this is the outgoing scene, the warming one and the
     /// compositor.
+    ///
+    /// The outgoing and warming scenes keep what they have drawn
+    /// (`resize_keeping`): a warm-up exists to build that history (D153)
+    /// and the outgoing picture is still on screen in the mix, so a render
+    /// scale change must not wipe either to black (D440).
     pub fn resize(&mut self, full: [i32; 2], compositor: &mut Compositor) {
         if let Some(out) = self.outgoing.as_mut()
-            && let Err(error) = out.session.player.resize(full)
+            && let Err(error) = out.session.player.resize_keeping(full)
         {
             log::warn!("playlist: resizing the outgoing scene failed: {error}");
         }
         if let Some(warm) = self.warming.as_mut()
-            && let Err(error) = warm.session.player.resize(warm_size(full))
+            && let Err(error) = warm.session.player.resize_keeping(warm_size(full))
         {
             log::warn!("playlist: resizing the warming scene failed: {error}");
         }

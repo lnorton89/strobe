@@ -10634,6 +10634,47 @@ piece's wobble, and one pile octave instead of two.
 **Would reopen:** an HD 4000 or Vega 3 run where it cannot hold 60 fps at
 720p even with the adaptive render scale; dropping the second confetti
 layer is the first lever.
+### D440: a render-scale change keeps the warming and outgoing scenes' pictures (2026-10-21)
+
+**Context.** Found in the GL renderer bug sweep. When the render size
+changes (an adaptive step, a manual scale, a window resize), the app's
+`settle_resize` resizes the live scene and then calls `Show::resize` for
+what else the show renders. That resized the warming scene and the
+outgoing scene with `ScenePlayer::resize`, which restarts every pass whose
+size changes from black.
+
+- **The warm-up.** It exists to build a feedback scene's history before its
+  cue, and D153 chose `resize_keeping` for its arrival because `resize`
+  "would make the warm-up pointless". A scale change in the two seconds of
+  warm-up did exactly that: the scene arrived with only the frames since the
+  change. Adaptive steps cluster around transitions, which is when a second
+  scene renders (D154).
+- **The outgoing scene.** It is half of the picture during a crossfade. A
+  scale change mid-fade wiped a feedback scene's trails on screen, and its
+  `st_clock` restarted with its buffers.
+
+**Decision.** `Show::resize` grows or shrinks both with `resize_keeping`:
+every pass target and the finished frame are scaled into the new targets,
+and a pass whose size does not change is kept (D287). Nothing is compiled.
+The live scene is unchanged: its resize stays the plain `resize` that D64
+accepted (feedback restarts on a scale change). A pass `resize_keeping`
+blits keeps its `st_clock` too, so a Shadertoy import's buffers and its
+`iFrame` stay consistent (D91, D287).
+
+**Test.** `strobe-app/tests/show.rs`, both dialects, with a counter in a
+`$WIDTH` double-buffered pass:
+`a_scale_change_during_a_warm_up_keeps_what_the_warm_up_drew` (the counter
+arrived at 60, the frames since the change, instead of about 120) and
+`a_scale_change_during_a_crossfade_keeps_the_outgoing_picture` (the mixed
+red fell from 111 to 1 one frame after the change).
+
+**Would reopen:** D64 itself. The live scene still restarts its feedback on
+every adaptive step, including the step a transition's load triggers just
+after a warmed scene arrives (D154), so a warmed feedback scene can still
+lose its history a moment into its cue. Moving the live scene's resize to
+`resize_keeping` is that decision's "visible hitch" question, for the
+hardware to answer.
+
 ### D450: a fullscreen launch puts no crash or stop box over its show (2026-10-21)
 
 **Context.** The venue launcher starts `strobe.exe ... --output-monitor 1

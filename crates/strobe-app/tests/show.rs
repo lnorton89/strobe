@@ -1370,3 +1370,127 @@ fn a_slow_scene_does_not_stretch_its_cue_past_real_time() -> Result<()> {
     show.finish();
     Ok(())
 }
+
+/// A counter in a `$WIDTH`-relative double-buffered pass, so any change of
+/// render size changes its size: `resize` restarts it from black and
+/// `resize_keeping` carries it over (an exact copy: 32-bit float passes
+/// are blitted nearest). Red is the count over [`COUNT_SCALE`].
+const RELATIVE_COUNTER_JSON: &str = r#"{ "PASSES": [
+    {"TARGET": "count", "DOUBLE_BUFFER": true, "WIDTH": "$WIDTH", "HEIGHT": "$HEIGHT",
+     "FLOAT": true, "FULL_PRECISION": true, "FILTER": "nearest"} ] }"#;
+const RELATIVE_COUNTER_SHADER: &str = "vec4 renderMain() {\n\
+    if (PASSINDEX == 0) { return texture(count, vec2(0.5)) + vec4(1.0, 0.0, 0.0, 0.0); }\n\
+    return vec4(texture(count, vec2(0.5)).r / 400.0, 0.0, 0.0, 1.0); }";
+
+/// A full size other than [`SIZE`], as a render-scale step asks for.
+const SCALED: [i32; 2] = [40, 22];
+
+#[test]
+fn a_scale_change_during_a_warm_up_keeps_what_the_warm_up_drew() -> Result<()> {
+    for api in BOTH {
+        let Some(headless) = context(api)? else {
+            continue;
+        };
+        let library = library_of(
+            &format!("warm-scale-{api:?}"),
+            &[
+                ("red", "{}", RED_SHADER),
+                ("counter", RELATIVE_COUNTER_JSON, RELATIVE_COUNTER_SHADER),
+            ],
+        )?;
+        let mut rig = Rig::new(&headless)?;
+        let mut playlist = Playlist::new("warm scale");
+        let mut section = Section::new("all");
+        section.cues.push(cue_of("red", 3.0, TransitionSpec::cut()));
+        section
+            .cues
+            .push(cue_of("counter", 3.0, TransitionSpec::cut()));
+        playlist.sections.push(section);
+        let mut show = Show::new(None, playlist, &library.library, None, None);
+        rig.load(&mut show)?;
+        // 2 s into the 3-second cue the counter has warmed for about a
+        // second. Then the render scale changes: the app's `settle_resize`
+        // calls `Show::resize` with the new full size.
+        for _ in 0..120 {
+            rig.frame(&mut show);
+        }
+        assert_eq!(show.warming_cue(), Some(1), "{api:?}: the counter warms");
+        show.resize(SCALED, &mut rig.compositor);
+        let mut first_live = None;
+        for _ in 0..90 {
+            rig.frame(&mut show);
+            if first_live.is_none() && show.clock().current() == Some(1) {
+                first_live = Some(f32::from(live_centre(&rig)?[0]) / 255.0 * COUNT_SCALE);
+            }
+        }
+        let Some(count) = first_live else {
+            return Err(anyhow!("{api:?}: the counter cue never started"));
+        };
+        // About 120 frames of warm-up (the two seconds before its cue).
+        // Wiped at the resize, it would hold only the 60 frames since.
+        assert!(
+            count > 90.0,
+            "{api:?}: the warm-up's history survives a scale change (D153, D440): the \
+             counter arrived at {count:.0}"
+        );
+        show.finish();
+    }
+    Ok(())
+}
+
+#[test]
+fn a_scale_change_during_a_crossfade_keeps_the_outgoing_picture() -> Result<()> {
+    for api in BOTH {
+        let Some(headless) = context(api)? else {
+            continue;
+        };
+        let library = library_of(
+            &format!("fade-scale-{api:?}"),
+            &[
+                ("counter", RELATIVE_COUNTER_JSON, RELATIVE_COUNTER_SHADER),
+                (
+                    "black",
+                    "{}",
+                    "vec4 renderMain() { return vec4(0.0, 0.0, 0.0, 1.0); }",
+                ),
+            ],
+        )?;
+        let mut rig = Rig::new(&headless)?;
+        let mut playlist = Playlist::new("fade scale");
+        let mut section = Section::new("all");
+        section
+            .cues
+            .push(cue_of("counter", 3.0, TransitionSpec::cut()));
+        section
+            .cues
+            .push(cue_of("black", 3.0, TransitionSpec::crossfade(2.0)));
+        playlist.sections.push(section);
+        let mut show = Show::new(None, playlist, &library.library, None, None);
+        rig.load(&mut show)?;
+        // Into the crossfade: the mix is the counter's red, fading out.
+        let mut frames = 0;
+        while !show.composited() && frames < 300 {
+            rig.frame(&mut show);
+            frames += 1;
+        }
+        for _ in 0..10 {
+            rig.frame(&mut show);
+        }
+        if !show.composited() {
+            return Err(anyhow!("{api:?}: the crossfade never started"));
+        }
+        let before = rig.centre_of_output(&show)?[0];
+        show.resize(SCALED, &mut rig.compositor);
+        rig.frame(&mut show);
+        let after = rig.centre_of_output(&show)?[0];
+        // One frame on, the outgoing weight has dropped by 1/120. A wiped
+        // counter would count from 1 again: nearly black.
+        assert!(
+            f32::from(after) > f32::from(before) * 0.8,
+            "{api:?}: the outgoing scene keeps its picture through a scale change \
+             (D440): red was {before}, then {after}"
+        );
+        show.finish();
+    }
+    Ok(())
+}
