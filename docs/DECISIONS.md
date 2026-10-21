@@ -10638,3 +10638,39 @@ mini PC under the launcher is the acceptance test (STATUS_AUDIT).
 **Would reopen:** a venue that wants to see crashes on the projector, or a
 fullscreen run that is attended (then `--fullscreen` is the wrong signal
 and the launcher should say `--unattended`).
+
+### D451: an `--output-monitor` that is not connected at launch is waited for (2026-10-21)
+
+**Context.** `place_output` applied `--output-monitor N` once, when the
+windows opened. If monitor N was not in the list then, it logged "the
+output stays where it opened", and `--fullscreen` put the show fullscreen
+on the monitor the output opened on. Nothing looked again. A venue with an
+operator screen and a projector that is switched on after the machine
+boots (a power strip, a projector warming up, a scheduled task at logon)
+got the show fullscreen over the operator's screen for the whole night.
+The projector stayed empty until someone pressed F11 or picked the
+monitor. D400 follows a monitor that *was* chosen; this one never was.
+
+**Decision.** `output_monitor::Awaited` keeps the asked-for place and
+whether `--fullscreen` came with it. The monitor list is read every 2 s
+(unchanged). The first time it is long enough, the output moves there,
+fullscreen if asked, and the request is spent: "--output-monitor N:
+connected now as ...; the output goes there, fullscreen (D451)". The
+operator placing the output first, with the monitor picker or F11, drops
+the request, so a late projector never takes the show from where a person
+put it. Until the projector arrives, behaviour is as before: the output
+opens where it is, fullscreen if asked. The launch warning now says it is
+waiting.
+
+**Not done.** Waiting for a monitor by name: the command line has a
+number. The number is the place in the list when the monitor appears,
+as the picker numbers it.
+
+**Test.** `output_monitor::tests::a_monitor_asked_for_before_it_is_connected_is_taken_when_it_appears`
+(only the panel at launch, then both: moved once, fullscreen; a hand
+choice cancels it). Acceptance on hardware: boot the mini PC with the
+projector off, switch it on, and look for the D451 line and the show on
+the projector (STATUS_AUDIT).
+
+**Would reopen:** a venue where the list order changes when the projector
+arrives, so that number N is not the projector.
