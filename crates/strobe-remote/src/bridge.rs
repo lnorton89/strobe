@@ -33,14 +33,27 @@
 //! - **A gone app is `Unavailable`.** When the app end is dropped (the
 //!   remote switched off, the app closing), every submit and every pending
 //!   reply says so instead of hanging.
+//! - **`Busy` means not done, ever.** A command whose adapter stopped
+//!   waiting is withdrawn: [`AppEnd::next`] skips it, so a phone told
+//!   "busy, try again" that tries again runs the command once, not twice
+//!   (D460). Whichever side claims the command first wins; once the app has
+//!   taken it, the adapter waits for the app's real answer.
 //!
 //! No socket is opened here, or anywhere yet: the listener (L-02) and
 //! pairing (L-03) come with their own decisions.
 
 use crate::{AudioStatus, ErrorCode, RemoteCommand, ServerMessage, valid_request_id};
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, TrySendError, sync_channel};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
+
+/// A command still in the queue: either side may claim it.
+const WAITING: u8 = 0;
+/// The app took it and will run and answer it.
+const TAKEN: u8 = 1;
+/// Its adapter stopped waiting and told the client `Busy`: never run.
+const WITHDRAWN: u8 = 2;
 
 /// What the remote shows: the fields of [`ServerMessage::State`] without
 /// the revision.
@@ -109,6 +122,8 @@ pub struct Incoming {
     /// What it asks for.
     pub command: RemoteCommand,
     reply: SyncSender<Answer>,
+    /// [`WAITING`], [`TAKEN`] or [`WITHDRAWN`], shared with its [`Pending`].
+    claim: Arc<AtomicU8>,
 }
 
 impl Incoming {
@@ -125,17 +140,32 @@ impl Incoming {
 #[derive(Debug)]
 pub struct Pending {
     reply: Receiver<Answer>,
+    claim: Arc<AtomicU8>,
 }
 
 impl Pending {
     /// Waits up to `timeout` for the app's answer. An app that went away
-    /// is [`ErrorCode::Unavailable`]; one that did not answer in time is
-    /// [`ErrorCode::Busy`].
+    /// is [`ErrorCode::Unavailable`]. One that has not taken the command
+    /// in time is [`ErrorCode::Busy`], and the command is withdrawn: the
+    /// app never runs it (D460). One that took it just as the time ran out
+    /// is running it, so this waits on for that answer rather than report
+    /// a command it is carrying out as not done.
     pub fn wait(self, timeout: Duration) -> Result<Answer, ErrorCode> {
         match self.reply.recv_timeout(timeout) {
             Ok(answer) => Ok(answer),
-            Err(RecvTimeoutError::Timeout) => Err(ErrorCode::Busy),
             Err(RecvTimeoutError::Disconnected) => Err(ErrorCode::Unavailable),
+            Err(RecvTimeoutError::Timeout) => {
+                let withdrawn = self
+                    .claim
+                    .compare_exchange(WAITING, WITHDRAWN, Ordering::SeqCst, Ordering::SeqCst)
+                    .is_ok();
+                if withdrawn {
+                    return Err(ErrorCode::Busy);
+                }
+                // The app took it: it answers in the same pass that runs it,
+                // or drops it (gone), which ends this wait too.
+                self.reply.recv().map_err(|_| ErrorCode::Unavailable)
+            }
         }
     }
 }
@@ -202,13 +232,18 @@ impl Remote {
             return Err(ErrorCode::InvalidRequest);
         }
         let (reply, answer) = sync_channel(1);
+        let claim = Arc::new(AtomicU8::new(WAITING));
         let incoming = Incoming {
             request_id: request_id.to_string(),
             command,
             reply,
+            claim: Arc::clone(&claim),
         };
         match self.commands.try_send(incoming) {
-            Ok(()) => Ok(Pending { reply: answer }),
+            Ok(()) => Ok(Pending {
+                reply: answer,
+                claim,
+            }),
             Err(TrySendError::Full(_)) => Err(ErrorCode::Busy),
             Err(TrySendError::Disconnected(_)) => Err(ErrorCode::Unavailable),
         }
@@ -222,9 +257,27 @@ impl Remote {
 }
 
 impl AppEnd {
-    /// The next waiting command, if any. Never blocks.
+    /// The next waiting command, if any. Never blocks. A command whose
+    /// adapter already gave up on it (and told its client `Busy`) is
+    /// dropped here, never returned (D460). The one returned is the app's:
+    /// it must answer it, or drop it, in the same pass, since its adapter
+    /// now waits for that answer.
     pub fn next(&self) -> Option<Incoming> {
-        self.commands.try_recv().ok()
+        while let Ok(incoming) = self.commands.try_recv() {
+            let taken = incoming
+                .claim
+                .compare_exchange(WAITING, TAKEN, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok();
+            if taken {
+                return Some(incoming);
+            }
+            log::info!(
+                "remote: skipped {} ({}): its client was already told Strobe was busy",
+                incoming.command.id(),
+                incoming.request_id
+            );
+        }
+        None
     }
 
     /// Publishes the app's state; the revision goes up only if it changed.
@@ -313,12 +366,41 @@ mod tests {
         let pending = remote
             .submit("a", RemoteCommand::NextScene)
             .map_err(|e| anyhow::anyhow!("{e:?}"))?;
-        let _held = app.next();
         assert_eq!(
             pending.wait(Duration::from_millis(20)),
             Err(ErrorCode::Busy),
             "the adapter stops waiting"
         );
+        assert!(
+            app.next().is_none(),
+            "and a command its client was told is busy is never run (D460)"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_command_the_app_took_is_answered_truly_even_past_the_timeout() -> Result<()> {
+        // The app takes the command just as the adapter's time runs out: it
+        // is running it, so "busy" would be a lie the phone acts on.
+        let (remote, app) = bridge(1);
+        let pending = remote
+            .submit("a", RemoteCommand::NextScene)
+            .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+        let Some(incoming) = app.next() else {
+            anyhow::bail!("the app saw nothing");
+        };
+        let answering = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(60));
+            incoming.answer(Answer::Accepted);
+        });
+        assert_eq!(
+            pending.wait(Duration::from_millis(10)),
+            Ok(Answer::Accepted),
+            "the adapter waits for the answer of a command being run"
+        );
+        answering
+            .join()
+            .map_err(|_| anyhow::anyhow!("the answering thread panicked"))?;
         Ok(())
     }
 
