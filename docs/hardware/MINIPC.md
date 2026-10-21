@@ -993,11 +993,12 @@ Strobe exited with code 0, and the PC was restarted.
 - The firewall dialog was answered at the screen.
 
 **The show machine now runs master 68c7749.** The exe is at
-`strobe-test\strobe-master	argetelease`, and the 3c1bde1, 51f2620 and
+`strobe-test\strobe-master	arget
+elease`, and the 3c1bde1, 51f2620 and
 6ca5248 builds sit beside it for rollback. The launcher passes
 `--audio ambient`. The show library has the D310 versions of 04, 05, 08, 13,
 14 and 16, plus 17-blacklight-carpet; the old folders are kept in
-`strobe-testackup`. The show folder is a hand-made copy, not a git
+`strobe-test\backup`. The show folder is a hand-made copy, not a git
 checkout, and the machine has no GitHub login for the private assets repo.
 
 ## Still to do here
