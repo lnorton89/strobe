@@ -10871,3 +10871,35 @@ the refusal's box waits for a click.
 
 **Would reopen:** a launcher that needs to tell a failed start from a stop
 (1 for both now).
+
+### D460: a remote command answered "busy" is withdrawn, never run later (2026-10-21)
+
+**Context.** A phone's command waits on the app's answer for
+`Limits::command_timeout` (1 s, D232). When the app's frame is held up
+longer (a scene compiling on the venue's GPU holds it a second or more), the
+connection answers `command_result {accepted: false, "Strobe is busy; try
+again"}`. But the command stayed in the bridge's queue, and the app ran it
+when its frame came round. The operator, told it was not done, pressed again:
+Next twice skipped a scene, Hold twice held and let go, Restart cue twice
+restarted it twice. The page shows "Not done" for a command that was done.
+
+**Decision.** A queued command carries a claim shared by its `Incoming` and
+its `Pending`: waiting, taken by the app, or withdrawn by its adapter.
+`AppEnd::next` takes a command only by moving it from waiting to taken, and
+skips (with a log line) one already withdrawn. `Pending::wait`, when its time
+runs out, withdraws the command if it is still waiting and answers `Busy`; if
+the app took it in that same instant, it is being run, so the adapter waits
+on for the app's real answer (the app answers in the pass that runs it, or
+drops it, which reads as `Unavailable`). So `Busy` now means *not done and
+never will be*, and a retry runs the command once. The wire is unchanged; the
+timeout is unchanged.
+
+**Test.** `strobe-remote/tests/server.rs`:
+`a_command_the_phone_was_told_is_busy_is_not_run_when_the_app_catches_up`
+(a stalled app, a busy answer, a retry while the app drains: only the retry
+runs; failed before with `["r1", "r2"]`). Bridge unit tests:
+`an_unanswered_command_times_out_as_busy` (now also: never handed to the app)
+and `a_command_the_app_took_is_answered_truly_even_past_the_timeout`.
+
+**Would reopen:** a command that should queue through a stall by design
+(none of the remote's do: each is a press the operator watches the result of).
