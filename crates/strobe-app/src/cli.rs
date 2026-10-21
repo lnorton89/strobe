@@ -270,8 +270,9 @@ pub struct Cli {
     /// click, while full desktop access is on; read once at launch. With
     /// `--control`, the file this laptop proves to the host. Make the file
     /// with `--make-remote-trust`. Anyone who can read it has full control;
-    /// keep it private.
-    #[arg(long, value_name = "FILE", requires = "venue_role")]
+    /// keep it private. A relative path is taken from the folder Strobe is
+    /// started in, and kept as the whole path (D463).
+    #[arg(long, value_name = "FILE", requires = "venue_role", value_parser = parse_file_path)]
     pub remote_trust: Option<PathBuf>,
     /// Control another Strobe from this one (D275, D294): open straight into
     /// the viewer of the host at HOST:PORT (a bare IP takes port 47812). With
@@ -289,8 +290,19 @@ pub struct Cli {
     pub control: Option<std::net::SocketAddr>,
     /// Make a trust file at FILE (32 random bytes from the operating
     /// system), print how to use it, and exit. Refuses to overwrite.
-    #[arg(long, value_name = "FILE")]
+    #[arg(long, value_name = "FILE", value_parser = parse_file_path)]
     pub make_remote_trust: Option<PathBuf>,
+}
+
+/// A trust file's path, made whole against the folder Strobe was started in
+/// (D463). Read once at launch either way, but a relative one in a venue
+/// launcher is read from wherever the scheduler starts Strobe (often
+/// `C:\Windows\System32`), a laptop remembers it for the form's next
+/// launch from elsewhere, and the instructions `--make-remote-trust`
+/// prints are copied into launchers: each says the whole path, so a
+/// failure names the place that was looked in.
+fn parse_file_path(text: &str) -> Result<PathBuf, String> {
+    std::path::absolute(text).map_err(|why| format!("\"{text}\": {why}"))
 }
 
 /// The host `--control` names: an IP address and optionally a port.
@@ -609,8 +621,8 @@ mod tests {
         assert!(host.allow_desktop_control, "switch on at launch");
         assert_eq!(
             host.remote_trust,
-            Some(PathBuf::from("venue.trust")),
-            "file"
+            Some(std::env::current_dir()?.join("venue.trust")),
+            "file, as a whole path"
         );
         for lone in [
             ["strobe", "--allow-desktop-control"],
@@ -624,8 +636,47 @@ mod tests {
         let make = Cli::try_parse_from(["strobe", "--make-remote-trust", "venue.trust"])?;
         assert_eq!(
             make.make_remote_trust,
-            Some(PathBuf::from("venue.trust")),
+            Some(std::env::current_dir()?.join("venue.trust")),
             "make"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_relative_trust_file_is_kept_as_the_whole_path_it_named_at_launch() -> Result<()> {
+        // A venue launcher run by the task scheduler starts in another
+        // folder than the one the operator tested from, and a laptop
+        // remembers the path for a later launch from a shortcut: a bare
+        // `venue.trust` then names nothing, and the failure did not say
+        // where it had looked (D463).
+        let here = std::env::current_dir()?;
+        for role in ["--remote", "--control=192.168.1.50"] {
+            let cli = Cli::try_parse_from(["strobe", role, "--remote-trust", "venue.trust"])?;
+            let Some(path) = cli.remote_trust else {
+                anyhow::bail!("{role}: no file");
+            };
+            assert!(path.is_absolute(), "{role}: {}", path.display());
+            assert_eq!(
+                path,
+                here.join("venue.trust"),
+                "{role}: from where it was named"
+            );
+        }
+        let whole = here.join("keys").join("show.trust");
+        let cli = Cli::try_parse_from([
+            "strobe".as_ref(),
+            "--remote".as_ref(),
+            "--remote-trust".as_ref(),
+            whole.as_os_str(),
+        ])?;
+        assert_eq!(
+            cli.remote_trust,
+            Some(whole),
+            "a whole path is kept as given"
+        );
+        assert!(
+            Cli::try_parse_from(["strobe", "--remote", "--remote-trust", ""]).is_err(),
+            "an empty path is refused"
         );
         Ok(())
     }
@@ -669,7 +720,7 @@ mod tests {
         );
         assert_eq!(
             laptop.remote_trust,
-            Some(PathBuf::from("venue.trust")),
+            Some(std::env::current_dir()?.join("venue.trust")),
             "the laptop's file: allowed with --control, as with --remote"
         );
         assert!(!laptop.remote, "and it is not a host");
