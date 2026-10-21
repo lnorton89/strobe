@@ -10708,3 +10708,55 @@ audience's, and the output has no text renderer.
 
 **Would reopen:** a venue that would rather show black than an unplanned
 scene.
+
+### D453: the log says when the fullscreen output over the control window loses the focus (2026-10-21)
+
+**Context.** In the M26 soak on the mini PC, missed refreshes on the heavy
+scenes rose from 0.1-0.2% to 5-11% while console windows, the taskbar and
+a firewall dialog sat over the fullscreen output. The output was then no
+longer the foreground window, and Windows composed it through DWM instead
+of presenting it directly. Strobe's log said nothing: the cause was found
+by looking at the projector. The same layout leaves open a second question
+from D290 and D298: on a fullscreen launch, Strobe's own focus events said
+the control window had the focus, while the window list said the output
+was foreground.
+
+**What can be known cheaply.** winit reports no occlusion on Windows, and
+reading the z-order is a window-system query that the frame loop must not
+make (and would need `unsafe` or a new dependency). Focus comes free:
+`WindowEvent::Focused` for each window.
+
+**Decision.** `foreground::Watch`, a pure type, gets the focus winit last
+reported for each window and whether the output is shown fullscreen on
+the control window's monitor (the D298 `output_fills_control_monitor`
+fact). It is checked each time the monitor list is read again, every 2 s,
+never per frame.
+- If the output lacks the focus in that layout for `GRACE` (2 s), the log
+  says so: once as a warning, naming who has the focus ("another program"
+  or "the control window"), and later spells at info.
+- The end of a spell is an info line with how long it lasted.
+- Focus passing between windows within the grace says nothing.
+- A two-screen setup (the output on the projector, the control window on
+  the operator's screen with the focus) is never in the watched layout, so
+  it is never flagged.
+
+Strobe does not take the focus back. Taking the foreground from another
+program is hostile, Windows' foreground lock may refuse it, and it would
+only hide a dialog that needs answering. Strobe also does not change which
+window it focuses at launch: the field record conflicts with the code
+(`set_output_visible` gives the focus back to the control window, yet the
+output was seen in the foreground), and that is for the mini PC to show.
+This line will now show it.
+
+**Test.** `foreground::tests`:
+- `a_window_over_the_fullscreen_output_is_reported_once_and_its_end_too`;
+- `a_two_screen_setup_and_a_passing_focus_change_are_never_reported` (an
+  hour of checks with the control window focused on its own screen);
+- `the_focus_is_read_from_both_windows`.
+
+The acceptance test is the mini PC (STATUS_AUDIT).
+
+**Would reopen:** the line firing at every venue launch with "the control
+window" (then the launch should focus the output on a one-screen layout),
+or missed refreshes rising with no line (then the cause is not focus, and
+only a z-order or DWM query could tell).
