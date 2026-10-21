@@ -80,7 +80,8 @@ fn main() -> ExitCode {
                 true,
             );
             strobe_diag::logger::flush(FLUSH_TIMEOUT);
-            return ExitCode::FAILURE;
+            // Not 1: the same command will be refused again (D454).
+            return ExitCode::from(cli::REFUSED_EXIT);
         }
         // --help and --version: print and stop.
         Err(error) => error.exit(),
