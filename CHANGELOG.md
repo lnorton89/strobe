@@ -295,6 +295,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Internal
 
+- rustls-webpki 0.103.16 and webpki-roots 1.0.10 for RUSTSEC-2026-0381/0382 ([`ed727d2`](https://github.com/lnorton89/strobe/commit/ed727d28de51f08e7a6c30b0dffb9373a22e34a6))
 - a Nix flake with a dev shell, a software-GL shell and a wrapped package (D294) ([`0c43a41`](https://github.com/lnorton89/strobe/commit/0c43a41baaca90796374a9ea6ad22d850f556241))
 - remove temporary PNG render workflow ([`89ce99b`](https://github.com/lnorton89/strobe/commit/89ce99b49e0ea4d658017aaa08586ce65b643b40))
 - **deps:** bump rustls to 0.23.46 for the RUSTSEC advisories against 0.23.45 ([`f1a157c`](https://github.com/lnorton89/strobe/commit/f1a157cdb15df8874d9b234db003763ff81d7536))
