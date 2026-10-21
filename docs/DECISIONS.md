@@ -10951,3 +10951,34 @@ and trust kept, a typed address untouched; with the move disabled it fails
 **Would reopen:** a Windows listener on an address that disappears and comes
 back being dead (then an operator-typed address needs a rebind too), or a
 show network whose machines should prefer a link-local address.
+
+### D462: the control window reads the paired list without waiting for a save (2026-10-21)
+
+**Context.** `Lan::view` runs every control-window frame and called
+`Clients::list`, which takes the list's lock. A phone that authenticates
+rotates its token (D251) and saves the list while holding that lock: a
+temporary file written, `sync_all`, a rename. A phone reconnects every time
+its screen wakes. On a venue mini PC's eMMC or a busy disk (Defender scanning
+the new file) the flush takes tens of milliseconds and sometimes far more,
+and for all of it the control frame waited, and with it the output, which is
+drawn on the same thread. While a laptop holds the desktop lease the host's
+control window is drawn for the capture, so this is the venue case.
+
+**Decision.** `Clients::try_list` returns the list if the lock is free and
+`None` at once if not. `Lan::view_at` keeps the last list it read and uses
+it when a save is in progress; the next frame picks up the new one. Saving
+still happens under the lock, so connection threads stay ordered and a save
+that fails still rolls back (D251); only the frame stopped waiting. Revoke and
+the other operator actions still take the lock, as a click may.
+
+**Not chosen.** *Writing the file outside the lock*: it reorders saves
+between connections and makes the failed-save rollback race a concurrent
+change, for no gain on the frame path.
+
+**Test.** `lan::tests::the_control_window_does_not_wait_for_the_client_list_to_reach_the_disk`
+(Unix: a FIFO where the save's temporary file goes stands in for a disk that
+does not answer; the view returns at once with the list it had; with the
+blocking read it waited 2.0 s) and
+`clients::tests::the_list_can_be_read_without_waiting_for_a_save`.
+
+**Would reopen:** a list that must be exact on the very frame it changes.

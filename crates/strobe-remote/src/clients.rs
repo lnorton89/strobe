@@ -295,16 +295,22 @@ impl Clients {
 
     /// Every paired client, oldest first.
     pub fn list(&self) -> Vec<ClientInfo> {
-        self.store()
-            .records
-            .iter()
-            .map(|r| ClientInfo {
-                id: r.id.clone(),
-                label: r.label.clone(),
-                paired_at: r.paired_at,
-                last_seen: r.last_seen,
-            })
-            .collect()
+        self.store().infos()
+    }
+
+    /// [`Clients::list`] if nobody holds the list right now, else `None`
+    /// at once. A connection that authenticates holds it while it writes
+    /// the file and waits for the disk (`sync_all`); the control window,
+    /// which shows the list every frame, uses this and keeps the list it
+    /// had, so a phone reconnecting never makes a frame wait on the disk
+    /// (D462).
+    pub fn try_list(&self) -> Option<Vec<ClientInfo>> {
+        let store = match self.0.try_lock() {
+            Ok(store) => store,
+            Err(std::sync::TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => return None,
+        };
+        Some(store.infos())
     }
 
     /// How many clients are paired.
@@ -538,6 +544,19 @@ impl Clients {
 }
 
 impl Store {
+    /// Every record as the desktop lists it.
+    fn infos(&self) -> Vec<ClientInfo> {
+        self.records
+            .iter()
+            .map(|r| ClientInfo {
+                id: r.id.clone(),
+                label: r.label.clone(),
+                paired_at: r.paired_at,
+                last_seen: r.last_seen,
+            })
+            .collect()
+    }
+
     /// Writes the whole list to a temporary file and renames it into place.
     fn save(&self) -> std::io::Result<()> {
         let Some(path) = &self.path else {
@@ -699,6 +718,26 @@ mod tests {
             clients.authenticate(first.expose()).is_none(),
             "and once it is used, the first is dead"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn the_list_can_be_read_without_waiting_for_a_save() -> Result<()> {
+        let clients = Clients::in_memory();
+        let (id, _) = clients.pair("phone")?;
+        let listed = clients.try_list().context("free: read at once")?;
+        assert_eq!(
+            listed.iter().map(|c| c.id.as_str()).collect::<Vec<_>>(),
+            vec![id.as_str()],
+            "the same list as list()"
+        );
+        let held = clients.store();
+        assert!(
+            clients.try_list().is_none(),
+            "held (a save in progress): no wait, no list"
+        );
+        drop(held);
+        assert!(clients.try_list().is_some(), "free again");
         Ok(())
     }
 

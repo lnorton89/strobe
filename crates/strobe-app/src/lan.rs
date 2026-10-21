@@ -37,7 +37,9 @@
 //!
 //! The paired-client list (a small JSON file) is read from the data
 //! directory once, the first time the control window or a start asks for it,
-//! and revoking works with the listener off.
+//! and revoking works with the listener off. The control window reads it
+//! without waiting (D462): a phone authenticating holds it while its new
+//! token reaches the disk, and a frame shows the list it had instead.
 
 use std::net::IpAddr;
 use std::path::PathBuf;
@@ -236,6 +238,8 @@ pub struct Lan {
     follows_lan: bool,
     /// When that address was last checked.
     address_checked: Option<Instant>,
+    /// The paired list as last read without waiting (D462).
+    listed: Vec<ClientInfo>,
     published: Option<Instant>,
     snapshot: Snapshot,
 }
@@ -261,6 +265,7 @@ impl Lan {
             url: UrlCache::default(),
             follows_lan: false,
             address_checked: None,
+            listed: Vec::new(),
             published: None,
             snapshot: Snapshot::default(),
         }
@@ -671,7 +676,12 @@ impl Lan {
     /// [`Self::view`] at `now`: the address is asked for again only when it
     /// is [`URL_REFRESH`] old, and the "On: ..." line follows it if it moved.
     pub fn view_at(&mut self, now: Instant) -> LanView {
-        let clients = self.clients().list();
+        // A connection saving the list holds it across a disk flush; the
+        // frame shows the list it had rather than wait for that (D462).
+        if let Some(fresh) = self.clients().try_list() {
+            self.listed = fresh;
+        }
+        let clients = self.listed.clone();
         let Some(server) = &self.server else {
             return LanView {
                 note: self.note.clone(),
@@ -1122,6 +1132,65 @@ mod tests {
             );
             typed.stop();
         }
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_control_window_does_not_wait_for_the_client_list_to_reach_the_disk() -> Result<()> {
+        // A phone authenticating rotates its token and saves the list, with
+        // the list held, through `sync_all`; on a venue PC's slow storage
+        // that is tens of milliseconds or more. The control window shows the
+        // list every frame, and the output is drawn on the same thread. A
+        // FIFO where the save's temporary file goes stands in for a disk
+        // that does not answer: opening it to write waits for a reader.
+        let dir = std::env::temp_dir().join(format!("strobe-lan-slow-disk-{}", std::process::id()));
+        // Best effort: a leftover from an earlier run.
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir)?;
+        let fifo = dir.join("remote-clients.json.tmp");
+        let made = std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .is_ok_and(|status| status.success());
+        if !made {
+            // No mkfifo here; nothing to check.
+            std::fs::remove_dir_all(&dir)?;
+            return Ok(());
+        }
+        let mut lan = Lan::new(dir.clone(), None, 0, true);
+        let clients = lan.clients();
+        assert!(lan.view_at(Instant::now()).clients.is_empty(), "none yet");
+        let saving = std::thread::spawn(move || clients.pair("iPhone at 192.168.1.23").is_ok());
+        // Let the save reach the disk that does not answer.
+        std::thread::sleep(Duration::from_millis(200));
+        let release = {
+            let fifo = fifo.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_secs(2));
+                // The "disk" answers: whatever the save wrote is read and
+                // dropped, and the save then fails on the FIFO, as one on a
+                // real disk would not; only the wait matters here.
+                let _ = std::fs::read(&fifo);
+            })
+        };
+        let started = Instant::now();
+        let view = lan.view_at(Instant::now());
+        let waited = started.elapsed();
+        assert!(
+            waited < Duration::from_secs(1),
+            "the frame waited {waited:?} for another thread's save"
+        );
+        assert!(
+            view.clients.is_empty(),
+            "it shows the list it had: {view:?}"
+        );
+        release
+            .join()
+            .map_err(|_| anyhow::anyhow!("the release thread panicked"))?;
+        // The save's outcome is the FIFO's, not a real disk's.
+        let _ = saving.join();
+        std::fs::remove_dir_all(&dir)?;
         Ok(())
     }
 
