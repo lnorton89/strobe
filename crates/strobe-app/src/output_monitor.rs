@@ -2,7 +2,8 @@
 // Module:       strobe_app::output_monitor
 // Description:  The monitor chosen for the output, followed across monitor
 //               list refreshes by what it is (name, position, size) rather
-//               than by its place in the list. Pure, no winit.
+//               than by its place in the list, and one the command line
+//               named that is not connected yet. Pure, no winit.
 //
 // Dependencies: none
 // ============================================================================
@@ -104,6 +105,50 @@ impl Chosen {
             (Some(_), None) => Followed::Lost,
             (None, Some(at)) => Followed::Found(at),
         }
+    }
+}
+
+/// A monitor the command line asked for (`--output-monitor N`) that was
+/// not connected at launch: a projector switched on after the machine
+/// booted (D451). The request is kept until the list is long enough to
+/// have that number, then carried out once; the operator choosing a monitor
+/// or pressing F11 first drops it, so a late projector never takes the
+/// output from where a person has put it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Awaited {
+    /// The place in the list the command line named, numbered from 0.
+    index: Option<usize>,
+    /// Whether the output is to go fullscreen there (`--fullscreen`).
+    fullscreen: bool,
+}
+
+impl Awaited {
+    /// Waits for the monitor at `index`, to be made fullscreen on it if
+    /// `fullscreen`.
+    pub fn new(index: usize, fullscreen: bool) -> Self {
+        Self {
+            index: Some(index),
+            fullscreen,
+        }
+    }
+
+    /// The place still waited for, if any.
+    pub fn index(&self) -> Option<usize> {
+        self.index
+    }
+
+    /// Stops waiting: someone placed the output by hand.
+    pub fn cancel(&mut self) {
+        self.index = None;
+    }
+
+    /// With `count` monitors connected now: the place to move the output to
+    /// and whether to make it fullscreen there, the first time the awaited
+    /// monitor is in the list; then nothing.
+    pub fn arrived(&mut self, count: usize) -> Option<(usize, bool)> {
+        let index = self.index.filter(|&index| index < count)?;
+        self.index = None;
+        Some((index, self.fullscreen))
     }
 }
 
@@ -272,6 +317,44 @@ mod tests {
             Followed::Lost,
             "a size alone is not a monitor"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn a_monitor_asked_for_before_it_is_connected_is_taken_when_it_appears() -> Result<()> {
+        // `--output-monitor 2 --fullscreen` with only the laptop panel on at
+        // boot: the projector is switched on a minute later.
+        let mut panel_only = venue();
+        panel_only.truncate(1);
+        let mut chosen = Chosen::default();
+        assert!(
+            !chosen.choose(1, &panel_only),
+            "monitor 2 is not there at launch"
+        );
+        let mut awaited = Awaited::new(1, true);
+        assert_eq!(awaited.arrived(panel_only.len()), None, "still waiting");
+        assert_eq!(awaited.index(), Some(1), "and remembered");
+        let both = venue();
+        assert_eq!(
+            awaited.arrived(both.len()),
+            Some((1, true)),
+            "the projector is on: move there and go fullscreen"
+        );
+        assert!(chosen.choose(1, &both), "which the caller then chooses");
+        assert_eq!(
+            awaited.arrived(both.len()),
+            None,
+            "once: a later refresh does not move it again"
+        );
+
+        let mut placed_by_hand = Awaited::new(1, false);
+        placed_by_hand.cancel();
+        assert_eq!(
+            placed_by_hand.arrived(both.len()),
+            None,
+            "an operator's own choice wins over the late projector"
+        );
+        assert_eq!(Awaited::default().arrived(3), None, "nothing asked for");
         Ok(())
     }
 

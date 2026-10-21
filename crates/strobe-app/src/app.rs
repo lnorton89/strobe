@@ -652,6 +652,9 @@ struct Running {
     /// The output's monitor, followed across refreshes by what it is,
     /// never by its place in the list (D400).
     output_monitor: crate::output_monitor::Chosen,
+    /// The `--output-monitor` that was not connected at launch, carried out
+    /// when it appears (D451).
+    awaited_monitor: crate::output_monitor::Awaited,
     last_monitor_refresh: Instant,
 
     /// Whether the output window is shown. Tracked here because winit cannot
@@ -1010,6 +1013,7 @@ impl Running {
             monitor_labels: Vec::new(),
             monitor_ids: Vec::new(),
             output_monitor: crate::output_monitor::Chosen::default(),
+            awaited_monitor: crate::output_monitor::Awaited::default(),
             last_monitor_refresh: now,
             output_visible: cli.show_output,
             output_modifiers: ModifiersState::empty(),
@@ -1756,6 +1760,18 @@ impl Running {
                 label(at)
             ),
         }
+        if let Some((index, fullscreen)) = self.awaited_monitor.arrived(self.monitors.len()) {
+            log::info!(
+                "--output-monitor {}: connected now as {}; the output goes there{} (D451)",
+                index + 1,
+                label(index),
+                if fullscreen { ", fullscreen" } else { "" }
+            );
+            self.move_to_monitor(index);
+            if fullscreen && self.stack.output.window().fullscreen().is_none() {
+                self.toggle_fullscreen();
+            }
+        }
     }
 
     // --------------------------------------------------------------- events
@@ -1961,8 +1977,13 @@ impl Running {
             if index < self.monitors.len() {
                 self.move_to_monitor(index);
             } else {
+                // A projector switched on after the machine booted: wait
+                // for it rather than leave the show where it opened (D451).
+                self.awaited_monitor =
+                    crate::output_monitor::Awaited::new(index, cli.fullscreen);
                 log::warn!(
-                    "--output-monitor {number}: there are {} monitor(s); the output stays where it opened",
+                    "--output-monitor {number}: there are {} monitor(s); the output opens where \
+                     it is, and moves to monitor {number} when it is connected (D451)",
                     self.monitors.len()
                 );
             }
@@ -3838,8 +3859,16 @@ impl Running {
                     );
                 }
                 Action::SetOutputVisible(visible) => self.set_output_visible(visible),
-                Action::ToggleFullscreen => self.toggle_fullscreen(),
-                Action::MoveToMonitor(index) => self.move_to_monitor(index),
+                Action::ToggleFullscreen => {
+                    // The operator placed the output; a late projector
+                    // no longer takes it (D451).
+                    self.awaited_monitor.cancel();
+                    self.toggle_fullscreen();
+                }
+                Action::MoveToMonitor(index) => {
+                    self.awaited_monitor.cancel();
+                    self.move_to_monitor(index);
+                }
                 Action::ClearConsole => self.console.clear(),
                 Action::SelectAudioInput(choice) => self.audio.select_device(choice),
                 Action::RefreshAudioDevices => self.audio.refresh_devices(),

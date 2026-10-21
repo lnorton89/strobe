@@ -175,7 +175,10 @@ Scenes react to sound through the default **recording** device.
   on the projector from the command line:
   `strobe --output-monitor 2 --fullscreen`. Monitors are numbered as the
   **Output monitor** menu numbers them; `--fullscreen` alone uses the
-  monitor the output opens on.
+  monitor the output opens on. If monitor 2 is not connected yet (the
+  projector is switched on after the computer), the output opens where it
+  is and moves to the projector when it appears, unless someone has
+  placed it by hand meanwhile.
 - **Settings > Performance** holds the render scale and adaptive
   resolution, which lowers the render size by itself when the GPU falls
   behind; `--no-adaptive` turns it off for a run.
