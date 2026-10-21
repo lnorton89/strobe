@@ -10982,3 +10982,35 @@ blocking read it waited 2.0 s) and
 `clients::tests::the_list_can_be_read_without_waiting_for_a_save`.
 
 **Would reopen:** a list that must be exact on the very frame it changes.
+
+### D463: a trust file's path is made whole where it is named (2026-10-21)
+
+**Context.** `--remote-trust venue.trust` was kept as given. The host reads
+it once at launch, relative to the working folder; the operator tests the
+launcher from its own folder, and the task scheduler then starts the same
+command in another (by default `C:\Windows\System32`), where the file is not.
+Trusted pairing is then off for the night (D288, fail closed) and the
+failure said `cannot open the trust file venue.trust`, not where it had
+looked. On the laptop, `--control ... --remote-trust venue.trust` and a
+relative path typed into the form were remembered in `ui.toml` as typed, so
+the next launch from a shortcut, started elsewhere, could not find the file.
+`--make-remote-trust venue.trust` printed launch instructions with the bare
+name, which get pasted into launchers.
+
+**Decision.** `--remote-trust` and `--make-remote-trust` take their value
+through `std::path::absolute` (no file access, so a missing file is still
+reported where it was before): a relative path is joined to the folder Strobe
+was started in, at the moment it was named. Every log line, failure and
+instruction then names the whole path. The form does the same on Connect
+(`trusted::whole_path`), so it shows and remembers the file it really read.
+Where a relative path is looked for is unchanged; only what is kept and said.
+
+**Test.** `cli::tests::a_relative_trust_file_is_kept_as_the_whole_path_it_named_at_launch`
+(both roles; a whole path kept as given; an empty path refused) and
+`desktop::tests::a_trust_file_typed_as_a_relative_path_is_shown_and_remembered_whole`
+(the form's field, its failure note and what it remembers). Both failed
+before with the bare name. The two venue-flag parsing tests now expect the
+whole path.
+
+**Would reopen:** resolving a relative path against the executable's folder
+instead, if launchers turn out to rely on that.
