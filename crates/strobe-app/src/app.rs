@@ -652,7 +652,17 @@ struct Running {
     /// The output's monitor, followed across refreshes by what it is,
     /// never by its place in the list (D400).
     output_monitor: crate::output_monitor::Chosen,
+    /// The `--output-monitor` that was not connected at launch, carried out
+    /// when it appears (D451).
+    awaited_monitor: crate::output_monitor::Awaited,
     last_monitor_refresh: Instant,
+    /// The focus winit last reported for each window, for the foreground
+    /// watch (D453).
+    output_focused: bool,
+    control_focused: bool,
+    /// Whether the fullscreen output over the control window has the focus
+    /// (D453), checked with the monitor list.
+    foreground: crate::foreground::Watch,
 
     /// Whether the output window is shown. Tracked here because winit cannot
     /// report visibility on X11 or Wayland.
@@ -1010,7 +1020,11 @@ impl Running {
             monitor_labels: Vec::new(),
             monitor_ids: Vec::new(),
             output_monitor: crate::output_monitor::Chosen::default(),
+            awaited_monitor: crate::output_monitor::Awaited::default(),
             last_monitor_refresh: now,
+            output_focused: false,
+            control_focused: false,
+            foreground: crate::foreground::Watch::default(),
             output_visible: cli.show_output,
             output_modifiers: ModifiersState::empty(),
             control_on_top: true,
@@ -1071,21 +1085,6 @@ impl Running {
                 );
             }
         }
-        // Reopen the scene of the last session (T480 Task 21), unless the
-        // command line chose one, a playlist will, or this is a screenshot
-        // (whose state is never the operator's).
-        let reopen = (cli.scene.is_none() && cli.playlist.is_none() && cli.screenshot.is_none())
-            .then(|| running.ui_state.last_scene.clone())
-            .filter(|name| !name.is_empty());
-        if let Some(name) = reopen {
-            match running.library.entries.iter().position(|e| e.name == name) {
-                Some(index) => {
-                    log::info!("reopening {name}, the scene of the last session");
-                    running.load(index);
-                }
-                None => log::info!("the last session's scene {name} is not in the library"),
-            }
-        }
         if let Some(query) = cli.scene.as_deref() {
             match running.library.find(query) {
                 Some(index) => running.load(index),
@@ -1103,9 +1102,53 @@ impl Running {
                 None => log::warn!("--preview: no scene matching \"{query}\" in the library"),
             }
         }
-        if let Some(path) = cli.playlist.as_deref() {
-            running.playlist_ui.path = path.display().to_string();
-            running.load_playlist(path);
+        let playlist = match cli.playlist.as_deref() {
+            Some(path) => {
+                running.playlist_ui.path = path.display().to_string();
+                running.load_playlist(path);
+                if running.stack.show.is_some() {
+                    LaunchPlaylist::Loaded
+                } else {
+                    LaunchPlaylist::Failed
+                }
+            }
+            None => LaunchPlaylist::None,
+        };
+        // Reopen the scene of the last session (T480 Task 21), unless the
+        // command line chose one, a playlist plays, or this is a screenshot
+        // (whose state is never the operator's). A playlist that would not
+        // load leaves a scene playing rather than a black output (D452).
+        let last = running.ui_state.last_scene.clone();
+        let chosen = launch_scene(
+            cli.scene.is_some(),
+            playlist,
+            cli.screenshot.is_some(),
+            &last,
+            running
+                .library
+                .entries
+                .iter()
+                .map(|entry| entry.name.as_str()),
+        );
+        let name = chosen
+            .and_then(|index| running.library.entries.get(index))
+            .map(|entry| entry.name.clone());
+        match chosen.zip(name) {
+            Some((index, name)) => {
+                if playlist == LaunchPlaylist::Failed {
+                    log::warn!(
+                        "the playlist did not load, so {name} plays instead of a black output \
+                         (D452)"
+                    );
+                } else {
+                    log::info!("reopening {name}, the scene of the last session");
+                }
+                running.load(index);
+            }
+            None if playlist != LaunchPlaylist::Loaded && !last.is_empty() => {
+                log::info!("the last session's scene {last} is not in the library");
+            }
+            None => {}
         }
         Ok(running)
     }
@@ -1381,6 +1424,9 @@ impl Running {
             next_control: now,
             // The old control window's unanswered request died with it.
             control_drive: ControlDrive::default(),
+            // So did both windows' focus; the new ones report their own.
+            output_focused: false,
+            control_focused: false,
             // The preview and a load that was waiting belonged to the lost
             // context; the scene that was playing is reloaded below.
             preview_index: None,
@@ -1678,6 +1724,38 @@ impl Running {
         }
     }
 
+    /// Says in the log when the fullscreen output over the control window
+    /// has not had the focus for a while (D453): a window of another
+    /// program, or the control window, holds it, and Windows may then
+    /// compose the output instead of presenting it directly. Runs with the
+    /// monitor list's refresh, never per frame.
+    fn check_foreground(&mut self) {
+        use crate::foreground::{Change, Focus};
+        let covers = self.close_facts(false).output_fills_control_monitor;
+        let focus = Focus::of(self.output_focused, self.control_focused);
+        match self.foreground.check(covers, focus, Instant::now()) {
+            Some(Change::Lost { focus, first: true }) => log::warn!(
+                "output: the fullscreen output is not the foreground window ({} has the \
+                 focus); Windows may compose it instead of presenting it directly, which cost \
+                 5-11% of refreshes in a soak. Nothing should sit over the output (D453)",
+                focus.holder()
+            ),
+            Some(Change::Lost {
+                focus,
+                first: false,
+            }) => log::info!(
+                "output: not the foreground window again ({} has the focus) (D453)",
+                focus.holder()
+            ),
+            Some(Change::Back(after)) => log::info!(
+                "output: in the foreground again, or no longer fullscreen over the control \
+                 window, after {:.0} s (D453)",
+                after.as_secs_f64()
+            ),
+            None => {}
+        }
+    }
+
     /// What a close request needs to know about the windows (D298).
     fn close_facts(&self, on_output: bool) -> CloseFacts {
         let output = self.stack.output.window();
@@ -1697,6 +1775,7 @@ impl Running {
     fn refresh_monitors(&mut self, event_loop: &ActiveEventLoop) {
         self.last_monitor_refresh = Instant::now();
         self.update_covered();
+        self.check_foreground();
         // The time zone's offset can change (daylight saving); looking it
         // up may read the zone database, so it is done here, never per frame.
         self.local_date.refresh();
@@ -1756,6 +1835,18 @@ impl Running {
                 label(at)
             ),
         }
+        if let Some((index, fullscreen)) = self.awaited_monitor.arrived(self.monitors.len()) {
+            log::info!(
+                "--output-monitor {}: connected now as {}; the output goes there{} (D451)",
+                index + 1,
+                label(index),
+                if fullscreen { ", fullscreen" } else { "" }
+            );
+            self.move_to_monitor(index);
+            if fullscreen && self.stack.output.window().fullscreen().is_none() {
+                self.toggle_fullscreen();
+            }
+        }
     }
 
     // --------------------------------------------------------------- events
@@ -1786,6 +1877,13 @@ impl Running {
         }
         let is_control = id == self.stack.control.window().id();
         let is_output = id == self.stack.output.window().id();
+        if let WindowEvent::Focused(focused) = event {
+            if is_output {
+                self.output_focused = focused;
+            } else if is_control {
+                self.control_focused = focused;
+            }
+        }
         if is_control && is_input(&event) {
             self.control_input = true;
         }
@@ -1961,8 +2059,12 @@ impl Running {
             if index < self.monitors.len() {
                 self.move_to_monitor(index);
             } else {
+                // A projector switched on after the machine booted: wait
+                // for it rather than leave the show where it opened (D451).
+                self.awaited_monitor = crate::output_monitor::Awaited::new(index, cli.fullscreen);
                 log::warn!(
-                    "--output-monitor {number}: there are {} monitor(s); the output stays where it opened",
+                    "--output-monitor {number}: there are {} monitor(s); the output opens where \
+                     it is, and moves to monitor {number} when it is connected (D451)",
                     self.monitors.len()
                 );
             }
@@ -3838,8 +3940,16 @@ impl Running {
                     );
                 }
                 Action::SetOutputVisible(visible) => self.set_output_visible(visible),
-                Action::ToggleFullscreen => self.toggle_fullscreen(),
-                Action::MoveToMonitor(index) => self.move_to_monitor(index),
+                Action::ToggleFullscreen => {
+                    // The operator placed the output; a late projector
+                    // no longer takes it (D451).
+                    self.awaited_monitor.cancel();
+                    self.toggle_fullscreen();
+                }
+                Action::MoveToMonitor(index) => {
+                    self.awaited_monitor.cancel();
+                    self.move_to_monitor(index);
+                }
                 Action::ClearConsole => self.console.clear(),
                 Action::SelectAudioInput(choice) => self.audio.select_device(choice),
                 Action::RefreshAudioDevices => self.audio.refresh_devices(),
@@ -5297,6 +5407,43 @@ struct CloseFacts {
     output_fills_control_monitor: bool,
 }
 
+/// What became of `--playlist` at launch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LaunchPlaylist {
+    /// None was named.
+    None,
+    /// It loaded and plays.
+    Loaded,
+    /// It was named but did not load (missing, unreadable, invalid).
+    Failed,
+}
+
+/// The library scene to play at launch, if any: the last session's scene,
+/// unless the command line chose a scene, a playlist plays, or this is a
+/// screenshot run. When a named playlist did not load, a venue would
+/// otherwise show black all night, so the last session's scene plays, or
+/// failing that the library's first (D452). `names` are the library's, in
+/// order.
+fn launch_scene<'a>(
+    asked_scene: bool,
+    playlist: LaunchPlaylist,
+    screenshot: bool,
+    last: &str,
+    names: impl Iterator<Item = &'a str> + Clone,
+) -> Option<usize> {
+    if asked_scene || screenshot {
+        return None;
+    }
+    let last_at = (!last.is_empty())
+        .then(|| names.clone().position(|name| name == last))
+        .flatten();
+    match playlist {
+        LaunchPlaylist::Loaded => None,
+        LaunchPlaylist::None => last_at,
+        LaunchPlaylist::Failed => last_at.or_else(|| names.clone().next().map(|_| 0)),
+    }
+}
+
 /// Whether a close request quits the app (D298). Closing the output only
 /// hides it while the operator can reach the control window to quit from
 /// there. When nobody can (a fullscreen output over it, or a minimised
@@ -5590,6 +5737,63 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn a_playlist_that_does_not_load_at_launch_leaves_a_scene_playing_not_black() -> Result<()> {
+        let names = ["01-aurora", "05-domain-warp", "13-chromatic-rise"];
+        let pick = |asked, playlist, screenshot, last| {
+            launch_scene(asked, playlist, screenshot, last, names.iter().copied())
+        };
+        // The venue: `--playlist` names a file that is gone (or locked, or
+        // has a typo). Before D452 nothing was loaded: a black output.
+        assert_eq!(
+            pick(false, LaunchPlaylist::Failed, false, "05-domain-warp"),
+            Some(1),
+            "the last session's scene plays instead"
+        );
+        assert_eq!(
+            pick(false, LaunchPlaylist::Failed, false, ""),
+            Some(0),
+            "a machine that only ever ran playlists has no last scene: the first one"
+        );
+        assert_eq!(
+            pick(false, LaunchPlaylist::Failed, false, "gone"),
+            Some(0),
+            "nor one still in the library"
+        );
+        assert_eq!(
+            launch_scene(false, LaunchPlaylist::Failed, false, "", std::iter::empty()),
+            None,
+            "an empty library has nothing to play"
+        );
+        // Unchanged: a playlist that plays, a scene asked for, a screenshot.
+        assert_eq!(
+            pick(false, LaunchPlaylist::Loaded, false, "05-domain-warp"),
+            None,
+            "the playlist plays"
+        );
+        assert_eq!(
+            pick(true, LaunchPlaylist::Failed, false, "05-domain-warp"),
+            None,
+            "--scene was loaded already"
+        );
+        assert_eq!(
+            pick(false, LaunchPlaylist::Failed, true, "05-domain-warp"),
+            None,
+            "a screenshot never plays the operator's state"
+        );
+        assert_eq!(
+            pick(false, LaunchPlaylist::None, false, "13-chromatic-rise"),
+            Some(2),
+            "no playlist: the last session's scene, as before"
+        );
+        assert_eq!(
+            pick(false, LaunchPlaylist::None, false, ""),
+            None,
+            "and nothing on a first run, as before"
+        );
+        Ok(())
     }
 
     #[test]

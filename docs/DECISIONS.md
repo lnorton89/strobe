@@ -10589,3 +10589,200 @@ save is a click.
 
 **Would reopen:** a disk on which the sync is slow enough to delay the
 resume write by more than its 5 s period.
+
+### D450: a fullscreen launch puts no crash or stop box over its show (2026-10-21)
+
+**Context.** The venue launcher starts `strobe.exe ... --output-monitor 1
+--fullscreen` and restarts it 3 s after any exit. Every message a person
+must see went through `dialog::show_error`, a PowerShell message box that
+the caller waits on. Three paths reached it after the show had started:
+
+- **A panic.** The panic hook runs the notifier on the panicking thread
+  before `panic = "abort"` ends the process. The notifier waited on the
+  box, so the process stayed alive, with the output frozen on the
+  projector, until someone clicked OK. The launcher saw no exit and did
+  not restart it.
+- **A stop after the windows opened** (a context loss the recovery policy
+  gave up on): `main` raised the "Strobe stopped" box and waited on it the
+  same way.
+- **A native crash.** The crash monitor raises its box after the app has
+  died, so the launcher does restart, but the box stays on the projector
+  over the restarted show. Each crash adds another. Anything over the
+  output costs refreshes (5-11% in the M26 soak), and the audience sees it.
+
+`crash.rs` already says a box must never keep a frozen app on the projector
+or stop a launcher from seeing it exit. These paths broke that rule.
+
+**Decision.** `Cli::no_boxes_over_the_show` is `--fullscreen`, which the
+CLI documents as the venue autostart. With it:
+
+- `main` calls `strobe_diag::notify::set_unattended()` before the crash
+  monitor starts, so neither the panic hook nor the monitor raises a box.
+  The crash report, the minidump and the log are written as always.
+- A stop after the windows opened is reported (`failure::report`, ERROR in
+  the log) without a box, and the process exits 1, so the launcher
+  restarts it.
+
+A failure *to start* (bad flag, no OpenGL) still raises its box and waits.
+No show is there to cover, and a launcher that restarted it every 3 s
+would only stack boxes for a fault that needs a person anyway. Runs
+without `--fullscreen` are unchanged: someone is at the control window,
+and the box is how they find out.
+
+**Test.** `cli::tests::a_fullscreen_launch_raises_no_crash_or_stop_box_over_the_show`
+(the venue command line is quiet; plain, `--show-output` and
+`--output-monitor 2` alone are not). The monitor already passes
+`--strobe-unattended` on (`strobe_diag::crash` tests). A real panic on the
+mini PC under the launcher is the acceptance test (STATUS_AUDIT).
+
+**Would reopen:** a venue that wants to see crashes on the projector, or a
+fullscreen run that is attended (then `--fullscreen` is the wrong signal
+and the launcher should say `--unattended`).
+
+### D451: an `--output-monitor` that is not connected at launch is waited for (2026-10-21)
+
+**Context.** `place_output` applied `--output-monitor N` once, when the
+windows opened. If monitor N was not in the list then, it logged "the
+output stays where it opened", and `--fullscreen` put the show fullscreen
+on the monitor the output opened on. Nothing looked again. A venue with an
+operator screen and a projector that is switched on after the machine
+boots (a power strip, a projector warming up, a scheduled task at logon)
+got the show fullscreen over the operator's screen for the whole night.
+The projector stayed empty until someone pressed F11 or picked the
+monitor. D400 follows a monitor that *was* chosen; this one never was.
+
+**Decision.** `output_monitor::Awaited` keeps the asked-for place and
+whether `--fullscreen` came with it. The monitor list is read every 2 s
+(unchanged). The first time it is long enough, the output moves there,
+fullscreen if asked, and the request is spent: "--output-monitor N:
+connected now as ...; the output goes there, fullscreen (D451)". The
+operator placing the output first, with the monitor picker or F11, drops
+the request, so a late projector never takes the show from where a person
+put it. Until the projector arrives, behaviour is as before: the output
+opens where it is, fullscreen if asked. The launch warning now says it is
+waiting.
+
+**Not done.** Waiting for a monitor by name: the command line has a
+number. The number is the place in the list when the monitor appears,
+as the picker numbers it.
+
+**Test.** `output_monitor::tests::a_monitor_asked_for_before_it_is_connected_is_taken_when_it_appears`
+(only the panel at launch, then both: moved once, fullscreen; a hand
+choice cancels it). Acceptance on hardware: boot the mini PC with the
+projector off, switch it on, and look for the D451 line and the show on
+the projector (STATUS_AUDIT).
+
+**Would reopen:** a venue where the list order changes when the projector
+arrives, so that number N is not the projector.
+
+### D452: a playlist that does not load at launch leaves a scene playing, not a black output (2026-10-21)
+
+**Context.** With `--playlist FILE`, launch skipped reopening the last
+session's scene, because the playlist would play. When the file did not
+load (moved or renamed by a pull of the show-kit repository, a typo in the
+launcher, a file another program holds open, a TOML error), the failure was
+logged (`PLAYLIST load`) and shown on a banner in the control window. But
+on the venue machine that window sits under the fullscreen output, and
+nothing played: the projector was black for the whole night. A restart by
+the launcher gave the same result.
+
+**Decision.** `app::launch_scene` decides what plays at launch, after the
+playlist has been tried. When a named playlist did not load, the last
+session's scene plays. If there is none, or it is no longer in the library
+(a machine that only ever ran playlists), the library's first scene plays.
+The log says so at warn: "the playlist did not load, so NAME plays instead
+of a black output (D452)", right after the playlist's own error line. The
+banner still says the playlist was not loaded. Everything else is
+unchanged:
+- a playlist that loads plays;
+- `--scene` wins;
+- a screenshot run never plays the operator's state;
+- without `--playlist`, the last session's scene reopens, as before.
+
+**Not chosen.** Exiting with an error, so the launcher's loop would show
+it. Nobody reads a launcher at a venue, and the restart would only repeat
+the black screen. A text card on the output: the projector is the
+audience's, and the output has no text renderer.
+
+**Test.** `app::tests::a_playlist_that_does_not_load_at_launch_leaves_a_scene_playing_not_black`.
+
+**Would reopen:** a venue that would rather show black than an unplanned
+scene.
+
+### D453: the log says when the fullscreen output over the control window loses the focus (2026-10-21)
+
+**Context.** In the M26 soak on the mini PC, missed refreshes on the heavy
+scenes rose from 0.1-0.2% to 5-11% while console windows, the taskbar and
+a firewall dialog sat over the fullscreen output. The output was then no
+longer the foreground window, and Windows composed it through DWM instead
+of presenting it directly. Strobe's log said nothing: the cause was found
+by looking at the projector. The same layout leaves open a second question
+from D290 and D298: on a fullscreen launch, Strobe's own focus events said
+the control window had the focus, while the window list said the output
+was foreground.
+
+**What can be known cheaply.** winit reports no occlusion on Windows, and
+reading the z-order is a window-system query that the frame loop must not
+make (and would need `unsafe` or a new dependency). Focus comes free:
+`WindowEvent::Focused` for each window.
+
+**Decision.** `foreground::Watch`, a pure type, gets the focus winit last
+reported for each window and whether the output is shown fullscreen on
+the control window's monitor (the D298 `output_fills_control_monitor`
+fact). It is checked each time the monitor list is read again, every 2 s,
+never per frame.
+- If the output lacks the focus in that layout for `GRACE` (2 s), the log
+  says so: once as a warning, naming who has the focus ("another program"
+  or "the control window"), and later spells at info.
+- The end of a spell is an info line with how long it lasted.
+- Focus passing between windows within the grace says nothing.
+- A two-screen setup (the output on the projector, the control window on
+  the operator's screen with the focus) is never in the watched layout, so
+  it is never flagged.
+
+Strobe does not take the focus back. Taking the foreground from another
+program is hostile, Windows' foreground lock may refuse it, and it would
+only hide a dialog that needs answering. Strobe also does not change which
+window it focuses at launch: the field record conflicts with the code
+(`set_output_visible` gives the focus back to the control window, yet the
+output was seen in the foreground), and that is for the mini PC to show.
+This line will now show it.
+
+**Test.** `foreground::tests`:
+- `a_window_over_the_fullscreen_output_is_reported_once_and_its_end_too`;
+- `a_two_screen_setup_and_a_passing_focus_change_are_never_reported` (an
+  hour of checks with the control window focused on its own screen);
+- `the_focus_is_read_from_both_windows`.
+
+The acceptance test is the mini PC (STATUS_AUDIT).
+
+**Would reopen:** the line firing at every venue launch with "the control
+window" (then the launch should focus the output on a one-screen layout),
+or missed refreshes rising with no line (then the cause is not focus, and
+only a z-order or DWM query could tell).
+
+### D454: a refused command line exits 2, a failed or stopped run 1 (2026-10-21)
+
+**Context.** Every unsuccessful end of `strobe` exited 1: a command line
+clap refused, a failure to start (no OpenGL), and a stop after the windows
+opened (a context the recovery policy gave up on). The venue launcher
+restarts Strobe 3 s after any exit. A fault is worth a restart; a mistyped
+or renamed flag, or a bad value in the launcher, is refused the same way
+every time. On Windows its box waits for a click, and after the click
+the loop brings the same box back. A launcher had no way to tell the two
+apart and stop.
+
+**Decision.** `cli::REFUSED_EXIT` (2, clap's own usage status) for a
+command line that clap refuses. 1 stays for a failed start or a stop. 0
+for a normal quit, `--help` and `--version`. A crash ends with the
+system's crash status, as before. USER_GUIDE "When something goes wrong"
+lists the statuses with a `.cmd` example.
+
+**Test.** `tests/exit_codes.rs`,
+`a_refused_command_line_exits_2_not_the_1_of_a_fault`, runs the real
+executable with an unknown value, an out-of-range monitor and a lone
+`--remote-trust`, and with `--version`. It runs on Unix only: on Windows
+the refusal's box waits for a click.
+
+**Would reopen:** a launcher that needs to tell a failed start from a stop
+(1 for both now).
