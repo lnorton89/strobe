@@ -313,6 +313,21 @@ Linux and llvmpipe cannot prove any of these:
   projector 2, that unplugging projector 2 itself leaves nothing chosen
   (F11 goes fullscreen where the output is, never by index), and that
   replugging it logs "back as" and chooses it again.
+- [ ] Unattended start-up and restart (D450-D454). Unit-tested on Linux:
+  `cli::tests::a_fullscreen_launch_raises_no_crash_or_stop_box_over_the_show`,
+  `output_monitor::tests::a_monitor_asked_for_before_it_is_connected_is_taken_when_it_appears`,
+  `app::tests::a_playlist_that_does_not_load_at_launch_leaves_a_scene_playing_not_black`,
+  `foreground::tests` and `tests/exit_codes.rs` (the real executable
+  exits 2 on a refused command line). Acceptance test on the mini PC, under
+  the launcher, with `--fullscreen`: `STROBE_FAULT=crash@300`, and a stop
+  forced with `lose-context@60,fail-rebuild:native,fail-rebuild:angle`,
+  leave no box on the projector, and the launcher restarts Strobe (a panic
+  has no injector yet); with the projector
+  off at boot and `--output-monitor 1 --fullscreen`, switching it on logs
+  the D451 line and the show fills it; a renamed playlist plays a scene and
+  logs the D452 warning; a console window over the output logs the D453
+  warning and its end; and what the D453 line says about the focus after a
+  plain fullscreen launch.
 - [x] Keep commands, environment, logs, screenshots and failed outcomes in
   [hardware/T480.md](hardware/T480.md).
 

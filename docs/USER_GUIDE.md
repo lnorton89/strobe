@@ -175,7 +175,10 @@ Scenes react to sound through the default **recording** device.
   on the projector from the command line:
   `strobe --output-monitor 2 --fullscreen`. Monitors are numbered as the
   **Output monitor** menu numbers them; `--fullscreen` alone uses the
-  monitor the output opens on.
+  monitor the output opens on. If monitor 2 is not connected yet (the
+  projector is switched on after the computer), the output opens where it
+  is and moves to the projector when it appears, unless someone has
+  placed it by hand meanwhile.
 - **Settings > Performance** holds the render scale and adaptive
   resolution, which lowers the render size by itself when the GPU falls
   behind; `--no-adaptive` turns it off for a run.
@@ -216,6 +219,9 @@ repository) shows the format.
 - **Save** writes the file. Comments you wrote in it are kept.
 - A playlist resumes where it was if Strobe is closed mid-show;
   `--no-resume` starts from the top.
+- If the `--playlist` file cannot be loaded at launch (missing, unreadable
+  or invalid), the log says why and the last scene you played (or the
+  library's first) plays instead of a black output.
 
 ## Controllers: MIDI and OSC
 
@@ -530,6 +536,18 @@ Everything Strobe writes lives in `%LOCALAPPDATA%\strobe`:
   are in `crashes\`. Send the `.txt`, the `.dmp` and the session log with
   a bug report; the maintainer turns the dump into function names with the
   matching symbols zip.
+  With `--fullscreen` (a venue autostart) there is no dialog: it would
+  sit over the show, and one waiting for a click would keep Strobe from
+  exiting, so a restart script could not start it again. The log, the
+  report and the minidump are written as always. A failure to *start*
+  (a mistyped flag, no OpenGL) still shows its dialog.
+- **Exit status, for a script that restarts Strobe:** 0 after a normal
+  quit (including a `WM_CLOSE` to the window titled "Strobe"); 2 when the
+  command line was refused (a mistyped flag, a value out of range), which
+  restarting will not fix, so stop the loop; 1 when Strobe failed to start
+  or stopped on a fault, which a restart may cure. A crash ends the process
+  with the system's crash status. For example, in a `.cmd` loop:
+  `if %ERRORLEVEL%==2 goto bad_command_line`.
 - **Black output on a laptop with two GPUs:** in Windows *Graphics
   settings*, set `strobe.exe` to *High performance*.
 - **Choppy output with the control window beside it (NVIDIA):** Strobe

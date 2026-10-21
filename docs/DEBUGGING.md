@@ -135,6 +135,16 @@ for the output's vsynced swap. The app then slows the control window to
 10 Hz and logs `control window: making it current waits ...` (D216), and
 logs again when it recovers.
 
+Late frames on a one-screen show machine can come from a window over the
+fullscreen output: Windows then composes the output instead of presenting
+it directly (5-11% of refreshes in the M26 soak). When the output covers
+the control window's monitor and has not had the focus for 2 s, the log
+says `output: the fullscreen output is not the foreground window (...
+has the focus)` once as a warning, and later spells and their ends as
+info lines (D453). "another program" means a dialog, console or taskbar
+took the focus; "the control window" means the launch left the focus
+behind the show. A two-screen setup is never flagged.
+
 A soak should show `0 late` minute after minute. The fps in the control
 window's status bar is only as fresh as that window's last paint; while the
 fullscreen output covers it, Windows hardly repaints it (the event loop
@@ -164,8 +174,11 @@ A panic writes `crash-*.txt` with a backtrace. A native crash writes
 `crash-*.txt` and `crash-*.dmp`; the **monitor** process shows the message
 box, so it works even when the app cannot open a window. The box goes up
 after the crashed app has been let go, so the app exits at once and does not
-wait for the click. An unattended run (`--screenshot`) raises no box from
-either process; the files are written as usual. A crash in the
+wait for the click. A panic's box is raised by the panicking process
+itself, which waits for the click before it aborts. An unattended run
+(`--screenshot`) raises no box from either process; the files are written
+as usual. Neither does a `--fullscreen` launch (D450), and a stop after its
+windows opened is only logged, so a restart script sees the exit at once. A crash in the
 first moments, before the monitor link is up, is not captured. A bare
 `abort()` on Windows is a fast-fail that bypasses exception filters and
 leaves no minidump (the `.txt` of a panic that led to it still exists).

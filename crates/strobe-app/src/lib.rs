@@ -37,6 +37,8 @@
 //! - [`localtime`]: local wall-clock time for `strobe_Date`.
 //! - [`output_monitor`]: the monitor chosen for the output, followed across
 //!   display changes by what it is rather than its place in the list (D400).
+//! - [`foreground`]: whether the fullscreen output over the control window
+//!   has the focus, so the log says when Windows may compose it (D453).
 //! - [`screenshot`]: the `--screenshot` verification mode.
 //! - [`brand`]: the window and taskbar icon (D190).
 //! - [`venue`]: venue mode's launch-time pieces (D288), the trust file for an
@@ -62,6 +64,7 @@ pub mod dialog;
 pub mod editor;
 pub mod failures;
 pub mod fault;
+pub mod foreground;
 pub mod generate;
 pub mod gldebug;
 pub mod icon;
