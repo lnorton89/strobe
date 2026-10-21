@@ -224,6 +224,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Documentation
 
+- record the end of the M26 soak and the mini PC's show set-up on 68c7749 ([`572f638`](https://github.com/lnorton89/strobe/commit/572f63845d7276b759f6aff495690768c7b09851))
 - record the start-up and shutdown sweep (D450-D454) in the roadmap and audit ([`ffc95e5`](https://github.com/lnorton89/strobe/commit/ffc95e57f5405432b613040da518e6af0fd3c009))
 - record the GL renderer bug sweep (D440) ([`57916df`](https://github.com/lnorton89/strobe/commit/57916df2db1216f6e16f5159590aa67a2ef651ef))
 - record the soak's clean third day and Windows servicing during it (M26) ([`b9179a1`](https://github.com/lnorton89/strobe/commit/b9179a1dbcbd8f52c6ec59767230dbbc473cb098))
