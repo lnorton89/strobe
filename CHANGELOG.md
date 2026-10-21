@@ -42,6 +42,9 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- keep a relative trust-file path as the whole path it named ([`89780dc`](https://github.com/lnorton89/strobe/commit/89780dca6431a5df508b6b80313f4ea9255df986))
+- move a remote whose system-chosen address went away to the new one ([`0a70ffe`](https://github.com/lnorton89/strobe/commit/0a70ffe1dedcad23ffadf3d203a88290ded12c59))
+- withdraw a remote command answered busy instead of running it later ([`1df81af`](https://github.com/lnorton89/strobe/commit/1df81af6f2033262047d73702ba334677418c4cb))
 - a refused command line exits 2, not the 1 of a fault (D454) ([`32a28be`](https://github.com/lnorton89/strobe/commit/32a28bea68ac6c9b07618601cef419a56de5881d))
 - a render-scale change keeps the warming and outgoing scenes' pictures (D440) ([`c206984`](https://github.com/lnorton89/strobe/commit/c206984b1b120f891a1a9720d5a0848f839590c8))
 - a playlist that does not load at launch leaves a scene playing (D452) ([`5f858e2`](https://github.com/lnorton89/strobe/commit/5f858e20abe6e8a8354d41563c35b95f2335da0b))
@@ -206,6 +209,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Performance
 
+- show the paired list without waiting for a save to reach the disk ([`95f11da`](https://github.com/lnorton89/strobe/commit/95f11dabaab52ba998c0312d84a9db6a296bfcc1))
 - a warm-up the show no longer needs is parked at once (D434) ([`11a9105`](https://github.com/lnorton89/strobe/commit/11a910505c978fdb6f97b4c3451c637fca14558e))
 - the LAN address shown to the operator is cached and refreshed every 10 seconds (D341) ([`7447859`](https://github.com/lnorton89/strobe/commit/744785983788543f979ac31897a910e07bff9325))
 - a script frame allocates nothing of its own, and uniforms are bound once at the seal (D340) ([`4f263af`](https://github.com/lnorton89/strobe/commit/4f263af168d25b912960ace27e29ed15cf6d30a4))
@@ -224,6 +228,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Documentation
 
+- record the remote and venue-mode bug sweep in the roadmap and audit ([`ef06297`](https://github.com/lnorton89/strobe/commit/ef06297b1e5e870e40fe529adedd8a2e2186cde9))
 - fix the exe path in the M26 close-out ([`cdd2ee0`](https://github.com/lnorton89/strobe/commit/cdd2ee02fe48d1e0796835a59600abd3d7dc0264))
 - fix two Windows paths in the M26 close-out ([`de6ab62`](https://github.com/lnorton89/strobe/commit/de6ab62c8a9b5bf9670111d3bcdad0f582834298))
 - record the end of the M26 soak and the mini PC's show set-up on 68c7749 ([`572f638`](https://github.com/lnorton89/strobe/commit/572f63845d7276b759f6aff495690768c7b09851))
