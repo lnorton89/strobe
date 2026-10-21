@@ -10903,3 +10903,51 @@ and `a_command_the_app_took_is_answered_truly_even_past_the_timeout`.
 
 **Would reopen:** a command that should queue through a stall by design
 (none of the remote's do: each is a press the operator watches the result of).
+
+### D461: a remote on the address the system chose follows it when it moves (2026-10-21)
+
+**Context.** With the address field empty (the venue command line has no
+`--remote-bind`), `Lan` binds the address `net::lan_address` reports at
+start and keeps it. A venue mini PC powered on with its router boots first;
+DHCP has no answer yet, Windows gives the adapter a self-assigned
+`169.254.x.x`, and the remote binds it successfully, so the launch retry
+(D288) never fires. When the router answers, Windows replaces the address;
+the listener stays bound to one that no longer exists, and neither the
+laptop (`--control 192.168.1.50`) nor a phone can reach it until Strobe is
+restarted. A lease that changes mid-show does the same. D341's refresh only
+re-reads the bound address for a listener on a specific IP, so Settings went
+on showing the dead one.
+
+**Decision.** A listener whose address the system chose checks every 10 s
+(`ADDRESS_CHECK`, in `Lan::maintain`, on the frame thread: one socket bind)
+whether that address is still this computer's (`net::is_local_address`: a
+UDP socket can be bound to it; only "address not available" counts as gone).
+If it is gone and `lan_address` names another, the listener moves there on
+the same port: the bridge is dropped (in-flight commands answered
+`Unavailable`), full desktop grants end as on a stop (D275), the old server
+is stopped on a short-lived thread (stopping waits up to a tick for its
+accept thread), and the new one starts with the full-desktop switch and the
+trust file as the launch left them. Connections drop; a venue laptop proves
+its way back in. Gone with nothing new (network down) is not a move. A
+still-present address is never left, even if the route now prefers another
+interface, so a machine on two networks is not moved off the one its laptop
+uses by an internet link coming and going. An address the operator typed
+(`--remote-bind`, the field) is never changed.
+
+**Not chosen.** *Refusing link-local addresses*: a laptop cabled straight to
+the show machine, with no router, has only those. *A network-change
+notification*: none in std on all three platforms (D341's reasoning).
+
+**Test.** `lan::tests::a_listener_whose_chosen_address_went_away_moves_to_the_new_one`
+(two loopback addresses stand in: the check's period, staying while the
+address is present or nothing replaces it, the move, the new URL, the switch
+and trust kept, a typed address untouched; with the move disabled it fails
+"gone and replaced: it follows"), and
+`net::tests::an_address_this_machine_does_not_have_is_told_apart`.
+
+**Not verified:** a real APIPA-to-DHCP change on Windows, which is where the
+"address not available" answer for a dropped address is assumed.
+
+**Would reopen:** a Windows listener on an address that disappears and comes
+back being dead (then an operator-typed address needs a rebind too), or a
+show network whose machines should prefer a link-local address.
