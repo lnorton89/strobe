@@ -212,6 +212,8 @@ threads only ever hand values *to* it.
    Blackout (D135) clears instead, after the post stage (D181)
 6. GpuTimer::end, then poll: results of earlier frames that are ready (never
    waited for) go to AdaptiveScale; a new scale triggers a resize next frame
+   (the live scene restarts its feedback, D64; a playlist's outgoing and
+   warming scenes keep theirs with resize_keeping, D440)
 7. reset-status health check, at most once a second, on a robust context only
 8. swap (shown only; vsync paces the loop); a failure asks the driver for the
    reset status and tells the recovery policy, a success tells it the window
