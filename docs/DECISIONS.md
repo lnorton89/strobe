@@ -10590,6 +10590,50 @@ save is a click.
 **Would reopen:** a disk on which the sync is slow enough to delay the
 resume write by more than its 5 s period.
 
+### D439: Blacklight Carpet draws confetti analytically on jittered grids, streamers as true helices (2026-10-19)
+
+**What.** `17-blacklight-carpet`, an original scene after the owner's photo
+of a 1990s arcade confetti carpet (not committed): fluorescent squares,
+rings, linked rings, triangles, slivers, diamonds, sprinkles and coiled
+streamers on black pile, lit as if by a UV tube. Two passes, the one-texel
+clock of 13-16 and the final pass. Thirteen controls.
+
+- **Five layers with parallax.** Pile, sprinkles, small confetti, streamers,
+  large confetti, each on its own jittered grid. A pixel checks the four
+  cells around it (one for the sprinkles, which fit inside their cell), so
+  a piece can sit anywhere in its cell, wobble on a small loop, spin, and
+  glow across the border. Every edge is a `smoothstep` over the pixel
+  footprint; the pile texture is never finer than about three pixels.
+- **Streamers are projected helices, not sine waves.** A sine with varying
+  width read as a zigzag, and its slope-corrected distance went wrong away
+  from the curve, which streaked the glow. A curled ribbon is a helix seen
+  slightly from the side: each half turn is one stroke, monotonic in y, so
+  `acos(y / R)` seeds the closest point exactly and two damped Newton steps
+  finish it. Three turns, back strokes first, front over them. The strip's
+  width follows the tangent (thin at the turnarounds) and the coil rolls
+  about its axis, so the loops travel along it. An earlier nearest-sample
+  search swapped between neighbouring turns and left jagged gaps; an
+  undamped Newton step jumped off the stroke.
+- **Restart-safe drift.** The clock integrates only the straight part of
+  the drift (so `drift`, `speed` and the mids can change without a jump);
+  the turning is a closed-form meander of flow time added in the final
+  pass. Integrating a turning direction instead made a cleared clock (a
+  resize) restart somewhere else.
+- **Seven fixed inks** (pink, orange, yellow, green, cyan, blue, violet);
+  `hue` rotates them with a crossfade between neighbours. A soft shoulder
+  above 0.82 keeps overlapping glow saturated.
+
+**Cost.** On TORNADO (GTX 1080 Ti) at 1920x1080, two runs each: 0.82 ms
+against 0.37 ms for `05-domain-warp` natively (2.2x), 0.79 against 0.31
+on ANGLE (2.5x), a little over the ~2x that 14-16 kept. The cost is spread
+evenly over the layers (0.1-0.17 ms each); what got it from 3.6x was the
+fibre texture applied once per layer and only where a piece covers the
+pixel, sprinkles in one cell instead of four, a bound test before each
+piece's wobble, and one pile octave instead of two.
+
+**Would reopen:** an HD 4000 or Vega 3 run where it cannot hold 60 fps at
+720p even with the adaptive render scale; dropping the second confetti
+layer is the first lever.
 ### D450: a fullscreen launch puts no crash or stop box over its show (2026-10-21)
 
 **Context.** The venue launcher starts `strobe.exe ... --output-monitor 1
