@@ -13,7 +13,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
-- log when the fullscreen output over the control window loses the focus (D453) ([`a75c76a`](https://github.com/lnorton89/strobe/commit/a75c76a8bb798636862b58ba6348a6db16fc9267))
+- **scenes:** Blacklight Carpet, UV-lit arcade confetti carpet with coiled helix streamers (D439) ([`d3eb5e9`](https://github.com/lnorton89/strobe/commit/d3eb5e93fab5d1bd40ff3917f971e0ed8b351f8e))
 - adaptive resolution steps down on missed refreshes, not only the mean GPU time (D314) ([`32e3cc8`](https://github.com/lnorton89/strobe/commit/32e3cc8e5e9dc4cfdf24797dce2a297e094041f6))
 - **audio:** on Linux fall back to a pulse or pipewire input when the default will not open ([`084c6db`](https://github.com/lnorton89/strobe/commit/084c6db0236026f7ad9dd3b45c7f1bd51b6c7345))
 - control a venue's show machine with a trust file, reconnecting by itself ([`4da7d2b`](https://github.com/lnorton89/strobe/commit/4da7d2b80445aa3f3116a19ff9dbbd2be132f435))
@@ -41,10 +41,6 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
-- a refused command line exits 2, not the 1 of a fault (D454) ([`32a28be`](https://github.com/lnorton89/strobe/commit/32a28bea68ac6c9b07618601cef419a56de5881d))
-- a playlist that does not load at launch leaves a scene playing (D452) ([`5f858e2`](https://github.com/lnorton89/strobe/commit/5f858e20abe6e8a8354d41563c35b95f2335da0b))
-- an --output-monitor that is not connected at launch is waited for (D451) ([`de65374`](https://github.com/lnorton89/strobe/commit/de653748c223440460890a73248e3fe696bf2a00))
-- a fullscreen launch puts no crash or stop box over its show (D450) ([`91a3072`](https://github.com/lnorton89/strobe/commit/91a3072d3063bdfec4fda2eedbc98a369fe037d9))
 - an atomic write syncs its temporary file before the rename (D438) ([`f65ea18`](https://github.com/lnorton89/strobe/commit/f65ea18f11a7535dba371a5e338c1054fdc6cdf0))
 - an anchored show waiting for its time follows the wall clock (D437) ([`e7caa66`](https://github.com/lnorton89/strobe/commit/e7caa6698538e54c89c32383b99cf4013d003f37))
 - Hold is refused until a cue is playing (D436) ([`78bdc8d`](https://github.com/lnorton89/strobe/commit/78bdc8debd5b7cb1ba9177c1630ef2916d6c9405))
@@ -217,12 +213,10 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
-- rustfmt the start-up sweep's app changes (D451-D453) ([`e604eed`](https://github.com/lnorton89/strobe/commit/e604eed4fd8237736a91ed0e7b34b4802ce3c6a9))
 - say why the session log cap's closing writes are discarded (D267) ([`5e03e9a`](https://github.com/lnorton89/strobe/commit/5e03e9a2c5a1a20964935eeb0f65f2e88d8b0adc))
 
 ### Documentation
 
-- record the start-up and shutdown sweep (D450-D454) in the roadmap and audit ([`ffc95e5`](https://github.com/lnorton89/strobe/commit/ffc95e57f5405432b613040da518e6af0fd3c009))
 - record the soak's clean third day and Windows servicing during it (M26) ([`b9179a1`](https://github.com/lnorton89/strobe/commit/b9179a1dbcbd8f52c6ec59767230dbbc473cb098))
 - the soak is back to day-1 numbers once nothing covers the output (M26) ([`95666f7`](https://github.com/lnorton89/strobe/commit/95666f77f6e300bad014cb94477d30b67f496646))
 - windows over the fullscreen output cost the soak 5-11% of refreshes (M26 day 2) ([`8add971`](https://github.com/lnorton89/strobe/commit/8add971bce03955d8041b04282b6a968d578fbd1))
