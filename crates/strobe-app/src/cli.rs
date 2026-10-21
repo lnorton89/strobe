@@ -343,6 +343,17 @@ impl Cli {
     pub fn library_is_optional(&self) -> bool {
         self.control.is_some() && self.library == Path::new("scenes")
     }
+
+    /// Whether a box about a crash, or about Strobe stopping after its
+    /// windows opened, would sit on the show instead of telling anyone
+    /// (D450). `--fullscreen` is the venue autostart: a box waiting for a
+    /// click there holds the process, so the launcher cannot restart it,
+    /// and one raised after it died is drawn over the restarted show. Such
+    /// failures are logged and written to `crashes\` as always; a failure
+    /// to start (no windows yet, nothing to cover) still gets its box.
+    pub fn no_boxes_over_the_show(&self) -> bool {
+        self.fullscreen
+    }
 }
 
 #[cfg(test)]
@@ -709,6 +720,35 @@ mod tests {
             Cli::try_parse_from(["strobe", "--no-synesthesia"])?.no_synesthesia,
             "off for this run"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn a_fullscreen_launch_raises_no_crash_or_stop_box_over_the_show() -> Result<()> {
+        let venue = Cli::try_parse_from([
+            "strobe",
+            "--playlist",
+            "show.toml",
+            "--output-monitor",
+            "1",
+            "--fullscreen",
+            "--audio",
+            "synthetic",
+        ])?;
+        assert!(
+            venue.no_boxes_over_the_show(),
+            "the venue launch: a box would hold the process or cover the restarted show"
+        );
+        for attended in [
+            ["strobe"].as_slice(),
+            &["strobe", "--show-output"],
+            &["strobe", "--output-monitor", "2"],
+        ] {
+            assert!(
+                !Cli::try_parse_from(attended)?.no_boxes_over_the_show(),
+                "{attended:?}: someone is at the control window, so the box is how they hear"
+            );
+        }
         Ok(())
     }
 

@@ -77,6 +77,7 @@ fn main() -> ExitCode {
                 &error.to_string(),
                 false,
                 session.log_file.as_deref(),
+                true,
             );
             strobe_diag::logger::flush(FLUSH_TIMEOUT);
             return ExitCode::FAILURE;
@@ -88,6 +89,15 @@ fn main() -> ExitCode {
     // be logged and end the process, not wait on a box.
     if cli.screenshot.is_some() || cli.generate_controls.is_some() {
         dialog::set_unattended();
+    }
+    // A venue autostart (D450): a crash notice is logged and written, never
+    // put in a box over the show, here or in the crash monitor (which learns
+    // it when it is started, below). A stop after the windows opened is
+    // likewise only logged, so the process exits and the launcher restarts
+    // it. A failure to start still gets its box: there is no show to cover.
+    let quiet_stop = cli.no_boxes_over_the_show();
+    if quiet_stop {
+        strobe_diag::notify::set_unattended();
     }
     // 4.
     if cli.diagnose {
@@ -127,6 +137,7 @@ fn main() -> ExitCode {
                 &format!("{error:#}"),
                 after_start,
                 session.log_file.as_deref(),
+                !(after_start && quiet_stop),
             );
             ExitCode::FAILURE
         }
@@ -197,11 +208,13 @@ fn run(cli: cli::Cli) -> Result<(), Stopped> {
 /// Records a failure and shows it where the person will see it. A failure
 /// after the windows opened (a context that could not be recovered, say)
 /// is the app stopping, not a failed start, and the record says which.
+/// Without `boxed` it is only recorded (a venue launch's stop, D450).
 fn report_failure(
     subsystem: Subsystem,
     message: &str,
     after_start: bool,
     log_file: Option<&std::path::Path>,
+    boxed: bool,
 ) {
     let (phase, action) = if after_start {
         ("run", "Strobe stopped")
@@ -213,6 +226,10 @@ fn report_failure(
             .message(message)
             .action(action),
     );
+    if !boxed {
+        log::error!("{action} (no box: a fullscreen launch, so the launcher can restart it, D450)");
+        return;
+    }
     let mut text = message.to_string();
     if let Some(path) = log_file {
         text.push_str(&format!("\n\nLog: {}", path.display()));
