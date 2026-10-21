@@ -530,6 +530,11 @@ Everything Strobe writes lives in `%LOCALAPPDATA%\strobe`:
   are in `crashes\`. Send the `.txt`, the `.dmp` and the session log with
   a bug report; the maintainer turns the dump into function names with the
   matching symbols zip.
+  With `--fullscreen` (a venue autostart) there is no dialog: it would
+  sit over the show, and one waiting for a click would keep Strobe from
+  exiting, so a restart script could not start it again. The log, the
+  report and the minidump are written as always. A failure to *start*
+  (a mistyped flag, no OpenGL) still shows its dialog.
 - **Black output on a laptop with two GPUs:** in Windows *Graphics
   settings*, set `strobe.exe` to *High performance*.
 - **Choppy output with the control window beside it (NVIDIA):** Strobe

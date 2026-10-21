@@ -164,8 +164,11 @@ A panic writes `crash-*.txt` with a backtrace. A native crash writes
 `crash-*.txt` and `crash-*.dmp`; the **monitor** process shows the message
 box, so it works even when the app cannot open a window. The box goes up
 after the crashed app has been let go, so the app exits at once and does not
-wait for the click. An unattended run (`--screenshot`) raises no box from
-either process; the files are written as usual. A crash in the
+wait for the click. A panic's box is raised by the panicking process
+itself, which waits for the click before it aborts. An unattended run
+(`--screenshot`) raises no box from either process; the files are written
+as usual. Neither does a `--fullscreen` launch (D450), and a stop after its
+windows opened is only logged, so a restart script sees the exit at once. A crash in the
 first moments, before the monitor link is up, is not captured. A bare
 `abort()` on Windows is a fast-fail that bypasses exception filters and
 leaves no minidump (the `.txt` of a panic that led to it still exists).

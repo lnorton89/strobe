@@ -10589,3 +10589,52 @@ save is a click.
 
 **Would reopen:** a disk on which the sync is slow enough to delay the
 resume write by more than its 5 s period.
+
+### D450: a fullscreen launch puts no crash or stop box over its show (2026-10-21)
+
+**Context.** The venue launcher starts `strobe.exe ... --output-monitor 1
+--fullscreen` and restarts it 3 s after any exit. Every message a person
+must see went through `dialog::show_error`, a PowerShell message box that
+the caller waits on. Three paths reached it after the show had started:
+
+- **A panic.** The panic hook runs the notifier on the panicking thread
+  before `panic = "abort"` ends the process. The notifier waited on the
+  box, so the process stayed alive, with the output frozen on the
+  projector, until someone clicked OK. The launcher saw no exit and did
+  not restart it.
+- **A stop after the windows opened** (a context loss the recovery policy
+  gave up on): `main` raised the "Strobe stopped" box and waited on it the
+  same way.
+- **A native crash.** The crash monitor raises its box after the app has
+  died, so the launcher does restart, but the box stays on the projector
+  over the restarted show. Each crash adds another. Anything over the
+  output costs refreshes (5-11% in the M26 soak), and the audience sees it.
+
+`crash.rs` already says a box must never keep a frozen app on the projector
+or stop a launcher from seeing it exit. These paths broke that rule.
+
+**Decision.** `Cli::no_boxes_over_the_show` is `--fullscreen`, which the
+CLI documents as the venue autostart. With it:
+
+- `main` calls `strobe_diag::notify::set_unattended()` before the crash
+  monitor starts, so neither the panic hook nor the monitor raises a box.
+  The crash report, the minidump and the log are written as always.
+- A stop after the windows opened is reported (`failure::report`, ERROR in
+  the log) without a box, and the process exits 1, so the launcher
+  restarts it.
+
+A failure *to start* (bad flag, no OpenGL) still raises its box and waits.
+No show is there to cover, and a launcher that restarted it every 3 s
+would only stack boxes for a fault that needs a person anyway. Runs
+without `--fullscreen` are unchanged: someone is at the control window,
+and the box is how they find out.
+
+**Test.** `cli::tests::a_fullscreen_launch_raises_no_crash_or_stop_box_over_the_show`
+(the venue command line is quiet; plain, `--show-output` and
+`--output-monitor 2` alone are not). The monitor already passes
+`--strobe-unattended` on (`strobe_diag::crash` tests). A real panic on the
+mini PC under the launcher is the acceptance test (STATUS_AUDIT).
+
+**Would reopen:** a venue that wants to see crashes on the projector, or a
+fullscreen run that is attended (then `--fullscreen` is the wrong signal
+and the launcher should say `--unattended`).
