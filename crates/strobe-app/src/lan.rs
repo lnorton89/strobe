@@ -28,6 +28,13 @@
 //! which address it would use, so it is not done on every control-window
 //! frame; a changed lease still shows up within the period.
 //!
+//! A listener on the address the system chose (the address field empty)
+//! checks every [`ADDRESS_CHECK`] that the address is still this computer's,
+//! and moves to the new one when it is not (D461): the self-assigned
+//! `169.254.x.x` a venue PC takes when it boots before the router, which
+//! Windows drops once DHCP answers, or a lease that changed. A listener on
+//! an address the operator typed stays there.
+//!
 //! The paired-client list (a small JSON file) is read from the data
 //! directory once, the first time the control window or a start asks for it,
 //! and revoking works with the listener off.
@@ -55,6 +62,11 @@ pub const PUBLISH_PERIOD: Duration = Duration::from_millis(100);
 /// is asked again. A DHCP change takes at most this long to show; asking
 /// every control frame cost a socket about thirty times a second (D341).
 const URL_REFRESH: Duration = Duration::from_secs(10);
+
+/// How often a listener on the address the system chose checks that it is
+/// still this computer's (D461). One socket bind each time, on the frame
+/// thread; a moved address is followed within this long.
+const ADDRESS_CHECK: Duration = Duration::from_secs(10);
 
 /// Commands the bridge holds before the listener answers `Busy`.
 const QUEUE: usize = 16;
@@ -219,6 +231,11 @@ pub struct Lan {
     failed: bool,
     /// The address shown while the listener runs (D341).
     url: UrlCache,
+    /// The running listener's address is the one the system chose (the
+    /// field was empty), so it follows the address when it moves (D461).
+    follows_lan: bool,
+    /// When that address was last checked.
+    address_checked: Option<Instant>,
     published: Option<Instant>,
     snapshot: Snapshot,
 }
@@ -242,6 +259,8 @@ impl Lan {
             note: "Off".to_string(),
             failed: false,
             url: UrlCache::default(),
+            follows_lan: false,
+            address_checked: None,
             published: None,
             snapshot: Snapshot::default(),
         }
@@ -277,8 +296,10 @@ impl Lan {
         }
     }
 
-    /// Once a frame: retries a launch-time start that failed.
+    /// Once a frame: retries a launch-time start that failed, and moves a
+    /// listener whose system-chosen address went away (D461).
     pub fn maintain(&mut self, now: Instant) {
+        self.follow_address(now, net::is_local_address, net::lan_address);
         let Some(at) = self.retry_at else {
             return;
         };
@@ -287,6 +308,70 @@ impl Lan {
         } else if now >= at {
             self.start_inner(false);
             self.retry_at = (!self.running()).then_some(now + LAUNCH_RETRY);
+        }
+    }
+
+    /// At most every [`ADDRESS_CHECK`]: if the listener is on the address
+    /// the system chose and `assigned` says that address is no longer this
+    /// computer's, listens on the one `current` now gives, on the same port.
+    /// Before D461 the listener stayed on the dead address until Strobe was
+    /// restarted: a venue PC that booted before its router listened on
+    /// `169.254.x.x` all night and no laptop or phone could reach it.
+    ///
+    /// Moving drops every connection (a laptop in venue mode proves its way
+    /// back in) and ends full desktop grants, as stopping does (D275), but
+    /// keeps the full-desktop switch and the trust file: the host's
+    /// launch-time choices stand. No address now (the network is down) is
+    /// not a move; the listener stays and the next check looks again.
+    fn follow_address(
+        &mut self,
+        now: Instant,
+        assigned: impl FnOnce(IpAddr) -> bool,
+        current: impl FnOnce() -> Option<IpAddr>,
+    ) {
+        if !self.follows_lan {
+            return;
+        }
+        let Some(server) = &self.server else {
+            return;
+        };
+        if self
+            .address_checked
+            .is_some_and(|at| now.saturating_duration_since(at) < ADDRESS_CHECK)
+        {
+            return;
+        }
+        self.address_checked = Some(now);
+        let bound = server.addr();
+        if assigned(bound.ip()) {
+            return;
+        }
+        let Some(ip) = current().filter(|ip| *ip != bound.ip()) else {
+            return;
+        };
+        log::warn!(
+            "remote: {} is no longer this computer's address (DHCP gave it a new one, or the \
+             network came up after the remote started); listening on {ip} instead",
+            bound.ip()
+        );
+        // Whatever was in flight is answered Unavailable; the old listener
+        // is stopped off the frame thread, since stopping waits up to a tick
+        // for its accept thread, and the new one is on another address.
+        self.app_end = None;
+        if let Some(clients) = &self.clients {
+            clients.revoke_desktop();
+        }
+        if let Some(old) = self.server.take() {
+            // If no thread can be made, the closure is dropped with the
+            // server in it, and dropping stops it here instead.
+            let _ = std::thread::Builder::new()
+                .name("strobe-remote-stop".to_string())
+                .spawn(move || old.stop());
+        }
+        self.url.clear();
+        self.start_at(Ok((ip, bound.port())), true);
+        if !self.running() {
+            self.retry_at = Some(now + LAUNCH_RETRY);
         }
     }
 
@@ -357,6 +442,15 @@ impl Lan {
             return;
         }
         let target = self.target();
+        self.start_at(target, report);
+    }
+
+    /// Starts the listener on `target`, the address and port the fields
+    /// gave (or, moving, the system's new address, D461).
+    fn start_at(&mut self, target: Result<(IpAddr, u16), String>, report: bool) {
+        if self.server.is_some() {
+            return;
+        }
         let clients = self.clients();
         let started = target.and_then(|(ip, port)| {
             let (remote, app_end) = bridge::bridge(QUEUE);
@@ -381,6 +475,8 @@ impl Lan {
                 };
                 self.url.set(Instant::now(), url);
                 self.failed = false;
+                self.follows_lan = self.address.trim().is_empty() && self.proxied.is_none();
+                self.address_checked = Some(Instant::now());
                 if std::mem::take(&mut self.desktop_at_start) {
                     self.desktop_enabled = true;
                     log::info!("remote: full desktop access is on (--allow-desktop-control)");
@@ -422,6 +518,7 @@ impl Lan {
         // The bridge first, so a command in flight is answered Unavailable.
         self.app_end = None;
         self.url.clear();
+        self.follows_lan = false;
         if let Some(server) = self.server.take() {
             server.stop();
         }
@@ -949,6 +1046,82 @@ mod tests {
         lan.stop();
         let mut plain = Lan::new(std::env::temp_dir(), None, 0, false);
         assert!(!plain.view().venue, "no trust file, no venue");
+        Ok(())
+    }
+
+    #[test]
+    fn a_listener_whose_chosen_address_went_away_moves_to_the_new_one() -> Result<()> {
+        // A venue PC that boots before its router takes a self-assigned
+        // 169.254.x.x, the remote binds it, and Windows drops it when DHCP
+        // answers. The stand-ins here are two loopback addresses.
+        let old: IpAddr = "127.0.0.2".parse()?;
+        let new: IpAddr = "127.0.0.1".parse()?;
+        let mut lan = Lan::new(std::env::temp_dir(), None, 0, false)
+            .venue(Some(TrustSecret::generate()?), true);
+        lan.port = "47818".into();
+        // The address field is empty: the system chose `old`.
+        lan.start_at(Ok((old, 47818)), true);
+        if !lan.running() {
+            // 127.0.0.2 is not usable here, or the port is taken.
+            return Ok(());
+        }
+        let bound = |lan: &Lan| lan.server.as_ref().map(|server| server.addr().ip());
+        let t0 = Instant::now();
+        let asked = std::cell::Cell::new(0_u32);
+        let ask = |ip: Option<IpAddr>| {
+            asked.set(asked.get() + 1);
+            ip
+        };
+        lan.follow_address(t0, |_| false, || ask(Some(new)));
+        assert_eq!(asked.get(), 0, "checked when it started; not again so soon");
+        let t1 = t0 + ADDRESS_CHECK;
+        lan.follow_address(t1, |_| true, || ask(Some(new)));
+        assert_eq!(
+            bound(&lan),
+            Some(old),
+            "still this computer's address: it stays, whatever the route says"
+        );
+        let t2 = t1 + ADDRESS_CHECK;
+        lan.follow_address(t2, |_| false, || ask(None));
+        assert_eq!(
+            bound(&lan),
+            Some(old),
+            "gone, but nothing new yet: it waits"
+        );
+        let t3 = t2 + ADDRESS_CHECK;
+        lan.follow_address(t3, |ip| ip != old, || ask(Some(new)));
+        assert_eq!(bound(&lan), Some(new), "gone and replaced: it follows");
+        let view = lan.view_at(t3);
+        assert_eq!(
+            view.url.as_deref(),
+            Some("http://127.0.0.1:47818/"),
+            "Settings shows the new address: {view:?}"
+        );
+        assert!(
+            lan.desktop_enabled && lan.desktop().is_some_and(|desktop| desktop.enabled()),
+            "the launch-time full-desktop switch is kept"
+        );
+        assert!(
+            lan.server
+                .as_ref()
+                .is_some_and(strobe_remote::server::Server::trust_configured),
+            "and so is the trust file"
+        );
+        lan.stop();
+
+        let mut typed = Lan::new(std::env::temp_dir(), None, 0, false);
+        typed.address = "127.0.0.2".into();
+        typed.port = "47819".into();
+        typed.start();
+        if typed.running() {
+            typed.follow_address(t3 + ADDRESS_CHECK, |_| false, || Some(new));
+            assert_eq!(
+                bound(&typed),
+                Some(old),
+                "an address the operator typed is never changed"
+            );
+            typed.stop();
+        }
         Ok(())
     }
 

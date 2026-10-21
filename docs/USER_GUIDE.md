@@ -387,7 +387,14 @@ named `strobe.exe`). A rule is per program path, so a new build in a new
 folder needs it again.
 
 `--remote` starts the listener (it retries every few seconds if the network
-is not up yet at boot); `--allow-desktop-control` switches **Allow full
+is not up yet at boot). With no `--remote-bind`, it listens on the address
+Windows gives the machine, and if that address changes while Strobe runs
+(the machine booted before the router and took a temporary `169.254.x.x`
+address, or the router handed out a new one) the remote moves to the new
+address within about 10 seconds; the log says so, and connected devices
+reconnect. Ask the router for a fixed address (a DHCP reservation) for the
+show machine, so the laptop's `--control` address stays right. An address
+given with `--remote-bind` is never changed. `--allow-desktop-control` switches **Allow full
 desktop control** on for this run; `--remote-trust` names the file, which is
 read once at launch. If the file cannot be used, Strobe says so in its log and
 carries on without trusted pairing, so the show still starts. Nothing here is
