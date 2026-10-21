@@ -978,6 +978,28 @@ Microsoft Store app updates are not stopped by the Windows Update pause. The
 pause set on show night ends on 2026-10-22, before the next show. The
 owner's options are in the JaJa runbook.
 
+### End of the soak, and the show set-up for the next show (2026-10-21, Task M26)
+
+**Soak totals on 3c1bde1:** 92.3 h, no crash restart, and no WARN or ERROR
+besides the startup robustness line. Memory stayed flat. The owner ended it
+by hand at 23:14 on 2026-10-20: they loaded scenes from the control window,
+Strobe exited with code 0, and the PC was restarted.
+
+**Windows, set by the owner's approval:**
+- Windows Update paused to 2026-11-11.
+- Microsoft Store automatic app updates off (policy AutoDownload = 2).
+- The scheduled System Restore task disabled. System Protection is still on,
+  and the two existing restore points are kept.
+- The firewall dialog was answered at the screen.
+
+**The show machine now runs master 68c7749.** The exe is at
+`strobe-test\strobe-master	argetelease`, and the 3c1bde1, 51f2620 and
+6ca5248 builds sit beside it for rollback. The launcher passes
+`--audio ambient`. The show library has the D310 versions of 04, 05, 08, 13,
+14 and 16, plus 17-blacklight-carpet; the old folders are kept in
+`strobe-testackup`. The show folder is a hand-made copy, not a git
+checkout, and the machine has no GitHub login for the private assets repo.
+
 ## Still to do here
 
 - Run a two-machine venue-mode test with the laptop (loopback is M6), and
