@@ -58,6 +58,18 @@ pub fn clean_path(path: &str) -> &str {
     path.trim().trim_matches('"').trim()
 }
 
+/// A typed path as [`clean_path`] leaves it, made whole against the folder
+/// Strobe was started in, so the form shows, and remembers, the file it
+/// will really read rather than a relative name a later launch from
+/// another folder would look for elsewhere (D463). Empty stays empty.
+pub fn whole_path(path: &str) -> String {
+    let path = clean_path(path);
+    if path.is_empty() {
+        return String::new();
+    }
+    std::path::absolute(path).map_or_else(|_| path.to_string(), |whole| whole.display().to_string())
+}
+
 /// Reads the trust file at `path` for a connection as `controller_id`. The
 /// error is a sentence for the form; it names the path, never the contents.
 pub fn load_plan(path: &str, controller_id: &str) -> Result<Plan, String> {

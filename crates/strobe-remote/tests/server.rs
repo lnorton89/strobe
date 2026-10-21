@@ -1308,6 +1308,67 @@ fn a_full_command_queue_is_busy_not_a_backlog() -> Result<()> {
 }
 
 #[test]
+fn a_command_the_phone_was_told_is_busy_is_not_run_when_the_app_catches_up() -> Result<()> {
+    // The venue PC's frame is held up longer than the command timeout (a
+    // scene compiling). The phone is told "busy, try again" and the operator
+    // presses Next again. Before D460 the first Next stayed queued and ran
+    // as well once the frame came round: two scenes skipped, or a Hold
+    // pressed twice undone.
+    capture_logs();
+    let (remote, app_end) = bridge::bridge(4);
+    let clients = Clients::in_memory();
+    let (_, token) = clients.pair("test")?;
+    let server = Server::start(
+        ServerConfig {
+            bind: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+            limits: Limits {
+                command_timeout: Duration::from_millis(50),
+                ..limits()
+            },
+            proxied: None,
+            trust: None,
+        },
+        remote,
+        clients,
+    )
+    .map_err(|e| anyhow!("{e}"))?;
+    let host = server.addr().to_string();
+    let mut ws = open_as(server.addr(), &host, Some(&format!("http://{host}")))?;
+    ws.hello()?;
+    ws.send(&json!({"type": "authenticate", "token": token.expose()}))?;
+    ws.until("state")?;
+    // The app is stalled: nothing drains while the phone waits.
+    ws.send(&json!({"type": "command", "request_id": "r1", "command": "next_scene"}))?;
+    let first = ws.until("command_result")?;
+    assert_eq!(first["accepted"], false, "told it was not done: {first}");
+    // The operator tries again, and this time the app's frame comes round
+    // while the phone waits.
+    let app = std::thread::spawn(move || {
+        let mut ran = Vec::new();
+        let until = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < until {
+            while let Some(incoming) = app_end.next() {
+                ran.push(incoming.request_id.clone());
+                incoming.answer(Answer::Accepted);
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        ran
+    });
+    std::thread::sleep(Duration::from_millis(20));
+    ws.send(&json!({"type": "command", "request_id": "r2", "command": "next_scene"}))?;
+    let second = ws.until("command_result")?;
+    assert_eq!(second["accepted"], true, "the retry ran: {second}");
+    let ran = app.join().map_err(|_| anyhow!("the app thread panicked"))?;
+    assert_eq!(
+        ran,
+        vec!["r2".to_string()],
+        "only the command the phone was told ran; the busy one was withdrawn"
+    );
+    Ok(())
+}
+
+#[test]
 fn a_client_that_stops_reading_is_dropped_not_buffered() -> Result<()> {
     let (remote, app_end) = bridge::bridge(2);
     let clients = Clients::in_memory();

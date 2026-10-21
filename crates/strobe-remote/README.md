@@ -67,7 +67,7 @@ id made by [`trust::new_controller_id`](src/trust.rs), and reconnects with a
 | `negotiate`, `decode_client`, `ServerMessage::error` | Version 1 to `PROTOCOL_VERSION`, a bounded and validated decode (`MAX_MESSAGE_BYTES` 4096, `MAX_SECRET_LEN` 128), errors cut to `MAX_ERROR_LEN` (D236). |
 | `bridge::bridge(capacity)` | `(Remote, AppEnd)`: a bounded command queue with a reply per request, and a revisioned `Snapshot` (D232). |
 | `server::Server` | `start(ServerConfig, Remote, Clients)`, `stop`, `url`, `warning`, `open_pairing`, `pairing_code`, `pairing_requests`, `decide`, `connections`, `revoke`, `revoke_all`. `Limits` holds every bound (D250, D252). |
-| `server::net` | `scope` (loopback, private, link-local, every interface, public), `lan_address`, `host_matches`. |
+| `server::net` | `scope` (loopback, private, link-local, every interface, public), `lan_address`, `is_local_address` (D461), `host_matches`. |
 | `pairing::Pairing` | The six-digit code, its attempt limit and expiry, and requests waiting for Approve or Deny (D251). |
 | `clients::Clients` | Paired clients in `remote-clients.json`: token digests, rotation, revocation (D251). |
 | `trust::TrustSecret`, `Challenge`, `Limiter` | The venue trust file (make, load, parse), the single-use HMAC challenge, and the failed-proof limiter (D288). |
