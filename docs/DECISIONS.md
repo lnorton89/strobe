@@ -10760,3 +10760,29 @@ The acceptance test is the mini PC (STATUS_AUDIT).
 window" (then the launch should focus the output on a one-screen layout),
 or missed refreshes rising with no line (then the cause is not focus, and
 only a z-order or DWM query could tell).
+
+### D454: a refused command line exits 2, a failed or stopped run 1 (2026-10-21)
+
+**Context.** Every unsuccessful end of `strobe` exited 1: a command line
+clap refused, a failure to start (no OpenGL), and a stop after the windows
+opened (a context the recovery policy gave up on). The venue launcher
+restarts Strobe 3 s after any exit. A fault is worth a restart; a mistyped
+or renamed flag, or a bad value in the launcher, is refused the same way
+every time. On Windows its box waits for a click, and after the click
+the loop brings the same box back. A launcher had no way to tell the two
+apart and stop.
+
+**Decision.** `cli::REFUSED_EXIT` (2, clap's own usage status) for a
+command line that clap refuses. 1 stays for a failed start or a stop. 0
+for a normal quit, `--help` and `--version`. A crash ends with the
+system's crash status, as before. USER_GUIDE "When something goes wrong"
+lists the statuses with a `.cmd` example.
+
+**Test.** `tests/exit_codes.rs`,
+`a_refused_command_line_exits_2_not_the_1_of_a_fault`, runs the real
+executable with an unknown value, an out-of-range monitor and a lone
+`--remote-trust`, and with `--version`. It runs on Unix only: on Windows
+the refusal's box waits for a click.
+
+**Would reopen:** a launcher that needs to tell a failed start from a stop
+(1 for both now).

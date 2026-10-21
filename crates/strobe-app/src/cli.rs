@@ -18,6 +18,14 @@ use clap::{ArgGroup, Parser, ValueEnum};
 use std::path::{Path, PathBuf};
 use strobe_gfx::{Backend, GlChoice};
 
+/// The exit status of a run whose command line was refused (a flag that
+/// does not exist, a value out of range, two flags that conflict), D454.
+/// Clap's own usage status, and not the 1 of a run that failed or
+/// stopped: running the same command again cannot help, so a launcher
+/// that restarts Strobe can tell a configuration error from a fault and
+/// stop instead of looping.
+pub const REFUSED_EXIT: u8 = 2;
+
 /// Which GL stack to use.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum GlArg {

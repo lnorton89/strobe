@@ -541,6 +541,13 @@ Everything Strobe writes lives in `%LOCALAPPDATA%\strobe`:
   exiting, so a restart script could not start it again. The log, the
   report and the minidump are written as always. A failure to *start*
   (a mistyped flag, no OpenGL) still shows its dialog.
+- **Exit status, for a script that restarts Strobe:** 0 after a normal
+  quit (including a `WM_CLOSE` to the window titled "Strobe"); 2 when the
+  command line was refused (a mistyped flag, a value out of range), which
+  restarting will not fix, so stop the loop; 1 when Strobe failed to start
+  or stopped on a fault, which a restart may cure. A crash ends the process
+  with the system's crash status. For example, in a `.cmd` loop:
+  `if %ERRORLEVEL%==2 goto bad_command_line`.
 - **Black output on a laptop with two GPUs:** in Windows *Graphics
   settings*, set `strobe.exe` to *High performance*.
 - **Choppy output with the control window beside it (NVIDIA):** Strobe
