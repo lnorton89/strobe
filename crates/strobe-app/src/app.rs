@@ -656,6 +656,13 @@ struct Running {
     /// when it appears (D451).
     awaited_monitor: crate::output_monitor::Awaited,
     last_monitor_refresh: Instant,
+    /// The focus winit last reported for each window, for the foreground
+    /// watch (D453).
+    output_focused: bool,
+    control_focused: bool,
+    /// Whether the fullscreen output over the control window has the focus
+    /// (D453), checked with the monitor list.
+    foreground: crate::foreground::Watch,
 
     /// Whether the output window is shown. Tracked here because winit cannot
     /// report visibility on X11 or Wayland.
@@ -1015,6 +1022,9 @@ impl Running {
             output_monitor: crate::output_monitor::Chosen::default(),
             awaited_monitor: crate::output_monitor::Awaited::default(),
             last_monitor_refresh: now,
+            output_focused: false,
+            control_focused: false,
+            foreground: crate::foreground::Watch::default(),
             output_visible: cli.show_output,
             output_modifiers: ModifiersState::empty(),
             control_on_top: true,
@@ -1410,6 +1420,9 @@ impl Running {
             next_control: now,
             // The old control window's unanswered request died with it.
             control_drive: ControlDrive::default(),
+            // So did both windows' focus; the new ones report their own.
+            output_focused: false,
+            control_focused: false,
             // The preview and a load that was waiting belonged to the lost
             // context; the scene that was playing is reloaded below.
             preview_index: None,
@@ -1707,6 +1720,35 @@ impl Running {
         }
     }
 
+    /// Says in the log when the fullscreen output over the control window
+    /// has not had the focus for a while (D453): a window of another
+    /// program, or the control window, holds it, and Windows may then
+    /// compose the output instead of presenting it directly. Runs with the
+    /// monitor list's refresh, never per frame.
+    fn check_foreground(&mut self) {
+        use crate::foreground::{Change, Focus};
+        let covers = self.close_facts(false).output_fills_control_monitor;
+        let focus = Focus::of(self.output_focused, self.control_focused);
+        match self.foreground.check(covers, focus, Instant::now()) {
+            Some(Change::Lost { focus, first: true }) => log::warn!(
+                "output: the fullscreen output is not the foreground window ({} has the \
+                 focus); Windows may compose it instead of presenting it directly, which cost \
+                 5-11% of refreshes in a soak. Nothing should sit over the output (D453)",
+                focus.holder()
+            ),
+            Some(Change::Lost { focus, first: false }) => log::info!(
+                "output: not the foreground window again ({} has the focus) (D453)",
+                focus.holder()
+            ),
+            Some(Change::Back(after)) => log::info!(
+                "output: in the foreground again, or no longer fullscreen over the control \
+                 window, after {:.0} s (D453)",
+                after.as_secs_f64()
+            ),
+            None => {}
+        }
+    }
+
     /// What a close request needs to know about the windows (D298).
     fn close_facts(&self, on_output: bool) -> CloseFacts {
         let output = self.stack.output.window();
@@ -1726,6 +1768,7 @@ impl Running {
     fn refresh_monitors(&mut self, event_loop: &ActiveEventLoop) {
         self.last_monitor_refresh = Instant::now();
         self.update_covered();
+        self.check_foreground();
         // The time zone's offset can change (daylight saving); looking it
         // up may read the zone database, so it is done here, never per frame.
         self.local_date.refresh();
@@ -1827,6 +1870,13 @@ impl Running {
         }
         let is_control = id == self.stack.control.window().id();
         let is_output = id == self.stack.output.window().id();
+        if let WindowEvent::Focused(focused) = event {
+            if is_output {
+                self.output_focused = focused;
+            } else if is_control {
+                self.control_focused = focused;
+            }
+        }
         if is_control && is_input(&event) {
             self.control_input = true;
         }

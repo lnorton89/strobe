@@ -135,6 +135,16 @@ for the output's vsynced swap. The app then slows the control window to
 10 Hz and logs `control window: making it current waits ...` (D216), and
 logs again when it recovers.
 
+Late frames on a one-screen show machine can come from a window over the
+fullscreen output: Windows then composes the output instead of presenting
+it directly (5-11% of refreshes in the M26 soak). When the output covers
+the control window's monitor and has not had the focus for 2 s, the log
+says `output: the fullscreen output is not the foreground window (...
+has the focus)` once as a warning, and later spells and their ends as
+info lines (D453). "another program" means a dialog, console or taskbar
+took the focus; "the control window" means the launch left the focus
+behind the show. A two-screen setup is never flagged.
+
 A soak should show `0 late` minute after minute. The fps in the control
 window's status bar is only as fresh as that window's last paint; while the
 fullscreen output covers it, Windows hardly repaints it (the event loop
