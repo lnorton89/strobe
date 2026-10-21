@@ -839,6 +839,12 @@ survives export.
     (`saving_the_file_unchanged_mid_crossfade_leaves_the_crossfade_alone`);
     a warm-up the show no longer needs is parked
     (`a_warm_up_the_show_no_longer_needs_is_parked_at_once`).
+  - the GL renderer bug sweep (D440, 2026-10-21), headless GL in both
+    dialects in `crates/strobe-app/tests/show.rs` only, no hardware run: a
+    render-scale change keeps what a warming scene has drawn
+    (`a_scale_change_during_a_warm_up_keeps_what_the_warm_up_drew`) and the
+    outgoing scene's picture mid-crossfade
+    (`a_scale_change_during_a_crossfade_keeps_the_outgoing_picture`).
   - on the T480 (Task 14, release, native GL): the same demo closed with 0
     runtime compiles, loaded in about 0.27 s, and ran its transitions at
     60 fps, with GPU rising from 0.4-0.8 ms to about 1.2-1.3 ms during each
