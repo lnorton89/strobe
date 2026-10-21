@@ -10674,3 +10674,37 @@ the projector (STATUS_AUDIT).
 
 **Would reopen:** a venue where the list order changes when the projector
 arrives, so that number N is not the projector.
+
+### D452: a playlist that does not load at launch leaves a scene playing, not a black output (2026-10-21)
+
+**Context.** With `--playlist FILE`, launch skipped reopening the last
+session's scene, because the playlist would play. When the file did not
+load (moved or renamed by a pull of the show-kit repository, a typo in the
+launcher, a file another program holds open, a TOML error), the failure was
+logged (`PLAYLIST load`) and shown on a banner in the control window. But
+on the venue machine that window sits under the fullscreen output, and
+nothing played: the projector was black for the whole night. A restart by
+the launcher gave the same result.
+
+**Decision.** `app::launch_scene` decides what plays at launch, after the
+playlist has been tried. When a named playlist did not load, the last
+session's scene plays. If there is none, or it is no longer in the library
+(a machine that only ever ran playlists), the library's first scene plays.
+The log says so at warn: "the playlist did not load, so NAME plays instead
+of a black output (D452)", right after the playlist's own error line. The
+banner still says the playlist was not loaded. Everything else is
+unchanged:
+- a playlist that loads plays;
+- `--scene` wins;
+- a screenshot run never plays the operator's state;
+- without `--playlist`, the last session's scene reopens, as before.
+
+**Not chosen.** Exiting with an error, so the launcher's loop would show
+it. Nobody reads a launcher at a venue, and the restart would only repeat
+the black screen. A text card on the output: the projector is the
+audience's, and the output has no text renderer.
+
+**Test.** `app::tests::a_playlist_that_does_not_load_at_launch_leaves_a_scene_playing_not_black`.
+
+**Would reopen:** a venue that would rather show black than an unplanned
+scene.
