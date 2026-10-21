@@ -1124,7 +1124,11 @@ impl Running {
             playlist,
             cli.screenshot.is_some(),
             &last,
-            running.library.entries.iter().map(|entry| entry.name.as_str()),
+            running
+                .library
+                .entries
+                .iter()
+                .map(|entry| entry.name.as_str()),
         );
         let name = chosen
             .and_then(|index| running.library.entries.get(index))
@@ -1736,7 +1740,10 @@ impl Running {
                  5-11% of refreshes in a soak. Nothing should sit over the output (D453)",
                 focus.holder()
             ),
-            Some(Change::Lost { focus, first: false }) => log::info!(
+            Some(Change::Lost {
+                focus,
+                first: false,
+            }) => log::info!(
                 "output: not the foreground window again ({} has the focus) (D453)",
                 focus.holder()
             ),
@@ -2054,8 +2061,7 @@ impl Running {
             } else {
                 // A projector switched on after the machine booted: wait
                 // for it rather than leave the show where it opened (D451).
-                self.awaited_monitor =
-                    crate::output_monitor::Awaited::new(index, cli.fullscreen);
+                self.awaited_monitor = crate::output_monitor::Awaited::new(index, cli.fullscreen);
                 log::warn!(
                     "--output-monitor {number}: there are {} monitor(s); the output opens where \
                      it is, and moves to monitor {number} when it is connected (D451)",
