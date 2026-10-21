@@ -761,11 +761,10 @@ impl Controller {
         // Show the address as it will be used, port included.
         self.address = address.to_string();
         let trust = if self.use_trust {
+            // The whole path, shown and remembered as the file really read.
+            self.trust_path = trusted::whole_path(&self.trust_path);
             match trusted::load_plan(&self.trust_path, &self.controller_id) {
-                Ok(plan) => {
-                    self.trust_path = trusted::clean_path(&self.trust_path).to_string();
-                    Some(plan)
-                }
+                Ok(plan) => Some(plan),
                 Err(note) => {
                     self.set_note(&note);
                     return;
@@ -3411,6 +3410,39 @@ mod tests {
             "{}",
             seen.text
         );
+    }
+
+    #[test]
+    fn a_trust_file_typed_as_a_relative_path_is_shown_and_remembered_whole() -> Result<()> {
+        // Typed as `venue.trust` in a run started from its folder, it was
+        // remembered as that and looked for in whatever folder the next
+        // launch started in; the form's failure did not say where (D463).
+        let host = SocketAddr::from(([192, 168, 1, 50], 47812));
+        let mut form = trusted_controller(Path::new("  \"no-such-venue.trust\" "), host);
+        form.connect();
+        let whole = std::env::current_dir()?
+            .join("no-such-venue.trust")
+            .display()
+            .to_string();
+        assert!(!form.active(), "a missing file connects nothing");
+        assert_eq!(
+            form.trust_path, whole,
+            "the form shows the file it looked for"
+        );
+        let note = form
+            .view
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .note
+            .clone();
+        assert!(note.contains(&whole), "the failure names it: {note}");
+        let mut saved = crate::prefs::RemotePref::default();
+        form.remembered(&mut saved);
+        assert_eq!(
+            saved.trust_file, whole,
+            "remembered whole, for a launch from another folder"
+        );
+        Ok(())
     }
 
     #[test]

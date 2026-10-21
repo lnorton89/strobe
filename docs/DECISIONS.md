@@ -10871,3 +10871,146 @@ the refusal's box waits for a click.
 
 **Would reopen:** a launcher that needs to tell a failed start from a stop
 (1 for both now).
+
+### D460: a remote command answered "busy" is withdrawn, never run later (2026-10-21)
+
+**Context.** A phone's command waits on the app's answer for
+`Limits::command_timeout` (1 s, D232). When the app's frame is held up
+longer (a scene compiling on the venue's GPU holds it a second or more), the
+connection answers `command_result {accepted: false, "Strobe is busy; try
+again"}`. But the command stayed in the bridge's queue, and the app ran it
+when its frame came round. The operator, told it was not done, pressed again:
+Next twice skipped a scene, Hold twice held and let go, Restart cue twice
+restarted it twice. The page shows "Not done" for a command that was done.
+
+**Decision.** A queued command carries a claim shared by its `Incoming` and
+its `Pending`: waiting, taken by the app, or withdrawn by its adapter.
+`AppEnd::next` takes a command only by moving it from waiting to taken, and
+skips (with a log line) one already withdrawn. `Pending::wait`, when its time
+runs out, withdraws the command if it is still waiting and answers `Busy`; if
+the app took it in that same instant, it is being run, so the adapter waits
+on for the app's real answer (the app answers in the pass that runs it, or
+drops it, which reads as `Unavailable`). So `Busy` now means *not done and
+never will be*, and a retry runs the command once. The wire is unchanged; the
+timeout is unchanged.
+
+**Test.** `strobe-remote/tests/server.rs`:
+`a_command_the_phone_was_told_is_busy_is_not_run_when_the_app_catches_up`
+(a stalled app, a busy answer, a retry while the app drains: only the retry
+runs; failed before with `["r1", "r2"]`). Bridge unit tests:
+`an_unanswered_command_times_out_as_busy` (now also: never handed to the app)
+and `a_command_the_app_took_is_answered_truly_even_past_the_timeout`.
+
+**Would reopen:** a command that should queue through a stall by design
+(none of the remote's do: each is a press the operator watches the result of).
+
+### D461: a remote on the address the system chose follows it when it moves (2026-10-21)
+
+**Context.** With the address field empty (the venue command line has no
+`--remote-bind`), `Lan` binds the address `net::lan_address` reports at
+start and keeps it. A venue mini PC powered on with its router boots first;
+DHCP has no answer yet, Windows gives the adapter a self-assigned
+`169.254.x.x`, and the remote binds it successfully, so the launch retry
+(D288) never fires. When the router answers, Windows replaces the address;
+the listener stays bound to one that no longer exists, and neither the
+laptop (`--control 192.168.1.50`) nor a phone can reach it until Strobe is
+restarted. A lease that changes mid-show does the same. D341's refresh only
+re-reads the bound address for a listener on a specific IP, so Settings went
+on showing the dead one.
+
+**Decision.** A listener whose address the system chose checks every 10 s
+(`ADDRESS_CHECK`, in `Lan::maintain`, on the frame thread: one socket bind)
+whether that address is still this computer's (`net::is_local_address`: a
+UDP socket can be bound to it; only "address not available" counts as gone).
+If it is gone and `lan_address` names another, the listener moves there on
+the same port: the bridge is dropped (in-flight commands answered
+`Unavailable`), full desktop grants end as on a stop (D275), the old server
+is stopped on a short-lived thread (stopping waits up to a tick for its
+accept thread), and the new one starts with the full-desktop switch and the
+trust file as the launch left them. Connections drop; a venue laptop proves
+its way back in. Gone with nothing new (network down) is not a move. A
+still-present address is never left, even if the route now prefers another
+interface, so a machine on two networks is not moved off the one its laptop
+uses by an internet link coming and going. An address the operator typed
+(`--remote-bind`, the field) is never changed.
+
+**Not chosen.** *Refusing link-local addresses*: a laptop cabled straight to
+the show machine, with no router, has only those. *A network-change
+notification*: none in std on all three platforms (D341's reasoning).
+
+**Test.** `lan::tests::a_listener_whose_chosen_address_went_away_moves_to_the_new_one`
+(two loopback addresses stand in: the check's period, staying while the
+address is present or nothing replaces it, the move, the new URL, the switch
+and trust kept, a typed address untouched; with the move disabled it fails
+"gone and replaced: it follows"), and
+`net::tests::an_address_this_machine_does_not_have_is_told_apart`.
+
+**Not verified:** a real APIPA-to-DHCP change on Windows, which is where the
+"address not available" answer for a dropped address is assumed.
+
+**Would reopen:** a Windows listener on an address that disappears and comes
+back being dead (then an operator-typed address needs a rebind too), or a
+show network whose machines should prefer a link-local address.
+
+### D462: the control window reads the paired list without waiting for a save (2026-10-21)
+
+**Context.** `Lan::view` runs every control-window frame and called
+`Clients::list`, which takes the list's lock. A phone that authenticates
+rotates its token (D251) and saves the list while holding that lock: a
+temporary file written, `sync_all`, a rename. A phone reconnects every time
+its screen wakes. On a venue mini PC's eMMC or a busy disk (Defender scanning
+the new file) the flush takes tens of milliseconds and sometimes far more,
+and for all of it the control frame waited, and with it the output, which is
+drawn on the same thread. While a laptop holds the desktop lease the host's
+control window is drawn for the capture, so this is the venue case.
+
+**Decision.** `Clients::try_list` returns the list if the lock is free and
+`None` at once if not. `Lan::view_at` keeps the last list it read and uses
+it when a save is in progress; the next frame picks up the new one. Saving
+still happens under the lock, so connection threads stay ordered and a save
+that fails still rolls back (D251); only the frame stopped waiting. Revoke and
+the other operator actions still take the lock, as a click may.
+
+**Not chosen.** *Writing the file outside the lock*: it reorders saves
+between connections and makes the failed-save rollback race a concurrent
+change, for no gain on the frame path.
+
+**Test.** `lan::tests::the_control_window_does_not_wait_for_the_client_list_to_reach_the_disk`
+(Unix: a FIFO where the save's temporary file goes stands in for a disk that
+does not answer; the view returns at once with the list it had; with the
+blocking read it waited 2.0 s) and
+`clients::tests::the_list_can_be_read_without_waiting_for_a_save`.
+
+**Would reopen:** a list that must be exact on the very frame it changes.
+
+### D463: a trust file's path is made whole where it is named (2026-10-21)
+
+**Context.** `--remote-trust venue.trust` was kept as given. The host reads
+it once at launch, relative to the working folder; the operator tests the
+launcher from its own folder, and the task scheduler then starts the same
+command in another (by default `C:\Windows\System32`), where the file is not.
+Trusted pairing is then off for the night (D288, fail closed) and the
+failure said `cannot open the trust file venue.trust`, not where it had
+looked. On the laptop, `--control ... --remote-trust venue.trust` and a
+relative path typed into the form were remembered in `ui.toml` as typed, so
+the next launch from a shortcut, started elsewhere, could not find the file.
+`--make-remote-trust venue.trust` printed launch instructions with the bare
+name, which get pasted into launchers.
+
+**Decision.** `--remote-trust` and `--make-remote-trust` take their value
+through `std::path::absolute` (no file access, so a missing file is still
+reported where it was before): a relative path is joined to the folder Strobe
+was started in, at the moment it was named. Every log line, failure and
+instruction then names the whole path. The form does the same on Connect
+(`trusted::whole_path`), so it shows and remembers the file it really read.
+Where a relative path is looked for is unchanged; only what is kept and said.
+
+**Test.** `cli::tests::a_relative_trust_file_is_kept_as_the_whole_path_it_named_at_launch`
+(both roles; a whole path kept as given; an empty path refused) and
+`desktop::tests::a_trust_file_typed_as_a_relative_path_is_shown_and_remembered_whole`
+(the form's field, its failure note and what it remembers). Both failed
+before with the bare name. The two venue-flag parsing tests now expect the
+whole path.
+
+**Would reopen:** resolving a relative path against the executable's folder
+instead, if launchers turn out to rely on that.

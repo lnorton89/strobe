@@ -90,6 +90,19 @@ pub fn lan_address() -> Option<IpAddr> {
     matches!(scope(ip), Scope::Private | Scope::LinkLocal).then_some(ip)
 }
 
+/// Whether `ip` is still one of this machine's addresses: a socket can be
+/// bound to it. An address DHCP took back, or the self-assigned
+/// `169.254.x.x` one Windows drops when DHCP answers, cannot be (the
+/// system says the address is not available). Any other failure is taken
+/// as "still here", so a refusal for some other reason never moves a
+/// listener that works (D461).
+pub fn is_local_address(ip: IpAddr) -> bool {
+    match UdpSocket::bind(SocketAddr::new(ip, 0)) {
+        Ok(_) => true,
+        Err(error) => error.kind() != std::io::ErrorKind::AddrNotAvailable,
+    }
+}
+
 /// Whether a `Host` header names the listener at `bound`, by address:
 /// an IP literal (or `localhost` for a loopback bind) and the bound port.
 /// A host *name* is refused. That is what stops DNS rebinding: a page on
@@ -276,6 +289,19 @@ mod tests {
         assert!(host_is_local("LOCALHOST:47812", loopback), "localhost");
         let v6: SocketAddr = "[fe80::1]:47812".parse()?;
         assert!(host_is_local("[fe80::1]:47812", v6), "v6");
+        Ok(())
+    }
+
+    #[test]
+    fn an_address_this_machine_does_not_have_is_told_apart() -> Result<()> {
+        assert!(
+            is_local_address(ip("127.0.0.1")?),
+            "loopback is always this machine's"
+        );
+        assert!(
+            !is_local_address(ip("192.0.2.1")?),
+            "a documentation address (TEST-NET-1) is never assigned"
+        );
         Ok(())
     }
 

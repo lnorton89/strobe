@@ -120,7 +120,23 @@ tracks every known unfinished implementation and validation task across the proj
   within the 15 s cap on a real network, and is the lease taken back?),
   Disconnect while reconnecting (untested), the controller's file
   permissions on Windows, and a four-hour soak. A Windows host reading a
-  trust file from the user profile is covered by M6.
+  trust file from the user profile is covered by M6. Also unverified on
+  hardware: the remote moving off a self-assigned `169.254.x.x` address once
+  DHCP answers (D461), which assumes Windows reports a dropped address as
+  not available.
+- [x] Remote and venue-mode bug sweep before the two-machine test
+  (2026-10-21, D460-D463). Evidence, all on loopback in the Linux container:
+  `tests/server.rs`
+  `a_command_the_phone_was_told_is_busy_is_not_run_when_the_app_catches_up`
+  and `bridge::tests::a_command_the_app_took_is_answered_truly_even_past_the_timeout`
+  (D460); `lan::tests::a_listener_whose_chosen_address_went_away_moves_to_the_new_one`
+  and `net::tests::an_address_this_machine_does_not_have_is_told_apart`
+  (D461); `lan::tests::the_control_window_does_not_wait_for_the_client_list_to_reach_the_disk`
+  and `clients::tests::the_list_can_be_read_without_waiting_for_a_save`
+  (D462); `cli::tests::a_relative_trust_file_is_kept_as_the_whole_path_it_named_at_launch`
+  and `desktop::tests::a_trust_file_typed_as_a_relative_path_is_shown_and_remembered_whole`
+  (D463). Each failed before its fix. Not a two-machine result: the item
+  above stays open.
 - [ ] Full desktop remote: two physical Strobe desktops over Wi-Fi, reconnect
   after loss/sleep, minimized host, a host control window covered by the
   fullscreen output (does it still redraw and capture?), the fenced capture
