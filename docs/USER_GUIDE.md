@@ -219,6 +219,9 @@ repository) shows the format.
 - **Save** writes the file. Comments you wrote in it are kept.
 - A playlist resumes where it was if Strobe is closed mid-show;
   `--no-resume` starts from the top.
+- If the `--playlist` file cannot be loaded at launch (missing, unreadable
+  or invalid), the log says why and the last scene you played (or the
+  library's first) plays instead of a black output.
 
 ## Controllers: MIDI and OSC
 
