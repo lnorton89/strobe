@@ -776,6 +776,9 @@ struct Running {
     /// The LAN remote: off until asked for (D250 to D254).
     lan: Lan,
     desktop_controller: crate::desktop::Controller,
+    /// Other Strobes on the LAN, looked for while Settings shows Remote
+    /// (D468).
+    lan_scan: LanScan,
     desktop_capture: crate::desktop::Capture,
     desktop_input: crate::desktop::HostInput,
     desktop_events: Vec<strobe_remote::desktop::Input>,
@@ -980,6 +983,7 @@ impl Running {
                 cli.allow_desktop_control,
             ),
             desktop_controller,
+            lan_scan: LanScan::default(),
             desktop_capture: crate::desktop::Capture::default(),
             desktop_input: crate::desktop::HostInput::default(),
             desktop_events: Vec::with_capacity(129),
@@ -4904,6 +4908,11 @@ impl Running {
         }
         let next = self.step_target(1);
         let lan_view = self.lan.view();
+        let scanning = !self.desktop_controller.active()
+            && self.ui_state.panes.shown_in(crate::workspace::Dock::Main)
+                == Some(crate::workspace::Pane::Settings)
+            && self.ui_state.settings.page == crate::ui::settings::SettingsPage::Remote;
+        self.lan_scan.update(scanning, Instant::now());
         let playing_dir = self.stack.session.as_ref().map(|s| s.dir.clone());
         let editor_read_only = self.editor_read_only();
         let authored = self.stack.session.as_ref().is_some_and(|session| {
@@ -5078,6 +5087,7 @@ impl Running {
                 view: &lan_view,
                 address: &mut self.lan.address,
                 port: &mut self.lan.port,
+                found: &self.lan_scan.found,
             },
         };
         let mut actions = std::mem::take(&mut self.actions);
@@ -5712,6 +5722,63 @@ fn same_folder(a: &Path, b: &Path) -> bool {
     match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
         (Ok(a), Ok(b)) => a == b,
         _ => a == b,
+    }
+}
+
+/// Other Strobes on the LAN (D468): a scanner that runs only while it is
+/// wanted, and what it found, read from it at most every [`LanScan::READ`]
+/// so a frame copies the list a few times a second, not every frame.
+#[derive(Default)]
+struct LanScan {
+    scanner: Option<strobe_remote::discovery::Scanner>,
+    /// The scanner would not start (no network): not tried again until
+    /// the Remote page is left and opened again.
+    failed: bool,
+    read: Option<Instant>,
+    /// What the Remote page lists.
+    found: Vec<strobe_remote::discovery::Found>,
+}
+
+impl LanScan {
+    /// How often the list is copied out of the scanner.
+    const READ: Duration = Duration::from_millis(500);
+
+    /// Starts or stops the scanner for `wanted`, and refreshes the list.
+    fn update(&mut self, wanted: bool, now: Instant) {
+        use strobe_remote::discovery;
+        if !wanted {
+            self.scanner = None;
+            self.failed = false;
+            self.read = None;
+            self.found.clear();
+            return;
+        }
+        if self.scanner.is_none() && !self.failed {
+            // Asked once per opening of the page: it takes a socket call.
+            let lan: Vec<std::net::Ipv4Addr> = strobe_remote::server::net::lan_address()
+                .and_then(|ip| match ip {
+                    std::net::IpAddr::V4(v4) => Some(v4),
+                    std::net::IpAddr::V6(_) => None,
+                })
+                .into_iter()
+                .collect();
+            let targets = discovery::broadcast_targets(&lan, discovery::PORT);
+            match discovery::Scanner::start(targets, Some(discovery::instance_id().to_string())) {
+                Ok(scanner) => self.scanner = Some(scanner),
+                Err(error) => {
+                    log::warn!("remote: not looking for other Strobes: {error}");
+                    self.failed = true;
+                }
+            }
+        }
+        if let Some(scanner) = &self.scanner
+            && self
+                .read
+                .is_none_or(|at| now.saturating_duration_since(at) >= Self::READ)
+        {
+            self.read = Some(now);
+            self.found = scanner.found();
+        }
     }
 }
 

@@ -700,6 +700,7 @@ fn sample_lan(on: bool, desktop: bool) -> crate::lan::LanView {
         return crate::lan::LanView {
             note: "Off".to_string(),
             clients: vec![(phone("c00000001", "iPhone at 192.168.1.23"), false)],
+            name: "STAGE-PC".to_string(),
             ..crate::lan::LanView::default()
         };
     }
@@ -730,6 +731,8 @@ fn sample_lan(on: bool, desktop: bool) -> crate::lan::LanView {
         connected: 2,
         desktop_controlled: desktop,
         venue: false,
+        advertising: true,
+        name: "STAGE-PC".to_string(),
     }
 }
 
@@ -1159,6 +1162,27 @@ fn draw_events(
     };
     let lan_view = sample_lan(scenario.lan, scenario.desktop_access);
     let mut lan_address = String::new();
+    // Two Strobes on the LAN for the Remote page to list (D468).
+    let found = if scenario.lan {
+        vec![
+            strobe_remote::discovery::Found {
+                id: "a".into(),
+                name: "FOH-LAPTOP".into(),
+                addr: std::net::SocketAddr::from(([192, 168, 1, 31], 47812)),
+                desktop: true,
+                seen: std::time::Instant::now(),
+            },
+            strobe_remote::discovery::Found {
+                id: "b".into(),
+                name: "BOOTH-PC".into(),
+                addr: std::net::SocketAddr::from(([192, 168, 1, 32], 47812)),
+                desktop: false,
+                seen: std::time::Instant::now(),
+            },
+        ]
+    } else {
+        Vec::new()
+    };
     let mut lan_port = "47812".to_string();
     let mut desktop_controller = crate::desktop::Controller::default();
     if scenario.reveal_connect {
@@ -1327,6 +1351,7 @@ fn draw_events(
                 view: &lan_view,
                 address: &mut lan_address,
                 port: &mut lan_port,
+                found: &found,
             },
         };
         let pass = crate::ui::testing::run_keeping(
@@ -2121,19 +2146,23 @@ fn the_connect_form_is_its_own_section_with_a_hint_not_a_value() -> Result<()> {
         "its own Settings section: {rows:?}"
     );
     assert!(
-        rows.iter()
-            .any(|line| line.starts_with("Host address, e.g. 192.168.1.20")),
+        rows.iter().any(|line| line == "e.g. 192.168.1.20"),
         "the empty field hints at what to type: {rows:?}"
     );
     assert!(
-        !rows.iter().any(|line| line.contains("192.168.1.20:47812")),
-        "no address that could be mistaken for a value: {rows:?}"
+        !rows.iter().any(|line| line == "192.168.1.20:47812"),
+        "no address in the field that could be mistaken for a value: {rows:?}"
+    );
+    assert!(
+        rows.iter().any(|line| line == "FOH-LAPTOP") && rows.iter().any(|line| line == "BOOTH-PC"),
+        "the Strobes found on the network are listed (D468): {rows:?}"
     );
     Ok(())
 }
 
 #[test]
-fn the_connect_form_offers_a_trust_file_in_place_of_the_code() -> Result<()> {
+fn the_connect_form_asks_for_approval_or_proves_a_trust_file_and_never_wants_a_code() -> Result<()>
+{
     let at = |trust_form| Scenario {
         lan: true,
         reveal_connect: true,
@@ -2151,8 +2180,8 @@ fn the_connect_form_offers_a_trust_file_in_place_of_the_code() -> Result<()> {
         "the option is there, off: {code:?}"
     );
     assert!(
-        code.iter().any(|line| line.starts_with("Pairing code")),
-        "off: the code field: {code:?}"
+        !code.iter().any(|line| line.starts_with("Pairing code")),
+        "a desktop needs no code (D468): {code:?}"
     );
     assert!(
         !code.iter().any(|line| line.starts_with("Trust file")),

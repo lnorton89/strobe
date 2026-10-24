@@ -11146,3 +11146,65 @@ mappings and three macros.
 **Would reopen:** a set of mappings long enough that the connections
 need to be reachable without scrolling past it (a tab or a collapsed
 group).
+
+### D468: Strobes find each other on the LAN, and a desktop asks the host with no code (2026-10-23)
+
+**Context.** Controlling another Strobe took seven steps across two
+computers: on the host, Start remote, Allow full desktop control, Pair a
+device; on the controller, type the host's IP and port and the six-digit
+code, Connect; then Approve on the host. The owner asked for Strobe to
+advertise itself when remote control is on, for other Strobes to list
+the hosts they can reach, and for the host just to accept or deny. The
+code (D251) existed so that only someone who could see the host's screen
+could put a request in front of its operator.
+
+**Decision.**
+- **Discovery** (`strobe_remote::discovery`). While the listener runs, the
+  host answers a `{"strobe":"discover","v":1}` datagram on UDP 47813 with
+  its name, TCP port, whether full desktop control is on, and a per-process
+  id. It answers private, link-local and loopback askers only, at most 20
+  times a second. A controller's scanner runs only while its Remote page is
+  open, asks the limited broadcast and its /24's directed broadcast every
+  2 s, and keeps answers heard within 6 s, leaving out its own id. It uses
+  the answer's source address, never one named in it. It is query and
+  answer, so the controller needs no inbound firewall rule. A discovery
+  port another program holds is logged; the address still works typed.
+- **Approve-only desktop pairing.** A new desktop-extension message,
+  `request_desktop {name}` (the controller id), puts the request straight
+  in front of the operator as "NAME at ADDRESS". It enters the same approval
+  phase a right code does, so the token, the rotation and the desktop
+  scope are unchanged. What the code bounded is bounded instead: four
+  waiting requests (as before), one per address, and 30 s before a denied
+  address may ask again. The address is the TCP peer's, which cannot be
+  faked; the name is the controller's own claim and is shown as such.
+  `pair_desktop` with a code still works, for older controllers. Phones
+  keep the code: they cannot list anything, and the code still proves the
+  person is in front of the host.
+- **The Remote page** (in the form grammar, D466): one switch, Let others
+  connect, which says what the host is listed as; Allow full desktop
+  control under it; requests as Approve/Deny banners at the top of the
+  page; Pair a phone with its code; then Control another Strobe, listing
+  what was found with Connect, then Connect by address and the venue trust
+  file; the address and port last, under Network. The controller has no
+  code field; a refusal offers Ask again.
+
+**Residual risk, stated.** Anyone on the network can now raise a desktop
+request without seeing the host's screen. The operator still has to
+approve it, and the request shows the address it came from. The user
+guide says to approve only a computer you recognise. Plain HTTP's risks
+(D252) are unchanged.
+
+**Test.** `discovery::tests` (the datagram shapes, names, who is answered,
+targets, and a scanner finding a responder on loopback while ignoring its
+own id); `pairing::tests::a_desktop_asks_without_a_code_once_at_a_time_and_waits_after_a_deny`;
+`lib` tests freezing `request_desktop`; the server test
+`a_desktop_asks_without_a_code_and_the_host_approves_or_denies` (off, label,
+one per address, approve and lease, deny and cooldown); the app's
+`a_desktop_with_no_code_is_put_to_the_host_by_name_and_approved` through
+the real worker; the shell tests listing found hosts with no code field.
+On this machine, two Strobes: the controller listed the host by name and
+address within its first query.
+
+**Would reopen:** a request spam problem on a real venue network (then a
+host switch to require the code again), or subnets that drop broadcast
+(mDNS, with its own allowlist question from D252).

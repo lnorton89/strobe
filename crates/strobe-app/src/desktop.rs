@@ -551,8 +551,8 @@ fn wait_hint(reconnecting: bool, trusted: bool) -> &'static str {
         "Reconnecting with the saved pairing needs no approval. If this takes more than a few \
          seconds, check that Strobe is running on the host and on the same network."
     } else {
-        "On the host, open Settings > Remote. A request from this desktop appears there once \
-         the code is accepted: press Approve."
+        "On the host, a request from this desktop appears in Settings > Remote, and the \
+         title bar says so: press Approve."
     }
 }
 
@@ -566,9 +566,8 @@ fn timed_out_text(limit: Duration, reconnecting: bool) -> String {
         )
     } else {
         format!(
-            "The host did not approve this desktop within {} s. On the host, open Settings > \
-             Remote and press Approve when the request appears. The code is used up, so ask \
-             for a new one with Pair a device.",
+            "The host did not approve this desktop within {} s. Ask again, and press Approve \
+             on the host when the request appears.",
             limit.as_secs()
         )
     }
@@ -578,19 +577,16 @@ fn timed_out_text(limit: Duration, reconnecting: bool) -> String {
 ///
 /// The host's own words ("not paired, or revoked") are right for a phone
 /// and no help to the person at this desktop, so each code says what to do
-/// and where the code appears.
+/// next: ask again, and approve on the host (D468).
 fn refusal_text(code: ErrorCode, host_message: &str) -> String {
-    const WHERE: &str = "On the host, open Settings > Remote, switch on Allow full desktop \
-                         control, and press Pair a device: the six-digit code appears there.";
+    const WHERE: &str = "On the host, Settings > Remote needs the remote on and full desktop \
+                         control allowed; ask again from here and press Approve there.";
     match code {
         ErrorCode::Unauthorized => format!(
             "The host no longer knows this desktop (not paired, or the pairing was revoked). \
-             A new pairing code from the host is needed. {WHERE}"
+             {WHERE}"
         ),
-        ErrorCode::PairingRejected => format!(
-            "The host refused the pairing code ({host_message}). Enter the current code, which \
-             lasts two minutes. {WHERE}"
-        ),
+        ErrorCode::PairingRejected => format!("The host said no ({host_message}). {WHERE}"),
         ErrorCode::Unavailable
         | ErrorCode::VersionMismatch
         | ErrorCode::InvalidState
@@ -776,14 +772,9 @@ impl Controller {
         // A trust file replaces the code; one typed as well is dropped.
         let code = std::mem::take(&mut self.code);
         let code = if trust.is_some() { String::new() } else { code };
+        // With no code and no pairing held, the worker asks the host to
+        // approve this desktop (D468).
         let remembered = self.remembers(address);
-        if trust.is_none() && code.trim().is_empty() && !remembered {
-            self.set_note(
-                "Enter the pairing code from the host: Settings > Remote > Pair a device, with \
-                 Allow full desktop control on.",
-            );
-            return;
-        }
         self.trusted = trust.is_some();
         if trust.is_some() {
             log::info!(
@@ -793,7 +784,7 @@ impl Controller {
         }
         self.view = Arc::new(Mutex::new(View {
             note: "Connecting".into(),
-            reconnecting: trust.is_none() && code.trim().is_empty(),
+            reconnecting: trust.is_none() && code.trim().is_empty() && remembered,
             trusted: trust.is_some(),
             ..View::default()
         }));
@@ -802,9 +793,15 @@ impl Controller {
         // A fresh slot, so a worker still ending from the last connection
         // cannot overwrite this one's interrupter.
         self.socket = Arc::new(Mutex::new(None));
+        let name = if strobe_remote::trust::valid_controller_id(&self.controller_id) {
+            self.controller_id.clone()
+        } else {
+            strobe_remote::trust::controller_id_for(&trusted::computer_name(), [0; 4])
+        };
         let link = Link {
             address,
             code,
+            name,
             approval_limit: self.approval_limit,
             view: Arc::clone(&self.view),
             stop: Arc::clone(&self.stop),
@@ -1116,8 +1113,8 @@ impl Controller {
                         if ui.button("Reconnect").clicked() {
                             actions.push(crate::ui::Action::ConnectDesktop);
                         }
-                    } else if ui.button("Enter a new pairing code").clicked() {
-                        actions.push(crate::ui::Action::ControlAnotherDesktop);
+                    } else if ui.button("Ask again").clicked() {
+                        actions.push(crate::ui::Action::ConnectDesktop);
                     }
                 };
                 card(ui.ctx(), heading, lines, Some(&mut offer));
@@ -1400,6 +1397,8 @@ impl Drop for Controller {
 struct Link {
     address: SocketAddr,
     code: String,
+    /// This desktop's name in a code-free request (D468).
+    name: String,
     approval_limit: Duration,
     view: Arc<Mutex<View>>,
     stop: Arc<AtomicBool>,
@@ -1524,6 +1523,7 @@ fn control(link: &Link, inputs: &Receiver<Input>, pictured: &mut bool) -> io::Re
     let Link {
         address,
         code,
+        name,
         approval_limit,
         view,
         stop,
@@ -1641,6 +1641,10 @@ fn control(link: &Link, inputs: &Receiver<Input>, pictured: &mut bool) -> io::Re
                         match token {
                             Some(token) => {
                                 connection.send(&ClientMessage::Authenticate { token })?;
+                            }
+                            None if code.trim().is_empty() => {
+                                connection
+                                    .send(&ClientMessage::RequestDesktop { name: name.clone() })?;
                             }
                             None => {
                                 connection
@@ -2366,30 +2370,32 @@ mod tests {
         );
         let expired = timed_out_text(limit, false);
         assert!(
-            expired.contains("60 s") && expired.contains("Approve") && expired.contains("new one"),
-            "says how long, what to press and that the code is spent: {expired}"
+            expired.contains("60 s")
+                && expired.contains("Approve")
+                && expired.contains("Ask again"),
+            "says how long, what to press and how to try again: {expired}"
         );
     }
 
     #[test]
-    fn a_refused_reconnect_says_a_new_code_is_needed_and_where_it_appears() {
+    fn a_refused_reconnect_says_to_ask_again_and_approve_on_the_host() {
         let text = refusal_text(ErrorCode::Unauthorized, "not paired, or revoked");
         assert!(
-            text.contains("new pairing code"),
-            "asks for a new code: {text}"
+            text.contains("ask again") && text.contains("Approve"),
+            "says to ask again and approve: {text}"
         );
         assert!(
-            text.contains("Settings > Remote") && text.contains("Pair a device"),
-            "and names where it appears on the host: {text}"
+            text.contains("Settings > Remote"),
+            "and names where on the host: {text}"
         );
         assert!(
             text.contains("revoked"),
             "and still says why it was refused: {text}"
         );
-        let wrong = refusal_text(ErrorCode::PairingRejected, "wrong code");
+        let declined = refusal_text(ErrorCode::PairingRejected, "declined on the desktop");
         assert!(
-            wrong.contains("wrong code") && wrong.contains("Pair a device"),
-            "{wrong}"
+            declined.contains("declined on the desktop") && declined.contains("Approve"),
+            "{declined}"
         );
         assert_eq!(
             refusal_text(
@@ -2548,7 +2554,7 @@ mod tests {
                 seen.text
             );
             assert_eq!(
-                seen.text.contains("Enter a new pairing code"),
+                seen.text.contains("Ask again"),
                 !held,
                 "{how:?}: {}",
                 seen.text
@@ -2570,14 +2576,9 @@ mod tests {
         controller.address = "10.255.255.1".into();
         controller.connect();
         assert!(
-            controller.note().contains("pairing code"),
-            "no code and no saved pairing: {}",
-            controller.note()
+            controller.active(),
+            "no code and no saved pairing asks the host to approve (D468)"
         );
-        assert!(!controller.active(), "nothing started");
-        controller.code = "123456".into();
-        controller.connect();
-        assert!(controller.active(), "connecting");
         assert_eq!(
             controller.address, "10.255.255.1:47812",
             "the form shows the address as used"
@@ -2634,6 +2635,54 @@ mod tests {
         // The worker closed its socket, so the host withdrew the request
         // rather than keep it for an Approve nobody is waiting on.
         eventually(|| server.pairing_requests().is_empty() && server.connections().is_empty())?;
+        controller.disconnect();
+        server.stop();
+        Ok(())
+    }
+
+    #[test]
+    fn a_desktop_with_no_code_is_put_to_the_host_by_name_and_approved() -> Result<()> {
+        use strobe_remote::{
+            bridge,
+            clients::Clients,
+            server::{Limits, Server, ServerConfig},
+        };
+        let (remote, app) = bridge::bridge(4);
+        app.desktop.enable(true);
+        let mut config = ServerConfig::new(std::net::IpAddr::from([127, 0, 0, 1]), 0);
+        config.limits = Limits {
+            tick: Duration::from_millis(5),
+            ..Limits::default()
+        };
+        let server = Server::start(config, remote, Clients::in_memory())?;
+        let mut controller = Controller::default();
+        controller.controller_id = "foh-laptop-1a2b3c4d".into();
+        controller.address = server.addr().to_string();
+        // No code: what Connect on a Strobe found on the network does.
+        controller.connect();
+        eventually(|| !server.pairing_requests().is_empty())?;
+        let request = server
+            .pairing_requests()
+            .into_iter()
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("no request"))?;
+        assert_eq!(
+            request.label, "Full desktop: foh-laptop-1a2b3c4d at 127.0.0.1",
+            "the host sees this desktop's name and address"
+        );
+        assert!(server.decide(request.id, true), "approved on the host");
+        eventually(|| {
+            controller
+                .view
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .stage
+                == Stage::Live
+        })?;
+        assert!(
+            controller.remembers(server.addr()),
+            "the approval left a pairing for Reconnect"
+        );
         controller.disconnect();
         server.stop();
         Ok(())
@@ -2705,8 +2754,8 @@ mod tests {
         })?;
         let note = controller.note();
         assert!(
-            note.contains("new pairing code") && note.contains("Pair a device"),
-            "{note}"
+            note.contains("ask again") && note.contains("Approve"),
+            "says to ask again and approve on the host: {note}"
         );
         assert!(
             !controller.remembers(server.addr()),

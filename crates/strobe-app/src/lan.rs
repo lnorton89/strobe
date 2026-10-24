@@ -163,6 +163,11 @@ pub struct LanView {
     /// proves it holds it is paired for full desktop control, without an
     /// approval, while full desktop access is on.
     pub venue: bool,
+    /// Other Strobes on the LAN can find this one (D468): the listener is
+    /// answering discovery.
+    pub advertising: bool,
+    /// The name other Strobes list this one under.
+    pub name: String,
 }
 
 /// The address a phone opens, remembered between asks.
@@ -242,6 +247,8 @@ pub struct Lan {
     listed: Vec<ClientInfo>,
     published: Option<Instant>,
     snapshot: Snapshot,
+    /// The name other Strobes list this one under (D468), made once.
+    name: Option<String>,
 }
 
 impl Lan {
@@ -268,6 +275,7 @@ impl Lan {
             listed: Vec::new(),
             published: None,
             snapshot: Snapshot::default(),
+            name: None,
         }
     }
 
@@ -465,6 +473,8 @@ impl Lan {
             let config = ServerConfig {
                 proxied: self.proxied.clone(),
                 trust: self.trust.clone(),
+                // Found by other Strobes on the LAN while it listens (D468).
+                advertise: Some(crate::trusted::computer_name()),
                 ..ServerConfig::new(ip, port)
             };
             Server::start(config, remote, clients)
@@ -688,6 +698,7 @@ impl Lan {
                 failed: self.failed,
                 clients: clients.into_iter().map(|c| (c, false)).collect(),
                 venue: self.trust.is_some(),
+                name: self.name(),
                 ..LanView::default()
             };
         };
@@ -720,7 +731,18 @@ impl Lan {
             connected: authenticated(&connections),
             desktop_controlled: self.desktop_controlled(),
             venue: self.trust.is_some(),
+            advertising: server.advertising(),
+            name: self.name(),
         }
+    }
+
+    /// The name other Strobes list this one under, made once.
+    fn name(&mut self) -> String {
+        self.name
+            .get_or_insert_with(|| {
+                strobe_remote::discovery::display_name(&crate::trusted::computer_name())
+            })
+            .clone()
     }
 }
 

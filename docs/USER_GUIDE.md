@@ -249,9 +249,10 @@ phones**; please report what you find.
 **It is off until you switch it on**, and it never switches itself on at
 launch.
 
-1. Open **SET** (Settings), find **Remote**, and press **Start remote**. Leave
-   *Address* empty to use this computer's address on its network, or type
-   one of its own addresses. Strobe refuses a public internet address.
+1. Open **SET** (Settings), choose **Remote**, and switch on **Let others
+   connect**. *Address* under *Network*, at the bottom of the page, stays
+   empty to use this computer's address on its network, or takes one of its
+   own addresses. Strobe refuses a public internet address.
    To start it with Strobe instead, add `--remote` to the shortcut's
    *Target* (and `--remote-bind 192.168.1.20` or `--remote-port 47812` if
    you need them).
@@ -261,11 +262,11 @@ launch.
    *Windows Security > Firewall & network protection > Allow an app through
    firewall*. Your network must also be set to *Private* in Windows'
    network settings.
-3. The section shows an address such as `http://192.168.1.20:47812/`.
+3. *Phone address* shows an address such as `http://192.168.1.20:47812/`.
    Type it into the phone's browser exactly as shown: a name instead of
    the numbers is refused, on purpose.
-4. Press **Pair a device**. A six-digit code shows for two minutes. Type it
-   on the phone and press *Pair*.
+4. Under *Pair a phone*, press **Show a code**. A six-digit code shows for
+   two minutes. Type it on the phone and press *Pair*.
 5. Strobe shows *"iPhone at 192.168.1.23 wants to control the show"*.
    Press **Approve** if that is your phone, **Deny** if it is not. The phone
    is paired and keeps working after both restart; it does not need the
@@ -293,12 +294,27 @@ app (PWA) version yet, because that needs HTTPS.
 ### Control another Strobe desktop
 
 Both computers must run a build with desktop control support. On the host,
-open **Settings > Remote**, click **Start remote**, enable **Allow full
-desktop control**, then click **Pair a device**. On the controlling computer,
-open **Settings > Remote > Control another Strobe desktop**. Enter the host's
-IP and port (for example `192.168.1.20:47812`) and its pairing code, then
-click **Connect to desktop**. Approve the request labelled **Full desktop**
-on the host.
+open **Settings > Remote** and switch on **Let others connect** and **Allow
+full desktop control**. Other Strobes on the same network now list it by
+its computer name.
+
+On the controlling computer, open **Settings > Remote**. Under **Control
+another Strobe**, the host appears within a couple of seconds, marked
+*Ready*; press **Connect**. On the host, a banner says *"STAGE-LAPTOP at
+192.168.1.40 wants to control this Strobe, files included"*, and the title
+bar warns too: press **Approve** (or **Deny**). There is no code to type.
+
+A host that is not listed (a different subnet, or a network that drops
+broadcasts) is reached with **Connect by address**: its IP, and the port
+if it is not 47812, for example `192.168.1.20`. It asks for approval the
+same way. Windows asks the host, once, whether Strobe may accept
+connections: allow private networks, which covers both the remote and its
+discovery reply (UDP port 47813).
+
+A request names the computer and the address it really comes from. Any
+computer on the network can ask, so only approve one you recognise. Four
+requests can wait at once, one per address, and an address you deny waits
+30 seconds before it may ask again.
 
 The host's entire Strobe control window replaces the controller's local UI.
 Click in the image to focus it, then use its controls, keyboard shortcuts,
@@ -325,10 +341,10 @@ desktop are refused from the remote and must be done at the host itself.
 Treat a full desktop approval like handing someone the host's keyboard: it
 includes editing and saving scenes, typing host file paths and quitting.
 
-To reconnect during the same controller app session, leave the code blank
-and connect to the same IP and port. The credential is rotated on each
-connection and kept only in memory. After restarting the controller, pair
-again. On the host, a desktop pairing is never saved: switching full desktop
+To reconnect during the same controller app session, press **Reconnect**
+(or Connect again on the same host): the approval is remembered for that
+session. The credential is rotated on each connection and kept only in
+memory. After restarting the controller, the host approves it again. On the host, a desktop pairing is never saved: switching full desktop
 access off, **Stop remote** or restarting Strobe revokes every desktop
 pairing, so each new session is approved again. Phone pairings are kept.
 

@@ -349,6 +349,8 @@ pub struct LanPanel<'a> {
     pub address: &'a mut String,
     /// The port field.
     pub port: &'a mut String,
+    /// Other Strobes on the LAN, while Settings shows Remote (D468).
+    pub found: &'a [strobe_remote::discovery::Found],
 }
 
 /// The import panel's inputs.

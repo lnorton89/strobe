@@ -467,10 +467,10 @@ impl<'a> Session<'a> {
                         self.shared.pairing().forget(id);
                         self.phase = Phase::Unauthenticated;
                         self.since_auth_wait = now;
-                        let why = if decision == Decision::Denied {
-                            "declined on the desktop"
-                        } else {
-                            "not approved in time; ask for a new code"
+                        let why = match (decision, self.desktop_pairing) {
+                            (Decision::Denied, _) => "declined on the desktop",
+                            (_, true) => "not approved in time; ask again",
+                            (_, false) => "not approved in time; ask for a new code",
                         };
                         log::info!("remote: pairing for {} {why}", self.peer);
                         self.send(&ServerMessage::error(ErrorCode::PairingRejected, why))?;
@@ -918,7 +918,8 @@ impl<'a> Session<'a> {
                     | ClientMessage::DesktopOpen {}
                     | ClientMessage::DesktopInput { .. }
                     | ClientMessage::TrustStart { .. }
-                    | ClientMessage::TrustProof { .. } => return Err(End::Gone),
+                    | ClientMessage::TrustProof { .. }
+                    | ClientMessage::RequestDesktop { .. } => return Err(End::Gone),
                 };
                 if desktop && !self.shared.remote.desktop.enabled() {
                     return self.send(&ServerMessage::error(
@@ -950,9 +951,55 @@ impl<'a> Session<'a> {
                             Refusal::Wrong(_) => "wrong code",
                             Refusal::Burned => "too many wrong codes; open pairing again",
                             Refusal::Full => "too many devices are waiting for approval",
+                            Refusal::Pending | Refusal::Cooling => "not now; try again",
                         };
                         log::info!(
                             "remote: refused a pairing code from {}: {refusal:?}",
+                            self.peer
+                        );
+                        self.failed(ErrorCode::PairingRejected, why)
+                    }
+                }
+            }
+            (Phase::Unauthenticated, ClientMessage::RequestDesktop { name }) => {
+                if !self.shared.remote.desktop.enabled() {
+                    return self.send(&ServerMessage::error(
+                        ErrorCode::Unavailable,
+                        "Full desktop control is off on the host",
+                    ));
+                }
+                self.desktop_pairing = true;
+                let label = format!(
+                    "{}{name} at {}",
+                    crate::desktop::LABEL_PREFIX,
+                    self.peer.ip()
+                );
+                let attempt = self
+                    .shared
+                    .pairing()
+                    .request(label, self.peer.ip(), Instant::now());
+                match attempt {
+                    Ok(id) => {
+                        log::info!(
+                            "remote: {} ({name}) asked for desktop control; waiting for approval",
+                            self.peer
+                        );
+                        self.phase = Phase::Approval(id);
+                        Ok(())
+                    }
+                    Err(refusal) => {
+                        let why = match refusal {
+                            Refusal::Full => "too many devices are waiting for approval",
+                            Refusal::Pending => "this computer is already waiting for approval",
+                            Refusal::Cooling => {
+                                "the host denied this computer a moment ago; try again later"
+                            }
+                            Refusal::NotOpen | Refusal::Wrong(_) | Refusal::Burned => {
+                                "not now; try again"
+                            }
+                        };
+                        log::info!(
+                            "remote: refused a desktop request from {}: {refusal:?}",
                             self.peer
                         );
                         self.failed(ErrorCode::PairingRejected, why)
@@ -1007,7 +1054,8 @@ impl<'a> Session<'a> {
                 | ClientMessage::PairDesktop { .. }
                 | ClientMessage::Authenticate { .. }
                 | ClientMessage::TrustStart { .. }
-                | ClientMessage::TrustProof { .. },
+                | ClientMessage::TrustProof { .. }
+                | ClientMessage::RequestDesktop { .. },
             ) => self.send(&ServerMessage::error(
                 ErrorCode::InvalidRequest,
                 "not now: this connection is past that step",

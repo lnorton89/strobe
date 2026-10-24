@@ -153,6 +153,10 @@ pub struct ServerConfig {
     /// without an approval. `None`, the default, means every pairing
     /// needs the operator.
     pub trust: Option<TrustSecret>,
+    /// Answer LAN discovery (D468) under this name, on
+    /// [`crate::discovery::PORT`] on every interface, while listening.
+    /// `None`, the default (and every test's), answers nothing.
+    pub advertise: Option<String>,
 }
 
 impl ServerConfig {
@@ -163,6 +167,7 @@ impl ServerConfig {
             limits: Limits::default(),
             proxied: None,
             trust: None,
+            advertise: None,
         }
     }
 }
@@ -354,6 +359,8 @@ pub struct Server {
     shared: Arc<Shared>,
     accept: Option<JoinHandle<()>>,
     warning: Option<String>,
+    /// Answers LAN discovery while the listener runs (D468).
+    responder: Option<crate::discovery::Responder>,
 }
 
 impl Server {
@@ -418,11 +425,33 @@ impl Server {
         if let Some(warning) = &warning {
             log::warn!("remote: {warning}");
         }
+        // Discovery is a convenience: without it the address still works
+        // typed by hand, so a port another program (or another Strobe on
+        // this computer) holds is logged, not a failure.
+        let responder = config.advertise.and_then(|name| {
+            let advert = crate::discovery::Advert {
+                id: crate::discovery::instance_id().to_string(),
+                name: crate::discovery::display_name(&name),
+                port: addr.port(),
+            };
+            let bind = SocketAddr::from((std::net::Ipv4Addr::UNSPECIFIED, crate::discovery::PORT));
+            crate::discovery::Responder::start(bind, advert, shared.remote.desktop.clone())
+                .map_err(|error| {
+                    log::warn!("remote: not answering LAN discovery on {bind}: {error}");
+                })
+                .ok()
+        });
         Ok(Self {
             shared,
             accept: Some(accept),
             warning,
+            responder,
         })
+    }
+
+    /// Whether other Strobes on the LAN can find this one (D468).
+    pub fn advertising(&self) -> bool {
+        self.responder.is_some()
     }
 
     /// Whether the host was started with a trust file (D288). Trusted
@@ -553,6 +582,7 @@ impl Server {
             return;
         };
         self.shared.stop.store(true, Ordering::SeqCst);
+        self.responder = None;
         for conn in lock(&self.shared.conns).iter() {
             // The connection is refused either way; a peer that already left
             // needs no shutdown.

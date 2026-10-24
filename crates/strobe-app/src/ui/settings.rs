@@ -190,7 +190,7 @@ struct Entry {
 
 /// Every row search finds, in page order. The Shortcuts page's rows are
 /// the commands, matched from [`CommandId::ALL`] instead.
-const INDEX: [Entry; 26] = [
+const INDEX: [Entry; 25] = [
     Entry {
         page: SettingsPage::Output,
         title: OUTPUT_WINDOW,
@@ -274,7 +274,7 @@ const INDEX: [Entry; 26] = [
     Entry {
         page: SettingsPage::Remote,
         title: super::lan::REMOTE,
-        words: "phone tablet network wifi lan",
+        words: "remote phone tablet network wifi lan advertise",
     },
     Entry {
         page: SettingsPage::Remote,
@@ -294,17 +294,12 @@ const INDEX: [Entry; 26] = [
     Entry {
         page: SettingsPage::Remote,
         title: super::lan::HOST,
-        words: "control another strobe connect",
+        words: "control another strobe connect host address desktop",
     },
     Entry {
         page: SettingsPage::Remote,
         title: super::lan::USE_TRUST,
         words: "venue trust file",
-    },
-    Entry {
-        page: SettingsPage::Remote,
-        title: super::lan::CONNECT,
-        words: "control another strobe desktop",
     },
     Entry {
         page: SettingsPage::Shortcuts,
@@ -581,6 +576,7 @@ fn page_scroll(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mu
                     SettingsPage::Remote => {
                         super::lan::show(ui, theme, &mut model.lan, actions);
                         super::lan::control(ui, theme, &mut model.lan, actions);
+                        super::lan::network(ui, theme, &mut model.lan);
                     }
                     SettingsPage::Shortcuts => keyboard(
                         ui,
