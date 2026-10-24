@@ -400,7 +400,9 @@ fn filter_row(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut
 const SORT_WIDTH: f32 = 128.0;
 const SHOW_WIDTH: f32 = 96.0;
 
-/// "88/88", and what is from Synesthesia (D271).
+/// How many scenes, as a sentence (D474): "229 scenes", "12 of 229 scenes"
+/// while a search or filter narrows them, and what is from Synesthesia
+/// (D271) where there is room.
 fn count_label(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, brief: bool) {
     let shown = model
         .ui
@@ -409,14 +411,20 @@ fn count_label(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, brief: bool)
         .len();
     let total = model.library.entries.len();
     let theirs = model.library.synesthesia_count();
-    let count = if theirs == 0 || brief {
-        format!("{shown}/{total}")
+    let plural = if total == 1 { "scene" } else { "scenes" };
+    let scenes = if shown == total {
+        format!("{total} {plural}")
     } else {
-        format!("{shown}/{total}, {theirs} from Synesthesia")
+        format!("{shown} of {total} {plural}")
+    };
+    let count = if theirs == 0 || brief {
+        scenes
+    } else {
+        format!("{scenes}, {theirs} from Synesthesia")
     };
     let label = ui
         .label(egui::RichText::new(count).color(theme::rgb(theme.text_muted)))
-        .on_hover_text("Scenes shown of scenes in the library");
+        .on_hover_text("Scenes shown, of the scenes in the library");
     if theirs > 0 {
         // Built only while the tooltip shows.
         label.on_hover_ui(|ui| {
@@ -860,12 +868,12 @@ fn card(
     let fill = widgets::selection_fill(ui, theme, id, selected, response.hovered(), theme.raised);
     painter.rect_filled(rect, CornerRadius::same(theme::RADIUS), fill);
 
-    // The picture, or the identity colour and the initial.
+    // The picture, or generated cover art: the scene's two colours and its
+    // initial (D474).
     let picture = Rect::from_min_size(
         rect.min,
         Vec2::new(rect.width(), rect.height() - caption_height()),
     );
-    let colour = widgets::scene_colour(theme, &entry.name);
     let radius = CornerRadius {
         nw: theme::RADIUS,
         ne: theme::RADIUS,
@@ -893,7 +901,26 @@ fn card(
             );
         }
         None => {
-            painter.rect_filled(picture, radius, theme::translucent(colour, 48));
+            let (first, second) = widgets::scene_colours(theme, &entry.name);
+            painter.rect_filled(picture, radius, theme::rgb(theme.app));
+            // A diagonal wash from one colour to the other. Square corners
+            // under the card's rounded ones, inset by the radius at the
+            // top so nothing pokes out.
+            let wash = picture.with_min_y(picture.top() + f32::from(theme::RADIUS));
+            let mut mesh = egui::Mesh::default();
+            let middle = first.lerp(second, 0.5);
+            mesh.colored_vertex(wash.left_top(), theme::translucent(first, 150));
+            mesh.colored_vertex(wash.right_top(), theme::translucent(middle, 90));
+            mesh.colored_vertex(wash.right_bottom(), theme::translucent(second, 150));
+            mesh.colored_vertex(wash.left_bottom(), theme::translucent(middle, 90));
+            mesh.add_triangle(0, 1, 2);
+            mesh.add_triangle(0, 2, 3);
+            painter.add(egui::Shape::mesh(mesh));
+            painter.rect_filled(
+                picture.with_max_y(wash.top()),
+                radius,
+                theme::translucent(first, 150),
+            );
             // The first letter, or failing that the first digit: a
             // library numbered `01-aurora` reads A, not 0.
             let initial: String = entry
@@ -910,7 +937,7 @@ fn card(
                     (picture.height() * 0.4).clamp(14.0, 44.0),
                     egui::FontFamily::Proportional,
                 ),
-                theme::rgb(colour),
+                theme::translucent(theme.text, 210),
             );
         }
     }

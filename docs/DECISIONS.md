@@ -11378,3 +11378,25 @@ LIST pane", "Open LIST", "the MAP pane") names the views instead.
 with the words; the shell's every-size checks; captures at 1600 and 900.
 
 **Would reopen:** a language whose words do not fit 84 points.
+
+### D474: the library's count is a sentence, and a scene with no picture gets generated cover art (2026-10-24)
+
+**Context.** UI review step 7. The library's count read "229/229, 150
+from Synesthesia"; a scene with no picture was a flat tile in a faint
+wash of its identity colour with its initial in that colour, and a row of
+them looked like images that failed to load.
+
+**Decision.** The count reads "229 scenes", "12 of 229 scenes" while a
+search or filter narrows them, with ", 150 from Synesthesia" where there
+is room. A scene with no picture is drawn a diagonal wash between two
+colours from the theme's ramp, both stable for its name
+(`widgets::scene_colours`, the identity colour and a second hashed from
+the same name), with its initial over it in the primary text colour, so
+the same scene looks the same wherever it appears and two neighbours
+rarely match. The filter row is left as it is.
+
+**Test.** The shell's every-size checks over the library scenarios; a
+capture filtered to scenes without pictures.
+
+**Would reopen:** a request for real thumbnails generated from a render,
+which `Use frame as picture` (D222) already does by hand.

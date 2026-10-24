@@ -746,12 +746,29 @@ pub fn truncated(
 /// strip (UI_DESIGN section 19). FNV-1a of the name into the theme's ramp.
 #[must_use]
 pub fn scene_colour(theme: &Palette, name: &str) -> Rgb {
+    theme.series_for(name_hash(name))
+}
+
+/// A scene's two cover colours (D474): its identity colour and a second
+/// one from the same ramp, also stable for the name, for the generated
+/// picture of a scene that has none.
+#[must_use]
+pub fn scene_colours(theme: &Palette, name: &str) -> (Rgb, Rgb) {
+    let hash = name_hash(name);
+    (
+        theme.series_for(hash),
+        theme.series_for(hash.rotate_left(23) ^ 0x9e37_79b9_7f4a_7c15),
+    )
+}
+
+/// FNV-1a of `name`.
+fn name_hash(name: &str) -> u64 {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     for byte in name.bytes() {
         hash ^= u64::from(byte);
         hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
     }
-    theme.series_for(hash)
+    hash
 }
 
 /// A pane's header: icon, title and a close button, over a rule. Anything
