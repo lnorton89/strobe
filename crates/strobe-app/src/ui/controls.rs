@@ -993,7 +993,11 @@ mod tests {
 
     #[test]
     fn a_control_name_reads_as_words_and_keeps_its_letters() {
-        assert_eq!(display_name("vertical_mirror"), "Vertical mirror", "underscores");
+        assert_eq!(
+            display_name("vertical_mirror"),
+            "Vertical mirror",
+            "underscores"
+        );
         assert_eq!(display_name("master"), "Master", "a capital");
         assert_eq!(display_name("hueShift"), "HueShift", "letters kept");
         assert_eq!(display_name(""), "", "empty");
