@@ -221,8 +221,9 @@ capture before and after, at 1600x1000 and at 1280x720.
 | 2. Map | **Done (D467).** Sources, Macros, Activity, OSC, MIDI, in that order; every mapping and macro a setting row with a state chip, its options in an inset card under it. Only seen in tests when open: screenshot mode cannot click, and screen capture reads the GL window as black. |
 | 3. Playlist and Import | **Done (D470).** Native file and folder pickers (`rfd`, off the frame loop) on every path field: playlist, Shadertoy export, watched folder, trust file. Import is a page; Playlist's empty state is a page, its loaded header carries the file commands, and Generate is a form. The selected-cue editor is not rebuilt yet. |
 | 4. Inspector and side panel | **Done (D471).** Readable control names, a die for Random, "Output controls" with "Reset output", the side EDIT tab renamed SCENE. Side tabs kept (not duplicates of the rail). |
-| 5. Title bar | Next. |
-| 6-7 | Not started. |
+| 5. Title bar | **Done (D472).** Frame rate with the GPU meter, output, audio and the remote always; GPU time, render scale and backend only when they need attention, and in the frame rate's tooltip. |
+| 6. Rail | Next. |
+| 7. Library | Not started. |
 
 ## 5. Owner's answers (2026-10-23)
 

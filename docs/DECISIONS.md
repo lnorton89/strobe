@@ -11334,3 +11334,26 @@ neither of which the rail's views replace.
 
 **Would reopen:** scene authors relying on exact-case or underscore names
 being visible (then a per-scene LABEL field).
+
+### D472: the title bar shows what a show needs; the rest appears when it needs attention (2026-10-24)
+
+**Context.** UI review step 5 (S6): the title bar always showed the frame
+rate, GPU time against its budget, the render scale, the GL backend
+(`native (OpenGL 3.3 core)`), audio and output, at small size: six
+diagnostics in the operator's eyeline all show.
+
+**Decision.** Always shown: the frame rate with the GPU meter beside it,
+output, audio, the remote while it listens (with Stop) and a script
+fault. Shown only when they need attention: GPU time once it reaches 85%
+of the frame budget (warn) or passes it (bad); the render scale once it
+is below 100% (adaptive resolution stepped down, or set lower); the
+backend only off the native path (ANGLE or another fallback), in the warn
+colour. The frame rate's tooltip carries all three at any time, and a
+click still opens Diagnostics, which shows them in full.
+
+**Test.** The shell's every-size overflow and text-over-text checks
+across every scenario (their title bars now carry fewer readouts); a
+capture.
+
+**Would reopen:** operators who watch GPU time continuously during a show
+(then a setting to pin it).

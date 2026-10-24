@@ -110,6 +110,13 @@ pub struct Readouts {
     gpu_fraction: f32,
     scale: String,
     backend: String,
+    /// Rendering below full size: the scale readout shows (D472).
+    reduced: bool,
+    /// Not the native GL path (ANGLE, a fallback): the backend shows.
+    fallback: bool,
+    /// The frame rate's tooltip: GPU time, scale and backend, which are
+    /// otherwise shown only when they need attention.
+    summary: String,
     audio: String,
     output: String,
     /// Empty while the scene's script is fine or absent: a script readout
@@ -179,6 +186,12 @@ impl Readouts {
             .next()
             .unwrap_or(model.gl_summary)
             .to_string();
+        self.reduced = perf.scale < 0.995;
+        self.fallback = !self.backend.starts_with("native");
+        self.summary = format!(
+            "Output frame rate. {}, rendering at {}, {}. Click for diagnostics.",
+            self.gpu, self.scale, model.gl_summary
+        );
         self.audio = audio_text(model);
         self.output = output_text(model);
         self.remote.clear();
@@ -606,13 +619,16 @@ fn health(
         model.ui.panes.open(Pane::Inspector);
     }
 
+    // The backend, the scale and the GPU time are shown only when they need
+    // attention (D472); the frame rate's tooltip carries all three.
     if !compact
+        && readouts.fallback
         && readout(
             ui,
             theme,
             Icon::Controls,
             &readouts.backend,
-            Level::Quiet,
+            Level::Warn,
             model.gl_summary,
             true,
         )
@@ -621,16 +637,17 @@ fn health(
         model.ui.panes.open(Pane::Diagnostics);
     }
 
-    if readout(
-        ui,
-        theme,
-        Icon::Fullscreen,
-        &readouts.scale,
-        Level::Quiet,
-        "Render scale. Click to change it in Settings.",
-        text,
-    )
-    .is_some_and(|r| r.clicked())
+    if readouts.reduced
+        && readout(
+            ui,
+            theme,
+            Icon::Fullscreen,
+            &readouts.scale,
+            Level::Quiet,
+            "Rendering below full size. Click to change the render scale in Settings.",
+            text,
+        )
+        .is_some_and(|r| r.clicked())
     {
         model
             .ui
@@ -647,16 +664,17 @@ fn health(
     } else {
         Level::Quiet
     };
-    if readout(
-        ui,
-        theme,
-        Icon::Diagnostics,
-        &readouts.gpu,
-        level,
-        "GPU time against the frame budget. Click for diagnostics.",
-        text,
-    )
-    .is_some_and(|r| r.clicked())
+    if level != Level::Quiet
+        && readout(
+            ui,
+            theme,
+            Icon::Diagnostics,
+            &readouts.gpu,
+            level,
+            "GPU time against the frame budget. Click for diagnostics.",
+            text,
+        )
+        .is_some_and(|r| r.clicked())
     {
         model.ui.panes.open(Pane::Diagnostics);
     }
@@ -670,7 +688,7 @@ fn health(
         Icon::Play,
         &readouts.fps,
         Level::Quiet,
-        "Output frame rate. Click for diagnostics.",
+        &readouts.summary,
         always,
     )
     .is_some_and(|r| r.clicked())
