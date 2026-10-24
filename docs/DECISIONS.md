@@ -11400,3 +11400,25 @@ capture filtered to scenes without pictures.
 
 **Would reopen:** a request for real thumbnails generated from a render,
 which `Use frame as picture` (D222) already does by hand.
+
+### D475: the selected cue's editor is a card of setting rows (2026-10-24)
+
+**Context.** The one part of the Playlist pane D470 left: the selected
+cue's editor was a three-column grid of small muted labels, narrow
+fields, small Set buttons and the inherited value as loose words beside
+them, with the cue commands and the add-after controls in rows under it.
+
+**Decision.** An inset card (`form::inset`): the cue's title in the
+heading step with Up, Down, Duplicate, Disable and Delete beside it; then
+one setting row each for Length (with Inherit when the cue sets its own),
+Transition (kind, length, Set), Preset and Media, whose descriptions say
+what each is now and where that comes from ("Now 2:23, from the
+section."); then Add a scene after (the library's selected scene) and
+Import a shader after. Every edit is the same `CueEdit` as before, shared
+across a multi-selection as before.
+
+**Test.** The shell's every-size overflow and text-over-text checks over
+the cue-selected scenario. Screenshot mode cannot select a cue, so there
+is no capture.
+
+**Would reopen:** cue settings that outgrow a card (then a cue page).

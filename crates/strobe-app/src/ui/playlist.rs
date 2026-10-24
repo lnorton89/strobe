@@ -267,208 +267,202 @@ fn cue_card(
     }
     let mut edits: Vec<CueEdit> = Vec::new();
     let mut problem: Option<String> = None;
-    egui::Frame::new()
-        .fill(theme::rgb(theme.raised))
-        .stroke(egui::Stroke::new(1.0, theme::rgb(theme.border)))
-        .corner_radius(CornerRadius::same(theme::RADIUS))
-        .inner_margin(theme::margin(SPACE_SM))
-        .show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            let title = match model.playlist.ui.also.len() {
-                0 => format!("Cue {}: {}", row.index + 1, row.scene),
-                more => format!(
-                    "Cue {}: {} and {more} more (settings go to all)",
-                    row.index + 1,
-                    row.scene
-                ),
-            };
-            widgets::section(ui, theme, &title);
-            let muted = |text: &str| {
-                egui::RichText::new(text.to_owned())
-                    .small()
-                    .color(theme::rgb(theme.text_muted))
-            };
-            egui::Grid::new("cue-fields")
-                .num_columns(3)
-                .spacing([SPACE_SM, SPACE_XS])
-                .show(ui, |ui| {
-                    ui.label(muted("Length"));
-                    let length = ui.add(
-                        egui::TextEdit::singleline(&mut draft.length)
-                            .hint_text(format!("{} ({})", row.length_label, origin_word(row.origins.duration)))
-                            .desired_width(120.0),
-                    );
-                    let enter = length.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                    ui.horizontal(|ui| {
-                        if ui.small_button("Set").clicked() || enter {
-                            let text = draft.length.trim();
-                            if text.is_empty() {
-                                edits.push(CueEdit::SetDuration(None));
-                            } else {
-                                match strobe_playlist::DurationSpec::parse(text) {
-                                    Ok(spec) => edits.push(CueEdit::SetDuration(Some(spec))),
-                                    Err(error) => problem = Some(format!("Length: {error}")),
-                                }
-                            }
-                        }
-                        if row.origins.duration == strobe_playlist::Origin::Cue
-                            && ui.small_button("Inherit").clicked()
-                        {
-                            edits.push(CueEdit::SetDuration(None));
-                        }
-                        ui.label(muted(origin_word(row.origins.duration)));
-                    });
-                    ui.end_row();
-
-                    ui.label(muted("Transition"));
-                    // A list, not four buttons in a row: the row widened the
-                    // grid past the pane and cut off every Set (U-09).
-                    egui::ComboBox::from_id_salt("cue-transition")
-                        .selected_text(draft.transition.label())
-                        .width(120.0)
-                        .show_ui(ui, |ui| {
-                            for choice in TransitionChoice::ALL {
-                                ui.selectable_value(&mut draft.transition, choice, choice.label());
-                            }
-                        });
-                    ui.end_row();
-                    ui.label("");
-                    ui.add(
-                        egui::TextEdit::singleline(&mut draft.transition_length)
-                            .hint_text("4s")
-                            .desired_width(120.0),
-                    );
-                    ui.horizontal(|ui| {
-                        if ui.small_button("Set").clicked() {
-                            let seconds = || -> Result<strobe_playlist::DurationSpec, String> {
-                                strobe_playlist::DurationSpec::parse(&draft.transition_length)
-                                    .map_err(|e| format!("Transition length: {e}"))
-                            };
-                            let spec = match draft.transition {
-                                TransitionChoice::Inherit => Ok(None),
-                                TransitionChoice::Cut => {
-                                    Ok(Some(strobe_playlist::TransitionSpec::cut()))
-                                }
-                                TransitionChoice::Crossfade => seconds().map(|duration| {
-                                    Some(strobe_playlist::TransitionSpec {
-                                        kind: strobe_playlist::TransitionKind::Crossfade,
-                                        duration,
-                                    })
-                                }),
-                                TransitionChoice::FadeThroughBlack => seconds().map(|duration| {
-                                    Some(strobe_playlist::TransitionSpec {
-                                        kind: strobe_playlist::TransitionKind::FadeThroughBlack,
-                                        duration,
-                                    })
-                                }),
-                            };
-                            match spec {
-                                Ok(spec) => edits.push(CueEdit::SetTransition(spec)),
-                                Err(why) => problem = Some(why),
-                            }
-                        }
-                        ui.label(muted(&format!(
-                            "{} ({})",
-                            row.transition_label,
-                            origin_word(row.origins.transition)
-                        )));
-                    });
-                    ui.end_row();
-
-                    ui.label(muted("Preset"));
-                    ui.add(
-                        egui::TextEdit::singleline(&mut draft.preset)
-                            .hint_text("the scene's own start")
-                            .desired_width(120.0),
-                    );
-                    if ui.small_button("Set").clicked() {
-                        edits.push(CueEdit::SetPreset(Some(draft.preset.clone())));
-                    }
-                    ui.end_row();
-
-                    ui.label(muted("Media"));
-                    ui.add(
-                        egui::TextEdit::singleline(&mut draft.media)
-                            .hint_text("the scene's own")
-                            .desired_width(120.0),
-                    )
-                    .on_hover_text(
-                        "A picture or folder of pictures shown behind syn_Media while this cue \
-                         plays; a relative path is looked for beside the playlist",
-                    );
-                    if ui.small_button("Set").clicked() {
-                        edits.push(CueEdit::SetMedia(Some(draft.media.clone())));
-                    }
-                    ui.end_row();
-                });
-            ui.add_space(SPACE_XS);
+    let title = match model.playlist.ui.also.len() {
+        0 => format!("Cue {}: {}", row.index + 1, row.scene),
+        more => format!(
+            "Cue {}: {} and {more} more (settings go to all)",
+            row.index + 1,
+            row.scene
+        ),
+    };
+    let picked = model
+        .ui
+        .browser
+        .selected
+        .and_then(|index| model.library.entries.get(index))
+        .map(|entry| entry.name.clone());
+    let length_now = format!(
+        "Now {}, {}.",
+        row.length_label,
+        origin_word(row.origins.duration)
+    );
+    let transition_now = format!(
+        "Now {}, {}.",
+        row.transition_label,
+        origin_word(row.origins.transition)
+    );
+    form::inset(ui, theme, |card| {
+        card.block(|ui| {
             ui.horizontal_wrapped(|ui| {
-                for (label, edit, tip) in [
-                    ("Up", CueEdit::MoveUp, "One place earlier in its section"),
-                    ("Down", CueEdit::MoveDown, "One place later in its section"),
-                    ("Duplicate", CueEdit::Duplicate, "A copy straight after it"),
-                    ("Delete", CueEdit::Delete, "Remove this cue (Save to keep the change)"),
-                    (
-                        "Disable",
-                        CueEdit::SetEnabled(false),
-                        "Keep it in the file but skip it; it is listed under Disabled cues",
-                    ),
-                ] {
-                    if widgets::button(ui, theme, None, label).on_hover_text(tip).clicked() {
-                        edits.push(edit);
-                    }
-                }
-                let picked = model
-                    .ui
-                    .browser
-                    .selected
-                    .and_then(|index| model.library.entries.get(index));
-                match picked {
-                    Some(entry) => {
-                        if widgets::button(ui, theme, Some(Icon::Library), &format!("Add {} after", entry.name))
-                            .on_hover_text("A new cue for the scene selected in the browser, straight after this one")
+                ui.label(
+                    egui::RichText::new(&title)
+                        .font(theme::heading_font())
+                        .color(theme::rgb(theme.text)),
+                );
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    for (label, edit, tip) in [
+                        (
+                            "Delete",
+                            CueEdit::Delete,
+                            "Remove this cue (Save to keep the change)",
+                        ),
+                        (
+                            "Disable",
+                            CueEdit::SetEnabled(false),
+                            "Keep it in the file but skip it; it is listed under Disabled cues",
+                        ),
+                        ("Duplicate", CueEdit::Duplicate, "A copy straight after it"),
+                        ("Down", CueEdit::MoveDown, "One place later in its section"),
+                        ("Up", CueEdit::MoveUp, "One place earlier in its section"),
+                    ] {
+                        if widgets::button(ui, theme, None, label)
+                            .on_hover_text(tip)
                             .clicked()
                         {
-                            edits.push(CueEdit::InsertAfter(strobe_playlist::SceneRef::Library(
-                                entry.name.clone(),
-                            )));
+                            edits.push(edit);
                         }
                     }
-                    None => {
-                        ui.label(muted("Select a scene in the browser to add it after this cue."));
+                });
+            });
+        });
+        card.row(Row::new("Length").description(&length_now), |ui| {
+            if row.origins.duration == strobe_playlist::Origin::Cue
+                && widgets::button(ui, theme, None, "Inherit")
+                    .on_hover_text("Take the section's or the playlist's length again")
+                    .clicked()
+            {
+                edits.push(CueEdit::SetDuration(None));
+            }
+            let set = widgets::button(ui, theme, None, "Set").clicked();
+            let length = form::field(ui, theme, &mut draft.length, &row.length_label, 120.0);
+            let enter = length.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            if set || enter {
+                let text = draft.length.trim();
+                if text.is_empty() {
+                    edits.push(CueEdit::SetDuration(None));
+                } else {
+                    match strobe_playlist::DurationSpec::parse(text) {
+                        Ok(spec) => edits.push(CueEdit::SetDuration(Some(spec))),
+                        Err(error) => problem = Some(format!("Length: {error}")),
                     }
                 }
-            });
-            ui.horizontal(|ui| {
-                ui.add(
-                    egui::TextEdit::singleline(&mut draft.shadertoy)
-                        .hint_text("Shadertoy URL or id")
-                        .desired_width(180.0),
-                );
-                let text = draft.shadertoy.trim();
-                if ui
-                    .add_enabled(!text.is_empty(), egui::Button::new("Import after"))
-                    .on_hover_text(
-                        "Import this shader into the library and add it as a cue after this one; \
-                         one already in the library is used as it is",
-                    )
-                    .clicked()
-                {
-                    actions.push(Action::ImportCueAfter {
-                        at,
-                        text: text.to_string(),
-                    });
-                    draft.shadertoy.clear();
-                }
-            });
-            if let Some(why) = &problem {
-                ui.label(
-                    egui::RichText::new(why)
-                        .small()
-                        .color(theme::rgb(theme.danger)),
-                );
             }
         });
+        card.wide_row(Row::new("Transition").description(&transition_now), |ui| {
+            if widgets::button(ui, theme, None, "Set").clicked() {
+                let seconds = || -> Result<strobe_playlist::DurationSpec, String> {
+                    strobe_playlist::DurationSpec::parse(&draft.transition_length)
+                        .map_err(|e| format!("Transition length: {e}"))
+                };
+                let spec = match draft.transition {
+                    TransitionChoice::Inherit => Ok(None),
+                    TransitionChoice::Cut => Ok(Some(strobe_playlist::TransitionSpec::cut())),
+                    TransitionChoice::Crossfade => seconds().map(|duration| {
+                        Some(strobe_playlist::TransitionSpec {
+                            kind: strobe_playlist::TransitionKind::Crossfade,
+                            duration,
+                        })
+                    }),
+                    TransitionChoice::FadeThroughBlack => seconds().map(|duration| {
+                        Some(strobe_playlist::TransitionSpec {
+                            kind: strobe_playlist::TransitionKind::FadeThroughBlack,
+                            duration,
+                        })
+                    }),
+                };
+                match spec {
+                    Ok(spec) => edits.push(CueEdit::SetTransition(spec)),
+                    Err(why) => problem = Some(why),
+                }
+            }
+            form::field(ui, theme, &mut draft.transition_length, "4s", 70.0);
+            // A list, not four buttons in a row: the row widened the
+            // card past the pane and cut off Set (U-09).
+            egui::ComboBox::from_id_salt("cue-transition")
+                .selected_text(draft.transition.label())
+                .width(130.0)
+                .show_ui(ui, |ui| {
+                    for choice in TransitionChoice::ALL {
+                        ui.selectable_value(&mut draft.transition, choice, choice.label());
+                    }
+                });
+        });
+        card.row(
+            Row::new("Preset")
+                .description("The scene starts from this preset; empty is its own start."),
+            |ui| {
+                if widgets::button(ui, theme, None, "Set").clicked() {
+                    edits.push(CueEdit::SetPreset(Some(draft.preset.clone())));
+                }
+                form::field(ui, theme, &mut draft.preset, "the scene's own start", 160.0);
+            },
+        );
+        card.row(
+            Row::new("Media").description(
+                "A picture or folder of pictures behind syn_Media while this cue plays; a \
+                 relative path is looked for beside the playlist.",
+            ),
+            |ui| {
+                if widgets::button(ui, theme, None, "Set").clicked() {
+                    edits.push(CueEdit::SetMedia(Some(draft.media.clone())));
+                }
+                form::field(ui, theme, &mut draft.media, "the scene's own", 160.0);
+            },
+        );
+        let after = match &picked {
+            Some(name) => format!("Adds {name}, the scene selected in the library."),
+            None => "Select a scene in the library to add it after this cue.".to_string(),
+        };
+        card.row(Row::new("Add a scene after").description(&after), |ui| {
+            let add = ui
+                .add_enabled_ui(picked.is_some(), |ui| {
+                    widgets::button(ui, theme, Some(Icon::Library), "Add after")
+                })
+                .inner;
+            if add.clicked()
+                && let Some(name) = &picked
+            {
+                edits.push(CueEdit::InsertAfter(strobe_playlist::SceneRef::Library(
+                    name.clone(),
+                )));
+            }
+        });
+        card.wide_row(
+            Row::new("Import a shader after").description(
+                "Imported into the library and added as a cue after this one; one already in \
+                 the library is used as it is.",
+            ),
+            |ui| {
+                let text = draft.shadertoy.trim().to_string();
+                let import = ui
+                    .add_enabled_ui(!text.is_empty(), |ui| {
+                        widgets::button(ui, theme, Some(Icon::Import), "Import after")
+                    })
+                    .inner;
+                if import.clicked() {
+                    actions.push(Action::ImportCueAfter { at, text });
+                    draft.shadertoy.clear();
+                }
+                let width = ui.available_size_before_wrap().x;
+                form::field(
+                    ui,
+                    theme,
+                    &mut draft.shadertoy,
+                    "Shadertoy URL or id",
+                    width,
+                );
+            },
+        );
+        if let Some(why) = &problem {
+            card.block(|ui| {
+                ui.label(
+                    egui::RichText::new(why)
+                        .font(theme::description_font())
+                        .color(theme::rgb(theme.danger)),
+                );
+            });
+        }
+    });
     let also: Vec<At> = model
         .playlist
         .ui
