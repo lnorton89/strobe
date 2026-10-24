@@ -32,7 +32,8 @@
 //!
 //! - Foundations, ported from rustaman (D5): [`theme`] (the palette as egui
 //!   `Visuals` and the spacing scale), [`motion`], [`icon`], [`widgets`],
-//!   [`modal`].
+//!   [`modal`], [`fonts`] (the system typefaces) and [`form`] (the layout
+//!   grammar of a page of settings: page, group card, setting row).
 //! - The shell: [`shell`] composes [`chrome`] (title bar, readouts, rail,
 //!   resize handles), the main view, [`side`] (the persistent panel:
 //!   preview, status strip and icon tabs), [`help`] (the bar along the
@@ -62,6 +63,8 @@ pub mod command_palette;
 pub mod controls;
 pub mod diagnostics;
 pub mod editor;
+pub mod fonts;
+pub mod form;
 pub mod help;
 pub mod host;
 pub mod icon;
@@ -106,7 +109,7 @@ mod tests {
     /// is where colours are made. `motion` is not here either: it is the
     /// one module allowed to animate. `icon` holds the painting of the
     /// geometry and `state` has no drawing at all.
-    const DRAWING_MODULES: [(&str, &str); 23] = [
+    const DRAWING_MODULES: [(&str, &str); 24] = [
         ("tags", include_str!("tags.rs")),
         ("audio", include_str!("audio.rs")),
         ("browser", include_str!("browser.rs")),
@@ -122,6 +125,7 @@ mod tests {
         ("playlist", include_str!("playlist.rs")),
         ("presets", include_str!("presets.rs")),
         ("settings", include_str!("settings.rs")),
+        ("form", include_str!("form.rs")),
         ("shell", include_str!("shell.rs")),
         ("side", include_str!("side.rs")),
         ("help", include_str!("help.rs")),

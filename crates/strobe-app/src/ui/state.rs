@@ -288,6 +288,8 @@ pub struct UiState {
     pub remote: crate::prefs::RemotePref,
     /// The Settings pane's layout name field. Not saved.
     pub layout_name: String,
+    /// The Settings pane's page and search. Not saved: it opens on Output.
+    pub settings: super::settings::SettingsUi,
     theme_id: String,
     reduced_motion: bool,
     catalog: Catalog,
@@ -388,6 +390,7 @@ impl UiState {
             },
             remote: prefs.remote.clone(),
             layout_name: String::new(),
+            settings: super::settings::SettingsUi::default(),
             last_scene: prefs.last_scene.clone(),
             theme_id: prefs.theme.clone(),
             reduced_motion: prefs.reduced_motion,
@@ -436,17 +439,33 @@ impl UiState {
         prefs
     }
 
-    /// Opens the named panes, for `--open-pane`. Unknown names are returned
+    /// Opens the named panes, for `--open-pane`. `settings:<page>` opens
+    /// Settings on that page (`settings:audio`). Unknown names are returned
     /// so the caller can say so.
     pub fn open_named(&mut self, names: &[String]) -> Vec<String> {
         let mut unknown = Vec::new();
         for name in names {
+            if let Some(page) = name.strip_prefix("settings:") {
+                match super::settings::SettingsPage::from_key(page) {
+                    Some(page) => self.open_settings(page),
+                    None => unknown.push(name.clone()),
+                }
+                continue;
+            }
             match Pane::from_key(name) {
                 Some(pane) => self.panes.open(pane),
                 None => unknown.push(name.clone()),
             }
         }
         unknown
+    }
+
+    /// Opens Settings on `page`: a title-bar readout opens the page that
+    /// answers it, not whichever page was up last.
+    pub fn open_settings(&mut self, page: super::settings::SettingsPage) {
+        self.settings.page = page;
+        self.settings.query.clear();
+        self.panes.open(Pane::Settings);
     }
 
     /// The theme catalog.

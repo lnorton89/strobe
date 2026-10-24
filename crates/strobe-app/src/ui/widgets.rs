@@ -467,6 +467,9 @@ pub fn primary_button(ui: &mut Ui, theme: &Palette, label: &str) -> Response {
     response.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
+/// The height of a [`button`].
+pub const BUTTON_HEIGHT: f32 = 26.0;
+
 /// A secondary button: raised surface, outlined, an optional leading icon.
 pub fn button(ui: &mut Ui, theme: &Palette, icon: Option<Icon>, label: &str) -> Response {
     let font = TextStyle::Button.resolve(ui.style());
@@ -478,7 +481,7 @@ pub fn button(ui: &mut Ui, theme: &Palette, icon: Option<Icon>, label: &str) -> 
     } else {
         0.0
     };
-    let size = Vec2::new(galley.size().x + lead + SPACE_MD * 2.0, 26.0);
+    let size = Vec2::new(galley.size().x + lead + SPACE_MD * 2.0, BUTTON_HEIGHT);
     let (rect, response) = ui.allocate_exact_size(size, Sense::click());
     let fill = hover_fill(
         ui,
@@ -764,14 +767,16 @@ pub fn section_rule(ui: &mut Ui, theme: &Palette) {
     );
 }
 
-/// A small-caps section heading with its rule.
+/// A section heading: the type scale's heading step, in the primary text
+/// colour. It was 10.5 pt muted capitals, smaller and fainter than the
+/// labels under it, so nothing on a page outranked anything else (UI
+/// review S1).
 pub fn section(ui: &mut Ui, theme: &Palette, title: &str) {
-    ui.add_space(SPACE_XS);
+    ui.add_space(SPACE_SM);
     ui.label(
-        egui::RichText::new(title.to_uppercase())
-            .size(10.5)
-            .strong()
-            .color(theme::rgb(theme.text_muted)),
+        egui::RichText::new(title)
+            .font(theme::heading_font())
+            .color(theme::rgb(theme.text)),
     );
     ui.add_space(SPACE_XS);
 }
@@ -934,6 +939,10 @@ pub fn banner(
                     if let Some(buttons) = buttons.take() {
                         buttons(ui);
                     }
+                    // The message takes all the room the buttons leave and
+                    // starts at its left, beside the tone word. Sized to
+                    // the text, a right-to-left row put it against the
+                    // buttons at the far edge (UI review S11).
                     let width = ui.available_width();
                     let galley = truncated(
                         ui,
@@ -942,10 +951,8 @@ pub fn banner(
                         theme.text,
                         width,
                     );
-                    let (rect, response) = ui.allocate_exact_size(
-                        Vec2::new(width.min(galley.size().x), galley.size().y),
-                        Sense::hover(),
-                    );
+                    let (rect, response) =
+                        ui.allocate_exact_size(Vec2::new(width, galley.size().y), Sense::hover());
                     ui.painter()
                         .galley(rect.left_top(), galley, theme::rgb(theme.text));
                     response.on_hover_text(message);

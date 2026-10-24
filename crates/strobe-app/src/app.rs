@@ -4018,7 +4018,8 @@ impl Running {
                             self.desktop_controller.note()
                         );
                         self.desktop_controller.reveal_form();
-                        self.ui_state.panes.open(Pane::Settings);
+                        self.ui_state
+                            .open_settings(crate::ui::settings::SettingsPage::Remote);
                     }
                 }
                 Action::DisconnectDesktop => {
@@ -4030,7 +4031,8 @@ impl Running {
                     self.desktop_controller.disconnect();
                     self.next_control = Instant::now();
                     self.desktop_controller.reveal_form();
-                    self.ui_state.panes.open(Pane::Settings);
+                    self.ui_state
+                        .open_settings(crate::ui::settings::SettingsPage::Remote);
                 }
                 Action::CloseRemotePairing => self.lan.close_pairing(),
                 Action::DecideRemotePairing { id, approve } => self.lan.decide(id, approve),

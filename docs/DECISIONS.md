@@ -11044,3 +11044,71 @@ lower-cased path: the second build compiles nothing.
 **Would reopen:** crash reports showing a clean flag on builds that were
 dirty often enough to matter; the fix then is a runtime check, not a
 broader watch.
+
+### D465: the control window draws in the system's Segoe UI where Windows has it (2026-10-23)
+
+**Context.** egui ships one proportional face, Ubuntu Light, in a single
+thin weight. A heading could only ever be bigger than the text under it,
+never heavier, and the whole window read light and unfinished (UI review
+S1). Bundling a typeface means shipping its files and its licence;
+downloading one at run time is out of the question for a show machine.
+
+**Decision.** `ui::fonts::install` reads `segoeui.ttf`, `seguisb.ttf`
+(semibold) and `consola.ttf` from `%WINDIR%\Fonts` once, when the egui
+host is built, and puts them in front of egui's own faces, which stay as
+the fallback for glyphs Segoe lacks. A `strong` family carries the
+semibold face; `fonts::strong` returns it only after a successful install,
+so no caller can name a family the context lacks. Where the files are
+missing (macOS, Linux, a stripped Windows image) nothing changes: egui's
+faces and the proportional family. Nothing is bundled or downloaded. Tests
+never install, so their text metrics are egui's on every machine.
+
+**Test.** `fonts::tests::without_an_install_strong_text_uses_a_family_every_context_has`;
+the `--screenshot` captures of Settings show Segoe UI regular and semibold.
+
+**Would reopen:** a Linux or macOS release, which would want the system UI
+face there too (or a bundled one with its licence).
+
+### D466: Settings is a category list with search, built from one form grammar (2026-10-23)
+
+**Context.** Settings was one undivided scroll of eleven sections: labels
+with their controls on the next line, full-width sliders, help text as
+loose grey paragraphs, `Off` lines orphaned under switches, section
+headings smaller and fainter than the labels under them (UI review S1-S10,
+the owner's capture). The owner chose a page with a category list and
+search over a separate window, and toggles and fields that look like
+modern settings pages.
+
+**Decision.** A layout grammar, `ui::form`, that every page of settings is
+built from: `page` (a title and a line, in a column no wider than 760
+points), `group` (a semibold heading over a card, rows divided by
+hairlines), `Group::row` (title, status chip and description on the left,
+the control right-aligned in a fixed column that wraps rather than spill;
+below 460 points the control drops under the words), `Group::toggle` (a
+switch, and a click anywhere on the row flips it), `Group::block`, and the
+controls `toggle`, `field` (outlined, a placeholder fainter than any
+value) and `slider`. A disabled row says why in its own words.
+`theme` gains the type scale (title 20, heading 15, description 12, a
+step smaller at Compact) and `row_pad`; egui's field outline is
+`border_strong`; `widgets::section` uses the heading step in the primary
+text colour, which every other pane's headings pick up; `widgets::banner`
+lays its message out from the left.
+
+Settings has seven pages (Output, Audio, Appearance, Library, Remote,
+Shortcuts, About) in a list beside the page, or a picker over it below
+620 points. Search matches every row's title and a few words (`INDEX`,
+built from the same constants the rows draw) and every command, and a
+result opens its page and lights the row. Title-bar readouts open the page
+that answers them; the connect form's reveal opens Remote. A shortcut
+capture lasts only while Shortcuts is up. `--open-pane settings:<page>`
+opens one page, for screenshots.
+
+**Test.** `form::tests` (a wide row puts its control right of its words, a
+narrow one under them, a click on a toggle row's words flips it),
+`settings::tests` (search by title, word, command and case; pages by
+key), `shell_tests::every_row_settings_search_finds_is_drawn_on_its_page`,
+and the existing every-size overflow and text-over-text checks across the
+Settings scenarios.
+
+**Would reopen:** an operator who expects Settings to keep its scroll
+position per page across launches, or a page that outgrows one column.

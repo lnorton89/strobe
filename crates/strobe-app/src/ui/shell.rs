@@ -99,14 +99,16 @@ pub const HANDLE: f32 = 28.0;
 const BANNER_SHARE: f32 = 0.5;
 
 /// Ends a key capture whose field will not be drawn this frame: Settings
-/// closed (or hidden behind another main pane) while a shortcut waited for
-/// its key, or MAP closed or its macro deselected while a macro's key did.
+/// closed (hidden behind another main pane, or turned to a page other than
+/// Shortcuts) while a shortcut waited for its key, or MAP closed or its macro deselected while a macro's key did.
 /// Only the field reads the key that ends a capture, and a capture owns the
 /// keyboard, so one left waiting would turn every shortcut off unseen
 /// (D350).
 fn drop_unseen_captures(model: &mut Model<'_>) {
     let main = model.ui.panes.shown_in(workspace::Dock::Main);
-    if main != Some(Pane::Settings) {
+    if main != Some(Pane::Settings)
+        || model.ui.settings.page != super::settings::SettingsPage::Shortcuts
+    {
         model.ui.hotkeys.capturing = None;
     }
     let map = &mut *model.remote.ui;

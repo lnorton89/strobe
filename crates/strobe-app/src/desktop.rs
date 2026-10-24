@@ -851,6 +851,12 @@ impl Controller {
         self.reveal = true;
     }
 
+    /// Whether [`Self::reveal_form`] asked and the form has not been shown
+    /// since: Settings turns to the page the form is on.
+    pub fn reveal_pending(&self) -> bool {
+        self.reveal
+    }
+
     /// Takes the request [`Self::reveal_form`] made, once.
     pub fn take_reveal(&mut self) -> bool {
         std::mem::take(&mut self.reveal)

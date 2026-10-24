@@ -158,6 +158,9 @@ struct Scenario {
     library_page: crate::ui::browser::LibraryPage,
     /// The library card with keyboard focus, by library index (D291).
     focus_card: Option<usize>,
+    /// The Settings page, where the scenario's other state does not decide
+    /// it.
+    settings_page: Option<crate::ui::settings::SettingsPage>,
 }
 
 const BASE: Scenario = Scenario {
@@ -203,6 +206,7 @@ const BASE: Scenario = Scenario {
     panes: &[Pane::Inspector, Pane::Browser],
     library_page: crate::ui::browser::LibraryPage::Scenes,
     focus_card: None,
+    settings_page: None,
 };
 
 fn scenarios() -> Vec<Scenario> {
@@ -1000,6 +1004,18 @@ fn draw_events(
         ui_state.panes.open(*pane);
     }
     ui_state.hotkeys.capturing = scenario.capturing;
+    // Settings shows one page: the one the scenario's state is on.
+    ui_state.settings.page = if let Some(page) = scenario.settings_page {
+        page
+    } else if scenario.capturing.is_some() || scenario.clash {
+        crate::ui::settings::SettingsPage::Shortcuts
+    } else if scenario.watch.is_some() {
+        crate::ui::settings::SettingsPage::Library
+    } else if scenario.lan {
+        crate::ui::settings::SettingsPage::Remote
+    } else {
+        crate::ui::settings::SettingsPage::Output
+    };
     ui_state.side_tab = scenario.side_tab;
     ui_state.library_page = scenario.library_page;
     ui_state.browser.cards = scenario.cards;
@@ -2140,6 +2156,33 @@ fn the_connect_form_offers_a_trust_file_in_place_of_the_code() -> Result<()> {
             .any(|line| line.contains("--remote-trust") || line.contains("never its contents")),
         "on: says what the host needs and what is remembered: {trust:?}"
     );
+    Ok(())
+}
+
+#[test]
+fn every_row_settings_search_finds_is_drawn_on_its_page() -> Result<()> {
+    use crate::ui::settings::SettingsPage;
+    for page in SettingsPage::ALL {
+        // The remote on, so its pairing rows exist; tall, so no row is
+        // scrolled out of sight.
+        let scenario = Scenario {
+            lan: true,
+            settings_page: Some(page),
+            panes: &[Pane::Settings],
+            ..BASE
+        };
+        let drawn = draw(scenario, (1600.0, 3200.0), 4)?;
+        let lines: Vec<String> = texts(&drawn)
+            .into_iter()
+            .map(|(_, line, _)| line.trim().to_string())
+            .collect();
+        for (_, title) in crate::ui::settings::tests::indexed().filter(|(on, _)| *on == page) {
+            assert!(
+                lines.iter().any(|line| line == title),
+                "{page:?} lists {title:?} in search but does not draw it: {lines:?}"
+            );
+        }
+    }
     Ok(())
 }
 

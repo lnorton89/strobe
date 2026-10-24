@@ -540,7 +540,9 @@ fn health(
         )
         .is_some_and(|r| r.clicked())
         {
-            model.ui.panes.open(Pane::Settings);
+            model
+                .ui
+                .open_settings(super::settings::SettingsPage::Remote);
         }
     }
 
@@ -560,7 +562,9 @@ fn health(
     )
     .is_some_and(|r| r.clicked())
     {
-        model.ui.panes.open(Pane::Settings);
+        model
+            .ui
+            .open_settings(super::settings::SettingsPage::Output);
     }
 
     let audio_tip = if model.audio.live {
@@ -584,7 +588,7 @@ fn health(
     )
     .is_some_and(|r| r.clicked())
     {
-        model.ui.panes.open(Pane::Settings);
+        model.ui.open_settings(super::settings::SettingsPage::Audio);
     }
 
     if !readouts.script.is_empty()
@@ -628,7 +632,9 @@ fn health(
     )
     .is_some_and(|r| r.clicked())
     {
-        model.ui.panes.open(Pane::Settings);
+        model
+            .ui
+            .open_settings(super::settings::SettingsPage::Output);
     }
 
     // GPU time against its budget, tinted along the heat scale.
