@@ -11014,3 +11014,33 @@ whole path.
 
 **Would reopen:** resolving a relative path against the executable's folder
 instead, if launchers turn out to rely on that.
+
+### D464: build scripts watch only what moves with a build (2026-10-23)
+
+**Context.** `cargo run --release -p strobe-app`, closed and run again
+with nothing edited, spent about twelve minutes "Compiling" (fat LTO,
+one codegen unit, so any rebuild of the app is a whole-program link).
+Cargo's fingerprint log named two causes. `strobe-diag/build.rs` watched
+`.git/index`, which git rewrites whenever anything refreshes its stat
+cache (an editor, a desktop git pane, a plain `git status`); the index was
+0.15 s newer than the script's output, so the script reran, `strobe-diag`
+rebuilt, and everything above it relinked. `strobe-app/build.rs` named the
+icon by an absolute path built from `CARGO_MANIFEST_DIR`, whose spelling
+follows the shell (`documents\dev` from one terminal, `Documents\Dev` from
+another); cargo read the different string as a changed rerun set.
+
+**Decision.** `strobe-diag` watches `HEAD` and its reflog `logs/HEAD`
+(a line on every commit, checkout, reset, merge or rebase), each only if
+it exists, since cargo treats a missing path as always changed; its own
+`git status` runs with `--no-optional-locks` so it never rewrites the
+index. `strobe-app` names the icon relative to the package. The dirty
+flag still lags an edit made after `strobe-diag` was last built, as
+`buildinfo` already said; a commit still refreshes the hash.
+
+**Test.** A release build, then `git status`, `git update-index
+--really-refresh`, `touch .git/index`, and a release build from a
+lower-cased path: the second build compiles nothing.
+
+**Would reopen:** crash reports showing a clean flag on builds that were
+dirty often enough to matter; the fix then is a runtime check, not a
+broader watch.

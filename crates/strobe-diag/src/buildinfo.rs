@@ -14,7 +14,7 @@
 //! exposes them as constants and as one summary line.
 //!
 //! The values are fixed when `strobe-diag` is compiled. Cargo rebuilds the
-//! crate when `HEAD` or the index changes, so they track commits, but a
+//! crate when `HEAD` or its reflog changes, so they track commits, but a
 //! dirty flag can lag behind an edit made after the last build of this
 //! crate. Release builds from a clean checkout are exact.
 
