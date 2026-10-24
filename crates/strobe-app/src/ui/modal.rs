@@ -79,12 +79,12 @@ impl Confirmation {
 /// Draws the card for `question` over a scrim. Returns the answer once given:
 /// `Some(true)` to confirm, `Some(false)` to cancel.
 pub fn draw(ctx: &egui::Context, theme: &Palette, question: &Confirmation) -> Option<bool> {
-    let progress = motion::transition(ctx, egui::Id::new("modal-card"), true, motion::QUICK);
+    let progress = motion::transition(ctx, egui::Id::unique("modal-card"), true, motion::QUICK);
     let screen = ctx.content_rect();
     // Painted on a foreground layer so it covers every panel.
     let painter = ctx.layer_painter(egui::LayerId::new(
         egui::Order::Foreground,
-        egui::Id::new("modal"),
+        egui::Id::unique("modal"),
     ));
     let scrim_alpha = (f32::from(SCRIM_ALPHA) * progress) as u8;
     painter.rect_filled(
@@ -96,7 +96,7 @@ pub fn draw(ctx: &egui::Context, theme: &Palette, question: &Confirmation) -> Op
     let mut answer = None;
     // An `Area` rather than a `Window`: no title bar, no move handle, no
     // close button, and it cannot be left open behind the main window.
-    egui::Area::new(egui::Id::new("modal-card"))
+    egui::Area::new(egui::Id::unique("modal-card"))
         .order(egui::Order::Foreground)
         .anchor(
             Align2::CENTER_CENTER,
@@ -132,7 +132,7 @@ pub fn draw(ctx: &egui::Context, theme: &Palette, question: &Confirmation) -> Op
 
     // The scrim swallows clicks so a click that misses the card does not
     // reach the pane behind it.
-    egui::Area::new(egui::Id::new("modal-scrim"))
+    egui::Area::new(egui::Id::unique("modal-scrim"))
         .order(egui::Order::Middle)
         .fixed_pos(screen.min)
         .show(ctx, |ui| {

@@ -194,7 +194,7 @@ pub fn preview_in(
     } else {
         "preview-surface"
     };
-    let response = ui.interact(area, egui::Id::new(surface), Sense::click());
+    let response = ui.interact(area, egui::Id::unique(surface), Sense::click());
     if response.clicked() {
         ui.ctx().memory_mut(|m| {
             if let Some(id) = m.focused() {

@@ -158,7 +158,7 @@ pub fn nav_item(
     let (rect, response) = ui.allocate_exact_size(Vec2::new(width, height), sense);
     let painter = ui.painter();
 
-    let id = egui::Id::new(("nav", label));
+    let id = egui::Id::unique(("nav", label));
     let fill = selection_fill(
         ui,
         theme,
@@ -330,8 +330,7 @@ pub fn tool_button_fitted(
         galley,
         theme::rgb(colour),
     );
-    response
-        .widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, active, label));
+    response.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, active, label));
     if labelled || !response.hovered() {
         super::help::hovered(response, tooltip)
     } else {
@@ -552,7 +551,7 @@ pub fn segmented(
             Vec2::new(cell, HEIGHT),
         )
         .shrink(2.0);
-        let response = ui.interact(rect, egui::Id::new((id, index)), Sense::click());
+        let response = ui.interact(rect, egui::Id::unique((id, index)), Sense::click());
         let on = index == active;
         let fill = if on {
             theme::rgb(theme.accent)

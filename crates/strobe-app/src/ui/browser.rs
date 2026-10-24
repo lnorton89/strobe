@@ -341,7 +341,7 @@ fn filter_row(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut
     /// Below this width the row is two rows.
     const TWO_ROWS: f32 = 560.0;
     let two_rows = ui.available_width() < TWO_ROWS;
-    let id = egui::Id::new(SEARCH_ID);
+    let id = egui::Id::unique(SEARCH_ID);
     // Whether the field had focus when the frame began: Esc is its own
     // business while it does (clear first, then leave).
     let had_focus = ui.ctx().memory(|m| m.has_focus(id));
@@ -437,7 +437,7 @@ fn search_field(
     had_focus: bool,
     width: f32,
 ) -> egui::Response {
-    let id = egui::Id::new(SEARCH_ID);
+    let id = egui::Id::unique(SEARCH_ID);
     let size = Vec2::new(width.max(80.0), 28.0);
     let response = ui
         .allocate_ui_with_layout(size, Layout::left_to_right(Align::Center), |ui| {
@@ -802,7 +802,7 @@ pub fn drag_label(ctx: &egui::Context, theme: &Palette) {
     let Some(pointer) = ctx.pointer_latest_pos() else {
         return;
     };
-    egui::Area::new(egui::Id::new("library-drag"))
+    egui::Area::new(egui::Id::unique("library-drag"))
         .order(egui::Order::Tooltip)
         .fixed_pos(pointer + Vec2::new(12.0, 8.0))
         .interactable(false)
@@ -849,7 +849,7 @@ fn card(
     let loading = model.loading == Some(entry.name.as_str());
     // By name and folder: a name in both the library and Synesthesia's
     // install is two cards (D271).
-    let id = egui::Id::new(("scene-card", &entry.name, entry.dir.as_path()));
+    let id = egui::Id::unique(("scene-card", &entry.name, entry.dir.as_path()));
 
     let response = ui.interact(rect, id, Sense::click_and_drag());
     // A card dragged to the LIST view becomes a cue there (D224).
