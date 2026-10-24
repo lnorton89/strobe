@@ -11014,3 +11014,38 @@ whole path.
 
 **Would reopen:** resolving a relative path against the executable's folder
 instead, if launchers turn out to rely on that.
+
+### D464: the website is a static Next.js export in `site/`, adapted from the Cinnabar site (2026-10-24)
+
+**Context.** Strobe needs a public website. The owner asked for the Cinnabar
+project's site (`bonzupii/cinnabar`, `site/`, Apache-2.0) as the base,
+re-themed to Strobe's brand. That site is Next.js 16 with Tailwind 4, exported
+as static files, with its copy in per-route `content.md` files, the
+repository's own documents rendered at build time, a contrast-checked palette
+and a Playwright suite (axe, layout, theme, motion).
+
+**Decision.** `site/` holds the website, outside the Cargo workspace. It keeps
+the Cinnabar site's structure, components and tests and drops what was
+Cinnabar's own (the in-browser compiler playground, the language pages, the
+syntax highlighter, the easter egg). It is themed from `docs/branding.md`:
+Void/Panel/Border with cyan as the active accent, the gradient kept for the
+ribbon and a few compact rules, Space Grotesk, Inter and JetBrains Mono, the
+ribbon drawn from `icon.svg`'s path data (the small-size form below 32 px).
+Nothing about Strobe is written twice: the guide, compatibility, architecture
+and roadmap pages render the `docs/` files; the scenes page reads
+`scenes/*/scene.json`; screenshots, thumbnails and icons are copied from the
+repository at build time into a git-ignored folder (thumbnails re-encoded to
+640 px WebP, since some are 600 kB PNGs shown 300 px wide). Dark is the
+default; the light theme moves the text accent to a deep cyan because brand
+cyan is 1.4:1 on a light ground. The Apache-2.0 licence and attribution are
+kept in `site/LICENSE-APACHE` and `site/README.md`.
+
+**Test.** `site/`: `npm run lint`, `npm run typecheck`, `npm test` (vitest:
+every text/surface pair in both themes against WCAG AA, link rewriting, the
+scene reader) and `npm run test:e2e` (Playwright on the built export: axe on
+every page in both themes, no horizontal overflow at 390 px, focus traps,
+window chrome, the activity feed's failure modes). Not yet in CI.
+
+**Would reopen:** a hosting choice that is not a static host (Netlify is what
+`netlify.toml` describes, but nothing depends on it), or the docs growing
+past what one rendered page per document can carry.
