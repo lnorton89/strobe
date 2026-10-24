@@ -11112,3 +11112,37 @@ Settings scenarios.
 
 **Would reopen:** an operator who expects Settings to keep its scroll
 position per page across launches, or a page that outgrows one column.
+
+### D467: Mappings is built from the form grammar, what a show uses first (2026-10-23)
+
+**Context.** The Mappings pane (UI review step 2) was a column of bare
+checkboxes and unlabelled number fields under Connections, prose for
+Activity and Macros, and mapping and macro cards whose options opened on
+a click on the name, with small muted labels and drag values in loose
+rows. Connections, set up once, came first; the mappings and macros a
+show reaches for were below the fold.
+
+**Decision.** The pane is a `form::page` in the order of use: Sources
+(Add a mapping, search, one row per mapping), Macros, Activity, then OSC
+and MIDI. Each mapping and macro is a setting row: its source or name as
+the title, its state as a status chip, its target (and a macro's sources)
+as the description, the reason it is unavailable as a note, and on the
+right a disclosure button, the enabled switch or Pin, Learn and delete.
+Its options open under the row in `form::inset`, a card a step darker,
+never nested deeper; the add form opens the same way. OSC and MIDI
+settings are toggle and field rows, with each status in its row (the
+listening address as a chip, a device's state on its own switch row). The
+group of mappings is headed Sources because the page is titled Mappings.
+`widgets::keycap` is shared with Settings' Shortcuts for a macro's key.
+Every behaviour is as before: learn, conflicts, key capture, the port and
+host fields that resync when they lose the focus, edits in place.
+
+**Test.** `shell_tests::the_mappings_pane_opens_a_macros_and_a_mappings_options_under_their_rows`
+and a scenario with them open, under the every-size overflow and
+text-over-text checks; the three existing Map scenarios under the same
+checks; `--screenshot` captures before and after with a show file of six
+mappings and three macros.
+
+**Would reopen:** a set of mappings long enough that the connections
+need to be reachable without scrolling past it (a tab or a collapsed
+group).

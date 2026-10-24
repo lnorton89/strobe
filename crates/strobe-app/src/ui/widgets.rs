@@ -614,6 +614,24 @@ pub fn segmented(
     clicked
 }
 
+/// A key, drawn as a key cap: outlined, in the monospace face, in `colour`.
+/// A shortcut in Settings, a macro's key in Mappings.
+pub fn keycap(ui: &mut Ui, theme: &Palette, text: &str, colour: Rgb) -> Response {
+    egui::Frame::new()
+        .fill(theme::rgb(theme.app))
+        .stroke(Stroke::new(1.0, theme::rgb(theme.border_strong)))
+        .corner_radius(CornerRadius::same(RADIUS))
+        .inner_margin(theme::margin_xy(SPACE_SM, SPACE_XS / 2.0))
+        .show(ui, |ui| {
+            ui.label(
+                egui::RichText::new(text)
+                    .monospace()
+                    .color(theme::rgb(colour)),
+            );
+        })
+        .response
+}
+
 /// A small labelled pill: a count, a source badge.
 pub fn chip(ui: &mut Ui, text: &str, fill: Rgb, text_color: Rgb) -> Response {
     let font = TextStyle::Small.resolve(ui.style());

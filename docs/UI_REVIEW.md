@@ -218,8 +218,9 @@ capture before and after, at 1600x1000 and at 1280x720.
 |---|---|
 | Foundations | **Done (D465, D466).** Segoe UI regular and semibold from the system (D465); the type scale in `theme`; `ui::form` (page, group card, setting row, toggle switch, field, slider); field outlines in `border_strong`; `widgets::section` on the heading step; the banner's message laid out from the left. |
 | 1. Settings | **Done (D466).** Seven pages in a category list with search; every row in the form grammar; title-bar readouts open their page. Not yet: Browse buttons for the watched folder and the trust file, which come with `rfd` in step 3. |
-| 2. Map | Next. Its headings already use the new step; its rows do not. |
-| 3-7 | Not started. |
+| 2. Map | **Done (D467).** Sources, Macros, Activity, OSC, MIDI, in that order; every mapping and macro a setting row with a state chip, its options in an inset card under it. Only seen in tests when open: screenshot mode cannot click, and screen capture reads the GL window as black. |
+| 3. Playlist and Import | Next, with `rfd` for the file and folder pickers. |
+| 4-7 | Not started. |
 
 ## 5. Owner's answers (2026-10-23)
 

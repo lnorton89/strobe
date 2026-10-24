@@ -161,6 +161,9 @@ struct Scenario {
     /// The Settings page, where the scenario's other state does not decide
     /// it.
     settings_page: Option<crate::ui::settings::SettingsPage>,
+    /// The MAP pane has the first macro's options, the first mapping's
+    /// options and the add form open (D467).
+    map_open: bool,
 }
 
 const BASE: Scenario = Scenario {
@@ -207,6 +210,7 @@ const BASE: Scenario = Scenario {
     library_page: crate::ui::browser::LibraryPage::Scenes,
     focus_card: None,
     settings_page: None,
+    map_open: false,
 };
 
 fn scenarios() -> Vec<Scenario> {
@@ -563,6 +567,13 @@ fn scenarios() -> Vec<Scenario> {
         Scenario {
             name: "mappings pane with every state",
             mapped: true,
+            panes: &[Pane::Map],
+            ..BASE
+        },
+        Scenario {
+            name: "mappings pane with a macro, a mapping and the add form open",
+            mapped: true,
+            map_open: true,
             panes: &[Pane::Map],
             ..BASE
         },
@@ -1114,6 +1125,12 @@ fn draw_events(
         key_capture: scenario.macro_capture,
         ..MapUi::default()
     };
+    if scenario.map_open {
+        map_ui.selected = Some(0);
+        map_ui.selected_macro = Some(1);
+        map_ui.add.open = true;
+        map_ui.add.as_macro = true;
+    }
     let bindings = crate::commands::Bindings::default();
     let mut remote = sample_remote(scenario.mapped)?;
     let presets = vec!["Slow burn".to_string(), "Peak".to_string()];
@@ -2156,6 +2173,38 @@ fn the_connect_form_offers_a_trust_file_in_place_of_the_code() -> Result<()> {
             .any(|line| line.contains("--remote-trust") || line.contains("never its contents")),
         "on: says what the host needs and what is remembered: {trust:?}"
     );
+    Ok(())
+}
+
+#[test]
+fn the_mappings_pane_opens_a_macros_and_a_mappings_options_under_their_rows() -> Result<()> {
+    let scenario = Scenario {
+        mapped: true,
+        map_open: true,
+        panes: &[Pane::Map],
+        ..BASE
+    };
+    // Tall, so nothing is scrolled out of sight.
+    let drawn = draw(scenario, (1440.0, 4000.0), 4)?;
+    let lines: Vec<String> = texts(&drawn)
+        .into_iter()
+        .map(|(_, line, _)| line.trim().to_string())
+        .collect();
+    for wanted in [
+        "Pin it as a macro too",
+        "Also try",
+        "Reach",
+        "Glide",
+        "Press at",
+        "Curve",
+        "Sources",
+        "OSC input",
+    ] {
+        assert!(
+            lines.iter().any(|line| line == wanted),
+            "{wanted:?} is drawn: {lines:?}"
+        );
+    }
     Ok(())
 }
 

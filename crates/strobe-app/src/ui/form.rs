@@ -261,6 +261,24 @@ pub fn group<R>(
         .inner
 }
 
+/// A card of rows inside a group's [`Group::block`]: a row's options,
+/// opened under it (Microsoft's settings expander), on the surface a step
+/// darker than the group's card. Never nested deeper than this.
+pub fn inset<R>(ui: &mut Ui, theme: &Palette, add: impl FnOnce(&mut Group<'_>) -> R) -> R {
+    egui::Frame::new()
+        .fill(theme::rgb(theme.panel))
+        .stroke(Stroke::new(1.0, theme::rgb(theme.border)))
+        .corner_radius(egui::CornerRadius::same(theme::RADIUS))
+        .inner_margin(theme::margin_xy(SPACE_MD, 0.0))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.spacing_mut().item_spacing.y = 0.0;
+            let mut group = Group { ui, theme, rows: 0 };
+            add(&mut group)
+        })
+        .inner
+}
+
 /// The rows of one [`group`]'s card.
 pub struct Group<'u> {
     ui: &'u mut Ui,

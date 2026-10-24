@@ -1010,7 +1010,7 @@ fn keyboard(
                 } else {
                     theme.accent
                 };
-                keycap(ui, theme, &label, colour);
+                widgets::keycap(ui, theme, &label, colour);
             });
             if let Some((_, chord, holder)) = clash {
                 let mut done = false;
@@ -1046,22 +1046,6 @@ fn keyboard(
             .font(theme::description_font())
             .color(theme::rgb(theme.text_faint)),
     );
-}
-
-/// A shortcut's key, drawn as a key cap: outlined, in the monospace face.
-fn keycap(ui: &mut Ui, theme: &Palette, text: &str, colour: crate::color::Rgb) {
-    egui::Frame::new()
-        .fill(theme::rgb(theme.app))
-        .stroke(egui::Stroke::new(1.0, theme::rgb(theme.border_strong)))
-        .corner_radius(egui::CornerRadius::same(RADIUS))
-        .inner_margin(theme::margin_xy(SPACE_SM, SPACE_XS / 2.0))
-        .show(ui, |ui| {
-            ui.label(
-                egui::RichText::new(text)
-                    .monospace()
-                    .color(theme::rgb(colour)),
-            );
-        });
 }
 
 /// The build line, made once: it does not change while the app runs.
