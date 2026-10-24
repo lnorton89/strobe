@@ -216,7 +216,7 @@ fn rail_at(
     let response = ui
         .interact(
             rect,
-            ui.id().with(("rail", id_salt)),
+            ui.scope_id().with(("rail", id_salt)),
             Sense::click_and_drag(),
         )
         .on_hover_cursor(egui::CursorIcon::ResizeHorizontal);

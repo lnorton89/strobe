@@ -84,7 +84,7 @@ mod tests {
     #[test]
     fn a_non_finite_target_settles_at_zero_rather_than_getting_stuck() {
         let ctx = Context::default();
-        let id = Id::new("nonsense-target");
+        let id = Id::unique("nonsense-target");
         let result = settled(&ctx, id, f32::NAN, SETTLE);
         assert!(
             result.is_finite(),
@@ -100,7 +100,7 @@ mod tests {
     #[test]
     fn a_settled_value_arrives_at_its_finite_target() {
         let ctx = Context::default();
-        let id = Id::new("real-target");
+        let id = Id::unique("real-target");
         let result = settled(&ctx, id, 42.0, SETTLE);
         assert!(
             (result - 42.0).abs() < f32::EPSILON,
