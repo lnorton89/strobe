@@ -265,12 +265,14 @@ launch.
 3. *Phone address* shows an address such as `http://192.168.1.20:47812/`.
    Type it into the phone's browser exactly as shown: a name instead of
    the numbers is refused, on purpose.
-4. Under *Pair a phone*, press **Show a code**. A six-digit code shows for
-   two minutes. Type it on the phone and press *Pair*.
-5. Strobe shows *"iPhone at 192.168.1.23 wants to control the show"*.
-   Press **Approve** if that is your phone, **Deny** if it is not. The phone
-   is paired and keeps working after both restart; it does not need the
-   code again.
+4. The phone's page asks for a name for the device (*Lighting desk iPad*,
+   say). Type one and press *Ask*.
+5. Strobe shows *"Lighting desk iPad, iPhone at 192.168.1.23 wants to
+   control the show"* at the top of the Remote page, and the title bar says
+   so. Press **Approve** if that is your phone, **Deny** if it is not. The
+   phone is paired and keeps working after both restart; it does not ask
+   again. Anyone on the network can ask, so approve only a device you
+   recognise: the address in the request is where it really came from.
 
 **The title bar shows "Remote on"** with the number of connected phones
 whenever it is listening, and a **Stop remote** button beside it. Stop
@@ -286,8 +288,8 @@ removes its pairing from that browser.
 
 **Use it only on a network you trust.** The remote is plain HTTP, not
 HTTPS: someone on the same Wi-Fi who is watching the traffic can see the
-pairing code as you type it and the phone's key as it is issued, and could
-then control the show until you revoke it. A home or venue network you
+phone's key as it is issued, and could then control the show until you
+revoke it. A home or venue network you
 control is fine; a public or shared Wi-Fi is not. There is no installable
 app (PWA) version yet, because that needs HTTPS.
 
@@ -483,7 +485,7 @@ refused while it is off.
 Strobe has no certificate of its own, and it will never ask you to click
 past a browser's security warning. If you own a domain name, you can put
 the remote behind HTTPS yourself, with a reverse proxy on the same
-computer. That encrypts the traffic, so the pairing code and the phone's
+computer. That encrypts the traffic, so the phone's
 key can no longer be read off the Wi-Fi. **This has not been tried on real
 phones yet.**
 

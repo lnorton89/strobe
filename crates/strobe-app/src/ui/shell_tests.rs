@@ -710,7 +710,6 @@ fn sample_lan(on: bool, desktop: bool) -> crate::lan::LanView {
         warning: None,
         note: "On: http://192.168.1.20:47812/".to_string(),
         failed: false,
-        code: Some(("481 226".to_string(), 103)),
         requests: vec![strobe_remote::pairing::Request {
             id: 1,
             label: if desktop {

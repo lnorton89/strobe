@@ -556,6 +556,60 @@ fn desktop_input_is_bounded_and_validated_before_the_app_sees_it() -> Result<()>
 }
 
 #[test]
+fn a_phone_asks_with_a_name_and_the_host_approves_it_with_no_code() -> Result<()> {
+    let rig = rig()?;
+    let mut phone = open(&rig)?;
+    phone.hello()?;
+    phone.send(&json!({"type":"request_pair","name":"Ana's iPad"}))?;
+    eventually("the request to reach the desktop", || {
+        !rig.server.pairing_requests().is_empty()
+    })?;
+    let request = rig
+        .server
+        .pairing_requests()
+        .into_iter()
+        .next()
+        .context("a request")?;
+    ensure!(
+        request.label == "Ana's iPad, iPhone at 127.0.0.1",
+        "the name it gave, its kind and its real address: {}",
+        request.label
+    );
+    ensure!(rig.server.decide(request.id, true), "approved");
+    let paired = phone.until("paired")?;
+    let token = paired["token"].as_str().context("token")?.to_string();
+    phone.until("authenticated")?;
+    let state = phone.until("state")?;
+    ensure!(state["current"] == "Aurora", "the show's state: {state}");
+    phone.send(&json!({"type":"command","request_id":"r1","command":"blackout_on"}))?;
+    let result = phone.until("command_result")?;
+    ensure!(result["accepted"] == true, "a phone command runs: {result}");
+    // A phone paired this way has no desktop scope.
+    phone.send(&json!({"type":"desktop_input","events":[{"kind":"text","text":"x"}]}))?;
+    assert_eq!(
+        phone.closed()?,
+        1008,
+        "desktop input from a phone closes it"
+    );
+    // It keeps its pairing like any phone: the token authenticates later.
+    let (_, _rotated) = authenticate(&rig, &token)?;
+    // A name the protocol does not allow is refused before the operator.
+    let mut bad = open(&rig)?;
+    bad.hello()?;
+    bad.send(&json!({"type":"request_pair","name":"<script>"}))?;
+    assert_eq!(
+        bad.until("error")?["code"],
+        "invalid_request",
+        "a name outside the plain set"
+    );
+    assert!(
+        rig.server.pairing_requests().is_empty(),
+        "nothing put to the operator"
+    );
+    Ok(())
+}
+
+#[test]
 fn a_desktop_asks_without_a_code_and_the_host_approves_or_denies() -> Result<()> {
     let rig = rig()?;
     let ask = json!({"type":"request_desktop","name":"stage-laptop"});

@@ -11208,3 +11208,53 @@ address within its first query.
 **Would reopen:** a request spam problem on a real venue network (then a
 host switch to require the code again), or subnets that drop broadcast
 (mDNS, with its own allowlist question from D252).
+
+### D469: a phone asks under a name and the host approves it; no code anywhere (2026-10-23)
+
+**Context.** D468 dropped the code for desktops and kept it for phones,
+which cannot list hosts. The owner asked for phones to be approve-only
+too: the phone's page asks for a name, the host gets Approve and Deny.
+
+**Decision.**
+- A new client message, `request_pair {name}`, enters the same approval
+  phase as `request_desktop` and a right code, with the same bounds (four
+  waiting, one per address, 30 s after a Deny, D468). The host sees
+  "NAME, KIND at ADDRESS" ("Lighting desk iPad, iPhone at 192.168.1.23"):
+  the name the person typed, the kind from the User-Agent's device word
+  as before (D251), and the TCP peer's address. A name is 1 to 32 bytes
+  of ASCII letters, digits, spaces and `. _ - '`, not padded with spaces
+  (`valid_device_name`), so it prints the same in the list, the log and
+  the paired-clients file; anything else is `invalid_request` before the
+  operator sees it.
+- The controller page asks for that name (remembered in `localStorage`
+  under `strobe.remote.name`, never sent in a URL) with the same rule in
+  its script, then waits for the answer as before. The page's CSP hashes
+  are computed from the embedded file when the server starts (D253), so
+  the edited script and style are served under their new hashes with no
+  table to update; `the_policy_hashes_the_page_as_shipped` checks it.
+- The host app no longer shows a code: the Show a code button, the code
+  display, `Action::OpenRemotePairing` and `CloseRemotePairing`, and
+  `Lan::open_pairing` are gone. The Remote page's Phone address row says
+  to open the address and give the phone a name. The server keeps the
+  code machinery and the frozen version-1 `pair` message, so an old page
+  still parses; with nothing opening pairing, it is told pairing is not
+  open.
+
+**Residual risk, stated.** As for desktops (D468): anyone on the network
+can raise a request without seeing the host's screen. The operator
+approves each one, the request shows the address it came from, and the
+user guide says to approve only a device you recognise. The token,
+its rotation and revocation (D251) are unchanged.
+
+**Test.** `lib` tests freezing `request_pair` and refusing bad names;
+`page::tests::the_page_asks_for_a_name_and_never_for_a_code` and the
+accessibility brief's labelled name field; the server test
+`a_phone_asks_with_a_name_and_the_host_approves_it_with_no_code` (label,
+approval, a command, no desktop scope, the token authenticating later, a
+bad name refused before the operator). In the built-in browser against a
+local host: the page asked for a name, sent the request and waited, and
+the host showed "Test phone, Windows at 127.0.0.1 wants to control the
+show" with Approve and Deny.
+
+**Would reopen:** request spam on a real venue network, which would bring
+back an opt-in code for both kinds of device.

@@ -4003,7 +4003,6 @@ impl Running {
                         self.lan.stop();
                     }
                 }
-                Action::OpenRemotePairing => self.lan.open_pairing(),
                 Action::SetDesktopAccess(enabled) => self.lan.set_desktop(enabled),
                 Action::ConnectDesktop => {
                     self.lan.set_desktop(false);
@@ -4038,7 +4037,6 @@ impl Running {
                     self.ui_state
                         .open_settings(crate::ui::settings::SettingsPage::Remote);
                 }
-                Action::CloseRemotePairing => self.lan.close_pairing(),
                 Action::DecideRemotePairing { id, approve } => self.lan.decide(id, approve),
                 Action::RevokeRemoteClient(id) => self.lan.revoke(&id),
                 Action::RevokeAllRemoteClients => self.lan.revoke_all(),

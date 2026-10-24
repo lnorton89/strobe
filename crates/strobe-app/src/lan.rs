@@ -146,8 +146,6 @@ pub struct LanView {
     pub note: String,
     /// The last start failed.
     pub failed: bool,
-    /// The pairing code and the seconds it has left.
-    pub code: Option<(String, u64)>,
     /// Phones waiting for Approve or Deny.
     pub requests: Vec<Request>,
     /// Paired clients, and whether each is connected now.
@@ -628,23 +626,6 @@ impl Lan {
         app_end.publish(snapshot);
     }
 
-    /// Opens pairing with a fresh code.
-    pub fn open_pairing(&mut self) {
-        let Some(server) = &self.server else {
-            return;
-        };
-        if let Err(error) = server.open_pairing() {
-            self.note = format!("Could not make a pairing code: {error}");
-        }
-    }
-
-    /// Closes pairing.
-    pub fn close_pairing(&self) {
-        if let Some(server) = &self.server {
-            server.close_pairing();
-        }
-    }
-
     /// Approves or denies a waiting phone.
     pub fn decide(&self, id: u64, approve: bool) {
         if let Some(server) = &self.server {
@@ -717,9 +698,6 @@ impl Lan {
             warning: server.warning().map(str::to_string),
             note: self.note.clone(),
             failed: false,
-            code: server
-                .pairing_code()
-                .map(|(code, left)| (code, left.as_secs())),
             requests: server.pairing_requests(),
             clients: clients
                 .into_iter()
@@ -1037,11 +1015,8 @@ mod tests {
             AudioStatus::Active,
         );
         assert_eq!(lan.snapshot.remaining_ms, Some(2000), "whole seconds, up");
-        lan.open_pairing();
-        assert!(lan.view().code.is_some(), "a code shows");
         lan.stop();
         assert!(!lan.running(), "stopped");
-        assert!(lan.view().code.is_none(), "and the code is gone");
         Ok(())
     }
 

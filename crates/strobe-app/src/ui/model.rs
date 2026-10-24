@@ -266,14 +266,10 @@ pub enum Action {
     DisconnectDesktop,
     /// Open Settings at the form for controlling another Strobe, with its
     /// address field focused: the command palette's "Control another
-    /// Strobe", and a failed connection's way to a new pairing code. Any
-    /// viewer still on screen is closed first.
+    /// Strobe", and a failed connection's retry. Any viewer still on screen
+    /// is closed first.
     ControlAnotherDesktop,
-    /// Show a pairing code for a phone to type.
-    OpenRemotePairing,
-    /// Withdraw the pairing code.
-    CloseRemotePairing,
-    /// Approve or deny a phone that typed the code.
+    /// Approve or deny a phone or desktop that asked to pair (D468, D469).
     DecideRemotePairing {
         /// The request.
         id: u64,

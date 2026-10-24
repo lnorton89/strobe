@@ -46,7 +46,6 @@ pub fn host_only(action: &crate::ui::Action) -> bool {
         action,
         Action::SetLanRemote(true)
             | Action::SetDesktopAccess(true)
-            | Action::OpenRemotePairing
             | Action::DecideRemotePairing { approve: true, .. }
             | Action::ConnectDesktop
             | Action::SetOsc(_)
@@ -2115,7 +2114,6 @@ mod tests {
         let refused = [
             Action::SetLanRemote(true),
             Action::SetDesktopAccess(true),
-            Action::OpenRemotePairing,
             Action::DecideRemotePairing {
                 id: 1,
                 approve: true,
@@ -2134,7 +2132,6 @@ mod tests {
         let allowed = [
             Action::SetLanRemote(false),
             Action::SetDesktopAccess(false),
-            Action::CloseRemotePairing,
             Action::DecideRemotePairing {
                 id: 1,
                 approve: false,

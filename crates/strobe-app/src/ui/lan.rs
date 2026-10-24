@@ -15,8 +15,9 @@
 //! One switch lets others connect. While it is on, other Strobes on the
 //! network list this one by name, and anyone asking to connect is put in
 //! front of the operator as a banner at the top of the page with Approve
-//! and Deny. A desktop needs no code; a phone, which cannot list anything,
-//! still pairs with the code from Pair a phone.
+//! and Deny. Nobody types a code (D468, D469): a desktop asks from its own
+//! list, and a phone opens the address shown and asks under a name it is
+//! given.
 //!
 //! The other way round, the Strobes found on the network are listed with a
 //! Connect button: the host's operator approves, and the viewer takes over
@@ -41,8 +42,8 @@ use egui::Ui;
 
 /// The switch that lets others connect.
 pub const REMOTE: &str = "Let others connect";
-/// The phone pairing row.
-pub const PAIR: &str = "Pair a phone";
+/// The phone row: the address a phone opens to ask.
+pub const PAIR: &str = "Phone address";
 /// The full-desktop-control switch.
 pub const DESKTOP: &str = "Allow full desktop control";
 /// The row that revokes every paired device.
@@ -112,7 +113,7 @@ pub fn show(ui: &mut Ui, theme: &Palette, panel: &mut LanPanel<'_>, actions: &mu
             actions.push(Action::SetDesktopAccess(desktop_enabled));
         }
         if view.running {
-            phones(group, theme, panel, actions);
+            phones(group, theme, panel);
         }
     });
     paired(ui, theme, panel, actions);
@@ -147,23 +148,19 @@ fn requests(ui: &mut Ui, theme: &Palette, panel: &LanPanel<'_>, actions: &mut Ve
     }
 }
 
-/// The phone rows, while the remote listens: the address a phone opens,
-/// any warning about the bind, and pairing with a code.
-fn phones(
-    group: &mut form::Group<'_>,
-    theme: &Palette,
-    panel: &LanPanel<'_>,
-    actions: &mut Vec<Action>,
-) {
+/// The phone rows, while the remote listens: the address a phone opens to
+/// ask (D469), and any warning about the bind.
+fn phones(group: &mut form::Group<'_>, theme: &Palette, panel: &LanPanel<'_>) {
     let view = panel.view;
     let url = view.url.as_deref().unwrap_or_default();
     let connected = format!(
-        "Open it in a phone's browser. {} paired device{} connected.",
+        "Open it in a phone's browser and give the phone a name; approve it here when it \
+         asks. {} paired device{} connected.",
         view.connected,
         if view.connected == 1 { "" } else { "s" }
     );
     group.row(
-        Row::new("Phone address")
+        Row::new(PAIR)
             .status(Icon::Check, url, theme.success)
             .description(&connected),
         |ui| {
@@ -177,40 +174,6 @@ fn phones(
     );
     if let Some(warning) = &view.warning {
         group.block(|ui| widgets::banner(ui, theme, Tone::Warning, warning, |_| {}));
-    }
-    match &view.code {
-        Some((code, left)) => {
-            let expires = format!(
-                "Type this code on the phone, then approve it here. It expires in {}:{:02}.",
-                left / 60,
-                left % 60
-            );
-            group.row(Row::new(PAIR).description(&expires), |ui| {
-                if widgets::button(ui, theme, None, "Close").clicked() {
-                    actions.push(Action::CloseRemotePairing);
-                }
-                ui.label(
-                    egui::RichText::new(code)
-                        .monospace()
-                        .size(28.0)
-                        .strong()
-                        .color(theme::rgb(theme.accent)),
-                );
-            });
-        }
-        None => {
-            group.row(
-                Row::new(PAIR).description(
-                    "A phone cannot find this Strobe by itself: it opens the address above and \
-                     types a code shown here for two minutes.",
-                ),
-                |ui| {
-                    if widgets::button(ui, theme, None, "Show a code").clicked() {
-                        actions.push(Action::OpenRemotePairing);
-                    }
-                },
-            );
-        }
     }
 }
 

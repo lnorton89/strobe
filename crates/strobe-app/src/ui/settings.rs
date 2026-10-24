@@ -279,7 +279,7 @@ const INDEX: [Entry; 25] = [
     Entry {
         page: SettingsPage::Remote,
         title: super::lan::PAIR,
-        words: "code phone approve",
+        words: "phone tablet pair approve browser url",
     },
     Entry {
         page: SettingsPage::Remote,

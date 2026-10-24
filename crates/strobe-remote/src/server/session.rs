@@ -467,10 +467,10 @@ impl<'a> Session<'a> {
                         self.shared.pairing().forget(id);
                         self.phase = Phase::Unauthenticated;
                         self.since_auth_wait = now;
-                        let why = match (decision, self.desktop_pairing) {
-                            (Decision::Denied, _) => "declined on the desktop",
-                            (_, true) => "not approved in time; ask again",
-                            (_, false) => "not approved in time; ask for a new code",
+                        let why = if decision == Decision::Denied {
+                            "declined on the desktop"
+                        } else {
+                            "not approved in time; ask again"
                         };
                         log::info!("remote: pairing for {} {why}", self.peer);
                         self.send(&ServerMessage::error(ErrorCode::PairingRejected, why))?;
@@ -495,6 +495,41 @@ impl<'a> Session<'a> {
             }
         }
         Ok(())
+    }
+
+    /// A request with no code (D468, D469), labelled `label`, from a
+    /// device that called itself `name`: in front of the operator, or
+    /// refused with why.
+    fn ask(&mut self, label: String, name: &str) -> Result<(), End> {
+        let attempt = self
+            .shared
+            .pairing()
+            .request(label, self.peer.ip(), Instant::now());
+        match attempt {
+            Ok(id) => {
+                log::info!(
+                    "remote: {} ({name}) asked to pair{}; waiting for approval",
+                    self.peer,
+                    if self.desktop_pairing {
+                        " for desktop control"
+                    } else {
+                        ""
+                    }
+                );
+                self.phase = Phase::Approval(id);
+                Ok(())
+            }
+            Err(refusal) => {
+                let why = match refusal {
+                    Refusal::Full => "too many devices are waiting for approval",
+                    Refusal::Pending => "this device is already waiting for approval",
+                    Refusal::Cooling => "the desktop said no a moment ago; try again later",
+                    Refusal::NotOpen | Refusal::Wrong(_) | Refusal::Burned => "not now; try again",
+                };
+                log::info!("remote: refused a request from {}: {refusal:?}", self.peer);
+                self.failed(ErrorCode::PairingRejected, why)
+            }
+        }
     }
 
     /// Trusted pairing, step one (D288): hand out a challenge.
@@ -919,7 +954,8 @@ impl<'a> Session<'a> {
                     | ClientMessage::DesktopInput { .. }
                     | ClientMessage::TrustStart { .. }
                     | ClientMessage::TrustProof { .. }
-                    | ClientMessage::RequestDesktop { .. } => return Err(End::Gone),
+                    | ClientMessage::RequestDesktop { .. }
+                    | ClientMessage::RequestPair { .. } => return Err(End::Gone),
                 };
                 if desktop && !self.shared.remote.desktop.enabled() {
                     return self.send(&ServerMessage::error(
@@ -961,6 +997,11 @@ impl<'a> Session<'a> {
                     }
                 }
             }
+            (Phase::Unauthenticated, ClientMessage::RequestPair { name }) => {
+                self.desktop_pairing = false;
+                let label = format!("{name}, {}", self.label);
+                self.ask(label, &name)
+            }
             (Phase::Unauthenticated, ClientMessage::RequestDesktop { name }) => {
                 if !self.shared.remote.desktop.enabled() {
                     return self.send(&ServerMessage::error(
@@ -974,37 +1015,7 @@ impl<'a> Session<'a> {
                     crate::desktop::LABEL_PREFIX,
                     self.peer.ip()
                 );
-                let attempt = self
-                    .shared
-                    .pairing()
-                    .request(label, self.peer.ip(), Instant::now());
-                match attempt {
-                    Ok(id) => {
-                        log::info!(
-                            "remote: {} ({name}) asked for desktop control; waiting for approval",
-                            self.peer
-                        );
-                        self.phase = Phase::Approval(id);
-                        Ok(())
-                    }
-                    Err(refusal) => {
-                        let why = match refusal {
-                            Refusal::Full => "too many devices are waiting for approval",
-                            Refusal::Pending => "this computer is already waiting for approval",
-                            Refusal::Cooling => {
-                                "the host denied this computer a moment ago; try again later"
-                            }
-                            Refusal::NotOpen | Refusal::Wrong(_) | Refusal::Burned => {
-                                "not now; try again"
-                            }
-                        };
-                        log::info!(
-                            "remote: refused a desktop request from {}: {refusal:?}",
-                            self.peer
-                        );
-                        self.failed(ErrorCode::PairingRejected, why)
-                    }
-                }
+                self.ask(label, &name)
             }
             (Phase::Unauthenticated | Phase::Approval(_), ClientMessage::Command { .. }) => self
                 .send(&ServerMessage::error(
@@ -1055,7 +1066,8 @@ impl<'a> Session<'a> {
                 | ClientMessage::Authenticate { .. }
                 | ClientMessage::TrustStart { .. }
                 | ClientMessage::TrustProof { .. }
-                | ClientMessage::RequestDesktop { .. },
+                | ClientMessage::RequestDesktop { .. }
+                | ClientMessage::RequestPair { .. },
             ) => self.send(&ServerMessage::error(
                 ErrorCode::InvalidRequest,
                 "not now: this connection is past that step",
