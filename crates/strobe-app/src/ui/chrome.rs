@@ -47,7 +47,7 @@
 
 use super::icon as icons;
 use super::model::{Action, Model};
-use super::theme::{self, PAD, RAIL_WIDTH, SPACE_MD, SPACE_SM, SPACE_XS, TITLE_BAR_HEIGHT};
+use super::theme::{self, PAD, SPACE_MD, SPACE_SM, SPACE_XS, TITLE_BAR_HEIGHT};
 use super::widgets;
 use crate::icon::Icon;
 use crate::palette::Palette;
@@ -820,51 +820,51 @@ fn resize_regions(rect: Rect) -> [(Rect, ResizeDirection, egui::CursorIcon); 8] 
 const RAIL: [(Icon, &str, Option<Pane>, &str); 8] = [
     (
         Icon::Perform,
-        "PLAY",
+        "Play",
         None,
         "Perform: the live preview at full size",
     ),
     (
         Icon::Library,
-        "LIB",
+        "Library",
         Some(Pane::Browser),
         "Scenes: click one to make it live, then Controls (Ctrl+L) for its controls",
     ),
     (
         Icon::Import,
-        "GET",
+        "Import",
         Some(Pane::Import),
-        "Get scenes: import a Shadertoy shader",
+        "Import: a Shadertoy shader becomes a scene",
     ),
     (
         Icon::Playlist,
-        "LIST",
+        "Playlist",
         Some(Pane::Playlist),
         "Playlist: load a file, the timeline, cue commands and Generate",
     ),
     (
         Icon::Editor,
-        "EDIT",
+        "Editor",
         Some(Pane::Editor),
         "Editor: the scene's shader, scene.json and script, with save and reload",
     ),
     (
         Icon::Mapping,
-        "MAP",
+        "Mappings",
         Some(Pane::Map),
         "MIDI and OSC: devices, mappings with learn, macros and the activity monitor",
     ),
     (
         Icon::Diagnostics,
-        "DIAG",
+        "Diagnostics",
         Some(Pane::Diagnostics),
         "Diagnostics and console",
     ),
     (
         Icon::Settings,
-        "SET",
+        "Settings",
         Some(Pane::Settings),
-        "Output, audio, performance and appearance",
+        "Settings: output, audio, appearance, library, remote and shortcuts",
     ),
 ];
 
@@ -873,8 +873,9 @@ const RAIL: [(Icon, &str, Option<Pane>, &str); 8] = [
 pub fn nav_rail(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, arrangement: &Arrangement) {
     let shown = |pane: Pane| arrangement.shows(pane);
     let nothing_shown = arrangement.main.is_none();
+    let width = ui.ctx().content_rect().width();
     egui::Panel::left("nav-rail")
-        .exact_size(RAIL_WIDTH)
+        .exact_size(theme::rail_width(width))
         .resizable(false)
         .show_separator_line(false)
         .frame(
@@ -1107,15 +1108,24 @@ mod tests {
         let labels: Vec<&str> = RAIL.iter().map(|(_, label, _, _)| *label).collect();
         assert_eq!(
             labels,
-            ["PLAY", "LIB", "GET", "LIST", "EDIT", "MAP", "DIAG", "SET"],
-            "UI_DESIGN section 5: the main views in the rail's order (D281)"
+            [
+                "Play",
+                "Library",
+                "Import",
+                "Playlist",
+                "Editor",
+                "Mappings",
+                "Diagnostics",
+                "Settings"
+            ],
+            "UI_DESIGN section 5: the main views in the rail's order (D281), in words (D473)"
         );
     }
 
     #[test]
     fn the_unbuilt_workspaces_say_so_in_their_tooltips() {
         for (_, label, pane, tooltip) in RAIL {
-            if pane.is_none() && label != "PLAY" {
+            if pane.is_none() && label != "Play" {
                 assert!(
                     tooltip.contains("not built"),
                     "{label} is disabled but does not say why: {tooltip}"

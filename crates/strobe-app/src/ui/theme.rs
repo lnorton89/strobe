@@ -235,8 +235,24 @@ pub const TITLE_BAR_HEIGHT: f32 = 36.0;
 /// The height of the health strip.
 pub const HEALTH_HEIGHT: f32 = 28.0;
 
-/// The width of the navigation rail.
-pub const RAIL_WIDTH: f32 = 60.0;
+/// The width of the navigation rail with its labels: room for the longest
+/// word, "Diagnostics", under its icon (D473).
+pub const RAIL_WIDTH: f32 = 84.0;
+
+/// The width of the rail without labels, in a narrow window.
+pub const RAIL_WIDTH_ICONS: f32 = 56.0;
+
+/// The rail's width for a window `window_width` points wide: labelled where
+/// the labels are shown ([`crate::workspace::rail_labels`]), icons only
+/// below that.
+#[must_use]
+pub fn rail_width(window_width: f32) -> f32 {
+    if crate::workspace::rail_labels(window_width) {
+        RAIL_WIDTH
+    } else {
+        RAIL_WIDTH_ICONS
+    }
+}
 
 /// The width of the accent bar down a selected row's leading edge.
 pub const SELECTION_BAR: f32 = 3.0;

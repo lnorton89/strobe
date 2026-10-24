@@ -472,9 +472,9 @@ fn playlist_tab(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &m
             theme,
             Icon::Playlist,
             "No playlist loaded",
-            "Open LIST to load a file or generate a show. Without one, Next and Previous step through the library.",
+            "Open Playlist to load a file or generate a show. Without one, Next and Previous step through the library.",
         );
-        if widgets::button(ui, theme, Some(Icon::Playlist), "Open LIST").clicked() {
+        if widgets::button(ui, theme, Some(Icon::Playlist), "Open Playlist").clicked() {
             model.ui.panes.open(Pane::Playlist);
         }
         return;
@@ -495,7 +495,7 @@ fn playlist_tab(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &m
         });
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             if widgets::button(ui, theme, Some(Icon::Playlist), "Edit")
-                .on_hover_text("Open the LIST view: cue settings, Generate and Save")
+                .on_hover_text("Open the Playlist view: cue settings, Generate and Save")
                 .clicked()
             {
                 model.ui.panes.open(Pane::Playlist);

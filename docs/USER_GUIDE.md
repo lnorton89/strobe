@@ -44,11 +44,12 @@ screen until you ask.
   **Output monitor** menu to put it on the projector, then F11 for
   fullscreen.
 - The window is Synesthesia's three columns. The **rail** on the left
-  switches the main view: **PLAY** (the live preview at full size),
-  **LIB** (the scene library, the default, with its **Scenes** and
-  **Controls** pages), **GET** (import a Shadertoy
-  shader), **LIST** (playlists), **EDIT** (the scene's code), **MAP** (MIDI,
-  OSC, macros), **DIAG** (diagnostics) and **SET** (settings). The **panel**
+  switches the main view: **Play** (the live preview at full size),
+  **Library** (the scene library, the default, with its **Scenes** and
+  **Controls** pages), **Import** (a Shadertoy shader), **Playlist**,
+  **Editor** (the scene's code), **Mappings** (MIDI, OSC, macros),
+  **Diagnostics** and **Settings**. In a narrow window the rail shows its
+  icons only. The **panel**
   on the right stays whatever the view is: the live preview, a status strip
   (output, fullscreen, frame rate, audio level and tempo, and a snapshot
   button), the eight fav slots, and four tabs: **Playlist** (the loaded
@@ -73,14 +74,14 @@ screen until you ask.
 | F11 | Output fullscreen |
 | Ctrl+F | Search the library |
 | Ctrl+K | The command palette: every command, pane, scene and preset by name |
-| Ctrl+L | Switch LIB between Scenes and the live scene's Controls |
+| Ctrl+L | Switch Library between Scenes and the live scene's Controls |
 | Esc | Close the top pane |
 
 Settings > Keyboard changes any of them.
 
 ## Scenes
 
-- **LIB** lists the scenes in the library folder: `scenes\` beside
+- **Library** lists the scenes in the library folder: `scenes\` beside
   `strobe.exe` by default, or the folder given with `--library <dir>`.
   The toolbar has *New scene* (it opens Import), a rescan and the S, M and
   L thumbnail sizes. The row under it has the count ("88/88"), the search
@@ -108,7 +109,7 @@ Settings > Keyboard changes any of them.
   cannot be the library folder itself. `strobe.exe --watch-folder
   <folder>` watches one for that run only.
 - **Synesthesia's scenes.** If Synesthesia is installed on this computer,
-  LIB also lists its scenes after your own, each marked *Synesthesia*:
+  Library also lists its scenes after your own, each marked *Synesthesia*:
   - the scenes it ships (in `C:\Program Files (x86)\Synesthesia\release`
     and `default`). These are **read-only**: Strobe never changes
     Synesthesia's files. Tagging one, *Use frame as picture*, saving it in
@@ -129,11 +130,11 @@ Settings > Keyboard changes any of them.
   Synesthesia is somewhere unusual, set `STROBE_SYNESTHESIA_DIR` to its
   folder (and `STROBE_SYNESTHESIA_DATA` to its data folder,
   normally `%LOCALAPPDATA%\Synesthesia\Data`).
-- **Needs work** (a LIB filter, and a list in DIAG) shows the scenes that
+- **Needs work** (a Library filter, and a list in Diagnostics) shows the scenes that
   failed to load this run, each with its reason.
 - **Controls** shows the playing scene's sliders, colours and buttons, in
-  two places: large, as LIB's **Controls** page (the switch at the top of
-  LIB, or Ctrl+L, flips between it and the scenes), and compact, as a tab
+  two places: large, as Library's **Controls** page (the switch at the top of
+  Library, or Ctrl+L, flips between it and the scenes), and compact, as a tab
   of the panel for when another view is up. While the Controls page is up
   the panel shows Presets beside it rather than the same controls twice.
   The camera button in the status strip, or *Use frame as picture* in the
@@ -141,7 +142,7 @@ Settings > Keyboard changes any of them.
 - **Presets** (a tab of the panel): save the current look under a name,
   recall it later or from a controller. A preset saved while a picture is
   chosen for `syn_Media` remembers it.
-- **EDIT** opens the scene's files. *Save* writes them and the show keeps
+- **Editor** opens the scene's files. *Save* writes them and the show keeps
   what it has; *Save and reload* writes them and loads the scene again.
   If `scene.json` would not load, *Save and reload* writes nothing and
   shows the error with a button to its line and column.
@@ -204,7 +205,7 @@ A playlist is a TOML file listing scenes in sections, with how long each
 plays and how it hands over. `playlists\example.toml` (in the source
 repository) shows the format.
 
-- **LIST** opens one: type its path and press **Open**, or press
+- **Playlist** opens one: type its path and press **Open**, or press
   **Browse...** to choose it in the system's file dialog (it opens at
   once). You can also start with `--playlist <file>`, or drop the `.toml`
   file on the window. With a playlist loaded, **Open...** in its header
@@ -213,7 +214,7 @@ repository) shows the format.
   tag (`heavy`) or a name, and the preview says which were skipped.
 - Select a cue to change its length, transition, preset or media; the
   card says where each setting comes from. Ctrl-click several cues to
-  change them together. Drag a scene from LIB onto a cue to add it after.
+  change them together. Drag a scene from Library onto a cue to add it after.
 - A cue can also end on the music: `advance = "audio-drop"`,
   `"audio-breakdown"` or `"audio-song"` (the next track started: a gap
   between tracks, or a new tempo), alone or in a list such as
@@ -228,7 +229,7 @@ repository) shows the format.
 
 ## Controllers: MIDI and OSC
 
-**MAP** connects MIDI devices and OSC (off by default; turn it on and
+**Mappings** connects MIDI devices and OSC (off by default; turn it on and
 choose a port). *Learn* binds the next knob, fader, pad or OSC message to
 whatever you click. **Macros** are named controls that keep working across
 scenes; each can have a reach, a colour, a glide (smoothing) and a
@@ -252,7 +253,7 @@ phones**; please report what you find.
 **It is off until you switch it on**, and it never switches itself on at
 launch.
 
-1. Open **SET** (Settings), choose **Remote**, and switch on **Let others
+1. Open **Settings**, choose **Remote**, and switch on **Let others
    connect**. *Address* under *Network*, at the bottom of the page, stays
    empty to use this computer's address on its network, or takes one of its
    own addresses. Strobe refuses a public internet address.
@@ -519,7 +520,7 @@ does not run them or check them.
 
 ## Importing from Shadertoy
 
-The **Import** pane (via LIB) takes a Shadertoy URL or id, or an exported
+The **Import** pane (on the rail) takes a Shadertoy URL or id, or an exported
 `.json` file, and writes a scene into the library. **Browse...** chooses
 the file in the system's dialog and imports it at once; dropping a `.json`
 on the window does the same. The watched folder (*Settings > Library*) and
@@ -563,7 +564,7 @@ Everything Strobe writes lives in `%LOCALAPPDATA%\strobe`:
 | `remote-clients.json` | Phones paired with the remote (no usable keys: only their fingerprints). Deleting it un-pairs every phone. |
 | `backups\` | The Editor's copies of files before it saved over them. |
 
-- **The DIAG pane** shows the GPU, the backend, frame timing and recent
+- **The Diagnostics pane** shows the GPU, the backend, frame timing and recent
   failures with their reasons, without opening a file.
 - **A scene fails to load:** a red banner names the error and offers *Open
   in Editor* at the line (and the column, on drivers that give one); the

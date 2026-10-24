@@ -11357,3 +11357,24 @@ capture.
 
 **Would reopen:** operators who watch GPU time continuously during a show
 (then a setting to pin it).
+
+### D473: the rail names its views in words, and is icons only where it has no room (2026-10-24)
+
+**Context.** UI review step 6 (S7) and the owner's answer: the rail's
+labels were three- and four-letter capitals (PLAY, LIB, GET, LIST, EDIT,
+MAP, DIAG, SET) in 10 pt under the icons, abbreviated to fit 60 points;
+GET and LIST were not guessable.
+
+**Decision.** Play, Library, Import, Playlist, Editor, Mappings,
+Diagnostics, Settings at 11 pt, in a rail 84 points wide (room for
+"Diagnostics"). Below the width where the rail already dropped its labels
+(`workspace::rail_labels`, 1000 points) it is 56 points of icons only, so
+a narrow window loses no more room than before. `theme::rail_width`
+decides it for the layout, the rail and the side panel's drag limit
+alike. Text in the app and the user guide that named the old labels ("the
+LIST pane", "Open LIST", "the MAP pane") names the views instead.
+
+**Test.** `chrome::tests::the_rail_lists_every_workspace_of_the_mockup_in_order`
+with the words; the shell's every-size checks; captures at 1600 and 900.
+
+**Would reopen:** a language whose words do not fit 84 points.

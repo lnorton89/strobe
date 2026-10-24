@@ -444,11 +444,17 @@ pub fn drag_limit(window_width: f32, rail: f32) -> f32 {
         .min(Pane::Inspector.max_width())
 }
 
+/// Whether the rail shows its labels in a window `window_width` points wide.
+#[must_use]
+pub fn rail_labels(window_width: f32) -> bool {
+    window_width >= NARROW
+}
+
 /// Decides what is drawn, and how wide the side panel is, for a window
 /// `window_width` points wide whose rail is `rail` points wide. See the
 /// module docs for the rules.
 pub fn arrange(panes: &Panes, window_width: f32, rail: f32) -> Arrangement {
-    let rail_labels = window_width >= NARROW;
+    let rail_labels = rail_labels(window_width);
     let avail = (window_width - rail).max(0.0);
     let main = panes.shown_in(Dock::Main);
     let mut overlay = false;

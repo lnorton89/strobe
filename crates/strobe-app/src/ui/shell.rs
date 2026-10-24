@@ -74,7 +74,7 @@
 
 use super::chrome::{self, Readouts};
 use super::model::{Action, Model};
-use super::theme::{self, PAD, RAIL_WIDTH, SPACE_SM, SPACE_XS};
+use super::theme::{self, PAD, SPACE_SM, SPACE_XS};
 use super::{
     browser, command_palette, diagnostics, editor, help, import, keys, map, modal, perform,
     playlist, settings, side, transport,
@@ -140,7 +140,7 @@ pub fn show(ui: &mut Ui, shell: &mut ShellState, model: &mut Model<'_>, actions:
     );
 
     let width = ui.ctx().content_rect().width();
-    let arrangement = workspace::arrange(&model.ui.panes, width, RAIL_WIDTH);
+    let arrangement = workspace::arrange(&model.ui.panes, width, theme::rail_width(width));
 
     chrome::title_bar(
         ui,
@@ -493,7 +493,7 @@ fn splitter_handle(
         let width = panel.right() - pos.x;
         // Dragging the panel wider must not squeeze the main view below
         // its minimum: stop at the limit instead.
-        let limit = workspace::drag_limit(window_width, RAIL_WIDTH);
+        let limit = workspace::drag_limit(window_width, theme::rail_width(window_width));
         model.ui.panes.set_width(Pane::Inspector, width.min(limit));
     }
     let lit = response.hovered() || response.dragged();

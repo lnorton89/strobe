@@ -195,7 +195,7 @@ pub fn nav_item(
             egui::pos2(rect.center().x, rect.bottom() - 9.0),
             Align2::CENTER_CENTER,
             label,
-            FontId::new(10.0, egui::FontFamily::Proportional),
+            FontId::new(11.0, egui::FontFamily::Proportional),
             theme::rgb(if active { theme.text } else { colour }),
         );
     }

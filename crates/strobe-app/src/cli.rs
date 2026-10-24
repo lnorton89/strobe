@@ -215,7 +215,7 @@ pub struct Cli {
     #[arg(long)]
     pub no_resume: bool,
     /// Listen for OSC messages on 127.0.0.1 (port 9000 unless `--osc-port`)
-    /// for this run. The MAP pane's switch turns it on for good.
+    /// for this run. The Mappings pane's switch turns it on for good.
     #[arg(long)]
     pub osc: bool,
     /// The UDP port OSC listens on for this run.

@@ -140,7 +140,7 @@ pub fn strip(ui: &mut Ui, theme: &Palette, strip: Strip<'_>, actions: &mut Vec<A
         placeholder(
             ui,
             theme,
-            "Every macro is unpinned. Pin one in the MAP pane to put it here.",
+            "Every macro is unpinned. Pin one in Mappings to put it here.",
         );
         return;
     }
@@ -205,7 +205,7 @@ fn legacy(ui: &mut Ui, theme: &Palette, bank: Option<&mut ControlBank>, view: &m
         placeholder(
             ui,
             theme,
-            "Macros appear here: pin controls in the MAP pane, or the scene's first controls.",
+            "Macros appear here: pin controls in Mappings, or the scene's first controls.",
         );
         return;
     };

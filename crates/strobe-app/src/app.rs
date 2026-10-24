@@ -3858,7 +3858,7 @@ impl Running {
                         log::info!("hold requested: there is no playlist, so nothing was held");
                         self.notice = Some(Notice {
                             tone: Tone::Info,
-                            text: "Hold needs a playlist. Load one in the LIST pane or start with \
+                            text: "Hold needs a playlist. Open one in Playlist or start with \
                                    --playlist <file>. Nothing was held."
                                 .to_string(),
                             since: Instant::now(),
@@ -3879,7 +3879,7 @@ impl Running {
                     if !self.playlist_command(Command::JumpTo(index)) && self.stack.show.is_none() {
                         self.say(
                             Tone::Info,
-                            "Jumping to a cue needs a playlist. Load one in the LIST pane.",
+                            "Jumping to a cue needs a playlist. Open one in Playlist.",
                         );
                     }
                 }
