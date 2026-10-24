@@ -779,6 +779,8 @@ struct Running {
     /// Other Strobes on the LAN, looked for while Settings shows Remote
     /// (D468).
     lan_scan: LanScan,
+    /// The file or folder dialog a Browse button opened (D470).
+    picker: crate::picker::Picker,
     desktop_capture: crate::desktop::Capture,
     desktop_input: crate::desktop::HostInput,
     desktop_events: Vec<strobe_remote::desktop::Input>,
@@ -984,6 +986,7 @@ impl Running {
             ),
             desktop_controller,
             lan_scan: LanScan::default(),
+            picker: crate::picker::Picker::default(),
             desktop_capture: crate::desktop::Capture::default(),
             desktop_input: crate::desktop::HostInput::default(),
             desktop_events: Vec::with_capacity(129),
@@ -3961,6 +3964,15 @@ impl Running {
                 Action::SetAudioSpeed(gain) => self.audio.set_speed(gain),
                 Action::TapTempo => self.audio.tap(),
                 Action::Import(text) => self.submit_import(Input::Text(text), false),
+                Action::Browse(purpose) => {
+                    let start = match purpose {
+                        crate::picker::Purpose::Playlist => Some(PathBuf::from("playlists")),
+                        crate::picker::Purpose::Shadertoy
+                        | crate::picker::Purpose::WatchFolder
+                        | crate::picker::Purpose::TrustFile => None,
+                    };
+                    self.picker.open(purpose, start);
+                }
                 Action::ConfirmReplace => {
                     if let Some(input) = self.import_state.confirm_replace() {
                         self.submit_import(input, true);
@@ -4911,6 +4923,9 @@ impl Running {
                 == Some(crate::workspace::Pane::Settings)
             && self.ui_state.settings.page == crate::ui::settings::SettingsPage::Remote;
         self.lan_scan.update(scanning, Instant::now());
+        if let Some((purpose, path)) = self.picker.poll() {
+            self.picked(purpose, &path);
+        }
         let playing_dir = self.stack.session.as_ref().map(|s| s.dir.clone());
         let editor_read_only = self.editor_read_only();
         let authored = self.stack.session.as_ref().is_some_and(|session| {
@@ -5034,6 +5049,7 @@ impl Running {
                 budget_ms: self.stack.perf.budget_ms(),
                 scale: self.render_scale,
             },
+            picking: self.picker.busy(),
             import: ImportPanel {
                 text: &mut self.import_state.text,
                 status: &self.import_state.status,
@@ -5720,6 +5736,37 @@ fn same_folder(a: &Path, b: &Path) -> bool {
     match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
         (Ok(a), Ok(b)) => a == b,
         _ => a == b,
+    }
+}
+
+impl Running {
+    /// Puts what a Browse dialog chose where it belongs (D470), and acts
+    /// on it as the field's own button would: a playlist loads, an export
+    /// imports, a folder is watched, a trust file fills the connect form.
+    fn picked(&mut self, purpose: crate::picker::Purpose, path: &std::path::Path) {
+        let text = path.display().to_string();
+        log::info!("picker: {purpose:?} chose {text}");
+        match purpose {
+            crate::picker::Purpose::Playlist => {
+                self.playlist_ui.path.clone_from(&text);
+                self.actions.push(Action::LoadPlaylist(text));
+            }
+            crate::picker::Purpose::Shadertoy => {
+                self.import_state.text.clone_from(&text);
+                self.actions.push(Action::Import(text));
+            }
+            crate::picker::Purpose::WatchFolder => {
+                self.ui_state.watch.draft.clone_from(&text);
+                self.actions.push(Action::SetWatchFolder {
+                    folder: text,
+                    enabled: true,
+                });
+            }
+            crate::picker::Purpose::TrustFile => {
+                self.desktop_controller.trust_path = text;
+                self.desktop_controller.use_trust = true;
+            }
+        }
     }
 }
 

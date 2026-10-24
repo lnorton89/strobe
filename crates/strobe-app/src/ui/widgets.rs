@@ -467,6 +467,18 @@ pub fn primary_button(ui: &mut Ui, theme: &Palette, label: &str) -> Response {
     response.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
+/// The Browse button beside a path field (D470): disabled while a dialog
+/// is already open. Returns whether it was clicked.
+pub fn browse_button(ui: &mut Ui, theme: &Palette, picking: bool) -> bool {
+    ui.add_enabled_ui(!picking, |ui| {
+        button(ui, theme, Some(Icon::Folder), "Browse...")
+            .on_hover_text("Choose it in the system's dialog")
+            .on_disabled_hover_text("A file dialog is already open")
+    })
+    .inner
+    .clicked()
+}
+
 /// The height of a [`button`].
 pub const BUTTON_HEIGHT: f32 = 26.0;
 

@@ -61,6 +61,16 @@ pub const STACK_BELOW: f32 = 460.0;
 /// How long a revealed row stays lit, in seconds.
 pub const FLASH: f64 = 1.6;
 
+/// The most of a row's width an ordinary control column takes; the words
+/// keep the rest.
+const NARROW_SHARE: f32 = 0.45;
+
+/// How many ordinary control columns wide a [`Group::wide_row`]'s is.
+const WIDE: f32 = 1.45;
+
+/// The most of a row's width a wide control column takes.
+const WIDE_SHARE: f32 = 0.6;
+
 /// A switch's track.
 const SWITCH: Vec2 = Vec2::new(36.0, 20.0);
 
@@ -295,14 +305,22 @@ impl Group<'_> {
 
     /// One setting, its control in a column [`control_width`] wide.
     pub fn row<R>(&mut self, row: Row<'_>, control: impl FnOnce(&mut Ui) -> R) -> R {
-        self.layout(row, control_width(), control).0
+        self.layout(row, control_width(), NARROW_SHARE, control).0
+    }
+
+    /// One setting whose control is a path field with buttons beside it
+    /// (Browse, Open): a column [`WIDE`] times as wide, taking up to
+    /// [`WIDE_SHARE`] of the row.
+    pub fn wide_row<R>(&mut self, row: Row<'_>, control: impl FnOnce(&mut Ui) -> R) -> R {
+        self.layout(row, control_width() * WIDE, WIDE_SHARE, control)
+            .0
     }
 
     /// One on/off setting. A click on the switch or anywhere on the row
     /// flips `on`; the response says `changed()` when it did.
     pub fn toggle(&mut self, row: Row<'_>, on: &mut bool) -> Response {
         let theme = self.theme;
-        let (switch, rect) = self.layout(row, SWITCH.x, |ui| toggle(ui, theme, on));
+        let (switch, rect) = self.layout(row, SWITCH.x, NARROW_SHARE, |ui| toggle(ui, theme, on));
         // Registered after the switch, so a pointer click lands here
         // wherever it is on the row; the switch still answers Space when
         // it has the focus. Not focusable itself: one tab stop per setting.
@@ -361,6 +379,7 @@ impl Group<'_> {
         &mut self,
         row: Row<'_>,
         control_width: f32,
+        share: f32,
         control: impl FnOnce(&mut Ui) -> R,
     ) -> (R, Rect) {
         self.divide();
@@ -372,7 +391,14 @@ impl Group<'_> {
         ui.add_space(theme::row_pad());
         let width = ui.available_width();
         let inner = ui.add_enabled_ui(row.enabled, |ui| {
-            Self::arrange(ui, theme, &row, width, control_width, control)
+            Self::arrange(
+                ui,
+                theme,
+                &row,
+                width,
+                control_width.min(width * share),
+                control,
+            )
         });
         let inner = inner.inner;
         ui.add_space(theme::row_pad());
@@ -419,7 +445,6 @@ impl Group<'_> {
             )
             .inner
         } else {
-            let control_width = control_width.min(width * 0.45);
             // The gap between the words and the control is the scale's largest step.
             let text_width = width - control_width - SPACE_LG;
             ui.horizontal_top(|ui| {

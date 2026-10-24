@@ -48,6 +48,9 @@ pub fn host_only(action: &crate::ui::Action) -> bool {
             | Action::SetDesktopAccess(true)
             | Action::DecideRemotePairing { approve: true, .. }
             | Action::ConnectDesktop
+            // The dialog would open on the host's screen, which the
+            // controller cannot see (D470).
+            | Action::Browse(_)
             | Action::SetOsc(_)
             | Action::SetImportListener(true)
     )
@@ -2119,6 +2122,7 @@ mod tests {
                 approve: true,
             },
             Action::ConnectDesktop,
+            Action::Browse(crate::picker::Purpose::Playlist),
             Action::SetOsc(strobe_io::config::OscSettings {
                 enabled: true,
                 all_interfaces: true,

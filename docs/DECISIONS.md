@@ -11258,3 +11258,51 @@ show" with Approve and Deny.
 
 **Would reopen:** request spam on a real venue network, which would bring
 back an opt-in code for both kinds of device.
+
+### D470: native file and folder pickers, opened off the frame loop; Import and Playlist in the form grammar (2026-10-24)
+
+**Context.** Every path in the app was typed: a playlist, a Shadertoy
+export, the watched folder, a venue trust file (UI review S3). The owner
+chose native dialogs through `rfd`, with typed paths and drag-and-drop
+kept. A system file dialog is modal to the thread that opens it, and the
+control window's thread is the one that draws the projector's output.
+
+**Decision.**
+- `rfd` 0.17 with `default-features = false, features = ["xdg-portal"]`:
+  Windows' own dialog; on Linux the XDG desktop portal over D-Bus, pure
+  Rust through `pollster`, so neither GTK nor an async runtime is pulled
+  in and CI's Linux job needs no system libraries. cargo-deny passes for
+  both targets (MIT and the existing licence list).
+- `picker::Picker` runs the dialog on a thread of its own and hands the
+  answer to the frame loop through a channel the app polls once a frame,
+  so the show keeps playing while it is open. One at a time: Browse is
+  disabled while one is open. macOS panels must open on the main thread,
+  so there it runs inline and the frame loop waits, stated in the module.
+- A chosen path acts as its field's own button would: a playlist opens,
+  an export imports, a folder is watched, a trust file fills the connect
+  form and switches venue mode on. `Action::Browse` is host-only (D275): a
+  remote desktop controller cannot see a dialog opened on the host.
+- Import is a page: the source (field, Browse, Import) as a wide row,
+  the outcome, Generate controls and tags for what was imported, and the
+  browser listener with its token. Playlist with nothing loaded is a page
+  (open a file, or generate one); loaded, its header names the playlist,
+  its length, loop and anchor, its file, and carries Open..., Save and
+  Unload, with the cue commands below it. Generate is a form of setting
+  rows. `form::Group::wide_row` gives a path field and its buttons a wider
+  column. The selected-cue editor and the timeline are unchanged.
+- A field beside buttons in a wrapping row takes
+  `available_size_before_wrap`, not `available_width`, which reports the
+  whole row and pushed the field onto a line of its own.
+- The playlist's anchor read "anchored 09" for 09:00:00: every trailing
+  `:00` was trimmed. Only the seconds are dropped now.
+
+**Test.** `picker::tests` (a folder only for the watched folder; an answer
+handed out once and the picker freed; a cancel or a lost thread frees
+it); `shell_tests::each_browse_button_asks_for_its_own_dialog` (Import,
+Playlist, the watched folder and the trust file each ask for their own
+purpose); the remote-refusal test lists Browse; the every-size overflow
+and text-over-text checks over the playlist and import scenarios;
+`--screenshot` captures before and after.
+
+**Would reopen:** a macOS release (an async or main-thread dialog that
+does not stall the output), or a dialog that must be modal to the window.

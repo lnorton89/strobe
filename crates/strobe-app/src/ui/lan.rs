@@ -237,7 +237,13 @@ fn paired(ui: &mut Ui, theme: &Palette, panel: &LanPanel<'_>, actions: &mut Vec<
 /// Strobe..." entry to open it: nobody looking to control a second laptop
 /// would think to look under being controlled. `reveal` scrolls to the
 /// address field, lights it and focuses it.
-pub fn control(ui: &mut Ui, theme: &Palette, panel: &mut LanPanel<'_>, actions: &mut Vec<Action>) {
+pub fn control(
+    ui: &mut Ui,
+    theme: &Palette,
+    panel: &mut LanPanel<'_>,
+    picking: bool,
+    actions: &mut Vec<Action>,
+) {
     let reveal = panel.controller.take_reveal();
     if reveal {
         form::reveal(HOST);
@@ -323,19 +329,23 @@ pub fn control(ui: &mut Ui, theme: &Palette, panel: &mut LanPanel<'_>, actions: 
             &mut panel.controller.use_trust,
         );
         if panel.controller.use_trust {
-            group.row(
+            group.wide_row(
                 Row::new("Trust file").description(
                     "The host must have been started with the same file (strobe --remote \
                      --allow-desktop-control --remote-trust FILE). Only the file's path is \
                      remembered, never its contents.",
                 ),
                 |ui| {
+                    if widgets::browse_button(ui, theme, picking) {
+                        actions.push(Action::Browse(crate::picker::Purpose::TrustFile));
+                    }
+                    let width = ui.available_size_before_wrap().x;
                     form::field(
                         ui,
                         theme,
                         &mut panel.controller.trust_path,
                         "Trust file, e.g. C:\\Users\\you\\venue.trust",
-                        FIELD,
+                        width,
                     );
                 },
             );

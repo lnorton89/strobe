@@ -42,6 +42,9 @@ dirs = "7"
 crash-handler = "0.8"
 minidumper = "0.11"
 log = "0.4"
+# Native file and folder pickers (D470). On Linux through the XDG desktop
+# portal (pure Rust, no GTK); no Wayland window-handle support needed.
+rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
 clap = { version = "4", features = ["derive"] }
 # Audio: cpal captures, realfft transforms, rtrb carries samples from the
 # audio callback to the analysis thread, arc-swap publishes the result to

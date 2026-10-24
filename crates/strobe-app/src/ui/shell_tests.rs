@@ -1310,6 +1310,7 @@ fn draw_events(
                 budget_ms: 16.7,
                 scale: 0.85,
             },
+            picking: false,
             import: ImportPanel {
                 text: &mut import_text,
                 status: &status,
@@ -2466,6 +2467,63 @@ fn text_at(scenario: Scenario, size: (f32, f32), line: &str) -> Result<egui::Pos
         .map(|(_, _, rect)| rect.center())
         .min_by(|a, b| a.y.total_cmp(&b.y))
         .ok_or_else(|| anyhow::anyhow!("nothing reads {line:?} in {}", scenario.name))
+}
+
+#[test]
+fn each_browse_button_asks_for_its_own_dialog() -> Result<()> {
+    use crate::picker::Purpose;
+    use crate::ui::settings::SettingsPage;
+    let cases = [
+        (
+            Scenario {
+                name: "import pane",
+                panes: &[Pane::Import],
+                ..BASE
+            },
+            Purpose::Shadertoy,
+        ),
+        (
+            Scenario {
+                name: "playlist pane, empty",
+                panes: &[Pane::Playlist],
+                ..BASE
+            },
+            Purpose::Playlist,
+        ),
+        (
+            Scenario {
+                name: "settings library",
+                settings_page: Some(SettingsPage::Library),
+                panes: &[Pane::Settings],
+                ..BASE
+            },
+            Purpose::WatchFolder,
+        ),
+        (
+            Scenario {
+                name: "settings remote with a trust file",
+                lan: true,
+                reveal_connect: true,
+                trust_form: true,
+                panes: &[Pane::Settings],
+                ..BASE
+            },
+            Purpose::TrustFile,
+        ),
+    ];
+    for (scenario, purpose) in cases {
+        // Tall, so a row far down the Remote page is drawn.
+        let size = (1440.0, 2400.0);
+        let at = text_at(scenario, size, "Browse...")?;
+        let drawn = draw_events(scenario, size, click_at(at))?;
+        assert!(
+            drawn.all_actions.contains(&Action::Browse(purpose)),
+            "{}: Browse asks for {purpose:?}: {:?}",
+            scenario.name,
+            drawn.all_actions
+        );
+    }
+    Ok(())
 }
 
 /// The scene loads `drawn` asked for, over every frame.

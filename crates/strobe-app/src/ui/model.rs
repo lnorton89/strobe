@@ -155,6 +155,9 @@ pub enum Action {
     ToggleHold,
     /// Load the playlist file at this path (the LIST pane's field).
     LoadPlaylist(String),
+    /// Open the system's file or folder dialog for this purpose (D470).
+    /// The app runs it off the frame loop and acts on the answer.
+    Browse(crate::picker::Purpose),
     /// Unload the playlist and go back to library order.
     UnloadPlaylist,
     /// Add 30 seconds to the current cue.
@@ -697,6 +700,8 @@ pub struct Model<'a> {
     pub script: Option<&'a ScriptState>,
     /// GPU time, budget and adaptive resolution.
     pub perf: PerfPanel,
+    /// A file or folder dialog is open (D470): Browse buttons wait.
+    pub picking: bool,
     /// Shadertoy import.
     pub import: ImportPanel<'a>,
     /// The playlist pane.

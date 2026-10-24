@@ -204,8 +204,11 @@ A playlist is a TOML file listing scenes in sections, with how long each
 plays and how it hands over. `playlists\example.toml` (in the source
 repository) shows the format.
 
-- **LIST > Load** opens one, or start with `--playlist <file>`, or drop
-  the `.toml` file on the window. **Generate** builds a section from your
+- **LIST** opens one: type its path and press **Open**, or press
+  **Browse...** to choose it in the system's file dialog (it opens at
+  once). You can also start with `--playlist <file>`, or drop the `.toml`
+  file on the window. With a playlist loaded, **Open...** in its header
+  chooses another. **Generate** builds a section from your
   library by tag and length. Its *Exclude* field leaves out scenes with a
   tag (`heavy`) or a name, and the preview says which were skipped.
 - Select a cue to change its length, transition, preset or media; the
@@ -517,8 +520,12 @@ does not run them or check them.
 ## Importing from Shadertoy
 
 The **Import** pane (via LIB) takes a Shadertoy URL or id, or an exported
-`.json` file, and writes a scene into the library. Dropping a `.json` on
-the window does the same.
+`.json` file, and writes a scene into the library. **Browse...** chooses
+the file in the system's dialog and imports it at once; dropping a `.json`
+on the window does the same. The watched folder (*Settings > Library*) and
+a venue trust file (*Settings > Remote*) have a **Browse...** button too.
+While a file dialog is open the show keeps playing: the dialog runs beside
+Strobe, not in front of its frame loop.
 
 **Licences are your responsibility.** Most Shadertoy shaders are
 CC BY-NC-SA 3.0: no commercial use without the author's permission.

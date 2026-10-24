@@ -571,11 +571,11 @@ fn page_scroll(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mu
                     }
                     SettingsPage::Library => {
                         synesthesia(ui, theme, &model.ui.synesthesia, actions);
-                        watch_folder(ui, theme, &mut model.ui.watch, actions);
+                        watch_folder(ui, theme, &mut model.ui.watch, model.picking, actions);
                     }
                     SettingsPage::Remote => {
                         super::lan::show(ui, theme, &mut model.lan, actions);
-                        super::lan::control(ui, theme, &mut model.lan, actions);
+                        super::lan::control(ui, theme, &mut model.lan, model.picking, actions);
                         super::lan::network(ui, theme, &mut model.lan);
                     }
                     SettingsPage::Shortcuts => keyboard(
@@ -808,6 +808,7 @@ fn watch_folder(
     ui: &mut Ui,
     theme: &Palette,
     watch: &mut super::state::WatchState,
+    picking: bool,
     actions: &mut Vec<Action>,
 ) {
     form::group(ui, theme, "Watched folder", |group| {
@@ -832,7 +833,7 @@ fn watch_folder(
             });
         }
         let ready = !watch.draft.trim().is_empty();
-        group.row(
+        group.wide_row(
             Row::new(FOLDER).description("A folder beside the library, not the library itself."),
             |ui| {
                 let apply = ui
@@ -841,7 +842,10 @@ fn watch_folder(
                             .on_hover_text("Watch this folder now, and from the next launch")
                     })
                     .inner;
-                let width = ui.available_width();
+                if widgets::browse_button(ui, theme, picking) {
+                    actions.push(Action::Browse(crate::picker::Purpose::WatchFolder));
+                }
+                let width = ui.available_size_before_wrap().x;
                 let field = form::field(ui, theme, &mut watch.draft, "D:\\VJ\\inbox", width);
                 let entered =
                     field.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter));
@@ -877,7 +881,7 @@ fn layouts(ui: &mut Ui, theme: &Palette, state: &mut super::state::UiState) {
                     })
                     .inner
                     .clicked();
-                let width = ui.available_width();
+                let width = ui.available_size_before_wrap().x;
                 form::field(
                     ui,
                     theme,
@@ -1081,7 +1085,7 @@ pub(super) mod tests {
         let pass = crate::ui::testing::run(
             ctx,
             crate::ui::testing::input(Vec2::new(640.0, 480.0), events),
-            |ui| watch_folder(ui, &theme, watch, actions),
+            |ui| watch_folder(ui, &theme, watch, false, actions),
         );
         texts(&pass)
     }
