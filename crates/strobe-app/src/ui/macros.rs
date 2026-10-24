@@ -216,7 +216,11 @@ fn legacy(ui: &mut Ui, theme: &Palette, bank: Option<&mut ControlBank>, view: &m
     }
     ui.horizontal(|ui| {
         for index in picked {
-            let Some(name) = bank.defs().get(index).map(|d| d.name.clone()) else {
+            let Some(name) = bank
+                .defs()
+                .get(index)
+                .map(|d| controls::display_name(&d.name))
+            else {
                 continue;
             };
             frame(ui, theme, None, |ui, width| {

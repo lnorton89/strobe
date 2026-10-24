@@ -77,7 +77,8 @@ pub enum SideTab {
     Controls,
     /// The fav slots and the scene's presets.
     Presets,
-    /// The scene's tags, picture, media, Generate and the Editor.
+    /// The scene's tags, picture, media, Generate and the Editor. Shown as
+    /// SCENE: the rail's EDIT is the code editor itself.
     Edit,
 }
 
@@ -106,7 +107,7 @@ impl SideTab {
             Self::Playlist => "PLAYLIST",
             Self::Controls => "CONTROLS",
             Self::Presets => "PRESETS",
-            Self::Edit => "EDIT",
+            Self::Edit => "SCENE",
         }
     }
 
@@ -116,7 +117,7 @@ impl SideTab {
             Self::Playlist => "Playlist: the loaded show's cues",
             Self::Controls => "Controls: the playing scene's controls",
             Self::Presets => "Presets: fav slots and the scene's saved looks",
-            Self::Edit => "Edit: tags, picture, media, Generate controls, the Editor",
+            Self::Edit => "Scene: its tags, picture and media, Generate controls, and the Editor",
         }
     }
 
@@ -126,7 +127,7 @@ impl SideTab {
             Self::Playlist => Icon::Playlist,
             Self::Controls => Icon::Controls,
             Self::Presets => Icon::Star,
-            Self::Edit => Icon::Editor,
+            Self::Edit => Icon::Info,
         }
     }
 }

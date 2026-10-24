@@ -857,24 +857,29 @@ fn meta_section(
     pins: &mut controls::Pins<'_>,
     scale: controls::Scale,
 ) {
+    // The collapse key keeps its old name, so a layout saved before the
+    // section was renamed keeps it folded or open.
     const NAME: &str = "Output (meta)";
     let collapsed = state.is_collapsed(NAME);
     ui.separator();
     ui.horizontal(|ui| {
         // The chevron points the way the group headers' do: right while
         // closed, down while open.
-        let (chevron, label) = if collapsed {
-            (Icon::ChevronRight, "Output (meta): show")
+        let chevron = if collapsed {
+            Icon::ChevronRight
         } else {
-            (Icon::ChevronDown, "Output (meta): hide")
+            Icon::ChevronDown
         };
-        if widgets::button(ui, theme, Some(chevron), label)
-            .on_hover_text("Master, colour, mirror and audio gains for the whole output")
+        if widgets::button(ui, theme, Some(chevron), "Output controls")
+            .on_hover_text(
+                "Master level, colour, mirror and audio for the whole output, applied after the \
+                 scene. They stay as they are when the scene changes.",
+            )
             .clicked()
         {
             state.set_collapsed(NAME, !collapsed);
         }
-        if widgets::button(ui, theme, Some(Icon::Reset), "Reset")
+        if widgets::button(ui, theme, Some(Icon::Reset), "Reset output")
             .on_hover_text("Return every output control to neutral")
             .clicked()
         {
@@ -889,9 +894,9 @@ fn meta_section(
     for (group, members) in controls::group_order(meta.defs()) {
         if let Some(name) = group {
             ui.label(
-                egui::RichText::new(name.to_uppercase())
-                    .small()
-                    .color(theme::rgb(theme.text_faint)),
+                egui::RichText::new(controls::display_name(&name))
+                    .font(theme::description_font())
+                    .color(theme::rgb(theme.text_muted)),
             );
         }
         controls::rows(ui, theme, meta, &members, Some(&mut *pins), scale);
@@ -976,7 +981,7 @@ fn group_header(
             if widgets::icon_button(
                 ui,
                 theme,
-                Icon::Refresh,
+                Icon::Dice,
                 "Random: move every control in this group to a random value",
             )
             .clicked()

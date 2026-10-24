@@ -11306,3 +11306,31 @@ and text-over-text checks over the playlist and import scenarios;
 
 **Would reopen:** a macOS release (an async or main-thread dialog that
 does not stall the output), or a dialog that must be modal to the window.
+
+### D471: control names read as words; Random has its own icon; the side panel's EDIT tab is SCENE (2026-10-24)
+
+**Context.** UI review step 4. Each control group's header carried
+Random and Default as two circular arrows, and Random's was the same
+arrow as the scene's Reload beside the title. The output's controls were
+"Output (meta): show/hide" over raw names (`master`, `vertical_mirror`)
+under capitalised group words, and the side panel's EDIT tab sat beside
+the rail's EDIT, which is a different thing (the code editor).
+
+**Decision.** Random draws a die (`Icon::Dice`); Default keeps the reset
+arrow; Reload keeps the clockwise one. Control names are shown through
+`controls::display_name` (underscores as spaces, a capital first letter)
+in the Inspector, the Controls page and the macro strip; it is display
+only, so scripts, mappings, macros and presets keep the name as written.
+The meta section is "Output controls" with "Reset output", its groups in
+the description step; its collapse key is unchanged so saved layouts
+keep it folded. The side tab shows SCENE with the info icon (its saved
+key stays `edit`). The review's suggestion to drop side tabs that echo
+rail destinations is not taken: the side Playlist tab is a compact
+timeline beside the library and SCENE holds tags, picture and media,
+neither of which the rail's views replace.
+
+**Test.** `controls::tests::a_control_name_reads_as_words_and_keeps_its_letters`;
+`icon` tests draw the new die; the shell's every-size checks; a capture.
+
+**Would reopen:** scene authors relying on exact-case or underscore names
+being visible (then a per-scene LABEL field).

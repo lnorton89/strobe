@@ -370,6 +370,19 @@ fn pin_menu(response: &Response, def: &ControlDef, pins: &mut Option<&mut Pins<'
     });
 }
 
+/// A control's name as a person reads it (UI review S6): underscores as
+/// spaces and the first letter capital, so `vertical_mirror` shows
+/// "Vertical mirror" and `master` "Master". Display only: scripts,
+/// mappings and presets keep the name as written.
+pub fn display_name(name: &str) -> String {
+    let spaced = name.replace('_', " ");
+    let mut chars = spaced.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => spaced,
+    }
+}
+
 /// A control's name, which right-clicks to the pin menu.
 fn name_label(
     ui: &mut Ui,
@@ -378,8 +391,10 @@ fn name_label(
     pins: &mut Option<&mut Pins<'_>>,
 ) -> Response {
     let response = ui.add(
-        egui::Label::new(egui::RichText::new(&def.name).color(theme::rgb(theme.text)))
-            .sense(Sense::click()),
+        egui::Label::new(
+            egui::RichText::new(display_name(&def.name)).color(theme::rgb(theme.text)),
+        )
+        .sense(Sense::click()),
     );
     pin_menu(&response, def, pins);
     response
@@ -974,5 +989,13 @@ mod tests {
             1.0,
         );
         assert!(value.is_finite(), "the rail left {value} in a control");
+    }
+
+    #[test]
+    fn a_control_name_reads_as_words_and_keeps_its_letters() {
+        assert_eq!(display_name("vertical_mirror"), "Vertical mirror", "underscores");
+        assert_eq!(display_name("master"), "Master", "a capital");
+        assert_eq!(display_name("hueShift"), "HueShift", "letters kept");
+        assert_eq!(display_name(""), "", "empty");
     }
 }

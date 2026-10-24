@@ -125,6 +125,8 @@ pub enum Icon {
     Controls,
     /// A favourite: a five-pointed star.
     Star,
+    /// Random: a die showing three.
+    Dice,
     /// A menu of more: three dots in a row.
     More,
     /// A camera: a snapshot of the live frame.
@@ -316,6 +318,12 @@ impl Icon {
                 (2.3, 6.5),
                 (6.5, 6.4),
             ])],
+            Self::Dice => &[
+                Seg::Closed(&[(2.5, 2.5), (13.5, 2.5), (13.5, 13.5), (2.5, 13.5)]),
+                Seg::Dot(5.5, 5.5),
+                Seg::Dot(8.0, 8.0),
+                Seg::Dot(10.5, 10.5),
+            ],
             Self::Controls => &[
                 Seg::Open(&[(4.0, 2.5), (4.0, 13.5)]),
                 Seg::Circle(4.0, 10.0, 1.7),
@@ -399,7 +407,7 @@ mod tests {
     /// Every icon the enum names, so a new variant is drawn by the tests
     /// below without anyone remembering to add it. Kept in declaration
     /// order: the check below reads each entry's discriminant.
-    const ALL: [Icon; 38] = [
+    const ALL: [Icon; 39] = [
         Icon::Perform,
         Icon::Library,
         Icon::Playlist,
@@ -433,6 +441,7 @@ mod tests {
         Icon::Audio,
         Icon::Controls,
         Icon::Star,
+        Icon::Dice,
         Icon::More,
         Icon::Camera,
         Icon::ArrowUp,
