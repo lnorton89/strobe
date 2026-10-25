@@ -224,6 +224,7 @@ capture before and after, at 1600x1000 and at 1280x720.
 | 5. Title bar | **Done (D472).** Frame rate with the GPU meter, output, audio and the remote always; GPU time, render scale and backend only when they need attention, and in the frame rate's tooltip. |
 | 6. Rail | **Done (D473).** Play, Library, Import, Playlist, Editor, Mappings, Diagnostics, Settings in an 84-point rail; 56 points of icons in a narrow window. |
 | 7. Library | **Done (D474).** The count as a sentence; generated cover art for scenes with no picture. |
+| 8. Leftovers | **Done (D476-D483).** Play shows one set of output buttons and macro cards share the strip (D476); control groups and the output controls are cards (D477); empty fav slots look empty (D478); Controls is a rail view and Play left the rail, at the owner's request (D479); the library header is one row with its filters in one group, and captions cut at a word (D480); recent playlists (D481); the Editor's status chip and one primary action (D482); Diagnostics as a page of cards with a fixed-height console (D483). |
 
 ## 5. Owner's answers (2026-10-23)
 
