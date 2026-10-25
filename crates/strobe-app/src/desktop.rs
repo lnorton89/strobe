@@ -3010,6 +3010,13 @@ mod tests {
             .stage
     }
 
+    /// How long a desktop test waits for something to happen. `within`
+    /// returns the moment it does, so this costs nothing on a pass; it is
+    /// long because the kill-switch path is a drop, a one-second retry
+    /// backoff and a reconnect, and five seconds was not always enough on a
+    /// loaded CI runner (lnorton89/strobe#25's Linux job).
+    const PATIENCE: Duration = Duration::from_secs(20);
+
     fn within(limit: Duration, mut check: impl FnMut() -> bool) -> Result<()> {
         let until = Instant::now() + limit;
         while Instant::now() < until {
@@ -3041,13 +3048,13 @@ mod tests {
         let (server, app) = trusted_host(&secret, 0)?;
         let mut controller = trusted_controller(&file, server.addr());
         controller.connect();
-        within(Duration::from_secs(5), || app.desktop.active())?;
+        within(PATIENCE, || app.desktop.active())?;
         assert!(
             server.pairing_requests().is_empty(),
             "nobody was asked to approve anything"
         );
         app.desktop.publish([32, 32], a_frame()?);
-        within(Duration::from_secs(5), || {
+        within(PATIENCE, || {
             controller
                 .view
                 .lock()
@@ -3091,7 +3098,7 @@ mod tests {
         let (server, app) = trusted_host(&secret, 0)?;
         let mut controller = trusted_controller(&other_file, server.addr());
         controller.connect();
-        within(Duration::from_secs(5), || {
+        within(PATIENCE, || {
             stage_of(&controller) == Stage::Ended(End::Refused)
         })?;
         let note = controller.note();
@@ -3131,9 +3138,9 @@ mod tests {
         let address = server.addr();
         let mut controller = trusted_controller(&file, address);
         controller.connect();
-        within(Duration::from_secs(5), || app.desktop.active())?;
+        within(PATIENCE, || app.desktop.active())?;
         app.desktop.publish([32, 32], a_frame()?);
-        within(Duration::from_secs(5), || {
+        within(PATIENCE, || {
             controller
                 .view
                 .lock()
@@ -3144,7 +3151,7 @@ mod tests {
         // The host goes away: the show machine reboots.
         server.stop();
         drop(app);
-        within(Duration::from_secs(5), || {
+        within(PATIENCE, || {
             matches!(stage_of(&controller), Stage::Reconnecting(_))
         })?;
         {
@@ -3176,7 +3183,7 @@ mod tests {
             "no approval was asked of anyone"
         );
         app.desktop.publish([32, 32], a_frame()?);
-        within(Duration::from_secs(5), || {
+        within(PATIENCE, || {
             controller
                 .view
                 .lock()
@@ -3184,7 +3191,7 @@ mod tests {
                 .ready
         })?;
         controller.disconnect();
-        within(Duration::from_secs(5), || !app.desktop.active())?;
+        within(PATIENCE, || !app.desktop.active())?;
         server.stop();
         Ok(())
     }
@@ -3198,10 +3205,10 @@ mod tests {
         let address = server.addr();
         let mut controller = trusted_controller(&file, address);
         controller.connect();
-        within(Duration::from_secs(5), || app.desktop.active())?;
+        within(PATIENCE, || app.desktop.active())?;
         server.stop();
         drop(app);
-        within(Duration::from_secs(5), || {
+        within(PATIENCE, || {
             matches!(stage_of(&controller), Stage::Reconnecting(_))
         })?;
 
@@ -3230,7 +3237,7 @@ mod tests {
         let (server, app) = trusted_host(&secret, 0)?;
         let mut first = trusted_controller(&file, server.addr());
         first.connect();
-        within(Duration::from_secs(5), || app.desktop.active())?;
+        within(PATIENCE, || app.desktop.active())?;
         let mut second = trusted_controller(&file, server.addr());
         second.controller_id = "other-laptop-00000000".into();
         second.connect();
@@ -3260,9 +3267,9 @@ mod tests {
         let (server, app) = trusted_host(&secret, 0)?;
         let mut controller = trusted_controller(&file, server.addr());
         controller.connect();
-        within(Duration::from_secs(5), || app.desktop.active())?;
+        within(PATIENCE, || app.desktop.active())?;
         app.desktop.publish([32, 32], a_frame()?);
-        within(Duration::from_secs(5), || {
+        within(PATIENCE, || {
             controller
                 .view
                 .lock()
@@ -3272,7 +3279,7 @@ mod tests {
         // What Lan::set_desktop(false) does at the host.
         app.desktop.enable(false);
         server.revoke_desktop();
-        within(Duration::from_secs(5), || {
+        within(PATIENCE, || {
             stage_of(&controller) == Stage::Ended(End::Refused)
         })?;
         let note = controller.note();
@@ -3404,7 +3411,7 @@ mod tests {
         controller.address = address.to_string();
         controller.code = "123456".into();
         controller.connect();
-        within(Duration::from_secs(5), || {
+        within(PATIENCE, || {
             stage_of(&controller) == Stage::Ended(End::Refused)
         })?;
         assert!(
