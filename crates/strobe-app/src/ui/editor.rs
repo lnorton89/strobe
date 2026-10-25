@@ -29,6 +29,14 @@
 //! it is read-only and a Copy to my library button leads the row (D271).
 //! Save is still there and is refused by the app with the same offer, so
 //! edits made before noticing are never lost: the copy carries them.
+//!
+//! The header (D482) is the scene's name with its state as a status chip
+//! beside it, and the actions in order of weight at the right: Save and
+//! reload as the one primary button (Copy to my library takes that place
+//! on a read-only scene), Save, and a menu with Revert and Restore backup,
+//! which throw work away and are not for a quick click. Four buttons of
+//! one weight and a status line in small coloured text said neither what
+//! the usual action was nor what state the files were in.
 
 use super::model::{Action, Model};
 use super::theme::{self, SPACE_SM, SPACE_XS};
@@ -90,87 +98,107 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
     }
 
     let on_screen = playing_dir.is_some_and(|dir| dir == doc.dir);
-    ui.horizontal(|ui| {
-        ui.label(
-            egui::RichText::new(&doc.name)
-                .strong()
-                .color(theme::rgb(theme.text)),
-        );
-        if !on_screen {
-            ui.label(
-                egui::RichText::new("not the scene on screen")
-                    .small()
-                    .color(theme::rgb(theme.warning)),
-            );
-        }
-    });
-
     // The failure, when it is this scene's.
     let error = failure
         .filter(|(scene, _)| *scene == doc.name)
         .map(|(_, summary)| summary);
-    let (word, tone) = if read_only {
+    let (word, tip, tone) = if read_only {
         (
-            "Read-only: one of Synesthesia's scenes. Copy it to your library to save edits.",
+            "Read-only",
+            "One of Synesthesia's scenes. Copy it to your library to save edits.",
             Tone::Warning,
         )
     } else if doc.invalid.is_some() {
         (
+            "Not saved",
             "Not saved or reloaded: scene.json does not parse",
             Tone::Error,
         )
     } else if doc.is_dirty() {
-        ("Unsaved changes", Tone::Warning)
+        (
+            "Unsaved changes",
+            "Save writes them; Save and reload also shows them",
+            Tone::Warning,
+        )
     } else if error.is_some() {
         (
-            "Error: the scene on screen is the last one that compiled",
+            "Error",
+            "The scene on screen is the last one that compiled",
             Tone::Error,
         )
     } else {
-        ("Ready: what is on disk is what plays", Tone::Info)
+        ("Ready", "What is on disk is what plays", Tone::Info)
     };
-    ui.label(
-        egui::RichText::new(word)
-            .small()
-            .color(theme::rgb(tone.colour(theme))),
-    );
-    ui.add_space(SPACE_XS);
 
-    ui.horizontal_wrapped(|ui| {
-        if read_only
-            && widgets::primary_button(ui, theme, super::tags::COPY_LABEL)
-                .on_hover_text(super::tags::READ_ONLY_HINT)
+    ui.horizontal(|ui| {
+        ui.set_min_height(30.0);
+        ui.label(
+            egui::RichText::new(&doc.name)
+                .font(theme::heading_font())
+                .color(theme::rgb(theme.text)),
+        );
+        widgets::status_chip(ui, tone.icon(), word, tone.colour(theme)).on_hover_text(tip);
+        if !on_screen {
+            widgets::status_chip(ui, Icon::Info, "Not on screen", theme.text_muted)
+                .on_hover_text("This is not the scene the output is playing");
+        }
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            // Right to left: the menu at the edge, then Save, then the
+            // primary action nearest the name's line of sight.
+            let more = widgets::icon_button(
+                ui,
+                theme,
+                Icon::More,
+                "More: revert unsaved changes, or restore this file's backup",
+            );
+            egui::Popup::menu(&more).show(|ui| {
+                if ui
+                    .button("Revert unsaved changes")
+                    .on_hover_text("Throw away what has not been saved")
+                    .clicked()
+                {
+                    actions.push(Action::EditorRevert);
+                    ui.close();
+                }
+                if ui
+                    .button("Restore backup")
+                    .on_hover_text(
+                        "Put this file's text from before this session's first save back in \
+                         the editor (not saved until you save)",
+                    )
+                    .clicked()
+                {
+                    actions.push(Action::EditorRestoreBackup);
+                    ui.close();
+                }
+            });
+            if widgets::button(ui, theme, None, "Save")
+                .on_hover_text("Write the files; the show keeps the scene it has (Ctrl+S)")
                 .clicked()
-        {
-            actions.push(Action::CopyToLibrary(doc.dir.clone()));
-        }
-        if widgets::primary_button(ui, theme, "Save and reload")
-            .on_hover_text("Write the files and load the scene again (Ctrl+Enter)")
-            .clicked()
-        {
-            actions.push(Action::EditorSaveReload);
-        }
-        if widgets::button(ui, theme, None, "Save")
-            .on_hover_text("Write the files; the show keeps the scene it has (Ctrl+S)")
-            .clicked()
-        {
-            actions.push(Action::EditorSave);
-        }
-        if widgets::button(ui, theme, None, "Revert")
-            .on_hover_text("Throw away what has not been saved")
-            .clicked()
-        {
-            actions.push(Action::EditorRevert);
-        }
-        if widgets::button(ui, theme, None, "Restore backup")
-            .on_hover_text(
-                "Put this file's text from before this session's first save back in the editor \
-                 (not saved until you save)",
-            )
-            .clicked()
-        {
-            actions.push(Action::EditorRestoreBackup);
-        }
+            {
+                actions.push(Action::EditorSave);
+            }
+            let reload_tip = "Write the files and load the scene again (Ctrl+Enter)";
+            if read_only {
+                if widgets::button(ui, theme, None, "Save and reload")
+                    .on_hover_text(reload_tip)
+                    .clicked()
+                {
+                    actions.push(Action::EditorSaveReload);
+                }
+                if widgets::primary_button(ui, theme, super::tags::COPY_LABEL)
+                    .on_hover_text(super::tags::READ_ONLY_HINT)
+                    .clicked()
+                {
+                    actions.push(Action::CopyToLibrary(doc.dir.clone()));
+                }
+            } else if widgets::primary_button(ui, theme, "Save and reload")
+                .on_hover_text(reload_tip)
+                .clicked()
+            {
+                actions.push(Action::EditorSaveReload);
+            }
+        });
     });
     ui.add_space(SPACE_XS);
 
@@ -233,11 +261,15 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
     egui::ScrollArea::both()
         .auto_shrink([false, false])
         .show(ui, |ui| {
+            // The code fills the pane's height rather than stopping at 24
+            // rows over an empty card (UI_REVIEW S8).
+            let fill = ui.available_height();
             let output = egui::TextEdit::multiline(&mut tab.text)
                 .id(id)
                 .code_editor()
                 .desired_width(f32::INFINITY)
                 .desired_rows(24)
+                .min_size(egui::vec2(0.0, fill))
                 .lock_focus(true)
                 .layouter(&mut layouter)
                 .show(ui);

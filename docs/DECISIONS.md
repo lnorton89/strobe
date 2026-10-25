@@ -11550,3 +11550,24 @@ one with a long path.
 
 **Would reopen:** an operator who wants a pinned set of shows rather
 than the last five.
+
+### D482: the Editor's header says its state as a chip and weighs its actions (2026-10-24)
+
+**Context.** UI_REVIEW's Editor notes: Save and reload, Save, Revert and
+Restore backup were four buttons of one weight, and the state ("Ready:
+what is on disk is what plays") was a line of small coloured text; the
+code box stopped at 24 rows over an empty card.
+
+**Decision.** One header row: the scene's name in the heading step, its
+state as a status chip (Ready, Unsaved changes, Not saved, Error,
+Read-only, with the long sentence in its tooltip) and a Not on screen
+chip when it is not the scene playing; at the right, Save and reload as
+the one primary button (Copy to my library on a read-only scene), Save,
+and a More menu with Revert unsaved changes and Restore backup, which
+throw work away. The code box fills the pane's height.
+
+**Test.** The shell's every-size checks over the Editor scenarios;
+captures at 1600x1000 and 1280x720.
+
+**Would reopen:** an operator who reverts often enough to want it back
+in reach.
