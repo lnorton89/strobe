@@ -232,6 +232,9 @@ impl Default for SynesthesiaState {
     }
 }
 
+/// How many recent playlists are kept (D481).
+pub const RECENT_PLAYLISTS: usize = 5;
+
 /// Everything about the control window's presentation that is the
 /// operator's to keep.
 pub struct UiState {
@@ -249,6 +252,9 @@ pub struct UiState {
     /// The library folder name of the scene last loaded, reopened at the
     /// next launch (T480 Task 21).
     pub last_scene: String,
+    /// The playlists opened last, newest first, at most
+    /// [`RECENT_PLAYLISTS`] (D481): the empty Playlist page lists them.
+    pub recent_playlists: Vec<String>,
     /// The command palette. Not saved: it always starts closed.
     pub command_palette: super::command_palette::PaletteUi,
     /// The Editor's presentation state (go-to line, highlight cache).
@@ -389,6 +395,7 @@ impl UiState {
             layout_name: String::new(),
             settings: super::settings::SettingsUi::default(),
             last_scene: prefs.last_scene.clone(),
+            recent_playlists: prefs.recent_playlists.clone(),
             theme_id: prefs.theme.clone(),
             reduced_motion: prefs.reduced_motion,
             catalog,
@@ -422,6 +429,7 @@ impl UiState {
         );
         prefs.side_tab = self.side_tab.key().to_string();
         prefs.last_scene.clone_from(&self.last_scene);
+        prefs.recent_playlists.clone_from(&self.recent_playlists);
         prefs.density = self.density.key().to_string();
         prefs.layouts.clone_from(&self.layouts);
         prefs.watch = crate::prefs::WatchPref {
@@ -537,6 +545,20 @@ impl UiState {
         self.panes.shown_in(crate::workspace::Dock::Main) == Some(Pane::Controls)
     }
 
+    /// Puts `path` first among the recent playlists (D481), once, keeping
+    /// at most [`RECENT_PLAYLISTS`].
+    pub fn remember_playlist(&mut self, path: &str) {
+        self.recent_playlists.retain(|known| known != path);
+        self.recent_playlists.insert(0, path.to_string());
+        self.recent_playlists.truncate(RECENT_PLAYLISTS);
+    }
+
+    /// Drops `path` from the recent playlists: it did not load (moved,
+    /// deleted, or broken), so offering it again would only fail again.
+    pub fn forget_playlist(&mut self, path: &str) {
+        self.recent_playlists.retain(|known| known != path);
+    }
+
     /// Whether the inspector group `name` is collapsed.
     pub fn is_collapsed(&self, name: &str) -> bool {
         self.collapsed_groups.iter().any(|group| group == name)
@@ -570,6 +592,7 @@ impl UiState {
         self.reduced_motion.hash(&mut hasher);
         self.density.key().hash(&mut hasher);
         self.last_scene.hash(&mut hasher);
+        self.recent_playlists.hash(&mut hasher);
         self.watch.folder.hash(&mut hasher);
         self.watch.enabled.hash(&mut hasher);
         self.synesthesia.show.hash(&mut hasher);
@@ -640,6 +663,45 @@ mod tests {
                 .map(|n| Entry::new((*n).to_string(), PathBuf::from(n)))
                 .collect(),
         }
+    }
+
+    #[test]
+    fn recent_playlists_are_newest_first_once_each_and_bounded() {
+        let mut state = UiState::ephemeral();
+        for n in 0..RECENT_PLAYLISTS + 2 {
+            state.remember_playlist(&format!("shows/{n}.toml"));
+        }
+        state.remember_playlist("shows/3.toml");
+        assert_eq!(
+            state.recent_playlists.len(),
+            RECENT_PLAYLISTS,
+            "bounded: {:?}",
+            state.recent_playlists
+        );
+        assert_eq!(
+            state.recent_playlists.first().map(String::as_str),
+            Some("shows/3.toml"),
+            "opened again, it moves to the front"
+        );
+        assert_eq!(
+            state
+                .recent_playlists
+                .iter()
+                .filter(|path| *path == "shows/3.toml")
+                .count(),
+            1,
+            "once"
+        );
+        state.forget_playlist("shows/3.toml");
+        assert!(
+            !state
+                .recent_playlists
+                .iter()
+                .any(|path| path == "shows/3.toml"),
+            "a playlist that did not load is dropped"
+        );
+        let back = UiState::from_prefs(&state.to_prefs());
+        assert_eq!(back.recent_playlists, state.recent_playlists, "saved");
     }
 
     #[test]

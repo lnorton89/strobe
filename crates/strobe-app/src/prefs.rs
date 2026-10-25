@@ -136,6 +136,8 @@ pub struct Prefs {
     /// The library folder name of the scene last loaded, reopened at the
     /// next launch; empty for none.
     pub last_scene: String,
+    /// The playlists opened last, newest first (D481).
+    pub recent_playlists: Vec<String>,
     /// Named pane layouts the operator saved (D215).
     pub layouts: BTreeMap<String, Layout>,
     /// The watched drop folder (D240, D265).
@@ -312,6 +314,7 @@ impl Prefs {
             browser,
             collapsed_groups,
             last_scene: String::new(),
+            recent_playlists: Vec::new(),
             layouts: BTreeMap::new(),
             watch: WatchPref::default(),
             side_tab: String::new(),

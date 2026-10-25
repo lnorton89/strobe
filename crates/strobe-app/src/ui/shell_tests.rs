@@ -156,6 +156,8 @@ struct Scenario {
     panes: &'static [Pane],
     /// The library card with keyboard focus, by library index (D291).
     focus_card: Option<usize>,
+    /// Three recent playlists, one with a long path (D481).
+    recent: bool,
     /// The Settings page, where the scenario's other state does not decide
     /// it.
     settings_page: Option<crate::ui::settings::SettingsPage>,
@@ -206,6 +208,7 @@ const BASE: Scenario = Scenario {
     cards: crate::ui::browser::CardSize::Medium,
     panes: &[Pane::Inspector, Pane::Browser],
     focus_card: None,
+    recent: false,
     settings_page: None,
     map_open: false,
 };
@@ -241,6 +244,12 @@ fn scenarios() -> Vec<Scenario> {
         Scenario {
             name: "palette finds control another strobe",
             palette: Some("another strobe"),
+            ..BASE
+        },
+        Scenario {
+            name: "the playlist page with recent playlists",
+            panes: &[Pane::Inspector, Pane::Playlist],
+            recent: true,
             ..BASE
         },
         Scenario {
@@ -1029,6 +1038,15 @@ fn draw_events(
         crate::ui::settings::SettingsPage::Output
     };
     ui_state.side_tab = scenario.side_tab;
+    if scenario.recent {
+        for path in [
+            "playlists/friday.toml",
+            "D:/shows/a very long folder name for the summer festival main stage/closing set.toml",
+            "warmup.toml",
+        ] {
+            ui_state.remember_playlist(path);
+        }
+    }
     ui_state.browser.cards = scenario.cards;
     if let Some(query) = scenario.palette {
         ui_state.command_palette.open_with(query);

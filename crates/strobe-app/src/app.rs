@@ -2661,6 +2661,7 @@ impl Running {
                     None
                 };
                 self.playlist_ui.path = path.display().to_string();
+                self.ui_state.remember_playlist(&self.playlist_ui.path);
                 self.playlist_ui.status = None;
                 self.playlist_ui.dirty = false;
                 self.playlist_ui.external_change = None;
@@ -2678,6 +2679,7 @@ impl Running {
                         }),
                 );
                 self.playlist_ui.status = Some((true, error.to_string()));
+                self.ui_state.forget_playlist(&path.display().to_string());
                 self.say(Tone::Error, format!("Playlist not loaded: {error}"));
             }
         }

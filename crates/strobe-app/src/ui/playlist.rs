@@ -514,6 +514,7 @@ fn empty(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Vec<
                     form::group(ui, theme, "Open a playlist", |group| {
                         open_row(group, model, theme, actions);
                     });
+                    recent(ui, model, theme, actions);
                     form::group(ui, theme, "Or generate one", |group| {
                         let open = model.playlist.ui.generate_open;
                         group.row(
@@ -544,6 +545,35 @@ fn empty(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Vec<
                 },
             );
         });
+}
+
+/// The playlists opened last (D481), one row each: the file's name, its
+/// folder, and Open. Nothing when there are none.
+fn recent(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Vec<Action>) {
+    if model.ui.recent_playlists.is_empty() {
+        return;
+    }
+    form::group(ui, theme, "Recent", |group| {
+        for path in &model.ui.recent_playlists {
+            let file = std::path::Path::new(path);
+            let name = file
+                .file_stem()
+                .map_or_else(|| path.clone(), |stem| stem.to_string_lossy().into_owned());
+            let folder = file
+                .parent()
+                .map(|dir| dir.display().to_string())
+                .filter(|dir| !dir.is_empty())
+                .unwrap_or_else(|| "the working folder".to_string());
+            group.row(Row::new(&name).description(&folder), |ui| {
+                if widgets::button(ui, theme, None, "Open")
+                    .on_hover_text(path.as_str())
+                    .clicked()
+                {
+                    actions.push(Action::LoadPlaylist(path.clone()));
+                }
+            });
+        }
+    });
 }
 
 /// Name, size, loop and anchor, the file, and the file commands.

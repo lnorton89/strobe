@@ -11531,3 +11531,22 @@ every-size checks; captures at 1600x1000 and 1280x720.
 
 **Would reopen:** more filters than one group holds (then a filter
 menu).
+
+### D481: the empty Playlist page lists the playlists opened last (2026-10-24)
+
+**Context.** UI_REVIEW's Playlist notes: with nothing loaded, the page
+offered a typed path (a picker since D470) and Generate, and no way back
+to last night's show but to find its file again.
+
+**Decision.** The preferences keep the last five playlists that loaded,
+newest first and each once (`recent_playlists`); one that fails to load
+is dropped, since offering it again would only fail again. The empty
+page has a Recent group under Open a playlist: a row per file with its
+name, its folder and Open, the full path in Open's tooltip.
+
+**Test.** `recent_playlists_are_newest_first_once_each_and_bounded`; the
+shell's every-size checks over a scenario with three recent playlists,
+one with a long path.
+
+**Would reopen:** an operator who wants a pinned set of shows rather
+than the last five.
