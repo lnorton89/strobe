@@ -11571,3 +11571,23 @@ captures at 1600x1000 and 1280x720.
 
 **Would reopen:** an operator who reverts often enough to want it back
 in reach.
+
+### D483: Diagnostics is one page of cards, the console a card of its own height (2026-10-24)
+
+**Context.** UI_REVIEW's Diagnostics notes: the console took whatever
+the subsystem cards left, so it filled most of the pane, and Needs work
+was a heading over red banners, below the cards' scroll, often out of
+sight.
+
+**Decision.** The pane scrolls as one page: the renderer, audio, script
+and output cards two to a row from 760 points; Needs work as a card with
+a count chip and a row per failed scene (its name, the first line of
+why with the rest in the tooltip, and Open in Editor); then the console
+as a card 280 points high whose lines scroll inside it and stay at the
+newest, with Problems only and Clear in its title row.
+
+**Test.** The shell's every-size checks over the Diagnostics scenarios,
+the failed-scene one included; captures at 1600x1000 and 1280x720.
+
+**Would reopen:** a console someone needs taller while chasing a fault
+(then a drag handle, or a full-height console page).
