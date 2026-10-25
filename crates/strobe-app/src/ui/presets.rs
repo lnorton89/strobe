@@ -28,6 +28,12 @@
 //! Right-click a slot to store into it or to clear it. The same slots are
 //! reachable from MIDI, OSC and the macro strip.
 //!
+//! Empty and filled slots look different (D478): an empty one is a faint
+//! outline whose number turns into a plus under the pointer; a filled one
+//! is a raised tile with its number and a band of its scene's identity
+//! colour, outlined in the accent while its scene plays. Eight identical
+//! buttons said nothing about which held anything.
+//!
 //! The pane only asks: every action goes back to the app, which owns the
 //! files and the scene.
 
@@ -36,7 +42,7 @@ use super::theme::{self, SPACE_SM, SPACE_XS};
 use super::widgets;
 use crate::icon::Icon;
 use crate::palette::Palette;
-use egui::Ui;
+use egui::{CornerRadius, Sense, Stroke, StrokeKind, Ui};
 
 /// Draws the preset row: the picker, delete, and save or rename.
 pub fn preset_row(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Vec<Action>) {
@@ -183,20 +189,8 @@ pub fn fav_row(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mu
                     slot + 1
                 ),
             };
-            let colour = if filled {
-                theme.accent
-            } else {
-                theme.text_faint
-            };
-            let text = egui::RichText::new((slot + 1).to_string())
-                .strong()
-                .color(theme::rgb(colour));
-            let response = ui
-                .add_sized(
-                    egui::vec2(slot_width, 24.0),
-                    egui::Button::new(text).selected(here),
-                )
-                .on_hover_text(tip);
+            let band = fav.map(|f| widgets::scene_colour(theme, &f.scene));
+            let response = slot_tile(ui, theme, slot, slot_width, band, here).on_hover_text(tip);
             if response.clicked() {
                 actions.push(if filled {
                     Action::RecallFav(slot)
@@ -220,6 +214,78 @@ pub fn fav_row(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mu
 
 /// The fav row's label column.
 const FAV_LABEL: f32 = 28.0;
+
+/// One fav slot, `width` wide: an outline with its number when empty (a
+/// plus under the pointer), a raised tile with a band of its scene's
+/// colour (`band`) when filled, outlined in the accent while its scene
+/// plays (`here`).
+fn slot_tile(
+    ui: &mut Ui,
+    theme: &Palette,
+    slot: usize,
+    width: f32,
+    band: Option<crate::color::Rgb>,
+    here: bool,
+) -> egui::Response {
+    const HEIGHT: f32 = 24.0;
+    const BAND: f32 = 3.0;
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(width, HEIGHT), Sense::click());
+    let number = (slot + 1).to_string();
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), &number)
+    });
+    let radius = CornerRadius::same(theme::RADIUS);
+    let hovered = response.hovered();
+    let painter = ui.painter();
+    let (fill, stroke, text, words) = match band {
+        Some(_) => (
+            widgets::hover_fill(ui, response.id, hovered, theme.raised, theme.panel),
+            if here {
+                Stroke::new(1.5, theme::rgb(theme.accent))
+            } else {
+                Stroke::new(1.0, theme::rgb(theme.border_strong))
+            },
+            theme.text,
+            number.as_str(),
+        ),
+        None => (
+            widgets::hover_fill(ui, response.id, hovered, theme.panel, theme.raised),
+            Stroke::new(1.0, theme::rgb(theme.border)),
+            if hovered {
+                theme.text_muted
+            } else {
+                theme.text_faint
+            },
+            if hovered { "+" } else { number.as_str() },
+        ),
+    };
+    painter.rect_filled(rect, radius, fill);
+    if let Some(band) = band {
+        let strip = egui::Rect::from_min_max(
+            egui::pos2(rect.left(), rect.bottom() - BAND),
+            rect.right_bottom(),
+        );
+        painter.rect_filled(
+            strip,
+            CornerRadius {
+                nw: 0,
+                ne: 0,
+                sw: theme::RADIUS,
+                se: theme::RADIUS,
+            },
+            theme::rgb(band),
+        );
+    }
+    painter.rect_stroke(rect, radius, stroke, StrokeKind::Inside);
+    painter.text(
+        rect.center() - egui::vec2(0.0, if band.is_some() { 1.0 } else { 0.0 }),
+        egui::Align2::CENTER_CENTER,
+        words,
+        egui::FontId::new(12.0, egui::FontFamily::Proportional),
+        theme::rgb(text),
+    );
+    response
+}
 
 fn label(ui: &mut Ui, theme: &Palette, text: &str) {
     ui.add_sized(
