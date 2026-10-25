@@ -11510,3 +11510,24 @@ order test.
 
 **Would reopen:** operators who miss a full-size preview in the main
 view (then a preview entry comes back, on the rail's terms).
+
+### D480: the library's header is one row, its filters one group, and captions cut at a word (2026-10-24)
+
+**Context.** UI_REVIEW's Library notes: the filter row was five unrelated
+controls (count, search, sort, direction, favourites, health) under a
+second row of New scene, refresh and the card sizes, and card subtitles
+were cut mid-word ("Original Str...").
+
+**Decision.** From 820 points the header is one row: the search takes
+what is left, then the sort, direction, favourites and health as one
+bordered group, the card sizes, New scene and refresh; the count is a
+caption under it. From 560 points the filters and sizes take a second
+row; below that the old narrow layout stays. `widgets::truncated` cuts
+after the last whole word that fits when that keeps at least half the
+line, and mid-word otherwise.
+
+**Test.** `truncation_keeps_whole_words_where_it_can`; the shell's
+every-size checks; captures at 1600x1000 and 1280x720.
+
+**Would reopen:** more filters than one group holds (then a filter
+menu).

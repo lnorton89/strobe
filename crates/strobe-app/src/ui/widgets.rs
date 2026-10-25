@@ -725,7 +725,9 @@ pub fn status_chip_over(
 }
 
 /// Lays a single line of text out, truncated with an ellipsis if it does not
-/// fit `width`.
+/// fit `width`: after the last whole word that fits, when that keeps at
+/// least half the line ("Original Strobe…", not "Original Str…"), and
+/// mid-word otherwise (a name with no spaces, or one long word).
 pub fn truncated(
     ui: &Ui,
     text: &str,
@@ -733,12 +735,37 @@ pub fn truncated(
     color: Rgb,
     width: f32,
 ) -> std::sync::Arc<egui::Galley> {
-    let mut job = egui::text::LayoutJob::single_section(
-        text.to_string(),
-        egui::TextFormat::simple(font, theme::rgb(color)),
-    );
-    job.wrap = egui::text::TextWrapping::truncate_at_width(width.max(0.0));
-    ui.painter().layout_job(job)
+    let width = width.max(0.0);
+    let layout = |text: String, wrap: bool| {
+        let mut job = egui::text::LayoutJob::single_section(
+            text,
+            egui::TextFormat::simple(font.clone(), theme::rgb(color)),
+        );
+        if wrap {
+            job.wrap = egui::text::TextWrapping::truncate_at_width(width);
+        }
+        ui.painter().layout_job(job)
+    };
+    let galley = layout(text.to_string(), true);
+    if !galley.elided {
+        return galley;
+    }
+    let mut best = None;
+    for (at, _) in text.match_indices(' ') {
+        let words = text.get(..at).unwrap_or_default().trim_end();
+        if words.is_empty() {
+            continue;
+        }
+        let candidate = layout(format!("{words}\u{2026}"), false);
+        if candidate.size().x > width {
+            break;
+        }
+        best = Some(candidate);
+    }
+    match best {
+        Some(words) if words.size().x >= width * 0.5 => words,
+        Some(_) | None => galley,
+    }
 }
 
 /// A scene's identity colour: stable for a name, whatever its position in
@@ -1140,6 +1167,53 @@ mod tests {
             width = response.rect.width();
         });
         assert!(width.is_finite() && width > 0.0, "meter width {width}");
+    }
+
+    #[test]
+    fn truncation_keeps_whole_words_where_it_can() {
+        const WORDS: &str = "Original Strobe interpretation of a classic";
+        let mut lines = Vec::new();
+        let _ = size_of(|ui, theme| {
+            let font = egui::TextStyle::Body.resolve(ui.style());
+            let full = truncated(ui, WORDS, font.clone(), theme.text, 2000.0)
+                .size()
+                .x;
+            for (text, width) in [
+                (WORDS, full * 0.6),
+                ("01-aurora-gradient-with-no-spaces", 60.0),
+                (WORDS, full + 10.0),
+            ] {
+                let galley = truncated(ui, text, font.clone(), theme.text, width);
+                lines.push((
+                    galley.text().to_string(),
+                    galley.size().x,
+                    width,
+                    galley.elided,
+                ));
+            }
+        });
+        let cut = lines.first().cloned().unwrap_or_default();
+        let kept = cut.0.trim_end_matches('\u{2026}');
+        assert!(
+            cut.0.ends_with('\u{2026}') && WORDS.starts_with(kept),
+            "cut with an ellipsis: {cut:?}"
+        );
+        assert!(
+            WORDS
+                .get(kept.len()..)
+                .is_some_and(|rest| rest.starts_with(' ')),
+            "after a whole word: {cut:?}"
+        );
+        assert!(cut.1 <= cut.2 + 0.5, "and it fits: {cut:?}");
+        // egui elides at layout: the galley keeps the whole text and says
+        // it was cut.
+        let squashed = lines.get(1).cloned().unwrap_or_default();
+        assert!(
+            squashed.3 && squashed.1 <= squashed.2 + 0.5,
+            "a name with no spaces is cut mid-word: {squashed:?}"
+        );
+        let whole = lines.get(2).map(|line| line.0.clone()).unwrap_or_default();
+        assert_eq!(whole, WORDS, "a line that fits is whole");
     }
 
     #[test]

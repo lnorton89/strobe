@@ -169,7 +169,7 @@ pub fn columns(width: f32, card: CardSize) -> usize {
 /// shell draws the [`toolbar`], on the row of the Scenes and Controls
 /// switch when there is room for both (D291).
 pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Vec<Action>) {
-    filter_row(ui, model, theme, actions);
+    header(ui, model, theme, actions);
     selected_tags(ui, model, theme, actions);
     ui.add_space(SPACE_XS);
 
@@ -202,26 +202,126 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
     model.ui.browser.put_visible(visible);
 }
 
-/// The toolbar on a row of its own: new scene and refresh at the left, the
-/// thumbnail-size switch at the right, as Synesthesia's library has them.
-pub fn toolbar(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Vec<Action>) {
+/// The library's header (D480). From [`HEADER_ONE_ROW`] it is one row: the
+/// search, which takes what is left, then the filters as one bordered group
+/// (sort, direction, favourites, health), the card sizes, New scene and
+/// refresh; the count is a caption under it. Narrower, the filters and the
+/// sizes take a second row. Below [`HEADER_TWO_ROWS`] it is the toolbar
+/// over the stacked filter rows, laid out for the narrowest windows.
+fn header(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Vec<Action>) {
+    let width = ui.available_width();
+    if width < HEADER_TWO_ROWS {
+        toolbar(ui, model, theme, actions);
+        filter_row(ui, model, theme, actions);
+        return;
+    }
+    let one_row = width >= HEADER_ONE_ROW;
+    let had_focus = search_prelude(ui, model);
+    let mut search = None;
     ui.horizontal(|ui| {
         ui.set_height(30.0);
-        toolbar_items(ui, model, theme, actions);
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            // Right to left: refresh at the edge, then New scene.
+            refresh_button(ui, theme, actions);
+            new_scene_button(ui, model, theme, true);
+            if one_row {
+                ui.add_space(SPACE_SM);
+                size_switch(ui, model, theme);
+                ui.add_space(SPACE_SM);
+                filter_group(ui, model, theme);
+                ui.add_space(SPACE_SM);
+            }
+            let rest = ui.available_width();
+            search = Some(search_field(ui, model, theme, had_focus, rest));
+        });
+    });
+    if !one_row {
+        ui.horizontal(|ui| {
+            ui.set_height(30.0);
+            filter_group(ui, model, theme);
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                size_switch(ui, model, theme);
+            });
+        });
+    }
+    count_label(ui, model, theme, false);
+    if let Some(response) = search {
+        search_keys(ui, model, &response, actions);
+    }
+}
+
+/// From this width the library's header is one row.
+const HEADER_ONE_ROW: f32 = 820.0;
+
+/// Below this width the header is the narrow-window toolbar and filter rows.
+const HEADER_TWO_ROWS: f32 = 560.0;
+
+/// The sort, its direction, the favourites toggle and the health filter as
+/// one group in one border, so they read as the grid's filters rather
+/// than five unrelated controls (UI_REVIEW, Library).
+fn filter_group(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette) {
+    /// What the group takes: the two lists, the two square buttons, the
+    /// divider, the gaps between them, the margin and the border.
+    const WIDTH: f32 = SORT_WIDTH + 26.0 + 26.0 + 1.0 + SHOW_WIDTH + 2.0 * 4.0 + 6.0;
+    // A fixed allocation, laid out left to right even inside the header's
+    // right-to-left row: a left-to-right child there claims the whole row.
+    ui.allocate_ui_with_layout(
+        Vec2::new(WIDTH, 30.0),
+        Layout::left_to_right(Align::Center),
+        |ui| {
+            egui::Frame::new()
+                .fill(theme::rgb(theme.raised))
+                .stroke(Stroke::new(1.0, theme::rgb(theme.border)))
+                .corner_radius(CornerRadius::same(theme::RADIUS))
+                .inner_margin(theme::margin(2.0))
+                .show(ui, |ui| {
+                    ui.spacing_mut().item_spacing.x = 2.0;
+                    // The two lists sit flat inside the group's border.
+                    let fill = theme::rgb(theme.raised);
+                    let widgets = &mut ui.visuals_mut().widgets;
+                    for state in [&mut widgets.inactive, &mut widgets.noninteractive] {
+                        state.bg_stroke = Stroke::NONE;
+                        state.weak_bg_fill = fill;
+                    }
+                    ui.horizontal(|ui| {
+                        sort_controls(ui, model, theme);
+                        divider(ui, theme);
+                        show_control(ui, model);
+                    });
+                });
+        },
+    );
+}
+
+/// A thin upright line between the filter group's parts.
+fn divider(ui: &mut Ui, theme: &Palette) {
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(1.0, 18.0), Sense::hover());
+    ui.painter().vline(
+        rect.center().x,
+        rect.y_range(),
+        Stroke::new(1.0, theme::rgb(theme.border)),
+    );
+}
+
+/// The toolbar on a row of its own, for a narrow window: new scene and
+/// refresh at the left, the thumbnail-size switch at the right, as
+/// Synesthesia's library has them.
+fn toolbar(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Vec<Action>) {
+    /// Below this width the button drops its words.
+    const LABELLED: f32 = 300.0;
+    ui.horizontal(|ui| {
+        ui.set_height(30.0);
+        let labelled = ui.available_width() >= LABELLED;
+        new_scene_button(ui, model, theme, labelled);
+        refresh_button(ui, theme, actions);
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            size_switch(ui, model, theme);
+        });
     });
 }
 
-/// The toolbar's items, laid out in the caller's row: the shell puts them
-/// on the Scenes and Controls switch's row when it is wide enough (D291).
-pub fn toolbar_items(
-    ui: &mut Ui,
-    model: &mut Model<'_>,
-    theme: &Palette,
-    actions: &mut Vec<Action>,
-) {
-    /// Below this width the button drops its words.
-    const LABELLED: f32 = 300.0;
-    let labelled = ui.available_width() >= LABELLED;
+/// New scene: it opens Import. `labelled` keeps its words.
+fn new_scene_button(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, labelled: bool) {
     if widgets::tool_button_fitted(
         ui,
         theme,
@@ -236,40 +336,46 @@ pub fn toolbar_items(
     {
         model.ui.panes.open(Pane::Import);
     }
+}
+
+/// Lists the scene folder again.
+fn refresh_button(ui: &mut Ui, theme: &Palette, actions: &mut Vec<Action>) {
     if widgets::icon_button(ui, theme, Icon::Refresh, "List the scene folder again").clicked() {
         actions.push(Action::RescanLibrary);
     }
-    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-        // Largest first, so they read S M L left to right.
-        for size in CardSize::ALL.iter().rev() {
-            let active = model.ui.browser.cards == *size;
-            let (rect, response) = ui.allocate_exact_size(Vec2::new(26.0, 26.0), Sense::click());
-            let fill = if active { theme.accent } else { theme.raised };
-            let fill = widgets::hover_fill(
-                ui,
-                response.id,
-                response.hovered(),
-                fill,
-                if active { theme.accent } else { theme.hover },
-            );
-            ui.painter()
-                .rect_filled(rect, CornerRadius::same(theme::RADIUS), fill);
-            ui.painter().text(
-                rect.center(),
-                egui::Align2::CENTER_CENTER,
-                size.letter(),
-                egui::TextStyle::Small.resolve(ui.style()),
-                theme::rgb(if active {
-                    theme.text_on_accent
-                } else {
-                    theme.text
-                }),
-            );
-            if super::help::hovered(response, size.tooltip()).clicked() {
-                model.ui.browser.cards = *size;
-            }
+}
+
+/// The S, M and L card sizes, in a right-to-left layout.
+fn size_switch(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette) {
+    // Largest first, so they read S M L left to right.
+    for size in CardSize::ALL.iter().rev() {
+        let active = model.ui.browser.cards == *size;
+        let (rect, response) = ui.allocate_exact_size(Vec2::new(26.0, 26.0), Sense::click());
+        let fill = if active { theme.accent } else { theme.raised };
+        let fill = widgets::hover_fill(
+            ui,
+            response.id,
+            response.hovered(),
+            fill,
+            if active { theme.accent } else { theme.hover },
+        );
+        ui.painter()
+            .rect_filled(rect, CornerRadius::same(theme::RADIUS), fill);
+        ui.painter().text(
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            size.letter(),
+            egui::TextStyle::Small.resolve(ui.style()),
+            theme::rgb(if active {
+                theme.text_on_accent
+            } else {
+                theme.text
+            }),
+        );
+        if super::help::hovered(response, size.tooltip()).clicked() {
+            model.ui.browser.cards = *size;
         }
-    });
+    }
 }
 
 /// The filter row: the count, a wide search, the sort and its direction, the
@@ -279,15 +385,7 @@ fn filter_row(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut
     /// Below this width the row is two rows.
     const TWO_ROWS: f32 = 560.0;
     let two_rows = ui.available_width() < TWO_ROWS;
-    let id = egui::Id::new(SEARCH_ID);
-    // Whether the field had focus when the frame began: Esc is its own
-    // business while it does (clear first, then leave).
-    let had_focus = ui.ctx().memory(|m| m.has_focus(id));
-    let escape = ui.input(|i| i.key_pressed(Key::Escape));
-    if had_focus && escape && !model.ui.browser.query.is_empty() {
-        model.ui.browser.query.clear();
-        ui.ctx().memory_mut(|m| m.request_focus(id));
-    }
+    let had_focus = search_prelude(ui, model);
 
     let mut search = None;
     ui.horizontal(|ui| {
@@ -332,6 +430,19 @@ fn filter_row(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut
     if let Some(response) = search {
         search_keys(ui, model, &response, actions);
     }
+}
+
+/// Whether the search field had focus when the frame began: Esc is its own
+/// business while it does (clear first, then leave).
+fn search_prelude(ui: &mut Ui, model: &mut Model<'_>) -> bool {
+    let id = egui::Id::new(SEARCH_ID);
+    let had_focus = ui.ctx().memory(|m| m.has_focus(id));
+    let escape = ui.input(|i| i.key_pressed(Key::Escape));
+    if had_focus && escape && !model.ui.browser.query.is_empty() {
+        model.ui.browser.query.clear();
+        ui.ctx().memory_mut(|m| m.request_focus(id));
+    }
+    had_focus
 }
 
 /// The width of the sort dropdown, and of the health dropdown.

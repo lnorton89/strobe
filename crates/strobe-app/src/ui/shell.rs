@@ -258,12 +258,10 @@ fn pane_body(
     }
 }
 
-/// The library view: its toolbar, then the scene grid. The live scene's
+/// The library view: its header, then the scene grid. The live scene's
 /// controls are a view of their own on the rail (D479), where they were a
 /// second page behind a switch here (D291).
 fn library_view(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Vec<Action>) {
-    browser::toolbar(ui, model, theme, actions);
-    ui.add_space(SPACE_SM);
     browser::show(ui, model, theme, actions);
 }
 
