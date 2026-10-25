@@ -58,8 +58,13 @@ use strobe_scene::control::{ControlBank, ControlKind};
 /// The most scene controls the stage 1 fallback shows.
 pub const MAX_MACROS: usize = 6;
 
-/// The width of one macro cell, in points.
+/// The narrowest a macro cell is, in points.
 const CELL_WIDTH: f32 = 168.0;
+
+/// The widest a macro cell grows to when a few of them share a wide strip:
+/// a fader this long is still one movement of the hand, and three cards no
+/// longer sit at the left of an empty bar (UI_REVIEW, Play).
+const CELL_WIDEST: f32 = 360.0;
 
 /// The height of the strip.
 pub const STRIP_HEIGHT: f32 = 60.0;
@@ -70,6 +75,17 @@ pub fn cells_that_fit(width: f32, gap: f32) -> usize {
         return 1;
     }
     (((width + gap) / (CELL_WIDTH + gap)).floor() as usize).clamp(1, MAX_MACROS)
+}
+
+/// How wide each of `count` cells is in `width`: they share it, between
+/// [`CELL_WIDTH`] and [`CELL_WIDEST`]. More cells than fit keep the
+/// narrowest width and scroll.
+pub fn cell_width(width: f32, gap: f32, count: usize) -> f32 {
+    if !width.is_finite() || count == 0 {
+        return CELL_WIDTH;
+    }
+    let count = count as f32;
+    ((width - gap * (count - 1.0)) / count).clamp(CELL_WIDTH, CELL_WIDEST)
 }
 
 /// The first `count` controls of the bank, in declaration order.
@@ -145,6 +161,11 @@ pub fn strip(ui: &mut Ui, theme: &Palette, strip: Strip<'_>, actions: &mut Vec<A
         return;
     }
     let mut intent: Option<(u32, Intent)> = None;
+    let width = cell_width(
+        ui.available_width(),
+        ui.spacing().item_spacing.x,
+        cards.len(),
+    );
     egui::ScrollArea::horizontal()
         .id_salt("macro-strip")
         .auto_shrink([false, false])
@@ -154,6 +175,7 @@ pub fn strip(ui: &mut Ui, theme: &Palette, strip: Strip<'_>, actions: &mut Vec<A
                     let reach = Reach {
                         scene: scene.as_deref_mut(),
                         meta: meta.as_deref_mut(),
+                        width,
                     };
                     if let Some(chosen) = cell(ui, theme, card, reach, remote, view, actions) {
                         intent = Some((card.found.id, chosen));
@@ -191,10 +213,11 @@ enum Intent {
     Later,
 }
 
-/// The two banks, lent to one card at a time.
+/// The two banks, lent to one card at a time, and the card's width.
 struct Reach<'a> {
     scene: Option<&'a mut ControlBank>,
     meta: Option<&'a mut ControlBank>,
+    width: f32,
 }
 
 /// The stage 1 strip: the playing scene's first controls.
@@ -214,6 +237,7 @@ fn legacy(ui: &mut Ui, theme: &Palette, bank: Option<&mut ControlBank>, view: &m
         placeholder(ui, theme, "This scene has no controls to pin.");
         return;
     }
+    let width = cell_width(ui.available_width(), gap, picked.len());
     ui.horizontal(|ui| {
         for index in picked {
             let Some(name) = bank
@@ -223,7 +247,7 @@ fn legacy(ui: &mut Ui, theme: &Palette, bank: Option<&mut ControlBank>, view: &m
             else {
                 continue;
             };
-            frame(ui, theme, None, |ui, width| {
+            frame(ui, theme, None, width, |ui, width| {
                 header(ui, theme, "SCENE", &name, None, width);
                 control_body(ui, theme, bank, index, None, width, view);
             });
@@ -258,16 +282,16 @@ pub fn macro_colour(theme: &Palette, index: u8) -> crate::color::Rgb {
     theme.series(usize::from(index), usize::from(strobe_io::macros::COLOURS))
 }
 
-/// A card's frame; `body` draws inside it with the inner width. A macro
-/// with a colour gets a band of it along the top.
+/// A card's frame, `width` wide; `body` draws inside it with the inner
+/// width. A macro with a colour gets a band of it along the top.
 fn frame(
     ui: &mut Ui,
     theme: &Palette,
     colour: Option<crate::color::Rgb>,
+    width: f32,
     body: impl FnOnce(&mut Ui, f32),
 ) -> egui::Response {
-    let (rect, response) =
-        ui.allocate_exact_size(Vec2::new(CELL_WIDTH, STRIP_HEIGHT), Sense::click());
+    let (rect, response) = ui.allocate_exact_size(Vec2::new(width, STRIP_HEIGHT), Sense::click());
     let painter = ui.painter();
     painter.rect_filled(
         rect,
@@ -363,7 +387,7 @@ fn cell(
         .engine
         .is_learning_target(&Target::Macro { id: found.id });
     let colour = found.color.map(|index| macro_colour(theme, index));
-    let response = frame(ui, theme, colour, |ui, width| {
+    let response = frame(ui, theme, colour, reach.width, |ui, width| {
         let badge = match &flat {
             Ok(flat) => flat.target.badge(),
             Err(_) => found.target.badge(),
@@ -452,7 +476,7 @@ fn body(
     width: f32,
     actions: &mut Vec<Action>,
 ) {
-    let Reach { scene, meta } = reach;
+    let Reach { scene, meta, .. } = reach;
     match flat.target {
         Target::Control { .. } | Target::Meta { .. } => {
             let Ok(found) = locate_control(flat, scene.as_deref(), meta.as_deref()) else {
@@ -597,8 +621,7 @@ fn control_body(
                 // The Controls page, where the pad is large (D291). Opening
                 // the side panel alone showed it only if its Controls tab
                 // happened to be the chosen one.
-                view.panes.open(Pane::Browser);
-                view.library_page = super::browser::LibraryPage::Controls;
+                view.panes.open(Pane::Controls);
             }
         }
     }
@@ -638,6 +661,28 @@ mod tests {
         );
         assert!(pick(&bank, 0).is_empty(), "none asked for");
         Ok(())
+    }
+
+    #[test]
+    fn a_few_cells_share_a_wide_strip_up_to_a_cap() {
+        let gap = 8.0;
+        assert!(
+            (cell_width(1580.0, gap, 3) - CELL_WIDEST).abs() < f32::EPSILON,
+            "three cards in a 1600 window grow to the cap"
+        );
+        let two = cell_width(600.0, gap, 2);
+        assert!(
+            two > CELL_WIDTH && two < CELL_WIDEST,
+            "{two}: two share 600"
+        );
+        assert!(
+            (cell_width(300.0, gap, 6) - CELL_WIDTH).abs() < f32::EPSILON,
+            "more than fit keep the narrowest width and scroll"
+        );
+        assert!(
+            (cell_width(f32::NAN, gap, 3) - CELL_WIDTH).abs() < f32::EPSILON,
+            "nonsense width"
+        );
     }
 
     #[test]

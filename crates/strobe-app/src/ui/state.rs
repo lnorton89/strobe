@@ -281,7 +281,6 @@ pub struct UiState {
     pub side_tab: super::side::SideTab,
     /// The library view's page: the scene grid or the live scene's
     /// controls (D291). Saved.
-    pub library_page: super::browser::LibraryPage,
     /// Synesthesia's scenes in the library (D271): the switch is saved.
     pub synesthesia: SynesthesiaState,
     /// What the "Control another Strobe" form remembers (D294). Saved.
@@ -382,8 +381,6 @@ impl UiState {
                 ..WatchState::default()
             },
             side_tab: super::side::SideTab::from_key(&prefs.side_tab).unwrap_or_default(),
-            library_page: super::browser::LibraryPage::from_key(&prefs.library_page)
-                .unwrap_or_default(),
             synesthesia: SynesthesiaState {
                 show: prefs.synesthesia.show,
                 note: String::new(),
@@ -424,7 +421,6 @@ impl UiState {
             self.collapsed_groups.clone(),
         );
         prefs.side_tab = self.side_tab.key().to_string();
-        prefs.library_page = self.library_page.key().to_string();
         prefs.last_scene.clone_from(&self.last_scene);
         prefs.density = self.density.key().to_string();
         prefs.layouts.clone_from(&self.layouts);
@@ -535,11 +531,10 @@ impl UiState {
         (scrambled >> 40) as f32 / (1_u64 << 24) as f32
     }
 
-    /// Whether the main view is the library on its Controls page (D291), so
-    /// the side panel need not draw the same controls again.
+    /// Whether the main view is the Controls view (D291, D479), so the side
+    /// panel need not draw the same controls again.
     pub fn controls_in_main(&self) -> bool {
-        self.library_page == super::browser::LibraryPage::Controls
-            && self.panes.shown_in(crate::workspace::Dock::Main) == Some(Pane::Browser)
+        self.panes.shown_in(crate::workspace::Dock::Main) == Some(Pane::Controls)
     }
 
     /// Whether the inspector group `name` is collapsed.
@@ -569,7 +564,6 @@ impl UiState {
         self.browser.sort.key().hash(&mut hasher);
         self.browser.descending.hash(&mut hasher);
         self.side_tab.key().hash(&mut hasher);
-        self.library_page.key().hash(&mut hasher);
         self.collapsed_groups.hash(&mut hasher);
         self.theme_id.hash(&mut hasher);
         self.custom_title_bar.hash(&mut hasher);
@@ -871,7 +865,6 @@ mod tests {
         state.browser.sort = SortKey::Author;
         state.browser.descending = true;
         state.side_tab = crate::ui::side::SideTab::Presets;
-        state.library_page = crate::ui::browser::LibraryPage::Controls;
         let back = UiState::from_prefs(&state.to_prefs());
         assert_eq!(
             (back.browser.sort, back.browser.descending),
@@ -886,11 +879,6 @@ mod tests {
             "card size"
         );
         assert_eq!(back.side_tab, crate::ui::side::SideTab::Presets, "side tab");
-        assert_eq!(
-            back.library_page,
-            crate::ui::browser::LibraryPage::Controls,
-            "library page"
-        );
         assert!(back.is_collapsed("Motion"), "collapsed group");
         assert_eq!(back.theme_id(), "graphite", "theme");
         assert_eq!(

@@ -11422,3 +11422,91 @@ the cue-selected scenario. Screenshot mode cannot select a cue, so there
 is no capture.
 
 **Would reopen:** cue settings that outgrow a card (then a cue page).
+
+### D476: one set of output controls on screen, and macro cards that share the strip (2026-10-24)
+
+**Context.** UI_REVIEW's Play notes: the large preview's toolbar had Show
+output, Fullscreen and the output monitor while the side panel's status
+strip had the same two buttons beside it and Settings had the monitor;
+the preview's output-hidden chip carried a third Show output. The macro
+strip drew three 168-point cards at the left of a 1600-point bar.
+
+**Decision.** The toolbar's output buttons show only while the side
+panel is closed, and the monitor picker lives in Settings alone. The
+chip's Show output button goes to one picture at a time: the toolbar's
+while the panel is closed, the large preview's while it is open, the
+side panel's preview in every other view. Macro cards share the strip's
+width between 168 and 360 points; more than fit keep 168 and scroll.
+
+**Test.** `a_few_cells_share_a_wide_strip_up_to_a_cap`; captures of Play
+with the panel open and closed at 1600x1000.
+
+**Would reopen:** an operator who wants the monitor picker in reach
+during a show (then it belongs in the status strip, not the toolbar).
+
+### D477: control groups are cards, and the output controls flow beside them (2026-10-24)
+
+**Context.** The owner's capture of the Controls page: the scene's groups
+had headers but no edges, and the output controls under them were one
+column of sliders as wide as the page, with their group names as small
+muted words, so the page read as a wall of controls running to the
+window's edges.
+
+**Decision.** Every group, in the side panel and on the page, is a
+card (raised, bordered, `RADIUS_LG`, padded `SPACE_SM` in the panel and
+`SPACE_MD` on the page) with its header inside. The output controls keep
+their heading row (Output controls, Reset output) and then draw one card
+per group (master, colour, mirror, audio, limit colours) that flows into
+the page's columns like the scene's groups. Each flow has its own id
+scope, since both banks' rows are keyed by index.
+
+**Test.** The Controls-page shell scenarios (every size, no text over
+text) and captures at 1600x1000 and 1280x720.
+
+**Would reopen:** a scene with so many groups that cards cost more room
+than they give back (then a compact density without the card padding).
+
+### D478: empty fav slots look empty (2026-10-24)
+
+**Context.** The fav row drew eight identical bordered buttons whose
+numbers were only a shade brighter when a slot held something.
+
+**Decision.** An empty slot is a faint outline on the panel colour whose
+number turns into a plus under the pointer; a filled slot is a raised
+tile with its number and a band of its scene's identity colour
+(`widgets::scene_colour`), outlined in the accent while that scene
+plays. The accessible label is still the slot's number.
+
+**Test.** The shell's `FAV` checks; captures of the empty row.
+
+**Would reopen:** slots wide enough to name their scene (then the name
+replaces the band).
+
+### D479: Controls is a view on the rail, and the rail has no Play (2026-10-24)
+
+**Context.** The owner: the library should be scenes only, the live
+scene's controls should have a rail entry of their own, and the Play
+entry should go. D291 had put the controls behind a Scenes/Controls
+switch at the top of the library, and Play was the large preview, the
+main view with no pane open, which the side panel already shows.
+
+**Decision.** `Pane::Controls` is a main pane (the D477 page) and the
+rail reads Library, Controls, Import, Playlist, Editor, Mappings,
+Diagnostics, Settings. The library view is its toolbar and the grid.
+Ctrl+L (and "Switch Library / Controls" in the palette) shows Controls,
+or the library from Controls; the macro strip's XY button opens
+Controls. A click on the rail shows that view and a click on the one
+shown keeps it (it used to close it, back to Play). Esc closes the
+topmost pane but never the last main pane (`Panes::go_back`), so the
+main view is always one the rail names; `--no-panes` still gives the
+large preview. A preferences file saved on the old Controls page opens
+on the Controls view, and `library_page` is never written again.
+
+**Test.** `controls_is_a_view_on_the_rail_reached_by_click_key_and_palette`,
+`the_rail_names_no_play_and_a_click_on_the_shown_view_keeps_it`,
+`a_file_saved_on_the_library_controls_page_opens_the_controls_view`,
+`opening_over_a_pane_and_closing_reveals_the_one_beneath`, and the rail
+order test.
+
+**Would reopen:** operators who miss a full-size preview in the main
+view (then a preview entry comes back, on the rail's terms).

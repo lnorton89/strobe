@@ -275,13 +275,12 @@ fn short_monitor(label: &str) -> &str {
     label.split(" (").next().unwrap_or(label)
 }
 
-/// The title bar's crumb: the main view, as the rail names it (the
-/// library by its page, D291), then the scene.
+/// The title bar's crumb: the main view, as the rail names it, then the
+/// scene.
 fn crumb(model: &Model<'_>, main: Option<Pane>) -> String {
     let view = match main {
-        Some(Pane::Browser) => model.ui.library_page.label(),
         Some(pane) => pane.title(),
-        None => "Play",
+        None => "Preview",
     }
     .to_uppercase();
     match (model.loading, model.playing, model.scene_title) {
@@ -819,16 +818,16 @@ fn resize_regions(rect: Rect) -> [(Rect, ResizeDirection, egui::CursorIcon); 8] 
 /// Shadertoy import.
 const RAIL: [(Icon, &str, Option<Pane>, &str); 8] = [
     (
-        Icon::Perform,
-        "Play",
-        None,
-        "Perform: the live preview at full size",
-    ),
-    (
         Icon::Library,
         "Library",
         Some(Pane::Browser),
-        "Scenes: click one to make it live, then Controls (Ctrl+L) for its controls",
+        "Scenes: click one to make it live",
+    ),
+    (
+        Icon::Controls,
+        "Controls",
+        Some(Pane::Controls),
+        "The live scene's controls at full size (Ctrl+L)",
     ),
     (
         Icon::Import,
@@ -872,7 +871,6 @@ const RAIL: [(Icon, &str, Option<Pane>, &str); 8] = [
 /// panel stays whatever it was.
 pub fn nav_rail(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, arrangement: &Arrangement) {
     let shown = |pane: Pane| arrangement.shows(pane);
-    let nothing_shown = arrangement.main.is_none();
     let width = ui.ctx().content_rect().width();
     egui::Panel::left("nav-rail")
         .exact_size(theme::rail_width(width))
@@ -903,16 +901,7 @@ pub fn nav_rail(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, arrangement
                             continue;
                         }
                         rail_entry(
-                            ui,
-                            model,
-                            theme,
-                            *icon,
-                            label,
-                            *pane,
-                            tooltip,
-                            labels,
-                            &shown,
-                            nothing_shown,
+                            ui, model, theme, *icon, label, *pane, tooltip, labels, &shown,
                         );
                         ui.add_space(SPACE_XS);
                     }
@@ -920,16 +909,7 @@ pub fn nav_rail(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, arrangement
             ui.with_layout(Layout::bottom_up(Align::Min), |ui| {
                 if let Some((icon, label, pane, tooltip)) = RAIL.get(last) {
                     rail_entry(
-                        ui,
-                        model,
-                        theme,
-                        *icon,
-                        label,
-                        *pane,
-                        tooltip,
-                        labels,
-                        &shown,
-                        nothing_shown,
+                        ui, model, theme, *icon, label, *pane, tooltip, labels, &shown,
                     );
                 }
             });
@@ -955,24 +935,20 @@ fn rail_entry(
     tooltip: &str,
     labels: bool,
     shown: &dyn Fn(Pane) -> bool,
-    nothing_shown: bool,
 ) {
-    // PLAY has no pane: it is the large preview, the main view when no pane
-    // is open. The not-built destinations have no pane either and are told
-    // apart by their tooltip.
-    let is_play = icon == Icon::Perform;
-    let built = is_play || pane.is_some();
-    let active = match pane {
-        Some(pane) => shown(pane),
-        None => is_play && nothing_shown,
-    };
+    // A destination not built yet has no pane, and is told apart by its
+    // tooltip.
+    let built = pane.is_some();
+    let active = pane.is_some_and(shown);
     let response = widgets::nav_item(ui, theme, icon, label, active, built, labels);
     let response = super::help::hovered(response, tooltip);
-    if built && response.clicked() {
-        match pane {
-            Some(pane) => model.ui.panes.toggle_drawn(pane, shown(pane)),
-            None => model.ui.panes.close_main(),
-        }
+    // A click shows the view; clicking the one shown leaves it there. It
+    // used to close it, back to the large preview the rail's PLAY named,
+    // which is gone (D479).
+    if response.clicked()
+        && let Some(pane) = pane
+    {
+        model.ui.panes.open(pane);
     }
 }
 
@@ -1109,8 +1085,8 @@ mod tests {
         assert_eq!(
             labels,
             [
-                "Play",
                 "Library",
+                "Controls",
                 "Import",
                 "Playlist",
                 "Editor",
@@ -1118,7 +1094,7 @@ mod tests {
                 "Diagnostics",
                 "Settings"
             ],
-            "UI_DESIGN section 5: the main views in the rail's order (D281), in words (D473)"
+            "the main views in the rail's order (D281), in words (D473), Controls for Play (D479)"
         );
     }
 

@@ -154,8 +154,6 @@ struct Scenario {
     /// The open panes: the newest main pane is the main view, and
     /// `Pane::Inspector` is the side panel (D281).
     panes: &'static [Pane],
-    /// The library view's page (D291).
-    library_page: crate::ui::browser::LibraryPage,
     /// The library card with keyboard focus, by library index (D291).
     focus_card: Option<usize>,
     /// The Settings page, where the scenario's other state does not decide
@@ -207,11 +205,13 @@ const BASE: Scenario = Scenario {
     side_tab: crate::ui::side::SideTab::Controls,
     cards: crate::ui::browser::CardSize::Medium,
     panes: &[Pane::Inspector, Pane::Browser],
-    library_page: crate::ui::browser::LibraryPage::Scenes,
     focus_card: None,
     settings_page: None,
     map_open: false,
 };
+
+/// The Controls view over the library, with the side panel (D479).
+const CONTROLS: &[Pane] = &[Pane::Inspector, Pane::Browser, Pane::Controls];
 
 fn scenarios() -> Vec<Scenario> {
     vec![
@@ -244,28 +244,27 @@ fn scenarios() -> Vec<Scenario> {
             ..BASE
         },
         Scenario {
-            name: "library on the controls page",
-            library_page: crate::ui::browser::LibraryPage::Controls,
+            name: "the controls view",
+            panes: CONTROLS,
             ..BASE
         },
         Scenario {
-            name: "library on the controls page, compact, playlist tab",
-            library_page: crate::ui::browser::LibraryPage::Controls,
+            name: "the controls view, compact, playlist tab",
+            panes: CONTROLS,
             density: crate::ui::theme::Density::Compact,
             side_tab: crate::ui::side::SideTab::Playlist,
             playlist: true,
             ..BASE
         },
         Scenario {
-            name: "library on the controls page, no scene",
-            library_page: crate::ui::browser::LibraryPage::Controls,
+            name: "the controls view, no scene",
+            panes: CONTROLS,
             playing: false,
             ..BASE
         },
         Scenario {
-            name: "library on the controls page, side panel collapsed",
-            library_page: crate::ui::browser::LibraryPage::Controls,
-            panes: &[Pane::Browser],
+            name: "the controls view, side panel collapsed",
+            panes: &[Pane::Browser, Pane::Controls],
             ..BASE
         },
         Scenario {
@@ -919,8 +918,8 @@ struct Drawn {
     shapes: Vec<egui::epaint::ClippedShape>,
     /// The panes open after the last frame.
     open_panes: Vec<Pane>,
-    /// The library view's page after the last frame (D291).
-    library_page: crate::ui::browser::LibraryPage,
+    /// The main view after the last frame.
+    main: Option<Pane>,
     /// Every frame's texture changes, for [`shoot`]; cleared on drop.
     textures: egui::TexturesDelta,
 }
@@ -1030,7 +1029,6 @@ fn draw_events(
         crate::ui::settings::SettingsPage::Output
     };
     ui_state.side_tab = scenario.side_tab;
-    ui_state.library_page = scenario.library_page;
     ui_state.browser.cards = scenario.cards;
     if let Some(query) = scenario.palette {
         ui_state.command_palette.open_with(query);
@@ -1373,7 +1371,7 @@ fn draw_events(
         all_actions,
         shapes,
         open_panes,
-        library_page: ui_state.library_page,
+        main: ui_state.panes.shown_in(crate::workspace::Dock::Main),
         textures,
     })
 }
@@ -2066,7 +2064,7 @@ fn draw_viewer(how: crate::desktop::Staged, size: (f32, f32), frames: usize) -> 
         actions,
         shapes,
         open_panes: Vec::new(),
-        library_page: crate::ui::browser::LibraryPage::Scenes,
+        main: None,
         textures,
     })
 }
@@ -2607,8 +2605,7 @@ fn enter_on_a_focused_card_makes_it_live() -> Result<()> {
 }
 
 #[test]
-fn the_library_flips_between_scenes_and_controls_by_switch_key_and_palette() -> Result<()> {
-    use crate::ui::browser::LibraryPage;
+fn controls_is_a_view_on_the_rail_reached_by_click_key_and_palette() -> Result<()> {
     let size = (1440.0, 900.0);
 
     let at = text_at(BASE, size, "Controls")?;
@@ -2616,15 +2613,15 @@ fn the_library_flips_between_scenes_and_controls_by_switch_key_and_palette() -> 
     frames.push(Vec::new());
     let drawn = draw_events(BASE, size, frames)?;
     assert_eq!(
-        drawn.library_page,
-        LibraryPage::Controls,
-        "the switch's Controls cell"
+        drawn.main,
+        Some(Pane::Controls),
+        "the rail's Controls entry"
     );
     assert!(drawn.all_actions.is_empty(), "a presentation change only");
 
     let ctrl_l = || press(egui::Key::L, egui::Modifiers::COMMAND);
     let drawn = draw_events(BASE, size, vec![vec![ctrl_l()], Vec::new()])?;
-    assert_eq!(drawn.library_page, LibraryPage::Controls, "Ctrl+L flips");
+    assert_eq!(drawn.main, Some(Pane::Controls), "Ctrl+L shows Controls");
     // Let go between the two presses: egui reads a second press of a key
     // still held as a repeat.
     let drawn = draw_events(
@@ -2637,34 +2634,64 @@ fn the_library_flips_between_scenes_and_controls_by_switch_key_and_palette() -> 
             vec![release(egui::Key::L)],
         ],
     )?;
-    assert_eq!(drawn.library_page, LibraryPage::Scenes, "and flips back");
+    assert_eq!(drawn.main, Some(Pane::Browser), "and back to the library");
 
-    let play = Scenario {
-        panes: &[Pane::Inspector],
+    let mappings = Scenario {
+        panes: &[Pane::Inspector, Pane::Map],
         ..BASE
     };
-    let drawn = draw_events(play, size, vec![vec![ctrl_l()], Vec::new()])?;
-    assert!(
-        drawn.open_panes.contains(&Pane::Browser) && drawn.library_page == LibraryPage::Controls,
-        "from PLAY it shows the library on Controls: {:?} {:?}",
-        drawn.open_panes,
-        drawn.library_page
+    let drawn = draw_events(mappings, size, vec![vec![ctrl_l()], Vec::new()])?;
+    assert_eq!(
+        drawn.main,
+        Some(Pane::Controls),
+        "from Mappings it shows Controls"
     );
 
-    let drawn = draw_events(BASE, size, palette_run("switch scenes"))?;
+    let drawn = draw_events(BASE, size, palette_run("switch library"))?;
     assert_eq!(
-        drawn.library_page,
-        LibraryPage::Controls,
-        "Ctrl+K, \"switch scenes\", Enter"
+        drawn.main,
+        Some(Pane::Controls),
+        "Ctrl+K, \"switch library\", Enter"
     );
     assert!(drawn.all_actions.is_empty(), "and nothing else ran");
     Ok(())
 }
 
 #[test]
+fn the_rail_names_no_play_and_a_click_on_the_shown_view_keeps_it() -> Result<()> {
+    let size = (1440.0, 900.0);
+    let drawn = draw(BASE, size, 2)?;
+    assert!(
+        !texts(&drawn).iter().any(|(_, line, _)| line == "Play"),
+        "the rail has no Play entry (D479)"
+    );
+    let at = text_at(BASE, size, "Library")?;
+    let mut frames = click_at(at);
+    frames.push(Vec::new());
+    let drawn = draw_events(BASE, size, frames)?;
+    assert_eq!(
+        drawn.main,
+        Some(Pane::Browser),
+        "clicking the library while it shows leaves it shown"
+    );
+    let escape = press(egui::Key::Escape, egui::Modifiers::NONE);
+    let only = Scenario {
+        panes: &[Pane::Browser],
+        ..BASE
+    };
+    let drawn = draw_events(only, size, vec![vec![escape], Vec::new()])?;
+    assert_eq!(
+        drawn.main,
+        Some(Pane::Browser),
+        "Esc keeps the last main view rather than leaving one the rail cannot name"
+    );
+    Ok(())
+}
+
+#[test]
 fn the_controls_page_draws_the_controls_once_with_the_preview_beside_them() -> Result<()> {
     let scenario = Scenario {
-        library_page: crate::ui::browser::LibraryPage::Controls,
+        panes: CONTROLS,
         ..BASE
     };
     for size in [(1920.0, 1080.0), (1280.0, 720.0)] {

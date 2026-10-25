@@ -19,14 +19,17 @@
 //! ## Docks
 //!
 //! The *main* dock holds every pane the rail switches between: the scene
-//! library ([`Pane::Browser`]), [`Pane::Import`], [`Pane::Playlist`],
-//! [`Pane::Editor`], [`Pane::Map`], [`Pane::Diagnostics`] and
-//! [`Pane::Settings`]. It shows one pane: the most recently opened of its open
-//! panes. With none open the main view is the large live preview (PLAY).
-//! Closing the shown pane (Esc closes the topmost one) reveals the one that
-//! was under it, so opening Diagnostics over the Library and pressing Esc
-//! puts the Library back, which is what an operator in the middle of a show
-//! expects.
+//! library ([`Pane::Browser`]), the live scene's [`Pane::Controls`],
+//! [`Pane::Import`], [`Pane::Playlist`], [`Pane::Editor`], [`Pane::Map`],
+//! [`Pane::Diagnostics`] and [`Pane::Settings`]. It shows one pane: the most
+//! recently opened of its open panes. Closing the shown pane (Esc closes
+//! the topmost one) reveals the one that was under it, so opening
+//! Diagnostics over the Library and pressing Esc puts the Library back,
+//! which is what an operator in the middle of a show expects. Esc never
+//! closes the last main pane (D479): the rail has no entry for the large
+//! live preview any more, the side panel has the picture, and a main view
+//! the rail cannot name would be a dead end. `--no-panes` still closes
+//! everything, and the main view is then that large preview.
 //!
 //! The *side* dock holds the [`Pane::Inspector`] alone: the preview, the
 //! status strip and the Playlist, Controls, Presets and Edit tabs.
@@ -52,6 +55,8 @@
 pub enum Pane {
     /// The scene browser: search, filter, preview, load.
     Browser,
+    /// The live scene's controls at full size, in cards (D477, D479).
+    Controls,
     /// Shadertoy import.
     Import,
     /// The control inspector for the playing scene.
@@ -80,8 +85,9 @@ pub enum Dock {
 
 impl Pane {
     /// Every pane, in a fixed order that indexes the arrays below.
-    pub const ALL: [Pane; 8] = [
+    pub const ALL: [Pane; 9] = [
         Pane::Browser,
+        Pane::Controls,
         Pane::Import,
         Pane::Inspector,
         Pane::Diagnostics,
@@ -101,6 +107,7 @@ impl Pane {
             Self::Playlist => 5,
             Self::Map => 6,
             Self::Editor => 7,
+            Self::Controls => 8,
         }
     }
 
@@ -108,6 +115,7 @@ impl Pane {
     pub fn dock(self) -> Dock {
         match self {
             Self::Browser
+            | Self::Controls
             | Self::Import
             | Self::Editor
             | Self::Diagnostics
@@ -122,6 +130,7 @@ impl Pane {
     pub fn title(self) -> &'static str {
         match self {
             Self::Browser => "Library",
+            Self::Controls => "Controls",
             Self::Import => "Import",
             Self::Inspector => "Panel",
             Self::Diagnostics => "Diagnostics",
@@ -136,6 +145,7 @@ impl Pane {
     pub fn key(self) -> &'static str {
         match self {
             Self::Browser => "browser",
+            Self::Controls => "controls",
             Self::Import => "import",
             Self::Inspector => "inspector",
             Self::Diagnostics => "diagnostics",
@@ -157,7 +167,7 @@ impl Pane {
     /// pane.
     pub fn min_width(self) -> f32 {
         match self {
-            Self::Browser | Self::Import => 220.0,
+            Self::Browser | Self::Controls | Self::Import => 220.0,
             // Wide enough for a 16:9 preview a person can judge and for a
             // slider row with its number and reset beside it.
             Self::Inspector => 280.0,
@@ -171,7 +181,7 @@ impl Pane {
     /// The width a pane opens at, in points.
     pub fn default_width(self) -> f32 {
         match self {
-            Self::Browser | Self::Import => 280.0,
+            Self::Browser | Self::Controls | Self::Import => 280.0,
             // Used only once the panel has been dragged and the stored
             // width is lost; until then it follows the window (D281).
             Self::Inspector => 440.0,
@@ -185,7 +195,7 @@ impl Pane {
     /// The widest the pane may be dragged to, in points.
     pub fn max_width(self) -> f32 {
         match self {
-            Self::Browser | Self::Import => 460.0,
+            Self::Browser | Self::Controls | Self::Import => 460.0,
             Self::Inspector => 720.0,
             Self::Diagnostics | Self::Settings => 640.0,
             Self::Playlist => 720.0,
@@ -218,10 +228,10 @@ pub fn auto_side_width(window_width: f32) -> f32 {
 /// Which panes are open, how wide, and in what order they were opened.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Panes {
-    open: [bool; 8],
-    width: [f32; 8],
+    open: [bool; 9],
+    width: [f32; 9],
     /// When each pane was last opened, on a counter; larger is newer.
-    stamp: [u64; 8],
+    stamp: [u64; 9],
     clock: u64,
     /// Whether the side panel's width follows the window ([`SIDE_SHARE`]
     /// of it) because nobody has dragged it. A flag, not a magic width, so
@@ -235,9 +245,9 @@ impl Default for Panes {
     /// the panel.
     fn default() -> Self {
         let mut panes = Self {
-            open: [false; 8],
+            open: [false; 9],
             width: Pane::ALL.map(Pane::default_width),
-            stamp: [0; 8],
+            stamp: [0; 9],
             clock: 0,
             side_follows: true,
         };
@@ -287,7 +297,7 @@ impl Panes {
     /// Closes every pane: the main view becomes the large preview and the
     /// side panel collapses to its handle (`--no-panes`).
     pub fn close_all(&mut self) {
-        self.open = [false; 8];
+        self.open = [false; 9];
     }
 
     /// Closes every main pane, so the main view is the large live preview
@@ -347,9 +357,18 @@ impl Panes {
         open
     }
 
-    /// Closes the topmost open pane and says which it was (Esc).
-    pub fn close_topmost(&mut self) -> Option<Pane> {
+    /// Esc (D479): closes the topmost pane, unless it is the only main pane
+    /// open, which stays: the rail has no entry for the large preview that
+    /// closing it would leave. Returns the pane it closed.
+    pub fn go_back(&mut self) -> Option<Pane> {
         let top = self.topmost()?;
+        let mains = Pane::ALL
+            .into_iter()
+            .filter(|pane| pane.dock() == Dock::Main && self.is_open(*pane))
+            .count();
+        if top.dock() == Dock::Main && mains <= 1 {
+            return None;
+        }
         self.close(top);
         Some(top)
     }
@@ -654,10 +673,20 @@ mod tests {
         let mut panes = with(&[Pane::Browser]);
         panes.open(Pane::Diagnostics);
         assert_eq!(panes.shown_in(Dock::Main), Some(Pane::Diagnostics), "over");
-        assert_eq!(panes.close_topmost(), Some(Pane::Diagnostics), "esc");
+        assert_eq!(panes.go_back(), Some(Pane::Diagnostics), "esc");
         assert_eq!(panes.shown_in(Dock::Main), Some(Pane::Browser), "under");
-        assert_eq!(panes.close_topmost(), Some(Pane::Browser), "esc again");
-        assert_eq!(panes.close_topmost(), None, "nothing left to close");
+        assert_eq!(
+            panes.go_back(),
+            None,
+            "the last main view stays: the rail has no view under it"
+        );
+        assert_eq!(panes.shown_in(Dock::Main), Some(Pane::Browser), "kept");
+        panes.open(Pane::Inspector);
+        assert_eq!(
+            panes.go_back(),
+            Some(Pane::Inspector),
+            "the side panel, opened last, still closes"
+        );
     }
 
     #[test]

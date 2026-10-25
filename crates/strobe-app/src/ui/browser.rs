@@ -89,68 +89,6 @@ use std::borrow::Cow;
 /// The id of the search field, so a command can focus it.
 pub const SEARCH_ID: &str = "browser-search";
 
-/// Which page the library view shows (D291): the card grid, or the live
-/// scene's controls, laid out large. A switch at the top of the main view
-/// flips between them, as does a command (Ctrl+L by default). Saved.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-pub enum LibraryPage {
-    /// The scene grid.
-    #[default]
-    Scenes,
-    /// The playing scene's controls.
-    Controls,
-}
-
-impl LibraryPage {
-    /// Both pages, in the order the switch shows them.
-    pub const ALL: [Self; 2] = [Self::Scenes, Self::Controls];
-
-    /// The name saved in the preferences file.
-    pub const fn key(self) -> &'static str {
-        match self {
-            Self::Scenes => "scenes",
-            Self::Controls => "controls",
-        }
-    }
-
-    /// The page saved as `key`; `None` for a name this build does not know.
-    pub fn from_key(key: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|page| page.key() == key)
-    }
-
-    /// The switch's label.
-    pub const fn label(self) -> &'static str {
-        match self {
-            Self::Scenes => "Scenes",
-            Self::Controls => "Controls",
-        }
-    }
-
-    /// The other page.
-    pub const fn other(self) -> Self {
-        match self {
-            Self::Scenes => Self::Controls,
-            Self::Controls => Self::Scenes,
-        }
-    }
-
-    /// The switch's icon.
-    pub const fn icon(self) -> Icon {
-        match self {
-            Self::Scenes => Icon::Library,
-            Self::Controls => Icon::Controls,
-        }
-    }
-
-    /// What the page is, as the switch's tooltip says it.
-    pub const fn tooltip(self) -> &'static str {
-        match self {
-            Self::Scenes => "Scenes: the library. Click a scene to make it live.",
-            Self::Controls => "Controls: the live scene's controls, laid out large",
-        }
-    }
-}
-
 /// How large the grid's cards are (D282). One setting for the grid, saved.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum CardSize {

@@ -143,8 +143,10 @@ pub struct Prefs {
     /// The side panel's tab (D283): `controls`, `playlist` or `presets`.
     /// Empty means the default.
     pub side_tab: String,
-    /// The library view's page (D291): `scenes` or `controls`. Empty means
-    /// the default, the scenes.
+    /// The library view's page in an older file (D291): `scenes` or
+    /// `controls`. Read only to move a saved `controls` to the Controls
+    /// view (D479), and never written again.
+    #[serde(skip_serializing_if = "String::is_empty")]
     pub library_page: String,
     /// Synesthesia's own scenes in the library (D271).
     pub synesthesia: SynesthesiaPref,
@@ -347,6 +349,25 @@ impl Prefs {
     /// so the side panel that took its place follows the window instead of
     /// keeping it (D281).
     fn migrate(&mut self) {
+        // The library's Controls page is the Controls view now (D479): a
+        // file saved on it opens there, over the library.
+        if std::mem::take(&mut self.library_page) == "controls"
+            && self
+                .panes
+                .get(Pane::Browser.key())
+                .is_some_and(|browser| browser.open)
+        {
+            let key = Pane::Controls.key().to_string();
+            self.panes.insert(
+                key.clone(),
+                PanePref {
+                    open: true,
+                    width: 0.0,
+                },
+            );
+            self.order.retain(|open| *open != key);
+            self.order.push(key);
+        }
         if self.version < 2 {
             let layouts = self.layouts.values_mut().map(|layout| &mut layout.panes);
             for panes in std::iter::once(&mut self.panes).chain(layouts) {
@@ -659,6 +680,33 @@ mod tests {
             "the browser was opened last, so it is on top again"
         );
         assert!(!panes.is_open(Pane::Settings), "closed panes stay closed");
+        Ok(())
+    }
+
+    #[test]
+    fn a_file_saved_on_the_library_controls_page_opens_the_controls_view() -> Result<()> {
+        let text = "library_page = \"controls\"
+order = [\"inspector\", \"browser\"]
+                    [panes.browser]
+open = true
+width = 0.0
+                    [panes.inspector]
+open = true
+width = 0.0
+";
+        let prefs = Prefs::from_text(text).map_err(anyhow::Error::msg)?;
+        let panes = prefs.to_panes();
+        assert_eq!(
+            panes.shown_in(crate::workspace::Dock::Main),
+            Some(Pane::Controls),
+            "the Controls view, over the library (D479)"
+        );
+        assert!(panes.is_open(Pane::Browser), "the library stays under it");
+        let saved = prefs.to_text().map_err(anyhow::Error::msg)?;
+        assert!(
+            !saved.contains("library_page"),
+            "the old key is not written again: {saved}"
+        );
         Ok(())
     }
 

@@ -40,13 +40,13 @@ screen until you ask.
 - The first scene of the library plays in the preview, and the scene you
   last played is reopened on later launches.
 - **Show output** (the monitor button under the panel's preview, or the
-  PLAY view's toolbar), or **F11**, shows the output. Use the
-  **Output monitor** menu to put it on the projector, then F11 for
-  fullscreen.
+  button on the preview while the output is hidden), or **F11**, shows the
+  output. Use **Settings > Output > Output monitor** to put it on the
+  projector, then F11 for fullscreen.
 - The window is Synesthesia's three columns. The **rail** on the left
-  switches the main view: **Play** (the live preview at full size),
-  **Library** (the scene library, the default, with its **Scenes** and
-  **Controls** pages), **Import** (a Shadertoy shader), **Playlist**,
+  switches the main view: **Library** (the scene library, the default),
+  **Controls** (the playing scene's controls at full size), **Import** (a
+  Shadertoy shader), **Playlist**,
   **Editor** (the scene's code), **Mappings** (MIDI, OSC, macros),
   **Diagnostics** and **Settings**. In a narrow window the rail shows its
   icons only. The **panel**
@@ -74,7 +74,7 @@ screen until you ask.
 | F11 | Output fullscreen |
 | Ctrl+F | Search the library |
 | Ctrl+K | The command palette: every command, pane, scene and preset by name |
-| Ctrl+L | Switch Library between Scenes and the live scene's Controls |
+| Ctrl+L | Switch between the Library and the live scene's Controls |
 | Esc | Close the top pane |
 
 Settings > Keyboard changes any of them.
@@ -132,11 +132,13 @@ Settings > Keyboard changes any of them.
   normally `%LOCALAPPDATA%\Synesthesia\Data`).
 - **Needs work** (a Library filter, and a list in Diagnostics) shows the scenes that
   failed to load this run, each with its reason.
-- **Controls** shows the playing scene's sliders, colours and buttons, in
-  two places: large, as Library's **Controls** page (the switch at the top of
-  Library, or Ctrl+L, flips between it and the scenes), and compact, as a tab
-  of the panel for when another view is up. While the Controls page is up
-  the panel shows Presets beside it rather than the same controls twice.
+- **Controls** shows the playing scene's sliders, colours and buttons, each
+  group in a card of its own and the output controls (master, colour,
+  mirror, audio) in cards under them. It is in two places: large, as the
+  **Controls** view on the rail (Ctrl+L flips between it and the library),
+  and compact, as a tab of the panel for when another view is up. While
+  the Controls view is up the panel shows Presets beside it rather than
+  the same controls twice.
   The camera button in the status strip, or *Use frame as picture* in the
   Edit tab, saves the current frame as the scene's library picture.
 - **Presets** (a tab of the panel): save the current look under a name,

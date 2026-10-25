@@ -40,12 +40,20 @@
 //! [`PAGE_COLUMN`] fits (at most [`PAGE_COLUMNS_MAX`]), each to the
 //! shortest column so far, and the rows are drawn at
 //! [`controls::Scale::Touch`].
+//!
+//! Every group is a **card** (D477): its header inside, its rows under it
+//! with the card's padding around them, so a section reads as one thing
+//! and no control runs to the edge of the pane. The output controls are a
+//! section of their own under the scene's, a heading with Reset output,
+//! then a card per group (master, colour, mirror, audio, limit colours)
+//! that flows into the same columns on the page, where they were one
+//! column of sliders the page's full width.
 
 use super::controls;
 use super::icon as icons;
 use super::model::{Action, GeneratePanel, MediaFrom, MediaPanel, Model};
 use super::tags;
-use super::theme::{self, SPACE_SM, SPACE_XS};
+use super::theme::{self, SPACE_MD, SPACE_SM, SPACE_XS};
 use super::widgets::{self, Tone};
 use crate::generate::{Kept, Outcome, Review, Summary};
 use crate::icon::Icon;
@@ -738,50 +746,18 @@ fn groups(
     let groups = controls::group_order(bank.defs());
     // The pane's one scroll area is around everything below its header.
     ui.scope(|ui| {
-        let columns = match scale {
-            controls::Scale::Touch => page_columns(ui.available_width()),
-            controls::Scale::Panel => 1,
-        };
-        if columns > 1 {
-            // Each group goes to the column with the fewest rows so far: a
-            // fixed array, so the layout allocates nothing.
-            ui.columns(columns, |cols| {
-                let mut load = [0_usize; PAGE_COLUMNS_MAX];
-                for (name, members) in &groups {
-                    let slot = (0..columns)
-                        .min_by_key(|c| load.get(*c).copied().unwrap_or(usize::MAX))
-                        .unwrap_or(0);
-                    if let Some(rows) = load.get_mut(slot) {
-                        *rows += members.len() + 1;
-                    }
-                    if let Some(col) = cols.get_mut(slot) {
-                        group(
-                            col,
-                            theme,
-                            bank,
-                            state,
-                            pins,
-                            name.as_deref(),
-                            members,
-                            scale,
-                        );
-                    }
-                }
-            });
-        } else {
-            for (name, members) in &groups {
-                group(
-                    ui,
-                    theme,
-                    bank,
-                    state,
-                    pins,
-                    name.as_deref(),
-                    members,
-                    scale,
-                );
-            }
-        }
+        flow(ui, "scene-groups", scale, &groups, |ui, (name, members)| {
+            group(
+                ui,
+                theme,
+                bank,
+                state,
+                pins,
+                name.as_deref(),
+                members,
+                scale,
+            );
+        });
         // Bangs are left alone by default and random; say so once, near
         // the end, only if the scene has any.
         let has_bang = bank
@@ -817,7 +793,7 @@ fn group(
     members: &[usize],
     scale: controls::Scale,
 ) {
-    match name {
+    card(ui, theme, scale, |ui| match name {
         None => controls::rows(ui, theme, bank, members, Some(&mut *pins), scale),
         Some(name) => {
             let collapsed = state.is_collapsed(name);
@@ -836,13 +812,97 @@ fn group(
                 }
             }
             if !collapsed {
-                ui.indent(("group", name), |ui| {
-                    controls::rows(ui, theme, bank, members, Some(&mut *pins), scale);
-                });
+                ui.add_space(SPACE_XS);
+                controls::rows(ui, theme, bank, members, Some(&mut *pins), scale);
             }
         }
-    }
+    });
     ui.add_space(SPACE_SM);
+}
+
+/// A group's card: the raised surface with a border, padded so its rows
+/// keep off the edges, a little less padding in the side panel.
+fn card<R>(
+    ui: &mut Ui,
+    theme: &Palette,
+    scale: controls::Scale,
+    add: impl FnOnce(&mut Ui) -> R,
+) -> R {
+    let pad = match scale {
+        controls::Scale::Panel => SPACE_SM,
+        controls::Scale::Touch => SPACE_MD,
+    };
+    egui::Frame::new()
+        .fill(theme::rgb(theme.raised))
+        .stroke(egui::Stroke::new(1.0, theme::rgb(theme.border)))
+        .corner_radius(egui::CornerRadius::same(theme::RADIUS_LG))
+        .inner_margin(theme::margin(pad))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            add(ui)
+        })
+        .inner
+}
+
+/// Lays `items` out as the scale wants: one under another in the side
+/// panel; on the page, into as many columns as fit, each item to the
+/// column with the fewest rows so far (a fixed array, so the layout
+/// allocates nothing). `salt` keeps two flows' columns apart: the scene's
+/// rows and the output's share row ids by index.
+fn flow(
+    ui: &mut Ui,
+    salt: &str,
+    scale: controls::Scale,
+    items: &[(Option<String>, Vec<usize>)],
+    mut draw: impl FnMut(&mut Ui, &(Option<String>, Vec<usize>)),
+) {
+    let columns = match scale {
+        controls::Scale::Touch => page_columns(ui.available_width()),
+        controls::Scale::Panel => 1,
+    };
+    ui.push_id(salt, |ui| {
+        if columns <= 1 {
+            for item in items {
+                draw(ui, item);
+            }
+        } else {
+            columns_of(ui, columns, items, &mut draw);
+        }
+    });
+}
+
+/// [`flow`]'s columns.
+fn columns_of(
+    ui: &mut Ui,
+    columns: usize,
+    items: &[(Option<String>, Vec<usize>)],
+    draw: &mut impl FnMut(&mut Ui, &(Option<String>, Vec<usize>)),
+) {
+    ui.columns(columns, |cols| {
+        let mut load = [0_usize; PAGE_COLUMNS_MAX];
+        for item in items {
+            let slot = (0..columns)
+                .min_by_key(|c| load.get(*c).copied().unwrap_or(usize::MAX))
+                .unwrap_or(0);
+            if let Some(rows) = load.get_mut(slot) {
+                *rows += item.1.len() + 1;
+            }
+            if let Some(col) = cols.get_mut(slot) {
+                draw(col, item);
+            }
+        }
+    });
+}
+
+/// A card's title where it has no header to click: the group header's
+/// capitals, without the chevron and the actions.
+fn card_title(ui: &mut Ui, theme: &Palette, name: &str) {
+    ui.label(
+        egui::RichText::new(name.to_uppercase())
+            .size(11.0)
+            .color(theme::rgb(theme.text)),
+    );
+    ui.add_space(SPACE_XS);
 }
 
 /// The output-wide meta controls (master, colour, mirror, audio gains),
@@ -861,7 +921,7 @@ fn meta_section(
     // section was renamed keeps it folded or open.
     const NAME: &str = "Output (meta)";
     let collapsed = state.is_collapsed(NAME);
-    ui.separator();
+    ui.add_space(SPACE_SM);
     ui.horizontal(|ui| {
         // The chevron points the way the group headers' do: right while
         // closed, down while open.
@@ -891,17 +951,23 @@ fn meta_section(
     if collapsed {
         return;
     }
-    for (group, members) in controls::group_order(meta.defs()) {
-        if let Some(name) = group {
-            ui.label(
-                egui::RichText::new(controls::display_name(&name))
-                    .font(theme::description_font())
-                    .color(theme::rgb(theme.text_muted)),
-            );
-        }
-        controls::rows(ui, theme, meta, &members, Some(&mut *pins), scale);
-        ui.add_space(SPACE_XS);
-    }
+    ui.add_space(SPACE_SM);
+    let groups = controls::group_order(meta.defs());
+    flow(
+        ui,
+        "output-groups",
+        scale,
+        &groups,
+        |ui, (name, members)| {
+            card(ui, theme, scale, |ui| {
+                if let Some(name) = name {
+                    card_title(ui, theme, &controls::display_name(name));
+                }
+                controls::rows(ui, theme, meta, members, Some(&mut *pins), scale);
+            });
+            ui.add_space(SPACE_SM);
+        },
+    );
 }
 
 /// What a group header's click did.
@@ -930,8 +996,8 @@ fn group_header(
         ui,
         response.id,
         response.hovered(),
-        theme.panel,
         theme.raised,
+        theme.panel,
     );
     ui.painter()
         .rect_filled(rect, egui::CornerRadius::same(theme::RADIUS), fill);

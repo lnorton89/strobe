@@ -140,9 +140,10 @@ pub struct Cli {
     /// next to the logs, and exit. Attach it to bug reports.
     #[arg(long)]
     pub diagnose: bool,
-    /// Open these panes at launch (comma separated): `browser`, `import`,
-    /// `inspector`, `diagnostics`, `settings`, or `settings:<page>` for one
-    /// page of Settings (`settings:audio`). Added to whatever the saved
+    /// Open these panes at launch (comma separated): `browser`, `controls`,
+    /// `import`, `inspector`, `diagnostics`, `settings`, or `settings:<page>`
+    /// for one page of Settings (`settings:audio`). Added to whatever the
+    /// saved
     /// layout opens; in screenshot mode there is no saved layout, so this
     /// alone decides.
     #[arg(long, value_name = "PANE", value_delimiter = ',')]

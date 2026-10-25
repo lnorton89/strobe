@@ -64,7 +64,7 @@ use super::widgets;
 use super::{inspector, perform, playlist, presets};
 use crate::icon::Icon;
 use crate::palette::Palette;
-use crate::workspace::Pane;
+use crate::workspace::{Dock, Pane};
 use egui::{Align, Layout, Sense, Ui, UiBuilder, Vec2};
 
 /// The side panel's tabs.
@@ -214,7 +214,9 @@ fn preview(
     let (rect, _) = ui.allocate_exact_size(Vec2::new(width, height), Sense::hover());
     ui.scope_builder(UiBuilder::new().max_rect(rect), |ui| {
         ui.set_clip_rect(rect.intersect(ui.clip_rect()));
-        perform::preview_in(ui, model, theme, actions, true);
+        // PLAY's large picture has the Show output button (D476).
+        let offer = model.ui.panes.shown_in(Dock::Main).is_some();
+        perform::preview_in(ui, model, theme, actions, true, offer);
     });
 }
 
