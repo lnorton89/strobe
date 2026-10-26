@@ -23,10 +23,14 @@
 //!   files travel with it;
 //! - writes a [`Summary`] as JSON and exits.
 //!
-//! The source scene is never written. The app polls the child once a frame
-//! with [`Job::poll`] and shows the summary for review. The operator then
-//! opens the new scene or discards it ([`discard`]), which deletes only a
-//! folder this module wrote.
+//! The worker never writes the source scene. The app polls the child once a
+//! frame with [`Job::poll`] and shows the summary for review. The operator
+//! then opens the new scene, discards it ([`discard`], which deletes only a
+//! folder this module wrote), or **saves the controls into the scene
+//! itself** ([`save_into`], D488): only the files the generator rewrites
+//! (`scene.json` and shader sources) are copied back, each one it replaces
+//! is backed up where the Editor keeps its backups, and a scene changed
+//! since it was measured is refused.
 //!
 //! A process boundary also means a driver crash during scoring takes down
 //! the worker, not the show.
@@ -36,7 +40,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 use strobe_autocontrol::report::Verdict;
 use strobe_autocontrol::{Options, authored_controls, generate, write_scene};
 use strobe_gfx::offscreen::{self, ContextMode, Request};
@@ -467,10 +471,219 @@ pub fn discard(library: &Path, written: &Path) -> io::Result<()> {
     std::fs::remove_dir_all(written)
 }
 
+/// Whether `file` (a path inside a scene folder) is one the generator
+/// rewrites: the scene's `scene.json`, or a shader source. A picture, a
+/// script or a texture in the copy is the source's own, as it was when it
+/// was measured, and is never copied back.
+fn generator_writes(file: &Path) -> bool {
+    let name = file
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or_default();
+    if name == "scene.json" {
+        return true;
+    }
+    matches!(
+        file.extension().and_then(|e| e.to_str()),
+        Some("glsl" | "frag" | "fs")
+    )
+}
+
+/// The files under `dir`, as paths relative to it, depth first.
+fn files_in(dir: &Path) -> io::Result<Vec<PathBuf>> {
+    let mut out = Vec::new();
+    let mut pending = vec![PathBuf::new()];
+    while let Some(relative) = pending.pop() {
+        for entry in std::fs::read_dir(dir.join(&relative))? {
+            let entry = entry?;
+            let path = relative.join(entry.file_name());
+            if entry.file_type()?.is_dir() {
+                pending.push(path);
+            } else {
+                out.push(path);
+            }
+        }
+    }
+    out.sort();
+    Ok(out)
+}
+
+/// Saves generated controls into the scene they were made for (D488): the
+/// files of `written` (the reviewed copy) that the generator rewrites and
+/// that differ from `source`'s are written over `source`'s, each replaced
+/// file first backed up under `backups` for scene `name` (the Editor's
+/// backups, so Restore backup undoes it). Returns the files written, as
+/// paths inside the scene.
+///
+/// # Errors
+///
+/// When a file the save would replace changed after `since` (the scene was
+/// edited while it was being measured: generate again), or a file cannot
+/// be read, backed up or written. A refusal for a changed scene writes
+/// nothing; an I/O failure part-way leaves the files written so far, each
+/// with its backup.
+pub fn save_into(
+    written: &Path,
+    source: &Path,
+    backups: &Path,
+    name: &str,
+    since: SystemTime,
+) -> Result<Vec<String>, String> {
+    let read =
+        |path: &Path| std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()));
+    let mut changes = Vec::new();
+    let files = files_in(written).map_err(|e| format!("{}: {e}", written.display()))?;
+    for relative in files.iter().filter(|f| generator_writes(f)) {
+        let new = read(&written.join(relative))?;
+        let target = source.join(relative);
+        let old = match std::fs::read_to_string(&target) {
+            Ok(text) => Some(text),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+            Err(error) => return Err(format!("{}: {error}", target.display())),
+        };
+        if old.as_deref() == Some(new.as_str()) {
+            continue;
+        }
+        let edited = std::fs::metadata(&target)
+            .and_then(|m| m.modified())
+            .is_ok_and(|modified| modified > since);
+        if edited {
+            return Err(format!(
+                "{} changed after the scene was measured; generate the controls again",
+                relative.display()
+            ));
+        }
+        changes.push((relative.clone(), target, old, new));
+    }
+    let mut saved = Vec::new();
+    for (relative, target, old, new) in changes {
+        let label = relative.to_string_lossy().replace('\\', "/");
+        if let Some(old) = old {
+            crate::editor::backup(backups, name, &label, &old)
+                .map_err(|e| format!("backing up {label}: {e}"))?;
+        }
+        crate::editor::write_atomically(&target, &new)
+            .map_err(|e| format!("{}: {e}", target.display()))?;
+        saved.push(label);
+    }
+    Ok(saved)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use anyhow::Result;
+
+    /// A scene folder and its generated copy in a fresh temporary folder.
+    struct Pair {
+        root: PathBuf,
+    }
+
+    impl Pair {
+        fn new(tag: &str) -> Result<Self> {
+            static COUNT: AtomicU64 = AtomicU64::new(0);
+            let root = std::env::temp_dir().join(format!(
+                "strobe-save-into-{tag}-{}-{}",
+                std::process::id(),
+                COUNT.fetch_add(1, Ordering::Relaxed)
+            ));
+            for dir in ["source", "copy"] {
+                std::fs::create_dir_all(root.join(dir))?;
+            }
+            Ok(Self { root })
+        }
+
+        fn write(&self, side: &str, file: &str, text: &str) -> Result<()> {
+            std::fs::write(self.root.join(side).join(file), text)?;
+            Ok(())
+        }
+
+        fn read(&self, side: &str, file: &str) -> Result<String> {
+            Ok(std::fs::read_to_string(self.root.join(side).join(file))?)
+        }
+    }
+
+    impl Drop for Pair {
+        fn drop(&mut self) {
+            // Best effort: a temporary folder left behind is harmless.
+            let _ = std::fs::remove_dir_all(&self.root);
+        }
+    }
+
+    #[test]
+    fn saving_writes_only_the_rewritten_files_and_backs_them_up() -> Result<()> {
+        let pair = Pair::new("save")?;
+        pair.write("source", "scene.json", "{}")?;
+        pair.write("source", "main.glsl", "x * 2.0")?;
+        pair.write("source", "thumbnail.jpg", "new picture")?;
+        // Measuring starts after the scene's files were last written.
+        let since = SystemTime::now() + Duration::from_secs(1);
+        pair.write("copy", "scene.json", "{ \"CONTROLS\": [] }")?;
+        pair.write("copy", "main.glsl", "x * zoom")?;
+        pair.write("copy", "thumbnail.jpg", "old picture")?;
+        let backups = pair.root.join("backups");
+        let saved = save_into(
+            &pair.root.join("copy"),
+            &pair.root.join("source"),
+            &backups,
+            "demo",
+            since,
+        )
+        .map_err(anyhow::Error::msg)?;
+        assert_eq!(
+            saved,
+            ["main.glsl", "scene.json"],
+            "the two rewritten files"
+        );
+        assert_eq!(
+            pair.read("source", "main.glsl")?,
+            "x * zoom",
+            "shader saved"
+        );
+        assert_eq!(
+            pair.read("source", "thumbnail.jpg")?,
+            "new picture",
+            "a picture taken since is not overwritten with the old one"
+        );
+        assert_eq!(
+            crate::editor::latest_backup(&backups, "demo", "main.glsl").as_deref(),
+            Some("x * 2.0"),
+            "what it replaced is backed up where the Editor's Restore finds it"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_scene_edited_while_it_was_measured_is_refused_and_left_alone() -> Result<()> {
+        let pair = Pair::new("edited")?;
+        pair.write("source", "main.glsl", "x * 3.0")?;
+        pair.write("copy", "main.glsl", "x * zoom")?;
+        // Measured before the source was last written.
+        let since = SystemTime::now() - Duration::from_secs(3600);
+        std::fs::File::options()
+            .append(true)
+            .open(pair.root.join("source").join("main.glsl"))?
+            .set_modified(SystemTime::now())?;
+        let refused = save_into(
+            &pair.root.join("copy"),
+            &pair.root.join("source"),
+            &pair.root.join("backups"),
+            "demo",
+            since + Duration::from_secs(1800),
+        );
+        assert!(
+            refused
+                .as_ref()
+                .is_err_and(|why| why.contains("generate the controls again")),
+            "{refused:?}"
+        );
+        assert_eq!(
+            pair.read("source", "main.glsl")?,
+            "x * 3.0",
+            "nothing written"
+        );
+        Ok(())
+    }
 
     #[test]
     fn an_outcome_round_trips_through_json() -> Result<()> {

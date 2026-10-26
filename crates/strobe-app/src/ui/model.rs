@@ -55,6 +55,9 @@ pub enum Action {
     CancelGenerate,
     /// Load the scene the worker wrote.
     OpenGenerated,
+    /// Save the reviewed controls into the scene they were made for, with
+    /// backups of what they replace (D488).
+    SaveGeneratedToScene,
     /// Delete the scene the worker wrote.
     DiscardGenerated,
     /// Put the worker's result away.
@@ -738,4 +741,7 @@ pub struct GeneratePanel<'a> {
     /// The playing scene has controls a person wrote, so generation adds to
     /// them.
     pub authored: bool,
+    /// The measured scene is one of Synesthesia's, which is never written
+    /// (D271): its controls can only be kept as a copy.
+    pub read_only: bool,
 }

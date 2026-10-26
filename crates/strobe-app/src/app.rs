@@ -724,6 +724,12 @@ struct Running {
     generate_job: Option<generate::Job>,
     /// Its result, until the operator opens, discards or dismisses it.
     generate_outcome: Option<generate::Outcome>,
+    /// When the running or last worker started measuring: a scene file
+    /// written after it is not overwritten by a save (D488).
+    generate_since: std::time::SystemTime,
+    /// The last worker's scene is one of Synesthesia's, so it can only be
+    /// kept as a copy (D271, D488).
+    generate_read_only: bool,
     /// The scene open in the Editor (D204).
     editor_doc: Option<editor::Doc>,
     /// The scene folder the Editor last opened by itself, so a folder that
@@ -1064,6 +1070,8 @@ impl Running {
             data_dir,
             generate_job: None,
             generate_outcome: None,
+            generate_since: std::time::UNIX_EPOCH,
+            generate_read_only: false,
             editor_doc: None,
             editor_auto: None,
         };
@@ -3584,6 +3592,7 @@ impl Running {
                     dir.display()
                 );
                 self.generate_outcome = None;
+                self.generate_since = std::time::SystemTime::now();
                 self.generate_job = Some(job);
             }
             Err(error) => {
@@ -3618,7 +3627,117 @@ impl Running {
         }
         self.generate_job = None;
         self.ui_state.generate_review.clear();
+        self.generate_read_only = match &outcome {
+            generate::Outcome::Done(summary) => self
+                .library
+                .entries
+                .iter()
+                .any(|entry| entry.dir == summary.source && entry.read_only()),
+            generate::Outcome::Failed { .. } => false,
+        };
         self.generate_outcome = Some(outcome);
+    }
+
+    /// Saves the reviewed controls into the scene they were made for
+    /// (D488): the review is applied to the copy, the files the generator
+    /// rewrote are written over the scene's with backups, the copy is
+    /// deleted, and the scene loads again with its new controls. Refused for
+    /// one of Synesthesia's scenes, for one open in the Editor with unsaved
+    /// edits, and for one changed since it was measured; the copy is then
+    /// kept, so nothing is lost.
+    fn save_generated(&mut self) {
+        let Some(generate::Outcome::Done(summary)) = self.generate_outcome.take() else {
+            return;
+        };
+        let Some(written) = summary.written.clone() else {
+            return;
+        };
+        let source = summary.source.clone();
+        let unsaved = self
+            .editor_doc
+            .as_ref()
+            .is_some_and(|doc| doc.dir == source && doc.is_dirty());
+        if self.generate_read_only || unsaved {
+            self.say(
+                Tone::Warning,
+                if unsaved {
+                    "The Editor has unsaved changes to this scene. Save or revert them, then save the controls."
+                } else {
+                    "This is one of Synesthesia's scenes, which Strobe never changes. Open the copy instead."
+                },
+            );
+            self.generate_outcome = Some(generate::Outcome::Done(summary));
+            return;
+        }
+        let reviews = std::mem::take(&mut self.ui_state.generate_review);
+        match generate::review(&summary, &reviews, &self.library.dir) {
+            Ok(generate::Reviewed::AsWritten | generate::Reviewed::Rewritten) => {}
+            Ok(generate::Reviewed::Discarded) => {
+                self.rescan_library();
+                self.say(
+                    Tone::Info,
+                    "No control was kept, so nothing was saved and the copy was deleted.",
+                );
+                return;
+            }
+            Err(why) => {
+                self.say(Tone::Error, format!("Could not apply the review: {why}"));
+                self.ui_state.generate_review = reviews;
+                self.generate_outcome = Some(generate::Outcome::Done(summary));
+                return;
+            }
+        }
+        let backups = editor::backup_root();
+        match generate::save_into(
+            &written,
+            &source,
+            &backups,
+            &summary.scene,
+            self.generate_since,
+        ) {
+            Ok(files) => {
+                log::info!(
+                    "generated controls saved into {}: {}",
+                    source.display(),
+                    files.join(", ")
+                );
+                if let Err(error) = generate::discard(&self.library.dir, &written) {
+                    log::warn!("the copy {} was not deleted: {error}", written.display());
+                }
+                if self
+                    .editor_doc
+                    .as_ref()
+                    .is_some_and(|doc| doc.dir == source)
+                {
+                    self.reopen_editor(&source, &summary.scene);
+                }
+                self.show_imported(&source);
+                // No review edits means every proposed control was kept.
+                let kept = if reviews.is_empty() {
+                    summary.kept.len()
+                } else {
+                    reviews.iter().filter(|r| r.keep).count()
+                };
+                self.say(
+                    Tone::Info,
+                    format!(
+                        "Saved {kept} control(s) into {}. What they replaced is backed up; the Editor's Restore backup undoes it.",
+                        summary.scene
+                    ),
+                );
+            }
+            Err(why) => {
+                log::warn!(
+                    "generated controls not saved into {}: {why}",
+                    source.display()
+                );
+                self.rescan_library();
+                self.say(
+                    Tone::Error,
+                    format!("Nothing saved: {why}. The controls are still in the copy, which the library lists."),
+                );
+            }
+        }
     }
 
     /// Loads the scene the worker wrote.
@@ -3846,6 +3965,7 @@ impl Running {
                     }
                 }
                 Action::OpenGenerated => self.open_generated(),
+                Action::SaveGeneratedToScene => self.save_generated(),
                 Action::DiscardGenerated => self.discard_generated(),
                 Action::DismissGenerated => self.generate_outcome = None,
                 Action::Preview(index) => self.pending_preview = Some(index),
@@ -5091,6 +5211,7 @@ impl Running {
                     .map(|job| (job.scene.as_str(), job.elapsed().as_secs_f32())),
                 outcome: self.generate_outcome.as_ref(),
                 authored,
+                read_only: self.generate_read_only,
             },
             editor: EditorPanel {
                 doc: self.editor_doc.as_mut(),

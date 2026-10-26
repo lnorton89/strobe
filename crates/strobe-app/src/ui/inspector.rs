@@ -41,6 +41,13 @@
 //! shortest column so far, and the rows are drawn at
 //! [`controls::Scale::Touch`].
 //!
+//! **Generated controls live where they are missing (D488).** For a scene
+//! with no controls a person wrote, the Controls tab and view offer
+//! *Generate controls*, show the worker's progress and its review there, and
+//! the review saves the kept controls into the scene itself (or as a copy,
+//! or discards them). A scene with authored controls gets *Add generated
+//! controls* in the Scene tab, as before (D202).
+//!
 //! Every group is a **card** (D477): its header inside, its rows under it
 //! with the card's padding around them, so a section reads as one thing
 //! and no control runs to the edge of the pane. The output controls are a
@@ -195,13 +202,17 @@ pub fn show(
                 }
                 ui.add_space(SPACE_XS);
                 if has_scene {
-                    generate_strip(
-                        ui,
-                        theme,
-                        model.generate,
-                        &mut model.ui.generate_review,
-                        actions,
-                    );
+                    // A scene with no authored controls generates them on
+                    // the Controls tab, where their absence shows (D488).
+                    if model.generate.authored {
+                        generate_strip(
+                            ui,
+                            theme,
+                            model.generate,
+                            &mut model.ui.generate_review,
+                            actions,
+                        );
+                    }
                     if widgets::button(ui, theme, Some(Icon::Editor), "Open in Editor")
                         .on_hover_text(
                             "The scene's files, with Save and Save and reload (the EDIT view)",
@@ -226,6 +237,41 @@ pub fn show(
                 script_status(ui, theme, state);
             }
             ui.add_space(SPACE_XS);
+
+            // No controls a person wrote: generate them here, where their
+            // absence is seen, review them and save them into the scene
+            // (D488).
+            if has_scene && !model.generate.authored {
+                let empty = model
+                    .controls
+                    .as_deref()
+                    .is_some_and(|bank| bank.defs().is_empty());
+                let idle = model.generate.running.is_none() && model.generate.outcome.is_none();
+                if empty && idle {
+                    widgets::empty_state_with(
+                        ui,
+                        theme,
+                        Icon::Controls,
+                        "This scene has no controls",
+                        "Generate controls measures its numbers in the background, while the show \
+                         plays, and proposes some. Keep the ones you like and save them into the \
+                         scene.",
+                        |ui| {
+                            if widgets::primary_button(ui, theme, "Generate controls").clicked() {
+                                actions.push(Action::GenerateControls);
+                            }
+                        },
+                    );
+                } else {
+                    generate_strip(
+                        ui,
+                        theme,
+                        model.generate,
+                        &mut model.ui.generate_review,
+                        actions,
+                    );
+                }
+            }
 
             // Which controls already have a pinned macro, for the rows' pin
             // menu (D210).
@@ -254,13 +300,7 @@ pub fn show(
                     );
                 }
                 Some(_) => {
-                    widgets::empty_state(
-                        ui,
-                        theme,
-                        Icon::Controls,
-                        "This scene has no controls",
-                        "It plays as authored. Generate controls makes a copy with some.",
-                    );
+                    // The empty state and Generate controls are above.
                     if let Some(meta) = meta {
                         meta_section(ui, theme, meta, ui_state, &mut meta_pins, scale);
                     }
@@ -438,6 +478,7 @@ fn generate_strip(
     reviews: &mut Vec<Review>,
     actions: &mut Vec<Action>,
 ) {
+    let read_only = panel.read_only;
     if let Some((scene, seconds)) = panel.running {
         widgets::banner(
             ui,
@@ -454,7 +495,7 @@ fn generate_strip(
         return;
     }
     match panel.outcome {
-        Some(Outcome::Done(summary)) => review(ui, theme, summary, reviews, actions),
+        Some(Outcome::Done(summary)) => review(ui, theme, summary, reviews, actions, read_only),
         Some(Outcome::Failed { message }) => {
             widgets::banner(
                 ui,
@@ -470,21 +511,15 @@ fn generate_strip(
             ui.add_space(SPACE_XS);
         }
         None => {
-            let (label, tip) = if panel.authored {
-                (
-                    "Add generated controls",
-                    "Measure the scene's literal numbers in the background and write a copy,                      <name>-auto, with the strongest ones added beside the controls it has.                      This scene is not changed.",
-                )
+            let tip = "Measure the scene's literal numbers in the background, while the show \
+                       plays, and propose the strongest as controls. Nothing is saved until \
+                       you choose in the review.";
+            let start = if panel.authored {
+                widgets::button(ui, theme, Some(Icon::Controls), "Add generated controls")
             } else {
-                (
-                    "Generate controls",
-                    "Measure the scene's literal numbers in the background and write a copy,                      <name>-auto, with the strongest ones as controls. This scene is not changed.",
-                )
+                widgets::primary_button(ui, theme, "Generate controls")
             };
-            if widgets::button(ui, theme, Some(Icon::Controls), label)
-                .on_hover_text(tip)
-                .clicked()
-            {
+            if start.on_hover_text(tip).clicked() {
                 actions.push(Action::GenerateControls);
             }
             ui.add_space(SPACE_XS);
@@ -492,14 +527,17 @@ fn generate_strip(
     }
 }
 
-/// The worker's result: what it made, how faithful the copy is, each
-/// control to keep or drop and re-range (D219), and the two ways on.
+/// The worker's result: what it made, how faithful it is, each control to
+/// keep or drop and re-range (D219), and the ways on: save into the scene
+/// (D488), keep it as a copy, or discard it. `read_only` (one of
+/// Synesthesia's scenes) leaves only the copy.
 fn review(
     ui: &mut Ui,
     theme: &Palette,
     summary: &Summary,
     reviews: &mut Vec<Review>,
     actions: &mut Vec<Action>,
+    read_only: bool,
 ) {
     if reviews.len() != summary.kept.len() {
         *reviews = summary.kept.iter().map(Review::of).collect();
@@ -526,7 +564,7 @@ fn review(
         let keeping = reviews.iter().filter(|r| r.keep).count();
         ui.label(
             egui::RichText::new(format!(
-                "{keeping} of {} control(s) kept for {}, written as {name}",
+                "{keeping} of {} control(s) kept for {}",
                 summary.kept.len(),
                 summary.scene
             ))
@@ -538,7 +576,8 @@ fn review(
             .map_or_else(|| "not measured".to_owned(), |f| format!("{:.1}% off", f * 100.0));
         ui.label(
             egui::RichText::new(format!(
-                "At their defaults the copy matches the original ({faithful}). This scene is unchanged."
+                "At their defaults the picture is the original's ({faithful}). Nothing is saved \
+                 into the scene until you choose; they are in a copy, {name}, until then."
             ))
             .small()
             .color(theme::rgb(theme.text_muted)),
@@ -616,28 +655,53 @@ fn review(
             .zip(reviews.iter())
             .any(|(kept, edit)| Review::of(kept) != *edit);
         ui.horizontal_wrapped(|ui| {
-            let open = if edited {
-                format!("Apply and open {name}")
+            if !read_only
+                && widgets::primary_button(ui, theme, "Save to this scene")
+                    .on_hover_text(format!(
+                        "Write the kept controls into {} itself, backing up what they replace \
+                         (the Editor's Restore backup undoes it), and reload it",
+                        summary.scene
+                    ))
+                    .clicked()
+            {
+                actions.push(Action::SaveGeneratedToScene);
+            }
+            let copy = if edited {
+                format!("Keep as {name}")
             } else {
                 format!("Open {name}")
             };
-            if widgets::primary_button(ui, theme, &open)
-                .on_hover_text(if edited {
-                    "Write the copy again with the controls kept and their ranges, then open it"
-                } else {
-                    "Open the copy"
-                })
-                .clicked()
-            {
+            let tip = if edited {
+                "Write the copy again with the controls kept and their ranges, then open it; \
+                 the original scene is not touched"
+            } else {
+                "Open the copy; the original scene is not touched"
+            };
+            let open = if read_only {
+                widgets::primary_button(ui, theme, &copy)
+            } else {
+                widgets::button(ui, theme, None, &copy)
+            };
+            if open.on_hover_text(tip).clicked() {
                 actions.push(Action::OpenGenerated);
             }
-            if widgets::button(ui, theme, None, "Discard copy")
+            if widgets::button(ui, theme, None, "Discard")
                 .on_hover_text("Delete the copy. The original scene is not touched.")
                 .clicked()
             {
                 actions.push(Action::DiscardGenerated);
             }
         });
+        if read_only {
+            ui.label(
+                egui::RichText::new(
+                    "This is one of Synesthesia's scenes, which Strobe never changes: keep the \
+                     controls as a copy in your library.",
+                )
+                .small()
+                .color(theme::rgb(theme.text_muted)),
+            );
+        }
     });
     ui.add_space(SPACE_XS);
 }

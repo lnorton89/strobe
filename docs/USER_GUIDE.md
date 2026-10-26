@@ -56,7 +56,7 @@ screen until you ask.
   button), the eight fav slots, and four tabs: **Playlist** (the loaded
   show's cues), **Controls** (the playing scene's controls), **Presets**
   (the scene's saved looks, and saving a new one) and **Scene** (tags,
-  picture, media, *Generate controls*, *Open in Editor*). Drag its edge to resize it;
+  picture, media, *Add generated controls* for a scene that has controls, *Open in Editor*). Drag its edge to resize it;
   until you do it is about a third of the window, and a double-click on
   the edge puts it back to that. In a short window the fav slots move into
   the Presets tab and the panel drops its preview. In a narrow window it opens
@@ -541,9 +541,24 @@ CC BY-NC-SA 3.0: no commercial use without the author's permission.
 Strobe records each import's author and source in the scene; check them
 before using a shader at a paid event.
 
-*Generate controls* (the panel's Scene tab) measures a scene's numbers and writes
-a copy with sliders for the ones that matter; your original is never
-changed.
+**Generate controls** is on the Controls view (and the panel's Controls tab)
+whenever the playing scene has no controls. It measures the scene's numbers
+in the background, while the show keeps playing, and proposes controls for
+the ones that change the picture. In the review you keep or drop each one,
+rename it and set a slider's range, then choose:
+
+- **Save to this scene** writes the kept controls into the scene itself and
+  reloads it. Every file it replaces is backed up first, so the Editor's
+  *Restore backup* undoes it. It refuses, and changes nothing, if the scene
+  was edited while it was being measured, or is open in the Editor with
+  unsaved changes.
+- **Open** (or **Keep as**, once you have edited the review) keeps them in a
+  copy, `<name>-auto`, and leaves the original untouched. That is the only
+  choice for one of Synesthesia's own scenes, which Strobe never changes.
+- **Discard** throws them away.
+
+A scene that already has controls gets *Add generated controls* in the
+panel's Scene tab, which adds new ones beside them in the same way.
 
 ## Graphics
 

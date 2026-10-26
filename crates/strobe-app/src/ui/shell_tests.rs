@@ -451,6 +451,12 @@ fn scenarios() -> Vec<Scenario> {
             ..BASE
         },
         Scenario {
+            name: "generated controls to review in the controls view",
+            generated: true,
+            panes: CONTROLS,
+            ..BASE
+        },
+        Scenario {
             name: "empty library",
             scenes: 0,
             playing: false,
@@ -1174,6 +1180,7 @@ fn draw_events(
         running: scenario.generating.then_some(("01-scene-0", 12.0)),
         outcome: generated.as_ref(),
         authored: false,
+        read_only: false,
     };
     let lan_view = sample_lan(scenario.lan, scenario.desktop_access);
     let mut lan_address = String::new();
@@ -2672,6 +2679,29 @@ fn controls_is_a_view_on_the_rail_reached_by_click_key_and_palette() -> Result<(
         "Ctrl+K, \"switch library\", Enter"
     );
     assert!(drawn.all_actions.is_empty(), "and nothing else ran");
+    Ok(())
+}
+
+#[test]
+fn generated_controls_are_reviewed_and_saved_from_the_controls_view() -> Result<()> {
+    let size = (1600.0, 1000.0);
+    let review = Scenario {
+        generated: true,
+        panes: CONTROLS,
+        ..BASE
+    };
+    let at = text_at(review, size, "Save to this scene")?;
+    let mut frames = click_at(at);
+    frames.push(Vec::new());
+    let drawn = draw_events(review, size, frames)?;
+    assert!(
+        drawn
+            .all_actions
+            .iter()
+            .any(|a| matches!(a, Action::SaveGeneratedToScene)),
+        "the review in the Controls view saves into the scene (D488): {:?}",
+        drawn.all_actions
+    );
     Ok(())
 }
 
