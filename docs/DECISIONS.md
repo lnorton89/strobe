@@ -11715,3 +11715,47 @@ dependencies' clean rebuild with it took 159 s).
 in a way that matters (it is the same code without cross-crate inlining),
 or a faster linker becoming the default in the toolchain.
 
+### D488: generate controls from the Controls view, and save them into the scene (2026-10-26)
+
+**Context.** The owner: generated controls (D202, D219, D246) were not
+really in the UI. The button was in the side panel's Scene tab, not where a
+scene's missing controls are noticed, and the result could only be a copy,
+`<name>-auto`, never the scene itself.
+
+**Decision.**
+- **Where.** For a scene with no controls a person wrote, the Controls view
+  and the panel's Controls tab say so and offer **Generate controls** as a
+  primary button, centred under the explanation (`widgets::empty_state_with`,
+  which also lifts the block in a short pane so the button stays in view).
+  The worker's progress and its review appear there. A scene with authored
+  controls keeps *Add generated controls* in the Scene tab.
+- **Save to this scene.** A new primary action on the review. It applies
+  the review to the copy as before, then `generate::save_into` copies back
+  only the files the generator rewrites (`scene.json` and shader sources;
+  never a picture, script or texture, so a picture taken meanwhile is not
+  replaced with the old one), each replaced file first backed up with the
+  Editor's backups (`editor::backup`, so *Restore backup* undoes it). The
+  copy is then deleted, the Editor reopened on the scene if it showed it,
+  and the scene reloaded with its controls.
+- **Refusals, with nothing written:** a file it would replace changed after
+  measuring started (`generate_since`; generate again); the Editor holds
+  unsaved edits to the scene; the scene is one of Synesthesia's (D271), for
+  which the review offers only the copy.
+- **Keep as a copy and Discard** stay. D202's rule that the *worker* never
+  writes the source is unchanged; the source is written only by this
+  explicit choice, which satisfies U-03's "do not silently rewrite the
+  user's only copy".
+
+**Test.** `generate::tests::saving_writes_only_the_rewritten_files_and_backs_them_up`,
+`a_scene_edited_while_it_was_measured_is_refused_and_left_alone`;
+`generated_controls_are_reviewed_and_saved_from_the_controls_view` and the
+shell's every-size checks over the review in the Controls view. On
+TORNADO, the worker run as the app runs it on a test scene with literals
+only: 5 controls (`scale`, `rings_speed`, `glow_color`, `color_low`,
+`color_high`) at fidelity 0.0; captures of the empty Controls view and
+tab with the button. The save itself was not clicked in a live window
+(screenshot mode cannot click); its file work is the tested function.
+
+**Would reopen:** wanting to save into a scene that changed while it was
+measured (then a merge, not a refusal).
+
