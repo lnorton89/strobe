@@ -40,6 +40,12 @@ allow = [
 ]
 confidence-threshold = 0.9
 
+# Strobe's own crates are MIT with the Commons Clause (D486), which has no
+# SPDX identifier. None is published (`publish = false` in each), so they
+# are left out of the licence check, which is about what we depend on.
+[licenses.private]
+ignore = true
+
 [bans]
 multiple-versions = "warn"
 deny = []

@@ -4,7 +4,7 @@ description = "Playlists: model, inheritance, TOML I/O, deterministic generator,
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-license.workspace = true
+license-file.workspace = true
 publish = false
 
 [dependencies]
