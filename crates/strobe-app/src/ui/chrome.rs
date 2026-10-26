@@ -47,7 +47,7 @@
 
 use super::icon as icons;
 use super::model::{Action, Model};
-use super::theme::{self, PAD, RAIL_WIDTH, SPACE_MD, SPACE_SM, SPACE_XS, TITLE_BAR_HEIGHT};
+use super::theme::{self, PAD, SPACE_MD, SPACE_SM, SPACE_XS, TITLE_BAR_HEIGHT};
 use super::widgets;
 use crate::icon::Icon;
 use crate::palette::Palette;
@@ -110,6 +110,13 @@ pub struct Readouts {
     gpu_fraction: f32,
     scale: String,
     backend: String,
+    /// Rendering below full size: the scale readout shows (D472).
+    reduced: bool,
+    /// Not the native GL path (ANGLE, a fallback): the backend shows.
+    fallback: bool,
+    /// The frame rate's tooltip: GPU time, scale and backend, which are
+    /// otherwise shown only when they need attention.
+    summary: String,
     audio: String,
     output: String,
     /// Empty while the scene's script is fine or absent: a script readout
@@ -179,6 +186,12 @@ impl Readouts {
             .next()
             .unwrap_or(model.gl_summary)
             .to_string();
+        self.reduced = perf.scale < 0.995;
+        self.fallback = !self.backend.starts_with("native");
+        self.summary = format!(
+            "Output frame rate. {}, rendering at {}, {}. Click for diagnostics.",
+            self.gpu, self.scale, model.gl_summary
+        );
         self.audio = audio_text(model);
         self.output = output_text(model);
         self.remote.clear();
@@ -262,13 +275,12 @@ fn short_monitor(label: &str) -> &str {
     label.split(" (").next().unwrap_or(label)
 }
 
-/// The title bar's crumb: the main view, as the rail names it (the
-/// library by its page, D291), then the scene.
+/// The title bar's crumb: the main view, as the rail names it, then the
+/// scene.
 fn crumb(model: &Model<'_>, main: Option<Pane>) -> String {
     let view = match main {
-        Some(Pane::Browser) => model.ui.library_page.label(),
         Some(pane) => pane.title(),
-        None => "Play",
+        None => "Preview",
     }
     .to_uppercase();
     match (model.loading, model.playing, model.scene_title) {
@@ -544,7 +556,9 @@ fn health(
         )
         .is_some_and(|r| r.clicked())
         {
-            model.ui.panes.open(Pane::Settings);
+            model
+                .ui
+                .open_settings(super::settings::SettingsPage::Remote);
         }
     }
 
@@ -564,7 +578,9 @@ fn health(
     )
     .is_some_and(|r| r.clicked())
     {
-        model.ui.panes.open(Pane::Settings);
+        model
+            .ui
+            .open_settings(super::settings::SettingsPage::Output);
     }
 
     let audio_tip = if model.audio.live {
@@ -588,7 +604,7 @@ fn health(
     )
     .is_some_and(|r| r.clicked())
     {
-        model.ui.panes.open(Pane::Settings);
+        model.ui.open_settings(super::settings::SettingsPage::Audio);
     }
 
     if !readouts.script.is_empty()
@@ -606,13 +622,16 @@ fn health(
         model.ui.panes.open(Pane::Inspector);
     }
 
+    // The backend, the scale and the GPU time are shown only when they need
+    // attention (D472); the frame rate's tooltip carries all three.
     if !compact
+        && readouts.fallback
         && readout(
             ui,
             theme,
             Icon::Controls,
             &readouts.backend,
-            Level::Quiet,
+            Level::Warn,
             model.gl_summary,
             true,
         )
@@ -621,18 +640,21 @@ fn health(
         model.ui.panes.open(Pane::Diagnostics);
     }
 
-    if readout(
-        ui,
-        theme,
-        Icon::Fullscreen,
-        &readouts.scale,
-        Level::Quiet,
-        "Render scale. Click to change it in Settings.",
-        text,
-    )
-    .is_some_and(|r| r.clicked())
+    if readouts.reduced
+        && readout(
+            ui,
+            theme,
+            Icon::Fullscreen,
+            &readouts.scale,
+            Level::Quiet,
+            "Rendering below full size. Click to change the render scale in Settings.",
+            text,
+        )
+        .is_some_and(|r| r.clicked())
     {
-        model.ui.panes.open(Pane::Settings);
+        model
+            .ui
+            .open_settings(super::settings::SettingsPage::Output);
     }
 
     // GPU time against its budget, tinted along the heat scale.
@@ -645,16 +667,17 @@ fn health(
     } else {
         Level::Quiet
     };
-    if readout(
-        ui,
-        theme,
-        Icon::Diagnostics,
-        &readouts.gpu,
-        level,
-        "GPU time against the frame budget. Click for diagnostics.",
-        text,
-    )
-    .is_some_and(|r| r.clicked())
+    if level != Level::Quiet
+        && readout(
+            ui,
+            theme,
+            Icon::Diagnostics,
+            &readouts.gpu,
+            level,
+            "GPU time against the frame budget. Click for diagnostics.",
+            text,
+        )
+        .is_some_and(|r| r.clicked())
     {
         model.ui.panes.open(Pane::Diagnostics);
     }
@@ -668,7 +691,7 @@ fn health(
         Icon::Play,
         &readouts.fps,
         Level::Quiet,
-        "Output frame rate. Click for diagnostics.",
+        &readouts.summary,
         always,
     )
     .is_some_and(|r| r.clicked())
@@ -799,52 +822,52 @@ fn resize_regions(rect: Rect) -> [(Rect, ResizeDirection, egui::CursorIcon); 8] 
 /// Shadertoy import.
 const RAIL: [(Icon, &str, Option<Pane>, &str); 8] = [
     (
-        Icon::Perform,
-        "PLAY",
-        None,
-        "Perform: the live preview at full size",
+        Icon::Library,
+        "Library",
+        Some(Pane::Browser),
+        "Scenes: click one to make it live",
     ),
     (
-        Icon::Library,
-        "LIB",
-        Some(Pane::Browser),
-        "Scenes: click one to make it live, then Controls (Ctrl+L) for its controls",
+        Icon::Controls,
+        "Controls",
+        Some(Pane::Controls),
+        "The live scene's controls at full size (Ctrl+L)",
     ),
     (
         Icon::Import,
-        "GET",
+        "Import",
         Some(Pane::Import),
-        "Get scenes: import a Shadertoy shader",
+        "Import: a Shadertoy shader becomes a scene",
     ),
     (
         Icon::Playlist,
-        "LIST",
+        "Playlist",
         Some(Pane::Playlist),
         "Playlist: load a file, the timeline, cue commands and Generate",
     ),
     (
         Icon::Editor,
-        "EDIT",
+        "Editor",
         Some(Pane::Editor),
         "Editor: the scene's shader, scene.json and script, with save and reload",
     ),
     (
         Icon::Mapping,
-        "MAP",
+        "Mappings",
         Some(Pane::Map),
         "MIDI and OSC: devices, mappings with learn, macros and the activity monitor",
     ),
     (
         Icon::Diagnostics,
-        "DIAG",
+        "Diagnostics",
         Some(Pane::Diagnostics),
         "Diagnostics and console",
     ),
     (
         Icon::Settings,
-        "SET",
+        "Settings",
         Some(Pane::Settings),
-        "Output, audio, performance and appearance",
+        "Settings: output, audio, appearance, library, remote and shortcuts",
     ),
 ];
 
@@ -852,9 +875,9 @@ const RAIL: [(Icon, &str, Option<Pane>, &str); 8] = [
 /// panel stays whatever it was.
 pub fn nav_rail(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, arrangement: &Arrangement) {
     let shown = |pane: Pane| arrangement.shows(pane);
-    let nothing_shown = arrangement.main.is_none();
+    let width = ui.ctx().content_rect().width();
     egui::Panel::left("nav-rail")
-        .exact_size(RAIL_WIDTH)
+        .exact_size(theme::rail_width(width))
         .resizable(false)
         .show_separator_line(false)
         .frame(
@@ -882,16 +905,7 @@ pub fn nav_rail(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, arrangement
                             continue;
                         }
                         rail_entry(
-                            ui,
-                            model,
-                            theme,
-                            *icon,
-                            label,
-                            *pane,
-                            tooltip,
-                            labels,
-                            &shown,
-                            nothing_shown,
+                            ui, model, theme, *icon, label, *pane, tooltip, labels, &shown,
                         );
                         ui.add_space(SPACE_XS);
                     }
@@ -899,16 +913,7 @@ pub fn nav_rail(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, arrangement
             ui.with_layout(Layout::bottom_up(Align::Min), |ui| {
                 if let Some((icon, label, pane, tooltip)) = RAIL.get(last) {
                     rail_entry(
-                        ui,
-                        model,
-                        theme,
-                        *icon,
-                        label,
-                        *pane,
-                        tooltip,
-                        labels,
-                        &shown,
-                        nothing_shown,
+                        ui, model, theme, *icon, label, *pane, tooltip, labels, &shown,
                     );
                 }
             });
@@ -934,24 +939,20 @@ fn rail_entry(
     tooltip: &str,
     labels: bool,
     shown: &dyn Fn(Pane) -> bool,
-    nothing_shown: bool,
 ) {
-    // PLAY has no pane: it is the large preview, the main view when no pane
-    // is open. The not-built destinations have no pane either and are told
-    // apart by their tooltip.
-    let is_play = icon == Icon::Perform;
-    let built = is_play || pane.is_some();
-    let active = match pane {
-        Some(pane) => shown(pane),
-        None => is_play && nothing_shown,
-    };
+    // A destination not built yet has no pane, and is told apart by its
+    // tooltip.
+    let built = pane.is_some();
+    let active = pane.is_some_and(shown);
     let response = widgets::nav_item(ui, theme, icon, label, active, built, labels);
     let response = super::help::hovered(response, tooltip);
-    if built && response.clicked() {
-        match pane {
-            Some(pane) => model.ui.panes.toggle_drawn(pane, shown(pane)),
-            None => model.ui.panes.close_main(),
-        }
+    // A click shows the view; clicking the one shown leaves it there. It
+    // used to close it, back to the large preview the rail's PLAY named,
+    // which is gone (D479).
+    if response.clicked()
+        && let Some(pane) = pane
+    {
+        model.ui.panes.open(pane);
     }
 }
 
@@ -1087,15 +1088,24 @@ mod tests {
         let labels: Vec<&str> = RAIL.iter().map(|(_, label, _, _)| *label).collect();
         assert_eq!(
             labels,
-            ["PLAY", "LIB", "GET", "LIST", "EDIT", "MAP", "DIAG", "SET"],
-            "UI_DESIGN section 5: the main views in the rail's order (D281)"
+            [
+                "Library",
+                "Controls",
+                "Import",
+                "Playlist",
+                "Editor",
+                "Mappings",
+                "Diagnostics",
+                "Settings"
+            ],
+            "the main views in the rail's order (D281), in words (D473), Controls for Play (D479)"
         );
     }
 
     #[test]
     fn the_unbuilt_workspaces_say_so_in_their_tooltips() {
         for (_, label, pane, tooltip) in RAIL {
-            if pane.is_none() && label != "PLAY" {
+            if pane.is_none() && label != "Play" {
                 assert!(
                     tooltip.contains("not built"),
                     "{label} is disabled but does not say why: {tooltip}"

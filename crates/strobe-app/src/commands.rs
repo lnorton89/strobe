@@ -349,7 +349,7 @@ impl CommandId {
             Self::TapTempo => "Tap tempo",
             Self::OpenPalette => "Command palette",
             Self::GenerateControls => "Generate controls",
-            Self::ToggleControlsView => "Switch Scenes / Controls",
+            Self::ToggleControlsView => "Switch Library / Controls",
         }
     }
 

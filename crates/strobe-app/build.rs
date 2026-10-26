@@ -34,9 +34,14 @@ fn main() {
     let manifest = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_default();
     let icon = Path::new(&manifest).join("../../assets/brand/icon.ico");
     let assets = Path::new(&manifest).join("assets");
+    // Relative to the package, never built from CARGO_MANIFEST_DIR: cargo
+    // records the paths as given, and the directory's spelling follows the
+    // shell's (`documents\dev` from one terminal, `Documents\Dev` from
+    // another), so an absolute path read as a changed set and reran the
+    // script, which relinked the app.
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=assets");
-    println!("cargo:rerun-if-changed={}", icon.display());
+    println!("cargo:rerun-if-changed=../../assets/brand/icon.ico");
     // rc.exe reads forward slashes in a path, and backslashes in a string
     // would be escapes.
     let path = icon.display().to_string().replace('\\', "/");

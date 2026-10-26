@@ -31,7 +31,6 @@
 //! thing dropped when the window is short, so BLACKOUT and the transport
 //! strip keep their room ([`MIN_WINDOW_HEIGHT`]).
 
-use super::browser::LibraryPage;
 use super::theme::{self, SPACE_SM};
 use super::widgets;
 use crate::palette::Palette;
@@ -81,20 +80,17 @@ pub fn say(text: &str) {
 }
 
 /// What the main view is for, for the bar when the pointer is on nothing in
-/// particular. The library says which of its pages is up (D291).
-fn idle(main: Option<Pane>, page: LibraryPage) -> &'static str {
+/// particular.
+fn idle(main: Option<Pane>) -> &'static str {
     match main {
-        None => "The live preview. Pick a view on the rail; Esc goes back one view.",
-        Some(Pane::Browser) => match page {
-            LibraryPage::Scenes => {
-                "Click a scene to make it live; Ctrl+L flips to its controls. Ctrl+K opens every \
-                 command."
-            }
-            LibraryPage::Controls => {
-                "The live scene's controls. Ctrl+L flips back to the scenes; right-click a \
-                 control's name to pin it as a macro."
-            }
-        },
+        None => "The live preview. Pick a view on the rail.",
+        Some(Pane::Browser) => {
+            "Click a scene to make it live; Ctrl+L shows its controls. Ctrl+K opens every command."
+        }
+        Some(Pane::Controls) => {
+            "The live scene's controls. Ctrl+L goes back to the library; right-click a control's \
+             name to pin it as a macro."
+        }
         Some(Pane::Import) => "Paste a Shadertoy URL or id, or drop a file: it becomes a scene.",
         Some(Pane::Playlist) => {
             "The playlist: drag scenes in from the library, double-click a cue to jump to it."
@@ -111,10 +107,9 @@ fn idle(main: Option<Pane>, page: LibraryPage) -> &'static str {
     }
 }
 
-/// Draws the bar for a main view of `main` (the library on `page`), and
-/// starts the next frame's hover. Draws nothing in a window shorter than
-/// [`MIN_WINDOW_HEIGHT`].
-pub fn show(ui: &mut Ui, theme: &Palette, main: Option<Pane>, page: LibraryPage) {
+/// Draws the bar for a main view of `main`, and starts the next frame's
+/// hover. Draws nothing in a window shorter than [`MIN_WINDOW_HEIGHT`].
+pub fn show(ui: &mut Ui, theme: &Palette, main: Option<Pane>) {
     // The hover the controls set last frame becomes what is drawn, and the
     // buffer for this frame's is emptied, keeping its capacity.
     HINTS.with(|hints| {
@@ -141,7 +136,7 @@ pub fn show(ui: &mut Ui, theme: &Palette, main: Option<Pane>, page: LibraryPage)
             let (galley, colour) = HINTS.with(|hints| {
                 let hints = hints.borrow();
                 let (text, colour) = if hints.shown.is_empty() {
-                    (idle(main, page), theme.text_faint)
+                    (idle(main), theme.text_faint)
                 } else {
                     (hints.shown.as_str(), theme.text_muted)
                 };

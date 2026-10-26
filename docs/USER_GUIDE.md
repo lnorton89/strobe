@@ -40,15 +40,16 @@ screen until you ask.
 - The first scene of the library plays in the preview, and the scene you
   last played is reopened on later launches.
 - **Show output** (the monitor button under the panel's preview, or the
-  PLAY view's toolbar), or **F11**, shows the output. Use the
-  **Output monitor** menu to put it on the projector, then F11 for
-  fullscreen.
+  button on the preview while the output is hidden), or **F11**, shows the
+  output. Use **Settings > Output > Output monitor** to put it on the
+  projector, then F11 for fullscreen.
 - The window is Synesthesia's three columns. The **rail** on the left
-  switches the main view: **PLAY** (the live preview at full size),
-  **LIB** (the scene library, the default, with its **Scenes** and
-  **Controls** pages), **GET** (import a Shadertoy
-  shader), **LIST** (playlists), **EDIT** (the scene's code), **MAP** (MIDI,
-  OSC, macros), **DIAG** (diagnostics) and **SET** (settings). The **panel**
+  switches the main view: **Library** (the scene library, the default),
+  **Controls** (the playing scene's controls at full size), **Import** (a
+  Shadertoy shader), **Playlist**,
+  **Editor** (the scene's code), **Mappings** (MIDI, OSC, macros),
+  **Diagnostics** and **Settings**. In a narrow window the rail shows its
+  icons only. The **panel**
   on the right stays whatever the view is: the live preview, a status strip
   (output, fullscreen, frame rate, audio level and tempo, and a snapshot
   button), the eight fav slots, and four tabs: **Playlist** (the loaded
@@ -73,14 +74,14 @@ screen until you ask.
 | F11 | Output fullscreen |
 | Ctrl+F | Search the library |
 | Ctrl+K | The command palette: every command, pane, scene and preset by name |
-| Ctrl+L | Switch LIB between Scenes and the live scene's Controls |
+| Ctrl+L | Switch between the Library and the live scene's Controls |
 | Esc | Close the top pane |
 
 Settings > Keyboard changes any of them.
 
 ## Scenes
 
-- **LIB** lists the scenes in the library folder: `scenes\` beside
+- **Library** lists the scenes in the library folder: `scenes\` beside
   `strobe.exe` by default, or the folder given with `--library <dir>`.
   The toolbar has *New scene* (it opens Import), a rescan and the S, M and
   L thumbnail sizes. The row under it has the count ("88/88"), the search
@@ -108,7 +109,7 @@ Settings > Keyboard changes any of them.
   cannot be the library folder itself. `strobe.exe --watch-folder
   <folder>` watches one for that run only.
 - **Synesthesia's scenes.** If Synesthesia is installed on this computer,
-  LIB also lists its scenes after your own, each marked *Synesthesia*:
+  Library also lists its scenes after your own, each marked *Synesthesia*:
   - the scenes it ships (in `C:\Program Files (x86)\Synesthesia\release`
     and `default`). These are **read-only**: Strobe never changes
     Synesthesia's files. Tagging one, *Use frame as picture*, saving it in
@@ -129,22 +130,26 @@ Settings > Keyboard changes any of them.
   Synesthesia is somewhere unusual, set `STROBE_SYNESTHESIA_DIR` to its
   folder (and `STROBE_SYNESTHESIA_DATA` to its data folder,
   normally `%LOCALAPPDATA%\Synesthesia\Data`).
-- **Needs work** (a LIB filter, and a list in DIAG) shows the scenes that
+- **Needs work** (a Library filter, and a list in Diagnostics) shows the scenes that
   failed to load this run, each with its reason.
-- **Controls** shows the playing scene's sliders, colours and buttons, in
-  two places: large, as LIB's **Controls** page (the switch at the top of
-  LIB, or Ctrl+L, flips between it and the scenes), and compact, as a tab
-  of the panel for when another view is up. While the Controls page is up
-  the panel shows Presets beside it rather than the same controls twice.
+- **Controls** shows the playing scene's sliders, colours and buttons, each
+  group in a card of its own and the output controls (master, colour,
+  mirror, audio) in cards under them. It is in two places: large, as the
+  **Controls** view on the rail (Ctrl+L flips between it and the library),
+  and compact, as a tab of the panel for when another view is up. While
+  the Controls view is up the panel shows Presets beside it rather than
+  the same controls twice.
   The camera button in the status strip, or *Use frame as picture* in the
   Edit tab, saves the current frame as the scene's library picture.
 - **Presets** (a tab of the panel): save the current look under a name,
   recall it later or from a controller. A preset saved while a picture is
   chosen for `syn_Media` remembers it.
-- **EDIT** opens the scene's files. *Save* writes them and the show keeps
-  what it has; *Save and reload* writes them and loads the scene again.
-  If `scene.json` would not load, *Save and reload* writes nothing and
-  shows the error with a button to its line and column.
+- **Editor** opens the scene's files, with their state beside the scene's
+  name (Ready, Unsaved changes, Error). *Save* writes them and the show
+  keeps what it has; *Save and reload* writes them and loads the scene
+  again. *Revert* and *Restore backup* are in the **...** menu. If
+  `scene.json` would not load, *Save and reload* writes nothing and shows
+  the error with a button to its line and column.
 
 ## Audio
 
@@ -204,13 +209,17 @@ A playlist is a TOML file listing scenes in sections, with how long each
 plays and how it hands over. `playlists\example.toml` (in the source
 repository) shows the format.
 
-- **LIST > Load** opens one, or start with `--playlist <file>`, or drop
-  the `.toml` file on the window. **Generate** builds a section from your
+- **Playlist** opens one: type its path and press **Open**, or press
+  **Browse...** to choose it in the system's file dialog (it opens at
+  once). You can also start with `--playlist <file>`, or drop the `.toml`
+  file on the window. The page lists the last five playlists that loaded
+  under **Recent**, each with **Open**. With a playlist loaded, **Open...**
+  in its header chooses another. **Generate** builds a section from your
   library by tag and length. Its *Exclude* field leaves out scenes with a
   tag (`heavy`) or a name, and the preview says which were skipped.
 - Select a cue to change its length, transition, preset or media; the
   card says where each setting comes from. Ctrl-click several cues to
-  change them together. Drag a scene from LIB onto a cue to add it after.
+  change them together. Drag a scene from Library onto a cue to add it after.
 - A cue can also end on the music: `advance = "audio-drop"`,
   `"audio-breakdown"` or `"audio-song"` (the next track started: a gap
   between tracks, or a new tempo), alone or in a list such as
@@ -225,7 +234,7 @@ repository) shows the format.
 
 ## Controllers: MIDI and OSC
 
-**MAP** connects MIDI devices and OSC (off by default; turn it on and
+**Mappings** connects MIDI devices and OSC (off by default; turn it on and
 choose a port). *Learn* binds the next knob, fader, pad or OSC message to
 whatever you click. **Macros** are named controls that keep working across
 scenes; each can have a reach, a colour, a glide (smoothing) and a
@@ -249,9 +258,10 @@ phones**; please report what you find.
 **It is off until you switch it on**, and it never switches itself on at
 launch.
 
-1. Open **SET** (Settings), find **Remote**, and press **Start remote**. Leave
-   *Address* empty to use this computer's address on its network, or type
-   one of its own addresses. Strobe refuses a public internet address.
+1. Open **Settings**, choose **Remote**, and switch on **Let others
+   connect**. *Address* under *Network*, at the bottom of the page, stays
+   empty to use this computer's address on its network, or takes one of its
+   own addresses. Strobe refuses a public internet address.
    To start it with Strobe instead, add `--remote` to the shortcut's
    *Target* (and `--remote-bind 192.168.1.20` or `--remote-port 47812` if
    you need them).
@@ -261,15 +271,17 @@ launch.
    *Windows Security > Firewall & network protection > Allow an app through
    firewall*. Your network must also be set to *Private* in Windows'
    network settings.
-3. The section shows an address such as `http://192.168.1.20:47812/`.
+3. *Phone address* shows an address such as `http://192.168.1.20:47812/`.
    Type it into the phone's browser exactly as shown: a name instead of
    the numbers is refused, on purpose.
-4. Press **Pair a device**. A six-digit code shows for two minutes. Type it
-   on the phone and press *Pair*.
-5. Strobe shows *"iPhone at 192.168.1.23 wants to control the show"*.
-   Press **Approve** if that is your phone, **Deny** if it is not. The phone
-   is paired and keeps working after both restart; it does not need the
-   code again.
+4. The phone's page asks for a name for the device (*Lighting desk iPad*,
+   say). Type one and press *Ask*.
+5. Strobe shows *"Lighting desk iPad, iPhone at 192.168.1.23 wants to
+   control the show"* at the top of the Remote page, and the title bar says
+   so. Press **Approve** if that is your phone, **Deny** if it is not. The
+   phone is paired and keeps working after both restart; it does not ask
+   again. Anyone on the network can ask, so approve only a device you
+   recognise: the address in the request is where it really came from.
 
 **The title bar shows "Remote on"** with the number of connected phones
 whenever it is listening, and a **Stop remote** button beside it. Stop
@@ -285,20 +297,35 @@ removes its pairing from that browser.
 
 **Use it only on a network you trust.** The remote is plain HTTP, not
 HTTPS: someone on the same Wi-Fi who is watching the traffic can see the
-pairing code as you type it and the phone's key as it is issued, and could
-then control the show until you revoke it. A home or venue network you
+phone's key as it is issued, and could then control the show until you
+revoke it. A home or venue network you
 control is fine; a public or shared Wi-Fi is not. There is no installable
 app (PWA) version yet, because that needs HTTPS.
 
 ### Control another Strobe desktop
 
 Both computers must run a build with desktop control support. On the host,
-open **Settings > Remote**, click **Start remote**, enable **Allow full
-desktop control**, then click **Pair a device**. On the controlling computer,
-open **Settings > Remote > Control another Strobe desktop**. Enter the host's
-IP and port (for example `192.168.1.20:47812`) and its pairing code, then
-click **Connect to desktop**. Approve the request labelled **Full desktop**
-on the host.
+open **Settings > Remote** and switch on **Let others connect** and **Allow
+full desktop control**. Other Strobes on the same network now list it by
+its computer name.
+
+On the controlling computer, open **Settings > Remote**. Under **Control
+another Strobe**, the host appears within a couple of seconds, marked
+*Ready*; press **Connect**. On the host, a banner says *"STAGE-LAPTOP at
+192.168.1.40 wants to control this Strobe, files included"*, and the title
+bar warns too: press **Approve** (or **Deny**). There is no code to type.
+
+A host that is not listed (a different subnet, or a network that drops
+broadcasts) is reached with **Connect by address**: its IP, and the port
+if it is not 47812, for example `192.168.1.20`. It asks for approval the
+same way. Windows asks the host, once, whether Strobe may accept
+connections: allow private networks, which covers both the remote and its
+discovery reply (UDP port 47813).
+
+A request names the computer and the address it really comes from. Any
+computer on the network can ask, so only approve one you recognise. Four
+requests can wait at once, one per address, and an address you deny waits
+30 seconds before it may ask again.
 
 The host's entire Strobe control window replaces the controller's local UI.
 Click in the image to focus it, then use its controls, keyboard shortcuts,
@@ -325,10 +352,10 @@ desktop are refused from the remote and must be done at the host itself.
 Treat a full desktop approval like handing someone the host's keyboard: it
 includes editing and saving scenes, typing host file paths and quitting.
 
-To reconnect during the same controller app session, leave the code blank
-and connect to the same IP and port. The credential is rotated on each
-connection and kept only in memory. After restarting the controller, pair
-again. On the host, a desktop pairing is never saved: switching full desktop
+To reconnect during the same controller app session, press **Reconnect**
+(or Connect again on the same host): the approval is remembered for that
+session. The credential is rotated on each connection and kept only in
+memory. After restarting the controller, the host approves it again. On the host, a desktop pairing is never saved: switching full desktop
 access off, **Stop remote** or restarting Strobe revokes every desktop
 pairing, so each new session is approved again. Phone pairings are kept.
 
@@ -467,7 +494,7 @@ refused while it is off.
 Strobe has no certificate of its own, and it will never ask you to click
 past a browser's security warning. If you own a domain name, you can put
 the remote behind HTTPS yourself, with a reverse proxy on the same
-computer. That encrypts the traffic, so the pairing code and the phone's
+computer. That encrypts the traffic, so the phone's
 key can no longer be read off the Wi-Fi. **This has not been tried on real
 phones yet.**
 
@@ -498,9 +525,13 @@ does not run them or check them.
 
 ## Importing from Shadertoy
 
-The **Import** pane (via LIB) takes a Shadertoy URL or id, or an exported
-`.json` file, and writes a scene into the library. Dropping a `.json` on
-the window does the same.
+The **Import** pane (on the rail) takes a Shadertoy URL or id, or an exported
+`.json` file, and writes a scene into the library. **Browse...** chooses
+the file in the system's dialog and imports it at once; dropping a `.json`
+on the window does the same. The watched folder (*Settings > Library*) and
+a venue trust file (*Settings > Remote*) have a **Browse...** button too.
+While a file dialog is open the show keeps playing: the dialog runs beside
+Strobe, not in front of its frame loop.
 
 **Licences are your responsibility.** Most Shadertoy shaders are
 CC BY-NC-SA 3.0: no commercial use without the author's permission.
@@ -538,8 +569,9 @@ Everything Strobe writes lives in `%LOCALAPPDATA%\strobe`:
 | `remote-clients.json` | Phones paired with the remote (no usable keys: only their fingerprints). Deleting it un-pairs every phone. |
 | `backups\` | The Editor's copies of files before it saved over them. |
 
-- **The DIAG pane** shows the GPU, the backend, frame timing and recent
-  failures with their reasons, without opening a file.
+- **The Diagnostics pane** shows the GPU, the backend, frame timing, the
+  scenes that failed to load this run (each with its reason and *Open in
+  Editor*) and the console, without opening a file.
 - **A scene fails to load:** a red banner names the error and offers *Open
   in Editor* at the line (and the column, on drivers that give one); the
   show keeps the previous scene.

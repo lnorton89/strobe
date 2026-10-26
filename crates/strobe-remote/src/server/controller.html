@@ -177,18 +177,18 @@ body[data-blackout="true"] .now { border-color: var(--danger); }
 </header>
 <main>
   <section id="pair" class="card" hidden aria-labelledby="pair-title">
-    <h2 id="pair-title">Pair this device</h2>
-    <p>On the Strobe desktop, open Settings, find Remote and press <strong>Pair a device</strong>. Type the six-digit code it shows.</p>
+    <h2 id="pair-title">Ask to control the show</h2>
+    <p>Give this device a name. The person at the Strobe desktop sees it and approves or denies it.</p>
     <form id="pair-form" novalidate>
-      <label for="code" class="label">Pairing code</label>
-      <input id="code" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="9" spellcheck="false" aria-describedby="pair-message">
-      <button type="submit" class="primary">Pair</button>
+      <label for="name" class="label">Name for this device</label>
+      <input id="name" name="name" autocomplete="off" autocapitalize="words" maxlength="32" spellcheck="false" placeholder="Lighting desk iPad" aria-describedby="pair-message">
+      <button type="submit" class="primary">Ask</button>
     </form>
     <p id="pair-message" class="message" role="alert"></p>
   </section>
   <section id="wait" class="card" hidden aria-labelledby="wait-title">
     <h2 id="wait-title">Waiting for approval</h2>
-    <p>Approve this device on the Strobe desktop. This page continues by itself.</p>
+    <p>The person at the Strobe desktop approves or denies this device. This page continues by itself.</p>
   </section>
   <section id="show" hidden aria-label="Show control">
     <div class="side">
@@ -227,6 +227,8 @@ body[data-blackout="true"] .now { border-color: var(--danger); }
 "use strict";
 (function () {
   var TOKEN_KEY = "strobe.remote.token";
+  var NAME_KEY = "strobe.remote.name";
+  var NAME_RULE = /^[A-Za-z0-9._'-](?:[A-Za-z0-9 ._'-]{0,30}[A-Za-z0-9._'-])?$/;
   var PROTOCOL_VERSION = 1;
   var PING_MS = 5000;
   var STALE_MS = 12000;
@@ -254,6 +256,11 @@ body[data-blackout="true"] .now { border-color: var(--danger); }
     get: function () { try { return window.localStorage.getItem(TOKEN_KEY); } catch (e) { return null; } },
     set: function (value) { try { window.localStorage.setItem(TOKEN_KEY, value); } catch (e) { /* kept for this page only */ } },
     clear: function () { try { window.localStorage.removeItem(TOKEN_KEY); } catch (e) { /* nothing stored */ } }
+  };
+
+  var names = {
+    get: function () { try { return window.localStorage.getItem(NAME_KEY) || ""; } catch (e) { return ""; } },
+    set: function (value) { try { window.localStorage.setItem(NAME_KEY, value); } catch (e) { /* asked again next time */ } }
   };
 
   function view(name) {
@@ -289,7 +296,7 @@ body[data-blackout="true"] .now { border-color: var(--danger); }
     ws.onopen = function () {
       heard();
       send({ type: "hello", protocol_version: PROTOCOL_VERSION });
-      // From the start, not only once paired: typing the code and waiting
+      // From the start, not only once paired: typing a name and waiting
       // for the desktop's approval must not look idle to the server.
       window.clearInterval(pingTimer);
       pingTimer = window.setInterval(function () { send({ type: "ping" }); }, PING_MS);
@@ -320,7 +327,7 @@ body[data-blackout="true"] .now { border-color: var(--danger); }
     enable(false);
     if (code === 1008 && /revoked/i.test(reason)) {
       tokens.clear();
-      $("pair-message").textContent = "This device was revoked on the desktop. Pair it again to use it.";
+      $("pair-message").textContent = "This device was revoked on the desktop. Ask again to use it.";
     }
     later();
   }
@@ -377,11 +384,11 @@ body[data-blackout="true"] .now { border-color: var(--danger); }
         enable(false);
         view("pair");
         connection("Not paired", "connecting");
-        $("pair-message").textContent = "This device is not paired (or was revoked). Pair it again.";
+        $("pair-message").textContent = "This device is not paired (or was revoked). Ask again.";
         break;
       case "pairing_rejected":
         view("pair");
-        $("pair-message").textContent = text || "That code was not accepted.";
+        $("pair-message").textContent = text ? ("Not approved: " + text + ".") : "Strobe did not accept the request.";
         break;
       case "version_mismatch":
         connection("Update needed", "off");
@@ -443,13 +450,13 @@ body[data-blackout="true"] .now { border-color: var(--danger); }
 
   $("pair-form").addEventListener("submit", function (event) {
     event.preventDefault();
-    var digits = $("code").value.replace(/[^0-9]/g, "");
-    if (digits.length !== 6) {
-      $("pair-message").textContent = "The code has six digits.";
+    var name = $("name").value.replace(/\s+/g, " ").trim();
+    if (!NAME_RULE.test(name)) {
+      $("pair-message").textContent = "Use up to 32 letters, digits, spaces and . _ - ' for the name.";
       return;
     }
-    if (send({ type: "pair", code: digits })) {
-      $("code").value = "";
+    if (send({ type: "request_pair", name: name })) {
+      names.set(name);
       $("pair-message").textContent = "";
       view("wait");
     } else {
@@ -481,6 +488,7 @@ body[data-blackout="true"] .now { border-color: var(--danger); }
   });
   window.addEventListener("online", function () { if (!socket) { retry = 0; connect(); } });
 
+  $("name").value = names.get();
   enable(false);
   connect();
 }());

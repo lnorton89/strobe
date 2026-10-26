@@ -10,12 +10,17 @@
 //! Presets and fav slots (D176, D283).
 //!
 //! ```text
-//! PRESET  [ Slow Burn          v ]  [name         ] [Save]  [Delete]
 //! FAV     [1] [2] [3] [ ] [ ] [ ] [ ] [ ]
+//! PRESETS 3            (a card: one row per preset, the active one marked,
+//!   Slow Burn    x      with its delete cross)
+//!   Strobe hit
+//! SAVE THE CONTROLS    (a card: the name, Save or Replace, Rename)
 //! ```
 //!
-//! The fav row is the top of the side panel's Presets tab and the preset row
-//! sits under it (D283).
+//! The fav row is the top of the side panel's Presets tab (D283). Under it
+//! the presets are a card of rows, and saving is a card of its own (D484):
+//! the list was a dropdown repeating the rows under it, beside a bare
+//! "save as..." field.
 //!
 //! A **preset** is the scene's control values under a name, kept in the
 //! scene folder. Choosing one in the list recalls it at once (the values are
@@ -28,6 +33,12 @@
 //! Right-click a slot to store into it or to clear it. The same slots are
 //! reachable from MIDI, OSC and the macro strip.
 //!
+//! Empty and filled slots look different (D478): an empty one is a faint
+//! outline whose number turns into a plus under the pointer; a filled one
+//! is a raised tile with its number and a band of its scene's identity
+//! colour, outlined in the accent while its scene plays. Eight identical
+//! buttons said nothing about which held anything.
+//!
 //! The pane only asks: every action goes back to the app, which owns the
 //! files and the scene.
 
@@ -36,72 +47,56 @@ use super::theme::{self, SPACE_SM, SPACE_XS};
 use super::widgets;
 use crate::icon::Icon;
 use crate::palette::Palette;
-use egui::Ui;
+use egui::{CornerRadius, Sense, Stroke, StrokeKind, Ui};
 
-/// Draws the preset row: the picker, delete, and save or rename.
-pub fn preset_row(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Vec<Action>) {
+/// The active preset's delete cross: the first click arms it and says
+/// so, the second deletes the file (P-07). Returns whether it is armed, for
+/// the line that says so.
+pub fn delete_button(
+    ui: &mut Ui,
+    model: &mut Model<'_>,
+    theme: &Palette,
+    actions: &mut Vec<Action>,
+    active: &str,
+) -> bool {
+    let panel = &mut model.remote;
+    let armed = panel.ui.delete_armed.as_deref() == Some(active);
+    let tip = if armed {
+        "Click again to delete this preset's file"
+    } else {
+        "Delete this preset's file (asks for a second click)"
+    };
+    if widgets::icon_button(ui, theme, Icon::Close, tip).clicked() {
+        if armed {
+            actions.push(Action::DeletePreset(active.to_string()));
+            panel.ui.delete_armed = None;
+        } else {
+            panel.ui.delete_armed = Some(active.to_string());
+        }
+    }
+    panel.ui.delete_armed.as_deref() == Some(active)
+}
+
+/// Forgets an armed delete once its preset is no longer the active one.
+pub fn disarm_unless(model: &mut Model<'_>, active: Option<&str>) {
+    let panel = &mut model.remote;
+    if panel.ui.delete_armed.as_deref() != active {
+        panel.ui.delete_armed = None;
+    }
+}
+
+/// Saving: the name, Save (Replace when the name is taken), and Rename for
+/// the active preset.
+pub fn save_row(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Vec<Action>) {
     let panel = &mut model.remote;
     let names = panel.presets;
     let active = panel.active_preset;
     ui.horizontal(|ui| {
-        label(ui, theme, "PRESET");
-        let shown = active.unwrap_or(if names.is_empty() {
-            "none saved"
-        } else {
-            "choose"
-        });
-        let delete_room = if active.is_some() { 34.0 } else { 0.0 };
-        egui::ComboBox::from_id_salt("preset-pick")
-            .width((ui.available_width() - delete_room - SPACE_SM).max(80.0))
-            .selected_text(shown)
-            .show_ui(ui, |ui| {
-                for name in names {
-                    if ui
-                        .selectable_label(active == Some(name.as_str()), name)
-                        .clicked()
-                    {
-                        actions.push(Action::RecallPreset(name.clone()));
-                    }
-                }
-            });
-        if let Some(active) = active {
-            // Deleting is two clicks: the first arms it and says so (P-07).
-            let armed = panel.ui.delete_armed.as_deref() == Some(active);
-            let tip = if armed {
-                "Click again to delete this preset's file"
-            } else {
-                "Delete the active preset's file (asks for a second click)"
-            };
-            if widgets::icon_button(ui, theme, Icon::Close, tip).clicked() {
-                if armed {
-                    actions.push(Action::DeletePreset(active.to_string()));
-                    panel.ui.delete_armed = None;
-                } else {
-                    panel.ui.delete_armed = Some(active.to_string());
-                }
-            }
-        }
-        if panel.ui.delete_armed.as_deref() != active {
-            panel.ui.delete_armed = None;
-        }
-    });
-    if panel.ui.delete_armed.is_some() {
-        ui.label(
-            egui::RichText::new("Click the cross again to delete the preset.")
-                .small()
-                .color(theme::rgb(theme.warning)),
-        );
-    }
-    ui.add_space(SPACE_XS);
-    ui.horizontal(|ui| {
         let can_rename = active.is_some();
         let save_room = if can_rename { 140.0 } else { 72.0 };
+        let width = (ui.available_width() - save_room - SPACE_SM).max(60.0);
         let field = &mut panel.ui.preset_name;
-        ui.add(
-            egui::TextEdit::singleline(field)
-                .hint_text("save as...")
-                .desired_width((ui.available_width() - save_room - SPACE_SM).max(60.0)),
-        );
+        super::form::field(ui, theme, field, "A name for the look", width);
         let name = field.trim().to_string();
         let usable = strobe_scene::preset::valid_name(&name);
         // Saving over an existing name says so before it happens (P-07).
@@ -142,7 +137,6 @@ pub fn preset_row(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: 
             }
         }
     });
-    ui.add_space(SPACE_XS);
 }
 
 /// Draws the fav row: eight slots sized to share the width, so the row is
@@ -183,20 +177,8 @@ pub fn fav_row(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mu
                     slot + 1
                 ),
             };
-            let colour = if filled {
-                theme.accent
-            } else {
-                theme.text_faint
-            };
-            let text = egui::RichText::new((slot + 1).to_string())
-                .strong()
-                .color(theme::rgb(colour));
-            let response = ui
-                .add_sized(
-                    egui::vec2(slot_width, 24.0),
-                    egui::Button::new(text).selected(here),
-                )
-                .on_hover_text(tip);
+            let band = fav.map(|f| widgets::scene_colour(theme, &f.scene));
+            let response = slot_tile(ui, theme, slot, slot_width, band, here).on_hover_text(tip);
             if response.clicked() {
                 actions.push(if filled {
                     Action::RecallFav(slot)
@@ -221,14 +203,73 @@ pub fn fav_row(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mu
 /// The fav row's label column.
 const FAV_LABEL: f32 = 28.0;
 
-fn label(ui: &mut Ui, theme: &Palette, text: &str) {
-    ui.add_sized(
-        [40.0, 18.0],
-        egui::Label::new(
-            egui::RichText::new(text)
-                .size(10.0)
-                .strong()
-                .color(theme::rgb(theme.text_muted)),
+/// One fav slot, `width` wide: an outline with its number when empty (a
+/// plus under the pointer), a raised tile with a band of its scene's
+/// colour (`band`) when filled, outlined in the accent while its scene
+/// plays (`here`).
+fn slot_tile(
+    ui: &mut Ui,
+    theme: &Palette,
+    slot: usize,
+    width: f32,
+    band: Option<crate::color::Rgb>,
+    here: bool,
+) -> egui::Response {
+    const HEIGHT: f32 = 24.0;
+    const BAND: f32 = 3.0;
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(width, HEIGHT), Sense::click());
+    let number = (slot + 1).to_string();
+    response
+        .widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), &number));
+    let radius = CornerRadius::same(theme::RADIUS);
+    let hovered = response.hovered();
+    let painter = ui.painter();
+    let (fill, stroke, text, words) = match band {
+        Some(_) => (
+            widgets::hover_fill(ui, response.id, hovered, theme.raised, theme.panel),
+            if here {
+                Stroke::new(1.5, theme::rgb(theme.accent))
+            } else {
+                Stroke::new(1.0, theme::rgb(theme.border_strong))
+            },
+            theme.text,
+            number.as_str(),
         ),
+        None => (
+            widgets::hover_fill(ui, response.id, hovered, theme.panel, theme.raised),
+            Stroke::new(1.0, theme::rgb(theme.border)),
+            if hovered {
+                theme.text_muted
+            } else {
+                theme.text_faint
+            },
+            if hovered { "+" } else { number.as_str() },
+        ),
+    };
+    painter.rect_filled(rect, radius, fill);
+    if let Some(band) = band {
+        let strip = egui::Rect::from_min_max(
+            egui::pos2(rect.left(), rect.bottom() - BAND),
+            rect.right_bottom(),
+        );
+        painter.rect_filled(
+            strip,
+            CornerRadius {
+                nw: 0,
+                ne: 0,
+                sw: theme::RADIUS,
+                se: theme::RADIUS,
+            },
+            theme::rgb(band),
+        );
+    }
+    painter.rect_stroke(rect, radius, stroke, StrokeKind::Inside);
+    painter.text(
+        rect.center() - egui::vec2(0.0, if band.is_some() { 1.0 } else { 0.0 }),
+        egui::Align2::CENTER_CENTER,
+        words,
+        egui::FontId::new(12.0, egui::FontFamily::Proportional),
+        theme::rgb(text),
     );
+    response
 }

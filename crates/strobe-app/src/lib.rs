@@ -78,6 +78,7 @@ pub mod mouse;
 pub mod output_monitor;
 pub mod palette;
 pub mod perf;
+pub mod picker;
 pub mod prefs;
 pub mod recovery;
 pub mod remote;

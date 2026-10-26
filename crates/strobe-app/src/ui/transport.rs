@@ -354,9 +354,9 @@ fn cue_text(ui: &mut Ui, model: &Model<'_>, theme: &Palette, narrow: bool) {
         );
     }
     response.on_hover_text(if t.cue.is_some() {
-        "The playlist's current and next cue. Open LIST for the whole timeline."
+        "The playlist's current and next cue. Open Playlist for the whole timeline."
     } else {
-        "Scenes step in library order. Load a playlist (LIST) for cues, NEXT and remaining time."
+        "Scenes step in library order. Open a playlist for cues, NEXT and remaining time."
     });
 }
 

@@ -24,12 +24,21 @@
 //!    lists with Approve and Deny. Only Approve issues a token. A request
 //!    nobody decides expires after [`APPROVAL_WAIT`].
 //!
+//! A desktop controller may skip the code (D468): [`Pairing::request`]
+//! puts it straight in front of the operator. What the code bounded (who
+//! can ask at all) is bounded instead by [`MAX_REQUESTS`], one waiting
+//! request per address, and [`DENY_COOLDOWN`] after a Deny, so a machine on
+//! the LAN can neither fill the list nor ask again the moment it is told
+//! no. The request names the connection's real address, which a TCP peer
+//! cannot fake.
+//!
 //! Nothing here persists: a restart forgets the code and every request,
 //! which is the safe direction. Paired clients persist in
 //! [`crate::clients`].
 
 use crate::secret;
 use std::fmt;
+use std::net::IpAddr;
 use std::time::{Duration, Instant};
 
 /// How long a pairing code is good for.
@@ -43,6 +52,10 @@ pub const APPROVAL_WAIT: Duration = Duration::from_secs(90);
 
 /// Requests waiting at once; a phone beyond this is refused.
 pub const MAX_REQUESTS: usize = 4;
+
+/// How long an address that was denied waits before it may ask again
+/// without a code (D468).
+pub const DENY_COOLDOWN: Duration = Duration::from_secs(30);
 
 /// Digits in a code.
 const DIGITS: usize = 6;
@@ -73,6 +86,10 @@ pub enum Refusal {
     Burned,
     /// Too many phones are already waiting for approval.
     Full,
+    /// This address already has a request waiting (D468).
+    Pending,
+    /// This address was denied within [`DENY_COOLDOWN`] (D468).
+    Cooling,
 }
 
 /// A phone that sent the right code, waiting for the operator.
@@ -101,6 +118,10 @@ pub struct Pairing {
     code: Option<Code>,
     requests: Vec<Request>,
     next_id: u64,
+    /// The address each code-free request came from (D468).
+    origins: Vec<(u64, IpAddr)>,
+    /// Addresses denied, and when, for [`DENY_COOLDOWN`].
+    denied: Vec<(IpAddr, Instant)>,
 }
 
 impl fmt::Debug for Pairing {
@@ -213,6 +234,43 @@ impl Pairing {
         Ok(id)
     }
 
+    /// A desktop's request with no code (D468): labelled `label`, from
+    /// `origin`, waiting for the operator; its id is returned. Refused when
+    /// the list is full, when `origin` already waits, or when `origin` was
+    /// denied within [`DENY_COOLDOWN`].
+    pub fn request(&mut self, label: String, origin: IpAddr, now: Instant) -> Result<u64, Refusal> {
+        self.expire(now);
+        self.denied
+            .retain(|(_, at)| now.saturating_duration_since(*at) < DENY_COOLDOWN);
+        if self.denied.iter().any(|(ip, _)| *ip == origin) {
+            return Err(Refusal::Cooling);
+        }
+        let waiting_here = self.origins.iter().any(|(id, ip)| {
+            *ip == origin
+                && self
+                    .requests
+                    .iter()
+                    .any(|r| r.id == *id && r.decision == Decision::Waiting)
+        });
+        if waiting_here {
+            return Err(Refusal::Pending);
+        }
+        if self.waiting_count() >= MAX_REQUESTS {
+            return Err(Refusal::Full);
+        }
+        self.requests.retain(|r| r.decision != Decision::Expired);
+        self.next_id += 1;
+        let id = self.next_id;
+        self.requests.push(Request {
+            id,
+            label,
+            since: now,
+            decision: Decision::Waiting,
+        });
+        self.origins.push((id, origin));
+        Ok(id)
+    }
+
     fn waiting_count(&self) -> usize {
         self.requests
             .iter()
@@ -236,6 +294,9 @@ impl Pairing {
         } else {
             Decision::Denied
         };
+        if !approve && let Some((_, ip)) = self.origins.iter().find(|(origin, _)| *origin == id) {
+            self.denied.push((*ip, now));
+        }
         true
     }
 
@@ -251,6 +312,7 @@ impl Pairing {
     /// Forgets request `id`: its connection has its answer, or closed.
     pub fn forget(&mut self, id: u64) {
         self.requests.retain(|r| r.id != id);
+        self.origins.retain(|(origin, _)| *origin != id);
     }
 
     /// The requests waiting for the operator, oldest first.
@@ -407,6 +469,51 @@ mod tests {
             pairing.try_code(&code, "x".into(), now),
             Err(Refusal::Full),
             "one more is refused"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_desktop_asks_without_a_code_once_at_a_time_and_waits_after_a_deny() -> Result<()> {
+        let mut pairing = Pairing::default();
+        let now = Instant::now();
+        let laptop = IpAddr::from([192, 168, 1, 40]);
+        let id = pairing
+            .request("laptop".into(), laptop, now)
+            .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+        assert_eq!(
+            pairing.decision(id, now),
+            Decision::Waiting,
+            "in front of the operator"
+        );
+        assert_eq!(
+            pairing.request("again".into(), laptop, now),
+            Err(Refusal::Pending),
+            "one waiting request per address"
+        );
+        assert!(pairing.decide(id, false, now), "denied");
+        pairing.forget(id);
+        assert_eq!(
+            pairing.request("again".into(), laptop, now),
+            Err(Refusal::Cooling),
+            "a denied address waits"
+        );
+        assert!(
+            pairing
+                .request("later".into(), laptop, now + DENY_COOLDOWN)
+                .is_ok(),
+            "and may ask again after the cooldown"
+        );
+        let mut full = Pairing::default();
+        for last in 1..=MAX_REQUESTS {
+            let ip = IpAddr::from([10, 0, 0, u8::try_from(last)?]);
+            full.request("x".into(), ip, now)
+                .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+        }
+        assert_eq!(
+            full.request("x".into(), IpAddr::from([10, 0, 0, 99]), now),
+            Err(Refusal::Full),
+            "the list has a limit with or without codes"
         );
         Ok(())
     }

@@ -140,8 +140,10 @@ pub struct Cli {
     /// next to the logs, and exit. Attach it to bug reports.
     #[arg(long)]
     pub diagnose: bool,
-    /// Open these panes at launch (comma separated): `browser`, `import`,
-    /// `inspector`, `diagnostics`, `settings`. Added to whatever the saved
+    /// Open these panes at launch (comma separated): `browser`, `controls`,
+    /// `import`, `inspector`, `diagnostics`, `settings`, or `settings:<page>`
+    /// for one page of Settings (`settings:audio`). Added to whatever the
+    /// saved
     /// layout opens; in screenshot mode there is no saved layout, so this
     /// alone decides.
     #[arg(long, value_name = "PANE", value_delimiter = ',')]
@@ -214,7 +216,7 @@ pub struct Cli {
     #[arg(long)]
     pub no_resume: bool,
     /// Listen for OSC messages on 127.0.0.1 (port 9000 unless `--osc-port`)
-    /// for this run. The MAP pane's switch turns it on for good.
+    /// for this run. The Mappings pane's switch turns it on for good.
     #[arg(long)]
     pub osc: bool,
     /// The UDP port OSC listens on for this run.

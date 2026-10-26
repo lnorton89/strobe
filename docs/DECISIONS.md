@@ -11014,3 +11014,600 @@ whole path.
 
 **Would reopen:** resolving a relative path against the executable's folder
 instead, if launchers turn out to rely on that.
+
+### D464: build scripts watch only what moves with a build (2026-10-23)
+
+**Context.** `cargo run --release -p strobe-app`, closed and run again
+with nothing edited, spent about twelve minutes "Compiling" (fat LTO,
+one codegen unit, so any rebuild of the app is a whole-program link).
+Cargo's fingerprint log named two causes. `strobe-diag/build.rs` watched
+`.git/index`, which git rewrites whenever anything refreshes its stat
+cache (an editor, a desktop git pane, a plain `git status`); the index was
+0.15 s newer than the script's output, so the script reran, `strobe-diag`
+rebuilt, and everything above it relinked. `strobe-app/build.rs` named the
+icon by an absolute path built from `CARGO_MANIFEST_DIR`, whose spelling
+follows the shell (`documents\dev` from one terminal, `Documents\Dev` from
+another); cargo read the different string as a changed rerun set.
+
+**Decision.** `strobe-diag` watches `HEAD` and its reflog `logs/HEAD`
+(a line on every commit, checkout, reset, merge or rebase), each only if
+it exists, since cargo treats a missing path as always changed; its own
+`git status` runs with `--no-optional-locks` so it never rewrites the
+index. `strobe-app` names the icon relative to the package. The dirty
+flag still lags an edit made after `strobe-diag` was last built, as
+`buildinfo` already said; a commit still refreshes the hash.
+
+**Test.** A release build, then `git status`, `git update-index
+--really-refresh`, `touch .git/index`, and a release build from a
+lower-cased path: the second build compiles nothing.
+
+**Would reopen:** crash reports showing a clean flag on builds that were
+dirty often enough to matter; the fix then is a runtime check, not a
+broader watch.
+
+### D465: the control window draws in the system's Segoe UI where Windows has it (2026-10-23)
+
+**Context.** egui ships one proportional face, Ubuntu Light, in a single
+thin weight. A heading could only ever be bigger than the text under it,
+never heavier, and the whole window read light and unfinished (UI review
+S1). Bundling a typeface means shipping its files and its licence;
+downloading one at run time is out of the question for a show machine.
+
+**Decision.** `ui::fonts::install` reads `segoeui.ttf`, `seguisb.ttf`
+(semibold) and `consola.ttf` from `%WINDIR%\Fonts` once, when the egui
+host is built, and puts them in front of egui's own faces, which stay as
+the fallback for glyphs Segoe lacks. A `strong` family carries the
+semibold face; `fonts::strong` returns it only after a successful install,
+so no caller can name a family the context lacks. Where the files are
+missing (macOS, Linux, a stripped Windows image) nothing changes: egui's
+faces and the proportional family. Nothing is bundled or downloaded. Tests
+never install, so their text metrics are egui's on every machine.
+
+**Test.** `fonts::tests::without_an_install_strong_text_uses_a_family_every_context_has`;
+the `--screenshot` captures of Settings show Segoe UI regular and semibold.
+
+**Would reopen:** a Linux or macOS release, which would want the system UI
+face there too (or a bundled one with its licence).
+
+### D466: Settings is a category list with search, built from one form grammar (2026-10-23)
+
+**Context.** Settings was one undivided scroll of eleven sections: labels
+with their controls on the next line, full-width sliders, help text as
+loose grey paragraphs, `Off` lines orphaned under switches, section
+headings smaller and fainter than the labels under them (UI review S1-S10,
+the owner's capture). The owner chose a page with a category list and
+search over a separate window, and toggles and fields that look like
+modern settings pages.
+
+**Decision.** A layout grammar, `ui::form`, that every page of settings is
+built from: `page` (a title and a line, in a column no wider than 760
+points), `group` (a semibold heading over a card, rows divided by
+hairlines), `Group::row` (title, status chip and description on the left,
+the control right-aligned in a fixed column that wraps rather than spill;
+below 460 points the control drops under the words), `Group::toggle` (a
+switch, and a click anywhere on the row flips it), `Group::block`, and the
+controls `toggle`, `field` (outlined, a placeholder fainter than any
+value) and `slider`. A disabled row says why in its own words.
+`theme` gains the type scale (title 20, heading 15, description 12, a
+step smaller at Compact) and `row_pad`; egui's field outline is
+`border_strong`; `widgets::section` uses the heading step in the primary
+text colour, which every other pane's headings pick up; `widgets::banner`
+lays its message out from the left.
+
+Settings has seven pages (Output, Audio, Appearance, Library, Remote,
+Shortcuts, About) in a list beside the page, or a picker over it below
+620 points. Search matches every row's title and a few words (`INDEX`,
+built from the same constants the rows draw) and every command, and a
+result opens its page and lights the row. Title-bar readouts open the page
+that answers them; the connect form's reveal opens Remote. A shortcut
+capture lasts only while Shortcuts is up. `--open-pane settings:<page>`
+opens one page, for screenshots.
+
+**Test.** `form::tests` (a wide row puts its control right of its words, a
+narrow one under them, a click on a toggle row's words flips it),
+`settings::tests` (search by title, word, command and case; pages by
+key), `shell_tests::every_row_settings_search_finds_is_drawn_on_its_page`,
+and the existing every-size overflow and text-over-text checks across the
+Settings scenarios.
+
+**Would reopen:** an operator who expects Settings to keep its scroll
+position per page across launches, or a page that outgrows one column.
+
+### D467: Mappings is built from the form grammar, what a show uses first (2026-10-23)
+
+**Context.** The Mappings pane (UI review step 2) was a column of bare
+checkboxes and unlabelled number fields under Connections, prose for
+Activity and Macros, and mapping and macro cards whose options opened on
+a click on the name, with small muted labels and drag values in loose
+rows. Connections, set up once, came first; the mappings and macros a
+show reaches for were below the fold.
+
+**Decision.** The pane is a `form::page` in the order of use: Sources
+(Add a mapping, search, one row per mapping), Macros, Activity, then OSC
+and MIDI. Each mapping and macro is a setting row: its source or name as
+the title, its state as a status chip, its target (and a macro's sources)
+as the description, the reason it is unavailable as a note, and on the
+right a disclosure button, the enabled switch or Pin, Learn and delete.
+Its options open under the row in `form::inset`, a card a step darker,
+never nested deeper; the add form opens the same way. OSC and MIDI
+settings are toggle and field rows, with each status in its row (the
+listening address as a chip, a device's state on its own switch row). The
+group of mappings is headed Sources because the page is titled Mappings.
+`widgets::keycap` is shared with Settings' Shortcuts for a macro's key.
+Every behaviour is as before: learn, conflicts, key capture, the port and
+host fields that resync when they lose the focus, edits in place.
+
+**Test.** `shell_tests::the_mappings_pane_opens_a_macros_and_a_mappings_options_under_their_rows`
+and a scenario with them open, under the every-size overflow and
+text-over-text checks; the three existing Map scenarios under the same
+checks; `--screenshot` captures before and after with a show file of six
+mappings and three macros.
+
+**Would reopen:** a set of mappings long enough that the connections
+need to be reachable without scrolling past it (a tab or a collapsed
+group).
+
+### D468: Strobes find each other on the LAN, and a desktop asks the host with no code (2026-10-23)
+
+**Context.** Controlling another Strobe took seven steps across two
+computers: on the host, Start remote, Allow full desktop control, Pair a
+device; on the controller, type the host's IP and port and the six-digit
+code, Connect; then Approve on the host. The owner asked for Strobe to
+advertise itself when remote control is on, for other Strobes to list
+the hosts they can reach, and for the host just to accept or deny. The
+code (D251) existed so that only someone who could see the host's screen
+could put a request in front of its operator.
+
+**Decision.**
+- **Discovery** (`strobe_remote::discovery`). While the listener runs, the
+  host answers a `{"strobe":"discover","v":1}` datagram on UDP 47813 with
+  its name, TCP port, whether full desktop control is on, and a per-process
+  id. It answers private, link-local and loopback askers only, at most 20
+  times a second. A controller's scanner runs only while its Remote page is
+  open, asks the limited broadcast and its /24's directed broadcast every
+  2 s, and keeps answers heard within 6 s, leaving out its own id. It uses
+  the answer's source address, never one named in it. It is query and
+  answer, so the controller needs no inbound firewall rule. A discovery
+  port another program holds is logged; the address still works typed.
+- **Approve-only desktop pairing.** A new desktop-extension message,
+  `request_desktop {name}` (the controller id), puts the request straight
+  in front of the operator as "NAME at ADDRESS". It enters the same approval
+  phase a right code does, so the token, the rotation and the desktop
+  scope are unchanged. What the code bounded is bounded instead: four
+  waiting requests (as before), one per address, and 30 s before a denied
+  address may ask again. The address is the TCP peer's, which cannot be
+  faked; the name is the controller's own claim and is shown as such.
+  `pair_desktop` with a code still works, for older controllers. Phones
+  keep the code: they cannot list anything, and the code still proves the
+  person is in front of the host.
+- **The Remote page** (in the form grammar, D466): one switch, Let others
+  connect, which says what the host is listed as; Allow full desktop
+  control under it; requests as Approve/Deny banners at the top of the
+  page; Pair a phone with its code; then Control another Strobe, listing
+  what was found with Connect, then Connect by address and the venue trust
+  file; the address and port last, under Network. The controller has no
+  code field; a refusal offers Ask again.
+
+**Residual risk, stated.** Anyone on the network can now raise a desktop
+request without seeing the host's screen. The operator still has to
+approve it, and the request shows the address it came from. The user
+guide says to approve only a computer you recognise. Plain HTTP's risks
+(D252) are unchanged.
+
+**Test.** `discovery::tests` (the datagram shapes, names, who is answered,
+targets, and a scanner finding a responder on loopback while ignoring its
+own id); `pairing::tests::a_desktop_asks_without_a_code_once_at_a_time_and_waits_after_a_deny`;
+`lib` tests freezing `request_desktop`; the server test
+`a_desktop_asks_without_a_code_and_the_host_approves_or_denies` (off, label,
+one per address, approve and lease, deny and cooldown); the app's
+`a_desktop_with_no_code_is_put_to_the_host_by_name_and_approved` through
+the real worker; the shell tests listing found hosts with no code field.
+On this machine, two Strobes: the controller listed the host by name and
+address within its first query.
+
+**Would reopen:** a request spam problem on a real venue network (then a
+host switch to require the code again), or subnets that drop broadcast
+(mDNS, with its own allowlist question from D252).
+
+### D469: a phone asks under a name and the host approves it; no code anywhere (2026-10-23)
+
+**Context.** D468 dropped the code for desktops and kept it for phones,
+which cannot list hosts. The owner asked for phones to be approve-only
+too: the phone's page asks for a name, the host gets Approve and Deny.
+
+**Decision.**
+- A new client message, `request_pair {name}`, enters the same approval
+  phase as `request_desktop` and a right code, with the same bounds (four
+  waiting, one per address, 30 s after a Deny, D468). The host sees
+  "NAME, KIND at ADDRESS" ("Lighting desk iPad, iPhone at 192.168.1.23"):
+  the name the person typed, the kind from the User-Agent's device word
+  as before (D251), and the TCP peer's address. A name is 1 to 32 bytes
+  of ASCII letters, digits, spaces and `. _ - '`, not padded with spaces
+  (`valid_device_name`), so it prints the same in the list, the log and
+  the paired-clients file; anything else is `invalid_request` before the
+  operator sees it.
+- The controller page asks for that name (remembered in `localStorage`
+  under `strobe.remote.name`, never sent in a URL) with the same rule in
+  its script, then waits for the answer as before. The page's CSP hashes
+  are computed from the embedded file when the server starts (D253), so
+  the edited script and style are served under their new hashes with no
+  table to update; `the_policy_hashes_the_page_as_shipped` checks it.
+- The host app no longer shows a code: the Show a code button, the code
+  display, `Action::OpenRemotePairing` and `CloseRemotePairing`, and
+  `Lan::open_pairing` are gone. The Remote page's Phone address row says
+  to open the address and give the phone a name. The server keeps the
+  code machinery and the frozen version-1 `pair` message, so an old page
+  still parses; with nothing opening pairing, it is told pairing is not
+  open.
+
+**Residual risk, stated.** As for desktops (D468): anyone on the network
+can raise a request without seeing the host's screen. The operator
+approves each one, the request shows the address it came from, and the
+user guide says to approve only a device you recognise. The token,
+its rotation and revocation (D251) are unchanged.
+
+**Test.** `lib` tests freezing `request_pair` and refusing bad names;
+`page::tests::the_page_asks_for_a_name_and_never_for_a_code` and the
+accessibility brief's labelled name field; the server test
+`a_phone_asks_with_a_name_and_the_host_approves_it_with_no_code` (label,
+approval, a command, no desktop scope, the token authenticating later, a
+bad name refused before the operator). In the built-in browser against a
+local host: the page asked for a name, sent the request and waited, and
+the host showed "Test phone, Windows at 127.0.0.1 wants to control the
+show" with Approve and Deny.
+
+**Would reopen:** request spam on a real venue network, which would bring
+back an opt-in code for both kinds of device.
+
+### D470: native file and folder pickers, opened off the frame loop; Import and Playlist in the form grammar (2026-10-24)
+
+**Context.** Every path in the app was typed: a playlist, a Shadertoy
+export, the watched folder, a venue trust file (UI review S3). The owner
+chose native dialogs through `rfd`, with typed paths and drag-and-drop
+kept. A system file dialog is modal to the thread that opens it, and the
+control window's thread is the one that draws the projector's output.
+
+**Decision.**
+- `rfd` 0.17 with `default-features = false, features = ["xdg-portal"]`:
+  Windows' own dialog; on Linux the XDG desktop portal over D-Bus, pure
+  Rust through `pollster`, so neither GTK nor an async runtime is pulled
+  in and CI's Linux job needs no system libraries. cargo-deny passes for
+  both targets (MIT and the existing licence list).
+- `picker::Picker` runs the dialog on a thread of its own and hands the
+  answer to the frame loop through a channel the app polls once a frame,
+  so the show keeps playing while it is open. One at a time: Browse is
+  disabled while one is open. macOS panels must open on the main thread,
+  so there it runs inline and the frame loop waits, stated in the module.
+- A chosen path acts as its field's own button would: a playlist opens,
+  an export imports, a folder is watched, a trust file fills the connect
+  form and switches venue mode on. `Action::Browse` is host-only (D275): a
+  remote desktop controller cannot see a dialog opened on the host.
+- Import is a page: the source (field, Browse, Import) as a wide row,
+  the outcome, Generate controls and tags for what was imported, and the
+  browser listener with its token. Playlist with nothing loaded is a page
+  (open a file, or generate one); loaded, its header names the playlist,
+  its length, loop and anchor, its file, and carries Open..., Save and
+  Unload, with the cue commands below it. Generate is a form of setting
+  rows. `form::Group::wide_row` gives a path field and its buttons a wider
+  column. The selected-cue editor and the timeline are unchanged.
+- A field beside buttons in a wrapping row takes
+  `available_size_before_wrap`, not `available_width`, which reports the
+  whole row and pushed the field onto a line of its own.
+- The playlist's anchor read "anchored 09" for 09:00:00: every trailing
+  `:00` was trimmed. Only the seconds are dropped now.
+
+**Test.** `picker::tests` (a folder only for the watched folder; an answer
+handed out once and the picker freed; a cancel or a lost thread frees
+it); `shell_tests::each_browse_button_asks_for_its_own_dialog` (Import,
+Playlist, the watched folder and the trust file each ask for their own
+purpose); the remote-refusal test lists Browse; the every-size overflow
+and text-over-text checks over the playlist and import scenarios;
+`--screenshot` captures before and after.
+
+**Would reopen:** a macOS release (an async or main-thread dialog that
+does not stall the output), or a dialog that must be modal to the window.
+
+### D471: control names read as words; Random has its own icon; the side panel's EDIT tab is SCENE (2026-10-24)
+
+**Context.** UI review step 4. Each control group's header carried
+Random and Default as two circular arrows, and Random's was the same
+arrow as the scene's Reload beside the title. The output's controls were
+"Output (meta): show/hide" over raw names (`master`, `vertical_mirror`)
+under capitalised group words, and the side panel's EDIT tab sat beside
+the rail's EDIT, which is a different thing (the code editor).
+
+**Decision.** Random draws a die (`Icon::Dice`); Default keeps the reset
+arrow; Reload keeps the clockwise one. Control names are shown through
+`controls::display_name` (underscores as spaces, a capital first letter)
+in the Inspector, the Controls page and the macro strip; it is display
+only, so scripts, mappings, macros and presets keep the name as written.
+The meta section is "Output controls" with "Reset output", its groups in
+the description step; its collapse key is unchanged so saved layouts
+keep it folded. The side tab shows SCENE with the info icon (its saved
+key stays `edit`). The review's suggestion to drop side tabs that echo
+rail destinations is not taken: the side Playlist tab is a compact
+timeline beside the library and SCENE holds tags, picture and media,
+neither of which the rail's views replace.
+
+**Test.** `controls::tests::a_control_name_reads_as_words_and_keeps_its_letters`;
+`icon` tests draw the new die; the shell's every-size checks; a capture.
+
+**Would reopen:** scene authors relying on exact-case or underscore names
+being visible (then a per-scene LABEL field).
+
+### D472: the title bar shows what a show needs; the rest appears when it needs attention (2026-10-24)
+
+**Context.** UI review step 5 (S6): the title bar always showed the frame
+rate, GPU time against its budget, the render scale, the GL backend
+(`native (OpenGL 3.3 core)`), audio and output, at small size: six
+diagnostics in the operator's eyeline all show.
+
+**Decision.** Always shown: the frame rate with the GPU meter beside it,
+output, audio, the remote while it listens (with Stop) and a script
+fault. Shown only when they need attention: GPU time once it reaches 85%
+of the frame budget (warn) or passes it (bad); the render scale once it
+is below 100% (adaptive resolution stepped down, or set lower); the
+backend only off the native path (ANGLE or another fallback), in the warn
+colour. The frame rate's tooltip carries all three at any time, and a
+click still opens Diagnostics, which shows them in full.
+
+**Test.** The shell's every-size overflow and text-over-text checks
+across every scenario (their title bars now carry fewer readouts); a
+capture.
+
+**Would reopen:** operators who watch GPU time continuously during a show
+(then a setting to pin it).
+
+### D473: the rail names its views in words, and is icons only where it has no room (2026-10-24)
+
+**Context.** UI review step 6 (S7) and the owner's answer: the rail's
+labels were three- and four-letter capitals (PLAY, LIB, GET, LIST, EDIT,
+MAP, DIAG, SET) in 10 pt under the icons, abbreviated to fit 60 points;
+GET and LIST were not guessable.
+
+**Decision.** Play, Library, Import, Playlist, Editor, Mappings,
+Diagnostics, Settings at 11 pt, in a rail 84 points wide (room for
+"Diagnostics"). Below the width where the rail already dropped its labels
+(`workspace::rail_labels`, 1000 points) it is 56 points of icons only, so
+a narrow window loses no more room than before. `theme::rail_width`
+decides it for the layout, the rail and the side panel's drag limit
+alike. Text in the app and the user guide that named the old labels ("the
+LIST pane", "Open LIST", "the MAP pane") names the views instead.
+
+**Test.** `chrome::tests::the_rail_lists_every_workspace_of_the_mockup_in_order`
+with the words; the shell's every-size checks; captures at 1600 and 900.
+
+**Would reopen:** a language whose words do not fit 84 points.
+
+### D474: the library's count is a sentence, and a scene with no picture gets generated cover art (2026-10-24)
+
+**Context.** UI review step 7. The library's count read "229/229, 150
+from Synesthesia"; a scene with no picture was a flat tile in a faint
+wash of its identity colour with its initial in that colour, and a row of
+them looked like images that failed to load.
+
+**Decision.** The count reads "229 scenes", "12 of 229 scenes" while a
+search or filter narrows them, with ", 150 from Synesthesia" where there
+is room. A scene with no picture is drawn a diagonal wash between two
+colours from the theme's ramp, both stable for its name
+(`widgets::scene_colours`, the identity colour and a second hashed from
+the same name), with its initial over it in the primary text colour, so
+the same scene looks the same wherever it appears and two neighbours
+rarely match. The filter row is left as it is.
+
+**Test.** The shell's every-size checks over the library scenarios; a
+capture filtered to scenes without pictures.
+
+**Would reopen:** a request for real thumbnails generated from a render,
+which `Use frame as picture` (D222) already does by hand.
+
+### D475: the selected cue's editor is a card of setting rows (2026-10-24)
+
+**Context.** The one part of the Playlist pane D470 left: the selected
+cue's editor was a three-column grid of small muted labels, narrow
+fields, small Set buttons and the inherited value as loose words beside
+them, with the cue commands and the add-after controls in rows under it.
+
+**Decision.** An inset card (`form::inset`): the cue's title in the
+heading step with Up, Down, Duplicate, Disable and Delete beside it; then
+one setting row each for Length (with Inherit when the cue sets its own),
+Transition (kind, length, Set), Preset and Media, whose descriptions say
+what each is now and where that comes from ("Now 2:23, from the
+section."); then Add a scene after (the library's selected scene) and
+Import a shader after. Every edit is the same `CueEdit` as before, shared
+across a multi-selection as before.
+
+**Test.** The shell's every-size overflow and text-over-text checks over
+the cue-selected scenario. Screenshot mode cannot select a cue, so there
+is no capture.
+
+**Would reopen:** cue settings that outgrow a card (then a cue page).
+
+### D476: one set of output controls on screen, and macro cards that share the strip (2026-10-24)
+
+**Context.** UI_REVIEW's Play notes: the large preview's toolbar had Show
+output, Fullscreen and the output monitor while the side panel's status
+strip had the same two buttons beside it and Settings had the monitor;
+the preview's output-hidden chip carried a third Show output. The macro
+strip drew three 168-point cards at the left of a 1600-point bar.
+
+**Decision.** The toolbar's output buttons show only while the side
+panel is closed, and the monitor picker lives in Settings alone. The
+chip's Show output button goes to one picture at a time: the toolbar's
+while the panel is closed, the large preview's while it is open, the
+side panel's preview in every other view. Macro cards share the strip's
+width between 168 and 360 points; more than fit keep 168 and scroll.
+
+**Test.** `a_few_cells_share_a_wide_strip_up_to_a_cap`; captures of Play
+with the panel open and closed at 1600x1000.
+
+**Would reopen:** an operator who wants the monitor picker in reach
+during a show (then it belongs in the status strip, not the toolbar).
+
+### D477: control groups are cards, and the output controls flow beside them (2026-10-24)
+
+**Context.** The owner's capture of the Controls page: the scene's groups
+had headers but no edges, and the output controls under them were one
+column of sliders as wide as the page, with their group names as small
+muted words, so the page read as a wall of controls running to the
+window's edges.
+
+**Decision.** Every group, in the side panel and on the page, is a
+card (raised, bordered, `RADIUS_LG`, padded `SPACE_SM` in the panel and
+`SPACE_MD` on the page) with its header inside. The output controls keep
+their heading row (Output controls, Reset output) and then draw one card
+per group (master, colour, mirror, audio, limit colours) that flows into
+the page's columns like the scene's groups. Each flow has its own id
+scope, since both banks' rows are keyed by index.
+
+**Test.** The Controls-page shell scenarios (every size, no text over
+text) and captures at 1600x1000 and 1280x720.
+
+**Would reopen:** a scene with so many groups that cards cost more room
+than they give back (then a compact density without the card padding).
+
+### D478: empty fav slots look empty (2026-10-24)
+
+**Context.** The fav row drew eight identical bordered buttons whose
+numbers were only a shade brighter when a slot held something.
+
+**Decision.** An empty slot is a faint outline on the panel colour whose
+number turns into a plus under the pointer; a filled slot is a raised
+tile with its number and a band of its scene's identity colour
+(`widgets::scene_colour`), outlined in the accent while that scene
+plays. The accessible label is still the slot's number.
+
+**Test.** The shell's `FAV` checks; captures of the empty row.
+
+**Would reopen:** slots wide enough to name their scene (then the name
+replaces the band).
+
+### D479: Controls is a view on the rail, and the rail has no Play (2026-10-24)
+
+**Context.** The owner: the library should be scenes only, the live
+scene's controls should have a rail entry of their own, and the Play
+entry should go. D291 had put the controls behind a Scenes/Controls
+switch at the top of the library, and Play was the large preview, the
+main view with no pane open, which the side panel already shows.
+
+**Decision.** `Pane::Controls` is a main pane (the D477 page) and the
+rail reads Library, Controls, Import, Playlist, Editor, Mappings,
+Diagnostics, Settings. The library view is its toolbar and the grid.
+Ctrl+L (and "Switch Library / Controls" in the palette) shows Controls,
+or the library from Controls; the macro strip's XY button opens
+Controls. A click on the rail shows that view and a click on the one
+shown keeps it (it used to close it, back to Play). Esc closes the
+topmost pane but never the last main pane (`Panes::go_back`), so the
+main view is always one the rail names; `--no-panes` still gives the
+large preview. A preferences file saved on the old Controls page opens
+on the Controls view, and `library_page` is never written again.
+
+**Test.** `controls_is_a_view_on_the_rail_reached_by_click_key_and_palette`,
+`the_rail_names_no_play_and_a_click_on_the_shown_view_keeps_it`,
+`a_file_saved_on_the_library_controls_page_opens_the_controls_view`,
+`opening_over_a_pane_and_closing_reveals_the_one_beneath`, and the rail
+order test.
+
+**Would reopen:** operators who miss a full-size preview in the main
+view (then a preview entry comes back, on the rail's terms).
+
+### D480: the library's header is one row, its filters one group, and captions cut at a word (2026-10-24)
+
+**Context.** UI_REVIEW's Library notes: the filter row was five unrelated
+controls (count, search, sort, direction, favourites, health) under a
+second row of New scene, refresh and the card sizes, and card subtitles
+were cut mid-word ("Original Str...").
+
+**Decision.** From 820 points the header is one row: the search takes
+what is left, then the sort, direction, favourites and health as one
+bordered group, the card sizes, New scene and refresh; the count is a
+caption under it. From 560 points the filters and sizes take a second
+row; below that the old narrow layout stays. `widgets::truncated` cuts
+after the last whole word that fits when that keeps at least half the
+line, and mid-word otherwise.
+
+**Test.** `truncation_keeps_whole_words_where_it_can`; the shell's
+every-size checks; captures at 1600x1000 and 1280x720.
+
+**Would reopen:** more filters than one group holds (then a filter
+menu).
+
+### D481: the empty Playlist page lists the playlists opened last (2026-10-24)
+
+**Context.** UI_REVIEW's Playlist notes: with nothing loaded, the page
+offered a typed path (a picker since D470) and Generate, and no way back
+to last night's show but to find its file again.
+
+**Decision.** The preferences keep the last five playlists that loaded,
+newest first and each once (`recent_playlists`); one that fails to load
+is dropped, since offering it again would only fail again. The empty
+page has a Recent group under Open a playlist: a row per file with its
+name, its folder and Open, the full path in Open's tooltip.
+
+**Test.** `recent_playlists_are_newest_first_once_each_and_bounded`; the
+shell's every-size checks over a scenario with three recent playlists,
+one with a long path.
+
+**Would reopen:** an operator who wants a pinned set of shows rather
+than the last five.
+
+### D482: the Editor's header says its state as a chip and weighs its actions (2026-10-24)
+
+**Context.** UI_REVIEW's Editor notes: Save and reload, Save, Revert and
+Restore backup were four buttons of one weight, and the state ("Ready:
+what is on disk is what plays") was a line of small coloured text; the
+code box stopped at 24 rows over an empty card.
+
+**Decision.** One header row: the scene's name in the heading step, its
+state as a status chip (Ready, Unsaved changes, Not saved, Error,
+Read-only, with the long sentence in its tooltip) and a Not on screen
+chip when it is not the scene playing; at the right, Save and reload as
+the one primary button (Copy to my library on a read-only scene), Save,
+and a More menu with Revert unsaved changes and Restore backup, which
+throw work away. The code box fills the pane's height.
+
+**Test.** The shell's every-size checks over the Editor scenarios;
+captures at 1600x1000 and 1280x720.
+
+**Would reopen:** an operator who reverts often enough to want it back
+in reach.
+
+### D483: Diagnostics is one page of cards, the console a card of its own height (2026-10-24)
+
+**Context.** UI_REVIEW's Diagnostics notes: the console took whatever
+the subsystem cards left, so it filled most of the pane, and Needs work
+was a heading over red banners, below the cards' scroll, often out of
+sight.
+
+**Decision.** The pane scrolls as one page: the renderer, audio, script
+and output cards two to a row from 760 points; Needs work as a card with
+a count chip and a row per failed scene (its name, the first line of
+why with the rest in the tooltip, and Open in Editor); then the console
+as a card 280 points high whose lines scroll inside it and stay at the
+newest, with Problems only and Clear in its title row.
+
+**Test.** The shell's every-size checks over the Diagnostics scenarios,
+the failed-scene one included; captures at 1600x1000 and 1280x720.
+
+**Would reopen:** a console someone needs taller while chasing a fault
+(then a drag handle, or a full-height console page).
+
+### D484: the Presets tab is two cards, and a value sits over its slider's end (2026-10-25)
+
+**Context.** The Presets tab was a PRESET dropdown repeating the rows
+under it, a bare "save as..." field and a sentence; on the Controls page
+each value box stood a reset button's width short of its slider's end,
+since the button's slot was kept at the row's edge.
+
+**Decision.** The Presets tab is a Presets card (a row per preset, a
+click recalls, the active one marked with its delete cross, two clicks
+as before) and a Save the controls card (the name, Save or Replace,
+Rename). The value box is at the row's right edge over the rail's end,
+the reset button's slot left of it; the XY readout likewise, so it no
+longer moves when the pad leaves its default. The failure banner leaves
+out its Diagnostics button while Diagnostics is the view.
+
+**Test.** The shell's every-size checks; captures of the Presets tab
+and the Controls page at 1600x1000.
+
+**Would reopen:** a scene with enough presets to want search.

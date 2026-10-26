@@ -115,8 +115,15 @@ enum Command {
 }
 
 /// The workspace root: `crates/xtask/../..`.
+///
+/// `cargo run` names the manifest directory at run time, and that one wins
+/// over the one compiled in: two checkouts sharing a target directory (a
+/// worktree built with `CARGO_TARGET_DIR`) share one `xtask` binary, which
+/// cargo does not rebuild when the sources match, so the compiled-in path
+/// can name the other checkout and `ci` would check the wrong tree.
 fn workspace_root() -> Result<PathBuf> {
-    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let manifest = std::env::var_os("CARGO_MANIFEST_DIR")
+        .map_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")), PathBuf::from);
     manifest
         .parent()
         .and_then(std::path::Path::parent)

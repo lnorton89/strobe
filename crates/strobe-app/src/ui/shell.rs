@@ -74,7 +74,7 @@
 
 use super::chrome::{self, Readouts};
 use super::model::{Action, Model};
-use super::theme::{self, PAD, RAIL_WIDTH, SPACE_SM, SPACE_XS};
+use super::theme::{self, PAD, SPACE_SM, SPACE_XS};
 use super::{
     browser, command_palette, diagnostics, editor, help, import, keys, map, modal, perform,
     playlist, settings, side, transport,
@@ -99,14 +99,16 @@ pub const HANDLE: f32 = 28.0;
 const BANNER_SHARE: f32 = 0.5;
 
 /// Ends a key capture whose field will not be drawn this frame: Settings
-/// closed (or hidden behind another main pane) while a shortcut waited for
-/// its key, or MAP closed or its macro deselected while a macro's key did.
+/// closed (hidden behind another main pane, or turned to a page other than
+/// Shortcuts) while a shortcut waited for its key, or MAP closed or its macro deselected while a macro's key did.
 /// Only the field reads the key that ends a capture, and a capture owns the
 /// keyboard, so one left waiting would turn every shortcut off unseen
 /// (D350).
 fn drop_unseen_captures(model: &mut Model<'_>) {
     let main = model.ui.panes.shown_in(workspace::Dock::Main);
-    if main != Some(Pane::Settings) {
+    if main != Some(Pane::Settings)
+        || model.ui.settings.page != super::settings::SettingsPage::Shortcuts
+    {
         model.ui.hotkeys.capturing = None;
     }
     let map = &mut *model.remote.ui;
@@ -138,7 +140,7 @@ pub fn show(ui: &mut Ui, shell: &mut ShellState, model: &mut Model<'_>, actions:
     );
 
     let width = ui.ctx().content_rect().width();
-    let arrangement = workspace::arrange(&model.ui.panes, width, RAIL_WIDTH);
+    let arrangement = workspace::arrange(&model.ui.panes, width, theme::rail_width(width));
 
     chrome::title_bar(
         ui,
@@ -150,7 +152,7 @@ pub fn show(ui: &mut Ui, shell: &mut ShellState, model: &mut Model<'_>, actions:
     );
     // The help bar is the outermost of the bottom panels; the transport
     // strip sits above it.
-    help::show(ui, &theme, arrangement.main, model.ui.library_page);
+    help::show(ui, &theme, arrangement.main);
     transport::show(ui, model, &theme, actions);
     chrome::nav_rail(ui, model, &theme, &arrangement);
 
@@ -188,9 +190,10 @@ pub fn show(ui: &mut Ui, shell: &mut ShellState, model: &mut Model<'_>, actions:
             below_banners = ui.cursor().top();
             match arrangement.main {
                 None => {
-                    perform::toolbar(ui, model, &theme, actions);
+                    let side_shown = arrangement.side.is_some();
+                    perform::toolbar(ui, model, &theme, actions, side_shown);
                     ui.add_space(SPACE_XS);
-                    perform::preview(ui, model, &theme, actions);
+                    perform::preview(ui, model, &theme, actions, side_shown);
                 }
                 Some(pane) => main_view(ui, pane, model, &theme, actions),
             }
@@ -238,6 +241,9 @@ fn pane_body(
 ) {
     match pane {
         Pane::Browser => library_view(ui, model, theme, actions),
+        Pane::Controls => {
+            super::inspector::show(ui, model, theme, actions, super::inspector::Part::Page);
+        }
         Pane::Import => import::show(ui, model, theme, actions),
         Pane::Diagnostics => diagnostics::show(ui, model, theme, actions),
         Pane::Settings => settings::show(ui, model, theme, actions),
@@ -252,48 +258,11 @@ fn pane_body(
     }
 }
 
-/// The library view: the Scenes and Controls switch, then the page it
-/// chose (D291). On the Scenes page the library's toolbar shares the
-/// switch's row when the view is wide enough for both, and takes the next
-/// row when it is not.
+/// The library view: its header, then the scene grid. The live scene's
+/// controls are a view of their own on the rail (D479), where they were a
+/// second page behind a switch here (D291).
 fn library_view(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Vec<Action>) {
-    use super::browser::LibraryPage;
-    /// The widest a cell of the switch grows.
-    const CELL: f32 = 124.0;
-    /// From this width the toolbar shares the switch's row.
-    const SHARED: f32 = 560.0;
-    let page = model.ui.library_page;
-    let segments = LibraryPage::ALL.map(|page| (page.icon(), page.label(), page.tooltip()));
-    let active = LibraryPage::ALL
-        .iter()
-        .position(|p| *p == page)
-        .unwrap_or(0);
-    let cell = (ui.available_width() / LibraryPage::ALL.len() as f32).min(CELL);
-    let shared = ui.available_width() >= SHARED && page == LibraryPage::Scenes;
-    let mut chosen = None;
-    ui.horizontal(|ui| {
-        // The toolbar's own row is this tall: the two share a centre line.
-        ui.set_height(30.0);
-        chosen = super::widgets::segmented(ui, theme, "library-page", &segments, active, cell);
-        if shared {
-            ui.add_space(SPACE_SM);
-            browser::toolbar_items(ui, model, theme, actions);
-        }
-    });
-    if page == LibraryPage::Scenes && !shared {
-        ui.add_space(SPACE_XS);
-        browser::toolbar(ui, model, theme, actions);
-    }
-    if let Some(next) = chosen.and_then(|index| LibraryPage::ALL.get(index)) {
-        model.ui.library_page = *next;
-    }
-    ui.add_space(SPACE_SM);
-    match page {
-        LibraryPage::Scenes => browser::show(ui, model, theme, actions),
-        LibraryPage::Controls => {
-            super::inspector::show(ui, model, theme, actions, super::inspector::Part::Page);
-        }
-    }
+    browser::show(ui, model, theme, actions);
 }
 
 /// The main view: a pane in a panel-coloured card that fills the surface,
@@ -491,7 +460,7 @@ fn splitter_handle(
         let width = panel.right() - pos.x;
         // Dragging the panel wider must not squeeze the main view below
         // its minimum: stop at the limit instead.
-        let limit = workspace::drag_limit(window_width, RAIL_WIDTH);
+        let limit = workspace::drag_limit(window_width, theme::rail_width(window_width));
         model.ui.panes.set_width(Pane::Inspector, width.min(limit));
     }
     let lit = response.hovered() || response.dragged();

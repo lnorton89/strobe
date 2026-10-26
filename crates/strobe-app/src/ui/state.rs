@@ -232,6 +232,9 @@ impl Default for SynesthesiaState {
     }
 }
 
+/// How many recent playlists are kept (D481).
+pub const RECENT_PLAYLISTS: usize = 5;
+
 /// Everything about the control window's presentation that is the
 /// operator's to keep.
 pub struct UiState {
@@ -249,6 +252,9 @@ pub struct UiState {
     /// The library folder name of the scene last loaded, reopened at the
     /// next launch (T480 Task 21).
     pub last_scene: String,
+    /// The playlists opened last, newest first, at most
+    /// [`RECENT_PLAYLISTS`] (D481): the empty Playlist page lists them.
+    pub recent_playlists: Vec<String>,
     /// The command palette. Not saved: it always starts closed.
     pub command_palette: super::command_palette::PaletteUi,
     /// The Editor's presentation state (go-to line, highlight cache).
@@ -281,13 +287,14 @@ pub struct UiState {
     pub side_tab: super::side::SideTab,
     /// The library view's page: the scene grid or the live scene's
     /// controls (D291). Saved.
-    pub library_page: super::browser::LibraryPage,
     /// Synesthesia's scenes in the library (D271): the switch is saved.
     pub synesthesia: SynesthesiaState,
     /// What the "Control another Strobe" form remembers (D294). Saved.
     pub remote: crate::prefs::RemotePref,
     /// The Settings pane's layout name field. Not saved.
     pub layout_name: String,
+    /// The Settings pane's page and search. Not saved: it opens on Output.
+    pub settings: super::settings::SettingsUi,
     theme_id: String,
     reduced_motion: bool,
     catalog: Catalog,
@@ -380,15 +387,15 @@ impl UiState {
                 ..WatchState::default()
             },
             side_tab: super::side::SideTab::from_key(&prefs.side_tab).unwrap_or_default(),
-            library_page: super::browser::LibraryPage::from_key(&prefs.library_page)
-                .unwrap_or_default(),
             synesthesia: SynesthesiaState {
                 show: prefs.synesthesia.show,
                 note: String::new(),
             },
             remote: prefs.remote.clone(),
             layout_name: String::new(),
+            settings: super::settings::SettingsUi::default(),
             last_scene: prefs.last_scene.clone(),
+            recent_playlists: prefs.recent_playlists.clone(),
             theme_id: prefs.theme.clone(),
             reduced_motion: prefs.reduced_motion,
             catalog,
@@ -421,8 +428,8 @@ impl UiState {
             self.collapsed_groups.clone(),
         );
         prefs.side_tab = self.side_tab.key().to_string();
-        prefs.library_page = self.library_page.key().to_string();
         prefs.last_scene.clone_from(&self.last_scene);
+        prefs.recent_playlists.clone_from(&self.recent_playlists);
         prefs.density = self.density.key().to_string();
         prefs.layouts.clone_from(&self.layouts);
         prefs.watch = crate::prefs::WatchPref {
@@ -436,17 +443,33 @@ impl UiState {
         prefs
     }
 
-    /// Opens the named panes, for `--open-pane`. Unknown names are returned
+    /// Opens the named panes, for `--open-pane`. `settings:<page>` opens
+    /// Settings on that page (`settings:audio`). Unknown names are returned
     /// so the caller can say so.
     pub fn open_named(&mut self, names: &[String]) -> Vec<String> {
         let mut unknown = Vec::new();
         for name in names {
+            if let Some(page) = name.strip_prefix("settings:") {
+                match super::settings::SettingsPage::from_key(page) {
+                    Some(page) => self.open_settings(page),
+                    None => unknown.push(name.clone()),
+                }
+                continue;
+            }
             match Pane::from_key(name) {
                 Some(pane) => self.panes.open(pane),
                 None => unknown.push(name.clone()),
             }
         }
         unknown
+    }
+
+    /// Opens Settings on `page`: a title-bar readout opens the page that
+    /// answers it, not whichever page was up last.
+    pub fn open_settings(&mut self, page: super::settings::SettingsPage) {
+        self.settings.page = page;
+        self.settings.query.clear();
+        self.panes.open(Pane::Settings);
     }
 
     /// The theme catalog.
@@ -516,11 +539,24 @@ impl UiState {
         (scrambled >> 40) as f32 / (1_u64 << 24) as f32
     }
 
-    /// Whether the main view is the library on its Controls page (D291), so
-    /// the side panel need not draw the same controls again.
+    /// Whether the main view is the Controls view (D291, D479), so the side
+    /// panel need not draw the same controls again.
     pub fn controls_in_main(&self) -> bool {
-        self.library_page == super::browser::LibraryPage::Controls
-            && self.panes.shown_in(crate::workspace::Dock::Main) == Some(Pane::Browser)
+        self.panes.shown_in(crate::workspace::Dock::Main) == Some(Pane::Controls)
+    }
+
+    /// Puts `path` first among the recent playlists (D481), once, keeping
+    /// at most [`RECENT_PLAYLISTS`].
+    pub fn remember_playlist(&mut self, path: &str) {
+        self.recent_playlists.retain(|known| known != path);
+        self.recent_playlists.insert(0, path.to_string());
+        self.recent_playlists.truncate(RECENT_PLAYLISTS);
+    }
+
+    /// Drops `path` from the recent playlists: it did not load (moved,
+    /// deleted, or broken), so offering it again would only fail again.
+    pub fn forget_playlist(&mut self, path: &str) {
+        self.recent_playlists.retain(|known| known != path);
     }
 
     /// Whether the inspector group `name` is collapsed.
@@ -550,13 +586,13 @@ impl UiState {
         self.browser.sort.key().hash(&mut hasher);
         self.browser.descending.hash(&mut hasher);
         self.side_tab.key().hash(&mut hasher);
-        self.library_page.key().hash(&mut hasher);
         self.collapsed_groups.hash(&mut hasher);
         self.theme_id.hash(&mut hasher);
         self.custom_title_bar.hash(&mut hasher);
         self.reduced_motion.hash(&mut hasher);
         self.density.key().hash(&mut hasher);
         self.last_scene.hash(&mut hasher);
+        self.recent_playlists.hash(&mut hasher);
         self.watch.folder.hash(&mut hasher);
         self.watch.enabled.hash(&mut hasher);
         self.synesthesia.show.hash(&mut hasher);
@@ -627,6 +663,45 @@ mod tests {
                 .map(|n| Entry::new((*n).to_string(), PathBuf::from(n)))
                 .collect(),
         }
+    }
+
+    #[test]
+    fn recent_playlists_are_newest_first_once_each_and_bounded() {
+        let mut state = UiState::ephemeral();
+        for n in 0..RECENT_PLAYLISTS + 2 {
+            state.remember_playlist(&format!("shows/{n}.toml"));
+        }
+        state.remember_playlist("shows/3.toml");
+        assert_eq!(
+            state.recent_playlists.len(),
+            RECENT_PLAYLISTS,
+            "bounded: {:?}",
+            state.recent_playlists
+        );
+        assert_eq!(
+            state.recent_playlists.first().map(String::as_str),
+            Some("shows/3.toml"),
+            "opened again, it moves to the front"
+        );
+        assert_eq!(
+            state
+                .recent_playlists
+                .iter()
+                .filter(|path| *path == "shows/3.toml")
+                .count(),
+            1,
+            "once"
+        );
+        state.forget_playlist("shows/3.toml");
+        assert!(
+            !state
+                .recent_playlists
+                .iter()
+                .any(|path| path == "shows/3.toml"),
+            "a playlist that did not load is dropped"
+        );
+        let back = UiState::from_prefs(&state.to_prefs());
+        assert_eq!(back.recent_playlists, state.recent_playlists, "saved");
     }
 
     #[test]
@@ -852,7 +927,6 @@ mod tests {
         state.browser.sort = SortKey::Author;
         state.browser.descending = true;
         state.side_tab = crate::ui::side::SideTab::Presets;
-        state.library_page = crate::ui::browser::LibraryPage::Controls;
         let back = UiState::from_prefs(&state.to_prefs());
         assert_eq!(
             (back.browser.sort, back.browser.descending),
@@ -867,11 +941,6 @@ mod tests {
             "card size"
         );
         assert_eq!(back.side_tab, crate::ui::side::SideTab::Presets, "side tab");
-        assert_eq!(
-            back.library_page,
-            crate::ui::browser::LibraryPage::Controls,
-            "library page"
-        );
         assert!(back.is_collapsed("Motion"), "collapsed group");
         assert_eq!(back.theme_id(), "graphite", "theme");
         assert_eq!(

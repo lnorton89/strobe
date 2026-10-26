@@ -32,7 +32,6 @@
 
 use super::icon as icons;
 use super::model::{Action, Model};
-use super::settings;
 use super::theme::{self, SPACE_SM, SPACE_XS};
 use super::widgets::{self, Tone};
 use crate::icon::Icon;
@@ -40,8 +39,18 @@ use crate::palette::Palette;
 use crate::workspace::Pane;
 use egui::{Align2, CornerRadius, FontId, Rect, Sense, Stroke, StrokeKind, Ui, Vec2};
 
-/// The toolbar above the large preview: the output controls, right-aligned.
-pub fn toolbar(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Vec<Action>) {
+/// The toolbar above the large preview, with the output controls
+/// right-aligned only while the side panel is closed. One set of them on
+/// screen at a time: the side panel's status strip has the same two, and
+/// the output monitor is chosen in Settings, so with the panel open the
+/// toolbar is just its label (UI_REVIEW, Play).
+pub fn toolbar(
+    ui: &mut Ui,
+    model: &mut Model<'_>,
+    theme: &Palette,
+    actions: &mut Vec<Action>,
+    side_shown: bool,
+) {
     // The buttons' words need about this much; below it they are icons
     // with the words in their tooltips, rather than drawn over each other
     // (U-09, T480 Task 35).
@@ -58,11 +67,10 @@ pub fn toolbar(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mu
         .on_hover_text(
             "The scene as the output shows it. Pick a view in the rail to put a pane here.",
         );
+        if side_shown {
+            return;
+        }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let wide = ui.available_width() > 560.0;
-            if wide {
-                settings::monitor_picker(ui, model, actions);
-            }
             let fullscreen = model.fullscreen && model.output_visible;
             if widgets::tool_button_fitted(
                 ui,
@@ -122,7 +130,13 @@ pub fn banners(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mu
             if widgets::button(ui, theme, None, "Dismiss").clicked() {
                 actions.push(Action::DismissFailure);
             }
-            if widgets::button(ui, theme, Some(Icon::Diagnostics), "Diagnostics").clicked() {
+            // Not while Diagnostics is the view: the button would go where
+            // the operator already is.
+            let in_diagnostics =
+                model.ui.panes.shown_in(crate::workspace::Dock::Main) == Some(Pane::Diagnostics);
+            if !in_diagnostics
+                && widgets::button(ui, theme, Some(Icon::Diagnostics), "Diagnostics").clicked()
+            {
                 model.ui.panes.open(Pane::Diagnostics);
             }
         });
@@ -169,20 +183,34 @@ pub fn fit_inside(bounds: Vec2, aspect: f32) -> Vec2 {
     }
 }
 
-/// The live preview, fitted to the space left and centred.
-pub fn preview(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Vec<Action>) {
-    preview_in(ui, model, theme, actions, false);
+/// The live preview, fitted to the space left and centred. `offer` puts
+/// a Show output button on the output-hidden chip.
+pub fn preview(
+    ui: &mut Ui,
+    model: &mut Model<'_>,
+    theme: &Palette,
+    actions: &mut Vec<Action>,
+    offer: bool,
+) {
+    preview_in(ui, model, theme, actions, false, offer);
 }
 
 /// [`preview`], `compact` for the side panel's small picture: the empty
 /// and loading states are a line each, with no button, and the size
 /// caption is left out.
+///
+/// `offer` puts a Show output button on the output-hidden chip. The
+/// callers give it to one picture at a time, so a screen never has two
+/// Show output buttons: PLAY's toolbar has one while the side panel is
+/// closed; with it open, PLAY's large picture has it; in any other view,
+/// the side panel's picture.
 pub fn preview_in(
     ui: &mut Ui,
     model: &mut Model<'_>,
     theme: &Palette,
     actions: &mut Vec<Action>,
     compact: bool,
+    offer: bool,
 ) {
     let area = ui.available_rect_before_wrap();
     // The surface is a click target only to take keyboard focus off
@@ -247,7 +275,7 @@ pub fn preview_in(
             StrokeKind::Inside,
         );
     }
-    let chip = badges(ui, model, theme, rect, actions);
+    let chip = badges(ui, model, theme, rect, actions, offer);
     if compact {
         ui.allocate_rect(area, Sense::hover());
         return;
@@ -275,6 +303,7 @@ fn badges(
     theme: &Palette,
     rect: Rect,
     actions: &mut Vec<Action>,
+    offer: bool,
 ) -> Option<Rect> {
     let badge = egui::Rect::from_min_size(
         rect.left_top() + Vec2::splat(SPACE_SM),
@@ -318,7 +347,7 @@ fn badges(
             if let Some(words) = words {
                 widgets::status_chip_over(ui, Icon::Output, words, theme.text, Some(theme.app));
             }
-            if widgets::button(ui, theme, None, "Show output").clicked() {
+            if offer && widgets::button(ui, theme, None, "Show output").clicked() {
                 actions.push(Action::SetOutputVisible(true));
             }
         });

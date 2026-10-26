@@ -776,6 +776,11 @@ struct Running {
     /// The LAN remote: off until asked for (D250 to D254).
     lan: Lan,
     desktop_controller: crate::desktop::Controller,
+    /// Other Strobes on the LAN, looked for while Settings shows Remote
+    /// (D468).
+    lan_scan: LanScan,
+    /// The file or folder dialog a Browse button opened (D470).
+    picker: crate::picker::Picker,
     desktop_capture: crate::desktop::Capture,
     desktop_input: crate::desktop::HostInput,
     desktop_events: Vec<strobe_remote::desktop::Input>,
@@ -980,6 +985,8 @@ impl Running {
                 cli.allow_desktop_control,
             ),
             desktop_controller,
+            lan_scan: LanScan::default(),
+            picker: crate::picker::Picker::default(),
             desktop_capture: crate::desktop::Capture::default(),
             desktop_input: crate::desktop::HostInput::default(),
             desktop_events: Vec::with_capacity(129),
@@ -2654,6 +2661,7 @@ impl Running {
                     None
                 };
                 self.playlist_ui.path = path.display().to_string();
+                self.ui_state.remember_playlist(&self.playlist_ui.path);
                 self.playlist_ui.status = None;
                 self.playlist_ui.dirty = false;
                 self.playlist_ui.external_change = None;
@@ -2671,6 +2679,7 @@ impl Running {
                         }),
                 );
                 self.playlist_ui.status = Some((true, error.to_string()));
+                self.ui_state.forget_playlist(&path.display().to_string());
                 self.say(Tone::Error, format!("Playlist not loaded: {error}"));
             }
         }
@@ -3851,7 +3860,7 @@ impl Running {
                         log::info!("hold requested: there is no playlist, so nothing was held");
                         self.notice = Some(Notice {
                             tone: Tone::Info,
-                            text: "Hold needs a playlist. Load one in the LIST pane or start with \
+                            text: "Hold needs a playlist. Open one in Playlist or start with \
                                    --playlist <file>. Nothing was held."
                                 .to_string(),
                             since: Instant::now(),
@@ -3872,7 +3881,7 @@ impl Running {
                     if !self.playlist_command(Command::JumpTo(index)) && self.stack.show.is_none() {
                         self.say(
                             Tone::Info,
-                            "Jumping to a cue needs a playlist. Load one in the LIST pane.",
+                            "Jumping to a cue needs a playlist. Open one in Playlist.",
                         );
                     }
                 }
@@ -3957,6 +3966,15 @@ impl Running {
                 Action::SetAudioSpeed(gain) => self.audio.set_speed(gain),
                 Action::TapTempo => self.audio.tap(),
                 Action::Import(text) => self.submit_import(Input::Text(text), false),
+                Action::Browse(purpose) => {
+                    let start = match purpose {
+                        crate::picker::Purpose::Playlist => Some(PathBuf::from("playlists")),
+                        crate::picker::Purpose::Shadertoy
+                        | crate::picker::Purpose::WatchFolder
+                        | crate::picker::Purpose::TrustFile => None,
+                    };
+                    self.picker.open(purpose, start);
+                }
                 Action::ConfirmReplace => {
                     if let Some(input) = self.import_state.confirm_replace() {
                         self.submit_import(input, true);
@@ -3999,7 +4017,6 @@ impl Running {
                         self.lan.stop();
                     }
                 }
-                Action::OpenRemotePairing => self.lan.open_pairing(),
                 Action::SetDesktopAccess(enabled) => self.lan.set_desktop(enabled),
                 Action::ConnectDesktop => {
                     self.lan.set_desktop(false);
@@ -4018,7 +4035,8 @@ impl Running {
                             self.desktop_controller.note()
                         );
                         self.desktop_controller.reveal_form();
-                        self.ui_state.panes.open(Pane::Settings);
+                        self.ui_state
+                            .open_settings(crate::ui::settings::SettingsPage::Remote);
                     }
                 }
                 Action::DisconnectDesktop => {
@@ -4030,9 +4048,9 @@ impl Running {
                     self.desktop_controller.disconnect();
                     self.next_control = Instant::now();
                     self.desktop_controller.reveal_form();
-                    self.ui_state.panes.open(Pane::Settings);
+                    self.ui_state
+                        .open_settings(crate::ui::settings::SettingsPage::Remote);
                 }
-                Action::CloseRemotePairing => self.lan.close_pairing(),
                 Action::DecideRemotePairing { id, approve } => self.lan.decide(id, approve),
                 Action::RevokeRemoteClient(id) => self.lan.revoke(&id),
                 Action::RevokeAllRemoteClients => self.lan.revoke_all(),
@@ -4902,6 +4920,14 @@ impl Running {
         }
         let next = self.step_target(1);
         let lan_view = self.lan.view();
+        let scanning = !self.desktop_controller.active()
+            && self.ui_state.panes.shown_in(crate::workspace::Dock::Main)
+                == Some(crate::workspace::Pane::Settings)
+            && self.ui_state.settings.page == crate::ui::settings::SettingsPage::Remote;
+        self.lan_scan.update(scanning, Instant::now());
+        if let Some((purpose, path)) = self.picker.poll() {
+            self.picked(purpose, &path);
+        }
         let playing_dir = self.stack.session.as_ref().map(|s| s.dir.clone());
         let editor_read_only = self.editor_read_only();
         let authored = self.stack.session.as_ref().is_some_and(|session| {
@@ -5025,6 +5051,7 @@ impl Running {
                 budget_ms: self.stack.perf.budget_ms(),
                 scale: self.render_scale,
             },
+            picking: self.picker.busy(),
             import: ImportPanel {
                 text: &mut self.import_state.text,
                 status: &self.import_state.status,
@@ -5076,6 +5103,7 @@ impl Running {
                 view: &lan_view,
                 address: &mut self.lan.address,
                 port: &mut self.lan.port,
+                found: &self.lan_scan.found,
             },
         };
         let mut actions = std::mem::take(&mut self.actions);
@@ -5710,6 +5738,94 @@ fn same_folder(a: &Path, b: &Path) -> bool {
     match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
         (Ok(a), Ok(b)) => a == b,
         _ => a == b,
+    }
+}
+
+impl Running {
+    /// Puts what a Browse dialog chose where it belongs (D470), and acts
+    /// on it as the field's own button would: a playlist loads, an export
+    /// imports, a folder is watched, a trust file fills the connect form.
+    fn picked(&mut self, purpose: crate::picker::Purpose, path: &std::path::Path) {
+        let text = path.display().to_string();
+        log::info!("picker: {purpose:?} chose {text}");
+        match purpose {
+            crate::picker::Purpose::Playlist => {
+                self.playlist_ui.path.clone_from(&text);
+                self.actions.push(Action::LoadPlaylist(text));
+            }
+            crate::picker::Purpose::Shadertoy => {
+                self.import_state.text.clone_from(&text);
+                self.actions.push(Action::Import(text));
+            }
+            crate::picker::Purpose::WatchFolder => {
+                self.ui_state.watch.draft.clone_from(&text);
+                self.actions.push(Action::SetWatchFolder {
+                    folder: text,
+                    enabled: true,
+                });
+            }
+            crate::picker::Purpose::TrustFile => {
+                self.desktop_controller.trust_path = text;
+                self.desktop_controller.use_trust = true;
+            }
+        }
+    }
+}
+
+/// Other Strobes on the LAN (D468): a scanner that runs only while it is
+/// wanted, and what it found, read from it at most every [`LanScan::READ`]
+/// so a frame copies the list a few times a second, not every frame.
+#[derive(Default)]
+struct LanScan {
+    scanner: Option<strobe_remote::discovery::Scanner>,
+    /// The scanner would not start (no network): not tried again until
+    /// the Remote page is left and opened again.
+    failed: bool,
+    read: Option<Instant>,
+    /// What the Remote page lists.
+    found: Vec<strobe_remote::discovery::Found>,
+}
+
+impl LanScan {
+    /// How often the list is copied out of the scanner.
+    const READ: Duration = Duration::from_millis(500);
+
+    /// Starts or stops the scanner for `wanted`, and refreshes the list.
+    fn update(&mut self, wanted: bool, now: Instant) {
+        use strobe_remote::discovery;
+        if !wanted {
+            self.scanner = None;
+            self.failed = false;
+            self.read = None;
+            self.found.clear();
+            return;
+        }
+        if self.scanner.is_none() && !self.failed {
+            // Asked once per opening of the page: it takes a socket call.
+            let lan: Vec<std::net::Ipv4Addr> = strobe_remote::server::net::lan_address()
+                .and_then(|ip| match ip {
+                    std::net::IpAddr::V4(v4) => Some(v4),
+                    std::net::IpAddr::V6(_) => None,
+                })
+                .into_iter()
+                .collect();
+            let targets = discovery::broadcast_targets(&lan, discovery::PORT);
+            match discovery::Scanner::start(targets, Some(discovery::instance_id().to_string())) {
+                Ok(scanner) => self.scanner = Some(scanner),
+                Err(error) => {
+                    log::warn!("remote: not looking for other Strobes: {error}");
+                    self.failed = true;
+                }
+            }
+        }
+        if let Some(scanner) = &self.scanner
+            && self
+                .read
+                .is_none_or(|at| now.saturating_duration_since(at) >= Self::READ)
+        {
+            self.read = Some(now);
+            self.found = scanner.found();
+        }
     }
 }
 
