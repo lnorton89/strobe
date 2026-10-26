@@ -11685,6 +11685,36 @@ a substantial part of it. Not reviewed by a lawyer.
 **Would reopen:** a use the owner wants named that the permission does not
 plainly cover, or legal advice on the wording.
 
+### D487: a `release-fast` profile to iterate with, and lighter debug info for dependencies (2026-10-26)
+
+**Context.** The owner asked to speed up compiling, pointing at rustaman,
+which had already done it. `cargo run --release -p strobe-app` was the way
+to run an optimised app, and after any edit it re-ran fat LTO over one
+codegen unit for the whole program.
+
+**Decision.** Rustaman's two settings:
+- `[profile.release-fast]`: inherits `release` (opt-level 3,
+  `panic = "abort"`, line-table symbols) with `lto = false`,
+  `incremental = true` and dependencies at 16 codegen units; `strobe-app`,
+  `strobe-gfx` and `strobe-scene`, the crates an edit usually touches, at
+  256. It is for iterating; benchmarks and releases stay on `--release`.
+- `[profile.dev.package."*"] debug = "line-tables-only"`: dependencies
+  keep file and line numbers but not full type information, which the
+  Windows linker spends most of a small debug rebuild writing into the PDB.
+`rust-lld` and an antivirus exclusion for `target/` are documented in
+CONTRIBUTING as the developer's own choices, not set here: CI and the
+release link with `link.exe`.
+
+**Measured** on TORNADO, a one-character edit in `strobe-app/src/ui/help.rs`
+to a linked `strobe.exe`: `--release` 290 s; `release-fast` 9.1 s (two
+runs, 9.06 and 9.06), its clean build 128 s and 1.8 GB of `target/`;
+debug 7.0 s before the debug-info change and 5.2-5.4 s after (the
+dependencies' clean rebuild with it took 159 s).
+
+**Would reopen:** `release-fast` behaving differently from `--release`
+in a way that matters (it is the same code without cross-crate inlining),
+or a faster linker becoming the default in the toolchain.
+
 ### D488: generate controls from the Controls view, and save them into the scene (2026-10-26)
 
 **Context.** The owner: generated controls (D202, D219, D246) were not

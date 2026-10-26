@@ -248,7 +248,8 @@ it) and a GPU with OpenGL 3.3, or Direct3D 11 for ANGLE. Windows builds use
 the MSVC toolchain. The ANGLE DLLs come from `scripts/fetch-angle.ps1`.
 
 ```bash
-cargo run --release -p strobe-app                              # the app
+cargo run --profile release-fast -p strobe-app                 # the app, optimised, quick to rebuild
+cargo run --release -p strobe-app                              # the app as it ships (slow to rebuild: fat LTO)
 cargo run --release -p strobe-app -- --scene 05-domain-warp --show-output
 cargo run --release -p strobe-app -- --playlist playlists/example.toml
 cargo run --release -p strobe-app -- --gl angle                # force ANGLE
