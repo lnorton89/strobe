@@ -311,8 +311,13 @@ fn sanitise(text: &str) -> String {
 }
 
 /// Writes `text` as a new backup of `file` and keeps the newest
-/// [`KEEP_BACKUPS`].
-fn backup(root: &Path, name: &str, file: &str, text: &str) -> io::Result<()> {
+/// [`KEEP_BACKUPS`]. Also how generated controls saved into a scene keep
+/// what they replaced (D488), so Restore backup undoes them too.
+///
+/// # Errors
+///
+/// When the backup folder or file cannot be written.
+pub fn backup(root: &Path, name: &str, file: &str, text: &str) -> io::Result<()> {
     let dir = backup_dir(root, name, file);
     std::fs::create_dir_all(&dir)?;
     let stamp = std::time::SystemTime::now()

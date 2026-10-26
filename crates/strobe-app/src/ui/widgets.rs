@@ -882,12 +882,44 @@ pub fn meter(ui: &mut Ui, theme: &Palette, fraction: f32, fill: Rgb, width: f32)
 /// line of detail. A pane with nothing in it has to say so, and say what to
 /// do; a blank pane is indistinguishable from one that failed to load.
 pub fn empty_state(ui: &mut Ui, theme: &Palette, icon: Icon, title: &str, detail: &str) {
+    empty_state_with(ui, theme, icon, title, detail, |_| {});
+}
+
+/// [`empty_state`] with a way on, `action`, centred under the explanation:
+/// the button is where the eye already is (D488).
+pub fn empty_state_with(
+    ui: &mut Ui,
+    theme: &Palette,
+    icon: Icon,
+    title: &str,
+    detail: &str,
+    action: impl FnOnce(&mut Ui),
+) {
     // The icon's top sits this far above the centre; in a short pane the
     // centre moves down so the icon never rides up over what is above
     // (U-09).
     const ABOVE: f32 = 34.0 + 14.0;
     let rect = ui.available_rect_before_wrap();
-    let centre = egui::pos2(rect.center().x, rect.center().y.max(rect.top() + ABOVE));
+    // Wrapped, not truncated: the detail says what to do next, and an
+    // instruction cut off mid-word is worse than none. Each wrapped line is
+    // centred under the title, not left-aligned in a centred block.
+    let mut job = egui::text::LayoutJob::simple(
+        detail.to_string(),
+        TextStyle::Small.resolve(ui.style()),
+        theme::rgb(theme.text_muted),
+        (rect.width() - SPACE_LG_X2).max(40.0),
+    );
+    job.halign = egui::Align::Center;
+    let galley = ui.painter().layout_job(job);
+    // Centred, but lifted in a short pane so the detail and a button under
+    // it stay in view rather than at the bottom edge (D488).
+    let under = 12.0 + galley.size().y + theme::SPACE_MD + BUTTON_HEIGHT + theme::SPACE_SM;
+    let centre_y = rect
+        .center()
+        .y
+        .min(rect.bottom() - under)
+        .max(rect.top() + ABOVE);
+    let centre = egui::pos2(rect.center().x, centre_y);
     let painter = ui.painter();
     icons::paint(
         painter,
@@ -902,27 +934,24 @@ pub fn empty_state(ui: &mut Ui, theme: &Palette, icon: Icon, title: &str, detail
         FontId::new(15.0, egui::FontFamily::Proportional),
         theme::rgb(theme.text),
     );
-    // Wrapped, not truncated: the detail says what to do next, and an
-    // instruction cut off mid-word is worse than none. Each wrapped line is
-    // centred under the title, not left-aligned in a centred block.
-    let mut job = egui::text::LayoutJob::simple(
-        detail.to_string(),
-        TextStyle::Small.resolve(ui.style()),
-        theme::rgb(theme.text_muted),
-        (rect.width() - SPACE_LG_X2).max(40.0),
-    );
-    job.halign = egui::Align::Center;
-    let galley = ui.painter().layout_job(job);
     let bottom = centre.y + 12.0 + galley.size().y;
     ui.painter().galley(
         egui::pos2(centre.x, centre.y + 12.0),
         galley,
         theme::rgb(theme.text_muted),
     );
-    ui.allocate_space(Vec2::new(
-        rect.width(),
-        rect.height().max(bottom - rect.top()),
-    ));
+    let below = Rect::from_min_size(
+        egui::pos2(rect.left(), bottom + theme::SPACE_MD),
+        Vec2::new(rect.width(), BUTTON_HEIGHT * 2.0),
+    );
+    let mut child = ui.new_child(
+        egui::UiBuilder::new()
+            .max_rect(below)
+            .layout(egui::Layout::top_down(egui::Align::Center)),
+    );
+    action(&mut child);
+    let end = child.min_rect().bottom().max(bottom);
+    ui.allocate_space(Vec2::new(rect.width(), rect.height().max(end - rect.top())));
 }
 
 /// Twice [`theme::SPACE_LG`], the margin an empty state keeps from the pane
