@@ -67,6 +67,8 @@ pub struct Options {
     pub context: ContextArg,
     /// A shown tiny window rather than a hidden one (window contexts).
     pub show_window: bool,
+    /// ANGLE's backend, `--gl angle-*`, passed on to each worker (D485).
+    pub gl: Option<String>,
     /// A folder for the workers' result and stderr files, created here and
     /// removed when the run ends.
     pub work: PathBuf,
@@ -178,6 +180,9 @@ fn run_worker_process(
     command.arg(WORKER_FLAG);
     if options.show_window {
         command.arg("--show-window");
+    }
+    if let Some(gl) = &options.gl {
+        command.args(["--gl", gl]);
     }
     let child = command
         .arg("--scene")

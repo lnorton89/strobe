@@ -154,6 +154,14 @@ enum GlArg {
     Auto,
     Native,
     Angle,
+    /// ANGLE on Direct3D 11 only (ANGLE's default on Windows, named).
+    AngleD3d11,
+    /// ANGLE on Vulkan only: the GPU's Vulkan driver under GLES (D485).
+    AngleVulkan,
+    /// ANGLE on the desktop OpenGL driver only.
+    AngleGl,
+    /// ANGLE on Metal only (macOS).
+    AngleMetal,
 }
 
 impl ApiArg {
@@ -180,7 +188,11 @@ impl GlArg {
         match self {
             Self::Auto => GlChoice::Auto,
             Self::Native => GlChoice::Only(Backend::Native),
-            Self::Angle => GlChoice::Only(Backend::Angle),
+            Self::Angle
+            | Self::AngleD3d11
+            | Self::AngleVulkan
+            | Self::AngleGl
+            | Self::AngleMetal => GlChoice::Only(Backend::Angle),
         }
     }
 }
@@ -199,6 +211,9 @@ struct Row {
 }
 
 fn main() -> Result<()> {
+    // First, before anything can start a thread: `--gl angle-*` sets ANGLE's
+    // backend through the environment (D485).
+    let _ = strobe_gfx::gl::angle::choose_from_args(std::env::args_os());
     let cli = Cli::parse();
     // The renderer says things worth seeing in a benchmark run (a pass
     // double-buffered because it reads itself, D203; an asset that would

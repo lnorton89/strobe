@@ -140,6 +140,7 @@ fn options(library: &Path, work: &Path) -> Options {
         budget: Duration::from_secs(120),
         context: ContextArg::Auto,
         show_window: false,
+        gl: None,
         work: work.to_path_buf(),
     }
 }
