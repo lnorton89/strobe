@@ -20,7 +20,7 @@ you build Strobe from source (README, "Linux"; settings and logs are in
    | `libEGL.dll`, `libGLESv2.dll`, `d3dcompiler_47.dll` | ANGLE: OpenGL ES on Direct3D 11, for machines whose OpenGL driver is broken. These come from an official Electron release, are checked against pinned hashes when the release is built, and are covered by `LICENSES.chromium.html` beside them. Keep them next to `strobe.exe`. |
    | `vulkan-1.dll` | The Vulkan loader from the same Electron release, for `--gl angle-vulkan`. |
    | `scenes\` | The twelve scenes that ship with Strobe. |
-   | `README.md`, `LICENSE` | The project and its licence: MIT with the Commons Clause. |
+   | `README.md`, `LICENSE` | The project and its licence: MIT with the Commons Clause, which lets you run Strobe for pay but not sell Strobe itself. |
 
    A separate `...-symbols.zip` holds `strobe.pdb`. You only need it to
    turn a crash report into function names (see *When something goes

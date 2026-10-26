@@ -143,7 +143,7 @@
             description = "Audio-reactive VJ engine for GLSL scenes";
             homepage = "https://github.com/lnorton89/strobe";
             license = {
-              fullName = "MIT with the Commons Clause";
+              fullName = "MIT with the Commons Clause and an operating permission";
               url = "https://commonsclause.com/";
               free = false;
               redistributable = true;
