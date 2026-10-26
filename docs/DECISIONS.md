@@ -11653,8 +11653,8 @@ environment variable goes), or a release whose ANGLE has no Vulkan.
 (Software: Strobe, License: MIT, Licensor: Lawrence Norton) above the MIT
 text it conditions: the MIT grant does not include the right to sell the
 software, defined as providing to others for a fee a product or service
-whose value derives entirely or substantially from its functionality. It
-applies from v0.2.0; v0.1.0 and earlier were released under MIT alone, and
+whose value derives entirely or substantially from its functionality,
+narrowed by the permission below. It applies from v0.2.0; v0.1.0 and earlier were released under MIT alone, and
 copies of them keep those terms. The result is source-available, not open
 source by the OSI's definition. There is no SPDX identifier for it, so the
 workspace declares `license-file = "LICENSE"` (every crate inherits it),
@@ -11670,7 +11670,17 @@ code and scenes.
 with the licence file. The flake change is not run here (no Nix on
 Windows, no Nix job in CI).
 
-**Would reopen:** the owner wanting paid performances, or another use,
-named explicitly as allowed: the clause's "service whose value derives
-substantially from the functionality" is broad, and a carve-out would be
-written into `LICENSE` rather than read into it.
+**Amended the same day, at the owner's word** ("all i want is no one to be
+able to take my source and sell it. i dont care about operating the
+binary"). The clause's own "Sell" reaches any service whose value derives
+from the software, hosting fees named, which could catch a paid
+performance. So the clause stays verbatim and an **additional permission
+from the Licensor** follows it in `LICENSE`: anyone may run, use and
+operate Strobe, modified or not, and charge for what they do with it
+(performances, installations, events, broadcasts, recordings, hosting or
+operating it for others); what stays restricted is selling the software
+itself, its source, programs built from it, or products that include it or
+a substantial part of it. Not reviewed by a lawyer.
+
+**Would reopen:** a use the owner wants named that the permission does not
+plainly cover, or legal advice on the wording.
