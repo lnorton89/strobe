@@ -459,4 +459,9 @@ you point it at, and Synesthesia's scenes are covered by Synesthesia's EULA.
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT with the [Commons Clause](https://commonsclause.com/) condition: the
+MIT grant does not include the right to sell Strobe, meaning to provide, for
+a fee, a product or service whose value derives entirely or substantially
+from its functionality. That makes it source-available, not open source.
+See [LICENSE](LICENSE) for the exact terms. Releases up to v0.1.0 were MIT
+alone.

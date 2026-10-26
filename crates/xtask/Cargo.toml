@@ -4,7 +4,7 @@ description = "The workspace's own tooling: `cargo xtask ci`, `changelog`, `benc
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-license.workspace = true
+license-file.workspace = true
 publish = false
 
 [[bin]]
