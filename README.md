@@ -12,10 +12,12 @@ Strobe plays audio-reactive GLSL scenes on a projector or LED wall. It reads
 Synesthesia scene folders (`.synScene`) as they are, runs their JavaScript,
 imports Shadertoy shaders, and plays long shows from playlists.
 
-> **Status: v0.1.0, the first release. It is for testing, not production.**
-> The engine, the performer UI, playlists, show control and Shadertoy import
-> are built and tested. Windows is the target and has been checked on two real
-> machines: a ThinkPad T480 (Intel UHD 620) and a desktop with a GTX 1080 Ti.
+> **Status: v0.2.0. It is for testing, not production.**
+> The engine, the performer UI, playlists, show control, Shadertoy import and
+> LAN remote control are built and tested. Windows is the target and has been
+> checked on four real machines: a ThinkPad T480 (Intel UHD 620), desktops
+> with a GTX 1080 Ti and an RX 580, and a venue mini-PC (Ryzen 3 3200U, Vega 3)
+> driving a projector.
 > Linux builds and runs, on X11 and Wayland, with a Nix flake and a package
 > list for Debian and Ubuntu (see [Linux](#linux); checked on Mesa's software
 > renderer, not yet on a real Linux GPU). macOS does not run yet. What is verified, and where, is tracked in
@@ -77,19 +79,31 @@ in a worker process, so the show keeps playing.
   They carry from scene to scene.
 
 **Has a performer-first UI.**
-- **The Perform view:** the live preview with the transport underneath.
-  Panes open beside it: scenes, controls, playlist, editor, mappings,
-  diagnostics and settings.
+- **A rail of views:** Library, Controls, Import, Playlist, Editor, Mappings,
+  Diagnostics and Settings, beside a side panel that is always there: the
+  live preview, frame rate and audio, the eight fav slots, and the
+  playlist, controls, presets and scene tabs.
+- **The transport and BLACKOUT stay put** at the bottom, with the macro strip.
 - **A command palette** (Ctrl+K).
 - **A scene editor:** Save and reload, with the last good scene kept playing
   if the edit fails to compile.
-- **Tag search, favourites and scene thumbnails** in the browser.
+- **Tag search, favourites and scene thumbnails** in the library, and native
+  file and folder pickers wherever a path is asked for.
+
+**Takes remote control over the LAN** (opt-in, trusted networks only).
+- **From a phone:** open the address Settings shows, give the phone a name,
+  and approve it on the laptop. No code to type.
+- **From another Strobe:** Strobes with remote control on find each other on
+  the network; a desktop asks, and the host approves or denies it.
+- **Venue mode:** a trust file lets a laptop drive the show machine and
+  reconnect by itself.
 
 **Stays up on bad hardware.**
 - **The floor is OpenGL 3.3**, roughly a 2012 Intel HD 4000.
 - **Adaptive resolution** keeps heavy scenes at the display's frame rate.
 - **ANGLE fallback:** when the native GL driver fails, Strobe uses ANGLE
-  (OpenGL ES on Direct3D 11).
+  (OpenGL ES on Direct3D 11). `--gl angle-vulkan` (or `angle-gl`) runs ANGLE
+  on another of its backends.
 - **Context recovery:** a lost GL context is rebuilt and the show carries on.
 - **Runaway scripts are stopped** within a per-frame budget.
 - **Crashes leave evidence:** a report and a minidump that
@@ -125,6 +139,7 @@ A Cargo workspace of fifteen crates. The rules that matter:
                               (control generation; renders to score)
 
    strobe-playlist    (playlists: model, TOML, generator, clock; depends on nothing)
+   strobe-remote      (LAN remote: protocol, pairing, listener, discovery, phone page)
    strobe-diag        (logging, failures, crash capture; depends on nothing)
 
    strobe-app ── uses all of the above: windows, the frame loop, the UI
@@ -157,7 +172,9 @@ one that breaks on hybrid-graphics laptops and old drivers, so the context is
 a provider. Strobe tries native GL 3.3 core first. If that fails, or if
 `--gl angle` asks, it opens OpenGL ES 3.0 through
 [ANGLE](https://chromium.googlesource.com/angle/angle) on Direct3D 11, the
-path Chrome uses. Everything above the context is the same code.
+path Chrome uses. `--gl angle-vulkan`, `angle-gl` or `angle-d3d11` names
+ANGLE's backend, and a backend ANGLE cannot start on is reported, never
+quietly swapped (D485). Everything above the context is the same code.
 
 Every scene, imported Shadertoy shaders included, compiles as
 `#version 330 core` on desktop GL and `#version 300 es` on ANGLE. The
@@ -169,8 +186,9 @@ assembler makes real SSF code valid GLSL ES:
 ### A frame
 
 One thread owns the GL context and runs the frame. Workers for audio,
-MIDI, OSC, OSC feedback, the import listener, file saving and the crash
-monitor only hand values to it, through bounded queues it never waits on.
+MIDI, OSC, OSC feedback, the import listener, the LAN remote and its
+discovery, file dialogs, file saving and the crash monitor only hand values
+to it, through bounded queues it never waits on.
 Each output frame, in order:
 
 1. Drain MIDI and OSC into the control banks and commands, and queue OSC
@@ -204,17 +222,22 @@ The full walk-through is in
 
 ## Scene library
 
-`scenes/` holds twelve original scenes, tagged:
+`scenes/` holds seventeen original scenes, tagged:
 - **Benchmark tiers:** ten span five tiers of GPU load, from a gradient,
   through feedback, Voronoi, domain warping, reaction-diffusion and bloom, to
   a raymarched cathedral and volumetric clouds.
 - **`11-script-orbits`** is driven by a `script.js` physics loop.
 - **`12-silicon-atlas`** is an animated, fictional circuit board.
+- **Five show pieces:** `13-chromatic-rise` (feedback marbling),
+  `14-electric-bloom` (a glowing garden), `15-neon-ribbon-flow`,
+  `16-acid-mirror` (mirrored liquid paint) and `17-blacklight-carpet`
+  (confetti under a blacklight), all audio-reactive.
 
-![The base scene library](docs/images/contact-sheet.png)
+![The scene library](docs/images/contact-sheet.png)
 
-*Rendered headless by `strobe-bench`. Timings for llvmpipe, the T480 and the
-GTX 1080 Ti are in [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md).*
+*Rendered by `strobe-bench`, here in a hidden window on the GTX 1080 Ti; on
+Linux it renders headless. Timings for llvmpipe, the T480, the GTX 1080 Ti
+and the RX 580 are in [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md).*
 
 ---
 
@@ -229,6 +252,7 @@ cargo run --release -p strobe-app                              # the app
 cargo run --release -p strobe-app -- --scene 05-domain-warp --show-output
 cargo run --release -p strobe-app -- --playlist playlists/example.toml
 cargo run --release -p strobe-app -- --gl angle                # force ANGLE
+cargo run --release -p strobe-app -- --gl angle-vulkan         # ANGLE on Vulkan
 cargo run --release -p strobe-app -- --diagnose                # GPU and driver report
 cargo run --release -p strobe-bench -- --size 1280x720          # render and time every scene
 ```

@@ -2,8 +2,10 @@
 
 The desktop app, built as the `strobe` binary (plus a library so its logic is
 testable). It opens two windows that share one GL context: a control window
-(egui, Contextual Perform: rail, live preview, transport and macros, and
-panes for the scene browser, controls, diagnostics, import and settings) and a
+(egui, laid out as Synesthesia's: a rail of views, Library, Controls, Import,
+Playlist, Editor, Mappings, Diagnostics and Settings, beside a persistent
+side panel with the live preview, and the transport, BLACKOUT and macros
+along the bottom; docs/UI_REVIEW.md) and a
 fullscreen-capable output window that shows the scene letterboxed and waits
 for vertical blank. It wires the other crates together: it loads scenes,
 drives the frame loop, runs each scene's `script.js`, feeds live or synthetic
@@ -12,9 +14,10 @@ from a lost GL context.
 
 ## Role in the workspace
 
-- **Depends on:** `strobe-scene`, `strobe-gfx`, `strobe-diag`, `strobe-audio`
-  and `strobe-script`, plus `winit`, `egui`, `egui_glow`, `egui-winit`, `clap`,
-  `image`, `log`, `thiserror` and `anyhow`.
+- **Depends on:** `strobe-scene`, `strobe-gfx`, `strobe-diag`, `strobe-audio`,
+  `strobe-script`, `strobe-autocontrol` and `strobe-remote`, plus `winit`,
+  `egui`, `egui_glow`, `egui-winit` (0.37), `rfd` (native file dialogs, D470),
+  `clap`, `image`, `log`, `thiserror` and `anyhow`.
 - **Depended on by:** nothing. It is the top of the graph.
 - Also depends on `strobe-io` (show control, `remote.rs`: MIDI, OSC, mappings,
   macros, fav slots; D170-D179), `strobe-playlist` and `strobe-shadertoy`: the playlist tick,
@@ -26,24 +29,28 @@ from a lost GL context.
   saturation, mirrors, Limit Colors) through `strobe_gfx::Post`, run in `App::apply_post`
   after the compositor and **skipped entirely at neutral**; its reactivity and
   audio speed multiply the Audio panel's gains (`AudioInput::set_meta_gains`);
-  and the inspector's "Output (meta)" section edits them. They carry across
+  and the "Output controls" cards under the scene's controls edit them (D477). They carry across
   scene changes and cues, under whatever the new scene's preset, cue or
   script sets (D207). Blackout is separate and applied after the post stage
   (D181).
 - **Show control (D170-D179).** `Remote` owns the MIDI and OSC workers and
   the mapper; `Running::drain_remote` runs once per scene frame before the
   scene advances and writes the live session's banks through `ControlBank`;
-  commands, cue jumps, fav slots and presets come back as `Action`s. The MAP
-  pane (`ui::map`), the macro strip (`ui::macros`), the preset row and fav
-  slots (`ui::presets`) and `commands::Bindings` (hotkeys) are the UI side.
+  commands, cue jumps, fav slots and presets come back as `Action`s. The
+  Mappings view (`ui::map`), the macro strip (`ui::macros`), the Presets tab
+  and fav slots (`ui::presets`) and `commands::Bindings` (hotkeys) are the UI
+  side.
   `show-control.json` is written by the debounced saver, never in screenshot
   mode.
-- **LAN remote (D250-D254).** `lan::Lan` owns the `strobe-remote` listener
-  while it runs; `Running::drain_lan` takes its commands once per scene frame
-  (never waiting) and publishes the state at 10 Hz. Settings' Remote section
-  (`ui::lan`) and the title bar's "Remote on" with its Stop button are the UI.
-- **Does not (yet):** audio-event advance, MIDI or OSC output, or video and
-  webcam media.
+- **LAN remote (D250-D254, D468, D469).** `lan::Lan` owns the `strobe-remote`
+  listener and its discovery responder while it runs; `Running::drain_lan`
+  takes its commands once per scene frame (never waiting) and publishes the
+  state at 10 Hz. Phones and other Strobes ask, and the host approves or
+  denies them; there is no code. Settings' Remote page (`ui::lan`), its
+  request banners and the title bar's "Remote on" with its Stop button are
+  the UI. Controlling another Strobe is `desktop` (the viewer and its
+  worker), `trusted` (venue mode's trust file, D294) and `venue` (D288).
+- **Does not:** video and webcam media, NDI output.
 - The app has no `#[cfg(windows)]` code of its own, only `cfg!` values; that is
   why the Windows cross-check from Linux can exclude it (D63).
 
@@ -73,7 +80,10 @@ in both GLSL dialects in a child process per scene, and writes
 | `commands`, `command_palette` | The command table and focus rule, and what the Ctrl+K palette lists, how it ranks a query, and why an entry is unavailable. No egui. |
 | `color`, `palette`, `motion`, `icon` | The UI system ported from rustaman (D5): colour maths, themes with WCAG tests, durations and reduced motion, geometry icons. No egui. |
 | `library`, `console`, `stats` | The data the UI shows: scenes with their tags (D205), health and search over names and tags, the console, frame timings. |
-| `lan` | The LAN remote as the app holds it: the `strobe_remote::server` listener, the app end of its bridge, which commands may run now (`refusal`), the 10 Hz state publish, and what Settings and the title bar show (D254). |
+| `lan` | The LAN remote as the app holds it: the `strobe_remote::server` listener and the discovery responder and scanner, the app end of its bridge, which commands may run now (`refusal`), the 10 Hz state publish, and what Settings and the title bar show (D254, D468). |
+| `desktop`, `trusted`, `venue` | Controlling another Strobe: the viewer, input translation and the bounded JPEG capture and decode workers (D275); the controller's proof of a venue trust file, its retry schedule and what a refusal says (D294); venue mode's launch-time pieces, `--make-remote-trust` and loading `--remote-trust` so a failure is reported without stopping the show (D288). |
+| `picker` | Native file and folder dialogs (`rfd`, the Browse buttons) on a thread of their own, polled for their answer, so the frame loop never waits on one (D470). |
+| `output_monitor` | Which monitor the output goes to, followed by name, position and size across display changes (D400, D451). |
 | `import` | Shadertoy import: the worker thread that runs the converter, the panel's state, and the listener's handler (D113, D114, D116). |
 | `failures`, `dialog`, `gldebug`, `diagnose`, `screenshot` | Errors, crash dialogs, driver messages, `--diagnose` and `--screenshot`. |
 
@@ -92,23 +102,31 @@ Flags (from the clap `Cli`):
 |---|---|---|
 | `--library <dir>` | `scenes` | Folder of scene folders. |
 | `--scene <name>` | none | Scene to load at start: a folder name or a unique prefix. |
-| `--gl auto\|native\|angle` | `auto` | Native GL 3.3 first, then ANGLE; or force one. |
+| `--gl auto\|native\|angle\|angle-d3d11\|angle-vulkan\|angle-gl\|angle-metal` | `auto` | Native GL 3.3 first, then ANGLE; or force one. `angle-*` also names ANGLE's backend, and fails with a message if ANGLE cannot start on it (D485). |
+| `--no-synesthesia` | off | Leave Synesthesia's installed scenes out of the library for this run (D271). |
 | `--render-scale <f>` | `1.0` | Render resolution as a fraction of the output window, 0.25 to 1.0. |
 | `--no-adaptive` | off | Turn adaptive resolution off; the scale stays where you put it. |
-| `--audio auto\|synthetic` | `auto` | Capture an input device (synthetic fallback), or always the fixed 120 BPM pattern. |
-| `--osc` | off | Listen for OSC on `127.0.0.1` for this run (the MAP pane's switch saves it). |
+| `--audio auto\|synthetic\|ambient` | `auto` | Capture an input device (synthetic fallback), always the fixed 120 BPM pattern, or that pattern without its hits and beats. |
+| `--show-output`, `--fullscreen`, `--output-monitor <n>` | off | Show the output window at launch, fullscreen, on monitor N as Settings numbers them (D451 waits for one not connected yet). |
+| `--playlist <file>`, `--no-resume` | none | Load a playlist at launch (everything compiles before the first cue); start it from the top rather than where it was. |
+| `--watch-folder <dir>` | saved | Add scene folders that appear in this folder to the library (D240). |
+| `--osc` | off | Listen for OSC on `127.0.0.1` for this run (the Mappings view's switch saves it). |
 | `--osc-port <n>` | `9000` | The UDP port, for this run. |
 | `--osc-all-interfaces` | off | Listen on every network interface, for this run only. OSC has no password (D172); never saved. |
 | `--no-midi` | off | Do not open MIDI input devices, for this run. |
 | `--show-control <file>` | data dir's `show-control.json` | Read mappings, macros, fav slots and hotkeys from this file. |
 | `--screenshot <path>` | none | Render `--frames` frames, write `<path>-control.png` and `<path>-output.png`, exit. |
 | `--frames <n>` | `60` | Frames before the screenshot; requires `--screenshot`. |
-| `--remote`, `--remote-bind <ip>`, `--remote-port <n>` | off, LAN address, `47812` | Start the LAN remote for this run (Settings' Remote section does the same; never saved). A public address is refused (D250-D254). |
+| `--remote`, `--remote-bind <ip>`, `--remote-port <n>` | off, LAN address, `47812` | Start the LAN remote for this run (Settings' Remote page does the same; never saved). A public address is refused (D250-D254). |
+| `--remote-proxy <name[:port]>` | none | The name of your own HTTPS reverse proxy on this computer, let in as the page's origin (D258). |
+| `--allow-desktop-control`, `--remote-trust <file>` | off | Allow full desktop control for this run; venue mode, where a controller that proves this trust file is paired with no click (D288). |
+| `--control <host:port>` | none | Open straight into the viewer of another Strobe (D275, D294). |
+| `--make-remote-trust <file>` | | Write a new trust file, print how to use it, and exit. |
 | `--listen`, `--listen-port <n>` | off, `47811` | Accept shaders from the "Send to Strobe" userscript on 127.0.0.1 (the Import panel's switch does the same; the panel shows the token). |
 | `--no-texture-download` | off | Do not download textures on import; they read black and are listed in `images/pending-assets.json`. |
 | `--diagnose` | off | Print a machine/build/GL/audio report, save it beside the logs, exit. |
-| `--open-pane <list>` | saved layout | Open panes at launch: `browser`, `import`, `inspector`, `diagnostics`, `settings` (comma separated). |
-| `--no-panes` | off | Close every pane first (the bare Perform surface). |
+| `--open-pane <list>` | saved layout | Open panes at launch, comma separated: `browser`, `controls`, `import`, `playlist`, `editor`, `map`, `inspector` (the side panel), `diagnostics`, `settings`, or `settings:<page>`. |
+| `--no-panes` | off | Close every pane first: the main view is then the large preview. |
 | `--window-size WxH` | maximized | Open the control window at exactly this size, not maximized (reproducible screenshots; bare Xvfb has no window manager). |
 | `--browser-query <text>` | saved | Put this in the scene browser's search field. |
 | `--preview <scene>` | none | Prepare this scene in the browser's Preview at launch, without making it live. |
@@ -116,20 +134,23 @@ Flags (from the clap `Cli`):
 | `--media <path>` | none | Show this `.png`/`.jpg` file, or a folder of them played as a sequence in name order, behind `syn_Media` in every scene loaded by hand (instead of the scene's `MEDIA`). Decoded off the frame thread (D186). A missing path is reported and the scene runs with black media. |
 | `--request-load <scene>` | none | With `--screenshot`: ask for this load through the UI path on the frame before the control capture, so the capture shows "Preparing". |
 | `--theme <id>` | saved | Use a theme for this run: `strobe`, `graphite`, `midnight`, `void`, `high-contrast`, `daylight`, or a file in `<data dir>/themes/`. |
+| `--density comfortable\|compact` | saved | Use this density for this run (D220). |
 | `--system-title-bar` | off | Use the system's title bar for this run (D132); Settings has the saved choice. |
 | `--generate-controls <scene>` | | Hidden: the app starts itself this way to generate controls in a worker (D202). Not for people. |
 | `--palette <text>` | closed | Open the command palette at launch with this text typed (screenshots). |
 | `--help`, `--version` | | Standard clap flags. |
 
-Keys (D134; the table is `commands.rs`, shown in Settings): Left and Right
-step the scene, `Space` holds (not wired yet: it shows a notice), `B` blacks the
-output out, `F11` toggles fullscreen on the output window, `Ctrl+F` opens the
-scene browser's search, `Esc` closes the topmost pane (and leaves output
-fullscreen), `T` taps tempo, and `Ctrl+K` opens the command palette (D200):
-every command and pane by name, with its shortcut, or why it cannot run now.
-The Inspector shows the playing scene's tags; Edit writes them into its
-`scene.json` (D205). In the Editor (EDIT), `Ctrl+S` saves and `Ctrl+Enter` saves and reloads the
-scene (D204); typing alone never changes the output.
+Keys (D134; the table is `commands.rs`, rebound in Settings > Keyboard):
+Left and Right step the scene, `Space` holds the cue (with a playlist), `B`
+blacks the output out, `F11` toggles fullscreen on the output window,
+`Ctrl+F` opens the library's search, `Ctrl+L` flips between the library and
+the Controls view (D479), `Esc` closes the topmost pane but never the last
+main view (and leaves output fullscreen), `T` taps tempo, and `Ctrl+K` opens
+the command palette (D200): every command, view, scene and preset by name,
+with its shortcut, or why it cannot run now. The side panel's Scene tab
+shows the playing scene's tags and writes them into its `scene.json` (D205).
+In the Editor, `Ctrl+S` saves and `Ctrl+Enter` saves and reloads the scene
+(D204); typing alone never changes the output.
 None fires while a text field has focus or the palette is open, and the
 arrows and Space stay with a focused slider. The control window always opens
 maximized (D65) unless `--window-size` is given.
@@ -148,8 +169,9 @@ The app also reads these environment variables (details in
 under `%LOCALAPPDATA%\strobe` (Windows) or `~/.local/share/strobe` (Linux).
 The Windows release build has no console (`windows_subsystem = "windows"`), so
 startup failures appear in a dialog and in the session log. ANGLE needs
-`libEGL.dll` and `libGLESv2.dll` beside the executable (fetched by
-`scripts/fetch-angle.ps1`, D12).
+`libEGL.dll` and `libGLESv2.dll` beside the executable, and
+`--gl angle-vulkan` also `vulkan-1.dll` (all fetched by
+`scripts/fetch-angle.ps1`, D12, D485).
 
 ## Testing
 
@@ -212,13 +234,13 @@ runs are listed in [`DEBUGGING.md`](../../docs/DEBUGGING.md).
 
 ## Status and known gaps
 
-- Phase 1 minimal app is done ([`ROADMAP.md`](../../docs/ROADMAP.md)): two
-  windows, scene browser, controls per type, console, preview. The
-  Perform-first UI in [`UI_DESIGN.md`](../../docs/UI_DESIGN.md) is built at
-  stage 1 (D130-D138), with the Playlist pane (D157), the MAP pane (D177),
-  the Editor (D204), the command palette (D200), named layouts (D215) and
-  density (D220). Left: the full Playlist and Mappings workspaces, and the
-  title bar's drag, snap and DPI behaviour on real Windows (ROADMAP item 2).
+- The control window is Synesthesia's layout (D281-D285) with every pane
+  rebuilt on one form grammar after a screenshot review (D464-D484,
+  [`UI_REVIEW.md`](../../docs/UI_REVIEW.md)): the Playlist workspace with its
+  cue editor (D157, D213, D475), Mappings (D177, D467), the Editor (D204,
+  D482), the command palette (D200), named layouts (D215) and density
+  (D220). Left: the title bar's drag, snap and DPI behaviour on the T480
+  (ROADMAP item 2, U-09).
 - Real-hardware evidence is the ThinkPad T480 (Intel UHD 620): native and
   ANGLE smoke tests, live capture, a script scene, adaptive resolution and
   `--diagnose` all ran ([`T480.md`](../../docs/hardware/T480.md)).
@@ -231,15 +253,14 @@ runs are listed in [`DEBUGGING.md`](../../docs/DEBUGGING.md).
 - Playlists are built (stage 2, D150-D158), verified on llvmpipe and on the
   T480 (the transition demo, Task 14; media per cue, Task 26). Audio-event
   advance is built (drops and breakdowns, D226; song changes, D237) and
-  tested on synthetic audio only. Not built: the full Playlist workspace,
-  the Needs-work bin, NDI.
+  tested on synthetic audio only. Not built: NDI.
 - Show control (D170-D179) is built and verified under Xvfb with real OSC
   datagrams, a real click on Learn, and headless GL for cue presets; **no MIDI
   controller has been used**. On the T480: OSC in and out (Task 25), a
   macro's key and glide (Task 29, D227, D228) and Synesthesia's OSC
   addresses (Task 31, D234).
-  OSC feedback (D209) and the macro range and colour editor (D210) are built.
-  Not built: MIDI output. Shortcuts
+  OSC feedback (D209), MIDI output (D257) and the macro range and colour
+  editor (D210) are built. Shortcuts
   are edited in Settings > Keyboard (D208), and blackout has explicit on and
   off commands (D201).
   Cube maps and `syn_Media` stills and sequences work (D185, D186), video
@@ -247,5 +268,6 @@ runs are listed in [`DEBUGGING.md`](../../docs/DEBUGGING.md).
   which the post stage renders from (D180), checked on llvmpipe under Xvfb
   only (its cost on an HD 4000 is unmeasured); meta values carry over a
   scene change (D207, replacing D182's reset). `textureFinalPass` is a two-frame-late asynchronous readback (D162).
-- Linux runs under Xvfb and Mesa only; macOS is not built (no CGL provider,
-  D55).
+- Linux has run under Xvfb, on Wayland (Weston) and under WSL2 with Mesa,
+  including Mesa's D3D12 driver on an RX 580, but not on a real Linux GPU;
+  macOS is not built (no CGL provider, D55).

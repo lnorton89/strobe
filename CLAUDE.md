@@ -20,7 +20,7 @@ macOS and Linux later. Performance is a feature, not a polish step.
 | [`docs/PLAN.md`](docs/PLAN.md) | The original design plan and its research sources. It's historical. Where it disagrees with DECISIONS.md, DECISIONS.md wins. |
 | [`docs/AGENT_RESEARCH.md`](docs/AGENT_RESEARCH.md) | Before starting app, script, audio, Shadertoy, playlist, diagnostics, or performance work. It records verified upstream behaviour and integration contracts. |
 | [`docs/UI_DESIGN.md`](docs/UI_DESIGN.md) | Before touching strobe-app UI. It defines the Perform-first information architecture, control UX, workspaces, theme/motion rules, and UI acceptance criteria. |
-| [`docs/UI_REVIEW.md`](docs/UI_REVIEW.md) | Before UI work, alongside UI_DESIGN.md. An audit of what the app actually draws (screenshot evidence), the systemic problems, and the proposed order of fixes. Where the two disagree about the current state, this one was checked against the screen. |
+| [`docs/UI_REVIEW.md`](docs/UI_REVIEW.md) | Before UI work, alongside UI_DESIGN.md. An audit of what the app actually draws (screenshot evidence), the systemic problems, the order of fixes and their progress (all done, D464-D484). New panes use its form grammar (`ui::form`). Where the two disagree about the current state, this one was checked against the screen. |
 | [`docs/branding.md`](docs/branding.md) | Before touching the theme colours, the icon, the title-bar mark, README imagery or release graphics. The SVGs in `assets/brand/` are the sources; run `cargo xtask brand` after editing one. |
 
 ## Commands
@@ -169,6 +169,10 @@ The short list:
   much real Shadertoy/SSF code. ANGLE (GLES 3.0 on D3D11) is the
   fallback for machines with a broken WGL driver. It goes through the
   same glutin EGL code path, pointed at ANGLE's `libEGL.dll`.
+  `--gl angle-vulkan|angle-gl|angle-d3d11` picks ANGLE's backend through
+  `ANGLE_DEFAULT_PLATFORM`, set by `gl::angle::choose_from_args` as the
+  first call in each binary's `main` (before any thread), and the renderer
+  string is checked afterwards (D485). Keep that call first.
 - **`#version 330 core` on every desktop context.** SSF code relies on
   desktop GLSL's implicit int→float conversion (`PASSINDEX == 0.0`
   appears in real scenes), which GLSL ES rejects.

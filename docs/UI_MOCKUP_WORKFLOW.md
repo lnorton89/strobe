@@ -2,6 +2,8 @@
 
 _Last researched: 2026-10-08_
 
+> **Historical (2026-10-26).** This was written before the UI was built. The app as built is described by [UI_REVIEW.md](UI_REVIEW.md) and [UI_DESIGN.md](UI_DESIGN.md), and the decisions D130 onwards; where this document disagrees with them, they win.
+
 This document defines how agents should create visual mockups for Strobe before committing to production UI architecture. The goal is not to generate one attractive screenshot and immediately implement it. The goal is to give Lawrence a small set of materially different, comparable designs, let him choose the direction, then turn that decision into an interaction-accurate prototype and only then production UI.
 
 ## 1. Core rule
