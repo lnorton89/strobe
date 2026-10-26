@@ -152,6 +152,30 @@ impl Density {
             Self::Compact => 20.0,
         }
     }
+
+    /// A page's title: the name of the Settings page on screen.
+    const fn title(self) -> f32 {
+        match self {
+            Self::Comfortable => 20.0,
+            Self::Compact => 18.0,
+        }
+    }
+
+    /// A section heading over a group of settings.
+    const fn heading(self) -> f32 {
+        match self {
+            Self::Comfortable => 15.0,
+            Self::Compact => 14.0,
+        }
+    }
+
+    /// The line under a setting that says what it does.
+    const fn description(self) -> f32 {
+        match self {
+            Self::Comfortable => 12.0,
+            Self::Compact => 11.5,
+        }
+    }
 }
 
 thread_local! {
@@ -169,6 +193,39 @@ pub fn row_height() -> f32 {
     density().row_height()
 }
 
+/// The space above and below a setting row's content (`super::form`), at
+/// the density in force.
+#[must_use]
+pub fn row_pad() -> f32 {
+    match density() {
+        Density::Comfortable => SPACE_MD,
+        Density::Compact => SPACE_SM,
+    }
+}
+
+// The type scale (UI review S1). Each step is visibly apart from the next,
+// and the two headings are semibold where the system has the face
+// (`super::fonts`): a heading that is only bigger, or fainter, than the text
+// under it does not read as one.
+
+/// A page's title, at the density in force.
+#[must_use]
+pub fn title_font() -> egui::FontId {
+    super::fonts::strong(density().title())
+}
+
+/// A section heading, at the density in force.
+#[must_use]
+pub fn heading_font() -> egui::FontId {
+    super::fonts::strong(density().heading())
+}
+
+/// A setting's description, at the density in force.
+#[must_use]
+pub fn description_font() -> egui::FontId {
+    egui::FontId::proportional(density().description())
+}
+
 /// The height of a pane's header.
 pub const PANE_HEADER: f32 = 36.0;
 
@@ -178,8 +235,24 @@ pub const TITLE_BAR_HEIGHT: f32 = 36.0;
 /// The height of the health strip.
 pub const HEALTH_HEIGHT: f32 = 28.0;
 
-/// The width of the navigation rail.
-pub const RAIL_WIDTH: f32 = 60.0;
+/// The width of the navigation rail with its labels: room for the longest
+/// word, "Diagnostics", under its icon (D473).
+pub const RAIL_WIDTH: f32 = 84.0;
+
+/// The width of the rail without labels, in a narrow window.
+pub const RAIL_WIDTH_ICONS: f32 = 56.0;
+
+/// The rail's width for a window `window_width` points wide: labelled where
+/// the labels are shown ([`crate::workspace::rail_labels`]), icons only
+/// below that.
+#[must_use]
+pub fn rail_width(window_width: f32) -> f32 {
+    if crate::workspace::rail_labels(window_width) {
+        RAIL_WIDTH
+    } else {
+        RAIL_WIDTH_ICONS
+    }
+}
 
 /// The width of the accent bar down a selected row's leading edge.
 pub const SELECTION_BAR: f32 = 3.0;
@@ -392,6 +465,11 @@ fn visuals(theme: &Palette) -> egui::Visuals {
         // which nudges its neighbours.
         state.expansion = 0.0;
     }
+    // A field's outline (UI review S3). egui strokes a text field, a combo
+    // box and its own buttons with these; in the plain border colour an
+    // empty field on a card was a dark bar whose hint read like a value.
+    visuals.widgets.inactive.bg_stroke = Stroke::new(1.0, rgb(theme.border_strong));
+    visuals.widgets.hovered.bg_stroke = Stroke::new(1.0, rgb(theme.text_muted));
     visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0, rgb(theme.text_muted));
     visuals.widgets.active.fg_stroke = Stroke::new(1.0, rgb(theme.text));
     // Keyboard focus. egui draws a focused widget with the `active` style,

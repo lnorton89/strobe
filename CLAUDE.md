@@ -20,6 +20,7 @@ macOS and Linux later. Performance is a feature, not a polish step.
 | [`docs/PLAN.md`](docs/PLAN.md) | The original design plan and its research sources. It's historical. Where it disagrees with DECISIONS.md, DECISIONS.md wins. |
 | [`docs/AGENT_RESEARCH.md`](docs/AGENT_RESEARCH.md) | Before starting app, script, audio, Shadertoy, playlist, diagnostics, or performance work. It records verified upstream behaviour and integration contracts. |
 | [`docs/UI_DESIGN.md`](docs/UI_DESIGN.md) | Before touching strobe-app UI. It defines the Perform-first information architecture, control UX, workspaces, theme/motion rules, and UI acceptance criteria. |
+| [`docs/UI_REVIEW.md`](docs/UI_REVIEW.md) | Before UI work, alongside UI_DESIGN.md. An audit of what the app actually draws (screenshot evidence), the systemic problems, and the proposed order of fixes. Where the two disagree about the current state, this one was checked against the screen. |
 | [`docs/branding.md`](docs/branding.md) | Before touching the theme colours, the icon, the title-bar mark, README imagery or release graphics. The SVGs in `assets/brand/` are the sources; run `cargo xtask brand` after editing one. |
 
 ## Commands

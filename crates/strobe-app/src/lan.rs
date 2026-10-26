@@ -146,8 +146,6 @@ pub struct LanView {
     pub note: String,
     /// The last start failed.
     pub failed: bool,
-    /// The pairing code and the seconds it has left.
-    pub code: Option<(String, u64)>,
     /// Phones waiting for Approve or Deny.
     pub requests: Vec<Request>,
     /// Paired clients, and whether each is connected now.
@@ -163,6 +161,11 @@ pub struct LanView {
     /// proves it holds it is paired for full desktop control, without an
     /// approval, while full desktop access is on.
     pub venue: bool,
+    /// Other Strobes on the LAN can find this one (D468): the listener is
+    /// answering discovery.
+    pub advertising: bool,
+    /// The name other Strobes list this one under.
+    pub name: String,
 }
 
 /// The address a phone opens, remembered between asks.
@@ -242,6 +245,8 @@ pub struct Lan {
     listed: Vec<ClientInfo>,
     published: Option<Instant>,
     snapshot: Snapshot,
+    /// The name other Strobes list this one under (D468), made once.
+    name: Option<String>,
 }
 
 impl Lan {
@@ -268,6 +273,7 @@ impl Lan {
             listed: Vec::new(),
             published: None,
             snapshot: Snapshot::default(),
+            name: None,
         }
     }
 
@@ -465,6 +471,8 @@ impl Lan {
             let config = ServerConfig {
                 proxied: self.proxied.clone(),
                 trust: self.trust.clone(),
+                // Found by other Strobes on the LAN while it listens (D468).
+                advertise: Some(crate::trusted::computer_name()),
                 ..ServerConfig::new(ip, port)
             };
             Server::start(config, remote, clients)
@@ -618,23 +626,6 @@ impl Lan {
         app_end.publish(snapshot);
     }
 
-    /// Opens pairing with a fresh code.
-    pub fn open_pairing(&mut self) {
-        let Some(server) = &self.server else {
-            return;
-        };
-        if let Err(error) = server.open_pairing() {
-            self.note = format!("Could not make a pairing code: {error}");
-        }
-    }
-
-    /// Closes pairing.
-    pub fn close_pairing(&self) {
-        if let Some(server) = &self.server {
-            server.close_pairing();
-        }
-    }
-
     /// Approves or denies a waiting phone.
     pub fn decide(&self, id: u64, approve: bool) {
         if let Some(server) = &self.server {
@@ -688,6 +679,7 @@ impl Lan {
                 failed: self.failed,
                 clients: clients.into_iter().map(|c| (c, false)).collect(),
                 venue: self.trust.is_some(),
+                name: self.name(),
                 ..LanView::default()
             };
         };
@@ -706,9 +698,6 @@ impl Lan {
             warning: server.warning().map(str::to_string),
             note: self.note.clone(),
             failed: false,
-            code: server
-                .pairing_code()
-                .map(|(code, left)| (code, left.as_secs())),
             requests: server.pairing_requests(),
             clients: clients
                 .into_iter()
@@ -720,7 +709,18 @@ impl Lan {
             connected: authenticated(&connections),
             desktop_controlled: self.desktop_controlled(),
             venue: self.trust.is_some(),
+            advertising: server.advertising(),
+            name: self.name(),
         }
+    }
+
+    /// The name other Strobes list this one under, made once.
+    fn name(&mut self) -> String {
+        self.name
+            .get_or_insert_with(|| {
+                strobe_remote::discovery::display_name(&crate::trusted::computer_name())
+            })
+            .clone()
     }
 }
 
@@ -1015,11 +1015,8 @@ mod tests {
             AudioStatus::Active,
         );
         assert_eq!(lan.snapshot.remaining_ms, Some(2000), "whole seconds, up");
-        lan.open_pairing();
-        assert!(lan.view().code.is_some(), "a code shows");
         lan.stop();
         assert!(!lan.running(), "stopped");
-        assert!(lan.view().code.is_none(), "and the code is gone");
         Ok(())
     }
 

@@ -154,10 +154,16 @@ struct Scenario {
     /// The open panes: the newest main pane is the main view, and
     /// `Pane::Inspector` is the side panel (D281).
     panes: &'static [Pane],
-    /// The library view's page (D291).
-    library_page: crate::ui::browser::LibraryPage,
     /// The library card with keyboard focus, by library index (D291).
     focus_card: Option<usize>,
+    /// Three recent playlists, one with a long path (D481).
+    recent: bool,
+    /// The Settings page, where the scenario's other state does not decide
+    /// it.
+    settings_page: Option<crate::ui::settings::SettingsPage>,
+    /// The MAP pane has the first macro's options, the first mapping's
+    /// options and the add form open (D467).
+    map_open: bool,
 }
 
 const BASE: Scenario = Scenario {
@@ -201,9 +207,14 @@ const BASE: Scenario = Scenario {
     side_tab: crate::ui::side::SideTab::Controls,
     cards: crate::ui::browser::CardSize::Medium,
     panes: &[Pane::Inspector, Pane::Browser],
-    library_page: crate::ui::browser::LibraryPage::Scenes,
     focus_card: None,
+    recent: false,
+    settings_page: None,
+    map_open: false,
 };
+
+/// The Controls view over the library, with the side panel (D479).
+const CONTROLS: &[Pane] = &[Pane::Inspector, Pane::Browser, Pane::Controls];
 
 fn scenarios() -> Vec<Scenario> {
     vec![
@@ -236,28 +247,33 @@ fn scenarios() -> Vec<Scenario> {
             ..BASE
         },
         Scenario {
-            name: "library on the controls page",
-            library_page: crate::ui::browser::LibraryPage::Controls,
+            name: "the playlist page with recent playlists",
+            panes: &[Pane::Inspector, Pane::Playlist],
+            recent: true,
             ..BASE
         },
         Scenario {
-            name: "library on the controls page, compact, playlist tab",
-            library_page: crate::ui::browser::LibraryPage::Controls,
+            name: "the controls view",
+            panes: CONTROLS,
+            ..BASE
+        },
+        Scenario {
+            name: "the controls view, compact, playlist tab",
+            panes: CONTROLS,
             density: crate::ui::theme::Density::Compact,
             side_tab: crate::ui::side::SideTab::Playlist,
             playlist: true,
             ..BASE
         },
         Scenario {
-            name: "library on the controls page, no scene",
-            library_page: crate::ui::browser::LibraryPage::Controls,
+            name: "the controls view, no scene",
+            panes: CONTROLS,
             playing: false,
             ..BASE
         },
         Scenario {
-            name: "library on the controls page, side panel collapsed",
-            library_page: crate::ui::browser::LibraryPage::Controls,
-            panes: &[Pane::Browser],
+            name: "the controls view, side panel collapsed",
+            panes: &[Pane::Browser, Pane::Controls],
             ..BASE
         },
         Scenario {
@@ -563,6 +579,13 @@ fn scenarios() -> Vec<Scenario> {
             ..BASE
         },
         Scenario {
+            name: "mappings pane with a macro, a mapping and the add form open",
+            mapped: true,
+            map_open: true,
+            panes: &[Pane::Map],
+            ..BASE
+        },
+        Scenario {
             name: "mappings pane, no scene playing",
             mapped: true,
             playing: false,
@@ -685,6 +708,7 @@ fn sample_lan(on: bool, desktop: bool) -> crate::lan::LanView {
         return crate::lan::LanView {
             note: "Off".to_string(),
             clients: vec![(phone("c00000001", "iPhone at 192.168.1.23"), false)],
+            name: "STAGE-PC".to_string(),
             ..crate::lan::LanView::default()
         };
     }
@@ -694,7 +718,6 @@ fn sample_lan(on: bool, desktop: bool) -> crate::lan::LanView {
         warning: None,
         note: "On: http://192.168.1.20:47812/".to_string(),
         failed: false,
-        code: Some(("481 226".to_string(), 103)),
         requests: vec![strobe_remote::pairing::Request {
             id: 1,
             label: if desktop {
@@ -715,6 +738,8 @@ fn sample_lan(on: bool, desktop: bool) -> crate::lan::LanView {
         connected: 2,
         desktop_controlled: desktop,
         venue: false,
+        advertising: true,
+        name: "STAGE-PC".to_string(),
     }
 }
 
@@ -902,8 +927,8 @@ struct Drawn {
     shapes: Vec<egui::epaint::ClippedShape>,
     /// The panes open after the last frame.
     open_panes: Vec<Pane>,
-    /// The library view's page after the last frame (D291).
-    library_page: crate::ui::browser::LibraryPage,
+    /// The main view after the last frame.
+    main: Option<Pane>,
     /// Every frame's texture changes, for [`shoot`]; cleared on drop.
     textures: egui::TexturesDelta,
 }
@@ -1000,8 +1025,28 @@ fn draw_events(
         ui_state.panes.open(*pane);
     }
     ui_state.hotkeys.capturing = scenario.capturing;
+    // Settings shows one page: the one the scenario's state is on.
+    ui_state.settings.page = if let Some(page) = scenario.settings_page {
+        page
+    } else if scenario.capturing.is_some() || scenario.clash {
+        crate::ui::settings::SettingsPage::Shortcuts
+    } else if scenario.watch.is_some() {
+        crate::ui::settings::SettingsPage::Library
+    } else if scenario.lan {
+        crate::ui::settings::SettingsPage::Remote
+    } else {
+        crate::ui::settings::SettingsPage::Output
+    };
     ui_state.side_tab = scenario.side_tab;
-    ui_state.library_page = scenario.library_page;
+    if scenario.recent {
+        for path in [
+            "playlists/friday.toml",
+            "D:/shows/a very long folder name for the summer festival main stage/closing set.toml",
+            "warmup.toml",
+        ] {
+            ui_state.remember_playlist(path);
+        }
+    }
     ui_state.browser.cards = scenario.cards;
     if let Some(query) = scenario.palette {
         ui_state.command_palette.open_with(query);
@@ -1098,6 +1143,12 @@ fn draw_events(
         key_capture: scenario.macro_capture,
         ..MapUi::default()
     };
+    if scenario.map_open {
+        map_ui.selected = Some(0);
+        map_ui.selected_macro = Some(1);
+        map_ui.add.open = true;
+        map_ui.add.as_macro = true;
+    }
     let bindings = crate::commands::Bindings::default();
     let mut remote = sample_remote(scenario.mapped)?;
     let presets = vec!["Slow burn".to_string(), "Peak".to_string()];
@@ -1126,6 +1177,27 @@ fn draw_events(
     };
     let lan_view = sample_lan(scenario.lan, scenario.desktop_access);
     let mut lan_address = String::new();
+    // Two Strobes on the LAN for the Remote page to list (D468).
+    let found = if scenario.lan {
+        vec![
+            strobe_remote::discovery::Found {
+                id: "a".into(),
+                name: "FOH-LAPTOP".into(),
+                addr: std::net::SocketAddr::from(([192, 168, 1, 31], 47812)),
+                desktop: true,
+                seen: std::time::Instant::now(),
+            },
+            strobe_remote::discovery::Found {
+                id: "b".into(),
+                name: "BOOTH-PC".into(),
+                addr: std::net::SocketAddr::from(([192, 168, 1, 32], 47812)),
+                desktop: false,
+                seen: std::time::Instant::now(),
+            },
+        ]
+    } else {
+        Vec::new()
+    };
     let mut lan_port = "47812".to_string();
     let mut desktop_controller = crate::desktop::Controller::default();
     if scenario.reveal_connect {
@@ -1254,6 +1326,7 @@ fn draw_events(
                 budget_ms: 16.7,
                 scale: 0.85,
             },
+            picking: false,
             import: ImportPanel {
                 text: &mut import_text,
                 status: &status,
@@ -1294,6 +1367,7 @@ fn draw_events(
                 view: &lan_view,
                 address: &mut lan_address,
                 port: &mut lan_port,
+                found: &found,
             },
         };
         let pass = crate::ui::testing::run_keeping(
@@ -1315,7 +1389,7 @@ fn draw_events(
         all_actions,
         shapes,
         open_panes,
-        library_page: ui_state.library_page,
+        main: ui_state.panes.shown_in(crate::workspace::Dock::Main),
         textures,
     })
 }
@@ -2008,7 +2082,7 @@ fn draw_viewer(how: crate::desktop::Staged, size: (f32, f32), frames: usize) -> 
         actions,
         shapes,
         open_panes: Vec::new(),
-        library_page: crate::ui::browser::LibraryPage::Scenes,
+        main: None,
         textures,
     })
 }
@@ -2088,19 +2162,23 @@ fn the_connect_form_is_its_own_section_with_a_hint_not_a_value() -> Result<()> {
         "its own Settings section: {rows:?}"
     );
     assert!(
-        rows.iter()
-            .any(|line| line.starts_with("Host address, e.g. 192.168.1.20")),
+        rows.iter().any(|line| line == "e.g. 192.168.1.20"),
         "the empty field hints at what to type: {rows:?}"
     );
     assert!(
-        !rows.iter().any(|line| line.contains("192.168.1.20:47812")),
-        "no address that could be mistaken for a value: {rows:?}"
+        !rows.iter().any(|line| line == "192.168.1.20:47812"),
+        "no address in the field that could be mistaken for a value: {rows:?}"
+    );
+    assert!(
+        rows.iter().any(|line| line == "FOH-LAPTOP") && rows.iter().any(|line| line == "BOOTH-PC"),
+        "the Strobes found on the network are listed (D468): {rows:?}"
     );
     Ok(())
 }
 
 #[test]
-fn the_connect_form_offers_a_trust_file_in_place_of_the_code() -> Result<()> {
+fn the_connect_form_asks_for_approval_or_proves_a_trust_file_and_never_wants_a_code() -> Result<()>
+{
     let at = |trust_form| Scenario {
         lan: true,
         reveal_connect: true,
@@ -2118,8 +2196,8 @@ fn the_connect_form_offers_a_trust_file_in_place_of_the_code() -> Result<()> {
         "the option is there, off: {code:?}"
     );
     assert!(
-        code.iter().any(|line| line.starts_with("Pairing code")),
-        "off: the code field: {code:?}"
+        !code.iter().any(|line| line.starts_with("Pairing code")),
+        "a desktop needs no code (D468): {code:?}"
     );
     assert!(
         !code.iter().any(|line| line.starts_with("Trust file")),
@@ -2140,6 +2218,65 @@ fn the_connect_form_offers_a_trust_file_in_place_of_the_code() -> Result<()> {
             .any(|line| line.contains("--remote-trust") || line.contains("never its contents")),
         "on: says what the host needs and what is remembered: {trust:?}"
     );
+    Ok(())
+}
+
+#[test]
+fn the_mappings_pane_opens_a_macros_and_a_mappings_options_under_their_rows() -> Result<()> {
+    let scenario = Scenario {
+        mapped: true,
+        map_open: true,
+        panes: &[Pane::Map],
+        ..BASE
+    };
+    // Tall, so nothing is scrolled out of sight.
+    let drawn = draw(scenario, (1440.0, 4000.0), 4)?;
+    let lines: Vec<String> = texts(&drawn)
+        .into_iter()
+        .map(|(_, line, _)| line.trim().to_string())
+        .collect();
+    for wanted in [
+        "Pin it as a macro too",
+        "Also try",
+        "Reach",
+        "Glide",
+        "Press at",
+        "Curve",
+        "Sources",
+        "OSC input",
+    ] {
+        assert!(
+            lines.iter().any(|line| line == wanted),
+            "{wanted:?} is drawn: {lines:?}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn every_row_settings_search_finds_is_drawn_on_its_page() -> Result<()> {
+    use crate::ui::settings::SettingsPage;
+    for page in SettingsPage::ALL {
+        // The remote on, so its pairing rows exist; tall, so no row is
+        // scrolled out of sight.
+        let scenario = Scenario {
+            lan: true,
+            settings_page: Some(page),
+            panes: &[Pane::Settings],
+            ..BASE
+        };
+        let drawn = draw(scenario, (1600.0, 3200.0), 4)?;
+        let lines: Vec<String> = texts(&drawn)
+            .into_iter()
+            .map(|(_, line, _)| line.trim().to_string())
+            .collect();
+        for (_, title) in crate::ui::settings::tests::indexed().filter(|(on, _)| *on == page) {
+            assert!(
+                lines.iter().any(|line| line == title),
+                "{page:?} lists {title:?} in search but does not draw it: {lines:?}"
+            );
+        }
+    }
     Ok(())
 }
 
@@ -2348,6 +2485,63 @@ fn text_at(scenario: Scenario, size: (f32, f32), line: &str) -> Result<egui::Pos
         .ok_or_else(|| anyhow::anyhow!("nothing reads {line:?} in {}", scenario.name))
 }
 
+#[test]
+fn each_browse_button_asks_for_its_own_dialog() -> Result<()> {
+    use crate::picker::Purpose;
+    use crate::ui::settings::SettingsPage;
+    let cases = [
+        (
+            Scenario {
+                name: "import pane",
+                panes: &[Pane::Import],
+                ..BASE
+            },
+            Purpose::Shadertoy,
+        ),
+        (
+            Scenario {
+                name: "playlist pane, empty",
+                panes: &[Pane::Playlist],
+                ..BASE
+            },
+            Purpose::Playlist,
+        ),
+        (
+            Scenario {
+                name: "settings library",
+                settings_page: Some(SettingsPage::Library),
+                panes: &[Pane::Settings],
+                ..BASE
+            },
+            Purpose::WatchFolder,
+        ),
+        (
+            Scenario {
+                name: "settings remote with a trust file",
+                lan: true,
+                reveal_connect: true,
+                trust_form: true,
+                panes: &[Pane::Settings],
+                ..BASE
+            },
+            Purpose::TrustFile,
+        ),
+    ];
+    for (scenario, purpose) in cases {
+        // Tall, so a row far down the Remote page is drawn.
+        let size = (1440.0, 2400.0);
+        let at = text_at(scenario, size, "Browse...")?;
+        let drawn = draw_events(scenario, size, click_at(at))?;
+        assert!(
+            drawn.all_actions.contains(&Action::Browse(purpose)),
+            "{}: Browse asks for {purpose:?}: {:?}",
+            scenario.name,
+            drawn.all_actions
+        );
+    }
+    Ok(())
+}
+
 /// The scene loads `drawn` asked for, over every frame.
 fn loads(drawn: &Drawn) -> Vec<Action> {
     drawn
@@ -2429,8 +2623,7 @@ fn enter_on_a_focused_card_makes_it_live() -> Result<()> {
 }
 
 #[test]
-fn the_library_flips_between_scenes_and_controls_by_switch_key_and_palette() -> Result<()> {
-    use crate::ui::browser::LibraryPage;
+fn controls_is_a_view_on_the_rail_reached_by_click_key_and_palette() -> Result<()> {
     let size = (1440.0, 900.0);
 
     let at = text_at(BASE, size, "Controls")?;
@@ -2438,15 +2631,15 @@ fn the_library_flips_between_scenes_and_controls_by_switch_key_and_palette() -> 
     frames.push(Vec::new());
     let drawn = draw_events(BASE, size, frames)?;
     assert_eq!(
-        drawn.library_page,
-        LibraryPage::Controls,
-        "the switch's Controls cell"
+        drawn.main,
+        Some(Pane::Controls),
+        "the rail's Controls entry"
     );
     assert!(drawn.all_actions.is_empty(), "a presentation change only");
 
     let ctrl_l = || press(egui::Key::L, egui::Modifiers::COMMAND);
     let drawn = draw_events(BASE, size, vec![vec![ctrl_l()], Vec::new()])?;
-    assert_eq!(drawn.library_page, LibraryPage::Controls, "Ctrl+L flips");
+    assert_eq!(drawn.main, Some(Pane::Controls), "Ctrl+L shows Controls");
     // Let go between the two presses: egui reads a second press of a key
     // still held as a repeat.
     let drawn = draw_events(
@@ -2459,34 +2652,64 @@ fn the_library_flips_between_scenes_and_controls_by_switch_key_and_palette() -> 
             vec![release(egui::Key::L)],
         ],
     )?;
-    assert_eq!(drawn.library_page, LibraryPage::Scenes, "and flips back");
+    assert_eq!(drawn.main, Some(Pane::Browser), "and back to the library");
 
-    let play = Scenario {
-        panes: &[Pane::Inspector],
+    let mappings = Scenario {
+        panes: &[Pane::Inspector, Pane::Map],
         ..BASE
     };
-    let drawn = draw_events(play, size, vec![vec![ctrl_l()], Vec::new()])?;
-    assert!(
-        drawn.open_panes.contains(&Pane::Browser) && drawn.library_page == LibraryPage::Controls,
-        "from PLAY it shows the library on Controls: {:?} {:?}",
-        drawn.open_panes,
-        drawn.library_page
+    let drawn = draw_events(mappings, size, vec![vec![ctrl_l()], Vec::new()])?;
+    assert_eq!(
+        drawn.main,
+        Some(Pane::Controls),
+        "from Mappings it shows Controls"
     );
 
-    let drawn = draw_events(BASE, size, palette_run("switch scenes"))?;
+    let drawn = draw_events(BASE, size, palette_run("switch library"))?;
     assert_eq!(
-        drawn.library_page,
-        LibraryPage::Controls,
-        "Ctrl+K, \"switch scenes\", Enter"
+        drawn.main,
+        Some(Pane::Controls),
+        "Ctrl+K, \"switch library\", Enter"
     );
     assert!(drawn.all_actions.is_empty(), "and nothing else ran");
     Ok(())
 }
 
 #[test]
+fn the_rail_names_no_play_and_a_click_on_the_shown_view_keeps_it() -> Result<()> {
+    let size = (1440.0, 900.0);
+    let drawn = draw(BASE, size, 2)?;
+    assert!(
+        !texts(&drawn).iter().any(|(_, line, _)| line == "Play"),
+        "the rail has no Play entry (D479)"
+    );
+    let at = text_at(BASE, size, "Library")?;
+    let mut frames = click_at(at);
+    frames.push(Vec::new());
+    let drawn = draw_events(BASE, size, frames)?;
+    assert_eq!(
+        drawn.main,
+        Some(Pane::Browser),
+        "clicking the library while it shows leaves it shown"
+    );
+    let escape = press(egui::Key::Escape, egui::Modifiers::NONE);
+    let only = Scenario {
+        panes: &[Pane::Browser],
+        ..BASE
+    };
+    let drawn = draw_events(only, size, vec![vec![escape], Vec::new()])?;
+    assert_eq!(
+        drawn.main,
+        Some(Pane::Browser),
+        "Esc keeps the last main view rather than leaving one the rail cannot name"
+    );
+    Ok(())
+}
+
+#[test]
 fn the_controls_page_draws_the_controls_once_with_the_preview_beside_them() -> Result<()> {
     let scenario = Scenario {
-        library_page: crate::ui::browser::LibraryPage::Controls,
+        panes: CONTROLS,
         ..BASE
     };
     for size in [(1920.0, 1080.0), (1280.0, 720.0)] {

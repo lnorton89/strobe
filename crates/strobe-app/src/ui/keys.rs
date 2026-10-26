@@ -245,7 +245,7 @@ pub fn run(command: CommandId, model: &mut Model<'_>, actions: &mut Vec<Action>)
         }
         CommandId::CloseTopmostPane => {
             // Whether a pane was open to close does not change anything else.
-            let _ = model.ui.panes.close_topmost();
+            let _ = model.ui.panes.go_back();
         }
         CommandId::OpenPalette => model.ui.command_palette.toggle(),
         CommandId::GenerateControls => actions.push(Action::GenerateControls),
@@ -253,21 +253,17 @@ pub fn run(command: CommandId, model: &mut Model<'_>, actions: &mut Vec<Action>)
     }
 }
 
-/// Flips the library view between Scenes and Controls (D291). From any
-/// other main view (PLAY, LIST, MAP...) it shows the library on Controls:
-/// someone reaching for the controls wants them, not the grid.
+/// Shows the Controls view, or the library from it (D291, D479). From any
+/// other main view (Playlist, Mappings...) it shows Controls: someone
+/// reaching for the controls wants them.
 pub fn toggle_controls_view(model: &mut Model<'_>) {
-    use super::browser::LibraryPage;
-    let library_shown =
-        model.ui.panes.shown_in(crate::workspace::Dock::Main) == Some(Pane::Browser);
-    model.ui.library_page = if library_shown {
-        model.ui.library_page.other()
+    let controls_shown =
+        model.ui.panes.shown_in(crate::workspace::Dock::Main) == Some(Pane::Controls);
+    model.ui.panes.open(if controls_shown {
+        Pane::Browser
     } else {
-        LibraryPage::Controls
-    };
-    if !library_shown {
-        model.ui.panes.open(Pane::Browser);
-    }
+        Pane::Controls
+    });
 }
 
 #[cfg(test)]

@@ -1,123 +1,117 @@
 // ============================================================================
 // Module:       strobe_app::ui::audio
-// Description:  The audio section of Settings: the active source, the input
-//               device picker, reactivity and speed, and tap tempo.
+// Description:  Settings' Audio page: the active source, the input device
+//               picker, reactivity and speed, and tap tempo.
 //
-// Dependencies: egui; strobe-audio (device types); super::{model, theme,
+// Dependencies: egui; strobe-audio (device types); super::{form, model,
 //               widgets}; crate::audio
 // ============================================================================
 
-//! The audio section (in the Settings pane).
+//! The Audio page of Settings, in `super::form`'s grammar.
 //!
 //! It shows what the title bar's audio readout also shows (the active
 //! source), because on stage the first question about a dead-looking show is
 //! "is it hearing anything?". Missing audio is a state, not an error: the
 //! visuals keep running on the fixed synthetic track, and this section says
-//! so and offers the two things that fix it, *Rescan* and choosing a device.
+//! so in the input row's status and note, and offers the two things that
+//! fix it: the rescan button and choosing a device.
 //!
 //! The widgets only edit the model's values and push actions; the app owns
 //! the settings, so they survive a scene change.
 
+use super::form::{self, Row};
 use super::model::{Action, AudioPanel};
-use super::theme::{self, SPACE_SM, SPACE_XS};
-use super::widgets::{self, Tone};
+use super::widgets;
 use crate::audio::GAIN;
 use crate::icon::Icon;
 use crate::palette::Palette;
 use strobe_audio::capture::{DeviceChoice, DeviceInfo, DeviceKind};
 
-/// Width of the device picker, in points.
-const PICKER_WIDTH: f32 = 190.0;
+/// The widest the device picker gets, in points.
+const PICKER_WIDTH: f32 = 240.0;
 
-/// Draws the section.
+/// The input row's title, also its entry in Settings' search.
+pub const INPUT: &str = "Audio input";
+/// The reactivity row's title.
+pub const REACTIVITY: &str = "Reactivity";
+/// The audio-speed row's title.
+pub const SPEED: &str = "Audio speed";
+/// The tempo row's title.
+pub const TEMPO: &str = "Tempo";
+
+/// Draws the page's groups.
 pub fn show(
     ui: &mut egui::Ui,
     theme: &Palette,
     audio: &mut AudioPanel<'_>,
     actions: &mut Vec<Action>,
 ) {
-    if audio.live {
-        ui.label(
-            egui::RichText::new(audio.source)
-                .small()
-                .color(theme::rgb(theme.success)),
-        );
-    } else if audio.can_capture {
-        widgets::banner(
-            ui,
-            theme,
-            Tone::Warning,
-            &format!(
-                "{}. The visuals keep running without audio reaction.",
-                audio.source
-            ),
-            |_| {},
-        );
-    } else {
-        ui.label(
-            egui::RichText::new(audio.source)
-                .small()
-                .color(theme::rgb(theme.text_muted)),
-        );
-    }
-    ui.add_space(SPACE_XS);
-
-    ui.add_enabled_ui(audio.can_capture, |ui| {
-        ui.horizontal(|ui| {
-            egui::ComboBox::from_id_salt("audio-input")
-                .width(PICKER_WIDTH)
-                .selected_text(choice_label(audio.choice, audio.devices))
-                .show_ui(ui, |ui| input_choices(ui, audio, actions));
-            if widgets::button(ui, theme, Some(Icon::Refresh), "Rescan")
-                .on_hover_text("List the audio devices again")
-                .clicked()
-            {
-                actions.push(Action::RefreshAudioDevices);
-            }
+    form::group(ui, theme, "Input", |group| {
+        let (icon, word, colour) = if audio.live {
+            (Icon::Check, "Listening", theme.success)
+        } else if audio.can_capture {
+            (Icon::Warning, "No input", theme.warning)
+        } else {
+            (Icon::Info, "Synthetic", theme.text_muted)
+        };
+        let mut row = Row::new(INPUT)
+            .status(icon, word, colour)
+            .description(audio.source);
+        if audio.can_capture && !audio.live {
+            row = row.note(
+                "The visuals keep running on the built-in 120 BPM track until audio arrives.",
+                theme.warning,
+            );
+        }
+        group.row(row, |ui| {
+            ui.add_enabled_ui(audio.can_capture, |ui| {
+                if widgets::icon_button(ui, theme, Icon::Refresh, "List the audio devices again")
+                    .clicked()
+                {
+                    actions.push(Action::RefreshAudioDevices);
+                }
+                egui::ComboBox::from_id_salt("audio-input")
+                    .width(ui.available_width().min(PICKER_WIDTH))
+                    .selected_text(choice_label(audio.choice, audio.devices))
+                    .show_ui(ui, |ui| input_choices(ui, audio, actions));
+            });
         });
     });
-    ui.add_space(SPACE_XS);
-
-    ui.label(
-        egui::RichText::new("Reactivity")
-            .small()
-            .color(theme::rgb(theme.text_muted)),
-    );
-    ui.spacing_mut().slider_width = (ui.available_width() - 80.0).max(60.0);
-    let reactivity = ui.add(
-        egui::Slider::new(audio.reactivity, GAIN)
-            .custom_formatter(|value, _| format!("{value:.2}")),
-    );
-    if reactivity.changed() {
-        actions.push(Action::SetReactivity(*audio.reactivity));
-    }
-    ui.label(
-        egui::RichText::new("Audio speed")
-            .small()
-            .color(theme::rgb(theme.text_muted)),
-    );
-    let speed = ui.add(
-        egui::Slider::new(audio.speed, GAIN).custom_formatter(|value, _| format!("{value:.2}")),
-    );
-    if speed.changed() {
-        actions.push(Action::SetAudioSpeed(*audio.speed));
-    }
-
-    ui.add_space(SPACE_SM);
-    ui.horizontal(|ui| {
-        let tap = ui
-            .add_enabled_ui(audio.live, |ui| {
-                widgets::button(ui, theme, None, "Tap tempo (T)")
-            })
-            .inner
-            .on_disabled_hover_text("Tap tempo needs a live audio input");
-        if tap.clicked() {
-            actions.push(Action::TapTempo);
-        }
-        ui.label(
-            egui::RichText::new(format!("{:.1} BPM", audio.bpm))
-                .monospace()
-                .color(theme::rgb(theme.text_muted)),
+    form::group(ui, theme, "Response", |group| {
+        group.row(
+            Row::new(REACTIVITY)
+                .description("How strongly scenes answer the input level. 1.00 is as heard."),
+            |ui| {
+                if form::slider(ui, audio.reactivity, GAIN, None, |v| format!("{v:.2}")).changed() {
+                    actions.push(Action::SetReactivity(*audio.reactivity));
+                }
+            },
+        );
+        group.row(
+            Row::new(SPEED).description("How fast the audio-driven clocks run. 1.00 is normal."),
+            |ui| {
+                if form::slider(ui, audio.speed, GAIN, None, |v| format!("{v:.2}")).changed() {
+                    actions.push(Action::SetAudioSpeed(*audio.speed));
+                }
+            },
+        );
+        let tempo = format!("{:.1} BPM", audio.bpm);
+        group.row(
+            Row::new(TEMPO)
+                .status(Icon::Audio, &tempo, theme.text_muted)
+                .description(if audio.live {
+                    "Tap along with the beat, or press T."
+                } else {
+                    "Tap tempo needs a live audio input."
+                }),
+            |ui| {
+                let tap = ui
+                    .add_enabled_ui(audio.live, |ui| widgets::button(ui, theme, None, "Tap"))
+                    .inner;
+                if tap.clicked() {
+                    actions.push(Action::TapTempo);
+                }
+            },
         );
     });
 }

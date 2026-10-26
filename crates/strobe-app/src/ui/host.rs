@@ -57,6 +57,7 @@ impl UiHost {
         let painter =
             Painter::new(gl.glow(), "", None, true).map_err(|e| format!("egui painter: {e}"))?;
         let ctx = egui::Context::default();
+        super::fonts::install(&ctx);
         super::theme::apply(&ctx, palette, super::theme::Density::default());
         let input = State::new(
             ctx.clone(),

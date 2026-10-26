@@ -19,9 +19,14 @@
 //! carry subsystem, subject, phase, root message and what the app did about
 //! it. It is bounded (the last 200 records) and drawn only while this pane
 //! is open.
+//!
+//! The pane is one page of cards that scrolls as a whole (D483): the
+//! subsystem cards, two to a row where there is room; Needs work as a card
+//! with a row per failed scene (its name, the first line of why, and Open
+//! in Editor); and the console as a card of a fixed height that scrolls
+//! inside, where it used to take whatever the cards left.
 
 use super::model::{Action, Model};
-use super::state::UiState;
 use super::theme::{self, SPACE_SM, SPACE_XS};
 use super::widgets::{self, Tone};
 use crate::console::Level;
@@ -44,31 +49,31 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
     if closed {
         model.ui.panes.close(Pane::Diagnostics);
     }
-    // The status cards take what they need, leaving the console at least
-    // CONSOLE_MIN; they scroll only when even that does not fit. A fixed
-    // half split cut the SCRIPT card in two on the T480 at 150% (its
-    // floating scroll bar hidden until hover), which read as clipping.
-    const CONSOLE_MIN: f32 = 180.0;
-    let available = ui.available_height();
-    let top = (available - CONSOLE_MIN).max(available * 0.5).max(160.0);
     egui::ScrollArea::vertical()
-        .id_salt("diagnostics-status")
-        .max_height(top)
-        .auto_shrink([false, true])
+        .id_salt("diagnostics-page")
+        .auto_shrink([false, false])
         .show(ui, |ui| {
             cards(ui, model, theme);
-            needs_work(ui, model, theme);
+            needs_work(ui, model, theme, actions);
+            console(ui, model, theme, actions);
         });
-    console(ui, model, theme, actions);
 }
 
-/// One subsystem's card: a title, a status chip, and its facts.
-fn card(
+/// From this width the subsystem cards sit two to a row.
+const TWO_COLUMNS: f32 = 760.0;
+
+/// The console card's height for its lines.
+const CONSOLE_HEIGHT: f32 = 280.0;
+
+/// A card's frame and its title row, with a status chip at the right when
+/// there is one; `body` draws under the title.
+fn card_frame(
     ui: &mut Ui,
     theme: &Palette,
     title: &str,
     tone: Option<(Tone, &str)>,
-    facts: &[(&str, String)],
+    extra: impl FnOnce(&mut Ui),
+    body: impl FnOnce(&mut Ui),
 ) {
     egui::Frame::new()
         .fill(theme::rgb(theme.raised))
@@ -84,17 +89,38 @@ fn card(
                         .strong()
                         .color(theme::rgb(theme.text_muted)),
                 );
-                if let Some((tone, word)) = tone {
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    extra(ui);
+                    if let Some((tone, word)) = tone {
                         widgets::status_chip(ui, tone.icon(), word, tone.colour(theme));
-                    });
-                }
+                    }
+                });
             });
+            body(ui);
+        });
+    ui.add_space(SPACE_XS);
+}
+
+/// One subsystem's card: a title, a status chip, and its facts.
+fn card(
+    ui: &mut Ui,
+    theme: &Palette,
+    title: &str,
+    tone: Option<(Tone, &str)>,
+    facts: &[(&str, String)],
+) {
+    card_frame(
+        ui,
+        theme,
+        title,
+        tone,
+        |_| {},
+        |ui| {
             for (key, value) in facts {
                 widgets::kv_row(ui, theme, key, value, theme.text);
             }
-        });
-    ui.add_space(SPACE_XS);
+        },
+    );
 }
 
 /// Below this the input counts as hearing nothing: a microphone's own
@@ -120,7 +146,27 @@ fn input_level(live: bool, rms: f32) -> String {
     }
 }
 
+/// The subsystem cards: renderer and script, audio and output, two to a row
+/// from [`TWO_COLUMNS`].
 fn cards(ui: &mut Ui, model: &Model<'_>, theme: &Palette) {
+    if ui.available_width() >= TWO_COLUMNS {
+        ui.columns(2, |cols| {
+            if let [left, right] = cols {
+                renderer_card(left, model, theme);
+                script_card(left, model, theme);
+                audio_card(right, model, theme);
+                output_card(right, model, theme);
+            }
+        });
+    } else {
+        renderer_card(ui, model, theme);
+        audio_card(ui, model, theme);
+        script_card(ui, model, theme);
+        output_card(ui, model, theme);
+    }
+}
+
+fn renderer_card(ui: &mut Ui, model: &Model<'_>, theme: &Palette) {
     let perf = &model.perf;
     let gpu_tone = match (perf.has_timer, perf.gpu_ms) {
         (false, _) => (Tone::Warning, "no timer"),
@@ -173,7 +219,9 @@ fn cards(ui: &mut Ui, model: &Model<'_>, theme: &Palette) {
             ),
         ],
     );
+}
 
+fn audio_card(ui: &mut Ui, model: &Model<'_>, theme: &Palette) {
     let audio_tone = if model.audio.live {
         (Tone::Info, "live")
     } else if model.audio.can_capture {
@@ -203,7 +251,9 @@ fn cards(ui: &mut Ui, model: &Model<'_>, theme: &Palette) {
             ),
         ],
     );
+}
 
+fn script_card(ui: &mut Ui, model: &Model<'_>, theme: &Palette) {
     let (script_tone, script_text) = match model.script {
         None => (None, "no script".to_string()),
         Some(ScriptState::Running) => (Some((Tone::Info, "running")), "running".to_string()),
@@ -226,7 +276,9 @@ fn cards(ui: &mut Ui, model: &Model<'_>, theme: &Palette) {
         script_tone,
         &[("script.js", script_text)],
     );
+}
 
+fn output_card(ui: &mut Ui, model: &Model<'_>, theme: &Palette) {
     let output = if !model.output_visible {
         "hidden (starts hidden; the scene keeps rendering)".to_string()
     } else if model.fullscreen {
@@ -264,8 +316,9 @@ fn cards(ui: &mut Ui, model: &Model<'_>, theme: &Palette) {
     );
 }
 
-/// The scenes that failed to load, with the first line of why.
-fn needs_work(ui: &mut Ui, model: &Model<'_>, theme: &Palette) {
+/// The scenes that failed to load this run, as a card: a row each with
+/// the scene's name, the first line of why, and Open in Editor.
+fn needs_work(ui: &mut Ui, model: &Model<'_>, theme: &Palette, actions: &mut Vec<Action>) {
     let failed: Vec<(&str, &str)> = model
         .library
         .entries
@@ -276,102 +329,144 @@ fn needs_work(ui: &mut Ui, model: &Model<'_>, theme: &Palette) {
             Health::Unknown | Health::Ready => None,
         })
         .collect();
-    widgets::section(ui, theme, "Needs work");
-    if failed.is_empty() {
-        ui.label(
-            egui::RichText::new("No scene has failed to load this run.")
-                .small()
-                .color(theme::rgb(theme.text_muted)),
-        );
-        return;
-    }
-    for (name, reason) in failed {
-        widgets::banner(
-            ui,
-            theme,
-            Tone::Error,
-            &format!("{name}: {}", reason.lines().next().unwrap_or("")),
-            |_| {},
-        );
-        ui.add_space(SPACE_XS);
-    }
-}
-
-fn console(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Vec<Action>) {
-    ui.add_space(SPACE_SM);
-    ui.horizontal(|ui| {
-        ui.label(
-            egui::RichText::new("CONSOLE")
-                .size(10.5)
-                .strong()
-                .color(theme::rgb(theme.text_muted)),
-        );
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if widgets::button(ui, theme, None, "Clear").clicked() {
-                actions.push(Action::ClearConsole);
-            }
-            problems_only(ui, model.ui);
-        });
-    });
-    widgets::section_rule(ui, theme);
-    ui.add_space(SPACE_XS);
-    let only_problems = model.ui.console_problems_only;
-    let mut shown = 0_usize;
-    egui::ScrollArea::vertical()
-        .id_salt("diagnostics-console")
-        .auto_shrink([false, false])
-        .stick_to_bottom(true)
-        .show(ui, |ui| {
-            for line in model.console.lines() {
-                let text = egui::RichText::new(&line.text).monospace().size(11.5);
-                let text = match line.level {
-                    Level::Info => {
-                        if only_problems {
-                            continue;
-                        }
-                        text.color(theme::rgb(theme.text))
-                    }
-                    Level::Debug => {
-                        if only_problems {
-                            continue;
-                        }
-                        text.color(theme::rgb(theme.text_muted))
-                    }
-                    Level::Warn => text.color(theme::rgb(theme.warning)),
-                    Level::Error => text.color(theme::rgb(theme.danger)),
-                };
-                ui.label(text);
-                shown += 1;
-            }
-        });
-    if shown == 0 {
-        ui.label(
-            egui::RichText::new(if only_problems {
-                "No warnings or errors."
-            } else {
-                "The console is empty."
-            })
-            .small()
-            .color(theme::rgb(theme.text_muted)),
-        );
-    }
-}
-
-/// The "problems only" switch.
-fn problems_only(ui: &mut Ui, state: &mut UiState) {
-    let theme = super::theme::palette();
-    let on = state.console_problems_only;
-    if widgets::tool_button(
+    let count = match failed.len() {
+        0 => "none".to_string(),
+        1 => "1 scene".to_string(),
+        n => format!("{n} scenes"),
+    };
+    let tone = if failed.is_empty() {
+        Tone::Info
+    } else {
+        Tone::Error
+    };
+    card_frame(
         ui,
-        &theme,
-        Icon::Warning,
-        "Problems only",
-        on,
-        "Show only warnings and errors",
-    )
-    .clicked()
-    {
-        state.console_problems_only = !on;
+        theme,
+        "Needs work",
+        Some((tone, &count)),
+        |_| {},
+        |ui| {
+            if failed.is_empty() {
+                ui.label(
+                    egui::RichText::new("No scene has failed to load this run.")
+                        .font(theme::description_font())
+                        .color(theme::rgb(theme.text_muted)),
+                );
+                return;
+            }
+            for (index, (name, reason)) in failed.into_iter().enumerate() {
+                if index > 0 {
+                    widgets::section_rule(ui, theme);
+                }
+                ui.push_id(name, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.set_min_height(28.0);
+                        ui.label(
+                            egui::RichText::new(name)
+                                .strong()
+                                .color(theme::rgb(theme.text)),
+                        );
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if widgets::button(ui, theme, Some(Icon::Editor), "Open in Editor")
+                                .clicked()
+                            {
+                                actions.push(Action::OpenEditor(Some(name.to_string())));
+                            }
+                        });
+                    });
+                    let why = reason.lines().next().unwrap_or_default();
+                    let galley = widgets::truncated(
+                        ui,
+                        why,
+                        theme::description_font(),
+                        theme.text_muted,
+                        ui.available_width(),
+                    );
+                    let (rect, _) = ui.allocate_exact_size(galley.size(), egui::Sense::hover());
+                    ui.painter()
+                        .galley(rect.min, galley, theme::rgb(theme.text_muted));
+                    ui.add_space(SPACE_XS);
+                })
+                .response
+                .on_hover_text(reason);
+            }
+        },
+    );
+}
+
+/// The console, as a card [`CONSOLE_HEIGHT`] high whose lines scroll
+/// inside it and stay at the newest.
+fn console(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Vec<Action>) {
+    let only_problems = model.ui.console_problems_only;
+    let mut clear = false;
+    let mut toggle = false;
+    card_frame(
+        ui,
+        theme,
+        "Console",
+        None,
+        |ui| {
+            clear = widgets::button(ui, theme, None, "Clear").clicked();
+            toggle = widgets::tool_button(
+                ui,
+                theme,
+                Icon::Warning,
+                "Problems only",
+                only_problems,
+                "Show only warnings and errors",
+            )
+            .clicked();
+        },
+        |ui| {
+            ui.add_space(SPACE_XS);
+            let mut shown = 0_usize;
+            egui::ScrollArea::vertical()
+                .id_salt("diagnostics-console")
+                .max_height(CONSOLE_HEIGHT)
+                .min_scrolled_height(CONSOLE_HEIGHT)
+                .auto_shrink([false, false])
+                .stick_to_bottom(true)
+                .show(ui, |ui| {
+                    for line in model.console.lines() {
+                        let text = egui::RichText::new(&line.text).monospace().size(11.5);
+                        let text = match line.level {
+                            Level::Info => {
+                                if only_problems {
+                                    continue;
+                                }
+                                text.color(theme::rgb(theme.text))
+                            }
+                            Level::Debug => {
+                                if only_problems {
+                                    continue;
+                                }
+                                text.color(theme::rgb(theme.text_muted))
+                            }
+                            Level::Warn => text.color(theme::rgb(theme.warning)),
+                            Level::Error => text.color(theme::rgb(theme.danger)),
+                        };
+                        ui.label(text);
+                        shown += 1;
+                    }
+                    if shown == 0 {
+                        ui.label(
+                            egui::RichText::new(if only_problems {
+                                "No warnings or errors."
+                            } else {
+                                "The console is empty."
+                            })
+                            .font(theme::description_font())
+                            .color(theme::rgb(theme.text_muted)),
+                        );
+                    }
+                });
+        },
+    );
+    if clear {
+        actions.push(Action::ClearConsole);
+    }
+    if toggle {
+        model.ui.console_problems_only = !only_problems;
     }
 }
 

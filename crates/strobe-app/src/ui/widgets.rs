@@ -195,7 +195,7 @@ pub fn nav_item(
             egui::pos2(rect.center().x, rect.bottom() - 9.0),
             Align2::CENTER_CENTER,
             label,
-            FontId::new(10.0, egui::FontFamily::Proportional),
+            FontId::new(11.0, egui::FontFamily::Proportional),
             theme::rgb(if active { theme.text } else { colour }),
         );
     }
@@ -466,6 +466,21 @@ pub fn primary_button(ui: &mut Ui, theme: &Palette, label: &str) -> Response {
     response.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
+/// The Browse button beside a path field (D470): disabled while a dialog
+/// is already open. Returns whether it was clicked.
+pub fn browse_button(ui: &mut Ui, theme: &Palette, picking: bool) -> bool {
+    ui.add_enabled_ui(!picking, |ui| {
+        button(ui, theme, Some(Icon::Folder), "Browse...")
+            .on_hover_text("Choose it in the system's dialog")
+            .on_disabled_hover_text("A file dialog is already open")
+    })
+    .inner
+    .clicked()
+}
+
+/// The height of a [`button`].
+pub const BUTTON_HEIGHT: f32 = 26.0;
+
 /// A secondary button: raised surface, outlined, an optional leading icon.
 pub fn button(ui: &mut Ui, theme: &Palette, icon: Option<Icon>, label: &str) -> Response {
     let font = TextStyle::Button.resolve(ui.style());
@@ -477,7 +492,7 @@ pub fn button(ui: &mut Ui, theme: &Palette, icon: Option<Icon>, label: &str) -> 
     } else {
         0.0
     };
-    let size = Vec2::new(galley.size().x + lead + SPACE_MD * 2.0, 26.0);
+    let size = Vec2::new(galley.size().x + lead + SPACE_MD * 2.0, BUTTON_HEIGHT);
     let (rect, response) = ui.allocate_exact_size(size, Sense::click());
     let fill = hover_fill(
         ui,
@@ -610,6 +625,24 @@ pub fn segmented(
     clicked
 }
 
+/// A key, drawn as a key cap: outlined, in the monospace face, in `colour`.
+/// A shortcut in Settings, a macro's key in Mappings.
+pub fn keycap(ui: &mut Ui, theme: &Palette, text: &str, colour: Rgb) -> Response {
+    egui::Frame::new()
+        .fill(theme::rgb(theme.app))
+        .stroke(Stroke::new(1.0, theme::rgb(theme.border_strong)))
+        .corner_radius(CornerRadius::same(RADIUS))
+        .inner_margin(theme::margin_xy(SPACE_SM, SPACE_XS / 2.0))
+        .show(ui, |ui| {
+            ui.label(
+                egui::RichText::new(text)
+                    .monospace()
+                    .color(theme::rgb(colour)),
+            );
+        })
+        .response
+}
+
 /// A small labelled pill: a count, a source badge.
 pub fn chip(ui: &mut Ui, text: &str, fill: Rgb, text_color: Rgb) -> Response {
     let font = TextStyle::Small.resolve(ui.style());
@@ -691,7 +724,9 @@ pub fn status_chip_over(
 }
 
 /// Lays a single line of text out, truncated with an ellipsis if it does not
-/// fit `width`.
+/// fit `width`: after the last whole word that fits, when that keeps at
+/// least half the line ("Original Strobe…", not "Original Str…"), and
+/// mid-word otherwise (a name with no spaces, or one long word).
 pub fn truncated(
     ui: &Ui,
     text: &str,
@@ -699,12 +734,37 @@ pub fn truncated(
     color: Rgb,
     width: f32,
 ) -> std::sync::Arc<egui::Galley> {
-    let mut job = egui::text::LayoutJob::single_section(
-        text.to_string(),
-        egui::TextFormat::simple(font, theme::rgb(color)),
-    );
-    job.wrap = egui::text::TextWrapping::truncate_at_width(width.max(0.0));
-    ui.painter().layout_job(job)
+    let width = width.max(0.0);
+    let layout = |text: String, wrap: bool| {
+        let mut job = egui::text::LayoutJob::single_section(
+            text,
+            egui::TextFormat::simple(font.clone(), theme::rgb(color)),
+        );
+        if wrap {
+            job.wrap = egui::text::TextWrapping::truncate_at_width(width);
+        }
+        ui.painter().layout_job(job)
+    };
+    let galley = layout(text.to_string(), true);
+    if !galley.elided {
+        return galley;
+    }
+    let mut best = None;
+    for (at, _) in text.match_indices(' ') {
+        let words = text.get(..at).unwrap_or_default().trim_end();
+        if words.is_empty() {
+            continue;
+        }
+        let candidate = layout(format!("{words}\u{2026}"), false);
+        if candidate.size().x > width {
+            break;
+        }
+        best = Some(candidate);
+    }
+    match best {
+        Some(words) if words.size().x >= width * 0.5 => words,
+        Some(_) | None => galley,
+    }
 }
 
 /// A scene's identity colour: stable for a name, whatever its position in
@@ -712,12 +772,29 @@ pub fn truncated(
 /// strip (UI_DESIGN section 19). FNV-1a of the name into the theme's ramp.
 #[must_use]
 pub fn scene_colour(theme: &Palette, name: &str) -> Rgb {
+    theme.series_for(name_hash(name))
+}
+
+/// A scene's two cover colours (D474): its identity colour and a second
+/// one from the same ramp, also stable for the name, for the generated
+/// picture of a scene that has none.
+#[must_use]
+pub fn scene_colours(theme: &Palette, name: &str) -> (Rgb, Rgb) {
+    let hash = name_hash(name);
+    (
+        theme.series_for(hash),
+        theme.series_for(hash.rotate_left(23) ^ 0x9e37_79b9_7f4a_7c15),
+    )
+}
+
+/// FNV-1a of `name`.
+fn name_hash(name: &str) -> u64 {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     for byte in name.bytes() {
         hash ^= u64::from(byte);
         hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
     }
-    theme.series_for(hash)
+    hash
 }
 
 /// A pane's header: icon, title and a close button, over a rule. Anything
@@ -763,14 +840,16 @@ pub fn section_rule(ui: &mut Ui, theme: &Palette) {
     );
 }
 
-/// A small-caps section heading with its rule.
+/// A section heading: the type scale's heading step, in the primary text
+/// colour. It was 10.5 pt muted capitals, smaller and fainter than the
+/// labels under it, so nothing on a page outranked anything else (UI
+/// review S1).
 pub fn section(ui: &mut Ui, theme: &Palette, title: &str) {
-    ui.add_space(SPACE_XS);
+    ui.add_space(SPACE_SM);
     ui.label(
-        egui::RichText::new(title.to_uppercase())
-            .size(10.5)
-            .strong()
-            .color(theme::rgb(theme.text_muted)),
+        egui::RichText::new(title)
+            .font(theme::heading_font())
+            .color(theme::rgb(theme.text)),
     );
     ui.add_space(SPACE_XS);
 }
@@ -933,6 +1012,10 @@ pub fn banner(
                     if let Some(buttons) = buttons.take() {
                         buttons(ui);
                     }
+                    // The message takes all the room the buttons leave and
+                    // starts at its left, beside the tone word. Sized to
+                    // the text, a right-to-left row put it against the
+                    // buttons at the far edge (UI review S11).
                     let width = ui.available_width();
                     let galley = truncated(
                         ui,
@@ -941,10 +1024,8 @@ pub fn banner(
                         theme.text,
                         width,
                     );
-                    let (rect, response) = ui.allocate_exact_size(
-                        Vec2::new(width.min(galley.size().x), galley.size().y),
-                        Sense::hover(),
-                    );
+                    let (rect, response) =
+                        ui.allocate_exact_size(Vec2::new(width, galley.size().y), Sense::hover());
                     ui.painter()
                         .galley(rect.left_top(), galley, theme::rgb(theme.text));
                     response.on_hover_text(message);
@@ -1085,6 +1166,53 @@ mod tests {
             width = response.rect.width();
         });
         assert!(width.is_finite() && width > 0.0, "meter width {width}");
+    }
+
+    #[test]
+    fn truncation_keeps_whole_words_where_it_can() {
+        const WORDS: &str = "Original Strobe interpretation of a classic";
+        let mut lines = Vec::new();
+        let _ = size_of(|ui, theme| {
+            let font = egui::TextStyle::Body.resolve(ui.style());
+            let full = truncated(ui, WORDS, font.clone(), theme.text, 2000.0)
+                .size()
+                .x;
+            for (text, width) in [
+                (WORDS, full * 0.6),
+                ("01-aurora-gradient-with-no-spaces", 60.0),
+                (WORDS, full + 10.0),
+            ] {
+                let galley = truncated(ui, text, font.clone(), theme.text, width);
+                lines.push((
+                    galley.text().to_string(),
+                    galley.size().x,
+                    width,
+                    galley.elided,
+                ));
+            }
+        });
+        let cut = lines.first().cloned().unwrap_or_default();
+        let kept = cut.0.trim_end_matches('\u{2026}');
+        assert!(
+            cut.0.ends_with('\u{2026}') && WORDS.starts_with(kept),
+            "cut with an ellipsis: {cut:?}"
+        );
+        assert!(
+            WORDS
+                .get(kept.len()..)
+                .is_some_and(|rest| rest.starts_with(' ')),
+            "after a whole word: {cut:?}"
+        );
+        assert!(cut.1 <= cut.2 + 0.5, "and it fits: {cut:?}");
+        // egui elides at layout: the galley keeps the whole text and says
+        // it was cut.
+        let squashed = lines.get(1).cloned().unwrap_or_default();
+        assert!(
+            squashed.3 && squashed.1 <= squashed.2 + 0.5,
+            "a name with no spaces is cut mid-word: {squashed:?}"
+        );
+        let whole = lines.get(2).map(|line| line.0.clone()).unwrap_or_default();
+        assert_eq!(whole, WORDS, "a line that fits is whole");
     }
 
     #[test]

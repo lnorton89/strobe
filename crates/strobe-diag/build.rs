@@ -36,14 +36,29 @@ fn main() {
         .or_else(|| git(&["rev-parse", "--short=12", "HEAD"]))
         .unwrap_or_else(|| "unknown".to_string());
     // Tracked files only: build outputs and scratch files are not "dirty".
-    let dirty = git(&["status", "--porcelain", "--untracked-files=no"])
-        .is_some_and(|status| !status.is_empty());
+    // `--no-optional-locks` keeps `git status` from rewriting the index to
+    // refresh its stat cache.
+    let dirty = git(&[
+        "--no-optional-locks",
+        "status",
+        "--porcelain",
+        "--untracked-files=no",
+    ])
+    .is_some_and(|status| !status.is_empty());
 
-    // Re-run when the commit moves. `--git-path` resolves worktrees, where
-    // `.git` is a file and HEAD lives elsewhere.
-    for name in ["HEAD", "index"] {
-        if let Some(path) = git(&["rev-parse", "--git-path", name]) {
-            println!("cargo:rerun-if-changed={}", PathBuf::from(path).display());
+    // Re-run when the commit moves: HEAD changes on a checkout, and its
+    // reflog gains a line on every commit, reset, merge or rebase. Not the
+    // index: git rewrites it whenever anything (an editor, a git pane, a
+    // `git status`) refreshes its stat cache, and every rewrite rebuilt this
+    // crate and, through it, relinked the app. Only paths that exist are
+    // named, since cargo treats a missing one as always changed.
+    // `--git-path` resolves worktrees, where `.git` is a file and HEAD lives
+    // elsewhere.
+    for name in ["HEAD", "logs/HEAD"] {
+        if let Some(path) = git(&["rev-parse", "--git-path", name]).map(PathBuf::from)
+            && path.exists()
+        {
+            println!("cargo:rerun-if-changed={}", path.display());
         }
     }
 

@@ -132,6 +132,7 @@ fn rig_at(
             limits,
             proxied: proxied.map(str::to_string),
             trust,
+            advertise: None,
         },
         remote,
         clients.clone(),
@@ -550,6 +551,142 @@ fn desktop_input_is_bounded_and_validated_before_the_app_sees_it() -> Result<()>
         events,
         vec![strobe_remote::desktop::Input::Reset {}],
         "only the release of held input reached the app"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_phone_asks_with_a_name_and_the_host_approves_it_with_no_code() -> Result<()> {
+    let rig = rig()?;
+    let mut phone = open(&rig)?;
+    phone.hello()?;
+    phone.send(&json!({"type":"request_pair","name":"Ana's iPad"}))?;
+    eventually("the request to reach the desktop", || {
+        !rig.server.pairing_requests().is_empty()
+    })?;
+    let request = rig
+        .server
+        .pairing_requests()
+        .into_iter()
+        .next()
+        .context("a request")?;
+    ensure!(
+        request.label == "Ana's iPad, iPhone at 127.0.0.1",
+        "the name it gave, its kind and its real address: {}",
+        request.label
+    );
+    ensure!(rig.server.decide(request.id, true), "approved");
+    let paired = phone.until("paired")?;
+    let token = paired["token"].as_str().context("token")?.to_string();
+    phone.until("authenticated")?;
+    let state = phone.until("state")?;
+    ensure!(state["current"] == "Aurora", "the show's state: {state}");
+    phone.send(&json!({"type":"command","request_id":"r1","command":"blackout_on"}))?;
+    let result = phone.until("command_result")?;
+    ensure!(result["accepted"] == true, "a phone command runs: {result}");
+    // A phone paired this way has no desktop scope.
+    phone.send(&json!({"type":"desktop_input","events":[{"kind":"text","text":"x"}]}))?;
+    assert_eq!(
+        phone.closed()?,
+        1008,
+        "desktop input from a phone closes it"
+    );
+    // It keeps its pairing like any phone: the token authenticates later.
+    let (_, _rotated) = authenticate(&rig, &token)?;
+    // A name the protocol does not allow is refused before the operator.
+    let mut bad = open(&rig)?;
+    bad.hello()?;
+    bad.send(&json!({"type":"request_pair","name":"<script>"}))?;
+    assert_eq!(
+        bad.until("error")?["code"],
+        "invalid_request",
+        "a name outside the plain set"
+    );
+    assert!(
+        rig.server.pairing_requests().is_empty(),
+        "nothing put to the operator"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_desktop_asks_without_a_code_and_the_host_approves_or_denies() -> Result<()> {
+    let rig = rig()?;
+    let ask = json!({"type":"request_desktop","name":"stage-laptop"});
+    // With full desktop control off, nothing reaches the operator.
+    let mut off = open(&rig)?;
+    off.hello()?;
+    off.send(&ask)?;
+    assert_eq!(off.until("error")?["code"], "unavailable", "switch off");
+    assert!(
+        rig.server.pairing_requests().is_empty(),
+        "no request put to the operator"
+    );
+    drop(off);
+    rig.desktop.enable(true);
+    let mut asking = open(&rig)?;
+    asking.hello()?;
+    asking.send(&ask)?;
+    eventually("the request to reach the desktop", || {
+        !rig.server.pairing_requests().is_empty()
+    })?;
+    let request = rig
+        .server
+        .pairing_requests()
+        .into_iter()
+        .next()
+        .context("a request")?;
+    ensure!(
+        request.label == "Full desktop: stage-laptop at 127.0.0.1",
+        "named by the controller and its real address: {}",
+        request.label
+    );
+    // The same address asking again while it waits is refused.
+    let mut again = open(&rig)?;
+    again.hello()?;
+    again.send(&ask)?;
+    assert_eq!(
+        again.until("error")?["code"],
+        "pairing_rejected",
+        "one waiting request per address"
+    );
+    drop(again);
+    ensure!(rig.server.decide(request.id, true), "approved");
+    asking.until("paired")?;
+    asking.until("authenticated")?;
+    asking.send(&json!({"type":"desktop_open"}))?;
+    eventually("an approved desktop to get the lease", || {
+        rig.desktop.active()
+    })?;
+    drop(asking);
+    eventually("the lease to go with the connection", || {
+        !rig.desktop.active()
+    })?;
+    // Denied: told so, and the address waits before it may ask again.
+    let mut denied = open(&rig)?;
+    denied.hello()?;
+    denied.send(&ask)?;
+    eventually("the second request", || {
+        !rig.server.pairing_requests().is_empty()
+    })?;
+    let second = rig
+        .server
+        .pairing_requests()
+        .into_iter()
+        .next()
+        .context("a second request")?;
+    ensure!(rig.server.decide(second.id, false), "denied");
+    let error = denied.until("error")?;
+    assert_eq!(error["code"], "pairing_rejected", "told no: {error}");
+    denied.send(&ask)?;
+    assert_eq!(
+        denied.until("error")?["code"],
+        "pairing_rejected",
+        "and refused at once while it cools down"
+    );
+    assert!(
+        rig.server.pairing_requests().is_empty(),
+        "the refused ask put nothing in front of the operator"
     );
     Ok(())
 }
@@ -1259,6 +1396,7 @@ fn a_full_command_queue_is_busy_not_a_backlog() -> Result<()> {
             },
             proxied: None,
             trust: None,
+            advertise: None,
         },
         remote,
         clients,
@@ -1327,6 +1465,7 @@ fn a_command_the_phone_was_told_is_busy_is_not_run_when_the_app_catches_up() -> 
             },
             proxied: None,
             trust: None,
+            advertise: None,
         },
         remote,
         clients,
@@ -1385,6 +1524,7 @@ fn a_client_that_stops_reading_is_dropped_not_buffered() -> Result<()> {
             },
             proxied: None,
             trust: None,
+            advertise: None,
         },
         remote,
         clients,
@@ -1512,6 +1652,7 @@ fn stopping_drops_every_client_at_once_and_frees_the_port() -> Result<()> {
             limits: limits(),
             proxied: None,
             trust: None,
+            advertise: None,
         },
         remote,
         clients,
@@ -1544,6 +1685,7 @@ fn a_public_or_taken_address_is_refused_with_advice() -> Result<()> {
             limits: limits(),
             proxied: None,
             trust: None,
+            advertise: None,
         },
         remote.clone(),
         Clients::in_memory(),
@@ -1559,6 +1701,7 @@ fn a_public_or_taken_address_is_refused_with_advice() -> Result<()> {
             limits: limits(),
             proxied: None,
             trust: None,
+            advertise: None,
         },
         remote,
         Clients::in_memory(),

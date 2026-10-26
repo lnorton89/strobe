@@ -169,7 +169,7 @@ mod tests {
             (":focus-visible", "visible keyboard focus"),
             ("aria-live", "announced status"),
             ("aria-pressed", "toggle state not by colour alone"),
-            ("<label for=\"code\"", "a labelled code field"),
+            ("<label for=\"name\"", "a labelled name field"),
             ("lang=\"en\"", "a document language"),
             ("\"stale\"", "a stale state"),
             ("Reconnecting", "a reconnect state"),
@@ -178,6 +178,26 @@ mod tests {
         ] {
             assert!(HTML.contains(needle), "{what}: {needle}");
         }
+    }
+
+    #[test]
+    fn the_page_asks_for_a_name_and_never_for_a_code() {
+        assert!(
+            HTML.contains("type: \"request_pair\""),
+            "it sends request_pair (D469)"
+        );
+        for needle in [
+            "type: \"pair\"",
+            "one-time-code",
+            "six-digit",
+            "Pairing code",
+        ] {
+            assert!(!HTML.contains(needle), "the page still has {needle:?}");
+        }
+        assert!(
+            HTML.contains("maxlength=\"32\"") && crate::MAX_DEVICE_NAME == 32,
+            "the field allows what the protocol does"
+        );
     }
 
     #[test]

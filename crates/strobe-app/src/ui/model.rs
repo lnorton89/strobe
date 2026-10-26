@@ -155,6 +155,9 @@ pub enum Action {
     ToggleHold,
     /// Load the playlist file at this path (the LIST pane's field).
     LoadPlaylist(String),
+    /// Open the system's file or folder dialog for this purpose (D470).
+    /// The app runs it off the frame loop and acts on the answer.
+    Browse(crate::picker::Purpose),
     /// Unload the playlist and go back to library order.
     UnloadPlaylist,
     /// Add 30 seconds to the current cue.
@@ -266,14 +269,10 @@ pub enum Action {
     DisconnectDesktop,
     /// Open Settings at the form for controlling another Strobe, with its
     /// address field focused: the command palette's "Control another
-    /// Strobe", and a failed connection's way to a new pairing code. Any
-    /// viewer still on screen is closed first.
+    /// Strobe", and a failed connection's retry. Any viewer still on screen
+    /// is closed first.
     ControlAnotherDesktop,
-    /// Show a pairing code for a phone to type.
-    OpenRemotePairing,
-    /// Withdraw the pairing code.
-    CloseRemotePairing,
-    /// Approve or deny a phone that typed the code.
+    /// Approve or deny a phone or desktop that asked to pair (D468, D469).
     DecideRemotePairing {
         /// The request.
         id: u64,
@@ -349,6 +348,8 @@ pub struct LanPanel<'a> {
     pub address: &'a mut String,
     /// The port field.
     pub port: &'a mut String,
+    /// Other Strobes on the LAN, while Settings shows Remote (D468).
+    pub found: &'a [strobe_remote::discovery::Found],
 }
 
 /// The import panel's inputs.
@@ -699,6 +700,8 @@ pub struct Model<'a> {
     pub script: Option<&'a ScriptState>,
     /// GPU time, budget and adaptive resolution.
     pub perf: PerfPanel,
+    /// A file or folder dialog is open (D470): Browse buttons wait.
+    pub picking: bool,
     /// Shadertoy import.
     pub import: ImportPanel<'a>,
     /// The playlist pane.

@@ -21,6 +21,8 @@
 //!   command on its own thread through its ordinary command path.
 //! - **Pairing** ([`pairing`]), **paired clients** ([`clients`]) and their
 //!   **secrets** ([`secret`]) (D251).
+//! - **Discovery** ([`discovery`], D468): a host with the remote on answers
+//!   a LAN broadcast, so a controller can list it instead of typing it.
 //! - The **listener** ([`server`], D250, D252, D253): opt-in, bound to a
 //!   chosen private address, serving one embedded page and one WebSocket on
 //!   threads of its own.
@@ -32,6 +34,7 @@ pub mod bridge;
 pub mod client;
 pub mod clients;
 pub mod desktop;
+pub mod discovery;
 pub mod pairing;
 pub mod secret;
 pub mod server;
@@ -58,6 +61,22 @@ pub const MAX_MESSAGE_BYTES: usize = 4096;
 /// The longest pairing code or token accepted, in bytes.
 pub const MAX_SECRET_LEN: usize = 128;
 
+/// The longest device name a phone may give, in bytes (D469).
+pub const MAX_DEVICE_NAME: usize = 32;
+
+/// Whether `name` may name a phone in a request (D469): 1 to
+/// [`MAX_DEVICE_NAME`] bytes of ASCII letters, digits, spaces, `.`, `_`,
+/// `-` and `'`, not starting or ending with a space. Plain, so it prints
+/// the same in the desktop's list, its log and the paired-clients file.
+pub fn valid_device_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= MAX_DEVICE_NAME
+        && name.trim() == name
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b' ' | b'.' | b'_' | b'-' | b'\''))
+}
+
 /// A client-to-server message. Adapters must enforce a small frame-size limit
 /// before deserializing and must authenticate every command after pairing.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -68,7 +87,16 @@ pub enum ClientMessage {
         /// Client's supported protocol version.
         protocol_version: u16,
     },
+    /// Ask to pair this phone or tablet with no code (D469): the desktop
+    /// shows the request, with this name, the device's kind and its
+    /// address, and Approve and Deny.
+    RequestPair {
+        /// What the person called this device ([`valid_device_name`]).
+        name: String,
+    },
     /// Exchange the short-lived pairing code shown by the desktop app.
+    /// Kept so the version 1 message still parses (D236); the desktop no
+    /// longer shows a code (D469), so it finds nothing open.
     Pair {
         /// One-time code; never log this field.
         code: String,
@@ -106,6 +134,14 @@ pub enum ClientMessage {
     DesktopInput {
         /// A bounded batch of pointer, keyboard and text events.
         events: Vec<desktop::Input>,
+    },
+    /// Ask to pair for full desktop control with no code (D468): the host
+    /// shows the request with Approve and Deny. Requires the host's
+    /// full-desktop switch, like `pair_desktop`.
+    RequestDesktop {
+        /// The controller's name (letters, digits, `.`, `_`, `-`), shown
+        /// in the host's request with the connection's address.
+        name: String,
     },
     /// Venue mode (D288): ask to pair for full desktop control by proving
     /// knowledge of the host's trust file instead of waiting for an
@@ -346,6 +382,8 @@ pub fn decode_client(text: &str) -> Result<ClientMessage, ErrorCode> {
         ClientMessage::DesktopOpen {} => true,
         ClientMessage::DesktopInput { events } => desktop::valid_inputs(events),
         ClientMessage::TrustStart { controller_id } => trust::valid_controller_id(controller_id),
+        ClientMessage::RequestDesktop { name } => trust::valid_controller_id(name),
+        ClientMessage::RequestPair { name } => valid_device_name(name),
         ClientMessage::TrustProof { response } => trust::valid_hex_block(response),
     };
     if valid {
@@ -551,6 +589,36 @@ mod tests {
         r#"{"type":"desktop_input","events":[{"kind":"move","x":0.25,"y":0.5},{"kind":"button","x":0.25,"y":0.5,"button":0,"down":true,"modifiers":{"alt":false,"ctrl":true,"shift":false,"mac_cmd":false}}]}"#,
         r#"{"type":"desktop_input","events":[{"kind":"key","key":"Tab","down":true,"modifiers":{"alt":false,"ctrl":false,"shift":false,"mac_cmd":false}},{"kind":"text","text":"x"},{"kind":"paste","text":"y"},{"kind":"scroll","x":0.0,"y":-24.0,"modifiers":{"alt":false,"ctrl":false,"shift":false,"mac_cmd":false}},{"kind":"reset"},{"kind":"copy"},{"kind":"cut"}]}"#,
     ];
+
+    /// The code-free requests (D468, D469), frozen like the others.
+    const REQUEST_CLIENT: [&str; 2] = [
+        r#"{"type":"request_desktop","name":"t480-1a2b3c4d"}"#,
+        r#"{"type":"request_pair","name":"Ana's iPad"}"#,
+    ];
+
+    #[test]
+    fn the_desktop_request_reads_and_writes_byte_for_byte_and_is_validated() -> Result<()> {
+        for text in REQUEST_CLIENT {
+            let message = decode_client(text).map_err(|e| anyhow::anyhow!("{text}: {e:?}"))?;
+            assert_eq!(serde_json::to_string(&message)?, text, "client {text}");
+        }
+        for bad in [
+            r#"{"type":"request_desktop","name":""}"#,
+            r#"{"type":"request_desktop","name":"has space"}"#,
+            r#"{"type":"request_desktop"}"#,
+            r#"{"type":"request_pair","name":""}"#,
+            r#"{"type":"request_pair","name":" padded "}"#,
+            r#"{"type":"request_pair","name":"<b>bold</b>"}"#,
+            r#"{"type":"request_pair","name":"a name far longer than thirty-two bytes"}"#,
+        ] {
+            assert_eq!(
+                decode_client(bad).err(),
+                Some(ErrorCode::InvalidRequest),
+                "{bad}"
+            );
+        }
+        Ok(())
+    }
 
     const DESKTOP_SERVER: [&str; 2] = [
         r#"{"type":"desktop_frame","revision":3,"size":[640,480],"jpeg":"/9j/"}"#,

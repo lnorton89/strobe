@@ -8,15 +8,19 @@
 //               icon, workspace}
 // ============================================================================
 
-//! The Playlist pane (UI_DESIGN section 13).
+//! The Playlist pane (UI_DESIGN section 13), its top half in
+//! `super::form`'s grammar (UI review step 3, D470).
+//!
+//! With nothing loaded it is a page: open a playlist file (typed, or with
+//! Browse, the system's dialog), or generate one from the library. Loaded:
 //!
 //! ```text
 //! PLAYLIST                                                    x
-//! [ playlists/example.toml                    ] [Load]
 //! (an error banner, or the compile progress)
-//! Example: lobby   12 cues   42:10   loop   anchored 09:00
-//! [+30 s] [Restart] [Skip section] [Generate...] [Save] [Unload]
-//! ( the Generate card, when open )
+//! [ Example: lobby                     [Open...] [Save] [Unload] ]
+//! [   12 cues . 42:10 . loops . anchored 09:00                    ]
+//! [+30 s] [Restart] [Skip section]                  [Generate...]
+//! ( the Generate form, when open )
 //! > 1  aurora-gradient            3:00       NOW
 //!      0:00  crossfade 0:04 . Morning        09:00:00
 //!   2  voronoi-glass              3:00       NEXT
@@ -33,6 +37,7 @@
 //! whose scene failed to compile stays in the list, struck out in meaning
 //! if not in glyphs, so the timeline still matches the file.
 
+use super::form::{self, Row};
 use super::icon as icons;
 use super::model::{Action, Model};
 use super::theme::{self, SPACE_MD, SPACE_SM, SPACE_XS};
@@ -53,14 +58,13 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
     if widgets::pane_header(ui, theme, Icon::Playlist, Pane::Playlist.title(), |_| {}) {
         model.ui.panes.close(Pane::Playlist);
     }
-    load_row(ui, model, theme, actions);
-    status(ui, model, theme);
     let show = model.playlist.show;
     let Some(show) = show else {
         empty(ui, model, theme, actions);
         return;
     };
-    summary(ui, show, theme);
+    status(ui, model, theme);
+    summary(ui, model, show, theme, actions);
     if show.phase() == Phase::Compiling {
         compiling(ui, show, theme);
     }
@@ -124,25 +128,43 @@ fn disabled_cues(ui: &mut Ui, show: &Show, theme: &Palette, actions: &mut Vec<Ac
     });
 }
 
-/// The path field and its button. Enter in the field loads too.
-fn load_row(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Vec<Action>) {
-    ui.horizontal(|ui| {
-        let button_width = 64.0;
-        let edit = ui.add(
-            egui::TextEdit::singleline(&mut model.playlist.ui.path)
-                .hint_text("playlists/example.toml")
-                .desired_width(ui.available_width() - button_width - SPACE_SM),
-        );
-        let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-        let go = widgets::button(ui, theme, None, "Load")
-            .on_hover_text("Load this playlist file. A file with an error is refused and the current playlist stays.")
-            .clicked();
-        let path = model.playlist.ui.path.trim();
-        if (go || enter) && !path.is_empty() {
-            actions.push(Action::LoadPlaylist(path.to_string()));
-        }
-    });
-    ui.add_space(SPACE_XS);
+/// The playlist file row: the path, typed or chosen with Browse, and Open.
+/// Enter in the field opens too.
+fn open_row(
+    group: &mut form::Group<'_>,
+    model: &mut Model<'_>,
+    theme: &Palette,
+    actions: &mut Vec<Action>,
+) {
+    let picking = model.picking;
+    group.wide_row(
+        Row::new("Playlist file").description(
+            "A .toml playlist. One with an error is refused, and says where the error is.",
+        ),
+        |ui| {
+            let ready = !model.playlist.ui.path.trim().is_empty();
+            let go = ui
+                .add_enabled_ui(ready, |ui| widgets::primary_button(ui, theme, "Open"))
+                .inner
+                .clicked();
+            if widgets::browse_button(ui, theme, picking) {
+                actions.push(Action::Browse(crate::picker::Purpose::Playlist));
+            }
+            let width = ui.available_size_before_wrap().x;
+            let edit = form::field(
+                ui,
+                theme,
+                &mut model.playlist.ui.path,
+                "playlists/example.toml",
+                width,
+            );
+            let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            let path = model.playlist.ui.path.trim();
+            if (go || enter) && !path.is_empty() {
+                actions.push(Action::LoadPlaylist(path.to_string()));
+            }
+        },
+    );
 }
 
 /// The last load's outcome.
@@ -245,208 +267,202 @@ fn cue_card(
     }
     let mut edits: Vec<CueEdit> = Vec::new();
     let mut problem: Option<String> = None;
-    egui::Frame::new()
-        .fill(theme::rgb(theme.raised))
-        .stroke(egui::Stroke::new(1.0, theme::rgb(theme.border)))
-        .corner_radius(CornerRadius::same(theme::RADIUS))
-        .inner_margin(theme::margin(SPACE_SM))
-        .show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            let title = match model.playlist.ui.also.len() {
-                0 => format!("Cue {}: {}", row.index + 1, row.scene),
-                more => format!(
-                    "Cue {}: {} and {more} more (settings go to all)",
-                    row.index + 1,
-                    row.scene
-                ),
-            };
-            widgets::section(ui, theme, &title);
-            let muted = |text: &str| {
-                egui::RichText::new(text.to_owned())
-                    .small()
-                    .color(theme::rgb(theme.text_muted))
-            };
-            egui::Grid::new("cue-fields")
-                .num_columns(3)
-                .spacing([SPACE_SM, SPACE_XS])
-                .show(ui, |ui| {
-                    ui.label(muted("Length"));
-                    let length = ui.add(
-                        egui::TextEdit::singleline(&mut draft.length)
-                            .hint_text(format!("{} ({})", row.length_label, origin_word(row.origins.duration)))
-                            .desired_width(120.0),
-                    );
-                    let enter = length.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                    ui.horizontal(|ui| {
-                        if ui.small_button("Set").clicked() || enter {
-                            let text = draft.length.trim();
-                            if text.is_empty() {
-                                edits.push(CueEdit::SetDuration(None));
-                            } else {
-                                match strobe_playlist::DurationSpec::parse(text) {
-                                    Ok(spec) => edits.push(CueEdit::SetDuration(Some(spec))),
-                                    Err(error) => problem = Some(format!("Length: {error}")),
-                                }
-                            }
-                        }
-                        if row.origins.duration == strobe_playlist::Origin::Cue
-                            && ui.small_button("Inherit").clicked()
-                        {
-                            edits.push(CueEdit::SetDuration(None));
-                        }
-                        ui.label(muted(origin_word(row.origins.duration)));
-                    });
-                    ui.end_row();
-
-                    ui.label(muted("Transition"));
-                    // A list, not four buttons in a row: the row widened the
-                    // grid past the pane and cut off every Set (U-09).
-                    egui::ComboBox::from_id_salt("cue-transition")
-                        .selected_text(draft.transition.label())
-                        .width(120.0)
-                        .show_ui(ui, |ui| {
-                            for choice in TransitionChoice::ALL {
-                                ui.selectable_value(&mut draft.transition, choice, choice.label());
-                            }
-                        });
-                    ui.end_row();
-                    ui.label("");
-                    ui.add(
-                        egui::TextEdit::singleline(&mut draft.transition_length)
-                            .hint_text("4s")
-                            .desired_width(120.0),
-                    );
-                    ui.horizontal(|ui| {
-                        if ui.small_button("Set").clicked() {
-                            let seconds = || -> Result<strobe_playlist::DurationSpec, String> {
-                                strobe_playlist::DurationSpec::parse(&draft.transition_length)
-                                    .map_err(|e| format!("Transition length: {e}"))
-                            };
-                            let spec = match draft.transition {
-                                TransitionChoice::Inherit => Ok(None),
-                                TransitionChoice::Cut => {
-                                    Ok(Some(strobe_playlist::TransitionSpec::cut()))
-                                }
-                                TransitionChoice::Crossfade => seconds().map(|duration| {
-                                    Some(strobe_playlist::TransitionSpec {
-                                        kind: strobe_playlist::TransitionKind::Crossfade,
-                                        duration,
-                                    })
-                                }),
-                                TransitionChoice::FadeThroughBlack => seconds().map(|duration| {
-                                    Some(strobe_playlist::TransitionSpec {
-                                        kind: strobe_playlist::TransitionKind::FadeThroughBlack,
-                                        duration,
-                                    })
-                                }),
-                            };
-                            match spec {
-                                Ok(spec) => edits.push(CueEdit::SetTransition(spec)),
-                                Err(why) => problem = Some(why),
-                            }
-                        }
-                        ui.label(muted(&format!(
-                            "{} ({})",
-                            row.transition_label,
-                            origin_word(row.origins.transition)
-                        )));
-                    });
-                    ui.end_row();
-
-                    ui.label(muted("Preset"));
-                    ui.add(
-                        egui::TextEdit::singleline(&mut draft.preset)
-                            .hint_text("the scene's own start")
-                            .desired_width(120.0),
-                    );
-                    if ui.small_button("Set").clicked() {
-                        edits.push(CueEdit::SetPreset(Some(draft.preset.clone())));
-                    }
-                    ui.end_row();
-
-                    ui.label(muted("Media"));
-                    ui.add(
-                        egui::TextEdit::singleline(&mut draft.media)
-                            .hint_text("the scene's own")
-                            .desired_width(120.0),
-                    )
-                    .on_hover_text(
-                        "A picture or folder of pictures shown behind syn_Media while this cue \
-                         plays; a relative path is looked for beside the playlist",
-                    );
-                    if ui.small_button("Set").clicked() {
-                        edits.push(CueEdit::SetMedia(Some(draft.media.clone())));
-                    }
-                    ui.end_row();
-                });
-            ui.add_space(SPACE_XS);
+    let title = match model.playlist.ui.also.len() {
+        0 => format!("Cue {}: {}", row.index + 1, row.scene),
+        more => format!(
+            "Cue {}: {} and {more} more (settings go to all)",
+            row.index + 1,
+            row.scene
+        ),
+    };
+    let picked = model
+        .ui
+        .browser
+        .selected
+        .and_then(|index| model.library.entries.get(index))
+        .map(|entry| entry.name.clone());
+    let length_now = format!(
+        "Now {}, {}.",
+        row.length_label,
+        origin_word(row.origins.duration)
+    );
+    let transition_now = format!(
+        "Now {}, {}.",
+        row.transition_label,
+        origin_word(row.origins.transition)
+    );
+    form::inset(ui, theme, |card| {
+        card.block(|ui| {
             ui.horizontal_wrapped(|ui| {
-                for (label, edit, tip) in [
-                    ("Up", CueEdit::MoveUp, "One place earlier in its section"),
-                    ("Down", CueEdit::MoveDown, "One place later in its section"),
-                    ("Duplicate", CueEdit::Duplicate, "A copy straight after it"),
-                    ("Delete", CueEdit::Delete, "Remove this cue (Save to keep the change)"),
-                    (
-                        "Disable",
-                        CueEdit::SetEnabled(false),
-                        "Keep it in the file but skip it; it is listed under Disabled cues",
-                    ),
-                ] {
-                    if widgets::button(ui, theme, None, label).on_hover_text(tip).clicked() {
-                        edits.push(edit);
-                    }
-                }
-                let picked = model
-                    .ui
-                    .browser
-                    .selected
-                    .and_then(|index| model.library.entries.get(index));
-                match picked {
-                    Some(entry) => {
-                        if widgets::button(ui, theme, Some(Icon::Library), &format!("Add {} after", entry.name))
-                            .on_hover_text("A new cue for the scene selected in the browser, straight after this one")
+                ui.label(
+                    egui::RichText::new(&title)
+                        .font(theme::heading_font())
+                        .color(theme::rgb(theme.text)),
+                );
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    for (label, edit, tip) in [
+                        (
+                            "Delete",
+                            CueEdit::Delete,
+                            "Remove this cue (Save to keep the change)",
+                        ),
+                        (
+                            "Disable",
+                            CueEdit::SetEnabled(false),
+                            "Keep it in the file but skip it; it is listed under Disabled cues",
+                        ),
+                        ("Duplicate", CueEdit::Duplicate, "A copy straight after it"),
+                        ("Down", CueEdit::MoveDown, "One place later in its section"),
+                        ("Up", CueEdit::MoveUp, "One place earlier in its section"),
+                    ] {
+                        if widgets::button(ui, theme, None, label)
+                            .on_hover_text(tip)
                             .clicked()
                         {
-                            edits.push(CueEdit::InsertAfter(strobe_playlist::SceneRef::Library(
-                                entry.name.clone(),
-                            )));
+                            edits.push(edit);
                         }
                     }
-                    None => {
-                        ui.label(muted("Select a scene in the browser to add it after this cue."));
+                });
+            });
+        });
+        card.row(Row::new("Length").description(&length_now), |ui| {
+            if row.origins.duration == strobe_playlist::Origin::Cue
+                && widgets::button(ui, theme, None, "Inherit")
+                    .on_hover_text("Take the section's or the playlist's length again")
+                    .clicked()
+            {
+                edits.push(CueEdit::SetDuration(None));
+            }
+            let set = widgets::button(ui, theme, None, "Set").clicked();
+            let length = form::field(ui, theme, &mut draft.length, &row.length_label, 120.0);
+            let enter = length.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            if set || enter {
+                let text = draft.length.trim();
+                if text.is_empty() {
+                    edits.push(CueEdit::SetDuration(None));
+                } else {
+                    match strobe_playlist::DurationSpec::parse(text) {
+                        Ok(spec) => edits.push(CueEdit::SetDuration(Some(spec))),
+                        Err(error) => problem = Some(format!("Length: {error}")),
                     }
                 }
-            });
-            ui.horizontal(|ui| {
-                ui.add(
-                    egui::TextEdit::singleline(&mut draft.shadertoy)
-                        .hint_text("Shadertoy URL or id")
-                        .desired_width(180.0),
-                );
-                let text = draft.shadertoy.trim();
-                if ui
-                    .add_enabled(!text.is_empty(), egui::Button::new("Import after"))
-                    .on_hover_text(
-                        "Import this shader into the library and add it as a cue after this one; \
-                         one already in the library is used as it is",
-                    )
-                    .clicked()
-                {
-                    actions.push(Action::ImportCueAfter {
-                        at,
-                        text: text.to_string(),
-                    });
-                    draft.shadertoy.clear();
-                }
-            });
-            if let Some(why) = &problem {
-                ui.label(
-                    egui::RichText::new(why)
-                        .small()
-                        .color(theme::rgb(theme.danger)),
-                );
             }
         });
+        card.wide_row(Row::new("Transition").description(&transition_now), |ui| {
+            if widgets::button(ui, theme, None, "Set").clicked() {
+                let seconds = || -> Result<strobe_playlist::DurationSpec, String> {
+                    strobe_playlist::DurationSpec::parse(&draft.transition_length)
+                        .map_err(|e| format!("Transition length: {e}"))
+                };
+                let spec = match draft.transition {
+                    TransitionChoice::Inherit => Ok(None),
+                    TransitionChoice::Cut => Ok(Some(strobe_playlist::TransitionSpec::cut())),
+                    TransitionChoice::Crossfade => seconds().map(|duration| {
+                        Some(strobe_playlist::TransitionSpec {
+                            kind: strobe_playlist::TransitionKind::Crossfade,
+                            duration,
+                        })
+                    }),
+                    TransitionChoice::FadeThroughBlack => seconds().map(|duration| {
+                        Some(strobe_playlist::TransitionSpec {
+                            kind: strobe_playlist::TransitionKind::FadeThroughBlack,
+                            duration,
+                        })
+                    }),
+                };
+                match spec {
+                    Ok(spec) => edits.push(CueEdit::SetTransition(spec)),
+                    Err(why) => problem = Some(why),
+                }
+            }
+            form::field(ui, theme, &mut draft.transition_length, "4s", 70.0);
+            // A list, not four buttons in a row: the row widened the
+            // card past the pane and cut off Set (U-09).
+            egui::ComboBox::from_id_salt("cue-transition")
+                .selected_text(draft.transition.label())
+                .width(130.0)
+                .show_ui(ui, |ui| {
+                    for choice in TransitionChoice::ALL {
+                        ui.selectable_value(&mut draft.transition, choice, choice.label());
+                    }
+                });
+        });
+        card.row(
+            Row::new("Preset")
+                .description("The scene starts from this preset; empty is its own start."),
+            |ui| {
+                if widgets::button(ui, theme, None, "Set").clicked() {
+                    edits.push(CueEdit::SetPreset(Some(draft.preset.clone())));
+                }
+                form::field(ui, theme, &mut draft.preset, "the scene's own start", 160.0);
+            },
+        );
+        card.row(
+            Row::new("Media").description(
+                "A picture or folder of pictures behind syn_Media while this cue plays; a \
+                 relative path is looked for beside the playlist.",
+            ),
+            |ui| {
+                if widgets::button(ui, theme, None, "Set").clicked() {
+                    edits.push(CueEdit::SetMedia(Some(draft.media.clone())));
+                }
+                form::field(ui, theme, &mut draft.media, "the scene's own", 160.0);
+            },
+        );
+        let after = match &picked {
+            Some(name) => format!("Adds {name}, the scene selected in the library."),
+            None => "Select a scene in the library to add it after this cue.".to_string(),
+        };
+        card.row(Row::new("Add a scene after").description(&after), |ui| {
+            let add = ui
+                .add_enabled_ui(picked.is_some(), |ui| {
+                    widgets::button(ui, theme, Some(Icon::Library), "Add after")
+                })
+                .inner;
+            if add.clicked()
+                && let Some(name) = &picked
+            {
+                edits.push(CueEdit::InsertAfter(strobe_playlist::SceneRef::Library(
+                    name.clone(),
+                )));
+            }
+        });
+        card.wide_row(
+            Row::new("Import a shader after").description(
+                "Imported into the library and added as a cue after this one; one already in \
+                 the library is used as it is.",
+            ),
+            |ui| {
+                let text = draft.shadertoy.trim().to_string();
+                let import = ui
+                    .add_enabled_ui(!text.is_empty(), |ui| {
+                        widgets::button(ui, theme, Some(Icon::Import), "Import after")
+                    })
+                    .inner;
+                if import.clicked() {
+                    actions.push(Action::ImportCueAfter { at, text });
+                    draft.shadertoy.clear();
+                }
+                let width = ui.available_size_before_wrap().x;
+                form::field(
+                    ui,
+                    theme,
+                    &mut draft.shadertoy,
+                    "Shadertoy URL or id",
+                    width,
+                );
+            },
+        );
+        if let Some(why) = &problem {
+            card.block(|ui| {
+                ui.label(
+                    egui::RichText::new(why)
+                        .font(theme::description_font())
+                        .color(theme::rgb(theme.danger)),
+                );
+            });
+        }
+    });
     let also: Vec<At> = model
         .playlist
         .ui
@@ -478,32 +494,96 @@ fn cue_card(
     ui.add_space(SPACE_XS);
 }
 
-/// Nothing loaded: say what to do, and still offer Generate.
+/// Nothing loaded: a page with the two ways to get a playlist, opening a
+/// file or generating one.
 fn empty(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Vec<Action>) {
-    ui.horizontal(|ui| {
-        if widgets::button(ui, theme, Some(Icon::Playlist), "Generate...")
-            .on_hover_text("Build a section from the library and start a playlist from it")
-            .clicked()
-        {
-            model.playlist.ui.generate_open = !model.playlist.ui.generate_open;
-        }
-    });
-    if model.playlist.ui.generate_open {
-        generate_card(ui, model, theme, actions);
-        return;
-    }
-    widgets::empty_state(
-        ui,
-        theme,
-        Icon::Playlist,
-        "No playlist loaded",
-        "Type a playlist file's path above and press Load, or start the app with --playlist <file>. \
-         Until then Previous and Next step through the library.",
-    );
+    egui::ScrollArea::vertical()
+        .id_salt("playlist-empty")
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            form::page(
+                ui,
+                theme,
+                "Playlist",
+                Some(
+                    "A show plan: scenes in sections, each cue with its length and transition. \
+                     With none loaded, Previous and Next step through the library.",
+                ),
+                |ui| {
+                    status(ui, model, theme);
+                    form::group(ui, theme, "Open a playlist", |group| {
+                        open_row(group, model, theme, actions);
+                    });
+                    recent(ui, model, theme, actions);
+                    form::group(ui, theme, "Or generate one", |group| {
+                        let open = model.playlist.ui.generate_open;
+                        group.row(
+                            Row::new("Generate a section").description(
+                                "Pick scenes from the library by tags, for a length, with a \
+                                 transition, and start a playlist from them.",
+                            ),
+                            |ui| {
+                                if widgets::tool_button(
+                                    ui,
+                                    theme,
+                                    Icon::Playlist,
+                                    "Generate...",
+                                    open,
+                                    "Build a section from the library",
+                                )
+                                .clicked()
+                                {
+                                    model.playlist.ui.generate_open = !open;
+                                }
+                            },
+                        );
+                        if model.playlist.ui.generate_open {
+                            group.block(|ui| generate_form(ui, model, theme, actions));
+                        }
+                    });
+                    ui.add_space(theme::SPACE_LG);
+                },
+            );
+        });
 }
 
-/// Name, size, loop and anchor.
-fn summary(ui: &mut Ui, show: &Show, theme: &Palette) {
+/// The playlists opened last (D481), one row each: the file's name, its
+/// folder, and Open. Nothing when there are none.
+fn recent(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Vec<Action>) {
+    if model.ui.recent_playlists.is_empty() {
+        return;
+    }
+    form::group(ui, theme, "Recent", |group| {
+        for path in &model.ui.recent_playlists {
+            let file = std::path::Path::new(path);
+            let name = file
+                .file_stem()
+                .map_or_else(|| path.clone(), |stem| stem.to_string_lossy().into_owned());
+            let folder = file
+                .parent()
+                .map(|dir| dir.display().to_string())
+                .filter(|dir| !dir.is_empty())
+                .unwrap_or_else(|| "the working folder".to_string());
+            group.row(Row::new(&name).description(&folder), |ui| {
+                if widgets::button(ui, theme, None, "Open")
+                    .on_hover_text(path.as_str())
+                    .clicked()
+                {
+                    actions.push(Action::LoadPlaylist(path.clone()));
+                }
+            });
+        }
+    });
+}
+
+/// Name, size, loop and anchor, the file, and the file commands.
+fn summary(
+    ui: &mut Ui,
+    model: &mut Model<'_>,
+    show: &Show,
+    theme: &Palette,
+    actions: &mut Vec<Action>,
+) {
     let timeline = show.clock().timeline();
     let loop_word = match timeline.loop_mode() {
         strobe_playlist::LoopMode::Stop => "plays once",
@@ -511,7 +591,12 @@ fn summary(ui: &mut Ui, show: &Show, theme: &Palette) {
         strobe_playlist::LoopMode::LoopSection => "loops the section",
     };
     let anchor = timeline.wall_time(0).map_or_else(String::new, |t| {
-        format!("   anchored {}", t.to_string().trim_end_matches(":00"))
+        // 09:00:00 reads 09:00; only the seconds go, and only when zero.
+        let text = t.to_string();
+        format!(
+            "  ·  anchored {}",
+            text.strip_suffix(":00").unwrap_or(&text)
+        )
     });
     let runtime = view::clock(timeline.total_runtime());
     let open = if timeline.has_open_ended() {
@@ -519,32 +604,50 @@ fn summary(ui: &mut Ui, show: &Show, theme: &Palette) {
     } else {
         ""
     };
-    egui::Frame::new()
-        .fill(theme::rgb(theme.raised))
-        .stroke(egui::Stroke::new(1.0, theme::rgb(theme.border)))
-        .corner_radius(CornerRadius::same(theme::RADIUS))
-        .inner_margin(theme::margin(SPACE_SM))
-        .show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            ui.label(egui::RichText::new(show.name()).strong());
-            ui.label(
-                egui::RichText::new(format!(
-                    "{} cues   {runtime}{open}   {loop_word}{anchor}",
-                    show.rows().len()
-                ))
-                .small()
-                .color(theme::rgb(theme.text_muted)),
-            );
-            let file = show
-                .source()
-                .map_or_else(|| "not saved yet".to_string(), |p| p.display().to_string());
-            ui.label(
-                egui::RichText::new(file)
-                    .small()
-                    .color(theme::rgb(theme.text_faint)),
-            );
+    let meta = format!(
+        "{} cues  ·  {runtime}{open}  ·  {loop_word}{anchor}",
+        show.rows().len()
+    );
+    let file = show
+        .source()
+        .map_or_else(|| "Not saved yet".to_string(), |p| p.display().to_string());
+    let picking = model.picking;
+    let dirty = model.playlist.ui.dirty;
+    form::inset(ui, theme, |card| {
+        let mut row = Row::new(show.name())
+            .description(&meta)
+            .note(&file, theme.text_faint);
+        if dirty {
+            row = row.status(Icon::Info, "Unsaved", theme.warning);
+        }
+        card.wide_row(row, |ui| {
+            if widgets::button(ui, theme, Some(Icon::Close), "Unload")
+                .on_hover_text("Stop the playlist and go back to library order")
+                .clicked()
+            {
+                actions.push(Action::UnloadPlaylist);
+            }
+            if widgets::button(ui, theme, Some(Icon::Copy), "Save")
+                .on_hover_text(
+                    "Write the playlist to its file. The file is rewritten from the model, so \
+                     comments in it are not kept.",
+                )
+                .clicked()
+            {
+                actions.push(Action::SavePlaylist);
+            }
+            let open = ui
+                .add_enabled_ui(!picking, |ui| {
+                    widgets::button(ui, theme, Some(Icon::Folder), "Open...")
+                        .on_hover_text("Open another playlist file")
+                })
+                .inner;
+            if open.clicked() {
+                actions.push(Action::Browse(crate::picker::Purpose::Playlist));
+            }
         });
-    ui.add_space(SPACE_XS);
+    });
+    ui.add_space(SPACE_SM);
 }
 
 /// The precompile's progress bar, in words and a meter.
@@ -606,138 +709,137 @@ fn command_row(
                 actions.push(Action::SkipSection);
             }
         });
-        if widgets::button(ui, theme, Some(Icon::Playlist), "Generate...")
-            .on_hover_text("Add a generated section")
-            .clicked()
+        let open = model.playlist.ui.generate_open;
+        if widgets::tool_button(
+            ui,
+            theme,
+            Icon::Playlist,
+            "Generate...",
+            open,
+            "Add a generated section",
+        )
+        .clicked()
         {
-            model.playlist.ui.generate_open = !model.playlist.ui.generate_open;
-        }
-        let save = if model.playlist.ui.dirty {
-            "Save *"
-        } else {
-            "Save"
-        };
-        if widgets::button(ui, theme, Some(Icon::Copy), save)
-            .on_hover_text(
-                "Write the playlist to its file. The file is rewritten from the model, \
-                 so comments in it are not kept.",
-            )
-            .clicked()
-        {
-            actions.push(Action::SavePlaylist);
-        }
-        if widgets::button(ui, theme, Some(Icon::Close), "Unload")
-            .on_hover_text("Stop the playlist and go back to library order")
-            .clicked()
-        {
-            actions.push(Action::UnloadPlaylist);
+            model.playlist.ui.generate_open = !open;
         }
     });
+    ui.add_space(SPACE_XS);
 }
 
-/// The Generate dialog, as a card in the pane.
+/// The Generate form, in the loaded pane above the cue list.
 fn generate_card(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Vec<Action>) {
-    egui::Frame::new()
-        .fill(theme::rgb(theme.raised))
-        .stroke(egui::Stroke::new(1.0, theme::rgb(theme.accent)))
-        .corner_radius(CornerRadius::same(theme::RADIUS))
-        .inner_margin(theme::margin(SPACE_SM))
-        .show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            widgets::section(ui, theme, "Generate a section");
-            let state = &mut *model.playlist.ui;
-            let form = &mut state.form;
-            let mut changed = false;
-            egui::Grid::new("generate-fields")
-                .num_columns(2)
-                .spacing([SPACE_SM, SPACE_XS])
-                .show(ui, |ui| {
-                    let mut field = |ui: &mut Ui, label: &str, text: &mut String, tip: &str| {
-                        ui.label(
-                            egui::RichText::new(label)
-                                .small()
-                                .color(theme::rgb(theme.text_muted)),
-                        );
-                        let edit = ui
-                            .add(egui::TextEdit::singleline(text).desired_width(f32::INFINITY))
-                            .on_hover_text(tip);
-                        changed |= edit.changed();
-                        ui.end_row();
-                    };
-                    field(ui, "Section", &mut form.section_name, "The new section's name");
-                    field(ui, "Target length", &mut form.target, "How long the section should run: 30m, 1h30m, 4h");
-                    field(
-                        ui,
-                        "Pool",
-                        &mut form.pool,
-                        "Tags or words to pick scenes by, comma separated: a scene's TAGS, a word in \
-                         its name, or its whole name. Empty is the whole library.",
-                    );
-                    field(
-                        ui,
-                        "Exclude",
-                        &mut form.exclude,
-                        "Tags or words never to pick, comma separated (heavy, dark): a scene \
-                         carrying one, or named by one, is left out even if the pool asks for it.",
-                    );
-                    field(ui, "Cue duration", &mut form.duration, "Each cue's length: 3m, 90s, 32 bars, rand(2m, 4m)");
-                    field(ui, "No-repeat", &mut form.window, "How many recent scenes not to repeat");
-                    field(ui, "Seed", &mut form.seed, "The same seed gives the same section");
-                });
-            ui.horizontal_wrapped(|ui| {
-                ui.label(
-                    egui::RichText::new("Transition")
-                        .small()
-                        .color(theme::rgb(theme.text_muted)),
-                );
-                for choice in TransitionChoice::ALL {
-                    let on = form.transition == choice;
-                    if widgets::tool_button(ui, theme, Icon::Playlist, choice.label(), on, "How generated cues arrive")
+    generate_form(ui, model, theme, actions);
+    ui.add_space(SPACE_SM);
+}
+
+/// The Generate form: an inset card of setting rows, the buttons, and what
+/// the last Preview made.
+fn generate_form(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Vec<Action>) {
+    let mut changed = false;
+    let state = &mut *model.playlist.ui;
+    form::inset(ui, theme, |rows| {
+        let form = &mut state.form;
+        let fields: [(&str, &mut String, &str, &str); 7] = [
+            (
+                "Section",
+                &mut form.section_name,
+                "The new section's name.",
+                "Late set",
+            ),
+            (
+                "Target length",
+                &mut form.target,
+                "How long the section runs: 30m, 1h30m, 4h.",
+                "1h",
+            ),
+            (
+                "Pool",
+                &mut form.pool,
+                "Tags or words to pick scenes by, comma separated: a scene's tags, a word in \
+                 its name, or its whole name. Empty is the whole library.",
+                "ambient, slow",
+            ),
+            (
+                "Exclude",
+                &mut form.exclude,
+                "Tags or words never to pick, even if the pool asks for them.",
+                "heavy, dark",
+            ),
+            (
+                "Cue duration",
+                &mut form.duration,
+                "Each cue's length: 3m, 90s, 32 bars, rand(2m, 4m).",
+                "3m",
+            ),
+            (
+                "No-repeat",
+                &mut form.window,
+                "How many recent scenes not to play again.",
+                "8",
+            ),
+            (
+                "Seed",
+                &mut form.seed,
+                "The same seed gives the same section.",
+                "1",
+            ),
+        ];
+        for (title, text, description, hint) in fields {
+            rows.row(Row::new(title).description(description), |ui| {
+                let width = ui.available_size_before_wrap().x;
+                changed |= form::field(ui, theme, text, hint, width).changed();
+            });
+        }
+        rows.wide_row(
+            Row::new("Transition").description("How generated cues arrive."),
+            |ui| {
+                // Right to left: the last choice first.
+                for choice in TransitionChoice::ALL.into_iter().rev() {
+                    if ui
+                        .selectable_label(form.transition == choice, choice.label())
                         .clicked()
                     {
                         form.transition = choice;
                         changed = true;
                     }
                 }
-            });
-            if matches!(
-                form.transition,
-                TransitionChoice::Crossfade | TransitionChoice::FadeThroughBlack
-            ) {
-                ui.horizontal(|ui| {
-                    ui.label(
-                        egui::RichText::new("Transition length")
-                            .small()
-                            .color(theme::rgb(theme.text_muted)),
-                    );
-                    changed |= ui
-                        .add(egui::TextEdit::singleline(&mut form.transition_length).desired_width(60.0))
-                        .changed();
-                });
-            }
-            if changed {
-                // The preview was made from other fields.
-                state.preview = None;
-                state.excluded.clear();
-            }
-            ui.add_space(SPACE_XS);
-            let can_add = matches!(state.preview, Some(Ok(_)));
-            ui.horizontal(|ui| {
-                if widgets::primary_button(ui, theme, "Preview").clicked() {
-                    actions.push(Action::GeneratePreview);
+            },
+        );
+        if matches!(
+            form.transition,
+            TransitionChoice::Crossfade | TransitionChoice::FadeThroughBlack
+        ) {
+            rows.row(
+                Row::new("Transition length").description("How long each transition takes."),
+                |ui| {
+                    changed |=
+                        form::field(ui, theme, &mut form.transition_length, "0:04", 80.0).changed();
+                },
+            );
+        }
+        let can_add = matches!(state.preview, Some(Ok(_)));
+        rows.block(|ui| {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if widgets::button(ui, theme, Some(Icon::Close), "Close").clicked() {
+                    state.generate_open = false;
                 }
                 ui.add_enabled_ui(can_add, |ui| {
                     if widgets::button(ui, theme, Some(Icon::Check), "Add to playlist").clicked() {
                         actions.push(Action::GenerateCommit);
                     }
                 });
-                if widgets::button(ui, theme, Some(Icon::Close), "Close").clicked() {
-                    state.generate_open = false;
+                if widgets::primary_button(ui, theme, "Preview").clicked() {
+                    actions.push(Action::GeneratePreview);
                 }
             });
-            preview_result(ui, model, theme);
         });
-    ui.add_space(SPACE_XS);
+    });
+    if changed {
+        // The preview was made from other fields.
+        state.preview = None;
+        state.excluded.clear();
+    }
+    preview_result(ui, model, theme);
 }
 
 /// What the last Preview made.
