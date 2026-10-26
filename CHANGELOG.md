@@ -11,8 +11,14 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+Nothing yet — the latest release is the tip of `master`.
+
+## [0.2.0] - 2026-10-26
+
 ### Added
 
+- choose ANGLE's backend with --gl angle-d3d11|angle-vulkan|angle-gl|angle-metal (#29) ([`b35bb70`](https://github.com/lnorton89/strobe/commit/b35bb709a9ec396e34ac43a04fe979e33d862bb5))
+- rebuild the app's UI on a shared form grammar, with LAN discovery and approve-only pairing (#26) ([`4784c43`](https://github.com/lnorton89/strobe/commit/4784c43799c293ce53dbaea3e2cba48991a079c8))
 - log when the fullscreen output over the control window loses the focus (D453) ([`a75c76a`](https://github.com/lnorton89/strobe/commit/a75c76a8bb798636862b58ba6348a6db16fc9267))
 - **scenes:** Blacklight Carpet, UV-lit arcade confetti carpet with coiled helix streamers (D439) ([`d3eb5e9`](https://github.com/lnorton89/strobe/commit/d3eb5e93fab5d1bd40ff3917f971e0ed8b351f8e))
 - adaptive resolution steps down on missed refreshes, not only the mean GPU time (D314) ([`32e3cc8`](https://github.com/lnorton89/strobe/commit/32e3cc8e5e9dc4cfdf24797dce2a297e094041f6))
@@ -228,6 +234,9 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Documentation
 
+- bring the docs up to date with the UI rework, approve-only pairing and ANGLE's backends ([`f0cedde`](https://github.com/lnorton89/strobe/commit/f0cedde631f333d6a7053fe1289078d68f6db34f))
+- record the native file pickers as checked on Windows ([`5240789`](https://github.com/lnorton89/strobe/commit/524078996c3fbe3e73eeb4246ef542b1e48ae3d7))
+- show the reworked Library view in the README ([`c889e81`](https://github.com/lnorton89/strobe/commit/c889e81c2c9b394d7e65b19fee4abe9aee7014dd))
 - record the remote and venue-mode bug sweep in the roadmap and audit ([`ef06297`](https://github.com/lnorton89/strobe/commit/ef06297b1e5e870e40fe529adedd8a2e2186cde9))
 - fix the exe path in the M26 close-out ([`cdd2ee0`](https://github.com/lnorton89/strobe/commit/cdd2ee02fe48d1e0796835a59600abd3d7dc0264))
 - fix two Windows paths in the M26 close-out ([`de6ab62`](https://github.com/lnorton89/strobe/commit/de6ab62c8a9b5bf9670111d3bcdad0f582834298))
@@ -303,6 +312,13 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Internal
 
+- say outright that a renamed copy of Strobe is still not for sale ([`300ea85`](https://github.com/lnorton89/strobe/commit/300ea85e2d35c47fb38dca49b4411920b497c9d1))
+- let anyone run Strobe for pay, restricting only selling Strobe itself ([`eab613a`](https://github.com/lnorton89/strobe/commit/eab613a333cb5d84004fbd4c0b5611b3abd392d6))
+- license Strobe as MIT with the Commons Clause ([`6e83bc8`](https://github.com/lnorton89/strobe/commit/6e83bc82b1bf56bc8abb9ca7032698474e3c39ec))
+- bump the version to 0.2.0 ([`f6eaf67`](https://github.com/lnorton89/strobe/commit/f6eaf678253e17276d615310e931ebfcbb80b3f4))
+- **deps:** bump the cargo-patch group across 1 directory with 3 updates (#28) ([`d881dab`](https://github.com/lnorton89/strobe/commit/d881dab295645edd9386aa0b639246d292e61163))
+- **deps:** bump the github-actions group across 1 directory with 2 updates (#27) ([`a886092`](https://github.com/lnorton89/strobe/commit/a8860929b81238b38dd6798b257574095f4ddbf6))
+- upgrade egui, egui-winit and egui_glow to 0.37 together (#25) ([`71da2f4`](https://github.com/lnorton89/strobe/commit/71da2f4ea242af54e94c7820e8243230c6aa9494))
 - rustls-webpki 0.103.16 and webpki-roots 1.0.10 for RUSTSEC-2026-0381/0382 ([`ed727d2`](https://github.com/lnorton89/strobe/commit/ed727d28de51f08e7a6c30b0dffb9373a22e34a6))
 - a Nix flake with a dev shell, a software-GL shell and a wrapped package (D294) ([`0c43a41`](https://github.com/lnorton89/strobe/commit/0c43a41baaca90796374a9ea6ad22d850f556241))
 - remove temporary PNG render workflow ([`89ce99b`](https://github.com/lnorton89/strobe/commit/89ce99b49e0ea4d658017aaa08586ce65b643b40))
@@ -663,5 +679,6 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - snapshot after usage-limit interruption ([`de372aa`](https://github.com/lnorton89/strobe/commit/de372aa3cd3b407cf7d80151a3fd6f2dbd91c6ce))
 - snapshot after usage-limit interruption ([`1194e57`](https://github.com/lnorton89/strobe/commit/1194e5702b57bbc4ffaa178e71b39a32662fe2fa))
 
-[Unreleased]: https://github.com/lnorton89/strobe/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/lnorton89/strobe/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/lnorton89/strobe/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/lnorton89/strobe/releases/tag/v0.1.0
