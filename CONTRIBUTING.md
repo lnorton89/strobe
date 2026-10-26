@@ -25,9 +25,35 @@ The toolchain is pinned in `rust-toolchain.toml`, and rustup fetches it
 automatically.
 
 ```bash
+cargo run -p strobe-app                               # debug: quick to rebuild
+cargo run --profile release-fast -p strobe-app        # optimised, incremental: the one to iterate with
+cargo run --release -p strobe-app                     # what users get: fat LTO, slow to rebuild
 cargo test --workspace
 cargo run --release -p strobe-bench -- --size 1280x720   # renders scenes/ headless
 ```
+
+`--release` rebuilds slowly by design: fat LTO over one codegen unit
+re-optimises every dependency after any edit, about five minutes on a
+fast desktop and longer on a laptop. `release-fast` (D487) has the same
+optimisation level, `panic = "abort"` and symbols without the LTO, and
+rebuilds in seconds. Measured on TORNADO (GTX 1080 Ti desktop) after a
+one-character edit in `strobe-app`, up to a linked binary: `--release`
+290 s, `release-fast` 9 s, debug 5 s; a clean `release-fast` build is
+about two minutes. It is not the shipped binary, so benchmark and release
+with `--release`.
+
+Two more things help on Windows, and both are your call rather than the
+repository's (as in rustaman):
+
+- **`rust-lld`**, which ships with the toolchain. Set
+  `CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER=rust-lld.exe`, or put
+  `linker = "rust-lld.exe"` under `[target.x86_64-pc-windows-msvc]` in your
+  user-level `~/.cargo/config.toml`. It still needs the MSVC build tools.
+  It is not set here because CI and the release build use `link.exe`, and
+  a linker change there would change what ships.
+- **Keep `target/` out of real-time antivirus scanning**: a Dev Drive, or a
+  Defender exclusion for the checkout. A build writes thousands of files,
+  and scanning each one can cost more than compiling it.
 
 On Linux, the renderer tests and the bench need Mesa's EGL:
 `apt-get install -y libegl1 libegl-mesa0`. Building the app also needs

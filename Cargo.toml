@@ -152,6 +152,33 @@ panic = "abort"
 # Debug builds of a renderer are unusably slow at the dependency level
 # (the FFT, the JS engine, image decoding), and that is not where the bugs
 # being debugged live. Optimise dependencies, keep this workspace's own
-# crates debuggable.
+# crates debuggable. Dependencies keep file and line numbers, so a
+# backtrace still names the line inside egui or glow, but not full type and
+# variable information: on Windows most of a small debug rebuild is
+# link.exe writing the PDB, and that scales with the debug info it is
+# given (rustaman measured 1.27 GB of rlibs down to 0.77 GB, D487).
 [profile.dev.package."*"]
 opt-level = 2
+debug = "line-tables-only"
+
+# The optimised build to iterate with (D487): `cargo run --profile
+# release-fast -p strobe-app`. Same opt-level, panic and symbols as
+# `release`, but no LTO and incremental, so an edit rebuilds in seconds
+# rather than relinking the whole program through fat LTO on one codegen
+# unit (about ten minutes). It is not the binary that ships: measure and
+# release with `--release`.
+[profile.release-fast]
+inherits = "release"
+lto = false
+incremental = true
+# Dependencies at rustc's own release default: they build once.
+codegen-units = 16
+
+# The crates an edit usually touches, at rustc's incremental default, so an
+# edit invalidates only the units holding what changed.
+[profile.release-fast.package.strobe-app]
+codegen-units = 256
+[profile.release-fast.package.strobe-gfx]
+codegen-units = 256
+[profile.release-fast.package.strobe-scene]
+codegen-units = 256

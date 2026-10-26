@@ -32,6 +32,7 @@ cargo xtask bench -- --size 1280x720                      # strobe-bench in rele
 cargo xtask corpus -- --library <dir>                     # load+compile+render every scene (scripts too), both dialects
 cargo xtask symbolicate <crash.dmp>                       # minidump -> stack with function names and file:line
 cargo xtask brand [--check]                               # icon PNGs + .ico from assets/brand/*.svg
+cargo run --profile release-fast -p strobe-app            # optimised and incremental: iterate with this, not --release (D487)
 cargo test --workspace                                    # everything
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo fmt --all -- --check

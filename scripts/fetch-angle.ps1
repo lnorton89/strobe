@@ -19,7 +19,7 @@
 # LICENSES.chromium.html (extracted alongside) covers them.
 
 param(
-    [ValidateSet("release", "debug", "both")]
+    [ValidateSet("release", "debug", "release-fast", "both")]
     [string]$Profile = "both"
 )
 
@@ -62,7 +62,9 @@ foreach ($Name in $Files.Keys) {
     if ($Hash -ne $Files[$Name]) { throw "$Name hash mismatch: $Hash" }
 }
 
-$Profiles = if ($Profile -eq "both") { @("release", "debug") } else { @($Profile) }
+# "both" fills every profile people run from: release, debug, and
+# release-fast, the one to iterate with (D487).
+$Profiles = if ($Profile -eq "both") { @("release", "debug", "release-fast") } else { @($Profile) }
 foreach ($P in $Profiles) {
     $Dest = Join-Path $Root "target\$P"
     New-Item -ItemType Directory -Force -Path $Dest | Out-Null
