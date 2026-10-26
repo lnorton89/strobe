@@ -24,7 +24,7 @@ imports Shadertoy shaders, and plays long shows from playlists.
 > [release page](https://github.com/lnorton89/strobe/releases) and in
 > [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md).
 
-![The Perform window at 1440x900](docs/images/app-control.png)
+![The Library view at 1440x900: the scene grid, the live preview and controls, and the macro strip](docs/images/app-control.png)
 
 ---
 

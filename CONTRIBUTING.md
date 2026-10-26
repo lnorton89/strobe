@@ -151,7 +151,7 @@ including a dry run on a throwaway tag before the real one exists.
 The tag push triggers `.github/workflows/release.yml`. It checks the tag
 against `Cargo.toml`, creates a **draft** release whose notes are the
 changelog section, builds `strobe.exe` on Windows, and packages
-`strobe-<tag>-x86_64-pc-windows-msvc.zip` (the exe, the three ANGLE DLLs
+`strobe-<tag>-x86_64-pc-windows-msvc.zip` (the exe, the three ANGLE DLLs and the Vulkan loader for `--gl angle-vulkan`,
 and `LICENSES.chromium.html`, `scenes/`, README, LICENSE). Alongside it
 go a separate `-symbols.zip` holding `strobe.pdb` (keep it: it is what
 symbolicates a crash minidump from that exact build), a CycloneDX SBOM,
