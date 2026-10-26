@@ -1216,7 +1216,7 @@ fn card(
     buttons: Option<&mut dyn FnMut(&mut egui::Ui)>,
 ) {
     let width = (ctx.content_rect().width() - 48.0).clamp(120.0, 460.0);
-    egui::Area::new(egui::Id::new("remote desktop notice"))
+    egui::Area::new(egui::Id::unique("remote desktop notice"))
         .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
         .order(egui::Order::Foreground)
         .show(ctx, |ui| {
@@ -2048,6 +2048,7 @@ impl HostInput {
                 } => out.push(Event::MouseWheel {
                     phase: egui::TouchPhase::Move,
                     unit: egui::MouseWheelUnit::Point,
+                    source: egui::MouseWheelSource::Unknown,
                     delta: Vec2::new(*x, *y),
                     modifiers: egui_modifiers(*mods),
                 }),
@@ -2304,7 +2305,8 @@ mod tests {
                 | egui::Shape::Mesh(_)
                 | egui::Shape::QuadraticBezier(_)
                 | egui::Shape::CubicBezier(_)
-                | egui::Shape::Callback(_) => {}
+                | egui::Shape::Callback(_)
+                | egui::Shape::Band(_) => {}
             }
         }
         let mut text = String::new();
@@ -2877,7 +2879,7 @@ mod tests {
         std::fs::write(scene.join("main.glsl"), "original shader")?;
         let mut doc = crate::editor::Doc::open(&scene, "scene")?;
         let ctx = egui::Context::default();
-        let field = egui::Id::new("host code");
+        let field = egui::Id::unique("host code");
         let size = Vec2::new(800.0, 600.0);
         let mut host = HostInput::default();
         let input = |events| egui::RawInput {

@@ -238,7 +238,7 @@ pub fn show(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut V
         return;
     };
     let glsl = tab.is_glsl();
-    let id = egui::Id::new(("editor-code", doc.dir.as_path(), tab.file.as_str()));
+    let id = egui::Id::unique(("editor-code", doc.dir.as_path(), tab.file.as_str()));
     let editor_ui = &mut model.ui.editor;
     let goto = editor_ui.goto.take();
     let cache = &mut editor_ui.cache;

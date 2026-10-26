@@ -359,7 +359,11 @@ pub fn title_bar(
 /// Registers the whole bar as a drag surface and double-click-to-maximise.
 fn drag_surface(ui: &mut Ui) {
     let rect = ui.max_rect();
-    let response = ui.interact(rect, ui.id().with("drag-surface"), Sense::click_and_drag());
+    let response = ui.interact(
+        rect,
+        ui.scope_id().with("drag-surface"),
+        Sense::click_and_drag(),
+    );
     if response.drag_started() {
         // Hands the drag to the window manager. See the module docs.
         ui.ctx().send_viewport_cmd(ViewportCommand::StartDrag);
@@ -707,7 +711,7 @@ pub fn resize_handles(ui: &mut Ui) {
 
 fn resize_handles_in(ui: &mut Ui, rect: Rect) {
     for (index, (area, direction, cursor)) in resize_regions(rect).into_iter().enumerate() {
-        let id = egui::Id::new("resize-handle").with(index);
+        let id = egui::Id::unique("resize-handle").with(index);
         // A foreground Area gives the native border its own interaction
         // layer. Registering the rectangles on the root Ui left them
         // underneath panel widgets in egui's hit-test order, so a corner

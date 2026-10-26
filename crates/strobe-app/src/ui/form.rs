@@ -326,7 +326,7 @@ impl Group<'_> {
         // it has the focus. Not focusable itself: one tab stop per setting.
         let whole = self.ui.interact(
             rect,
-            self.ui.id().with(("setting-row", row.title)),
+            self.ui.scope_id().with(("setting-row", row.title)),
             Sense::CLICK,
         );
         let mut switch = switch;
@@ -496,8 +496,7 @@ pub fn toggle(ui: &mut Ui, theme: &Palette, on: &mut bool) -> Response {
     }
     let state = *on;
     let enabled = ui.is_enabled();
-    response
-        .widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, enabled, state, ""));
+    response.widget_info(|| egui::WidgetInfo::selected(egui::Role::CheckBox, enabled, state, ""));
     let t = motion::toggle(ui.ctx(), response.id, state, motion::QUICK);
     let painter = ui.painter();
     let radius = egui::CornerRadius::same((SWITCH.y / 2.0) as u8);

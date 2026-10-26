@@ -486,7 +486,7 @@ fn nav_item(
     };
     let (rect, response) =
         ui.allocate_exact_size(Vec2::new(ui.available_width(), height), Sense::click());
-    let id = egui::Id::new(("settings-nav", label));
+    let id = egui::Id::unique(("settings-nav", label));
     let fill = widgets::selection_fill(ui, theme, id, selected, response.hovered(), theme.panel);
     let painter = ui.painter();
     painter.rect_filled(rect, egui::CornerRadius::same(RADIUS), fill);

@@ -219,9 +219,8 @@ fn slot_tile(
     const BAND: f32 = 3.0;
     let (rect, response) = ui.allocate_exact_size(egui::vec2(width, HEIGHT), Sense::click());
     let number = (slot + 1).to_string();
-    response.widget_info(|| {
-        egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), &number)
-    });
+    response
+        .widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), &number));
     let radius = CornerRadius::same(theme::RADIUS);
     let hovered = response.hovered();
     let painter = ui.painter();

@@ -991,7 +991,7 @@ fn group_header(
     let mut action = HeaderAction::None;
     let width = ui.available_width();
     let (rect, response) = ui.allocate_exact_size(Vec2::new(width, 26.0), Sense::click());
-    let id = ui.id().with(("group-header", name));
+    let id = ui.scope_id().with(("group-header", name));
     let fill = widgets::hover_fill(
         ui,
         response.id,
