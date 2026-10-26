@@ -1146,7 +1146,7 @@ fn draw_events(
         if let Some(entry) = scenario.focus_card.and_then(|i| library.entries.get(i)) {
             // The id the card registers (browser::card), so it holds the
             // keyboard focus as a Tab to it would leave it.
-            let id = egui::Id::new(("scene-card", &entry.name, entry.dir.as_path()));
+            let id = egui::Id::unique(("scene-card", &entry.name, entry.dir.as_path()));
             ctx.memory_mut(|memory| memory.request_focus(id));
         }
         let mut model = Model {

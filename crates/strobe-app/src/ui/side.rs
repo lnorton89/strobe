@@ -385,7 +385,7 @@ fn tab_bar(
             egui::pos2(rect.left() + cell * index as f32, rect.top()),
             Vec2::new(cell, rect.height()),
         );
-        let id = egui::Id::new(("side-tab", tab.key()));
+        let id = egui::Id::unique(("side-tab", tab.key()));
         let elsewhere = controls_in_main && tab == SideTab::Controls;
         let tooltip = if elsewhere {
             "Controls: shown large in the main view now. Switch it to Scenes to have them here."
@@ -559,7 +559,7 @@ fn presets_tab(
                     Vec2::new(width, theme::row_height() * 0.75),
                     Sense::click(),
                 );
-                let id = egui::Id::new(("preset-row", name));
+                let id = egui::Id::unique(("preset-row", name));
                 let fill = widgets::selection_fill(
                     ui,
                     theme,

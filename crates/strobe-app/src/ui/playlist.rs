@@ -888,7 +888,7 @@ fn cue_row(
     let width = ui.available_width();
     let (rect, response) =
         ui.allocate_exact_size(Vec2::new(width, theme::row_height()), Sense::click());
-    let id = egui::Id::new(("cue-row", row.index));
+    let id = egui::Id::unique(("cue-row", row.index));
     let fill = widgets::selection_fill(ui, theme, id, selected, response.hovered(), theme.panel);
     ui.painter().rect_filled(rect, CornerRadius::ZERO, fill);
     // A scene dragged from the browser lands straight after this cue (D224).

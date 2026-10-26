@@ -429,7 +429,7 @@ fn drawer(
     actions: &mut Vec<Action>,
 ) {
     let height = surface.height();
-    egui::Area::new(egui::Id::new("drawer"))
+    egui::Area::new(egui::Id::unique("drawer"))
         .order(egui::Order::Foreground)
         .fixed_pos(surface.right_top() - Vec2::new(width, 0.0))
         .constrain(false)
@@ -476,7 +476,7 @@ fn splitter_handle(
         egui::pos2(x, panel.center().y),
         Vec2::new(GRAB, panel.height()),
     );
-    let id = egui::Id::new(("splitter", Pane::Inspector.key()));
+    let id = egui::Id::unique(("splitter", Pane::Inspector.key()));
     let response = ui
         .interact(rect, id, Sense::click_and_drag())
         .on_hover_cursor(egui::CursorIcon::ResizeHorizontal);

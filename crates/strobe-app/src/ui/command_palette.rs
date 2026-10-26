@@ -164,21 +164,21 @@ pub fn draw(ctx: &Context, theme: &Palette, model: &mut Model<'_>, actions: &mut
         state.selected = moved(state.selected, 1, count);
     }
 
-    let progress = motion::transition(ctx, egui::Id::new("palette-card"), true, motion::QUICK);
+    let progress = motion::transition(ctx, egui::Id::unique("palette-card"), true, motion::QUICK);
     let screen = ctx.content_rect();
     // The scrim is painted on the foreground layer, as the modal's is, so
     // it dims every panel; a separate area under it swallows the click that
     // misses the card, and that click closes the palette.
     ctx.layer_painter(egui::LayerId::new(
         egui::Order::Foreground,
-        egui::Id::new("palette-scrim-paint"),
+        egui::Id::unique("palette-scrim-paint"),
     ))
     .rect_filled(
         screen,
         CornerRadius::ZERO,
         theme::translucent(theme.app, (f32::from(SCRIM_ALPHA) * progress) as u8),
     );
-    let clicked_outside = egui::Area::new(egui::Id::new("palette-scrim"))
+    let clicked_outside = egui::Area::new(egui::Id::unique("palette-scrim"))
         .order(egui::Order::Middle)
         .fixed_pos(screen.min)
         .show(ctx, |ui| {
@@ -189,7 +189,7 @@ pub fn draw(ctx: &Context, theme: &Palette, model: &mut Model<'_>, actions: &mut
         .inner;
 
     let mut chosen: Option<usize> = None;
-    egui::Area::new(egui::Id::new("palette-card"))
+    egui::Area::new(egui::Id::unique("palette-card"))
         .order(egui::Order::Foreground)
         .anchor(Align2::CENTER_TOP, Vec2::new(0.0, TOP_OFFSET))
         .show(ctx, |ui| {
@@ -212,7 +212,7 @@ pub fn draw(ctx: &Context, theme: &Palette, model: &mut Model<'_>, actions: &mut
                     ui.set_width(CARD_WIDTH.min(screen.width() - 2.0 * CARD_MARGIN).max(0.0));
                     let field = ui.add(
                         egui::TextEdit::singleline(&mut state.query)
-                            .id(egui::Id::new("palette-query"))
+                            .id(egui::Id::unique("palette-query"))
                             .hint_text("Type a command, pane, scene or preset")
                             .desired_width(f32::INFINITY),
                     );
