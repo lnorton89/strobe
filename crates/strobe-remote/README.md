@@ -4,10 +4,22 @@ Strobe's LAN show remote: a phone or tablet on the same network runs the show
 (next/previous, hold, restart, extend, skip section, blackout, tap tempo)
 while the laptop drives the projector. The design and threat model are in
 [`REMOTE_CONTROL_PWA_RESEARCH.md`](../../docs/REMOTE_CONTROL_PWA_RESEARCH.md);
-the decisions are D232, D236 and D250 to D254.
+the decisions are D232, D236, D250 to D254, D468 and D469.
+
+**Pairing asks the host, with no code (D468, D469).** A phone's page asks
+for a name and sends `request_pair`; another Strobe sends
+`request_desktop`. Either becomes a request the host operator approves or
+denies, bounded at four waiting, one per address, and 30 s after a Deny.
+The six-digit code of D251 and the version-1 `pair` message are still
+parsed, so an old page gets a clear refusal, but the app never opens
+pairing any more.
+
+**Discovery (D468).** A host with the remote on answers a broadcast query
+on UDP 47813 with its name, port and whether it takes desktop controllers;
+another Strobe lists who answered ([`discovery`](src/discovery.rs)).
 
 The crate holds the protocol, the bridge to the app thread, pairing and
-paired clients, and the listener. The listener is **opt-in**: nothing binds
+paired clients, discovery, and the listener. The listener is **opt-in**: nothing binds
 until the app calls `Server::start`. It never touches the renderer, the
 playlist or the UI: a command goes onto `bridge::Remote`, the app takes it off
 `bridge::AppEnd` on its own thread and runs it through the same command path a
@@ -50,7 +62,7 @@ id made by [`trust::new_controller_id`](src/trust.rs), and reconnects with a
 
 ## Role in the workspace
 
-- **Depends on:** `serde`, `serde_json`, `getrandom` (codes and tokens),
+- **Depends on:** `serde`, `serde_json`, `getrandom` (tokens, nonces and the legacy code),
   `sha2` (stored token digests, the page's CSP hashes), `sha1` (the WebSocket
   handshake only, D250), `hmac` (the venue trust file's proof, D288), `log`.
 - **Depended on by:** `strobe-app` (`lan.rs`, Settings' Remote section, the
@@ -61,14 +73,15 @@ id made by [`trust::new_controller_id`](src/trust.rs), and reconnects with a
 
 | Item | What |
 |---|---|
-| `ClientMessage` | `hello`, `pair`, `authenticate`, `command`, `ping` (and the desktop extension's, and venue mode's `trust_start` and `trust_proof`). Internally tagged by `type`, `deny_unknown_fields`: an unknown type or field fails to parse rather than being ignored. |
+| `ClientMessage` | `hello`, `request_pair` (a phone, by name, D469), `pair` (the frozen version-1 code message), `authenticate`, `command`, `ping` (and the desktop extension's, `request_desktop` among them, and venue mode's `trust_start` and `trust_proof`). Internally tagged by `type`, `deny_unknown_fields`: an unknown type or field fails to parse rather than being ignored. |
 | `RemoteCommand` | The allowlist: no scene loading, files, scripts, shaders or settings. |
 | `ServerMessage` | `hello`, `paired`, `authenticated`, a revisioned `state` snapshot, `command_result`, `error`, `pong`. A `paired` after `authenticated` is a token rotation (D251). |
 | `negotiate`, `decode_client`, `ServerMessage::error` | Version 1 to `PROTOCOL_VERSION`, a bounded and validated decode (`MAX_MESSAGE_BYTES` 4096, `MAX_SECRET_LEN` 128), errors cut to `MAX_ERROR_LEN` (D236). |
 | `bridge::bridge(capacity)` | `(Remote, AppEnd)`: a bounded command queue with a reply per request, and a revisioned `Snapshot` (D232). |
-| `server::Server` | `start(ServerConfig, Remote, Clients)`, `stop`, `url`, `warning`, `open_pairing`, `pairing_code`, `pairing_requests`, `decide`, `connections`, `revoke`, `revoke_all`. `Limits` holds every bound (D250, D252). |
+| `server::Server` | `start(ServerConfig, Remote, Clients)`, `stop`, `url`, `warning`, `advertising`, `pairing_requests`, `decide`, `connections`, `revoke`, `revoke_desktop`, `revoke_all`; `open_pairing` and `pairing_code` remain for the legacy code, which the app no longer opens. `Limits` holds every bound (D250, D252). |
 | `server::net` | `scope` (loopback, private, link-local, every interface, public), `lan_address`, `is_local_address` (D461), `host_matches`. |
-| `pairing::Pairing` | The six-digit code, its attempt limit and expiry, and requests waiting for Approve or Deny (D251). |
+| `pairing::Pairing` | Requests waiting for Approve or Deny and their bounds (D468, D469); the legacy six-digit code, its attempt limit and expiry (D251). |
+| `discovery::Responder`, `Scanner` | The host's answer to a LAN query and the controller's list of hosts, with `PORT` 47813, a reply rate limit and a forgetting time (D468). |
 | `clients::Clients` | Paired clients in `remote-clients.json`: token digests, rotation, revocation (D251). |
 | `trust::TrustSecret`, `Challenge`, `Limiter` | The venue trust file (make, load, parse), the single-use HMAC challenge, and the failed-proof limiter (D288). |
 | `secret::Token` | A 256-bit token that prints as `***` and is not `Serialize`. |
@@ -101,6 +114,6 @@ adversarial cases included.
 - `Ping` and `Pong` are empty struct variants, not unit variants:
   `deny_unknown_fields` does not reach a unit variant of an internally tagged
   enum, so a unit `Ping` accepted `{"type":"ping", <anything>}`.
-- Tokens and pairing codes travel only in message bodies, never URLs or logs.
+- Tokens, names and the legacy codes travel only in message bodies, never URLs or logs.
 - The HTTP head reader is separate from the Shadertoy listener's on purpose
   (D250): this one reads with a deadline and hands the rest to the WebSocket.

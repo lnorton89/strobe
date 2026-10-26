@@ -2,6 +2,8 @@
 
 _Last researched: 2026-10-08_
 
+> **Historical (2026-10-26).** This was written before the UI was built. The app as built is described by [UI_REVIEW.md](UI_REVIEW.md) and [UI_DESIGN.md](UI_DESIGN.md), and the decisions D130 onwards; where this document disagrees with them, they win.
+
 This is the implementation handoff for the future `strobe-app` UI. It turns the research in `UI_DESIGN.md` and `UI_RESEARCH_ADDENDUM.md` into a concrete egui architecture without prematurely coupling the UI to renderer internals.
 
 ## Implementation status (2026-10-10, stage 1)

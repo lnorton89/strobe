@@ -580,9 +580,24 @@ checked and not committed. Interaction was driven with xdotool.
   on purpose, clear, reset, live and saved. Evidence: `commands.rs` and
   `ui::shell_tests` (capture fires nothing, Esc cancels, the clash row at six
   sizes). Not yet: real keys on the T480.
-- [ ] Performance Macros as persistent bindings with the Unresolved states;
-  Editor and Mappings (stage 2). (Hold and the Playlist pane are built, D156
-  and D157, and the command palette, D200.)
+- [x] Performance Macros as persistent bindings with the Unresolved states
+  (D175, with the range and colour editor D210, a glide D227 and a key
+  D228); the Editor (D204, D482) and Mappings (D177, D467). Evidence: their
+  decisions' tests and the shell's every-size checks; a macro's key and
+  glide on the T480 (Task 29). Not yet: a person using them with a MIDI
+  controller (P-04, P-07).
+- [x] The UI rebuilt from a screenshot review (2026-10-23 to 2026-10-26,
+  docs/UI_REVIEW.md, D464-D484): one form grammar for every pane, Settings
+  as pages with search, the rail in words with Controls as a view and no
+  PLAY, control groups as cards, the library header in one row, recent
+  playlists, the Editor's status chip, Diagnostics as cards. Evidence: the
+  shell tests at ten sizes in every state, screenshot-mode captures on
+  TORNADO for each step, and the native file pickers opened by the owner
+  on Windows (2026-10-26). Not yet: the T480 at 150% (U-09).
+- [x] ANGLE's backend chosen with `--gl angle-*` (D485, G-06). Evidence:
+  `strobe_gfx::gl::angle` tests; on TORNADO D3D11, Vulkan and GL ran the 17
+  library scenes with matching images and Metal was refused
+  (BENCHMARKS.md, 2026-10-26).
 - [x] Scene tags (D205): `TAGS` read leniently and normalised, written in
   place from the Inspector, searched by the browser, and used by Generate
   with a reason per pooled scene. Evidence: `strobe_scene::tags` tests (a

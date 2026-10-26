@@ -55,8 +55,8 @@ screen until you ask.
   (output, fullscreen, frame rate, audio level and tempo, and a snapshot
   button), the eight fav slots, and four tabs: **Playlist** (the loaded
   show's cues), **Controls** (the playing scene's controls), **Presets**
-  (the scene's saved looks) and **Edit** (tags, picture, media,
-  *Generate controls*, *Open in Editor*). Drag its edge to resize it;
+  (the scene's saved looks, and saving a new one) and **Scene** (tags,
+  picture, media, *Generate controls*, *Open in Editor*). Drag its edge to resize it;
   until you do it is about a third of the window, and a double-click on
   the edge puts it back to that. In a short window the fav slots move into
   the Presets tab and the panel drops its preview. In a narrow window it opens
@@ -114,7 +114,7 @@ Settings > Keyboard changes any of them.
   - the scenes it ships (in `C:\Program Files (x86)\Synesthesia\release`
     and `default`). These are **read-only**: Strobe never changes
     Synesthesia's files. Tagging one, *Use frame as picture*, saving it in
-    EDIT or saving a preset for it says so and offers **Copy to my
+    the Editor or saving a preset for it says so and offers **Copy to my
     library**, which copies the scene into your library folder (under a
     new name if you already have one called that). The copy is yours to
     change, and if it was playing it carries on from the copy;
@@ -141,9 +141,11 @@ Settings > Keyboard changes any of them.
   the Controls view is up the panel shows Presets beside it rather than
   the same controls twice.
   The camera button in the status strip, or *Use frame as picture* in the
-  Edit tab, saves the current frame as the scene's library picture.
-- **Presets** (a tab of the panel): save the current look under a name,
-  recall it later or from a controller. A preset saved while a picture is
+  Scene tab, saves the current frame as the scene's library picture.
+- **Presets** (a tab of the panel): save the current look under a name in
+  *Save the controls*, and click a preset in the list to recall it, or
+  recall it from a controller. The active preset's cross deletes it (two
+  clicks). A preset saved while a picture is
   chosen for `syn_Media` remembers it.
 - **Editor** opens the scene's files, with their state beside the scene's
   name (Ready, Unsaved changes, Error). *Save* writes them and the show
@@ -179,8 +181,8 @@ Scenes react to sound through the default **recording** device.
   the output while the scene keeps running in the preview.
 - For a machine that starts Strobe by itself (a venue PC), put the output
   on the projector from the command line:
-  `strobe --output-monitor 2 --fullscreen`. Monitors are numbered as the
-  **Output monitor** menu numbers them; `--fullscreen` alone uses the
+  `strobe --output-monitor 2 --fullscreen`. Monitors are numbered as
+  **Settings > Output > Output monitor** numbers them; `--fullscreen` alone uses the
   monitor the output opens on. If monitor 2 is not connected yet (the
   projector is switched on after the computer), the output opens where it
   is and moves to the projector when it appears, unless someone has
@@ -197,7 +199,7 @@ Scenes react to sound through the default **recording** device.
 Scenes that read `syn_Media` show a picture or a looping folder of
 pictures (PNG or JPEG).
 
-- In the panel's Edit tab, **Media > Choose** takes a file or folder
+- In the panel's Scene tab, **Media > Choose** takes a file or folder
   path; *Scene's own* gives the scene its own back. Dropping a picture or a folder of
   pictures on the window does the same.
 - A playlist cue can name its own media, and that wins for the cue.
@@ -539,7 +541,7 @@ CC BY-NC-SA 3.0: no commercial use without the author's permission.
 Strobe records each import's author and source in the scene; check them
 before using a shader at a paid event.
 
-*Generate controls* (the Edit tab) measures a scene's numbers and writes
+*Generate controls* (the panel's Scene tab) measures a scene's numbers and writes
 a copy with sliders for the ones that matter; your original is never
 changed.
 

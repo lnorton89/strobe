@@ -117,7 +117,7 @@ context is current, so the type system keeps `Gl` on that thread.
 | `Headless::new(Api::DesktopCore33)` | Linux CI and the bench (Mesa llvmpipe via an EGL device display) | GLSL 330 core |
 | `Headless::new(Api::Gles30)` | the same, for testing the ANGLE dialect | GLSL ES 300 |
 | Windowed native | glutin: WGL on Windows, GLX/EGL on Linux (CGL on macOS is not built) | GLSL 330 core |
-| Windowed ANGLE | glutin EGL with ANGLE's `libEGL.dll`/`libGLESv2.dll` beside the exe | GLSL ES 300 |
+| Windowed ANGLE | glutin EGL with ANGLE's `libEGL.dll`/`libGLESv2.dll` beside the exe; its backend (D3D11 by default, or Vulkan, GL or Metal) chosen with `--gl angle-*` through `gl::angle` before any thread starts and checked against the renderer string once the context exists (D485); Vulkan also needs the `vulkan-1.dll` the release ships | GLSL ES 300 |
 | `offscreen::run` | The bench and `strobe-autocontrol` (D140): `Headless` when an EGL device exists, else one hidden window's `WindowedContext` (Intel on Windows has no EGL device). Runs a job with `&Gl` and `&Caps`; main thread, once per process | whichever it opened |
 
 ## A frame
@@ -257,17 +257,26 @@ See D150-D158.
 pure function of a borrowed `ui::Model` that returns `Action`s; the app owns
 every piece of state and carries the actions out after the frame is painted.
 
+The window has followed Synesthesia's layout since D281, and its panes were
+rebuilt on one form grammar in D464 to D484 (docs/UI_REVIEW.md):
+
 ```
-rail | browser (optional) | preview               | inspector / diagnostics / settings (optional)
--------------------------------------------------------------------------------------------
-title bar: brand, crumb, health readouts, window buttons (above all of it)
-transport strip: prev, hold (unavailable), next, NOW and NEXT, time, BPM, blackout
+title bar: brand, crumb, frame rate, output, audio, remote; other readouts only when they need attention (D472)
+---------------------------------------------------------------------------------------------------------
+rail (84 pt, words) | main view: the view the rail chose          | side panel (31%): preview, status strip,
+Library, Controls,  | (Library, Controls, Import, Playlist,       | fav slots, Playlist / Controls /
+Import, Playlist,   |  Editor, Mappings, Diagnostics, Settings)   | Presets / Scene tabs
+Editor, Mappings,   |                                             |
+Diagnostics, Settings                                             |
+---------------------------------------------------------------------------------------------------------
+transport strip: prev, hold, next, NOW and NEXT, time, BPM, BLACKOUT
 macros: the operator's pinned Performance Macros (the scene's first controls until there is one)
+help bar: what the control under the pointer does
 ```
-The MAP pane (right dock, `ui::map`) holds the OSC and MIDI connections, the
-macro set, the mappings with learn and the activity monitor (D177); the
-Controls pane starts with the preset row and the eight fav slots (`ui::presets`,
-D176).
+The Mappings view (`ui::map`) holds the OSC and MIDI connections, the macro
+set, the mappings with learn and the activity monitor (D177, D467); the
+side panel's Presets tab holds the presets and, in a short window, the eight
+fav slots (`ui::presets`, D176, D484).
 
 Layers (UI_IMPLEMENTATION_PLAN section 3), and where they are:
 
@@ -283,11 +292,18 @@ Portable modules (no egui, unit-tested anywhere): `color`, `palette`,
 `motion`, `icon`, `workspace` (the pane model and how it fits a window),
 `prefs`, `commands`, and `library` (search, filter, health and stepping). The
 egui layer is `ui/`: `theme`, `motion` and `icon` bind the portable ones;
-`widgets` and `modal` are the shared vocabulary; `shell` composes `chrome`,
-`perform`, `transport` and `macros` with the panes `browser`, `inspector`
-(with `controls` and `presets`), `diagnostics`, `import`, `settings`, `playlist`
-and `map`; `keys` turns key
-events into commands; `host` runs egui on the control window.
+`fonts` loads the system's Segoe UI (D465); `widgets`, `form` (pages, group
+cards, setting rows, toggles, fields: the grammar every pane uses, D466) and
+`modal` are the shared vocabulary; `shell` composes `chrome` (title bar and
+rail), `side` (the side panel), `perform`, `transport`, `macros` and `help`
+with the views `browser`, `inspector` (with `controls`, the Controls view and
+tab, and `presets`), `import`, `playlist`, `editor`, `map`, `diagnostics` and
+`settings` (with `audio` and `lan`, the Remote page); `command_palette`,
+`tags` and `thumbs` serve several of them; `keys` turns key events into
+commands; `host` runs egui on the control window. Outside `ui/`, `picker`
+opens the native file and folder dialogs (`rfd`) on a thread of their own
+and is polled for the choice (D470), and `lan` runs the remote
+listener and the LAN discovery responder and scanner (D468).
 
 What a control-window frame does (30 Hz, off the output frame's path):
 
@@ -322,7 +338,7 @@ New in the frame path, all in `app.rs`:
 The rules that keep it cheap and honest, each a test: the drawing modules
 hold no colour literal, hand-picked gap, hand-rolled animation or font icon;
 no fixed panel has a dead resize handle; nothing in them touches the disk,
-the driver or a socket; `shell_tests` draws every state at six window sizes
+the driver or a socket; `shell_tests` draws every state at ten window sizes
 and asserts it fits; `palette` checks every theme's contrast. The per-frame
 cost is measured and shown (`Control UI` in the diagnostics: the egui layout pass, about 1 ms in a
 debug build; the GL paint is the driver's and the T480 number is open).

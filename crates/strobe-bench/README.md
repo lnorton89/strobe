@@ -48,7 +48,7 @@ Every flag is defined in the clap `Cli`:
 | `--warmup <n>` | `90` | Untimed frames first, so feedback scenes have history. |
 | `--start <seconds>` | `2.0` | Scene time at the first frame. |
 | `--context auto\|headless\|window` | `auto` | An EGL device with no window system, one hidden window, or headless if a device exists and the window otherwise. |
-| `--gl auto\|native\|angle` | `auto` | Backend for `--context window`. |
+| `--gl auto\|native\|angle\|angle-d3d11\|angle-vulkan\|angle-gl\|angle-metal` | `auto` | Backend for `--context window`; `angle-*` names ANGLE's backend too (D485). |
 | `--show-window` | off | Start with the tiny off-screen window instead of a hidden one. |
 | `--window-size WxH` | `16x16` | Window contexts: the stand-in window's client size. Renders never depend on it; it is a bisection tool for drivers that draw black above some size (D296). Windows caps it at about the screen size; the report's context line gives the size the window got. |
 | `--probe` | off | Instead of benchmarking, clear, draw into and read back targets at a ladder of sizes plus `--size`, and print the viewport the driver keeps. Writes `probe.md` (D296). |

@@ -1,5 +1,11 @@
 # Release plan: v0.1.0, the first tag
 
+> **Historical.** This sequenced the first tag around checks the release
+> workflow had never run. Later releases follow the order in
+> [CONTRIBUTING.md](../CONTRIBUTING.md) ("Releasing"); the open steps here
+> (5 and on) are tracked as R-03 and R-04 in
+> [IMPLEMENTATION_BACKLOG.md](IMPLEMENTATION_BACKLOG.md).
+
 **Scope.** A first, *internal* tag of Strobe for the owner and a small set of
 testers on the T480 and TORNADO. It is not a "release-ready" claim: the
 validation that stays open (below) is recorded as known limitations, not
