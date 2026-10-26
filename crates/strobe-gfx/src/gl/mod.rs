@@ -41,6 +41,7 @@
 //! current-context invariant plus, for the few calls that take a pointer,
 //! the length of the slice behind it — stated where it applies.
 
+pub mod angle;
 pub mod context;
 pub mod debug;
 pub mod prime;

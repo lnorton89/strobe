@@ -56,6 +56,9 @@ use winit::event_loop::EventLoop;
 const FLUSH_TIMEOUT: Duration = Duration::from_secs(2);
 
 fn main() -> ExitCode {
+    // 0: `--gl angle-*` sets ANGLE's backend through the environment, which
+    // is only sound before any thread exists (D485).
+    let _ = strobe_gfx::gl::angle::choose_from_args(std::env::args_os());
     // 1 and 2: before anything that can fail, because the monitor process
     // reports native crashes with the notifier.
     strobe_diag::notify::set_notifier(|notice| dialog::show_error(&dialog::crash_text(notice)));

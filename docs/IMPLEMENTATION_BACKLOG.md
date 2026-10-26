@@ -2,7 +2,7 @@
 
 **Purpose:** one evidence-based register of every known unfinished or not-yet-verified project area. This is the implementation companion to ROADMAP.md, STATUS_AUDIT.md, PLAN.md, UI_IMPLEMENTATION_PLAN.md, GFX_API_RESEARCH.md, and REMOTE_CONTROL_PWA_RESEARCH.md. It consolidates their open work; it does not re-label untested work as complete.
 
-**Last reconciled:** 2026-10-12 against the current roadmap and status audit.
+**Last reconciled:** 2026-10-26 for G-05 and G-06 (D485); the UI items reflect D464-D484 in ROADMAP.md and UI_REVIEW.md.
 
 ## How to use this register
 
@@ -374,12 +374,12 @@
 - **Acceptance:** matching visual tests and load-time shader preparation on T480 and TORNADO; no regressions to GL/ANGLE; release claims distinguish Vulkan, DX12, Metal and MoltenVK support.
 
 ### G-05 ANGLE's Vulkan backend on real GPUs
-- **Status:** Proven on CPU Vulkan in a container (D292, [research/angle-backends.md](research/angle-backends.md)). The unmodified bench rendered the 16 library scenes on lavapipe and SwiftShader, and the corpus harness ran the owner's 90 scenes on lavapipe, with `ANGLE_DEFAULT_PLATFORM=vulkan` and the pinned Electron's ANGLE. Not yet run on a GPU.
+- **Status:** Run on a GPU (D485): on TORNADO (GTX 1080 Ti, driver 582.78) `strobe-bench --context window --gl angle-vulkan` rendered the 17 library scenes with images matching ANGLE-D3D11 and frame times within run-to-run noise of it (BENCHMARKS.md, 2026-10-26). It starts only with Electron's `vulkan-1.dll` beside ANGLE, which the release now ships. Before that: CPU Vulkan in a container (D292, [research/angle-backends.md](research/angle-backends.md)). Left: the T480, the corpus over the owner's scenes, a 30-minute soak and the verdict on Vulkan as a fallback.
 - **Work:** on the T480 and TORNADO, with the DLLs the release ships plus Electron's `vulkan-1.dll` (or the driver's own in `System32`), set `ANGLE_DEFAULT_PLATFORM=vulkan` and run `strobe-bench --context window --gl angle` and `strobe-corpus --context window --dialect gles`. Compare each with ANGLE-D3D11 and native GL: images, frame times, compile times, and a 30-minute soak.
 - **Acceptance:** the renderer string names Vulkan, and the corpus matches ANGLE-D3D11's pass list. The frame times are recorded in BENCHMARKS.md, and a written verdict says whether Vulkan should ever be the fallback before D3D11.
 
 ### G-06 Choose ANGLE's backend from `--gl`
-- **Status:** Not started (D292).
+- **Status:** Done (D485): `--gl angle-d3d11 | angle-vulkan | angle-gl | angle-metal` in the app, bench, autocontrol and corpus, through `ANGLE_DEFAULT_PLATFORM` set before any thread, with the renderer string checked afterwards so a backend ANGLE lacks fails with a message instead of a quiet fall-back. Checked on TORNADO: D3D11, Vulkan and GL start, Metal is refused. The extension-string check of the work list is replaced by that renderer check, which also catches a backend that is advertised but does not start.
 - **Work:**
   - `--gl angle-d3d11 | angle-vulkan | angle-gl | angle-metal` (with `angle` keeping today's default), shown in the diagnostics line.
   - Each choice is offered only when ANGLE's client-extension string advertises it (`EGL_ANGLE_platform_angle_vulkan`, `_metal`, `_d3d`).

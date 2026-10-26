@@ -1,5 +1,8 @@
 # Fetches ANGLE (libEGL.dll, libGLESv2.dll, d3dcompiler_47.dll) for Strobe's
-# Direct3D 11 fallback context and places them beside the built executables.
+# Direct3D 11 fallback context and places them beside the built executables,
+# with the Vulkan loader (vulkan-1.dll) that `--gl angle-vulkan` needs: this
+# ANGLE fails to start Vulkan on the loader a GPU driver installs in
+# System32, and starts on the one Electron ships with it (D485).
 #
 # Source: an official Electron release for win32-x64, which ships Google's
 # ANGLE build. Both the archive and every extracted DLL are checked against
@@ -11,8 +14,9 @@
 #   powershell -ExecutionPolicy Bypass -File scripts\fetch-angle.ps1 -Profile debug
 #
 # Licences: ANGLE is BSD-3-Clause; d3dcompiler_47.dll is Microsoft's
-# redistributable D3D compiler as shipped by Chromium/Electron. Electron's
-# LICENSES.chromium.html (extracted alongside) covers both.
+# redistributable D3D compiler as shipped by Chromium/Electron; vulkan-1.dll
+# is the Khronos Vulkan loader (Apache-2.0). Electron's
+# LICENSES.chromium.html (extracted alongside) covers them.
 
 param(
     [ValidateSet("release", "debug", "both")]
@@ -26,6 +30,7 @@ $Files = @{
     "libEGL.dll"         = "dfd53ccbfce55510f2afdb52703037452370eb5bdf33143829a8b06253015625"
     "libGLESv2.dll"      = "b348ceedd275843cbe344a29dd8550b18e5d433abff695cdf5658470c1e71c67"
     "d3dcompiler_47.dll" = "289767b49dc8525bce262ea06fee4ef9fced2e131a55b25654ce871c1f0498b2"
+    "vulkan-1.dll"       = "40e39b8cd62c3292f7c5ad6a2d863f6e3bd3d2c0b1b3a2a0e4d41a61d2a8f758"
 }
 
 $Root = Split-Path -Parent $PSScriptRoot

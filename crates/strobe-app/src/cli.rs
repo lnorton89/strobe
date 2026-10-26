@@ -33,8 +33,16 @@ pub enum GlArg {
     Auto,
     /// Native GL 3.3 only.
     Native,
-    /// ANGLE (EGL, OpenGL ES 3.0) only.
+    /// ANGLE (EGL, OpenGL ES 3.0) only, on ANGLE's own choice of backend.
     Angle,
+    /// ANGLE on Direct3D 11 only (ANGLE's default on Windows, named).
+    AngleD3d11,
+    /// ANGLE on Vulkan only: the GPU's Vulkan driver under GLES (D485).
+    AngleVulkan,
+    /// ANGLE on the desktop OpenGL driver only.
+    AngleGl,
+    /// ANGLE on Metal only (macOS).
+    AngleMetal,
 }
 
 impl GlArg {
@@ -43,7 +51,11 @@ impl GlArg {
         match self {
             Self::Auto => GlChoice::Auto,
             Self::Native => GlChoice::Only(Backend::Native),
-            Self::Angle => GlChoice::Only(Backend::Angle),
+            Self::Angle
+            | Self::AngleD3d11
+            | Self::AngleVulkan
+            | Self::AngleGl
+            | Self::AngleMetal => GlChoice::Only(Backend::Angle),
         }
     }
 }
@@ -389,6 +401,19 @@ mod tests {
         assert_eq!(cli.library, PathBuf::from("scenes"), "library");
         assert_eq!(cli.gl, GlArg::Auto, "backend");
         assert!(cli.screenshot.is_none(), "no screenshot");
+        Ok(())
+    }
+
+    #[test]
+    fn each_angle_backend_is_a_gl_choice_of_angle_only() -> Result<()> {
+        for value in ["angle-d3d11", "angle-vulkan", "angle-gl", "angle-metal"] {
+            let cli = Cli::try_parse_from(["strobe", "--gl", value])?;
+            assert_eq!(
+                cli.gl.choice(),
+                GlChoice::Only(Backend::Angle),
+                "--gl {value} is ANGLE, its backend set apart (D485)"
+            );
+        }
         Ok(())
     }
 

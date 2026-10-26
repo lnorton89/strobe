@@ -142,7 +142,15 @@ pub struct Cli {
     /// desktop-dialect run there needs this.
     #[arg(long)]
     pub show_window: bool,
+    /// Which of ANGLE's backends the GLES dialect runs on: `angle-d3d11`,
+    /// `angle-vulkan`, `angle-gl` or `angle-metal` (D485). ANGLE's own
+    /// choice when absent. Each worker checks its renderer against it.
+    #[arg(long, value_parser = ANGLE_GL_VALUES)]
+    pub gl: Option<String>,
 }
+
+/// The `--gl` values the corpus takes: one of ANGLE's backends.
+const ANGLE_GL_VALUES: [&str; 4] = ["angle-d3d11", "angle-vulkan", "angle-gl", "angle-metal"];
 
 impl Cli {
     /// What each scene is measured with.
@@ -184,6 +192,9 @@ pub struct WorkerCli {
     /// Where to write the result JSON.
     #[arg(long)]
     pub result: PathBuf,
+    /// The driver's `--gl`, read again in the worker's `main` (D485).
+    #[arg(long, value_parser = ANGLE_GL_VALUES)]
+    pub gl: Option<String>,
 }
 
 #[cfg(test)]

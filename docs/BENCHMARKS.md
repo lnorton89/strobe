@@ -529,6 +529,101 @@ before each piece's wobble and one pile octave brought it to 0.81 ms; what
 remains is spread at 0.1-0.17 ms per layer. Native and ANGLE frames differ
 by at most 1/255.
 
+### 2026-10-26: ANGLE's backends, GTX 1080 Ti (TORNADO)
+
+`--gl angle-*` (D485, G-05 and G-06). TORNADO, driver 582.78, Electron
+38.2.0's ANGLE (a8c8a6febe63) and Vulkan loader beside a **debug**
+`strobe-bench`, hidden-window context, half-float buffers, 1280x720, 240
+timed frames after 30 warm-up, the 17 library scenes. GPU times from timer
+queries, so the debug build costs CPU, not these numbers; still one run
+each, and on a GPU this fast every scene is far inside its budget. The
+renderers:
+
+- native: `NVIDIA GeForce GTX 1080 Ti/PCIe/SSE2 (3.3.0 NVIDIA 582.78)`
+- `angle-d3d11`: `ANGLE (NVIDIA, ... Direct3D11 vs_5_0 ps_5_0, D3D11-32.0.15.8278)`
+- `angle-vulkan`: `ANGLE (NVIDIA, Vulkan 1.4.312 (NVIDIA NVIDIA GeForce GTX 1080 Ti (0x00001B06)), NVIDIA-582.78.0.0)`, OpenGL ES 3.1
+- `angle-gl`: `ANGLE (NVIDIA Corporation, NVIDIA GeForce GTX 1080 Ti/PCIe/SSE2, OpenGL ES 3.2 NVIDIA 582.78)`
+- `angle-metal`: refused, "asked ANGLE for Metal, and it started on another backend (... D3D11 ...)".
+
+ANGLE-Vulkan did not start with the loader the NVIDIA driver installs in
+System32 (`VK_ERROR_INITIALIZATION_FAILED` in `vk::Renderer::initialize`);
+with Electron's `vulkan-1.dll` beside it, it did. The release now ships it.
+
+Frame time, mean (p95) ms:
+
+| Scene | native mean (p95) | angle-d3d11 mean (p95) | angle-vulkan mean (p95) | angle-gl mean (p95) |
+|---|---:|---:|---:|---:|
+| 01-aurora-gradient | 0.08 (0.10) | 0.07 (0.09) | 0.10 (0.17) | 0.07 (0.09) |
+| 02-plasma-pulse | 0.09 (0.11) | 0.07 (0.08) | 0.11 (0.18) | 0.07 (0.09) |
+| 03-kaleido-tunnel | 0.11 (0.13) | 0.07 (0.08) | 0.15 (0.22) | 0.08 (0.10) |
+| 04-voronoi-glass | 0.26 (0.30) | 0.28 (0.39) | 0.26 (0.33) | 0.22 (0.24) |
+| 05-domain-warp | 0.23 (0.30) | 0.18 (0.31) | 0.20 (0.27) | 0.22 (0.29) |
+| 06-feedback-trails | 0.11 (0.13) | 0.07 (0.09) | 0.11 (0.16) | 0.08 (0.10) |
+| 07-reaction-diffusion | 0.25 (0.37) | 0.17 (0.20) | 0.21 (0.28) | 0.20 (0.26) |
+| 08-bloom-orbs | 0.19 (0.22) | 0.14 (0.17) | 0.18 (0.25) | 0.19 (0.29) |
+| 09-sdf-cathedral | 0.75 (0.87) | 0.61 (0.72) | 0.63 (0.72) | 0.62 (0.76) |
+| 10-volume-clouds | 6.51 (7.04) | 5.53 (6.10) | 5.54 (5.72) | 6.45 (7.01) |
+| 11-script-orbits * | 0.10 (0.13) | 0.08 (0.10) | 0.12 (0.17) | 0.09 (0.12) |
+| 12-silicon-atlas | 1.49 (2.14) | 1.36 (1.66) | 1.45 (1.54) | 1.49 (2.12) |
+| 13-chromatic-rise | 0.23 (0.32) | 0.18 (0.27) | 0.21 (0.28) | 0.21 (0.25) |
+| 14-electric-bloom | 0.44 (0.56) | 0.41 (0.51) | 0.48 (0.56) | 0.44 (0.52) |
+| 15-neon-ribbon-flow | 0.24 (0.28) | 0.26 (0.36) | 0.23 (0.30) | 0.26 (0.31) |
+| 16-acid-mirror | 0.31 (0.44) | 0.23 (0.26) | 0.29 (0.37) | 0.28 (0.34) |
+| 17-blacklight-carpet | 0.46 (0.58) | 0.42 (0.52) | 0.45 (0.54) | 0.43 (0.52) |
+
+Compile ms as each backend reports it. ANGLE-Vulkan and ANGLE-GL return
+from the link far sooner than ANGLE-D3D11 (12-silicon-atlas: 2155 ms
+against 16 ms), but a Vulkan driver can defer pipeline work to the first
+draw, so this column says when `link` returned, not what the first frame
+cost:
+
+| Scene | native compile | angle-d3d11 compile | angle-vulkan compile | angle-gl compile |
+|---|---:|---:|---:|---:|
+| 01-aurora-gradient | 46.7 | 20.9 | 9.2 | 10.6 |
+| 02-plasma-pulse | 22.0 | 21.4 | 8.4 | 10.4 |
+| 03-kaleido-tunnel | 25.3 | 26.7 | 8.5 | 10.7 |
+| 04-voronoi-glass | 29.9 | 72.6 | 9.6 | 11.7 |
+| 05-domain-warp | 12.5 | 102.2 | 23.1 | 20.0 |
+| 06-feedback-trails | 23.4 | 23.8 | 8.4 | 11.1 |
+| 07-reaction-diffusion | 134.8 | 115.3 | 43.2 | 46.1 |
+| 08-bloom-orbs | 91.1 | 63.7 | 37.8 | 42.9 |
+| 09-sdf-cathedral | 45.4 | 108.8 | 10.5 | 14.1 |
+| 10-volume-clouds | 41.7 | 243.4 | 9.3 | 11.8 |
+| 11-script-orbits * | 24.8 | 38.0 | 8.7 | 10.9 |
+| 12-silicon-atlas | 124.6 | 2154.7 | 15.8 | 22.4 |
+| 13-chromatic-rise | 242.6 | 270.2 | 55.4 | 58.1 |
+| 14-electric-bloom | 473.8 | 1058.5 | 33.7 | 42.7 |
+| 15-neon-ribbon-flow | 16.5 | 119.8 | 23.1 | 27.1 |
+| 16-acid-mirror | 225.6 | 358.6 | 43.2 | 49.7 |
+| 17-blacklight-carpet | 31.7 | 781.5 | 34.1 | 40.8 |
+
+Images against ANGLE-D3D11, mean absolute difference over 255 / pixels
+off by more than 16:
+
+| Scene | native vs D3D11 | angle-vulkan vs D3D11 | angle-gl vs D3D11 |
+|---|---:|---:|---:|
+| 01-aurora-gradient | 0.00 / 0.0% | 0.00 / 0.0% | 0.00 / 0.0% |
+| 02-plasma-pulse | 0.00 / 0.0% | 0.00 / 0.0% | 0.00 / 0.0% |
+| 03-kaleido-tunnel | 0.01 / 0.0% | 0.01 / 0.0% | 0.01 / 0.0% |
+| 04-voronoi-glass | 0.00 / 0.0% | 0.17 / 0.3% | 0.00 / 0.0% |
+| 05-domain-warp | 0.00 / 0.0% | 0.62 / 0.5% | 0.00 / 0.0% |
+| 06-feedback-trails | 0.00 / 0.0% | 0.00 / 0.0% | 0.00 / 0.0% |
+| 07-reaction-diffusion | 1.38 / 2.6% | 1.87 / 2.9% | 1.38 / 2.6% |
+| 08-bloom-orbs | 0.00 / 0.0% | 0.00 / 0.0% | 0.00 / 0.0% |
+| 09-sdf-cathedral | 0.00 / 0.0% | 0.00 / 0.0% | 0.00 / 0.0% |
+| 10-volume-clouds | 0.00 / 0.0% | 0.09 / 0.0% | 0.00 / 0.0% |
+| 11-script-orbits | 0.00 / 0.0% | 0.00 / 0.0% | 0.00 / 0.0% |
+| 12-silicon-atlas | 0.00 / 0.0% | 0.24 / 1.1% | 0.00 / 0.0% |
+| 13-chromatic-rise | 3.04 / 5.5% | 5.51 / 9.0% | 3.04 / 5.5% |
+| 14-electric-bloom | 0.00 / 0.0% | 0.22 / 0.3% | 0.00 / 0.0% |
+| 15-neon-ribbon-flow | 0.00 / 0.0% | 0.45 / 0.0% | 0.00 / 0.0% |
+| 16-acid-mirror | 2.12 / 3.4% | 3.52 / 5.4% | 2.12 / 3.4% |
+| 17-blacklight-carpet | 0.00 / 0.0% | 0.09 / 0.1% | 0.00 / 0.0% |
+
+The scenes that differ (07, 13, 16) build on their own previous frames
+and drift between native and D3D11 as much; elsewhere Vulkan differs from
+D3D11 by under 1/255 on average.
+
 ## Wanted
 
 - [x] A real-GPU run on the T480: native vs ANGLE, 32F vs 16F, 720p and

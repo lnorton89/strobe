@@ -11611,3 +11611,36 @@ out its Diagnostics button while Diagnostics is the view.
 and the Controls page at 1600x1000.
 
 **Would reopen:** a scene with enough presets to want search.
+
+### D485: `--gl angle-*` chooses ANGLE's backend, and checks it got it (2026-10-26)
+
+**Context.** G-06. ANGLE runs GLES on Direct3D 11, Vulkan, desktop GL or
+Metal, and picks D3D11 on Windows unless told otherwise. glutin 0.32 asks
+for an ANGLE display with no platform attributes and cannot add one
+(research/angle-backends.md, section 3). ANGLE quietly falls back to its
+default for a backend it was built without.
+
+**Decision.** `--gl angle-d3d11 | angle-vulkan | angle-gl | angle-metal`
+in the app, `strobe-bench`, `strobe-autocontrol` and `strobe-corpus`
+(which passes it to its workers); `--gl angle` keeps ANGLE's own choice.
+The choice is made through ANGLE's `ANGLE_DEFAULT_PLATFORM`, set by
+`strobe_gfx::gl::angle::choose_from_args`, the first call in each
+binary's `main`, which reads `--gl` from the raw arguments before anything
+starts a thread (setting the environment is only sound then; the
+`set_var` is a leaf wrapper in `gl/`). Once the context exists its
+renderer string is checked against the backend asked for, and a mismatch
+fails the attempt with a message naming the backend and what it needs.
+D66's fail-over is unchanged. On TORNADO (GTX 1080 Ti) D3D11, Vulkan and
+GL ran all 17 library scenes with matching images, and Metal was refused
+by the check. ANGLE-Vulkan started only with Electron's `vulkan-1.dll`
+beside it, not with the driver's loader in System32, so the fetch script
+pins it and the release ships it, and the missing-DLL hint names it.
+
+**Test.** `strobe_gfx::gl::angle` unit tests (the `--gl` value in both
+spellings, every backend's round trip, the renderer check and its
+message); `each_angle_backend_is_a_gl_choice_of_angle_only`; the hint
+test; the TORNADO runs in BENCHMARKS.md.
+
+**Would reopen:** a glutin with ANGLE platform attributes (then the
+environment variable goes), or a release whose ANGLE has no Vulkan.
+

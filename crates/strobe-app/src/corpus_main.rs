@@ -38,6 +38,9 @@ use strobe_app::corpus::report::Report;
 use strobe_app::corpus::{Dialect, Record, Status};
 
 fn main() -> ExitCode {
+    // First, in the driver and in each worker: `--gl angle-*` sets ANGLE's
+    // backend through the environment before any thread exists (D485).
+    let _ = strobe_gfx::gl::angle::choose_from_args(std::env::args_os());
     let mut args = std::env::args_os();
     let program = args.next().unwrap_or_default();
     let rest: Vec<OsString> = args.collect();
@@ -71,6 +74,7 @@ fn run(cli: &Cli) -> Result<()> {
         budget: cli.budget(),
         context: cli.context,
         show_window: cli.show_window,
+        gl: cli.gl.clone(),
         work: cli.out.join(".work"),
     };
     let outcome = driver::run_library(&options, progress)?;
