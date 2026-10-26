@@ -463,6 +463,7 @@ MIT with the [Commons Clause](https://commonsclause.com/) and an added
 permission. You may use, change and share Strobe, and run it for pay:
 performances, installations, events, hosting it for others. You may not sell
 Strobe itself: its source, programs built from it (modified or not), or a
-product that includes it or a substantial part of it. That makes it
+product that includes it or a substantial part of it, under its own name
+or any other. That makes it
 source-available, not open source. See [LICENSE](LICENSE) for the exact
 terms. Releases up to v0.1.0 were MIT alone.
