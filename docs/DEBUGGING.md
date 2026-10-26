@@ -155,9 +155,14 @@ run, grep the log for `perf:`.
 
 1. Run with `STROBE_GL_DEBUG=1 STROBE_LOG=gl_driver=debug` and read the
    `gl_driver` lines before the failure.
-2. `--gl native` and `--gl angle` force a backend. The first log lines
-   name the backend, renderer and driver version, and every crash report
-   carries them.
+2. `--gl native` and `--gl angle` force a backend, and `--gl angle-d3d11`,
+   `angle-vulkan` or `angle-gl` names ANGLE's own backend too (D485). The
+   first log lines name the backend, renderer and driver version, and every
+   crash report carries them. If ANGLE starts on a backend other than the
+   one asked for, the attempt fails and says so ("asked ANGLE for Vulkan,
+   and it started on another backend"). `angle-vulkan` needs
+   `vulkan-1.dll` beside `strobe.exe`: Electron's ANGLE did not start on
+   the loader an NVIDIA driver installs in System32 (TORNADO, 2026-10-26).
 3. Check the context line: robust or not, and what
    `reset_status` said after a failure.
 4. A GPU timing line says whether adaptive resolution can work on this
@@ -306,7 +311,7 @@ playlist "Transition demo": closed with 0 runtime shader compile(s) (...)
 
 - **A scene that will not play** is a `PLAYLIST` / `phase=precompile` failure
   block naming the scene (a reference that is not in the library, or the
-  compile error), and its cues are `skipped` in the LIST pane.
+  compile error), and its cues are `skipped` in the Playlist view.
 - **`N shader compile(s) happened during playback`** (a warning) means the
   zero-compile promise broke (D152). A late script uniform used to be the
   cause; D161 now refuses it instead of recompiling, so this is a bug: report
@@ -339,7 +344,7 @@ MIDI: nanoKONTROL2 disconnected          (a warning)
 ```
 
 One line per *new* thing heard: a fader sweep folds into one line (the MAP
-pane's Activity shows the count). The MAP pane is the first place to look: its
+pane's Activity shows the count). The Mappings view is the first place to look: its
 Connections block says whether OSC is listening and each MIDI device's state,
 and Activity shows the last messages and what each did.
 

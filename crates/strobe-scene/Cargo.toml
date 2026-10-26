@@ -4,7 +4,7 @@ description = "The Synesthesia Shader Format model: scene.json, controls and the
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-license.workspace = true
+license-file.workspace = true
 publish = false
 
 [dependencies]

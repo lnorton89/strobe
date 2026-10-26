@@ -4,7 +4,7 @@ description = "The desktop app: control window (egui), output window, scene brow
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-license.workspace = true
+license-file.workspace = true
 publish = false
 # Two binaries: the app, and the corpus harness (D195). Plain `cargo run -p
 # strobe-app` must keep meaning the app.

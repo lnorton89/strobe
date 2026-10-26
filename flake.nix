@@ -29,7 +29,20 @@
         "x86_64-linux"
         "aarch64-linux"
       ];
-      forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
+      # Strobe is MIT with the Commons Clause (D486), which nixpkgs counts as
+      # unfree. This flake's own package set may build that one package, so
+      # `nix build` works without NIXPKGS_ALLOW_UNFREE; nothing else is let in.
+      forAllSystems =
+        f:
+        nixpkgs.lib.genAttrs systems (
+          system:
+          f (
+            import nixpkgs {
+              inherit system;
+              config.allowUnfreePredicate = pkg: (pkg.pname or "") == "strobe";
+            }
+          )
+        );
 
       # Opened with dlopen, so no build step sees them and nothing records
       # them in the binary. winit and glutin name each library by its
@@ -129,7 +142,12 @@
           meta = {
             description = "Audio-reactive VJ engine for GLSL scenes";
             homepage = "https://github.com/lnorton89/strobe";
-            license = pkgs.lib.licenses.mit;
+            license = {
+              fullName = "MIT with the Commons Clause and an operating permission";
+              url = "https://commonsclause.com/";
+              free = false;
+              redistributable = true;
+            };
             mainProgram = "strobe";
             platforms = systems;
           };

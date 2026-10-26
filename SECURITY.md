@@ -38,8 +38,11 @@ What *is* in scope:
   scene library, is a real finding. So is a request that crashes the
   process, which on a projector is a denial of service.
 - **The LAN remote.** When the operator switches it on, Strobe listens on a
-  private network address for a phone's controller page (D250-D254). Driving
-  the show without a code and the desktop's approval, a token that survives
+  private network address for a phone's controller page and for other
+  Strobes, and answers their discovery queries (D250-D254, D468). Driving
+  the show without the host operator's approval, getting past the bounds on
+  pending requests (four waiting, one per address, a cooldown after a Deny,
+  D468, D469), a token that survives
   revocation, a page on another site or host name reaching it (cross-site
   WebSocket hijacking, DNS rebinding), anything beyond the allowlisted show
   commands, a secret in a log or URL, or a client that can stall the frame
