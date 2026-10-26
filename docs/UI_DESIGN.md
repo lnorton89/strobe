@@ -1,25 +1,30 @@
 # Strobe UI Design and Interaction Architecture
 
-_Last researched: 2026-10-08. Sections 2, 4, 5, 7, 12 and 22 were rewritten on 2026-10-14 for the Synesthesia-style layout (D281 to D285); sections 2, 4, 5, 7, 12, 24 and 25 were updated on 2026-10-15 for one-click scenes and the Scenes and Controls pages (D291)._
+_Last researched: 2026-10-08. Sections 2, 4, 5, 7, 12 and 22 were rewritten on 2026-10-14 for the Synesthesia-style layout (D281 to D285); sections 2, 4, 5, 7, 12, 24 and 25 were updated on 2026-10-15 for one-click scenes (D291). Sections 1, 4, 5, 7, 11, 12, 14, 16 and 24 were brought up to the app as built on 2026-10-26 (D465 to D484): the form grammar, a rail in words with Controls as a view and no PLAY, control groups as cards, approve-only remote pairing._
+
+**Where this document and the app disagree, the app and [UI_REVIEW.md](UI_REVIEW.md) win.** This is the design intent; UI_REVIEW is checked against screenshots, and its "Foundations" describe the component grammar every pane now uses (`ui::form`: a page, group cards, setting rows with a title and description on the left and the control on the right, toggle switches, outlined fields, D465 and D466).
 
 This is the UI contract for the Strobe desktop application. Synesthesia remains the compatibility reference for scene controls, presets, media, mapping and scripting. Since 2026-10-14 the owner's direction is also to follow its *layout* (three columns, a rail that switches the main view, one persistent right panel, a help bar), with Strobe's theme and every modern feature kept reachable. The target is a modern performance instrument for VJs and creative coders.
 
 ## 1. Product model
 
 Desktop remote connection follows the existing Settings > Remote surface
-(D275, D286). Hosting starts with a runtime-only **Allow full desktop control**
-switch; the pending approval explicitly says **Full desktop**. The controller
-form is its own Settings section, **Control another Strobe**, reached from
-Ctrl+K as "Control another Strobe...": an empty host address with a hint, a
-pairing code and Connect, with inline status and the in-memory reconnect hint.
+(D275, D286, D468). Hosting starts with **Let others connect** and a
+runtime-only **Allow full desktop control** switch; a request shows as a
+banner with Approve and Deny that explicitly says **Full desktop**. The
+controller side is its own Settings section, **Control another Strobe**,
+reached from Ctrl+K as "Control another Strobe...": the Strobes found on the
+network, each with Connect, and a host address typed by hand for one that
+is not found, with inline status and the in-memory reconnect hint. There is
+no code to type, for a desktop or a phone (D468, D469).
 It uses existing palette, typography, spacing and buttons. The viewer devotes
 the surface to the host image, keeping connection status and **Return to local
 Strobe** (**Cancel** while connecting) above it. That button and
 Ctrl/Command+Shift+F12 always act locally. While it waits it shows the seconds
 spent and what to do on the host, and gives up after 60 s. A stale, paused or
 ended connection keeps the last image dimmed under a card that says why; it
-accepts no input. A refusal says a new pairing code is needed and where it
-appears. All host edits and paths remain visibly described as host operations.
+accepts no input. A refusal says the host denied the request, or turned
+desktop access off. All host edits and paths remain visibly described as host operations.
 This extends the current Operate surface rather than introducing a new visual
 system. Finish review: native GL desktop/compact captures and shell overflow,
 text-overlap, focus and keyboard checks; no new raster artwork is shipped.
@@ -72,7 +77,7 @@ Synesthesia itself has been improving filtering, scene browsing, pane resizing a
 
 **Update (D281).** "Replace the topology" no longer holds for the window's frame. The owner asked for a layout "more similar to Synesthesia's while keeping our modern functionality", so the frame is Synesthesia's (sections 4, 5, 7 and 12) and what stays Strobe's is the content: the Performance Macros, the command palette, the Learn-first mapping workflow, Preview apart from Load, the health readouts, density and themes.
 
-**Update (D291).** As in Synesthesia, one click on a scene makes it live; Preview is still Strobe's, but as a step a person asks for (the card's menu, the palette), not one every pick goes through. The live scene's controls also have the main area: the library view switches between Scenes and Controls.
+**Update (D291).** As in Synesthesia, one click on a scene makes it live; Preview is still Strobe's, but as a step a person asks for (the card's menu, the palette), not one every pick goes through. The live scene's controls also have the main area: since D479 that is the **Controls** view on the rail, and the library is scenes only.
 
 ## 3. Core information hierarchy
 
@@ -103,8 +108,8 @@ Measured on Synesthesia 1.25.4 and matched (D281): three columns under the title
     ├──┬────────────────────────────────────────────────┬─────────────────┤
     │  │ banners                                        │ preview (16:9)  │
     │r │                                                │ status strip    │
-    │a │ main view: Scenes (the grid) | Controls, or   │ [list][ctl][edit]│
-    │i │ the rail chose; PLAY is the large preview     │ tab body        │
+    │a │ main view: the view the rail chose (Library, │ [list][ctl][pre]│
+    │i │ Controls, Import, Playlist, Editor, ...)      │ [scene] tab body│
     │l │                                                │                 │
     ├──┴────────────────────────────────────────────────┴─────────────────┤
     │ transport: prev hold next / NOW NEXT / time bpm / BLACKOUT          │
@@ -115,7 +120,7 @@ Measured on Synesthesia 1.25.4 and matched (D281): three columns under the title
 
 Regions and their measure at 1920 wide:
 
-- Rail, 60 points (3.1%): switches the main view. The active item is a filled tile. Labels drop below 1000 points.
+- Rail, 84 points with full words, 56 points of icons below 1000 points (D473): switches the main view. The active item is a filled tile.
 - Main view, about 66%: one view at a time.
 - Side panel, 31% (595): persistent across every view. Section 7.
 - Bottom: the transport strip with BLACKOUT and the macros, then the help bar (24 points, D284), which is not drawn in a window under 520 points high.
@@ -127,18 +132,18 @@ There is no Live/Edit mode. The rail switches the view and the panel never moves
 
 The rail, top to bottom, each a main view (D281):
 
-1. PLAY: the large live preview, with the output toolbar.
-2. LIB: the scene library (the default view), with its two pages, **Scenes** (the card grid) and **Controls** (the live scene's controls, large), switched at the top of the view, with Ctrl+L or from the palette (D291).
-3. GET: Import, a Shadertoy shader.
-4. LIST: the playlist.
-5. EDIT: the scene's files.
-6. MAP: MIDI and OSC.
-7. DIAG: diagnostics.
-8. SET (at the bottom): settings.
+1. Library: the scene library (the default view).
+2. Controls: the live scene's controls, large, in cards (D477, D479); Ctrl+L flips between it and the library.
+3. Import: a Shadertoy shader.
+4. Playlist.
+5. Editor: the scene's files.
+6. Mappings: MIDI, OSC and macros.
+7. Diagnostics.
+8. Settings (at the bottom).
 
-Clicking the shown item closes it, and Esc closes the topmost view; either reveals the one under it, and PLAY when none is left. Ctrl+K reaches every one of these, and every scene and preset, by name.
+A click shows that view; a click on the view shown keeps it. Esc closes the topmost pane but never the last main view, so the main view is always one the rail names (D479). There is no PLAY entry any more: the side panel has the preview, and `--no-panes` still gives the large one. Ctrl+K reaches every view, and every scene and preset, by name.
 
-Expanded rail: icon + label. Below 1000 points: icon only. A short window scrolls the upper items and keeps SET.
+Expanded rail: icon + word (D473). Below 1000 points: icon only. A short window scrolls the upper items and keeps Settings.
 
 Do not turn navigation into a row of permanent tabs consuming horizontal space.
 
@@ -176,30 +181,30 @@ Perform transport:
 
 Primary actions must look actionable. Numeric status must look like readouts.
 
-## 7. The side panel and PLAY
+## 7. The side panel
 
 The side panel is Synesthesia's right column (D283), top to bottom:
 
 1. One 16:9 preview of the live scene, with the LIVE, BLACKOUT and output-hidden badges. No CPU readback. Left out when the panel is too short to give it 64 points at 38% of its height, so a drawer in a small window keeps room for the tab's body.
 2. A status strip: Output (show or hide), Fullscreen, the frame rate with a dot, a horizontal audio level bar with the tempo, and Snapshot (keeps the live frame as the scene's picture) at the right edge.
-3. The eight fav slots, in reach from every tab as Synesthesia keeps them. A panel under 360 points high moves them to the top of the Presets tab.
+3. The eight fav slots, in reach from every tab as Synesthesia keeps them: an empty slot is a faint outline, a filled one a tile with its scene's colour (D478). A panel under 360 points high moves them to the top of the Presets tab.
 4. Icon tabs, with their names in the tooltips and beside the icons when the panel is wide:
    - Playlist: the loaded show's cues, double-click to jump;
-   - Controls: the scene's controls by UI_GROUP, then the meta group;
-   - Presets: the preset row and the scene's presets;
-   - Edit: tags, picture, media, Generate controls and Open in Editor.
+   - Controls: the scene's controls, a card per UI_GROUP, then the output controls (D477);
+   - Presets: a card of the scene's presets and a Save the controls card (D484);
+   - Scene: tags, picture, media, Generate controls and Open in Editor (D471).
 
 Closed, the panel is a handle strip. In a window too narrow to dock it (below the main view's 320 points plus the panel's 280) it is a drawer over the main view, below the banners, clipped to the surface.
 
-PLAY, the rail's first item, is the large preview with the toolbar (Show output, Fullscreen, the monitor menu) for the moment the preview is the point. Bottom: the Performance Macros, the current and next cue, BLACKOUT.
+With no main pane open (`--no-panes`) the main view is the large preview, with Show output and Fullscreen above it only while the side panel is closed: one set of output buttons on screen at a time, and the monitor is chosen in Settings > Output (D476). Bottom, in every view: the current and next cue, BLACKOUT, and the Performance Macros, whose cards share the strip's width (D476).
 
 Scene browsing must support Preview without replacing the active scene; it is in the card's menu and the palette. A click on a card loads it (D291).
 
-While the main view is the library's Controls page and the panel is docked beside it, the panel does not draw the same controls again: its Controls tab is dimmed and it shows Presets instead, without changing the saved tab. A drawer covers the main view, so it keeps its Controls tab (D291).
+While the main view is the Controls view and the panel is docked beside it, the panel does not draw the same controls again: its Controls tab is dimmed and it shows Presets instead, without changing the saved tab. A drawer covers the main view, so it keeps its Controls tab (D291).
 
-### The Controls page (D291)
+### The Controls view (D291, D477, D479)
 
-The library's second page is the live scene's controls, laid out for the main view and for a finger as much as a mouse: the same groups, rows and actions as the panel's Controls tab (one implementation, `inspector::show` with `Part::Page`), flowed into up to three columns of at least 340 points, with 32-point slider rails, larger switches, bangs, swatches and XY pad. The preview, the status strip and the fav slots stay in the side panel beside it.
+The live scene's controls, laid out for the main view and for a finger as much as a mouse: the same groups, rows and actions as the panel's Controls tab (one implementation, `inspector::show` with `Part::Page`), each group a card, flowed into up to three columns of at least 340 points, with 32-point slider rails, larger switches, bangs, swatches and XY pad. The output controls follow under their heading, a card per group in the same columns. The preview, the status strip and the fav slots stay in the side panel beside it.
 
 ## 8. Performance Macros
 
@@ -350,13 +355,15 @@ Do not create a four-button toolbar beside every control.
 
 Descriptions remain hidden until hover/focus/help mode.
 
+As built (D471, D477): each group is a card with its header inside (chevron, name, count, Default and a die for Random); lock and undo are not built.
+
 ## 12. Scene library
 
 The library is a creative asset browser, laid out as Synesthesia's is (D282):
 
     ┌─────────────────────────────────────────────────────────────────┐
-    │ [+ New scene] [refresh]                              [S][M][L] │
-    │ 88/88 [ search names, authors, tags ] [Sort v][^] [*] [Show v] │
+    │ [ search names, authors, tags ] [Sort v ^ * | Show v] [S][M][L] [+ New scene] [refresh] │
+    │ 17 scenes                                                       │
     ├─────────────────────────────────────────────────────────────────┤
     │ thumbnail cards, as many columns as fit                         │
     │ ┌──────────┐ ┌──────────┐                                       │
@@ -367,13 +374,11 @@ The library is a creative asset browser, laid out as Synesthesia's is (D282):
     │ └──────────┘ └──────────┘                                       │
     └─────────────────────────────────────────────────────────────────┘
 
-Toolbar: New scene (opens Import), rescan, and the small, medium or large thumbnail switch (saved).
-
-Filter row: the count, a wide search, the sort (Library order, Name, Author, Favourites first) with its direction, a favourites-only star, and the health filter (All, Ready, Needs work, Favourites). Below 560 points the search keeps a row with the count and the rest take the next.
+Header (D480): from 820 points one row, the search taking what is left, then the sort (Library order, Name, Author, Favourites first) with its direction, a favourites-only star and the health filter (All, Ready, Needs work, Favourites) as one bordered group, the small, medium or large thumbnail switch (saved), New scene (opens Import) and rescan. The count is a caption under it, as a sentence ("12 of 229 scenes", D474). From 560 points the filters and sizes take a second row; below that, the narrow layout keeps the toolbar and filter rows apart.
 
 Cards:
 
-- thumbnail, or the scene's identity colour and initial;
+- thumbnail, or generated cover art: a wash of the scene's two identity colours and its initial (D474);
 - a state chip over it: PLAYING, PREPARING, PREVIEW, FAILED;
 - the star, over its corner;
 - the title, in the largest text on the card;
@@ -447,6 +452,8 @@ Compile states:
 
 The renderer already maps compiler logs back to main.glsl line numbers. Display those directly.
 
+As built (D204, D482): the scene's name with its state as a chip (Ready, Unsaved changes, Not saved, Error, Read-only); Save and reload as the one primary action, Save beside it, Revert and Restore backup in a More menu; the file tabs, and the code filling the pane. There is no live preview beside the code: the side panel has it.
+
 Auto-compile is optional and debounced. Manual compile is the safe default for old hardware.
 
 ## 15. Mappings workspace
@@ -512,6 +519,8 @@ Every event includes:
 - phase;
 - root message;
 - recovery action.
+
+As built (D483): one page of cards, renderer, audio, script and output two to a row; Needs work, a row per failed scene with Open in Editor; the console, a card of a fixed height.
 
 Example:
 
@@ -689,7 +698,7 @@ Named layouts:
 Global:
 
 - Ctrl/Cmd+K: command palette;
-- Ctrl/Cmd+L: the library's Scenes and Controls pages (from another view, the Controls page);
+- Ctrl/Cmd+L: the Controls view, or the library from it (D479);
 - Space: play/hold when transport owns focus;
 - Left/Right: previous/next cue;
 - F: focus preview;

@@ -1,5 +1,7 @@
 # Strobe UI Research Addendum
 
+> **Historical (2026-10-26).** This was written before the UI was built. The app as built is described by [UI_REVIEW.md](UI_REVIEW.md) and [UI_DESIGN.md](UI_DESIGN.md), and the decisions D130 onwards; where this document disagrees with them, they win.
+
 > Agent-facing research cache, October 2026. This document supplements `docs/UI_DESIGN.md` and `docs/UI_MOCKUP_WORKFLOW.md`. It is deliberately implementation-oriented: observations are converted into rules, tradeoffs, and acceptance tests.
 
 ## 1. Research conclusions

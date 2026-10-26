@@ -7,30 +7,26 @@
 // Dependencies: crate::secret (random source, comparison); std::time
 // ============================================================================
 
-//! Pairing (L-03, D251).
+//! Pairing (L-03, D251, D468, D469).
 //!
-//! A phone is paired in two steps, and both need the person at the laptop:
+//! **Pairing is an approval at the host.** A phone asks under a name
+//! (`request_pair`, D469) and a desktop asks as itself (`request_desktop`,
+//! D468); [`Pairing::request`] makes either a [`Request`] with the
+//! connection's address and label, which the host lists with Approve and
+//! Deny. Only Approve issues a token, and a request nobody decides expires
+//! after [`APPROVAL_WAIT`]. Who may ask at all is bounded by
+//! [`MAX_REQUESTS`], one waiting request per address, and
+//! [`DENY_COOLDOWN`] after a Deny, so a machine on the LAN can neither fill
+//! the list nor ask again the moment it is told no. The request names the
+//! connection's real address, which a TCP peer cannot fake.
 //!
-//! 1. **The code.** The operator opens pairing; the desktop shows a
-//!    six-digit code from the OS random source, good for
-//!    [`CODE_LIFETIME`] and for one successful use. The phone sends it in a
-//!    `pair` message. A wrong code costs one of [`CODE_ATTEMPTS`] shared by
-//!    every connection, and the last one burns the code, so guessing is
-//!    `5 / 1 000 000` per code the operator chooses to open. An expired,
-//!    burned or used code is gone; a replay of it is refused like a wrong
-//!    one.
-//! 2. **The approval.** A right code does not pair anything. It makes a
-//!    [`Request`] with the phone's address and kind, which the desktop
-//!    lists with Approve and Deny. Only Approve issues a token. A request
-//!    nobody decides expires after [`APPROVAL_WAIT`].
-//!
-//! A desktop controller may skip the code (D468): [`Pairing::request`]
-//! puts it straight in front of the operator. What the code bounded (who
-//! can ask at all) is bounded instead by [`MAX_REQUESTS`], one waiting
-//! request per address, and [`DENY_COOLDOWN`] after a Deny, so a machine on
-//! the LAN can neither fill the list nor ask again the moment it is told
-//! no. The request names the connection's real address, which a TCP peer
-//! cannot fake.
+//! **The legacy code (D251)** is still here, for the frozen version-1
+//! `pair` message: [`Pairing::open`] makes a six-digit code from the OS
+//! random source, good for [`CODE_LIFETIME`] and one successful use; a
+//! wrong code costs one of [`CODE_ATTEMPTS`] shared by every connection,
+//! and the last burns it. A right code only raises the same kind of
+//! request. The app no longer opens a code (D469), so an old page that
+//! sends one is told pairing is not open.
 //!
 //! Nothing here persists: a restart forgets the code and every request,
 //! which is the safe direction. Paired clients persist in

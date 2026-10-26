@@ -11644,3 +11644,43 @@ test; the TORNADO runs in BENCHMARKS.md.
 **Would reopen:** a glutin with ANGLE platform attributes (then the
 environment variable goes), or a release whose ANGLE has no Vulkan.
 
+
+### D486: Strobe is MIT with the Commons Clause (2026-10-26)
+
+**Context.** The owner asked to add the Commons Clause to the licence.
+
+**Decision.** `LICENSE` is the Commons Clause License Condition v1.0
+(Software: Strobe, License: MIT, Licensor: Lawrence Norton) above the MIT
+text it conditions: the MIT grant does not include the right to sell the
+software, defined as providing to others for a fee a product or service
+whose value derives entirely or substantially from its functionality,
+narrowed by the permission below. It applies from v0.2.0; v0.1.0 and earlier were released under MIT alone, and
+copies of them keep those terms. The result is source-available, not open
+source by the OSI's definition. There is no SPDX identifier for it, so the
+workspace declares `license-file = "LICENSE"` (every crate inherits it),
+cargo-deny's licence check skips Strobe's own unpublished crates
+(`[licenses.private] ignore = true`) and still checks every dependency,
+and the Nix package names the licence as unfree but redistributable, with
+the flake's own package set allowed to build that one package so
+`nix build` needs no `NIXPKGS_ALLOW_UNFREE`. README and the user guide say
+so. Dependencies' licences are unchanged; the condition covers Strobe's own
+code and scenes.
+
+**Test.** `cargo deny check licenses`; `cargo metadata` shows every crate
+with the licence file. The flake change is not run here (no Nix on
+Windows, no Nix job in CI).
+
+**Amended the same day, at the owner's word** ("all i want is no one to be
+able to take my source and sell it. i dont care about operating the
+binary"). The clause's own "Sell" reaches any service whose value derives
+from the software, hosting fees named, which could catch a paid
+performance. So the clause stays verbatim and an **additional permission
+from the Licensor** follows it in `LICENSE`: anyone may run, use and
+operate Strobe, modified or not, and charge for what they do with it
+(performances, installations, events, broadcasts, recordings, hosting or
+operating it for others); what stays restricted is selling the software
+itself, its source, programs built from it, or products that include it or
+a substantial part of it. Not reviewed by a lawyer.
+
+**Would reopen:** a use the owner wants named that the permission does not
+plainly cover, or legal advice on the wording.

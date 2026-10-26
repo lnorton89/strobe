@@ -3,10 +3,12 @@ resolver = "3"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.98"
-license = "MIT"
+# MIT with the Commons Clause (D486): no SPDX identifier exists for it, so
+# the crates point at the file.
+license-file = "LICENSE"
 repository = "https://github.com/lnorton89/strobe"
 
 # One version of each dependency for the whole workspace. A crate names

@@ -4,7 +4,7 @@ description = "Strobe's LAN show remote: the versioned protocol, the app-thread 
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-license.workspace = true
+license-file.workspace = true
 publish = false
 
 [lib]

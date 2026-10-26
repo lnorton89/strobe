@@ -54,7 +54,7 @@ cargo run --release -p strobe-autocontrol -- scenes/12-warm.synScene
 
 # Options:
 #   --context auto|headless|window   where the GL context comes from (default auto: headless if an EGL device exists, else a hidden window)
-#   --gl auto|native|angle           window backend; --api must not contradict it
+#   --gl auto|native|angle|angle-*   window backend (angle-vulkan etc., D485); --api must not contradict it
 #   --show-window                    start with the tiny off-screen window instead of a hidden one
 #   --out <DIR>        library to write <name>-auto.synScene into (default: beside the source)
 #   --keep <N>         at most N controls (default 8)

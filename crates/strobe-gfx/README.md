@@ -56,6 +56,7 @@ is a non-blocking timer-query read (D64).
 | `Headless`, `Api` | A surfaceless EGL device context (`Api::DesktopCore33` or `Api::Gles30`). Used by tests, CI and the bench on Linux with Mesa. |
 | `WindowedContext`, `SwapWindow` | One GL context drawing to several winit windows (the app's control and output windows). `make_current`, `swap_buffers`, `set_vsync`, `resize`. |
 | `Backend`, `GlChoice` | `Native` or `Angle`; `GlChoice::Auto` tries native then ANGLE, `Only(backend)` forces one. `WindowedContext::robust()` says whether a robust context was granted. |
+| `gl::angle` | ANGLE's backend (D3D11, Vulkan, GL, Metal) from `--gl angle-*`: `choose_from_args`, the first call in each binary's `main`, sets `ANGLE_DEFAULT_PLATFORM`, and `check_renderer` fails a context that started on another backend (D485). |
 | `offscreen::run`, `Request`, `ContextMode` | A context for work that draws nothing: an EGL device if the machine has one, else one hidden window (hidden, then tiny off-screen). Calls a job with `&Gl`, `&Caps` and a description and returns its value. Main thread, once per process. Used by `strobe-bench` and `strobe-autocontrol` (D140). |
 | `Caps` | Dialect, 1D-texture support and float-render support, decided once per context. `FloatPrecision` (`Half` default, `Full`). |
 | `ScenePlayer` | `new` / `with_extras` compile a `SceneFolder`; `render(&FrameInputs)`, `upload_audio`, `set_script_uniforms`, `resize`, `present`, `read_output`, `enable_final_pass_readback` / `final_pass_pixels`. |
@@ -187,8 +188,8 @@ STROBE_REQUIRE_HEADLESS_GL=1 cargo test -p strobe-gfx --test render
   unmeasured. `MEDIA`, `CUBEMAPS` and `syn_MediaType` are checked against
   SSF's documentation (TORNADO T21, Q22), and chosen media is sampled as the
   scene's `MEDIA` slot says (D238). `textureFinalPass` data (Q14) comes from the
-  asynchronous readback (D162), verified on llvmpipe in both dialects but not
-  yet on the T480 or ANGLE/D3D11.
+  asynchronous readback (D162), verified on llvmpipe in both dialects and on
+  the T480's window context on native and ANGLE (C-04, Task 33, D245).
 - macOS is not built: glutin compiles its EGL backend out on Apple targets
   and there is no CGL headless provider (D55).
 - The audio textures' layout is unverified against real Synesthesia (Q10;
