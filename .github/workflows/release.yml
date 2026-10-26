@@ -138,7 +138,8 @@ jobs:
 
       # ANGLE (libEGL.dll, libGLESv2.dll, d3dcompiler_47.dll) is the
       # fallback context for machines whose WGL driver is broken, and it
-      # travels beside strobe.exe. The script downloads a pinned Electron
+      # travels beside strobe.exe, with the Vulkan loader `--gl
+      # angle-vulkan` needs (vulkan-1.dll, D485). The script downloads a pinned Electron
       # 38.2.0 and checks the archive and every extracted DLL against
       # hard-coded SHA-256 hashes, failing the release on a mismatch. Do
       # not bump that version casually: Electron 44+ no longer ships the
@@ -188,13 +189,15 @@ jobs:
             target/release/libEGL.dll \
             target/release/libGLESv2.dll \
             target/release/d3dcompiler_47.dll \
+            target/release/vulkan-1.dll \
             target/release/LICENSES.chromium.html; do
             test -f "$file" || { echo "missing build output: $file"; exit 1; }
           done
 
           cp "${release_dir}/strobe.exe" "$staging/"
           cp target/release/libEGL.dll target/release/libGLESv2.dll \
-             target/release/d3dcompiler_47.dll target/release/LICENSES.chromium.html "$staging/"
+             target/release/d3dcompiler_47.dll target/release/vulkan-1.dll \
+             target/release/LICENSES.chromium.html "$staging/"
           # The scene library travels with the binary: it is the first
           # thing a new user plays, and the worked examples anyone writing
           # a scene starts from.

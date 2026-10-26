@@ -18,6 +18,7 @@ you build Strobe from source (README, "Linux"; settings and logs are in
    |---|---|
    | `strobe.exe` | The app. |
    | `libEGL.dll`, `libGLESv2.dll`, `d3dcompiler_47.dll` | ANGLE: OpenGL ES on Direct3D 11, for machines whose OpenGL driver is broken. These come from an official Electron release, are checked against pinned hashes when the release is built, and are covered by `LICENSES.chromium.html` beside them. Keep them next to `strobe.exe`. |
+   | `vulkan-1.dll` | The Vulkan loader from the same Electron release, for `--gl angle-vulkan`. |
    | `scenes\` | The twelve scenes that ship with Strobe. |
    | `README.md`, `LICENSE` | The project and its MIT licence. |
 
@@ -550,6 +551,10 @@ Strobe tries the GPU's OpenGL driver first and falls back to ANGLE
 - `strobe.exe --gl angle` forces ANGLE (try this first if scenes draw
   wrongly or the app will not start);
 - `strobe.exe --gl native` forces OpenGL;
+- `strobe.exe --gl angle-vulkan` runs ANGLE on the GPU's Vulkan driver
+  instead of Direct3D 11, and `--gl angle-d3d11` and `--gl angle-gl` name
+  its other backends. If ANGLE cannot start on the one asked for, Strobe
+  says so and does not quietly use another;
 - `strobe.exe --diagnose` writes a report of the machine, GPU, driver and
   audio devices, for a bug report.
 

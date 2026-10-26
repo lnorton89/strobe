@@ -234,21 +234,30 @@ pub struct WindowError {
 /// ANGLE's two DLLs, which must sit beside the executable on Windows.
 const ANGLE_DLLS: [&str; 2] = ["libEGL.dll", "libGLESv2.dll"];
 
+/// The Vulkan loader ANGLE's Vulkan backend needs beside it: this ANGLE
+/// fails to start Vulkan on the loader a driver installs in System32
+/// (D485).
+const VULKAN_LOADER: &str = "vulkan-1.dll";
+
 /// On Windows, why ANGLE may have failed: its DLLs are not beside the
-/// executable. A worktree or a fresh build has none, and EGL's own error
-/// ("could not open one") does not say so.
+/// executable, nor the Vulkan loader when `--gl angle-vulkan` asked for
+/// Vulkan. A worktree or a fresh build has none, and EGL's own error
+/// ("could not open one", "initialization failed") does not say so.
 fn missing_angle_dlls() -> Option<String> {
     if !cfg!(windows) {
         return None;
     }
     let exe = std::env::current_exe().ok()?;
-    angle_hint(exe.parent()?)
+    let vulkan = super::angle::chosen() == Some(super::angle::AnglePlatform::Vulkan);
+    angle_hint(exe.parent()?, vulkan)
 }
 
-/// Names the ANGLE DLLs missing from `dir`, if any.
-fn angle_hint(dir: &Path) -> Option<String> {
+/// Names the ANGLE DLLs missing from `dir`, if any, with the Vulkan loader
+/// when `vulkan`.
+fn angle_hint(dir: &Path, vulkan: bool) -> Option<String> {
     let missing: Vec<&str> = ANGLE_DLLS
         .into_iter()
+        .chain(vulkan.then_some(VULKAN_LOADER))
         .filter(|name| !dir.join(name).is_file())
         .collect();
     (!missing.is_empty()).then(|| {
@@ -303,7 +312,17 @@ impl WindowedContext {
     ) -> Result<(Self, SwapWindow), WindowError> {
         let mut attempts = Vec::new();
         for &backend in choice.attempts() {
-            match Self::open_backend(event_loop, backend, first) {
+            // An ANGLE backend asked for by `--gl angle-*` that ANGLE did
+            // not start on is a failure, not a quiet run on its default
+            // (D485).
+            let opened =
+                Self::open_backend(event_loop, backend, first).and_then(|opened| match backend {
+                    Backend::Angle => {
+                        super::angle::check_renderer(&opened.0.caps.info.renderer).map(|()| opened)
+                    }
+                    Backend::Native => Ok(opened),
+                });
+            match opened {
                 Ok(opened) => {
                     log::info!(
                         "GL backend {backend}: {} | {}",
@@ -638,14 +657,21 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("strobe-angle-{}", std::process::id()));
         std::fs::create_dir_all(&dir)?;
         std::fs::write(dir.join("libEGL.dll"), b"")?;
-        let hint = angle_hint(&dir);
+        let hint = angle_hint(&dir, false);
         assert!(
             hint.as_deref()
                 .is_some_and(|h| h.starts_with("libGLESv2.dll not found")),
             "names the one missing: {hint:?}"
         );
         std::fs::write(dir.join("libGLESv2.dll"), b"")?;
-        assert_eq!(angle_hint(&dir), None, "both there: no hint");
+        assert_eq!(angle_hint(&dir, false), None, "both there: no hint");
+        let vulkan = angle_hint(&dir, true);
+        assert!(
+            vulkan
+                .as_deref()
+                .is_some_and(|h| h.starts_with("vulkan-1.dll not found")),
+            "--gl angle-vulkan also wants the loader: {vulkan:?}"
+        );
         std::fs::remove_dir_all(&dir)?;
         Ok(())
     }
