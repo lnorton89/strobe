@@ -538,76 +538,145 @@ fn presets_tab(
         );
         return;
     }
-    presets::preset_row(ui, model, theme, actions);
     let names = model.remote.presets;
-    let active = model.remote.active_preset;
-    if names.is_empty() {
-        ui.label(
-            egui::RichText::new(
-                "No presets saved for this scene. Set the controls and save them above.",
-            )
-            .small()
-            .color(theme::rgb(theme.text_muted)),
-        );
-        return;
-    }
+    let active = model.remote.active_preset.map(str::to_string);
+    presets::disarm_unless(model, active.as_deref());
     egui::ScrollArea::vertical()
         .id_salt("side-presets")
         .auto_shrink([false, false])
         .show(ui, |ui| {
-            for name in names {
-                let is_active = active == Some(name.as_str());
-                let width = ui.available_width();
-                let (rect, response) = ui.allocate_exact_size(
-                    Vec2::new(width, theme::row_height() * 0.75),
-                    Sense::click(),
+            let mut armed = false;
+            card(ui, theme, "Presets", names.len(), |ui| {
+                if names.is_empty() {
+                    ui.label(
+                        egui::RichText::new(
+                            "None saved for this scene yet. Set the controls, then save them \
+                             below.",
+                        )
+                        .font(theme::description_font())
+                        .color(theme::rgb(theme.text_muted)),
+                    );
+                    return;
+                }
+                for name in names {
+                    let is_active = active.as_deref() == Some(name.as_str());
+                    if preset_entry(ui, model, theme, actions, name, is_active) {
+                        armed = true;
+                    }
+                }
+            });
+            if armed {
+                ui.label(
+                    egui::RichText::new("Click the cross again to delete the preset.")
+                        .font(theme::description_font())
+                        .color(theme::rgb(theme.warning)),
                 );
-                let id = egui::Id::new(("preset-row", name));
-                let fill = widgets::selection_fill(
-                    ui,
-                    theme,
-                    id,
-                    is_active,
-                    response.hovered(),
-                    theme.panel,
+                ui.add_space(SPACE_XS);
+            }
+            card(ui, theme, "Save the controls", 0, |ui| {
+                presets::save_row(ui, model, theme, actions);
+            });
+        });
+}
+
+/// A card for the Presets tab: a title in the group headers' capitals, a
+/// count beside it when there is one, and `body` under it.
+fn card(ui: &mut Ui, theme: &Palette, title: &str, count: usize, body: impl FnOnce(&mut Ui)) {
+    egui::Frame::new()
+        .fill(theme::rgb(theme.raised))
+        .stroke(egui::Stroke::new(1.0, theme::rgb(theme.border)))
+        .corner_radius(egui::CornerRadius::same(theme::RADIUS_LG))
+        .inner_margin(theme::margin(SPACE_SM))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new(title.to_uppercase())
+                        .size(11.0)
+                        .color(theme::rgb(theme.text)),
                 );
-                ui.painter()
-                    .rect_filled(rect, egui::CornerRadius::same(theme::RADIUS), fill);
-                if is_active {
-                    widgets::accent_bar(
-                        ui,
-                        ui.painter(),
-                        id,
-                        rect,
-                        widgets::Bar::Inset,
-                        theme.accent,
+                if count > 0 {
+                    ui.label(
+                        egui::RichText::new(count.to_string())
+                            .size(10.0)
+                            .color(theme::rgb(theme.text_faint)),
                     );
                 }
-                let colour = if is_active { theme.accent } else { theme.text };
-                let galley = widgets::truncated(
-                    ui,
-                    name,
-                    egui::TextStyle::Body.resolve(ui.style()),
-                    colour,
-                    width - SPACE_SM * 3.0,
-                );
-                ui.painter().galley(
-                    egui::pos2(
-                        rect.left() + SPACE_SM + SPACE_XS,
-                        rect.center().y - galley.size().y / 2.0,
-                    ),
-                    galley,
-                    theme::rgb(colour),
-                );
-                if response
-                    .on_hover_text("Recall this preset: the controls ease to its values")
-                    .clicked()
-                    && !is_active
-                {
-                    actions.push(Action::RecallPreset(name.clone()));
-                }
-            }
+            });
+            ui.add_space(SPACE_XS);
+            body(ui);
         });
+    ui.add_space(SPACE_SM);
+}
+
+/// One preset's row: a click recalls it; the active one is marked and has
+/// its delete cross. Returns whether that cross is armed.
+fn preset_entry(
+    ui: &mut Ui,
+    model: &mut Model<'_>,
+    theme: &Palette,
+    actions: &mut Vec<Action>,
+    name: &str,
+    is_active: bool,
+) -> bool {
+    let width = ui.available_width();
+    let (rect, response) =
+        ui.allocate_exact_size(Vec2::new(width, theme::row_height() * 0.75), Sense::click());
+    let id = egui::Id::new(("preset-row", name));
+    let fill = widgets::selection_fill(ui, theme, id, is_active, response.hovered(), theme.raised);
+    ui.painter()
+        .rect_filled(rect, egui::CornerRadius::same(theme::RADIUS), fill);
+    if is_active {
+        widgets::accent_bar(
+            ui,
+            ui.painter(),
+            id,
+            rect,
+            widgets::Bar::Inset,
+            theme.accent,
+        );
+    }
+    let colour = if is_active { theme.accent } else { theme.text };
+    let cross = if is_active { 32.0 } else { 0.0 };
+    let galley = widgets::truncated(
+        ui,
+        name,
+        egui::TextStyle::Body.resolve(ui.style()),
+        colour,
+        width - SPACE_SM * 3.0 - cross,
+    );
+    ui.painter().galley(
+        egui::pos2(
+            rect.left() + SPACE_SM + SPACE_XS,
+            rect.center().y - galley.size().y / 2.0,
+        ),
+        galley,
+        theme::rgb(colour),
+    );
+    let mut armed = false;
+    if is_active {
+        // Over the row's right end; it takes its click before the row.
+        let place = egui::Rect::from_min_max(
+            egui::pos2(rect.right() - cross, rect.top()),
+            rect.right_bottom(),
+        );
+        ui.scope_builder(
+            UiBuilder::new()
+                .max_rect(place)
+                .layout(Layout::right_to_left(Align::Center)),
+            |ui| {
+                armed = presets::delete_button(ui, model, theme, actions, name);
+            },
+        );
+    }
+    if response
+        .on_hover_text("Recall this preset: the controls ease to its values")
+        .clicked()
+        && !is_active
+    {
+        actions.push(Action::RecallPreset(name.to_string()));
+    }
+    armed
 }
 
 #[cfg(test)]

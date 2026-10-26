@@ -130,7 +130,13 @@ pub fn banners(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mu
             if widgets::button(ui, theme, None, "Dismiss").clicked() {
                 actions.push(Action::DismissFailure);
             }
-            if widgets::button(ui, theme, Some(Icon::Diagnostics), "Diagnostics").clicked() {
+            // Not while Diagnostics is the view: the button would go where
+            // the operator already is.
+            let in_diagnostics =
+                model.ui.panes.shown_in(crate::workspace::Dock::Main) == Some(Pane::Diagnostics);
+            if !in_diagnostics
+                && widgets::button(ui, theme, Some(Icon::Diagnostics), "Diagnostics").clicked()
+            {
                 model.ui.panes.open(Pane::Diagnostics);
             }
         });

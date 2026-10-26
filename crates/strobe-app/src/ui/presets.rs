@@ -10,12 +10,17 @@
 //! Presets and fav slots (D176, D283).
 //!
 //! ```text
-//! PRESET  [ Slow Burn          v ]  [name         ] [Save]  [Delete]
 //! FAV     [1] [2] [3] [ ] [ ] [ ] [ ] [ ]
+//! PRESETS 3            (a card: one row per preset, the active one marked,
+//!   Slow Burn    x      with its delete cross)
+//!   Strobe hit
+//! SAVE THE CONTROLS    (a card: the name, Save or Replace, Rename)
 //! ```
 //!
-//! The fav row is the top of the side panel's Presets tab and the preset row
-//! sits under it (D283).
+//! The fav row is the top of the side panel's Presets tab (D283). Under it
+//! the presets are a card of rows, and saving is a card of its own (D484):
+//! the list was a dropdown repeating the rows under it, beside a bare
+//! "save as..." field.
 //!
 //! A **preset** is the scene's control values under a name, kept in the
 //! scene folder. Choosing one in the list recalls it at once (the values are
@@ -44,70 +49,54 @@ use crate::icon::Icon;
 use crate::palette::Palette;
 use egui::{CornerRadius, Sense, Stroke, StrokeKind, Ui};
 
-/// Draws the preset row: the picker, delete, and save or rename.
-pub fn preset_row(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Vec<Action>) {
+/// The active preset's delete cross: the first click arms it and says
+/// so, the second deletes the file (P-07). Returns whether it is armed, for
+/// the line that says so.
+pub fn delete_button(
+    ui: &mut Ui,
+    model: &mut Model<'_>,
+    theme: &Palette,
+    actions: &mut Vec<Action>,
+    active: &str,
+) -> bool {
+    let panel = &mut model.remote;
+    let armed = panel.ui.delete_armed.as_deref() == Some(active);
+    let tip = if armed {
+        "Click again to delete this preset's file"
+    } else {
+        "Delete this preset's file (asks for a second click)"
+    };
+    if widgets::icon_button(ui, theme, Icon::Close, tip).clicked() {
+        if armed {
+            actions.push(Action::DeletePreset(active.to_string()));
+            panel.ui.delete_armed = None;
+        } else {
+            panel.ui.delete_armed = Some(active.to_string());
+        }
+    }
+    panel.ui.delete_armed.as_deref() == Some(active)
+}
+
+/// Forgets an armed delete once its preset is no longer the active one.
+pub fn disarm_unless(model: &mut Model<'_>, active: Option<&str>) {
+    let panel = &mut model.remote;
+    if panel.ui.delete_armed.as_deref() != active {
+        panel.ui.delete_armed = None;
+    }
+}
+
+/// Saving: the name, Save (Replace when the name is taken), and Rename for
+/// the active preset.
+pub fn save_row(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Vec<Action>) {
     let panel = &mut model.remote;
     let names = panel.presets;
     let active = panel.active_preset;
     ui.horizontal(|ui| {
-        label(ui, theme, "PRESET");
-        let shown = active.unwrap_or(if names.is_empty() {
-            "none saved"
-        } else {
-            "choose"
-        });
-        let delete_room = if active.is_some() { 34.0 } else { 0.0 };
-        egui::ComboBox::from_id_salt("preset-pick")
-            .width((ui.available_width() - delete_room - SPACE_SM).max(80.0))
-            .selected_text(shown)
-            .show_ui(ui, |ui| {
-                for name in names {
-                    if ui
-                        .selectable_label(active == Some(name.as_str()), name)
-                        .clicked()
-                    {
-                        actions.push(Action::RecallPreset(name.clone()));
-                    }
-                }
-            });
-        if let Some(active) = active {
-            // Deleting is two clicks: the first arms it and says so (P-07).
-            let armed = panel.ui.delete_armed.as_deref() == Some(active);
-            let tip = if armed {
-                "Click again to delete this preset's file"
-            } else {
-                "Delete the active preset's file (asks for a second click)"
-            };
-            if widgets::icon_button(ui, theme, Icon::Close, tip).clicked() {
-                if armed {
-                    actions.push(Action::DeletePreset(active.to_string()));
-                    panel.ui.delete_armed = None;
-                } else {
-                    panel.ui.delete_armed = Some(active.to_string());
-                }
-            }
-        }
-        if panel.ui.delete_armed.as_deref() != active {
-            panel.ui.delete_armed = None;
-        }
-    });
-    if panel.ui.delete_armed.is_some() {
-        ui.label(
-            egui::RichText::new("Click the cross again to delete the preset.")
-                .small()
-                .color(theme::rgb(theme.warning)),
-        );
-    }
-    ui.add_space(SPACE_XS);
-    ui.horizontal(|ui| {
         let can_rename = active.is_some();
         let save_room = if can_rename { 140.0 } else { 72.0 };
+        let width = (ui.available_width() - save_room - SPACE_SM).max(60.0);
         let field = &mut panel.ui.preset_name;
-        ui.add(
-            egui::TextEdit::singleline(field)
-                .hint_text("save as...")
-                .desired_width((ui.available_width() - save_room - SPACE_SM).max(60.0)),
-        );
+        super::form::field(ui, theme, field, "A name for the look", width);
         let name = field.trim().to_string();
         let usable = strobe_scene::preset::valid_name(&name);
         // Saving over an existing name says so before it happens (P-07).
@@ -148,7 +137,6 @@ pub fn preset_row(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: 
             }
         }
     });
-    ui.add_space(SPACE_XS);
 }
 
 /// Draws the fav row: eight slots sized to share the width, so the row is
@@ -285,16 +273,4 @@ fn slot_tile(
         theme::rgb(text),
     );
     response
-}
-
-fn label(ui: &mut Ui, theme: &Palette, text: &str) {
-    ui.add_sized(
-        [40.0, 18.0],
-        egui::Label::new(
-            egui::RichText::new(text)
-                .size(10.0)
-                .strong()
-                .color(theme::rgb(theme.text_muted)),
-        ),
-    );
 }

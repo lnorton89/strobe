@@ -494,15 +494,10 @@ fn slider_row(
         let label = name_label(ui, theme, def, pins);
         describe(label, def);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            // Reserve the reset button's slot whether or not it is shown, so
-            // the number does not jump sideways when a control is modified.
-            if modified {
-                if reset_button(ui, theme).clicked() {
-                    bank.set_default(index);
-                }
-            } else {
-                ui.allocate_exact_size(Vec2::splat(18.0), Sense::hover());
-            }
+            // The number at the row's right edge, over the rail's end; the
+            // reset button left of it, its slot kept while it is hidden, so
+            // nothing moves when a control is modified. With the slot at the
+            // edge the number stood a button's width short of the rail.
             let drag = ui.add(
                 egui::DragValue::new(&mut value)
                     .range(min.min(max)..=min.max(max))
@@ -513,6 +508,13 @@ fn slider_row(
             );
             if drag.changed() {
                 bank.set(index, Some(0), &[clamp_to(value, min, max)]);
+            }
+            if modified {
+                if reset_button(ui, theme).clicked() {
+                    bank.set_default(index);
+                }
+            } else {
+                ui.allocate_exact_size(Vec2::splat(18.0), Sense::hover());
             }
         });
     });
@@ -688,14 +690,16 @@ fn xy_row(
     ui.horizontal(|ui| {
         name_label(ui, theme, def, pins);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if modified && reset_button(ui, theme).clicked() {
-                bank.set_default(index);
-            }
+            // The readout at the edge, the reset left of it: it no longer
+            // moves when the pad leaves its default.
             ui.label(
                 egui::RichText::new(format!("{:.2}, {:.2}", v[0], v[1]))
                     .monospace()
                     .color(theme::rgb(theme.text_muted)),
             );
+            if modified && reset_button(ui, theme).clicked() {
+                bank.set_default(index);
+            }
         });
     });
     let pad = scale.pad_size(ui.available_width());

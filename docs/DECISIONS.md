@@ -11591,3 +11591,23 @@ the failed-scene one included; captures at 1600x1000 and 1280x720.
 
 **Would reopen:** a console someone needs taller while chasing a fault
 (then a drag handle, or a full-height console page).
+
+### D484: the Presets tab is two cards, and a value sits over its slider's end (2026-10-25)
+
+**Context.** The Presets tab was a PRESET dropdown repeating the rows
+under it, a bare "save as..." field and a sentence; on the Controls page
+each value box stood a reset button's width short of its slider's end,
+since the button's slot was kept at the row's edge.
+
+**Decision.** The Presets tab is a Presets card (a row per preset, a
+click recalls, the active one marked with its delete cross, two clicks
+as before) and a Save the controls card (the name, Save or Replace,
+Rename). The value box is at the row's right edge over the rail's end,
+the reset button's slot left of it; the XY readout likewise, so it no
+longer moves when the pad leaves its default. The failure banner leaves
+out its Diagnostics button while Diagnostics is the view.
+
+**Test.** The shell's every-size checks; captures of the Presets tab
+and the Controls page at 1600x1000.
+
+**Would reopen:** a scene with enough presets to want search.
