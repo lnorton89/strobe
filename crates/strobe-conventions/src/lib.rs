@@ -2,8 +2,9 @@
 // Module:       strobe_conventions (library crate root)
 // Description:  The workspace's house rules as tests: file headers, the unsafe
 //               boundary, the pinned toolchain, pinned workflow actions, and
-//               discarded results that say why, and crate READMEs' known
-//               gaps that point at the backlog.
+//               discarded results that say why, crate READMEs' known gaps
+//               that point at the backlog, GL object owners, counted driver
+//               queries, and the docs' links and decision numbers.
 //
 // Dependencies: anyhow, std::fs (walks every crate's sources and READMEs at
 //               test time)
@@ -33,12 +34,22 @@
 //! - [`known_gaps`] — every gap a crate README lists names its backlog
 //!   item, open question or decision, and the backlog IDs it cites exist
 //!   (D490).
+//! - [`gl_objects`] — every GL object has an owning type with a `Drop` in
+//!   the `gl` module, and no raw handle is stored outside it (D497).
+//! - [`driver_queries`] — every driver state query counts itself, so a test
+//!   can prove a playing scene makes none, and none is made outside `gl`
+//!   (D497).
+//! - [`docs`] — the Markdown's relative links resolve and its cited
+//!   decisions exist (D497).
 //!
 //! The walking and path arithmetic shared by the Rust-source rules is in
 //! [`sources`].
 
 pub mod actions;
 pub mod discarded;
+pub mod docs;
+pub mod driver_queries;
+pub mod gl_objects;
 pub mod header;
 pub mod known_gaps;
 pub mod sources;
