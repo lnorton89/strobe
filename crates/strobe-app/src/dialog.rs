@@ -64,26 +64,65 @@ pub fn crash_text(notice: &CrashNotice) -> String {
 /// dismissed. Only logs it off Windows, in an unattended run, and in a
 /// session with no visible desktop.
 pub fn show_error(text: &str) {
-    if UNATTENDED.load(Ordering::Relaxed) {
+    if UNATTENDED.load(Ordering::Relaxed) || !cfg!(target_os = "windows") {
         log::error!("{text}");
         return;
     }
-    if cfg!(target_os = "windows") {
-        // A service's session has no desktop anyone sees: exit at once
-        // rather than wait on a box that cannot be dismissed.
-        let script = "if (-not [Environment]::UserInteractive) { exit 0 }; \
-                      Add-Type -AssemblyName PresentationFramework; \
-                      [void][System.Windows.MessageBox]::Show($env:STROBE_ERROR, 'Strobe', 'OK', 'Error')";
-        let shown = std::process::Command::new("powershell")
-            .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", script])
-            .env("STROBE_ERROR", text)
-            .status();
-        if let Err(error) = shown {
-            log::error!("could not show the error dialog: {error}");
-        }
-    } else {
-        log::error!("{text}");
+    match message_box(text, Icon::Error).and_then(|mut child| child.wait()) {
+        Ok(_) => {}
+        Err(error) => log::error!("could not show the error dialog: {error}"),
     }
+}
+
+/// Shows `text` in an information box titled "Strobe" and returns at once,
+/// leaving the box up after this process exits. For news that is not a
+/// failure and needs no answer, such as where `--diagnose` saved its report:
+/// waiting there looked like a hung process to anyone who could not see the
+/// box, because it belongs to PowerShell, not to `strobe.exe` (T480 Task
+/// 50). Only logs it where [`show_error`] would.
+pub fn show_notice(text: &str) {
+    if UNATTENDED.load(Ordering::Relaxed) || !cfg!(target_os = "windows") {
+        log::info!("{text}");
+        return;
+    }
+    // Not waited on, on purpose: the box outlives this process, and the OS
+    // reaps PowerShell when it is dismissed.
+    if let Err(error) = message_box(text, Icon::Information) {
+        log::warn!("could not show the notice: {error}");
+    }
+}
+
+/// The icon a box shows, as `System.Windows.MessageBoxImage` names it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Icon {
+    /// A failure.
+    Error,
+    /// News that is not a failure.
+    Information,
+}
+
+/// The PowerShell that raises a box with `icon` showing `$env:STROBE_ERROR`.
+/// A service's session has no desktop anyone sees, so there it exits at once
+/// rather than raise a box that cannot be dismissed.
+fn box_script(icon: Icon) -> String {
+    let icon = match icon {
+        Icon::Error => "Error",
+        Icon::Information => "Information",
+    };
+    format!(
+        "if (-not [Environment]::UserInteractive) {{ exit 0 }}; \
+         Add-Type -AssemblyName PresentationFramework; \
+         [void][System.Windows.MessageBox]::Show($env:STROBE_ERROR, 'Strobe', 'OK', '{icon}')"
+    )
+}
+
+/// Starts the hidden PowerShell that raises the box.
+fn message_box(text: &str, icon: Icon) -> std::io::Result<std::process::Child> {
+    std::process::Command::new("powershell")
+        .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command"])
+        .arg(box_script(icon))
+        .env("STROBE_ERROR", text)
+        .spawn()
 }
 
 #[cfg(test)]
@@ -123,5 +162,25 @@ mod tests {
         assert!(!text.contains("Minidump"), "no dump line expected:\n{text}");
         assert!(text.contains("internal error"), "panic wording:\n{text}");
         Ok(())
+    }
+
+    #[test]
+    fn a_notice_is_information_and_a_failure_is_an_error() {
+        let notice = box_script(Icon::Information);
+        let error = box_script(Icon::Error);
+        assert!(
+            notice.ends_with("'OK', 'Information')"),
+            "a notice is not styled as a failure:\n{notice}"
+        );
+        assert!(
+            error.ends_with("'OK', 'Error')"),
+            "a failure keeps its error icon:\n{error}"
+        );
+        for script in [&notice, &error] {
+            assert!(
+                script.starts_with("if (-not [Environment]::UserInteractive) { exit 0 };"),
+                "no box in a session nobody sees (M2):\n{script}"
+            );
+        }
     }
 }

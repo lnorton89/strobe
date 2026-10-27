@@ -5882,7 +5882,7 @@ first lever).
 ### D277: Electric Bloom is an original procedural garden, rebuilt from a Codex draft (2026-10-15)
 
 The owner asked for a scene from a floral image that is not available to us.
-The Codex draft (recorded as D273 on the owner's machine, never on master) was a flat grid of sticker-like rainbow daisies, and
+The Codex draft (recorded as decision 273 on the owner's machine, never on master) was a flat grid of sticker-like rainbow daisies, and
 the owner said it needed improving massively. This is an original procedural
 interpretation worked from the draft's written description (vivid layered
 flowers, inked veins, black negative space), not a reproduction of the image.
@@ -12104,33 +12104,80 @@ textures; the sweep on TORNADO's GTX 1080 Ti is in BENCHMARKS.md.
 **Would reopen:** wanting the bench to time a real capture (then a recorded
 audio file, still deterministic).
 
-### D497: projector power control lives in `tools/projector-control`, in Python, apart from the engine (2026-10-27)
 
-**Context.** The show PC has to switch the venue's Panasonic PT-DZ6700 and
-Sony VPL-PHZ10 on and off over the network, from this machine and remotely.
-It's venue setup, not engine work, but nowhere else versions the show
-machine.
+### D497: the last unchecked conventions are tests: build scripts, GL object owners, driver queries, and the docs' links and decision numbers (2026-10-27)
+
+**Context.** Backlog D-05. `strobe-conventions` walked only `src/`, `tests/`
+and `examples/`, so the two `build.rs` files had no header check. CLAUDE.md's
+"every GL object has an owning type with a `Drop`" and "never call `glGet*`
+in the frame loop" were checked by nobody, and nothing noticed a dead link
+in `docs/` or a cited decision that does not exist.
 
 **Decision.**
-- It lives in `tools/projector-control/`, next to `tools/userscript`. It
-  shares no code with the engine, and no crate or workflow depends on it.
-- It's Python 3 with the standard library only, plus PowerShell for the
-  Windows setup. It isn't Rust, so the workspace rules in CLAUDE.md
-  (header banner, no `unwrap`, the unsafe boundary) don't apply. The
-  conventions crate only scans `crates/**.rs`.
-- PJLink Class 1 is the protocol, with the Panasonic's NTCONTROL as a
-  fallback. The service is a SYSTEM Scheduled Task, bound only to the Wi-Fi
-  or Tailscale address, with token auth on every endpoint.
-- The real config, with its API token and projector passwords, is never
-  committed. It lives in `C:\ProgramData\ProjectorControl\config`, readable
-  only by SYSTEM and Administrators, and the repository carries
-  `config.example.json`.
+- **Build scripts.** The walk takes each crate's `build.rs` too, under
+  every rule; its `Module:` is `build (build script)`. `scripts/` holds no
+  Rust, so there is nothing there for the Rust rules to walk.
+- **GL objects** (`gl_objects`). In `strobe-gfx/src/gl/`, a struct holding
+  a raw glow object (or an `Option` of one) must have an `impl Drop`, and
+  every create call (`create_texture`, `fence_sync`, ...) must make a kind
+  such a struct owns. Outside the module, a struct field of a raw glow
+  object type fails: egui's painter takes textures as arguments and map
+  keys, never as a field.
+- **Driver queries** (`driver_queries`, and `Gl::state_queries`). Every
+  state query leaf in `gl/` counts itself (`self.count_query()`): `glGet*`,
+  `glGetError`, `glIsEnabled`, compile and link status and logs, uniform
+  locations, framebuffer completeness. The build fails for a leaf that does
+  not count, and for a glow query called outside `gl/`. A test then proves
+  that a playing scene's count stops moving
+  (`render.rs`'s `a_playing_scene_asks_the_driver_nothing`: two buffer
+  passes, one double-buffered, `syn_FinalPass`, the GPU timer and the
+  final-pass readback; and the custom transition in `compositor.rs`). The
+  timer's result and `GL_GPU_DISJOINT_EXT`, the zero-timeout fence poll
+  and the at-most-once-a-second reset poll are not counted: they are how a
+  frame avoids waiting. Debug-output set-up on the raw context is exempt.
+- **The steady frame, not the show.** A playlist resizes scenes at cue
+  boundaries (warm-up at half each edge, parking at 1x1, D150-D158), and a
+  resize makes framebuffers and checks them. That is deliberate
+  allocation at a cue, so the count is asserted across a playing scene,
+  not across a whole show.
+- **Docs** (`docs`). Every `.md` under `docs/`, at the root (not the
+  generated `CHANGELOG.md`) and each crate's README: a relative link must
+  resolve, and a cited `D<n>` must be a heading in DECISIONS.md. Fenced code
+  is skipped, and links inside inline code. The one hit, a draft numbered
+  on the owner's machine and never on master (D277), now says "decision
+  273" instead of citing it.
 
-**Test.** `tools/projector-control/tests/test_pjctl.py` runs against a fake
-PJLink projector. On the real units (2026-10-27), on, off through cooling,
-wake from standby, API auth, and service start after a reboot all passed.
-The tool's README records the timings.
+**Test.** `cargo test -p strobe-conventions`: each rule has a planted
+violation that fails and passes when fixed. The query counter's tests need
+a headless context, so they run on CI's Linux job (llvmpipe) and skip on
+Windows.
 
-**Would reopen:** a second venue or OS, or Strobe itself wanting projector
-power, such as a playlist that switches the projectors. Then the client
-belongs in a crate.
+**Would reopen:** a frame-path need for a driver fact that cannot be
+cached (then a counted, documented exemption here), or a second renderer
+(G-04) with its own objects.
+
+### D499: `--diagnose` says where its report went without holding the process open (2026-10-27)
+
+**Context.** T480 Task 50 found that a release `strobe --diagnose` printed
+and saved its report and then never exited: no window, 0% CPU, until it was
+killed. A build without debug assertions (`release`, and `release-fast`)
+ended with `dialog::show_error`, a modal box raised by a hidden PowerShell
+and waited on. Nothing about the process showed the box, because the box
+belongs to `powershell.exe`, so anyone (or any script) who could not see it
+saw a hung process. It also showed an error icon for news that is not a
+failure.
+
+**Decision.** `dialog::show_notice` raises the same box with the
+information icon and does not wait: `strobe.exe` exits as soon as the report
+is saved, and the box stays up on its own until it is dismissed. The same
+guards apply as for `show_error`: logged only in an unattended run, off
+Windows, or in a session nobody sees (M2). Failures keep `show_error`,
+which still waits, because the process must not exit before the person has
+read why.
+
+**Test.** `dialog::tests::a_notice_is_information_and_a_failure_is_an_error`
+checks the scripts. On the desktop, `release-fast` `strobe.exe --diagnose`
+started with `Start-Process` exited with 0 in under a second, leaving one
+PowerShell box with the information icon.
+
+**Would reopen:** a notice that needs an answer (then it is not a notice).
