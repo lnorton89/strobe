@@ -311,9 +311,25 @@ and the RX 580 are in [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md).*
 
 ## Building and running
 
-You need the Rust toolchain pinned in `rust-toolchain.toml` (rustup installs
-it) and a GPU with OpenGL 3.3, or Direct3D 11 for ANGLE. Windows builds use
-the MSVC toolchain. The ANGLE DLLs come from `scripts/fetch-angle.ps1`.
+To run Strobe on Windows you need none of this: download the release (see
+*Try it* above). To build it yourself:
+
+1. **Install Rust** with rustup, from
+   [rust-lang.org/tools/install](https://www.rust-lang.org/tools/install)
+   (on Windows, run `rustup-init.exe` and accept its offer to install the
+   Visual Studio C++ build tools: Strobe builds with the MSVC toolchain, and
+   QuickJS, its JavaScript engine, is C). You do not choose a Rust version:
+   the first `cargo` command in the checkout fetches the one pinned in
+   `rust-toolchain.toml`.
+2. **Get the code:** `git clone https://github.com/lnorton89/strobe` and
+   `cd strobe`.
+3. **Build and run** with the commands below. You need a GPU with OpenGL
+   3.3, or Direct3D 11 for ANGLE. Linux needs a few system packages first;
+   see [Linux](#linux).
+4. **On Windows, fetch the ANGLE DLLs** once, for machines whose OpenGL
+   driver is broken; the script checks their hashes and puts them beside the
+   built executables:
+   `powershell -ExecutionPolicy Bypass -File scripts\fetch-angle.ps1`.
 
 ```bash
 cargo run --profile release-fast -p strobe-app                 # the app, optimised, quick to rebuild

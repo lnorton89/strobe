@@ -200,9 +200,8 @@
 - **Acceptance:** every question moved to Resolved with its evidence, or left open with the exact reason it cannot be answered; COMPATIBILITY.md's Unverified rows follow.
 
 ### C-08 The tilt-shift blur as Synesthesia's engine draws it
-- **Status:** Open (TORNADO T25). Synesthesia's `_hBlurTiltShift` / `_vBlurTiltShift` (and `syn_pass_*BlurTiltShift`) loop `1 + 20 * blurAmt` taps each side, mirror out-of-range coordinates, weight with a Gaussian whose width grows with `abs(uv.y - blurLoc)` to the power 2.3, and the vertical one steps by `1 / RENDERSIZE.x` and measures from `uv.y`. Strobe's is its own (a capped, constant-bound Gaussian). None of the 87 shipped scenes calls it, so nothing visible depends on it yet.
-- **Work:** match the engine within Strobe's constant-loop-bound rule (cap the taps, break early), with a render test of one value per form.
-- **Acceptance:** a fixture's centre pixel equals the engine's formula in both dialects; the cap is documented.
+- **Status:** Done (D494). `_hBlurTiltShift` / `_vBlurTiltShift` follow the engine: `1 + 20 * blurAmt` taps each side, two output pixels apart (the vertical form's step measured in `RENDERSIZE.x`, as the engine does), coordinates mirrored, weights `exp(-d^2 / e)` with `e = 40 * taps * (0.01 + |uv.y - blurLoc|)^2.3`. The taps stop at 101 each side for GLSL ES's constant loop bounds, the engine's count at the default `blurAmt` 5. `render.rs` `the_tilt_shift_blur_is_the_engines` checks the engine's formula at a pixel in both dialects (Mesa, WSL2 on TORNADO).
+- **Acceptance:** met: a fixture's pixel equals the engine's formula in both dialects; the cap is documented in `ssf.glsl` and the crate README.
 
 ## Epic I — Import and auto-controls
 
@@ -248,9 +247,9 @@
 - **Acceptance:** on a Windows machine with Synesthesia 1.25.4 installed, the library shows 88 scenes marked Synesthesia beside the library's, Settings hides them, and nothing under `Program Files` changes after tagging, saving and copying.
 
 ### I-06 Shadertoy inputs, passes and the Needs-work bin
-- **Status:** Open. The converter refuses `cubemap` and `volume` inputs and `sound` and `cubemap` passes; `keyboard`, `video` and `webcam` inputs read black with a warning; `srgb` textures are not decoded (Q16); a resize restarts `iTime` at `TIME` and `iFrame` at 0, a visible jump at a non-default Speed. PLAN.md's Needs-work bin, which keeps a failed import with its log, is not built: a failed import loads nothing and says why (I-04).
-- **Work:** cube map inputs (the renderer has cube maps, D185); a keyboard texture; keep `iTime` continuous across a resize; decide whether a Needs-work bin earns its place next to the Diagnostics pane's Needs work card (D483), or close it.
-- **Acceptance:** each supported input has an original fixture rendering in both dialects; each refused one fails with Strobe's message naming it; a resize at Speed 2 shows no jump.
+- **Status:** Open. The converter refuses `cubemap` and `volume` inputs and `sound` and `cubemap` passes; `keyboard`, `video` and `webcam` inputs read black with a warning; `srgb` textures are not decoded (Q16). Since D495 `iTime` runs on through a resize at any Speed (`st_clock` is `KEEP_ON_RESIZE`; a new `st_frame` pass restarts `iFrame` with the wiped buffers). PLAN.md's Needs-work bin, which keeps a failed import with its log, is not built: a failed import loads nothing and says why (I-04).
+- **Work:** cube map inputs (the renderer has cube maps, D185); a keyboard texture; decide whether a Needs-work bin earns its place next to the Diagnostics pane's Needs work card (D483), or close it.
+- **Acceptance:** each supported input has an original fixture rendering in both dialects; each refused one fails with Strobe's message naming it; a resize at Speed 2 shows no jump (met, D495).
 
 ## Epic P — Playlist, audio timing and show control
 
@@ -471,9 +470,8 @@
 - **Acceptance:** each rule fails the build on a planted violation and passes on the tree.
 
 ### D-06 Benchmark coverage
-- **Status:** Open. `strobe-bench` runs no scripts, by design (D239), and uploads placeholder audio textures, so a scene that reads the spectrum is timed on a still one. A render-scale sweep (the same scenes at 1.0, 0.75 and 0.5) is listed as wanted in BENCHMARKS.md.
-- **Work:** feed the synthetic track's textures (`strobe_scene::synthetic::fill_textures`) so frames stay a pure function of time; add `--scales` for the sweep.
-- **Acceptance:** results.md says which textures it used; the sweep's table is in BENCHMARKS.md for the T480 and llvmpipe.
+- **Status:** Done (D496). The bench feeds `syn_Spectrum` (1024 texels) and `syn_LevelTrail` (256) from the synthetic track, `strobe_scene::synthetic::fill_textures`, as the app does without a device, and uploads them inside each timed frame; `results.md` says so. `--scales 1,0.75,0.5` renders every scene again at each scale and adds a table of mean frame time per scale and what the smallest saves; the GTX 1080 Ti run is in BENCHMARKS.md. Scripts still do not run, by design (D239).
+- **Left:** the sweep on the T480 and llvmpipe (a person's run on the T480; CI's llvmpipe run can add `--scales`).
 
 ## Cross-cutting engineering rules
 
