@@ -543,6 +543,31 @@ phones yet.**
 The proxy, its certificate and its renewals are yours to run: Strobe
 does not run them or check them.
 
+## Projector power
+
+Settings > Projectors switches networked projectors on and off over PJLink,
+with a Panasonic's own NTCONTROL as a fallback (D502).
+
+1. Switch on **Projector control**.
+2. Under **Connections**, Add each projector: a name, its address on the
+   projector network and its PJLink password (empty for none), then Save.
+3. Each projector shows its power, input, lamp or laser hours and errors,
+   read every 30 s. **On** switches it on; **Off** asks once more
+   ("Confirm off") before it switches off.
+
+A projector warming up or cooling down takes no command, so Strobe waits
+(up to 90 s) and never sends one mid-transition. A lamp projector can take
+three minutes to cool.
+
+**Web page** serves a page with the same On and Off for a phone on the venue
+Wi-Fi or your tailnet. **Copy link** copies its address with the token: open
+it once on each phone. **New token** signs every phone out. It is plain
+HTTP: never forward its port.
+
+The settings live in `%LOCALAPPDATA%strobeprojectors.json`. To have the
+page when Strobe is closed, and the `pj` command line, see
+[`tools/projector-control`](../tools/projector-control/README.md).
+
 ## Importing from Shadertoy
 
 The **Import** pane (on the rail) takes a Shadertoy URL or id, or an exported
