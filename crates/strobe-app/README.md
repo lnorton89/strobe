@@ -234,40 +234,50 @@ runs are listed in [`DEBUGGING.md`](../../docs/DEBUGGING.md).
 
 ## Status and known gaps
 
+Open work for this crate is tracked in
+[`IMPLEMENTATION_BACKLOG.md`](../../docs/IMPLEMENTATION_BACKLOG.md) under the
+IDs given here; a gap with no ID is by design, with its decision named.
+
 - The control window is Synesthesia's layout (D281-D285) with every pane
   rebuilt on one form grammar after a screenshot review (D464-D484,
   [`UI_REVIEW.md`](../../docs/UI_REVIEW.md)): the Playlist workspace with its
   cue editor (D157, D213, D475), Mappings (D177, D467), the Editor (D204,
   D482), the command palette (D200), named layouts (D215) and density
-  (D220). Left: the title bar's drag, snap and DPI behaviour on the T480
-  (ROADMAP item 2, U-09).
-- Real-hardware evidence is the ThinkPad T480 (Intel UHD 620): native and
-  ANGLE smoke tests, live capture, a script scene, adaptive resolution and
-  `--diagnose` all ran ([`T480.md`](../../docs/hardware/T480.md)).
+  (D220). Left: the rebuilt layout on the T480, with the title bar's drag,
+  Aero Snap, edge resizing and DPI changes at 150% (backlog U-09).
+- Real-hardware evidence is the ThinkPad T480 (Intel UHD 620), TORNADO
+  (GTX 1080 Ti), the AMD desktop (RX 580) and the venue mini-PC (Vega 3):
+  native and ANGLE, live capture, scripts, adaptive resolution and
+  `--diagnose`; on the T480 also F11, the hidden output (Task 9) and the
+  first Perform UI at 150% scaling (Task 12)
+  ([`hardware/`](../../docs/hardware/)).
 - T480 bug 1 (native `make_current` failing on `09-sdf-cathedral` at full
   scale) no longer reproduces under adaptive resolution, nor at a forced
   scale of 1.0 (Task 8). Context recovery (D66) is verified under Xvfb and
   on real WGL with injected losses: native rebuild, ANGLE fail-over and
-  give-up (T480 Task 8). A real driver reset has not been seen. F11 on the 1440p panel, scene switching and DPI at
-  150% scaling are still waiting for an interactive check.
+  give-up (T480 Task 8). A real driver reset has not been seen, and native
+  WGL on the RX 580 gives no robust context to report one (backlog R-07).
 - Playlists are built (stage 2, D150-D158), verified on llvmpipe and on the
   T480 (the transition demo, Task 14; media per cue, Task 26). Audio-event
-  advance is built (drops and breakdowns, D226; song changes, D237) and
-  tested on synthetic audio only. Not built: NDI.
+  advance is built (drops and breakdowns, D226; song changes, D237) and so
+  are the scene transitions a song change drives (D489); all are tested on
+  synthetic audio only, not yet on real music (backlog P-01, M-05). NDI is
+  not built (backlog M-06, deferred).
 - Show control (D170-D179) is built and verified under Xvfb with real OSC
-  datagrams, a real click on Learn, and headless GL for cue presets; **no MIDI
-  controller has been used**. On the T480: OSC in and out (Task 25), a
-  macro's key and glide (Task 29, D227, D228) and Synesthesia's OSC
-  addresses (Task 31, D234).
-  OSC feedback (D209), MIDI output (D257) and the macro range and colour
-  editor (D210) are built. Shortcuts
-  are edited in Settings > Keyboard (D208), and blackout has explicit on and
-  off commands (D201).
-  Cube maps and `syn_Media` stills and sequences work (D185, D186), video
-  and webcam do not. Script `meta/` writes land in the session's meta bank,
-  which the post stage renders from (D180), checked on llvmpipe under Xvfb
-  only (its cost on an HD 4000 is unmeasured); meta values carry over a
-  scene change (D207, replacing D182's reset). `textureFinalPass` is a two-frame-late asynchronous readback (D162).
+  datagrams, a real click on Learn, and headless GL for cue presets. On the
+  T480: OSC in and out (Task 25), a macro's key and glide (Task 29, D227,
+  D228) and Synesthesia's OSC addresses (Task 31, D234). OSC feedback
+  (D209), MIDI output (D257), the macro range and colour editor (D210),
+  shortcuts in Settings > Keyboard (D208) and explicit blackout commands
+  (D201) are built. **No MIDI controller has been used yet** (backlog P-04,
+  P-05).
+- Cube maps and `syn_Media` stills and sequences work (D185, D186); video
+  and webcam are not built (backlog M-04, deferred). Script `meta/` writes
+  land in the session's meta bank, which the post stage renders from
+  (D180); its cost on an HD 4000 is unmeasured (backlog P-03). Meta values
+  carry over a scene change (D207). `textureFinalPass` is a two-frame-late
+  asynchronous readback (D162).
 - Linux has run under Xvfb, on Wayland (Weston) and under WSL2 with Mesa,
-  including Mesa's D3D12 driver on an RX 580, but not on a real Linux GPU;
-  macOS is not built (no CGL provider, D55).
+  including Mesa's D3D12 driver on an RX 580, but not yet on a real Linux
+  GPU (backlog R-08); macOS is not built yet (no CGL provider, D55; backlog
+  G-07).

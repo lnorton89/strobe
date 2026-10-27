@@ -244,6 +244,9 @@ pub enum CommandId {
     CloseTopmostPane,
     /// Tap the tempo.
     TapTempo,
+    /// Tell Strobe a new song has started, as if it heard one (D489): the
+    /// scene's transitions change and a cue waiting for a new song ends.
+    NewSong,
     /// Open the command palette, or close it.
     OpenPalette,
     /// Generate controls for the playing scene in the background (D202).
@@ -255,7 +258,7 @@ pub enum CommandId {
 
 impl CommandId {
     /// Every command, in the order the help text lists them.
-    pub const ALL: [CommandId; 16] = [
+    pub const ALL: [CommandId; 17] = [
         Self::PrevScene,
         Self::NextScene,
         Self::ToggleHold,
@@ -270,6 +273,7 @@ impl CommandId {
         Self::ToggleControlsView,
         Self::CloseTopmostPane,
         Self::TapTempo,
+        Self::NewSong,
         Self::OpenPalette,
         Self::GenerateControls,
     ];
@@ -292,6 +296,7 @@ impl CommandId {
             Self::FocusBrowserSearch => "focus_browser_search",
             Self::CloseTopmostPane => "close_topmost_pane",
             Self::TapTempo => "tap_tempo",
+            Self::NewSong => "new_song",
             Self::OpenPalette => "open_palette",
             Self::GenerateControls => "generate_controls",
             Self::ToggleControlsView => "toggle_controls_view",
@@ -327,7 +332,8 @@ impl CommandId {
             | Self::BlackoutOn
             | Self::BlackoutOff
             | Self::ToggleFullscreen
-            | Self::TapTempo => true,
+            | Self::TapTempo
+            | Self::NewSong => true,
         }
     }
 
@@ -347,6 +353,7 @@ impl CommandId {
             Self::FocusBrowserSearch => "Search scenes",
             Self::CloseTopmostPane => "Close pane",
             Self::TapTempo => "Tap tempo",
+            Self::NewSong => "New song",
             Self::OpenPalette => "Command palette",
             Self::GenerateControls => "Generate controls",
             Self::ToggleControlsView => "Switch Library / Controls",
@@ -365,7 +372,8 @@ impl CommandId {
             | Self::ToggleBlackout
             | Self::BlackoutOn
             | Self::BlackoutOff
-            | Self::TapTempo => Category::Playback,
+            | Self::TapTempo
+            | Self::NewSong => Category::Playback,
             Self::FocusBrowserSearch
             | Self::CloseTopmostPane
             | Self::OpenPalette
@@ -396,7 +404,9 @@ impl CommandId {
             Self::TapTempo => Chord::plain(Key::T),
             Self::OpenPalette => Chord::command(Key::Letter('K')),
             Self::ToggleControlsView => Chord::command(Key::Letter('L')),
-            Self::BlackoutOn | Self::BlackoutOff | Self::GenerateControls => return None,
+            Self::BlackoutOn | Self::BlackoutOff | Self::NewSong | Self::GenerateControls => {
+                return None;
+            }
         })
     }
 
@@ -414,6 +424,7 @@ impl CommandId {
             | Self::FocusBrowserSearch
             | Self::CloseTopmostPane
             | Self::TapTempo
+            | Self::NewSong
             | Self::OpenPalette
             | Self::GenerateControls
             | Self::ToggleControlsView => false,
@@ -643,7 +654,12 @@ mod tests {
             .collect();
         assert_eq!(
             unbound,
-            ["blackout_on", "blackout_off", "generate_controls"],
+            [
+                "blackout_on",
+                "blackout_off",
+                "new_song",
+                "generate_controls"
+            ],
             "which"
         );
         let (bindings, problems) = Bindings::from_config(&table(&[("blackout_on", "Shift+B")]));

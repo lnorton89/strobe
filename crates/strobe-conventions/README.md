@@ -135,10 +135,17 @@ the job that needs more.
 
 ## Status and known gaps
 
-- All 24 tests pass on the current tree.
+Open work for this crate is tracked in
+[`IMPLEMENTATION_BACKLOG.md`](../../docs/IMPLEMENTATION_BACKLOG.md) under the
+IDs given here; a gap with no ID is by design, with its decision named.
+
+- Its tests run in `cargo test --workspace` and pass on the current tree.
 - The walk covers `src/`, `tests/` and `examples/` of crates under
-  `crates/`. Files elsewhere (`build.rs`, `scripts/`) are not checked.
-- Nothing checks Markdown, including these READMEs, or the `docs/` tree.
+  `crates/`. Files elsewhere (`build.rs`, `scripts/`) are not checked yet
+  (backlog D-05).
+- Of the Markdown, only the crate READMEs' "Status and known gaps" sections
+  are checked ([`known_gaps`](src/known_gaps.rs)); the `docs/` tree is not
+  checked yet (backlog D-05).
 - The "every GL object has an owning type with a `Drop`" and "no `glGet*`
-  in the frame loop" rules in [`CLAUDE.md`](../../CLAUDE.md) are not enforced
-  by this crate.
+  in the frame loop" rules in [`CLAUDE.md`](../../CLAUDE.md) are not
+  enforced yet (backlog D-05).

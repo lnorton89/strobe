@@ -88,7 +88,7 @@ No mapping is needed. Values are normalised 0 to 1.
 | `/strobe/control/<name>` | float | sets the scene control across its range |
 | `/strobe/control/<name>/<x\|y\|z\|r\|g\|b>` | float | one component of a pad or colour |
 | `/strobe/meta/<name>` | float | sets the meta control |
-| `/strobe/cmd/<id>` | none, `1`, `T` | runs the command (`next_scene`, `prev_scene`, `toggle_hold`, `extend_cue`, `restart_cue`, `skip_section`, `toggle_blackout`, `blackout_on`, `blackout_off`, `toggle_fullscreen`, `tap_tempo`) |
+| `/strobe/cmd/<id>` | none, `1`, `T` | runs the command (`next_scene`, `prev_scene`, `toggle_hold`, `extend_cue`, `restart_cue`, `skip_section`, `toggle_blackout`, `blackout_on`, `blackout_off`, `toggle_fullscreen`, `tap_tempo`, `new_song`) |
 | `/strobe/cue/<n>` | none, `1` | jumps to cue `n`, from 1 |
 | `/strobe/fav/<n>` | none, `1` | recalls fav slot `n`, 1 to 8 |
 | `/strobe/preset/<name>` | none, `1` | recalls a preset of the playing scene (`_` reads as a space) |
@@ -146,9 +146,14 @@ controller is the open check** (D171, Q23).
 
 ## Status and known gaps
 
-- Built and tested without hardware; **no MIDI controller has been used**.
+Open work for this crate is tracked in
+[`IMPLEMENTATION_BACKLOG.md`](../../docs/IMPLEMENTATION_BACKLOG.md) under the
+IDs given here; a gap with no ID is by design, with its decision named.
+
+- Built and tested without hardware; **no MIDI controller has been used
+  yet** (backlog P-04).
 - OSC feedback (D209) and MIDI feedback (D257) are built; neither has
-  driven a real controller yet.
+  driven a real controller or a TouchOSC layout yet (backlog P-05).
 - The OSC address layout is Strobe's own, and Synesthesia's addresses are
   accepted as aliases where they mean the same (D234, Q23).
 - A macro's range and colour are edited in the Mappings view (D210); a macro can

@@ -200,6 +200,8 @@ pub enum Action {
     SetAudioSpeed(f32),
     /// Register a tap-tempo tap.
     TapTempo,
+    /// A new song started, says the operator (D489).
+    NewSong,
     /// Turn adaptive resolution on or off.
     SetAdaptive(bool),
     /// Import this file path, Shadertoy id or URL.
@@ -658,6 +660,9 @@ pub struct Model<'a> {
     pub playing: Option<usize>,
     /// The playing scene's title, from its definition.
     pub scene_title: &'a str,
+    /// Whether the playing scene changes its look on a new song (its
+    /// `HARD_TRANSITIONS` or `SMOOTH_TRANSITIONS`, D489).
+    pub scene_transitions: bool,
     /// The playing scene's controls.
     pub controls: Option<&'a mut ControlBank>,
     /// What the playing scene shows behind `syn_Media` (D217).

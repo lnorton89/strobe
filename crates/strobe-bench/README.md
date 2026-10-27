@@ -112,18 +112,23 @@ It has no `#[test]` functions, so `cargo test -p strobe-bench` only compiles it.
 
 ## Status and known gaps
 
-- Real-GPU numbers exist for one machine, the T480 (Intel UHD 620, native and
-  ANGLE, 720p and 1440p), in [`BENCHMARKS.md`](../../docs/BENCHMARKS.md). The
-  heaviest scene, `10-volume-clouds`, ran at about 190 ms per frame at 720p
-  there. The other baseline is llvmpipe in a cloud container. A render-scale
-  sweep is still listed as wanted.
+Open work for this crate is tracked in
+[`IMPLEMENTATION_BACKLOG.md`](../../docs/IMPLEMENTATION_BACKLOG.md) under the
+IDs given here; a gap with no ID is by design, with its decision named.
+
+- Real-GPU numbers are in [`BENCHMARKS.md`](../../docs/BENCHMARKS.md): the
+  T480 (Intel UHD 620, native and ANGLE, 720p and 1440p), the AMD
+  desktop's RX 580, TORNADO's GTX 1080 Ti (ANGLE's backends included) and
+  the venue mini-PC's Vega 3. The other baseline is llvmpipe in a cloud
+  container. A render-scale sweep is still wanted (backlog D-06).
 - **A failed scene fails the run.** A scene that fails to compile is printed
   as `FAILED`, recorded in `results.md` and left out of the contact sheet.
   After every frame and the report are written, the process exits non-zero
   with `N of M scenes failed: <names>`, which is what fails CI's bench step
   (D56).
-- No scripts run (so `11-script-orbits` renders as a still with default
-  controls), and `results.md` says so and marks such scenes `*` (D239);
-  `cargo xtask corpus` runs scripts. The audio textures are placeholders
-  (ROADMAP "Known gaps").
-- Not built for macOS: `strobe-gfx` has no CGL provider (D55).
+- No scripts run, by design (D239): `11-script-orbits` renders as a still
+  with default controls, and `results.md` says so and marks such scenes
+  `*`; `cargo xtask corpus` runs scripts. The audio textures are
+  placeholders (backlog D-06).
+- Not built for macOS yet: `strobe-gfx` has no CGL provider (D55; backlog
+  G-07).
