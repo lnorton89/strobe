@@ -82,7 +82,7 @@ id made by [`trust::new_controller_id`](src/trust.rs), and reconnects with a
 | `server::net` | `scope` (loopback, private, link-local, every interface, public), `lan_address`, `is_local_address` (D461), `host_matches`. |
 | `pairing::Pairing` | Requests waiting for Approve or Deny and their bounds (D468, D469); the legacy six-digit code, its attempt limit and expiry (D251). |
 | `discovery::Responder`, `Scanner` | The host's answer to a LAN query and the controller's list of hosts, with `PORT` 47813, a reply rate limit and a forgetting time (D468). |
-| `clients::Clients` | Paired clients in `remote-clients.json`: token digests, rotation, revocation (D251). |
+| `clients::Clients` | Paired clients in `remote-clients.json`: token digests, rotation, revocation (D251); each one's name, platform, address, kind and last-seen time for the desktop's list (D500). |
 | `trust::TrustSecret`, `Challenge`, `Limiter` | The venue trust file (make, load, parse), the single-use HMAC challenge, and the failed-proof limiter (D288). |
 | `secret::Token` | A 256-bit token that prints as `***` and is not `Serialize`. |
 | `client::Connection` | Native worker transport: private IP address, bounded handshake/frame reader, random client masks and socket timeouts. |
