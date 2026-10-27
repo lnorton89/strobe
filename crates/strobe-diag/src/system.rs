@@ -432,8 +432,11 @@ mod tests {
 
     #[test]
     fn the_probe_finds_at_least_the_core_count() -> Result<()> {
+        // Whether the tools finish inside PROBE_BUDGET depends on the machine
+        // (a busy CI runner cold-starts PowerShell twice and can miss it), so
+        // it is not asserted here; the budget is tested above, on Unix. The
+        // core count comes from the standard library, timeout or not.
         let probed = probe();
-        assert!(!probed.timed_out, "a healthy probe does not time out");
         assert!(
             probed.cpu_cores.is_some_and(|cores| cores >= 1),
             "core count missing: {probed:?}"
