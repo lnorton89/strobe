@@ -194,24 +194,33 @@ A Cargo workspace of fifteen crates. The rules that matter:
 - **Only `strobe-gfx` touches the GPU.**
 - **Everything that can be tested without a GPU is.**
 
-```
-                     strobe-ssf-lib          (the SSF GLSL library, as text)
-                           ▲
-                     strobe-scene            (scene.json, controls, presets, tags, shader assembly)
-        ┌──────────┬───────┴──┬────────────┬─────────────┐
-   strobe-gfx  strobe-audio strobe-script strobe-io  strobe-shadertoy
-   (GL, only    (capture,   (QuickJS:     (MIDI, OSC  (Shadertoy JSON →
-    unsafe)      FFT, BPM)   the JS API)   in & out)   scene folder)
-        ▲                                                   ▲
-        └────────────── strobe-autocontrol ─────────────────┘
-                              (control generation; renders to score)
+```mermaid
+flowchart TD
+    app["strobe-app<br/>windows, the frame loop, the UI"]
+    shadertoy["strobe-shadertoy<br/>Shadertoy JSON to a scene folder"]
+    autocontrol["strobe-autocontrol<br/>control generation"]
+    script["strobe-script<br/>QuickJS: the JS API"]
+    audio["strobe-audio<br/>capture, FFT, BPM"]
+    io["strobe-io<br/>MIDI and OSC, in and out"]
+    gfx["strobe-gfx<br/>GL, the only unsafe"]
+    scene["strobe-scene<br/>scene.json, controls, shader assembly"]
+    ssf["strobe-ssf-lib<br/>the SSF GLSL library, as text"]
+    playlist["strobe-playlist<br/>playlists and their clock"]
+    remote["strobe-remote<br/>the LAN remote"]
+    diag["strobe-diag<br/>logging, failures, crash capture"]
 
-   strobe-playlist    (playlists: model, TOML, generator, clock; depends on nothing)
-   strobe-remote      (LAN remote: protocol, pairing, listener, discovery, phone page)
-   strobe-diag        (logging, failures, crash capture; depends on nothing)
-
-   strobe-app ── uses all of the above: windows, the frame loop, the UI
+    app --> shadertoy & autocontrol & script & audio & io & gfx & playlist & remote & diag
+    autocontrol --> shadertoy & gfx
+    shadertoy --> scene & diag
+    script & audio & io & gfx --> scene
+    scene --> ssf
 ```
+
+Arrows point at what a crate depends on (the main edges; ARCHITECTURE.md
+has every one). `strobe-playlist`, `strobe-remote`
+and `strobe-diag` depend on no other Strobe crate. `strobe-bench`
+(benchmarks), `strobe-conventions` (the house rules as tests) and `xtask`
+(repository tooling) sit beside the app, not under it.
 
 | Crate | What it owns |
 |---|---|
