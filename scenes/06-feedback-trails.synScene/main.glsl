@@ -5,9 +5,10 @@
 vec4 renderMain(void) {
     vec2 p = _uvc;
 
-    // Pull the last frame toward the centre with a twist.
-    vec2 q = _rotate(p, twist * (0.5 + syn_MidLevel)) * (1.0 - zoom_in - syn_BassHits * 0.02);
-    _uvc2uv(q);
+    // Pull the last frame toward the centre with a twist of `twist` degrees
+    // a frame, counterclockwise (`_rotate` turns clockwise, in radians).
+    vec2 q = _rotate(p, -radians(twist * (0.5 + syn_MidLevel))) * (1.0 - zoom_in - syn_BassHits * 0.02);
+    q = q / vec2(RENDERSIZE.x / RENDERSIZE.y, 1.0) + 0.5;
     vec3 prev = texture(syn_FinalPass, q).rgb;
     prev = _hueRotate(prev, hue_drift) * decay;
 
