@@ -1,8 +1,10 @@
 # Architecture
 
-![Strobe engine architecture — data flow from scenes and live signals to projector output](images/strobe-engine-architecture.svg)
+![How Strobe makes a frame: scene folders, show control and audio feed one event-loop thread that owns the GPU; it compiles scenes before they play, then each frame drains input, ticks the playlist clock, advances and renders the scenes, and mixes them for the output and control windows](images/architecture.svg)
 
-[Full-resolution vector diagram](images/strobe-engine-architecture.svg) · [PNG export](images/strobe-engine-architecture.png) · [Technical companion and source references](ENGINE_ARCHITECTURE_INFOGRAPHIC.md)
+The diagram is [`images/architecture.svg`](images/architecture.svg), drawn by
+hand in the brand palette; edit the SVG itself when the frame changes. "A
+frame" below is the step-by-step version, with the code that does each step.
 
 This document covers how Strobe is put together and why the boundaries
 sit where they do. For *what's built so far*, see [ROADMAP.md](ROADMAP.md).
@@ -17,7 +19,7 @@ crates/
 ├── strobe-audio        FFT, bands, onsets, BPM → the syn_* values; cpal capture thread
 ├── strobe-script       QuickJS host for the Synesthesia JavaScript API
 ├── strobe-bench        Benchmark + visual regression frames (headless or hidden-window context)
-├── strobe-conventions  The house rules as tests (headers, unsafe boundary, toolchain pin)
+├── strobe-conventions  The house rules as tests (headers, unsafe boundary, toolchain pin, README gaps)
 ├── strobe-diag         Logger, session context, panic hook, native crash capture
 ├── strobe-shadertoy    Shadertoy export JSON → scene folder (id parser, model, dialect rewrite, converter, strobe-import)
 ├── strobe-autocontrol  Auto-generated controls: finds tunable literals, rewrites them to uniforms, keeps those that measurably change the image
@@ -161,8 +163,15 @@ threads only ever hand values *to* it.
     it; every 100 ms publish the state a phone shows (D254)
 2. mouse uniforms from the pointer over the output window        (app::mouse)
 3. GpuTimer::begin                                               (strobe-gfx::timing)
+3a. Song watch (app::song, D489): one listen a frame to the live audio for a
+    new track (a gap, or a new tempo that holds), or the operator's
+    `new_song`; a song heard goes to Show::song_changed when a playlist is
+    loaded (the live scene's transitions, and the clock's `audio-song` event,
+    D237), else to the playing session's transitions
 3b. With a playlist loaded and compiled (Show::frame, app::show::run):
-     a. beat = BeatReader::read(audio frame's scalars)            (show::beat)
+     a. beat = BeatReader::read(audio frame's scalars)            (show::beat);
+        breakdowns and drops heard in the audio's energy go to the clock as
+        audio events (D226)
      b. PlaylistClock::tick(dt, &beat); drain_events into a buffer
         kept between frames; for each event:
           CueStarted        swap the cue's session into Stack::session (the old
@@ -191,7 +200,8 @@ threads only ever hand values *to* it.
         writes (scene and meta/ banks) and uniforms harvested; the script
         reads textureFinalPass from the readback of two frames ago
                                                                   (strobe-script)
-     d. ControlBank::tick(dt), for the scene's bank and the meta bank (strobe-scene)
+     d. ControlBank::tick(dt), for the scene's bank and the meta bank, and
+        Transitions::step(dt): a smooth transition's crossfade (strobe-scene)
      e. ScenePlayer::upload_audio: spectrum and level-trail texels
      f. ScenePlayer::set_script_uniforms is called with step c's values
      g. ScenePlayer::render(&FrameInputs): every pass, then, only for a
@@ -241,9 +251,6 @@ screenshot all read the post stage's target when it ran this frame
 (`App::posted`) and the scene's or the compositor's otherwise. At neutral
 there is no pass and no extra target traffic, which is what an HD 4000
 needs. Step order inside it is documented in `strobe_gfx::post`.
-
-Not yet in the frame, from the original design: audio events that end a cue
-(`clock.audio_event()`).
 
 Loading a playlist is not in the frame at all. `Running::compile_show_step`
 runs once per control-window frame, after that frame is painted, and compiles
@@ -401,7 +408,8 @@ records (`failures.rs`), so the log, the console and a crash report agree.
   shaders (`ScenePlayer::with_extras`), after which the uniforms are sealed:
   a later new name is refused and nothing compiles mid-show (D62, D161).
   Writes to `meta/` controls go to the session's meta bank
-  (`strobe_scene::meta`, D160), which nothing renders from yet.
+  (`strobe_scene::meta`, D160), which the output post stage renders from
+  (D180).
 - **Performance** (`perf.rs`): GPU time from a four-slot ring of timer
   queries feeds `AdaptiveScale`; budget is one refresh period of the output
   monitor; the render-scale slider is the ceiling; nothing changes in the
@@ -500,8 +508,8 @@ module, which is the glue and the only place the pure crate meets a GPU:
 | `show::resolve` | Scene references to folders (exact library names, paths beside the playlist); control overrides to `ControlBank` writes, with a reason for each refusal. |
 | `show::start` | Wall clock, then resume point, then the first cue. |
 | `show::resume`, `show::watch` | The resume file on its own thread, every 5 s; the file watcher (a `stat` a second). |
-| `show::view`, `show::generate` | Timeline rows for the LIST pane; the Generate form and the library snapshot. |
-| `ui::playlist` | The LIST pane. |
+| `show::view`, `show::generate` | Timeline rows for the Playlist view; the Generate form and the library snapshot. |
+| `ui::playlist` | The Playlist view. |
 
 Where a scene is at any moment: the cache (parked, 1x1), `Stack::session` (the
 clock's current cue, full size), `Show::outgoing` (during a transition, full
@@ -514,13 +522,15 @@ the app side.
 
 ## Shadertoy import (`strobe-shadertoy`)
 
-Four layers, kept apart (AGENT_RESEARCH section 9). Only (a), (b), (c) and
-the CLI exist; acquisition is a later layer that ends in the same JSON.
+Four layers, kept apart (AGENT_RESEARCH section 9). Acquisition (D110-D117)
+ends in the same JSON the converter reads, so a shader fetched by id, sent
+by the userscript or dropped as a file is converted the same way.
 
 ```
 (a) id        ShaderId::parse        URL / embed link / bare id          id.rs
 (b) model     Shader::from_json      API {"Shader":..} or bare export     model.rs
-    [ acquisition: REST API (path B), localhost listener (path A) ]       not built
+    acquisition  REST API by id (path B), loopback listener for the       acquire/, listener/
+                 userscript (path A), textures into a shared cache
 (c) convert   convert(&Shader, &Options) -> Converted                    convert/
       plan      order buffers A..D, bind channels, decide the clock       plan.rs
       dialect   token-level rewrite of each tab's code (D94)              dialect.rs, glsl.rs
@@ -574,12 +584,17 @@ analyze()  -> Candidate[]        analyze/      consts (#define/const), expr
 dead / black / does-not-compile dropped, top K kept   generate.rs
    ▼ naming::assign, rewrite::apply (only the kept), verify compile + fidelity
 Generated { report, sources, control_lines, folder }
-   ▼ output::write_scene           <name>-auto.synScene (copy, never in place)
+   ▼ output::write_scene           <name>-auto.synScene (a copy; the worker never
+                                   writes the scene it measured, D202)
 ```
 
 - `Rig` compiles the scene once; probes only change uniform values.
 - The original scene is compiled and rendered first, so a broken scene is
   reported as such, and the finished scene's default picture is compared with
   the original (`Report::fidelity`).
-- The app is expected to call `generate` with its own `Gl` and `Caps`
-  (the Import and Inspector review panel is not built).
+- The app runs it in a worker process (`strobe-autocontrol` as a child,
+  D202), so a slow or crashing measurement never touches the show. Its
+  review (D219) keeps, drops, renames and re-ranges each control; the
+  result is opened as the copy or, on *Save to this scene*, copied back
+  over the files it rewrote, each backed up first (`generate::save_into`,
+  D488).

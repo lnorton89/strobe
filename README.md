@@ -4,29 +4,95 @@
 
 # Strobe
 
-**A Synesthesia-style VJ engine in Rust, built to run on old laptops.**
+**Live visuals that move with the music, for projectors, LED walls and old
+laptops.**
 
 </div>
 
-Strobe plays audio-reactive GLSL scenes on a projector or LED wall. It reads
-Synesthesia scene folders (`.synScene`) as they are, runs their JavaScript,
-imports Shadertoy shaders, and plays long shows from playlists.
+Strobe turns sound into moving pictures. Plug a laptop into a projector,
+play music (or let it listen through a microphone), and Strobe draws
+animated graphics that pulse, swirl and change with the beat. You choose
+the visuals, tweak them live with sliders or a MIDI controller, and line
+them up into a show that runs for hours on its own.
 
-> **Status: v0.2.0. It is for testing, not production.**
-> The engine, the performer UI, playlists, show control, Shadertoy import and
-> LAN remote control are built and tested. Windows is the target and has been
+It is free and open source, written in Rust, and built to run well on the
+kind of old Windows laptop a small venue actually has.
+
+> **Status: v0.2.0, for testing, not yet for production.**
+> Everything below is built and tested. Windows is the target and has been
 > checked on four real machines: a ThinkPad T480 (Intel UHD 620), desktops
-> with a GTX 1080 Ti and an RX 580, and a venue mini-PC (Ryzen 3 3200U, Vega 3)
-> driving a projector.
-> Linux builds and runs, on X11 and Wayland, with a Nix flake and a package
-> list for Debian and Ubuntu (see [Linux](#linux); checked on Mesa's software
-> renderer, not yet on a real Linux GPU). macOS does not run yet. What is verified, and where, is tracked in
-> [`docs/STATUS_AUDIT.md`](docs/STATUS_AUDIT.md); what is still unverified
-> (MIDI hardware, live Shadertoy import, phones, an HD 4000) is listed on the
+> with a GTX 1080 Ti and an RX 580, and a venue mini-PC (Ryzen 3 3200U,
+> Vega 3) driving a projector. Linux builds and runs, on X11 and Wayland,
+> with a Nix flake and a package list for Debian and Ubuntu (see
+> [Linux](#linux); checked on Mesa's software renderer, not yet on a real
+> Linux GPU). macOS does not run yet. What is verified, and where, is in
+> [`docs/STATUS_AUDIT.md`](docs/STATUS_AUDIT.md); what is not yet (MIDI
+> hardware, live Shadertoy import, phones, an HD 4000) is on the
 > [release page](https://github.com/lnorton89/strobe/releases) and in
 > [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md).
 
-![The Library view at 1440x900: the scene grid, the live preview and controls, and the macro strip](docs/images/app-control.png)
+![Strobe's control window: the scene library, the live preview and its controls, and the macro strip](docs/images/app-control.png)
+
+## New to this?
+
+**VJing** is to video what DJing is to music: someone (the VJ) plays
+visuals live, in time with the music, on the screens at a club, a gig or a
+festival. Strobe is a tool for that, and for anyone who simply wants a
+screen that dances to their music.
+
+Each visual is a **scene**: a small program, a *shader*, that runs on the
+graphics card and draws every pixel of every frame, about sixty times a
+second. A scene can read the music (the bass, the beat, the tempo) and has
+**controls**, sliders and buttons that change how it looks. Shaders are
+written in a language called **GLSL**; you never need to read it to use
+Strobe, but you can edit any scene if you want to.
+
+**Where the scenes come from.** Strobe borrows two well-known formats, so
+there are thousands of visuals it can play:
+
+- **Synesthesia** ([synesthesia.live](https://synesthesia.live)) is a
+  commercial music visualizer for Mac and Windows. Its scenes are folders
+  ending in `.synScene` (the *Synesthesia Shader Format*, SSF), holding the
+  shader (`main.glsl`), its controls and settings (`scene.json`) and
+  sometimes a JavaScript file (`script.js`). Strobe plays those folders
+  unchanged: Synesthesia's own scenes if you have it installed, community
+  scenes, and Strobe's own. Strobe is an independent project; it is not
+  made by, endorsed by or affiliated with Synesthesia's makers, and it
+  ships none of their scenes.
+- **[Shadertoy](https://www.shadertoy.com)** is a website where people
+  share shaders. Strobe imports one from its page and makes it react to
+  your music.
+
+**Who it is for:**
+- a DJ, band or venue that wants visuals without a powerful computer;
+- a VJ running long nights who wants a show to play itself, with a hand on
+  the controls when it matters;
+- Synesthesia users who want their scenes on more machines;
+- shader artists who want an audience-ready player for their work.
+
+**Try it.** On Windows: download the zip from the
+[Releases](https://github.com/lnorton89/strobe/releases) page, unzip it,
+and run `strobe.exe` (nothing to install). Click a scene in the library to
+make it play, press **F11** to put it on the second screen, and choose your
+microphone or line-in under **Settings > Audio**. The
+[user guide](docs/USER_GUIDE.md) walks through everything else.
+
+### Words you will see
+
+| Word | What it means here |
+|---|---|
+| Scene | One visual: a folder with a shader, its controls and settings. |
+| Shader, GLSL | The small program that draws a scene on the graphics card, and the language it is written in. |
+| SSF, `.synScene` | Synesthesia's scene format, which Strobe reads as it is. |
+| Control | A slider, button, colour or switch that changes a scene while it plays. |
+| Meta controls | Controls for the whole output, whatever the scene: brightness, colour, mirrors. |
+| Preset, fav slot | A saved look of a scene, and one of eight buttons that recalls a scene with a look. |
+| Macro | One knob or key that moves several controls at once. |
+| Playlist, cue | A show written ahead: a list of scenes (cues), how long each plays and how it hands over. |
+| Transition | How one scene gives way to the next: a cut, a crossfade or a custom blend. |
+| MIDI, OSC | The two ways hardware controllers and other apps talk to Strobe. |
+| ANGLE | A translation layer (the one Chrome uses) that lets Strobe draw through Direct3D when a laptop's OpenGL driver is broken. |
+| BLACKOUT | The button that sends black to the screen at once, always in the same place. |
 
 ---
 
@@ -34,9 +100,10 @@ imports Shadertoy shaders, and plays long shows from playlists.
 
 **Plays Synesthesia scenes as they are.** It reads `main.glsl`,
 `scene.json` and `script.js`, including:
-- multipass and the SSF function library;
+- scenes drawn in several passes, and SSF's library of shader helpers;
 - every control type, with smoothing, speed, bangs and counters;
-- images, cube maps, media and transition uniforms;
+- images, cube maps, media, and transitions that give a scene a new look
+  when a new song starts (or when you press **New song**);
 - the JavaScript API (`setup`, `update`, `setControl`, `setUniform`,
   `meta/` writes, `textureFinalPass`).
 
@@ -54,11 +121,12 @@ that keeps the source and licence:
 - a generated control group adds speed, audio-driven time, a bass flash,
   zoom and hue.
 
-**Generates controls for scenes that have none.** It finds the literals
-that shape a scene (colours, scales, time factors and loop counts) and turns
-them into controls. It keeps only those that measurably change the picture,
-and writes the result to a copy of the scene, never the original. This runs
-in a worker process, so the show keeps playing.
+**Generates controls for scenes that have none.** It finds the numbers
+that shape a scene (colours, scales, speeds and loop counts) and turns them
+into sliders, keeping only those that measurably change the picture. You
+review them, keep the ones you like, and save them into the scene (the
+files they replace are backed up first) or into a copy. This runs in a
+worker process, so the show keeps playing.
 
 **Runs long shows from playlists.**
 - **Inheritance:** a cue that names only a scene is complete. Duration,
@@ -70,7 +138,7 @@ in a worker process, so the show keeps playing.
   scene warms up off screen, crossfades and custom transitions mix two live
   scenes, and the show resumes after a crash.
 
-**Takes show control.**
+**Takes show control** from hardware and other software.
 - **MIDI and OSC in**, with learn, soft takeover and curves.
 - **OSC feedback out**, so TouchOSC or motorised faders follow the show.
 - **Performance Macros**, presets, and eight fav slots.
