@@ -1262,6 +1262,7 @@ fn draw_events(
             scan_error: None,
             playing: scenario.playing.then_some(playing_index),
             scene_title: if scenario.playing { "Aurora Field" } else { "" },
+            scene_transitions: scenario.playing,
             controls: scenario.playing.then_some(&mut bank),
             media: scenario.playing.then_some(crate::ui::MediaPanel {
                 showing: Some(std::path::Path::new("loops/rain")),

@@ -576,6 +576,12 @@ checked and not committed. Interaction was driven with xdotool.
   `events`, `downbeat`, `song` and `behaviour` tests (synthetic kicks at
   several tempos and phases), and the playlist clock's tests. Not yet: real
   music.
+- [x] Scene transitions on a song change (D489): `HARD_TRANSITIONS` jump and
+  `SMOOTH_TRANSITIONS` crossfade, with or without a playlist, and the
+  `new_song` command. Evidence: `strobe_scene::transition` and `song` tests,
+  and `tests/transitions.rs` rendering both in both dialects on Mesa
+  (WSL2 on TORNADO, `STROBE_REQUIRE_HEADLESS_GL=1`). Not yet: real music,
+  and Synesthesia side by side (Q33).
 - [x] Shortcuts edited in Settings (D208): capture, a named clash moved only
   on purpose, clear, reset, live and saved. Evidence: `commands.rs` and
   `ui::shell_tests` (capture fires nothing, Esc cancels, the clash row at six
