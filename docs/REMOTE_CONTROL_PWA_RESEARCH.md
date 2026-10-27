@@ -48,13 +48,13 @@ Phone / tablet browser
        ├─ HTTP: bootstrap, pair, initial state, health
        └─ WebSocket: authenticated commands + state/events
                  │
-                 ▼
+                 v
 Strobe LAN service (dedicated server thread/runtime)
   ├─ pairing and client authorization
   ├─ origin/host validation, input validation, rate limits
   ├─ bounded command channel ───────────────┐
   └─ read-only state subscription           │
-                                            ▼
+                                            v
                               App event-loop thread
                               ├─ dispatch existing commands
                               ├─ owns playlist/session changes
