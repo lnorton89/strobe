@@ -42,11 +42,14 @@
 //!
 //! ## Time
 //!
-//! `iTime`, `iTimeDelta`, `iFrame` and `iFrameRate` come from the clock
-//! pass (see [`clock_file`]), a one-pixel float buffer that accumulates
-//! `dt * rate` where `rate` is the `st_speed` control blended with the
-//! bass by `st_audio_time`. Doing this in a pass keeps the scene format
-//! unchanged: no host-side state, nothing for the app to wire (D91).
+//! `iTime`, `iTimeDelta` and `iFrameRate` come from the clock pass (see
+//! [`clock_file`]), a one-pixel float buffer that accumulates `dt * rate`
+//! where `rate` is the `st_speed` control blended with the bass by
+//! `st_audio_time`; `iFrame` counts from the frame pass beside it. Doing
+//! this in passes keeps the scene format unchanged: no host-side state,
+//! nothing for the app to wire (D91). The clock is kept through a resize
+//! and the frame pass is not, so a resize that wipes the buffers restarts
+//! `iFrame` without making `iTime` jump (D495).
 
 use super::plan::{Binding, Plan, PlannedPass, Role};
 use crate::glsl::{self, Kind, Token};
@@ -233,10 +236,13 @@ pub(super) fn pass_file(plan: &Plan, pass: &PlannedPass, shader: &Shader) -> Gen
         parts.define("iTimeDelta", "float", "strobe_clock.z * strobe_rate()");
     }
     if used("iFrame") {
+        parts
+            .decls
+            .push_str("float strobe_frame = texelFetch(st_frame, ivec2(0, 0), 0).x;\n");
         parts.define(
             "iFrame",
             "int",
-            "int(max(FRAMECOUNT - (strobe_clock.w - 1.0), 0.0) + 0.5)",
+            "int(max(FRAMECOUNT - (strobe_frame - 1.0), 0.0) + 0.5)",
         );
     }
     if used("iFrameRate") {
@@ -454,31 +460,43 @@ pub(super) const BASS_FLOOR: f32 = 0.3;
 /// See [`BASS_FLOOR`].
 pub(super) const BASS_GAIN: f32 = 2.0;
 
-/// The clock pass: a one-texel float buffer holding
-/// `(clock, TIME, dt, start frame + 1)`.
+/// The clock and frame passes, one file run as passes 0 and 1.
 ///
+/// `st_clock` (pass 0) is one float texel, `(clock, TIME, dt, start frame
+/// + 1)`, kept through a resize (`KEEP_ON_RESIZE`, D495):
 /// - `x` is the scaled clock, `iTime`. It advances by `dt * rate` each
 ///   frame, with `rate` from `st_speed` and `st_audio_time`.
 /// - `y` is the scene `TIME` last frame, so `dt` needs no host input.
 /// - `z` is the real `dt`, for `iTimeDelta` and `iFrameRate`.
 /// - `w` is the frame the clock started on, plus one so that zero means
-///   "never ran". A cleared target (first frame, or after a resize wipes
-///   feedback) restarts the clock at `TIME` and `iFrame` at 0, which is
-///   what a Shadertoy feedback shader that initialises on `iFrame == 0`
-///   needs after its buffers were wiped.
+///   "never ran". It restarts, at `TIME`, on the first frame and when the
+///   scene's clock goes back (a cue starting the scene again).
+///
+/// `st_frame` (pass 1) holds the frame `iFrame` counts from, plus one. It
+/// is not kept, so a resize that wipes the buffers reading it wipes it
+/// too, and `iFrame` is back at 0 for a Shadertoy feedback shader that
+/// initialises on `iFrame == 0`; it also restarts with the clock, and when
+/// the frame count goes back.
 pub(super) fn clock_file() -> String {
     const BODY: &str = "\
-// One float texel: x = iTime, y = last TIME, z = real dt, w = start frame + 1.
+// Pass 0, st_clock: x = iTime, y = last TIME, z = real dt, w = start frame + 1.
+// Pass 1, st_frame: x = the frame iFrame counts from, plus one.
 float strobe_rate() {
     return st_speed * mix(1.0, 0.3 + 2.0 * syn_BassLevel, st_audio_time);
 }
 vec4 renderMain() {
-    vec4 prev = texelFetch(st_clock, ivec2(0, 0), 0);
-    bool fresh = prev.w == 0.0 || TIME < prev.y;
-    float dt = fresh ? 0.0 : TIME - prev.y;
-    float clock = fresh ? TIME : prev.x + dt * strobe_rate();
-    float start = fresh ? FRAMECOUNT + 1.0 : prev.w;
-    return vec4(clock, TIME, dt, start);
+    if (PASSINDEX == 0) {
+        vec4 prev = texelFetch(st_clock, ivec2(0, 0), 0);
+        bool fresh = prev.w == 0.0 || TIME < prev.y;
+        float dt = fresh ? 0.0 : TIME - prev.y;
+        float clock = fresh ? TIME : prev.x + dt * strobe_rate();
+        float start = fresh ? FRAMECOUNT + 1.0 : prev.w;
+        return vec4(clock, TIME, dt, start);
+    }
+    float now = FRAMECOUNT + 1.0;
+    float prev = texelFetch(st_frame, ivec2(0, 0), 0).x;
+    bool fresh = prev == 0.0 || prev > now || texelFetch(st_clock, ivec2(0, 0), 0).w == now;
+    return vec4(fresh ? now : prev, 0.0, 0.0, 1.0);
 }
 ";
     [super::CLOCK_MARKER, "\n", BODY].concat()

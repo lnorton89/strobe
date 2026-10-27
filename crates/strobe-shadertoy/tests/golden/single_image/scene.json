@@ -11,10 +11,22 @@
       "DOUBLE_BUFFER": true,
       "WRAP": "clamp",
       "FILTER": "nearest",
+      "FULL_PRECISION": true,
+      "KEEP_ON_RESIZE": true
+    },
+    {
+      "TARGET": "st_frame",
+      "WIDTH": 1,
+      "HEIGHT": 1,
+      "FLOAT": true,
+      "DOUBLE_BUFFER": true,
+      "WRAP": "clamp",
+      "FILTER": "nearest",
       "FULL_PRECISION": true
     }
   ],
   "PASS_SOURCES": [
+    "passes/st_clock.glsl",
     "passes/st_clock.glsl",
     "main.glsl"
   ],
