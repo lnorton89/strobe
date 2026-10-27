@@ -6,6 +6,10 @@
 // constant. Private helpers are prefixed strobe_. Depends on uniforms and
 // globals the assembler declares first: RENDERSIZE, _xy, _uv, syn_Media,
 // syn_MediaType.
+//
+// Where Synesthesia's documentation and what its engine computes disagree,
+// the engine wins (D492): real scenes are tuned against what they see, e.g.
+// `_rotate` takes radians although the documentation says degrees.
 // ============================================================================
 
 // ---------------------------------------------------------------- math
@@ -23,17 +27,22 @@ float _smin(float a, float b, float k) {
     return -log(exp(-kk * a) + exp(-kk * b)) / kk;
 }
 
-float _rand(float seed) { return fract(sin(seed * 12.9898) * 43758.5453); }
-float _rand(vec2 seed) { return fract(sin(dot(seed, vec2(12.9898, 78.233))) * 43758.5453); }
+// The same seeds give the same values as Synesthesia's (D492), so a scene that
+// picks a colour or a cell from `_rand` picks the one it was designed with.
+float _rand(float seed) { return fract(sin(seed) * 43758.5453123); }
+float _rand(vec2 seed) { return fract(sin(dot(seed, vec2(12.9898, 4.1414))) * 43758.5453); }
 
+// `size` is the half-width: the pulse is 1 at `center` and 0 from
+// `center ± size` outwards (D492).
 float _pulse(float position, float center, float size) {
-    return 1.0 - smoothstep(0.0, max(size * 0.5, 0.00001), abs(position - center));
+    return 1.0 - smoothstep(0.0, max(size, 0.00001), abs(position - center));
 }
 float _sqPulse(float position, float center, float size) {
-    return step(abs(position - center), size * 0.5);
+    return step(center - size, position) - step(center + size, position);
 }
 
-float _inRange(float v, float lo, float hi) { return step(lo, v) * step(v, hi); }
+// Inside means `lo <= v < hi` (D492).
+float _inRange(float v, float lo, float hi) { return step(lo, v) - step(hi, v); }
 float _inRange(float v) { return _inRange(v, 0.0, 1.0); }
 float _inRange(vec2 v, float lo, float hi) { return _inRange(v.x, lo, hi) * _inRange(v.y, lo, hi); }
 float _inRange(vec2 v) { return _inRange(v, 0.0, 1.0); }
@@ -42,9 +51,10 @@ float _inRange(vec3 v) { return _inRange(v, 0.0, 1.0); }
 float _inRange(vec4 v, float lo, float hi) { return _inRange(v.xyz, lo, hi) * _inRange(v.w, lo, hi); }
 float _inRange(vec4 v) { return _inRange(v, 0.0, 1.0); }
 
-// Ranges from -0.5 to 0.0, as documented.
+// Ranges from -0.5 to 0.0, as documented: -0.5 at each whole period, 0.0
+// half way (D492).
 float _triWave(float position, float period) {
-    return abs(fract(position / period) - 0.5) - 0.5;
+    return -abs(fract(position / period) - 0.5);
 }
 
 float _pixelate(float v, float amount) { return floor(v * amount) / amount; }
@@ -94,89 +104,96 @@ vec4 _hash43(vec3 p) { vec4 p4 = fract(vec4(p.xyzx) * vec4(0.1031, 0.1030, 0.097
 vec4 _hash44(vec4 p4) { p4 = fract(p4 * vec4(0.1031, 0.1030, 0.0973, 0.1099)); p4 += dot(p4, p4.wzxy + 33.33); return fract((p4.xxyz + p4.yzzw) * p4.zywx); }
 
 // ---------------------------------------------------------------- noise
-// Value noise with quintic interpolation, 0..1.
+// Value noise, 0..1, as Synesthesia's engine computes it (D492), so the 21
+// shipped scenes that call these see the same clouds: in 1D a straight line
+// between `_rand` at the integers, in 2D a smoothstep between them, and in 3D
+// a permutation hash (the 289 polynomial) with smoothstep interpolation.
 
 float _noise(float x) {
     float i = floor(x);
-    float f = fract(x);
-    float u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
-    return mix(_hash11(i), _hash11(i + 1.0), u);
+    return mix(_rand(i), _rand(i + 1.0), fract(x));
 }
 
 float _noise(vec2 x) {
     vec2 i = floor(x);
-    vec2 f = fract(x);
-    vec2 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
-    float a = _hash12(i);
-    float b = _hash12(i + vec2(1.0, 0.0));
-    float c = _hash12(i + vec2(0.0, 1.0));
-    float d = _hash12(i + vec2(1.0, 1.0));
-    return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+    vec2 u = smoothstep(vec2(0.0), vec2(1.0), fract(x));
+    return mix(mix(_rand(i), _rand(i + vec2(1.0, 0.0)), u.x),
+               mix(_rand(i + vec2(0.0, 1.0)), _rand(i + vec2(1.0, 1.0)), u.x), u.y);
 }
+
+vec4 strobe_mod289(vec4 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+vec4 strobe_perm(vec4 x) { return strobe_mod289((x * 34.0 + 1.0) * x); }
 
 float _noise(vec3 x) {
     vec3 i = floor(x);
-    vec3 f = fract(x);
-    vec3 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
-    float n000 = _hash13(i);
-    float n100 = _hash13(i + vec3(1.0, 0.0, 0.0));
-    float n010 = _hash13(i + vec3(0.0, 1.0, 0.0));
-    float n110 = _hash13(i + vec3(1.0, 1.0, 0.0));
-    float n001 = _hash13(i + vec3(0.0, 0.0, 1.0));
-    float n101 = _hash13(i + vec3(1.0, 0.0, 1.0));
-    float n011 = _hash13(i + vec3(0.0, 1.0, 1.0));
-    float n111 = _hash13(i + vec3(1.0, 1.0, 1.0));
-    return mix(
-        mix(mix(n000, n100, u.x), mix(n010, n110, u.x), u.y),
-        mix(mix(n001, n101, u.x), mix(n011, n111, u.x), u.y),
-        u.z);
+    vec3 f = x - i;
+    f = f * f * (3.0 - 2.0 * f);
+    vec4 corner = i.xxyy + vec4(0.0, 1.0, 0.0, 1.0);
+    vec4 row = strobe_perm(strobe_perm(corner.xyxy).xyxy + corner.zzww) + i.zzzz;
+    vec4 near = fract(strobe_perm(row) * (1.0 / 41.0));
+    vec4 far = fract(strobe_perm(row + 1.0) * (1.0 / 41.0));
+    vec4 z = mix(near, far, f.z);
+    vec2 xy = mix(z.xz, z.yw, f.x);
+    return mix(xy.x, xy.y, f.y);
 }
 
+// Octaves of halving weight, not normalised (five sum to 0.97), each at twice
+// the frequency and shifted by 100; in 2D also turned by half a radian (D492).
 // Octaves are capped at 10; the loop bound must be constant in GLSL ES.
 float _fbm(float x, float octaves) {
-    float sum = 0.0; float amp = 0.5; float norm = 0.0;
+    float sum = 0.0; float amp = 0.5;
     for (int i = 0; i < 10; i++) {
         if (float(i) >= octaves) { break; }
-        sum += amp * _noise(x); norm += amp; x = x * 2.03 + 17.0; amp *= 0.5;
+        sum += amp * _noise(x); x = x * 2.0 + 100.0; amp *= 0.5;
     }
-    return sum / max(norm, 0.0001);
+    return sum;
 }
 float _fbm(vec2 x, float octaves) {
-    float sum = 0.0; float amp = 0.5; float norm = 0.0;
-    mat2 rot = mat2(0.8, 0.6, -0.6, 0.8);
+    float sum = 0.0; float amp = 0.5;
+    mat2 rot = mat2(cos(0.5), sin(0.5), -sin(0.5), cos(0.5));
     for (int i = 0; i < 10; i++) {
         if (float(i) >= octaves) { break; }
-        sum += amp * _noise(x); norm += amp; x = rot * x * 2.03 + vec2(17.0, 11.0); amp *= 0.5;
+        sum += amp * _noise(x); x = rot * x * 2.0 + vec2(100.0); amp *= 0.5;
     }
-    return sum / max(norm, 0.0001);
+    return sum;
 }
 float _fbm(vec3 x, float octaves) {
-    float sum = 0.0; float amp = 0.5; float norm = 0.0;
+    float sum = 0.0; float amp = 0.5;
     for (int i = 0; i < 10; i++) {
         if (float(i) >= octaves) { break; }
-        sum += amp * _noise(x); norm += amp; x = x * 2.03 + vec3(17.0, 11.0, 5.0); amp *= 0.5;
+        sum += amp * _noise(x); x = x * 2.0 + vec3(100.0); amp *= 0.5;
     }
-    return sum / max(norm, 0.0001);
+    return sum;
 }
 float _fbm(float x) { return _fbm(x, 5.0); }
 float _fbm(vec2 x) { return _fbm(x, 5.0); }
 float _fbm(vec3 x) { return _fbm(x, 5.0); }
 
-// Incommensurate sines: smooth, never repeating, stateless. Roughly -1..1.
+// Smooth, never repeating, stateless, -1..1: the sine of a weighted sum of
+// sines at the first ten primes, the n-th weighted n (from 0), as
+// Synesthesia's moves (D492).
+// Written out (the 0th term, at 2, weighs nothing) so no local `const` joins
+// the names the loader reserves (`names::library_names`).
 float _statelessContinuousChaotic(float t) {
-    return (sin(t) + sin(t * 1.618034) + sin(t * 2.718282 + 1.3) + sin(t * 0.577216 + 2.1)) * 0.25;
+    return sin(sin(3.0 * t) + 2.0 * sin(5.0 * t) + 3.0 * sin(7.0 * t)
+        + 4.0 * sin(11.0 * t) + 5.0 * sin(13.0 * t) + 6.0 * sin(17.0 * t)
+        + 7.0 * sin(19.0 * t) + 8.0 * sin(23.0 * t) + 9.0 * sin(29.0 * t));
 }
 
 // ---------------------------------------------------------------- coordinates
 
-void _uv2uvc(inout vec2 p) { p = (p - 0.5) * vec2(RENDERSIZE.x / RENDERSIZE.y, 1.0); }
-void _uvc2uv(inout vec2 p) { p = p / vec2(RENDERSIZE.x / RENDERSIZE.y, 1.0) + 0.5; }
+// 0..1 to -1..1 and back, with no aspect correction: what Synesthesia's
+// engine does (D492), although `_uvc` itself is aspect-corrected, so these
+// are not `_uvc`'s inverse.
+void _uv2uvc(inout vec2 p) { p = p * 2.0 - 1.0; }
+void _uvc2uv(inout vec2 p) { p = p * 0.5 + 0.5; }
 
-// Rotates about the origin by theta degrees.
+// Rotates about the origin by theta **radians, clockwise**. The SSF
+// documentation says degrees, but Synesthesia's engine takes radians and
+// turns this way, and real scenes call it with `PI / 4` and the like (D492).
 vec2 _rotate(vec2 v, float theta) {
-    float r = radians(theta);
-    float c = cos(r); float s = sin(r);
-    return vec2(c * v.x - s * v.y, s * v.x + c * v.y);
+    float c = cos(theta); float s = sin(theta);
+    return vec2(c * v.x + s * v.y, c * v.y - s * v.x);
 }
 
 float _mirror(float v) { return 1.0 - abs(1.0 - mod(v, 2.0)); }
@@ -189,7 +206,12 @@ vec2 _toPolar(vec2 xy) {
     float x = abs(xy.x) < 0.000001 ? 0.000001 : xy.x;
     return vec2(length(xy), atan(xy.y / x));
 }
-vec2 _toPolarTrue(vec2 xy) { return vec2(length(xy), atan(xy.y, xy.x)); }
+// With quadrant correction; theta is in turns, 0..1 counterclockwise from +x,
+// as Synesthesia's engine returns it (D492). The origin gives 0.
+vec2 _toPolarTrue(vec2 xy) {
+    float turns = (xy.x == 0.0 && xy.y == 0.0) ? 0.0 : atan(xy.y, xy.x) / 6.28318530718;
+    return vec2(length(xy), fract(turns + 1.0));
+}
 vec2 _toRect(vec2 rt) { return rt.x * vec2(cos(rt.y), sin(rt.y)); }
 
 // ---------------------------------------------------------------- color
@@ -224,7 +246,8 @@ vec4 _contrast(vec4 c, float k) { return vec4(_contrast(c.rgb, k), c.a); }
 float _luminance(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
 float _luminance(vec4 c) { return _luminance(c.rgb); }
 
-vec3 _saturation(vec3 c, float s) { return mix(vec3(_luminance(c)), c, s); }
+// Scales the HSV saturation (D492): 0.5 half as saturated, 1 no change.
+vec3 _saturation(vec3 c, float s) { vec3 hsv = _rgb2hsv(c); hsv.y *= s; return _hsv2rgb(hsv); }
 vec4 _saturation(vec4 c, float s) { return vec4(_saturation(c.rgb, s), c.a); }
 
 // Rotation about the grey axis, by degrees.
@@ -236,26 +259,42 @@ vec3 _hueRotate(vec3 c, float degrees) {
 }
 vec4 _hueRotate(vec4 c, float degrees) { return vec4(_hueRotate(c.rgb, degrees), c.a); }
 
-// Undocumented (Q26, D268). Read as hue in degrees and saturation and
-// contrast as multipliers, so (0, 1, 1) leaves a colour alone; the one real
-// call, (0.0, 0.5, 1.0) in Synesthesia's hue_review, then halves the
-// saturation. An inference, not Synesthesia's code.
+// Undocumented; Synesthesia's engine defines them (R17, D492). Both work in
+// HSV on the colour clamped to 0..1, with hue in turns added to H, and
+// neutral at (0, 0, _). The current form scales S by 1 + 2.5 * s * |s|; the
+// LEGACY form adds `saturation` to S. Neither uses its `contrast` argument:
+// Synesthesia applies the output's contrast meta control there, which Strobe
+// applies once in its post stage, so within the scene it is neutral. The one
+// real call, (0.0, 0.5, 1.0) in hue_review, raises S by a half.
+vec4 strobe_hsvShift(vec4 c, float hue, float scale, float add) {
+    vec3 hsv = _rgb2hsv(clamp(c.rgb, 0.0, 1.0));
+    hsv.x += hue;
+    hsv.y = clamp(hsv.y * scale + add, 0.0, 1.0);
+    return vec4(_hsv2rgb(hsv), c.a);
+}
 vec4 _hueSaturationContrast(vec4 c, float hue, float saturation, float contrast) {
-    return vec4(_contrast(_saturation(_hueRotate(c.rgb, hue), saturation), contrast), c.a);
+    return strobe_hsvShift(c, hue, 1.0 + 2.5 * saturation * abs(saturation), 0.0);
 }
 vec4 _hueSaturationContrastLEGACY(vec4 c, float hue, float saturation, float contrast) {
-    return _hueSaturationContrast(c, hue, saturation, contrast);
+    return strobe_hsvShift(c, hue, 1.0, saturation);
 }
 
 vec3 _invert(vec3 c, float amount) { return mix(c, 1.0 - c, amount); }
 vec4 _invert(vec4 c, float amount) { return vec4(_invert(c.rgb, amount), c.a); }
 
-vec3 _grayscale(vec3 c, float intensity) { return mix(c, vec3(_luminance(c)), intensity); }
+vec3 _grayscale(vec3 c, float intensity) { return mix(c, vec3(_luminance(c)), clamp(intensity, 0.0, 1.0)); }
 vec4 _grayscale(vec4 c, float intensity) { return vec4(_grayscale(c.rgb, intensity), c.a); }
 vec3 _grayscale(vec3 c) { return _grayscale(c, 1.0); }
 vec4 _grayscale(vec4 c) { return _grayscale(c, 1.0); }
 
-vec3 _dichrome(vec3 c, vec3 dark, vec3 light) { return mix(dark, light, clamp(_luminance(c), 0.0, 1.0)); }
+// A gradient black -> dark -> light -> white over the square root of the
+// luminance, in three equal steps, as Synesthesia's (D492).
+vec3 _dichrome(vec3 c, vec3 dark, vec3 light) {
+    float t = clamp(sqrt(max(_luminance(c), 0.0)) * 3.0, 0.0, 3.0);
+    if (t <= 1.0) { return mix(vec3(0.0), dark, t); }
+    if (t <= 2.0) { return mix(dark, light, t - 1.0); }
+    return mix(light, vec3(1.0), t - 2.0);
+}
 vec4 _dichrome(vec4 c, vec3 dark, vec3 light) { return vec4(_dichrome(c.rgb, dark, light), c.a); }
 // The documentation spells it both ways.
 vec3 _diChrome(vec3 c, vec3 dark, vec3 light) { return _dichrome(c, dark, light); }
@@ -283,7 +322,8 @@ vec2 _correctImageCoords(ivec2 size, vec2 uv) { return _correctImageCoords(vec2(
 vec2 _correctImageCoords(vec2 size) { return _correctImageCoords(size, _uv); }
 vec2 _correctImageCoords(ivec2 size) { return _correctImageCoords(vec2(size), _uv); }
 // Given the frame-to-image size ratios per axis, the one to divide both by
-// so the image covers the frame, as `_correctImageCoords` does (Q27).
+// so the image covers the frame: Synesthesia's with its Fit or Fill media
+// control on, its usual setting (R18).
 float _ratioFix(float widthRatio, float heightRatio) { return max(widthRatio, heightRatio); }
 vec2 _correctMediaCoords(vec2 uv) { return _correctImageCoords(vec2(textureSize(syn_Media, 0)), uv); }
 vec2 _correctMediaCoords() { return _correctMediaCoords(_uv); }
@@ -291,12 +331,19 @@ vec2 _correctMediaCoords() { return _correctMediaCoords(_uv); }
 vec4 _textureMedia(vec2 uv) { return texture(syn_Media, _correctMediaCoords(uv)); }
 vec4 _textureMedia(vec2 uv, float lod) { return textureLod(syn_Media, _correctMediaCoords(uv), lod); }
 
-vec4 _loadMedia() { return _textureMedia(_uv); }
-vec4 _loadMedia(float lod) { return _textureMedia(_uv, lod); }
-vec4 _loadMedia(vec2 offset) { return _textureMedia(_uv + offset); }
-vec4 _loadMedia(vec2 offset, float lod) { return _textureMedia(_uv + offset, lod); }
+// The offset is added after the aspect correction, in the picture's own 0..1
+// space, and a coordinate that leaves the picture reads black, as
+// Synesthesia's engine does (D492).
+vec4 strobe_mediaAt(vec2 uv, float lod) { return _inRange(uv) < 0.5 ? vec4(0.0) : textureLod(syn_Media, uv, lod); }
+vec4 strobe_mediaAt(vec2 uv) { return _inRange(uv) < 0.5 ? vec4(0.0) : texture(syn_Media, uv); }
+vec4 _loadMedia() { return strobe_mediaAt(_correctMediaCoords(_uv)); }
+vec4 _loadMedia(float lod) { return strobe_mediaAt(_correctMediaCoords(_uv), lod); }
+vec4 _loadMedia(vec2 offset) { return strobe_mediaAt(_correctMediaCoords(_uv) + offset); }
+vec4 _loadMedia(vec2 offset, float lod) { return strobe_mediaAt(_correctMediaCoords(_uv) + offset, lod); }
 
-vec4 strobe_asMask(vec4 c) { return vec4(vec3(step(0.5, _luminance(c.rgb))), 1.0); }
+// White where the luminance reaches half the media contrast (0.5 at its
+// neutral 1.0), alpha included (D492).
+vec4 strobe_asMask(vec4 c) { return vec4(step(0.5, _luminance(c.rgb))); }
 vec4 _loadMediaAsMask() { return strobe_asMask(_loadMedia()); }
 vec4 _loadMediaAsMask(vec2 offset) { return strobe_asMask(_loadMedia(offset)); }
 vec4 _textureMediaAsMask(vec2 uv) { return strobe_asMask(_textureMedia(uv)); }
@@ -305,8 +352,13 @@ vec4 _textureMediaAsMask(vec2 uv) { return strobe_asMask(_textureMedia(uv)); }
 // names; the docs describe only the media versions, so each mirrors its
 // media counterpart with `img` in place of syn_Media.
 vec4 _textureImage(sampler2D img, vec2 uv) { return texture(img, _correctImageCoords(vec2(textureSize(img, 0)), uv)); }
-vec4 _loadImage(sampler2D img) { return _textureImage(img, _uv); }
-vec4 _loadImage(sampler2D img, vec2 offset) { return _textureImage(img, _uv + offset); }
+// As for the media, the offset is in the picture's space; only the
+// unshifted coordinate is range-checked, as in Synesthesia's engine (D492).
+vec4 _loadImage(sampler2D img, vec2 offset) {
+    vec2 uv = _correctImageCoords(vec2(textureSize(img, 0)), _uv);
+    return _inRange(uv) < 0.5 ? vec4(0.0) : texture(img, uv + offset);
+}
+vec4 _loadImage(sampler2D img) { return _loadImage(img, vec2(0.0)); }
 vec4 _imageToMask(vec4 c) { return strobe_asMask(c); }
 vec4 _loadImageAsMask(sampler2D img) { return strobe_asMask(_loadImage(img)); }
 vec4 _loadImageAsMask(sampler2D img, vec2 offset) { return strobe_asMask(_loadImage(img, offset)); }
@@ -330,7 +382,8 @@ vec4 _applyMediaContrast(vec4 c) { return c; }
 // `_contrast(c, _Media_Contrast)` (SkaiWalkerOG, D268): neutral, as above.
 const float _Media_Contrast = 1.0;
 // Whether a sampler has a picture: an unbound one is Strobe's 1x1 black.
-bool _exists(sampler2D tex) { return textureSize(tex, 0).x > 1; }
+// A 1-pixel-wide strip still counts (D492).
+bool _exists(sampler2D tex) { ivec2 size = textureSize(tex, 0); return size.x > 1 || size.y > 1; }
 
 // Audio names real scenes use that neither Synesthesia's docs nor its
 // editor list (D197). These are stand-ins until their meaning is known:
@@ -341,34 +394,42 @@ bool _exists(sampler2D tex) { return textureSize(tex, 0).x > 1; }
 
 // ---------------------------------------------------------------- edges
 
+// The cheap edge: how much the texture changes from this pixel to its
+// neighbours, per channel, from the screen-space derivatives of a read half a
+// pixel (of the output) along, as Synesthesia's engine does (D492).
 vec4 _edgeDetect(sampler2D tex, vec2 uv) {
-    vec2 px = 1.0 / vec2(textureSize(tex, 0));
-    vec4 a = texture(tex, uv + vec2(-0.5, -0.5) * px);
-    vec4 b = texture(tex, uv + vec2(0.5, 0.5) * px);
-    vec4 c = texture(tex, uv + vec2(-0.5, 0.5) * px);
-    vec4 d = texture(tex, uv + vec2(0.5, -0.5) * px);
-    return vec4(vec3(length(a.rgb - b.rgb) + length(c.rgb - d.rgb)), 1.0);
+    vec4 c = texture(tex, uv + 0.5 / RENDERSIZE);
+    return max(abs(dFdx(c)), abs(dFdy(c)));
 }
 vec4 _edgeDetect(sampler2D tex) { return _edgeDetect(tex, _uv); }
 
+// Sobel over each tap's RGB length, one output pixel apart, in every channel
+// alpha included (D492).
+float strobe_tap(sampler2D tex, vec2 uv) { return length(texture(tex, uv).rgb); }
 vec4 _edgeDetectSobel(sampler2D tex, vec2 uv) {
-    vec2 px = 1.0 / vec2(textureSize(tex, 0));
-    float tl = _luminance(texture(tex, uv + vec2(-1.0, 1.0) * px).rgb);
-    float t  = _luminance(texture(tex, uv + vec2(0.0, 1.0) * px).rgb);
-    float tr = _luminance(texture(tex, uv + vec2(1.0, 1.0) * px).rgb);
-    float l  = _luminance(texture(tex, uv + vec2(-1.0, 0.0) * px).rgb);
-    float r  = _luminance(texture(tex, uv + vec2(1.0, 0.0) * px).rgb);
-    float bl = _luminance(texture(tex, uv + vec2(-1.0, -1.0) * px).rgb);
-    float b  = _luminance(texture(tex, uv + vec2(0.0, -1.0) * px).rgb);
-    float br = _luminance(texture(tex, uv + vec2(1.0, -1.0) * px).rgb);
+    vec2 px = 1.0 / RENDERSIZE;
+    float tl = strobe_tap(tex, uv + vec2(-1.0, 1.0) * px);
+    float t  = strobe_tap(tex, uv + vec2(0.0, 1.0) * px);
+    float tr = strobe_tap(tex, uv + vec2(1.0, 1.0) * px);
+    float l  = strobe_tap(tex, uv + vec2(-1.0, 0.0) * px);
+    float r  = strobe_tap(tex, uv + vec2(1.0, 0.0) * px);
+    float bl = strobe_tap(tex, uv + vec2(-1.0, -1.0) * px);
+    float b  = strobe_tap(tex, uv + vec2(0.0, -1.0) * px);
+    float br = strobe_tap(tex, uv + vec2(1.0, -1.0) * px);
     float gx = -tl - 2.0 * l - bl + tr + 2.0 * r + br;
     float gy = -bl - 2.0 * b - br + tl + 2.0 * t + tr;
-    return vec4(vec3(sqrt(gx * gx + gy * gy)), 1.0);
+    return vec4(sqrt(gx * gx + gy * gy));
 }
 vec4 _edgeDetectSobel(sampler2D tex) { return _edgeDetectSobel(tex, _uv); }
 
-vec4 _edgeDetectMedia() { return _isMediaActive() ? _edgeDetect(syn_Media, _correctMediaCoords(_uv)) : vec4(0.0); }
-vec4 _edgeDetectSobelMedia() { return _isMediaActive() ? _edgeDetectSobel(syn_Media, _correctMediaCoords(_uv)) : vec4(0.0); }
+vec4 _edgeDetectMedia() {
+    vec2 uv = _correctMediaCoords(_uv);
+    return _inRange(uv) < 0.5 ? vec4(0.0) : _edgeDetect(syn_Media, uv);
+}
+vec4 _edgeDetectSobelMedia() {
+    vec2 uv = _correctMediaCoords(_uv);
+    return _inRange(uv) < 0.5 ? vec4(0.0) : _edgeDetectSobel(syn_Media, uv);
+}
 // A pass's edges, by the name real scenes use (D197). Synesthesia documents
 // it as returning a float, and real scenes assign it to one (TORNADO T5).
 float syn_pass_edgeDetectSobel(sampler2D pass) { return _edgeDetectSobel(pass).r; }

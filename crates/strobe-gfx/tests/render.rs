@@ -140,6 +140,81 @@ fn the_ssf_library_compiles_in_both_dialects() -> Result<()> {
     Ok(())
 }
 
+/// The SSF helpers give what Synesthesia 1.25.4's engine gives, where that
+/// differs from its documentation or from Strobe's earlier reading (D492).
+/// Each row is a fragment shader body's colour and the expected RGB.
+#[test]
+fn ssf_helpers_compute_what_synesthesias_engine_computes() -> Result<()> {
+    let cases: [(&str, &str, [u8; 3]); 10] = [
+        (
+            "3D noise is the 289 permutation hash, and _fbm is not normalised",
+            "return vec4(_noise(vec3(0.0, 1.0, 0.0)), _fbm(vec3(0.0, 1.0, 0.0), 1.0), 0.0, 1.0);",
+            [174, 87, 0],
+        ),
+        (
+            "_rotate takes radians and turns clockwise",
+            "vec2 a = _rotate(vec2(1.0, 0.0), PI / 2.0); vec2 b = _rotate(vec2(0.0, 1.0), PI / 2.0);\
+             return vec4(a * 0.5 + 0.5, b.x * 0.5 + 0.5, 1.0);",
+            [128, 0, 255],
+        ),
+        (
+            "_pulse's and _sqPulse's size is a half-width; _triWave is -0.5 at 0",
+            "return vec4(_pulse(0.6, 0.5, 0.2), _sqPulse(0.65, 0.5, 0.2), -_triWave(0.0, 1.0), 1.0);",
+            [128, 255, 128],
+        ),
+        (
+            "_toPolarTrue's angle is in turns; _uv2uvc and _uvc2uv have no aspect",
+            "vec2 u = vec2(0.75, 0.25); _uv2uvc(u); vec2 c = vec2(-0.5); _uvc2uv(c);\
+             return vec4(_toPolarTrue(vec2(0.0, -1.0)).y, u.x, c.x, 1.0);",
+            [191, 128, 64],
+        ),
+        (
+            "the LEGACY form adds to HSV saturation and ignores its contrast",
+            "return _hueSaturationContrastLEGACY(vec4(0.5, 0.25, 0.25, 1.0), 0.0, 0.5, 3.0);",
+            [128, 0, 0],
+        ),
+        (
+            "_saturation scales HSV saturation",
+            "return vec4(_saturation(vec3(0.5, 0.25, 0.25), 0.0), 1.0);",
+            [128, 128, 128],
+        ),
+        (
+            "_dichrome runs black, dark, light, white over the root of the luminance",
+            "return vec4(_dichrome(vec3(0.25), vec3(1.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0)), 1.0);",
+            [128, 128, 0],
+        ),
+        (
+            "_statelessContinuousChaotic is the sine of prime-weighted sines",
+            "return vec4(_statelessContinuousChaotic(0.1) * 0.5 + 0.5, _statelessContinuousChaotic(0.0) + 0.5, 0.0, 1.0);",
+            [223, 128, 0],
+        ),
+        (
+            "_inRange leaves out its top end",
+            "return vec4(_inRange(1.0, 0.0, 1.0), _inRange(0.0, 0.0, 1.0), _inRange(vec2(0.5), 0.0, 1.0), 1.0);",
+            [0, 255, 255],
+        ),
+        (
+            "_hueSaturationContrast scales saturation by 1 + 2.5 s|s|",
+            "return _hueSaturationContrast(vec4(0.5, 0.375, 0.375, 1.0), 0.0, -0.4, 1.0);",
+            [128, 108, 108],
+        ),
+    ];
+    for api in BOTH {
+        for (what, body, expected) in cases {
+            let shader = format!("vec4 renderMain() {{ {body} }}");
+            let Some(px) = render_center(api, Options::default(), "{}", &shader, 1)? else {
+                continue;
+            };
+            let got = [px[0], px[1], px[2]];
+            assert!(
+                got.iter().zip(expected).all(|(a, b)| near(*a, b)),
+                "{api:?}: {what}: got {got:?}, expected {expected:?}"
+            );
+        }
+    }
+    Ok(())
+}
+
 #[test]
 fn a_buffer_pass_feeds_the_final_pass() -> Result<()> {
     let json = r#"{ "PASSES": [ {"TARGET": "buf"} ] }"#;

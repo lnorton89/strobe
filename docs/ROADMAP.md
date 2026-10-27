@@ -20,7 +20,7 @@ which backend proved a claim.
 | Area | What exists | Verified on |
 |---|---|---|
 | Workspace | Conventions as tests, pinned toolchain and actions, `cargo xtask ci \| changelog \| credits \| bench \| symbolicate \| brand`, release workflow (D50-D59) with third-party notices (D491) | CI, and the v0.1.0 tag (2026-10-14, D270) |
-| `strobe-scene`, `strobe-ssf-lib` | SSF parsing and validation, controls runtime, shader assembly, `PASS_SOURCES` (D90), the SSF GLSL library | Headless GL 3.3 core and GLES 3.0 (llvmpipe) |
+| `strobe-scene`, `strobe-ssf-lib` | SSF parsing and validation, controls runtime, shader assembly, `PASS_SOURCES` (D90), the SSF GLSL library, which computes what Synesthesia 1.25.4's engine computes (D492) | Headless GL 3.3 core and GLES 3.0 (llvmpipe); Synesthesia's 88 shipped scenes on TORNADO, native and ANGLE (T25) |
 | `strobe-gfx` | Native GL and ANGLE context providers, ANGLE's backend chosen with `--gl angle-d3d11|angle-vulkan|angle-gl|angle-metal` and checked against the renderer (D485), headless EGL, multipass and ping-pong, implicit final pass, images, GPU timer queries, robust contexts and reset status (D66) | llvmpipe; T480 native and ANGLE; TORNADO native and ANGLE on D3D11, Vulkan and GL (2026-10-26) |
 | `strobe-bench` | Timings, frames, contact sheet; headless, window and auto contexts (D70-D72), now `strobe_gfx::offscreen` (D140) | llvmpipe; T480 ([BENCHMARKS.md](BENCHMARKS.md)) |
 | `strobe-app` | Control window (maximized) and output window on one context; the output starts hidden and the scene frame runs on its own schedule (D96); **Contextual Perform stage 1** (D130-D138): rail, custom title bar with health readouts, preview, transport (prev, next, blackout; hold shown as not wired), first-controls macros, and contextual panes for the scene browser (search, health filter, Preview apart from Load), inspector, diagnostics, import and settings, with saved layout, a focus-aware keyboard model and themes; `--diagnose`, adaptive resolution (D64), context-loss recovery with ANGLE fail-over (D66) | Xvfb (screenshots at 1280x720 and 1440x900 for every state, xdotool for keys); T480: smoke tests, recovery on real WGL (Task 8), hidden output, F11 and the close button (Task 9), the Perform UI at 150% scaling (Task 12) |
@@ -598,7 +598,9 @@ never per frame.
   not documented there. The bench has no media or cube-map scene.
 - The meta controls change the picture (the post stage, D180) but the stage's
   cost on an old Intel GPU is unmeasured, and `Alpha Channel` waits for an
-  output that carries alpha (D207, Q21).
+  output that carries alpha (D207). Synesthesia's own order and methods
+  are now known (R16, read from its engine on TORNADO, T25) and differ from
+  Strobe's on almost every point; C-01 is reopened to follow them.
   `textureFinalPass` is two frames late and unverified on the T480 (D162,
   Q14).
 - Implicit int-to-float is written out by a typed, parser-backed rewrite on
