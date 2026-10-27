@@ -131,7 +131,8 @@ is on a projector.
   by `gl::context` right after making a context current, and `Gl` is
   `!Send`) plus, for pointer-taking calls, the checked slice length.
 - Every GL object has an owning type with a `Drop` (`Program`, `Texture`,
-  `Framebuffer`, `VertexArray`, `Shader`).
+  `Framebuffer`, `VertexArray`, `Shader`); nothing outside `gl/` stores a
+  raw handle. `strobe_conventions::gl_objects` checks it.
 - No `pub unsafe fn`, and no unsafe in tests.
   `strobe_conventions::unsafe_boundary` fails the build otherwise.
 
@@ -162,7 +163,16 @@ module-private one, then `pub` in the module that owns the concept.
 Uniform locations and sampler units are resolved at link time
 (`player::build_program`). Capabilities are decided once (`caps`). If a
 draw path needs a fact, cache it when the scene loads. Never call
-`glGet*` in the frame loop.
+`glGet*` in the frame loop. Every state-query leaf in `gl/` starts with
+`self.count_query();` (`strobe_conventions::driver_queries` fails the
+build otherwise), and `render.rs`'s `a_playing_scene_asks_the_driver_nothing`
+asserts `Gl::state_queries` stays still while a scene plays (D497).
+
+### Docs links and decision numbers are checked
+
+A relative link in the Markdown must resolve, and a cited `D<n>` must be a
+heading in `docs/DECISIONS.md` (`strobe_conventions::docs`). Every crate's
+`build.rs` carries the header banner too, as `build (build script)`.
 
 ---
 
