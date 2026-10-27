@@ -11759,6 +11759,88 @@ tab with the button. The save itself was not clicked in a live window
 **Would reopen:** wanting to save into a scene that changed while it was
 measured (then a merge, not a refusal).
 
+### D489: scene transitions change on a new song, heard or told (2026-10-26)
+
+**Context.** SSF scenes declare `HARD_TRANSITIONS` (a uniform that jumps to
+another listed value) and `SMOOTH_TRANSITIONS` (a one-hot family that
+crossfades to another member over `DURATION` seconds), both "when a
+significant song change is detected" (SSF's scene.json page). Strobe parsed
+and declared them (D196) but they kept their first value forever. Song
+changes were heard only inside a playlist show (D237). 23 of Synesthesia
+1.25.4's shipped scenes use them (counted on TORNADO's install).
+
+**Decision.**
+- **`strobe_scene::transition::Transitions`**, pure and allocation-free
+  after load, keeps the values. `fire` makes every hard transition jump to
+  another of its entries (never the one it is on, so a song change is never
+  invisible by chance; a value listed twice stays twice as likely) and
+  every family head for another member; `step(dt)` moves each member toward
+  its target at `1 / DURATION` per second, which is SSF's linear crossfade
+  when uninterrupted and turns around without a jump when a second change
+  comes mid-fade. A `DURATION` of 0 cuts; a missing one is 3 s, SSF's own
+  example; a negative one cuts. Values that are not finite are dropped. A
+  scene starts on its first value and first member, as before. The RNG is
+  xorshift64*, seeded from the clock at load.
+- **`SceneDef` keeps the structure** (`hard_transitions`, with each
+  uniform's slot and values; `smooth_transitions`, each family's first
+  slot, length and duration), not just the flattened uniforms.
+- **One ear for the whole app** (`strobe_app::song::SongWatch`): the
+  D237 detector moved out of the show into the app's frame, so a single
+  scene hears songs too. A song heard goes to the show when one is loaded
+  (`Show::song_changed`: the live scene's transitions, and the clock's
+  `audio-song` event as before) or straight to the playing session. Only
+  live audio counts and a source change resets it, unchanged.
+- **`new_song`**, a command (palette, MIDI, OSC, the output window; no
+  default key), says a new song started, for the tempo-matched mix with no
+  gap the detector cannot hear. It does everything a heard one does,
+  playlist cue included, with or without live audio.
+- The panel's Scene tab says "A new song gives it a new look" for a scene
+  that has something to change, with a **New song** button.
+
+**Test.** `strobe_scene::transition` (first values, every hard value comes
+up and never repeats, doubled values, the linear crossfade, a change
+mid-fade, cut and default durations, nothing to choose, same seed same
+looks); `song::tests` (synthetic audio hears nothing, the operator is
+believed once); `tests/transitions.rs` renders a hard and a smooth
+transition across a song change in both dialects, run on Mesa under WSL2
+with `STROBE_REQUIRE_HEADLESS_GL=1` on TORNADO (and on CI's Linux job).
+Not yet: real music, and Synesthesia itself side by side (Q33).
+
+**Would reopen:** Synesthesia randomising at load, repeating values, or
+using another default fade (Q33).
+
+### D490: crate READMEs' known gaps point at the backlog, and a test says so (2026-10-26)
+
+**Context.** The owner asked why several crates have a "Status and known
+gaps" section that is not backlog work. Those sections predate
+IMPLEMENTATION_BACKLOG.md as the one register, were kept crate by crate,
+and nothing tied them to it. Reading all fourteen found gaps tracked
+nowhere else (Shadertoy's unsupported inputs and the Needs-work bin, the
+unenforced conventions, the bench's placeholder audio and missing
+render-scale sweep, a real GPU reset, Linux on a real GPU, the Synesthesia
+questions as work) and stale claims: autocontrol's window mode "unverified"
+though the T480 ran it; xtask's release workflow "never run" though v0.2.0
+came from it; scene's function-like macro gap closed by D261; scene's
+`X_STROBE` "read by later phases" though D90 made extensions root keys;
+audio's "only real device" and "retry every 2 s" against the AMD desktop and
+D266; playlist's "still to do" list built long ago.
+
+**Decision.** The backlog stays the only register of open work, and a
+README's section is a view of it:
+- Every gap bullet names its item (`backlog X-NN`), an open question
+  (`Qnn`), or says "by design" beside its decision. Each section opens by
+  saying so.
+- New backlog items for what had none: C-07 (Synesthesia behaviour Strobe
+  assumes), I-06 (Shadertoy inputs, passes, the Needs-work bin), R-07 (a
+  real GPU reset), R-08 (Linux on a real GPU), D-05 (conventions not yet
+  enforced), D-06 (benchmark coverage); M-05 and R-03 brought up to date.
+- `strobe_conventions::known_gaps` fails the build for a gap bullet with no
+  pointer (a gap is a bullet with one of a short list of phrases: "not
+  built", "not yet", "unverified", "left:" ...) and for a cited backlog ID
+  that has no `### ` item.
+
+**Would reopen:** the phrase list catching honest status lines often
+enough to be noise; then a structured marker instead.
 
 ### D491: credits on the About page, from a generated list CI checks (2026-10-26)
 

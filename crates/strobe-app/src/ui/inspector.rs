@@ -200,6 +200,9 @@ pub fn show(
                 if let Some(media) = model.media {
                     media_row(ui, theme, media, &mut model.ui.media_draft, actions);
                 }
+                if has_scene && model.scene_transitions {
+                    transitions_row(ui, theme, actions);
+                }
                 ui.add_space(SPACE_XS);
                 if has_scene {
                     // A scene with no authored controls generates them on
@@ -413,6 +416,35 @@ fn media_row(
     if done {
         *draft = None;
     }
+}
+
+/// Says the playing scene changes its look on a new song (D489), with the
+/// button that changes it now, for a mix the song detector cannot hear.
+fn transitions_row(ui: &mut Ui, theme: &Palette, actions: &mut Vec<Action>) {
+    ui.horizontal_wrapped(|ui| {
+        ui.label(
+            egui::RichText::new("Song")
+                .small()
+                .color(theme::rgb(theme.text_muted)),
+        );
+        ui.label(
+            egui::RichText::new("A new song gives it a new look")
+                .small()
+                .color(theme::rgb(theme.text)),
+        )
+        .on_hover_text(
+            "The scene's transitions: some numbers jump to another of their values and              some colours crossfade when Strobe hears the next track start",
+        );
+        if ui
+            .small_button("New song")
+            .on_hover_text(
+                "Change the look now, as a new song would. A playlist cue that waits for a                  new song ends too.",
+            )
+            .clicked()
+        {
+            actions.push(Action::NewSong);
+        }
+    });
 }
 
 /// The media row's words: what shows, and a hover line saying where it

@@ -149,17 +149,23 @@ STROBE_REQUIRE_HEADLESS_GL=1 cargo test -p strobe-shadertoy   # fail instead of 
 
 ## Status and known gaps
 
+Open work for this crate is tracked in
+[`IMPLEMENTATION_BACKLOG.md`](../../docs/IMPLEMENTATION_BACKLOG.md) under the
+IDs given here; a gap with no ID is by design, with its decision named.
+
 - **Built (D110-D117):** fetching by id (path B, the REST API with a key),
   the userscript with its localhost listener (path A), the asset
-  downloader, and the app's Import panel. None has touched shadertoy.com:
-  the REST API answered the T480 with a Cloudflare 403, and the
+  downloader, and the app's Import panel. None has touched shadertoy.com
+  yet: the REST API answered the T480 with a Cloudflare 403, and the
   userscript's route to the page's JSON is unverified on the live site
-  (Q19). The review panel for generated controls is in the app's Inspector
-  (D202, D219; the engine is `strobe-autocontrol`). **Not built:** the
-  Needs-work bin.
-- **Unsupported inputs:** `cubemap` and `volume` inputs, and `sound` and
-  `cubemap` passes, are errors. `keyboard`, `video` and `webcam` read
-  black, with a warning. `srgb` textures are not decoded (Q16).
+  (Q19, backlog I-01). Generated controls are reviewed and saved in the app
+  (D202, D219, D488; the engine is `strobe-autocontrol`). **Not built:**
+  PLAN.md's Needs-work bin, which keeps a failed import with its log
+  (backlog I-06).
+- **Unsupported inputs** (backlog I-06): `cubemap` and `volume` inputs, and
+  `sound` and `cubemap` passes, are errors. `keyboard`, `video` and
+  `webcam` read black, with a warning. `srgb` textures are not decoded
+  (Q16).
 - **Audio:** the app supplies the browser-matched `AudioFrame::shadertoy`
   slice, and the player uploads it as given (D112). The bench and tests,
   with no slice, resample the 256-texel spectrum. A comparison against
@@ -167,7 +173,7 @@ STROBE_REQUIRE_HEADLESS_GL=1 cargo test -p strobe-shadertoy   # fail instead of 
 - **`iDate`:** the app feeds local time (D112). The bench and tests use
   the player's UTC default, so frames stay a pure function of time (Q15).
 - **Resize:** a resize restarts `iTime` at `TIME` and `iFrame` at 0, which
-  is a visible jump at a non-default Speed.
+  is a visible jump at a non-default Speed (backlog I-06).
 - **Verified so far:** all nine fixtures render on llvmpipe in both
   dialects, and on the T480 (Task 11) and TORNADO (T1), native and ANGLE.
   Strict desktop drivers accept a shader that defines a built-in such as
