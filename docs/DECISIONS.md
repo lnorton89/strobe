@@ -12104,3 +12104,33 @@ textures; the sweep on TORNADO's GTX 1080 Ti is in BENCHMARKS.md.
 **Would reopen:** wanting the bench to time a real capture (then a recorded
 audio file, still deterministic).
 
+### D497: projector power control lives in `tools/projector-control`, in Python, apart from the engine (2026-10-27)
+
+**Context.** The show PC has to switch the venue's Panasonic PT-DZ6700 and
+Sony VPL-PHZ10 on and off over the network, from this machine and remotely.
+It's venue setup, not engine work, but nowhere else versions the show
+machine.
+
+**Decision.**
+- It lives in `tools/projector-control/`, next to `tools/userscript`. It
+  shares no code with the engine, and no crate or workflow depends on it.
+- It's Python 3 with the standard library only, plus PowerShell for the
+  Windows setup. It isn't Rust, so the workspace rules in CLAUDE.md
+  (header banner, no `unwrap`, the unsafe boundary) don't apply. The
+  conventions crate only scans `crates/**.rs`.
+- PJLink Class 1 is the protocol, with the Panasonic's NTCONTROL as a
+  fallback. The service is a SYSTEM Scheduled Task, bound only to the Wi-Fi
+  or Tailscale address, with token auth on every endpoint.
+- The real config, with its API token and projector passwords, is never
+  committed. It lives in `C:\ProgramData\ProjectorControl\config`, readable
+  only by SYSTEM and Administrators, and the repository carries
+  `config.example.json`.
+
+**Test.** `tools/projector-control/tests/test_pjctl.py` runs against a fake
+PJLink projector. On the real units (2026-10-27), on, off through cooling,
+wake from standby, API auth, and service start after a reboot all passed.
+The tool's README records the timings.
+
+**Would reopen:** a second venue or OS, or Strobe itself wanting projector
+power, such as a playlist that switches the projectors. Then the client
+belongs in a crate.

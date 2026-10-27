@@ -1,0 +1,6 @@
+# Real config holds the API token and projector passwords; it lives in
+# C:\ProgramData\ProjectorControl\config and never in the repository.
+config.json
+logs/
+python/
+__pycache__/
