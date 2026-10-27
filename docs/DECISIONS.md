@@ -12104,3 +12104,63 @@ textures; the sweep on TORNADO's GTX 1080 Ti is in BENCHMARKS.md.
 **Would reopen:** wanting the bench to time a real capture (then a recorded
 audio file, still deterministic).
 
+
+### D500: each paired device says who it is: name, kind, address, when paired and last seen (2026-10-27)
+
+**Context.** Settings > Remote's *Paired devices* list showed one label
+per device, "Windows at 10.1.10.124", too thin to tell two devices apart
+or decide which to revoke. It was also missing the one thing the operator
+had approved it by: since D469 a phone asks under a name and the approval
+banner shows it, but `Session::approved` paired with the bare
+`KIND at ADDRESS`, so the name was dropped at the moment of pairing.
+
+**Decision.**
+- A paired record keeps, apart from its label, the `name` it asked under
+  (`request_pair`'s name; `request_desktop`'s and a trusted controller's
+  id, which the app makes from the computer's name; empty for the
+  version-1 `pair` code), the `platform` word from its User-Agent (D251's
+  one word, never the string), and the `address` it last connected from.
+  `authenticate_from` moves the address when the network gives the device
+  a new one, and `Clients::seen` moves `last_seen` when an authenticated
+  connection ends, so "last seen" is when it left, not when it came. The
+  label saved is the one the operator approved, name included.
+- The fields are additive and optional in `remote-clients.json`, which
+  stays version 1. Each reads leniently: a missing field is empty, a value
+  of the wrong type is empty, an address that does not parse is dropped,
+  and text is cleaned of controls and cut (80 characters for a name, 32
+  for a platform), so damage costs the detail and never the pairing. A
+  record written before D500 gets its platform and address from its label
+  (`… KIND at ADDRESS`), so the owner's existing pairings show them at
+  once. A build older than this one reads a file with the new fields as
+  damaged (its records deny unknown fields) and sets it aside, so going
+  back a version means pairing again: the safe failure D251 already chose.
+- `ClientInfo` carries `name`, `platform`, `address` and an `Access`
+  (`Phone`, `Desktop`, `Trusted`), so the app no longer reads the kind out
+  of label prefixes. Each row, in the form grammar: the title is the name
+  (the platform when it gave none); a status chip says Connected or Not
+  connected; the description says what it is and where ("Phone remote on
+  iPhone · 192.168.1.23", "Strobe desktop, full control · …"); a muted
+  note says "Paired 3 days ago · last seen 25 minutes ago" ("now" while
+  connected). Times are relative, computed from the system clock in the
+  UI, so no time zone is looked up. Revoke and Revoke all are unchanged.
+- No reverse DNS lookup for a hostname: it would block or need a thread,
+  fails on most home and venue networks, and the name the device gave is
+  what the operator approved it by. No message of protocol version 1
+  changed; L-01's golden tests pass untouched. No token or digest is
+  listed or logged: `ClientInfo` never held one, and `Record`'s `Debug`
+  still prints the digest as `***`.
+
+**Test.** `strobe_remote::clients`:
+`device_details_are_listed_follow_the_address_and_survive_a_restart`,
+`a_file_from_before_the_details_reads_them_from_its_label`,
+`a_damaged_detail_costs_the_detail_never_the_pairing`,
+`the_kind_of_client_is_listed`; `tests/server.rs`
+`a_phone_asks_with_a_name_and_the_host_approves_it_with_no_code` now
+checks the listed name, platform, address, kind and approved label, and
+that no token is in the list; `strobe_app::ui::lan`
+`a_row_names_the_device_its_kind_address_and_times` and
+`times_read_as_how_long_ago`.
+
+**Would reopen:** two devices asking under the same name from the same
+address (a reinstalled phone), which would want the token's age or a
+per-device fingerprint shown as well.
