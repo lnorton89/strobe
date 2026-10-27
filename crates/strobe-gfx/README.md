@@ -16,6 +16,12 @@ adaptive render scale.
   files), `log`, `thiserror`. It uses only the `log` facade, so it does not
   depend on `strobe-diag`.
 - **Depended on by:** `strobe-app`, `strobe-bench` and `strobe-autocontrol`.
+- **Build script:** on a Windows host building for Windows, `build.rs` puts
+  the pinned ANGLE DLLs beside the executables when they are missing, by
+  running the hash-checked `scripts/fetch-angle.ps1` with `-Destination`.
+  It skips under `CI` (the release workflow fetches explicitly) or with
+  `STROBE_NO_ANGLE_FETCH` set, and a failed fetch is a warning, never a
+  failed build (D498).
 - **Does not:** know about audio capture, scripts or playlists. It renders a
   scene given a `FrameInputs` (time, audio scalars, a `ControlBank`, mouse)
   and, optionally, `AudioTextures` (plain `[f32; 4]` slices) and script
