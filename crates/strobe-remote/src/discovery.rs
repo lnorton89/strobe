@@ -286,9 +286,20 @@ pub struct Scanner {
 impl Scanner {
     /// Starts asking at `targets` (broadcast addresses, see
     /// [`broadcast_targets`]), on `port`, leaving out answers with the id
-    /// `ignore` (this process's own Strobe).
+    /// `ignore` (this process's own Strobe). Asking only this computer
+    /// (every target IPv4 loopback, as in a test) binds loopback, not every
+    /// interface, so Windows' firewall has nothing to ask about (D503).
     pub fn start(targets: Vec<SocketAddr>, ignore: Option<String>) -> std::io::Result<Self> {
-        let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0))?;
+        let local = !targets.is_empty()
+            && targets
+                .iter()
+                .all(|to| matches!(to.ip(), IpAddr::V4(v4) if v4.is_loopback()));
+        let ip = if local {
+            Ipv4Addr::LOCALHOST
+        } else {
+            Ipv4Addr::UNSPECIFIED
+        };
+        let socket = UdpSocket::bind((ip, 0))?;
         socket.set_broadcast(true)?;
         socket.set_read_timeout(Some(TICK))?;
         let found = Arc::new(Mutex::new(Vec::new()));
