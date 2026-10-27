@@ -12373,3 +12373,33 @@ units (backlog L-09).
 **Would reopen:** a second venue with other projectors (then per-vendor
 support beyond PJLink), HTTPS for the page (with L-07's answer), or a
 playlist that switches the projectors itself.
+
+### D504: pull requests build `release-fast`; the fat-LTO `release` build runs on master (2026-10-27, owner's choice)
+
+**Context.** CI's Windows job, the one every pull request waits for, took
+12 to 15 minutes, and 6 to 6.5 of them were `cargo build --release
+--workspace --bins`: fat LTO over one codegen unit, run on every push to
+every pull request although all it proves is that the shipping settings
+compile and link. Linux built `strobe-bench` the same way for its two
+scene-library renders, which run on llvmpipe and whose frames do not
+depend on LTO. The owner found half the day spent waiting for CI.
+
+**Decision.**
+- A pull request's Windows job builds `--profile release-fast` (D487):
+  the same opt-level 3 and `panic = "abort"`, without fat LTO and one
+  codegen unit. A push to master, and a manual run, builds `--release`
+  instead, as shipped; `release.yml` still builds `release` for a tag.
+- The Linux job's scene-library renders use `release-fast`.
+- `CARGO_INCREMENTAL=0` for the whole workflow: incremental state never
+  helps a fresh runner and only makes the cache slower to save and
+  restore.
+
+**Trade-off.** A failure that only fat LTO shows (a link or codegen quirk)
+is caught on master after the merge, not on the pull request; the tag
+build still catches it before a release.
+
+**Test.** The CI runs on this change's own pull request (the `release-fast`
+path) and on master after it lands (the `release` path).
+
+**Would reopen:** an LTO-only failure reaching master more than once, or
+a PR-blocking release check becoming worth its six minutes again.

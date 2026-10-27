@@ -21,6 +21,10 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  # Incremental compilation helps a developer's next edit, never a fresh
+  # runner: it only makes the cache bigger and slower to save and restore
+  # (D504). It also overrides `release-fast`'s `incremental = true`.
+  CARGO_INCREMENTAL: "0"
 
 jobs:
   format:
@@ -127,9 +131,17 @@ jobs:
               echo "| ${reason} | ${n} |"
             done
           } | tee -a "$GITHUB_STEP_SUMMARY"
-      # Release is where `panic = "abort"`, LTO and one codegen unit apply,
-      # and those change what compiles.
-      - name: Build release binary
+      # An optimised build proves the Windows binaries compile and link with
+      # `panic = "abort"` and opt-level 3. A pull request builds
+      # `release-fast` (the same settings without fat LTO and one codegen
+      # unit), which takes a minute or two where `release` took six; the
+      # shipping `release` build runs once a change is on master, and again
+      # in release.yml for a tag (D504).
+      - name: Build release-fast binaries
+        if: ${{ !(github.event_name == 'push' && github.ref == 'refs/heads/master') && github.event_name != 'workflow_dispatch' }}
+        run: cargo build --profile release-fast --workspace --bins
+      - name: Build release binaries (fat LTO, as shipped)
+        if: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/master') || github.event_name == 'workflow_dispatch' }}
         run: cargo build --release --workspace --bins
 
   macos:
@@ -233,10 +245,12 @@ jobs:
       # meaningful. A scene that fails to compile in either dialect fails
       # the step. A few timed frames and a short warm-up keep it to a
       # minute or two; `cargo xtask bench` is the way to take real numbers.
+      # `release-fast`, not `release`: the frames are the renderer's, and
+      # fat LTO only cost build time here (D504).
       - name: Render the scene library (desktop GL 3.3)
-        run: cargo run --release -p strobe-bench -- --size 640x360 --frames 10 --warmup 60 --out target/bench
+        run: cargo run --profile release-fast -p strobe-bench -- --size 640x360 --frames 10 --warmup 60 --out target/bench
       - name: Render the scene library (GLES 3.0, the ANGLE dialect)
-        run: cargo run --release -p strobe-bench -- --size 640x360 --frames 10 --warmup 60 --api gles --out target/bench-gles
+        run: cargo run --profile release-fast -p strobe-bench -- --size 640x360 --frames 10 --warmup 60 --api gles --out target/bench-gles
       # `!cancelled()` rather than the default success(): a run where one
       # scene broke is exactly the run whose other frames you want to see.
       - name: Upload frames (desktop GL)

@@ -89,7 +89,10 @@ Windows, Linux and macOS. A warning is a build failure.
 The Linux job compiles and renders every test shader on a real GLSL
 compiler (Mesa llvmpipe), in both the desktop GL 3.3 and GLES 3.0
 dialects. The Windows job proves the build, the context code, and the
-release settings compile and link. **Neither runner has a GPU or a
+optimised settings compile and link: a pull request builds
+`release-fast`, and the shipping `release` build (fat LTO, about six
+minutes on a runner) runs once the change is on master, and again for a
+tag (D504). **Neither runner has a GPU or a
 display.** Anything visual, and anything that depends on a real driver
 (WGL, ANGLE, a real GPU's timing), needs a run on a real machine, and a
 screenshot or bench result in the pull request.
