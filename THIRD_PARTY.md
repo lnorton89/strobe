@@ -22,7 +22,7 @@ The release zip carries these next to the program. Their notices are in `LICENSE
 
 ## Crates
 
-Every crate compiled into `strobe.exe` (`strobe-app` for `x86_64-pc-windows-msvc`), 247 in all, with the licence its authors published it under. The release zip's `THIRD-PARTY-NOTICES.txt` has each one's version and full licence text.
+Every crate compiled into `strobe.exe` (`strobe-app` for `x86_64-pc-windows-msvc`), 248 in all, with the licence its authors published it under. The release zip's `THIRD-PARTY-NOTICES.txt` has each one's version and full licence text.
 
 | Crate | Licence | Source |
 |---|---|---|
@@ -134,6 +134,7 @@ Every crate compiled into `strobe.exe` (`strobe-app` for `x86_64-pc-windows-msvc
 | litemap | Unicode-3.0 | https://github.com/unicode-org/icu4x |
 | lock_api | MIT OR Apache-2.0 | https://github.com/Amanieu/parking_lot |
 | log | MIT OR Apache-2.0 | https://github.com/rust-lang/log |
+| md-5 | MIT OR Apache-2.0 | https://github.com/RustCrypto/hashes |
 | memchr | Unlicense OR MIT | https://github.com/BurntSushi/memchr |
 | midir | MIT | https://github.com/Boddlnagg/midir |
 | minidump-common | MIT | https://github.com/rust-minidump/rust-minidump |

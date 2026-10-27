@@ -2,32 +2,77 @@
 
 Network power control for the venue's two projectors from the Strobe PC.
 PJLink Class 1 on TCP 4352, with a Panasonic NTCONTROL fallback on TCP 1024.
-Python 3 standard library only. Windows (Scheduled Task service).
+Windows (Scheduled Task service).
 
-The tool is separate from the Strobe engine and shares no code with it. It lives in this repository so the
-show machine's setup is versioned in one place.
+The code is the [`strobe-projector`](../../crates/strobe-projector/README.md)
+crate (D502). Strobe uses it directly for **Settings > Projectors**. This
+directory holds what sets up the show PC around it:
+
+- `setup-network.ps1`: the projector Ethernet;
+- `install.ps1`: `pj` and the headless service;
+- `config.example.json`: the config the installer starts from.
+
+It replaces the Python tool of PR #45, whose behaviour it keeps command for
+command.
+
+## Two ways to run it
+
+- **From Strobe:** Settings > Projectors. Switch on *Projector control*, add
+  the projectors under *Connections* and Save, then switch them with On and
+  Off. Switch on *Web page* to serve the phone page while Strobe runs.
+- **Headless:** `install.ps1` registers `strobe-projector serve` as the
+  SYSTEM task. The page is then there whenever the PC is on, with Strobe
+  closed or not.
+
+Both read the same file, `projectors.json` in Strobe's data directory
+(`%LOCALAPPDATA%\strobe\projectors.json`). Whichever binds the address
+first serves the page; the other says the port is in use. With the task
+installed, leave Strobe's *Web page* switch off.
 
 ## Install
 
-From an **elevated** PowerShell in this directory:
+From an **elevated** PowerShell in this directory, signed in as the user
+who runs Strobe:
 
 ```powershell
 .\setup-network.ps1     # Ethernet -> 192.168.50.1/24, no gateway/DNS, metric above Wi-Fi (idempotent)
-.\install.ps1           # deploy to C:\ProgramData\ProjectorControl and start the service (idempotent)
+.\install.ps1           # build, install pj, start the service (idempotent)
 pj discover             # both projectors found at their IPs, no PROBLEM lines
 pj status
 ```
 
-The first `install.ps1` run creates `C:\ProgramData\ProjectorControl\config\config.json` from
-`config.example.json`, with a freshly generated API token. Fill in the projector passwords, then
-re-run `install.ps1`, or `Restart-ScheduledTask 'ProjectorControl API'`.
-Re-run `install.ps1` after pulling changes to this directory.
+`install.ps1` does the following:
 
-`install.ps1` vendors the newest CPython that the `py` launcher finds into
-`C:\ProgramData\ProjectorControl\python`, because the SYSTEM service can't run Store aliases or
-per-user installs. Pass `-PythonHome <dir>` to choose a different one.
+1. It builds `strobe-projector.exe` with `cargo build --release`, or takes
+   `-Exe <path>`.
+2. It copies the binary to `C:\ProgramData\ProjectorControl\bin` and puts
+   `pj` on the machine PATH, pointed at the config.
+3. It creates the config if it is missing:
+   - **an existing Python install's `config\config.json` is moved over as
+     it is**, keeping the token, the passwords and the Sony's MAC;
+   - otherwise the config comes from `config.example.json` with a fresh
+     token.
+4. It opens the page's port on the Private profile for the binary only, and
+   registers the task.
 
-Run tests with `python tests\test_pjctl.py`. It runs offline, against a fake PJLink projector.
+`-Config <path>` uses another config. `-NoService` installs `pj` only and
+removes the task; Strobe then serves the page.
+`-StrobeExe <path>` also lets Strobe's own `strobe.exe` through the firewall
+on the page's port.
+
+**Upgrading from the Python install:** run `install.ps1` once. It stops the
+old Python server and replaces its task (same name, "ProjectorControl
+API"). It removes the old `app\` and `python\`, and moves the config. The
+old `config\` (admin-only) and `logs\` folders stay in
+`C:\ProgramData\ProjectorControl` until you delete them.
+
+Re-run `install.ps1` after pulling changes.
+
+The tests run offline against fake projectors:
+
+```powershell
+cargo test -p strobe-projector
+```
 
 ## Interface and IP layout
 
@@ -48,27 +93,26 @@ It also clears stale DHCP-lease DNS values left from older networks.
 Windows drops an on-link route whose neighbour doesn't answer ARP and falls back to the default route.
 So `Find-NetRoute 192.168.50.10` showing Wi-Fi means *the projector isn't answering*. It doesn't mean the routing is wrong.
 
-## Files (installed)
+## Files
 
 | Path | What |
 |---|---|
-| `config\config.json` | Names, IPs, protocol, passwords, API token. **Only SYSTEM (the service user) and Administrators can read it.** |
-| `app\pjctl.py` | PJLink/NTCONTROL client, discovery, CLI |
-| `app\server.py`, `app\ui.html` | HTTP API and single-page dark UI |
-| `app\dhcp_reserve.py` | One-shot DHCP responder on 192.168.50.1:67. It answers **only** projectors with a `mac` in the config, and offers no router or DNS. It rescues a unit left in DHCP mode: `python\python.exe app\dhcp_reserve.py --seconds 60`. A static IP on the unit is the permanent fix. |
-| `logs\commands.log` | Audit log: timestamp, source IP, target, action, result. Rotates at 1 MB, keeps 10. |
-| `logs\server.log` | Service log. Rotates at 1 MB, keeps 5. |
+| `%LOCALAPPDATA%\strobe\projectors.json` | Names, IPs, passwords, the page's bind, port and token, and Strobe's two switches. In the user's profile: that user, SYSTEM and Administrators can read it. |
+| `%LOCALAPPDATA%\strobe\projector-logs\commands.log` | Audit log: timestamp, source (`cli:<user>`, `strobe`, `dhcp` or the client's IP), target, action, result. Rotates at 1 MB, keeps 10. The service's own log is beside it. |
+| `C:\ProgramData\ProjectorControl\bin\strobe-projector.exe` | The binary: CLI, service and DHCP helper |
+| `C:\ProgramData\ProjectorControl\pj.cmd` | `pj`, on the machine PATH |
 
 ## CLI
 
-The config is admin-only, so run these from an elevated shell. `pj` is on the machine PATH.
+`pj` is on the machine PATH.
 
 ```
-pj status [all|panasonic|sony]          power, input, lamp/laser hours, error status
-pj on     [all|panasonic|sony] [--wait]  --wait polls until on (and a lamp reports lit)
-pj off    [all|panasonic|sony] [--wait]  --wait polls through cooling until off
+pj status   [all|panasonic|sony]          power, input, lamp/laser hours, error status
+pj on       [all|panasonic|sony] [--wait] --wait polls until on (and a lamp reports lit)
+pj off      [all|panasonic|sony] [--wait] --wait polls through cooling until off
 pj discover                               scan 192.168.50.0/24 + ARP; on problems, listen for DHCP clients
 pj raw sony "%1NAME ?"                    send a raw PJLink command
+pj dhcp-reserve --seconds 60              answer DHCP for projectors with a "mac" (rescue only)
 pj -v ...                                 verbose (retries, fallbacks)
 ```
 
@@ -78,18 +122,23 @@ A power command is never sent while a unit is warming (3) or cooling (2). The to
 stable state, rechecks right before sending, and retries ERR3 and connection refusals with
 backoff for up to 90 s. If the unit is already in the requested state, nothing is sent.
 
-## HTTP API and UI
+`pj dhcp-reserve` is a one-shot DHCP responder on 192.168.50.1:67. It answers **only** projectors
+with a `mac` in the config, and offers no router or DNS. It rescues a unit left in DHCP mode;
+a static IP on the unit is the permanent fix.
 
-The service is the Scheduled Task **"ProjectorControl API"**. It runs as SYSTEM at startup (30 s delay)
-whether or not anyone is logged in, and restarts every minute on failure.
+## Web page and API
 
-It binds **only** to the Tailscale IPv4 if Tailscale is up, otherwise to the Wi-Fi IPv4.
+The service is the Scheduled Task **"ProjectorControl API"**. It runs `strobe-projector serve`
+as SYSTEM at startup (30 s delay), whether or not anyone is logged in, and restarts every minute
+on failure.
+
+The page binds **only** to the Tailscale IPv4 if Tailscale is up, otherwise to the Wi-Fi IPv4.
 It never binds to 0.0.0.0, loopback, link-local or the projector subnet, and it rebinds within 30 s if that address changes.
-The firewall allows the port on the Private profile, for the vendored python.exe only.
+The firewall allows the port on the Private profile, for the binary only.
 **Never port-forward it.**
 
-- **UI:** `http://<wifi-or-tailscale-ip>:8780/`. Paste the token once; it's kept in an HttpOnly, SameSite=Strict cookie.
-- **Token:** `api.token` in `config.json`. Every endpoint requires it.
+- **UI:** `http://<wifi-or-tailscale-ip>:8780/`. Strobe's Settings > Projectors has *Copy link*, the address with the token. Open it once on a phone; the token is then kept in an HttpOnly, SameSite=Strict cookie.
+- **Token:** `api.token` in `projectors.json`, at least 24 characters. Every endpoint but `/favicon.ico` requires it. *New token* in Settings replaces it.
 
 | Method | Path | |
 |---|---|---|
@@ -110,7 +159,7 @@ Auth: `Authorization: Bearer <token>`, or the `pj_token` cookie set by the UI.
 - [ ] **Sony:** PJ Link Service enabled. The VPL-PHZ10 kept asking for authentication even with auth shown as disabled in its web UI, and accepted the PJLink spec default password.
 - [ ] **Both:** the web UI loads at the projector's IP from the PC.
 
-## Verified behaviour (2026-10-27, on the real units)
+## Verified behaviour (2026-10-27, the Python tool on the real units)
 
 | | Panasonic PT-DZ6700 | Sony VPL-PHZ10 |
 |---|---|---|
@@ -119,10 +168,12 @@ Auth: `Authorization: Bearer <token>`, or the `pj_token` cookie set by the UI.
 | PJLink in standby / LAN wake | yes / yes | yes / yes |
 
 The service also survived a reboot: it came back with nobody logged in and served status.
+The Rust build keeps the same behaviour but is so far tested only against fake projectors
+(backlog L-09); repeat these checks on the units after installing it.
 
 ## Troubleshooting
 
-**ERRA (authentication failed).** The PJLink password in `config.json` is wrong.
+**ERRA (authentication failed).** The PJLink password in the config is wrong.
 An empty string means no password, but some units still require one; see the Sony note above.
 On the Panasonic, an ERRA also triggers the NTCONTROL fallback.
 
@@ -131,8 +182,10 @@ Lamp units can take minutes to cool, so re-run once it's finished.
 
 **No response in standby, but fine when on.** The standby mode setting is wrong: set STANDBY MODE to NORMAL on the Panasonic, or Standard on the Sony.
 
+**Strobe's Web page switch says the port is in use.** The task is serving the page; that is expected. Use the task's page, or run `install.ps1 -NoService` to let Strobe serve it.
+
 **Projector not found by `pj discover`.**
-- "DHCP client … vendor=…" means the unit is in DHCP mode on a LAN with no DHCP server. Set the static IP, or use `dhcp_reserve.py` for now.
+- "DHCP client … vendor=…" means the unit is in DHCP mode on a LAN with no DHCP server. Set the static IP, or use `pj dhcp-reserve` for now.
 - If nothing appears at all, the unit is on a static IP outside the subnet, or check the cabling and mains power.
 
 **Internet stops working.** `Get-NetRoute -DestinationPrefix 0.0.0.0/0` must show only Wi-Fi. Re-run `setup-network.ps1`.
