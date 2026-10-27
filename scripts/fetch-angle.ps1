@@ -12,6 +12,12 @@
 #
 #   powershell -ExecutionPolicy Bypass -File scripts\fetch-angle.ps1
 #   powershell -ExecutionPolicy Bypass -File scripts\fetch-angle.ps1 -Profile debug
+#   powershell -ExecutionPolicy Bypass -File scripts\fetch-angle.ps1 -Destination target\x86_64-pc-windows-msvc\release
+#
+# A dev build runs this by itself: strobe-gfx's build script calls it with
+# -Destination set to the profile's output folder when the DLLs are missing
+# there (D498). Run it by hand after bumping $Version, since the build only
+# checks that the DLLs are present, not which version they are.
 #
 # Licences: ANGLE is BSD-3-Clause; d3dcompiler_47.dll is Microsoft's
 # redistributable D3D compiler as shipped by Chromium/Electron; vulkan-1.dll
@@ -20,7 +26,10 @@
 
 param(
     [ValidateSet("release", "debug", "release-fast", "both")]
-    [string]$Profile = "both"
+    [string]$Profile = "both",
+    # One folder to fill instead of the profiles under target\; overrides
+    # -Profile.
+    [string]$Destination = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -65,8 +74,8 @@ foreach ($Name in $Files.Keys) {
 # "both" fills every profile people run from: release, debug, and
 # release-fast, the one to iterate with (D487).
 $Profiles = if ($Profile -eq "both") { @("release", "debug", "release-fast") } else { @($Profile) }
-foreach ($P in $Profiles) {
-    $Dest = Join-Path $Root "target\$P"
+$Dests = if ($Destination) { @($Destination) } else { $Profiles | ForEach-Object { Join-Path $Root "target\$_" } }
+foreach ($Dest in $Dests) {
     New-Item -ItemType Directory -Force -Path $Dest | Out-Null
     foreach ($Name in @($Files.Keys) + "LICENSES.chromium.html") {
         Copy-Item (Join-Path $Cache $Name) $Dest -Force
