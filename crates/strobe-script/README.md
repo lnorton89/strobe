@@ -118,6 +118,10 @@ the CI `windows` job and the T480 check it on Windows.
 
 ## Status and known gaps
 
+Open work for this crate is tracked in
+[`IMPLEMENTATION_BACKLOG.md`](../../docs/IMPLEMENTATION_BACKLOG.md) under the
+IDs given here; a gap with no ID is by design, with its decision named.
+
 - Built and wired into the app (phase 2, [`ROADMAP.md`](../../docs/ROADMAP.md)).
   On the T480, `11-script-orbits` ran with `script.js running` and
   script-written positions ([`T480.md`](../../docs/hardware/T480.md)).
@@ -134,4 +138,4 @@ the CI `windows` job and the T480 check it on Windows.
   a real Synesthesia script tests `_click.x > 0.5` for the left button (R12).
 - The conformance tests are written per documented API surface; Q14 in
   [`OPEN_QUESTIONS.md`](../../docs/OPEN_QUESTIONS.md) is waiting on a real
-  script that exercises `textureFinalPass`.
+  script that exercises `textureFinalPass` (backlog C-07).

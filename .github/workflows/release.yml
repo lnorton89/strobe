@@ -167,6 +167,14 @@ jobs:
           CARGO_PROFILE_RELEASE_DEBUG: line-tables-only
         run: cargo build --release --locked -p strobe-app --target ${{ matrix.target }}
 
+      # The notices the MIT, BSD and Apache licences ask to travel with a
+      # binary: every crate in strobe.exe at its exact version, with each
+      # licence file its package carries (D491). Generated from Cargo.lock
+      # here rather than committed, because it is large and its versions
+      # move with every bump; THIRD_PARTY.md is the committed summary.
+      - name: Third-party notices
+        run: cargo xtask credits --notices target/THIRD-PARTY-NOTICES.txt
+
       - name: Package
         shell: bash
         env:
@@ -190,7 +198,8 @@ jobs:
             target/release/libGLESv2.dll \
             target/release/d3dcompiler_47.dll \
             target/release/vulkan-1.dll \
-            target/release/LICENSES.chromium.html; do
+            target/release/LICENSES.chromium.html \
+            target/THIRD-PARTY-NOTICES.txt; do
             test -f "$file" || { echo "missing build output: $file"; exit 1; }
           done
 
@@ -202,7 +211,7 @@ jobs:
           # thing a new user plays, and the worked examples anyone writing
           # a scene starts from.
           cp -r scenes "$staging/scenes"
-          cp README.md LICENSE "$staging/"
+          cp README.md LICENSE THIRD_PARTY.md target/THIRD-PARTY-NOTICES.txt "$staging/"
 
           # The symbols go in an archive of their own, never in the user's
           # zip: the .pdb is several times the size of the program, and a

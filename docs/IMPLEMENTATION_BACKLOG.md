@@ -2,7 +2,7 @@
 
 **Purpose:** one evidence-based register of every known unfinished or not-yet-verified project area. This is the implementation companion to ROADMAP.md, STATUS_AUDIT.md, PLAN.md, UI_IMPLEMENTATION_PLAN.md, GFX_API_RESEARCH.md, and REMOTE_CONTROL_PWA_RESEARCH.md. It consolidates their open work; it does not re-label untested work as complete.
 
-**Last reconciled:** 2026-10-26 for G-05 and G-06 (D485), and C-01, C-08 and I-05 against Synesthesia 1.25.4 (TORNADO T25, D492); the UI items reflect D464-D484 in ROADMAP.md and UI_REVIEW.md.
+**Last reconciled:** 2026-10-26 against every crate README's "Status and known gaps" (D490: C-07, I-06, D-05, D-06, R-07 and R-08 added, M-05 and R-03 updated), and C-01, C-08 and I-05 against Synesthesia 1.25.4 (TORNADO T25, D492), after G-05 and G-06 (D485) and scene transitions (D489); the UI items reflect D464-D484 in ROADMAP.md and UI_REVIEW.md.
 
 ## How to use this register
 
@@ -10,6 +10,7 @@
 - A CI pass proves only what CI exercises. It does not prove Windows window-manager behaviour, a physical MIDI device, a mobile browser, an external service, or a long-running real-GPU show.
 - Complete work in dependency order. Do not start a new backend, media decoder, or network surface before its compatibility, security, and performance gates are met.
 - Each task must update ROADMAP.md and the relevant evidence file when completed. Record machine, OS, GPU/driver, backend, commit, command, logs, and failures for hardware results.
+- **A crate README's "Status and known gaps" is a view of this register, not a second one (D490).** Every gap written there names its item here (`backlog X-NN`), an open question (`Q12`), or says it is by design with its decision; `strobe_conventions::known_gaps` fails the build otherwise, and for an ID that has no item here. A new gap gets its item here first.
 - This backlog is intentionally comprehensive. It is not a promise that every feature should ship in one release or that all independent platform-dependent work can be verified by a cloud agent.
 
 ## Release gates and dependency order
@@ -41,7 +42,7 @@
 - **Acceptance:** explain the step with evidence or file a narrowly scoped follow-up bug; no unexplained monotonic growth over the full soak.
 
 ### R-03 Packaged release smoke test
-- **Status:** Run on the T480 (Tasks 21 and 22). The one bug it found, the library path depending on the working directory, is fixed and verified on the packaged build. Left: an archive built by `release.yml` itself from a tag (Q12, R-05).
+- **Status:** Run on the T480 (Tasks 21 and 22). The one bug it found, the library path depending on the working directory, is fixed and verified on the packaged build. `release.yml` has since built, attested and published v0.2.0 from its tag (its checksum, attestation and contents checked, 2026-10-26). Left: running that archive itself on the T480.
 - **Work:** build the release archive from a clean checkout; install/run outside the development tree; test first-run data directories, audio, import listener, scripts, diagnostics, native GL and ANGLE; confirm clean shutdown and upgrade/relaunch behaviour.
 - **Acceptance:** attach exact commands, archive hash, OS/GPU/driver, logs and screenshots to hardware/T480.md; test does not depend on Cargo or developer-only DLLs.
 
@@ -71,6 +72,16 @@
 - **Status:** In progress. The executable icon is embedded (D241): `strobe-app`'s build script compiles `assets/strobe.rc` with the brand `icon.ico` on Windows targets. On the T480 (Task 32) both exes carry the full six-size icon group, and Windows extracts the Strobe mark for the exe and for a shortcut to it. Each exe also carries a version block (D244): product Strobe, its own file name and description, and the workspace version as both file and product version. The T480 reads it back from both exes (Task 33). The wordmark, the horizontal and stacked lockups, a one-colour mark, the README banner and the social preview are made (D256). The type is Space Grotesk outlines set by `assets/brand/tools/typeset.py`, and `cargo xtask brand` renders and checks every raster. Left: a look at Explorer and the taskbar by a person.
 - **Work:** finish wordmark and lockups; embed the executable resource icon; check title bar, taskbar, installer/archive and high-DPI rendering on Windows.
 - **Acceptance:** the same approved mark is legible in the executable, title bar, taskbar, docs and release artifacts; CI validates generated assets and no icon is missing from the packaged binary.
+
+### R-07 A real GPU reset
+- **Status:** Open. Context recovery (D66) is built and verified on real WGL with injected losses on the T480 (Task 8: a native rebuild, the ANGLE fail-over and the give-up), but no real driver reset has been seen, and native WGL on the RX 580 refuses `WGL_ARB_create_context_robustness`, so a reset there is never reported (AMD.md). T480 bug 1's cause was never confirmed.
+- **Work:** provoke a real reset (a TDR from a deliberately long shader, or Windows' `dxcap -forcetdr`) on native and ANGLE, on the T480 and the RX 580; record what the app sees and does.
+- **Acceptance:** on a robust context the reset is noticed and recovered as with an injected loss; on a context without robustness the behaviour is recorded in COMPATIBILITY.md, and the show either recovers or says plainly that it cannot.
+
+### R-08 Linux on a real GPU
+- **Status:** Open (STATUS_AUDIT "P1: Linux"). Linux is documented and built (D295) and has run under Xvfb, Weston and WSL2 with Mesa, Mesa's D3D12 driver on an RX 580 included, never on a real Linux GPU driver.
+- **Work:** run the app, the bench and the corpus on a real Linux machine with a desktop GPU (Mesa radeonsi or iris, and NVIDIA's driver), under X11 and GNOME Wayland; live capture through PipeWire/ALSA; the Nix flake.
+- **Acceptance:** STATUS_AUDIT's P1 Linux checklist ticked with the machine's record in `hardware/`.
 
 ## Epic U — Performer UI and app workflows
 
@@ -183,6 +194,11 @@
 - **Work:** verify presets and meta controls across scene changes, reset, script writes, audio gains, fav slots and playlist cue changes; clarify whether scene/meta/media channels are independently recallable and persistent.
 - **Acceptance:** each documented Synesthesia behaviour is classified supported, intentionally degraded or unsupported with a fixture.
 
+### C-07 Synesthesia behaviour Strobe still assumes
+- **Status:** In progress. TORNADO T25 (D492) read Synesthesia 1.25.4's install without running it and settled what its files can: the SSF library's real behaviour, the meta controls (Q21, now R16), `_hueSaturationContrastLEGACY` (Q26) and more (OPEN_QUESTIONS "Resolved"). Left are the questions only Synesthesia running can answer, side by side with Strobe: the audio texture layout (Q10), the bang-smooth envelope (Q4), `textureFinalPass`'s size and staleness (Q14), scene transitions at load, repeats and their default fade (Q33), and the rest of OPEN_QUESTIONS' "What Synesthesia itself can settle".
+- **Work:** answer each from Synesthesia's own files where they can, and from Synesthesia running, side by side with Strobe, where they cannot; change Strobe where it differs, with a decision each.
+- **Acceptance:** every question moved to Resolved with its evidence, or left open with the exact reason it cannot be answered; COMPATIBILITY.md's Unverified rows follow.
+
 ### C-08 The tilt-shift blur as Synesthesia's engine draws it
 - **Status:** Open (TORNADO T25). Synesthesia's `_hBlurTiltShift` / `_vBlurTiltShift` (and `syn_pass_*BlurTiltShift`) loop `1 + 20 * blurAmt` taps each side, mirror out-of-range coordinates, weight with a Gaussian whose width grows with `abs(uv.y - blurLoc)` to the power 2.3, and the vertical one steps by `1 / RENDERSIZE.x` and measures from `uv.y`. Strobe's is its own (a capped, constant-bound Gaussian). None of the 87 shipped scenes calls it, so nothing visible depends on it yet.
 - **Work:** match the engine within Strobe's constant-loop-bound rule (cap the taps, break early), with a render test of one value per form.
@@ -230,6 +246,11 @@
 - **Status:** In progress; built (D271). **TORNADO T25 (2026-10-26):** the real 1.25.4 install holds 87 scenes in `release\` and the welcome scene in `default\`, 88 in all, as expected; `cargo xtask corpus` read all 88 in place and every one loads, compiles and renders in both dialects (native NVIDIA and ANGLE/D3D11), so the engine side of "one plays" holds. The app side (the 88 marked Synesthesia in the library, playing one from the browser, the read-only refusal, Copy to my library, Settings hiding them, nothing under `Program Files` changing) still needs a person at the keyboard (S13 in OPEN_QUESTIONS). Earlier on TORNADO the library listed 150 scenes from the installed Synesthesia beside its own (the shipped scenes and the scene folders in its settings). Where Synesthesia is installed (`Program Files (x86)` or `Program Files`, or `STROBE_SYNESTHESIA_DIR`), the library lists, after the library folder's own, the scenes it ships (`release`, `default`; read-only) and the scene folders in its own settings (`vs.json` `sceneFolders` and `primarySceneFolder`, `preferences.json` `PRIMARY_SCENE_FOLDER`, searched recursively as its preferences say; writable). One detection (`strobe_scene::synesthesia`) serves the library and `#include`. On by default; Settings > "Show Synesthesia's scenes" (ui.toml) and `--no-synesthesia` turn it off. Writes into the install (tags, a picture, Editor saves, presets) are refused with a notice offering "Copy to my library", which copies the scene in under a free name and moves a playing scene or an open Editor onto the copy. Search, the palette, playlists, presets, fav slots and `--scene` find these scenes, the library folder's own first on a name clash.
 - **Work:** run it on a real install: the 88 scenes appear (87 `release` + the welcome scene), one plays, a tag on one is refused and Copy to my library works, and a Custom Scene Folder from Synesthesia's settings is listed and taggable. Decide with Q7 whether the default stays on.
 - **Acceptance:** on a Windows machine with Synesthesia 1.25.4 installed, the library shows 88 scenes marked Synesthesia beside the library's, Settings hides them, and nothing under `Program Files` changes after tagging, saving and copying.
+
+### I-06 Shadertoy inputs, passes and the Needs-work bin
+- **Status:** Open. The converter refuses `cubemap` and `volume` inputs and `sound` and `cubemap` passes; `keyboard`, `video` and `webcam` inputs read black with a warning; `srgb` textures are not decoded (Q16); a resize restarts `iTime` at `TIME` and `iFrame` at 0, a visible jump at a non-default Speed. PLAN.md's Needs-work bin, which keeps a failed import with its log, is not built: a failed import loads nothing and says why (I-04).
+- **Work:** cube map inputs (the renderer has cube maps, D185); a keyboard texture; keep `iTime` continuous across a resize; decide whether a Needs-work bin earns its place next to the Diagnostics pane's Needs work card (D483), or close it.
+- **Acceptance:** each supported input has an original fixture rendering in both dialects; each refused one fails with Strobe's message naming it; a resize at Speed 2 shows no jump.
 
 ## Epic P — Playlist, audio timing and show control
 
@@ -302,7 +323,7 @@
 - **Acceptance:** proposal includes binary size, supported formats, device removal/reconnect, latency, GPU upload cost and license review; implementation starts only after a decision.
 
 ### M-05 Song-change transitions
-- **Status:** Built (D237), pending real music: `strobe_audio::song` hears a new track as a gap (0.8-10 s of silence after 30 s of music, then 1.5 s of sound) or a new tempo held 8 s at confidence 0.6 (double and half time are the same tempo), at most one per 30 s. A cue ends on it with `advance = "audio-song"` (alone or in a list with the timer). Only live audio counts, and any change of audio source resets the detector, so a reconnect is never a song. Any audio event during a transition is ignored, so a crossfade is never cut short by a second. Manual next works as always. Tests: gap, breath, stop, octave flip, unsure tempo, too-short tempo, spacing, reset, nonsense input, the mid-transition guard and the file round trip. Left: real sets; a tempo-matched DJ mix with no gap is not heard (a cue's timer or a person covers it).
+- **Status:** Built (D237), pending real music: `strobe_audio::song` hears a new track as a gap (0.8-10 s of silence after 30 s of music, then 1.5 s of sound) or a new tempo held 8 s at confidence 0.6 (double and half time are the same tempo), at most one per 30 s. A cue ends on it with `advance = "audio-song"` (alone or in a list with the timer). Only live audio counts, and any change of audio source resets the detector, so a reconnect is never a song. Any audio event during a transition is ignored, so a crossfade is never cut short by a second. Manual next works as always. Tests: gap, breath, stop, octave flip, unsure tempo, too-short tempo, spacing, reset, nonsense input, the mid-transition guard and the file round trip. Since D489 the same song change drives the playing scene's `HARD_TRANSITIONS` and `SMOOTH_TRANSITIONS`, with or without a playlist, heard once a frame by the app's `song` module, and the `new_song` command (palette, MIDI, OSC) says a new song started when the detector cannot hear it. Left: real sets; a tempo-matched DJ mix with no gap is not heard (a cue's timer, `new_song` or a person covers it).
 - **Work:** define song-change detection source and confidence, transition interaction with playlist anchors and audio-event advance, and manual override behaviour.
 - **Acceptance:** deterministic tests for no audio, low confidence, track boundary and manual override; no double transition with a cue transition already in progress.
 
@@ -443,6 +464,16 @@
   The hardware gates stay manual, with their artifacts in `hardware/T480.md` and `TORNADO.md`. Left: nothing in code; a GPU runner would let the Windows job require a context.
 - **Work:** ensure deterministic unit/integration tests cover protocol, command semantics, parser rewrites, importer security, generated controls, asset errors and no-runtime-compiles; keep hardware tests as explicit manual gates with artifacts.
 - **Acceptance:** CI is reproducible; platform-only tests clearly report skip reasons; skipped Windows/GPU tests are not counted as passed.
+
+### D-05 Conventions not yet enforced
+- **Status:** Open. `strobe-conventions` checks headers, the unsafe boundary, the toolchain, pinned actions, discarded results and the READMEs' known gaps (D490). Not checked: `build.rs` and `scripts/` (the walk covers crates' `src/`, `tests/` and `examples/`); CLAUDE.md's "every GL object has an owning type with a `Drop`" and "no `glGet*` in the frame loop"; Markdown under `docs/` (dead links, decision numbers that do not exist).
+- **Work:** extend the walk to `build.rs`; a test that every `gl::*` object type implements `Drop`; a test that the frame-path modules call no `get_*` query; a link and decision-number check over `docs/`.
+- **Acceptance:** each rule fails the build on a planted violation and passes on the tree.
+
+### D-06 Benchmark coverage
+- **Status:** Open. `strobe-bench` runs no scripts, by design (D239), and uploads placeholder audio textures, so a scene that reads the spectrum is timed on a still one. A render-scale sweep (the same scenes at 1.0, 0.75 and 0.5) is listed as wanted in BENCHMARKS.md.
+- **Work:** feed the synthetic track's textures (`strobe_scene::synthetic::fill_textures`) so frames stay a pure function of time; add `--scales` for the sweep.
+- **Acceptance:** results.md says which textures it used; the sweep's table is in BENCHMARKS.md for the T480 and llvmpipe.
 
 ## Cross-cutting engineering rules
 

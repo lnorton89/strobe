@@ -131,6 +131,7 @@ use crate::screenshot::{Screenshot, Target};
 use crate::session::{self, Session};
 use crate::show::{self, Env, Phase, Show};
 use crate::snapshot;
+use crate::song::SongWatch;
 use crate::stats::{
     ControlDrive, ControlPacer, ControlStep, ControlTimes, FinishMode, FrameStats, PaceChange,
     PerfWindow, SwapPolicy,
@@ -631,6 +632,9 @@ struct Running {
     inbox_polled: Instant,
     gl_summary: String,
     audio: AudioInput,
+    /// Hears a new song for the scene's transitions and a playlist's
+    /// `audio-song` cues, or takes the operator's word (D489).
+    song: SongWatch,
     mouse: MouseTracker,
     /// Local time for `strobe_Date`, with its UTC offset cached.
     local_date: LocalDate,
@@ -1024,6 +1028,7 @@ impl Running {
                 .with_controller(cli.control.is_some()),
             mouse: MouseTracker::default(),
             local_date: LocalDate::from_system(),
+            song: SongWatch::new(),
             render_scale,
             scale_edit: render_scale,
             pending_resize: None,
@@ -4085,6 +4090,7 @@ impl Running {
                 Action::SetReactivity(gain) => self.audio.set_reactivity(gain),
                 Action::SetAudioSpeed(gain) => self.audio.set_speed(gain),
                 Action::TapTempo => self.audio.tap(),
+                Action::NewSong => self.song.ask(),
                 Action::Import(text) => self.submit_import(Input::Text(text), false),
                 Action::Browse(purpose) => {
                     let start = match purpose {
@@ -4714,6 +4720,20 @@ impl Running {
             let meta = MetaValues::read(&session.meta);
             self.audio.set_meta_gains(meta.reactivity, meta.audio_speed);
         }
+        // A stalled frame (a compile, a window drag) does not count as that
+        // much listening, as the show's clock does not (D300).
+        let heard_dt = if wall_dt.is_finite() && wall_dt > 0.0 {
+            wall_dt.min(show::run::MAX_WALL_STEP)
+        } else {
+            dt
+        };
+        if self.song.step(heard_dt, &mut self.audio) {
+            if self.stack.show.is_some() {
+                self.run_show(Show::song_changed);
+            } else if let Some(session) = self.stack.session.as_mut() {
+                session.song_change();
+            }
+        }
         if show_ready {
             if let Some(report) = self.run_show(|show, env| show.frame(env, dt, wall_dt)) {
                 self.apply_show_report(report);
@@ -5071,6 +5091,11 @@ impl Running {
                 .is_some_and(|session| same_folder(&session.dir, last))
         });
         let imported = self.imported_entry();
+        let scene_transitions = self
+            .stack
+            .session
+            .as_ref()
+            .is_some_and(Session::has_transitions);
         let (
             scene_title,
             controls,
@@ -5130,6 +5155,7 @@ impl Running {
             scan_error: self.scan_error.as_deref(),
             playing: self.playing,
             scene_title,
+            scene_transitions,
             controls,
             media,
             meta,
@@ -5683,6 +5709,7 @@ fn command_action(command: CommandId, blackout: bool) -> Option<Action> {
         CommandId::BlackoutOff => Some(Action::SetBlackout(false)),
         CommandId::ToggleFullscreen => Some(Action::ToggleFullscreen),
         CommandId::TapTempo => Some(Action::TapTempo),
+        CommandId::NewSong => Some(Action::NewSong),
         CommandId::FocusBrowserSearch
         | CommandId::CloseTopmostPane
         | CommandId::OpenPalette

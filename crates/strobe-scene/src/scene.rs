@@ -161,6 +161,34 @@ pub struct TransitionUniform {
     pub initial: f32,
 }
 
+/// One `HARD_TRANSITIONS` entry: on a song change its uniform jumps to
+/// another of its values ([`crate::transition`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct HardTransition {
+    /// The uniform's index in [`SceneDef::transition_uniforms`].
+    pub slot: usize,
+    /// The values it chooses between, never empty. A value listed twice is
+    /// twice as likely, as SSF documents.
+    pub values: Vec<f32>,
+}
+
+/// One `SMOOTH_TRANSITIONS` family: exactly one uniform is 1 and the rest 0,
+/// and a song change crossfades to another member.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SmoothTransition {
+    /// The first member's index in [`SceneDef::transition_uniforms`]; the
+    /// family is the `len` uniforms from there.
+    pub first: usize,
+    /// How many uniforms the family has, at least one.
+    pub len: usize,
+    /// The crossfade's length in seconds, `0` for a cut.
+    pub duration: f32,
+}
+
+/// A family's crossfade when `DURATION` is left out. SSF documents no
+/// default; three seconds is its own example's (Q33, D489).
+pub const SMOOTH_DEFAULT_DURATION: f32 = 3.0;
+
 /// A validated scene.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SceneDef {
@@ -190,6 +218,10 @@ pub struct SceneDef {
     pub cubemaps: Vec<CubemapDef>,
     /// Uniforms declared by `HARD_TRANSITIONS` / `SMOOTH_TRANSITIONS`.
     pub transition_uniforms: Vec<TransitionUniform>,
+    /// The `HARD_TRANSITIONS` entries that have values to choose from.
+    pub hard_transitions: Vec<HardTransition>,
+    /// The `SMOOTH_TRANSITIONS` families that have members.
+    pub smooth_transitions: Vec<SmoothTransition>,
     /// The scene's own `syn_Media` picture, if it names one.
     pub media: Option<MediaDef>,
     /// How media the operator chooses is sampled: the `MEDIA` slot's
@@ -266,13 +298,39 @@ impl SceneDef {
             .collect::<Vec<_>>();
 
         let mut transition_uniforms = Vec::new();
+        let mut hard_transitions = Vec::new();
+        let mut smooth_transitions = Vec::new();
         for hard in &raw.hard_transitions {
+            let values: Vec<f32> = hard
+                .values
+                .iter()
+                .copied()
+                .filter(|v| v.is_finite())
+                .collect();
+            if !values.is_empty() {
+                hard_transitions.push(HardTransition {
+                    slot: transition_uniforms.len(),
+                    values: values.clone(),
+                });
+            }
             transition_uniforms.push(TransitionUniform {
                 name: hard.uniform.trim().to_string(),
-                initial: hard.values.first().copied().unwrap_or(0.0),
+                initial: values.first().copied().unwrap_or(0.0),
             });
         }
         for smooth in &raw.smooth_transitions {
+            if !smooth.uniforms.is_empty() {
+                smooth_transitions.push(SmoothTransition {
+                    first: transition_uniforms.len(),
+                    len: smooth.uniforms.len(),
+                    // A negative length is a cut; a missing or unreadable
+                    // one is SSF's example's.
+                    duration: smooth
+                        .duration
+                        .filter(|d| d.is_finite())
+                        .map_or(SMOOTH_DEFAULT_DURATION, |d| d.max(0.0)),
+                });
+            }
             for (i, name) in smooth.uniforms.iter().enumerate() {
                 transition_uniforms.push(TransitionUniform {
                     name: name.trim().to_string(),
@@ -327,6 +385,8 @@ impl SceneDef {
             images,
             cubemaps,
             transition_uniforms,
+            hard_transitions,
+            smooth_transitions,
             media,
             media_sampling,
             pass_sources,

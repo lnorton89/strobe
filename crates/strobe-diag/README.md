@@ -129,6 +129,10 @@ or `ok`. The expected files per mode are in
 
 ## Status and known gaps
 
+Open work for this crate is tracked in
+[`IMPLEMENTATION_BACKLOG.md`](../../docs/IMPLEMENTATION_BACKLOG.md) under the
+IDs given here; a gap with no ID is by design, with its decision named.
+
 - Verified end to end on Linux (the pipeline tests above). On the T480,
   `overflow` produced a `.txt` and `.dmp`, and `panic` a `.txt`; `abort`
   leaves only the session log by design
@@ -139,4 +143,4 @@ or `ok`. The expected files per mode are in
 - Under an MSIX-packaged agent (the Claude desktop app) the monitor socket
   cannot connect on Windows; set `STROBE_DIAG_DIR` inside the repo for drills.
   A normal terminal is unaffected.
-- No crash upload, and no local-time timestamps (D40, D43).
+- No crash upload, and no local-time timestamps, by design (D40, D43).

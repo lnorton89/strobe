@@ -4,7 +4,8 @@
 //               the per-frame step that feeds audio and controls into it.
 //
 // Dependencies: strobe-scene (SceneFolder, ControlBank); strobe-gfx
-//               (ScenePlayer, Gl, Caps); crate::{audio, script}
+//               (ScenePlayer, Gl, Caps); crate::{audio, script}; the
+//               scene's transitions (strobe_scene::transition)
 // ============================================================================
 
 //! The active scene.
@@ -83,6 +84,7 @@ use strobe_scene::assemble::ExtraType;
 use strobe_scene::control::def::Values;
 use strobe_scene::control::{ControlBank, ControlKind};
 use strobe_scene::preset::{self, Preset};
+use strobe_scene::transition::Transitions;
 use strobe_scene::{SceneError, SceneFolder};
 use strobe_script::{ScriptInputs, ScriptUniform};
 
@@ -195,6 +197,17 @@ pub struct PanelParts<'a> {
     pub player: &'a ScenePlayer,
 }
 
+/// A seed for a scene's transitions, from the system clock, so two nights
+/// do not change looks in the same order. Read once per load, never a
+/// frame.
+fn transition_seed() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| {
+            since.as_secs() ^ (u64::from(since.subsec_nanos()) << 32)
+        })
+}
+
 /// One loaded, compiled scene.
 #[derive(Debug)]
 pub struct Session {
@@ -222,7 +235,8 @@ pub struct Session {
     /// The text of `script.js` when its script started, for
     /// [`Self::restart_script`].
     script_source: Option<String>,
-    transitions: Vec<f32>,
+    /// The `HARD_TRANSITIONS` and `SMOOTH_TRANSITIONS` uniforms (D489).
+    transitions: Transitions,
     frame: u64,
     time: SceneClock,
 }
@@ -247,12 +261,7 @@ impl Session {
         let scene = SceneFolder::load(dir)?;
         let mut controls = ControlBank::new(scene.def.controls.clone())?;
         let mut meta = strobe_scene::meta::bank()?;
-        let transitions = scene
-            .def
-            .transition_uniforms
-            .iter()
-            .map(|t| t.initial)
-            .collect();
+        let transitions = Transitions::new(&scene.def, transition_seed());
 
         let mut script = scene.script.as_deref().and_then(|source| {
             ScriptRun::start(source, name, &controls, &meta)
@@ -327,6 +336,24 @@ impl Session {
         session.apply_startup_preset();
         session.report_asset_problems();
         Ok(session)
+    }
+
+    /// A new song started: the scene's hard transitions jump and its smooth
+    /// families start crossfading to a new look (D489). Returns whether the
+    /// scene has anything to change.
+    pub fn song_change(&mut self) -> bool {
+        if !self.transitions.can_change() {
+            return false;
+        }
+        self.transitions.fire();
+        log::info!("{}: a new look for the new song", self.name);
+        true
+    }
+
+    /// Whether a new song changes how the scene looks: it has transitions
+    /// with more than one value or member to choose from.
+    pub fn has_transitions(&self) -> bool {
+        self.transitions.can_change()
     }
 
     /// Whether the scene has a preset this name means.
@@ -615,6 +642,7 @@ impl Session {
             None => self.controls.tick(dt),
         }
         self.meta.tick(dt);
+        self.transitions.step(dt);
         self.player.set_date(date);
         self.player.upload_audio(&AudioTextures {
             spectrum: &audio.spectrum,
@@ -627,7 +655,7 @@ impl Session {
             mouse,
             audio: &audio.scalars,
             controls: &self.controls,
-            transitions: &self.transitions,
+            transitions: self.transitions.values(),
         });
         self.frame += 1;
         self.report_asset_problems();

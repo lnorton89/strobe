@@ -251,6 +251,7 @@ fn unavailable(command: CommandId, availability: Availability) -> Option<&'stati
         | CommandId::FocusBrowserSearch
         | CommandId::CloseTopmostPane
         | CommandId::TapTempo
+        | CommandId::NewSong
         | CommandId::OpenPalette
         | CommandId::GenerateControls
         | CommandId::ToggleControlsView => None,

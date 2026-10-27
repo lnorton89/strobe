@@ -75,6 +75,11 @@ jobs:
       # The icon PNGs and .ico are rendered from assets/brand/*.svg; a
       # source edited without `cargo xtask brand` fails here.
       - run: cargo xtask brand --check
+      # THIRD_PARTY.md (the About page's credits, D491) is generated from
+      # the git history and Cargo.lock. A dependency that arrives, leaves or
+      # changes licence, or a new contributor, without `cargo xtask credits`
+      # fails here. It needs the whole history, which this job has.
+      - run: cargo xtask credits --check
 
   windows:
     name: windows (the shipping platform)

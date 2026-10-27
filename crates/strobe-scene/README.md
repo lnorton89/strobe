@@ -107,6 +107,10 @@ missing driver fail rather than skip.
 
 ## Status and known gaps
 
+Open work for this crate is tracked in
+[`IMPLEMENTATION_BACKLOG.md`](../../docs/IMPLEMENTATION_BACKLOG.md) under the
+IDs given here; a gap with no ID is by design, with its decision named.
+
 - Done and tested headless: parsing, validation, the controls runtime and
   shader assembly ([`ROADMAP.md`](../../docs/ROADMAP.md)).
 - Cube maps and `syn_Media` stills and sequences are loaded by `strobe-gfx`
@@ -114,16 +118,18 @@ missing driver fail rather than skip.
   and `CUBEMAPS` shape are checked against SSF's documentation (TORNADO T21,
   Q22); `SceneDef::media_sampling` keeps the slot's `WRAP` and `FILTER`
   (D238).
-- `HARD_TRANSITIONS` / `SMOOTH_TRANSITIONS` uniforms are declared and
-  initialised but never change. Song changes are built for playlists
-  (D237: a cue can end on `audio-song`), but they do not drive these
-  uniforms.
-- `X_STROBE`, Strobe's planned extension block, is currently ignored along
-  with any other unknown key (`json.rs` says "later phases" will read it).
-- Implicit int-to-float is written out on every dialect, ANGLE included
-  (D199, R8 in [`OPEN_QUESTIONS.md`](../../docs/OPEN_QUESTIONS.md)). Left:
-  a function-like macro whose body mixes int and float. The shipped scenes
+- `HARD_TRANSITIONS` and `SMOOTH_TRANSITIONS` are declared here and their
+  live values kept in `transition`, which the app changes on a song change
+  or the `new_song` command (D489). Whether Synesthesia picks values at
+  load, may repeat a value, and how long a family without `DURATION` fades
+  are not yet checked against Synesthesia (Q33, backlog C-07).
+- Strobe's own extensions are root keys (`PASS_SOURCES`, `SOURCE`, D90;
+  `MEDIA` folders, D186; `TAGS`, D205). An `X_STROBE` block, PLAN.md's
+  original idea, is ignored like any other unknown key.
+- Implicit int-to-float is written out on every dialect, ANGLE included,
+  function-like macros that mix int and float too (D199, D261, R8 in
+  [`OPEN_QUESTIONS.md`](../../docs/OPEN_QUESTIONS.md)). The shipped scenes
   are written ES-clean.
 - Unverified against real Synesthesia: the audio texture layout (Q10),
-  the bang-smooth envelope (Q4), among others in
-  `OPEN_QUESTIONS.md`.
+  the bang-smooth envelope (Q4) and the rest of
+  `OPEN_QUESTIONS.md` (backlog C-07).

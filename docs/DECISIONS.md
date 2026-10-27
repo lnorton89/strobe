@@ -11759,6 +11759,158 @@ tab with the button. The save itself was not clicked in a live window
 **Would reopen:** wanting to save into a scene that changed while it was
 measured (then a merge, not a refusal).
 
+### D489: scene transitions change on a new song, heard or told (2026-10-26)
+
+**Context.** SSF scenes declare `HARD_TRANSITIONS` (a uniform that jumps to
+another listed value) and `SMOOTH_TRANSITIONS` (a one-hot family that
+crossfades to another member over `DURATION` seconds), both "when a
+significant song change is detected" (SSF's scene.json page). Strobe parsed
+and declared them (D196) but they kept their first value forever. Song
+changes were heard only inside a playlist show (D237). 23 of Synesthesia
+1.25.4's shipped scenes use them (counted on TORNADO's install).
+
+**Decision.**
+- **`strobe_scene::transition::Transitions`**, pure and allocation-free
+  after load, keeps the values. `fire` makes every hard transition jump to
+  another of its entries (never the one it is on, so a song change is never
+  invisible by chance; a value listed twice stays twice as likely) and
+  every family head for another member; `step(dt)` moves each member toward
+  its target at `1 / DURATION` per second, which is SSF's linear crossfade
+  when uninterrupted and turns around without a jump when a second change
+  comes mid-fade. A `DURATION` of 0 cuts; a missing one is 3 s, SSF's own
+  example; a negative one cuts. Values that are not finite are dropped. A
+  scene starts on its first value and first member, as before. The RNG is
+  xorshift64*, seeded from the clock at load.
+- **`SceneDef` keeps the structure** (`hard_transitions`, with each
+  uniform's slot and values; `smooth_transitions`, each family's first
+  slot, length and duration), not just the flattened uniforms.
+- **One ear for the whole app** (`strobe_app::song::SongWatch`): the
+  D237 detector moved out of the show into the app's frame, so a single
+  scene hears songs too. A song heard goes to the show when one is loaded
+  (`Show::song_changed`: the live scene's transitions, and the clock's
+  `audio-song` event as before) or straight to the playing session. Only
+  live audio counts and a source change resets it, unchanged.
+- **`new_song`**, a command (palette, MIDI, OSC, the output window; no
+  default key), says a new song started, for the tempo-matched mix with no
+  gap the detector cannot hear. It does everything a heard one does,
+  playlist cue included, with or without live audio.
+- The panel's Scene tab says "A new song gives it a new look" for a scene
+  that has something to change, with a **New song** button.
+
+**Test.** `strobe_scene::transition` (first values, every hard value comes
+up and never repeats, doubled values, the linear crossfade, a change
+mid-fade, cut and default durations, nothing to choose, same seed same
+looks); `song::tests` (synthetic audio hears nothing, the operator is
+believed once); `tests/transitions.rs` renders a hard and a smooth
+transition across a song change in both dialects, run on Mesa under WSL2
+with `STROBE_REQUIRE_HEADLESS_GL=1` on TORNADO (and on CI's Linux job).
+Not yet: real music, and Synesthesia itself side by side (Q33).
+
+**Would reopen:** Synesthesia randomising at load, repeating values, or
+using another default fade (Q33).
+
+### D490: crate READMEs' known gaps point at the backlog, and a test says so (2026-10-26)
+
+**Context.** The owner asked why several crates have a "Status and known
+gaps" section that is not backlog work. Those sections predate
+IMPLEMENTATION_BACKLOG.md as the one register, were kept crate by crate,
+and nothing tied them to it. Reading all fourteen found gaps tracked
+nowhere else (Shadertoy's unsupported inputs and the Needs-work bin, the
+unenforced conventions, the bench's placeholder audio and missing
+render-scale sweep, a real GPU reset, Linux on a real GPU, the Synesthesia
+questions as work) and stale claims: autocontrol's window mode "unverified"
+though the T480 ran it; xtask's release workflow "never run" though v0.2.0
+came from it; scene's function-like macro gap closed by D261; scene's
+`X_STROBE` "read by later phases" though D90 made extensions root keys;
+audio's "only real device" and "retry every 2 s" against the AMD desktop and
+D266; playlist's "still to do" list built long ago.
+
+**Decision.** The backlog stays the only register of open work, and a
+README's section is a view of it:
+- Every gap bullet names its item (`backlog X-NN`), an open question
+  (`Qnn`), or says "by design" beside its decision. Each section opens by
+  saying so.
+- New backlog items for what had none: C-07 (Synesthesia behaviour Strobe
+  assumes), I-06 (Shadertoy inputs, passes, the Needs-work bin), R-07 (a
+  real GPU reset), R-08 (Linux on a real GPU), D-05 (conventions not yet
+  enforced), D-06 (benchmark coverage); M-05 and R-03 brought up to date.
+- `strobe_conventions::known_gaps` fails the build for a gap bullet with no
+  pointer (a gap is a bullet with one of a short list of phrases: "not
+  built", "not yet", "unverified", "left:" ...) and for a cited backlog ID
+  that has no `### ` item.
+
+**Would reopen:** the phrase list catching honest status lines often
+enough to be noise; then a structured marker instead.
+
+### D491: credits on the About page, from a generated list CI checks (2026-10-26)
+
+**Context.** The owner asked for a Credits section on Settings > About: the
+contributors, the projects Strobe is built on with their licences,
+Synesthesia's SSF format and Shadertoy, and a way to see every third-party
+crate and its licence, generated rather than kept by hand. The release zip
+shipped no third-party notices, though the MIT, BSD and Apache licences of
+its dependencies ask for theirs to travel with a binary.
+
+**Decision.**
+- **One generated file, `THIRD_PARTY.md`**, at the repository root, written
+  by `cargo xtask credits` (`xtask::credits`). Contributors come from
+  `git log` through a new `.mailmap` that folds the owner's three
+  identities into one name; bots (`[bot]`) are left out and no address is
+  written; the Licensor named in `LICENSE` leads as author and maintainer,
+  everyone else follows in order of first commit, so the order never moves
+  as commits land. Crates are every registry package `strobe-app` reaches
+  through normal dependencies in `cargo metadata --filter-platform
+  x86_64-pc-windows-msvc`, the build that ships (247 today), one row per
+  name with its licence and repository and **no version**, so a patch bump
+  leaves the file alone and only a crate that arrives, leaves or changes
+  licence changes it. The ANGLE DLLs, the Direct3D compiler and the Vulkan
+  loader the zip carries are listed too, with the Electron version read
+  from `scripts/fetch-angle.ps1`.
+- **CI checks it.** `cargo xtask credits --check` runs in CI's changelog
+  job (the one with the whole history; a shallow checkout is refused with
+  a reason rather than read as fewer contributors) and as the last step of
+  `cargo xtask ci`. A dependency PR that adds a crate must regenerate it.
+- **The app compiles it in.** `ui::credits` reads its tables once
+  (`include_str!`, a `OnceLock`) and draws, after the build rows: Source
+  code and Licence rows in the first group (links to the repository and
+  `LICENSE`, the repository from the workspace manifest); Contributors;
+  Built on, eleven projects with a line on what each does for Strobe, their
+  licences taken from the generated table; Formats, crediting Synesthesia's
+  SSF as what Strobe plays (independent, not affiliated or endorsed) and
+  Shadertoy as what Import reads; and Crates, one row whose Show button
+  unfolds every crate with its licence. Which projects to name and what
+  they do is the one hand-written part; a test fails if a named crate
+  leaves the build. Links are quiet buttons that open the browser, not
+  accent text (branding.md section 6). Search finds Source code, Licence
+  and Every crate.
+- **The release ships the full notices.** `cargo xtask credits --notices
+  <file>` writes every shipped crate at its exact version with the full
+  text of each licence and notice file its package carries (at its top,
+  one folder down for a vendored C library such as QuickJS-ng, and the
+  text files beside bundled fonts), each distinct text once and referred to
+  by number, about 650 KB. A package that ships no licence file (egui's
+  crates publish without theirs) is pointed at the SPDX text of each
+  licence its manifest names. `release.yml` runs it and puts
+  `THIRD-PARTY-NOTICES.txt` and `THIRD_PARTY.md` in the zip beside
+  `LICENSES.chromium.html`. It is not committed: it is large and its
+  versions move with every bump.
+- **Claude** is credited as a contributor, by the name its commits carry:
+  it authored most of the history. The owner can drop or rename it with a
+  `.mailmap` line and a regeneration.
+
+**Test.** `credits::tests` (the table parser, the author first and no
+address, every named project still in the build);
+`the_about_page_credits_people_and_lists_every_crate_when_asked`; three
+About scenarios (folded, unfolded, unfolded and compact) in the shell's
+overflow and text-over-text checks at all ten sizes;
+`every_row_settings_search_finds_is_drawn_on_its_page`; `xtask::credits`
+unit tests; `cargo xtask credits --check`; `--notices` run on Windows. The
+links were not clicked in a live window (the tests cannot open a browser),
+and the release step has not run on a tag yet.
+
+**Would reopen:** a dependency churn rate that makes regenerating on every
+dependency PR a chore (then check only on release), or the owner wanting
+roles beyond author and contributor.
 
 ### D492: the SSF library computes what Synesthesia's engine computes, not what its documentation says (2026-10-26)
 
