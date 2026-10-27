@@ -435,32 +435,42 @@ vec4 _edgeDetectSobelMedia() {
 float syn_pass_edgeDetectSobel(sampler2D pass) { return _edgeDetectSobel(pass).r; }
 
 // ---------------------------------------------------------------- tilt shift
-// A separable Gaussian whose radius grows with distance from blurLoc along
-// the other axis. blurAmt sets the tap count (capped at 24 each side).
+// As Synesthesia's engine draws it (D494): `1 + 20 * blurAmt` taps each side
+// of the pixel, two output pixels apart, coordinates mirrored at the edges,
+// each weighted by exp(-d^2 / e), where e grows with the distance from
+// blurLoc along y: 40 * taps * (0.01 + |uv.y - blurLoc|)^2.3. The vertical
+// form steps along y but, as the engine does, measures its step in
+// RENDERSIZE.x and its distance from blurLoc along y too. GLSL ES needs a
+// constant loop bound, so the taps stop at STROBE_TILT_TAPS each side: the
+// engine's count at blurAmt 5, the default; above it Strobe blurs a little
+// less widely than the engine.
 
-vec4 strobe_tiltShift(sampler2D tex, vec2 uv, float blurAmt, float blurLoc, vec2 axis, float across) {
-    vec2 px = 1.0 / vec2(textureSize(tex, 0));
-    float radius = abs(across - blurLoc) * 2.0 * blurAmt;
-    float taps = clamp(radius, 0.0, 24.0);
-    vec4 sum = texture(tex, uv);
-    float weight = 1.0;
-    for (int i = 1; i <= 24; i++) {
-        if (float(i) > taps) { break; }
-        float w = exp(-float(i * i) / max(2.0 * taps * taps / 9.0, 0.0001));
-        sum += w * (texture(tex, uv + axis * px * float(i)) + texture(tex, uv - axis * px * float(i)));
-        weight += 2.0 * w;
+const int STROBE_TILT_TAPS = 101;
+
+vec4 strobe_tiltShift(sampler2D tex, vec2 uv, float blurAmt, float blurLoc, vec2 axis) {
+    int size = 1 + int(20.0 * blurAmt);
+    int reach = clamp(size, 0, STROBE_TILT_TAPS);
+    float spread = max(float(40 * size) * pow(0.01 + abs(uv.y - blurLoc), 2.3), 1e-6);
+    vec4 sum = vec4(0.0);
+    float total = 0.0;
+    for (int i = 0; i <= 2 * STROBE_TILT_TAPS; i++) {
+        if (i > 2 * reach) { break; }
+        float offset = 2.0 * float(i - reach);
+        float w = exp(-offset * offset / spread);
+        sum += w * texture(tex, _mirror(uv + axis * (offset / RENDERSIZE.x)));
+        total += w;
     }
-    return sum / weight;
+    return sum / total;
 }
 
-vec4 _hBlurTiltShift(sampler2D tex, vec2 uv, float blurAmt, float blurLoc) { return strobe_tiltShift(tex, uv, blurAmt, blurLoc, vec2(1.0, 0.0), uv.y); }
+vec4 _hBlurTiltShift(sampler2D tex, vec2 uv, float blurAmt, float blurLoc) { return strobe_tiltShift(tex, uv, blurAmt, blurLoc, vec2(1.0, 0.0)); }
 vec4 _hBlurTiltShift(sampler2D tex, vec2 uv, float blurAmt) { return _hBlurTiltShift(tex, uv, blurAmt, 0.5); }
 vec4 _hBlurTiltShift(sampler2D tex, vec2 uv) { return _hBlurTiltShift(tex, uv, 5.0, 0.5); }
 vec4 _hBlurTiltShift(sampler2D tex) { return _hBlurTiltShift(tex, _uv, 5.0, 0.5); }
 // The documentation's example calls the uv-less form.
 vec4 _hBlurTiltShift(sampler2D tex, float blurAmt, float blurLoc) { return _hBlurTiltShift(tex, _uv, blurAmt, blurLoc); }
 
-vec4 _vBlurTiltShift(sampler2D tex, vec2 uv, float blurAmt, float blurLoc) { return strobe_tiltShift(tex, uv, blurAmt, blurLoc, vec2(0.0, 1.0), uv.y); }
+vec4 _vBlurTiltShift(sampler2D tex, vec2 uv, float blurAmt, float blurLoc) { return strobe_tiltShift(tex, uv, blurAmt, blurLoc, vec2(0.0, 1.0)); }
 vec4 _vBlurTiltShift(sampler2D tex, vec2 uv, float blurAmt) { return _vBlurTiltShift(tex, uv, blurAmt, 0.5); }
 vec4 _vBlurTiltShift(sampler2D tex, vec2 uv) { return _vBlurTiltShift(tex, uv, 5.0, 0.5); }
 vec4 _vBlurTiltShift(sampler2D tex) { return _vBlurTiltShift(tex, _uv, 5.0, 0.5); }

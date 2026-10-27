@@ -291,6 +291,51 @@ fn a_resize_that_wipes_the_buffers_restarts_iframe_so_they_initialise_again() ->
 }
 
 #[test]
+fn a_resize_does_not_make_itime_jump_at_a_non_default_speed() -> Result<()> {
+    // Buffer A writes iTime / 2 and the Image shows it. At Speed 2 the
+    // clock runs ahead of TIME; a resize wipes Buffer A, and before D495
+    // it restarted the clock at TIME too, a visible jump back.
+    let json = serde_json::json!({
+        "ver": "0.1",
+        "info": { "id": "Tst101", "name": "resize-clock", "username": "strobe-tests" },
+        "renderpass": [
+            { "type": "buffer", "name": "Buffer A",
+              "code": "void mainImage(out vec4 c, in vec2 p) { c = vec4(iTime * 0.5, 0.0, 0.0, 1.0); }\n",
+              "inputs": [], "outputs": [ { "id": 257, "channel": 0 } ] },
+            { "type": "image", "name": "Image",
+              "code": "void mainImage(out vec4 c, in vec2 p) { c = texelFetch(iChannel0, ivec2(p), 0); }\n",
+              "inputs": [ { "id": 257, "ctype": "buffer", "channel": 0,
+                            "sampler": { "filter": "nearest", "wrap": "clamp", "vflip": "true",
+                                         "srgb": "false", "internal": "byte" } } ],
+              "outputs": [] }
+        ]
+    })
+    .to_string();
+    let (_, scene) = import_text(&json, "resize-clock")?;
+    for api in BOTH {
+        let Some(frame) = render(api, &scene, 31, full_precision(), |frame, tweaks| {
+            match frame {
+                0 => tweaks.control("st_speed", 2.0)?,
+                10 => tweaks.player.resize([SIZE[0] / 2, SIZE[1] / 2])?,
+                11 => tweaks.player.resize(SIZE)?,
+                _ => {}
+            }
+            Ok(())
+        })?
+        else {
+            continue;
+        };
+        // 30 steps of 1/60 s at Speed 2: iTime 1.0, shown as 0.5.
+        let got = frame.center()[0];
+        assert!(
+            near(got, 128),
+            "{api:?}: iTime should run on through the resize to 1.0 (128); got {got}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn reading_a_later_buffer_gives_the_previous_frame() -> Result<()> {
     // A = N/255. B reads A, which ran earlier this frame: N. D = C + 1/255.
     // C reads D, which runs *after* C, so it sees D's previous frame:
@@ -323,14 +368,16 @@ fn buffers_run_in_shadertoy_order_whatever_the_json_order() -> Result<()> {
             .cloned()
             .ok_or_else(|| anyhow!("no scene.json"))?,
     )?;
-    let order: Vec<usize> = ["st_clock", "st_buf_a", "st_buf_b", "st_buf_c", "st_buf_d"]
-        .iter()
-        .filter_map(|target| json.find(&format!("\"TARGET\": \"{target}\"")))
-        .collect();
-    assert_eq!(order.len(), 5, "all five passes listed");
+    let order: Vec<usize> = [
+        "st_clock", "st_frame", "st_buf_a", "st_buf_b", "st_buf_c", "st_buf_d",
+    ]
+    .iter()
+    .filter_map(|target| json.find(&format!("\"TARGET\": \"{target}\"")))
+    .collect();
+    assert_eq!(order.len(), 6, "all six passes listed");
     assert!(
         order.windows(2).all(|pair| pair[0] < pair[1]),
-        "listed as clock, A, B, C, D even though the export lists D first: {order:?}"
+        "listed as clock, frame, A, B, C, D even though the export lists D first: {order:?}"
     );
     Ok(())
 }
@@ -573,11 +620,12 @@ fn a_compile_error_in_a_buffer_names_its_file_and_maps_to_the_tab_line() -> Resu
         .err()
         .map(|e| e.to_string())
         .unwrap_or_default();
-    // The broken statement is on tab line 3 (the `{` is line 2).
+    // The broken statement is on tab line 3 (the `{` is line 2). Buffer A
+    // is pass 2, after the clock and frame passes (D495).
     let expected = format!("passes/buffer_a.glsl:{}", code_line + 2);
     assert!(
-        error.contains("pass 1") && error.contains(&expected),
-        "expected pass 1 and {expected}, got: {error}"
+        error.contains("pass 2") && error.contains(&expected),
+        "expected pass 2 and {expected}, got: {error}"
     );
     Ok(())
 }

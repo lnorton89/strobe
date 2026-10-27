@@ -12021,3 +12021,86 @@ gone stale (ANGLE on D3D11 only, no song changes or transitions).
 **Would reopen:** a diagram that has to change with every frame-path
 decision; then generate it from a source file instead of editing the SVG.
 
+### D494: the tilt-shift blur is the engine's, its taps capped for GLSL ES (2026-10-26)
+
+**Context.** D492 left `_hBlurTiltShift` / `_vBlurTiltShift` as Strobe's own
+(backlog C-08): a capped Gaussian whose radius grew with the distance from
+`blurLoc`, unlike the engine's. No shipped Synesthesia scene calls them, but
+a community scene that does should look as it does there.
+
+**Decision.** Re-implemented from the engine's behaviour, read from
+Synesthesia 1.25.4's installed binary as D492 was (behaviour recorded,
+nothing copied): `1 + int(20 * blurAmt)` taps each side, two output pixels
+apart; each coordinate mirrored back into the picture; weights
+`exp(-d^2 / e)` with `e = 40 * taps * (0.01 + |uv.y - blurLoc|)^2.3`,
+normalised. Both forms measure their step in `RENDERSIZE.x` and their
+distance from `blurLoc` along `uv.y`, as the engine does, odd as that is
+for the vertical one. GLSL ES needs a constant loop bound, so the taps stop
+at 101 each side (`STROBE_TILT_TAPS`), the engine's count at `blurAmt` 5,
+the default; above it Strobe blurs a little less widely. The weights still
+use the uncapped count, so up to the cap the result is the engine's.
+
+**Test.** `render.rs` `the_tilt_shift_blur_is_the_engines`: a step edge
+blurred far from `blurLoc` equals the formula computed in Rust, it is
+untouched at `blurLoc`, and the vertical form keeps a gradient; both
+dialects on Mesa (WSL2 on TORNADO).
+
+**Would reopen:** a scene that uses `blurAmt` above 5 and looks wrong.
+
+### D495: a Shadertoy import's iTime runs on through a resize (2026-10-26)
+
+**Context.** Backlog I-06: a `resize` (the live scene's render-scale
+change, D64) wiped an import's buffers and, with them, its `st_clock` pass
+(D287 restarts what a restarted pass reads), so `iTime` restarted at `TIME`:
+a visible jump back at any Speed but 1. Restarting `iFrame` is right there,
+since a buffer that initialises on `iFrame == 0` must start again; restarting
+`iTime` is not.
+
+**Decision.**
+- A new Strobe pass key, `KEEP_ON_RESIZE`: a pass with it is not restarted
+  because a restarted pass reads it, only if its own size changes.
+- The importer splits the clock in two passes from one file
+  (`passes/st_clock.glsl`, branching on `PASSINDEX`): `st_clock` holds the
+  scaled clock and is `KEEP_ON_RESIZE`; `st_frame` holds the frame `iFrame`
+  counts from and is not, so it restarts with the buffers that read it. It
+  also restarts when the clock does (a cue starting the scene again) and
+  when the frame count goes back. `iFrame` reads `st_frame`; `iTime`,
+  `iTimeDelta` and `iFrameRate` read `st_clock`.
+- Detecting a resize from the render size inside the clock was rejected: a
+  warmed scene growing into its cue (`resize_keeping`, D153) changes size
+  too, and keeps its buffers, so `iFrame` must not restart there.
+
+**Test.** `strobe-shadertoy` `a_resize_does_not_make_itime_jump_at_a_non_default_speed`
+(Speed 2, a resize down and back, `iTime` 1.0 at the end) beside the
+existing `a_resize_that_wipes_the_buffers_restarts_iframe_so_they_initialise_again`,
+both dialects on Mesa; the autocontrol golden files re-blessed for the new
+clock file.
+
+**Would reopen:** a scene format change that gives passes state outside
+their textures.
+
+### D496: the bench uploads the synthetic audio textures, and sweeps render scales (2026-10-26)
+
+**Context.** Backlog D-06: the bench uploaded no audio textures, so a scene
+that draws `syn_Spectrum` was timed drawing silence, and the render-scale
+sweep BENCHMARKS.md has wanted since the T480 run did not exist.
+
+**Decision.**
+- Each frame the bench fills `syn_Spectrum` (1024 texels) and
+  `syn_LevelTrail` (256, over 4 s) from the synthetic track, as the app
+  does without a device (`strobe_scene::synthetic::fill_textures`), and
+  uploads them inside the timed frame, as the app does. The sizes are the
+  app's defaults (strobe-audio's `Layout`, D269), kept as constants in the
+  bench rather than a dependency on the audio crate and its capture
+  libraries. Frames stay a pure function of time.
+- `--scales 1,0.75,0.5` (fractions of `--size`, 0.05 to 1) renders every
+  scene again at each scale. The first scale gives the frames, the contact
+  sheet and the main table; `results.md` adds a table of each scene's mean
+  frame time per scale and what the smallest saves.
+
+**Test.** The bench itself: CI's bench step renders the library with the
+textures; the sweep on TORNADO's GTX 1080 Ti is in BENCHMARKS.md.
+
+**Would reopen:** wanting the bench to time a real capture (then a recorded
+audio file, still deterministic).
+

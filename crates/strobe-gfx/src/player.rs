@@ -719,9 +719,9 @@ impl ScenePlayer {
     /// except for passes whose own size the resize does not change (a
     /// `FIXED_SIZE` or literal-size pass, D194), which keep their targets and
     /// what is in them (D287) unless a pass that does restart reads them: a
-    /// Shadertoy import's buffers read the `st_clock` pass for `iFrame`, and
+    /// Shadertoy import's buffers read the `st_frame` pass for `iFrame`, and
     /// buffers wiped to black need `iFrame` back at 0 to initialise again
-    /// (D91). A scene whose final pass is pinned (D280) draws at the same
+    /// (D91). A `KEEP_ON_RESIZE` pass keeps what it holds even then (D495). A scene whose final pass is pinned (D280) draws at the same
     /// size whatever it is asked, so for it this only records the request.
     /// On failure the player is unchanged.
     pub fn resize(&mut self, render_size: [i32; 2]) -> Result<(), PlayerError> {
@@ -772,8 +772,11 @@ impl ScenePlayer {
     /// by index: every pass whose size changes, the final pass, and every
     /// pass one of those (the final pass aside) reads, transitively. A pass
     /// whose state feeds a restarted pass restarts with it, so the two stay
-    /// consistent (D287): the `st_clock` behind a wiped Shadertoy buffer's
-    /// `iFrame` is the case that matters (D91). Runs once per resize.
+    /// consistent (D287): the `st_frame` behind a wiped Shadertoy buffer's
+    /// `iFrame` is the case that matters (D91). A `KEEP_ON_RESIZE` pass
+    /// whose size does not change is the exception (D495): a Shadertoy
+    /// import's `st_clock`, so `iTime` runs on through a resize. Runs once
+    /// per resize.
     fn passes_to_restart(&self, render_size: [i32; 2]) -> Vec<bool> {
         let last = self.def.final_pass();
         let max_edge = texture_limit(&self.caps);
@@ -795,6 +798,7 @@ impl ScenePlayer {
                 }
                 for (source, _) in &state.program.samplers {
                     if let Source::Pass(read) = *source
+                        && !self.def.passes.get(read).is_some_and(|p| p.keep_on_resize)
                         && let Some(flag) = restart.get_mut(read)
                         && !*flag
                     {

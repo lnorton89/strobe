@@ -86,6 +86,9 @@ pub struct PassDef {
     /// An absolute size in pixels that ignores the output size and render
     /// scale (`FIXED_SIZE`, D191), or `None` to follow [`Self::scale`].
     pub fixed: Option<[i32; 2]>,
+    /// `KEEP_ON_RESIZE` (D495): a resize that restarts the passes reading
+    /// this one does not restart it too, unless its own size changes.
+    pub keep_on_resize: bool,
 }
 
 /// An image file bound as a `sampler2D`.
@@ -281,6 +284,7 @@ impl SceneDef {
             filter: Filter::Linear,
             full_precision: false,
             fixed: None,
+            keep_on_resize: false,
         });
 
         let images = raw
@@ -575,6 +579,7 @@ fn pass_def(index: usize, raw: &RawPass, design: [f32; 2]) -> Result<PassDef, Sc
         wrap,
         filter,
         full_precision: raw.full_precision.unwrap_or(false),
+        keep_on_resize: raw.keep_on_resize.unwrap_or(false),
         // Literal pixel sizes are absolute, as in Synesthesia (D194); `$WIDTH`
         // and `$HEIGHT` expressions follow the output and the render scale
         // (D11). FIXED_SIZE overrides either way (D191).
