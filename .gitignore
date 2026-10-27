@@ -7,3 +7,6 @@
 # repository; a clone dropped inside a checkout must not be committable.
 /strobe-syn-corpus
 /result
+# Remote trust files (venue mode, D288) hold a secret that controls any Strobe
+# trusting them; one dropped in a checkout must never be committable.
+*.trust
