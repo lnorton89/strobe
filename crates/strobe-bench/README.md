@@ -70,7 +70,7 @@ On a Windows laptop whose driver exposes no EGL devices (the T480's Intel UHD
 
 ```powershell
 cargo run --release -p strobe-bench -- --context window --size 1280x720
-powershell -ExecutionPolicy Bypass -File scripts\fetch-angle.ps1   # once, for ANGLE
+# ANGLE's DLLs are fetched by the build when missing (D498)
 cargo run --release -p strobe-bench -- --context window --gl angle --size 1280x720
 ```
 

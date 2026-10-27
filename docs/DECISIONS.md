@@ -12156,6 +12156,49 @@ Windows.
 cached (then a counted, documented exemption here), or a second renderer
 (G-04) with its own objects.
 
+### D498: a Windows dev build fetches the pinned ANGLE DLLs itself when they are missing (2026-10-27, owner's choice)
+
+**Context.** The release zip has always shipped ANGLE (D12): the release
+workflow runs `scripts/fetch-angle.ps1`, which takes the DLLs from a pinned
+Electron 38.2.0 archive and checks every hash. A checkout did not: each new
+machine and each new profile needed the script run by hand, and on the
+T480, the mini PC and this desktop it was forgotten or had to be re-run.
+The owner asked for dev builds to do it themselves, with the same checks.
+
+**Decision.**
+- `strobe-gfx` gets a build script, since every binary that can open ANGLE
+  (app, bench, corpus, auto-controls) depends on that crate. On a Windows
+  host building for Windows, it finds the profile's output folder from
+  `OUT_DIR` and, if any of the four DLLs is missing there, runs
+  `fetch-angle.ps1 -Destination <folder>`. The script is unchanged apart
+  from that parameter, so the archive and each DLL are checked against the
+  same pinned hashes. The archive is cached in `target\angle\<version>`, so
+  a second profile copies without downloading.
+- A failed fetch never fails the build: ANGLE is the fallback, and native
+  GL works without it. It is a warning, which cargo repeats on every build
+  until ANGLE is there, naming the script and `cargo clean -p strobe-gfx`
+  to retry. Success prints nothing visible, because cargo would replay a
+  "fetched" warning on every later build.
+- It is skipped when `CI` is set (the release workflow fetches explicitly,
+  and the Windows test job needs no ANGLE) or `STROBE_NO_ANGLE_FETCH` is.
+- It watches no DLL path. A path built from `OUT_DIR` is absolute, and an
+  absolute path cargo records can read as changed from another shell and
+  rerun the script, relinking everything above it (D464). So the check runs
+  when the script runs (a fresh profile, a clean, a change to `build.rs`),
+  and after a version bump the script is run by hand.
+
+**Test.** On this desktop, which had never fetched ANGLE: the first
+`cargo build -p strobe-gfx` downloaded and placed all four DLLs (1 min 4 s),
+the next build was a no-op, and `strobe-bench --context window --gl
+angle-d3d11` rendered through them (`ANGLE (AMD, Radeon RX 580 Series ...
+Direct3D11 ...)`). With the script hidden, the build succeeded with the
+warning, repeated on the next build; restored and cleaned, it fetched again
+from the cache in seconds.
+
+**Would reopen:** a network download in a build being unwelcome somewhere
+(then `STROBE_NO_ANGLE_FETCH`, or an explicit `cargo xtask angle`), or a
+bundled ANGLE that is not from Electron.
+
 ### D499: `--diagnose` says where its report went without holding the process open (2026-10-27)
 
 **Context.** T480 Task 50 found that a release `strobe --diagnose` printed
