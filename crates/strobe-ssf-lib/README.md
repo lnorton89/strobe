@@ -75,8 +75,9 @@ variable turns a missing driver into a failure (CI's Linux job sets it).
   computes them (D492), which differ from its documentation in places:
   `_rotate` takes radians and turns clockwise, `_pulse`'s size is a
   half-width, `_toPolarTrue`'s angle is in turns, `_uv2uvc` has no aspect
-  correction, `_fbm` is not normalised. Only the tilt-shift blur is
-  Strobe's own.
+  correction, `_fbm` is not normalised. The tilt-shift blur follows the
+  engine too (D494), with its taps capped at 101 each side for GLSL ES's
+  constant loop bounds: the engine's count at `blurAmt` 5, the default.
   The renderer's tests lock Strobe's output.
 - **Re-implemented, not copied.** `src/lib.rs` says the functions are
   re-implemented from their documented signatures and behaviour.
