@@ -16,8 +16,9 @@
 //!
 //! - **Contributors** come from `git log` with the repository's `.mailmap`
 //!   (which folds one person's several identities into one name), oldest
-//!   first, so the order never changes as commits land. Bots (`[bot]`
-//!   names) are left out, and no address is written. The Licensor named in
+//!   first, so the order never changes as commits land. Tools are left
+//!   out: bots (`[bot]` in the name or address) and coding agents that
+//!   commit under their own address (D501). No address is written. The Licensor named in
 //!   `LICENSE` leads the list as its author and maintainer.
 //! - **Crates** are every registry package `strobe-app` links, resolved by
 //!   `cargo metadata` for [`TARGET`], the build that ships, so the list is
@@ -227,7 +228,7 @@ fn contributors() -> Result<Vec<(String, &'static str)>> {
         "log.mailmap=true",
         "log",
         "--reverse",
-        "--format=%aN",
+        "--format=%aN%x09%aE",
         "HEAD",
     ])?;
     let licence = std::fs::read_to_string("LICENSE").context("could not read LICENSE")?;
@@ -239,8 +240,10 @@ fn contributors() -> Result<Vec<(String, &'static str)>> {
         .to_owned();
     let mut people = vec![(owner.clone(), "Author and maintainer")];
     let mut named = BTreeSet::from([owner]);
-    for name in log.lines().map(str::trim) {
-        if name.is_empty() || name.to_ascii_lowercase().ends_with("[bot]") {
+    for line in log.lines() {
+        let (name, email) = line.split_once('\t').unwrap_or((line, ""));
+        let name = name.trim();
+        if name.is_empty() || is_automated(name, email) {
             continue;
         }
         if named.insert(name.to_owned()) {
@@ -248,6 +251,21 @@ fn contributors() -> Result<Vec<(String, &'static str)>> {
         }
     }
     Ok(people)
+}
+
+/// Commit identities that are tools, not people: a GitHub App or bot
+/// (`dependabot[bot]`, `github-actions[bot]`), or a coding agent that commits
+/// under its own address. The About page credits the people who made
+/// Strobe; a tool a person ran is that person's work (D501).
+const AUTOMATED_EMAILS: [&str; 1] = ["noreply@anthropic.com"];
+
+/// Whether `name <email>` is a tool rather than a person: `[bot]` in either,
+/// or one of [`AUTOMATED_EMAILS`]. A person's GitHub noreply address
+/// (`123+name@users.noreply.github.com`) is a person.
+fn is_automated(name: &str, email: &str) -> bool {
+    let name = name.trim().to_ascii_lowercase();
+    let email = email.trim().to_ascii_lowercase();
+    name.ends_with("[bot]") || email.contains("[bot]") || AUTOMATED_EMAILS.contains(&email.as_str())
 }
 
 /// Stdout of `git <args>`.
@@ -529,6 +547,38 @@ mod tests {
             "MIT / Apache-2.0",
             "folded and escaped"
         );
+    }
+
+    #[test]
+    fn bots_and_coding_agents_are_not_contributors() {
+        for (name, email) in [
+            (
+                "dependabot[bot]",
+                "49699333+dependabot[bot]@users.noreply.github.com",
+            ),
+            (
+                "github-actions[bot]",
+                "41898282+github-actions[bot]@users.noreply.github.com",
+            ),
+            ("Claude", "noreply@anthropic.com"),
+            ("Claude", "NoReply@Anthropic.com "),
+            (
+                "renovate",
+                "29139614+renovate[bot]@users.noreply.github.com",
+            ),
+        ] {
+            assert!(is_automated(name, email), "{name} <{email}> is a tool");
+        }
+        for (name, email) in [
+            ("Lawrence Norton", "lnorton89@gmail.com"),
+            (
+                "Lawrence Norton",
+                "537513+lnorton89@users.noreply.github.com",
+            ),
+            ("Claude Monet", "claude@example.org"),
+        ] {
+            assert!(!is_automated(name, email), "{name} <{email}> is a person");
+        }
     }
 
     #[test]
