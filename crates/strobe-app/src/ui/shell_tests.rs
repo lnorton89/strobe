@@ -726,17 +726,28 @@ fn scenarios() -> Vec<Scenario> {
 /// a phone waiting for approval and two paired. With `desktop`, a full
 /// desktop is waiting instead and another holds the controls (D275).
 fn sample_lan(on: bool, desktop: bool) -> crate::lan::LanView {
-    use strobe_remote::clients::ClientInfo;
-    let phone = |id: &str, label: &str| ClientInfo {
+    use strobe_remote::clients::{Access, ClientInfo};
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_secs());
+    // A phone that asked as `name` from `platform` at `address` (D500).
+    let phone = |id: &str, name: &str, platform: &str, address: [u8; 4]| ClientInfo {
         id: id.to_string(),
-        label: label.to_string(),
-        paired_at: 0,
-        last_seen: 0,
+        label: format!("{name}, {platform} at {}", std::net::IpAddr::from(address)),
+        name: Some(name.to_string()),
+        platform: Some(platform.to_string()),
+        address: Some(std::net::IpAddr::from(address)),
+        access: Access::Phone,
+        paired_at: now.saturating_sub(3 * 86_400),
+        last_seen: now.saturating_sub(25 * 60),
     };
     if !on {
         return crate::lan::LanView {
             note: "Off".to_string(),
-            clients: vec![(phone("c00000001", "iPhone at 192.168.1.23"), false)],
+            clients: vec![(
+                phone("c00000001", "Lighting desk", "iPhone", [192, 168, 1, 23]),
+                false,
+            )],
             name: "STAGE-PC".to_string(),
             ..crate::lan::LanView::default()
         };
@@ -761,8 +772,14 @@ fn sample_lan(on: bool, desktop: bool) -> crate::lan::LanView {
             decision: strobe_remote::pairing::Decision::Waiting,
         }],
         clients: vec![
-            (phone("c00000001", "iPhone at 192.168.1.23"), true),
-            (phone("c00000002", "iPad at 192.168.1.24"), false),
+            (
+                phone("c00000001", "Lighting desk", "iPhone", [192, 168, 1, 23]),
+                true,
+            ),
+            (
+                phone("c00000002", "Ana's iPad", "iPad", [192, 168, 1, 24]),
+                false,
+            ),
         ],
         connected: 2,
         desktop_controlled: desktop,

@@ -2,11 +2,11 @@
 // Module:       strobe_app::ui::lan
 // Description:  Settings' Remote page: let others connect (the LAN remote,
 //               found by other Strobes, each request approved or denied),
-//               the paired devices, the Strobes on the network to control,
-//               and the address and port.
+//               the paired devices and what tells them apart, the Strobes
+//               on the network to control, and the address and port.
 //
 // Dependencies: egui; super::{form, model, theme, widgets}; crate::{icon,
-//               lan, palette}; strobe-remote (discovery)
+//               lan, palette}; strobe-remote (discovery, clients); std::time
 // ============================================================================
 
 //! The LAN remote (L-03, L-06, D254) and controlling another Strobe (D275),
@@ -37,6 +37,8 @@ use super::widgets::{self, Tone};
 use crate::icon::Icon;
 use crate::palette::Palette;
 use egui::Ui;
+use std::time::{SystemTime, UNIX_EPOCH};
+use strobe_remote::clients::{Access, ClientInfo};
 
 // Row titles, also their entries in Settings' search.
 
@@ -190,23 +192,20 @@ fn paired(ui: &mut Ui, theme: &Palette, panel: &LanPanel<'_>, actions: &mut Vec<
             });
             return;
         }
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |since| since.as_secs());
         for (client, connected) in &view.clients {
-            let trusted = client
-                .label
-                .starts_with(strobe_remote::desktop::TRUSTED_LABEL_PREFIX);
-            let shown = client
-                .label
-                .strip_prefix(strobe_remote::desktop::LABEL_PREFIX)
-                .unwrap_or(&client.label);
-            let mut row = Row::new(shown);
-            if *connected {
-                row = row.status(Icon::Check, "connected", theme.success);
-            }
-            if trusted {
-                row = row.description("Trusted: holds this host's venue trust file.");
-            } else if shown.len() != client.label.len() {
-                row = row.description("Full desktop control.");
-            }
+            let words = DeviceWords::of(client, *connected, now);
+            let (icon, word, colour) = if *connected {
+                (Icon::Check, "Connected", theme.success)
+            } else {
+                (Icon::Info, "Not connected", theme.text_muted)
+            };
+            let row = Row::new(&words.title)
+                .status(icon, word, colour)
+                .description(&words.what)
+                .note(&words.when, theme.text_muted);
             group.row(row, |ui| {
                 if widgets::button(ui, theme, Some(Icon::Close), "Revoke")
                     .on_hover_text(
@@ -227,6 +226,73 @@ fn paired(ui: &mut Ui, theme: &Palette, panel: &LanPanel<'_>, actions: &mut Vec<
             },
         );
     });
+}
+
+/// What a paired device's row says, enough to tell it from the others and
+/// decide whether to revoke it (D500).
+#[derive(Debug, PartialEq, Eq)]
+struct DeviceWords {
+    /// The name it asked under (a desktop's is its computer's name), or
+    /// its platform when it gave none.
+    title: String,
+    /// What kind of client it is and the address it last came from.
+    what: String,
+    /// When it paired and when it was last seen.
+    when: String,
+}
+
+impl DeviceWords {
+    /// `client`'s words at `now`, in seconds since 1970.
+    fn of(client: &ClientInfo, connected: bool, now: u64) -> Self {
+        let platform = client.platform.as_deref();
+        let title = client
+            .name
+            .as_deref()
+            .or(platform)
+            .unwrap_or(&client.label)
+            .to_string();
+        let kind = match client.access {
+            Access::Phone => match platform.filter(|_| client.name.is_some()) {
+                Some(platform) => format!("Phone remote on {platform}"),
+                None => "Phone remote".to_string(),
+            },
+            Access::Desktop => "Strobe desktop, full control".to_string(),
+            Access::Trusted => "Strobe desktop, trusted by the venue file".to_string(),
+        };
+        let address = client
+            .address
+            .map_or_else(|| "address unknown".to_string(), |a| a.to_string());
+        let seen = if connected {
+            "now".to_string()
+        } else {
+            ago(client.last_seen, now)
+        };
+        Self {
+            title,
+            what: format!("{kind} · {address}"),
+            when: format!("Paired {} · last seen {seen}", ago(client.paired_at, now)),
+        }
+    }
+}
+
+/// How long before `now` the moment `then` was, in words: `5 minutes ago`.
+/// Both are seconds since 1970; a moment after `now` (the clock was set
+/// back) is `just now`.
+fn ago(then: u64, now: u64) -> String {
+    const MINUTE: u64 = 60;
+    const HOUR: u64 = 60 * MINUTE;
+    const DAY: u64 = 24 * HOUR;
+    let plural =
+        |count: u64, unit: &str| format!("{count} {unit}{} ago", if count == 1 { "" } else { "s" });
+    match now.saturating_sub(then) {
+        elapsed if elapsed < MINUTE => "just now".to_string(),
+        elapsed if elapsed < HOUR => plural(elapsed / MINUTE, "minute"),
+        elapsed if elapsed < DAY => plural(elapsed / HOUR, "hour"),
+        elapsed if elapsed < 2 * DAY => "yesterday".to_string(),
+        elapsed if elapsed < 60 * DAY => plural(elapsed / DAY, "day"),
+        elapsed if elapsed < 730 * DAY => plural(elapsed / (30 * DAY), "month"),
+        elapsed => plural(elapsed / (365 * DAY), "year"),
+    }
 }
 
 /// "Control another Strobe": the Strobes found on the network, each with
@@ -381,4 +447,102 @@ pub fn network(ui: &mut Ui, theme: &Palette, panel: &mut LanPanel<'_>) {
             form::field(ui, theme, panel.port, "47812", FIELD / 2.0);
         });
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::IpAddr;
+
+    /// 2026-10-27 12:00 UTC.
+    const NOW: u64 = 1_793_102_400;
+
+    fn client(name: Option<&str>, platform: Option<&str>, access: Access) -> ClientInfo {
+        ClientInfo {
+            id: "c00000001".into(),
+            label: "Windows at 10.1.10.124".into(),
+            name: name.map(str::to_owned),
+            platform: platform.map(str::to_owned),
+            address: Some(IpAddr::from([10, 1, 10, 124])),
+            access,
+            paired_at: NOW - 3 * 86_400,
+            last_seen: NOW - 5 * 60,
+        }
+    }
+
+    #[test]
+    fn a_row_names_the_device_its_kind_address_and_times() {
+        assert_eq!(
+            DeviceWords::of(
+                &client(Some("Ana's iPad"), Some("iPhone"), Access::Phone),
+                false,
+                NOW
+            ),
+            DeviceWords {
+                title: "Ana's iPad".into(),
+                what: "Phone remote on iPhone · 10.1.10.124".into(),
+                when: "Paired 3 days ago · last seen 5 minutes ago".into(),
+            },
+            "a phone that gave a name"
+        );
+        assert_eq!(
+            DeviceWords::of(&client(None, Some("Windows"), Access::Phone), true, NOW),
+            DeviceWords {
+                title: "Windows".into(),
+                what: "Phone remote · 10.1.10.124".into(),
+                when: "Paired 3 days ago · last seen now".into(),
+            },
+            "the owner's row from before names were kept, connected"
+        );
+        let desktop = DeviceWords::of(
+            &client(
+                Some("FOH-LAPTOP-1a2b3c4d"),
+                Some("Strobe desktop"),
+                Access::Desktop,
+            ),
+            false,
+            NOW,
+        );
+        assert_eq!(
+            (desktop.title.as_str(), desktop.what.as_str()),
+            (
+                "FOH-LAPTOP-1a2b3c4d",
+                "Strobe desktop, full control · 10.1.10.124"
+            ),
+            "a desktop by its computer's name"
+        );
+        let trusted = DeviceWords::of(&client(Some("venue"), None, Access::Trusted), false, NOW);
+        assert!(
+            trusted.what.starts_with("Strobe desktop, trusted"),
+            "a trusted controller says so: {}",
+            trusted.what
+        );
+        let mut bare = client(None, None, Access::Phone);
+        bare.address = None;
+        let bare = DeviceWords::of(&bare, false, NOW);
+        assert_eq!(
+            (bare.title.as_str(), bare.what.as_str()),
+            ("Windows at 10.1.10.124", "Phone remote · address unknown"),
+            "nothing known: the label it was approved under"
+        );
+    }
+
+    #[test]
+    fn times_read_as_how_long_ago() {
+        for (elapsed, words) in [
+            (0, "just now"),
+            (59, "just now"),
+            (60, "1 minute ago"),
+            (3_599, "59 minutes ago"),
+            (3_600, "1 hour ago"),
+            (86_399, "23 hours ago"),
+            (86_400, "yesterday"),
+            (2 * 86_400, "2 days ago"),
+            (90 * 86_400, "3 months ago"),
+            (800 * 86_400, "2 years ago"),
+        ] {
+            assert_eq!(ago(NOW - elapsed, NOW), words, "{elapsed} s");
+        }
+        assert_eq!(ago(NOW + 100, NOW), "just now", "a clock set back");
+    }
 }

@@ -593,6 +593,23 @@ fn a_phone_asks_with_a_name_and_the_host_approves_it_with_no_code() -> Result<()
     );
     // It keeps its pairing like any phone: the token authenticates later.
     let (_, _rotated) = authenticate(&rig, &token)?;
+    // The Paired devices list tells it apart by what it asked under (D500).
+    let listed = rig.clients.list();
+    let [client] = listed.as_slice() else {
+        anyhow::bail!("one paired client: {listed:?}");
+    };
+    ensure!(
+        client.name.as_deref() == Some("Ana's iPad")
+            && client.platform.as_deref() == Some("iPhone")
+            && client.address == Some(IpAddr::from([127, 0, 0, 1]))
+            && client.access == strobe_remote::clients::Access::Phone
+            && client.label == "Ana's iPad, iPhone at 127.0.0.1",
+        "the name it gave, its kind and address, as approved: {client:?}"
+    );
+    ensure!(
+        !format!("{listed:?}").contains(&token),
+        "no token in what the desktop lists"
+    );
     // A name the protocol does not allow is refused before the operator.
     let mut bad = open(&rig)?;
     bad.hello()?;
