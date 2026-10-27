@@ -34,8 +34,7 @@ starts there.
 
 ```powershell
 cargo run --release -p strobe-bench -- --context window --size 1280x720
-# ANGLE (GLES 3.0 on Direct3D 11): fetch its DLLs once, then
-powershell -ExecutionPolicy Bypass -File scripts\fetch-angle.ps1
+# ANGLE (GLES 3.0 on Direct3D 11): the build fetches its DLLs (D498)
 cargo run --release -p strobe-bench -- --context window --gl angle --size 1280x720
 ```
 
