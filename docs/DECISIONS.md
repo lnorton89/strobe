@@ -12198,3 +12198,29 @@ from the cache in seconds.
 **Would reopen:** a network download in a build being unwelcome somewhere
 (then `STROBE_NO_ANGLE_FETCH`, or an explicit `cargo xtask angle`), or a
 bundled ANGLE that is not from Electron.
+
+### D499: `--diagnose` says where its report went without holding the process open (2026-10-27)
+
+**Context.** T480 Task 50 found that a release `strobe --diagnose` printed
+and saved its report and then never exited: no window, 0% CPU, until it was
+killed. A build without debug assertions (`release`, and `release-fast`)
+ended with `dialog::show_error`, a modal box raised by a hidden PowerShell
+and waited on. Nothing about the process showed the box, because the box
+belongs to `powershell.exe`, so anyone (or any script) who could not see it
+saw a hung process. It also showed an error icon for news that is not a
+failure.
+
+**Decision.** `dialog::show_notice` raises the same box with the
+information icon and does not wait: `strobe.exe` exits as soon as the report
+is saved, and the box stays up on its own until it is dismissed. The same
+guards apply as for `show_error`: logged only in an unattended run, off
+Windows, or in a session nobody sees (M2). Failures keep `show_error`,
+which still waits, because the process must not exit before the person has
+read why.
+
+**Test.** `dialog::tests::a_notice_is_information_and_a_failure_is_an_error`
+checks the scripts. On the desktop, `release-fast` `strobe.exe --diagnose`
+started with `Start-Process` exited with 0 in under a second, leaving one
+PowerShell box with the information icon.
+
+**Would reopen:** a notice that needs an answer (then it is not a notice).
