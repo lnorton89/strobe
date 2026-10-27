@@ -15,6 +15,8 @@
 //!   pointer uniforms it and the shaders read.
 //! - [`audio`]: live capture or synthetic audio, and its settings.
 //! - [`session`]: the one active scene and the render-scale arithmetic.
+//! - [`song`]: hearing a new song once a frame (or the operator saying so),
+//!   for a scene's transitions and a playlist's `audio-song` cues (D489).
 //! - [`ui`]: the control window's panels (Contextual Perform, D120), as a
 //!   function of a model.
 //! - The UI system ported from rustaman (D5, D130): [`color`] and
@@ -87,6 +89,7 @@ pub mod script;
 pub mod session;
 pub mod show;
 pub mod snapshot;
+pub mod song;
 pub mod stats;
 pub mod trusted;
 pub mod ui;

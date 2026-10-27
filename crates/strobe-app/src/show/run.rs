@@ -62,7 +62,6 @@ use crate::library::Library;
 use crate::session::{SceneClock, Session};
 use std::path::{Path, PathBuf};
 use strobe_audio::events::{Event, EventDetector};
-use strobe_audio::song::SongDetector;
 use strobe_diag::failure::{self, Failure, Subsystem};
 use strobe_gfx::gl::Gl;
 use strobe_gfx::{Blend, Caps, Compositor, MediaRequest, Mouse};
@@ -209,10 +208,6 @@ pub struct Show {
     /// Breakdowns and drops heard in the audio, for cues that advance on
     /// them (D226).
     structure: EventDetector,
-    /// Hears the next track start (D237).
-    song: SongDetector,
-    /// The audio source the song detector last heard; a change resets it.
-    song_source: Option<crate::audio::Source>,
     /// The show's own clock, which the audio the playlist hears is
     /// evaluated at: summed in `f64`, as a scene's is (D392).
     show_time: SceneClock,
@@ -284,8 +279,6 @@ impl Show {
             composited: false,
             reader: BeatReader::new(),
             structure: EventDetector::default(),
-            song: SongDetector::new(),
-            song_source: None,
             show_time: SceneClock::at(0.0),
             events: Vec::with_capacity(64),
             waiting: None,
@@ -753,10 +746,8 @@ impl Show {
             let frame = env.audio.frame_at(self.show_time.seconds());
             let beat = self.reader.read(&frame.scalars, frame.downbeat);
             let [whole, bass] = frame.energy;
-            let source = env.audio.source();
             self.clock.tick(f64::from(wall), &beat);
             self.hear(wall, whole, bass);
-            self.hear_song(wall, whole, &beat, source);
         }
 
         self.events.clear();
@@ -858,35 +849,23 @@ impl Show {
         );
     }
 
-    /// Listens for the next track and hands it to the clock (D237). Only
-    /// live audio counts, and any change of source (a device lost, the
-    /// synthetic fallback, a device back) starts the detector over, so a
-    /// reconnect is never a song change.
-    fn hear_song(
-        &mut self,
-        dt: f32,
-        whole: f32,
-        beat: &strobe_playlist::BeatInfo,
-        source: crate::audio::Source,
-    ) {
-        if self.song_source != Some(source) {
-            self.song_source = Some(source);
-            self.song.reset();
+    /// A new song started, heard or said ([`crate::song`]): the live scene
+    /// changes its transitions (D489), and the clock ends a cue that waits
+    /// for a new song (D237). A show still loading, or waiting for its
+    /// anchor, has no cue to end.
+    pub fn song_changed(&mut self, env: &mut Env<'_>) {
+        if let Some(session) = env.active.as_mut() {
+            session.song_change();
         }
-        match source {
-            crate::audio::Source::Live => {}
-            crate::audio::Source::Synthetic => return,
-        }
-        if !self.song.step(dt, whole, beat.bpm, beat.confidence) {
+        if self.phase != Phase::Ready || self.waiting.is_some() {
             return;
         }
-        let moved = self
+        if self
             .clock
-            .apply(Command::AudioEvent(AudioEventKind::SongChange));
-        log::info!(
-            "audio: a new song{}",
-            if moved { "; the cue moves on" } else { "" }
-        );
+            .apply(Command::AudioEvent(AudioEventKind::SongChange))
+        {
+            log::info!("the cue moves on for the new song");
+        }
     }
 
     /// While the show waits for its anchor, asks the wall clock each frame

@@ -239,6 +239,7 @@ pub fn run(command: CommandId, model: &mut Model<'_>, actions: &mut Vec<Action>)
         CommandId::BlackoutOff => actions.push(Action::SetBlackout(false)),
         CommandId::ToggleFullscreen => actions.push(Action::ToggleFullscreen),
         CommandId::TapTempo => actions.push(Action::TapTempo),
+        CommandId::NewSong => actions.push(Action::NewSong),
         CommandId::FocusBrowserSearch => {
             model.ui.panes.open(Pane::Browser);
             model.ui.browser.focus_search = true;
