@@ -15,8 +15,9 @@
 //! the two disagree the engine wins, because real scenes are tuned against
 //! it: `_rotate` takes radians and turns clockwise, `_pulse`'s size is a
 //! half-width, `_toPolarTrue`'s angle is in turns. The contract is that
-//! behaviour (units, ranges, shapes, argument order); only the tilt-shift
-//! blur is Strobe's own, and the renderer's tests lock Strobe's output.
+//! behaviour (units, ranges, shapes, argument order), the tilt-shift blur
+//! included (D494, its taps capped for GLSL ES), and the renderer's tests
+//! lock Strobe's output.
 //!
 //! ## One source, two dialects
 //!

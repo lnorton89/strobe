@@ -23,7 +23,13 @@
 //! Frames are a pure function of time (fixed `dt`, synthetic audio), so
 //! two runs on one machine render identical images — which is what makes
 //! the PNGs usable as a visual regression check, and the timings
-//! comparable across a change.
+//! comparable across a change. The synthetic track drives the audio
+//! textures too (`syn_Spectrum`, `syn_LevelTrail`), at the app's sizes, and
+//! their upload is timed as part of the frame, as it is in the app (D496).
+//!
+//! `--scales 1,0.75,0.5` renders every scene again at each render scale and
+//! adds a table of frame times per scale: the lever adaptive resolution
+//! pulls on an old laptop (D64), measured.
 //!
 //! ## Which context
 //!
@@ -57,7 +63,8 @@ use std::time::Instant;
 use strobe_gfx::gl::Gl;
 use strobe_gfx::offscreen::{self, ContextMode, Request};
 use strobe_gfx::{
-    Api, Backend, Caps, FloatPrecision, FrameInputs, GlChoice, Mouse, Options, ScenePlayer,
+    Api, AudioTextures, Backend, Caps, FloatPrecision, FrameInputs, GlChoice, Mouse, Options,
+    ScenePlayer,
 };
 use strobe_scene::SceneFolder;
 use strobe_scene::audio::SCALARS;
@@ -82,6 +89,12 @@ struct Cli {
     /// Untimed frames first, so feedback scenes have history.
     #[arg(long, default_value_t = 90)]
     warmup: u32,
+    /// Render scales to time every scene at, comma-separated, as fractions
+    /// of `--size` (`1,0.75,0.5`). The first gives the frames, the contact
+    /// sheet and the main table; with more than one, `results.md` adds a
+    /// table of each scene's mean frame time per scale.
+    #[arg(long, default_value = "1")]
+    scales: String,
     /// Seconds of scene time at the first frame.
     #[arg(long, default_value_t = 2.0)]
     start: f32,
@@ -225,6 +238,7 @@ fn main() -> Result<()> {
         max_file_bytes: strobe_diag::logger::MAX_FILE_BYTES,
     });
     let size = parse_size(&cli.size)?;
+    let scales = parse_scales(&cli.scales)?;
     let window_size = cli
         .window_size
         .as_deref()
@@ -241,13 +255,20 @@ fn main() -> Result<()> {
     offscreen::run(
         &request,
         |why| println!("{why}"),
-        |gl, caps, context| run(gl, caps, context, size, &cli),
+        |gl, caps, context| run(gl, caps, context, size, &scales, &cli),
     )?
 }
 
 /// The benchmark proper, on whichever context is current. `context`
 /// says where the context came from, for the report.
-fn run(gl: &Gl, caps: &Caps, context: &str, size: [i32; 2], cli: &Cli) -> Result<()> {
+fn run(
+    gl: &Gl,
+    caps: &Caps,
+    context: &str,
+    size: [i32; 2],
+    scales: &[f32],
+    cli: &Cli,
+) -> Result<()> {
     let options = Options {
         specialise_passes: !cli.shared,
         float_precision: if cli.full {
@@ -302,6 +323,7 @@ fn run(gl: &Gl, caps: &Caps, context: &str, size: [i32; 2], cli: &Cli) -> Result
         };
     }
     let mut rows = Vec::new();
+    let mut sweep: Vec<(String, Vec<Option<f64>>)> = Vec::new();
     for dir in strobe_scene::load::scan(&cli.library)? {
         let name = strobe_scene::load::folder_title(&dir);
         if cli
@@ -311,7 +333,15 @@ fn run(gl: &Gl, caps: &Caps, context: &str, size: [i32; 2], cli: &Cli) -> Result
         {
             continue;
         }
-        let row = bench_scene(gl, caps, &dir, &name, size, options, cli);
+        let row = bench_scene(gl, caps, &dir, &name, scaled(size, scales[0]), options, cli);
+        if scales.len() > 1 {
+            let mut means = vec![row.error.is_none().then_some(row.mean_ms)];
+            for &scale in &scales[1..] {
+                let at = bench_scene(gl, caps, &dir, &name, scaled(size, scale), options, cli);
+                means.push(at.error.is_none().then_some(at.mean_ms));
+            }
+            sweep.push((name.clone(), means));
+        }
         match &row.error {
             Some(error) => println!("{name:<28} FAILED: {error}"),
             None => println!(
@@ -336,7 +366,10 @@ fn run(gl: &Gl, caps: &Caps, context: &str, size: [i32; 2], cli: &Cli) -> Result
         println!("\nGL trace (STROBE_GL_TRACE):\n{trace}");
     }
     write_contact_sheet(&rows, &cli.out.join("contact-sheet.png"))?;
-    let report = report(&rows, caps, context, size, options, cli);
+    let mut report = report(&rows, caps, context, scaled(size, scales[0]), options, cli);
+    if scales.len() > 1 {
+        report.push_str(&sweep_table(&sweep, scales, size));
+    }
     std::fs::write(cli.out.join("results.md"), &report)?;
     println!("\nwrote {}", cli.out.display());
     // Every frame and the report are written first, so a failing run still
@@ -378,6 +411,73 @@ fn is_black(image: &image::RgbaImage) -> bool {
     image
         .pixels()
         .all(|pixel| pixel.0[..3].iter().all(|&c| c == 0))
+}
+
+/// `--scales`: fractions of the size, each in `0.05..=1` (a scale above 1
+/// is a bigger `--size`).
+fn parse_scales(text: &str) -> Result<Vec<f32>> {
+    let scales = text
+        .split(',')
+        .map(|part| {
+            let scale: f32 = part.trim().parse()?;
+            if (0.05..=1.0).contains(&scale) {
+                Ok(scale)
+            } else {
+                Err(anyhow!("a scale must be between 0.05 and 1, got {scale}"))
+            }
+        })
+        .collect::<Result<Vec<_>>>()?;
+    if scales.is_empty() {
+        return Err(anyhow!("--scales needs at least one scale"));
+    }
+    Ok(scales)
+}
+
+/// `size` times `scale`, each edge at least one pixel.
+fn scaled(size: [i32; 2], scale: f32) -> [i32; 2] {
+    size.map(|edge| ((edge as f32 * scale).round() as i32).max(1))
+}
+
+/// The render-scale sweep as a Markdown table: each scene's mean frame
+/// time at each scale, and what the smallest saves against the first.
+fn sweep_table(sweep: &[(String, Vec<Option<f64>>)], scales: &[f32], size: [i32; 2]) -> String {
+    let mut out = String::new();
+    let _ = writeln!(
+        out,
+        "\n## Render-scale sweep\n\nMean ms per frame at each render scale of {}x{}.\n",
+        size[0], size[1]
+    );
+    let mut header = String::from("| Scene |");
+    let mut rule = String::from("|---|");
+    for &scale in scales {
+        let [w, h] = scaled(size, scale);
+        let _ = write!(header, " {scale} ({w}x{h}) |");
+        rule.push_str("---:|");
+    }
+    let _ = writeln!(out, "{header} Saved |");
+    let _ = writeln!(out, "{rule}---:|");
+    for (name, means) in sweep {
+        let mut line = format!("| {name} |");
+        for mean in means {
+            match mean {
+                Some(ms) => {
+                    let _ = write!(line, " {ms:.2} |");
+                }
+                None => line.push_str(" failed |"),
+            }
+        }
+        let saved = match (
+            means.first().copied().flatten(),
+            means.last().copied().flatten(),
+        ) {
+            (Some(first), Some(last)) if first > 0.0 => {
+                format!("{:.0}%", (1.0 - last / first) * 100.0)
+            }
+            _ => "n/a".to_string(),
+        };
+        let _ = writeln!(out, "{line} {saved} |");
+    }
+    out
 }
 
 fn parse_size(text: &str) -> Result<[i32; 2]> {
@@ -430,14 +530,33 @@ fn bench_scene(
     gl.finish();
     let compile_ms = compile_start.elapsed().as_secs_f64() * 1000.0;
 
+    // The app's audio texture sizes (strobe-audio's default layout, D269),
+    // filled from the synthetic track as the app fills them without a
+    // device, so a scene that draws the spectrum is timed drawing one.
+    const SPECTRUM_TEXELS: usize = 1024;
+    const TRAIL_TEXELS: usize = 256;
+    const TRAIL_SECONDS: f32 = 4.0;
     let mut audio = vec![0.0; SCALARS.len()];
+    let mut spectrum = vec![[0.0_f32; 4]; SPECTRUM_TEXELS];
+    let mut level_trail = vec![[0.0_f32; 4]; TRAIL_TEXELS];
     let dt = 1.0 / 60.0;
     let mut times = Vec::with_capacity(cli.frames as usize);
     for frame in 0..u64::from(cli.warmup + cli.frames) {
         let time = cli.start + frame as f32 * dt;
         strobe_scene::synthetic::fill(time, &mut audio);
+        strobe_scene::synthetic::fill_textures(
+            time,
+            &mut spectrum,
+            &mut level_trail,
+            TRAIL_SECONDS,
+        );
         controls.tick(dt);
         let start = Instant::now();
+        player.upload_audio(&AudioTextures {
+            spectrum: &spectrum,
+            level_trail: &level_trail,
+            shadertoy: None,
+        });
         player.render(&FrameInputs {
             time,
             frame,
@@ -523,7 +642,7 @@ fn report(
     let _ = writeln!(out, "# Strobe benchmark\n");
     let _ = writeln!(
         out,
-        "- Renderer: {} ({})\n- Context: {}\n- Dialect: {:?}\n- Resolution: {}x{}\n- Programs: {}\n- Float passes: {:?}\n- Frames: {} timed after {} warm-up\n",
+        "- Renderer: {} ({})\n- Context: {}\n- Dialect: {:?}\n- Resolution: {}x{}\n- Programs: {}\n- Float passes: {:?}\n- Frames: {} timed after {} warm-up\n- Audio: the synthetic 120 BPM track, its levels and its textures (`syn_Spectrum` 1024 texels, `syn_LevelTrail` 256), uploaded inside each timed frame\n",
         caps.info.renderer,
         caps.info.version,
         context,

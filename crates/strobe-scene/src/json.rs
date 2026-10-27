@@ -252,6 +252,11 @@ pub struct RawPass {
     /// size or render scale (a Strobe extension, D191). For simulations,
     /// whose look depends on their grid.
     pub fixed_size: Option<bool>,
+    /// Keep what this pass holds when a resize restarts the passes that
+    /// read it, as long as its own size does not change (a Strobe
+    /// extension, D495). For a pass that carries state over time: a
+    /// Shadertoy import's clock.
+    pub keep_on_resize: Option<bool>,
 }
 
 /// One image.

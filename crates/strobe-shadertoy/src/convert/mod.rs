@@ -21,7 +21,7 @@
 //! <name>-<id>.synScene/
 //!   scene.json              PASSES, PASS_SOURCES, IMAGES, CONTROLS, SOURCE
 //!   main.glsl               the Image pass (also the last PASS_SOURCES entry)
-//!   passes/st_clock.glsl    the time pass, only when a pass reads time
+//!   passes/st_clock.glsl    the time and frame passes, only when a pass reads time
 //!   passes/buffer_a.glsl    ... one file per Shadertoy buffer, A to D
 //!   images/                 textures, a 1x1 black PNG, pending-assets.json
 //!   shadertoy.json          the original export, verbatim, when supplied
