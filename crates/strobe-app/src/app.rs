@@ -785,6 +785,8 @@ struct Running {
     remote: Remote,
     /// The LAN remote: off until asked for (D250 to D254).
     lan: Lan,
+    /// Projector power and its web page (D502).
+    projectors: crate::projectors::Projectors,
     desktop_controller: crate::desktop::Controller,
     /// Other Strobes on the LAN, looked for while Settings shows Remote
     /// (D468).
@@ -994,6 +996,7 @@ impl Running {
                     .and_then(crate::venue::load),
                 cli.allow_desktop_control,
             ),
+            projectors: crate::projectors::Projectors::new(&data_dir, cli.screenshot.is_none()),
             desktop_controller,
             lan_scan: LanScan::default(),
             picker: crate::picker::Picker::default(),
@@ -4144,6 +4147,13 @@ impl Running {
                     }
                 }
                 Action::SetDesktopAccess(enabled) => self.lan.set_desktop(enabled),
+                Action::SetProjectorControl(on) => self.projectors.set_enabled(on),
+                Action::SetProjectorWeb(on) => self.projectors.set_web(on),
+                Action::ProjectorPower { target, on } => self.projectors.power(&target, on),
+                Action::RefreshProjectors => self.projectors.refresh(),
+                Action::SaveProjectors => self.projectors.save_form(),
+                Action::RevertProjectors => self.projectors.revert_form(),
+                Action::NewProjectorToken => self.projectors.new_token(),
                 Action::ConnectDesktop => {
                     self.lan.set_desktop(false);
                     self.desktop_controller.connect();
@@ -4694,6 +4704,7 @@ impl Running {
         self.settle_resize([size.width, size.height], started);
         self.drain_remote(started);
         self.drain_lan(started);
+        self.projectors.maintain(started);
 
         let gl = self.stack.gfx.gl().clone();
         let mut change = None;
@@ -5060,6 +5071,7 @@ impl Running {
         }
         let next = self.step_target(1);
         let lan_view = self.lan.view();
+        let projector_view = self.projectors.view();
         let scanning = !self.desktop_controller.active()
             && self.ui_state.panes.shown_in(crate::workspace::Dock::Main)
                 == Some(crate::workspace::Pane::Settings)
@@ -5251,6 +5263,10 @@ impl Running {
                 address: &mut self.lan.address,
                 port: &mut self.lan.port,
                 found: &self.lan_scan.found,
+            },
+            projectors: crate::ui::model::ProjectorPanel {
+                view: &projector_view,
+                form: &mut self.projectors.form,
             },
         };
         let mut actions = std::mem::take(&mut self.actions);

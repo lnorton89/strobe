@@ -1210,6 +1210,8 @@ fn draw_events(
     };
     let lan_view = sample_lan(scenario.lan, scenario.desktop_access);
     let mut lan_address = String::new();
+    let projector_view = crate::projectors::ProjectorView::default();
+    let mut projector_form = crate::projectors::Form::default();
     // Two Strobes on the LAN for the Remote page to list (D468).
     let found = if scenario.lan {
         vec![
@@ -1402,6 +1404,10 @@ fn draw_events(
                 address: &mut lan_address,
                 port: &mut lan_port,
                 found: &found,
+            },
+            projectors: crate::ui::model::ProjectorPanel {
+                view: &projector_view,
+                form: &mut projector_form,
             },
         };
         let pass = crate::ui::testing::run_keeping(
