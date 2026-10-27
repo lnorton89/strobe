@@ -141,7 +141,7 @@ fn the_ssf_library_compiles_in_both_dialects() -> Result<()> {
 }
 
 /// The SSF helpers give what Synesthesia 1.25.4's engine gives, where that
-/// differs from its documentation or from Strobe's earlier reading (D491).
+/// differs from its documentation or from Strobe's earlier reading (D492).
 /// Each row is a fragment shader body's colour and the expected RGB.
 #[test]
 fn ssf_helpers_compute_what_synesthesias_engine_computes() -> Result<()> {

@@ -72,7 +72,7 @@ variable turns a missing driver into a failure (CI's Linux job sets it).
   [`DECISIONS.md`](../../docs/DECISIONS.md).
 - **The engine's behaviour, not the documentation's.** The contract is
   units, ranges, shapes and argument order as Synesthesia 1.25.4's engine
-  computes them (D491), which differ from its documentation in places:
+  computes them (D492), which differ from its documentation in places:
   `_rotate` takes radians and turns clockwise, `_pulse`'s size is a
   half-width, `_toPolarTrue`'s angle is in turns, `_uv2uvc` has no aspect
   correction, `_fbm` is not normalised. Only the tilt-shift blur is
