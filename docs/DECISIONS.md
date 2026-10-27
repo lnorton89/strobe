@@ -11760,7 +11760,7 @@ tab with the button. The save itself was not clicked in a live window
 measured (then a merge, not a refusal).
 
 
-### D491: the SSF library computes what Synesthesia's engine computes, not what its documentation says (2026-10-26)
+### D492: the SSF library computes what Synesthesia's engine computes, not what its documentation says (2026-10-26)
 
 **Context.** Strobe's SSF library (`strobe-ssf-lib`) was written from the
 SSF documentation alone. On TORNADO, Synesthesia 1.25.4's own engine was

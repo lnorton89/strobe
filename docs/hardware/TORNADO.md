@@ -513,7 +513,7 @@ read, all on disk:
 
 Nothing from the install went into the repository; the findings are in
 OPEN_QUESTIONS (R15-R19 and the "What Synesthesia itself can settle"
-table), D491 and C-01.
+table), D492 and C-01.
 
 **What it settled:**
 - **Transitions (for D489):** a hard transition always moves to a different
@@ -522,7 +522,7 @@ table), D491 and C-01.
 - **The meta controls (Q21, now R16):** the full list, Synesthesia's order
   and every method. Strobe's differ almost everywhere; C-01 is reopened.
 - **`_hueSaturationContrastLEGACY` (R17) and `_ratioFix` (R18).**
-- **The SSF library (R19, D491):** `_rotate` takes radians and turns
+- **The SSF library (R19, D492):** `_rotate` takes radians and turns
   clockwise, which 44 of the 87 shipped scenes rely on; about twenty other
   helpers and forms differed too. Fixed, with a ten-case render test.
 - **Q2, Q6, Q10, Q14, Q25** narrowed: see each row.
@@ -533,13 +533,13 @@ on D3D11):
 
 | Run | Commit | `release\` (87) native | ANGLE | `default\` (1) |
 |---|---|---:|---:|---|
-| Before D491 | a5f51f1 | 87 ok | 86 ok, 1 `gl_error` | not run |
-| After D491 | this branch | 87 ok | 87 ok | 1 ok, both dialects |
+| Before D492 | a5f51f1 | 87 ok | 86 ok, 1 `gl_error` | not run |
+| After D492 | this branch | 87 ok | 87 ok | 1 ok, both dialects |
 
-- The one failure before D491, `waterly` on ANGLE ("the worker died"),
+- The one failure before D492, `waterly` on ANGLE ("the worker died"),
   came while the disk was full (0 bytes free during the run); it is not a
-  Strobe gap. After D491, with space back, it passes.
-- **D491 changed the final frame of 39 scenes, the same 39 in both
+  Strobe gap. After D492, with space back, it passes.
+- **D492 changed the final frame of 39 scenes, the same 39 in both
   dialects** (`SkaiWalkerOG`, `audio_indicators`, `hue_review`,
   `kaleidowhoa_man`, `myoplasm` and 34 more); the other 48 are
   bit-identical. Whether the new frames match Synesthesia's needs S7: the
@@ -565,7 +565,7 @@ on D3D11):
 **Left for a person, each with steps (OPEN_QUESTIONS S1-S13):** the
 transition values at load and the default `DURATION`; `_mouse` outside the
 preview; the spectrum's axes; `syn_PrimeBang`; the meta ranges; unknown
-keys; side-by-side pictures after D491; the EULA (its PDF answered 403 to a
+keys; side-by-side pictures after D492; the EULA (its PDF answered 403 to a
 plain fetch); the meta controls by eye once C-01 lands; Q32's two shapes;
 `bang smooth`'s envelope; OSC names with `_`; and I-05 in Strobe's own app.
 
@@ -606,7 +606,7 @@ main checkout's `target\` alone was 24.9 GB) and recovered by itself.
   about a third (568-581 a minute); the return to 30 Hz was not exercised
   because the wait never cleared.
 - [x] T25: Synesthesia 1.25.4 read from its files; its 88 shipped scenes
-  pass the corpus in both dialects before and after D491.
+  pass the corpus in both dialects before and after D492.
 - [ ] OPEN_QUESTIONS S1-S13: the questions that need Synesthesia running or
   a person at the keyboard, each asked for first.
 - [ ] A larger set of real Shadertoy shaders through NVIDIA's compiler

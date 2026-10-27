@@ -2,7 +2,7 @@
 
 **Purpose:** one evidence-based register of every known unfinished or not-yet-verified project area. This is the implementation companion to ROADMAP.md, STATUS_AUDIT.md, PLAN.md, UI_IMPLEMENTATION_PLAN.md, GFX_API_RESEARCH.md, and REMOTE_CONTROL_PWA_RESEARCH.md. It consolidates their open work; it does not re-label untested work as complete.
 
-**Last reconciled:** 2026-10-26 for G-05 and G-06 (D485), and C-01, C-08 and I-05 against Synesthesia 1.25.4 (TORNADO T25, D491); the UI items reflect D464-D484 in ROADMAP.md and UI_REVIEW.md.
+**Last reconciled:** 2026-10-26 for G-05 and G-06 (D485), and C-01, C-08 and I-05 against Synesthesia 1.25.4 (TORNADO T25, D492); the UI items reflect D464-D484 in ROADMAP.md and UI_REVIEW.md.
 
 ## How to use this register
 
