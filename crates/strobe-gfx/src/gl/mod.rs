@@ -21,6 +21,17 @@
 //!   array, buffer, fence) is held by an owning type here whose `Drop` releases it
 //!   through the same `Gl`, so an early return cannot leak GPU memory.
 //!
+//! - **The frame loop asks the driver nothing (D497).** A state query
+//!   (`glGet*`, `glIsEnabled`, `glGetError`, a compile status or log, a
+//!   uniform location, a framebuffer's completeness) is a round trip that
+//!   can stall the pipeline, so
+//!   each one goes through a leaf that counts it, and [`Gl::state_queries`]
+//!   lets a test prove the count stops moving once a scene plays. The
+//!   asynchronous polls a timer or a fence is built on (a query object's
+//!   result once it is available, `GL_GPU_DISJOINT_EXT`, a zero-timeout
+//!   `glClientWaitSync`) and the at-most-once-a-second reset poll are not
+//!   counted: they are how the frame avoids waiting.
+//!
 //! - **Every context is primed once (D311).** [`Gl::from_loader`], the one
 //!   place a `Gl` is built, runs [`prime`] before returning: one tiny draw
 //!   into a 16x16 target, because AMD's WGL driver drops draws into large
@@ -69,6 +80,10 @@ pub struct Gl {
     /// by every clone. A plain counter (no driver query), so a test can
     /// prove that nothing compiles while a scene plays.
     compiles: Rc<Cell<u64>>,
+    /// How many driver state queries this context has made; shared by every
+    /// clone. Counted by the query leaves themselves, so a test can prove
+    /// that a playing scene asks the driver nothing (D497).
+    queries: Rc<Cell<u64>>,
     /// The opt-in record of framebuffer traffic (`STROBE_GL_TRACE`); shared
     /// by every clone. See [`trace`].
     trace: Rc<trace::Trace>,
@@ -358,6 +373,7 @@ impl Gl {
             reset,
             lost: Rc::new(Cell::new(false)),
             compiles: Rc::new(Cell::new(0)),
+            queries: Rc::new(Cell::new(0)),
             trace: Rc::new(trace::Trace::from_env()),
             _thread: PhantomData,
         };
@@ -391,6 +407,24 @@ impl Gl {
     /// stop moving once the scene is loaded (D161).
     pub fn shader_compiles(&self) -> u64 {
         self.compiles.get()
+    }
+
+    /// How many driver state queries this context has made (all clones
+    /// together): `glGet*`, `glIsEnabled`, `glGetError`, compile and link
+    /// status and logs, uniform locations, framebuffer completeness. A
+    /// playing scene should see this number stop moving once it is loaded
+    /// (D497); a resize makes and checks framebuffers, so it moves then. The
+    /// asynchronous timer, fence and reset polls are not counted; see the
+    /// module docs.
+    pub fn state_queries(&self) -> u64 {
+        self.queries.get()
+    }
+
+    /// Counts one driver state query. Every leaf that makes one calls this
+    /// first; `strobe_conventions::driver_queries` fails the build for one
+    /// that does not.
+    fn count_query(&self) {
+        self.queries.set(self.queries.get() + 1);
     }
 
     /// Starts recording every framebuffer bind, viewport, clear, draw,
@@ -467,12 +501,14 @@ impl Gl {
     }
 
     fn get_string(&self, name: u32) -> String {
+        self.count_query();
         // SAFETY: current-context invariant (module docs); `name` is a GL
         // string enum, and glow copies the returned C string.
         unsafe { self.raw.get_parameter_string(name) }
     }
 
     fn get_i32(&self, name: u32) -> i32 {
+        self.count_query();
         // SAFETY: current-context invariant; glow passes a stack slot of the
         // right size for a single-valued integer query.
         unsafe { self.raw.get_parameter_i32(name) }
@@ -480,6 +516,7 @@ impl Gl {
 
     /// The oldest pending GL error, or `None`.
     pub fn error(&self) -> Option<u32> {
+        self.count_query();
         // SAFETY: current-context invariant.
         let code = unsafe { self.raw.get_error() };
         (code != glow::NO_ERROR).then_some(code)
@@ -537,6 +574,7 @@ impl Gl {
 
     /// Whether the scissor test is on. For diagnostics only.
     pub fn scissor_enabled(&self) -> bool {
+        self.count_query();
         // SAFETY: current-context invariant.
         unsafe { self.raw.is_enabled(glow::SCISSOR_TEST) }
     }
@@ -575,6 +613,7 @@ impl Gl {
     }
 
     fn get_i32_quad(&self, name: u32) -> [i32; 4] {
+        self.count_query();
         let mut values = [0_i32; 4];
         // SAFETY: current-context invariant; `values` holds the four
         // integers the largest query used here (`GL_VIEWPORT`) writes.
@@ -665,11 +704,13 @@ impl Gl {
     }
 
     fn shader_compiled(&self, shader: glow::Shader) -> bool {
+        self.count_query();
         // SAFETY: current-context invariant.
         unsafe { self.raw.get_shader_compile_status(shader) }
     }
 
     fn shader_log(&self, shader: glow::Shader) -> String {
+        self.count_query();
         // SAFETY: current-context invariant; glow sizes the buffer from
         // GL_INFO_LOG_LENGTH before reading.
         unsafe { self.raw.get_shader_info_log(shader) }
@@ -721,11 +762,13 @@ impl Gl {
     }
 
     fn program_linked(&self, program: glow::Program) -> bool {
+        self.count_query();
         // SAFETY: current-context invariant.
         unsafe { self.raw.get_program_link_status(program) }
     }
 
     fn program_log(&self, program: glow::Program) -> String {
+        self.count_query();
         // SAFETY: current-context invariant; glow sizes the buffer first.
         unsafe { self.raw.get_program_info_log(program) }
     }
@@ -748,6 +791,7 @@ impl Gl {
 
     /// The location of uniform `name` in `program`, if it is active.
     pub fn uniform_location(&self, program: &Program, name: &str) -> Option<glow::UniformLocation> {
+        self.count_query();
         // SAFETY: current-context invariant; glow passes a NUL-terminated
         // copy of `name`.
         unsafe { self.raw.get_uniform_location(program.raw, name) }
@@ -1161,6 +1205,7 @@ impl Gl {
     }
 
     fn framebuffer_status(&self) -> u32 {
+        self.count_query();
         // SAFETY: current-context invariant.
         unsafe { self.raw.check_framebuffer_status(glow::FRAMEBUFFER) }
     }
@@ -1340,7 +1385,16 @@ impl Gl {
     /// results may be garbage. Meaningful on ES (`EXT_disjoint_timer_query`);
     /// the one `glGet` a timer needs, made only when reading results.
     pub fn gpu_disjoint(&self) -> bool {
-        self.get_i32(GPU_DISJOINT_EXT) != 0
+        self.disjoint_flag() != 0
+    }
+
+    /// Reads `GL_GPU_DISJOINT_EXT`. Not counted by [`Self::state_queries`]:
+    /// it is part of the asynchronous timer protocol, read only alongside a
+    /// result that is already available, and it never waits (D497).
+    fn disjoint_flag(&self) -> i32 {
+        // SAFETY: current-context invariant; glow passes a stack slot of the
+        // right size for a single-valued integer query.
+        unsafe { self.raw.get_parameter_i32(GPU_DISJOINT_EXT) }
     }
 
     fn delete_query(&self, query: glow::Query) {

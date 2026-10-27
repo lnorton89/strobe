@@ -27,6 +27,7 @@
 //! *where* unsafe may appear, that no `pub unsafe fn` escapes, and that
 //! one function never accumulates more than one unsafe operation.
 
+use crate::sources::enclosing_function;
 use std::collections::HashMap;
 
 /// The places allowed to hold unsafe code: a directory (trailing `/`) or
@@ -58,22 +59,6 @@ fn is_boundary(line: &str) -> bool {
         || code.contains(&format!("{keyword} fn "))
         || code.contains(&format!("{keyword} impl "))
         || code.contains(&format!("{keyword} extern "))
-}
-
-/// The nearest named function at or above `line`.
-fn enclosing_function(lines: &[&str], line: usize) -> Option<usize> {
-    (0..=line).rev().find(|index| {
-        let trimmed = lines.get(*index).map_or("", |text| text.trim_start());
-        [
-            "fn ",
-            "pub fn ",
-            "pub(crate) fn ",
-            "pub(super) fn ",
-            "const fn ",
-        ]
-        .iter()
-        .any(|prefix| trimmed.starts_with(prefix))
-    })
 }
 
 /// Every boundary violation in one file.

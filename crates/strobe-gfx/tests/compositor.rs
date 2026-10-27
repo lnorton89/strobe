@@ -178,11 +178,17 @@ fn a_custom_transition_is_compiled_once_and_mixes_by_its_own_rule() -> Result<()
         let wipe = compositor.add_custom(WIPE)?;
 
         let before = gl.shader_compiles();
+        let queries = gl.state_queries();
         compositor.render(
             a.output_texture(),
             b.output_texture(),
             Blend::Custom(wipe),
             0.5,
+        );
+        assert_eq!(
+            gl.state_queries(),
+            queries,
+            "{api:?}: rendering a transition must not query the driver (D497)"
         );
         let pixels = compositor.read_output();
         let left = pixel(&pixels, SIZE, 4, 9)?;
