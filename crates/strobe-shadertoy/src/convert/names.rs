@@ -37,7 +37,9 @@ pub(super) const CONTROL_GROUP: &str = "Strobe";
 
 /// Pass target of the clock pass.
 pub(super) const CLOCK_TARGET: &str = "st_clock";
-/// Where the clock pass's code lives.
+/// Pass target of the frame pass, the frame `iFrame` counts from (D495).
+pub(super) const FRAME_TARGET: &str = "st_frame";
+/// Where the clock and frame passes' code lives: one file, two passes.
 pub(super) const CLOCK_FILE: &str = "passes/st_clock.glsl";
 /// The black image's sampler name.
 pub(super) const BLACK_IMAGE: &str = "st_black";
@@ -83,6 +85,7 @@ pub(super) fn reserved() -> Vec<String> {
         ZOOM,
         HUE,
         CLOCK_TARGET,
+        FRAME_TARGET,
         BLACK_IMAGE,
     ]
     .iter()

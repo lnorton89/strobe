@@ -58,6 +58,8 @@ struct Pass {
     filter: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     full_precision: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    keep_on_resize: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -181,17 +183,22 @@ pub(super) fn scene(plan: &Plan, shader: &Shader, title: &str, layouts: &[Layout
     let mut passes = Vec::new();
     let mut pass_sources = Vec::new();
     if plan.clock {
-        passes.push(Pass {
-            target: names::CLOCK_TARGET.to_string(),
-            width: Some(1),
-            height: Some(1),
-            float: true,
-            double_buffer: true,
-            wrap: "clamp",
-            filter: "nearest",
-            full_precision: Some(true),
-        });
-        pass_sources.push(names::CLOCK_FILE.to_string());
+        // The clock runs on through a resize; the frame pass restarts with
+        // the buffers that read it, so `iFrame` does too (D495).
+        for (target, keep) in [(names::CLOCK_TARGET, true), (names::FRAME_TARGET, false)] {
+            passes.push(Pass {
+                target: target.to_string(),
+                width: Some(1),
+                height: Some(1),
+                float: true,
+                double_buffer: true,
+                wrap: "clamp",
+                filter: "nearest",
+                full_precision: Some(true),
+                keep_on_resize: keep.then_some(true),
+            });
+            pass_sources.push(names::CLOCK_FILE.to_string());
+        }
     }
     let mut buffer = 0;
     for planned in &plan.passes {
@@ -208,6 +215,7 @@ pub(super) fn scene(plan: &Plan, shader: &Shader, title: &str, layouts: &[Layout
                 wrap: sampling.map_or("clamp", |s| wrap_name(s.wrap)),
                 filter: sampling.map_or("linear", |s| filter_name(s.filter)),
                 full_precision: None,
+                keep_on_resize: None,
             });
         }
     }

@@ -11,6 +11,17 @@
       "DOUBLE_BUFFER": true,
       "WRAP": "clamp",
       "FILTER": "nearest",
+      "FULL_PRECISION": true,
+      "KEEP_ON_RESIZE": true
+    },
+    {
+      "TARGET": "st_frame",
+      "WIDTH": 1,
+      "HEIGHT": 1,
+      "FLOAT": true,
+      "DOUBLE_BUFFER": true,
+      "WRAP": "clamp",
+      "FILTER": "nearest",
       "FULL_PRECISION": true
     },
     {
@@ -43,6 +54,7 @@
     }
   ],
   "PASS_SOURCES": [
+    "passes/st_clock.glsl",
     "passes/st_clock.glsl",
     "passes/buffer_a.glsl",
     "passes/buffer_b.glsl",
@@ -110,7 +122,7 @@
       {
         "name": "Buffer A",
         "file": "passes/buffer_a.glsl",
-        "code_line": 13
+        "code_line": 14
       },
       {
         "name": "Buffer B",

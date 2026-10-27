@@ -172,8 +172,10 @@ IDs given here; a gap with no ID is by design, with its decision named.
   Shadertoy with the same track is still open (Q18).
 - **`iDate`:** the app feeds local time (D112). The bench and tests use
   the player's UTC default, so frames stay a pure function of time (Q15).
-- **Resize:** a resize restarts `iTime` at `TIME` and `iFrame` at 0, which
-  is a visible jump at a non-default Speed (backlog I-06).
+- **Resize:** `iTime` runs on through a resize at any Speed: the clock
+  pass is kept (`KEEP_ON_RESIZE`), while the `st_frame` pass beside it
+  restarts with the buffers it feeds, so `iFrame` is back at 0 when they
+  were wiped (D495).
 - **Verified so far:** all nine fixtures render on llvmpipe in both
   dialects, and on the T480 (Task 11) and TORNADO (T1), native and ANGLE.
   Strict desktop drivers accept a shader that defines a built-in such as
