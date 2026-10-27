@@ -207,9 +207,11 @@ flowchart TD
     ssf["strobe-ssf-lib<br/>the SSF GLSL library, as text"]
     playlist["strobe-playlist<br/>playlists and their clock"]
     remote["strobe-remote<br/>the LAN remote"]
+    projector["strobe-projector<br/>projector power"]
     diag["strobe-diag<br/>logging, failures, crash capture"]
 
-    app --> shadertoy & autocontrol & script & audio & io & gfx & playlist & remote & diag
+    app --> shadertoy & autocontrol & script & audio & io & gfx & playlist & remote & projector & diag
+    projector --> diag
     autocontrol --> shadertoy & gfx
     shadertoy --> scene & diag
     script & audio & io & gfx --> scene
@@ -236,6 +238,7 @@ and `strobe-diag` depend on no other Strobe crate. `strobe-bench`
 | [`strobe-autocontrol`](crates/strobe-autocontrol/README.md) | Control generation: finds candidate literals, rewrites them to uniforms, renders to score each one, keeps those that matter. Also the `strobe-autocontrol` binary. |
 | [`strobe-diag`](crates/strobe-diag/README.md) | Logging, the session context, structured failures, the panic hook and out-of-process crash capture with minidumps. |
 | [`strobe-remote`](crates/strobe-remote/README.md) | LAN control from phones and other Strobe desktops: typed protocol, bounded app bridge, scoped pairing and revocation, phone controller page and optional full desktop UI streaming (trusted networks only). |
+| [`strobe-projector`](crates/strobe-projector/README.md) | Projector power for the show PC: PJLink with a Panasonic NTCONTROL fallback, never a command mid-transition, a token-protected web page for a phone, Settings > Projectors in the app, and `pj` as the CLI and headless service. |
 | [`strobe-bench`](crates/strobe-bench/README.md) | Renders every scene in `scenes/`, times it, and writes frames, a contact sheet and `results.md`. |
 | [`strobe-conventions`](crates/strobe-conventions/README.md) | The house rules as tests: file headers, the `unsafe` boundary, the toolchain pin. |
 | [`xtask`](crates/xtask/README.md) | `cargo xtask ci`, `changelog`, `bench`, `corpus`, `symbolicate`, `brand`. |

@@ -12309,6 +12309,71 @@ THIRD_PARTY.md regenerated, listing Lawrence Norton alone, and
 address to `AUTOMATED_EMAILS`), or a person who wants credit under an
 address on that list (then a `.mailmap` entry gives them their own).
 
+### D502: projector power is a Strobe crate, `strobe-projector`, used from Settings and as a headless service (2026-10-27, owner's choice)
+
+**Context.** The show PC switches the venue's Panasonic PT-DZ6700 and Sony
+VPL-PHZ10 on and off over the network, from this machine and from a phone.
+PR #45 did it as a stdlib-only Python tool in `tools/projector-control`,
+installed as a SYSTEM Scheduled Task, apart from the engine, and it worked
+on the real units (2026-10-27). The owner wanted it in Rust, in the
+workspace under the same rules, and inside Strobe: switch it on, edit the
+projectors' connections and switch them from the app, and keep the web
+page. (PR #45 numbered its decision D497, which master had already used;
+this one replaces it.)
+
+**Decision.**
+- A crate, `crates/strobe-projector`: a library with a binary,
+  `strobe-projector`, installed as `pj`. Its behaviour is the Python tool's,
+  carried over one for one: PJLink Class 1 with one connection per command
+  and the MD5 prefix; the NTCONTROL fallback only when PJLink is unusable
+  (ERRA, ERR1, refused, silent), never on ERR3; no power command while a
+  unit warms or cools, re-checked right before sending; nothing sent when
+  the unit is already there; ERR3 and refusals retried with 1-10 s backoff
+  for 90 s; `--wait` for up to 300 s and through the PT-DZ6700's lamp
+  strike; status's `n/a` and `- (off)`; the same CLI, exit codes, audit log
+  lines, discovery, DHCP listen and reservation responder, routes, token
+  rules, login form, cookie exchange and security headers.
+- No framework: the page speaks its own small HTTP/1.1 subset, as
+  `strobe-remote`'s listener does (D250), and each crate keeps its own. The
+  one new dependency is `md-5`, on the RustCrypto `digest` 0.11 already in
+  the tree.
+- Strobe holds it in `strobe_app::projectors`, drawn by Settings >
+  Projectors. Power and status run on worker threads; the frame thread
+  only takes their results. Off asks twice there, as the page asks before
+  switching off.
+- **One config, two hosts.** `projectors.json` lives in Strobe's data
+  directory (`%LOCALAPPDATA%\strobe`), keeps the Python `config.json`'s
+  shape so the venue's file moves over as it is, and gains a `strobe`
+  section for the app's two switches. Strobe serves the page while it runs
+  if switched on; `install.ps1` can also register `strobe-projector serve
+  --config <that file>` as the SYSTEM task, so the page is there with
+  Strobe closed. Whichever binds the address first serves it; the other
+  says the port is in use and keeps trying.
+- **The switches persist.** Unlike the LAN remote, whose switch is never
+  saved (D254), "Web page" comes back on at launch when it was left on: the
+  service it replaces was always on, it binds only the Tailscale or Wi-Fi
+  address (never `0.0.0.0`, loopback, link-local or the projector network),
+  and every request needs the token.
+- The token and passwords sit in the user's profile, readable by that user,
+  SYSTEM and Administrators, rather than in an admin-only ProgramData
+  folder: the app edits them without elevation (the owner's choice).
+- A per-projector `pjlink_port` and `ntcontrol_port` are optional, for a
+  unit behind a port forward; the tests use them to reach fakes on loopback.
+
+**Test.** `strobe-projector`'s unit tests (the PJLink specification's MD5
+example, parsing, the config, DHCP packets, the HTTP head, routes and
+tokens) and `tests/fake_projector.rs`: the Python tests ported (status
+fields, ERRA, on with two ERR3s and `--wait`, already on sends nothing,
+waiting out a cool-down, never commanding mid-transition, refused) plus the
+lamp strike, NTCONTROL's digest and fallback, ERR3 never falling back,
+standby fields, and the web API over sockets. The app's form and switches,
+and the page's two-press Off, are tested headless. Not yet run on the real
+units (backlog L-09).
+
+**Would reopen:** a second venue with other projectors (then per-vendor
+support beyond PJLink), HTTPS for the page (with L-07's answer), or a
+playlist that switches the projectors itself.
+
 ### D503: tests bind loopback; the few that need every interface wait for `STROBE_TEST_LAN=1` (2026-10-27)
 
 **Context.** Windows Defender Firewall asks whether to allow a program the
