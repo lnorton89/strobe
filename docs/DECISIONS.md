@@ -11759,3 +11759,73 @@ tab with the button. The save itself was not clicked in a live window
 **Would reopen:** wanting to save into a scene that changed while it was
 measured (then a merge, not a refusal).
 
+
+### D491: credits on the About page, from a generated list CI checks (2026-10-26)
+
+**Context.** The owner asked for a Credits section on Settings > About: the
+contributors, the projects Strobe is built on with their licences,
+Synesthesia's SSF format and Shadertoy, and a way to see every third-party
+crate and its licence, generated rather than kept by hand. The release zip
+shipped no third-party notices, though the MIT, BSD and Apache licences of
+its dependencies ask for theirs to travel with a binary.
+
+**Decision.**
+- **One generated file, `THIRD_PARTY.md`**, at the repository root, written
+  by `cargo xtask credits` (`xtask::credits`). Contributors come from
+  `git log` through a new `.mailmap` that folds the owner's three
+  identities into one name; bots (`[bot]`) are left out and no address is
+  written; the Licensor named in `LICENSE` leads as author and maintainer,
+  everyone else follows in order of first commit, so the order never moves
+  as commits land. Crates are every registry package `strobe-app` reaches
+  through normal dependencies in `cargo metadata --filter-platform
+  x86_64-pc-windows-msvc`, the build that ships (247 today), one row per
+  name with its licence and repository and **no version**, so a patch bump
+  leaves the file alone and only a crate that arrives, leaves or changes
+  licence changes it. The ANGLE DLLs, the Direct3D compiler and the Vulkan
+  loader the zip carries are listed too, with the Electron version read
+  from `scripts/fetch-angle.ps1`.
+- **CI checks it.** `cargo xtask credits --check` runs in CI's changelog
+  job (the one with the whole history; a shallow checkout is refused with
+  a reason rather than read as fewer contributors) and as the last step of
+  `cargo xtask ci`. A dependency PR that adds a crate must regenerate it.
+- **The app compiles it in.** `ui::credits` reads its tables once
+  (`include_str!`, a `OnceLock`) and draws, after the build rows: Source
+  code and Licence rows in the first group (links to the repository and
+  `LICENSE`, the repository from the workspace manifest); Contributors;
+  Built on, eleven projects with a line on what each does for Strobe, their
+  licences taken from the generated table; Formats, crediting Synesthesia's
+  SSF as what Strobe plays (independent, not affiliated or endorsed) and
+  Shadertoy as what Import reads; and Crates, one row whose Show button
+  unfolds every crate with its licence. Which projects to name and what
+  they do is the one hand-written part; a test fails if a named crate
+  leaves the build. Links are quiet buttons that open the browser, not
+  accent text (branding.md section 6). Search finds Source code, Licence
+  and Every crate.
+- **The release ships the full notices.** `cargo xtask credits --notices
+  <file>` writes every shipped crate at its exact version with the full
+  text of each licence and notice file its package carries (at its top,
+  one folder down for a vendored C library such as QuickJS-ng, and the
+  text files beside bundled fonts), each distinct text once and referred to
+  by number, about 650 KB. A package that ships no licence file (egui's
+  crates publish without theirs) is pointed at the SPDX text of each
+  licence its manifest names. `release.yml` runs it and puts
+  `THIRD-PARTY-NOTICES.txt` and `THIRD_PARTY.md` in the zip beside
+  `LICENSES.chromium.html`. It is not committed: it is large and its
+  versions move with every bump.
+- **Claude** is credited as a contributor, by the name its commits carry:
+  it authored most of the history. The owner can drop or rename it with a
+  `.mailmap` line and a regeneration.
+
+**Test.** `credits::tests` (the table parser, the author first and no
+address, every named project still in the build);
+`the_about_page_credits_people_and_lists_every_crate_when_asked`; three
+About scenarios (folded, unfolded, unfolded and compact) in the shell's
+overflow and text-over-text checks at all ten sizes;
+`every_row_settings_search_finds_is_drawn_on_its_page`; `xtask::credits`
+unit tests; `cargo xtask credits --check`; `--notices` run on Windows. The
+links were not clicked in a live window (the tests cannot open a browser),
+and the release step has not run on a tag yet.
+
+**Would reopen:** a dependency churn rate that makes regenerating on every
+dependency PR a chore (then check only on release), or the owner wanting
+roles beyond author and contributor.
