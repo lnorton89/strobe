@@ -106,19 +106,26 @@ avoids that.
 
 ## Status and known gaps
 
+Open work for this crate is tracked in
+[`IMPLEMENTATION_BACKLOG.md`](../../docs/IMPLEMENTATION_BACKLOG.md) under the
+IDs given here; a gap with no ID is by design, with its decision named.
+
 - Built and wired into the app (phase 3, D61): capture with a synthetic
   fallback, textures uploaded each frame, settings UI
   ([`ROADMAP.md`](../../docs/ROADMAP.md)). The bench still uses the synthetic
-  stand-in and uploads placeholder textures.
-- On the T480 live capture opened the Realtek microphone at 48 kHz
-  ([`T480.md`](../../docs/hardware/T480.md)); that is the only real-device
-  record there. Device loss is recovered by retrying every 2 seconds, not
-  by a device-change notification (D61).
+  stand-in and uploads placeholder textures (backlog D-06).
+- Live capture has run on the T480 (the Realtek microphone at 48 kHz) and
+  the AMD desktop (Tasks A1 and A2, where it found and then confirmed the
+  fix for a reopen loop, D266). A failed stream is reopened on a backoff
+  from 100 ms to 2 s rather than on a device-change notification (D61,
+  D266). Unplugging and replugging a device on real hardware is still to do
+  (backlog R-01).
 - The spectrum is 1024 texels, Synesthesia's width (D269). The channel
-  meanings are assumptions (Q10 in
-  [`OPEN_QUESTIONS.md`](../../docs/OPEN_QUESTIONS.md)): raw linear 0 to
-  Nyquist, juiced log 30 Hz to 16 kHz, trail index 0 newest.
+  meanings are assumptions not yet checked against Synesthesia (Q10 in
+  [`OPEN_QUESTIONS.md`](../../docs/OPEN_QUESTIONS.md), backlog C-07): raw
+  linear 0 to Nyquist, juiced log 30 Hz to 16 kHz, trail index 0 newest.
 - The downbeat estimate (`downbeat`, D233) says which beat starts a bar
   from each beat's bass energy and band-profile rise, with a confidence
-  that stays near zero when every beat sounds alike. Tested on synthetic
-  kicks at several tempos and phases, not yet on real music.
+  that stays near zero when every beat sounds alike. The song detector
+  (`song`, D237) hears a gap or a held new tempo. Both are tested on
+  synthetic audio, not yet on real music (backlog P-02, M-05).

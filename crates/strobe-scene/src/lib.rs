@@ -41,6 +41,8 @@
 //!   case-insensitive, ignoring `_`, `-` and spaces.
 //! - [`tags`] reads a scene's `TAGS` leniently, normalises them, and
 //!   writes them back without disturbing the rest of `scene.json`.
+//! - [`transition`] holds the live values of a scene's `HARD_TRANSITIONS`
+//!   and `SMOOTH_TRANSITIONS`, which change on a song change (D489).
 //! - [`synesthesia`] finds the person's own Synesthesia install and the
 //!   scene folders in its settings, for the `#include` path and the app's
 //!   library (D271).
@@ -71,6 +73,7 @@ pub mod scene;
 pub mod synesthesia;
 pub mod synthetic;
 pub mod tags;
+pub mod transition;
 
 pub use error::SceneError;
 pub use load::SceneFolder;

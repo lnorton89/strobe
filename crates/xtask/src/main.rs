@@ -1,11 +1,11 @@
 // ============================================================================
 // Module:       xtask (binary crate root)
 // Description:  The workspace's own tooling behind `cargo xtask`: the local
-//               CI runner, the changelog generator, the bench shortcut,
-//               crash-dump symbolication, and the icon renderer.
+//               CI runner, the changelog and credits generators, the bench
+//               shortcut, crash-dump symbolication, and the icon renderer.
 //
-// Dependencies: clap, anyhow; modules brand, changelog, ci, bench, corpus,
-//               symbolicate
+// Dependencies: clap, anyhow; modules brand, changelog, ci, credits, bench,
+//               corpus, symbolicate
 // ============================================================================
 
 //! `cargo xtask`: the repository's tooling, written in the repository's
@@ -20,6 +20,8 @@
 //! cargo xtask corpus -- --library scenes     # compatibility report over a scene folder
 //! cargo xtask symbolicate crash-….dmp         # a crash dump as a readable stack
 //! cargo xtask brand [--check]                 # icon PNGs and .ico from the SVG sources
+//! cargo xtask credits [--check]               # THIRD_PARTY.md from git and Cargo.lock
+//! cargo xtask credits --notices <file>        # the release zip's full licence texts
 //! ```
 //!
 //! The `xtask` alias in `.cargo/config.toml` is the whole installation.
@@ -45,6 +47,7 @@ mod brand;
 mod changelog;
 mod ci;
 mod corpus;
+mod credits;
 mod symbolicate;
 
 use anyhow::{Context as _, Result, anyhow};
@@ -69,8 +72,8 @@ struct Cli {
 enum Command {
     /// Run locally exactly what CI runs: fmt, clippy, the no-MIDI strobe-io
     /// clippy (Linux), tests, the Windows cross-check, cargo-deny and the
-    /// changelog check. Stops at the first failure and says which step it
-    /// was.
+    /// changelog, icon and credits checks. Stops at the first failure and
+    /// says which step it was.
     Ci(ci::Args),
     /// Regenerate CHANGELOG.md from the git history.
     Changelog {
@@ -112,6 +115,18 @@ enum Command {
         #[arg(long)]
         check: bool,
     },
+    /// Write THIRD_PARTY.md: the contributors from the git history and
+    /// every crate in strobe.exe with its licence, for the About page.
+    Credits {
+        /// Fail if the committed file differs from a fresh one instead of
+        /// writing it.
+        #[arg(long, conflicts_with = "notices")]
+        check: bool,
+        /// Write the release zip's third-party notices (every shipped
+        /// crate's version and full licence texts) to this file instead.
+        #[arg(long, value_name = "FILE")]
+        notices: Option<PathBuf>,
+    },
 }
 
 /// The workspace root: `crates/xtask/../..`.
@@ -150,6 +165,10 @@ fn run() -> Result<()> {
         Command::Corpus { args } => corpus::run(&args),
         Command::Symbolicate(args) => symbolicate::run(&args.anchored(&invoked_from)),
         Command::Brand { check } => brand::run(check),
+        Command::Credits { check, notices } => {
+            let notices = notices.map(|path| invoked_from.join(path));
+            credits::run(check, notices.as_deref())
+        }
     }
 }
 

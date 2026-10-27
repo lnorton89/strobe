@@ -111,24 +111,31 @@ cargo test -p strobe-playlist
 
 ## Status and known gaps
 
-- Stage 1 is done: the pure core, with 166 tests and the soak runs
+Open work for this crate is tracked in
+[`IMPLEMENTATION_BACKLOG.md`](../../docs/IMPLEMENTATION_BACKLOG.md) under the
+IDs given here; a gap with no ID is by design, with its decision named.
+
+- Stage 1 is done: the pure core, with its unit tests and the soak runs
   ([`ROADMAP.md`](../../docs/ROADMAP.md)).
 - **Stage 2 (app integration) is built** (D150-D158): precompile at load with
   progress, warm-up, the compositor (cut, crossfade, fade-through-black,
   custom GLSL), the Playlist pane and generate card, a file watcher, cue
   commands from the UI and keyboard, `resume_point()` saved every 5 s and
   `sync_to_wall_clock` at start-up. Verified on llvmpipe and headless GL,
-  and on the T480 (Tasks 14, 17 and 26). Still to do: hotkeys beyond the table, MIDI and OSC
-  mapping, audio-event advance, a downbeat detector (all since built).
+  and on the T480 (Tasks 14, 17 and 26). Hotkeys, MIDI and OSC mapping
+  (D170-D179), audio-event advance (D226, D237) and a downbeat detector
+  (D233) were built since. Authoring an 80-cue show by a person is still to
+  do (backlog U-07).
 - The app uses this crate's `restore_lenient` for hot reloads and `restore`
   (with the identity check) for the resume file; `mark_scene_failed` for scenes
   that do not compile or resolve; `peek_next`, `elapsed` and `remaining` for the
   transport strip.
 - `BeatInfo::downbeat` says which grid beat starts a bar; the app sets it
   from `strobe-audio`'s estimate when that is confident and leaves it 0
-  otherwise, which counts bars from the grid's origin (D75, D233). The
-  audio-event advance modes are built: the app calls `clock.audio_event()`
-  for drops and breakdowns (D226) and song changes (D237), tested on
-  synthetic audio and not yet on real music.
+  otherwise, which counts bars from the grid's origin (D75, D233). The app
+  calls `clock.audio_event()` for drops and breakdowns (D226) and song
+  changes (D237; heard once a frame by the app's `song` module, D489),
+  tested on synthetic audio and not yet on real music (backlog P-01, P-02,
+  M-05).
 - `[shuffle]` supplies the seed for `rand(a, b)` durations and generator
   defaults; it does not reorder authored cues at run time (D73).

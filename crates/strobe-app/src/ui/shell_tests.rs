@@ -164,6 +164,8 @@ struct Scenario {
     /// The MAP pane has the first macro's options, the first mapping's
     /// options and the add form open (D467).
     map_open: bool,
+    /// The About page's list of every crate is open (D491).
+    credits_open: bool,
 }
 
 const BASE: Scenario = Scenario {
@@ -211,6 +213,15 @@ const BASE: Scenario = Scenario {
     recent: false,
     settings_page: None,
     map_open: false,
+    credits_open: false,
+};
+
+/// Settings at About, with the credits (D491).
+const ABOUT: Scenario = Scenario {
+    name: "about",
+    settings_page: Some(crate::ui::settings::SettingsPage::About),
+    panes: &[Pane::Settings],
+    ..BASE
 };
 
 /// The Controls view over the library, with the side panel (D479).
@@ -219,6 +230,18 @@ const CONTROLS: &[Pane] = &[Pane::Inspector, Pane::Browser, Pane::Controls];
 fn scenarios() -> Vec<Scenario> {
     vec![
         BASE,
+        ABOUT,
+        Scenario {
+            name: "about with every crate listed",
+            credits_open: true,
+            ..ABOUT
+        },
+        Scenario {
+            name: "about, compact, with every crate listed",
+            credits_open: true,
+            density: crate::ui::theme::Density::Compact,
+            ..ABOUT
+        },
         Scenario {
             name: "full desktop access enabled",
             lan: true,
@@ -959,6 +982,9 @@ fn draw_events(
 ) -> Result<Drawn> {
     let ctx = egui::Context::default();
     crate::ui::theme::apply(&ctx, crate::palette::fallback(), scenario.density);
+    if scenario.credits_open {
+        crate::ui::credits::open_crates(&ctx);
+    }
     let mut library = Library {
         dir: PathBuf::from("scenes"),
         entries: (0..scenario.scenes)
@@ -1236,6 +1262,7 @@ fn draw_events(
             scan_error: None,
             playing: scenario.playing.then_some(playing_index),
             scene_title: if scenario.playing { "Aurora Field" } else { "" },
+            scene_transitions: scenario.playing,
             controls: scenario.playing.then_some(&mut bank),
             media: scenario.playing.then_some(crate::ui::MediaPanel {
                 showing: Some(std::path::Path::new("loops/rain")),
@@ -2378,6 +2405,45 @@ fn nothing_is_painted_over_blackout_at_any_size() -> Result<()> {
             }
         }
     }
+    Ok(())
+}
+
+#[test]
+fn the_about_page_credits_people_and_lists_every_crate_when_asked() -> Result<()> {
+    let lines = |scenario| -> Result<Vec<String>> {
+        Ok(texts(&draw(scenario, (1600.0, 40_000.0), 3)?)
+            .into_iter()
+            .map(|(_, line, _)| line.trim().to_string())
+            .collect())
+    };
+    let closed = lines(ABOUT)?;
+    for expected in [
+        "Contributors",
+        "Lawrence Norton",
+        "Built on",
+        "ANGLE",
+        "Synesthesia",
+        "Shadertoy",
+        "Every crate",
+    ] {
+        assert!(
+            closed.iter().any(|line| line == expected),
+            "About shows {expected:?}: {closed:?}"
+        );
+    }
+    assert!(
+        !closed.iter().any(|line| line == "zerocopy"),
+        "the crate list starts folded: {closed:?}"
+    );
+    let opened = lines(Scenario {
+        credits_open: true,
+        ..ABOUT
+    })?;
+    assert!(
+        opened.iter().any(|line| line == "accesskit")
+            && opened.iter().any(|line| line == "zerocopy"),
+        "opened, it lists the crates from first to last: {opened:?}"
+    );
     Ok(())
 }
 

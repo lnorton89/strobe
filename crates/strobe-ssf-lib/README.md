@@ -86,20 +86,25 @@ variable turns a missing driver into a failure (CI's Linux job sets it).
 
 ## Status and known gaps
 
+Open work for this crate is tracked in
+[`IMPLEMENTATION_BACKLOG.md`](../../docs/IMPLEMENTATION_BACKLOG.md) under the
+IDs given here; a gap with no ID is by design, with its decision named.
+
 - Every documented function name is defined and compiles on GL 3.3 core
   and GLES 3.0 (headless Mesa), per [`ROADMAP.md`](../../docs/ROADMAP.md).
-- That is llvmpipe and CI only. The library has not been compiled by every
-  real vendor driver. The T480 ran the scene library through the app on
-  an Intel UHD 620 ([`T480.md`](../../docs/hardware/T480.md)), which is the
-  only real-GPU evidence.
+- Real drivers have compiled it with the scene library: Intel UHD 620 (the
+  T480), the GTX 1080 Ti (TORNADO), the RX 580 (the AMD desktop) and the
+  Vega 3 (the venue mini-PC), native and ANGLE
+  ([`hardware/`](../../docs/hardware/)). An HD 4000, the floor, has not been
+  tried yet (backlog P-03).
 - Open question Q10 in
-  [`OPEN_QUESTIONS.md`](../../docs/OPEN_QUESTIONS.md) concern the layout of
+  [`OPEN_QUESTIONS.md`](../../docs/OPEN_QUESTIONS.md) concerns the layout of
   `syn_Spectrum` / `syn_LevelTrail`, which the assembler declares, not this
   file.
 - `_loadMedia` and friends read `syn_Media`, which shows a still or an
   image sequence (D186), sampled as the scene's `MEDIA` slot says (D238).
   With no media it is black and `syn_MediaType` is 0. Video and webcam are
-  not built.
+  not built (backlog M-04, deferred).
 - R8 (was Q8): SSF code that relies on desktop-only implicit conversions is
   rewritten by `strobe-scene`'s typed pass on every dialect (D199). This
   library does not need it: it is written ES-clean.

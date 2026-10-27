@@ -11,6 +11,7 @@ macOS and Linux later. Performance is a feature, not a polish step.
 | Doc | When |
 |---|---|
 | [`docs/ROADMAP.md`](docs/ROADMAP.md) | Always. It shows what's done, what's next, and the current state of each phase. **Update it when you finish something.** |
+| [`docs/IMPLEMENTATION_BACKLOG.md`](docs/IMPLEMENTATION_BACKLOG.md) | Before writing down a gap anywhere. It is the one register of open work. A crate README's "Status and known gaps" only points at it: each gap names its item (`backlog X-NN`), a question (`Qnn`) or "by design" with its decision, and `strobe_conventions::known_gaps` fails the build otherwise (D490). |
 | [`docs/STATUS_AUDIT.md`](docs/STATUS_AUDIT.md) | Before claiming something works. The evidence-based gap list: what is verified, on which machine, and each item's acceptance test. Tick an item only with evidence. |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Before adding a crate, moving code between crates, or touching the frame loop. |
 | [`docs/DECISIONS.md`](docs/DECISIONS.md) | Before reversing a choice. Every non-obvious decision and its reason is logged there. Add one when you make one. |
@@ -32,6 +33,7 @@ cargo xtask bench -- --size 1280x720                      # strobe-bench in rele
 cargo xtask corpus -- --library <dir>                     # load+compile+render every scene (scripts too), both dialects
 cargo xtask symbolicate <crash.dmp>                       # minidump -> stack with function names and file:line
 cargo xtask brand [--check]                               # icon PNGs + .ico from assets/brand/*.svg
+cargo xtask credits [--check]                             # THIRD_PARTY.md (About's credits) from git + Cargo.lock (D491)
 cargo run --profile release-fast -p strobe-app            # optimised and incremental: iterate with this, not --release (D487)
 cargo test --workspace                                    # everything
 cargo clippy --workspace --all-targets --all-features -- -D warnings
@@ -45,7 +47,10 @@ cargo run --release -p strobe-bench -- --size 1280x720     # benchmark + frames
 All of these are clean on the branch, and CI enforces them. A warning is
 a build failure. `cargo xtask ci` runs the lot (fmt, clippy, the no-MIDI
 `strobe-io` clippy on Linux, tests, the Windows cross-clippy when the target is installed, cargo-deny when
-installed, the changelog check, the brand check); a skipped step says why.
+installed, the changelog check, the brand check, the credits check); a
+skipped step says why. A dependency that arrives or leaves, or a new
+contributor, needs `cargo xtask credits` and the regenerated
+`THIRD_PARTY.md` committed.
 
 `CHANGELOG.md` is **generated** from conventional-commit subjects by
 `cargo xtask changelog`, so commit subjects matter and the file is never

@@ -42,7 +42,7 @@
 //! - The main views: [`browser`] (the library: its Scenes page, the grid,
 //!   and its Controls page, which is [`inspector`] laid out large, D291),
 //!   [`import`], [`playlist`], [`editor`], [`map`], [`diagnostics`] and
-//!   [`settings`] (with [`audio`]).
+//!   [`settings`] (with [`audio`], and [`credits`] on its About page).
 //! - The side panel's tabs: [`inspector`] (Controls and Edit, with
 //!   [`controls`]; [`tags`] is the tag row it shares with the browser and
 //!   import), [`presets`] and the playlist's [`playlist`] timeline.
@@ -61,6 +61,7 @@ pub mod browser;
 pub mod chrome;
 pub mod command_palette;
 pub mod controls;
+pub mod credits;
 pub mod diagnostics;
 pub mod editor;
 pub mod fonts;

@@ -16,9 +16,10 @@
 //! scene rather than in terms of serde.
 //!
 //! Unknown keys are ignored rather than rejected. Real scenes carry keys
-//! Strobe does not use (and Strobe's own `X_STROBE` block is read by
-//! later phases), and a scene that loads in Synesthesia should not fail
-//! here because it carries one more key than this file lists.
+//! Strobe does not use (an `X_STROBE` block among them: Strobe's own
+//! extensions are root keys instead, D90), and a scene that loads in
+//! Synesthesia should not fail here because it carries one more key than
+//! this file lists.
 
 use serde::Deserialize;
 
