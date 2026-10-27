@@ -5,6 +5,8 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license-file.workspace = true
+# The About page links to it (`ui::credits`).
+repository.workspace = true
 publish = false
 # Two binaries: the app, and the corpus harness (D195). Plain `cargo run -p
 # strobe-app` must keep meaning the app.

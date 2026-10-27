@@ -4686,6 +4686,7 @@ dependencies = [
  "anyhow",
  "clap",
  "resvg",
+ "serde_json",
 ]
 
 [[package]]

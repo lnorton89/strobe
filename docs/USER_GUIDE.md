@@ -638,6 +638,17 @@ Everything Strobe writes lives in `%LOCALAPPDATA%\strobe`:
 - **More detail in the log:** set the environment variable `STROBE_LOG`
   to `debug` before starting (DEBUGGING.md explains the options).
 
+## Credits and licences
+
+**Settings > About** says which build this is, links to the source and the
+licence, and credits the people and projects Strobe is made from: its
+contributors, the libraries it is built on with their licences, Synesthesia
+(whose SSF scene format Strobe plays; Strobe is independent and not
+endorsed by it) and Shadertoy (what Import reads). **Every crate > Show**
+lists all the open-source crates compiled into `strobe.exe`, each with its
+licence. The same list is [THIRD_PARTY.md](../THIRD_PARTY.md), and the
+release zip's `THIRD-PARTY-NOTICES.txt` has every licence's full text.
+
 ## Where to read more
 
 - [README.md](../README.md): what Strobe is, and building it from source.

@@ -1,0 +1,4 @@
+# One name per person in `git log` and `git shortlog`, and in the
+# contributors `cargo xtask credits` writes to THIRD_PARTY.md (D491).
+Lawrence Norton <lnorton89@gmail.com>
+Lawrence Norton <lnorton89@gmail.com> <537513+lnorton89@users.noreply.github.com>
