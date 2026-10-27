@@ -70,7 +70,8 @@ pub fn report() -> String {
 }
 
 /// Prints the report, saves it, and (in a release build, which has no
-/// console on Windows) shows where it was saved.
+/// console on Windows) shows where it was saved, in a box that does not
+/// hold the process open (D499).
 pub fn run() {
     let text = report();
     println!("{text}");
@@ -84,7 +85,7 @@ pub fn run() {
         Err(error) => eprintln!("Could not save {}: {error}", path.display()),
     }
     if !cfg!(debug_assertions) {
-        dialog::show_error(&format!("Diagnostic report saved to\n{}", path.display()));
+        dialog::show_notice(&format!("Diagnostic report saved to\n{}", path.display()));
     }
 }
 
