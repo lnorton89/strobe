@@ -657,7 +657,182 @@ millisecond whatever the scale, so their "saved" is noise, negative
 included). Where the pixels are the cost, the raymarched and volumetric
 scenes, half scale (a quarter of the pixels) saves 71-73%, close to the 75%
 that pixel count predicts, which is the lever adaptive resolution pulls on
-a slow GPU (D64). The T480 and llvmpipe sweeps are still wanted.
+a slow GPU (D64). The T480 sweep is below; llvmpipe is still wanted.
+
+### 2026-10-27: render-scale sweep, ThinkPad T480 (Intel UHD 620), commit 6f744d4
+
+`--scales 1,0.75,0.5` (D496), the sweep the 1080 Ti section above asked
+for. T480, Intel UHD 620, driver build 30.0.101.1122, hidden-window
+context, **`release`** build (not `release-fast`, because `cargo xtask
+bench` shells out to `--release`), half-float buffers, 1280x720 and its
+0.75 and 0.5 scales, 60 timed frames after 90 warm-up, wall time around a
+`glFinish` per frame. One run each; the 17 library scenes.
+
+Native OpenGL 3.3 core, `Intel(R) UHD Graphics 620 (3.3.0 - Build
+30.0.101.1122)`:
+
+| Scene | 1 (1280x720) | 0.75 (960x540) | 0.5 (640x360) | Saved |
+|---|---:|---:|---:|---:|
+| 01-aurora-gradient | 4.76 | 4.04 | 3.37 | 29% |
+| 02-plasma-pulse | 5.13 | 4.52 | 3.57 | 31% |
+| 03-kaleido-tunnel | 5.12 | 4.47 | 4.00 | 22% |
+| 04-voronoi-glass | 10.36 | 9.28 | 5.89 | 43% |
+| 05-domain-warp | 9.59 | 8.46 | 5.31 | 45% |
+| 06-feedback-trails | 5.03 | 4.15 | 3.92 | 22% |
+| 07-reaction-diffusion | 8.85 | 8.64 | 8.88 | -0% |
+| 08-bloom-orbs | 6.94 | 5.78 | 4.75 | 32% |
+| 09-sdf-cathedral | 24.09 | 17.39 | 10.90 | 55% |
+| 10-volume-clouds | 210.31 | 122.26 | 57.61 | 73% |
+| 11-script-orbits * | 6.81 | 5.30 | 4.61 | 32% |
+| 12-silicon-atlas | 41.50 | 26.17 | 15.67 | 62% |
+| 13-chromatic-rise | 9.00 | 7.58 | 5.88 | 35% |
+| 14-electric-bloom | 14.58 | 10.68 | 8.69 | 40% |
+| 15-neon-ribbon-flow | 10.21 | 8.66 | 7.30 | 29% |
+| 16-acid-mirror | 12.17 | 10.01 | 7.67 | 37% |
+| 17-blacklight-carpet | 13.43 | 9.92 | 8.42 | 37% |
+
+ANGLE on Direct3D 11, `ANGLE (Intel, Intel(R) UHD Graphics 620
+(0x00005917) Direct3D11 vs_5_0 ps_5_0, D3D11-30.0.101.1122)`, OpenGL ES
+3.0.0:
+
+| Scene | 1 (1280x720) | 0.75 (960x540) | 0.5 (640x360) | Saved |
+|---|---:|---:|---:|---:|
+| 01-aurora-gradient | 4.27 | 3.87 | 2.98 | 30% |
+| 02-plasma-pulse | 5.15 | 3.86 | 3.15 | 39% |
+| 03-kaleido-tunnel | 5.29 | 3.78 | 3.23 | 39% |
+| 04-voronoi-glass | 10.95 | 7.86 | 5.24 | 52% |
+| 05-domain-warp | 8.82 | 7.26 | 5.18 | 41% |
+| 06-feedback-trails | 4.60 | 4.28 | 3.29 | 28% |
+| 07-reaction-diffusion | 8.48 | 8.37 | 8.40 | 1% |
+| 08-bloom-orbs | 7.04 | 5.57 | 5.07 | 28% |
+| 09-sdf-cathedral | 24.01 | 17.66 | 11.55 | 52% |
+| 10-volume-clouds | 188.32 | 107.98 | 51.79 | 72% |
+| 11-script-orbits * | 5.62 | 4.39 | 4.02 | 29% |
+| 12-silicon-atlas | 41.36 | 25.45 | 15.05 | 64% |
+| 13-chromatic-rise | 8.55 | 7.30 | 5.76 | 33% |
+| 14-electric-bloom | 15.34 | 11.62 | 8.81 | 43% |
+| 15-neon-ribbon-flow | 12.43 | 9.57 | 8.03 | 35% |
+| 16-acid-mirror | 11.06 | 9.63 | 7.30 | 34% |
+| 17-blacklight-carpet | 14.21 | 10.72 | 8.59 | 40% |
+
+This is the sweep that matters, and it reads nothing like the 1080 Ti's.
+There, the light scenes were fixed cost and their "saved" was noise. Here
+**every scene pays for its pixels**: the smallest saving across the whole
+library is 22%, and the median is around 35%. Half scale is a real lever
+on this machine, which is what adaptive resolution (D64) was built for,
+and the T480 is the machine it was built for.
+
+Two things to take from it:
+
+- **`10-volume-clouds` does not run on this GPU at 720p.** 210 ms a frame
+  is 4.8 fps; half scale brings it to 57.6 ms, still only 17 fps. No
+  render scale rescues it. It is a scene for a discrete GPU, and a
+  playlist aimed at Intel should leave it out rather than rely on adaptive
+  resolution to cope.
+- **`07-reaction-diffusion` is the one scene the lever does not move**:
+  -0% native, 1% on ANGLE, flat across all three scales while every other
+  scene tracks pixel count. Worth finding out why before trusting adaptive
+  resolution to help a feedback scene; a fixed-size pass would explain it
+  (D191 `FIXED_SIZE`, and literal pass sizes are absolute pixels, D194).
+
+`10-volume-clouds`' 73% native is the closest any scene here gets to the
+75% that pixel count predicts, and it matches the 1080 Ti's 71-73% on its
+own heavy scenes.
+
+### 2026-10-27: ANGLE's backends, ThinkPad T480 (Intel UHD 620), commit 6f744d4
+
+`--gl angle-*` (D485, G-05). The scale-1 columns of the sweep above, plus
+an `angle-vulkan` run. `release` build, hidden-window context, half-float
+buffers, 1280x720, 60 timed frames after 90 warm-up. Electron 38.2.0's
+ANGLE (a8c8a6febe63) and its Vulkan loader beside the binaries.
+Wall-clock times, not timer queries, so these include CPU. One run each.
+`angle-gl` and `angle-metal` were not run here.
+
+The renderers:
+
+- native: `Intel(R) UHD Graphics 620 (3.3.0 - Build 30.0.101.1122)`
+- `angle-d3d11`: `ANGLE (Intel, Intel(R) UHD Graphics 620 (0x00005917) Direct3D11 vs_5_0 ps_5_0, D3D11-30.0.101.1122)`, OpenGL ES 3.0.0
+- `angle-vulkan`: `ANGLE (Intel, Vulkan 1.2.196 (Intel(R) UHD Graphics 620 (0x00005917)), Intel Corporation-101.1122)`, OpenGL ES **3.1.0**
+
+**ANGLE-Vulkan starts on Intel** (G-05), and unlike the 1080 Ti it needed
+no fight: with Electron's `vulkan-1.dll` already beside the binaries from
+`scripts\fetch-angle.ps1`, it came up first try, with no
+`VK_ERROR_INITIALIZATION_FAILED`. It reports ES 3.1 where D3D11 reports
+ES 3.0.
+
+Frame time, mean (p95) ms:
+
+| Scene | native mean (p95) | angle-d3d11 mean (p95) | angle-vulkan mean (p95) |
+|---|---:|---:|---:|
+| 01-aurora-gradient | 4.76 (17.62) | 4.27 (17.70) | 5.00 (18.45) |
+| 02-plasma-pulse | 5.13 (18.60) | 5.15 (17.90) | 5.00 (18.86) |
+| 03-kaleido-tunnel | 5.12 (17.62) | 5.29 (17.95) | 5.45 (17.66) |
+| 04-voronoi-glass | 10.36 (21.46) | 10.95 (21.96) | 9.28 (20.39) |
+| 05-domain-warp | 9.59 (20.88) | 8.82 (20.30) | 9.57 (20.42) |
+| 06-feedback-trails | 5.03 (20.57) | 4.60 (17.82) | 5.14 (16.98) |
+| 07-reaction-diffusion | 8.85 (19.90) | 8.48 (19.13) | 8.93 (19.93) |
+| 08-bloom-orbs | 6.94 (18.41) | 7.04 (18.89) | 6.70 (18.80) |
+| 09-sdf-cathedral | 24.09 (36.02) | 24.01 (35.93) | 24.25 (36.45) |
+| 10-volume-clouds | 210.31 (222.51) | 188.32 (201.49) | 201.59 (213.29) |
+| 11-script-orbits * | 6.81 (18.50) | 5.62 (17.77) | 5.59 (17.35) |
+| 12-silicon-atlas | 41.50 (53.50) | 41.36 (54.19) | 51.80 (63.30) |
+| 13-chromatic-rise | 9.00 (20.35) | 8.55 (19.63) | 9.26 (19.71) |
+| 14-electric-bloom | 14.58 (25.43) | 15.34 (25.48) | 15.81 (26.41) |
+| 15-neon-ribbon-flow | 10.21 (21.49) | 12.43 (23.26) | 11.42 (22.67) |
+| 16-acid-mirror | 12.17 (26.24) | 11.06 (22.87) | 12.07 (22.69) |
+| 17-blacklight-carpet | 13.43 (24.09) | 14.21 (26.16) | 13.72 (24.83) |
+
+The three backends are within noise of each other on almost everything.
+Where they part: ANGLE-D3D11 is the fastest on the heaviest scene
+(`10-volume-clouds`, 188 against native's 210), and ANGLE-Vulkan is
+clearly the worst on `12-silicon-atlas` (51.8 against about 41.4 for both
+others, a 25% penalty).
+
+Compile ms as each backend reports it, and this is the sharp difference:
+
+| Scene | native compile | angle-d3d11 compile | angle-vulkan compile |
+|---|---:|---:|---:|
+| 01-aurora-gradient | 43.2 | 35.1 | 22.6 |
+| 02-plasma-pulse | 27.9 | 32.3 | 15.0 |
+| 03-kaleido-tunnel | 39.6 | 41.1 | 18.9 |
+| 04-voronoi-glass | 146.6 | 143.0 | 22.0 |
+| 05-domain-warp | 219.6 | 157.5 | 20.9 |
+| 06-feedback-trails | 45.0 | 57.5 | 29.6 |
+| 07-reaction-diffusion | 169.1 | 189.5 | 81.2 |
+| 08-bloom-orbs | 226.4 | 108.1 | 57.3 |
+| 09-sdf-cathedral | 475.7 | 231.8 | 19.3 |
+| 10-volume-clouds | 267.2 | 514.6 | 22.7 |
+| 11-script-orbits * | 61.8 | 94.9 | 21.1 |
+| 12-silicon-atlas | 420.1 | 5453.3 | 28.3 |
+| 13-chromatic-rise | 212.7 | 431.3 | 81.6 |
+| 14-electric-bloom | 554.1 | 2605.7 | 51.9 |
+| 15-neon-ribbon-flow | 192.5 | 269.0 | 34.7 |
+| 16-acid-mirror | 244.9 | 667.2 | 52.5 |
+| 17-blacklight-carpet | 480.4 | 1722.0 | 38.9 |
+
+**ANGLE-D3D11's compile cost is the thing to worry about on this machine.**
+`12-silicon-atlas` takes 5.45 s to compile through D3D11 against 0.42 s
+native, `14-electric-bloom` 2.61 s against 0.55 s, `17-blacklight-carpet`
+1.72 s against 0.48 s. That is the same shape TORNADO recorded (D3D11
+2155 ms on the same scene), so it is ANGLE's HLSL path and not this GPU.
+On a machine where ANGLE is the fallback for a broken WGL driver, a scene
+change can therefore stall for seconds. That is a load-time cost, not a
+frame cost, but it sits on the critical path of a playlist transition.
+
+ANGLE-Vulkan returns from `link` fastest of the three, by a lot
+(`12-silicon-atlas` 28 ms against D3D11's 5453 ms). As on the 1080 Ti,
+this column says when `link` returned and not what the first frame cost:
+the corpus run in T480.md Task 47 shows Vulkan's first frame for the same
+scene at 413 ms against D3D11's 5.5 ms, so the pipeline work is deferred,
+not avoided.
+
+One thing left open on all three backends: the light scenes report a mean
+near 5 ms but a p95 near 18 ms, so roughly 3 to 5 frames in every 60 take
+about 18 ms while the rest take about 3. The stall is periodic, appears on
+native, D3D11 and Vulkan alike, and so is more likely the driver, the
+compositor or the per-frame audio-texture upload than any one scene. It is
+not explained here, and it matters for a 60 fps target (16.7 ms) because
+an 18 ms frame is a dropped one.
 
 ## Wanted
 
@@ -665,4 +840,6 @@ a slow GPU (D64). The T480 and llvmpipe sweeps are still wanted.
   1440p (2026-10-09, above). This machine has no discrete GPU.
 - [x] Render-scale sweep (1.0 / 0.75 / 0.5): `--scales` (D496), run on
   the GTX 1080 Ti (2026-10-26, above).
-- [ ] The same sweep on the T480 and llvmpipe.
+- [x] The same sweep on the T480 (2026-10-27, above): every scene pays for
+  its pixels there, 22% to 73% saved at half scale.
+- [ ] The same sweep on llvmpipe.
