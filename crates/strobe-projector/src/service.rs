@@ -5,7 +5,7 @@
 //               address, port or bind mode changes. Strobe and the headless
 //               binary both run it.
 //
-// Dependencies: std::thread; crate::{bind, config, server}
+// Dependencies: std::thread, std::fs; crate::{bind, config, server}
 // ============================================================================
 
 //! The supervisor (the Python tool's `server.py` main loop, D502).
@@ -24,14 +24,20 @@
 //!    Tailscale coming up, a change in Settings).
 //!
 //! [`Service::state`] is what Settings shows.
+//!
+//! The headless service also [`follow_file`]s its config: Strobe's Settings
+//! saves the same file, and a new password, token or port reaches the
+//! running service within [`RELOAD`], as long as the file still loads.
 
 use crate::bind::{self, Kind};
 use crate::config::Config;
 use crate::server::{Server, Shared};
 use std::net::{Ipv4Addr, SocketAddr};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError, RwLock};
 use std::thread::{self, JoinHandle};
+use std::time::SystemTime;
 use std::time::{Duration, Instant};
 
 /// How long to wait before trying again when there is no address, or the
@@ -40,6 +46,9 @@ pub const RETRY: Duration = Duration::from_secs(15);
 
 /// How often a listening service checks its address.
 pub const CHECK: Duration = Duration::from_secs(30);
+
+/// How often a followed config file is checked for a change.
+pub const RELOAD: Duration = Duration::from_secs(10);
 
 /// What the service is doing.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -263,13 +272,67 @@ fn supervise(shared: &Arc<Shared>, resolve: Resolver, state: &Mutex<State>, stop
     set(state, State::Stopped);
 }
 
+/// When `path` was last written, if it can be read.
+fn modified(path: &Path) -> Option<SystemTime> {
+    std::fs::metadata(path)
+        .and_then(|meta| meta.modified())
+        .ok()
+}
+
+/// Loads `path` into `config` if it changed since `seen`, and moves `seen`
+/// on. A file that no longer loads is logged and left out: the service
+/// keeps the configuration it has. Returns whether `config` changed.
+pub fn reload_if_changed(
+    path: &Path,
+    seen: &mut Option<SystemTime>,
+    config: &RwLock<Config>,
+) -> bool {
+    let now = modified(path);
+    if now == *seen {
+        return false;
+    }
+    *seen = now;
+    match Config::load(path) {
+        Ok(loaded) => {
+            let mut current = config.write().unwrap_or_else(PoisonError::into_inner);
+            if *current == loaded {
+                return false;
+            }
+            *current = loaded;
+            log::info!("projector config: reloaded {}", path.display());
+            true
+        }
+        Err(error) => {
+            log::warn!("projector config: {error}; keeping the one loaded");
+            false
+        }
+    }
+}
+
+/// Follows `path` on a thread of its own for the life of the process,
+/// reloading `config` within [`RELOAD`] of a change.
+pub fn follow_file(path: &Path, config: Arc<RwLock<Config>>) {
+    let path: PathBuf = path.to_path_buf();
+    let spawned = thread::Builder::new()
+        .name("projector-config".into())
+        .spawn(move || {
+            let mut seen = modified(&path);
+            loop {
+                thread::sleep(RELOAD);
+                reload_if_changed(&path, &mut seen, &config);
+            }
+        });
+    if let Err(error) = spawned {
+        log::warn!("projector config: not followed: {error}");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::audit::Audit;
     use crate::unit::Timing;
     use anyhow::Result;
-    use std::sync::RwLock;
 
     fn shared(token: &str) -> Arc<Shared> {
         let mut config = Config::default();
@@ -290,6 +353,52 @@ mod tests {
             }
             thread::sleep(Duration::from_millis(10));
         }
+    }
+
+    #[test]
+    fn a_changed_file_is_reloaded_and_a_broken_one_is_not() -> Result<()> {
+        let dir =
+            std::env::temp_dir().join(format!("strobe-projector-follow-{}", std::process::id()));
+        let path = dir.join(crate::config::FILE_NAME);
+        let mut first = Config::default();
+        first.projectors.insert(
+            "sony".into(),
+            crate::config::Projector::new("Sony", "192.168.50.11"),
+        );
+        first.save(&path)?;
+        let config = RwLock::new(first.clone());
+        let mut seen = None;
+        assert!(
+            !reload_if_changed(&path, &mut seen, &config),
+            "the same contents"
+        );
+        let mut second = first.clone();
+        second.api.token = "0123456789abcdef0123456789abcdef".into();
+        second.save(&path)?;
+        seen = None;
+        assert!(reload_if_changed(&path, &mut seen, &config), "a new token");
+        let token = config
+            .read()
+            .map_err(|_| anyhow::anyhow!("lock"))?
+            .api
+            .token
+            .clone();
+        assert_eq!(token, second.api.token, "reloaded");
+        std::fs::write(&path, "{ broken")?;
+        seen = None;
+        assert!(
+            !reload_if_changed(&path, &mut seen, &config),
+            "broken file ignored"
+        );
+        let token = config
+            .read()
+            .map_err(|_| anyhow::anyhow!("lock"))?
+            .api
+            .token
+            .clone();
+        assert_eq!(token, second.api.token, "kept");
+        std::fs::remove_dir_all(&dir)?;
+        Ok(())
     }
 
     #[test]
