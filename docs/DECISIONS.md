@@ -12181,3 +12181,28 @@ started with `Start-Process` exited with 0 in under a second, leaving one
 PowerShell box with the information icon.
 
 **Would reopen:** a notice that needs an answer (then it is not a notice).
+
+### D501: the About page's contributors are people, not the tools they ran (2026-10-27, owner's choice)
+
+**Context.** `cargo xtask credits` (D491) lists every commit author in
+THIRD_PARTY.md, which the About page shows, and leaves out names ending in
+`[bot]`. Most of the history (714 commits on master) was committed by coding
+agents under `Claude <noreply@anthropic.com>`, so About listed "Claude" as a
+contributor. The owner wants the list to be the repository's contributors
+who are not bots, still generated from the history.
+
+**Decision.** The log is read with each author's address, and an identity
+is a tool, and left out, when its name or address holds `[bot]` (GitHub
+Apps: dependabot, github-actions, renovate) or its address is one of
+`AUTOMATED_EMAILS`, today `noreply@anthropic.com`. A person's GitHub
+noreply address (`<id>+<user>@users.noreply.github.com`) is a person, and a
+person named Claude at another address is a person. Commits a tool made for
+someone are that person's work, so nothing is lost from the credit.
+
+**Test.** `credits::tests::bots_and_coding_agents_are_not_contributors`;
+THIRD_PARTY.md regenerated, listing Lawrence Norton alone, and
+`cargo xtask credits --check` passes.
+
+**Would reopen:** another automated identity committing here (add its
+address to `AUTOMATED_EMAILS`), or a person who wants credit under an
+address on that list (then a `.mailmap` entry gives them their own).

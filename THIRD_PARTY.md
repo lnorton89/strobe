@@ -8,7 +8,6 @@ Strobe is MIT-licensed with the Commons Clause ([LICENSE](LICENSE)). It is built
 | Name | Role |
 |---|---|
 | Lawrence Norton | Author and maintainer |
-| Claude | Contributor |
 
 ## Shipped beside strobe.exe
 
