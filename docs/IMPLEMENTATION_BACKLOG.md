@@ -2,7 +2,7 @@
 
 **Purpose:** one evidence-based register of every known unfinished or not-yet-verified project area. This is the implementation companion to ROADMAP.md, STATUS_AUDIT.md, PLAN.md, UI_IMPLEMENTATION_PLAN.md, GFX_API_RESEARCH.md, and REMOTE_CONTROL_PWA_RESEARCH.md. It consolidates their open work; it does not re-label untested work as complete.
 
-**Last reconciled:** 2026-10-26 against every crate README's "Status and known gaps" (D490: C-07, I-06, D-05, D-06, R-07 and R-08 added, M-05 and R-03 updated), and C-01, C-08 and I-05 against Synesthesia 1.25.4 (TORNADO T25, D492), after G-05 and G-06 (D485) and scene transitions (D489); the UI items reflect D464-D484 in ROADMAP.md and UI_REVIEW.md.
+**Last reconciled:** 2026-10-27 for D-05 (D497); 2026-10-26 against every crate README's "Status and known gaps" (D490: C-07, I-06, D-05, D-06, R-07 and R-08 added, M-05 and R-03 updated), and C-01, C-08 and I-05 against Synesthesia 1.25.4 (TORNADO T25, D492), after G-05 and G-06 (D485) and scene transitions (D489); the UI items reflect D464-D484 in ROADMAP.md and UI_REVIEW.md.
 
 ## How to use this register
 
@@ -465,7 +465,7 @@
 - **Acceptance:** CI is reproducible; platform-only tests clearly report skip reasons; skipped Windows/GPU tests are not counted as passed.
 
 ### D-05 Conventions not yet enforced
-- **Status:** Open. `strobe-conventions` checks headers, the unsafe boundary, the toolchain, pinned actions, discarded results and the READMEs' known gaps (D490). Not checked: `build.rs` and `scripts/` (the walk covers crates' `src/`, `tests/` and `examples/`); CLAUDE.md's "every GL object has an owning type with a `Drop`" and "no `glGet*` in the frame loop"; Markdown under `docs/` (dead links, decision numbers that do not exist).
+- **Status:** Done (D497). The walk takes each crate's `build.rs` (`scripts/` holds no Rust). `gl_objects`: every raw glow object in `gl/` has an owner with a `Drop`, every create call makes an owned kind, and nothing outside `gl/` stores a raw handle. `driver_queries`: every state-query leaf counts itself into `Gl::state_queries`, and no glow query is made outside `gl/`; `render.rs`'s `a_playing_scene_asks_the_driver_nothing` and the compositor's custom-transition test assert the count stops moving once a scene plays. `docs`: relative links resolve and cited decisions exist, over `docs/`, the root's Markdown and the crate READMEs. Each rule fails on a planted violation. Left: the counter's GPU tests run only on CI's Linux job (headless EGL); a whole show is not asserted, because a playlist resizes scenes at cue boundaries by design.
 - **Work:** extend the walk to `build.rs`; a test that every `gl::*` object type implements `Drop`; a test that the frame-path modules call no `get_*` query; a link and decision-number check over `docs/`.
 - **Acceptance:** each rule fails the build on a planted violation and passes on the tree.
 
