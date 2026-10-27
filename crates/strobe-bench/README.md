@@ -16,10 +16,11 @@ regression check.
   needs no `winit` of its own.
 - **Depended on by:** nothing. It is a binary; `cargo xtask bench` wraps it and
   CI runs it.
-- **Does not:** use `strobe-diag`, run scripts, upload real audio textures or
-  swap a window. Scenes render into the player's offscreen targets, so a scene
-  whose shader needs a script-created uniform does not compile here (D62), and
-  `syn_Spectrum` / `syn_LevelTrail` are silent placeholders.
+- **Does not:** run scripts, capture audio or swap a window. Scenes render
+  into the player's offscreen targets, so a scene whose shader needs a
+  script-created uniform does not compile here (D62). `syn_Spectrum` and
+  `syn_LevelTrail` come from the synthetic 120 BPM track at the app's sizes,
+  uploaded inside each timed frame (D496).
 
 ## Main types / entry points
 
@@ -120,7 +121,7 @@ IDs given here; a gap with no ID is by design, with its decision named.
   T480 (Intel UHD 620, native and ANGLE, 720p and 1440p), the AMD
   desktop's RX 580, TORNADO's GTX 1080 Ti (ANGLE's backends included) and
   the venue mini-PC's Vega 3. The other baseline is llvmpipe in a cloud
-  container. A render-scale sweep is still wanted (backlog D-06).
+  container. `--scales 1,0.75,0.5` adds a render-scale sweep table (D496).
 - **A failed scene fails the run.** A scene that fails to compile is printed
   as `FAILED`, recorded in `results.md` and left out of the contact sheet.
   After every frame and the report are written, the process exits non-zero
@@ -128,7 +129,7 @@ IDs given here; a gap with no ID is by design, with its decision named.
   (D56).
 - No scripts run, by design (D239): `11-script-orbits` renders as a still
   with default controls, and `results.md` says so and marks such scenes
-  `*`; `cargo xtask corpus` runs scripts. The audio textures are
-  placeholders (backlog D-06).
+  `*`; `cargo xtask corpus` runs scripts. The audio textures come from the
+  synthetic track, not a microphone, so frames stay a pure function of time.
 - Not built for macOS yet: `strobe-gfx` has no CGL provider (D55; backlog
   G-07).

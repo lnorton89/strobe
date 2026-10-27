@@ -112,8 +112,8 @@ IDs given here; a gap with no ID is by design, with its decision named.
 
 - Built and wired into the app (phase 3, D61): capture with a synthetic
   fallback, textures uploaded each frame, settings UI
-  ([`ROADMAP.md`](../../docs/ROADMAP.md)). The bench still uses the synthetic
-  stand-in and uploads placeholder textures (backlog D-06).
+  ([`ROADMAP.md`](../../docs/ROADMAP.md)). The bench uses the synthetic
+  stand-in for the levels and the textures alike (D496).
 - Live capture has run on the T480 (the Realtek microphone at 48 kHz) and
   the AMD desktop (Tasks A1 and A2, where it found and then confirmed the
   fix for a reopen loop, D266). A failed stream is reopened on a backoff
