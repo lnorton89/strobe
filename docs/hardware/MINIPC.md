@@ -1000,8 +1000,64 @@ Strobe exited with code 0, and the PC was restarted.
 `strobe-test\backup`. The show folder is a hand-made copy, not a git
 checkout, and the machine has no GitHub login for the private assets repo.
 
+## Live capture from the webcam mic (2026-10-27, Tasks M27-M29, backlog R-01)
+
+The mini PC now has a microphone: a Logitech C270 webcam. Windows lists one
+capture endpoint, `Microphone (C270 HD WEBCAM)`. Master was ab7e3f3.
+`cargo build --profile release-fast -p strobe-app` took 2m 01s. The ANGLE
+DLLs were already beside the exe, so the build's ANGLE fetch (#40) had
+nothing to do. The app ran as the logged-on user through a scheduled task in
+session 1, because a session-0 shell can neither see nor message the
+desktop's windows.
+
+### M27: baseline live capture
+
+`STROBE_LOG=debug strobe.exe --scene 02-plasma-pulse` for 60 s, then
+`WM_CLOSE`. The room was **silent**: nobody was free to make sound near the
+mic, so this checks opening and capture, not levels or beat tracking.
+
+- **Device list and open:**
+  ```
+      0.779s INFO  [main] strobe_app::audio: 1 capturable device(s)
+      0.850s INFO  [strobe-audio] strobe_audio::capture::worker: capturing `Microphone (C270 HD WEBCAM)` at 48000 Hz
+      0.859s INFO  [main] strobe_app::audio: live capture from Microphone (C270 HD WEBCAM) (48000 Hz)
+  ```
+  The debug log gives the device count but not the names. The one name is
+  the device that opened.
+- **Errors:** none. There are no `audio stream error`, `buffer glitch` or
+  `reopening` lines in the 60 s.
+- **Privacy:** Windows' microphone privacy setting did not block capture.
+  The stream opened and stayed open. No setting was touched.
+- **What the app shows:** the title bar reads `59 fps · Audio live ·
+  128 BPM · Output hidden`, and the preview strip shows a small level bar.
+  128 BPM in a silent room is the tempo tracker's resting value, not a
+  detected beat.
+- **Frame rate:** `perf: 59.0 fps over 60 s, missed 1 refreshes (0.0% of
+  frames), 1 late of 3539 frames, worst gap 79.3 ms, gpu 0.56 ms, scale
+  1.00`.
+- **Close:** `WM_CLOSE` at 16:15:33.18 local, and the process exited with
+  **code 0** at 16:15:33.42.
+
+### M28 (R-01): unplug and replug while playing — not tested
+
+This needs someone to pull and reconnect the USB cable at set times, and
+nobody was available. Nothing was observed for the fallback to synthetic
+audio, the reopen backoff (100 ms doubling to 2 s, D266) or the reopen
+without a restart. R-01 stays open on this machine.
+
+### M29: default-device change — not tested
+
+Windows lists only one capture device here (no Stereo Mix, no second mic),
+so there is no other default to switch to. It also needs hands at the PC.
+
 ## Still to do here
 
+- M28 / R-01: unplug the C270 for 30 s and then for 2 min while a scene
+  plays, and record the fallback, the reopen backoff and the reopen from the
+  log. Repeat M27 with sound near the mic, so the level and beat lines are
+  real.
+- M29: needs a second capture device (another mic, or Stereo Mix enabled)
+  before a default-device switch can be tested.
 - Run a two-machine venue-mode test with the laptop (loopback is M6), and
   Disconnect.
 - Move or turn off the scheduled System Restore / VSS snapshots before a
