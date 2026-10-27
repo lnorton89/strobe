@@ -26,8 +26,10 @@
 //! is `strobe_scene::control`, a crate's `lib.rs` is
 //! `strobe_scene (library crate root)`, its `main.rs` is
 //! `strobe_app (binary crate root)`, and files under `tests/` and
-//! `examples/` are `name (integration test)` and `name (example)`.
+//! `examples/` are `name (integration test)` and `name (example)`. A
+//! crate's `build.rs` is `build (build script)` (D497).
 
+use crate::sources::BUILD_SCRIPT;
 use anyhow::{Result, anyhow};
 
 /// The rule above and below every header.
@@ -54,6 +56,9 @@ pub fn expected_module(relative: &str) -> Result<String> {
     let (krate, rest) = rest
         .split_once('/')
         .ok_or_else(|| anyhow!("{relative} is not inside a crate"))?;
+    if rest == BUILD_SCRIPT {
+        return Ok("build (build script)".to_string());
+    }
     let (area, rest) = rest
         .split_once('/')
         .ok_or_else(|| anyhow!("{relative} is not under a checked directory"))?;
@@ -198,6 +203,7 @@ mod tests {
                 "render (integration test)",
             ),
             ("crates/strobe-app/examples/shot.rs", "shot (example)"),
+            ("crates/strobe-diag/build.rs", "build (build script)"),
         ];
         for (path, expected) in cases {
             assert_eq!(
