@@ -181,40 +181,42 @@ STROBE_REQUIRE_HEADLESS_GL=1 STROBE_REQUIRE_WINDOW_GL=1 \
 
 ## Status and known gaps
 
-- **Verified:** llvmpipe (Mesa) on desktop GL 3.3 core and GLES 3.0. Not a real
-  GPU, not the T480, not ANGLE itself.
+Open work for this crate is tracked in
+[`IMPLEMENTATION_BACKLOG.md`](../../docs/IMPLEMENTATION_BACKLOG.md) under the
+IDs given here; a gap with no ID is by design, with its decision named.
+
+- **Verified:** llvmpipe (Mesa) on desktop GL 3.3 core and GLES 3.0, and
+  `--context window` on the T480's Intel UHD 620, native and ANGLE, where
+  two runs were byte-identical and both backends kept the same controls
+  ([`T480.md`](../../docs/hardware/T480.md), commit 961acaa).
 - **The app's review** (D202, D219, D246) keeps or drops each control,
-  re-ranges a slider and renames a control before the copy is written again;
-  a name is checked against the scene the way generated names are.
-- **Window mode on Windows is unverified.** `--context window` agrees with
-  `--context headless` byte for byte on llvmpipe under Xvfb, but it has not
-  run on the T480 yet (the check is in `docs/hardware/T480.md`).
+  re-ranges a slider and renames a control; the kept controls are saved
+  into the scene itself, with backups, or kept as a copy (D488).
 - **Speed controls follow `st_speed` and `st_audio_time`** in a Shadertoy
   import because the app ticks them at the clock's rate
   (`strobe_shadertoy::convert::clock_rate`, D246). Tools that score scenes
   run at the defaults, where that rate is 1.
-- **Not generated:** `xy` pads (a centre, an offset), dropdowns (a mode
-  switch), toggles, or anything in a `const` statement that shares its line.
+- **Not generated yet** (backlog I-03): `xy` pads (a centre, an offset),
+  dropdowns (a mode switch), toggles, signed vectors (a light position or a
+  box size is left alone rather than offered as a Shape control), or
+  anything in a `const` statement that shares its line.
 - **Community scenes (T26, D259).** One run over the owner's 65 scenes
   found refused scripted scenes, maths offered as knobs, numbered names,
   positions taken for colours, too many Quality controls, two unfaithful
   rewrites and some misses. All six are addressed with original fixtures;
-  a re-run on TORNADO is the remaining check.
-- **Script uniforms are a static scan** of `script.js`: a uniform whose
-  name or type only the running script knows (a name from a variable, a
-  value that is an array in a variable) may be declared with the wrong
-  type or not at all, and the scene is then refused as before. Script
-  uniforms are zero while scoring, so a control whose effect depends on
-  the script's values is measured without them.
-- **Unfaithful on a real GPU.** The likeliest cause of T26's two unfaithful
-  scenes is compiler rounding (a literal folded as a constant versus read
-  from a uniform), which llvmpipe does not show. The gate drops such
-  controls; it cannot keep them.
-- **Signed vectors are not generated:** a light position or a box size is
-  left alone rather than offered as a Shape control.
-- **Weak small-footprint knobs.** A candidate under 1% of full scale that
-  is also under a twentieth of the strongest is not kept, so a small
-  orbiting dot's speed can be lost next to a background colour.
+  a re-run on TORNADO is still to do (backlog I-03).
+- **Script uniforms are a static scan** of `script.js` (backlog I-03): a
+  uniform whose name or type only the running script knows may be declared
+  with the wrong type or not at all, and the scene is then refused as
+  before. Script uniforms are zero while scoring, so a control whose effect
+  depends on the script's values is measured without them.
+- **Unfaithful on a real GPU** (backlog I-03). The likeliest cause of T26's
+  two unfaithful scenes is compiler rounding (a literal folded as a
+  constant versus read from a uniform), which llvmpipe does not show. The
+  gate drops such controls; it cannot keep them.
+- **Weak small-footprint knobs** (backlog I-03). A candidate under 1% of
+  full scale that is also under a twentieth of the strongest is not kept,
+  so a small orbiting dot's speed can be lost next to a background colour.
+  **A 10-frame window** can also miss an effect that only appears later.
 - **Audio bindings** are suggestions; only float and colour sites can be
   written into GLSL, and a speed suggestion is data.
-- **A 10-frame window** can miss an effect that only appears later.
