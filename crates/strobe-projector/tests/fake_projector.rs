@@ -62,6 +62,8 @@ struct State {
     busy_until: Instant,
     err3_left: u32,
     dark_until: Option<Instant>,
+    /// How long the lamp stays dark once the unit reports on.
+    dark_after_on: Duration,
     violation: bool,
     power_commands: u32,
 }
@@ -81,6 +83,7 @@ impl FakePjLink {
             busy_until: Instant::now(),
             err3_left: 0,
             dark_until: None,
+            dark_after_on: Duration::ZERO,
             violation: false,
             power_commands: 0,
         }));
@@ -135,6 +138,11 @@ fn answer_pjlink(stream: TcpStream, state: &Mutex<State>) {
     let mut s = state.lock().unwrap_or_else(PoisonError::into_inner);
     let now = Instant::now();
     if s.busy_until <= now && matches!(s.power, '2' | '3') {
+        if s.power == '3' {
+            // The lamp strikes this long after the unit reports on, however
+            // slowly the test machine got here.
+            s.dark_until = Some(now + s.dark_after_on);
+        }
         s.power = if s.power == '3' { '1' } else { '0' };
     }
     let head = command.get(..6).unwrap_or(command);
@@ -319,7 +327,7 @@ fn a_cool_down_is_waited_out_before_on() -> Result<()> {
 #[test]
 fn on_waits_for_the_lamp_to_strike() -> Result<()> {
     let fake = FakePjLink::start()?;
-    fake.with(|s| s.dark_until = Some(Instant::now() + Duration::from_millis(800)));
+    fake.with(|s| s.dark_after_on = Duration::from_millis(500));
     let result = fake.unit(PASSWORD).set_power(true, true)?;
     assert_eq!(result.reached.as_deref(), Some("on"), "{result:?}");
     assert!(
@@ -329,7 +337,8 @@ fn on_waits_for_the_lamp_to_strike() -> Result<()> {
             .any(|state| state == "lamp starting"),
         "{result:?}"
     );
-    assert!(result.elapsed_s >= 0.7, "waited for the lamp: {result:?}");
+    let least = (TRANSITION + Duration::from_millis(500)).as_secs_f64() - 0.1;
+    assert!(result.elapsed_s >= least, "waited for the lamp: {result:?}");
     Ok(())
 }
 
