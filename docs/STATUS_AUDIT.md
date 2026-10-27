@@ -664,7 +664,8 @@ the topology before any broad redesign.
   was visibly hue-shifted and mirrored. **Not verified:** an HD 4000, where
   1.1 ms at 1440p may double (D180's fallback is to fold the stage into the
   present blit when the output is shown), and the guessed order and mirror
-  conventions against Synesthesia (Q21).
+  conventions against Synesthesia: now read from its engine (R16,
+  TORNADO T25), and Strobe's differ; C-01 is reopened to follow them.
 - [x] Limit Colors, and meta settings carrying across scenes (D207).
   Evidence, llvmpipe, both dialects: `post.rs`
   `limit_colors_maps_luma_onto_the_two_colours`; `meta.rs`
@@ -836,6 +837,23 @@ survives export.
   `pow(x, 1.0)` turned PLUS black. Unit, assembly and both-dialect render
   tests pass and llvmpipe's corpus black lists are unchanged; the ANGLE
   picture itself is unverified until AMD Task A15 runs.
+- [x] **Synesthesia 1.25.4's own install on TORNADO** (T25, 2026-10-26):
+  `cargo xtask corpus` over its 87 `release` scenes and the welcome scene,
+  read in place with scripts on: 88 of 88 on native NVIDIA and 88 of 88 on
+  ANGLE/D3D11, after D490. Evidence: `target\tornado\corpus-after-d490.*`
+  on that machine, and the table in
+  [hardware/TORNADO.md](hardware/TORNADO.md).
+- [x] **The SSF library computes what Synesthesia's engine computes**
+  (D490): `_rotate` in radians, clockwise (44 of the 87 call it), and about
+  twenty other helpers, read from the engine's own library. Evidence:
+  `render.rs` `ssf_helpers_compute_what_synesthesias_engine_computes`, ten
+  cases, both dialects, on Mesa llvmpipe; the corpus above (39 scenes'
+  frames changed, the same in both dialects, none failing). **Not
+  verified:** that the changed frames now look like Synesthesia's (S7 in
+  OPEN_QUESTIONS, with Synesthesia running).
+- [ ] **Meta controls as Synesthesia applies them** (C-01, R16): its order,
+  methods and names are known and differ from Strobe's; the change waits
+  for a decision on migrating saved meta values.
 
 ## P2: playlists, show control and release
 

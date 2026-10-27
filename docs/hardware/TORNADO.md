@@ -497,6 +497,81 @@ documented API (`setUniform`, the `uniforms` and `inputs` objects,
 default, the five events, `textureFinalPass`, `print`, `printGlobalKeys`)
 is all in Strobe's host (`strobe-script`'s conformance tests).
 
+## Synesthesia 1.25.4 read without running it (2026-10-26, Task T25)
+
+Synesthesia 1.25.4.189 is installed here (`C:\Program Files (x86)\Synesthesia`,
+87 scenes in `release\`, the welcome scene in `default\`). Nothing was
+launched, and the mouse, keyboard and screen were not touched. What was
+read, all on disk:
+- the SSF reference bundled with the app (`views\embedded_docs\`, the same
+  pages as the online docs at that version);
+- the 88 shipped `scene.json` files and their GLSL, counted, not copied;
+- the person's settings and presets in `%LOCALAPPDATA%\Synesthesia\Data`
+  (`preferences.json`, `presets.json`; `user.dat` was left alone);
+- the text inside `Synesthesia.exe`, which holds the engine's built-in GLSL
+  library and its meta-control pass as source.
+
+Nothing from the install went into the repository; the findings are in
+OPEN_QUESTIONS (R15-R19 and the "What Synesthesia itself can settle"
+table), D490 and C-01.
+
+**What it settled:**
+- **Transitions (for D489):** a hard transition always moves to a different
+  entry, and all of them move together (R15). The value at load and the
+  default `DURATION` are not documented.
+- **The meta controls (Q21, now R16):** the full list, Synesthesia's order
+  and every method. Strobe's differ almost everywhere; C-01 is reopened.
+- **`_hueSaturationContrastLEGACY` (R17) and `_ratioFix` (R18).**
+- **The SSF library (R19, D490):** `_rotate` takes radians and turns
+  clockwise, which 44 of the 87 shipped scenes rely on; about twenty other
+  helpers and forms differed too. Fixed, with a ten-case render test.
+- **Q2, Q6, Q10, Q14, Q25** narrowed: see each row.
+
+**The corpus, `cargo xtask corpus` over the real install** (read in place,
+scripts on, 3 frames at 160x90; GTX 1080 Ti, driver 582.78; ANGLE 2.1.25847
+on D3D11):
+
+| Run | Commit | `release\` (87) native | ANGLE | `default\` (1) |
+|---|---|---:|---:|---|
+| Before D490 | a5f51f1 | 87 ok | 86 ok, 1 `gl_error` | not run |
+| After D490 | this branch | 87 ok | 87 ok | 1 ok, both dialects |
+
+- The one failure before D490, `waterly` on ANGLE ("the worker died"),
+  came while the disk was full (0 bytes free during the run); it is not a
+  Strobe gap. After D490, with space back, it passes.
+- **D490 changed the final frame of 39 scenes, the same 39 in both
+  dialects** (`SkaiWalkerOG`, `audio_indicators`, `hue_review`,
+  `kaleidowhoa_man`, `myoplasm` and 34 more); the other 48 are
+  bit-identical. Whether the new frames match Synesthesia's needs S7: the
+  corpus keeps checksums, not pictures, and `strobe-bench` cannot render
+  these scenes because it runs no scripts (`hue_review` fails there on a
+  script-created uniform).
+- No compile or script failures in either dialect. 47 scenes have a
+  `script.js`.
+- 7 scenes are black after 3 frames in both dialects (`PLUS`, `circles5`,
+  `glitch`, `hills_eels`, `pxl_sort_1`, `raw_video`, `redrum`): they draw
+  from the media input, which the harness leaves empty, or build up over
+  more frames. Not failures.
+- Slowest compiles: native `glitch` 389 ms; ANGLE `overload` 12.7 s (as
+  T22 found for one scene, D3D's translation), `fuzzy_signal` and
+  `neon_city` about 3.1 s. A show precompiles at load (D151).
+- Slowest frames at 160x90 (scripts included): native `sprinkles` 54 ms;
+  ANGLE `redrum` 219 ms and `shrouded` 101 ms. At this size these are
+  dominated by fixed-size passes and scripts, not resolution.
+- ANGLE needed `libEGL.dll`, `libGLESv2.dll` and `d3dcompiler_47.dll`
+  beside the worktree's `target\release`; without them every ES scene
+  reports `gl_error` "no GL context", as the first attempt here did.
+
+**Left for a person, each with steps (OPEN_QUESTIONS S1-S13):** the
+transition values at load and the default `DURATION`; `_mouse` outside the
+preview; the spectrum's axes; `syn_PrimeBang`; the meta ranges; unknown
+keys; side-by-side pictures after D490; the EULA (its PDF answered 403 to a
+plain fetch); the meta controls by eye once C-01 lands; Q32's two shapes;
+`bang smooth`'s envelope; OSC names with `_`; and I-05 in Strobe's own app.
+
+**Also seen:** the disk filled up mid-task (other sessions' builds; the
+main checkout's `target\` alone was 24.9 GB) and recovered by itself.
+
 ## Pending on this machine
 
 - [x] Re-run 07 at 1080p and 2160p after D191: same size (T2).
@@ -530,6 +605,10 @@ is all in Strobe's host (`strobe-script`'s conformance tests).
 - [x] T14: the pacer (D216) engages at 0.56 s and holds late frames to
   about a third (568-581 a minute); the return to 30 Hz was not exercised
   because the wait never cleared.
+- [x] T25: Synesthesia 1.25.4 read from its files; its 88 shipped scenes
+  pass the corpus in both dialects before and after D490.
+- [ ] OPEN_QUESTIONS S1-S13: the questions that need Synesthesia running or
+  a person at the keyboard, each asked for first.
 - [ ] A larger set of real Shadertoy shaders through NVIDIA's compiler
   (owner-supplied, kept local), to find NVIDIA-only acceptance.
 - [ ] The Vulkan / wgpu compiler spike from
