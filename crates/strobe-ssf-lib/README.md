@@ -70,9 +70,14 @@ variable turns a missing driver into a failure (CI's Linux job sets it).
   literal has a decimal point, no built-in is redeclared, and loop bounds
   are constant. See D2 and D6 in
   [`DECISIONS.md`](../../docs/DECISIONS.md).
-- **Behaviour, not bit-exactness.** The contract is ranges, shapes and
-  argument order. Exact numerical output differs from Synesthesia's own
-  implementation, and the renderer's tests lock Strobe's output instead.
+- **The engine's behaviour, not the documentation's.** The contract is
+  units, ranges, shapes and argument order as Synesthesia 1.25.4's engine
+  computes them (D490), which differ from its documentation in places:
+  `_rotate` takes radians and turns clockwise, `_pulse`'s size is a
+  half-width, `_toPolarTrue`'s angle is in turns, `_uv2uvc` has no aspect
+  correction, `_fbm` is not normalised. Only the tilt-shift blur is
+  Strobe's own.
+  The renderer's tests lock Strobe's output.
 - **Re-implemented, not copied.** `src/lib.rs` says the functions are
   re-implemented from their documented signatures and behaviour.
 - **Compiled into every program.** The assembler appends the library to

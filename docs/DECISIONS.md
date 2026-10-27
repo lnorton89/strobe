@@ -11759,3 +11759,81 @@ tab with the button. The save itself was not clicked in a live window
 **Would reopen:** wanting to save into a scene that changed while it was
 measured (then a merge, not a refusal).
 
+
+### D490: the SSF library computes what Synesthesia's engine computes, not what its documentation says (2026-10-26)
+
+**Context.** Strobe's SSF library (`strobe-ssf-lib`) was written from the
+SSF documentation alone. On TORNADO, Synesthesia 1.25.4's own engine was
+read for the first time without running it: the built-in GLSL library and
+the meta-control post stage are stored as text inside `Synesthesia.exe`,
+and 87 shipped scenes call these helpers. Several helpers differ from the
+documentation, and real scenes follow the engine. The largest: `_rotate` is
+documented as taking degrees, but the engine takes **radians** and turns
+**clockwise**, and 44 of the 87 shipped scenes call it (105 calls), with
+arguments such as `PI / 4` and `2.0 * PI`. Strobe turned those by under a
+degree.
+
+**Decision.** Where the documentation and the engine disagree, the engine
+wins, because a scene is tuned against what it sees. Changed, each to the
+engine's behaviour (scenes in the shipped set that call it in brackets):
+- `_rotate`: radians, clockwise (44).
+- `_pulse`: `size` is the half-width, not the width (33); `_sqPulse` the
+  same, as `step(c - w, x) - step(c + w, x)` (6).
+- `_rand`: the engine's seeds and constants, so a scene picks the same
+  random colours and cells (26).
+- `_toPolarTrue`: the angle is in turns, 0..1 counterclockwise from +x, 0 at
+  the origin (8); `_toPolar` was already the same.
+- `_uv2uvc` / `_uvc2uv`: `p * 2 - 1` and `p * 0.5 + 0.5`, with no aspect
+  correction (4 each). They are not the inverse of `_uvc`, which does
+  correct for aspect; that is the engine's, and scenes rely on it.
+- `_triWave`: -0.5 at whole periods and 0 half way; Strobe had the phase
+  inverted (3).
+- `_statelessContinuousChaotic`: the sine of a prime-weighted sum of sines
+  (6).
+- `_hueSaturationContrast` and `_hueSaturationContrastLEGACY` (Q26): HSV on
+  the clamped colour, hue in turns added to H; the current form scales S by
+  `1 + 2.5 s|s|`, the LEGACY form adds `s` to S. Neither uses its contrast
+  argument: the engine applies the output's contrast meta control there,
+  which Strobe applies in its post stage, so within a scene it is neutral.
+  `hue_review`'s call now raises saturation by a half instead of halving it.
+- `_saturation` scales HSV saturation; `_dichrome` maps the square root of
+  luminance over black, dark, light, white in three equal steps;
+  `_grayscale` clamps its intensity; `_inRange` is `lo <= v < hi`.
+- `_loadMedia(offset)` and `_loadImage(img, offset)`: the offset is added
+  after the aspect correction, in the picture's space, and a coordinate
+  outside the picture reads black. Masks threshold at half the media
+  contrast and carry the value in alpha too.
+- `_edgeDetect` is the screen-space derivative of a read half an output
+  pixel along; `_edgeDetectSobel` uses each tap's RGB length, steps of one
+  output pixel, and returns the edge in all four channels. `_exists` counts
+  a one-pixel-wide strip.
+- `_noise` and `_fbm` (21): 1D noise is a straight line between `_rand` at
+  the integers, 2D a smoothstep between them, 3D a permutation hash (the
+  289 polynomial) with smoothstep weights; `_fbm` sums halving octaves at
+  twice the frequency, shifted by 100 (turned half a radian in 2D), and is
+  not normalised (five octaves reach 0.97). Strobe's were its own hash
+  noise, normalised to 1.
+
+Kept as Strobe's own, and said so in the crate docs: the tilt-shift blur
+(the engine's loops a number of times set by its argument, which Strobe's
+constant-bound rule avoids; no shipped scene calls it; backlog C-07).
+`_mirror` differs only at exact integers and is kept.
+Strobe's two library scenes that used the old readings (03 Kaleido Tunnel's
+`_toPolarTrue` and `_pulse`, 06 Feedback Trails' `_rotate` and `_uvc2uv`)
+are rewritten to draw what they drew.
+
+**How it was read.** The strings were extracted from the installed binary
+on the owner's machine to compare behaviour. Nothing was copied: the
+library is still Strobe's own text, and the repository holds no
+Synesthesia source, scene or picture. Only the behaviour (units, ranges,
+order) is recorded here.
+
+**Test.** `render.rs` `ssf_helpers_compute_what_synesthesias_engine_computes`
+(ten cases, both dialects, on Mesa llvmpipe in WSL on TORNADO), and the
+existing `the_ssf_library_compiles_in_both_dialects`; `cargo xtask corpus`
+over the 87 shipped scenes on TORNADO, native NVIDIA and ANGLE/D3D11,
+before and after (TORNADO T25).
+
+**Would reopen:** a newer Synesthesia whose engine changes these functions
+(then follow it, keyed on its version), or evidence that a scene family
+relies on the documented reading instead.
