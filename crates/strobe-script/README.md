@@ -104,7 +104,7 @@ the CI `windows` job and the T480 check it on Windows.
   `{ bank: "meta" }`) and the randomize/default/group calls are queued like
   any control write and applied to the meta bank passed to `frame`, with the
   same clamping and toggle rules. Unknown meta names are one console error.
-  Scripts cannot read meta values (Q21).
+  Scripts cannot read meta values (R16: Synesthesia documents writes only).
 - **Promise callbacks** (D322): `then` callbacks and the rest of an `async`
   function after an `await` run at the end of the frame that queued them,
   after `update(dt)` and under the same deadline; at load, after `setup()`.
@@ -133,7 +133,7 @@ IDs given here; a gap with no ID is by design, with its decision named.
 - `meta/` writes are applied to the meta bank (D160), and the output post
   stage renders from it (D180): master, invert, brightness, gamma, contrast,
   hue, saturation and the mirrors change the picture. How each matches
-  Synesthesia's is unverified (Q21, backlog C-07).
+  Synesthesia's is known (R16) and differs; see C-01.
 - `_click` is left, right, middle held, the same reading `strobe-gfx` gets;
   a real Synesthesia script tests `_click.x > 0.5` for the left button (R12).
 - The conformance tests are written per documented API surface; Q14 in
