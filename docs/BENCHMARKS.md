@@ -624,9 +624,46 @@ The scenes that differ (07, 13, 16) build on their own previous frames
 and drift between native and D3D11 as much; elsewhere Vulkan differs from
 D3D11 by under 1/255 on average.
 
+### 2026-10-26: render-scale sweep, GTX 1080 Ti (TORNADO)
+
+`--scales 1,0.75,0.5` (D496), the first run with the synthetic audio
+textures uploaded inside each timed frame. TORNADO, driver 582.78, native
+OpenGL 3.3 core, hidden-window context, `release-fast` build, half-float
+buffers, 1280x720 and its 0.75 and 0.5 scales, 60 timed frames after 90
+warm-up, wall time around a `glFinish` per frame. One run each; the 17
+library scenes:
+
+| Scene | 1 (1280x720) | 0.75 (960x540) | 0.5 (640x360) | Saved |
+|---|---:|---:|---:|---:|
+| 01-aurora-gradient | 0.09 | 0.09 | 0.12 | -24% |
+| 02-plasma-pulse | 0.09 | 0.09 | 0.09 | 8% |
+| 03-kaleido-tunnel | 0.14 | 0.11 | 0.14 | 1% |
+| 04-voronoi-glass | 0.28 | 0.22 | 0.15 | 45% |
+| 05-domain-warp | 0.20 | 0.16 | 0.15 | 26% |
+| 06-feedback-trails | 0.11 | 0.11 | 0.09 | 21% |
+| 07-reaction-diffusion | 0.24 | 0.24 | 0.22 | 9% |
+| 08-bloom-orbs | 0.21 | 0.17 | 0.22 | -7% |
+| 09-sdf-cathedral | 1.19 | 0.49 | 0.33 | 73% |
+| 10-volume-clouds | 5.72 | 3.30 | 1.66 | 71% |
+| 11-script-orbits | 0.15 | 0.11 | 0.09 | 38% |
+| 12-silicon-atlas | 1.52 | 0.85 | 0.43 | 72% |
+| 13-chromatic-rise | 0.24 | 0.21 | 0.20 | 17% |
+| 14-electric-bloom | 0.44 | 0.35 | 0.21 | 52% |
+| 15-neon-ribbon-flow | 0.22 | 0.16 | 0.12 | 45% |
+| 16-acid-mirror | 0.27 | 0.25 | 0.16 | 43% |
+| 17-blacklight-carpet | 0.45 | 0.32 | 0.20 | 55% |
+
+On a GPU this fast the light scenes are fixed cost (well under a
+millisecond whatever the scale, so their "saved" is noise, negative
+included). Where the pixels are the cost, the raymarched and volumetric
+scenes, half scale (a quarter of the pixels) saves 71-73%, close to the 75%
+that pixel count predicts, which is the lever adaptive resolution pulls on
+a slow GPU (D64). The T480 and llvmpipe sweeps are still wanted.
+
 ## Wanted
 
 - [x] A real-GPU run on the T480: native vs ANGLE, 32F vs 16F, 720p and
   1440p (2026-10-09, above). This machine has no discrete GPU.
-- [ ] Render-scale sweep (1.0 / 0.75 / 0.5) once render scale is in the
-  app.
+- [x] Render-scale sweep (1.0 / 0.75 / 0.5): `--scales` (D496), run on
+  the GTX 1080 Ti (2026-10-26, above).
+- [ ] The same sweep on the T480 and llvmpipe.
