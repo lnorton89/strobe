@@ -11,7 +11,7 @@
 //! Every documented SSF helper — `_scale`, `_noise`, `_fbm`, `_rotate`,
 //! `_hsv2rgb`, `_palette`, `_loadMedia`, `_edgeDetect` and the rest —
 //! re-implemented from its documented signature and behaviour, and, since
-//! D490, checked against what Synesthesia 1.25.4's engine computes. Where
+//! D491, checked against what Synesthesia 1.25.4's engine computes. Where
 //! the two disagree the engine wins, because real scenes are tuned against
 //! it: `_rotate` takes radians and turns clockwise, `_pulse`'s size is a
 //! half-width, `_toPolarTrue`'s angle is in turns. The contract is that

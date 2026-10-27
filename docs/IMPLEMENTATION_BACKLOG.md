@@ -2,7 +2,7 @@
 
 **Purpose:** one evidence-based register of every known unfinished or not-yet-verified project area. This is the implementation companion to ROADMAP.md, STATUS_AUDIT.md, PLAN.md, UI_IMPLEMENTATION_PLAN.md, GFX_API_RESEARCH.md, and REMOTE_CONTROL_PWA_RESEARCH.md. It consolidates their open work; it does not re-label untested work as complete.
 
-**Last reconciled:** 2026-10-26 for G-05 and G-06 (D485), and C-01, C-07 and I-05 against Synesthesia 1.25.4 (TORNADO T25, D490); the UI items reflect D464-D484 in ROADMAP.md and UI_REVIEW.md.
+**Last reconciled:** 2026-10-26 for G-05 and G-06 (D485), and C-01, C-08 and I-05 against Synesthesia 1.25.4 (TORNADO T25, D491); the UI items reflect D464-D484 in ROADMAP.md and UI_REVIEW.md.
 
 ## How to use this register
 
@@ -183,7 +183,7 @@
 - **Work:** verify presets and meta controls across scene changes, reset, script writes, audio gains, fav slots and playlist cue changes; clarify whether scene/meta/media channels are independently recallable and persistent.
 - **Acceptance:** each documented Synesthesia behaviour is classified supported, intentionally degraded or unsupported with a fixture.
 
-### C-07 The tilt-shift blur as Synesthesia's engine draws it
+### C-08 The tilt-shift blur as Synesthesia's engine draws it
 - **Status:** Open (TORNADO T25). Synesthesia's `_hBlurTiltShift` / `_vBlurTiltShift` (and `syn_pass_*BlurTiltShift`) loop `1 + 20 * blurAmt` taps each side, mirror out-of-range coordinates, weight with a Gaussian whose width grows with `abs(uv.y - blurLoc)` to the power 2.3, and the vertical one steps by `1 / RENDERSIZE.x` and measures from `uv.y`. Strobe's is its own (a capped, constant-bound Gaussian). None of the 87 shipped scenes calls it, so nothing visible depends on it yet.
 - **Work:** match the engine within Strobe's constant-loop-bound rule (cap the taps, break early), with a render test of one value per form.
 - **Acceptance:** a fixture's centre pixel equals the engine's formula in both dialects; the cap is documented.
