@@ -86,6 +86,11 @@ render against that same headless context in both dialects. Without
 EGL they print a skip and pass. Set `STROBE_REQUIRE_HEADLESS_GL=1`
 (CI's Linux job does) to make a missing driver fail instead.
 
+Tests bind loopback only. The few that must bind every interface
+(`0.0.0.0`) skip unless `STROBE_TEST_LAN=1`, which CI sets: on Windows
+such a bind makes the firewall prompt once per test binary and worktree
+(D503). A new test that needs one checks the variable the same way.
+
 ## Commit only what you changed
 
 More than one agent may work here at a time. Run `git status` before

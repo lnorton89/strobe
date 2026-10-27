@@ -12308,3 +12308,64 @@ THIRD_PARTY.md regenerated, listing Lawrence Norton alone, and
 **Would reopen:** another automated identity committing here (add its
 address to `AUTOMATED_EMAILS`), or a person who wants credit under an
 address on that list (then a `.mailmap` entry gives them their own).
+
+### D503: tests bind loopback; the few that need every interface wait for `STROBE_TEST_LAN=1` (2026-10-27)
+
+**Context.** Windows Defender Firewall asks whether to allow a program the
+first time it binds a socket that can take traffic from beyond this
+computer, and it asks per executable path. Every test binary is its own
+path (`target\debug\deps\<name>-<hash>.exe`, a new hash whenever it
+relinks), and so is every worktree's `target` folder, so a day of `cargo
+xtask ci` across worktrees on the owner's desktop raised hundreds of
+prompts. The owner whitelisted the `target` folders' binaries as a "Strobe
+dev" rule group by hand; a fresh worktree still asked again. The binds that
+asked:
+- the remote's LAN discovery responder on `0.0.0.0:47820`, which every
+  `Lan::start()` in strobe-app's unit tests started (`advertise` is always
+  on in the app, D468);
+- the discovery `Scanner` on `0.0.0.0:0`, in its own test, though that
+  test asks only `127.0.0.1`;
+- OSC feedback's sending socket on `0.0.0.0:0`, in a test that sends to
+  `127.0.0.1`;
+- `on_every_interface_a_proof_binds_to_the_address_the_connection_reached`
+  (strobe-remote), which needs a listener on `0.0.0.0` to test what it is
+  about;
+- `it_binds_to_loopback_only` (strobe-shadertoy), whose route trick for
+  finding this computer's LAN address binds `0.0.0.0:0`.
+
+**Decision.** Tests bind loopback, and what must bind every interface runs
+only with `STROBE_TEST_LAN=1`:
+- A socket that only talks to this computer binds loopback. The scanner
+  binds `127.0.0.1` when every target is IPv4 loopback, and feedback to a
+  loopback address is sent from loopback (`feedback::source_ip`). That is
+  the source the system picks for those targets anyway, and the app's
+  targets (broadcast addresses, a controller on the LAN) still bind every
+  interface, so the show does what it did; a TouchOSC on the same computer
+  no longer makes the firewall ask about Strobe.
+- strobe-app's unit tests start the remote without the discovery responder
+  (`lan::answers_discovery`, `!cfg!(test)` first, so the app always
+  answers).
+- The strobe-remote test and the shadertoy test's non-loopback half skip,
+  recorded as skips (`STROBE_SKIP_LOG`, D249), so a run never reads them as
+  passes.
+- CI sets `STROBE_TEST_LAN=1` in the Windows, macOS and Linux test steps (a
+  runner asks no one), and `cargo xtask ci` sets it on Linux, where no
+  firewall asks. A Windows developer who wants them sets it once and
+  answers the prompts.
+
+What still binds beyond loopback, and where: the remote server on an
+address the operator chose (`0.0.0.0` or a LAN address, D252), the
+discovery responder and a LAN scanner, the OSC listener with
+`all_interfaces`, OSC feedback to a LAN controller, and
+`server::net::lan_address`'s route trick. All are app paths, reached in
+tests only behind the variable.
+
+**Test.** `feedback::tests::feedback_to_this_computer_is_sent_from_loopback`;
+on Windows, a fresh worktree's `cargo test --workspace` added no inbound
+firewall rule for its own `target` folder (the rule list read with `netsh
+advfirewall firewall show rule name=all dir=in verbose` before and after).
+
+**Would reopen:** a new test binding beyond loopback without the check (the
+grep for `UNSPECIFIED`, `0.0.0.0`, `[::]` and `lan_address` in tests is the
+audit), or the discovery responder made to follow the listener's address,
+which would let the app's tests keep it.
