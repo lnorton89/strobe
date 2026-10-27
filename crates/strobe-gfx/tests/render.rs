@@ -872,6 +872,53 @@ fn the_gpu_timer_reports_results_without_ever_waiting() -> Result<()> {
     Ok(())
 }
 
+#[test]
+fn a_playing_scene_asks_the_driver_nothing() -> Result<()> {
+    // A buffer pass, a double-buffered one, the previous output, the GPU
+    // timer and the final-pass readback: everything a frame can touch.
+    let json = r#"{ "PASSES": [ {"TARGET": "buf"}, {"TARGET": "acc", "DOUBLE_BUFFER": true} ] }"#;
+    let shader = r#"
+        vec4 renderMain() {
+            if (PASSINDEX == 0) { return vec4(TIME, 0.5, 0.75, 1.0); }
+            if (PASSINDEX == 1) { return texture(acc, _uv) * 0.5 + texture(buf, _uv) * 0.5; }
+            return vec4(texture(acc, _uv).rgb + texture(syn_FinalPass, _uv).rgb * 0.1, 1.0);
+        }"#;
+    for api in BOTH {
+        let Some(headless) = context(api)? else {
+            continue;
+        };
+        let gl = headless.gl();
+        let caps = Caps::from_info(gl.info());
+        let scene = folder(json, shader)?;
+        let controls = ControlBank::new(scene.def.controls.clone())?;
+        let mut player = ScenePlayer::new(gl, &caps, &scene, [64, 36], Options::default())?;
+        player.enable_final_pass_readback()?;
+        let mut timer = GpuTimer::new(gl, &caps);
+        let loaded = gl.state_queries();
+        for frame in 0..30_u64 {
+            if let Some(timer) = timer.as_mut() {
+                timer.begin();
+            }
+            render_frame(&mut player, &controls, frame);
+            if let Some(timer) = timer.as_mut() {
+                timer.end();
+                timer.poll(|_| {});
+            }
+        }
+        assert_eq!(
+            gl.state_queries(),
+            loaded,
+            "{api:?}: frames queried the driver {} time(s) after load (D497)",
+            gl.state_queries() - loaded
+        );
+        assert!(
+            gl.state_queries() > 0,
+            "{api:?}: loading resolves uniforms, so the counter must have counted"
+        );
+    }
+    Ok(())
+}
+
 /// Renders `frames` frames of `scene` and returns the centre pixel, with
 /// the player available to `before` for per-frame setup.
 fn render_folder(
