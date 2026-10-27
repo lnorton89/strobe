@@ -118,6 +118,10 @@ the CI `windows` job and the T480 check it on Windows.
 
 ## Status and known gaps
 
+Open work for this crate is tracked in
+[`IMPLEMENTATION_BACKLOG.md`](../../docs/IMPLEMENTATION_BACKLOG.md) under the
+IDs given here; a gap with no ID is by design, with its decision named.
+
 - Built and wired into the app (phase 2, [`ROADMAP.md`](../../docs/ROADMAP.md)).
   On the T480, `11-script-orbits` ran with `script.js running` and
   script-written positions ([`T480.md`](../../docs/hardware/T480.md)).
@@ -129,9 +133,9 @@ the CI `windows` job and the T480 check it on Windows.
 - `meta/` writes are applied to the meta bank (D160), and the output post
   stage renders from it (D180): master, invert, brightness, gamma, contrast,
   hue, saturation and the mirrors change the picture. How each matches
-  Synesthesia's is unverified (Q21).
+  Synesthesia's is unverified (Q21, backlog C-07).
 - `_click` is left, right, middle held, the same reading `strobe-gfx` gets;
   a real Synesthesia script tests `_click.x > 0.5` for the left button (R12).
 - The conformance tests are written per documented API surface; Q14 in
   [`OPEN_QUESTIONS.md`](../../docs/OPEN_QUESTIONS.md) is waiting on a real
-  script that exercises `textureFinalPass`.
+  script that exercises `textureFinalPass` (backlog C-07).
