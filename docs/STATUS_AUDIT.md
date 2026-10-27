@@ -840,11 +840,11 @@ survives export.
 - [x] **Synesthesia 1.25.4's own install on TORNADO** (T25, 2026-10-26):
   `cargo xtask corpus` over its 87 `release` scenes and the welcome scene,
   read in place with scripts on: 88 of 88 on native NVIDIA and 88 of 88 on
-  ANGLE/D3D11, after D490. Evidence: `target\tornado\corpus-after-d490.*`
+  ANGLE/D3D11, after D491. Evidence: `target\tornado\corpus-after-d490.*`
   on that machine, and the table in
   [hardware/TORNADO.md](hardware/TORNADO.md).
 - [x] **The SSF library computes what Synesthesia's engine computes**
-  (D490): `_rotate` in radians, clockwise (44 of the 87 call it), and about
+  (D491): `_rotate` in radians, clockwise (44 of the 87 call it), and about
   twenty other helpers, read from the engine's own library. Evidence:
   `render.rs` `ssf_helpers_compute_what_synesthesias_engine_computes`, ten
   cases, both dialects, on Mesa llvmpipe; the corpus above (39 scenes'

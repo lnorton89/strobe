@@ -11760,7 +11760,7 @@ tab with the button. The save itself was not clicked in a live window
 measured (then a merge, not a refusal).
 
 
-### D490: the SSF library computes what Synesthesia's engine computes, not what its documentation says (2026-10-26)
+### D491: the SSF library computes what Synesthesia's engine computes, not what its documentation says (2026-10-26)
 
 **Context.** Strobe's SSF library (`strobe-ssf-lib`) was written from the
 SSF documentation alone. On TORNADO, Synesthesia 1.25.4's own engine was
@@ -11816,7 +11816,7 @@ engine's behaviour (scenes in the shipped set that call it in brackets):
 
 Kept as Strobe's own, and said so in the crate docs: the tilt-shift blur
 (the engine's loops a number of times set by its argument, which Strobe's
-constant-bound rule avoids; no shipped scene calls it; backlog C-07).
+constant-bound rule avoids; no shipped scene calls it; backlog C-08).
 `_mirror` differs only at exact integers and is kept.
 Strobe's two library scenes that used the old readings (03 Kaleido Tunnel's
 `_toPolarTrue` and `_pulse`, 06 Feedback Trails' `_rotate` and `_uvc2uv`)
