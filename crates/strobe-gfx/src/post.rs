@@ -51,7 +51,8 @@
 //!    passes through untouched.
 //!
 //! The order, the hue method and which half a mirror keeps are Strobe's
-//! choices; Q21 lists them as unverified against Synesthesia.
+//! choices. Synesthesia's differ in order and method (R16, read from its
+//! engine); C-01 is to follow them.
 //!
 //! # Blackout and master
 //!

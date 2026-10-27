@@ -29,9 +29,9 @@
 //! `Copy` struct each frame without allocating. The renderer's output post
 //! stage (`strobe_gfx::post`, D180) applies master, invert, brightness,
 //! gamma, contrast, hue, saturation, Limit Colors and the two mirrors; the audio path
-//! applies reactivity and audio speed (D184). See D160, D180 and Q21 for
-//! what is unverified (the ranges below are Strobe's choice, not
-//! Synesthesia's).
+//! applies reactivity and audio speed (D184). See D160 and D180. The ranges
+//! below are Strobe's choice; Synesthesia's own set, order and methods are
+//! now known (R16 in OPEN_QUESTIONS) and differ, which C-01 is to follow.
 
 use crate::control::{ControlBank, ControlDef};
 use crate::error::SceneError;

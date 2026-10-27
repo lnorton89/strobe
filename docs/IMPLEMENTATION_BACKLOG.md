@@ -2,7 +2,7 @@
 
 **Purpose:** one evidence-based register of every known unfinished or not-yet-verified project area. This is the implementation companion to ROADMAP.md, STATUS_AUDIT.md, PLAN.md, UI_IMPLEMENTATION_PLAN.md, GFX_API_RESEARCH.md, and REMOTE_CONTROL_PWA_RESEARCH.md. It consolidates their open work; it does not re-label untested work as complete.
 
-**Last reconciled:** 2026-10-26 for G-05 and G-06 (D485); the UI items reflect D464-D484 in ROADMAP.md and UI_REVIEW.md.
+**Last reconciled:** 2026-10-26 for G-05 and G-06 (D485), and C-01, C-07 and I-05 against Synesthesia 1.25.4 (TORNADO T25, D490); the UI items reflect D464-D484 in ROADMAP.md and UI_REVIEW.md.
 
 ## How to use this register
 
@@ -137,8 +137,16 @@
 ## Epic C — SSF, scripting and shader compatibility
 
 ### C-01 Finish meta controls
-- **Status:** Mostly done (D207): Limit Colors built; meta values carry across scenes under a cue's or preset's own values. Alpha Channel is deferred to an output that carries alpha (D248, with M-06). Left: the order and conventions against Synesthesia (Q21), which needs Synesthesia itself; the stage's cost on an HD 4000.
-- **Work:** implement Limit Colors and Alpha Channel; decide and implement whether meta values persist across scene changes; document reset/persistence semantics; validate order and mirror conventions against Synesthesia references where available.
+- **Status:** Reopened (TORNADO T25, 2026-10-26). Built before (D180, D207): the post stage, Limit Colors, meta values carrying across scenes; Alpha Channel deferred to an output that carries alpha (D248, with M-06). Synesthesia 1.25.4's own meta stage has now been read from its engine (R16 in OPEN_QUESTIONS), and Strobe's differs on almost every point:
+  - **Order:** Synesthesia samples through the mirrors, then Limit Colors, invert, hue and saturation, contrast, gamma, brightness, clamp, the media overlay, master. Strobe: mirrors, brightness, contrast, gamma, hue/saturation, Limit Colors, invert, master.
+  - **Methods:** brightness multiplies (Strobe adds); contrast `k` is squared above 1; gamma above 1 becomes `1 + 2(g - 1)`; hue (turns, added) and saturation (S times `1 + 2.5 s abs(s)`, neutral 0) work in HSV on the clamped colour (Strobe: a grey-axis rotation and a luma mix); Limit Colors runs black, Low, High, white over the square root of luminance (Strobe: Low to High over luma).
+  - **Names and mirrors:** Synesthesia's `Vert_Mirror` shows the left half mirrored on the right and `Hor_Mirror` the top half on the bottom; Strobe calls the first horizontal and its vertical reflects bottom onto top. Its colours are `Low_Color` / `High_Color` (Strobe: `limit_low` / `limit_high`), which matters to OSC (`/controls/meta/high_color` is the manual's own example) and to scripts' `meta/` names.
+  - **Missing:** Transition (a button that fires the scene's transitions; with D489), Alpha Channel, and the media group (Media Contrast, Gamma, Hue, Saturation, Invert Media, Vert and Hor Flip, Fit or Fill, Media Scale, playback and overlay).
+  - **Ranges:** stored normalised with 0.5 neutral; the raw ranges need Synesthesia running (S5).
+
+  Not changed in this pass because it changes the meaning of every saved Strobe preset and cue that holds a meta value (a stored brightness of 0 would turn black under a multiplying brightness), so it needs a migration and a decision.
+  Left: that decision and the change; the stage's cost on an HD 4000.
+- **Work:** follow R16: reorder the post stage and change each method to Synesthesia's; rename the meta controls to Synesthesia's names (`vert_mirror`, `hor_mirror`, `low_color`, `high_color`) keeping Strobe's old names as aliases for scripts, OSC and saved presets; migrate stored values (an additive brightness `b` becomes a multiplier near `1 + b`); add Transition (with D489's transitions) and Fit or Fill (the `_ratioFix` choice, R18); then S5 and S9 in OPEN_QUESTIONS with Synesthesia running.
 - **Acceptance:** fixtures test each value and neutral no-op behaviour on GL 3.3 and GLES/ANGLE; neutral settings incur no post pass where technically possible; T480 and TORNADO GPU cost is recorded.
 
 ### C-02 GLES/SSF translation gaps
@@ -174,6 +182,11 @@
 - **Status:** Done (D247): COMPATIBILITY.md's "Synesthesia's preset, meta and control behaviours" classifies 16 documented behaviours with a test each. Built for it: default and random on a control, a group or a bank, over OSC and as a mapping target. Left as Unsupported, with reasons: lock, bank undo, the `/preset` suffix, `/presets/new`, and recalling one part of a preset.
 - **Work:** verify presets and meta controls across scene changes, reset, script writes, audio gains, fav slots and playlist cue changes; clarify whether scene/meta/media channels are independently recallable and persistent.
 - **Acceptance:** each documented Synesthesia behaviour is classified supported, intentionally degraded or unsupported with a fixture.
+
+### C-07 The tilt-shift blur as Synesthesia's engine draws it
+- **Status:** Open (TORNADO T25). Synesthesia's `_hBlurTiltShift` / `_vBlurTiltShift` (and `syn_pass_*BlurTiltShift`) loop `1 + 20 * blurAmt` taps each side, mirror out-of-range coordinates, weight with a Gaussian whose width grows with `abs(uv.y - blurLoc)` to the power 2.3, and the vertical one steps by `1 / RENDERSIZE.x` and measures from `uv.y`. Strobe's is its own (a capped, constant-bound Gaussian). None of the 87 shipped scenes calls it, so nothing visible depends on it yet.
+- **Work:** match the engine within Strobe's constant-loop-bound rule (cap the taps, break early), with a render test of one value per form.
+- **Acceptance:** a fixture's centre pixel equals the engine's formula in both dialects; the cap is documented.
 
 ## Epic I — Import and auto-controls
 
@@ -214,7 +227,7 @@
 - **Acceptance:** import errors do not replace the currently playing scene unless explicitly confirmed; credentials are not logged; repeated imports have deterministic replace/cancel behaviour.
 
 ### I-05 Synesthesia's installed scenes in the library
-- **Status:** In progress; built (D271). On TORNADO (2026-10-26) the library listed 150 scenes from the installed Synesthesia beside its own (the shipped scenes and the scene folders in its settings); playing one, the read-only refusal, Copy to my library and the 88-scene count of a fresh 1.25.4 install were not checked there. Where Synesthesia is installed (`Program Files (x86)` or `Program Files`, or `STROBE_SYNESTHESIA_DIR`), the library lists, after the library folder's own, the scenes it ships (`release`, `default`; read-only) and the scene folders in its own settings (`vs.json` `sceneFolders` and `primarySceneFolder`, `preferences.json` `PRIMARY_SCENE_FOLDER`, searched recursively as its preferences say; writable). One detection (`strobe_scene::synesthesia`) serves the library and `#include`. On by default; Settings > "Show Synesthesia's scenes" (ui.toml) and `--no-synesthesia` turn it off. Writes into the install (tags, a picture, Editor saves, presets) are refused with a notice offering "Copy to my library", which copies the scene in under a free name and moves a playing scene or an open Editor onto the copy. Search, the palette, playlists, presets, fav slots and `--scene` find these scenes, the library folder's own first on a name clash.
+- **Status:** In progress; built (D271). **TORNADO T25 (2026-10-26):** the real 1.25.4 install holds 87 scenes in `release\` and the welcome scene in `default\`, 88 in all, as expected; `cargo xtask corpus` read all 88 in place and every one loads, compiles and renders in both dialects (native NVIDIA and ANGLE/D3D11), so the engine side of "one plays" holds. The app side (the 88 marked Synesthesia in the library, playing one from the browser, the read-only refusal, Copy to my library, Settings hiding them, nothing under `Program Files` changing) still needs a person at the keyboard (S13 in OPEN_QUESTIONS). Earlier on TORNADO the library listed 150 scenes from the installed Synesthesia beside its own (the shipped scenes and the scene folders in its settings). Where Synesthesia is installed (`Program Files (x86)` or `Program Files`, or `STROBE_SYNESTHESIA_DIR`), the library lists, after the library folder's own, the scenes it ships (`release`, `default`; read-only) and the scene folders in its own settings (`vs.json` `sceneFolders` and `primarySceneFolder`, `preferences.json` `PRIMARY_SCENE_FOLDER`, searched recursively as its preferences say; writable). One detection (`strobe_scene::synesthesia`) serves the library and `#include`. On by default; Settings > "Show Synesthesia's scenes" (ui.toml) and `--no-synesthesia` turn it off. Writes into the install (tags, a picture, Editor saves, presets) are refused with a notice offering "Copy to my library", which copies the scene in under a free name and moves a playing scene or an open Editor onto the copy. Search, the palette, playlists, presets, fav slots and `--scene` find these scenes, the library folder's own first on a name clash.
 - **Work:** run it on a real install: the 88 scenes appear (87 `release` + the welcome scene), one plays, a tag on one is refused and Copy to my library works, and a Custom Scene Folder from Synesthesia's settings is listed and taggable. Decide with Q7 whether the default stays on.
 - **Acceptance:** on a Windows machine with Synesthesia 1.25.4 installed, the library shows 88 scenes marked Synesthesia beside the library's, Settings hides them, and nothing under `Program Files` changes after tagging, saving and copying.
 
