@@ -1,0 +1,38 @@
+[package]
+name = "strobe-projector"
+description = "Projector power over the network: PJLink Class 1 with a Panasonic NTCONTROL fallback, the token-protected web page, and the `strobe-projector` CLI and headless service."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+publish = false
+
+[lib]
+name = "strobe_projector"
+path = "src/lib.rs"
+
+[[bin]]
+name = "strobe-projector"
+path = "src/main.rs"
+
+[dependencies]
+# Strobe's data directory (where `projectors.json` lives by default) and the
+# headless service's session log.
+strobe-diag.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+log.workspace = true
+# PJLink's and NTCONTROL's authentication prefix is an MD5 (D502).
+md-5.workspace = true
+# The API token, from the OS random source.
+getrandom.workspace = true
+# The audit log's local timestamps.
+chrono.workspace = true
+clap.workspace = true
+
+[dev-dependencies]
+anyhow.workspace = true
+
+[lints]
+workspace = true
