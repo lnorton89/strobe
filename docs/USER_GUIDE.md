@@ -206,6 +206,22 @@ pictures (PNG or JPEG).
 - Very long sequences are shrunk to fit 192 MiB of memory rather than cut
   short.
 
+## A new look for each song
+
+Some scenes change their look when the music does: a number jumps to
+another of its values, or a colour scheme fades into the next (Synesthesia's
+`HARD_TRANSITIONS` and `SMOOTH_TRANSITIONS`; many of its own scenes have
+them). The panel's Scene tab says "A new song gives it a new look" for such
+a scene.
+
+- With live audio, Strobe listens for the next track: a gap between tracks,
+  or a new tempo that holds. A DJ mix that keeps one tempo with no gap is
+  not heard.
+- **New song** (the button in the Scene tab, the command palette, or a
+  MIDI pad or OSC address mapped to `new_song`) says a new song started.
+  It does what a heard one does, a playlist cue that waits for a new song
+  included.
+
 ## Playlists
 
 A playlist is a TOML file listing scenes in sections, with how long each
@@ -227,7 +243,8 @@ repository) shows the format.
   `"audio-breakdown"` or `"audio-song"` (the next track started: a gap
   between tracks, or a new tempo), alone or in a list such as
   `["timer", "audio-song"]` for whichever comes first. They need live
-  audio. A DJ mix that keeps one tempo with no gap gives no song change.
+  audio. A DJ mix that keeps one tempo with no gap gives no song change;
+  **New song** tells Strobe instead.
 - **Save** writes the file. Comments you wrote in it are kept.
 - A playlist resumes where it was if Strobe is closed mid-show;
   `--no-resume` starts from the top.

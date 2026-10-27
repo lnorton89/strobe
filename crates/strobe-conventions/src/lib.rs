@@ -2,9 +2,11 @@
 // Module:       strobe_conventions (library crate root)
 // Description:  The workspace's house rules as tests: file headers, the unsafe
 //               boundary, the pinned toolchain, pinned workflow actions, and
-//               discarded results that say why.
+//               discarded results that say why, and crate READMEs' known
+//               gaps that point at the backlog.
 //
-// Dependencies: anyhow, std::fs (walks every crate's sources at test time)
+// Dependencies: anyhow, std::fs (walks every crate's sources and READMEs at
+//               test time)
 // ============================================================================
 
 //! The workspace's house rules, as tests.
@@ -28,6 +30,9 @@
 //!   with a version comment, and declares its token permissions.
 //! - [`discarded`] — outside tests, a result thrown away with `let _ =` or
 //!   `.ok();` carries a comment saying why (D267).
+//! - [`known_gaps`] — every gap a crate README lists names its backlog
+//!   item, open question or decision, and the backlog IDs it cites exist
+//!   (D490).
 //!
 //! The walking and path arithmetic shared by the Rust-source rules is in
 //! [`sources`].
@@ -35,6 +40,7 @@
 pub mod actions;
 pub mod discarded;
 pub mod header;
+pub mod known_gaps;
 pub mod sources;
 pub mod toolchain;
 pub mod unsafe_boundary;

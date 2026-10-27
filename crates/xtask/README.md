@@ -111,9 +111,14 @@ conversion, reading `[workspace.package]`). They do not run git or cargo.
 
 ## Status and known gaps
 
+Open work for this crate is tracked in
+[`IMPLEMENTATION_BACKLOG.md`](../../docs/IMPLEMENTATION_BACKLOG.md) under the
+IDs given here; a gap with no ID is by design, with its decision named.
+
 - Working and used on every change ([`ROADMAP.md`](../../docs/ROADMAP.md)).
-- The release workflow itself has not run end to end: it only runs on a tag
-  (Q12 in [`OPEN_QUESTIONS.md`](../../docs/OPEN_QUESTIONS.md)).
+- The release workflow has run from its tags: v0.2.0 was built, attested
+  and published by `release.yml`. Running that archive on the T480 is still
+  to do (backlog R-03).
 - `cargo xtask ci` mirrors the Linux job's steps; CI's other jobs (the
   Windows build, macOS, the app screenshot under Xvfb, the bench frames
-  upload) are not reproduced locally.
+  upload) are not reproduced locally, by design: they need those platforms.
