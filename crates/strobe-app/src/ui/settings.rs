@@ -2,10 +2,10 @@
 // Module:       strobe_app::ui::settings
 // Description:  The settings pane: a category list with search beside one
 //               page of settings at a time (Output, Audio, Appearance,
-//               Library, Remote, Shortcuts, About).
+//               Library, Remote, Projectors, Shortcuts, About).
 //
-// Dependencies: egui; super::{form, model, theme, widgets, audio, lan, keys,
-//               credits}, crate::{commands, session, icon}
+// Dependencies: egui; super::{form, model, theme, widgets, audio, lan,
+//               projectors, keys, credits}, crate::{commands, session, icon}
 // ============================================================================
 
 //! Settings: everything the operator sets once and rarely touches, kept out
@@ -37,6 +37,8 @@
 //! - **Remote** (`super::lan`): the LAN remote, pairing and paired devices
 //!   (D254), and the form for controlling another Strobe (D275). Ctrl+K
 //!   finds it as "Control another Strobe", which opens this page.
+//! - **Projectors** (`super::projectors`): projector power over PJLink, the
+//!   web page a phone opens, and the projectors' connections (D502).
 //! - **Shortcuts**: the command table as data, so what is advertised is
 //!   what exists, and the shortcut editor (D208). Change waits for a key; a
 //!   key another command holds is named and moved only on a second click;
@@ -79,6 +81,8 @@ pub enum SettingsPage {
     Library,
     /// The LAN remote and controlling another Strobe.
     Remote,
+    /// Projector power (D502).
+    Projectors,
     /// Keyboard shortcuts.
     Shortcuts,
     /// The build and the graphics context.
@@ -87,12 +91,13 @@ pub enum SettingsPage {
 
 impl SettingsPage {
     /// Every page, in the order the list shows them.
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::Output,
         Self::Audio,
         Self::Appearance,
         Self::Library,
         Self::Remote,
+        Self::Projectors,
         Self::Shortcuts,
         Self::About,
     ];
@@ -105,6 +110,7 @@ impl SettingsPage {
             Self::Appearance => "Appearance",
             Self::Library => "Library",
             Self::Remote => "Remote",
+            Self::Projectors => "Projectors",
             Self::Shortcuts => "Shortcuts",
             Self::About => "About",
         }
@@ -126,6 +132,7 @@ impl SettingsPage {
             Self::Appearance => Icon::Star,
             Self::Library => Icon::Library,
             Self::Remote => Icon::Mapping,
+            Self::Projectors => Icon::Blackout,
             Self::Shortcuts => Icon::Controls,
             Self::About => Icon::Info,
         }
@@ -140,6 +147,9 @@ impl SettingsPage {
             Self::Library => "Where scenes come from besides your own library folder.",
             Self::Remote => {
                 "Run the show from another device, or run another Strobe from this one."
+            }
+            Self::Projectors => {
+                "Switch the venue's projectors on and off, from here or from a phone."
             }
             Self::Shortcuts => {
                 "Every command with a key. Shortcuts are off while a text field has focus."
@@ -195,7 +205,7 @@ struct Entry {
 
 /// Every row search finds, in page order. The Shortcuts page's rows are
 /// the commands, matched from [`CommandId::ALL`] instead.
-const INDEX: [Entry; 28] = [
+const INDEX: [Entry; 32] = [
     Entry {
         page: SettingsPage::Output,
         title: OUTPUT_WINDOW,
@@ -305,6 +315,26 @@ const INDEX: [Entry; 28] = [
         page: SettingsPage::Remote,
         title: super::lan::USE_TRUST,
         words: "venue trust file",
+    },
+    Entry {
+        page: SettingsPage::Projectors,
+        title: super::projectors::CONTROL,
+        words: "projector power pjlink panasonic sony beamer on off",
+    },
+    Entry {
+        page: SettingsPage::Projectors,
+        title: super::projectors::WEB,
+        words: "projector phone browser api token tailscale",
+    },
+    Entry {
+        page: SettingsPage::Projectors,
+        title: super::projectors::ADD,
+        words: "projector address ip password ntcontrol connection",
+    },
+    Entry {
+        page: SettingsPage::Projectors,
+        title: super::projectors::LISTEN,
+        words: "projector port bind wifi tailscale",
     },
     Entry {
         page: SettingsPage::Shortcuts,
@@ -597,6 +627,9 @@ fn page_scroll(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mu
                         super::lan::show(ui, theme, &mut model.lan, actions);
                         super::lan::control(ui, theme, &mut model.lan, model.picking, actions);
                         super::lan::network(ui, theme, &mut model.lan);
+                    }
+                    SettingsPage::Projectors => {
+                        super::projectors::show(ui, theme, &mut model.projectors, actions);
                     }
                     SettingsPage::Shortcuts => keyboard(
                         ui,
@@ -1245,11 +1278,19 @@ pub(super) mod tests {
             hits("reactiv")
         );
         assert!(
-            hits("projector")
+            hits("display")
                 .iter()
                 .all(|(page, _)| *page == SettingsPage::Output)
-                && !hits("projector").is_empty(),
+                && !hits("display").is_empty(),
             "a word the title lacks finds the right page: {:?}",
+            hits("display")
+        );
+        assert!(
+            hits("projector").iter().all(|(page, _)| {
+                matches!(page, SettingsPage::Output | SettingsPage::Projectors)
+            }) && hits("projector")
+                .contains(&(SettingsPage::Projectors, super::super::projectors::CONTROL)),
+            "projector finds the output's rows and projector power: {:?}",
             hits("projector")
         );
         assert!(

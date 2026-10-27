@@ -1,0 +1,7 @@
+# The real config holds the API token and projector passwords; it lives in
+# Strobe's data directory (%LOCALAPPDATA%\strobe\projectors.json) and never
+# in the repository.
+config.json
+projectors.json
+logs/
+projector-logs/

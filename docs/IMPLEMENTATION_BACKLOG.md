@@ -2,7 +2,7 @@
 
 **Purpose:** one evidence-based register of every known unfinished or not-yet-verified project area. This is the implementation companion to ROADMAP.md, STATUS_AUDIT.md, PLAN.md, UI_IMPLEMENTATION_PLAN.md, GFX_API_RESEARCH.md, and REMOTE_CONTROL_PWA_RESEARCH.md. It consolidates their open work; it does not re-label untested work as complete.
 
-**Last reconciled:** 2026-10-27 against the T480's Tasks 46-50 (R-03, R-04, C-02, I-05, G-05, D-06 updated; G-08 and R-09 added) and for D-05 (D497); 2026-10-26 against every crate README's "Status and known gaps" (D490: C-07, I-06, D-05, D-06, R-07 and R-08 added, M-05 and R-03 updated), and C-01, C-08 and I-05 against Synesthesia 1.25.4 (TORNADO T25, D492), after G-05 and G-06 (D485) and scene transitions (D489); the UI items reflect D464-D484 in ROADMAP.md and UI_REVIEW.md.
+**Last reconciled:** 2026-10-27 against the T480's Tasks 46-50 (R-03, R-04, C-02, I-05, G-05, D-06 updated; G-08 and R-09 added), for L-09 (D502) and for D-05 (D497); 2026-10-26 against every crate README's "Status and known gaps" (D490: C-07, I-06, D-05, D-06, R-07 and R-08 added, M-05 and R-03 updated), and C-01, C-08 and I-05 against Synesthesia 1.25.4 (TORNADO T25, D492), after G-05 and G-06 (D485) and scene transitions (D489); the UI items reflect D464-D484 in ROADMAP.md and UI_REVIEW.md.
 
 ## How to use this register
 
@@ -382,6 +382,11 @@
 - **Status:** Docs written, soak open. `docs/USER_GUIDE.md` has "Remote control from a phone": enabling it, pairing, the trusted-network-only limit of plain HTTP, the Windows firewall prompt (allow private networks only), and turning it off; it claims no HTTPS or PWA. The listener is always visible while on (title bar "Remote on" with the connection count) and has a one-click Stop beside it (D254). **Not done:** the T480 soak (multiple phones, stop/start, Wi-Fi loss, command floods, idle CPU and memory, frame time) and seeing the Windows firewall prompt on a real machine.
 - **Work:** test multiple clients, stop/start, Wi-Fi loss, Windows firewall, idle CPU/memory, command floods and pairing lifecycle on T480; document trusted-network-only limits if TLS is absent.
 - **Acceptance:** no render regression or unbounded resource growth; listener always visibly enabled and has a one-action desktop kill switch.
+
+### L-09 Projector power on the real projectors
+- **Status:** In progress. `strobe-projector` (D502) replaces the Python tool of PR #45, which had been verified on the venue's PT-DZ6700 and VPL-PHZ10 (on, off through a 172 s cool-down, wake from standby, API auth, the service after a reboot). The Rust build is tested only against fake PJLink and NTCONTROL projectors on loopback. The NTCONTROL fallback has never switched a real unit in either language. One command at a time per unit holds within a process only: Strobe and the headless service can each command a unit at once.
+- **Work:** on JAJA-MINI-PC, run `install.ps1` over the Python install (it migrates the config and replaces the task); repeat the README's checks with `pj` and with Settings > Projectors: status in standby, on with `--wait` through the lamp strike, off through the cool-down, the page from a phone on the Wi-Fi with the token link, the service after a reboot with nobody logged in, and Strobe's "Web page" switch saying the port is held while the service runs. Force the fallback once (a wrong PJLink password on the Panasonic) and switch it over NTCONTROL. Decide whether two processes need a shared lock (a lock file beside the config) or one host only.
+- **Acceptance:** results with timings in the tool's README; no command sent mid-transition (the unit's own log or a `--wait` trace); the fallback switches the PT-DZ6700; the reboot check passes.
 
 ## Epic G — Graphics backend research
 

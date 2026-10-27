@@ -25,6 +25,7 @@ strobe-playlist = { path = "crates/strobe-playlist" }
 strobe-io = { path = "crates/strobe-io" }
 strobe-autocontrol = { path = "crates/strobe-autocontrol" }
 strobe-remote = { path = "crates/strobe-remote" }
+strobe-projector = { path = "crates/strobe-projector" }
 # Without its `net` feature (the HTTP client, which needs C for ring): a
 # crate that only converts or analyses shaders must not pull a C compiler
 # into the Windows cross-check. The app opts in.
@@ -77,6 +78,9 @@ sha1 = "0.11"
 # same `digest` 0.11 as sha2 and sha1, with a constant-time tag comparison
 # (`subtle`, already in the tree). It adds this one crate.
 hmac = "0.13"
+# PJLink's and Panasonic NTCONTROL's authentication digest (D502). The same
+# RustCrypto `digest` 0.11 as sha1 and sha2: it adds this one crate.
+md-5 = "0.11"
 # Local time for `strobe_Date` (D111). Only the clock feature: no serde,
 # no time-zone database, no wasm shims.
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
