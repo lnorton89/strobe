@@ -200,8 +200,11 @@ fn run(cli: &Cli, config_path: &std::path::Path) -> Result<bool, Failure> {
             if let Some(problem) = config.api_problem() {
                 return Err(Failure::Usage(format!("{problem}; refusing to start")));
             }
+            let config = Arc::new(RwLock::new(config));
+            // Strobe's Settings edits the same file: follow it.
+            strobe_projector::service::follow_file(config_path, Arc::clone(&config));
             let shared = Arc::new(Shared {
-                config: Arc::new(RwLock::new(config)),
+                config,
                 audit,
                 timing: Timing::default(),
             });
