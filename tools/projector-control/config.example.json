@@ -1,0 +1,33 @@
+{
+  "projectors": {
+    "panasonic": {
+      "name": "Panasonic PT-DZ6700",
+      "vendor": "panasonic",
+      "ip": "192.168.50.10",
+      "protocol": "pjlink",
+      "pjlink_password": "",
+      "fallback": "ntcontrol",
+      "ntcontrol_user": "admin1",
+      "ntcontrol_password": ""
+    },
+    "sony": {
+      "name": "Sony VPL-PHZ10",
+      "vendor": "sony",
+      "ip": "192.168.50.11",
+      "protocol": "pjlink",
+      "pjlink_password": "",
+      "mac": ""
+    }
+  },
+  "network": {
+    "wifi_alias": "Wi-Fi",
+    "ethernet_alias": "Ethernet",
+    "ethernet_ip": "192.168.50.1",
+    "projector_subnet": "192.168.50.0/24"
+  },
+  "api": {
+    "bind": "auto",
+    "port": 8780,
+    "token": "generated-by-install.ps1"
+  }
+}
