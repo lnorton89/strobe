@@ -3329,6 +3329,7 @@ dependencies = [
  "strobe-gfx",
  "strobe-io",
  "strobe-playlist",
+ "strobe-projector",
  "strobe-remote",
  "strobe-scene",
  "strobe-script",

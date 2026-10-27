@@ -266,6 +266,25 @@ pub enum Action {
     ControlAction(strobe_io::ControlAction),
     /// Start or stop the LAN remote (D254). Stop drops every phone at once.
     SetLanRemote(bool),
+    /// Turn projector control on or off (D502).
+    SetProjectorControl(bool),
+    /// Serve the projector web page from Strobe, or stop.
+    SetProjectorWeb(bool),
+    /// Switch `target` (`all` or a projector's key) on or off.
+    ProjectorPower {
+        /// `all` or a key.
+        target: String,
+        /// On, or off.
+        on: bool,
+    },
+    /// Read every projector's status now.
+    RefreshProjectors,
+    /// Check and save the Connections form.
+    SaveProjectors,
+    /// Put the Connections form back to what is saved.
+    RevertProjectors,
+    /// Replace the projector web page's token.
+    NewProjectorToken,
     /// Explicit full desktop permission on the host, only for this run.
     SetDesktopAccess(bool),
     /// Connect using Settings' desktop address and one-time pairing code.
@@ -355,6 +374,14 @@ pub struct LanPanel<'a> {
     pub port: &'a mut String,
     /// Other Strobes on the LAN, while Settings shows Remote (D468).
     pub found: &'a [strobe_remote::discovery::Found],
+}
+
+/// Projector power, for Settings > Projectors.
+pub struct ProjectorPanel<'a> {
+    /// What it is doing, made by the app this frame.
+    pub view: &'a crate::projectors::ProjectorView,
+    /// The Connections form and the Off confirmation.
+    pub form: &'a mut crate::projectors::Form,
 }
 
 /// The import panel's inputs.
@@ -722,6 +749,8 @@ pub struct Model<'a> {
     pub editor: EditorPanel<'a>,
     /// The LAN remote.
     pub lan: LanPanel<'a>,
+    /// Projector power.
+    pub projectors: ProjectorPanel<'a>,
 }
 
 /// The Editor pane's inputs.

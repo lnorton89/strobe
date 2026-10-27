@@ -81,6 +81,7 @@ pub mod motion;
 pub mod perform;
 pub mod playlist;
 pub mod presets;
+pub mod projectors;
 pub mod settings;
 pub mod shell;
 #[cfg(test)]
@@ -110,7 +111,7 @@ mod tests {
     /// is where colours are made. `motion` is not here either: it is the
     /// one module allowed to animate. `icon` holds the painting of the
     /// geometry and `state` has no drawing at all.
-    const DRAWING_MODULES: [(&str, &str); 24] = [
+    const DRAWING_MODULES: [(&str, &str); 25] = [
         ("tags", include_str!("tags.rs")),
         ("audio", include_str!("audio.rs")),
         ("browser", include_str!("browser.rs")),
@@ -135,6 +136,7 @@ mod tests {
         ("icon", include_str!("icon.rs")),
         ("keys", include_str!("keys.rs")),
         ("lan", include_str!("lan.rs")),
+        ("projectors", include_str!("projectors.rs")),
     ];
 
     /// The lines a source scan should not read: comments explain the rules,

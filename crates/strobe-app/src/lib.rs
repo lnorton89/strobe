@@ -43,6 +43,8 @@
 //!   has the focus, so the log says when Windows may compose it (D453).
 //! - [`screenshot`]: the `--screenshot` verification mode.
 //! - [`brand`]: the window and taskbar icon (D190).
+//! - [`projectors`]: projector power (D502): `projectors.json`, power and
+//!   status on worker threads, and the web page's service.
 //! - [`venue`]: venue mode's launch-time pieces (D288), the trust file for an
 //!   unattended show machine.
 //! - [`trusted`]: the laptop's half of venue mode (D294), the trust-file
@@ -82,6 +84,7 @@ pub mod palette;
 pub mod perf;
 pub mod picker;
 pub mod prefs;
+pub mod projectors;
 pub mod recovery;
 pub mod remote;
 pub mod screenshot;

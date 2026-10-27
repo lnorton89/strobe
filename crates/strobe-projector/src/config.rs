@@ -263,6 +263,26 @@ pub struct StrobeSettings {
 impl Config {
     /// Reads and checks `path`.
     pub fn load(path: &Path) -> Result<Self, ConfigError> {
+        let config = Self::read(path)?;
+        if let Some(problem) = config.problems().into_iter().next() {
+            return Err(ConfigError(format!("{}: {problem}", path.display())));
+        }
+        Ok(config)
+    }
+
+    /// Reads `path` without checking it: Settings opens a half-filled file
+    /// to finish it, and an empty one (no projectors yet) is where it
+    /// starts. A missing file is an empty configuration.
+    pub fn read_or_default(path: &Path) -> Result<Self, ConfigError> {
+        if path.exists() {
+            Self::read(path)
+        } else {
+            Ok(Self::default())
+        }
+    }
+
+    /// Reads and parses `path`.
+    fn read(path: &Path) -> Result<Self, ConfigError> {
         let text = std::fs::read_to_string(path).map_err(|error| {
             let path = path.display();
             ConfigError(if error.kind() == io::ErrorKind::NotFound {
@@ -273,21 +293,8 @@ impl Config {
                 format!("cannot read {path}: {error}")
             })
         })?;
-        let config: Self = serde_json::from_str(&text)
-            .map_err(|error| ConfigError(format!("invalid JSON in {}: {error}", path.display())))?;
-        if let Some(problem) = config.problems().into_iter().next() {
-            return Err(ConfigError(format!("{}: {problem}", path.display())));
-        }
-        Ok(config)
-    }
-
-    /// Reads `path`, or an empty configuration when it does not exist yet.
-    pub fn load_or_default(path: &Path) -> Result<Self, ConfigError> {
-        if path.exists() {
-            Self::load(path)
-        } else {
-            Ok(Self::default())
-        }
+        serde_json::from_str(&text)
+            .map_err(|error| ConfigError(format!("invalid JSON in {}: {error}", path.display())))
     }
 
     /// Writes the file whole: to a temporary file beside it, then renamed
