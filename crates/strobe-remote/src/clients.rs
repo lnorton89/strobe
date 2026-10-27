@@ -2,9 +2,10 @@
 // Module:       strobe_remote::clients
 // Description:  Paired clients: the list the desktop shows and revokes, kept
 //               as token digests in remote-clients.json in the data
-//               directory, with rotation on every authentication.
+//               directory, with rotation on every authentication, and what
+//               tells one device from another (name, platform, address).
 //
-// Dependencies: serde, serde_json; crate::secret; std::fs, std::sync
+// Dependencies: serde, serde_json; crate::secret; std::fs, std::net, std::sync
 // ============================================================================
 
 //! Paired clients and their tokens (L-03, D251).
@@ -12,9 +13,19 @@
 //! ## What is stored
 //!
 //! `remote-clients.json` in the data directory holds, per client, an id
-//! (`c` and eight hex digits), a label (the phone's kind and address when
-//! it paired), when it paired and was last seen, and the **SHA-256 of its
-//! token**, never the token. Reading the file gives nobody a credential.
+//! (`c` and eight hex digits), a label (what the operator approved: the
+//! name it asked under, its kind and address), when it paired and was last
+//! seen, and the **SHA-256 of its token**, never the token. Reading the
+//! file gives nobody a credential.
+//!
+//! Since D500 a record also keeps, apart, what the Paired devices list
+//! shows to tell devices apart: the `name` the device asked under, the
+//! `platform` word from its User-Agent, and the `address` it last
+//! connected from; `last_seen` moves when a connection ends as well as
+//! when one authenticates. Each is optional and read leniently: a file
+//! without them (written before D500) fills platform and address in from
+//! the label, and a value of the wrong type or an address that does not
+//! parse costs that detail, never the pairing.
 //! It is written whole to a temporary file and renamed over the old one,
 //! readable by its owner only on Unix (on Windows it inherits
 //! `%LOCALAPPDATA%`'s per-user ACL, as the import token does, D114).
@@ -54,6 +65,7 @@ use crate::secret::{self, Token};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::io::Write as _;
+use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -67,6 +79,9 @@ pub const MAX_PAIRED: usize = 32;
 
 /// The longest label kept, in characters.
 pub const MAX_LABEL: usize = 80;
+
+/// The longest platform word kept, in characters (D500).
+const MAX_PLATFORM: usize = 32;
 
 /// The file format's version.
 const FILE_VERSION: u32 = 1;
@@ -83,6 +98,30 @@ struct Record {
     desktop: bool,
     id: String,
     label: String,
+    /// The name the device asked under (`request_pair`, `request_desktop`,
+    /// or a trusted controller's id); empty for the version-1 `pair` code
+    /// (D500).
+    #[serde(
+        default,
+        skip_serializing_if = "String::is_empty",
+        deserialize_with = "lenient"
+    )]
+    name: String,
+    /// The device word from its User-Agent when it paired: `iPhone`,
+    /// `Windows`, `Strobe desktop` (D500).
+    #[serde(
+        default,
+        skip_serializing_if = "String::is_empty",
+        deserialize_with = "lenient"
+    )]
+    platform: String,
+    /// The address it last connected from, as text (D500).
+    #[serde(
+        default,
+        skip_serializing_if = "String::is_empty",
+        deserialize_with = "lenient"
+    )]
+    address: String,
     paired_at: u64,
     last_seen: u64,
     /// SHA-256 of the token in force.
@@ -103,6 +142,9 @@ impl fmt::Debug for Record {
         f.debug_struct("Record")
             .field("id", &self.id)
             .field("label", &self.label)
+            .field("name", &self.name)
+            .field("platform", &self.platform)
+            .field("address", &self.address)
             .field("token_sha256", &"***")
             .finish_non_exhaustive()
     }
@@ -115,17 +157,51 @@ struct File {
     clients: Vec<Record>,
 }
 
+/// What a paired client may do, which is also what kind of client it is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Access {
+    /// The controller page in a browser (a phone, usually): performance
+    /// commands only.
+    Phone,
+    /// Another Strobe, approved for full desktop control (D275); this run
+    /// only.
+    Desktop,
+    /// Another Strobe that proved the venue trust file (D288); this
+    /// connection only.
+    Trusted,
+}
+
 /// A paired client, as the desktop lists it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ClientInfo {
     /// Its id, for revoking.
     pub id: String,
-    /// What it was when it paired: `iPhone at 192.168.1.23`.
+    /// What the operator approved: `Ana's iPad, iPhone at 192.168.1.23`.
     pub label: String,
+    /// The name it asked under, if it gave one (D500).
+    pub name: Option<String>,
+    /// The device word from its User-Agent, if known: `iPhone` (D500).
+    pub platform: Option<String>,
+    /// The address it last connected from, if known (D500).
+    pub address: Option<IpAddr>,
+    /// What kind of client it is.
+    pub access: Access,
     /// When it paired, in seconds since 1970.
     pub paired_at: u64,
-    /// When it last authenticated, in seconds since 1970.
+    /// When it last authenticated, or its last connection ended, in
+    /// seconds since 1970.
     pub last_seen: u64,
+}
+
+/// Who is pairing, as the listener saw the connection (D500).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Device {
+    /// The name it asked under; empty for the version-1 `pair` code.
+    pub name: String,
+    /// The device word from its User-Agent: `iPhone`, `Windows`.
+    pub platform: String,
+    /// The address it connected from.
+    pub address: Option<IpAddr>,
 }
 
 /// A trusted pairing made (D288).
@@ -206,11 +282,57 @@ fn valid(record: &Record) -> bool {
 
 /// `label` cut to [`MAX_LABEL`] characters, controls removed.
 fn clean_label(label: &str) -> String {
-    label
-        .chars()
-        .filter(|c| !c.is_control())
-        .take(MAX_LABEL)
-        .collect()
+    clean(label, MAX_LABEL)
+}
+
+/// `text` cut to `max` characters, controls removed.
+fn clean(text: &str, max: usize) -> String {
+    text.chars().filter(|c| !c.is_control()).take(max).collect()
+}
+
+/// A text field added after the first file format (D500): anything but a
+/// string reads as empty, so a damaged value costs that detail, never the
+/// pairing.
+fn lenient<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
+    Ok(serde_json::Value::deserialize(deserializer)?
+        .as_str()
+        .map(str::to_owned)
+        .unwrap_or_default())
+}
+
+/// The platform word and address in a label made before D500: the label
+/// ends `KIND at ADDRESS`, after any `NAME, ` or desktop prefix.
+fn from_label(label: &str) -> (String, Option<IpAddr>) {
+    let Some((before, after)) = label.rsplit_once(" at ") else {
+        return (String::new(), None);
+    };
+    let Ok(address) = after.parse::<IpAddr>() else {
+        return (String::new(), None);
+    };
+    let platform = before.rsplit_once(", ").map_or(before, |(_, kind)| kind);
+    (clean(platform, MAX_PLATFORM), Some(address))
+}
+
+/// A record read from the file, made safe to show: every text cleaned and
+/// cut, an address that does not parse dropped, and a record from before
+/// D500 given the platform and address its label names.
+fn tidy(record: &mut Record) {
+    record.label = clean_label(&record.label);
+    record.name = clean_label(&record.name);
+    record.platform = clean(&record.platform, MAX_PLATFORM);
+    if record.address.parse::<IpAddr>().is_err() {
+        record.address.clear();
+    }
+    if record.platform.is_empty() && record.address.is_empty() {
+        let (platform, address) = from_label(&record.label);
+        record.platform = platform;
+        record.address = address.map(|a| a.to_string()).unwrap_or_default();
+    }
+}
+
+/// `text`, or `None` when it is empty.
+fn some(text: &str) -> Option<String> {
+    (!text.is_empty()).then(|| text.to_owned())
 }
 
 impl Clients {
@@ -237,7 +359,7 @@ impl Clients {
                         .collect();
                     records.truncate(MAX_PAIRED);
                     for record in &mut records {
-                        record.label = clean_label(&record.label);
+                        tidy(record);
                     }
                     let dropped = total - records.len();
                     let problem = (dropped > 0).then(|| {
@@ -323,14 +445,21 @@ impl Clients {
         self.len() == 0
     }
 
-    /// Pairs a new client labelled `label`: its id and its first token.
-    /// Fails if the list is full or cannot be saved; nothing is paired then.
+    /// Pairs a new client labelled `label`, with phone access and nothing
+    /// known about the device: its id and its first token. Fails if the
+    /// list is full or cannot be saved; nothing is paired then.
     pub fn pair(&self, label: &str) -> std::io::Result<(String, Token)> {
-        self.pair_with_access(label, false)
+        self.pair_device(label, &Device::default(), false)
     }
 
-    /// Pair with the desktop scope explicitly approved on the host.
-    pub fn pair_with_access(&self, label: &str, desktop: bool) -> std::io::Result<(String, Token)> {
+    /// Pairs `device`, labelled `label`, with the desktop scope when the
+    /// operator approved it (D275).
+    pub fn pair_device(
+        &self,
+        label: &str,
+        device: &Device,
+        desktop: bool,
+    ) -> std::io::Result<(String, Token)> {
         let mut store = self.store();
         if store.records.len() >= MAX_PAIRED {
             return Err(std::io::Error::other(format!(
@@ -349,6 +478,9 @@ impl Clients {
             desktop,
             id: id.clone(),
             label: clean_label(label),
+            name: clean_label(&device.name),
+            platform: clean(&device.platform, MAX_PLATFORM),
+            address: device.address.map(|a| a.to_string()).unwrap_or_default(),
             paired_at: now,
             last_seen: now,
             token_sha256: token.digest(),
@@ -366,6 +498,17 @@ impl Clients {
     /// docs on rotation), or `None` for a token that is not, or no longer,
     /// valid.
     pub fn authenticate(&self, token: &str) -> Option<Authenticated> {
+        self.authenticate_at(token, None)
+    }
+
+    /// [`Clients::authenticate`] for a connection from `address`, which
+    /// the client's record then shows (D500): a phone the network gave a
+    /// new address is listed under it.
+    pub fn authenticate_from(&self, token: &str, address: IpAddr) -> Option<Authenticated> {
+        self.authenticate_at(token, Some(address))
+    }
+
+    fn authenticate_at(&self, token: &str, address: Option<IpAddr>) -> Option<Authenticated> {
         let candidate = secret::digest(token);
         let mut store = self.store();
         let before = store.records.clone();
@@ -380,6 +523,9 @@ impl Clients {
             record.token_sha256 = candidate;
         }
         record.last_seen = now_secs();
+        if let Some(address) = address {
+            record.address = address.to_string();
+        }
         let client_id = record.id.clone();
         let desktop = record.desktop;
         // Without the OS random source there is no next token; the current
@@ -403,6 +549,22 @@ impl Clients {
                     rotated: None,
                 })
             }
+        }
+    }
+
+    /// Client `id`'s connection ended: it was last seen now (D500). A
+    /// client no longer paired is ignored; a desktop record, never saved,
+    /// changes in memory only.
+    pub fn seen(&self, id: &str) {
+        let mut store = self.store();
+        let Some(record) = store.records.iter_mut().find(|r| r.id == id) else {
+            return;
+        };
+        record.last_seen = now_secs();
+        if !record.desktop
+            && let Err(error) = store.save()
+        {
+            log::warn!("remote: could not save the client list after a disconnect: {error}");
         }
     }
 
@@ -476,6 +638,7 @@ impl Clients {
     pub fn pair_trusted(
         &self,
         label: &str,
+        device: &Device,
         controller_id: &str,
     ) -> Result<TrustedPairing, TrustedRefusal> {
         let mut store = self.store();
@@ -510,6 +673,9 @@ impl Clients {
             desktop: true,
             id: id.clone(),
             label: clean_label(label),
+            name: clean_label(&device.name),
+            platform: clean(&device.platform, MAX_PLATFORM),
+            address: device.address.map(|a| a.to_string()).unwrap_or_default(),
             paired_at: now,
             last_seen: now,
             token_sha256: token.digest(),
@@ -551,6 +717,14 @@ impl Store {
             .map(|r| ClientInfo {
                 id: r.id.clone(),
                 label: r.label.clone(),
+                name: some(&r.name),
+                platform: some(&r.platform),
+                address: r.address.parse().ok(),
+                access: match (r.desktop, r.trusted_as.is_some()) {
+                    (_, true) => Access::Trusted,
+                    (true, false) => Access::Desktop,
+                    (false, false) => Access::Phone,
+                },
                 paired_at: r.paired_at,
                 last_seen: r.last_seen,
             })
@@ -611,7 +785,7 @@ mod tests {
     fn phone_scope_is_the_legacy_default_and_desktop_scope_survives_rotation() -> Result<()> {
         let clients = Clients::in_memory();
         let (_, phone) = clients.pair("phone")?;
-        let (_, desktop) = clients.pair_with_access("desktop", true)?;
+        let (_, desktop) = clients.pair_device("desktop", &Device::default(), true)?;
         let phone_auth = clients
             .authenticate(phone.expose())
             .context("phone authentication")?;
@@ -648,7 +822,8 @@ mod tests {
         let dir = scratch("desktop-grant");
         let (clients, _) = Clients::load(&dir);
         let (phone_id, phone) = clients.pair("phone")?;
-        let (desktop_id, desktop) = clients.pair_with_access("Full desktop: x", true)?;
+        let (desktop_id, desktop) =
+            clients.pair_device("Full desktop: x", &Device::default(), true)?;
         let rotated = clients
             .authenticate(desktop.expose())
             .and_then(|auth| auth.rotated)
@@ -841,16 +1016,16 @@ mod tests {
     fn a_trusted_pairing_is_in_memory_only_listed_replaced_and_revocable() -> Result<()> {
         let dir = scratch("trusted");
         let (clients, _) = Clients::load(&dir);
-        let first = clients.pair_trusted("Full desktop: trusted a, x", "a")?;
+        let first = clients.pair_trusted("Full desktop: trusted a, x", &Device::default(), "a")?;
         assert!(first.superseded.is_empty(), "nothing to replace");
-        let again = clients.pair_trusted("Full desktop: trusted a, x", "a")?;
+        let again = clients.pair_trusted("Full desktop: trusted a, x", &Device::default(), "a")?;
         assert_eq!(
             again.superseded,
             vec![first.client_id.clone()],
             "the same controller replaces itself"
         );
         assert_eq!(clients.len(), 1, "one record, not a growing list");
-        let other = clients.pair_trusted("Full desktop: trusted b, x", "b")?;
+        let other = clients.pair_trusted("Full desktop: trusted b, x", &Device::default(), "b")?;
         assert_eq!(clients.len(), 2, "a second controller is a second record");
         let text = std::fs::read_to_string(dir.join(CLIENTS_FILE)).unwrap_or_default();
         assert!(
@@ -865,7 +1040,10 @@ mod tests {
         assert!(clients.revoke(&again.client_id), "revoked");
         assert!(clients.trust_blocked("a"), "and kept out for the run");
         assert!(
-            matches!(clients.pair_trusted("x", "a"), Err(TrustedRefusal::Revoked)),
+            matches!(
+                clients.pair_trusted("x", &Device::default(), "a"),
+                Err(TrustedRefusal::Revoked)
+            ),
             "it cannot pair again"
         );
         assert!(!clients.trust_blocked("b"), "others are not blocked");
@@ -875,7 +1053,7 @@ mod tests {
             "forgotten at disconnect"
         );
         assert!(
-            clients.pair_trusted("x", "b").is_ok(),
+            clients.pair_trusted("x", &Device::default(), "b").is_ok(),
             "forgetting is not revoking"
         );
         assert_eq!(
@@ -883,7 +1061,7 @@ mod tests {
             1,
             "the kill switch takes them"
         );
-        clients.pair_trusted("x", "c")?;
+        clients.pair_trusted("x", &Device::default(), "c")?;
         clients.revoke_all();
         assert!(
             clients.trust_blocked("c") && clients.trust_blocked("new"),
@@ -900,16 +1078,184 @@ mod tests {
     fn trusted_pairings_respect_the_list_bound() -> Result<()> {
         let clients = Clients::in_memory();
         for n in 0..MAX_PAIRED {
-            clients.pair_trusted("x", &format!("c{n}"))?;
+            clients.pair_trusted("x", &Device::default(), &format!("c{n}"))?;
         }
         assert!(
             matches!(
-                clients.pair_trusted("x", "one-more"),
+                clients.pair_trusted("x", &Device::default(), "one-more"),
                 Err(TrustedRefusal::Full)
             ),
             "full"
         );
-        clients.pair_trusted("x", "c0")?;
+        clients.pair_trusted("x", &Device::default(), "c0")?;
+        Ok(())
+    }
+
+    fn ipad() -> Device {
+        Device {
+            name: "Ana's iPad".into(),
+            platform: "iPhone".into(),
+            address: Some(IpAddr::from([192, 168, 1, 23])),
+        }
+    }
+
+    fn only(clients: &Clients) -> Result<ClientInfo> {
+        let mut listed = clients.list();
+        anyhow::ensure!(listed.len() == 1, "one client: {listed:?}");
+        listed.pop().context("listed")
+    }
+
+    #[test]
+    fn device_details_are_listed_follow_the_address_and_survive_a_restart() -> Result<()> {
+        let dir = scratch("details");
+        let (clients, _) = Clients::load(&dir);
+        let (id, token) =
+            clients.pair_device("Ana's iPad, iPhone at 192.168.1.23", &ipad(), false)?;
+        let listed = only(&clients)?;
+        assert_eq!(
+            (
+                listed.name.as_deref(),
+                listed.platform.as_deref(),
+                listed.address,
+                listed.access
+            ),
+            (
+                Some("Ana's iPad"),
+                Some("iPhone"),
+                Some(IpAddr::from([192, 168, 1, 23])),
+                Access::Phone
+            ),
+            "what tells it apart is listed"
+        );
+        clients
+            .authenticate_from(token.expose(), IpAddr::from([192, 168, 1, 77]))
+            .context("authenticates")?;
+        assert_eq!(
+            only(&clients)?.address,
+            Some(IpAddr::from([192, 168, 1, 77])),
+            "a new address from the network is shown"
+        );
+        clients.store().records[0].last_seen = 1;
+        clients.seen(&id);
+        assert!(
+            only(&clients)?.last_seen > 1,
+            "a connection ending moves last seen"
+        );
+        clients.seen("c00000000");
+        let before = only(&clients)?;
+        drop(clients);
+
+        let (restarted, problem) = Clients::load(&dir);
+        assert!(problem.is_none(), "{problem:?}");
+        assert_eq!(only(&restarted)?, before, "every detail survives a restart");
+        let text = std::fs::read_to_string(dir.join(CLIENTS_FILE))?;
+        assert!(
+            !text.contains(token.expose()) && !format!("{before:?}").contains(token.expose()),
+            "no token on disk or in the list"
+        );
+        std::fs::remove_dir_all(&dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn a_file_from_before_the_details_reads_them_from_its_label() -> Result<()> {
+        let dir = scratch("legacy-details");
+        std::fs::create_dir_all(&dir)?;
+        let digest = "0".repeat(64);
+        let old = format!(
+            "{{\"version\":1,\"clients\":[\
+             {{\"id\":\"c00000001\",\"label\":\"Windows at 10.1.10.124\",\"paired_at\":5,\
+             \"last_seen\":6,\"token_sha256\":\"{digest}\"}},\
+             {{\"id\":\"c00000002\",\"label\":\"Ana's iPad, iPhone at fe80::1\",\"paired_at\":5,\
+             \"last_seen\":6,\"token_sha256\":\"{digest}\"}},\
+             {{\"id\":\"c00000003\",\"label\":\"phone\",\"paired_at\":5,\
+             \"last_seen\":6,\"token_sha256\":\"{digest}\"}}]}}"
+        );
+        std::fs::write(dir.join(CLIENTS_FILE), old)?;
+        let (clients, problem) = Clients::load(&dir);
+        assert!(problem.is_none(), "an old file is not damaged: {problem:?}");
+        let details: Vec<_> = clients
+            .list()
+            .into_iter()
+            .map(|c| (c.name, c.platform, c.address))
+            .collect();
+        assert_eq!(
+            details,
+            vec![
+                (
+                    None,
+                    Some("Windows".to_string()),
+                    Some(IpAddr::from([10, 1, 10, 124]))
+                ),
+                (None, Some("iPhone".to_string()), "fe80::1".parse().ok()),
+                (None, None, None),
+            ],
+            "platform and address from the label; a label without them gives none"
+        );
+        std::fs::remove_dir_all(&dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn a_damaged_detail_costs_the_detail_never_the_pairing() -> Result<()> {
+        let dir = scratch("damaged-details");
+        std::fs::create_dir_all(&dir)?;
+        let token = Token::generate()?;
+        let damaged = format!(
+            "{{\"version\":1,\"clients\":[{{\"id\":\"c00000001\",\"label\":\"x\",\
+             \"name\":5,\"platform\":[\"iPhone\"],\"address\":\"not an address\",\
+             \"paired_at\":5,\"last_seen\":6,\"token_sha256\":\"{}\"}}]}}",
+            token.digest()
+        );
+        std::fs::write(dir.join(CLIENTS_FILE), damaged)?;
+        let (clients, problem) = Clients::load(&dir);
+        assert!(problem.is_none(), "nothing to report: {problem:?}");
+        let listed = only(&clients)?;
+        assert_eq!(
+            (listed.name, listed.platform, listed.address),
+            (None, None, None),
+            "each damaged detail is dropped"
+        );
+        assert!(
+            clients.authenticate(token.expose()).is_some(),
+            "and the device is still paired"
+        );
+        let long = format!(
+            "{{\"version\":1,\"clients\":[{{\"id\":\"c00000001\",\"label\":\"x\",\
+             \"name\":\"a\\u001b[31m{}\",\"platform\":\"{}\",\"address\":\"10.0.0.1\",\
+             \"paired_at\":5,\"last_seen\":6,\"token_sha256\":\"{}\"}}]}}",
+            "n".repeat(500),
+            "p".repeat(500),
+            token.digest()
+        );
+        std::fs::write(dir.join(CLIENTS_FILE), long)?;
+        let (clients, _) = Clients::load(&dir);
+        let listed = only(&clients)?;
+        let name = listed.name.context("a name")?;
+        assert!(
+            !name.contains('\u{1b}') && name.chars().count() == MAX_LABEL,
+            "a name is cleaned and cut: {name:?}"
+        );
+        assert_eq!(
+            listed.platform.map(|p| p.chars().count()),
+            Some(MAX_PLATFORM),
+            "so is a platform"
+        );
+        std::fs::remove_dir_all(&dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn the_kind_of_client_is_listed() -> Result<()> {
+        let clients = Clients::in_memory();
+        clients.pair_device("phone", &ipad(), false)?;
+        clients.pair_device("desktop", &ipad(), true)?;
+        clients.pair_trusted("trusted", &ipad(), "venue")?;
+        assert_eq!(
+            clients.list().iter().map(|c| c.access).collect::<Vec<_>>(),
+            vec![Access::Phone, Access::Desktop, Access::Trusted],
+            "phone, approved desktop, trusted desktop"
+        );
         Ok(())
     }
 }
