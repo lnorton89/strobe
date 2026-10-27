@@ -11989,3 +11989,35 @@ before and after (TORNADO T25).
 **Would reopen:** a newer Synesthesia whose engine changes these functions
 (then follow it, keyed on its version), or evidence that a scene family
 relies on the documented reading instead.
+
+### D493: the README starts for someone new, and the architecture diagram is drawn by hand (2026-10-26)
+
+**Context.** The owner: the README "reads from someone who knows what
+Synesthesia is", and the architecture infographic (added 2026-10-14 with a
+companion document pinned to commit c7547c7) "looks very ChatGPT". It was a
+poster: numbered sections, all-caps headings and dense copy, and it had
+gone stale (ANGLE on D3D11 only, no song changes or transitions).
+
+**Decision.**
+- The README opens with what Strobe does for a person, then "New to
+  this?": VJing, scenes and shaders, where the scenes come from
+  (Synesthesia, credited as an independent project's source format with
+  no affiliation; Shadertoy), who it is for, how to try it, and a short
+  glossary. The technical sections follow unchanged, with stale lines
+  fixed (generated controls can now be saved into the scene, D488).
+- `docs/images/architecture.svg` replaces the infographic: hand-written
+  SVG in the brand palette (Void field, Panel boxes, one cyan accent for
+  the frame path), sentence-case labels, no decoration, every label
+  checked against the code. ARCHITECTURE.md's "A frame" stays the detailed
+  version. The PNG export and `ENGINE_ARCHITECTURE_INFOGRAPHIC.md` are
+  removed: GitHub renders the SVG, and the companion repeated this
+  document from an old commit.
+- ARCHITECTURE.md's stale passages are fixed: the song watch and scene
+  transitions in the frame (D489), audio events that end a cue (built,
+  D226, D237), the meta bank the post stage renders from (D180), Shadertoy
+  acquisition (built, D110-D117), and generated controls run in a worker
+  and saved from the review (D202, D219, D488).
+
+**Would reopen:** a diagram that has to change with every frame-path
+decision; then generate it from a source file instead of editing the SVG.
+

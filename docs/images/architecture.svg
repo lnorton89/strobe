@@ -1,0 +1,113 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 700" width="1200" height="700" role="img" aria-labelledby="t d">
+  <title id="t">How Strobe makes a frame</title>
+  <desc id="d">Scene folders, show control and audio feed one event-loop thread that owns the GPU. It loads and compiles scenes before they play, then each frame drains input, ticks the playlist clock, advances the scenes, renders their passes, and mixes and post-processes the result for the output and control windows.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#94A3B8"/>
+    </marker>
+    <style>
+      text { font-family: Inter, "Segoe UI", system-ui, -apple-system, sans-serif; }
+      .h { fill: #F3F6FA; font-size: 22px; font-weight: 600; }
+      .sub { fill: #9AA8BC; font-size: 14px; }
+      .label { fill: #9AA8BC; font-size: 12px; font-weight: 500; letter-spacing: 0.06em; }
+      .title { fill: #F3F6FA; font-size: 15px; font-weight: 600; }
+      .detail { fill: #9AA8BC; font-size: 13px; }
+      .mono { fill: #9AA8BC; font-size: 12.5px; font-family: "JetBrains Mono", Consolas, ui-monospace, monospace; }
+      .box { fill: #101725; stroke: #253247; stroke-width: 1; }
+      .wire { fill: none; stroke: #94A3B8; stroke-width: 1.4; }
+    </style>
+  </defs>
+
+  <rect width="1200" height="700" fill="#080B14"/>
+
+  <text class="h" x="40" y="52">How Strobe makes a frame</text>
+  <text class="sub" x="40" y="78">Workers hand values to one thread that owns the GPU. Scenes compile before they play, never during a show.</text>
+
+  <text class="label" x="40" y="120">INPUTS</text>
+  <text class="label" x="360" y="120">EVENT-LOOP THREAD · OWNS THE GL CONTEXT</text>
+  <text class="label" x="880" y="120">GPU AND SCREENS</text>
+
+  <!-- Inputs -->
+  <rect class="box" x="40" y="134" width="260" height="100" rx="8"/>
+  <text class="title" x="60" y="162">Scene folders</text>
+  <text class="detail" x="60" y="186">main.glsl, scene.json, script.js</text>
+  <text class="detail" x="60" y="210">Shadertoy shaders are imported</text>
+  <text class="detail" x="60" y="226">into the same form</text>
+
+  <rect class="box" x="40" y="254" width="260" height="100" rx="8"/>
+  <text class="title" x="60" y="282">Show control</text>
+  <text class="detail" x="60" y="306">MIDI · OSC · keyboard · phone</text>
+  <text class="detail" x="60" y="330">Worker threads, bounded queues</text>
+
+  <rect class="box" x="40" y="374" width="260" height="100" rx="8"/>
+  <text class="title" x="60" y="402">Audio</text>
+  <text class="detail" x="60" y="426">Capture and analysis thread:</text>
+  <text class="detail" x="60" y="450">FFT, bands, beat, tempo, song changes</text>
+
+  <!-- Event loop -->
+  <rect class="box" x="360" y="134" width="460" height="440" rx="10"/>
+  <line x1="370" y1="134" x2="810" y2="134" stroke="#00E5FF" stroke-width="2"/>
+
+  <rect x="380" y="152" width="420" height="64" rx="6" fill="#0C1220" stroke="#253247"/>
+  <circle cx="396" cy="174" r="3.5" fill="#8A55F7"/>
+  <text class="title" x="410" y="179">Before a scene plays</text>
+  <text class="detail" x="410" y="201">Parse, assemble GLSL, compile one program per pass</text>
+
+  <text class="label" x="380" y="246">EVERY FRAME</text>
+
+  <g>
+    <rect x="380" y="258" width="420" height="48" rx="6" fill="#0C1220" stroke="#253247"/>
+    <circle cx="396" cy="282" r="3.5" fill="#00E5FF"/>
+    <text class="title" x="410" y="279">Drain input</text>
+    <text class="detail" x="410" y="297">Up to 256 MIDI and OSC events, 8 remote commands</text>
+
+    <rect x="380" y="318" width="420" height="48" rx="6" fill="#0C1220" stroke="#253247"/>
+    <circle cx="396" cy="342" r="3.5" fill="#00E5FF"/>
+    <text class="title" x="410" y="339">Playlist clock</text>
+    <text class="detail" x="410" y="357">Start cues, warm the next scene, begin transitions</text>
+
+    <rect x="380" y="378" width="420" height="48" rx="6" fill="#0C1220" stroke="#253247"/>
+    <circle cx="396" cy="402" r="3.5" fill="#00E5FF"/>
+    <text class="title" x="410" y="399">Advance each scene</text>
+    <text class="detail" x="410" y="417">Audio snapshot, then script, then controls</text>
+
+    <rect x="380" y="438" width="420" height="48" rx="6" fill="#0C1220" stroke="#253247"/>
+    <circle cx="396" cy="462" r="3.5" fill="#00E5FF"/>
+    <text class="title" x="410" y="459">Render</text>
+    <text class="detail" x="410" y="477">Every pass into its own framebuffer</text>
+
+    <rect x="380" y="498" width="420" height="48" rx="6" fill="#0C1220" stroke="#253247"/>
+    <circle cx="396" cy="522" r="3.5" fill="#00E5FF"/>
+    <text class="title" x="410" y="519">Mix and finish</text>
+    <text class="detail" x="410" y="537">Crossfade two scenes, then master, colour, mirrors</text>
+  </g>
+
+  <!-- GPU and screens -->
+  <rect class="box" x="880" y="134" width="280" height="100" rx="8"/>
+  <text class="title" x="900" y="162">Graphics context</text>
+  <text class="detail" x="900" y="186">Native OpenGL 3.3, or ANGLE on</text>
+  <text class="detail" x="900" y="210">Direct3D 11, Vulkan or OpenGL</text>
+
+  <rect class="box" x="880" y="254" width="280" height="100" rx="8"/>
+  <text class="title" x="900" y="282">Output window</text>
+  <text class="detail" x="900" y="306">The projector or LED wall</text>
+  <text class="detail" x="900" y="330">The only vsynced swap</text>
+
+  <rect class="box" x="880" y="374" width="280" height="100" rx="8"/>
+  <text class="title" x="900" y="402">Control window</text>
+  <text class="detail" x="900" y="426">Library, controls, live preview</text>
+  <text class="detail" x="900" y="450">Redrawn at 30 Hz, apart from the frame</text>
+
+  <!-- Wires -->
+  <path class="wire" d="M300 184 H376" marker-end="url(#arrow)"/>
+  <path class="wire" d="M300 304 H340 V282 H376" marker-end="url(#arrow)"/>
+  <path class="wire" d="M300 424 H340 V402 H376" marker-end="url(#arrow)"/>
+  <path class="wire" d="M820 462 H840 V184 H876" marker-end="url(#arrow)"/>
+  <path class="wire" d="M820 516 H852 V304 H876" marker-end="url(#arrow)"/>
+  <path class="wire" d="M820 530 H864 V424 H876" marker-end="url(#arrow)"/>
+
+  <!-- Off the frame -->
+  <rect x="40" y="606" width="1120" height="58" rx="8" fill="none" stroke="#253247" stroke-dasharray="4 4"/>
+  <text class="label" x="60" y="630">NEVER ON THE FRAME</text>
+  <text class="detail" x="60" y="651">Generating controls and crash capture (their own processes) · Shadertoy downloads · file dialogs and saving</text>
+</svg>
