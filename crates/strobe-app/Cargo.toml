@@ -32,6 +32,8 @@ strobe-io.workspace = true
 strobe-autocontrol.workspace = true
 strobe-shadertoy = { workspace = true, features = ["net"] }
 strobe-remote.workspace = true
+# Projector power from Settings > Projectors, and its web page (D502).
+strobe-projector.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 image.workspace = true

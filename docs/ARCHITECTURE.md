@@ -26,7 +26,8 @@ crates/
 ├── strobe-app          winit event loop, control window (egui) + output window, wiring
 ├── strobe-playlist     Playlist model, TOML, generator, timeline, playback clock (pure)
 ├── strobe-io           Show control: MIDI and OSC workers, mappings, learn, soft takeover, macros (no GL)
-└── strobe-remote       LAN remote: protocol, app-thread bridge, pairing, and the opt-in listener
+├── strobe-remote       LAN remote: protocol, app-thread bridge, pairing, and the opt-in listener
+└── strobe-projector    Projector power: PJLink + NTCONTROL, the token-protected web page, `pj` and its headless service
 ```
 
 (The localhost import listener stayed in `strobe-shadertoy`, D114. Presets and
@@ -37,7 +38,8 @@ D205; OSC feedback in `strobe-io::feedback`, D209.)
 
 ```mermaid
 flowchart TD
-    app[strobe-app] --> shadertoy[strobe-shadertoy] & autocontrol[strobe-autocontrol] & script[strobe-script] & audio[strobe-audio] & io[strobe-io] & gfx[strobe-gfx] & scene[strobe-scene] & playlist[strobe-playlist] & remote[strobe-remote] & diag[strobe-diag]
+    app[strobe-app] --> shadertoy[strobe-shadertoy] & autocontrol[strobe-autocontrol] & script[strobe-script] & audio[strobe-audio] & io[strobe-io] & gfx[strobe-gfx] & scene[strobe-scene] & playlist[strobe-playlist] & remote[strobe-remote] & projector[strobe-projector] & diag[strobe-diag]
+    projector --> diag
     autocontrol --> shadertoy & gfx & scene & ssf[strobe-ssf-lib]
     shadertoy --> scene & ssf & diag
     shadertoy -. "dev-dependency: render tests" .-> gfx
@@ -85,6 +87,11 @@ on no Strobe crate; `strobe-io` brings in `midir` and `rosc`, and
   `strobe-app::desktop` owns input translation, capture encoding and the
   native controller's decoding worker. No UI or renderer dependency enters
   `strobe-remote`; the original phone command bridge remains unchanged.
+- `strobe-projector` depends only on `strobe-diag` (the data directory and
+  the headless service's log), never on a window, egui or `strobe-gfx`. Its
+  calls block for seconds (a projector answering, a 90 s cool-down), so the
+  app runs them on worker threads and takes their results once a frame;
+  its web page runs on threads of its own (D502).
 - `strobe-diag` depends on no other Strobe crate, so every crate may
   depend on it (for `log` output, `context::set`, `failure::report`).
   `strobe-gfx` itself only uses the `log` facade; the app is what installs
