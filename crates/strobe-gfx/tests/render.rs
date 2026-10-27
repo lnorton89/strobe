@@ -215,6 +215,55 @@ fn ssf_helpers_compute_what_synesthesias_engine_computes() -> Result<()> {
     Ok(())
 }
 
+/// The tilt-shift blur weighs its taps as Synesthesia's engine does (D494):
+/// far from `blurLoc` a step edge is blurred by the engine's Gaussian, at
+/// `blurLoc` it is untouched, and the vertical form steps along y.
+#[test]
+fn the_tilt_shift_blur_is_the_engines() -> Result<()> {
+    let json = r#"{ "PASSES": [ {"TARGET": "buf"} ] }"#;
+    let shader = r#"
+        vec4 renderMain() {
+            if (PASSINDEX == 0) { return vec4(step(0.5, _uv.x), _uv.y, 0.0, 1.0); }
+            vec4 far = _hBlurTiltShift(buf, _uv, 0.2, 0.0);
+            vec4 at = _hBlurTiltShift(buf, _uv, 0.2, _uv.y);
+            vec4 down = _vBlurTiltShift(buf, _uv, 0.2, 0.0);
+            return vec4(far.r, at.r, down.g, 1.0);
+        }"#;
+    // The pixel `render_center` reads (column 16, row 9 of the readback,
+    // which runs top down, so `_uv.y` is 8.5 / 18), and the engine's
+    // formula there: blurAmt 0.2 is 5 taps each side, 2 pixels apart, so
+    // the taps land on texels 6 to 26, and the step is 1 from texel 16.
+    let (x, y) = (16.5_f64 / 32.0, 8.5_f64 / 18.0);
+    let taps = 5_i32;
+    let spread = f64::from(40 * taps) * (0.01 + y).powf(2.3);
+    let (mut lit, mut total) = (0.0, 0.0);
+    for k in -taps..=taps {
+        let offset = 2.0 * f64::from(k);
+        let w = (-offset * offset / spread).exp();
+        let texel = ((x + offset / 32.0) * 32.0).floor();
+        if texel >= 16.0 {
+            lit += w;
+        }
+        total += w;
+    }
+    let expected = [
+        (lit / total * 255.0).round() as u8,
+        255,
+        (y * 255.0).round() as u8,
+    ];
+    for api in BOTH {
+        let Some(px) = render_center(api, Options::default(), json, shader, 1)? else {
+            continue;
+        };
+        let got = [px[0], px[1], px[2]];
+        assert!(
+            got.iter().zip(expected).all(|(a, b)| near(*a, b)),
+            "{api:?}: got {got:?}, the engine gives {expected:?}"
+        );
+    }
+    Ok(())
+}
+
 #[test]
 fn a_buffer_pass_feeds_the_final_pass() -> Result<()> {
     let json = r#"{ "PASSES": [ {"TARGET": "buf"} ] }"#;
