@@ -35,22 +35,22 @@ D205; OSC feedback in `strobe-io::feedback`, D209.)
 
 ### Dependency direction
 
+```mermaid
+flowchart LR
+    app[strobe-app] --> shadertoy[strobe-shadertoy] & autocontrol[strobe-autocontrol] & script[strobe-script] & audio[strobe-audio] & io[strobe-io] & gfx[strobe-gfx] & scene[strobe-scene] & playlist[strobe-playlist] & remote[strobe-remote] & diag[strobe-diag]
+    autocontrol --> shadertoy & gfx & scene & ssf[strobe-ssf-lib]
+    shadertoy --> scene & ssf & diag
+    shadertoy -. "dev-dependency: render tests" .-> gfx
+    script & audio & io & gfx --> scene
+    scene --> ssf
+    bench[strobe-bench] --> gfx & scene & diag
 ```
-strobe-ssf-lib ◀── strobe-scene ◀── strobe-gfx ◀───────── strobe-app
-                        ▲   ▲   ▲                           │
-                        │   │   └── strobe-script ◀─────────┤
-                        │   └────── strobe-audio  ◀─────────┤
-                        └────────── strobe-io     ◀─────────┤  (midir, rosc; never strobe-gfx)
-                                    strobe-playlist ◀───────┤  (depends on no Strobe crate)
-                                    strobe-diag     ◀───────┤  (depends on no Strobe crate)
-strobe-scene ◀── strobe-shadertoy ◀─────────────────────────┤  (dev-dependency: strobe-gfx,
-                        ▲                                   │   for the render tests only)
-strobe-gfx ◀── strobe-autocontrol ◀─────────────────────────┘  (the app runs it in a worker
-                 (tokenizer and tab markers                     process, D202)
-                  of strobe-shadertoy)
 
-strobe-remote ◀── strobe-app  (serde, sha1, sha2, getrandom; depends on no Strobe crate)
-```
+Arrows point at what a crate depends on; this is `cargo metadata`'s
+workspace graph. `strobe-playlist`, `strobe-remote` and `strobe-diag` depend
+on no Strobe crate; `strobe-io` brings in `midir` and `rosc`, and
+`strobe-remote` `serde`, `sha1`, `sha2` and `getrandom`. The app runs
+`strobe-autocontrol` in a worker process (D202).
 
 - `strobe-scene` knows nothing about GL, threads, or clocks: `dt` is
   passed in. Every SSF rule (control types, smoothing, pass layout, name
@@ -573,18 +573,18 @@ its caller (`generate(&Gl, &Caps, ..)`); the CLI gets one from
 ```
 Sources (per-pass GLSL)          source.rs     Scan: tokens + offsets + depth;
    │                                           Shadertoy shim/entry excluded
-   ▼
+   v
 analyze()  -> Candidate[]        analyze/      consts (#define/const), expr
    │                                           (time, loops, colour, scale/freq)
-   ▼ rewrite::apply (ALL as uniforms, placeholder names)
-   ▼ score::Rig::new  (compile once)
+   v rewrite::apply (ALL as uniforms, placeholder names)
+   v score::Rig::new  (compile once)
    │   per probe: reset history, fresh ControlBank, 10 frames @160x90,
    │   synthetic audio; score = mean |diff| to baseline, nudged down and up
-   ▼
+   v
 dead / black / does-not-compile dropped, top K kept   generate.rs
-   ▼ naming::assign, rewrite::apply (only the kept), verify compile + fidelity
+   v naming::assign, rewrite::apply (only the kept), verify compile + fidelity
 Generated { report, sources, control_lines, folder }
-   ▼ output::write_scene           <name>-auto.synScene (a copy; the worker never
+   v output::write_scene           <name>-auto.synScene (a copy; the worker never
                                    writes the scene it measured, D202)
 ```
 

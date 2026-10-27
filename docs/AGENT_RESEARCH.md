@@ -25,12 +25,12 @@ The durable architecture is:
               │              │               │
               └──────────────┼───────────────┘
                              │ values/messages
-                      ┌──────▼──────┐
+                      ┌──────┴──────┐
                       │ strobe-gfx  │
                       │ ScenePlayer │
                       └──────┬──────┘
                              │
-                      ┌──────▼──────┐
+                      ┌──────┴──────┐
                       │strobe-scene │
                       │ SSF model + │
                       │ assembler   │
