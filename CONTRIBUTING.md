@@ -178,7 +178,9 @@ The tag push triggers `.github/workflows/release.yml`. It checks the tag
 against `Cargo.toml`, creates a **draft** release whose notes are the
 changelog section, builds `strobe.exe` on Windows, and packages
 `strobe-<tag>-x86_64-pc-windows-msvc.zip` (the exe, the three ANGLE DLLs and the Vulkan loader for `--gl angle-vulkan`,
-and `LICENSES.chromium.html`, `scenes/`, README, LICENSE). Alongside it
+and `LICENSES.chromium.html`, `scenes/`, README, LICENSE, `THIRD_PARTY.md`, and
+`THIRD-PARTY-NOTICES.txt` with every crate's licence text, written by
+`cargo xtask credits --notices`). Alongside it
 go a separate `-symbols.zip` holding `strobe.pdb` (keep it: it is what
 symbolicates a crash minidump from that exact build), a CycloneDX SBOM,
 and SHA-256 checksums. A final job attests build provenance and the SBOM
@@ -208,3 +210,8 @@ alone, so take them together as one deliberate upgrade. Actions are
 pinned to full commit SHAs with a version comment, which
 `strobe-conventions` enforces; `dtolnay/rust-toolchain` and
 `rust-toolchain.toml` move together, by hand.
+
+A bump that adds, removes or relicenses a crate changes `THIRD_PARTY.md`
+(the About page's credits, D491): run `cargo xtask credits` and commit the
+result, or CI's `credits --check` fails. A patch bump alone changes nothing
+there.

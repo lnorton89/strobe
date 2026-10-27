@@ -3,8 +3,9 @@
 // Description:  `cargo xtask ci`: runs locally, in order, the checks that
 //               .github/workflows/ci.yml runs, and stops at the first failure.
 //
-// Dependencies: clap, anyhow, std::process; crate::changelog and crate::brand
-//               (the in-process changelog and icon checks)
+// Dependencies: clap, anyhow, std::process; crate::changelog, crate::brand
+//               and crate::credits (the in-process changelog, icon and
+//               credits checks)
 // ============================================================================
 
 //! `cargo xtask ci`: what CI runs, without the push.
@@ -29,6 +30,8 @@
 //! 7. the changelog check
 //! 8. the brand check: the icon PNGs and `.ico` match a fresh render of
 //!    their SVG sources (`cargo xtask brand --check`)
+//! 9. the credits check: `THIRD_PARTY.md` matches the git history and
+//!    `Cargo.lock` (`cargo xtask credits --check`)
 //!
 //! It **stops at the first failure**. Later steps usually fail for the same
 //! reason, and a wall of clippy errors under a formatting failure buries
@@ -52,7 +55,7 @@
 //! (`strobe_gfx::skip`). The summary then says how many tests skipped and
 //! why, so a run where they skipped never reads as one where they ran.
 
-use crate::{brand, changelog};
+use crate::{brand, changelog, credits};
 use anyhow::{Context as _, Result, bail};
 use clap::Args as ClapArgs;
 use std::path::Path;
@@ -94,6 +97,8 @@ enum Action {
     Changelog,
     /// The in-process icon check.
     Brand,
+    /// The in-process credits check.
+    Credits,
     /// Not runnable here, for this reason.
     Skip(String),
 }
@@ -354,6 +359,10 @@ fn plan(args: &Args) -> Result<Vec<Step>> {
         name: "brand",
         action: Action::Brand,
     });
+    steps.push(Step {
+        name: "credits",
+        action: Action::Credits,
+    });
     Ok(steps)
 }
 
@@ -416,6 +425,7 @@ fn describe(action: &Action) -> String {
         }
         Action::Changelog => "cargo xtask changelog --check".to_owned(),
         Action::Brand => "cargo xtask brand --check".to_owned(),
+        Action::Credits => "cargo xtask credits --check".to_owned(),
         Action::Skip(reason) => format!("skipped ({reason})"),
     }
 }
@@ -429,6 +439,10 @@ fn execute(action: &Action) -> Outcome {
             Err(error) => Outcome::Failed(format!("{error:#}")),
         },
         Action::Brand => match brand::run(true) {
+            Ok(()) => Outcome::Passed,
+            Err(error) => Outcome::Failed(format!("{error:#}")),
+        },
+        Action::Credits => match credits::run(true, None) {
             Ok(()) => Outcome::Passed,
             Err(error) => Outcome::Failed(format!("{error:#}")),
         },

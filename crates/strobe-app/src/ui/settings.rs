@@ -4,8 +4,8 @@
 //               page of settings at a time (Output, Audio, Appearance,
 //               Library, Remote, Shortcuts, About).
 //
-// Dependencies: egui; super::{form, model, theme, widgets, audio, lan, keys},
-//               crate::{commands, session, icon}
+// Dependencies: egui; super::{form, model, theme, widgets, audio, lan, keys,
+//               credits}, crate::{commands, session, icon}
 // ============================================================================
 
 //! Settings: everything the operator sets once and rarely touches, kept out
@@ -43,7 +43,10 @@
 //!   Reset returns the default. Changes apply at once and are saved under
 //!   `hotkeys` in `show-control.json`. A capture lasts only while this page
 //!   is up (`shell::drop_unseen_captures`).
-//! - **About**: the build and the graphics context.
+//! - **About**: the build and the graphics context, the source and the
+//!   licence, then the credits (`super::credits`, D491): contributors, the
+//!   projects Strobe is built on, Synesthesia and Shadertoy, and every
+//!   crate in the program with its licence.
 //!
 //! The render-scale slider edits a working value and only commits when the
 //! drag ends, because every change reallocates every render target.
@@ -141,7 +144,9 @@ impl SettingsPage {
             Self::Shortcuts => {
                 "Every command with a key. Shortcuts are off while a text field has focus."
             }
-            Self::About => "Which build this is and what it is drawing with.",
+            Self::About => {
+                "Which build this is, what it is drawing with, and who and what it is made from."
+            }
         }
     }
 }
@@ -190,7 +195,7 @@ struct Entry {
 
 /// Every row search finds, in page order. The Shortcuts page's rows are
 /// the commands, matched from [`CommandId::ALL`] instead.
-const INDEX: [Entry; 25] = [
+const INDEX: [Entry; 28] = [
     Entry {
         page: SettingsPage::Output,
         title: OUTPUT_WINDOW,
@@ -315,6 +320,21 @@ const INDEX: [Entry; 25] = [
         page: SettingsPage::About,
         title: GRAPHICS,
         words: "opengl gpu driver renderer",
+    },
+    Entry {
+        page: SettingsPage::About,
+        title: super::credits::SOURCE,
+        words: "github repository code bug issue",
+    },
+    Entry {
+        page: SettingsPage::About,
+        title: super::credits::LICENCE,
+        words: "license mit commons clause legal",
+    },
+    Entry {
+        page: SettingsPage::About,
+        title: super::credits::CRATES,
+        words: "credits contributors third party dependencies notices open source thanks",
     },
 ];
 
@@ -1058,7 +1078,9 @@ fn about(ui: &mut Ui, theme: &Palette, gl_summary: &str) {
     form::group(ui, theme, "Strobe", |group| {
         group.row(Row::new(VERSION).description(build()), |_| {});
         group.row(Row::new(GRAPHICS).description(gl_summary), |_| {});
+        super::credits::project(group, theme);
     });
+    super::credits::show(ui, theme);
 }
 
 #[cfg(test)]
