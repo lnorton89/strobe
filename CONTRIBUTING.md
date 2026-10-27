@@ -198,7 +198,10 @@ push of a `v*` tag also re-runs the release workflow, which ends in
 under new checksums. If a release is wrong, cut the next patch version.
 
 ANGLE is pinned to Electron 38.2.0 by `scripts/fetch-angle.ps1`, which
-the release workflow runs. Do not bump it as a drive-by: newer Electron
+the release workflow runs, and which `strobe-gfx`'s build script runs on a
+Windows dev build whose DLLs are missing (D498). After a bump, run the
+script by hand: the build checks only that the DLLs are there, not their
+version. Do not bump it as a drive-by: newer Electron
 no longer ships the DLLs (see `docs/AGENT_RESEARCH.md`, section 8).
 
 ## Dependency updates

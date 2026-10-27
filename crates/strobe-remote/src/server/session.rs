@@ -53,7 +53,7 @@ use super::http::{self, Head, HeadError, Response};
 use super::ws::{self, Message, Reader, close};
 use super::{Shared, net, page};
 use crate::bridge::Answer;
-use crate::clients::TrustedRefusal;
+use crate::clients::{Device, TrustedRefusal};
 use crate::pairing::{Decision, Refusal};
 use crate::trust::{Challenge, Verdict};
 use crate::{ClientMessage, ErrorCode, PROTOCOL_VERSION, ServerMessage, decode_client, negotiate};
@@ -97,7 +97,8 @@ pub(super) fn serve(mut stream: TcpStream, shared: &Shared, conn: u64, peer: Soc
         return;
     }
     if head.path() == "/ws" {
-        let label = label(&head, peer);
+        let platform = platform(&head);
+        let label = format!("{platform} at {}", peer.ip());
         // The `Host` just checked: what the controller dialled, and so what
         // a trusted pairing's proof is bound to (D288). It is used for that
         // only if it names the address this connection reached (or the
@@ -115,7 +116,16 @@ pub(super) fn serve(mut stream: TcpStream, shared: &Shared, conn: u64, peer: Soc
                 .is_ok_and(|local| net::host_is_local(header, local));
         let host = here.then(|| header.to_ascii_lowercase());
         let leftover = head.leftover;
-        Session::new(stream, shared, conn, peer, label, host, leftover).run();
+        Session::new(
+            stream,
+            shared,
+            conn,
+            peer,
+            (platform, label),
+            host,
+            leftover,
+        )
+        .run();
     }
 }
 
@@ -223,11 +233,11 @@ fn upgrade(stream: &mut TcpStream, head: &Head, own: &str) -> Result<(), Respons
 static VERSION_HEADER: LazyLock<Vec<String>> =
     LazyLock::new(|| vec!["Sec-WebSocket-Version: 13".to_string()]);
 
-/// What the desktop calls a phone: its kind from the User-Agent (never the
-/// whole string) and its address.
-fn label(head: &Head, peer: SocketAddr) -> String {
+/// What kind of device a connection is, from its User-Agent: one word,
+/// never the whole string. The desktop names a phone by it and its address.
+fn platform(head: &Head) -> &'static str {
     let agent = head.header("user-agent").unwrap_or_default();
-    let kind = [
+    [
         ("Strobe Desktop", "Strobe desktop"),
         ("iPhone", "iPhone"),
         ("iPad", "iPad"),
@@ -239,8 +249,7 @@ fn label(head: &Head, peer: SocketAddr) -> String {
     ]
     .iter()
     .find(|(needle, _)| agent.contains(needle))
-    .map_or("Device", |(_, kind)| kind);
-    format!("{kind} at {}", peer.ip())
+    .map_or("Device", |(_, kind)| kind)
 }
 
 /// After a close frame: stops sending, then reads and discards what the
@@ -301,7 +310,13 @@ struct Session<'a> {
     shared: &'a Shared,
     conn: u64,
     peer: SocketAddr,
+    /// Its kind, from the User-Agent ([`platform`]).
+    platform: &'static str,
+    /// `PLATFORM at ADDRESS`.
     label: String,
+    /// The name it asked under (empty for a code) and the label the
+    /// operator was shown: what a pairing approved for it keeps (D500).
+    asked: (String, String),
     reader: Reader,
     phase: Phase,
     bucket: Bucket,
@@ -335,7 +350,7 @@ impl<'a> Session<'a> {
         shared: &'a Shared,
         conn: u64,
         peer: SocketAddr,
-        label: String,
+        (platform, label): (&'static str, String),
         host: Option<String>,
         leftover: Vec<u8>,
     ) -> Self {
@@ -345,7 +360,9 @@ impl<'a> Session<'a> {
             shared,
             conn,
             peer,
+            platform,
             label,
+            asked: (String::new(), String::new()),
             reader: Reader::new(shared.limits.max_message, leftover),
             phase: Phase::Hello,
             bucket: Bucket {
@@ -376,6 +393,9 @@ impl<'a> Session<'a> {
         self.shared.remote.desktop.release(self.conn);
         if let Some(id) = self.trusted_client.take() {
             self.shared.clients.forget_trusted(&id);
+        } else if let Phase::Authenticated(id) = &self.phase {
+            // Last seen is when it left, not when it came (D500).
+            self.shared.clients.seen(id);
         }
         if let Phase::Approval(id) = self.phase {
             self.shared.pairing().forget(id);
@@ -501,6 +521,7 @@ impl<'a> Session<'a> {
     /// device that called itself `name`: in front of the operator, or
     /// refused with why.
     fn ask(&mut self, label: String, name: &str) -> Result<(), End> {
+        self.asked = (name.to_owned(), label.clone());
         let attempt = self
             .shared
             .pairing()
@@ -656,7 +677,12 @@ impl<'a> Session<'a> {
             crate::desktop::TRUSTED_LABEL_PREFIX,
             self.label
         );
-        match self.shared.clients.pair_trusted(&label, &controller_id) {
+        let device = self.device(&controller_id);
+        match self
+            .shared
+            .clients
+            .pair_trusted(&label, &device, &controller_id)
+        {
             Ok(pairing) => {
                 // The switch may have gone off while the proof was judged.
                 if !self.shared.remote.desktop.enabled() {
@@ -711,15 +737,13 @@ impl<'a> Session<'a> {
                 "Full desktop access was disabled before approval; open pairing again",
             ));
         }
-        let label = if self.desktop_pairing {
-            format!("{}{}", crate::desktop::LABEL_PREFIX, self.label)
-        } else {
-            self.label.clone()
-        };
+        // What the operator approved, the name included (D500).
+        let (name, label) = self.asked.clone();
+        let device = self.device(&name);
         match self
             .shared
             .clients
-            .pair_with_access(&label, self.desktop_pairing)
+            .pair_device(&label, &device, self.desktop_pairing)
         {
             Ok((client_id, token)) => {
                 log::info!("remote: {} paired as client {client_id}", self.peer);
@@ -739,6 +763,15 @@ impl<'a> Session<'a> {
                     &format!("the desktop could not save the pairing: {error}"),
                 ))
             }
+        }
+    }
+
+    /// This connection's device, under `name` (D500).
+    fn device(&self, name: &str) -> Device {
+        Device {
+            name: name.to_owned(),
+            platform: self.platform.to_owned(),
+            address: Some(self.peer.ip()),
         }
     }
 
@@ -910,7 +943,11 @@ impl<'a> Session<'a> {
                 Err(End::Close(close::POLICY, "say hello first"))
             }
             (Phase::Unauthenticated, ClientMessage::Authenticate { token }) => {
-                match self.shared.clients.authenticate(&token) {
+                match self
+                    .shared
+                    .clients
+                    .authenticate_from(&token, self.peer.ip())
+                {
                     Some(auth) => {
                         log::info!(
                             "remote: client {} connected from {}",
@@ -969,6 +1006,7 @@ impl<'a> Session<'a> {
                 } else {
                     self.label.clone()
                 };
+                self.asked = (String::new(), label.clone());
                 let attempt = self.shared.pairing().try_code(&code, label, Instant::now());
                 match attempt {
                     Ok(id) => {
@@ -1090,21 +1128,19 @@ mod tests {
     }
 
     #[test]
-    fn a_device_is_named_by_kind_and_address_only() {
-        let peer = SocketAddr::from(([192, 168, 1, 23], 50000));
+    fn a_device_is_named_by_one_word_of_its_user_agent() {
         assert_eq!(
-            label(
-                &head("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Secret/1.0"),
-                peer
-            ),
-            "iPhone at 192.168.1.23",
-            "an iPhone"
+            platform(&head(
+                "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Secret/1.0"
+            )),
+            "iPhone",
+            "an iPhone, and nothing else of the string"
         );
         assert_eq!(
-            label(&head("Mozilla/5.0 (Linux; Android 14; Pixel 8)"), peer),
-            "Android at 192.168.1.23",
+            platform(&head("Mozilla/5.0 (Linux; Android 14; Pixel 8)")),
+            "Android",
             "Android before Linux"
         );
-        assert_eq!(label(&head(""), peer), "Device at 192.168.1.23", "unknown");
+        assert_eq!(platform(&head("")), "Device", "unknown");
     }
 }

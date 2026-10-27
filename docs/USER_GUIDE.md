@@ -305,9 +305,12 @@ launch.
 
 **The title bar shows "Remote on"** with the number of connected phones
 whenever it is listening, and a **Stop remote** button beside it. Stop
-drops every phone at once. **Revoke** (or **Revoke all**) under *Paired
-devices* makes a phone pair again; a connected one is dropped at once.
-Revoking works with the remote off too.
+drops every phone at once. *Paired devices* lists each one under the name
+it asked with (a desktop under its computer's name), with what it is (a
+phone remote, or a Strobe desktop), the address it last connected from,
+when it was paired and last seen, and whether it is connected now.
+**Revoke** (or **Revoke all**) there makes a phone pair again; a connected
+one is dropped at once. Revoking works with the remote off too.
 
 On the phone, Blackout sends "black out" or "bring it back" according to
 what the screen last showed, never a plain toggle. If the connection
@@ -484,8 +487,9 @@ revoked at the host, or the host was not started with `--remote
 again once you have fixed it. (Pairing by code keeps its manual **Reconnect**.)
 
 What you see at the host: the title bar says **Desktop controlled remotely**
-while the laptop is in control, and **Settings > Remote** lists the laptop as
-*Full desktop: trusted ...* with a *trusted* mark. **Revoke** there ends that
+while the laptop is in control, and **Settings > Remote** lists the laptop
+under its controller id (its computer's name) as *Strobe desktop, trusted by
+the venue file*. **Revoke** there ends that
 session and refuses that controller until Strobe restarts. **Revoke all**, or
 switching **Allow full desktop control** off, shuts the trust file out;
 switching it off ends every desktop session at once, and trusted pairing is

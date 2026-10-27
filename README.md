@@ -338,10 +338,11 @@ To run Strobe on Windows you need none of this: download the release (see
 3. **Build and run** with the commands below. You need a GPU with OpenGL
    3.3, or Direct3D 11 for ANGLE. Linux needs a few system packages first;
    see [Linux](#linux).
-4. **On Windows, fetch the ANGLE DLLs** once, for machines whose OpenGL
-   driver is broken; the script checks their hashes and puts them beside the
-   built executables:
-   `powershell -ExecutionPolicy Bypass -File scripts\fetch-angle.ps1`.
+4. **On Windows, the ANGLE DLLs arrive by themselves.** The first build
+   downloads the pinned ANGLE (the fallback for machines whose OpenGL driver
+   is broken), checks its hashes and puts it beside the built executables
+   (D498). Offline, the build still succeeds, and a warning says to run
+   `powershell -ExecutionPolicy Bypass -File scripts\fetch-angle.ps1` later.
 
 ```bash
 cargo run --profile release-fast -p strobe-app                 # the app, optimised, quick to rebuild
