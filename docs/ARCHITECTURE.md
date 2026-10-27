@@ -36,7 +36,7 @@ D205; OSC feedback in `strobe-io::feedback`, D209.)
 ### Dependency direction
 
 ```mermaid
-flowchart LR
+flowchart TD
     app[strobe-app] --> shadertoy[strobe-shadertoy] & autocontrol[strobe-autocontrol] & script[strobe-script] & audio[strobe-audio] & io[strobe-io] & gfx[strobe-gfx] & scene[strobe-scene] & playlist[strobe-playlist] & remote[strobe-remote] & diag[strobe-diag]
     autocontrol --> shadertoy & gfx & scene & ssf[strobe-ssf-lib]
     shadertoy --> scene & ssf & diag
