@@ -177,8 +177,9 @@ For the first tag, [`docs/RELEASE_PLAN.md`](docs/RELEASE_PLAN.md)
 sequences this order around the checks the workflow has never exercised,
 including a dry run on a throwaway tag before the real one exists.
 
-The tag push triggers `.github/workflows/release.yml`. It checks the tag
-against `Cargo.toml`, creates a **draft** release whose notes are the
+The tag push triggers `.github/workflows/release.yml`. It resolves the tag
+to one commit and works from that SHA throughout, checks the tag
+against `Cargo.toml`, runs all of `ci.yml` on that commit (D516), creates a **draft** release whose notes are the
 changelog section, builds `strobe.exe` on Windows, and packages
 `strobe-<tag>-x86_64-pc-windows-msvc.zip` (the exe, the three ANGLE DLLs and the Vulkan loader for `--gl angle-vulkan`,
 and `LICENSES.chromium.html`, `scenes/`, README, LICENSE, `THIRD_PARTY.md`, and
@@ -187,18 +188,23 @@ and `LICENSES.chromium.html`, `scenes/`, README, LICENSE, `THIRD_PARTY.md`, and
 go a separate `-symbols.zip` holding `strobe.pdb` (keep it: it is what
 symbolicates a crash minidump from that exact build), a CycloneDX SBOM,
 and SHA-256 checksums. A final job attests build provenance and the SBOM
-(`gh attestation verify <file> -R lnorton89/strobe`) and only then
-publishes the draft, so a failed build leaves an unpublished draft and
-not a half-populated public release.
+(`gh attestation verify <file> -R lnorton89/strobe`) and only then, once
+the build and every CI job have passed, publishes the draft, so a failed
+build or a red test leaves an unpublished draft and not a half-populated
+or untested public release. Re-running the workflow resumes a draft; it
+refuses a release that is already published. To run it by hand, start it
+from the tag itself, so the provenance names the commit that was built:
+`gh workflow run release.yml --ref v0.2.0 -f tag=v0.2.0`.
 
 **Never move or re-push a tag, and never amend or rebase a commit after
 tagging it.** The tag keeps pointing at the copy you discarded, which
 then sits on no branch at all, and since each release is computed as
 `<previous>..<tag>`, every range from that point on is wrong. The
 changelog check fails on any version tag no branch can reach. A second
-push of a `v*` tag also re-runs the release workflow, which ends in
-`gh release upload --clobber`, rebuilding a published release's assets
-under new checksums. If a release is wrong, cut the next patch version.
+push of a `v*` tag also re-runs the release workflow; since D516 that run
+stops before building if the release is already published, but a tag
+moved while its draft is still unpublished rebuilds the draft from the new
+commit. If a release is wrong, cut the next patch version.
 
 ANGLE is pinned to Electron 38.2.0 by `scripts/fetch-angle.ps1`, which
 the release workflow runs, and which `strobe-gfx`'s build script runs on a
