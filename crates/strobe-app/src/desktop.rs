@@ -280,24 +280,83 @@ impl Capture {
 /// The capture worker: encode, publish, and give the buffer back.
 fn encoder(frames: &Receiver<CaptureFrame>, give_back: &SyncSender<Vec<u8>>) {
     let mut ladder = Ladder::default();
+    let mut last: Option<Sent> = None;
     while let Ok(mut frame) = frames.recv() {
         if frame.desktop.active() {
-            match encode(frame.size, &mut frame.pixels, &mut ladder) {
-                Ok(encoded) => frame.desktop.publish(
-                    encoded.size,
-                    strobe_remote::client::encode_image(&encoded.jpeg),
-                ),
-                Err(error) => {
-                    log::warn!("desktop capture: {error}");
-                    frame.desktop.capture_failed(
-                        "Host capture failed; resize the host window and pair again",
-                    );
+            let now = Instant::now();
+            let print = fingerprint(&frame.pixels);
+            match last.as_mut().filter(|sent| sent.matches(print, frame.size)) {
+                // The same picture as the last one sent (D514): nothing to
+                // compress, and only a keep-alive copy now and then.
+                Some(sent) => {
+                    if now.saturating_duration_since(sent.at) >= RESEND_UNCHANGED {
+                        frame.desktop.publish(sent.encoded_size, sent.jpeg.clone());
+                        sent.at = now;
+                    }
                 }
+                None => match encode(frame.size, &mut frame.pixels, &mut ladder) {
+                    Ok(encoded) => {
+                        let jpeg = strobe_remote::client::encode_image(&encoded.jpeg);
+                        frame.desktop.publish(encoded.size, jpeg.clone());
+                        last = Some(Sent {
+                            print,
+                            size: frame.size,
+                            encoded_size: encoded.size,
+                            jpeg,
+                            at: now,
+                        });
+                    }
+                    Err(error) => {
+                        log::warn!("desktop capture: {error}");
+                        frame.desktop.capture_failed(
+                            "Host capture failed; resize the host window and pair again",
+                        );
+                    }
+                },
             }
+        } else {
+            last = None;
         }
         // A full return queue drops this buffer; the app makes another.
         let _ = give_back.try_send(frame.pixels);
     }
+}
+
+/// How often a picture that has not changed is sent again anyway: well
+/// within the 3 s after which a controller takes a silent host for a
+/// paused one (D514).
+const RESEND_UNCHANGED: Duration = Duration::from_secs(1);
+
+/// The picture last sent, to tell an unchanged capture from it.
+struct Sent {
+    print: u64,
+    size: [u32; 2],
+    encoded_size: [u32; 2],
+    /// As sent: base64 JPEG.
+    jpeg: String,
+    at: Instant,
+}
+
+impl Sent {
+    fn matches(&self, print: u64, size: [u32; 2]) -> bool {
+        self.print == print && self.size == size
+    }
+}
+
+/// A 64-bit fingerprint of a capture, eight bytes a step: about a
+/// millisecond for a 1080p window where compressing it takes tens (D514).
+fn fingerprint(pixels: &[u8]) -> u64 {
+    const PRIME: u64 = 0x0000_0100_0000_01b3;
+    let (words, tail) = pixels.as_chunks::<8>();
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325 ^ pixels.len() as u64;
+    for word in words {
+        hash = (hash ^ u64::from_le_bytes(*word)).wrapping_mul(PRIME);
+        hash ^= hash >> 29;
+    }
+    for byte in tail {
+        hash = (hash ^ u64::from(*byte)).wrapping_mul(PRIME);
+    }
+    hash
 }
 
 impl Drop for Capture {
@@ -4169,6 +4228,71 @@ mod tests {
             let _ = encode([64, 64], &mut vec![90_u8; 64 * 64 * 4], &mut ladder)?;
         }
         assert_eq!(ladder.step, settled - 1, "one step back up");
+        Ok(())
+    }
+
+    #[test]
+    fn one_changed_pixel_changes_the_fingerprint() {
+        let mut pixels = vec![200_u8; 64 * 48 * 4 + 3];
+        let before = fingerprint(&pixels);
+        assert_eq!(
+            fingerprint(&pixels),
+            before,
+            "the same picture, the same print"
+        );
+        for at in [0, 1234, pixels.len() - 1] {
+            if let Some(byte) = pixels.get_mut(at) {
+                *byte ^= 1;
+            }
+            assert_ne!(fingerprint(&pixels), before, "byte {at} changed");
+            if let Some(byte) = pixels.get_mut(at) {
+                *byte ^= 1;
+            }
+        }
+    }
+
+    #[test]
+    fn an_unchanged_picture_is_not_compressed_again_and_is_resent_only_to_keep_alive() -> Result<()>
+    {
+        let desktop = Desktop::default();
+        desktop.enable(true);
+        anyhow::ensure!(desktop.acquire(1), "a lease to capture for");
+        let (frames, receive) = sync_channel::<CaptureFrame>(1);
+        let (give_back, returned) = sync_channel::<Vec<u8>>(2);
+        let worker = std::thread::spawn(move || encoder(&receive, &give_back));
+        let send = |pixels: Vec<u8>| -> Result<Vec<u8>> {
+            frames.send(CaptureFrame {
+                desktop: desktop.clone(),
+                size: [32, 32],
+                pixels,
+            })?;
+            Ok(returned.recv_timeout(Duration::from_secs(10))?)
+        };
+        let revision = || desktop.frame().map(|(revision, _)| revision);
+        let still = vec![90_u8; 32 * 32 * 4];
+        send(still.clone())?;
+        let first = revision();
+        assert!(first.is_some(), "the first picture is sent");
+        send(still.clone())?;
+        assert_eq!(revision(), first, "the same picture again is not");
+        let mut moved = still.clone();
+        if let Some(byte) = moved.get_mut(100) {
+            *byte = 10;
+        }
+        send(moved.clone())?;
+        let second = revision();
+        assert_ne!(second, first, "a change is sent");
+        std::thread::sleep(RESEND_UNCHANGED + Duration::from_millis(50));
+        send(moved)?;
+        assert_ne!(
+            revision(),
+            second,
+            "a still picture is sent again to keep alive"
+        );
+        drop(frames);
+        worker
+            .join()
+            .map_err(|_| anyhow::anyhow!("the encoder ended badly"))?;
         Ok(())
     }
 

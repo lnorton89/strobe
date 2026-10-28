@@ -366,6 +366,12 @@ they move as fast as your hand, and only their values cross the network.
 width; **Show controls** brings them back. Both computers need a build
 from 2026-10-28 or later for the panel to appear.
 
+While another Strobe controls it, the host leaves its live preview out
+of the window ("Preview off while another Strobe controls this one"):
+watch the projector output instead. The picture is only sent when
+something in the window changed, which keeps the host's processor free
+for the show.
+
 **Return to local Strobe** always belongs to the controlling computer;
 Ctrl+Shift+F12 is its keyboard shortcut (Command+Shift+F12 on macOS).
 Only one desktop can control a host at once. The host title bar says

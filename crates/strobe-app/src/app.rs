@@ -5050,7 +5050,13 @@ impl Running {
 
         self.advance_preview(now);
         let composited = self.stack.show.as_ref().is_some_and(Show::composited);
-        let preview = if self.posted {
+        // Another Strobe controls this one (D514): the preview, the one part
+        // of the window that changes every frame, would be most of every
+        // picture sent and is not wanted there; the output shows the show.
+        let preview_paused = self.lan.desktop_controlled();
+        let preview = if preview_paused {
+            None
+        } else if self.posted {
             // The meta controls change the picture, so the preview shows
             // what the output shows.
             let texture = self.stack.post.output_texture();
@@ -5203,6 +5209,7 @@ impl Running {
             media,
             meta,
             preview,
+            preview_paused,
             scene_preview: scene_preview_image.and_then(|(index, image)| {
                 name_of(Some(index)).map(|name| ScenePreview { index, name, image })
             }),
