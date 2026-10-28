@@ -5347,7 +5347,7 @@ impl Running {
                     self.controls_sync
                         .rows(&drawn, &session.controls, &session.meta, screen)
                 }
-                Some(_) | None => Vec::new(),
+                Some(_) | None => strobe_remote::desktop::ControlLayout::default(),
             };
             // Starts or collects an asynchronous readback; never waits.
             self.desktop_capture.frame(
