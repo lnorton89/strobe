@@ -36,10 +36,15 @@
 //!   value the host sends back for a control the person moved within
 //!   [`HOLD_LOCAL`] is not taken, so a drag does not jump back to an echo
 //!   of where it was a moment ago.
+//! - **Where** (D515): while a controller wants the controls, the host
+//!   notes where its UI pass drew each row ([`noted`]) and sends that with
+//!   the picture of the same frame ([`Publisher::rows`]); the controller
+//!   draws its copy of each row over the picture of it
+//!   ([`Mirror::draw_row`]), so the quick controls are the window's own.
 
 use std::time::{Duration, Instant};
 
-use strobe_remote::desktop::{ControlEdit, Desktop, MAX_SYNCED_CONTROLS, SyncedBank};
+use strobe_remote::desktop::{ControlEdit, ControlRow, Desktop, MAX_SYNCED_CONTROLS, SyncedBank};
 use strobe_scene::control::{ControlBank, ControlDef, ControlKind};
 
 /// The playing scene's banks, as the host lends them to [`Publisher::tick`].
@@ -170,6 +175,114 @@ impl Publisher {
     }
 }
 
+impl Publisher {
+    /// Where this pass drew the published banks' rows, as fractions of the
+    /// window `screen` (points), for the controller to draw its own copies
+    /// over them (D515). Rows of a bank whose controls changed since they
+    /// were published are left out until the next publication names them.
+    pub fn rows(
+        &self,
+        drawn: &[Drawn],
+        scene: &ControlBank,
+        output: &ControlBank,
+        screen: egui::Rect,
+    ) -> Vec<ControlRow> {
+        let size = screen.size();
+        if size.x <= 0.0 || size.y <= 0.0 {
+            return Vec::new();
+        }
+        let bank_of = |address: usize| {
+            if address == key(scene) && self.scene.defs.as_slice() == scene.defs() {
+                Some(self.scene.id)
+            } else if address == key(output) && self.output.defs.as_slice() == output.defs() {
+                Some(self.output.id)
+            } else {
+                None
+            }
+        };
+        drawn
+            .iter()
+            .filter_map(|row| {
+                let bank = bank_of(row.bank).filter(|id| *id != 0)?;
+                let min = (row.rect.min - screen.min) / size;
+                let span = row.rect.size() / size;
+                Some(ControlRow {
+                    bank,
+                    index: u32::try_from(row.index).ok()?,
+                    rect: [min.x, min.y, span.x, span.y],
+                    touch: row.touch,
+                })
+            })
+            .filter(|row| strobe_remote::desktop::valid_rows(std::slice::from_ref(row)))
+            .collect()
+    }
+}
+
+/// A bank's identity for one UI pass: its address. Two banks alive at once
+/// never share one, and the pass that drew a row and the lookup after it see
+/// the same banks.
+fn key(bank: &ControlBank) -> usize {
+    std::ptr::from_ref(bank).addr()
+}
+
+/// Where the UI drew one control row in this pass (D515).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Drawn {
+    /// The bank, by [`key`].
+    pub bank: usize,
+    /// The control's place in it.
+    pub index: usize,
+    /// The row as drawn and visible, in points.
+    pub rect: egui::Rect,
+    /// Drawn at the Controls page's scale rather than the side panel's.
+    pub touch: bool,
+}
+
+fn noting_id() -> egui::Id {
+    egui::Id::unique("remote controls: noting rows")
+}
+
+fn drawn_id() -> egui::Id {
+    egui::Id::unique("remote controls: rows drawn")
+}
+
+/// Asks the coming UI pass to note where it draws each control row, or
+/// stops it: only while a controller draws the controls itself.
+pub fn note_rows(ctx: &egui::Context, on: bool) {
+    ctx.data_mut(|data| {
+        data.insert_temp(noting_id(), on);
+        data.remove::<Vec<Drawn>>(drawn_id());
+    });
+}
+
+/// Notes that control `index` of `bank` was drawn in `rect`, if the pass
+/// is noting. [`crate::ui::controls::rows`] calls it for every row.
+pub fn noted(ui: &egui::Ui, bank: &ControlBank, index: usize, rect: egui::Rect, touch: bool) {
+    let ctx = ui.ctx();
+    if ctx.data(|data| data.get_temp::<bool>(noting_id())) != Some(true) {
+        return;
+    }
+    let visible = rect.intersect(ui.clip_rect());
+    if !visible.is_positive() {
+        return;
+    }
+    ctx.data_mut(|data| {
+        data.get_temp_mut_or_default::<Vec<Drawn>>(drawn_id())
+            .push(Drawn {
+                bank: key(bank),
+                index,
+                rect: visible,
+                touch,
+            });
+    });
+}
+
+/// The rows the pass drew, taken.
+pub fn drawn_rows(ctx: &egui::Context) -> Vec<Drawn> {
+    ctx.data_mut(|data| data.remove_temp::<Vec<Drawn>>(drawn_id()))
+        .unwrap_or_default()
+}
+
 /// One bank as the controller holds it.
 struct Copy {
     id: u64,
@@ -245,80 +358,94 @@ impl Mirror {
         self.banks = next;
     }
 
-    /// Draws every bank, its groups under their names, and adds what the
-    /// person changed to `edits`. `dt` eases the copy's outputs, which only
-    /// the drawing reads.
-    pub fn show(&mut self, ui: &mut egui::Ui, dt: f32, now: Instant, edits: &mut Vec<ControlEdit>) {
+    /// Draws this computer's copy of control `index` of bank `bank` over the
+    /// host's picture of it, in `rect` (D515), on an opaque card so the
+    /// picture underneath does not show through. What the person changed
+    /// is added to `edits`. Returns whether the row was drawn: a bank or
+    /// control this copy does not hold is left to the picture.
+    pub fn draw_row(
+        &mut self,
+        ui: &mut egui::Ui,
+        row: &ControlRow,
+        rect: egui::Rect,
+        now: Instant,
+        edits: &mut Vec<ControlEdit>,
+    ) -> bool {
+        let index = row.index as usize;
+        let Some(copy) = self.banks.iter_mut().find(|copy| copy.id == row.bank) else {
+            return false;
+        };
+        let Some(before) = copy.bank.target(index).copied() else {
+            return false;
+        };
         let theme = crate::ui::theme::palette();
-        let scale = crate::ui::controls::Scale::Panel;
-        for (slot, copy) in self.banks.iter_mut().enumerate() {
-            if copy.bank.defs().is_empty() {
-                continue;
+        let scale = if row.touch {
+            crate::ui::controls::Scale::Touch
+        } else {
+            crate::ui::controls::Scale::Panel
+        };
+        let clip = rect.intersect(ui.clip_rect());
+        ui.painter().with_clip_rect(clip).rect_filled(
+            rect,
+            0.0,
+            crate::ui::theme::rgb(theme.raised),
+        );
+        let mut child = ui.new_child(
+            egui::UiBuilder::new()
+                .id_salt(("remote row", row.bank, row.index))
+                .max_rect(rect)
+                .layout(egui::Layout::top_down(egui::Align::Min)),
+        );
+        child.set_clip_rect(clip);
+        crate::ui::controls::rows(&mut child, &theme, &mut copy.bank, &[index], None, scale);
+        copy.collect(index, before, now, edits);
+        true
+    }
+
+    /// Eases every copy's outputs on by `dt`, which only the drawing reads,
+    /// once a frame after the rows drew.
+    pub fn ease(&mut self, dt: f32) {
+        for copy in &mut self.banks {
+            copy.bank.tick(dt);
+            for (index, seen) in copy.presses.iter_mut().enumerate() {
+                *seen = copy.bank.presses(index);
             }
-            ui.push_id(("remote bank", slot), |ui| {
-                ui.label(egui::RichText::new(&copy.title).strong());
-                let before: Vec<[f32; 3]> = (0..copy.bank.defs().len())
-                    .map(|index| copy.bank.target(index).copied().unwrap_or_default())
-                    .collect();
-                for (group, members) in crate::ui::controls::group_order(copy.bank.defs()) {
-                    if members.is_empty() {
-                        continue;
-                    }
-                    if let Some(group) = &group {
-                        ui.label(
-                            egui::RichText::new(crate::ui::controls::display_name(group))
-                                .small()
-                                .color(crate::ui::theme::rgb(theme.text_muted)),
-                        );
-                    }
-                    ui.push_id(("group", group.as_deref().unwrap_or("")), |ui| {
-                        crate::ui::controls::rows(
-                            ui,
-                            &theme,
-                            &mut copy.bank,
-                            &members,
-                            None,
-                            scale,
-                        );
-                    });
-                }
-                copy.settle(&before, dt, now, edits);
-                ui.add_space(8.0);
-            });
         }
     }
 }
 
 impl Copy {
-    /// After the rows drew: what the person changed since `before` (each
-    /// control's target then) becomes an edit, and the copy eases on by
-    /// `dt`.
-    fn settle(&mut self, before: &[[f32; 3]], dt: f32, now: Instant, edits: &mut Vec<ControlEdit>) {
-        for (index, was) in before.iter().enumerate() {
-            let presses = self.bank.presses(index);
-            let seen = self.presses.get(index).copied().unwrap_or_default();
-            let target = self.bank.target(index).copied().unwrap_or_default();
-            let dims = self.bank.defs().get(index).map_or(1, ControlDef::dims);
-            let values = if presses > seen {
-                Vec::new()
-            } else if target != *was {
-                target.get(..dims).unwrap_or_default().to_vec()
-            } else {
-                continue;
-            };
-            if let Some(touched) = self.touched.get_mut(index) {
-                *touched = Some(now);
-            }
-            edits.push(ControlEdit {
-                bank: self.id,
-                index: index as u32,
-                values,
-            });
+    /// After control `index` drew: a change from `before` (its target
+    /// then), or a new press, becomes an edit.
+    fn collect(
+        &mut self,
+        index: usize,
+        before: [f32; 3],
+        now: Instant,
+        edits: &mut Vec<ControlEdit>,
+    ) {
+        let presses = self.bank.presses(index);
+        let seen = self.presses.get(index).copied().unwrap_or_default();
+        let target = self.bank.target(index).copied().unwrap_or_default();
+        let dims = self.bank.defs().get(index).map_or(1, ControlDef::dims);
+        let values = if presses > seen {
+            Vec::new()
+        } else if target != before {
+            target.get(..dims).unwrap_or_default().to_vec()
+        } else {
+            return;
+        };
+        if let Some(touched) = self.touched.get_mut(index) {
+            *touched = Some(now);
         }
-        self.bank.tick(dt);
-        for (index, seen) in self.presses.iter_mut().enumerate() {
-            *seen = self.bank.presses(index);
+        if let Some(seen) = self.presses.get_mut(index) {
+            *seen = presses;
         }
+        edits.push(ControlEdit {
+            bank: self.id,
+            index: index as u32,
+            values,
+        });
     }
 }
 
@@ -563,22 +690,23 @@ mod tests {
             .ok_or_else(|| anyhow::anyhow!("the bank was rebuilt"))?;
         assert_eq!(copy.bank.defs(), host.defs(), "the same controls");
         // The person drags speed and presses flash, as the rows would.
-        let before = [[1.0; 3], [0.0; 3]];
         copy.bank.set(0, None, &[1.8]);
         copy.bank.press(1);
         let mut edits = Vec::new();
-        copy.settle(&before, 0.016, start, &mut edits);
+        copy.collect(0, [1.0; 3], start, &mut edits);
+        copy.collect(1, [0.0; 3], start, &mut edits);
         assert_eq!(
             edits,
             vec![edit(9, 0, &[1.8]), edit(9, 1, &[])],
             "the slider's value and the bang's press"
         );
         let mut again = Vec::new();
-        let now: Vec<[f32; 3]> = (0..2)
-            .map(|index| copy.bank.target(index).copied().unwrap_or_default())
-            .collect();
-        copy.settle(&now, 0.016, start, &mut again);
+        for index in 0..2 {
+            let now = copy.bank.target(index).copied().unwrap_or_default();
+            copy.collect(index, now, start, &mut again);
+        }
         assert!(again.is_empty(), "nothing new, nothing sent: {again:?}");
+        mirror.ease(0.016);
         // The host's echo of an older value arrives mid-drag, then later.
         host.set(0, None, &[1.2]);
         mirror.take(2, &[synced(&host, 9, false)], start + HOLD_LOCAL / 2);
@@ -608,5 +736,127 @@ mod tests {
             Instant::now(),
         );
         assert!(mirror.is_empty(), "nothing to rebuild it from");
+    }
+
+    /// Runs one UI pass over `draw`, in a 1000 by 800 point window.
+    fn pass(ctx: &egui::Context, draw: impl FnMut(&mut egui::Ui)) {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1000.0, 800.0),
+            )),
+            ..egui::RawInput::default()
+        };
+        let mut draw = draw;
+        let mut output = ctx.run_ui(input, |ui| draw(ui));
+        // Nothing paints here; a debug build refuses unapplied textures.
+        output.textures_delta.clear();
+    }
+
+    #[test]
+    fn the_host_notes_its_rows_only_when_asked_and_places_them_in_the_window() -> Result<()> {
+        let theme = crate::ui::theme::palette();
+        let mut scene = bank(&[SPEED, FLASH])?;
+        let mut output = bank(&[TINT])?;
+        let ctx = egui::Context::default();
+        let mut drawn = Vec::new();
+        for noting in [false, true] {
+            pass(&ctx, |ui| {
+                note_rows(ui.ctx(), noting);
+                crate::ui::controls::rows(
+                    ui,
+                    &theme,
+                    &mut scene,
+                    &[0, 1],
+                    None,
+                    crate::ui::controls::Scale::Touch,
+                );
+                crate::ui::controls::rows(
+                    ui,
+                    &theme,
+                    &mut output,
+                    &[0],
+                    None,
+                    crate::ui::controls::Scale::Panel,
+                );
+                drawn = drawn_rows(ui.ctx());
+            });
+            if !noting {
+                assert!(drawn.is_empty(), "nothing noted unless asked: {drawn:?}");
+            }
+        }
+        assert_eq!(drawn.len(), 3, "every row noted: {drawn:?}");
+        let desktop = desktop()?;
+        let mut publisher = Publisher::default();
+        publisher.tick(
+            &desktop,
+            Some(Live {
+                title: "S",
+                scene: &mut scene,
+                output: &mut output,
+            }),
+            Instant::now(),
+        );
+        let ids: Vec<u64> = published(&desktop)?.iter().map(|bank| bank.id).collect();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1000.0, 800.0));
+        let rows = publisher.rows(&drawn, &scene, &output, screen);
+        let placed: Vec<(u64, u32, bool)> = rows
+            .iter()
+            .map(|row| (row.bank, row.index, row.touch))
+            .collect();
+        let (Some(&scene_id), Some(&output_id)) = (ids.first(), ids.get(1)) else {
+            anyhow::bail!("two banks published");
+        };
+        assert_eq!(
+            placed,
+            [
+                (scene_id, 0, true),
+                (scene_id, 1, true),
+                (output_id, 0, false)
+            ],
+            "each row under its bank's id, at its scale"
+        );
+        assert!(
+            strobe_remote::desktop::valid_rows(&rows)
+                && rows
+                    .iter()
+                    .all(|row| row.rect[2] > 0.0 && row.rect[3] > 0.0),
+            "fractions of the window: {rows:?}"
+        );
+        let other = bank(&[SPEED])?;
+        assert!(
+            publisher.rows(&drawn, &other, &output, screen).len() == 1,
+            "a bank the publication does not describe places nothing"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn the_controller_draws_a_row_only_for_controls_it_holds() -> Result<()> {
+        let host = bank(&[SPEED])?;
+        let mut mirror = Mirror::default();
+        mirror.take(1, &[synced(&host, 9, true)], Instant::now());
+        let ctx = egui::Context::default();
+        let rect = egui::Rect::from_min_size(egui::pos2(10.0, 10.0), egui::vec2(300.0, 40.0));
+        let mut results = Vec::new();
+        pass(&ctx, |ui| {
+            let mut edits = Vec::new();
+            for (bank, index) in [(9, 0), (9, 5), (4, 0)] {
+                let row = ControlRow {
+                    bank,
+                    index,
+                    rect: [0.0, 0.0, 0.5, 0.1],
+                    touch: true,
+                };
+                results.push(mirror.draw_row(ui, &row, rect, Instant::now(), &mut edits));
+            }
+            assert!(edits.is_empty(), "drawing alone sends nothing: {edits:?}");
+        });
+        assert_eq!(
+            results,
+            [true, false, false],
+            "the held control is drawn; another index or bank is left to the picture"
+        );
+        Ok(())
     }
 }
