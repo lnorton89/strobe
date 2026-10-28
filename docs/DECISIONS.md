@@ -12590,3 +12590,62 @@ with `--remote-trust`, the desktop's Connect in the list, no approval.
 **Would reopen:** a controller that proves the file to hosts that do not
 hold it often enough for the failed-proof limits (D288) to get in the way,
 in which case a found host's Connect would try approval after a refusal.
+
+### D513: the desktop remote sends the controls as data, and the controller draws them (2026-10-28)
+
+**Context.** Controlling the JaJa mini PC from the venue desktop, every
+control change lagged. The desktop remote (D275) mirrors the host's whole
+control window as a JPEG at most five times a second. A slider drag
+waited for three things in turn: the controller's input batch, which left
+every 150 ms; the host's control frame, which runs at the stream's 5 Hz
+while the fullscreen output covers the window (D290); and the next
+captured picture, up to 200 ms later. The host's weak CPU also had to
+compress a full window for every picture. D275 itself said to revisit a
+structured protocol once real hardware showed the cost.
+
+**Decision.** The controls travel as data beside the picture, which
+stays for the editor and settings (`strobe_app::remote_controls`).
+
+- **Protocol.** The lease holder sends `desktop_controls_open` after
+  `desktop_open`. The host answers `desktop_controls`: the playing scene's
+  bank and the output's, each with an id, a title, every control's target
+  and, the first time a connection sees that id, its definitions as
+  `scene.json` entries (`ControlDef::to_json`, which `from_raw` reads back
+  equal for every control in the library and the meta bank). Edits come
+  back as `desktop_control`: up to 32 of `{bank, index, values}`, where no
+  values is a bang's press, applied with `ControlBank::set` as the host's
+  own rows do. The definitions change the id, so an edit made against a
+  scene that has since been replaced, even in the same frame, is dropped.
+- **Host.** `Publisher::tick` runs in the scene frame (drain_lan): it
+  applies the queued edits, then publishes when something moved, at most
+  every 50 ms, and only while the lease holder asked. Nothing is
+  published or allocated while nobody asked.
+- **Controller.** `Mirror` rebuilds each bank from its definitions and
+  draws it with `ui::controls::rows`, in a 380-point panel beside the
+  host's window, which the toolbar hides and shows. A drag moves here at
+  once; its edits leave every 50 ms. A value from the host for a control
+  moved here in the last 600 ms is not taken, so the echo of an older
+  value cannot pull a drag back.
+- **Budget.** The lease holder may send 50 messages a second (burst 100),
+  where everyone else keeps 10 (20). Once a host has sent its controls,
+  the controller's input batches also leave every 50 ms instead of 150.
+- **Older peers.** A controller asks only once leased, and a host only
+  sends to one that asked, so an older controller sees nothing new. An
+  older host answers the request `invalid_request`; the controller takes
+  that as "no controls here" and goes on with the picture alone, at the
+  old input rate.
+
+**Test.** `remote_controls::tests` (both banks published and edited, a
+stale bank's edit dropped across a scene change, the publication period,
+a drag kept from its echo); `desktop::tests::the_hosts_controls_arrive_as_data_and_an_edit_made_here_reaches_its_bank`
+through the real worker and server; the server test
+`the_lease_holder_gets_the_controls_once_and_its_edits_reach_the_app`
+(definitions once, a phone refused, a two-second drag at 20 edits a
+second keeps the lease); `def::tests` round trips; the frozen messages in
+`strobe_remote`. On the venue: LIGHTNING dragging a control of the mini
+PC's playing scene.
+
+**Would reopen:** a scene whose script moves controls every frame, so
+that the 20 Hz publication of its values is a cost of its own, or the
+editor's save of new controls while connected, which the id covers but
+which has not been tried by hand.

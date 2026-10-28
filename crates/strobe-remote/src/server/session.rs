@@ -326,6 +326,10 @@ struct Session<'a> {
     sent_revision: Option<u64>,
     desktop_revision: Option<u64>,
     clipboard_revision: Option<u64>,
+    /// The controls publication last sent, and the banks whose definitions
+    /// went with it or before (D513): later sends leave those out.
+    controls_revision: Option<u64>,
+    banks_sent: Vec<u64>,
     desktop_open: bool,
     desktop_pairing: bool,
     desktop_authorized: bool,
@@ -375,6 +379,8 @@ impl<'a> Session<'a> {
             sent_revision: None,
             desktop_revision: None,
             clipboard_revision: None,
+            controls_revision: None,
+            banks_sent: Vec::new(),
             desktop_open: false,
             desktop_pairing: false,
             desktop_authorized: false,
@@ -445,13 +451,19 @@ impl<'a> Session<'a> {
     /// Takes one token from the bucket, or ends a flooding connection.
     fn spend(&mut self) -> Result<(), End> {
         let limits = &self.shared.limits;
+        // The desktop holding the lease sends its edits as they happen
+        // (D513); anyone else keeps the phone's budget.
+        let (rate, burst) = if self.desktop_open {
+            (limits.desktop_rate_per_second, limits.desktop_burst)
+        } else {
+            (limits.rate_per_second, limits.burst)
+        };
         let now = Instant::now();
         let elapsed = now
             .saturating_duration_since(self.bucket.last)
             .as_secs_f64();
         self.bucket.last = now;
-        self.bucket.tokens =
-            (self.bucket.tokens + elapsed * limits.rate_per_second).min(limits.burst);
+        self.bucket.tokens = (self.bucket.tokens + elapsed * rate).min(burst);
         if self.bucket.tokens < 1.0 {
             log::warn!("remote: {} sent too many messages; dropped", self.peer);
             // If the error cannot be sent, the read loop ends this connection
@@ -807,6 +819,7 @@ impl<'a> Session<'a> {
                 self.send(&message)?;
                 self.clipboard_revision = Some(revision);
             }
+            self.push_controls()?;
         }
         let (revision, snapshot) = self.shared.remote.snapshot();
         if self.sent_revision == Some(revision) {
@@ -814,6 +827,32 @@ impl<'a> Session<'a> {
         }
         self.send(&snapshot.to_message(revision))?;
         self.sent_revision = Some(revision);
+        Ok(())
+    }
+
+    /// Sends the host's controls if a newer publication is out (D513). A
+    /// bank's definitions go once per connection, the first time its id is
+    /// sent; after that only its values do.
+    fn push_controls(&mut self) -> Result<(), End> {
+        let Some((revision, banks)) = self.shared.remote.desktop.controls() else {
+            return Ok(());
+        };
+        if self.controls_revision == Some(revision) {
+            return Ok(());
+        }
+        let banks: Vec<_> = banks
+            .iter()
+            .map(|bank| crate::desktop::SyncedBank {
+                defs: bank
+                    .defs
+                    .clone()
+                    .filter(|_| !self.banks_sent.contains(&bank.id)),
+                ..bank.clone()
+            })
+            .collect();
+        self.banks_sent = banks.iter().map(|bank| bank.id).collect();
+        self.send(&ServerMessage::DesktopControls { revision, banks })?;
+        self.controls_revision = Some(revision);
         Ok(())
     }
 
@@ -905,9 +944,32 @@ impl<'a> Session<'a> {
                     Err(End::Close(close::POLICY, "desktop input refused"))
                 }
             }
+            (Phase::Authenticated(_), ClientMessage::DesktopControlsOpen {}) => {
+                if self.desktop_open && self.shared.remote.desktop.want_controls(self.conn) {
+                    self.controls_revision = None;
+                    self.banks_sent.clear();
+                    self.push_state()
+                } else {
+                    self.send(&ServerMessage::error(
+                        ErrorCode::Unavailable,
+                        "only the desktop holding control gets the controls",
+                    ))
+                }
+            }
+            (Phase::Authenticated(_), ClientMessage::DesktopControl { edits }) => {
+                if self.desktop_open && self.shared.remote.desktop.submit_controls(self.conn, edits)
+                {
+                    Ok(())
+                } else {
+                    Err(End::Close(close::POLICY, "control edits refused"))
+                }
+            }
             (
                 Phase::Unauthenticated | Phase::Approval(_),
-                ClientMessage::DesktopOpen {} | ClientMessage::DesktopInput { .. },
+                ClientMessage::DesktopOpen {}
+                | ClientMessage::DesktopInput { .. }
+                | ClientMessage::DesktopControlsOpen {}
+                | ClientMessage::DesktopControl { .. },
             ) => self.send(&ServerMessage::error(
                 ErrorCode::Unauthorized,
                 "pair this desktop first",
@@ -989,6 +1051,8 @@ impl<'a> Session<'a> {
                     | ClientMessage::Ping {}
                     | ClientMessage::DesktopOpen {}
                     | ClientMessage::DesktopInput { .. }
+                    | ClientMessage::DesktopControlsOpen {}
+                    | ClientMessage::DesktopControl { .. }
                     | ClientMessage::TrustStart { .. }
                     | ClientMessage::TrustProof { .. }
                     | ClientMessage::RequestDesktop { .. }

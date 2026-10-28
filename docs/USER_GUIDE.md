@@ -358,6 +358,14 @@ into the host; Copy/Cut in a host widget returns selected text to the
 controller. Paste at most 64 KiB at a time. Local file drops/uploads and
 operating-system dialogs are outside this Strobe window stream.
 
+The host's window is a picture that updates a few times a second, so
+dragging a control in it lags. Beside it, the controlling computer shows
+the playing scene's controls and the output's, drawn on this computer:
+they move as fast as your hand, and only their values cross the network.
+**Hide controls** in the bar at the top gives the picture the whole
+width; **Show controls** brings them back. Both computers need a build
+from 2026-10-28 or later for the panel to appear.
+
 **Return to local Strobe** always belongs to the controlling computer;
 Ctrl+Shift+F12 is its keyboard shortcut (Command+Shift+F12 on macOS).
 Only one desktop can control a host at once. The host title bar says

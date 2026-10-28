@@ -20,13 +20,19 @@ use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
-use strobe_remote::desktop::{Desktop, Input, MAX_EDGE, MAX_JPEG, Modifiers};
+use strobe_remote::desktop::{
+    ControlEdit, Desktop, Input, MAX_CONTROL_EDITS, MAX_EDGE, MAX_JPEG, Modifiers, SyncedBank,
+};
 use strobe_remote::{ClientMessage, ErrorCode, ServerMessage};
 
 use crate::trusted;
 
 /// Maximum capture rate, including a control window covered by fullscreen output.
 pub const STREAM_PERIOD: Duration = Duration::from_millis(200);
+
+/// The controls panel's width beside the host's window (D513), at most half
+/// the viewer.
+const CONTROLS_WIDTH: f32 = 380.0;
 
 /// Whether `action` is one the operator must take at the host, so it is
 /// refused from a UI pass that carried remote desktop input (D275).
@@ -472,6 +478,10 @@ struct View {
     /// The connection proves a trust file (D288/D294): no code, no
     /// approval, and it retries by itself when it drops.
     trusted: bool,
+    /// The host's controls as data (D513): the latest publication, each
+    /// bank with its definitions (kept from an earlier one when this one
+    /// left them out).
+    controls: Option<(u64, Vec<SyncedBank>)>,
 }
 
 /// Where a connection stands, for the viewer.
@@ -664,6 +674,15 @@ pub struct Controller {
     /// The stage and readiness the viewer last drew, so the app redraws it
     /// when the worker changes either ([`Self::needs_redraw`]).
     shown: Option<(Stage, bool)>,
+    /// The host's controls, drawn here (D513), and the publication drawn.
+    mirror: crate::remote_controls::Mirror,
+    controls_revision: Option<u64>,
+    /// Whether the controls panel is open beside the host's window.
+    pub controls_open: bool,
+    /// Edits made in the panel, for the worker to send.
+    edits: Option<SyncSender<ControlEdit>>,
+    /// When the panel was last drawn, for its eased outputs.
+    drawn: Option<Instant>,
 }
 
 impl Default for Controller {
@@ -692,6 +711,11 @@ impl Default for Controller {
             reveal: false,
             waiting: None,
             shown: None,
+            mirror: crate::remote_controls::Mirror::default(),
+            controls_revision: None,
+            controls_open: true,
+            edits: None,
+            drawn: None,
         }
     }
 }
@@ -822,12 +846,14 @@ impl Controller {
             trust,
         };
         let (sender, inputs) = sync_channel(512);
+        let (edits, edited) = sync_channel(512);
         match std::thread::Builder::new()
             .name("desktop controller".into())
-            .spawn(move || work(&link, &inputs))
+            .spawn(move || work(&link, &inputs, &edited))
         {
             Ok(worker) => {
                 self.sender = Some(sender);
+                self.edits = Some(edits);
                 self.worker = Some(worker);
             }
             Err(error) => {
@@ -901,6 +927,7 @@ impl Controller {
             // it. What the form says afterwards must be true of now.
             let mut view = self.view.lock().unwrap_or_else(PoisonError::into_inner);
             view.image = None;
+            view.controls = None;
             if was_active {
                 match view.stage {
                     Stage::Connecting => view.note = "Connection cancelled.".into(),
@@ -915,6 +942,10 @@ impl Controller {
         self.started = None;
         self.waiting = None;
         self.shown = None;
+        self.edits = None;
+        self.mirror = crate::remote_controls::Mirror::default();
+        self.controls_revision = None;
+        self.drawn = None;
         self.texture = None;
         self.texture_context = None;
         self.revision = 0;
@@ -931,6 +962,8 @@ impl Controller {
         let view = self.view.lock().unwrap_or_else(PoisonError::into_inner);
         (view.image.is_some() && view.revision != self.revision)
             || self.shown != Some((view.stage, view.ready))
+            || (self.controls_open
+                && view.controls.as_ref().map(|(revision, _)| *revision) != self.controls_revision)
     }
 
     /// Status for Settings or the always-visible viewer toolbar.
@@ -1022,6 +1055,12 @@ impl Controller {
                 self.revision = view.revision;
                 self.texture_context = Some(ui.ctx().clone());
             }
+            if let Some((revision, banks)) = &view.controls
+                && self.controls_revision != Some(*revision)
+            {
+                self.mirror.take(*revision, banks, Instant::now());
+                self.controls_revision = Some(*revision);
+            }
             (
                 view.size,
                 view.ready,
@@ -1041,6 +1080,23 @@ impl Controller {
             };
             if ui.button(leave).clicked() {
                 actions.push(crate::ui::Action::DisconnectDesktop);
+            }
+            if stage == Stage::Live && !self.mirror.is_empty() {
+                let label = if self.controls_open {
+                    "Hide controls"
+                } else {
+                    "Show controls"
+                };
+                if ui
+                    .button(label)
+                    .on_hover_text(
+                        "The host's controls, drawn here: they move at once and send only \
+                         their values.",
+                    )
+                    .clicked()
+                {
+                    self.controls_open = !self.controls_open;
+                }
             }
         });
         if let Stage::Live = stage {
@@ -1131,8 +1187,52 @@ impl Controller {
                 };
                 card(ui.ctx(), heading, lines, Some(&mut offer));
             }
-            Stage::Live => self.live(ui, size, ready),
+            Stage::Live => {
+                if self.controls_open && !self.mirror.is_empty() {
+                    let area = ui.available_rect_before_wrap();
+                    let width = CONTROLS_WIDTH.min(area.width() * 0.5);
+                    let (window, panel) = area.split_left_right_at_x(area.right() - width);
+                    ui.scope_builder(egui::UiBuilder::new().max_rect(panel), |ui| {
+                        self.controls_panel(ui);
+                    });
+                    ui.scope_builder(egui::UiBuilder::new().max_rect(window), |ui| {
+                        self.live(ui, size, ready);
+                    });
+                } else {
+                    self.drawn = None;
+                    self.live(ui, size, ready);
+                }
+            }
         }
+    }
+
+    /// The host's controls, drawn here (D513). What the person changes is
+    /// handed to the worker, which sends it at once.
+    fn controls_panel(&mut self, ui: &mut egui::Ui) {
+        let now = Instant::now();
+        let dt = self.drawn.map_or(0.0, |drawn| {
+            now.saturating_duration_since(drawn).as_secs_f32()
+        });
+        self.drawn = Some(now);
+        let mut edits = Vec::new();
+        egui::ScrollArea::vertical()
+            .id_salt("remote controls")
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                ui.add_space(4.0);
+                self.mirror.show(ui, dt, now, &mut edits);
+            });
+        for edit in edits {
+            if let Some(sender) = &self.edits
+                && sender.try_send(edit).is_err()
+            {
+                // The worker is gone or far behind: the host's own values
+                // come back on the next publication.
+                log::debug!("desktop controller: a control edit was not queued");
+            }
+        }
+        // The copies ease their outputs; keep drawing while they do.
+        ui.ctx().request_repaint_after(Duration::from_millis(33));
     }
 
     /// Whether a blank code would reconnect to the address shown.
@@ -1449,11 +1549,11 @@ fn pause(stop: &AtomicBool, wait: Duration) -> bool {
 /// A refusal, or any other ending `control` has already put into the view as
 /// [`Stage::Ended`], is final: retrying a wrong file only feeds the host's
 /// failed-proof limiter.
-fn work(link: &Link, inputs: &Receiver<Input>) {
+fn work(link: &Link, inputs: &Receiver<Input>, edits: &Receiver<ControlEdit>) {
     let mut attempt: u32 = 0;
     loop {
         let mut pictured = false;
-        let ended = control(link, inputs, &mut pictured);
+        let ended = control(link, (inputs, edits), &mut pictured);
         // However the connection ended, its socket closes now. The
         // interrupter in the slot is a second handle on it, so dropping the
         // connection alone would leave it open: after a timeout the host
@@ -1526,12 +1626,17 @@ fn work(link: &Link, inputs: &Receiver<Input>) {
         // Input typed while the host was away is stale; it is never
         // replayed into the new connection (D275).
         while inputs.try_recv().is_ok() {}
+        while edits.try_recv().is_ok() {}
     }
 }
 
 /// One connection, until it ends or `stop` is set. `pictured` is set once a
 /// frame from the host has arrived on it.
-fn control(link: &Link, inputs: &Receiver<Input>, pictured: &mut bool) -> io::Result<()> {
+fn control(
+    link: &Link,
+    (inputs, edits): (&Receiver<Input>, &Receiver<ControlEdit>),
+    pictured: &mut bool,
+) -> io::Result<()> {
     let Link {
         address,
         code,
@@ -1567,6 +1672,10 @@ fn control(link: &Link, inputs: &Receiver<Input>, pictured: &mut bool) -> io::Re
     // taken only shortly after, so a host cannot write into this computer's
     // clipboard unasked.
     let mut last_input: Option<Instant> = None;
+    // The controls as data (D513): asked for once the lease is asked for,
+    // and known to work once the host has sent some. A host from before
+    // D513 answers the request `invalid_request`, which is not a failure.
+    let mut controls = Controls::default();
     while !stop.load(Ordering::Relaxed) {
         let now = Instant::now();
         if authenticated && now.duration_since(last_frame) > Duration::from_secs(3) && !paused {
@@ -1678,6 +1787,23 @@ fn control(link: &Link, inputs: &Receiver<Input>, pictured: &mut bool) -> io::Re
                         };
                     }
                     connection.send(&ClientMessage::DesktopOpen {})?;
+                    connection.send(&ClientMessage::DesktopControlsOpen {})?;
+                    controls.asked = true;
+                }
+                ServerMessage::DesktopControls { revision, banks } => {
+                    controls.seen = true;
+                    let mut view = view.lock().unwrap_or_else(PoisonError::into_inner);
+                    let banks = with_definitions(banks, view.controls.as_ref());
+                    view.controls = Some((revision, banks));
+                }
+                ServerMessage::Error {
+                    code: ErrorCode::InvalidRequest,
+                    ..
+                } if controls.asked && !controls.seen && authenticated => {
+                    // A host from before D513 does not know the request:
+                    // the window alone, as before.
+                    controls.asked = false;
+                    log::info!("desktop controller: the host does not send its controls as data");
                 }
                 ServerMessage::DesktopFrame {
                     revision,
@@ -1778,7 +1904,21 @@ fn control(link: &Link, inputs: &Receiver<Input>, pictured: &mut bool) -> io::Re
                     events: std::mem::take(&mut batch),
                 })?;
                 last_input = Some(now);
-                next_send = now + Duration::from_millis(150);
+                // A host that sends its controls also takes input faster
+                // from the desktop holding its lease (D513); an older one
+                // keeps every client to ten messages a second.
+                next_send = now + if controls.seen { SEND_FAST } else { SEND_SLOW };
+            }
+        }
+        if controls.seen && controls.next_send.is_none_or(|at| now >= at) {
+            let edits = next_edits(edits);
+            if !edits.is_empty() {
+                for chunk in edits.chunks(MAX_CONTROL_EDITS) {
+                    connection.send(&ClientMessage::DesktopControl {
+                        edits: chunk.to_vec(),
+                    })?;
+                }
+                controls.next_send = Some(now + SEND_FAST);
             }
         }
         if now >= next_ping {
@@ -1787,6 +1927,61 @@ fn control(link: &Link, inputs: &Receiver<Input>, pictured: &mut bool) -> io::Re
         }
     }
     Ok(())
+}
+
+/// How often input leaves for a host from before D513, which allows every
+/// client ten messages a second.
+const SEND_SLOW: Duration = Duration::from_millis(150);
+
+/// How often input and control edits leave for a host that sends its
+/// controls (D513), which allows the desktop holding its lease fifty.
+const SEND_FAST: Duration = Duration::from_millis(50);
+
+/// Where one connection stands with the controls as data (D513).
+#[derive(Default)]
+struct Controls {
+    /// `desktop_controls_open` was sent.
+    asked: bool,
+    /// The host has sent its controls, so it takes edits.
+    seen: bool,
+    /// When edits may next leave.
+    next_send: Option<Instant>,
+}
+
+/// The edits waiting in `edits`. A newer value for a control replaces an
+/// older one still waiting, in its place; a press keeps its own.
+fn next_edits(edits: &Receiver<ControlEdit>) -> Vec<ControlEdit> {
+    let mut out: Vec<ControlEdit> = Vec::new();
+    while let Ok(edit) = edits.try_recv() {
+        if !edit.values.is_empty()
+            && let Some(waiting) = out.iter_mut().find(|waiting| {
+                !waiting.values.is_empty()
+                    && waiting.bank == edit.bank
+                    && waiting.index == edit.index
+            })
+        {
+            *waiting = edit;
+            continue;
+        }
+        out.push(edit);
+    }
+    out
+}
+
+/// `banks` with each bank's definitions filled from `before` where the
+/// host left them out because it had sent them already (D513).
+fn with_definitions(
+    mut banks: Vec<SyncedBank>,
+    before: Option<&(u64, Vec<SyncedBank>)>,
+) -> Vec<SyncedBank> {
+    for bank in &mut banks {
+        if bank.defs.is_none() {
+            bank.defs = before
+                .and_then(|(_, earlier)| earlier.iter().find(|earlier| earlier.id == bank.id))
+                .and_then(|earlier| earlier.defs.clone());
+        }
+    }
+    banks
 }
 
 /// Fills `batch` with the input waiting in `inputs`, at most 32 events and
@@ -3049,6 +3244,85 @@ mod tests {
             )?
             .jpeg,
         ))
+    }
+
+    /// A bank of `controls`, each a `scene.json` entry.
+    fn bank(controls: &[&str]) -> Result<strobe_scene::control::ControlBank> {
+        let defs = controls
+            .iter()
+            .map(|json| {
+                let raw: strobe_scene::json::RawControl = serde_json::from_str(json)?;
+                Ok(strobe_scene::control::ControlDef::from_raw(&raw)?)
+            })
+            .collect::<Result<Vec<_>>>()?;
+        Ok(strobe_scene::control::ControlBank::new(defs)?)
+    }
+
+    #[test]
+    fn the_hosts_controls_arrive_as_data_and_an_edit_made_here_reaches_its_bank() -> Result<()> {
+        use crate::remote_controls::{Live, Publisher};
+        let scratch = Scratch::new("controls")?;
+        let file = scratch.0.join("venue.trust");
+        let secret = venue_trust::create_file(&file)?;
+        let (server, app) = trusted_host(&secret, 0)?;
+        let mut controller = trusted_controller(&file, server.addr());
+        controller.connect();
+        within(PATIENCE, || app.desktop.controls_wanted())?;
+        let mut scene =
+            bank(&[r#"{ "NAME": "speed", "TYPE": "slider", "MIN": 0, "MAX": 2, "DEFAULT": 1 }"#])?;
+        let mut output = bank(&[r#"{ "NAME": "fade", "TYPE": "slider" }"#])?;
+        let mut publisher = Publisher::default();
+        let mut tick = |scene: &mut strobe_scene::control::ControlBank| {
+            publisher.tick(
+                &app.desktop,
+                Some(Live {
+                    title: "Acid Mirror",
+                    scene,
+                    output: &mut output,
+                }),
+                Instant::now(),
+            );
+        };
+        tick(&mut scene);
+        within(PATIENCE, || {
+            controller
+                .view
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .controls
+                .is_some()
+        })?;
+        let banks = controller
+            .view
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .controls
+            .clone()
+            .map(|(_, banks)| banks)
+            .unwrap_or_default();
+        let ids: Vec<u64> = banks.iter().map(|bank| bank.id).collect();
+        assert!(
+            banks.len() == 2 && banks.iter().all(|bank| bank.defs.is_some()),
+            "both banks arrived with their controls: {banks:?}"
+        );
+        let Some(&scene_id) = ids.first() else {
+            anyhow::bail!("a scene bank");
+        };
+        let Some(edits) = controller.edits.as_ref() else {
+            anyhow::bail!("an edit channel while connected");
+        };
+        edits.try_send(ControlEdit {
+            bank: scene_id,
+            index: 0,
+            values: vec![1.5],
+        })?;
+        within(PATIENCE, || {
+            tick(&mut scene);
+            scene.target(0).is_some_and(|target| target[0] == 1.5)
+        })?;
+        controller.disconnect();
+        server.stop();
+        Ok(())
     }
 
     #[test]
