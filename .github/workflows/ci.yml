@@ -99,9 +99,13 @@ jobs:
         with:
           toolchain: "1.98.0"
           components: clippy
+      # rust-cache never saves after an exact hit, so a key that stays the
+      # same keeps the cache it first saved. "-fast" names the cache that
+      # holds release-fast (D504, D505); change it when the profiles built
+      # here change, or master keeps restoring an old cache (D507).
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          key: windows
+          key: windows-fast
       - name: Clippy
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       # The runner has no headless EGL, so the GPU tests skip and pass.
@@ -207,7 +211,7 @@ jobs:
           targets: x86_64-pc-windows-msvc
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          key: linux
+          key: linux-fast
       # Mesa's software rasteriser behind surfaceless EGL: a real GLSL
       # compiler for both desktop GL 3.3 core (the native path) and GLES 3.0
       # (the dialect the ANGLE path speaks), with no display and no GPU.
