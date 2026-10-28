@@ -13,6 +13,7 @@
 
 use base64::Engine as _;
 use egui::{Event, Pos2, Vec2};
+use std::collections::VecDeque;
 use std::io::{self, Cursor};
 use std::net::{IpAddr, Shutdown, SocketAddr, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -21,7 +22,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use strobe_remote::desktop::{
-    ControlEdit, ControlRow, Desktop, Input, MAX_CONTROL_EDITS, MAX_EDGE, MAX_JPEG, Modifiers,
+    ControlEdit, ControlLayout, Desktop, Input, MAX_CONTROL_EDITS, MAX_EDGE, MAX_JPEG, Modifiers,
     SyncedBank,
 };
 use strobe_remote::{ClientMessage, ErrorCode, ServerMessage};
@@ -92,14 +93,14 @@ struct Readback {
     size: [u32; 2],
     /// The size and fence of the capture in flight, and where its control
     /// rows are (D515).
-    pending: Option<([u32; 2], strobe_gfx::gl::Fence, Vec<ControlRow>)>,
+    pending: Option<([u32; 2], strobe_gfx::gl::Fence, ControlLayout)>,
 }
 
 struct CaptureFrame {
     desktop: Desktop,
     size: [u32; 2],
     pixels: Vec<u8>,
-    rows: Vec<ControlRow>,
+    rows: ControlLayout,
 }
 
 impl Default for Capture {
@@ -126,7 +127,7 @@ impl Capture {
         now: Instant,
         desktop: &Desktop,
         size: [u32; 2],
-        rows: Vec<ControlRow>,
+        rows: ControlLayout,
     ) {
         if !desktop.active() {
             // No lease: free the pack buffer and anything in flight.
@@ -179,7 +180,7 @@ impl Capture {
         true
     }
 
-    fn start(&mut self, gl: &strobe_gfx::gl::Gl, size: [u32; 2], rows: Vec<ControlRow>) {
+    fn start(&mut self, gl: &strobe_gfx::gl::Gl, size: [u32; 2], rows: ControlLayout) {
         if self.gpu.as_ref().is_none_or(|gpu| gpu.size != size) {
             self.gpu = None;
             match gl.pack_buffer(size[0] as usize * size[1] as usize * 4) {
@@ -244,7 +245,7 @@ impl Capture {
     }
 
     /// Hand bottom-up RGBA to the encoder, skipping if the queue is full.
-    fn submit(&mut self, desktop: Desktop, size: [u32; 2], pixels: Vec<u8>, rows: Vec<ControlRow>) {
+    fn submit(&mut self, desktop: Desktop, size: [u32; 2], pixels: Vec<u8>, rows: ControlLayout) {
         if self.sender.is_none() {
             let (sender, frames) = sync_channel::<CaptureFrame>(1);
             let (give_back, returned) = sync_channel::<Vec<u8>>(2);
@@ -353,13 +354,13 @@ struct Sent {
     /// As sent: base64 JPEG.
     jpeg: String,
     /// Where it had its control rows (D515).
-    rows: Vec<ControlRow>,
+    rows: ControlLayout,
     at: Instant,
 }
 
 impl Sent {
-    fn matches(&self, print: u64, size: [u32; 2], rows: &[ControlRow]) -> bool {
-        self.print == print && self.size == size && self.rows == rows
+    fn matches(&self, print: u64, size: [u32; 2], rows: &ControlLayout) -> bool {
+        self.print == print && self.size == size && self.rows == *rows
     }
 }
 
@@ -561,9 +562,15 @@ struct View {
     /// bank with its definitions (kept from an earlier one when this one
     /// left them out).
     controls: Option<(u64, Vec<SyncedBank>)>,
-    /// Where the frame of the same revision has its control rows (D515).
-    layout: Option<(u64, Vec<ControlRow>)>,
+    /// Where the last few frames have their control rows, by revision
+    /// (D515, D519). A frame's rows arrive just before it, so the picture
+    /// still shown needs the one before the newest.
+    layouts: VecDeque<(u64, ControlLayout)>,
 }
+
+/// How many frames' layouts a controller keeps: the picture shown is at
+/// most a frame or two behind the newest rows.
+const LAYOUTS_KEPT: usize = 4;
 
 /// Where a connection stands, for the viewer.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -758,9 +765,9 @@ pub struct Controller {
     /// The host's controls, drawn here (D513), and the publication drawn.
     mirror: crate::remote_controls::Mirror,
     controls_revision: Option<u64>,
-    /// Where the picture shown has its control rows, drawn over by the
-    /// copies here (D515).
-    layout: Option<(u64, Vec<ControlRow>)>,
+    /// Where the last few pictures have their control rows, drawn over by
+    /// the copies here (D515, D519), as the worker last had them.
+    layouts: VecDeque<(u64, ControlLayout)>,
     /// A press began on a row drawn here: the pointer stays here until it
     /// is released, and none of it goes to the host.
     local_drag: bool,
@@ -798,7 +805,7 @@ impl Default for Controller {
             shown: None,
             mirror: crate::remote_controls::Mirror::default(),
             controls_revision: None,
-            layout: None,
+            layouts: VecDeque::new(),
             local_drag: false,
             edits: None,
             drawn: None,
@@ -1014,7 +1021,7 @@ impl Controller {
             let mut view = self.view.lock().unwrap_or_else(PoisonError::into_inner);
             view.image = None;
             view.controls = None;
-            view.layout = None;
+            view.layouts.clear();
             if was_active {
                 match view.stage {
                     Stage::Connecting => view.note = "Connection cancelled.".into(),
@@ -1032,7 +1039,7 @@ impl Controller {
         self.edits = None;
         self.mirror = crate::remote_controls::Mirror::default();
         self.controls_revision = None;
-        self.layout = None;
+        self.layouts.clear();
         self.local_drag = false;
         self.drawn = None;
         self.texture = None;
@@ -1149,10 +1156,10 @@ impl Controller {
                 self.mirror.take(*revision, banks, Instant::now());
                 self.controls_revision = Some(*revision);
             }
-            if view.layout.as_ref().map(|(revision, _)| *revision)
-                != self.layout.as_ref().map(|(revision, _)| *revision)
+            if view.layouts.back().map(|(revision, _)| *revision)
+                != self.layouts.back().map(|(revision, _)| *revision)
             {
-                self.layout.clone_from(&view.layout);
+                self.layouts.clone_from(&view.layouts);
             }
             (
                 view.size,
@@ -1271,6 +1278,11 @@ impl Controller {
     /// of it (D515), where the host says the picture shown has its rows,
     /// and hands what the person changed to the worker, which sends it at
     /// once. Returns where rows were drawn: the pointer there stays here.
+    ///
+    /// The rows are laid out at the host's own size, in its points, on a
+    /// layer scaled and moved exactly as the picture is (D519): drawn at
+    /// this computer's size into a shrunken picture they were cut off, and
+    /// the picture's own row showed through around them.
     fn draw_rows(&mut self, ui: &mut egui::Ui, image: egui::Rect) -> Vec<egui::Rect> {
         let now = Instant::now();
         let dt = self.drawn.map_or(0.0, |drawn| {
@@ -1279,24 +1291,44 @@ impl Controller {
         self.drawn = Some(now);
         let mut covered = Vec::new();
         let mut edits = Vec::new();
-        // Rows placed for another picture than the one shown would sit in
-        // the wrong place: the picture alone until they match.
-        let layout = self.layout.take();
-        if let Some((revision, rows)) = &layout
-            && *revision == self.revision
-        {
-            for row in rows {
-                let [x, y, width, height] = row.rect;
-                let rect = egui::Rect::from_min_size(
-                    image.min + Vec2::new(x * image.width(), y * image.height()),
-                    Vec2::new(width * image.width(), height * image.height()),
-                );
-                if self.mirror.draw_row(ui, row, rect, now, &mut edits) {
-                    covered.push(rect);
-                }
-            }
+        // The rows of the picture shown, which is a frame or two behind the
+        // newest rows: rows placed for another picture would sit wrong.
+        let layouts = std::mem::take(&mut self.layouts);
+        let shown = layouts
+            .iter()
+            .find(|(revision, _)| *revision == self.revision)
+            .map(|(_, layout)| layout)
+            .filter(|layout| layout.screen[0] > 0.0 && image.width() > 0.0);
+        if let Some(layout) = shown {
+            let [host_width, host_height] = layout.screen;
+            let scale = image.width() / host_width;
+            let host = egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(host_width, host_height));
+            let area = egui::Area::new(egui::Id::unique("remote control rows"))
+                .fixed_pos(Pos2::ZERO)
+                .order(egui::Order::Middle)
+                .constrain(false)
+                .show(ui.ctx(), |ui| {
+                    ui.set_clip_rect(host);
+                    for row in &layout.rows {
+                        let [x, y, width, height] = row.rect;
+                        let rect = egui::Rect::from_min_size(
+                            Pos2::new(x * host_width, y * host_height),
+                            Vec2::new(width * host_width, height * host_height),
+                        );
+                        if self.mirror.draw_row(ui, row, rect, now, &mut edits) {
+                            covered.push(egui::Rect::from_min_size(
+                                image.min + rect.min.to_vec2() * scale,
+                                rect.size() * scale,
+                            ));
+                        }
+                    }
+                });
+            ui.ctx().set_transform_layer(
+                area.response.layer_id,
+                egui::emath::TSTransform::new(image.min.to_vec2(), scale),
+            );
         }
-        self.layout = layout;
+        self.layouts = layouts;
         self.mirror.ease(dt);
         for edit in edits {
             if let Some(sender) = &self.edits
@@ -1893,9 +1925,17 @@ fn control(
                     connection.send(&ClientMessage::DesktopControlsOpen {})?;
                     controls.asked = true;
                 }
-                ServerMessage::DesktopLayout { revision, rows } => {
-                    view.lock().unwrap_or_else(PoisonError::into_inner).layout =
-                        Some((revision, rows));
+                ServerMessage::DesktopLayout {
+                    revision,
+                    screen,
+                    rows,
+                } => {
+                    let mut view = view.lock().unwrap_or_else(PoisonError::into_inner);
+                    view.layouts
+                        .push_back((revision, ControlLayout { screen, rows }));
+                    while view.layouts.len() > LAYOUTS_KEPT {
+                        view.layouts.pop_front();
+                    }
                 }
                 ServerMessage::DesktopControls { revision, banks } => {
                     controls.seen = true;
@@ -3366,6 +3406,78 @@ mod tests {
     }
 
     #[test]
+    fn a_row_is_laid_out_at_the_hosts_size_and_lands_on_the_shrunken_picture() -> Result<()> {
+        let host =
+            bank(&[r#"{ "NAME": "speed", "TYPE": "slider", "MIN": 0, "MAX": 2, "DEFAULT": 1 }"#])?;
+        let mut controller = Controller::default();
+        controller.mirror.take(
+            1,
+            &[SyncedBank {
+                id: 9,
+                title: "Scene".into(),
+                defs: Some(
+                    host.defs()
+                        .iter()
+                        .map(strobe_scene::control::ControlDef::to_json)
+                        .collect(),
+                ),
+                values: vec![[1.0; 3]],
+            }],
+            Instant::now(),
+        );
+        controller.revision = 5;
+        let row = strobe_remote::desktop::ControlRow {
+            bank: 9,
+            index: 0,
+            rect: [0.1, 0.25, 0.4, 0.05],
+            touch: true,
+        };
+        // An older picture's rows, then the rows of the one shown.
+        for revision in [4, 5, 6] {
+            controller.layouts.push_back((
+                revision,
+                ControlLayout {
+                    screen: [1000.0, 800.0],
+                    rows: vec![row.clone()],
+                },
+            ));
+        }
+        let ctx = egui::Context::default();
+        let image = egui::Rect::from_min_size(Pos2::new(20.0, 40.0), Vec2::new(500.0, 400.0));
+        let mut covered = Vec::new();
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                Pos2::ZERO,
+                Vec2::new(800.0, 600.0),
+            )),
+            ..egui::RawInput::default()
+        };
+        let mut output = ctx.run_ui(input, |ui| covered = controller.draw_rows(ui, image));
+        output.textures_delta.clear();
+        // Half size: the host's 400 by 40 point row at (100, 200) is a 200 by
+        // 20 rectangle at (50, 100) in the picture.
+        let expected = egui::Rect::from_min_size(Pos2::new(70.0, 140.0), Vec2::new(200.0, 20.0));
+        let near = |a: egui::Rect, b: egui::Rect| {
+            (a.min - b.min).length() < 0.01 && (a.max - b.max).length() < 0.01
+        };
+        assert!(
+            covered.len() == 1 && covered.first().is_some_and(|got| near(*got, expected)),
+            "the row lands where the picture has it, at the picture's scale: {covered:?}"
+        );
+        assert_eq!(controller.layouts.len(), 3, "the layouts are kept");
+        controller.revision = 7;
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            covered = controller.draw_rows(ui, image);
+        });
+        output.textures_delta.clear();
+        assert!(
+            covered.is_empty(),
+            "a picture with no rows of its own gets none drawn over it"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn the_hosts_controls_arrive_as_data_and_an_edit_made_here_reaches_its_bank() -> Result<()> {
         use crate::remote_controls::{Live, Publisher};
         let scratch = Scratch::new("controls")?;
@@ -4313,7 +4425,7 @@ mod tests {
                 desktop: desktop.clone(),
                 size: [32, 32],
                 pixels,
-                rows: Vec::new(),
+                rows: ControlLayout::default(),
             })?;
             Ok(returned.recv_timeout(Duration::from_secs(10))?)
         };

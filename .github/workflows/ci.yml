@@ -8,7 +8,7 @@ on:
   pull_request:
   workflow_dispatch:
   # release.yml runs this whole workflow on the tagged commit before it
-  # publishes (D519). `ref` is that commit's SHA; every checkout below
+  # publishes (D520). `ref` is that commit's SHA; every checkout below
   # takes it, and on any other event it is empty, which checks out the
   # event's own commit as before.
   workflow_call:
@@ -97,7 +97,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master, 2026-08
         with:
           toolchain: "1.98.0"
-      # A release's run (D519) restores the caches but saves none: a tag's
+      # A release's run (D520) restores the caches but saves none: a tag's
       # cache is readable by that tag alone, and a gigabyte of it per
       # release would push master's out of the repository's 10 GB, the
       # ones every pull request starts from (D505).
@@ -188,7 +188,7 @@ jobs:
       # dependencies warm. Without it every pull request rebuilt them, 343 s
       # against `release`'s six minutes, and saved almost nothing (D505).
       #
-      # A release's run (D519) skips the fat-LTO build: release.yml builds
+      # A release's run (D520) skips the fat-LTO build: release.yml builds
       # exactly that, from the same commit, in its own job.
       - name: Build release-fast binaries
         run: cargo build --locked --profile release-fast --workspace --bins

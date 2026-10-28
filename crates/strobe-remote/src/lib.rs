@@ -334,6 +334,9 @@ pub enum ServerMessage {
     DesktopLayout {
         /// The frame this belongs to.
         revision: u64,
+        /// The host's window in its points (D519): the controller lays its
+        /// rows out at this size and scales them as it scales the picture.
+        screen: [f32; 2],
         /// One per control row drawn and visible.
         rows: Vec<desktop::ControlRow>,
     },
@@ -698,7 +701,7 @@ mod tests {
     ];
 
     const CONTROLS_SERVER: [&str; 3] = [
-        r#"{"type":"desktop_layout","revision":12,"rows":[{"bank":7,"index":0,"rect":[0.05,0.2,0.3,0.04],"touch":true}]}"#,
+        r#"{"type":"desktop_layout","revision":12,"screen":[1904.0,1041.0],"rows":[{"bank":7,"index":0,"rect":[0.05,0.2,0.3,0.04],"touch":true}]}"#,
         r#"{"type":"desktop_controls","revision":4,"banks":[{"id":7,"title":"Acid Mirror","defs":[{"NAME":"speed","TYPE":"slider"}],"values":[[0.5,0.5,0.5]]}]}"#,
         r#"{"type":"desktop_controls","revision":5,"banks":[{"id":7,"title":"Acid Mirror","values":[[0.75,0.75,0.75]]}]}"#,
     ];
