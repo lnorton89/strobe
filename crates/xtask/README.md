@@ -64,7 +64,10 @@ Flags, from the clap definitions:
 
 Environment: `cargo xtask ci` sets `STROBE_REQUIRE_HEADLESS_GL=1` for the test
 step on Linux (unless you already set it or pass `--allow-gl-skip`), so a
-missing Mesa EGL fails loudly instead of every renderer test skipping. It also
+missing Mesa EGL fails loudly instead of every renderer test skipping. On Linux it
+also sets `STROBE_TEST_LAN=1` (unless you set it), so the few tests that bind
+every interface run; elsewhere they skip unless you set it, because on Windows
+that bind makes the firewall ask about each new test binary (D503). It also
 honours `CARGO` and `RUSTC` if set.
 
 `clippy no-midi` is `cargo clippy -p strobe-io --no-default-features
