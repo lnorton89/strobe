@@ -3449,11 +3449,11 @@ dependencies = [
  "anyhow",
  "chrono",
  "clap",
- "getrandom 0.4.3",
  "log",
  "md-5",
  "serde",
  "serde_json",
+ "sha2",
  "strobe-diag",
  "thiserror 2.0.21",
 ]

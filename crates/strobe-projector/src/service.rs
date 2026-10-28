@@ -12,8 +12,8 @@
 //!
 //! [`Service::start`] runs a thread that:
 //!
-//! 1. refuses to serve without a usable token (`api.token`, at least 24
-//!    characters), and says so;
+//! 1. refuses to serve without a usable password (`api.password`, at least
+//!    [`crate::config::MIN_PASSWORD`] characters, D516), and says so;
 //! 2. asks [`bind::resolve`] for the address, and waits [`RETRY`] while
 //!    there is none or it is not [`bind::safe`];
 //! 3. binds it, or waits [`RETRY`] when that fails, which is what happens
@@ -26,7 +26,7 @@
 //! [`Service::state`] is what Settings shows.
 //!
 //! The headless service also [`follow_file`]s its config: Strobe's Settings
-//! saves the same file, and a new password, token or port reaches the
+//! saves the same file, and a new password or port reaches the
 //! running service within [`RELOAD`], as long as the file still loads.
 
 use crate::bind::{self, Kind};
@@ -334,9 +334,9 @@ mod tests {
     use crate::unit::Timing;
     use anyhow::Result;
 
-    fn shared(token: &str) -> Arc<Shared> {
+    fn shared(password: &str) -> Arc<Shared> {
         let mut config = Config::default();
-        config.api.token = token.into();
+        config.api.password = password.into();
         Arc::new(Shared {
             config: Arc::new(RwLock::new(config)),
             audit: Audit::none(),
@@ -373,43 +373,46 @@ mod tests {
             "the same contents"
         );
         let mut second = first.clone();
-        second.api.token = "0123456789abcdef0123456789abcdef".into();
+        second.api.password = "stage-left".into();
         second.save(&path)?;
         seen = None;
-        assert!(reload_if_changed(&path, &mut seen, &config), "a new token");
-        let token = config
+        assert!(
+            reload_if_changed(&path, &mut seen, &config),
+            "a new password"
+        );
+        let password = config
             .read()
             .map_err(|_| anyhow::anyhow!("lock"))?
             .api
-            .token
+            .password
             .clone();
-        assert_eq!(token, second.api.token, "reloaded");
+        assert_eq!(password, second.api.password, "reloaded");
         std::fs::write(&path, "{ broken")?;
         seen = None;
         assert!(
             !reload_if_changed(&path, &mut seen, &config),
             "broken file ignored"
         );
-        let token = config
+        let password = config
             .read()
             .map_err(|_| anyhow::anyhow!("lock"))?
             .api
-            .token
+            .password
             .clone();
-        assert_eq!(token, second.api.token, "kept");
+        assert_eq!(password, second.api.password, "kept");
         std::fs::remove_dir_all(&dir)?;
         Ok(())
     }
 
     #[test]
-    fn no_token_no_page() -> Result<()> {
+    fn no_password_no_page() -> Result<()> {
         let mut service = Service::start_with(shared("short"), |_| (None, Kind::Wifi));
         let state = wait_for(
             &service,
-            |state| matches!(state, State::Waiting(why) if why.contains("token")),
+            |state| matches!(state, State::Waiting(why) if why.contains("password")),
         );
         assert!(
-            matches!(&state, State::Waiting(why) if why.contains("api.token")),
+            matches!(&state, State::Waiting(why) if why.contains("api.password")),
             "{state:?}"
         );
         service.stop();
@@ -419,9 +422,10 @@ mod tests {
 
     #[test]
     fn loopback_and_no_address_are_never_bound() -> Result<()> {
-        let token = "0123456789abcdef0123456789abcdef";
-        let service =
-            Service::start_with(shared(token), |_| (Some(Ipv4Addr::LOCALHOST), Kind::Wifi));
+        let password = "stage-left";
+        let service = Service::start_with(shared(password), |_| {
+            (Some(Ipv4Addr::LOCALHOST), Kind::Wifi)
+        });
         let state = wait_for(
             &service,
             |state| matches!(state, State::Waiting(why) if why.contains("127.0.0.1")),
@@ -431,7 +435,7 @@ mod tests {
             "{state:?}"
         );
         drop(service);
-        let service = Service::start_with(shared(token), |_| (None, Kind::Tailscale));
+        let service = Service::start_with(shared(password), |_| (None, Kind::Tailscale));
         let state = wait_for(
             &service,
             |state| matches!(state, State::Waiting(why) if why.contains("tailscale")),
