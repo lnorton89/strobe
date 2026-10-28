@@ -12688,3 +12688,42 @@ D508's numbers.
 **Would reopen:** an operator at a controlled host who needs the preview
 there, or a fingerprint collision showing a stale picture (a change would
 then appear on the next one).
+
+### D515: the controller draws its controls over the host's own rows, not in a panel of their own (2026-10-28, owner's choice)
+
+**Context.** D513 drew the host's controls on the controlling computer in
+a 380-point panel beside the host's window. It worked, but the owner
+found it more complicated than needed: the same controls appeared twice,
+once in the picture, laggy, and once beside it, quick. They asked for
+the controls in the main window to be the quick ones.
+
+**Decision.** The panel is gone. While a controller wants the controls,
+the host notes where each control row is drawn in its UI pass
+(`ui::controls::rows` calls `remote_controls::noted`; nothing is noted
+otherwise) and sends that with the picture taken in the same frame: a
+`desktop_layout` message, `{revision, rows: [{bank, index, rect, touch}]}`,
+with each rectangle a fraction of the window and the revision the
+frame's, sent just before the frame. The controller draws its own copy of
+each row (`Mirror::draw_row`) over the picture of it, on an opaque card,
+at the host's scale, only while the layout's revision is the picture's
+shown, so a row never sits over the wrong place. A press on a row drawn
+there, and everything until its release, stays on the controller; all
+other input goes to the host as before. Rows of a bank whose controls
+changed since they were last published are left to the picture until
+the next publication names them.
+
+Only rows drawn by `ui::controls::rows` are covered: the Controls page
+and the side panel. Macros, presets and everything else stay in the
+picture.
+
+**Test.** `remote_controls::tests` (rows noted only when asked and placed
+under their bank's id as fractions of the window; a row drawn only for a
+held control), `strobe_remote` (`desktop_layout` frozen; rows go with
+their frame only to an owner that asked, and rows outside the picture are
+not sent), the server test (the layout just before its frame, under the
+same revision). On the venue: LIGHTNING dragging a slider on the mini
+PC's Controls page.
+
+**Would reopen:** a controller window much smaller than the host's, where
+a row drawn at full size does not fit the picture's row, or the host and
+controller on different UI densities.

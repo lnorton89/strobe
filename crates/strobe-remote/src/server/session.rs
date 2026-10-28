@@ -330,6 +330,9 @@ struct Session<'a> {
     /// went with it or before (D513): later sends leave those out.
     controls_revision: Option<u64>,
     banks_sent: Vec<u64>,
+    /// This connection asked for the controls (D513), so it is also sent
+    /// where each picture has their rows (D515).
+    controls_asked: bool,
     desktop_open: bool,
     desktop_pairing: bool,
     desktop_authorized: bool,
@@ -381,6 +384,7 @@ impl<'a> Session<'a> {
             clipboard_revision: None,
             controls_revision: None,
             banks_sent: Vec::new(),
+            controls_asked: false,
             desktop_open: false,
             desktop_pairing: false,
             desktop_authorized: false,
@@ -810,6 +814,13 @@ impl<'a> Session<'a> {
             if let Some((revision, frame)) = self.shared.remote.desktop.frame()
                 && self.desktop_revision != Some(revision)
             {
+                // The rows go first, so the frame finds them waiting (D515).
+                if self.controls_asked
+                    && let Some((at, layout)) = self.shared.remote.desktop.layout()
+                    && at == revision
+                {
+                    self.send(&layout)?;
+                }
                 self.send(&frame)?;
                 self.desktop_revision = Some(revision);
             }
@@ -946,6 +957,7 @@ impl<'a> Session<'a> {
             }
             (Phase::Authenticated(_), ClientMessage::DesktopControlsOpen {}) => {
                 if self.desktop_open && self.shared.remote.desktop.want_controls(self.conn) {
+                    self.controls_asked = true;
                     self.controls_revision = None;
                     self.banks_sent.clear();
                     self.push_state()
