@@ -21,7 +21,8 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use strobe_remote::desktop::{
-    ControlEdit, Desktop, Input, MAX_CONTROL_EDITS, MAX_EDGE, MAX_JPEG, Modifiers, SyncedBank,
+    ControlEdit, ControlRow, Desktop, Input, MAX_CONTROL_EDITS, MAX_EDGE, MAX_JPEG, Modifiers,
+    SyncedBank,
 };
 use strobe_remote::{ClientMessage, ErrorCode, ServerMessage};
 
@@ -29,10 +30,6 @@ use crate::trusted;
 
 /// Maximum capture rate, including a control window covered by fullscreen output.
 pub const STREAM_PERIOD: Duration = Duration::from_millis(200);
-
-/// The controls panel's width beside the host's window (D513), at most half
-/// the viewer.
-const CONTROLS_WIDTH: f32 = 380.0;
 
 /// Whether `action` is one the operator must take at the host, so it is
 /// refused from a UI pass that carried remote desktop input (D275).
@@ -93,14 +90,16 @@ struct Readback {
     buffer: strobe_gfx::gl::Buffer,
     /// The window size the buffer was made for.
     size: [u32; 2],
-    /// The size and fence of the capture in flight.
-    pending: Option<([u32; 2], strobe_gfx::gl::Fence)>,
+    /// The size and fence of the capture in flight, and where its control
+    /// rows are (D515).
+    pending: Option<([u32; 2], strobe_gfx::gl::Fence, Vec<ControlRow>)>,
 }
 
 struct CaptureFrame {
     desktop: Desktop,
     size: [u32; 2],
     pixels: Vec<u8>,
+    rows: Vec<ControlRow>,
 }
 
 impl Default for Capture {
@@ -119,13 +118,15 @@ impl Default for Capture {
 impl Capture {
     /// Once per control frame, after the paint and before the swap: collect
     /// a finished capture for the encoder and, when one is due for an
-    /// active lease, start the next. Never waits on the GPU.
+    /// active lease, start the next. Never waits on the GPU. `rows` is where
+    /// this frame drew the control rows a controller draws itself (D515).
     pub fn frame(
         &mut self,
         gl: &strobe_gfx::gl::Gl,
         now: Instant,
         desktop: &Desktop,
         size: [u32; 2],
+        rows: Vec<ControlRow>,
     ) {
         if !desktop.active() {
             // No lease: free the pack buffer and anything in flight.
@@ -155,7 +156,7 @@ impl Capture {
             );
             return;
         }
-        self.start(gl, size);
+        self.start(gl, size, rows);
     }
 
     /// Whether a capture is due at `now`; when it is, the next one is
@@ -178,7 +179,7 @@ impl Capture {
         true
     }
 
-    fn start(&mut self, gl: &strobe_gfx::gl::Gl, size: [u32; 2]) {
+    fn start(&mut self, gl: &strobe_gfx::gl::Gl, size: [u32; 2], rows: Vec<ControlRow>) {
         if self.gpu.as_ref().is_none_or(|gpu| gpu.size != size) {
             self.gpu = None;
             match gl.pack_buffer(size[0] as usize * size[1] as usize * 4) {
@@ -203,7 +204,7 @@ impl Capture {
             .read_default_pixels_into(&gpu.buffer, size[0] as i32, size[1] as i32)
             .and_then(|()| gl.fence());
         match started {
-            Ok(fence) => gpu.pending = Some((size, fence)),
+            Ok(fence) => gpu.pending = Some((size, fence, rows)),
             Err(error) => log::warn!("desktop capture: readback not started: {error}"),
         }
     }
@@ -212,7 +213,7 @@ impl Capture {
         let Some(gpu) = self.gpu.as_mut() else {
             return;
         };
-        let Some((size, fence)) = gpu.pending.as_ref() else {
+        let Some((size, fence, _)) = gpu.pending.as_ref() else {
             return;
         };
         let size = *size;
@@ -224,7 +225,11 @@ impl Capture {
             }
             strobe_gfx::gl::FenceStatus::Signaled => {}
         }
-        gpu.pending = None;
+        let rows = gpu
+            .pending
+            .take()
+            .map(|(_, _, rows)| rows)
+            .unwrap_or_default();
         let mut pixels = self
             .spare
             .take()
@@ -232,14 +237,14 @@ impl Capture {
             .unwrap_or_default();
         pixels.resize(size[0] as usize * size[1] as usize * 4, 0);
         if gpu.gl.read_buffer(&gpu.buffer, &mut pixels) {
-            self.submit(desktop.clone(), size, pixels);
+            self.submit(desktop.clone(), size, pixels, rows);
         } else {
             self.spare = Some(pixels);
         }
     }
 
     /// Hand bottom-up RGBA to the encoder, skipping if the queue is full.
-    fn submit(&mut self, desktop: Desktop, size: [u32; 2], pixels: Vec<u8>) {
+    fn submit(&mut self, desktop: Desktop, size: [u32; 2], pixels: Vec<u8>, rows: Vec<ControlRow>) {
         if self.sender.is_none() {
             let (sender, frames) = sync_channel::<CaptureFrame>(1);
             let (give_back, returned) = sync_channel::<Vec<u8>>(2);
@@ -267,6 +272,7 @@ impl Capture {
             desktop,
             size,
             pixels,
+            rows,
         }) {
             Ok(()) => {}
             // The encoder is behind: this capture is skipped, its buffer kept.
@@ -285,24 +291,36 @@ fn encoder(frames: &Receiver<CaptureFrame>, give_back: &SyncSender<Vec<u8>>) {
         if frame.desktop.active() {
             let now = Instant::now();
             let print = fingerprint(&frame.pixels);
-            match last.as_mut().filter(|sent| sent.matches(print, frame.size)) {
+            match last
+                .as_mut()
+                .filter(|sent| sent.matches(print, frame.size, &frame.rows))
+            {
                 // The same picture as the last one sent (D514): nothing to
                 // compress, and only a keep-alive copy now and then.
                 Some(sent) => {
                     if now.saturating_duration_since(sent.at) >= RESEND_UNCHANGED {
-                        frame.desktop.publish(sent.encoded_size, sent.jpeg.clone());
+                        frame.desktop.publish_with_rows(
+                            sent.encoded_size,
+                            sent.jpeg.clone(),
+                            sent.rows.clone(),
+                        );
                         sent.at = now;
                     }
                 }
                 None => match encode(frame.size, &mut frame.pixels, &mut ladder) {
                     Ok(encoded) => {
                         let jpeg = strobe_remote::client::encode_image(&encoded.jpeg);
-                        frame.desktop.publish(encoded.size, jpeg.clone());
+                        frame.desktop.publish_with_rows(
+                            encoded.size,
+                            jpeg.clone(),
+                            frame.rows.clone(),
+                        );
                         last = Some(Sent {
                             print,
                             size: frame.size,
                             encoded_size: encoded.size,
                             jpeg,
+                            rows: std::mem::take(&mut frame.rows),
                             at: now,
                         });
                     }
@@ -334,12 +352,14 @@ struct Sent {
     encoded_size: [u32; 2],
     /// As sent: base64 JPEG.
     jpeg: String,
+    /// Where it had its control rows (D515).
+    rows: Vec<ControlRow>,
     at: Instant,
 }
 
 impl Sent {
-    fn matches(&self, print: u64, size: [u32; 2]) -> bool {
-        self.print == print && self.size == size
+    fn matches(&self, print: u64, size: [u32; 2], rows: &[ControlRow]) -> bool {
+        self.print == print && self.size == size && self.rows == rows
     }
 }
 
@@ -541,6 +561,8 @@ struct View {
     /// bank with its definitions (kept from an earlier one when this one
     /// left them out).
     controls: Option<(u64, Vec<SyncedBank>)>,
+    /// Where the frame of the same revision has its control rows (D515).
+    layout: Option<(u64, Vec<ControlRow>)>,
 }
 
 /// Where a connection stands, for the viewer.
@@ -736,11 +758,15 @@ pub struct Controller {
     /// The host's controls, drawn here (D513), and the publication drawn.
     mirror: crate::remote_controls::Mirror,
     controls_revision: Option<u64>,
-    /// Whether the controls panel is open beside the host's window.
-    pub controls_open: bool,
-    /// Edits made in the panel, for the worker to send.
+    /// Where the picture shown has its control rows, drawn over by the
+    /// copies here (D515).
+    layout: Option<(u64, Vec<ControlRow>)>,
+    /// A press began on a row drawn here: the pointer stays here until it
+    /// is released, and none of it goes to the host.
+    local_drag: bool,
+    /// Edits made here, for the worker to send.
     edits: Option<SyncSender<ControlEdit>>,
-    /// When the panel was last drawn, for its eased outputs.
+    /// When the rows were last drawn, for their eased outputs.
     drawn: Option<Instant>,
 }
 
@@ -772,7 +798,8 @@ impl Default for Controller {
             shown: None,
             mirror: crate::remote_controls::Mirror::default(),
             controls_revision: None,
-            controls_open: true,
+            layout: None,
+            local_drag: false,
             edits: None,
             drawn: None,
         }
@@ -987,6 +1014,7 @@ impl Controller {
             let mut view = self.view.lock().unwrap_or_else(PoisonError::into_inner);
             view.image = None;
             view.controls = None;
+            view.layout = None;
             if was_active {
                 match view.stage {
                     Stage::Connecting => view.note = "Connection cancelled.".into(),
@@ -1004,6 +1032,8 @@ impl Controller {
         self.edits = None;
         self.mirror = crate::remote_controls::Mirror::default();
         self.controls_revision = None;
+        self.layout = None;
+        self.local_drag = false;
         self.drawn = None;
         self.texture = None;
         self.texture_context = None;
@@ -1021,8 +1051,7 @@ impl Controller {
         let view = self.view.lock().unwrap_or_else(PoisonError::into_inner);
         (view.image.is_some() && view.revision != self.revision)
             || self.shown != Some((view.stage, view.ready))
-            || (self.controls_open
-                && view.controls.as_ref().map(|(revision, _)| *revision) != self.controls_revision)
+            || view.controls.as_ref().map(|(revision, _)| *revision) != self.controls_revision
     }
 
     /// Status for Settings or the always-visible viewer toolbar.
@@ -1120,6 +1149,11 @@ impl Controller {
                 self.mirror.take(*revision, banks, Instant::now());
                 self.controls_revision = Some(*revision);
             }
+            if view.layout.as_ref().map(|(revision, _)| *revision)
+                != self.layout.as_ref().map(|(revision, _)| *revision)
+            {
+                self.layout.clone_from(&view.layout);
+            }
             (
                 view.size,
                 view.ready,
@@ -1139,23 +1173,6 @@ impl Controller {
             };
             if ui.button(leave).clicked() {
                 actions.push(crate::ui::Action::DisconnectDesktop);
-            }
-            if stage == Stage::Live && !self.mirror.is_empty() {
-                let label = if self.controls_open {
-                    "Hide controls"
-                } else {
-                    "Show controls"
-                };
-                if ui
-                    .button(label)
-                    .on_hover_text(
-                        "The host's controls, drawn here: they move at once and send only \
-                         their values.",
-                    )
-                    .clicked()
-                {
-                    self.controls_open = !self.controls_open;
-                }
             }
         });
         if let Stage::Live = stage {
@@ -1246,41 +1263,41 @@ impl Controller {
                 };
                 card(ui.ctx(), heading, lines, Some(&mut offer));
             }
-            Stage::Live => {
-                if self.controls_open && !self.mirror.is_empty() {
-                    let area = ui.available_rect_before_wrap();
-                    let width = CONTROLS_WIDTH.min(area.width() * 0.5);
-                    let (window, panel) = area.split_left_right_at_x(area.right() - width);
-                    ui.scope_builder(egui::UiBuilder::new().max_rect(panel), |ui| {
-                        self.controls_panel(ui);
-                    });
-                    ui.scope_builder(egui::UiBuilder::new().max_rect(window), |ui| {
-                        self.live(ui, size, ready);
-                    });
-                } else {
-                    self.drawn = None;
-                    self.live(ui, size, ready);
-                }
-            }
+            Stage::Live => self.live(ui, size, ready),
         }
     }
 
-    /// The host's controls, drawn here (D513). What the person changes is
-    /// handed to the worker, which sends it at once.
-    fn controls_panel(&mut self, ui: &mut egui::Ui) {
+    /// Draws this computer's copy of each control over the host's picture
+    /// of it (D515), where the host says the picture shown has its rows,
+    /// and hands what the person changed to the worker, which sends it at
+    /// once. Returns where rows were drawn: the pointer there stays here.
+    fn draw_rows(&mut self, ui: &mut egui::Ui, image: egui::Rect) -> Vec<egui::Rect> {
         let now = Instant::now();
         let dt = self.drawn.map_or(0.0, |drawn| {
             now.saturating_duration_since(drawn).as_secs_f32()
         });
         self.drawn = Some(now);
+        let mut covered = Vec::new();
         let mut edits = Vec::new();
-        egui::ScrollArea::vertical()
-            .id_salt("remote controls")
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
-                ui.add_space(4.0);
-                self.mirror.show(ui, dt, now, &mut edits);
-            });
+        // Rows placed for another picture than the one shown would sit in
+        // the wrong place: the picture alone until they match.
+        let layout = self.layout.take();
+        if let Some((revision, rows)) = &layout
+            && *revision == self.revision
+        {
+            for row in rows {
+                let [x, y, width, height] = row.rect;
+                let rect = egui::Rect::from_min_size(
+                    image.min + Vec2::new(x * image.width(), y * image.height()),
+                    Vec2::new(width * image.width(), height * image.height()),
+                );
+                if self.mirror.draw_row(ui, row, rect, now, &mut edits) {
+                    covered.push(rect);
+                }
+            }
+        }
+        self.layout = layout;
+        self.mirror.ease(dt);
         for edit in edits {
             if let Some(sender) = &self.edits
                 && sender.try_send(edit).is_err()
@@ -1290,8 +1307,11 @@ impl Controller {
                 log::debug!("desktop controller: a control edit was not queued");
             }
         }
-        // The copies ease their outputs; keep drawing while they do.
-        ui.ctx().request_repaint_after(Duration::from_millis(33));
+        if !covered.is_empty() {
+            // The copies ease their outputs; keep drawing while they do.
+            ui.ctx().request_repaint_after(Duration::from_millis(33));
+        }
+        covered
     }
 
     /// Whether a blank code would reconnect to the address shown.
@@ -1318,10 +1338,17 @@ impl Controller {
         let fit = fit_image(ui.available_size(), size);
         let response =
             ui.add(egui::Image::new((texture.id(), fit)).sense(egui::Sense::click_and_drag()));
-        if response.clicked()
-            || response.drag_started()
-            || (response.hovered() && ui.input(|input| input.pointer.any_pressed()))
-            || (self.focused && ui.input(|input| input.focused && !input.pointer.any_pressed()))
+        let covered = self.draw_rows(ui, response.rect);
+        let on_row = |pos: Pos2| covered.iter().any(|rect| rect.contains(pos));
+        let pressed_on_row = ui.input(|input| {
+            input.pointer.any_pressed() && input.pointer.interact_pos().is_some_and(on_row)
+        });
+        if !pressed_on_row
+            && (response.clicked()
+                || response.drag_started()
+                || (response.hovered() && ui.input(|input| input.pointer.any_pressed()))
+                || (self.focused
+                    && ui.input(|input| input.focused && !input.pointer.any_pressed())))
         {
             response.request_focus();
         }
@@ -1351,6 +1378,23 @@ impl Controller {
                 continue;
             }
             if matches!(event, Event::MouseWheel { .. }) && !response.hovered() {
+                continue;
+            }
+            // A row drawn here keeps its own pointer: a press on it and
+            // everything until the release stay on this computer (D515).
+            if let Event::PointerButton { pos, pressed, .. } = &event {
+                if *pressed && on_row(*pos) {
+                    self.local_drag = true;
+                    continue;
+                }
+                if !*pressed && self.local_drag {
+                    self.local_drag = false;
+                    continue;
+                }
+            }
+            if let Event::PointerMoved(pos) = &event
+                && (self.local_drag || on_row(*pos))
+            {
                 continue;
             }
             for input in outgoing(&event, response.rect, focused) {
@@ -1848,6 +1892,10 @@ fn control(
                     connection.send(&ClientMessage::DesktopOpen {})?;
                     connection.send(&ClientMessage::DesktopControlsOpen {})?;
                     controls.asked = true;
+                }
+                ServerMessage::DesktopLayout { revision, rows } => {
+                    view.lock().unwrap_or_else(PoisonError::into_inner).layout =
+                        Some((revision, rows));
                 }
                 ServerMessage::DesktopControls { revision, banks } => {
                     controls.seen = true;
@@ -4265,6 +4313,7 @@ mod tests {
                 desktop: desktop.clone(),
                 size: [32, 32],
                 pixels,
+                rows: Vec::new(),
             })?;
             Ok(returned.recv_timeout(Duration::from_secs(10))?)
         };
