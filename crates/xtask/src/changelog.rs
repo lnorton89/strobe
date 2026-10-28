@@ -367,7 +367,7 @@ fn orphan_report(tags: &[String]) -> String {
          \n\
          Pushing a `v*` tag re-triggers .github/workflows/release.yml. If the release is \
          already published, that run fails at `Create draft release` and changes nothing \
-         (D517); the red run is expected."
+         (D519); the red run is expected."
     )
 }
 

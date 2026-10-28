@@ -29,7 +29,7 @@
 //!
 //! - [`actions`] — every workflow pins its actions to full commit SHAs
 //!   with a version comment, declares its token permissions, runs cargo
-//!   `--locked`, and gives every job a timeout (D517).
+//!   `--locked`, and gives every job a timeout (D519).
 //! - [`discarded`] — outside tests, a result thrown away with `let _ =` or
 //!   `.ok();` carries a comment saying why (D267).
 //! - [`known_gaps`] — every gap a crate README lists names its backlog

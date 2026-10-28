@@ -25,8 +25,12 @@ playlist or the UI: a command goes onto `bridge::Remote`, the app takes it off
 `bridge::AppEnd` on its own thread and runs it through the same command path a
 key, a pad or an OSC message uses (D172, D232, D254).
 
-It is a **plain-HTTP remote for trusted networks**, not an installable PWA:
-that waits on a TLS decision (backlog L-07).
+It is a **plain-HTTP remote for trusted networks** by default. The page is
+an installable web app (D517): a manifest, the brand icons and a
+network-first service worker are served beside it. The worker and the
+install prompt need a secure context, which a phone gets through the
+operator's HTTPS proxy (D258); real phones are still to be tested
+(backlog L-07).
 
 **Desktop-to-desktop control (D275):** the same listener also supports a
 native Strobe controller that mirrors the complete host control window,

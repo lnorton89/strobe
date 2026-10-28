@@ -24,7 +24,7 @@
 //!   it makes least privilege the starting point and every elevation a
 //!   visible line in a job.
 //!
-//! The other two keep what CI proves honest (D517):
+//! The other two keep what CI proves honest (D519):
 //!
 //! - **Every cargo command that resolves dependencies passes `--locked`.**
 //!   Without it a Cargo.lock that no longer matches the manifests is
