@@ -12464,3 +12464,26 @@ path) and on master after it lands (the `release` path).
 
 **Would reopen:** an LTO-only failure reaching master more than once, or
 a PR-blocking release check becoming worth its six minutes again.
+
+### D505: master builds `release-fast` too, to keep pull requests' cache warm (2026-10-27)
+
+**Context.** D504 moved pull requests from `release` to `release-fast`, but
+its own pull request's Windows build still took 343 s against
+`release`'s 360-398 s. GitHub lets a pull request restore caches from its
+own branch and from the default branch, and master, which builds
+`release`, never saved any `release-fast` artifacts. So every pull request
+compiled the `release-fast` dependencies from nothing, and the change saved
+almost no time.
+
+**Decision.** The Windows job builds `release-fast` on every run, master
+included, and master builds `release` after it. `rust-cache` then saves
+master's `release-fast` dependencies, and a pull request restores them and
+compiles only the workspace's own crates. Master's run takes longer;
+nobody waits on it.
+
+**Test.** The first pull request after this lands on master and master's
+cache has been saved: its "Build release-fast binaries" step, against the
+343 s cold build.
+
+**Would reopen:** the cache growing past GitHub's limit with both profiles
+in it (then cache one profile per key).
