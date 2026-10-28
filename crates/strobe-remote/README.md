@@ -39,6 +39,11 @@ One connection leases input at a time. Stop, revoke, overflow and app loss
 release the lease and reset held input. The app supplies JPEG captures at
 at most 5 Hz; the network bridge keeps only the latest frame. Text copied
 by a host widget is returned explicitly, without reading its OS clipboard.
+The controls also travel as data (D513): once leased, a controller sends
+`desktop_controls_open`, the host publishes its scene and output banks
+(definitions once per bank id, then values), and the controller draws them
+itself and sends back `desktop_control` edits. The lease holder may send 50
+messages a second for this, where any other client keeps 10.
 See [the user guide](../../docs/USER_GUIDE.md#control-another-strobe-desktop).
 
 **Venue mode (D288):** a headless show machine is controlled with no click at

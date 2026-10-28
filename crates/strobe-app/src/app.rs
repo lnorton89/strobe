@@ -799,6 +799,8 @@ struct Running {
     remote: Remote,
     /// The LAN remote: off until asked for (D250 to D254).
     lan: Lan,
+    /// The controls as data for a controlling Strobe (D513).
+    controls_sync: crate::remote_controls::Publisher,
     /// Projector power and its web page (D502).
     projectors: crate::projectors::Projectors,
     desktop_controller: crate::desktop::Controller,
@@ -995,6 +997,7 @@ impl Running {
                 now,
             ),
             remote_out: Vec::new(),
+            controls_sync: crate::remote_controls::Publisher::default(),
             lan: Lan::new(
                 data_dir.clone(),
                 cli.remote_bind,
@@ -4326,6 +4329,20 @@ impl Running {
                 (None, None) => Answer::Rejected("not available here".to_string()),
             };
             incoming.answer(answer);
+        }
+        // The controls as data for the desktop holding the lease (D513),
+        // every frame: its edits first, then what it should now show.
+        if let Some(desktop) = self.lan.desktop() {
+            let live = self
+                .stack
+                .session
+                .as_mut()
+                .map(|session| crate::remote_controls::Live {
+                    title: &session.title,
+                    scene: &mut session.controls,
+                    output: &mut session.meta,
+                });
+            self.controls_sync.tick(&desktop, live, now);
         }
         if !self.lan.publish_due(now) {
             return;
