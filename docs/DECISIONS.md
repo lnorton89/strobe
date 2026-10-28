@@ -12487,3 +12487,26 @@ cache has been saved: its "Build release-fast binaries" step, against the
 
 **Would reopen:** the cache growing past GitHub's limit with both profiles
 in it (then cache one profile per key).
+
+### D507: the Windows and Linux caches are keyed by profile (2026-10-27)
+
+**Context.** D505 had master build `release-fast` so that pull requests
+could restore its dependencies. The first pull request after it, #53,
+still took 8 minutes over "Build release-fast binaries". Swatinem/rust-cache
+does not save after an exact key hit. Its key covers the job, the
+toolchain and `Cargo.lock`, not the profiles a job builds. So master kept
+restoring the `release`-only cache it saved before D504 and never saved
+the `release-fast` build: GitHub's cache list showed no newer Windows or
+Linux master cache.
+
+**Decision.** The Windows and Linux jobs' cache keys gain `-fast`
+(`windows-fast`, `linux-fast`). The first master run under them misses,
+builds both profiles and saves. A comment beside the Windows key says to
+change it whenever the profiles a job builds change.
+
+**Test.** The next pull request after this lands and master's run has
+saved: its "Build release-fast binaries" step against #53's 8 minutes.
+
+**Would reopen:** the two-profile caches pushing the repository past
+GitHub's 10 GB limit, so that a pull request's cache is evicted before it
+is reused.
