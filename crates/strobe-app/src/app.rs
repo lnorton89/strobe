@@ -37,7 +37,8 @@
 //!   swaps cannot halve the output rate. The throttle matters on an old
 //!   laptop, where egui's tessellation and the extra swap are a real cost
 //!   and 30 Hz is plenty for sliders. While the fullscreen output covers
-//!   it, it redraws at 2 Hz instead (`update_covered`, TORNADO T10).
+//!   it, it redraws at 2 Hz instead (`update_covered`, TORNADO T10), and a
+//!   frame Windows did not paint is not swapped (`presents_control`, D508).
 //!   While it shows another Strobe's window (the desktop viewer) it redraws
 //!   for a new image, a change of stage or the person's input, and every
 //!   [`VIEWER_PERIOD`] otherwise (D302). The frame normally runs on the control window's `RedrawRequested`,
@@ -201,6 +202,19 @@ const EXTEND_SECONDS: f64 = 30.0;
 /// What a `STROBE_FAULT` loss makes every `make_current` say.
 const INJECTED_LOSS: &str =
     "make current: injected fault (STROBE_FAULT lose-context): the context is lost";
+
+/// Whether a control frame swaps its back buffer (D508). Not when the
+/// fullscreen output covers the window and Windows sent no paint for the
+/// frame (D290): nobody can see the result, and on the mini PC's Vega 3 that
+/// swap blocked 44-50 ms, about three output refreshes. A desktop lease
+/// drives those frames at 5 Hz, which took the show from 58 fps to 25
+/// (M31). Everything else in the frame still runs, the desktop capture
+/// included: it reads the back buffer before the swap. A frame Windows
+/// painted swaps, covered or not, since a paint says some of the window
+/// may be on screen; uncovering redraws at once (`update_covered`).
+fn presents_control(covered: bool, unpainted: bool) -> bool {
+    !(covered && unpainted)
+}
 
 /// The application, before and after its windows exist.
 pub struct App {
@@ -5317,7 +5331,9 @@ impl Running {
             }
         }
         let swap_began = Instant::now();
-        self.present(Surface::Control, swap_began);
+        if presents_control(self.control_covered, unpainted) {
+            self.present(Surface::Control, swap_began);
+        }
         self.perf_log.control(ControlTimes {
             total: began.elapsed(),
             make_current,
@@ -6566,5 +6582,23 @@ mod tests {
             crate::desktop::STREAM_PERIOD,
             "a covered host window with a lease keeps the stream's rate (D290)"
         );
+    }
+
+    #[test]
+    fn a_covered_window_nobody_painted_does_not_swap() -> Result<()> {
+        assert!(
+            !presents_control(true, true),
+            "covered and unpainted: the swap that cost the mini PC half its frames (D508)"
+        );
+        assert!(
+            presents_control(true, false),
+            "a paint says part of the window may be on screen"
+        );
+        assert!(
+            presents_control(false, true),
+            "a window in view the loop drove still shows its frame"
+        );
+        assert!(presents_control(false, false), "the ordinary frame");
+        Ok(())
     }
 }

@@ -12528,3 +12528,37 @@ saved: its "Build release-fast binaries" step against #53's 8 minutes.
 **Would reopen:** the two-profile caches pushing the repository past
 GitHub's 10 GB limit, so that a pull request's cache is evicted before it
 is reused.
+
+### D508: a covered control frame that Windows did not paint is not swapped (2026-10-27)
+
+**Context.** Holding desktop control of the mini PC took its show from
+58 fps to about 25, with 70-77% of refreshes missed. Adaptive render scale
+then lowered the resolution step by step, 1.00 to 0.55, for no gain (Task
+M31, from the show's own perf lines). The GPU time did not rise, and the
+capture's readback and JPEG encode logged no trouble. The cost was the
+control window's own swap. With a lease, D290 drives a covered control
+window at the stream's 5 Hz, and every one of those frames was unpainted.
+On the Vega 3, the SwapBuffers of a window covered by the fullscreen
+output blocked 44-50 ms, about three output refreshes, so 286 of them a
+minute took 23% of wall time on the app thread. The same frames with the
+window in view swapped in 4 ms and the show held 59 fps. Without a lease,
+the D315 heartbeat's covered redraws paid the same 48 ms, 12-22 times a
+minute.
+
+**Decision.** A control frame does everything but the swap when the
+output covers the window (`control_covered`) and Windows sent no paint for
+it (`presents_control`). Nobody can see that frame, and the desktop
+capture reads the back buffer before the swap, so the stream is
+unchanged. A frame Windows painted still swaps, covered or not: a paint
+says some of the window may be on screen, so a misjudged "covered" cannot
+freeze what the operator sees. Uncovering redraws at once
+(`update_covered`).
+
+**Test.** M31's A/B on the mini PC: 17-blacklight-carpet, fullscreen,
+4 minutes controlled and 4 not, with the perf lines' fps, missed share,
+render scale and control swap time. Expected: the same fps either way,
+and the scale climbing back once its locks run out.
+
+**Would reopen:** a driver that leaves the back buffer undefined until a
+swap, so that captures go black or stale, or a covered window shown stale
+after uncovering.
