@@ -39,7 +39,7 @@
 //!   and 30 Hz is plenty for sliders. While the fullscreen output covers
 //!   it, it redraws at 2 Hz instead (`update_covered`, TORNADO T10), and a
 //!   frame Windows did not paint is not swapped (`presents_control`, D508).
-//!   While it shows another Strobe's window (the desktop viewer) it redraws
+//!   While it shows another Strobe's window (the  viewer) it redraws
 //!   for a new image, a change of stage or the person's input, and every
 //!   [`VIEWER_PERIOD`] otherwise (D302). The frame normally runs on the control window's `RedrawRequested`,
 //!   which winit delivers on Windows only from a `WM_PAINT`. Windows makes
@@ -5196,6 +5196,12 @@ impl Running {
                 .ui
                 .apply_theme(self.ui_state.palette(), self.ui_state.density());
         }
+        // A controller drawing the controls itself is told where this pass
+        // put their rows, to draw its own copies over them (D515).
+        let note_rows = self
+            .lan
+            .desktop()
+            .is_some_and(|desktop| desktop.controls_wanted());
         let mut model = Model {
             ui: &mut self.ui_state,
             library: &self.library,
@@ -5313,11 +5319,18 @@ impl Running {
         let window = self.stack.control.window();
         let shell_state = &mut self.shell;
         let ui_started = Instant::now();
+        let mut drawn = Vec::new();
+        let mut screen = egui::Rect::NOTHING;
         self.stack.ui.run(window, |ui| {
+            crate::remote_controls::note_rows(ui.ctx(), note_rows);
             if model.lan.controller.active() {
                 model.lan.controller.show(ui, &mut actions);
             } else {
                 shell::show(ui, shell_state, &mut model, &mut actions);
+            }
+            if note_rows {
+                drawn = crate::remote_controls::drawn_rows(ui.ctx());
+                screen = ui.ctx().content_rect();
             }
         });
         let ran = ui_started.elapsed();
@@ -5330,12 +5343,20 @@ impl Running {
         self.stack.ui.paint(window, crate::ui::theme::clear_color());
         let paint = paint_began.elapsed();
         if let Some(desktop) = self.lan.desktop() {
+            let rows = match self.stack.session.as_ref() {
+                Some(session) if !drawn.is_empty() => {
+                    self.controls_sync
+                        .rows(&drawn, &session.controls, &session.meta, screen)
+                }
+                Some(_) | None => Vec::new(),
+            };
             // Starts or collects an asynchronous readback; never waits.
             self.desktop_capture.frame(
                 self.stack.gfx.gl(),
                 now,
                 &desktop,
                 [size.width, size.height],
+                rows,
             );
         }
         self.ui_state.tick(now);
