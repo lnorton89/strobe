@@ -541,6 +541,75 @@ fn desktop_input_reaches_the_app_only_from_the_lease_holder() -> Result<()> {
 }
 
 #[test]
+fn the_lease_holder_gets_the_controls_once_and_its_edits_reach_the_app() -> Result<()> {
+    use strobe_remote::desktop::{ControlEdit, SyncedBank};
+    let rig = rig()?;
+    rig.desktop.enable(true);
+    let (_, _, mut owner) = pair_as(&rig, true)?;
+    owner.send(&json!({"type":"desktop_open"}))?;
+    eventually("the owner's lease", || rig.desktop.active())?;
+    // A paired phone cannot ask for the controls or send edits.
+    let (_, _, mut phone) = pair(&rig)?;
+    phone.send(&json!({"type":"desktop_controls_open"}))?;
+    assert_eq!(
+        phone.until("error")?["code"],
+        "unavailable",
+        "a phone is refused the controls"
+    );
+    phone.send(&json!({"type":"desktop_control","edits":[{"bank":7,"index":0,"values":[1.0]}]}))?;
+    assert_eq!(phone.closed()?, 1008, "a phone's edits close it");
+    owner.send(&json!({"type":"desktop_controls_open"}))?;
+    eventually("the owner's wish", || rig.desktop.controls_wanted())?;
+    let bank = |values: [f32; 3]| SyncedBank {
+        id: 7,
+        title: "Acid Mirror".into(),
+        defs: Some(vec![json!({"NAME":"speed","TYPE":"slider"})]),
+        values: vec![values],
+    };
+    rig.desktop.publish_controls(vec![bank([0.5; 3])]);
+    let first = owner.until("desktop_controls")?;
+    assert_eq!(
+        first["banks"][0]["defs"][0]["NAME"], "speed",
+        "the first send carries the definitions: {first}"
+    );
+    rig.desktop.publish_controls(vec![bank([0.75; 3])]);
+    let second = owner.until("desktop_controls")?;
+    assert!(
+        second["banks"][0].get("defs").is_none() && second["banks"][0]["values"][0][0] == 0.75,
+        "after that, values alone: {second}"
+    );
+    owner
+        .send(&json!({"type":"desktop_control","edits":[{"bank":7,"index":0,"values":[0.25]}]}))?;
+    let mut edits = Vec::new();
+    eventually("the owner's edit", || {
+        rig.desktop.drain_controls(&mut edits);
+        !edits.is_empty()
+    })?;
+    assert_eq!(
+        edits,
+        vec![ControlEdit {
+            bank: 7,
+            index: 0,
+            values: vec![0.25]
+        }],
+        "the edit reached the app as sent"
+    );
+    // The lease holder may send far more than a phone: a drag's edits at
+    // 20 a second for two seconds, beside its pings, keep the connection.
+    for step in 0..40 {
+        owner.send(&json!({"type":"desktop_control","edits":[{"bank":7,"index":0,"values":[step as f32 / 40.0]}]}))?;
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    owner.send(&json!({"type":"ping"}))?;
+    owner.until("pong")?;
+    assert!(
+        rig.desktop.active(),
+        "a drag's edits did not cost the lease"
+    );
+    Ok(())
+}
+
+#[test]
 fn desktop_input_is_bounded_and_validated_before_the_app_sees_it() -> Result<()> {
     let rig = rig()?;
     rig.desktop.enable(true);

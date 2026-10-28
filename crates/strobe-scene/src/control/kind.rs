@@ -138,6 +138,34 @@ impl ControlKind {
         }
     }
 
+    /// The `TYPE` string [`Self::parse`] reads back as this kind.
+    pub fn type_text(self) -> &'static str {
+        match self {
+            Self::Slider(Mode::Plain) => "slider",
+            Self::Slider(Mode::Smooth) => "slider smooth",
+            Self::Slider(Mode::Speed) => "slider speed",
+            Self::Slider(Mode::Traveler) => "slider traveler",
+            Self::Knob(Mode::Plain) => "knob",
+            Self::Knob(Mode::Smooth) => "knob smooth",
+            Self::Knob(Mode::Speed) => "knob speed",
+            Self::Knob(Mode::Traveler) => "knob traveler",
+            Self::Xy(Mode::Plain) => "xy",
+            Self::Xy(Mode::Smooth) => "xy smooth",
+            Self::Xy(Mode::Speed) => "xy speed",
+            Self::Xy(Mode::Traveler) => "xy traveler",
+            Self::Toggle { smooth: false } => "toggle",
+            Self::Toggle { smooth: true } => "toggle smooth",
+            Self::Color { smooth: false } => "color",
+            Self::Color { smooth: true } => "color smooth",
+            Self::Dropdown { smooth: false } => "dropdown",
+            Self::Dropdown { smooth: true } => "dropdown smooth",
+            Self::Bang(Bang::Plain) => "bang",
+            Self::Bang(Bang::Smooth) => "bang smooth",
+            Self::Bang(Bang::Counter) => "bang counter",
+            Self::Bang(Bang::CounterSmooth) => "bang counter smooth",
+        }
+    }
+
     /// How many float components the control's uniform has.
     pub fn dimensions(self) -> usize {
         match self {
@@ -203,6 +231,42 @@ mod tests {
         ];
         for (ty, expected) in cases {
             assert_eq!(ControlKind::parse("c", ty)?, expected, "`{ty}`");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn every_kind_writes_a_type_that_parses_back_to_it() -> Result<()> {
+        let modes = [Mode::Plain, Mode::Smooth, Mode::Speed, Mode::Traveler];
+        let bangs = [
+            Bang::Plain,
+            Bang::Smooth,
+            Bang::Counter,
+            Bang::CounterSmooth,
+        ];
+        let mut kinds = Vec::new();
+        for mode in modes {
+            kinds.extend([
+                ControlKind::Slider(mode),
+                ControlKind::Knob(mode),
+                ControlKind::Xy(mode),
+            ]);
+        }
+        for smooth in [false, true] {
+            kinds.extend([
+                ControlKind::Toggle { smooth },
+                ControlKind::Color { smooth },
+                ControlKind::Dropdown { smooth },
+            ]);
+        }
+        kinds.extend(bangs.map(ControlKind::Bang));
+        for kind in kinds {
+            assert_eq!(
+                ControlKind::parse("c", kind.type_text())?,
+                kind,
+                "`{}`",
+                kind.type_text()
+            );
         }
         Ok(())
     }
