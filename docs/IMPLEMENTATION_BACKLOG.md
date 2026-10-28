@@ -156,7 +156,7 @@
 - **Acceptance:** all core performance actions can be used without hover; blackout and active state are unmistakable; keyboard focus remains visible; existing WCAG theme tests remain green.
 
 ### U-11 Value bars: the rest of the control rows
-- **Status:** Open. Float controls, toggles and colours are one-row value bars, chips and colour rows, and groups are ruled headers (D510-D512). Shown in the mockup the owner chose and not built: a segmented control for a dropdown of up to five options, and a mark on a row for its MIDI or OSC mapping. The macro cards still use the old slider rail, where a click sets the value where it lands (D511).
+- **Status:** Open. Float controls are one-row value bars and groups are ruled headers (D510-D512); toggles keep their switches and colours their swatches. Shown in the mockup the owner chose and not built: a segmented control for a dropdown of up to five options, and a mark on a row for its MIDI or OSC mapping. The macro cards still use the old slider rail, where a click sets the value where it lands (D511).
 - **Work:** a segmented dropdown the bar's height, with a combo box past five options; the mapping's source (`CC 21`, an OSC address) as a small tag on the row, from the mappings the engine holds; decide with the owner whether the macro cards take the value bar and its gestures.
 - **Acceptance:** captures of a scene with a short dropdown and a mapped control at both densities; the macro cards' gestures match the rows', or the difference is a logged decision.
 

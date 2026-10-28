@@ -324,8 +324,8 @@ kept for a possible macro strip of about eight headline controls (D510).
 
 ### Toggle
 
-A chip the value bar's height: a lit dot, the label, ON or OFF, the
-accent's soft fill when on. The whole row clicks.
+Compact switch + label + ON or OFF, on a line of its own. Not a bar: the
+owner tried it as a bar-height chip and wanted the switch back (D510).
 
 ### Bang
 
@@ -343,8 +343,8 @@ Square field with:
 
 ### Color
 
-Small swatch with popup picker, not a permanently large editor. A row the
-value bar's height: the label, the hex value, the swatch at the right.
+Small swatch with popup picker, not a permanently large editor, and the
+label beside it, on a line of its own. Not a bar (D510).
 
 ### Dropdown
 
