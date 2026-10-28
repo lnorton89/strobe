@@ -12488,6 +12488,24 @@ cache has been saved: its "Build release-fast binaries" step, against the
 **Would reopen:** the cache growing past GitHub's limit with both profiles
 in it (then cache one profile per key).
 
+### D506: the session header reaches stderr only when the filter lets info through (2026-10-27)
+
+**Context.** The logger writes a three-line header (start time, build,
+filter) at the top of every session, and mirrors every line to stderr
+when stderr is on. `pj` keeps stderr on at `warn`, so every command it
+ran, `pj status` included, printed the header before its own output: seen
+on the mini PC in Task M30. The header is not a log record, so the filter
+never applied to it.
+
+**Decision.** The header lines go to the ring and the session file
+always, and to stderr only when the filter's most verbose level is `info`
+or more (`logger::header_on_stderr`). `pj -v`, `pj serve` and a debug
+build of the app still show it. `STROBE_LOG` problems and the logger's
+own notes are warnings and always reach stderr.
+
+**Would reopen:** a tool that wants its header on stderr while logging
+only warnings (give `LoggerConfig` a field then).
+
 ### D507: the Windows and Linux caches are keyed by profile (2026-10-27)
 
 **Context.** D505 had master build `release-fast` so that pull requests
