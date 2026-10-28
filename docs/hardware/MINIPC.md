@@ -1182,10 +1182,21 @@ tracked files, not updating") and correctly built the checkout as it was
 (`063b25b+dirty`, same code) instead of updating. **Agents working in this checkout must leave
 it clean and on master**, or the show's boot update is skipped.
 
-**Restarts need a re-approval.** TORNADO's pairing from the previous run was refused after the
-restart ("a token that is not valid"), and it asked to pair again. So every Strobe restart,
-including a crash relaunch or a reboot, needs someone at the mini PC to approve TORNADO again,
-unless venue mode's `--remote-trust` is used (D288).
+**Desktop control needs re-approval after every restart, by design; ordinary pairings don't.**
+TORNADO (10.1.10.124) holds two pairings with this host:
+
+| Run (pid) | `c6b61a02d`, "Windows at 10.1.10.124" (saved pairing) | Full desktop control from `DESKTOP-30KSOCM-e60bd08c` |
+|---|---|---|
+| 11004 | reconnects every ~63 s | approved at 2983 s, paired as `c4a7ccfe8` |
+| 10268 (restart, 23:22) | reconnected at 2.8 s, no approval | the old token refused at 11.1 s ("a token that is not valid"), approved again at 25.8 s as `c96250f08` |
+| 3384 (after the reboot, 23:25) | reconnected at 4.8 s, no approval | not back (none in the first 155 s) |
+
+`remote-clients.json` holds only `c6b61a02d`. That's D251: paired clients are kept as token
+digests and survive a restart. Full desktop grants are kept in memory only and never saved
+(D275, `strobe_remote::clients`), and they're revoked when desktop access goes off or the host
+stops listening. So every Strobe restart, including a crash relaunch or a reboot, needs someone
+at the mini PC to approve TORNADO's desktop control again. The way round it is venue mode's
+`--remote-trust` file (D288).
 
 ### Before the fix: desktop control cost half the frame rate (build 4657653)
 
