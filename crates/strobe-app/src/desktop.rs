@@ -746,6 +746,16 @@ impl Controller {
         into.use_trust = self.use_trust;
     }
 
+    /// Points the form at a Strobe found on the network, for its Connect.
+    /// A code left in the form is dropped. The trust option stays as the
+    /// operator left it: with a trust file chosen, the Connect proves it and
+    /// the host accepts with no approval; without one, the host is asked
+    /// (D468, D509).
+    pub fn choose_found(&mut self, address: SocketAddr) {
+        self.address = address.to_string();
+        self.code.clear();
+    }
+
     /// Start a fresh pairing session; no bearer secret is saved or logged.
     pub fn connect(&mut self) {
         self.disconnect();
@@ -3085,6 +3095,33 @@ mod tests {
             .find_map(|line| line.strip_prefix("secret "))
             .ok_or_else(|| anyhow::anyhow!("the file has a secret line"))?;
         assert!(!controller.note().contains(hex), "the secret is not shown");
+        controller.disconnect();
+        server.stop();
+        Ok(())
+    }
+
+    #[test]
+    fn a_listed_strobe_is_proved_the_chosen_trust_file_and_asks_nobody() -> Result<()> {
+        let scratch = Scratch::new("listed")?;
+        let file = scratch.0.join("venue.trust");
+        let secret = venue_trust::create_file(&file)?;
+        let (server, app) = trusted_host(&secret, 0)?;
+        // The form as remembered from last time: a trust file chosen, no
+        // address, and a stray code in the field.
+        let mut controller = trusted_controller(&file, server.addr());
+        controller.address.clear();
+        controller.code = "123456".into();
+        controller.choose_found(server.addr());
+        assert!(
+            controller.use_trust && controller.code.is_empty(),
+            "the trust option is kept and the code dropped"
+        );
+        controller.connect();
+        within(PATIENCE, || app.desktop.active())?;
+        assert!(
+            server.pairing_requests().is_empty(),
+            "the found Strobe's Connect proved the file: nobody was asked to approve (D509)"
+        );
         controller.disconnect();
         server.stop();
         Ok(())
