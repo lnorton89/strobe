@@ -47,7 +47,7 @@
 use crate::clock::{self, Utc};
 use crate::filter::Filter;
 use crate::{buildinfo, paths, rotate};
-use log::{Level, Log, Metadata, Record};
+use log::{Level, LevelFilter, Log, Metadata, Record};
 use std::collections::VecDeque;
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufWriter, Write};
@@ -103,6 +103,8 @@ impl LoggerConfig {
 
 enum Message {
     Line(Arc<str>),
+    /// A line for the file only, never mirrored to stderr.
+    FileLine(Arc<str>),
     Flush(SyncSender<()>),
 }
 
@@ -117,12 +119,16 @@ pub struct Logger {
     /// Records ever pushed, so a reader can tell the ring changed.
     written: AtomicU64,
     path: Option<PathBuf>,
+    /// Whether the session header is mirrored to stderr: see
+    /// [`header_on_stderr`].
+    header_on_stderr: bool,
 }
 
 impl std::fmt::Debug for Message {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Line(_) => f.write_str("Line"),
+            Self::FileLine(_) => f.write_str("FileLine"),
             Self::Flush(_) => f.write_str("Flush"),
         }
     }
@@ -160,6 +166,7 @@ impl Logger {
         };
 
         let logger = Self {
+            header_on_stderr: header_on_stderr(&config.filter),
             filter: config.filter,
             ring: Mutex::new(VecDeque::with_capacity(RING_LINES)),
             sink,
@@ -227,6 +234,20 @@ impl Logger {
     }
 
     fn push(&self, text: Arc<str>) {
+        self.push_as(text, Message::Line);
+    }
+
+    /// A header line: in the ring and the file always, on stderr only when
+    /// [`header_on_stderr`] said so.
+    fn push_header(&self, text: Arc<str>) {
+        if self.header_on_stderr {
+            self.push_as(text, Message::Line);
+        } else {
+            self.push_as(text, Message::FileLine);
+        }
+    }
+
+    fn push_as(&self, text: Arc<str>, message: fn(Arc<str>) -> Message) {
         {
             let mut ring = self.ring.lock().unwrap_or_else(PoisonError::into_inner);
             if ring.len() == RING_LINES {
@@ -236,7 +257,7 @@ impl Logger {
             self.written.fetch_add(1, Ordering::Relaxed);
         }
         if let Some(sink) = &self.sink
-            && sink.try_send(Message::Line(text)).is_err()
+            && sink.try_send(message(text)).is_err()
         {
             self.dropped.fetch_add(1, Ordering::Relaxed);
         }
@@ -244,12 +265,12 @@ impl Logger {
 
     fn write_header(&self, notes: &[String]) {
         let started = Utc::now().iso();
-        self.push(
+        self.push_header(
             format!("=== Strobe session started {started} (log times are seconds since start) ===")
                 .into(),
         );
-        self.push(format!("build {}", buildinfo::summary()).into());
-        self.push(format!("log filter: {}", self.filter.describe()).into());
+        self.push_header(format!("build {}", buildinfo::summary()).into());
+        self.push_header(format!("log filter: {}", self.filter.describe()).into());
         for problem in self.filter.problems() {
             self.push(format!("STROBE_LOG: ignored {problem}").into());
         }
@@ -448,6 +469,11 @@ fn handle(message: Message, file: Option<&mut SessionFile>, stderr: bool) {
                 writeln!(std::io::stderr(), "{text}").ok();
             }
         }
+        Message::FileLine(text) => {
+            if let Some(file) = file {
+                file.line(&text);
+            }
+        }
         Message::Flush(ack) => {
             if let Some(file) = file {
                 file.flush();
@@ -456,6 +482,16 @@ fn handle(message: Message, file: Option<&mut SessionFile>, stderr: bool) {
             ack.send(()).ok();
         }
     }
+}
+
+/// Whether the session header (start time, build, filter) is mirrored to
+/// stderr as well as written to the file: only when the filter lets info
+/// through somewhere (D506). A quiet command-line tool (`pj`, at warn) then
+/// prints only its own output, and the file still starts with the header.
+/// `STROBE_LOG` problems and the logger's own notes are warnings and always
+/// reach stderr.
+fn header_on_stderr(filter: &Filter) -> bool {
+    filter.max_level() >= LevelFilter::Info
 }
 
 static LOGGER: OnceLock<Logger> = OnceLock::new();
@@ -516,8 +552,6 @@ pub fn flush(timeout: Duration) -> bool {
 mod tests {
     use super::*;
     use anyhow::{Result, anyhow};
-
-    use log::LevelFilter;
 
     fn scratch(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!("strobe-diag-test-{}-{name}", std::process::id()))
@@ -636,6 +670,54 @@ mod tests {
         assert!(
             text.contains("Strobe session started"),
             "header missing: {text}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn the_header_reaches_stderr_only_when_info_does() -> Result<()> {
+        for (spec, default, expected) in [
+            ("", LevelFilter::Warn, false),
+            ("error", LevelFilter::Info, false),
+            ("", LevelFilter::Info, true),
+            ("warn,strobe_gfx=debug", LevelFilter::Warn, true),
+        ] {
+            let filter = Filter::parse(spec, default);
+            assert_eq!(
+                header_on_stderr(&filter),
+                expected,
+                "spec {spec:?} over {default}"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn a_quiet_session_file_still_starts_with_the_header() -> Result<()> {
+        let dir = scratch("quiet");
+        let logger = Logger::new(LoggerConfig {
+            filter: Filter::parse("", LevelFilter::Warn),
+            dir: Some(dir.clone()),
+            stderr: false,
+            max_file_bytes: MAX_FILE_BYTES,
+        });
+        assert!(
+            logger.flush_within(Duration::from_secs(5)),
+            "flush timed out"
+        );
+        let path = logger.path().ok_or_else(|| anyhow!("no log file"))?;
+        let text = fs::read_to_string(path)?;
+        fs::remove_dir_all(&dir)?;
+        assert!(
+            text.contains("Strobe session started") && text.contains("log filter: "),
+            "header missing: {text}"
+        );
+        assert!(
+            logger
+                .recent(RING_LINES)
+                .iter()
+                .any(|line| line.contains("Strobe session started")),
+            "the ring keeps the header for the console"
         );
         Ok(())
     }
