@@ -112,16 +112,22 @@ name a toolchain.
 **Fix:** bump `rust-toolchain.toml` and every workflow's `toolchain:` value
 in one commit, or replace a floating reference with the pinned version.
 
-### Pinned actions and permissions (`actions`)
+### Pinned actions, permissions, lockfile and timeouts (`actions`)
 
 Every `uses:` line in a workflow must name a full 40-hex commit SHA followed
 by a `# <version>` comment, and every workflow must declare a top-level
-`permissions:` key. Local actions (`uses: ./...`) are exempt (D54).
+`permissions:` key. Local actions (`uses: ./...`) are exempt (D54). Every
+cargo command that resolves dependencies (`build`, `check`, `clippy`, `doc`,
+`install`, `run`, `test`, `xtask`) must pass `--locked`, and every job must
+set `timeout-minutes:`; a job that only calls a reusable workflow is exempt
+from the timeout (D516).
 
 **Fix:** resolve the tag to its commit SHA, write
 `uses: owner/action@<sha> # vX.Y.Z`, and add
 `permissions:\n  contents: read` at the top of the workflow, elevating inside
-the job that needs more.
+the job that needs more. Add `--locked` to the cargo command (before the
+alias for `cargo --locked xtask …`), and give the job a `timeout-minutes:`
+well above its slowest cold-cache run.
 
 ### GL objects have owners (`gl_objects`)
 

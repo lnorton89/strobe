@@ -366,8 +366,8 @@ fn orphan_report(tags: &[String]) -> String {
          \x20   git push --force origin refs/tags/<tag>\n\
          \n\
          Pushing a `v*` tag re-triggers .github/workflows/release.yml. If the release is \
-         already published and you do not want its assets rebuilt, cancel the run: \
-         `gh run cancel <id>`."
+         already published, that run fails at `Create draft release` and changes nothing \
+         (D516); the red run is expected."
     )
 }
 
