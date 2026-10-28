@@ -12649,3 +12649,42 @@ PC's playing scene.
 that the 20 Hz publication of its values is a cost of its own, or the
 editor's save of new controls while connected, which the id covers but
 which has not been tried by hand.
+
+### D514: a controlled host leaves its preview out and sends a picture only when it changed (2026-10-28)
+
+**Context.** With the controls as data (D513), the window picture is left
+for the editor, settings and the library. It still cost the host a full
+compression of its control window five times a second, and most of each
+JPEG was the live preview, the one part of the window that changes every
+frame. The owner said they do not need the preview there: the projectors
+show the show.
+
+**Decision.**
+
+- **No preview while controlled.** While a desktop holds the lease
+  (`Lan::desktop_controlled`), the UI pass gets no preview texture and the
+  preview's place says *Preview off while another Strobe controls this
+  one*. The host also stops drawing the output into its control window.
+  It comes back when the controller leaves.
+- **Only changed pictures.** The capture worker takes a 64-bit fingerprint
+  of each readback (eight bytes a step, about a millisecond at 1080p) and
+  compresses and sends only a picture that differs from the last one
+  sent. An unchanged one is sent again, as the same JPEG with no new
+  compression, once a second, inside the 3 s after which a controller
+  takes a silent host for a paused one. With the preview gone, a window
+  nobody touches costs a fingerprint every 200 ms and nothing else.
+
+Tiles (sending only the changed part of a picture), binary WebSocket
+frames instead of base64 in JSON, and a faster JPEG encoder are left
+until the mini PC's numbers with this in place say they are needed.
+
+**Test.** `desktop::tests::one_changed_pixel_changes_the_fingerprint`,
+`desktop::tests::an_unchanged_picture_is_not_compressed_again_and_is_resent_only_to_keep_alive`
+and the shell test
+`a_controlled_host_says_its_preview_is_off_instead_of_drawing_it`. On the
+venue: the mini PC's perf lines with LIGHTNING connected and idle, against
+D508's numbers.
+
+**Would reopen:** an operator at a controlled host who needs the preview
+there, or a fingerprint collision showing a stale picture (a change would
+then appear on the next one).

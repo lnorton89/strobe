@@ -166,6 +166,8 @@ struct Scenario {
     map_open: bool,
     /// The About page's list of every crate is open (D491).
     credits_open: bool,
+    /// Another Strobe controls this one, so the preview is off (D514).
+    preview_paused: bool,
 }
 
 const BASE: Scenario = Scenario {
@@ -214,6 +216,7 @@ const BASE: Scenario = Scenario {
     settings_page: None,
     map_open: false,
     credits_open: false,
+    preview_paused: false,
 };
 
 /// Settings at About, with the credits (D491).
@@ -1291,7 +1294,8 @@ fn draw_events(
                 chosen: true,
             }),
             meta: scenario.playing.then_some(&mut meta_bank),
-            preview: scenario.playing.then_some(image),
+            preview: (scenario.playing && !scenario.preview_paused).then_some(image),
+            preview_paused: scenario.preview_paused,
             scene_preview: scenario.previewing.then_some(ScenePreview {
                 index: 2,
                 name: "03-scene-2",
@@ -2850,5 +2854,26 @@ fn the_controls_page_draws_the_controls_once_with_the_preview_beside_them() -> R
             "and the fav slots at {size:?}"
         );
     }
+    Ok(())
+}
+
+#[test]
+fn a_controlled_host_says_its_preview_is_off_instead_of_drawing_it() -> Result<()> {
+    let scenario = Scenario {
+        name: "controlled from another Strobe",
+        preview_paused: true,
+        ..BASE
+    };
+    let drawn = draw(scenario, (1440.0, 900.0), 4)?;
+    let rows: Vec<String> = texts(&drawn).into_iter().map(|(_, line, _)| line).collect();
+    assert!(
+        rows.iter()
+            .any(|line| line == "Preview off while another Strobe controls this one"),
+        "the preview's place says why it is empty (D514): {rows:?}"
+    );
+    assert!(
+        !rows.iter().any(|line| line == "No scene playing"),
+        "and does not claim nothing is playing: {rows:?}"
+    );
     Ok(())
 }
