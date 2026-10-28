@@ -49,7 +49,7 @@
 
 use crate::config::OscSettings;
 use crate::event::Arg;
-use std::net::{IpAddr, SocketAddr, ToSocketAddrs, UdpSocket};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs, UdpSocket};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
@@ -323,6 +323,19 @@ impl Sender {
     }
 }
 
+/// The address the sending socket binds for feedback to `to`: loopback for
+/// a controller on this computer, every interface otherwise. Loopback is the
+/// source the system would pick anyway, and a socket on every interface is
+/// what makes Windows' firewall ask about the program (D503).
+fn source_ip(to: IpAddr) -> IpAddr {
+    match to {
+        IpAddr::V4(v4) if v4.is_loopback() => IpAddr::V4(Ipv4Addr::LOCALHOST),
+        IpAddr::V6(v6) if v6.is_loopback() => IpAddr::V6(Ipv6Addr::LOCALHOST),
+        IpAddr::V4(_) => IpAddr::V4(Ipv4Addr::UNSPECIFIED),
+        IpAddr::V6(_) => IpAddr::V6(Ipv6Addr::UNSPECIFIED),
+    }
+}
+
 fn run(jobs: &Receiver<Job>) {
     let mut socket: Option<(UdpSocket, SocketAddr)> = None;
     let mut warned = false;
@@ -330,8 +343,7 @@ fn run(jobs: &Receiver<Job>) {
         match job {
             Job::Retarget(to) => {
                 socket = to.and_then(|to| {
-                    let bind = if to.is_ipv4() { "0.0.0.0:0" } else { "[::]:0" };
-                    match UdpSocket::bind(bind) {
+                    match UdpSocket::bind(SocketAddr::new(source_ip(to.ip()), 0)) {
                         Ok(socket) => {
                             log::info!("OSC feedback: sending to {to}");
                             Some((socket, to))
@@ -523,6 +535,20 @@ mod tests {
             "both arrive, in order"
         );
         assert_eq!(sender.dropped(), 0, "nothing dropped");
+        Ok(())
+    }
+
+    #[test]
+    fn feedback_to_this_computer_is_sent_from_loopback() -> Result<()> {
+        for (to, from) in [
+            ("127.0.0.1", "127.0.0.1"),
+            ("127.0.0.5", "127.0.0.1"),
+            ("::1", "::1"),
+            ("192.168.1.30", "0.0.0.0"),
+            ("fd00::30", "::"),
+        ] {
+            assert_eq!(source_ip(to.parse()?), from.parse::<IpAddr>()?, "{to}");
+        }
         Ok(())
     }
 }
