@@ -158,6 +158,16 @@ pub enum ClientMessage {
         /// the protocol context, as hex.
         response: String,
     },
+    /// The desktop lease holder asks for the host's controls as data, to
+    /// draw them itself (D513). The host answers with `desktop_controls`;
+    /// a host from before D513 answers `invalid_request`, and the
+    /// controller carries on with the window alone.
+    DesktopControlsOpen {},
+    /// Changes the controller made to controls it draws itself (D513).
+    DesktopControl {
+        /// A bounded batch, applied in order.
+        edits: Vec<desktop::ControlEdit>,
+    },
 }
 
 /// Commands intentionally exposed to a paired phone or tablet.
@@ -310,6 +320,14 @@ pub enum ServerMessage {
         /// 32 random bytes as 64 hex digits.
         nonce: String,
     },
+    /// The host's controls, to a lease holder that asked for them (D513):
+    /// sent when they or their values change.
+    DesktopControls {
+        /// Moves with every publication.
+        revision: u64,
+        /// The playing scene's bank, then the output's.
+        banks: Vec<desktop::SyncedBank>,
+    },
 }
 
 /// Audio state as displayed by the remote.
@@ -385,6 +403,8 @@ pub fn decode_client(text: &str) -> Result<ClientMessage, ErrorCode> {
         ClientMessage::RequestDesktop { name } => trust::valid_controller_id(name),
         ClientMessage::RequestPair { name } => valid_device_name(name),
         ClientMessage::TrustProof { response } => trust::valid_hex_block(response),
+        ClientMessage::DesktopControlsOpen {} => true,
+        ClientMessage::DesktopControl { edits } => desktop::valid_edits(edits),
     };
     if valid {
         Ok(message)
@@ -652,6 +672,49 @@ mod tests {
             r#"{"type":"trust_proof","response":"abcd"}"#,
             r#"{"type":"trust_proof","response":"zz7aea3b9895699f81047022e272038f94ed6995618c444749b1d73c6ce06e5d"}"#,
             r#"{"type":"trust_proof"}"#,
+        ] {
+            assert_eq!(
+                decode_client(bad).err(),
+                Some(ErrorCode::InvalidRequest),
+                "{bad}"
+            );
+        }
+        Ok(())
+    }
+
+    /// The controls as data (D513), frozen like the others.
+    const CONTROLS_CLIENT: [&str; 2] = [
+        r#"{"type":"desktop_controls_open"}"#,
+        r#"{"type":"desktop_control","edits":[{"bank":7,"index":2,"values":[0.25]},{"bank":7,"index":5,"values":[]}]}"#,
+    ];
+
+    const CONTROLS_SERVER: [&str; 2] = [
+        r#"{"type":"desktop_controls","revision":4,"banks":[{"id":7,"title":"Acid Mirror","defs":[{"NAME":"speed","TYPE":"slider"}],"values":[[0.5,0.5,0.5]]}]}"#,
+        r#"{"type":"desktop_controls","revision":5,"banks":[{"id":7,"title":"Acid Mirror","values":[[0.75,0.75,0.75]]}]}"#,
+    ];
+
+    #[test]
+    fn control_messages_read_and_write_byte_for_byte_and_are_validated() -> Result<()> {
+        for text in CONTROLS_CLIENT {
+            let message = decode_client(text).map_err(|e| anyhow::anyhow!("{text}: {e:?}"))?;
+            assert_eq!(serde_json::to_string(&message)?, text, "client {text}");
+        }
+        for text in CONTROLS_SERVER {
+            let message: ServerMessage = serde_json::from_str(text)?;
+            assert_eq!(serde_json::to_string(&message)?, text, "server {text}");
+        }
+        let many = format!(
+            r#"{{"type":"desktop_control","edits":[{}]}}"#,
+            vec![r#"{"bank":1,"index":0,"values":[0.0]}"#; desktop::MAX_CONTROL_EDITS + 1]
+                .join(",")
+        );
+        for bad in [
+            r#"{"type":"desktop_control","edits":[]}"#,
+            r#"{"type":"desktop_control","edits":[{"bank":1,"index":0,"values":[0,0,0,0]}]}"#,
+            r#"{"type":"desktop_control","edits":[{"bank":1,"index":256,"values":[0]}]}"#,
+            r#"{"type":"desktop_control","edits":[{"bank":1,"index":0,"values":[0],"x":1}]}"#,
+            r#"{"type":"desktop_controls_open","x":1}"#,
+            many.as_str(),
         ] {
             assert_eq!(
                 decode_client(bad).err(),
