@@ -12590,3 +12590,145 @@ with `--remote-trust`, the desktop's Connect in the list, no approval.
 **Would reopen:** a controller that proves the file to hosts that do not
 hold it often enough for the failed-proof limits (D288) to get in the way,
 in which case a found host's Connect would try approval after a refusal.
+
+### D510: a float control is one value-bar row (2026-10-28, owner's choice)
+
+**Context.** The owner's capture of the Controls page (Acid Mirror): every
+slider was a name and a boxed number on one line and a full-width rail on
+the next, about 74 points a control on the page, so twelve controls and
+the output's took most of a 1000-point window and the page read as
+generic Material. A research pass over dense parameter panels (Blender's
+number fields, lil-gui, Leva, Tweakpane, Resolume, Theatre.js, Bitwig,
+Ableton, Serum, HISE) and three mocked-up directions (value bars, flat
+arc knobs, a fader bank) went to the owner, who chose the value bars.
+Knobs pay off only in a strip of about eight headline controls (Ableton's
+macros, Bitwig's remote page), and shaded knobs read worse on stage,
+which is what the owner disliked in Synesthesia's.
+
+**Decision.** A slider or knob is one row, `controls::bar`: the row is
+the slider, filled to the value, the name inside on the left and the
+number on the right. It is 24 points high in the side panel and 30 on
+the page at Comfortable, 20 and 24 at Compact (`Scale::bar_height`), so
+the window's density (D220) packs it like every list. It shows:
+
+- the fill from the left, or from zero when the range spans zero (a
+  bipolar control reads "nothing" in its middle);
+- a 2-point accent edge at the value;
+- a notch top and bottom at the default while the value is elsewhere,
+  and the number in the text colour and semibold (muted at the
+  default), which is how a changed control is told now that the reset
+  button beside it is gone;
+- a 1-point line at the smoothed output (`ControlBank::output`) while it
+  is still easing to the value, for plain and smooth controls; a speed
+  or traveler control's output is a running phase, so it gets no line and
+  its number says `/s`;
+- `MACRO` before the number when the control is pinned (D210);
+- the description, the range and the default in its tooltip.
+
+Every other control is a row in the same frame, so a group's rows start
+and end on the same two lines whatever their kinds (`property_row`): the
+bar's height, raised surface, rounded ends and left inset for the name,
+and its own widget at the right end, where a bar's number sits. Only a
+slider fills.
+
+- a toggle: its switch, sized to the row; a click anywhere on the row
+  flips it;
+- a colour: the hex value, then a swatch that opens the picker;
+- a dropdown: a combo box no taller than the row;
+- an XY pad: the readout in the row, then the pad the rows' full width;
+- a bang: the one row that is a button, the frame outlined and its name in
+  capitals in the middle (FLASH), a counter's hits at the right end.
+
+The owner went through three versions of this on the way: toggles and
+colours as bar-height chips (too like the sliders), then as their old
+switch and swatch on lines of their own (no common margins, so they looked
+placed at random), then this. The macro cards keep
+the slider rail (`controls::rail`): they are a separate surface with
+their own layout.
+
+**Test.** `controls`' tests: a bipolar fill starts at zero, plus D511's
+gestures. Captures of the Controls page and the side panel at both
+densities.
+
+**Would reopen:** a 30-point row proving too small for a finger on the
+venue's touch screen, or a control kind whose value cannot be read as a
+fill (then it keeps its own widget, as the XY pad does). A segmented
+control for short dropdowns and a mark for MIDI and OSC mappings were
+shown in the mockup and are not built (backlog U-11).
+
+### D511: a value bar drags relatively, a click types, a double click resets (2026-10-28, owner's choice)
+
+**Context.** The old rail followed Synesthesia: a click set the value
+where it landed, a drag followed the pointer, and the number beside it
+was a DragValue to type into. With the number now inside the row, the
+whole row is the hit target, and on a projector rig a click that makes a
+control jump makes the picture jump.
+
+**Decision.** On a value bar:
+
+- a drag anywhere moves the value by how far the pointer moved, not to
+  where it is (Blender's, Figma's and Tweakpane's scrub), so taking hold
+  never jumps; Shift drags a tenth as fast, as before;
+- a click (press and release without moving) opens the number for
+  typing; Enter or a click away sets it, Esc cancels. It opens once
+  egui's double-click window (0.3 s) has passed, so the first click of a
+  double click never opens it;
+- a double click or a middle click resets to the default, as Synesthesia
+  does, and the right-click menu offers Reset next to the macro pin;
+- arrows on a focused row move it by 1% of the range (Shift 0.1%, Ctrl
+  10%), as before.
+
+The 0.3 s wait before the field opens is the cost of keeping double-click
+reset; Blender opens the field at once because it resets with a key
+instead.
+
+**Test.** `controls`' tests: a drag from far right of the value moves it
+down by the drag, not to the pointer; a click then Enter sets a typed
+value; a double click resets and opens no field.
+
+**Would reopen:** the owner finding the wait before typing slow in use
+(then Ctrl-click or Backspace resets and a click types at once), or the
+macro cards' rail and these rows disagreeing in a way the owner trips
+over.
+
+### D512: control groups are a header over their rows, not cards; reverses D477's cards (2026-10-28, owner's choice)
+
+**Context.** D477 put every group in a raised, bordered card. With D510
+the rows are raised surfaces themselves, so a card around them is a box
+around boxes, and its padding cost a fifth of the side panel's width.
+Dense panels in the research (lil-gui, Leva, Blender's panels) mark a
+group with a thin header and a rule.
+
+**Decision.** A scene group is a 26-point header (a chevron, the name in
+semibold capitals, the count) over a 1-point rule in `border`, then its
+rows; no fill. The name brightens under the pointer, and the Default and
+Random buttons, at half strength until then, come up to full. An output
+group gets the same capitals and rule with nothing to click. The output
+section's heading keeps Output controls and Reset output with a rule
+between them. On the page, the columns are 20 points apart (`SPACE_LG`)
+so the rules of neighbouring columns do not run together; the rows inside
+keep the usual gaps.
+
+**Test.** The Controls-page shell scenarios (every size, no text over
+text) and captures at both densities.
+
+**Would reopen:** groups that run together in a long scene, which a card
+would separate better than a rule.
+
+### D513: the window controls end at the window's edge (2026-10-28, owner's request)
+
+**Context.** The custom title bar (D132) had an 8-point inner margin on
+both sides, so Close stopped 8 points short of the window's right edge.
+With the window maximised, a pointer thrown into the screen's top-right
+corner, which every Windows window answers with Close, landed on nothing.
+
+**Decision.** The title bar keeps its left margin and has none on the
+right: minimise, maximise and Close end at the window's edge and fill the
+bar's height, so the corner pixel is Close. With the system title bar (no
+window controls) the readouts keep an 8-point gap from the edge.
+
+**Test.** `shell_tests::the_top_right_pixel_is_close`: a click on the
+window's top-right pixel quits.
+
+**Would reopen:** a window manager that draws its own resize border over
+that pixel.

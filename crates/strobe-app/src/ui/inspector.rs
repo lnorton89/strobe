@@ -48,13 +48,14 @@
 //! or discards them). A scene with authored controls gets *Add generated
 //! controls* in the Scene tab, as before (D202).
 //!
-//! Every group is a **card** (D477): its header inside, its rows under it
-//! with the card's padding around them, so a section reads as one thing
-//! and no control runs to the edge of the pane. The output controls are a
-//! section of their own under the scene's, a heading with Reset output,
-//! then a card per group (master, colour, mirror, audio, limit colours)
-//! that flows into the same columns on the page, where they were one
-//! column of sliders the page's full width.
+//! Every group is a **header over its rows** (D512, which replaced D477's
+//! cards): a hairline under the chevron, name and count, and the rows
+//! (value bars, D510) under it. The bars are themselves raised surfaces,
+//! so a card around them was a box around boxes, and its padding cost a
+//! fifth of the side panel's width. The output controls are a section of
+//! their own under the scene's, a heading with Reset output and a rule,
+//! then a titled group each (master, colour, mirror, audio, limit colours)
+//! that flows into the same columns on the page.
 
 use super::controls;
 use super::icon as icons;
@@ -889,7 +890,7 @@ fn group(
     members: &[usize],
     scale: controls::Scale,
 ) {
-    card(ui, theme, scale, |ui| match name {
+    match name {
         None => controls::rows(ui, theme, bank, members, Some(&mut *pins), scale),
         Some(name) => {
             let collapsed = state.is_collapsed(name);
@@ -912,32 +913,18 @@ fn group(
                 controls::rows(ui, theme, bank, members, Some(&mut *pins), scale);
             }
         }
-    });
-    ui.add_space(SPACE_SM);
+    }
+    group_gap(ui, scale);
 }
 
-/// A group's card: the raised surface with a border, padded so its rows
-/// keep off the edges, a little less padding in the side panel.
-fn card<R>(
-    ui: &mut Ui,
-    theme: &Palette,
-    scale: controls::Scale,
-    add: impl FnOnce(&mut Ui) -> R,
-) -> R {
-    let pad = match scale {
-        controls::Scale::Panel => SPACE_SM,
-        controls::Scale::Touch => SPACE_MD,
-    };
-    egui::Frame::new()
-        .fill(theme::rgb(theme.raised))
-        .stroke(egui::Stroke::new(1.0, theme::rgb(theme.border)))
-        .corner_radius(egui::CornerRadius::same(theme::RADIUS_LG))
-        .inner_margin(theme::margin(pad))
-        .show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            add(ui)
-        })
-        .inner
+/// Adds the space under a group, before the next one's header: the rule over
+/// each header is what separates groups now that they have no card
+/// (D512), so the gap is a little wider on the page.
+fn group_gap(ui: &mut Ui, scale: controls::Scale) {
+    match scale {
+        controls::Scale::Panel => ui.add_space(SPACE_SM),
+        controls::Scale::Touch => ui.add_space(SPACE_MD),
+    }
 }
 
 /// Lays `items` out as the scale wants: one under another in the side
@@ -974,7 +961,14 @@ fn columns_of(
     items: &[(Option<String>, Vec<usize>)],
     draw: &mut impl FnMut(&mut Ui, &(Option<String>, Vec<usize>)),
 ) {
+    // A wide gutter between columns, as the rules under the headers would
+    // otherwise run into each other; the rows inside keep the usual gaps.
+    let inner = ui.spacing().item_spacing.x;
+    ui.spacing_mut().item_spacing.x = theme::SPACE_LG;
     ui.columns(columns, |cols| {
+        for col in cols.iter_mut() {
+            col.spacing_mut().item_spacing.x = inner;
+        }
         let mut load = [0_usize; PAGE_COLUMNS_MAX];
         for item in items {
             let slot = (0..columns)
@@ -990,14 +984,69 @@ fn columns_of(
     });
 }
 
-/// A card's title where it has no header to click: the group header's
-/// capitals, without the chevron and the actions.
-fn card_title(ui: &mut Ui, theme: &Palette, name: &str) {
-    ui.label(
-        egui::RichText::new(name.to_uppercase())
-            .size(11.0)
-            .color(theme::rgb(theme.text)),
+/// The height of a group header, and of an output group's title.
+const HEADER_HEIGHT: f32 = 26.0;
+
+/// A group's name in the header's capitals, at `x` on `rect`'s middle;
+/// returns where the name ends.
+fn header_name(ui: &Ui, rect: egui::Rect, x: f32, name: &str, color: egui::Color32) -> f32 {
+    let galley =
+        ui.painter()
+            .layout_no_wrap(name.to_uppercase(), super::fonts::strong(11.0), color);
+    let size = galley.size();
+    let end = x + size.x;
+    ui.painter()
+        .galley(egui::pos2(x, rect.center().y - size.y / 2.0), galley, color);
+    end
+}
+
+/// The hairline under a group header: what marks a group off now that it
+/// has no card (D512).
+fn header_rule(ui: &Ui, theme: &Palette, rect: egui::Rect) {
+    ui.painter().hline(
+        rect.x_range(),
+        rect.bottom() - 0.5,
+        egui::Stroke::new(1.0, theme::rgb(theme.border)),
     );
+}
+
+/// A group header's Default or Random button: a 20-point square, so it
+/// sits inside the 26-point header rather than over its rule and the rows
+/// around it, with no fill until the pointer is on it, since the header has
+/// none either.
+fn header_action(ui: &mut Ui, theme: &Palette, icon: Icon, tooltip: &str) -> egui::Response {
+    const SIDE: f32 = 20.0;
+    let (rect, response) = ui.allocate_exact_size(Vec2::splat(SIDE), Sense::click());
+    let lift = widgets::hover_t(ui, response.id, response.hovered());
+    if lift > 0.0 {
+        ui.painter().rect_filled(
+            rect,
+            egui::CornerRadius::same(theme::RADIUS),
+            theme::rgb(theme.hover).gamma_multiply(lift),
+        );
+    }
+    icons::paint(
+        ui.painter(),
+        egui::Rect::from_center_size(rect.center(), Vec2::splat(icons::DISCLOSURE + 1.0)),
+        icon,
+        theme::rgb(theme.text),
+    );
+    super::help::hovered(response, tooltip)
+}
+
+/// An output group's title, which has nothing to click: the group header's
+/// capitals and rule, without the chevron and the actions.
+fn group_title(ui: &mut Ui, theme: &Palette, name: &str) {
+    let width = ui.available_width();
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(width, HEADER_HEIGHT), Sense::hover());
+    header_name(
+        ui,
+        rect,
+        rect.left() + 2.0,
+        name,
+        theme::rgb(theme.text_muted),
+    );
+    header_rule(ui, theme, rect);
     ui.add_space(SPACE_XS);
 }
 
@@ -1035,14 +1084,26 @@ fn meta_section(
         {
             state.set_collapsed(NAME, !collapsed);
         }
-        if widgets::button(ui, theme, Some(Icon::Reset), "Reset output")
-            .on_hover_text("Return every output control to neutral")
-            .clicked()
-        {
-            for index in 0..meta.defs().len() {
-                meta.set_default(index);
+        // Reset output at the far end, a hairline between: the section's
+        // heading spans the columns its groups flow into (D512).
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if widgets::button(ui, theme, Some(Icon::Reset), "Reset output")
+                .on_hover_text("Return every output control to neutral")
+                .clicked()
+            {
+                for index in 0..meta.defs().len() {
+                    meta.set_default(index);
+                }
             }
-        }
+            let gap = ui.available_rect_before_wrap();
+            if gap.width() > SPACE_MD * 2.0 {
+                ui.painter().hline(
+                    gap.left() + SPACE_XS..=gap.right() - SPACE_SM,
+                    gap.center().y,
+                    egui::Stroke::new(1.0, theme::rgb(theme.border)),
+                );
+            }
+        });
     });
     if collapsed {
         return;
@@ -1055,13 +1116,11 @@ fn meta_section(
         scale,
         &groups,
         |ui, (name, members)| {
-            card(ui, theme, scale, |ui| {
-                if let Some(name) = name {
-                    card_title(ui, theme, &controls::display_name(name));
-                }
-                controls::rows(ui, theme, meta, members, Some(&mut *pins), scale);
-            });
-            ui.add_space(SPACE_SM);
+            if let Some(name) = name {
+                group_title(ui, theme, &controls::display_name(name));
+            }
+            controls::rows(ui, theme, meta, members, Some(&mut *pins), scale);
+            group_gap(ui, scale);
         },
     );
 }
@@ -1075,8 +1134,10 @@ enum HeaderAction {
     Random,
 }
 
-/// A group header: a chevron that turns, the name, the member count, and
-/// the group's two actions.
+/// A group header (D512): a chevron that turns, the name, the member count
+/// and the group's two actions, over a hairline. No fill: the name
+/// brightens under the pointer, and the actions, dimmed until then, come
+/// up to full strength.
 fn group_header(
     ui: &mut Ui,
     theme: &Palette,
@@ -1086,61 +1147,49 @@ fn group_header(
 ) -> HeaderAction {
     let mut action = HeaderAction::None;
     let width = ui.available_width();
-    let (rect, response) = ui.allocate_exact_size(Vec2::new(width, 26.0), Sense::click());
+    let (rect, response) = ui.allocate_exact_size(Vec2::new(width, HEADER_HEIGHT), Sense::click());
     let id = ui.scope_id().with(("group-header", name));
-    let fill = widgets::hover_fill(
-        ui,
-        response.id,
-        response.hovered(),
-        theme.raised,
-        theme.panel,
-    );
-    ui.painter()
-        .rect_filled(rect, egui::CornerRadius::same(theme::RADIUS), fill);
+    let near = ui.rect_contains_pointer(rect);
+    let color = widgets::hover_fill(ui, response.id, near, theme.text_muted, theme.text);
     // Collapsed points right; open points down: a quarter turn.
     let turn = super::motion::toggle(ui.ctx(), id, !collapsed, super::motion::QUICK);
     icons::paint_rotated(
         ui.painter(),
         egui::Rect::from_center_size(
-            egui::pos2(rect.left() + 12.0, rect.center().y),
+            egui::pos2(rect.left() + 8.0, rect.center().y),
             Vec2::splat(icons::DISCLOSURE),
         ),
         Icon::ChevronRight,
-        theme::rgb(theme.text_muted),
+        theme::rgb(theme.text_faint),
         turn * 0.25,
     );
+    let end = header_name(ui, rect, rect.left() + 20.0, name, color);
     ui.painter().text(
-        egui::pos2(rect.left() + 24.0, rect.center().y),
-        egui::Align2::LEFT_CENTER,
-        name.to_uppercase(),
-        egui::FontId::new(11.0, egui::FontFamily::Proportional),
-        theme::rgb(theme.text),
-    );
-    ui.painter().text(
-        egui::pos2(
-            rect.left() + 24.0 + 7.0 * name.chars().count() as f32 + 14.0,
-            rect.center().y,
-        ),
+        egui::pos2(end + 7.0, rect.center().y),
         egui::Align2::LEFT_CENTER,
         count.to_string(),
-        egui::FontId::new(10.0, egui::FontFamily::Proportional),
+        egui::FontId::new(10.5, egui::FontFamily::Proportional),
         theme::rgb(theme.text_faint),
     );
+    header_rule(ui, theme, rect);
     if response.clicked() {
         action = HeaderAction::Toggle;
     }
     // The two actions sit over the right end of the header and take their
     // clicks before the header does.
     let buttons = egui::Rect::from_min_max(
-        egui::pos2(rect.right() - 56.0, rect.top() + 2.0),
-        egui::pos2(rect.right() - 2.0, rect.bottom() - 2.0),
+        egui::pos2(rect.right() - 48.0, rect.top()),
+        egui::pos2(rect.right(), rect.bottom() - 1.0),
     );
     ui.scope_builder(
         egui::UiBuilder::new()
             .max_rect(buttons)
             .layout(egui::Layout::right_to_left(egui::Align::Center)),
         |ui| {
-            if widgets::icon_button(
+            if !near {
+                ui.multiply_opacity(0.5);
+            }
+            if header_action(
                 ui,
                 theme,
                 Icon::Dice,
@@ -1150,7 +1199,7 @@ fn group_header(
             {
                 action = HeaderAction::Random;
             }
-            if widgets::icon_button(
+            if header_action(
                 ui,
                 theme,
                 Icon::Reset,

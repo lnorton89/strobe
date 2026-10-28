@@ -1,12 +1,12 @@
 // ============================================================================
 // Module:       strobe_app::ui::controls
 // Description:  One widget per scene control kind, written against the
-//               control bank: the slider rail, toggle, bang, XY pad, colour
-//               swatch and dropdown, and the grouping of controls by
-//               UI_GROUP.
+//               control bank: the value bar, the toggle switch, bang, XY
+//               pad, colour swatch and dropdown, the macro cards' slider rail, and
+//               the grouping of controls by UI_GROUP.
 //
-// Dependencies: egui; strobe-scene (ControlBank, ControlDef, ControlKind);
-//               super::{theme, widgets, icon}
+// Dependencies: egui; strobe-scene (ControlBank, ControlDef, ControlKind,
+//               Mode); super::{theme, widgets, fonts, motion}
 // ============================================================================
 
 //! The control widgets (UI_DESIGN section 10).
@@ -16,45 +16,86 @@
 //!
 //! | Control | Widget | Writes |
 //! |---|---|---|
-//! | slider, knob | [`rail`] over the control's real range, plus an exact numeric field | `set` |
-//! | toggle | a switch | `set` to `MIN` or `MAX` |
-//! | bang, bang counter | a button with a pressed state | `press` |
-//! | xy | a drag pad with keyboard nudging | `set` of both components |
-//! | color | a colour swatch with a popup picker | `set` of three components |
-//! | dropdown | a combo box of labels | `set` to the option index |
+//! | slider, knob | a [`bar`] over the control's real range | `set` |
+//! | toggle | a property row with a switch at its right end | `set` to `MIN` or `MAX` |
+//! | bang, bang counter | a row-sized outlined button, its name in capitals | `press` |
+//! | xy | a property row with the readout, then a pad the rows' width | `set` of both components |
+//! | color | a property row with the hex value and a swatch that opens a picker | `set` of three components |
+//! | dropdown | a property row with a combo box at its right end | `set` to the option index |
 //!
-//! Widgets show the control's *target* (what was asked for), not its
-//! smoothed output, so a smooth slider does not fight the hand moving it.
+//! Widgets show the control's *target* (what was asked for), so a smooth
+//! slider does not fight the hand moving it. The bar also draws the
+//! smoothed *output* as a thin line while it is still easing there.
 //!
-//! ## The slider's interaction contract
+//! ## The value bar (D510, D511)
 //!
-//! These preserve Synesthesia's established modifier conventions
-//! (UI_DESIGN section 10, UI_IMPLEMENTATION_PLAN section 10):
+//! A float control is one row: the row is the slider, filled to the value,
+//! with the name inside it on the left and the number on the right
+//! (Blender's and Tweakpane's number fields, lil-gui's sliders). About a
+//! third of the height of a name over a rail, and the fill reads before
+//! the number does. What it shows:
 //!
-//! - click or drag the rail to set the value (relative, fine, with Shift:
-//!   a tenth of the speed);
-//! - double-click the rail, or middle-click it, to reset to the default;
-//! - the reset button beside the value does the same, and appears only when
-//!   the value differs from the default, so it is also the "modified" mark;
-//! - click the number to type an exact value;
-//! - with the rail focused, arrows move by 1% of the range (Shift: 0.1%,
+//! - the fill, from the left, or from zero when the range spans it (a
+//!   bipolar control reads "nothing" in its middle);
+//! - a 2-point edge at the value, in the accent;
+//! - a notch at the top and bottom where the default is, while the value
+//!   is elsewhere, and the number brighter and semibold: what was changed;
+//! - a thin line at the smoothed output while it catches up (not for a
+//!   speed control, whose output is a running phase; its number says
+//!   `/s` instead);
+//! - `MACRO` before the number when the control is pinned (D210).
+//!
+//! ## One row grammar (D510)
+//!
+//! Every control is a row in one frame: the bar's height, its raised
+//! surface and rounded ends, its name at the same left inset, and its value
+//! or widget ending at the same right inset. A slider is a bar; anything
+//! that is not a point on a range is a *property row* ([`property_row`]):
+//! the same frame with no fill, its switch, swatch or list at the right end
+//! where a bar's number sits. A bang is the one row that is a button: the
+//! frame outlined and its name in capitals in the middle. So a group's rows
+//! start and end on the same two lines whatever their kinds.
+//!
+//! The interaction contract (D511):
+//!
+//! - drag anywhere on the row: relative, so taking hold of a control never
+//!   makes the picture jump; Shift drags a tenth as fast;
+//! - click (press and release without moving) to type an exact value:
+//!   Enter or a click away sets it, Esc cancels. The field opens once the
+//!   double-click window has passed, so a double click never opens it;
+//! - double-click or middle-click to reset to the default, as Synesthesia
+//!   does; the right-click menu says Reset too;
+//! - with the row focused, arrows move by 1% of the range (Shift: 0.1%,
 //!   Ctrl: 10%).
+//!
+//! The macro cards keep the [`rail`]: a click there still sets the value
+//! where it lands.
 //!
 //! Every value is checked for being finite before it is drawn or written.
 
-use super::icon as icons;
-use super::theme::{self, SPACE_SM, SPACE_XS};
+use super::theme::{self, Density, SPACE_SM, SPACE_XS};
 use super::widgets;
-use crate::icon::Icon;
 use crate::palette::Palette;
 use egui::{CornerRadius, Key, Modifiers, Rect, Response, Sense, Stroke, Ui, Vec2};
-use strobe_scene::control::{Bang, ControlBank, ControlDef, ControlKind};
+use strobe_scene::control::{Bang, ControlBank, ControlDef, ControlKind, Mode};
 
-/// Size of the xy pad, in points.
-const PAD_SIZE: Vec2 = Vec2::new(160.0, 108.0);
+/// The xy pad's height in the side panel, in points.
+const PAD_HEIGHT: f32 = 108.0;
 
 /// The height of a slider rail's hit area.
 const RAIL_HEIGHT: f32 = 18.0;
+
+/// A value bar's corner radius: a step under the buttons', so
+/// a column of rows reads as rows.
+const BAR_RADIUS: u8 = 4;
+
+/// How long a click on a value bar waits before it opens the number for
+/// typing: egui's double-click window, so the first click of a double
+/// click (reset) never opens the field.
+const TYPE_AFTER: f64 = 0.3;
+
+/// The width of the field a value is typed into.
+const TYPE_WIDTH: f32 = 72.0;
 
 /// How large the rows are drawn (D291): the side panel's compact rows, or
 /// the main view's Controls page, sized for a finger as much as a mouse.
@@ -63,60 +104,39 @@ const RAIL_HEIGHT: f32 = 18.0;
 pub enum Scale {
     /// The side panel's Controls tab.
     Panel,
-    /// The main view's Controls page: taller rails, a larger pad, wider
-    /// switches and buttons.
+    /// The main view's Controls page: taller rows, a larger pad and
+    /// buttons.
     Touch,
 }
 
 impl Scale {
-    /// A slider rail's hit height.
-    const fn rail_height(self) -> f32 {
-        match self {
-            Self::Panel => RAIL_HEIGHT,
-            Self::Touch => 32.0,
+    /// A value bar's height at `density` (D510):
+    /// the window's density setting packs them as it packs every list.
+    pub const fn bar_height(self, density: Density) -> f32 {
+        match (self, density) {
+            (Self::Panel, Density::Comfortable) => 24.0,
+            (Self::Panel, Density::Compact) => 20.0,
+            (Self::Touch, Density::Comfortable) => 30.0,
+            (Self::Touch, Density::Compact) => 24.0,
         }
     }
 
-    /// The xy pad, at most `width` wide.
+    /// The xy pad: the row's full width, so its edges are the rows' edges
+    /// (D510), and a height that suits it.
     fn pad_size(self, width: f32) -> Vec2 {
         match self {
-            Self::Panel => PAD_SIZE,
-            Self::Touch => {
-                let w = width.clamp(PAD_SIZE.x, 280.0);
-                Vec2::new(w, w * 2.0 / 3.0)
-            }
+            Self::Panel => Vec2::new(width, PAD_HEIGHT),
+            Self::Touch => Vec2::new(width, (width * 0.5).clamp(PAD_HEIGHT, 200.0)),
         }
     }
 
-    /// A bang button's height.
-    const fn bang_height(self) -> f32 {
-        match self {
-            Self::Panel => 26.0,
-            Self::Touch => 40.0,
-        }
-    }
-
-    /// A toggle switch's size.
-    const fn switch_size(self) -> Vec2 {
-        match self {
-            Self::Panel => Vec2::new(32.0, 18.0),
-            Self::Touch => Vec2::new(48.0, 26.0),
-        }
-    }
-
-    /// A colour control's swatch.
-    const fn swatch_size(self) -> Vec2 {
-        match self {
-            Self::Panel => Vec2::new(40.0, 20.0),
-            Self::Touch => Vec2::new(56.0, 30.0),
-        }
-    }
-
-    /// The gap under each row, in steps of `SPACE_XS`.
-    const fn gap_steps(self) -> f32 {
-        match self {
-            Self::Panel => 1.0,
-            Self::Touch => 2.0,
+    /// A bang button's height at `density`.
+    pub const fn button_height(self, density: Density) -> f32 {
+        match (self, density) {
+            (Self::Panel, Density::Comfortable) => 26.0,
+            (Self::Panel, Density::Compact) => 22.0,
+            (Self::Touch, Density::Comfortable) => 36.0,
+            (Self::Touch, Density::Compact) => 30.0,
         }
     }
 }
@@ -316,6 +336,290 @@ fn rail_at(
     (response, out)
 }
 
+/// One float control drawn as a value bar (D510): what the row shows
+/// besides the value it changes.
+pub struct Bar<'a> {
+    /// The control's name as a person reads it.
+    pub label: &'a str,
+    /// The value at the bar's left end.
+    pub min: f32,
+    /// The value at its right end.
+    pub max: f32,
+    /// Where reset goes; notched while the value is elsewhere.
+    pub default: f32,
+    /// The control's smoothed output, drawn as a thin line while it eases
+    /// toward the value. `None` where the output is not a value on this
+    /// range (a speed control's is a running phase).
+    pub output: Option<f32>,
+    /// Said after the number: `" /s"` for a rate.
+    pub unit: &'static str,
+    /// A short mark before the number (a pinned macro).
+    pub tag: Option<&'a str>,
+    /// The row's height.
+    pub height: f32,
+}
+
+/// Where a bar's fill starts, as a fraction of its width: zero's place when
+/// the range spans zero (a bipolar control reads "nothing" in its middle),
+/// the left end otherwise.
+pub fn fill_origin(min: f32, max: f32) -> f32 {
+    if min.min(max) < 0.0 && min.max(max) > 0.0 {
+        fraction(0.0, min, max)
+    } else {
+        0.0
+    }
+}
+
+/// A value bar: the whole row is the slider. See the module docs for what
+/// it draws and its interaction contract. `id_salt` must identify the
+/// control, not its position.
+pub fn bar(
+    ui: &mut Ui,
+    theme: &Palette,
+    id_salt: impl std::hash::Hash + std::fmt::Debug,
+    spec: &Bar<'_>,
+    value: &mut f32,
+) -> (Response, RailOut) {
+    let (min, max, default) = (spec.min, spec.max, spec.default);
+    let width = ui.available_width().max(48.0);
+    // The identity comes from `id_salt`, as the rail's does, so a drag or a
+    // typed value stays with its control when the rows above it change.
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(width, spec.height), Sense::hover());
+    let response = ui
+        .interact(
+            rect,
+            ui.scope_id().with(("bar", id_salt)),
+            Sense::click_and_drag(),
+        )
+        .on_hover_cursor(egui::CursorIcon::ResizeHorizontal);
+    let typing_id = response.id.with("typing");
+    let after_id = response.id.with("type-after");
+    let typing = ui.data(|d| d.get_temp::<String>(typing_id));
+    let mut out = RailOut::default();
+    let span = max - min;
+    let usable = span.is_finite() && span.abs() > f32::EPSILON;
+    let places = decimals(min, max);
+
+    if usable && typing.is_none() {
+        let before = *value;
+        let now = ui.input(|i| i.time);
+        if response.double_clicked() || response.middle_clicked() {
+            *value = default;
+            out.reset = true;
+            ui.data_mut(|d| d.remove::<f64>(after_id));
+        } else if response.clicked() {
+            ui.data_mut(|d| d.insert_temp(after_id, now));
+        } else if response.dragged() {
+            let fine = ui.input(|i| i.modifiers.shift);
+            let delta = response.drag_delta().x / rect.width() * span;
+            *value += if fine { delta * 0.1 } else { delta };
+        }
+        if response.has_focus() {
+            let (step, modifiers) = ui.input(|i| {
+                let step = f32::from(i.key_pressed(Key::ArrowRight) || i.key_pressed(Key::ArrowUp))
+                    - f32::from(i.key_pressed(Key::ArrowLeft) || i.key_pressed(Key::ArrowDown));
+                (step, i.modifiers)
+            });
+            if step != 0.0 {
+                *value += step * nudge_size(modifiers) * span;
+            }
+        }
+        // A click no second click followed opens the number for typing.
+        if let Some(at) = ui.data(|d| d.get_temp::<f64>(after_id)) {
+            let waited = now - at;
+            if waited >= TYPE_AFTER {
+                let text = format!("{:.places$}", clamp_to(*value, min, max));
+                ui.data_mut(|d| {
+                    d.remove::<f64>(after_id);
+                    d.insert_temp(typing_id, text);
+                });
+                ui.ctx().request_repaint();
+            } else {
+                ui.ctx()
+                    .request_repaint_after(std::time::Duration::from_secs_f64(TYPE_AFTER - waited));
+            }
+        }
+        *value = clamp_to(*value, min, max);
+        if (*value - before).abs() > f32::EPSILON || out.reset {
+            out.changed = true;
+        }
+    }
+
+    let font = egui::TextStyle::Body.resolve(ui.style());
+    paint_bar(ui, theme, &response, spec, *value, typing.is_none());
+
+    if let Some(mut text) = typing {
+        let field = Rect::from_min_max(
+            egui::pos2(rect.right() - TYPE_WIDTH - 2.0, rect.top() + 2.0),
+            egui::pos2(rect.right() - 2.0, rect.bottom() - 2.0),
+        );
+        let edit = ui.put(
+            field,
+            egui::TextEdit::singleline(&mut text)
+                .id(typing_id.with("field"))
+                .font(font)
+                .align(egui::Align2::RIGHT_CENTER)
+                .margin(egui::Margin::symmetric(4, 0))
+                .desired_width(field.width()),
+        );
+        if edit.lost_focus() {
+            let cancelled = ui.input(|i| i.key_pressed(Key::Escape));
+            if !cancelled
+                && let Ok(typed) = text.trim().parse::<f32>()
+                && typed.is_finite()
+                && usable
+            {
+                *value = clamp_to(typed, min, max);
+                out.changed = true;
+            }
+            ui.data_mut(|d| d.remove::<String>(typing_id));
+        } else {
+            if !edit.has_focus() {
+                edit.request_focus();
+            }
+            ui.data_mut(|d| d.insert_temp(typing_id, text));
+        }
+    }
+    (response, out)
+}
+
+/// Paints a value bar over `response`'s rect, with its number unless a
+/// value is being typed over it.
+fn paint_bar(
+    ui: &Ui,
+    theme: &Palette,
+    response: &Response,
+    spec: &Bar<'_>,
+    value: f32,
+    show_number: bool,
+) {
+    let rect = response.rect;
+    let (min, max, default) = (spec.min, spec.max, spec.default);
+    let span = max - min;
+    let usable = span.is_finite() && span.abs() > f32::EPSILON;
+    let held = response.dragged() || response.has_focus();
+    let painter = ui.painter_at(rect);
+    let radius = CornerRadius::same(BAR_RADIUS);
+    let lifted = response.hovered() || response.dragged();
+    painter.rect_filled(
+        rect,
+        radius,
+        widgets::hover_fill(ui, response.id, lifted, theme.raised, theme.hover),
+    );
+    let x_at = |t: f32| rect.left() + rect.width() * t;
+    let t = fraction(value, min, max);
+    if usable {
+        let origin = fill_origin(min, max);
+        let (from, to) = (x_at(origin.min(t)), x_at(origin.max(t)));
+        if to - from > 0.5 {
+            // Rounded where the fill meets the bar's own rounded end.
+            let mut corners = CornerRadius::ZERO;
+            if origin.min(t) <= 0.0 {
+                corners.nw = BAR_RADIUS;
+                corners.sw = BAR_RADIUS;
+            }
+            let fill = if held {
+                theme.accent_soft.lerp(theme.accent, 0.15)
+            } else {
+                theme.accent_soft
+            };
+            painter.rect_filled(
+                Rect::from_x_y_ranges(from..=to, rect.y_range()),
+                corners,
+                theme::rgb(fill),
+            );
+        }
+        // The smoothed output, while it is still on its way.
+        if let Some(output) = spec.output
+            && output.is_finite()
+            && (output - value).abs() > span.abs() * 0.004
+        {
+            painter.vline(
+                x_at(fraction(output, min, max)),
+                rect.y_range(),
+                Stroke::new(1.0, theme::rgb(theme.accent).gamma_multiply(0.6)),
+            );
+        }
+        let edge = if held { 1.5 } else { 1.0 };
+        painter.rect_filled(
+            Rect::from_x_y_ranges(x_at(t) - edge..=x_at(t) + edge, rect.y_range()),
+            CornerRadius::ZERO,
+            theme::rgb(theme.accent),
+        );
+        // The default's notch: where reset goes, and that this was changed.
+        let home = fraction(default, min, max);
+        if (home - t).abs() > 0.01 {
+            let x = x_at(home);
+            let notch = Stroke::new(1.0, theme::rgb(theme.text_muted));
+            painter.vline(x, rect.top()..=rect.top() + 5.0, notch);
+            painter.vline(x, rect.bottom() - 5.0..=rect.bottom(), notch);
+        }
+    }
+    if response.has_focus() {
+        painter.rect_stroke(
+            rect,
+            radius,
+            Stroke::new(1.5, theme::rgb(theme.accent)),
+            egui::StrokeKind::Inside,
+        );
+    }
+
+    let font = egui::TextStyle::Body.resolve(ui.style());
+    let center = rect.center().y;
+    let mut right = rect.right() - SPACE_SM;
+    if show_number {
+        let modified = usable && (value - default).abs() > span.abs() * 0.001;
+        let places = decimals(min, max);
+        let (face, color) = if modified {
+            (super::fonts::strong(font.size), theme.text)
+        } else {
+            (font.clone(), theme.text_muted)
+        };
+        let galley = painter.layout_no_wrap(
+            format!("{value:.places$}{}", spec.unit),
+            face,
+            theme::rgb(color),
+        );
+        let size = galley.size();
+        painter.galley(
+            egui::pos2(right - size.x, center - size.y / 2.0),
+            galley,
+            theme::rgb(color),
+        );
+        right -= size.x + SPACE_SM;
+    } else {
+        right -= TYPE_WIDTH + SPACE_XS;
+    }
+    if let Some(tag) = spec.tag {
+        let galley = painter.layout_no_wrap(
+            tag.to_string(),
+            super::fonts::strong(9.5),
+            theme::rgb(theme.app),
+        );
+        let size = galley.size();
+        let chip = Rect::from_center_size(
+            egui::pos2(right - size.x / 2.0 - SPACE_XS, center),
+            Vec2::new(size.x + SPACE_SM, size.y + 1.0),
+        );
+        painter.rect_filled(chip, CornerRadius::same(3), theme::rgb(theme.text_muted));
+        painter.galley(chip.center() - size / 2.0, galley, theme::rgb(theme.app));
+        right = chip.left() - SPACE_XS;
+    }
+    let label = widgets::truncated(
+        ui,
+        spec.label,
+        font,
+        theme.text,
+        right - rect.left() - SPACE_SM,
+    );
+    let size = label.size();
+    painter.galley(
+        egui::pos2(rect.left() + SPACE_SM, center - size.y / 2.0),
+        label,
+        theme::rgb(theme.text),
+    );
+}
+
 /// How far one arrow press moves a slider, as a fraction of its range.
 fn nudge_size(modifiers: Modifiers) -> f32 {
     if modifiers.command {
@@ -383,23 +687,6 @@ pub fn display_name(name: &str) -> String {
     }
 }
 
-/// A control's name, which right-clicks to the pin menu.
-fn name_label(
-    ui: &mut Ui,
-    theme: &Palette,
-    def: &ControlDef,
-    pins: &mut Option<&mut Pins<'_>>,
-) -> Response {
-    let response = ui.add(
-        egui::Label::new(
-            egui::RichText::new(display_name(&def.name)).color(theme::rgb(theme.text)),
-        )
-        .sense(Sense::click()),
-    );
-    pin_menu(&response, def, pins);
-    response
-}
-
 /// Draws every control in `members` (indices into the bank). Group headers
 /// are the inspector's business; this draws the rows, at `scale`. With
 /// `pins`, a control's name offers to pin it as a macro.
@@ -413,31 +700,43 @@ pub fn rows(
 ) {
     let pins = &mut pins;
     for &index in members {
-        let Some(def) = bank.defs().get(index).cloned() else {
-            continue;
-        };
-        let target = bank.target(index).copied().unwrap_or_default();
-        let output = bank.output(index).copied().unwrap_or_default();
-        ui.push_id(index, |ui| match def.kind {
-            ControlKind::Slider(_) | ControlKind::Knob(_) => {
-                slider_row(ui, theme, bank, index, &def, target[0], pins, scale);
-            }
-            ControlKind::Toggle { .. } => {
-                toggle_row(ui, theme, bank, index, &def, target[0], pins, scale);
-            }
-            ControlKind::Bang(kind) => {
-                bang_row(ui, theme, bank, index, &def, (kind, output[0]), pins, scale);
-            }
-            ControlKind::Xy(_) => xy_row(ui, theme, bank, index, &def, target, pins, scale),
-            ControlKind::Color { .. } => {
-                color_row(ui, theme, bank, index, &def, target, pins, scale);
-            }
-            ControlKind::Dropdown { .. } => {
-                dropdown_row(ui, theme, bank, index, &def, target[0], pins);
-            }
-        });
-        ui.add_space(SPACE_XS * scale.gap_steps());
+        control(ui, theme, bank, index, pins, scale);
     }
+}
+
+/// Draws the control at `index` with its kind's widget.
+fn control(
+    ui: &mut Ui,
+    theme: &Palette,
+    bank: &mut ControlBank,
+    index: usize,
+    pins: &mut Option<&mut Pins<'_>>,
+    scale: Scale,
+) {
+    let Some(def) = bank.defs().get(index).cloned() else {
+        return;
+    };
+    let target = bank.target(index).copied().unwrap_or_default();
+    let output = bank.output(index).copied().unwrap_or_default();
+    ui.push_id(index, |ui| match def.kind {
+        ControlKind::Slider(mode) | ControlKind::Knob(mode) => {
+            let values = (target[0], output[0], mode);
+            slider_row(ui, theme, bank, index, &def, values, pins, scale);
+        }
+        ControlKind::Toggle { .. } => {
+            toggle_row(ui, theme, bank, index, &def, target[0], pins, scale);
+        }
+        ControlKind::Bang(kind) => {
+            bang_row(ui, theme, bank, index, &def, (kind, output[0]), pins, scale);
+        }
+        ControlKind::Xy(_) => xy_row(ui, theme, bank, index, &def, target, pins, scale),
+        ControlKind::Color { .. } => {
+            color_row(ui, theme, bank, index, &def, target, pins, scale);
+        }
+        ControlKind::Dropdown { .. } => {
+            dropdown_row(ui, theme, bank, index, &def, target[0], pins, scale);
+        }
+    });
 }
 
 fn describe(response: Response, def: &ControlDef) -> Response {
@@ -447,25 +746,52 @@ fn describe(response: Response, def: &ControlDef) -> Response {
     }
 }
 
-/// The small reset button that appears beside a modified control.
-fn reset_button(ui: &mut Ui, theme: &Palette) -> Response {
-    let (rect, response) = ui.allocate_exact_size(Vec2::splat(18.0), Sense::click());
-    let fill = widgets::hover_fill(
-        ui,
-        response.id,
-        response.hovered(),
-        theme.panel,
-        theme.hover,
-    );
-    ui.painter()
-        .rect_filled(rect, CornerRadius::same(theme::RADIUS), fill);
-    icons::paint(
-        ui.painter(),
-        Rect::from_center_size(rect.center(), Vec2::splat(icons::DISCLOSURE)),
-        Icon::Reset,
-        theme::rgb(theme.text_muted),
-    );
-    response.on_hover_text("Reset to the default")
+/// A value bar's tooltip: the description, then the range and the default,
+/// so the bar itself carries no more words than its name and number.
+fn bar_tip(response: Response, def: &ControlDef, spec: &Bar<'_>) -> Response {
+    let places = decimals(spec.min, spec.max);
+    response.on_hover_ui(|ui| {
+        if let Some(text) = &def.description {
+            ui.label(text);
+        }
+        ui.label(format!(
+            "{:.places$} to {:.places$}{}, default {:.places$}",
+            spec.min, spec.max, spec.unit, spec.default
+        ));
+    })
+}
+
+/// A row's right-click menu: Reset, and pinning as a macro where the row
+/// offers it (D210). True when Reset was chosen.
+fn row_menu(
+    response: &Response,
+    def: &ControlDef,
+    modified: bool,
+    pins: &mut Option<&mut Pins<'_>>,
+) -> bool {
+    let mut reset = false;
+    response.context_menu(|ui| {
+        if ui
+            .add_enabled(modified, egui::Button::new("Reset to the default"))
+            .clicked()
+        {
+            reset = true;
+            ui.close();
+        }
+        if let Some(pins) = pins.as_deref_mut() {
+            let pinned = pins.pinned.contains(&def.name);
+            let (label, pin) = if pinned {
+                ("Unpin the macro", false)
+            } else {
+                ("Pin as a macro", true)
+            };
+            if ui.button(label).clicked() {
+                pins.chosen = Some((def.name.clone(), pin));
+                ui.close();
+            }
+        }
+    });
+    reset
 }
 
 #[expect(
@@ -478,7 +804,7 @@ fn slider_row(
     bank: &mut ControlBank,
     index: usize,
     def: &ControlDef,
-    v: f32,
+    (v, output, mode): (f32, f32, Mode),
     pins: &mut Option<&mut Pins<'_>>,
     scale: Scale,
 ) {
@@ -488,47 +814,30 @@ fn slider_row(
         return;
     }
     let mut value = if v.is_finite() { v } else { default };
-    let places = decimals(min, max);
+    // A speed control sets a rate; its output is the phase that rate
+    // drives, not a value on this range.
+    let (output, unit) = match mode {
+        Mode::Plain | Mode::Smooth => (Some(output), ""),
+        Mode::Speed | Mode::Traveler => (None, " /s"),
+    };
+    let name = display_name(&def.name);
+    let pinned = pins
+        .as_deref()
+        .is_some_and(|pins| pins.pinned.contains(&def.name));
+    let spec = Bar {
+        label: &name,
+        min,
+        max,
+        default,
+        output,
+        unit,
+        tag: pinned.then_some("MACRO"),
+        height: scale.bar_height(theme::density()),
+    };
     let modified = (value - default).abs() > (max - min).abs() * 0.001;
-    ui.horizontal(|ui| {
-        let label = name_label(ui, theme, def, pins);
-        describe(label, def);
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            // The number at the row's right edge, over the rail's end; the
-            // reset button left of it, its slot kept while it is hidden, so
-            // nothing moves when a control is modified. With the slot at the
-            // edge the number stood a button's width short of the rail.
-            let drag = ui.add(
-                egui::DragValue::new(&mut value)
-                    .range(min.min(max)..=min.max(max))
-                    .speed((max - min).abs() / 400.0)
-                    .min_decimals(places)
-                    .max_decimals(places)
-                    .update_while_editing(false),
-            );
-            if drag.changed() {
-                bank.set(index, Some(0), &[clamp_to(value, min, max)]);
-            }
-            if modified {
-                if reset_button(ui, theme).clicked() {
-                    bank.set_default(index);
-                }
-            } else {
-                ui.allocate_exact_size(Vec2::splat(18.0), Sense::hover());
-            }
-        });
-    });
-    let width = ui.available_width();
-    let (_, out) = rail_at(
-        ui,
-        theme,
-        index,
-        width,
-        scale.rail_height(),
-        &mut value,
-        (min, max, default),
-    );
-    if out.reset {
+    let (response, out) = bar(ui, theme, index, &spec, &mut value);
+    let response = bar_tip(response, def, &spec);
+    if row_menu(&response, def, modified, pins) || out.reset {
         bank.set_default(index);
     } else if out.changed {
         bank.set(index, Some(0), &[value]);
@@ -549,44 +858,112 @@ fn toggle_row(
     pins: &mut Option<&mut Pins<'_>>,
     scale: Scale,
 ) {
+    // A property row with the switch at its right end (D510); a click
+    // anywhere on the row flips it.
     let on = def.normalize(0, v) >= 0.5;
-    let response = ui
-        .horizontal(|ui| {
-            let size = scale.switch_size();
-            let (rect, response) = ui.allocate_exact_size(size, Sense::click());
-            let t = super::motion::toggle(ui.ctx(), response.id, on, super::motion::INSTANT);
-            let painter = ui.painter();
-            let track = if on { theme.accent } else { theme.control };
-            let half = size.y / 2.0;
-            let round = CornerRadius::same(half as u8);
-            painter.rect_filled(rect, round, theme::rgb(track));
-            let x = rect.left() + half + t * (rect.width() - size.y);
-            painter.circle_filled(
-                egui::pos2(x, rect.center().y),
-                half - 2.5,
-                theme::rgb(if on { theme.text_on_accent } else { theme.text }),
-            );
-            if response.has_focus() {
-                painter.rect_stroke(
-                    rect.expand(2.0),
-                    CornerRadius::same(half as u8 + 1),
-                    Stroke::new(1.5, theme::rgb(theme.accent)),
-                    egui::StrokeKind::Outside,
-                );
-            }
-            name_label(ui, theme, def, pins);
-            ui.label(
-                egui::RichText::new(if on { "ON" } else { "OFF" })
-                    .small()
-                    .color(theme::rgb(if on { theme.accent } else { theme.text_muted })),
-            );
-            response
-        })
-        .inner;
-    if describe(response, def).clicked() {
+    let name = display_name(&def.name);
+    let switch = switch_size(scale.bar_height(theme::density()));
+    let response = property_row(ui, theme, &name, scale, switch.x);
+    response
+        .widget_info(|| egui::WidgetInfo::selected(egui::Role::CheckBox, true, on, name.as_str()));
+    let rect = right_slot(response.rect, switch);
+    // The switch's slide has an id of its own: the row's hover fill is
+    // keyed by `response.id`, and one animation under both drew the switch
+    // on whenever the pointer was over the row.
+    let t = super::motion::toggle(
+        ui.ctx(),
+        response.id.with("switch"),
+        on,
+        super::motion::INSTANT,
+    );
+    let half = switch.y / 2.0;
+    let painter = ui.painter();
+    painter.rect_filled(
+        rect,
+        CornerRadius::same(half as u8),
+        theme::rgb(theme.control.lerp(theme.accent, t)),
+    );
+    painter.circle_filled(
+        egui::pos2(
+            rect.left() + half + t * (rect.width() - switch.y),
+            rect.center().y,
+        ),
+        half - 2.0,
+        theme::rgb(theme.text.lerp(theme.text_on_accent, t)),
+    );
+    let response = describe(response, def);
+    let at_default = (def.normalize(0, def.default[0]) >= 0.5) == on;
+    if row_menu(&response, def, !at_default, pins) {
+        bank.set_default(index);
+    } else if response.clicked() {
         let next = if on { def.min[0] } else { def.max[0] };
         bank.set(index, Some(0), &[next]);
     }
+}
+
+/// A toggle's switch, sized to sit inside a row `height` tall.
+fn switch_size(height: f32) -> Vec2 {
+    let tall = (height - 10.0).max(12.0);
+    Vec2::new((tall * 1.8).round(), tall)
+}
+
+/// A row in a value bar's frame for a control that is not a point on a
+/// range (D510): the bar's height, raised surface and rounded ends, and
+/// the name at the bar's left inset. The caller draws its widget,
+/// `widget` wide, at the right end ([`right_slot`]), where a bar's number
+/// sits, so every row of a group starts and ends on the same two lines.
+fn property_row(ui: &mut Ui, theme: &Palette, name: &str, scale: Scale, widget: f32) -> Response {
+    let height = scale.bar_height(theme::density());
+    let size = Vec2::new(ui.available_width().max(48.0), height);
+    let (rect, response) = ui.allocate_exact_size(size, Sense::click());
+    let painter = ui.painter_at(rect);
+    let radius = CornerRadius::same(BAR_RADIUS);
+    painter.rect_filled(
+        rect,
+        radius,
+        widgets::hover_fill(
+            ui,
+            response.id,
+            response.hovered(),
+            theme.raised,
+            theme.hover,
+        ),
+    );
+    if response.has_focus() {
+        painter.rect_stroke(
+            rect,
+            radius,
+            Stroke::new(1.5, theme::rgb(theme.accent)),
+            egui::StrokeKind::Inside,
+        );
+    }
+    let font = egui::TextStyle::Body.resolve(ui.style());
+    let label = widgets::truncated(
+        ui,
+        name,
+        font,
+        theme.text,
+        rect.width() - widget - SPACE_SM * 3.0,
+    );
+    let label_size = label.size();
+    painter.galley(
+        egui::pos2(rect.left() + SPACE_SM, rect.center().y - label_size.y / 2.0),
+        label,
+        theme::rgb(theme.text),
+    );
+    response
+}
+
+/// Where a widget `size` large sits at a row's right end: inset as a bar's
+/// number is, centred on the row.
+fn right_slot(row: Rect, size: Vec2) -> Rect {
+    Rect::from_min_size(
+        egui::pos2(
+            row.right() - SPACE_SM - size.x,
+            row.center().y - size.y / 2.0,
+        ),
+        size,
+    )
 }
 
 #[expect(
@@ -603,28 +980,86 @@ fn bang_row(
     pins: &mut Option<&mut Pins<'_>>,
     scale: Scale,
 ) {
-    ui.horizontal(|ui| {
-        let response = bang_button_sized(ui, theme, &def.name, scale.bang_height());
-        pin_menu(&response, def, pins);
-        if describe(response, def).clicked() {
-            bank.press(index);
+    // A button the row's width and height (D510): outlined and labelled in
+    // capitals in its middle, where every other row has its name at the
+    // left, so it reads as a thing to hit. A counter shows its hits at the
+    // right end, where a bar's number sits.
+    let size = Vec2::new(
+        ui.available_width().max(48.0),
+        scale.bar_height(theme::density()),
+    );
+    let (rect, response) = ui.allocate_exact_size(size, Sense::click());
+    let pressed = response.is_pointer_button_down_on();
+    let painter = ui.painter_at(rect);
+    let radius = CornerRadius::same(BAR_RADIUS);
+    let fill = if pressed {
+        theme::rgb(theme.accent)
+    } else {
+        widgets::hover_fill(
+            ui,
+            response.id,
+            response.hovered(),
+            theme.raised,
+            theme.hover,
+        )
+    };
+    painter.rect_filled(rect, radius, fill);
+    let edge = if pressed || response.has_focus() {
+        theme.accent
+    } else {
+        theme.border_strong
+    };
+    painter.rect_stroke(
+        rect,
+        radius,
+        Stroke::new(1.0, theme::rgb(edge)),
+        egui::StrokeKind::Inside,
+    );
+    let ink = if pressed {
+        theme.text_on_accent
+    } else {
+        theme.text
+    };
+    let font = egui::TextStyle::Body.resolve(ui.style());
+    let label = painter.layout_no_wrap(
+        display_name(&def.name).to_uppercase(),
+        super::fonts::strong(font.size),
+        theme::rgb(ink),
+    );
+    painter.galley(rect.center() - label.size() / 2.0, label, theme::rgb(ink));
+    match kind {
+        Bang::Counter | Bang::CounterSmooth => {
+            let count = painter.layout_no_wrap(
+                format!("{output:.0}"),
+                font,
+                theme::rgb(if pressed { ink } else { theme.text_muted }),
+            );
+            let count_size = count.size();
+            painter.galley(
+                egui::pos2(
+                    rect.right() - SPACE_SM - count_size.x,
+                    rect.center().y - count_size.y / 2.0,
+                ),
+                count,
+                theme::rgb(theme.text_muted),
+            );
         }
-        match kind {
-            Bang::Counter | Bang::CounterSmooth => {
-                ui.label(
-                    egui::RichText::new(format!("{output:.0}"))
-                        .monospace()
-                        .color(theme::rgb(theme.text_muted)),
-                );
-            }
-            Bang::Plain | Bang::Smooth => {}
-        }
-    });
+        Bang::Plain | Bang::Smooth => {}
+    }
+    pin_menu(&response, def, pins);
+    if describe(response, def).clicked() {
+        bank.press(index);
+    }
 }
 
 /// A momentary button with a visible pressed state.
 pub fn bang_button(ui: &mut Ui, theme: &Palette, name: &str) -> Response {
-    bang_button_sized(ui, theme, name, Scale::Panel.bang_height())
+    bang_button_sized(
+        ui,
+        theme,
+        name,
+        Scale::Panel.button_height(theme::density()),
+    )
 }
 
 /// [`bang_button`], `height` tall.
@@ -686,22 +1121,26 @@ fn xy_row(
     pins: &mut Option<&mut Pins<'_>>,
     scale: Scale,
 ) {
+    // A property row with the readout where a bar's number sits, then the
+    // pad under it, the rows' full width (D510).
+    const READOUT: f32 = 96.0;
     let modified = def.default[0] != v[0] || def.default[1] != v[1];
-    ui.horizontal(|ui| {
-        name_label(ui, theme, def, pins);
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            // The readout at the edge, the reset left of it: it no longer
-            // moves when the pad leaves its default.
-            ui.label(
-                egui::RichText::new(format!("{:.2}, {:.2}", v[0], v[1]))
-                    .monospace()
-                    .color(theme::rgb(theme.text_muted)),
-            );
-            if modified && reset_button(ui, theme).clicked() {
-                bank.set_default(index);
-            }
-        });
-    });
+    let name = display_name(&def.name);
+    let row = property_row(ui, theme, &name, scale, READOUT);
+    ui.painter().text(
+        egui::pos2(row.rect.right() - SPACE_SM, row.rect.center().y),
+        egui::Align2::RIGHT_CENTER,
+        format!("{:.2}, {:.2}", v[0], v[1]),
+        egui::TextStyle::Body.resolve(ui.style()),
+        theme::rgb(if modified {
+            theme.text
+        } else {
+            theme.text_muted
+        }),
+    );
+    if row_menu(&describe(row, def), def, modified, pins) {
+        bank.set_default(index);
+    }
     let pad = scale.pad_size(ui.available_width());
     let (rect, response) = ui.allocate_exact_size(pad, Sense::click_and_drag());
     let response = describe(response, def);
@@ -775,14 +1214,36 @@ fn color_row(
     pins: &mut Option<&mut Pins<'_>>,
     scale: Scale,
 ) {
-    ui.horizontal(|ui| {
-        let mut rgb = v;
-        let response = swatch(ui, theme, &mut rgb, scale.swatch_size());
-        if describe(response, def).changed() {
-            bank.set(index, None, &rgb);
-        }
-        name_label(ui, theme, def, pins);
-    });
+    // A property row with the swatch at its right end and the hex value
+    // before it (D510). The swatch opens the picker.
+    const HEX_ROOM: f32 = 64.0;
+    let height = scale.bar_height(theme::density());
+    let swatch_size = Vec2::new((height * 1.6).round(), height - 8.0);
+    let name = display_name(&def.name);
+    let row = property_row(ui, theme, &name, scale, swatch_size.x + HEX_ROOM);
+    let slot = right_slot(row.rect, swatch_size);
+    let channel = |c: f32| (c.clamp(0.0, 1.0) * 255.0).round() as u8;
+    ui.painter().text(
+        egui::pos2(slot.left() - SPACE_SM, row.rect.center().y),
+        egui::Align2::RIGHT_CENTER,
+        format!(
+            "#{:02X}{:02X}{:02X}",
+            channel(v[0]),
+            channel(v[1]),
+            channel(v[2])
+        ),
+        egui::TextStyle::Small.resolve(ui.style()),
+        theme::rgb(theme.text_muted),
+    );
+    let mut rgb = v;
+    let picked = ui.put(slot, |ui: &mut Ui| swatch(ui, theme, &mut rgb, swatch_size));
+    if describe(picked, def).changed() {
+        bank.set(index, None, &rgb);
+    }
+    let modified = (0..3).any(|c| def.default[c] != v[c]);
+    if row_menu(&describe(row, def), def, modified, pins) {
+        bank.set_default(index);
+    }
 }
 
 /// A colour swatch, `size` large, that opens egui's picker.
@@ -808,6 +1269,10 @@ pub fn swatch(ui: &mut Ui, theme: &Palette, rgb: &mut [f32; 3], size: Vec2) -> R
     response
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a row's whole context, as its siblings take"
+)]
 fn dropdown_row(
     ui: &mut Ui,
     theme: &Palette,
@@ -816,11 +1281,21 @@ fn dropdown_row(
     def: &ControlDef,
     v: f32,
     pins: &mut Option<&mut Pins<'_>>,
+    scale: Scale,
 ) {
+    // A property row with the list at its right end (D510).
     let selected = (v.round().max(0.0) as usize).min(def.labels.len().saturating_sub(1));
     let current = def.labels.get(selected).cloned().unwrap_or_default();
-    ui.horizontal(|ui| {
-        let response = egui::ComboBox::from_id_salt(("dropdown", index))
+    let height = scale.bar_height(theme::density());
+    let width = (ui.available_width() * 0.5).clamp(80.0, 200.0);
+    let name = display_name(&def.name);
+    let row = property_row(ui, theme, &name, scale, width);
+    let slot = right_slot(row.rect, Vec2::new(width, height - 4.0));
+    let picked = ui.put(slot, |ui: &mut Ui| {
+        // No taller than the row, at the compact density too.
+        ui.spacing_mut().interact_size.y = slot.height();
+        egui::ComboBox::from_id_salt(("dropdown", index))
+            .width(width)
             .selected_text(current)
             .show_ui(ui, |ui| {
                 for (option, label) in def.labels.iter().enumerate() {
@@ -828,10 +1303,14 @@ fn dropdown_row(
                         bank.set(index, Some(0), &[option as f32]);
                     }
                 }
-            });
-        describe(response.response, def);
-        name_label(ui, theme, def, pins);
+            })
+            .response
     });
+    describe(picked, def);
+    let modified = (def.default[0] - v).abs() > f32::EPSILON;
+    if row_menu(&describe(row, def), def, modified, pins) {
+        bank.set_default(index);
+    }
 }
 
 #[cfg(test)]
@@ -993,6 +1472,238 @@ mod tests {
             1.0,
         );
         assert!(value.is_finite(), "the rail left {value} in a control");
+    }
+
+    /// Runs one egui pass at `time` with `events` and reports what a value
+    /// bar over 0..10 (default `default`) did.
+    fn run_bar(
+        ctx: &egui::Context,
+        time: f64,
+        events: Vec<egui::Event>,
+        value: &mut f32,
+        default: f32,
+    ) -> (Rect, RailOut) {
+        let theme = crate::palette::fallback().clone();
+        let mut out = RailOut::default();
+        let mut rect = Rect::NOTHING;
+        let mut raw = crate::ui::testing::input(Vec2::new(400.0, 200.0), events);
+        raw.time = Some(time);
+        let _ = crate::ui::testing::run(ctx, raw, |ui| {
+            let spec = Bar {
+                label: "Swirl",
+                min: 0.0,
+                max: 10.0,
+                default,
+                output: None,
+                unit: "",
+                tag: None,
+                height: 24.0,
+            };
+            let (response, result) = bar(ui, &theme, 0_u8, &spec, value);
+            rect = response.rect;
+            out = result;
+        });
+        (rect, out)
+    }
+
+    /// One press and release at `at`, starting at `time`; returns the time
+    /// after.
+    fn click_bar(ctx: &egui::Context, time: f64, at: egui::Pos2, value: &mut f32) -> f64 {
+        let _ = run_bar(
+            ctx,
+            time,
+            vec![egui::Event::PointerMoved(at), press(at, true)],
+            value,
+            5.0,
+        );
+        let _ = run_bar(ctx, time + 0.05, vec![press(at, false)], value, 5.0);
+        time + 0.05
+    }
+
+    #[test]
+    fn a_bar_drag_is_relative_so_taking_hold_does_not_jump() {
+        let ctx = egui::Context::default();
+        let mut value = 2.0;
+        let (rect, _) = run_bar(&ctx, 0.0, Vec::new(), &mut value, 5.0);
+        // Take hold far right of the value, then move left a tenth of the
+        // bar: the value moves by up to a tenth of the range, from where it
+        // was (the drag threshold keeps a little).
+        let start = egui::pos2(rect.left() + rect.width() * 0.9, rect.center().y);
+        let mut time = 0.0;
+        let mut at = start;
+        let _ = run_bar(
+            &ctx,
+            time,
+            vec![egui::Event::PointerMoved(at), press(at, true)],
+            &mut value,
+            5.0,
+        );
+        for _ in 0..10 {
+            time += 0.016;
+            at.x -= rect.width() * 0.01;
+            let _ = run_bar(
+                &ctx,
+                time,
+                vec![egui::Event::PointerMoved(at)],
+                &mut value,
+                5.0,
+            );
+        }
+        let _ = run_bar(&ctx, time + 0.016, vec![press(at, false)], &mut value, 5.0);
+        assert!(
+            value < 2.0 && value > 0.9,
+            "a drag left from 2.0 went down without jumping to the pointer: {value}"
+        );
+    }
+
+    #[test]
+    fn a_bar_click_opens_the_number_and_enter_sets_it() {
+        let ctx = egui::Context::default();
+        let mut value = 2.0;
+        let (rect, _) = run_bar(&ctx, 0.0, Vec::new(), &mut value, 5.0);
+        let at = rect.center();
+        let time = click_bar(&ctx, 0.0, at, &mut value);
+        assert!(
+            (value - 2.0).abs() < f32::EPSILON,
+            "a click does not move the value: {value}"
+        );
+        // After the double-click window the field opens, then takes focus.
+        let _ = run_bar(&ctx, time + 0.4, Vec::new(), &mut value, 5.0);
+        let _ = run_bar(&ctx, time + 0.45, Vec::new(), &mut value, 5.0);
+        let select_all = egui::Event::Key {
+            key: Key::A,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::COMMAND,
+        };
+        let _ = run_bar(
+            &ctx,
+            time + 0.5,
+            vec![select_all, egui::Event::Text("7.25".to_string())],
+            &mut value,
+            5.0,
+        );
+        let enter = egui::Event::Key {
+            key: Key::Enter,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::NONE,
+        };
+        let (_, out) = run_bar(&ctx, time + 0.55, vec![enter], &mut value, 5.0);
+        assert!(out.changed, "Enter reports the change");
+        assert!((value - 7.25).abs() < 1e-4, "typed 7.25, got {value}");
+    }
+
+    #[test]
+    fn a_bar_double_click_resets_and_opens_no_field() {
+        let ctx = egui::Context::default();
+        let mut value = 9.0;
+        let (rect, _) = run_bar(&ctx, 0.0, Vec::new(), &mut value, 5.0);
+        let at = rect.center();
+        let time = click_bar(&ctx, 0.0, at, &mut value);
+        let _ = click_bar(&ctx, time + 0.05, at, &mut value);
+        assert!(
+            (value - 5.0).abs() < f32::EPSILON,
+            "reset to the default: {value}"
+        );
+        // Long after, a typed character changes nothing: no field opened.
+        let _ = run_bar(&ctx, 2.0, Vec::new(), &mut value, 5.0);
+        let _ = run_bar(
+            &ctx,
+            2.1,
+            vec![egui::Event::Text("1".to_string())],
+            &mut value,
+            5.0,
+        );
+        assert!(
+            (value - 5.0).abs() < f32::EPSILON,
+            "nothing typed into a field: {value}"
+        );
+    }
+
+    #[test]
+    fn a_bipolar_bar_fills_from_zero_and_others_from_the_left() {
+        assert!(
+            (fill_origin(-1.0, 1.0) - 0.5).abs() < 1e-6,
+            "symmetric range"
+        );
+        assert!(
+            (fill_origin(-1.0, 3.0) - 0.25).abs() < 1e-6,
+            "lopsided range"
+        );
+        assert_eq!(fill_origin(0.0, 1.0), 0.0, "starts at zero");
+        assert_eq!(fill_origin(0.4, 1.6), 0.0, "all positive");
+        assert_eq!(fill_origin(-2.0, -1.0), 0.0, "all negative");
+    }
+
+    /// Every rectangle fill in `shapes`, nested lists opened.
+    fn fills(shapes: &[egui::epaint::ClippedShape]) -> Vec<egui::Color32> {
+        fn walk(shape: &egui::Shape, out: &mut Vec<egui::Color32>) {
+            match shape {
+                egui::Shape::Rect(rect) => out.push(rect.fill),
+                egui::Shape::Vec(inner) => {
+                    for shape in inner {
+                        walk(shape, out);
+                    }
+                }
+                egui::Shape::Noop
+                | egui::Shape::Circle(_)
+                | egui::Shape::Ellipse(_)
+                | egui::Shape::LineSegment { .. }
+                | egui::Shape::Path(_)
+                | egui::Shape::Band(_)
+                | egui::Shape::Text(_)
+                | egui::Shape::Mesh(_)
+                | egui::Shape::QuadraticBezier(_)
+                | egui::Shape::CubicBezier(_)
+                | egui::Shape::Callback(_) => {}
+            }
+        }
+        let mut out = Vec::new();
+        for clipped in shapes {
+            walk(&clipped.shape, &mut out);
+        }
+        out
+    }
+
+    #[test]
+    fn hovering_an_off_toggle_neither_flips_it_nor_draws_it_on() -> Result<()> {
+        let json = r#"{ "CONTROLS": [ { "NAME": "invert", "TYPE": "toggle" } ] }"#;
+        let scene = SceneDef::parse(json, "t")?;
+        let mut bank = ControlBank::new(scene.controls)?;
+        let theme = crate::palette::fallback().clone();
+        let ctx = egui::Context::default();
+        // Over the row, long enough for any hover animation to finish.
+        let over = egui::pos2(100.0, 12.0);
+        let mut last = Vec::new();
+        for frame in 0..12 {
+            let mut raw = crate::ui::testing::input(
+                Vec2::new(400.0, 200.0),
+                vec![egui::Event::PointerMoved(over)],
+            );
+            raw.time = Some(f64::from(frame) * 0.05);
+            let pass = crate::ui::testing::run(&ctx, raw, |ui| {
+                rows(ui, &theme, &mut bank, &[0], None, Scale::Touch);
+            });
+            last = pass.shapes;
+        }
+        let value = bank.target(0).copied().unwrap_or_default()[0];
+        assert!(
+            value.abs() < f32::EPSILON,
+            "hover flipped the toggle to {value}"
+        );
+        let drawn = fills(&last);
+        assert!(
+            !drawn.contains(&theme::rgb(theme.accent)),
+            "a hovered off toggle was drawn with the accent (on): {drawn:?}"
+        );
+        assert!(
+            drawn.contains(&theme::rgb(theme.control)),
+            "the off switch's track is drawn in the control colour: {drawn:?}"
+        );
+        Ok(())
     }
 
     #[test]
