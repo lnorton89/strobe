@@ -598,12 +598,15 @@ fn the_lease_holder_gets_the_controls_once_and_its_edits_reach_the_app() -> Resu
     rig.desktop.publish_with_rows(
         [64, 48],
         "/9j/".into(),
-        vec![strobe_remote::desktop::ControlRow {
-            bank: 7,
-            index: 0,
-            rect: [0.1, 0.2, 0.5, 0.1],
-            touch: true,
-        }],
+        strobe_remote::desktop::ControlLayout {
+            screen: [64.0, 48.0],
+            rows: vec![strobe_remote::desktop::ControlRow {
+                bank: 7,
+                index: 0,
+                rect: [0.1, 0.2, 0.5, 0.1],
+                touch: true,
+            }],
+        },
     );
     let layout = owner.until("desktop_layout")?;
     let frame = owner.json()?;

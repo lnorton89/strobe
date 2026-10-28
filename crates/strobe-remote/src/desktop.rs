@@ -227,6 +227,28 @@ pub fn valid_rows(rows: &[ControlRow]) -> bool {
         })
 }
 
+/// Where one picture has its control rows, and the size of the window it
+/// shows in the host's points (D515, D519). The controller lays its copies
+/// out at that size and scales them as it scales the picture, so a row
+/// drawn there fits the picture's row exactly.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ControlLayout {
+    /// The host's window, in its points.
+    pub screen: [f32; 2],
+    /// The rows drawn and visible.
+    pub rows: Vec<ControlRow>,
+}
+
+impl ControlLayout {
+    /// Whether it may be sent: a real window size, and [`valid_rows`].
+    pub fn valid(&self) -> bool {
+        self.screen
+            .iter()
+            .all(|edge| edge.is_finite() && *edge > 0.0 && *edge <= MAX_EDGE as f32)
+            && valid_rows(&self.rows)
+    }
+}
+
 #[derive(Debug, Default)]
 struct State {
     enabled: bool,
@@ -358,13 +380,13 @@ impl Desktop {
 
     /// Publish only the latest image; slow readers never accumulate frames.
     pub fn publish(&self, size: [u32; 2], jpeg: String) {
-        self.publish_with_rows(size, jpeg, Vec::new());
+        self.publish_with_rows(size, jpeg, ControlLayout::default());
     }
 
     /// As [`Self::publish`], with where the picture has its control rows
     /// (D515). The rows go to an owner that asked for the controls, under
     /// the frame's revision; rows that are not valid are not sent.
-    pub fn publish_with_rows(&self, size: [u32; 2], jpeg: String, rows: Vec<ControlRow>) {
+    pub fn publish_with_rows(&self, size: [u32; 2], jpeg: String, layout: ControlLayout) {
         if size.contains(&0)
             || size.iter().any(|edge| *edge > MAX_EDGE)
             || jpeg.len() > MAX_FRAME - 1024
@@ -376,12 +398,14 @@ impl Desktop {
             return;
         }
         state.revision = state.revision.saturating_add(1);
-        state.layout = (state.controls_wanted && valid_rows(&rows)).then(|| {
-            Arc::new(crate::ServerMessage::DesktopLayout {
-                revision: state.revision,
-                rows,
-            })
-        });
+        state.layout =
+            (state.controls_wanted && layout.valid() && !layout.rows.is_empty()).then(|| {
+                Arc::new(crate::ServerMessage::DesktopLayout {
+                    revision: state.revision,
+                    screen: layout.screen,
+                    rows: layout.rows,
+                })
+            });
         state.frame = Some(Arc::new(crate::ServerMessage::DesktopFrame {
             revision: state.revision,
             size,
@@ -600,24 +624,30 @@ mod tests {
             rect: [0.1, 0.1, 0.5, 0.05],
             touch: true,
         };
-        desktop.publish_with_rows([8, 8], "jpeg".into(), vec![row.clone()]);
+        let layout = |rows: Vec<ControlRow>, screen: [f32; 2]| ControlLayout { screen, rows };
+        desktop.publish_with_rows([8, 8], "jpeg".into(), layout(vec![row.clone()], [8.0, 8.0]));
         assert!(desktop.layout().is_none(), "not asked: no rows");
         assert!(desktop.want_controls(1), "asks");
-        desktop.publish_with_rows([8, 8], "jpeg".into(), vec![row.clone()]);
+        desktop.publish_with_rows([8, 8], "jpeg".into(), layout(vec![row.clone()], [8.0, 8.0]));
         let frame = desktop.frame().map(|(revision, _)| revision);
-        let layout = desktop.layout().map(|(revision, _)| revision);
+        let sent = desktop.layout().map(|(revision, _)| revision);
         assert!(
-            frame.is_some() && layout == frame,
+            frame.is_some() && sent == frame,
             "the rows under the frame's revision"
         );
         let outside = ControlRow {
             rect: [0.9, 0.1, 0.5, 0.05],
-            ..row
+            ..row.clone()
         };
-        desktop.publish_with_rows([8, 8], "jpeg".into(), vec![outside]);
+        desktop.publish_with_rows([8, 8], "jpeg".into(), layout(vec![outside], [8.0, 8.0]));
         assert!(
             desktop.layout().is_none() && desktop.frame().is_some(),
             "rows outside the picture are not sent; the frame still is"
+        );
+        desktop.publish_with_rows([8, 8], "jpeg".into(), layout(vec![row], [0.0, 8.0]));
+        assert!(
+            desktop.layout().is_none(),
+            "nor rows of a window with no size (D519)"
         );
     }
 
