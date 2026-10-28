@@ -177,7 +177,30 @@ fn route(
             Ok(())
         }
         "/ws" => upgrade(stream, head, &format!("{scheme}://{host}")),
-        _ => Err(Response::text(404, "Not here.")),
+        path => {
+            // The web app's manifest, worker and icons (D517): the same
+            // Host check as the page, GET only, nothing secret in any.
+            let Some((content_type, body, extra)) = page::asset(path) else {
+                return Err(Response::text(404, "Not here."));
+            };
+            if head.method != "GET" {
+                return Err(Response::text(405, "GET only."));
+            }
+            let headers: Vec<String> = extra.iter().map(|line| (*line).to_string()).collect();
+            // As for the page: the connection ends after this reply either
+            // way, and a peer that left needs none.
+            let _ = http::respond(
+                stream,
+                &Response {
+                    status: 200,
+                    content_type,
+                    headers: &headers,
+                    body,
+                    head_only: false,
+                },
+            );
+            Ok(())
+        }
     }
 }
 

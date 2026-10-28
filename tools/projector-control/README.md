@@ -20,9 +20,10 @@ command.
 - **From Strobe:** Settings > Projectors. Switch on *Projector control*, add
   the projectors under *Connections* and Save, then switch them with On and
   Off. Switch on *Web page* to serve the phone page while Strobe runs.
-- **Headless:** `install.ps1` registers `strobe-projector serve` as the
-  SYSTEM task. The page is then there whenever the PC is on, with Strobe
-  closed or not.
+- **Headless:** `install.ps1` registers `strobe-projector serve` as a
+  startup task that runs as the user who runs Strobe (D518). The page is
+  then there whenever the PC is on, with Strobe closed or not and nobody
+  logged in.
 
 Both read the same file, `projectors.json` in Strobe's data directory
 (`%LOCALAPPDATA%\strobe\projectors.json`). Whichever binds the address
@@ -50,15 +51,17 @@ bypasses the policy for that one run and changes no setting.
 
 1. It builds `strobe-projector.exe` with `cargo build --release`, or takes
    `-Exe <path>`.
-2. It copies the binary to `C:\ProgramData\ProjectorControl\bin` and puts
-   `pj` on the machine PATH, pointed at the config.
+2. It copies the binary and its supervisor, `pj-service.ps1`, to
+   `projector-service\` beside the config (in that user's profile, so they
+   own it), and puts `pj` on the machine PATH, pointed at the config.
 3. It creates the config if it is missing:
    - **an existing Python install's `config\config.json` is moved over as
      it is**, keeping the token, the passwords and the Sony's MAC;
    - otherwise the config comes from `config.example.json` with a fresh
      token.
 4. It opens the page's port on the Private profile for the binary only, and
-   registers the task.
+   registers the task: at startup, as the user running the installer (or
+   `-ServiceUser`), with S4U so no password is stored, and not elevated.
 
 `-Config <path>` uses another config. `-NoService` installs `pj` only and
 removes the task; Strobe then serves the page.
@@ -71,7 +74,50 @@ API"). It removes the old `app\` and `python\`, and moves the config. The
 old `config\` (admin-only) and `logs\` folders stay in
 `C:\ProgramData\ProjectorControl` until you delete them.
 
-Re-run `install.ps1` after pulling changes.
+**Upgrading from the SYSTEM task (D502):** run `install.ps1` once more, as
+the user who runs Strobe. It stops the SYSTEM task's binary, removes
+`C:\ProgramData\ProjectorControl\bin`, and registers the task as that user.
+
+## Updates
+
+The task runs `pj-service.ps1`, which keeps `strobe-projector serve` running
+and, before each start, moves `projector-service\next\strobe-projector.exe`
+over the running copy. An update is: build, copy the exe into `next\`, end
+the running `strobe-projector`. None of it needs elevation, and the binary
+keeps its path, so the firewall rules hold. The supervisor logs each swap
+and restart to `projector-logs\service-updates.log`.
+
+On the mini PC the show launcher does this at every logon, right after it
+builds Strobe. These lines go in `jaja\start-show.ps1` (local to that PC),
+between step 3, the build, and step 4, the scene check:
+
+```powershell
+# 3b. The projector page's service (D518): build it from the same checkout and hand a new build
+#     to its supervisor, which swaps it in and starts it again. A failed build keeps the running one.
+$PjDir   = Join-Path $env:LOCALAPPDATA 'strobe\projector-service'
+$PjExe   = Join-Path $PjDir 'strobe-projector.exe'
+$PjBuilt = Join-Path $Repo 'target\release-fast\strobe-projector.exe'
+$pjBuild = & $Cargo build --profile release-fast -p strobe-projector --manifest-path (Join-Path $Repo 'Cargo.toml') 2>&1 | ForEach-Object { "$_" }
+if ($LASTEXITCODE -ne 0) {
+    Log "projector service: BUILD FAILED, keeping the running one; first error: $(($pjBuild | Select-String '^error' | Select-Object -First 1).Line)"
+} elseif (-not (Test-Path $PjExe)) {
+    Log "projector service: nothing installed at $PjExe (run tools\projector-control\install.ps1 once, elevated); not updating"
+} elseif ((Get-FileHash $PjBuilt).Hash -eq (Get-FileHash $PjExe).Hash) {
+    Log 'projector service: already running this build'
+} else {
+    New-Item -ItemType Directory -Force (Join-Path $PjDir 'next') | Out-Null
+    Copy-Item $PjBuilt (Join-Path $PjDir 'next\strobe-projector.exe') -Force
+    Get-CimInstance Win32_Process -Filter "Name='strobe-projector.exe'" |
+        Where-Object { $_.ExecutablePath -eq $PjExe -and $_.CommandLine -like '* serve*' } |
+        ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+    Log 'projector service: new build handed to its supervisor'
+}
+```
+
+The first logon after an install swaps once even with no code change,
+because `install.ps1` builds `release` and the launcher `release-fast`.
+Anywhere else, re-run `install.ps1` after pulling changes, or do the three
+steps by hand.
 
 The tests run offline against fake projectors:
 
@@ -104,7 +150,8 @@ So `Find-NetRoute 192.168.50.10` showing Wi-Fi means *the projector isn't answer
 |---|---|
 | `%LOCALAPPDATA%\strobe\projectors.json` | Names, IPs, passwords, the page's bind, port and token, and Strobe's two switches. In the user's profile: that user, SYSTEM and Administrators can read it. |
 | `%LOCALAPPDATA%\strobe\projector-logs\commands.log` | Audit log: timestamp, source (`cli:<user>`, `strobe`, `dhcp` or the client's IP), target, action, result. Rotates at 1 MB, keeps 10. The service's own log is beside it. |
-| `C:\ProgramData\ProjectorControl\bin\strobe-projector.exe` | The binary: CLI, service and DHCP helper |
+| `%LOCALAPPDATA%\strobe\projector-service\` | The binary (CLI, service and DHCP helper), `pj-service.ps1`, and `next\` for an update. That user has full control. |
+| `%LOCALAPPDATA%\strobe\projector-logs\service-updates.log` | The supervisor's log: each swap and restart. |
 | `C:\ProgramData\ProjectorControl\pj.cmd` | `pj`, on the machine PATH |
 
 ## CLI
@@ -133,8 +180,10 @@ a static IP on the unit is the permanent fix.
 
 ## Web page and API
 
-The service is the Scheduled Task **"ProjectorControl API"**. It runs `strobe-projector serve`
-as SYSTEM at startup (30 s delay), whether or not anyone is logged in, and restarts every minute
+The service is the Scheduled Task **"ProjectorControl API"**. It runs `pj-service.ps1`, which
+keeps `strobe-projector serve` running (again 3 s after it exits, or 30 s if it lasted under
+10 s), as the user who runs Strobe (S4U, not elevated) at startup (30 s delay), whether or not
+anyone is logged in. The task restarts the supervisor every minute
 on failure.
 
 The page binds **only** to the Tailscale IPv4 if Tailscale is up, otherwise to the Wi-Fi IPv4.
@@ -143,7 +192,7 @@ The firewall allows the port on the Private profile, for the binary only.
 **Never port-forward it.**
 
 - **UI:** `http://<wifi-or-tailscale-ip>:8780/`. Strobe's Settings > Projectors has *Copy link*. A phone signs in with the password once and keeps a session cookie (HttpOnly, SameSite=Strict) made from it, not the password itself.
-- **Password:** `api.password` in `projectors.json`, at least 6 characters (D516). Edit it there or as *Page password* in Settings; a running service picks it up within 10 s, and changing it signs every phone out. Every endpoint but `/favicon.ico` requires it. A file from before D516 has `api.token`, which is read as the password until one is set.
+- **Password:** `api.password` in `projectors.json`, at least 6 characters (D516). Edit it there or as *Page password* in Settings; a running service picks it up within 10 s, and changing it signs every phone out. Every endpoint but `/favicon.ico` and the web app's manifest, worker and icons (D517) requires it. A file from before D516 has `api.token`, which is read as the password until one is set.
 
 | Method | Path | |
 |---|---|---|

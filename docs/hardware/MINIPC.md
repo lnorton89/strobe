@@ -1129,6 +1129,17 @@ started ...` header on stdout.
 
 ## Still to do here
 
+- D518: the projector service still runs the SYSTEM task's 2026-10-27 build,
+  and nothing updates it. Once D517 and D518 are on master, run
+  `tools\projector-control\install.ps1` once, elevated, as JAJA. It moves the
+  service to JAJA (S4U) under `%LOCALAPPDATA%\strobe\projector-service`. Then
+  add the "Updates" lines from `tools/projector-control/README.md` to
+  `jaja\start-show.ps1` as step 3b. Check at the next logon that
+  `start-show.log` says "new build handed to its supervisor" or "already
+  running this build", and that `projector-logs\service-updates.log` shows
+  the swap. Then reboot with nobody logged in and check that the page
+  answers.
+
 - L-09: reboot the mini PC and check that "ProjectorControl API"
   (`strobe-projector serve`) comes back with nobody logged in and serves
   status. Open Strobe's Settings > Projectors once and switch a unit from

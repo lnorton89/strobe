@@ -263,6 +263,16 @@ impl Reply {
         }
     }
 
+    /// A reply of `body` as `content_type`.
+    pub fn bytes(status: u16, content_type: &'static str, body: &[u8]) -> Self {
+        Self {
+            status,
+            content_type,
+            headers: Vec::new(),
+            body: body.to_vec(),
+        }
+    }
+
     /// An empty reply.
     pub const fn empty(status: u16) -> Self {
         Self {
