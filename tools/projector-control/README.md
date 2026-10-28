@@ -168,8 +168,33 @@ Auth: `Authorization: Bearer <token>`, or the `pj_token` cookie set by the UI.
 | PJLink in standby / LAN wake | yes / yes | yes / yes |
 
 The service also survived a reboot: it came back with nobody logged in and served status.
-The Rust build keeps the same behaviour but is so far tested only against fake projectors
-(backlog L-09); repeat these checks on the units after installing it.
+
+### `strobe-projector` on the real units (2026-10-27, master e61f35d, Task M30)
+
+Installed on the mini PC over the Python install with `install.ps1`. The config moved
+over byte-identical.
+
+Power, with `pj -v on|off all --wait`, run twice. The second "on" came from standby, which is the LAN wake check:
+
+| | Panasonic PT-DZ6700 | Sony VPL-PHZ10 |
+|---|---|---|
+| On → reached | 20.1 s / 20.0 s. States seen: `on`, `lamp starting`, `on`. | 15.6 s / 15.6 s. States seen: `off`, `warming`, `on`. |
+| Off → state 0 | 171.3 s / 171.3 s. States seen: `cooling`, `off`. | 3.5 s / 3.5 s |
+| `%1POWR ?` in standby (3 probes, 15 s apart) | `0` every time | `0` every time |
+| Wake from standby | yes | yes |
+
+The other checks:
+
+- `pj discover` found both at their IPs (`PANASONIC-PT` / `DZ6700`, `VPL-PHZ10` / `SONY`),
+  with no PROBLEM lines.
+- `pj status` read power, input, lamp hours and errors from both over PJLink. Both were off at the time.
+- The task runs `strobe-projector.exe --config …\projectors.json serve` as SYSTEM. It listens
+  only on the Wi-Fi address, port 8780.
+- The page and API return 401 with no token, a wrong token, or an unauthenticated POST,
+  and 200 with the token.
+
+**Not yet run with the Rust build (backlog L-09):** the reboot check, that the task
+comes back with nobody logged in.
 
 ## Troubleshooting
 
