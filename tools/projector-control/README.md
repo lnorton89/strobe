@@ -81,11 +81,14 @@ the user who runs Strobe. It stops the SYSTEM task's binary, removes
 ## Updates
 
 The task runs `pj-service.ps1`, which keeps `strobe-projector serve` running
-and, before each start, moves `projector-service\next\strobe-projector.exe`
-over the running copy. An update is: build, copy the exe into `next\`, end
-the running `strobe-projector`. None of it needs elevation, and the binary
-keeps its path, so the firewall rules hold. The supervisor logs each swap
-and restart to `projector-logs\service-updates.log`.
+and looks in `projector-service\next\` every 5 s. When a new
+`strobe-projector.exe` appears there, it stops its own service, moves the
+build over the running copy and starts it again. An update is therefore:
+build, and leave the exe in `next\`. None of it needs elevation or access
+to the running process, which the user's own shell cannot see (no path, no
+command line, so it cannot stop it). The binary keeps its path, so the
+firewall rules hold. The supervisor logs each swap and restart to
+`projector-logs\service-updates.log`.
 
 On the mini PC the show launcher does this at every logon, right after it
 builds Strobe. These lines go in `jaja\start-show.ps1` (local to that PC),
@@ -105,19 +108,18 @@ if ($LASTEXITCODE -ne 0) {
 } elseif ((Get-FileHash $PjBuilt).Hash -eq (Get-FileHash $PjExe).Hash) {
     Log 'projector service: already running this build'
 } else {
+    # Copied under another name and renamed, so the supervisor never sees half a file.
     New-Item -ItemType Directory -Force (Join-Path $PjDir 'next') | Out-Null
-    Copy-Item $PjBuilt (Join-Path $PjDir 'next\strobe-projector.exe') -Force
-    Get-CimInstance Win32_Process -Filter "Name='strobe-projector.exe'" |
-        Where-Object { $_.ExecutablePath -eq $PjExe -and $_.CommandLine -like '* serve*' } |
-        ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
-    Log 'projector service: new build handed to its supervisor'
+    Copy-Item $PjBuilt (Join-Path $PjDir 'next\strobe-projector.tmp') -Force
+    Move-Item (Join-Path $PjDir 'next\strobe-projector.tmp') (Join-Path $PjDir 'next\strobe-projector.exe') -Force
+    Log 'projector service: new build left in next\; its supervisor swaps it in within 5 s'
 }
 ```
 
 The first logon after an install swaps once even with no code change,
 because `install.ps1` builds `release` and the launcher `release-fast`.
-Anywhere else, re-run `install.ps1` after pulling changes, or do the three
-steps by hand.
+Anywhere else, re-run `install.ps1` after pulling changes, or leave a build
+in `next\` by hand.
 
 The tests run offline against fake projectors:
 

@@ -12851,11 +12851,16 @@ profile.
   `C:\ProgramData\ProjectorControl` and points there. The old `bin\` is
   removed.
 - **The task runs the supervisor, not the binary.** It keeps
-  `strobe-projector serve` running and, before each start, moves
-  `next\strobe-projector.exe` over the binary. An update is: build, copy
-  into `next\`, end the running process. That needs no elevation, keeps
-  the binary's path (so the firewall rules hold), and logs each swap and
-  restart to `projector-logs\service-updates.log`.
+  `strobe-projector serve` running, looks in `next\` every 5 s, and when
+  a new `strobe-projector.exe` is there stops its own service, moves the
+  build over the binary and starts it again. An update is: build, and
+  leave the exe in `next\`. That needs no elevation and no access to the
+  running process, keeps the binary's path (so the firewall rules hold),
+  and logs each swap and restart to `projector-logs\service-updates.log`.
+  The first version had the launcher stop the service itself. On the mini
+  PC that failed: a process the S4U task starts shows the user's own
+  non-elevated shell no path and no command line, so the launcher found
+  nothing to stop, and the build waited in `next\` (2026-10-28).
 - **The mini PC's launcher does it at logon**, after it builds Strobe,
   with the lines in `tools/projector-control/README.md` ("Updates"): a
   failed build keeps the running service, an unchanged build does
@@ -12866,15 +12871,55 @@ write, so that user could replace it. They could already change the config
 and its password, and the binary now runs with that user's rights, not
 SYSTEM's, so nothing is gained by replacing it.
 
-**Test.** The scripts parse (PowerShell's parser, on LIGHTNING). Not yet
-run: the elevated install on the mini PC, a boot with nobody logged in, and
-an update handed over at logon (L-09).
+**Test.** The scripts parse (PowerShell's parser, on LIGHTNING), and the
+supervisor, run against a scratch folder, swaps in a build left in `next\`
+while its service runs. On the mini PC the elevated install moved the
+service to JAJA and it came back after a reboot (2026-10-28). Not yet run:
+a boot with nobody logged in, and the swap there (L-09).
 
 **Would reopen:** an account without "Log on as a batch job", which S4U
 needs (administrators have it by default), or a PC where the show's user
 is not the one who should own the service.
 
-### D519: a release publishes only a green, immutable, single commit (2026-10-28)
+### D519: the controller lays its rows out at the host's size and scales them with the picture (2026-10-28)
+
+**Context.** The first cut of D515 drew each control row at the
+controlling computer's own size into the row's rectangle on the shrunken
+picture of the host's window. On the venue desktop the picture is a
+little smaller than the host's window, so the rows did not fit: "ON"
+showed as "O", "Limit low" as "Limit lov". And a frame's rows arrive
+just before it, so for a frame the newest rows did not match the
+picture still shown, the overlay was hidden, and the picture's own row
+showed through at a slightly different size: hovering a row made it
+jump a few pixels.
+
+**Decision.**
+
+- `desktop_layout` carries the host's window size in its points
+  (`screen`), with the rows (`ControlLayout` on both sides).
+- The controller lays every row out at that size, in the host's points,
+  on one layer (an `egui::Area`) whose transform moves and scales it
+  exactly as the picture is moved and scaled
+  (`set_transform_layer`). A row is the host's row, at the picture's
+  scale, so it fits and covers it exactly; input on it goes through the
+  same transform.
+- The controller keeps the last four layouts by revision and draws the
+  one of the picture shown, so a newer frame's rows arriving early no
+  longer hide the overlay.
+
+**Test.** `desktop::tests::a_row_is_laid_out_at_the_hosts_size_and_lands_on_the_shrunken_picture`
+(a 1000 by 800 point host shown at half size: the row lands at half its
+rectangle; a picture with no rows of its own gets none),
+`remote_controls::tests` (the window size goes with the rows),
+`strobe_remote` (the frozen message with `screen`; a window with no size
+sends no rows). On the venue: LIGHTNING's rows not cut off and not
+moving when hovered.
+
+**Would reopen:** the host and controller on different UI densities,
+where the host's row size and this computer's widgets disagree even at
+the same scale.
+
+### D520: a release publishes only a green, immutable, single commit (2026-10-28)
 
 **Context.** An outside engineering audit (2026-10-28) read `release.yml`
 and found that "release from green master" was a habit, not a rule. The

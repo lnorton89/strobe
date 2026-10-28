@@ -44,7 +44,9 @@
 
 use std::time::{Duration, Instant};
 
-use strobe_remote::desktop::{ControlEdit, ControlRow, Desktop, MAX_SYNCED_CONTROLS, SyncedBank};
+use strobe_remote::desktop::{
+    ControlEdit, ControlLayout, ControlRow, Desktop, MAX_SYNCED_CONTROLS, SyncedBank,
+};
 use strobe_scene::control::{ControlBank, ControlDef, ControlKind};
 
 /// The playing scene's banks, as the host lends them to [`Publisher::tick`].
@@ -177,19 +179,20 @@ impl Publisher {
 
 impl Publisher {
     /// Where this pass drew the published banks' rows, as fractions of the
-    /// window `screen` (points), for the controller to draw its own copies
-    /// over them (D515). Rows of a bank whose controls changed since they
-    /// were published are left out until the next publication names them.
+    /// window `screen` (points), with that window's size, for the controller
+    /// to draw its own copies over them at the same scale (D515, D519). Rows
+    /// of a bank whose controls changed since they were published are left
+    /// out until the next publication names them.
     pub fn rows(
         &self,
         drawn: &[Drawn],
         scene: &ControlBank,
         output: &ControlBank,
         screen: egui::Rect,
-    ) -> Vec<ControlRow> {
+    ) -> ControlLayout {
         let size = screen.size();
         if size.x <= 0.0 || size.y <= 0.0 {
-            return Vec::new();
+            return ControlLayout::default();
         }
         let bank_of = |address: usize| {
             if address == key(scene) && self.scene.defs.as_slice() == scene.defs() {
@@ -200,7 +203,7 @@ impl Publisher {
                 None
             }
         };
-        drawn
+        let rows = drawn
             .iter()
             .filter_map(|row| {
                 let bank = bank_of(row.bank).filter(|id| *id != 0)?;
@@ -214,7 +217,11 @@ impl Publisher {
                 })
             })
             .filter(|row| strobe_remote::desktop::valid_rows(std::slice::from_ref(row)))
-            .collect()
+            .collect();
+        ControlLayout {
+            screen: [size.x, size.y],
+            rows,
+        }
     }
 }
 
@@ -799,7 +806,13 @@ mod tests {
         );
         let ids: Vec<u64> = published(&desktop)?.iter().map(|bank| bank.id).collect();
         let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1000.0, 800.0));
-        let rows = publisher.rows(&drawn, &scene, &output, screen);
+        let layout = publisher.rows(&drawn, &scene, &output, screen);
+        assert_eq!(
+            layout.screen,
+            [1000.0, 800.0],
+            "the window's own size goes with the rows, to lay them out at it (D519)"
+        );
+        let rows = layout.rows;
         let placed: Vec<(u64, u32, bool)> = rows
             .iter()
             .map(|row| (row.bank, row.index, row.touch))
@@ -825,7 +838,7 @@ mod tests {
         );
         let other = bank(&[SPEED])?;
         assert!(
-            publisher.rows(&drawn, &other, &output, screen).len() == 1,
+            publisher.rows(&drawn, &other, &output, screen).rows.len() == 1,
             "a bank the publication does not describe places nothing"
         );
         Ok(())
