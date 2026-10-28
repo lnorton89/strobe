@@ -472,7 +472,7 @@ impl Lan {
                 proxied: self.proxied.clone(),
                 trust: self.trust.clone(),
                 // Found by other Strobes on the LAN while it listens (D468).
-                advertise: Some(crate::trusted::computer_name()),
+                advertise: answers_discovery().then(crate::trusted::computer_name),
                 ..ServerConfig::new(ip, port)
             };
             Server::start(config, remote, clients)
@@ -722,6 +722,14 @@ impl Lan {
             })
             .clone()
     }
+}
+
+/// Whether a started remote answers LAN discovery: always in the app. In
+/// this crate's unit tests only with `STROBE_TEST_LAN=1`, as CI sets: the
+/// responder binds every interface, and on a developer's Windows machine
+/// that makes the firewall ask about each new test binary (D503).
+fn answers_discovery() -> bool {
+    !cfg!(test) || std::env::var_os("STROBE_TEST_LAN").is_some_and(|value| value == "1")
 }
 
 /// How many of `connections` are paired clients that authenticated.

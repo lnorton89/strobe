@@ -3,7 +3,7 @@
 // Description:  The localhost import listener, driven by a real TcpStream
 //               client: token, size, method, body shape and loopback binding.
 //
-// Dependencies: strobe_shadertoy; std::net
+// Dependencies: strobe_shadertoy; strobe_gfx::skip; std::net
 // ============================================================================
 
 //! The listener over a real socket.
@@ -451,7 +451,14 @@ fn it_binds_to_loopback_only() -> Result<()> {
     );
 
     // If this machine has another address, nothing must answer on it.
-    if let Some(other) = non_loopback_address() {
+    // Finding that address binds every interface, which on a developer's
+    // Windows machine makes the firewall ask about this test binary, so
+    // that half runs only with `STROBE_TEST_LAN=1`, as CI sets (D503).
+    if std::env::var_os("STROBE_TEST_LAN").is_none_or(|value| value != "1") {
+        strobe_gfx::skip::note(
+            "the non-loopback half binds every interface; set STROBE_TEST_LAN=1 to run it",
+        );
+    } else if let Some(other) = non_loopback_address() {
         let refused = TcpStream::connect_timeout(
             &SocketAddr::new(other, addr.port()),
             Duration::from_secs(2),

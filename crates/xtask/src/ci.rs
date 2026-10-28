@@ -54,6 +54,11 @@
 //! that skips for want of a context writes a line there
 //! (`strobe_gfx::skip`). The summary then says how many tests skipped and
 //! why, so a run where they skipped never reads as one where they ran.
+//!
+//! On Linux the tests also run with `STROBE_TEST_LAN=1`, as every CI job
+//! does, so the few that bind every interface run. Elsewhere it is left
+//! alone: on Windows such a bind makes the firewall ask about each new test
+//! binary (D503), so a developer opts in by setting it.
 
 use crate::{brand, changelog, credits};
 use anyhow::{Context as _, Result, bail};
@@ -71,6 +76,9 @@ const REQUIRE_GL: &str = "STROBE_REQUIRE_HEADLESS_GL";
 
 /// The file GPU tests record their skips in (`strobe_gfx::skip::LOG_VAR`).
 const SKIP_LOG: &str = "STROBE_SKIP_LOG";
+
+/// The environment variable that lets tests bind beyond loopback (D503).
+const LAN_TESTS: &str = "STROBE_TEST_LAN";
 
 /// Options for `cargo xtask ci`.
 #[derive(ClapArgs, Debug)]
@@ -208,6 +216,9 @@ fn plan(args: &Args) -> Result<Vec<Step>> {
     let mut test_env: Vec<(&'static str, String)> = Vec::new();
     if cfg!(target_os = "linux") && !args.allow_gl_skip && std::env::var_os(REQUIRE_GL).is_none() {
         test_env.push((REQUIRE_GL, "1".to_owned()));
+    }
+    if cfg!(target_os = "linux") && std::env::var_os(LAN_TESTS).is_none() {
+        test_env.push((LAN_TESTS, "1".to_owned()));
     }
     let skip_log = skip_log()?;
     // A fresh log per run; a missing one is already fresh.
