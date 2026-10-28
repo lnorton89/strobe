@@ -137,11 +137,13 @@ jobs:
       # An optimised build proves the Windows binaries compile and link with
       # `panic = "abort"` and opt-level 3. A pull request builds
       # `release-fast` (the same settings without fat LTO and one codegen
-      # unit), which takes a minute or two where `release` took six; the
-      # shipping `release` build runs once a change is on master, and again
-      # in release.yml for a tag (D504).
+      # unit); the shipping `release` build runs once a change is on master,
+      # and again in release.yml for a tag (D504). Master builds
+      # `release-fast` too: GitHub shares only the default branch's cache
+      # with pull requests, so that is what keeps their release-fast
+      # dependencies warm. Without it every pull request rebuilt them, 343 s
+      # against `release`'s six minutes, and saved almost nothing (D505).
       - name: Build release-fast binaries
-        if: ${{ !(github.event_name == 'push' && github.ref == 'refs/heads/master') && github.event_name != 'workflow_dispatch' }}
         run: cargo build --profile release-fast --workspace --bins
       - name: Build release binaries (fat LTO, as shipped)
         if: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/master') || github.event_name == 'workflow_dispatch' }}
