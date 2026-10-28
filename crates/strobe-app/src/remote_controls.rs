@@ -748,7 +748,9 @@ mod tests {
             ..egui::RawInput::default()
         };
         let mut draw = draw;
-        let _ = ctx.run_ui(input, |ui| draw(ui));
+        let mut output = ctx.run_ui(input, |ui| draw(ui));
+        // Nothing paints here; a debug build refuses unapplied textures.
+        output.textures_delta.clear();
     }
 
     #[test]
