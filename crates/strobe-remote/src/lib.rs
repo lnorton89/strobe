@@ -328,6 +328,15 @@ pub enum ServerMessage {
         /// The playing scene's bank, then the output's.
         banks: Vec<desktop::SyncedBank>,
     },
+    /// Where the frame of the same revision has the controls' rows (D515),
+    /// sent just before that frame to a lease holder that asked for the
+    /// controls, which draws its own copies over them.
+    DesktopLayout {
+        /// The frame this belongs to.
+        revision: u64,
+        /// One per control row drawn and visible.
+        rows: Vec<desktop::ControlRow>,
+    },
 }
 
 /// Audio state as displayed by the remote.
@@ -688,7 +697,8 @@ mod tests {
         r#"{"type":"desktop_control","edits":[{"bank":7,"index":2,"values":[0.25]},{"bank":7,"index":5,"values":[]}]}"#,
     ];
 
-    const CONTROLS_SERVER: [&str; 2] = [
+    const CONTROLS_SERVER: [&str; 3] = [
+        r#"{"type":"desktop_layout","revision":12,"rows":[{"bank":7,"index":0,"rect":[0.05,0.2,0.3,0.04],"touch":true}]}"#,
         r#"{"type":"desktop_controls","revision":4,"banks":[{"id":7,"title":"Acid Mirror","defs":[{"NAME":"speed","TYPE":"slider"}],"values":[[0.5,0.5,0.5]]}]}"#,
         r#"{"type":"desktop_controls","revision":5,"banks":[{"id":7,"title":"Acid Mirror","values":[[0.75,0.75,0.75]]}]}"#,
     ];
