@@ -40,7 +40,8 @@ use strobe_projector::wire;
 
 const PASSWORD: &str = "secret";
 const RANDOM: &str = "498e4a67";
-const TOKEN: &str = "0123456789abcdef0123456789abcdef";
+/// The page's password in these tests (D516).
+const PAGE_PASSWORD: &str = "stage-left";
 
 /// How long the fake takes to warm up or cool down.
 const TRANSITION: Duration = Duration::from_millis(300);
@@ -441,7 +442,7 @@ fn http(address: SocketAddr, request: &str) -> Result<(u16, String)> {
 fn the_web_api_switches_and_reports() -> Result<()> {
     let fake = FakePjLink::start()?;
     let mut config = Config::default();
-    config.api.token = TOKEN.into();
+    config.api.password = PAGE_PASSWORD.into();
     let mut projector = Projector::new("Fake", "127.0.0.1");
     projector.pjlink_password = PASSWORD.into();
     projector.pjlink_port = Some(fake.port);
@@ -460,10 +461,10 @@ fn the_web_api_switches_and_reports() -> Result<()> {
     });
     let server = Server::start(SocketAddr::from((Ipv4Addr::LOCALHOST, 0)), shared)?;
     let address = server.local_addr();
-    let bearer = format!("Authorization: Bearer {TOKEN}");
+    let bearer = format!("Authorization: Bearer {PAGE_PASSWORD}");
 
     let (status, _) = http(address, "POST /api/power/fake/on HTTP/1.1")?;
-    assert_eq!(status, 401, "no token");
+    assert_eq!(status, 401, "no password");
 
     let (status, body) = http(
         address,

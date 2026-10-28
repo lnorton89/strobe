@@ -578,9 +578,10 @@ A projector warming up or cooling down takes no command, so Strobe waits
 three minutes to cool.
 
 **Web page** serves a page with the same On and Off for a phone on the venue
-Wi-Fi or your tailnet. **Copy link** copies its address with the token: open
-it once on each phone. **New token** signs every phone out. It is plain
-HTTP: never forward its port.
+Wi-Fi or your tailnet. It asks for a password: set it as **Page password**
+under Connections (at least 6 characters) and Save. **Copy link** copies the
+page's address; a phone signs in once and stays signed in until the password
+changes. It is plain HTTP: never forward its port.
 
 The settings live in `%LOCALAPPDATA%strobeprojectors.json`. To have the
 page when Strobe is closed, and the `pj` command line, see
