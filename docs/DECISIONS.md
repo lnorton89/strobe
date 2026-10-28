@@ -12714,3 +12714,21 @@ text) and captures at both densities.
 
 **Would reopen:** groups that run together in a long scene, which a card
 would separate better than a rule.
+
+### D513: the window controls end at the window's edge (2026-10-28, owner's request)
+
+**Context.** The custom title bar (D132) had an 8-point inner margin on
+both sides, so Close stopped 8 points short of the window's right edge.
+With the window maximised, a pointer thrown into the screen's top-right
+corner, which every Windows window answers with Close, landed on nothing.
+
+**Decision.** The title bar keeps its left margin and has none on the
+right: minimise, maximise and Close end at the window's edge and fill the
+bar's height, so the corner pixel is Close. With the system title bar (no
+window controls) the readouts keep an 8-point gap from the edge.
+
+**Test.** `shell_tests::the_top_right_pixel_is_close`: a click on the
+window's top-right pixel quits.
+
+**Would reopen:** a window manager that draws its own resize border over
+that pixel.

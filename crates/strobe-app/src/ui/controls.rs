@@ -867,7 +867,15 @@ fn toggle_row(
     response
         .widget_info(|| egui::WidgetInfo::selected(egui::Role::CheckBox, true, on, name.as_str()));
     let rect = right_slot(response.rect, switch);
-    let t = super::motion::toggle(ui.ctx(), response.id, on, super::motion::INSTANT);
+    // The switch's slide has an id of its own: the row's hover fill is
+    // keyed by `response.id`, and one animation under both drew the switch
+    // on whenever the pointer was over the row.
+    let t = super::motion::toggle(
+        ui.ctx(),
+        response.id.with("switch"),
+        on,
+        super::motion::INSTANT,
+    );
     let half = switch.y / 2.0;
     let painter = ui.painter();
     painter.rect_filled(
@@ -1628,6 +1636,74 @@ mod tests {
         assert_eq!(fill_origin(0.0, 1.0), 0.0, "starts at zero");
         assert_eq!(fill_origin(0.4, 1.6), 0.0, "all positive");
         assert_eq!(fill_origin(-2.0, -1.0), 0.0, "all negative");
+    }
+
+    /// Every rectangle fill in `shapes`, nested lists opened.
+    fn fills(shapes: &[egui::epaint::ClippedShape]) -> Vec<egui::Color32> {
+        fn walk(shape: &egui::Shape, out: &mut Vec<egui::Color32>) {
+            match shape {
+                egui::Shape::Rect(rect) => out.push(rect.fill),
+                egui::Shape::Vec(inner) => {
+                    for shape in inner {
+                        walk(shape, out);
+                    }
+                }
+                egui::Shape::Noop
+                | egui::Shape::Circle(_)
+                | egui::Shape::Ellipse(_)
+                | egui::Shape::LineSegment { .. }
+                | egui::Shape::Path(_)
+                | egui::Shape::Band(_)
+                | egui::Shape::Text(_)
+                | egui::Shape::Mesh(_)
+                | egui::Shape::QuadraticBezier(_)
+                | egui::Shape::CubicBezier(_)
+                | egui::Shape::Callback(_) => {}
+            }
+        }
+        let mut out = Vec::new();
+        for clipped in shapes {
+            walk(&clipped.shape, &mut out);
+        }
+        out
+    }
+
+    #[test]
+    fn hovering_an_off_toggle_neither_flips_it_nor_draws_it_on() -> Result<()> {
+        let json = r#"{ "CONTROLS": [ { "NAME": "invert", "TYPE": "toggle" } ] }"#;
+        let scene = SceneDef::parse(json, "t")?;
+        let mut bank = ControlBank::new(scene.controls)?;
+        let theme = crate::palette::fallback().clone();
+        let ctx = egui::Context::default();
+        // Over the row, long enough for any hover animation to finish.
+        let over = egui::pos2(100.0, 12.0);
+        let mut last = Vec::new();
+        for frame in 0..12 {
+            let mut raw = crate::ui::testing::input(
+                Vec2::new(400.0, 200.0),
+                vec![egui::Event::PointerMoved(over)],
+            );
+            raw.time = Some(f64::from(frame) * 0.05);
+            let pass = crate::ui::testing::run(&ctx, raw, |ui| {
+                rows(ui, &theme, &mut bank, &[0], None, Scale::Touch);
+            });
+            last = pass.shapes;
+        }
+        let value = bank.target(0).copied().unwrap_or_default()[0];
+        assert!(
+            value.abs() < f32::EPSILON,
+            "hover flipped the toggle to {value}"
+        );
+        let drawn = fills(&last);
+        assert!(
+            !drawn.contains(&theme::rgb(theme.accent)),
+            "a hovered off toggle was drawn with the accent (on): {drawn:?}"
+        );
+        assert!(
+            drawn.contains(&theme::rgb(theme.control)),
+            "the off switch's track is drawn in the control colour: {drawn:?}"
+        );
+        Ok(())
     }
 
     #[test]

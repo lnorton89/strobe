@@ -2568,6 +2568,27 @@ fn click_at(at: egui::Pos2) -> Vec<Vec<egui::Event>> {
     ]
 }
 
+#[test]
+fn the_top_right_pixel_is_close() -> Result<()> {
+    // Fitts: with the window maximised, a pointer thrown into the screen's
+    // corner lands on Close, as it does on any Windows window.
+    if !crate::prefs::default_custom_title_bar() {
+        return Ok(());
+    }
+    let size = (1280.0, 720.0);
+    let corner = egui::pos2(size.0 - 0.5, 0.5);
+    let drawn = draw_events(BASE, size, click_at(corner))?;
+    assert!(
+        drawn
+            .all_actions
+            .iter()
+            .any(|action| matches!(action, Action::Quit)),
+        "a click at {corner:?} did not reach Close: {:?}",
+        drawn.all_actions
+    );
+    Ok(())
+}
+
 /// Where the topmost row of text that reads `line` is drawn in `scenario`
 /// at `size`: a card's title sits above the transport strip that may name
 /// the same scene.
