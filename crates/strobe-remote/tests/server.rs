@@ -594,6 +594,23 @@ fn the_lease_holder_gets_the_controls_once_and_its_edits_reach_the_app() -> Resu
         }],
         "the edit reached the app as sent"
     );
+    // Where the next picture has its rows comes just before the picture.
+    rig.desktop.publish_with_rows(
+        [64, 48],
+        "/9j/".into(),
+        vec![strobe_remote::desktop::ControlRow {
+            bank: 7,
+            index: 0,
+            rect: [0.1, 0.2, 0.5, 0.1],
+            touch: true,
+        }],
+    );
+    let layout = owner.until("desktop_layout")?;
+    let frame = owner.json()?;
+    assert!(
+        frame["type"] == "desktop_frame" && frame["revision"] == layout["revision"],
+        "the rows, then their frame under the same revision: {layout} {frame}"
+    );
     // The lease holder may send far more than a phone: a drag's edits at
     // 20 a second for two seconds, beside its pings, keep the connection.
     for step in 0..40 {
