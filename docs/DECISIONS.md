@@ -12851,11 +12851,16 @@ profile.
   `C:\ProgramData\ProjectorControl` and points there. The old `bin\` is
   removed.
 - **The task runs the supervisor, not the binary.** It keeps
-  `strobe-projector serve` running and, before each start, moves
-  `next\strobe-projector.exe` over the binary. An update is: build, copy
-  into `next\`, end the running process. That needs no elevation, keeps
-  the binary's path (so the firewall rules hold), and logs each swap and
-  restart to `projector-logs\service-updates.log`.
+  `strobe-projector serve` running, looks in `next\` every 5 s, and when
+  a new `strobe-projector.exe` is there stops its own service, moves the
+  build over the binary and starts it again. An update is: build, and
+  leave the exe in `next\`. That needs no elevation and no access to the
+  running process, keeps the binary's path (so the firewall rules hold),
+  and logs each swap and restart to `projector-logs\service-updates.log`.
+  The first version had the launcher stop the service itself. On the mini
+  PC that failed: a process the S4U task starts shows the user's own
+  non-elevated shell no path and no command line, so the launcher found
+  nothing to stop, and the build waited in `next\` (2026-10-28).
 - **The mini PC's launcher does it at logon**, after it builds Strobe,
   with the lines in `tools/projector-control/README.md` ("Updates"): a
   failed build keeps the running service, an unchanged build does
@@ -12866,9 +12871,11 @@ write, so that user could replace it. They could already change the config
 and its password, and the binary now runs with that user's rights, not
 SYSTEM's, so nothing is gained by replacing it.
 
-**Test.** The scripts parse (PowerShell's parser, on LIGHTNING). Not yet
-run: the elevated install on the mini PC, a boot with nobody logged in, and
-an update handed over at logon (L-09).
+**Test.** The scripts parse (PowerShell's parser, on LIGHTNING), and the
+supervisor, run against a scratch folder, swaps in a build left in `next\`
+while its service runs. On the mini PC the elevated install moved the
+service to JAJA and it came back after a reboot (2026-10-28). Not yet run:
+a boot with nobody logged in, and the swap there (L-09).
 
 **Would reopen:** an account without "Log on as a batch job", which S4U
 needs (administrators have it by default), or a PC where the show's user
