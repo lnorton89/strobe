@@ -1139,7 +1139,7 @@ scenes `jaja-4h.toml` names are present, and runs Strobe, relaunching it if it e
 `strobe-test` copies and the `StrobeShow` task are gone.
 
 At the owner's request, the launcher's Strobe arguments gained
-`--remote --allow-desktop-control`, so the show can be controlled from TORNADO without a
+`--remote --allow-desktop-control`, so the show can be controlled from LIGHTNING (the owner's desktop at JaJa, 10.1.10.124, which the logs still call DESKTOP-30KSOCM) without a
 visit to the mini PC. Before:
 
 ```
@@ -1183,7 +1183,7 @@ tracked files, not updating") and correctly built the checkout as it was
 it clean and on master**, or the show's boot update is skipped.
 
 **Desktop control needs re-approval after every restart, by design; ordinary pairings don't.**
-TORNADO (10.1.10.124) holds two pairings with this host:
+LIGHTNING (10.1.10.124) holds two pairings with this host:
 
 | Run (pid) | `c6b61a02d`, "Windows at 10.1.10.124" (saved pairing) | Full desktop control from `DESKTOP-30KSOCM-e60bd08c` |
 |---|---|---|
@@ -1195,13 +1195,13 @@ TORNADO (10.1.10.124) holds two pairings with this host:
 digests and survive a restart. Full desktop grants are kept in memory only and never saved
 (D275, `strobe_remote::clients`), and they're revoked when desktop access goes off or the host
 stops listening. So every Strobe restart, including a crash relaunch or a reboot, needs someone
-at the mini PC to approve TORNADO's desktop control again. The way round it is venue mode's
+at the mini PC to approve LIGHTNING's desktop control again. The way round it is venue mode's
 `--remote-trust` file (D288).
 
 ### Before the fix: desktop control cost half the frame rate (build 4657653)
 
 Read from `strobe-20261028-033649-11004.log`, the `jaja-4h` show the launcher autostarted at
-20:36. The remote came on at 2972 s, and TORNADO paired for desktop control at 2983 s.
+20:36. The remote came on at 2972 s, and LIGHTNING paired for desktop control at 2983 s.
 Without the remote, cues 2-12 ran at 57-58.6 fps, 0-2.3% missed refreshes, scale 1.00, with 11-22
 control redraws a minute. The same scene with and without control, `11-script-orbits`:
 
@@ -1231,13 +1231,13 @@ of a covered control frame that Windows did not paint. The show was restarted on
 
 ### After the fix (build 063b25b)
 
-The A/B, 4 minutes controlled from TORNADO and 4 minutes returned to local, on
+The A/B, 4 minutes controlled from LIGHTNING and 4 minutes returned to local, on
 `17-blacklight-carpet`, still to be run: phase times from the owner, perf lines, and the
 Strobe CPU sampled every 5 s.
 
 ## Still to do here
 
-- M31: run the after-fix A/B on 063b25b, and check that TORNADO's view of the covered host
+- M31: run the after-fix A/B on 063b25b, and check that LIGHTNING's view of the covered host
   keeps updating (not black or stale).
 
 - L-09: the service came back after the 23:24 restart and served status
