@@ -358,13 +358,13 @@ into the host; Copy/Cut in a host widget returns selected text to the
 controller. Paste at most 64 KiB at a time. Local file drops/uploads and
 operating-system dialogs are outside this Strobe window stream.
 
-The host's window is a picture that updates a few times a second, so
-dragging a control in it lags. Beside it, the controlling computer shows
-the playing scene's controls and the output's, drawn on this computer:
-they move as fast as your hand, and only their values cross the network.
-**Hide controls** in the bar at the top gives the picture the whole
-width; **Show controls** brings them back. Both computers need a build
-from 2026-10-28 or later for the panel to appear.
+The host's window is a picture that updates a few times a second, but its
+controls are not: on the Controls page and the side panel, every
+control's row is drawn by the controlling computer itself, over the
+picture of it. Sliders, toggles and buttons there move as fast as your
+hand, and only their values cross the network. Everything else in the
+window works through the picture as before. Both computers need a build
+from 2026-10-28 or later for this.
 
 While another Strobe controls it, the host leaves its live preview out
 of the window ("Preview off while another Strobe controls this one"):
