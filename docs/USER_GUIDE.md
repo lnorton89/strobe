@@ -322,8 +322,15 @@ removes its pairing from that browser.
 HTTPS: someone on the same Wi-Fi who is watching the traffic can see the
 phone's key as it is issued, and could then control the show until you
 revoke it. A home or venue network you
-control is fine; a public or shared Wi-Fi is not. There is no installable
-app (PWA) version yet, because that needs HTTPS.
+control is fine; a public or shared Wi-Fi is not.
+
+**Keep it on the home screen.** The remote can be installed as an app.
+Through your own HTTPS proxy (`--remote-proxy`), Chrome offers
+*Install app* at the foot of the page, and the installed remote opens
+even with Strobe off, saying it is looking for Strobe until it connects.
+Over plain HTTP, use the browser's *Add to Home Screen* (on an iPhone,
+from the Share menu): it opens full screen, but only while Strobe is
+reachable. The projector page installs the same way.
 
 ### Control another Strobe desktop
 

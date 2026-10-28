@@ -76,4 +76,6 @@ loopback (`tests/fake_projector.rs`), and the web API over real sockets.
   headless service are two processes and can each command a unit at once
   (backlog L-09).
 - The page is plain HTTP, for the venue Wi-Fi or the tailnet only; by
-  design (D502), as the LAN remote's is until L-07.
+  design (D502), as the LAN remote's is until L-07. It is an installable
+  web app (D517), but its service worker runs only in a secure context,
+  so over plain HTTP a home-screen launch needs the service reachable.

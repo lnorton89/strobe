@@ -12764,3 +12764,112 @@ test through the page.
 
 **Would reopen:** a page that has to be reachable beyond the venue
 network, where a typed password over plain HTTP is not enough (L-07).
+
+### D517: the remote and projector pages are installable web apps in the website's design; narrows D258 (2026-10-28, owner's request)
+
+**Context.** The phone remote (`controller.html`, D253) and the projector
+page (`ui.html`, D502) predate the website (`site/`, on its own branch)
+and looked like two different products: system grey cards, rounded pills,
+no mark. D258 also held back the manifest and service worker until real
+phones had passed through the HTTPS proxy. The owner asked for both pages
+to be real PWAs in the site's design.
+
+**Decision.**
+
+- **The site's design, dark only.** Both pages use the site's tokens
+  (`site/src/app/globals.css`: ground, panel, hairline, label, cyan
+  accent) and its devices: the ribbon and the wordmark (as outlines from
+  `assets/brand`, since no font is loaded) over a spectrum rule, hairline
+  grids whose 1px gaps are the rules, uppercase 0.1em actions with square
+  corners, mono labels, a section rule with a note at its right, the
+  window frame for a projector and the terminal block for the command log.
+  Good, warn and danger are the app's Strobe theme. The site's light
+  theme is left out: both pages are used in a dark booth, and a phone set
+  to light would light it. Font stacks name Space Grotesk, Inter and
+  JetBrains Mono first and fall back to the system's.
+- **Stage-safe changes on the way.** The remote shows "Looking for
+  Strobe" until the socket answers, instead of an empty page; its
+  connection chip truncates rather than covering the header. The projector
+  page's Off asks twice in place (the first press arms it, red, for four
+  seconds) instead of the browser's `confirm()`, which an installed app
+  shows as a bare system dialog; the password form (D516) is a page of its own
+  (`login.html`) in the same design.
+- **Installable.** Each server serves a manifest (`standalone`, Void
+  background and theme), the brand icons at 192 and 512 and a full-bleed
+  maskable 512 (`assets/brand/icon-maskable.svg`, rendered by `cargo xtask
+  brand`), and a service worker. The worker is network first for
+  everything, so an update needs no prompt; it keeps only the page and the
+  icons, for a launch with the server unreachable, never caches `/ws` or
+  `/api`, and never keeps the projector login form or a redirect. Nothing
+  cached can send a command: the remote needs the socket and a token
+  Strobe accepts, and the projector API needs the cookie. The remote's CSP
+  gains `manifest-src 'self'`, `worker-src 'self'` and `img-src 'self'`;
+  the files go through the same Host check as the page. The projector's
+  files need no password, because a browser fetches a manifest without
+  cookies.
+- **What this does not claim.** A browser runs a service worker, and
+  Chrome offers its install prompt, only in a secure context. Over the
+  operator's HTTPS proxy (D258) that holds; over plain HTTP on a LAN
+  address the pages still work and Add to Home Screen still opens them
+  full screen, but without the worker. Real Android and iOS devices have
+  not been tested (L-07, L-08).
+
+**Test.** `strobe-remote` `page::tests`: every file the page, manifest and
+worker name is served, the manifest has 192, 512 and maskable icons and
+`standalone`, and the policy names `manifest-src` and `worker-src`.
+`strobe-projector` `server::tests::the_web_app_files_need_no_password`. Both
+pages were checked in a browser at 375 px, in landscape and at 1280 px
+against stand-ins for their servers.
+
+**Would reopen:** a phone platform that refuses to install from either
+server once tested on a device, or the site gaining a component library
+the pages could share instead of copying its tokens.
+
+### D518: the projector service runs as the show's user from a folder they own, and updates at logon; reverses D502's SYSTEM task (2026-10-28, owner's choice)
+
+**Context.** D502's `install.ps1` registered `strobe-projector serve` as a
+SYSTEM startup task running a copy in `C:\ProgramData\ProjectorControl\bin`.
+Only an elevated re-run of the installer replaced that copy. The mini PC's
+show launcher (`jaja\start-show.ps1`, local to that PC) already moves its
+checkout to master and builds Strobe at every logon, but it runs as JAJA
+without elevation and cannot stop a SYSTEM task or write that folder. So
+the projector service stayed on the 2026-10-27 build while master moved,
+and the projector page of D517 would never have reached the PC. The service
+needs none of SYSTEM's rights: it binds a LAN port, talks TCP to the
+projectors and reads `projectors.json`, which is already in the user's
+profile.
+
+**Decision.**
+
+- **The task runs as the user who runs Strobe**, the one running the
+  installer unless `-ServiceUser` says otherwise. The logon type is S4U: it
+  starts at boot with nobody logged in, stores no password, and has no
+  network credentials, which it never used. It is not elevated.
+- **From a folder that user owns:** `projector-service\` beside the config
+  (`%LOCALAPPDATA%\strobe\`), holding the binary and its supervisor
+  `pj-service.ps1`. `pj.cmd` stays on the machine PATH in
+  `C:\ProgramData\ProjectorControl` and points there. The old `bin\` is
+  removed.
+- **The task runs the supervisor, not the binary.** It keeps
+  `strobe-projector serve` running and, before each start, moves
+  `next\strobe-projector.exe` over the binary. An update is: build, copy
+  into `next\`, end the running process. That needs no elevation, keeps
+  the binary's path (so the firewall rules hold), and logs each swap and
+  restart to `projector-logs\service-updates.log`.
+- **The mini PC's launcher does it at logon**, after it builds Strobe,
+  with the lines in `tools/projector-control/README.md` ("Updates"): a
+  failed build keeps the running service, an unchanged build does
+  nothing. Elsewhere, re-running `install.ps1` still updates it.
+
+The cost: the binary that serves the page sits in a folder its user can
+write, so that user could replace it. They could already change the config
+and its password, and the binary now runs with that user's rights, not
+SYSTEM's, so nothing is gained by replacing it.
+
+**Test.** The scripts parse (PowerShell's parser, on LIGHTNING). Not yet
+run: the elevated install on the mini PC, a boot with nobody logged in, and
+an update handed over at logon (L-09).
+
+**Would reopen:** an account without "Log on as a batch job", which S4U
+needs (administrators have it by default), or a PC where the show's user
+is not the one who should own the service.
