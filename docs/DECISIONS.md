@@ -12562,3 +12562,31 @@ and the scale climbing back once its locks run out.
 **Would reopen:** a driver that leaves the back buffer undefined until a
 swap, so that captures go black or stale, or a covered window shown stale
 after uncovering.
+
+### D509: Connect on a Strobe found on the network proves the chosen trust file (2026-10-28)
+
+**Context.** D468 listed the Strobes found on the network, each with
+Connect, and that Connect always asked the host for approval: it switched
+the form's trust option off. Venue mode (D288, D294) worked only through
+Connect by address or a `--control HOST --remote-trust FILE` launch. The
+owner controls the JaJa mini PC from the venue desktop and wanted to open
+Strobe, press Connect on the mini PC in the list, and be accepted with
+nobody at the mini PC, after any restart of either.
+
+**Decision.** A found Strobe's Connect (`Controller::choose_found`) sets
+the address and drops a stray code, and leaves the trust option as the
+operator left it. With *Use a trust file* on and a file chosen (both
+remembered in `ui.toml`, D294), Connect proves the file and the host
+accepts with no approval; with it off, the host is asked, as before. The
+proof is bound to the address the controller dialled (D288), so proving
+the file to a Strobe that only claims a name on the network gives it
+nothing it can use elsewhere.
+
+**Test.** `desktop::tests::a_listed_strobe_is_proved_the_chosen_trust_file_and_asks_nobody`:
+a form remembered with a trust file and a stray code, pointed at a found
+host, connects with no pairing request. On the venue: the mini PC started
+with `--remote-trust`, the desktop's Connect in the list, no approval.
+
+**Would reopen:** a controller that proves the file to hosts that do not
+hold it often enough for the failed-proof limits (D288) to get in the way,
+in which case a found host's Connect would try approval after a refusal.
