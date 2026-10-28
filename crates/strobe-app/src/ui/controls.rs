@@ -418,7 +418,7 @@ pub fn rows(
         };
         let target = bank.target(index).copied().unwrap_or_default();
         let output = bank.output(index).copied().unwrap_or_default();
-        ui.push_id(index, |ui| match def.kind {
+        let drawn = ui.push_id(index, |ui| match def.kind {
             ControlKind::Slider(_) | ControlKind::Knob(_) => {
                 slider_row(ui, theme, bank, index, &def, target[0], pins, scale);
             }
@@ -436,6 +436,14 @@ pub fn rows(
                 dropdown_row(ui, theme, bank, index, &def, target[0], pins);
             }
         });
+        // A controlling Strobe draws its own copy of the row here (D515).
+        crate::remote_controls::noted(
+            ui,
+            bank,
+            index,
+            drawn.response.rect,
+            matches!(scale, Scale::Touch),
+        );
         ui.add_space(SPACE_XS * scale.gap_steps());
     }
 }

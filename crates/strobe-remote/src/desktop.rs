@@ -191,6 +191,42 @@ pub struct SyncedBank {
     pub values: Vec<[f32; 3]>,
 }
 
+/// Most control rows one picture places (D515).
+pub const MAX_CONTROL_ROWS: usize = 512;
+
+/// Where the host drew one control row in the picture that carries the
+/// same revision (D515), so the controller can draw its own copy over it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ControlRow {
+    /// The bank, by the id the host gave it in `desktop_controls`.
+    pub bank: u64,
+    /// The control's place in that bank.
+    pub index: u32,
+    /// Left, top, width and height, as fractions of the picture.
+    pub rect: [f32; 4],
+    /// Drawn at the Controls page's scale rather than the side panel's.
+    pub touch: bool,
+}
+
+/// Whether `rows` may be sent: at most [`MAX_CONTROL_ROWS`], each naming a
+/// control within [`MAX_SYNCED_CONTROLS`] with a rectangle inside the
+/// picture.
+pub fn valid_rows(rows: &[ControlRow]) -> bool {
+    rows.len() <= MAX_CONTROL_ROWS
+        && rows.iter().all(|row| {
+            let [x, y, w, h] = row.rect;
+            (row.index as usize) < MAX_SYNCED_CONTROLS
+                && row.rect.iter().all(|value| value.is_finite())
+                && x >= 0.0
+                && y >= 0.0
+                && w > 0.0
+                && h > 0.0
+                && x + w <= 1.0 + 1e-3
+                && y + h <= 1.0 + 1e-3
+        })
+}
+
 #[derive(Debug, Default)]
 struct State {
     enabled: bool,
@@ -199,6 +235,8 @@ struct State {
     reset: bool,
     revision: u64,
     frame: Option<Arc<crate::ServerMessage>>,
+    /// Where the frame of the same revision has its control rows (D515).
+    layout: Option<Arc<crate::ServerMessage>>,
     clipboard: Option<(u64, Arc<crate::ServerMessage>)>,
     clipboard_revision: u64,
     /// The owner asked for the controls as data (D513).
@@ -216,6 +254,7 @@ impl State {
         self.owner = None;
         self.inputs.clear();
         self.frame = None;
+        self.layout = None;
         self.clipboard = None;
         self.reset = true;
         self.controls_wanted = false;
@@ -319,6 +358,13 @@ impl Desktop {
 
     /// Publish only the latest image; slow readers never accumulate frames.
     pub fn publish(&self, size: [u32; 2], jpeg: String) {
+        self.publish_with_rows(size, jpeg, Vec::new());
+    }
+
+    /// As [`Self::publish`], with where the picture has its control rows
+    /// (D515). The rows go to an owner that asked for the controls, under
+    /// the frame's revision; rows that are not valid are not sent.
+    pub fn publish_with_rows(&self, size: [u32; 2], jpeg: String, rows: Vec<ControlRow>) {
         if size.contains(&0)
             || size.iter().any(|edge| *edge > MAX_EDGE)
             || jpeg.len() > MAX_FRAME - 1024
@@ -330,11 +376,26 @@ impl Desktop {
             return;
         }
         state.revision = state.revision.saturating_add(1);
+        state.layout = (state.controls_wanted && valid_rows(&rows)).then(|| {
+            Arc::new(crate::ServerMessage::DesktopLayout {
+                revision: state.revision,
+                rows,
+            })
+        });
         state.frame = Some(Arc::new(crate::ServerMessage::DesktopFrame {
             revision: state.revision,
             size,
             jpeg,
         }));
+    }
+
+    /// Where the latest frame has its control rows, under its revision.
+    pub fn layout(&self) -> Option<(u64, Arc<crate::ServerMessage>)> {
+        let state = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        state
+            .layout
+            .as_ref()
+            .map(|layout| (state.revision, Arc::clone(layout)))
     }
 
     /// Report capture failure to the owner instead of leaving a stale image
@@ -345,6 +406,7 @@ impl Desktop {
             return;
         }
         state.revision = state.revision.saturating_add(1);
+        state.layout = None;
         state.frame = Some(Arc::new(crate::ServerMessage::error(
             crate::ErrorCode::Unavailable,
             reason,
@@ -525,6 +587,38 @@ mod tests {
         );
         assert!(desktop.acquire(2), "the next owner");
         assert!(!desktop.controls_wanted(), "the next owner asks for itself");
+    }
+
+    #[test]
+    fn rows_go_with_their_frame_only_to_an_owner_that_asked_for_the_controls() {
+        let desktop = Desktop::default();
+        desktop.enable(true);
+        assert!(desktop.acquire(1), "owner");
+        let row = ControlRow {
+            bank: 1,
+            index: 0,
+            rect: [0.1, 0.1, 0.5, 0.05],
+            touch: true,
+        };
+        desktop.publish_with_rows([8, 8], "jpeg".into(), vec![row.clone()]);
+        assert!(desktop.layout().is_none(), "not asked: no rows");
+        assert!(desktop.want_controls(1), "asks");
+        desktop.publish_with_rows([8, 8], "jpeg".into(), vec![row.clone()]);
+        let frame = desktop.frame().map(|(revision, _)| revision);
+        let layout = desktop.layout().map(|(revision, _)| revision);
+        assert!(
+            frame.is_some() && layout == frame,
+            "the rows under the frame's revision"
+        );
+        let outside = ControlRow {
+            rect: [0.9, 0.1, 0.5, 0.05],
+            ..row
+        };
+        desktop.publish_with_rows([8, 8], "jpeg".into(), vec![outside]);
+        assert!(
+            desktop.layout().is_none() && desktop.frame().is_some(),
+            "rows outside the picture are not sent; the frame still is"
+        );
     }
 
     #[test]
