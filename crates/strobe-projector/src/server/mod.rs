@@ -11,15 +11,16 @@
 
 //! The page a phone opens to switch the projectors (D502, D516).
 //!
-//! Every route but `/favicon.ico` needs the password from `api.password`:
-//! as `Authorization: Bearer <password>`, or as the `pj_session` cookie a
-//! browser gets from `/login`. The password form sends it to `/login` in
-//! that header, never in the address, and the answer sets the cookie
-//! (`HttpOnly`, `SameSite=Strict`). The cookie holds not the password but
-//! [`session`], made from it, so changing the password signs every browser
-//! out. Both are compared in constant time. A request without either gets
-//! the password form (a page) or `{"error": "unauthorized"}` (the API), and
-//! a line in the audit log.
+//! Every route but `/favicon.ico` and the installable app's files (its
+//! manifest, service worker and icons, D517) needs the password from
+//! `api.password`: as `Authorization: Bearer <password>`, or as the
+//! `pj_session` cookie a browser gets from `/login`. The password form
+//! sends it to `/login` in that header, never in the address, and the
+//! answer sets the cookie (`HttpOnly`, `SameSite=Strict`). The cookie holds
+//! not the password but [`session`], made from it, so changing the password
+//! signs every browser out. Both are compared in constant time. A request
+//! without either gets the password form (a page) or
+//! `{"error": "unauthorized"}` (the API), and a line in the audit log.
 //!
 //! | Method | Path | |
 //! |---|---|---|
@@ -67,16 +68,42 @@ const PAGE: &str = include_str!("ui.html");
 /// The form a browser without the cookie gets. It sends the password to
 /// `/login` in a header, so it never lands in the address bar or the
 /// history, then loads the page.
-const LOGIN: &str = "<!doctype html><meta name=viewport content='width=device-width'>\
-<title>Projector control</title>\
-<body style='background:#111;color:#ddd;font:16px system-ui;padding:2em'>\
-<h2>Projector control</h2><form id=f>\
-<input id=p type=password placeholder='Password' autofocus autocomplete=current-password \
-style='padding:.6em;background:#222;color:#eee;border:1px solid #444'> \
-<button style='padding:.6em'>Unlock</button></form><p id=m></p>\
-<script>f.onsubmit=async e=>{e.preventDefault();\
-const r=await fetch('/login',{headers:{Authorization:'Bearer '+p.value},credentials:'same-origin'});\
-if(r.ok){location.replace('/')}else{m.textContent='Wrong password.';p.select()}}</script>";
+const LOGIN: &str = include_str!("login.html");
+
+/// The web app manifest both pages link to.
+const MANIFEST: &str = include_str!("manifest.webmanifest");
+
+/// The service worker: network first, never `/api`, the page kept for
+/// a launch with this service unreachable.
+const WORKER: &str = include_str!("sw.js");
+
+/// The installable app's files (D517), with their `Content-Type`. They
+/// carry nothing secret and a browser fetches the manifest without
+/// cookies, so they need no password, like `/favicon.ico`. The icons are
+/// the brand's own renders (`cargo xtask brand`).
+fn asset(path: &str) -> Option<(&'static str, &'static [u8])> {
+    Some(match path {
+        "/manifest.webmanifest" => ("application/manifest+json", MANIFEST.as_bytes()),
+        "/sw.js" => ("text/javascript; charset=utf-8", WORKER.as_bytes()),
+        "/icon.svg" => (
+            "image/svg+xml",
+            include_bytes!("../../../../assets/brand/icon.svg"),
+        ),
+        "/icon-192.png" => (
+            "image/png",
+            include_bytes!("../../../../assets/brand/icon-192.png"),
+        ),
+        "/icon-512.png" => (
+            "image/png",
+            include_bytes!("../../../../assets/brand/icon-512.png"),
+        ),
+        "/icon-maskable-512.png" => (
+            "image/png",
+            include_bytes!("../../../../assets/brand/icon-maskable-512.png"),
+        ),
+        _ => return None,
+    })
+}
 
 /// What every connection needs: the configuration (which Strobe's
 /// Settings may change while the server runs), the audit log, and the
@@ -181,6 +208,9 @@ pub fn handle(head: &Head, peer: IpAddr, shared: &Shared) -> Reply {
         "GET" => {
             if path == "/favicon.ico" {
                 return Reply::empty(204);
+            }
+            if let Some((content_type, body)) = asset(path) {
+                return Reply::bytes(200, content_type, body);
             }
             if !authorized(head, &config.api.password) {
                 let page = !path.starts_with("/api") && path != "/login";
@@ -467,7 +497,7 @@ mod tests {
         assert_eq!(page.status, 401, "page");
         assert_eq!(page.content_type, "text/html; charset=utf-8", "form");
         assert!(
-            String::from_utf8_lossy(&page.body).contains("type=password"),
+            String::from_utf8_lossy(&page.body).contains("type=\"password\""),
             "a password field"
         );
         let api = request("GET /api/units HTTP/1.1")?;
@@ -483,6 +513,42 @@ mod tests {
         );
         let favicon = request("GET /favicon.ico HTTP/1.1")?;
         assert_eq!(favicon.status, 204, "favicon needs no password");
+        Ok(())
+    }
+
+    #[test]
+    fn the_web_app_files_need_no_password() -> Result<()> {
+        let mut named: Vec<&str> = [PAGE, LOGIN]
+            .iter()
+            .flat_map(|page| page.split("href=\"").skip(1))
+            .filter_map(|piece| piece.split('"').next())
+            .filter(|path| path.starts_with('/') && *path != "/")
+            .collect();
+        named.extend(
+            MANIFEST
+                .split("\"src\": \"")
+                .skip(1)
+                .filter_map(|piece| piece.split('"').next()),
+        );
+        named.push("/sw.js");
+        assert!(named.len() >= 11, "pages, manifest and worker: {named:?}");
+        for path in named {
+            let reply = request(&format!("GET {path} HTTP/1.1"))?;
+            assert_eq!(reply.status, 200, "{path} without a password");
+            assert!(!reply.body.is_empty(), "{path} has a body");
+        }
+        let manifest: Value = serde_json::from_str(MANIFEST)?;
+        assert_eq!(manifest["display"], "standalone", "its own window");
+        assert!(
+            PAGE.contains("register('/sw.js')"),
+            "the page registers the worker"
+        );
+        assert!(
+            !WORKER.contains("cache.put(\"/api") && WORKER.contains("\"/api/\""),
+            "the worker leaves the API alone"
+        );
+        let page = request("GET / HTTP/1.1")?;
+        assert_eq!(page.body, LOGIN.as_bytes(), "the page still needs one");
         Ok(())
     }
 
