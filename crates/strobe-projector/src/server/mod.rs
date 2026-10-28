@@ -1,25 +1,29 @@
 // ============================================================================
 // Module:       strobe_projector::server
-// Description:  The web page and JSON API: token check, the routes (units,
-//               status, power), the login form and the token-to-cookie
-//               exchange, and the listener that serves them on one address.
+// Description:  The web page and JSON API: password check, the routes
+//               (units, status, power), the password form and the
+//               password-to-cookie exchange, and the listener that serves
+//               them on one address.
 //
-// Dependencies: serde_json, log; std::net, std::thread;
-//               crate::{audit, config, unit}; self::http
+// Dependencies: serde_json, sha2, log; std::net, std::thread;
+//               crate::{audit, config, unit, wire}; self::http
 // ============================================================================
 
-//! The page a phone opens to switch the projectors (D502).
+//! The page a phone opens to switch the projectors (D502, D516).
 //!
-//! Every route but `/favicon.ico` needs the token from `api.token`, as
-//! `Authorization: Bearer <token>`, as the `pj_token` cookie the page sets,
-//! or (for `GET` only) as `?token=`. Opening `/?token=...` once swaps the
-//! query for an `HttpOnly`, `SameSite=Strict` cookie and redirects to `/`,
-//! so the token leaves the address bar. Tokens are compared in constant
-//! time. A request without one gets the login form (a page) or
-//! `{"error": "unauthorized"}` (the API), and a line in the audit log.
+//! Every route but `/favicon.ico` needs the password from `api.password`:
+//! as `Authorization: Bearer <password>`, or as the `pj_session` cookie a
+//! browser gets from `/login`. The password form sends it to `/login` in
+//! that header, never in the address, and the answer sets the cookie
+//! (`HttpOnly`, `SameSite=Strict`). The cookie holds not the password but
+//! [`session`], made from it, so changing the password signs every browser
+//! out. Both are compared in constant time. A request without either gets
+//! the password form (a page) or `{"error": "unauthorized"}` (the API), and
+//! a line in the audit log.
 //!
 //! | Method | Path | |
 //! |---|---|---|
+//! | GET | `/login` | the bearer password for the cookie: 204, or 401 |
 //! | GET | `/` | the page |
 //! | GET | `/api/units` | the configured projectors |
 //! | GET | `/api/status`, `/api/status/{all\|key}` | status |
@@ -47,8 +51,9 @@ use std::sync::{Arc, PoisonError, RwLock};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-/// The cookie the page keeps the token in.
-pub const COOKIE: &str = "pj_token";
+/// The cookie a signed-in browser keeps (D516): [`session`], not the
+/// password.
+pub const COOKIE: &str = "pj_session";
 
 /// Connections answered at once; more are closed unanswered.
 pub const MAX_CONNECTIONS: usize = 32;
@@ -59,14 +64,19 @@ const HEAD_DEADLINE: Duration = Duration::from_secs(10);
 /// The page.
 const PAGE: &str = include_str!("ui.html");
 
-/// The form a browser without the token gets.
+/// The form a browser without the cookie gets. It sends the password to
+/// `/login` in a header, so it never lands in the address bar or the
+/// history, then loads the page.
 const LOGIN: &str = "<!doctype html><meta name=viewport content='width=device-width'>\
 <title>Projector control</title>\
 <body style='background:#111;color:#ddd;font:16px system-ui;padding:2em'>\
-<h2>Projector control</h2><form method=get action='/'>\
-<input name=token type=password placeholder='API token' autofocus \
+<h2>Projector control</h2><form id=f>\
+<input id=p type=password placeholder='Password' autofocus autocomplete=current-password \
 style='padding:.6em;background:#222;color:#eee;border:1px solid #444'> \
-<button style='padding:.6em'>Unlock</button></form>";
+<button style='padding:.6em'>Unlock</button></form><p id=m></p>\
+<script>f.onsubmit=async e=>{e.preventDefault();\
+const r=await fetch('/login',{headers:{Authorization:'Bearer '+p.value},credentials:'same-origin'});\
+if(r.ok){location.replace('/')}else{m.textContent='Wrong password.';p.select()}}</script>";
 
 /// What every connection needs: the configuration (which Strobe's
 /// Settings may change while the server runs), the audit log, and the
@@ -107,26 +117,37 @@ fn same(a: &[u8], b: &[u8]) -> bool {
     a.iter().zip(b).fold(0_u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
-/// The token the request presents: the bearer header, then (for a `GET`)
-/// the query, then the cookie.
-fn presented(head: &Head, allow_query: bool) -> Option<String> {
-    if let Some(bearer) = head
-        .header("authorization")
-        .and_then(|value| value.strip_prefix("Bearer "))
-    {
-        return Some(bearer.trim().to_string());
-    }
-    if allow_query && let Some(token) = head.query("token") {
-        return Some(token);
-    }
-    head.cookie(COOKIE)
+/// What a signed-in browser's cookie holds for `password` (D516): a
+/// SHA-256 of it under this page's own label, as hex. The cookie is sent in
+/// the clear with every request, so it is not the password itself, and it
+/// changes when the password does.
+pub fn session(password: &str) -> String {
+    use sha2::{Digest as _, Sha256};
+    let digest = Sha256::new()
+        .chain_update(b"strobe-projector session v1\n")
+        .chain_update(password.as_bytes())
+        .finalize();
+    crate::wire::hex(&digest)
 }
 
-/// Whether the request carries the configured token.
-fn authorized(head: &Head, token: &str, allow_query: bool) -> bool {
-    !token.is_empty()
-        && presented(head, allow_query)
-            .is_some_and(|given| !given.is_empty() && same(given.as_bytes(), token.as_bytes()))
+/// The password the request presents in `Authorization: Bearer`.
+fn bearer(head: &Head) -> Option<String> {
+    head.header("authorization")
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .map(|given| given.trim().to_string())
+}
+
+/// Whether the request carries the configured password, or the cookie
+/// made from it.
+fn authorized(head: &Head, password: &str) -> bool {
+    if password.is_empty() {
+        return false;
+    }
+    bearer(head)
+        .is_some_and(|given| !given.is_empty() && same(given.as_bytes(), password.as_bytes()))
+        || head
+            .cookie(COOKIE)
+            .is_some_and(|given| same(given.as_bytes(), session(password).as_bytes()))
 }
 
 /// The unit key and action in `/api/power/{key}/{on|off}`.
@@ -161,20 +182,19 @@ pub fn handle(head: &Head, peer: IpAddr, shared: &Shared) -> Reply {
             if path == "/favicon.ico" {
                 return Reply::empty(204);
             }
-            if !authorized(head, &config.api.token, true) {
-                return reject(shared, &source, head, !path.starts_with("/api"));
+            if !authorized(head, &config.api.password) {
+                let page = !path.starts_with("/api") && path != "/login";
+                return reject(shared, &source, head, page);
+            }
+            if path == "/login" {
+                // Hex, so nothing in it could break the header.
+                return Reply::empty(204).with_header(format!(
+                    "Set-Cookie: {COOKIE}={}; HttpOnly; SameSite=Strict; Path=/; \
+                     Max-Age=31536000",
+                    session(&config.api.password)
+                ));
             }
             if path == "/" {
-                if let Some(token) = head.query("token") {
-                    // Only reached with the right token, which is ours, so
-                    // it carries nothing that could break the header.
-                    return Reply::empty(303)
-                        .with_header("Location: /".to_string())
-                        .with_header(format!(
-                            "Set-Cookie: {COOKIE}={token}; HttpOnly; SameSite=Strict; Path=/; \
-                             Max-Age=31536000"
-                        ));
-                }
                 return Reply::html(200, PAGE);
             }
             if path == "/api/units" {
@@ -196,7 +216,7 @@ pub fn handle(head: &Head, peer: IpAddr, shared: &Shared) -> Reply {
             }
         }
         "POST" => {
-            if !authorized(head, &config.api.token, false) {
+            if !authorized(head, &config.api.password) {
                 return reject(shared, &source, head, false);
             }
             match power_route(path) {
@@ -208,13 +228,13 @@ pub fn handle(head: &Head, peer: IpAddr, shared: &Shared) -> Reply {
     }
 }
 
-/// The login form or the API's 401, and an audit line.
+/// The password form or the API's 401, and an audit line.
 fn reject(shared: &Shared, source: &str, head: &Head, page: bool) -> Reply {
     shared.audit.record(
         source,
         "-",
         &format!("{} {}", head.method, head.path()),
-        "DENIED no/invalid token",
+        "DENIED no/wrong password",
     );
     if page {
         Reply::html(401, LOGIN).with_header("WWW-Authenticate: Bearer".to_string())
@@ -416,11 +436,12 @@ mod tests {
     use anyhow::{Result, anyhow};
     use std::net::Ipv4Addr;
 
-    const TOKEN: &str = "0123456789abcdef0123456789abcdef";
+    /// The page's password in these tests.
+    const PASSWORD: &str = "stage-left";
 
     fn shared() -> Shared {
         let mut config = Config::default();
-        config.api.token = TOKEN.into();
+        config.api.password = PASSWORD.into();
         config
             .projectors
             .insert("sony".into(), config::Projector::new("Sony", "192.0.2.1"));
@@ -441,50 +462,80 @@ mod tests {
     }
 
     #[test]
-    fn no_token_gets_the_form_or_401() -> Result<()> {
+    fn no_password_gets_the_form_or_401() -> Result<()> {
         let page = request("GET / HTTP/1.1")?;
         assert_eq!(page.status, 401, "page");
         assert_eq!(page.content_type, "text/html; charset=utf-8", "form");
+        assert!(
+            String::from_utf8_lossy(&page.body).contains("type=password"),
+            "a password field"
+        );
         let api = request("GET /api/units HTTP/1.1")?;
         assert_eq!(api.status, 401, "api");
         assert_eq!(api.content_type, "application/json", "json");
         let wrong = request("GET /api/units HTTP/1.1\r\nAuthorization: Bearer nope")?;
-        assert_eq!(wrong.status, 401, "wrong token");
+        assert_eq!(wrong.status, 401, "wrong password");
+        let login = request("GET /login HTTP/1.1\r\nAuthorization: Bearer nope")?;
+        assert_eq!(
+            (login.status, login.content_type),
+            (401, "application/json"),
+            "a wrong password at /login is a plain 401, for the form to say so"
+        );
         let favicon = request("GET /favicon.ico HTTP/1.1")?;
-        assert_eq!(favicon.status, 204, "favicon needs no token");
+        assert_eq!(favicon.status, 204, "favicon needs no password");
         Ok(())
     }
 
     #[test]
-    fn a_query_token_becomes_a_cookie() -> Result<()> {
-        let reply = request(&format!("GET /?token={TOKEN} HTTP/1.1"))?;
-        assert_eq!(reply.status, 303, "redirect");
+    fn the_password_buys_a_cookie_that_is_not_the_password() -> Result<()> {
+        let reply = request(&format!(
+            "GET /login HTTP/1.1\r\nAuthorization: Bearer {PASSWORD}"
+        ))?;
+        assert_eq!(reply.status, 204, "signed in");
         let cookie = reply
             .headers
             .iter()
             .find(|line| line.starts_with("Set-Cookie:"))
             .ok_or_else(|| anyhow!("no cookie"))?;
-        assert!(cookie.contains(&format!("{COOKIE}={TOKEN}")), "{cookie}");
+        assert!(
+            cookie.contains(&format!("{COOKIE}={}", session(PASSWORD)))
+                && !cookie.contains(PASSWORD),
+            "the session, not the password: {cookie}"
+        );
         assert!(
             cookie.contains("HttpOnly") && cookie.contains("SameSite=Strict"),
             "{cookie}"
         );
-        let page = request(&format!("GET / HTTP/1.1\r\nCookie: {COOKIE}={TOKEN}"))?;
-        assert_eq!(page.status, 200, "cookie opens the page");
+        let page = request(&format!(
+            "GET / HTTP/1.1\r\nCookie: {COOKIE}={}",
+            session(PASSWORD)
+        ))?;
+        assert_eq!(page.status, 200, "the cookie opens the page");
         assert_eq!(page.body, PAGE.as_bytes(), "the page");
+        let raw = request(&format!("GET / HTTP/1.1\r\nCookie: {COOKIE}={PASSWORD}"))?;
+        assert_eq!(raw.status, 401, "the password itself is not a cookie");
+        assert_ne!(
+            session(PASSWORD),
+            session("stage-right"),
+            "another password, another cookie: changing it signs everyone out"
+        );
         Ok(())
     }
 
     #[test]
-    fn a_post_ignores_a_query_token() -> Result<()> {
-        let reply = request(&format!("POST /api/power/sony/on?token={TOKEN} HTTP/1.1"))?;
-        assert_eq!(reply.status, 401, "query tokens are for GET only");
+    fn the_password_never_goes_in_the_address() -> Result<()> {
+        let page = request(&format!("GET /?token={PASSWORD} HTTP/1.1"))?;
+        assert_eq!(page.status, 401, "a query does not sign in");
+        let post = request(&format!(
+            "POST /api/power/sony/on?password={PASSWORD} HTTP/1.1"
+        ))?;
+        assert_eq!(post.status, 401, "nor does it for the API");
         Ok(())
     }
 
     #[test]
     fn units_and_unknown_routes() -> Result<()> {
-        let bearer = format!("Authorization: Bearer {TOKEN}");
+        let bearer = format!("Authorization: Bearer {PASSWORD}");
         let units = request(&format!("GET /api/units HTTP/1.1\r\n{bearer}"))?;
         assert_eq!(units.status, 200, "units");
         let value: Value = serde_json::from_slice(&units.body)?;

@@ -142,17 +142,18 @@ It never binds to 0.0.0.0, loopback, link-local or the projector subnet, and it 
 The firewall allows the port on the Private profile, for the binary only.
 **Never port-forward it.**
 
-- **UI:** `http://<wifi-or-tailscale-ip>:8780/`. Strobe's Settings > Projectors has *Copy link*, the address with the token. Open it once on a phone; the token is then kept in an HttpOnly, SameSite=Strict cookie.
-- **Token:** `api.token` in `projectors.json`, at least 24 characters. Every endpoint but `/favicon.ico` requires it. *New token* in Settings replaces it.
+- **UI:** `http://<wifi-or-tailscale-ip>:8780/`. Strobe's Settings > Projectors has *Copy link*. A phone signs in with the password once and keeps a session cookie (HttpOnly, SameSite=Strict) made from it, not the password itself.
+- **Password:** `api.password` in `projectors.json`, at least 6 characters (D516). Edit it there or as *Page password* in Settings; a running service picks it up within 10 s, and changing it signs every phone out. Every endpoint but `/favicon.ico` requires it. A file from before D516 has `api.token`, which is read as the password until one is set.
 
 | Method | Path | |
 |---|---|---|
-| GET | `/` | UI (401 login form without a token) |
+| GET | `/login` | `Authorization: Bearer <password>` for the session cookie: 204, or 401 |
+| GET | `/` | UI (401 password form without the cookie) |
 | GET | `/api/units` | configured projectors |
 | GET | `/api/status`, `/api/status/{all\|panasonic\|sony}` | status JSON |
 | POST | `/api/power/{all\|panasonic\|sony}/{on\|off}` | power. 200 ok, 502 if any unit failed |
 
-Auth: `Authorization: Bearer <token>`, or the `pj_token` cookie set by the UI.
+Auth: `Authorization: Bearer <password>`, or the `pj_session` cookie `/login` sets.
 
 ## Projector-side checklist
 

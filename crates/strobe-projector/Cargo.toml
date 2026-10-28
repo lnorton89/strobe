@@ -25,8 +25,8 @@ thiserror.workspace = true
 log.workspace = true
 # PJLink's and NTCONTROL's authentication prefix is an MD5 (D502).
 md-5.workspace = true
-# The API token, from the OS random source.
-getrandom.workspace = true
+# The page's sign-in cookie is made from its password (D516).
+sha2.workspace = true
 # The audit log's local timestamps.
 chrono.workspace = true
 clap.workspace = true

@@ -4170,7 +4170,6 @@ impl Running {
                 Action::RefreshProjectors => self.projectors.refresh(),
                 Action::SaveProjectors => self.projectors.save_form(),
                 Action::RevertProjectors => self.projectors.revert_form(),
-                Action::NewProjectorToken => self.projectors.new_token(),
                 Action::ConnectDesktop => {
                     self.lan.set_desktop(false);
                     self.desktop_controller.connect();

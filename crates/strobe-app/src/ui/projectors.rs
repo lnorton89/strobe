@@ -16,11 +16,10 @@
 //!   its input, hours and errors under it, with On and Off. Off asks twice:
 //!   the first press turns the button into "Confirm off", as the web page
 //!   asks before switching off. "All projectors" switches every one.
-//! - **Web page**: serve the page from Strobe, its address with Copy link
-//!   (the address with the token, to open once on a phone, which then keeps
-//!   the token in a cookie), and New token.
+//! - **Web page**: serve the page from Strobe, and its address with Copy
+//!   link. A phone opens it and signs in with the page's password (D516).
 //! - **Connections**: the projectors' settings, edited in a copy and saved
-//!   together, and where the page listens.
+//!   together, where the page listens, and the page's password.
 //!
 //! The groups read a [`ProjectorView`](crate::projectors::ProjectorView)
 //! the app made this frame and edit the form; they hand back [`Action`]s
@@ -46,8 +45,8 @@ pub const WEB: &str = "Web page";
 pub const ADD: &str = "Add a projector";
 /// Where the page listens.
 pub const LISTEN: &str = "Listen on";
-/// Replacing the page's token.
-pub const TOKEN: &str = "Token";
+/// The page's password (D516).
+pub const PASSWORD: &str = "Page password";
 /// The row that switches every projector.
 pub const ALL: &str = "All projectors";
 
@@ -233,8 +232,9 @@ fn web(ui: &mut Ui, theme: &Palette, panel: &ProjectorPanel<'_>, actions: &mut V
             .status(icon, word, colour)
             .description(
                 "A page with On and Off for each projector, for a phone on the venue Wi-Fi or \
-                 the tailnet. It listens only on the Tailscale or Wi-Fi address, and every \
-                 request needs the token. Plain HTTP: never forward its port.",
+                 the tailnet. It listens only on the Tailscale or Wi-Fi address, and asks \
+                 for the page's password (under Connections). Plain HTTP: never forward its \
+                 port.",
             );
         if !view.enabled {
             row = row.note("Turn projector control on first.", theme.text_muted);
@@ -244,32 +244,21 @@ fn web(ui: &mut Ui, theme: &Palette, panel: &ProjectorPanel<'_>, actions: &mut V
         if group.toggle(row, &mut on).changed() && view.enabled {
             actions.push(Action::SetProjectorWeb(on));
         }
-        if let (Some(url), Some(link)) = (&view.url, &view.link) {
+        if let Some(url) = &view.url {
             group.row(
                 Row::new("Address")
                     .status(Icon::Check, url, theme.success)
                     .description(
-                        "Copy link holds the token: open it once on each phone, which then keeps \
-                         the token in a cookie. Send it only to people who may switch the \
-                         projectors.",
+                        "Open it on a phone and sign in with the page's password; the phone \
+                         stays signed in until the password changes.",
                     ),
                 |ui| {
                     if widgets::button(ui, theme, Some(Icon::Copy), "Copy link").clicked() {
-                        ui.ctx().copy_text(link.clone());
+                        ui.ctx().copy_text(url.clone());
                     }
                 },
             );
         }
-        group.row(
-            Row::new(TOKEN).description(
-                "A new token signs every phone out; open the new link on each one again.",
-            ),
-            |ui| {
-                if widgets::button(ui, theme, Some(Icon::Reset), "New token").clicked() {
-                    actions.push(Action::NewProjectorToken);
-                }
-            },
-        );
     });
 }
 
@@ -365,6 +354,13 @@ fn connections(
                     form.bind = *bind;
                 }
             },
+        );
+        group.row(
+            Row::new(PASSWORD).description(
+                "What a phone types to open the web page, at least 6 characters. Changing it \
+                 signs every phone out.",
+            ),
+            |ui| secret(ui, theme, &mut form.password, "none: the page stays shut"),
         );
         let saved = if dirty {
             "Unsaved changes. Save checks every projector first."
