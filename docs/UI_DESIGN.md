@@ -324,12 +324,13 @@ kept for a possible macro strip of about eight headline controls (D510).
 
 ### Toggle
 
-Compact switch + label + ON or OFF, on a line of its own. Not a bar: the
-owner tried it as a bar-height chip and wanted the switch back (D510).
+A property row (D510): the row frame every control shares, the label at
+the left, the switch at the right end where a bar's number sits. A click
+anywhere on the row flips it.
 
 ### Bang
 
-Momentary button with clear pressed state, its name in capitals (FLASH), as a thing to hit rather than a setting.
+Momentary button with clear pressed state: the row frame outlined, its name in capitals in the middle (FLASH), as a thing to hit rather than a setting; a counter's hits at the right end.
 
 ### XY
 
@@ -341,14 +342,21 @@ Square field with:
 - numeric values on focus/hover;
 - reset.
 
+As built (D510): a property row with the name and the readout, then the
+pad the rows' full width under it.
+
 ### Color
 
-Small swatch with popup picker, not a permanently large editor, and the
-label beside it, on a line of its own. Not a bar (D510).
+Small swatch with popup picker, not a permanently large editor: a property
+row with the label at the left, the hex value and the swatch at the right
+end (D510).
 
 ### Dropdown
 
 Compact select, searchable for long option lists.
+
+As built (D510): a property row with the combo box at its right end, no
+taller than the row.
 
 ## 11. Control groups
 

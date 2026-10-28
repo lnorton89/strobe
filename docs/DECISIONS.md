@@ -12625,12 +12625,24 @@ the window's density (D220) packs it like every list. It shows:
 - `MACRO` before the number when the control is pinned (D210);
 - the description, the range and the default in its tooltip.
 
-Only sliders and knobs are bars. A toggle keeps its switch and a colour
-its swatch and name, each on a line of its own: the owner tried them as
-bar-height chips and rows, and then as buttons and swatches side by side,
-and asked for them back as distinct elements, not bars. A bang keeps its
-button, with its name in capitals (FLASH). XY pads and dropdowns keep
-their widgets. The macro cards keep
+Every other control is a row in the same frame, so a group's rows start
+and end on the same two lines whatever their kinds (`property_row`): the
+bar's height, raised surface, rounded ends and left inset for the name,
+and its own widget at the right end, where a bar's number sits. Only a
+slider fills.
+
+- a toggle: its switch, sized to the row; a click anywhere on the row
+  flips it;
+- a colour: the hex value, then a swatch that opens the picker;
+- a dropdown: a combo box no taller than the row;
+- an XY pad: the readout in the row, then the pad the rows' full width;
+- a bang: the one row that is a button, the frame outlined and its name in
+  capitals in the middle (FLASH), a counter's hits at the right end.
+
+The owner went through three versions of this on the way: toggles and
+colours as bar-height chips (too like the sliders), then as their old
+switch and swatch on lines of their own (no common margins, so they looked
+placed at random), then this. The macro cards keep
 the slider rail (`controls::rail`): they are a separate surface with
 their own layout.
 
