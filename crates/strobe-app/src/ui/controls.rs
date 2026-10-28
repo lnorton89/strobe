@@ -1,8 +1,8 @@
 // ============================================================================
 // Module:       strobe_app::ui::controls
 // Description:  One widget per scene control kind, written against the
-//               control bank: the value bar, the toggle chip, bang, XY pad,
-//               colour row and dropdown, the macro cards' slider rail, and
+//               control bank: the value bar, the toggle switch, bang, XY
+//               pad, colour swatch and dropdown, the macro cards' slider rail, and
 //               the grouping of controls by UI_GROUP.
 //
 // Dependencies: egui; strobe-scene (ControlBank, ControlDef, ControlKind,
@@ -17,10 +17,10 @@
 //! | Control | Widget | Writes |
 //! |---|---|---|
 //! | slider, knob | a [`bar`] over the control's real range | `set` |
-//! | toggle | a chip with a lit dot, the row's height | `set` to `MIN` or `MAX` |
+//! | toggle | a switch | `set` to `MIN` or `MAX` |
 //! | bang, bang counter | a button with a pressed state | `press` |
 //! | xy | a drag pad with keyboard nudging | `set` of both components |
-//! | color | a row with the hex value and a swatch that opens a picker | `set` of three components |
+//! | color | a colour swatch with a popup picker | `set` of three components |
 //! | dropdown | a combo box of labels | `set` to the option index |
 //!
 //! Widgets show the control's *target* (what was asked for), so a smooth
@@ -76,7 +76,7 @@ const PAD_SIZE: Vec2 = Vec2::new(160.0, 108.0);
 /// The height of a slider rail's hit area.
 const RAIL_HEIGHT: f32 = 18.0;
 
-/// A value bar's and a chip's corner radius: a step under the buttons', so
+/// A value bar's corner radius: a step under the buttons', so
 /// a column of rows reads as rows.
 const BAR_RADIUS: u8 = 4;
 
@@ -101,7 +101,7 @@ pub enum Scale {
 }
 
 impl Scale {
-    /// A value bar's, chip's and colour row's height at `density` (D510):
+    /// A value bar's height at `density` (D510):
     /// the window's density setting packs them as it packs every list.
     pub const fn bar_height(self, density: Density) -> f32 {
         match (self, density) {
@@ -123,11 +123,29 @@ impl Scale {
         }
     }
 
-    /// A bang button's height.
-    const fn bang_height(self) -> f32 {
+    /// A toggle switch's size.
+    const fn switch_size(self) -> Vec2 {
         match self {
-            Self::Panel => 26.0,
-            Self::Touch => 40.0,
+            Self::Panel => Vec2::new(32.0, 18.0),
+            Self::Touch => Vec2::new(48.0, 26.0),
+        }
+    }
+
+    /// A colour control's swatch.
+    const fn swatch_size(self) -> Vec2 {
+        match self {
+            Self::Panel => Vec2::new(40.0, 20.0),
+            Self::Touch => Vec2::new(56.0, 30.0),
+        }
+    }
+
+    /// A bang button's height at `density`.
+    pub const fn button_height(self, density: Density) -> f32 {
+        match (self, density) {
+            (Self::Panel, Density::Comfortable) => 26.0,
+            (Self::Panel, Density::Compact) => 22.0,
+            (Self::Touch, Density::Comfortable) => 36.0,
+            (Self::Touch, Density::Compact) => 30.0,
         }
     }
 }
@@ -708,31 +726,43 @@ pub fn rows(
 ) {
     let pins = &mut pins;
     for &index in members {
-        let Some(def) = bank.defs().get(index).cloned() else {
-            continue;
-        };
-        let target = bank.target(index).copied().unwrap_or_default();
-        let output = bank.output(index).copied().unwrap_or_default();
-        ui.push_id(index, |ui| match def.kind {
-            ControlKind::Slider(mode) | ControlKind::Knob(mode) => {
-                let values = (target[0], output[0], mode);
-                slider_row(ui, theme, bank, index, &def, values, pins, scale);
-            }
-            ControlKind::Toggle { .. } => {
-                toggle_row(ui, theme, bank, index, &def, target[0], pins, scale);
-            }
-            ControlKind::Bang(kind) => {
-                bang_row(ui, theme, bank, index, &def, (kind, output[0]), pins, scale);
-            }
-            ControlKind::Xy(_) => xy_row(ui, theme, bank, index, &def, target, pins, scale),
-            ControlKind::Color { .. } => {
-                color_row(ui, theme, bank, index, &def, target, pins, scale);
-            }
-            ControlKind::Dropdown { .. } => {
-                dropdown_row(ui, theme, bank, index, &def, target[0], pins);
-            }
-        });
+        control(ui, theme, bank, index, pins, scale);
     }
+}
+
+/// Draws the control at `index` with its kind's widget.
+fn control(
+    ui: &mut Ui,
+    theme: &Palette,
+    bank: &mut ControlBank,
+    index: usize,
+    pins: &mut Option<&mut Pins<'_>>,
+    scale: Scale,
+) {
+    let Some(def) = bank.defs().get(index).cloned() else {
+        return;
+    };
+    let target = bank.target(index).copied().unwrap_or_default();
+    let output = bank.output(index).copied().unwrap_or_default();
+    ui.push_id(index, |ui| match def.kind {
+        ControlKind::Slider(mode) | ControlKind::Knob(mode) => {
+            let values = (target[0], output[0], mode);
+            slider_row(ui, theme, bank, index, &def, values, pins, scale);
+        }
+        ControlKind::Toggle { .. } => {
+            toggle_row(ui, theme, bank, index, &def, target[0], pins, scale);
+        }
+        ControlKind::Bang(kind) => {
+            bang_row(ui, theme, bank, index, &def, (kind, output[0]), pins, scale);
+        }
+        ControlKind::Xy(_) => xy_row(ui, theme, bank, index, &def, target, pins, scale),
+        ControlKind::Color { .. } => {
+            color_row(ui, theme, bank, index, &def, target, pins, scale);
+        }
+        ControlKind::Dropdown { .. } => {
+            dropdown_row(ui, theme, bank, index, &def, target[0], pins);
+        }
+    });
 }
 
 fn describe(response: Response, def: &ControlDef) -> Response {
@@ -875,67 +905,41 @@ fn toggle_row(
     pins: &mut Option<&mut Pins<'_>>,
     scale: Scale,
 ) {
-    // A chip the bars' height (D510): the whole row clicks, a lit dot and
-    // ON say it is on, and the row takes the accent's soft fill.
     let on = def.normalize(0, v) >= 0.5;
-    let name = display_name(&def.name);
-    let size = Vec2::new(
-        ui.available_width().max(48.0),
-        scale.bar_height(theme::density()),
-    );
-    let (rect, response) = ui.allocate_exact_size(size, Sense::click());
-    response
-        .widget_info(|| egui::WidgetInfo::selected(egui::Role::CheckBox, true, on, name.as_str()));
-    let t = super::motion::toggle(ui.ctx(), response.id, on, super::motion::INSTANT);
-    let rest = theme.raised.lerp(theme.accent_soft, t);
-    let painter = ui.painter_at(rect);
-    let radius = CornerRadius::same(BAR_RADIUS);
-    painter.rect_filled(
-        rect,
-        radius,
-        widgets::hover_fill(
-            ui,
-            response.id,
-            response.hovered(),
-            rest,
-            rest.lerp(theme.hover, 0.6),
-        ),
-    );
-    let ring = if response.has_focus() {
-        Stroke::new(1.5, theme::rgb(theme.accent))
-    } else {
-        Stroke::new(1.0, theme::rgb(theme.raised.lerp(theme.accent, 0.45 * t)))
-    };
-    painter.rect_stroke(rect, radius, ring, egui::StrokeKind::Inside);
-    let center = rect.center().y;
-    let dot = egui::pos2(rect.left() + SPACE_SM + 3.5, center);
-    painter.circle_filled(dot, 3.5, theme::rgb(theme.control.lerp(theme.accent, t)));
-    let small = egui::TextStyle::Small.resolve(ui.style());
-    let state = painter.layout_no_wrap(
-        if on { "ON" } else { "OFF" }.to_string(),
-        small,
-        theme::rgb(if on { theme.accent } else { theme.text_faint }),
-    );
-    let state_size = state.size();
-    let state_at = egui::pos2(
-        rect.right() - SPACE_SM - state_size.x,
-        center - state_size.y / 2.0,
-    );
-    let font = egui::TextStyle::Body.resolve(ui.style());
-    let left = dot.x + 3.5 + SPACE_SM;
-    let label = widgets::truncated(ui, &name, font, theme.text, state_at.x - left - SPACE_SM);
-    let label_size = label.size();
-    painter.galley(
-        egui::pos2(left, center - label_size.y / 2.0),
-        label,
-        theme::rgb(theme.text),
-    );
-    painter.galley(state_at, state, theme::rgb(theme.text_muted));
-    let response = describe(response, def);
-    let at_default = (def.normalize(0, def.default[0]) >= 0.5) == on;
-    if row_menu(&response, def, !at_default, pins) {
-        bank.set_default(index);
-    } else if response.clicked() {
+    let response = ui
+        .horizontal(|ui| {
+            let size = scale.switch_size();
+            let (rect, response) = ui.allocate_exact_size(size, Sense::click());
+            let t = super::motion::toggle(ui.ctx(), response.id, on, super::motion::INSTANT);
+            let painter = ui.painter();
+            let track = if on { theme.accent } else { theme.control };
+            let half = size.y / 2.0;
+            let round = CornerRadius::same(half as u8);
+            painter.rect_filled(rect, round, theme::rgb(track));
+            let x = rect.left() + half + t * (rect.width() - size.y);
+            painter.circle_filled(
+                egui::pos2(x, rect.center().y),
+                half - 2.5,
+                theme::rgb(if on { theme.text_on_accent } else { theme.text }),
+            );
+            if response.has_focus() {
+                painter.rect_stroke(
+                    rect.expand(2.0),
+                    CornerRadius::same(half as u8 + 1),
+                    Stroke::new(1.5, theme::rgb(theme.accent)),
+                    egui::StrokeKind::Outside,
+                );
+            }
+            name_label(ui, theme, def, pins);
+            ui.label(
+                egui::RichText::new(if on { "ON" } else { "OFF" })
+                    .small()
+                    .color(theme::rgb(if on { theme.accent } else { theme.text_muted })),
+            );
+            response
+        })
+        .inner;
+    if describe(response, def).clicked() {
         let next = if on { def.min[0] } else { def.max[0] };
         bank.set(index, Some(0), &[next]);
     }
@@ -958,7 +962,8 @@ fn bang_row(
     ui.horizontal(|ui| {
         // A bang is a button to hit, so its name is in capitals (owner's call).
         let label = display_name(&def.name).to_uppercase();
-        let response = bang_button_sized(ui, theme, &label, scale.bang_height());
+        let height = scale.button_height(theme::density());
+        let response = bang_button_sized(ui, theme, &label, height);
         pin_menu(&response, def, pins);
         if describe(response, def).clicked() {
             bank.press(index);
@@ -978,7 +983,12 @@ fn bang_row(
 
 /// A momentary button with a visible pressed state.
 pub fn bang_button(ui: &mut Ui, theme: &Palette, name: &str) -> Response {
-    bang_button_sized(ui, theme, name, Scale::Panel.bang_height())
+    bang_button_sized(
+        ui,
+        theme,
+        name,
+        Scale::Panel.button_height(theme::density()),
+    )
 }
 
 /// [`bang_button`], `height` tall.
@@ -1129,72 +1139,14 @@ fn color_row(
     pins: &mut Option<&mut Pins<'_>>,
     scale: Scale,
 ) {
-    // A row the bars' height (D510): the name, the hex value, and the
-    // swatch at the value's place, which opens the picker.
-    let size = Vec2::new(
-        ui.available_width().max(48.0),
-        scale.bar_height(theme::density()),
-    );
-    let (rect, row) = ui.allocate_exact_size(size, Sense::click());
-    let painter = ui.painter_at(rect);
-    painter.rect_filled(
-        rect,
-        CornerRadius::same(BAR_RADIUS),
-        widgets::hover_fill(ui, row.id, row.hovered(), theme.raised, theme.hover),
-    );
-    let swatch_size = Vec2::new((size.y * 1.4).round(), size.y - 8.0);
-    let swatch_rect = Rect::from_min_size(
-        egui::pos2(
-            rect.right() - SPACE_XS - swatch_size.x,
-            rect.center().y - swatch_size.y / 2.0,
-        ),
-        swatch_size,
-    );
-    let channel = |c: f32| (c.clamp(0.0, 1.0) * 255.0).round() as u8;
-    let hex = painter.layout_no_wrap(
-        format!(
-            "#{:02X}{:02X}{:02X}",
-            channel(v[0]),
-            channel(v[1]),
-            channel(v[2])
-        ),
-        egui::TextStyle::Small.resolve(ui.style()),
-        theme::rgb(theme.text_muted),
-    );
-    let hex_size = hex.size();
-    let hex_at = egui::pos2(
-        swatch_rect.left() - SPACE_SM - hex_size.x,
-        rect.center().y - hex_size.y / 2.0,
-    );
-    let font = egui::TextStyle::Body.resolve(ui.style());
-    let name = display_name(&def.name);
-    let label = widgets::truncated(
-        ui,
-        &name,
-        font,
-        theme.text,
-        hex_at.x - rect.left() - SPACE_SM * 2.0,
-    );
-    let label_size = label.size();
-    painter.galley(
-        egui::pos2(rect.left() + SPACE_SM, rect.center().y - label_size.y / 2.0),
-        label,
-        theme::rgb(theme.text),
-    );
-    painter.galley(hex_at, hex, theme::rgb(theme.text_muted));
-    let mut rgb = v;
-    let picked = ui
-        .scope_builder(egui::UiBuilder::new().max_rect(swatch_rect), |ui| {
-            swatch(ui, theme, &mut rgb, swatch_size)
-        })
-        .inner;
-    if describe(picked, def).changed() {
-        bank.set(index, None, &rgb);
-    }
-    let modified = (0..3).any(|c| def.default[c] != v[c]);
-    if row_menu(&describe(row, def), def, modified, pins) {
-        bank.set_default(index);
-    }
+    ui.horizontal(|ui| {
+        let mut rgb = v;
+        let response = swatch(ui, theme, &mut rgb, scale.swatch_size());
+        if describe(response, def).changed() {
+            bank.set(index, None, &rgb);
+        }
+        name_label(ui, theme, def, pins);
+    });
 }
 
 /// A colour swatch, `size` large, that opens egui's picker.
