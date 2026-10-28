@@ -13,7 +13,10 @@
 //! The listener, tested the way a phone and an attacker would use it.
 //!
 //! Every test binds `127.0.0.1` on a free port, so they run in parallel and
-//! need no network. The WebSocket client below is deliberately tiny: it
+//! need no network. The one that needs every interface (`0.0.0.0`) runs
+//! only with `STROBE_TEST_LAN=1`, which CI sets: on a developer's Windows
+//! machine that bind makes the firewall ask about each new test binary
+//! (D503). The WebSocket client below is deliberately tiny: it
 //! masks what it sends, reads unmasked frames, and can send anything at all,
 //! which is the point of the adversarial tests.
 
@@ -30,6 +33,36 @@ use strobe_remote::bridge::{self, Answer, AppEnd, Snapshot};
 use strobe_remote::clients::Clients;
 use strobe_remote::server::{Limits, Server, ServerConfig, StartError};
 use strobe_remote::trust::TrustSecret;
+
+// ---------------------------------------------------------------- LAN opt-in
+
+/// Whether tests may bind beyond loopback: `STROBE_TEST_LAN=1` (D503).
+/// Otherwise the caller skips, and the skip is said the way
+/// `strobe_gfx::skip::note` says one (stderr, and a line in the file
+/// `STROBE_SKIP_LOG` names), which this crate cannot call: it builds on
+/// macOS, where strobe-gfx does not yet.
+fn lan_tests() -> bool {
+    if std::env::var_os("STROBE_TEST_LAN").is_some_and(|value| value == "1") {
+        return true;
+    }
+    let test = std::thread::current()
+        .name()
+        .unwrap_or("unnamed test")
+        .to_string();
+    let reason = "binds every interface; set STROBE_TEST_LAN=1 to run it";
+    eprintln!("skipping {test}: {reason}");
+    if let Some(path) = std::env::var_os("STROBE_SKIP_LOG") {
+        let written = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+            .and_then(|mut file| file.write_all(format!("{test}\t{reason}\n").as_bytes()));
+        if let Err(error) = written {
+            eprintln!("could not record the skip in {}: {error}", path.display());
+        }
+    }
+    false
+}
 
 // ------------------------------------------------------------------ logging
 
@@ -1942,6 +1975,9 @@ fn on_every_interface_a_proof_binds_to_the_address_the_connection_reached() -> R
     // `Host`. A relay at another address (10.9.8.7 here) that forwards a
     // controller's handshake would present its own address, which the
     // controller's proof is bound to; that must not pair.
+    if !lan_tests() {
+        return Ok(());
+    }
     let secret = new_secret()?;
     let rig = rig_at(
         Ipv4Addr::UNSPECIFIED,

@@ -107,10 +107,13 @@ jobs:
       # The runner has no headless EGL, so the GPU tests skip and pass.
       # They record each skip (D249), and the next step counts them into
       # the job summary, so a skip is never read as a pass.
+      # The runner asks no one about firewall rules, so the tests that bind
+      # every interface run here (D503); on a developer machine they skip.
       - name: Test
         shell: bash
         env:
           STROBE_SKIP_LOG: ${{ github.workspace }}/target/test-skips.log
+          STROBE_TEST_LAN: "1"
         run: cargo test --workspace --all-features
       - name: Report skipped GPU tests
         if: always()
@@ -183,6 +186,8 @@ jobs:
       # they will pass by skipping rather than prove anything; the Linux
       # job is where shaders are compiled.
       - name: Test (portable crates)
+        env:
+          STROBE_TEST_LAN: "1"
         run: cargo test --workspace --exclude strobe-gfx --exclude strobe-bench --exclude strobe-app --exclude strobe-autocontrol --exclude strobe-shadertoy --all-features
       - name: Clippy (whole workspace, informational)
         continue-on-error: true
@@ -217,6 +222,7 @@ jobs:
       - name: Test
         env:
           STROBE_REQUIRE_HEADLESS_GL: "1"
+          STROBE_TEST_LAN: "1"
         run: cargo test --workspace --all-features
       # Starts the real app on a virtual X display, renders frames on both
       # windows through one shared GL context, and reads them back to PNGs.
