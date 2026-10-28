@@ -205,7 +205,7 @@ struct Entry {
 
 /// Every row search finds, in page order. The Shortcuts page's rows are
 /// the commands, matched from [`CommandId::ALL`] instead.
-const INDEX: [Entry; 32] = [
+const INDEX: [Entry; 33] = [
     Entry {
         page: SettingsPage::Output,
         title: OUTPUT_WINDOW,
@@ -324,7 +324,7 @@ const INDEX: [Entry; 32] = [
     Entry {
         page: SettingsPage::Projectors,
         title: super::projectors::WEB,
-        words: "projector phone browser api token tailscale",
+        words: "projector phone browser api tailscale",
     },
     Entry {
         page: SettingsPage::Projectors,
@@ -335,6 +335,11 @@ const INDEX: [Entry; 32] = [
         page: SettingsPage::Projectors,
         title: super::projectors::LISTEN,
         words: "projector port bind wifi tailscale",
+    },
+    Entry {
+        page: SettingsPage::Projectors,
+        title: super::projectors::PASSWORD,
+        words: "projector web page password phone sign in login token",
     },
     Entry {
         page: SettingsPage::Shortcuts,

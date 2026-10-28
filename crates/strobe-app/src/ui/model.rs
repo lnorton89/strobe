@@ -283,8 +283,6 @@ pub enum Action {
     SaveProjectors,
     /// Put the Connections form back to what is saved.
     RevertProjectors,
-    /// Replace the projector web page's token.
-    NewProjectorToken,
     /// Explicit full desktop permission on the host, only for this run.
     SetDesktopAccess(bool),
     /// Connect using Settings' desktop address and one-time pairing code.

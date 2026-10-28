@@ -120,7 +120,7 @@ by a `# <version>` comment, and every workflow must declare a top-level
 cargo command that resolves dependencies (`build`, `check`, `clippy`, `doc`,
 `install`, `run`, `test`, `xtask`) must pass `--locked`, and every job must
 set `timeout-minutes:`; a job that only calls a reusable workflow is exempt
-from the timeout (D516).
+from the timeout (D517).
 
 **Fix:** resolve the tag to its commit SHA, write
 `uses: owner/action@<sha> # vX.Y.Z`, and add
