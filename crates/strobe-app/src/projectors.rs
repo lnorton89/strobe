@@ -67,6 +67,8 @@ pub struct Form {
     pub bind: Bind,
     /// The page's port, as typed.
     pub port: String,
+    /// The page's password (D516), as typed.
+    pub password: String,
     /// The projector whose settings are open below its row.
     pub open: Option<usize>,
     /// Off was pressed once for this target (`all` or a key); the second
@@ -88,6 +90,7 @@ impl Form {
                 .collect(),
             bind: config.api.bind,
             port: config.api.port.to_string(),
+            password: config.api.password.clone(),
             open: None,
             confirm_off: None,
         }
@@ -96,10 +99,14 @@ impl Form {
     /// Whether the form holds the same settings as `config`.
     pub fn matches(&self, config: &Config) -> bool {
         let saved = Self::from_config(config);
-        self.units == saved.units && self.bind == saved.bind && self.port.trim() == saved.port
+        self.units == saved.units
+            && self.bind == saved.bind
+            && self.port.trim() == saved.port
+            && self.password == saved.password
     }
 
-    /// `base` with the form's projectors, bind and port, or what is wrong.
+    /// `base` with the form's projectors, bind, port and page password, or
+    /// what is wrong.
     pub fn apply(&self, base: &Config) -> Result<Config, String> {
         let mut config = base.clone();
         config.projectors.clear();
@@ -121,6 +128,14 @@ impl Form {
             .ok()
             .filter(|port| *port != 0)
             .ok_or_else(|| format!("port '{}' is not a port number", self.port.trim()))?;
+        // An empty password keeps the page shut; a short one is refused.
+        if !self.password.is_empty() && self.password.chars().count() < config::MIN_PASSWORD {
+            return Err(format!(
+                "the page's password needs at least {} characters",
+                config::MIN_PASSWORD
+            ));
+        }
+        config.api.password.clone_from(&self.password);
         let problems = config.problems();
         if problems.is_empty() {
             Ok(config)
@@ -177,8 +192,6 @@ pub struct ProjectorView {
     pub listening: bool,
     /// The page's address while served.
     pub url: Option<String>,
-    /// The address with the token, to open on a phone once.
-    pub link: Option<String>,
     /// What the page's service is doing, in words.
     pub web_state: String,
     /// The saved projectors.
@@ -364,42 +377,22 @@ impl Projectors {
         }
     }
 
-    /// Serves the web page from Strobe, or stops. Turning it on makes a
-    /// token first when the file has none.
+    /// Serves the web page from Strobe, or stops. Without a password the
+    /// switch stays on and the page waits for one, and says so (D516).
     pub fn set_web(&mut self, on: bool) {
         let mut config = self.saved();
         config.strobe.serve_web = on;
-        if on && config.api_problem().is_some() {
-            match config::new_token() {
-                Ok(token) => config.api.token = token,
-                Err(error) => {
-                    self.say(format!("Could not make a token: {error}"), true);
-                    return;
-                }
-            }
+        if on && let Some(problem) = config.api_problem() {
+            self.say(
+                format!("Set the page's password under Connections and Save: {problem}"),
+                true,
+            );
         }
         self.store(config);
         if on && self.saved().strobe.enabled {
             self.start_service();
         } else {
             self.stop_service();
-        }
-    }
-
-    /// Replaces the token: every phone must open the new link.
-    pub fn new_token(&mut self) {
-        let mut config = self.saved();
-        match config::new_token() {
-            Ok(token) => {
-                config.api.token = token;
-                if self.store(config) {
-                    self.say(
-                        "New token made: open the new link on each phone.".into(),
-                        false,
-                    );
-                }
-            }
-            Err(error) => self.say(format!("Could not make a token: {error}"), true),
         }
     }
 
@@ -560,9 +553,6 @@ impl Projectors {
             State::Stopped => (false, "Off".to_string()),
         };
         let url = state.url();
-        let link = url
-            .as_ref()
-            .map(|url| format!("{url}?token={}", config.api.token));
         let units = config
             .projectors
             .iter()
@@ -583,7 +573,6 @@ impl Projectors {
             serve_web: config.strobe.serve_web,
             listening,
             url,
-            link,
             web_state,
             units,
             message: self.message.clone(),
@@ -651,9 +640,37 @@ mod tests {
             "no listener while control is off"
         );
         let saved = Config::read_or_default(&dir.join(config::FILE_NAME))?;
-        assert!(saved.api_problem().is_none(), "a token was made");
+        assert!(
+            saved.api_problem().is_some(),
+            "no password is made up: the page waits for one (D516)"
+        );
+        assert!(
+            projectors
+                .view()
+                .message
+                .is_some_and(|(text, _)| text.contains("password")),
+            "and says so"
+        );
         assert!(saved.strobe.serve_web, "saved");
         std::fs::remove_dir_all(&dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn the_page_password_is_saved_with_the_form_and_a_short_one_is_refused() -> Result<()> {
+        let mut config = Config::default();
+        config
+            .projectors
+            .insert("sony".into(), config::Projector::new("Sony", "192.0.2.1"));
+        let mut form = Form::from_config(&config);
+        form.password = "short".into();
+        assert!(form.apply(&config).is_err(), "too short");
+        form.password = "jazz-hands".into();
+        let saved = form.apply(&config).map_err(|why| anyhow::anyhow!(why))?;
+        assert_eq!(saved.api.password, "jazz-hands", "saved");
+        assert!(saved.api_problem().is_none(), "the page may serve");
+        assert!(!form.matches(&config), "a changed password is unsaved");
+        assert!(form.matches(&saved), "and saved, it is not");
         Ok(())
     }
 }

@@ -2,7 +2,7 @@
 
 Projector power over the network for the show PC (D502): PJLink Class 1 on
 TCP 4352, with Panasonic's NTCONTROL on TCP 1024 as a fallback, a
-token-protected web page a phone opens, and the `strobe-projector` binary
+password-protected web page a phone opens (D516), and the `strobe-projector` binary
 (`pj` once installed) as the CLI and the headless service. It is the
 Rust rewrite of the Python tool that PR #45 proposed, with the same
 behaviour command for command. Strobe uses it in-process for
@@ -59,7 +59,7 @@ configuration error. Installing it as a service is
 
 `md-5` for the authentication digest (the same RustCrypto `digest` 0.11 as
 `sha1` and `sha2` in the tree, so it adds one crate), `serde_json` for the
-config and the API, `getrandom` for the token, `chrono` for the log's local
+config and the API, `sha2` for the page's session cookie, `chrono` for the log's local
 time, `clap` for the CLI, and `strobe-diag` for the data directory and the
 service's log. No HTTP framework, no async runtime.
 
