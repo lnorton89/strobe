@@ -41,6 +41,11 @@ pj discover             # both projectors found at their IPs, no PROBLEM lines
 pj status
 ```
 
+If PowerShell refuses to run the scripts because of the execution policy
+(the mini PC's does), run each one as
+`powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1`. That
+bypasses the policy for that one run and changes no setting.
+
 `install.ps1` does the following:
 
 1. It builds `strobe-projector.exe` with `cargo build --release`, or takes
