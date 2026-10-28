@@ -2,15 +2,14 @@
 // Module:       strobe_projector::config
 // Description:  `projectors.json`: the projectors (name, address,
 //               passwords, fallback), the projector network, and the web
-//               page's bind, port and token. Loaded, checked and saved.
+//               page's bind, port and password. Loaded, checked and saved.
 //
-// Dependencies: serde, serde_json, getrandom; strobe-diag (paths);
-//               crate::wire (hex)
+// Dependencies: serde, serde_json; strobe-diag (paths)
 // ============================================================================
 
 //! The configuration file (D502).
 //!
-//! It holds the API token and the projectors' passwords, so it is never in
+//! It holds the page's password and the projectors' passwords, so it is never in
 //! the repository: it lives in Strobe's data directory as
 //! `projectors.json` ([`default_path`]), where Settings > Projectors edits
 //! it, and the headless service is pointed at the same file with
@@ -19,8 +18,10 @@
 //! addition, Strobe's own switches, which the headless service ignores.
 //!
 //! [`Config::problems`] is the check both loading and Settings' Save run:
-//! at least one projector, each with a name and an address, and a token of
-//! at least [`MIN_TOKEN`] characters before the page may be served.
+//! at least one projector, each with a name and an address, and a password
+//! of at least [`MIN_PASSWORD`] characters before the page may be served
+//! (D516). A file from before D516 has `api.token` instead, which is read as
+//! the password until one is set.
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -32,15 +33,12 @@ use std::path::{Path, PathBuf};
 /// The file's name in Strobe's data directory.
 pub const FILE_NAME: &str = "projectors.json";
 
-/// The shortest token the web page accepts: a guessable token on a venue
-/// Wi-Fi is no protection.
-pub const MIN_TOKEN: usize = 24;
+/// The shortest password the web page accepts (D516): something a person
+/// types on a phone, not a token, but not a single word either.
+pub const MIN_PASSWORD: usize = 6;
 
 /// The default web page port.
 pub const DEFAULT_PORT: u16 = 8780;
-
-/// Random bytes in a generated token (hex doubles them).
-const TOKEN_BYTES: usize = 32;
 
 /// Where Strobe keeps the file: its data directory (`%LOCALAPPDATA%\strobe`
 /// on Windows, or `STROBE_DIAG_DIR`).
@@ -229,9 +227,10 @@ pub struct Api {
     /// The TCP port.
     #[serde(default = "port")]
     pub port: u16,
-    /// The token every request must carry.
-    #[serde(default)]
-    pub token: String,
+    /// The password every request must carry (D516). Read from `token`
+    /// in a file from before D516.
+    #[serde(default, alias = "token")]
+    pub password: String,
 }
 
 fn port() -> u16 {
@@ -243,7 +242,7 @@ impl Default for Api {
         Self {
             bind: Bind::Auto,
             port: DEFAULT_PORT,
-            token: String::new(),
+            password: String::new(),
         }
     }
 }
@@ -361,8 +360,8 @@ impl Config {
     /// Why the web page cannot be served with this configuration, if it
     /// cannot.
     pub fn api_problem(&self) -> Option<String> {
-        (self.api.token.chars().count() < MIN_TOKEN)
-            .then(|| format!("api.token missing or shorter than {MIN_TOKEN} characters"))
+        (self.api.password.chars().count() < MIN_PASSWORD)
+            .then(|| format!("api.password missing or shorter than {MIN_PASSWORD} characters"))
     }
 
     /// The projector network.
@@ -375,13 +374,6 @@ impl Config {
 /// `_`, as the API's routes accept.
 pub fn valid_key(key: &str) -> bool {
     !key.is_empty() && key.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
-}
-
-/// A fresh API token: 32 random bytes as 64 hex characters.
-pub fn new_token() -> io::Result<String> {
-    let mut bytes = [0_u8; TOKEN_BYTES];
-    getrandom::fill(&mut bytes).map_err(|error| io::Error::other(error.to_string()))?;
-    Ok(crate::wire::hex(&bytes))
 }
 
 /// A MAC address written `04-5D-4B-96-32-7C`, `04:5d:...` or `045d4b...`.
@@ -486,7 +478,12 @@ mod tests {
             "api": {"bind": "auto", "port": 8780, "token": "abcdefghijklmnopqrstuvwxyz0123456789-_ABCDE"}}"#;
         let config: Config = serde_json::from_str(text)?;
         assert!(config.problems().is_empty(), "{:?}", config.problems());
-        assert_eq!(config.api_problem(), None, "a 43-character token serves");
+        assert_eq!(
+            config.api_problem(),
+            None,
+            "a token from before D516 is the password"
+        );
+        assert_eq!(config.api.password.len(), 43, "read from api.token");
         assert!(!config.strobe.enabled, "Strobe's switches default off");
         Ok(())
     }
@@ -504,10 +501,11 @@ mod tests {
         }
         let bad_bind: Result<Config, _> = serde_json::from_str(r#"{"api": {"bind": "0.0.0.0"}}"#);
         assert!(bad_bind.is_err(), "an explicit address is refused");
-        assert!(config.api_problem().is_some(), "no token");
-        config.api.token = new_token()?;
-        assert_eq!(config.api.token.len(), 64, "hex token");
-        assert_eq!(config.api_problem(), None, "token");
+        assert!(config.api_problem().is_some(), "no password");
+        config.api.password = "short".into();
+        assert!(config.api_problem().is_some(), "too short");
+        config.api.password = "jazz-hands".into();
+        assert_eq!(config.api_problem(), None, "a typed password serves");
         Ok(())
     }
 

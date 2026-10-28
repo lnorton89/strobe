@@ -12728,7 +12728,44 @@ PC's Controls page.
 a row drawn at full size does not fit the picture's row, or the host and
 controller on different UI densities.
 
-### D516: a release publishes only a green, immutable, single commit (2026-10-28)
+### D516: the projector page asks for a password, not a token in a link (2026-10-28, owner's choice)
+
+**Context.** D502's web page took a 64-character token: Settings made one,
+*Copy link* put it in the address (`/?token=...`), and the page swapped
+it for a cookie. The owner found that harder than it needs to be for a
+venue page and asked for a password that is easy to set.
+
+**Decision.** `api.password` replaces `api.token` in `projectors.json`;
+a file from before D516 still loads, its token read as the password until
+one is set. It needs at least 6 characters (`MIN_PASSWORD`), set as
+*Page password* under Settings > Projectors > Connections and saved with
+the rest, or written into the file, which a running service reloads
+within 10 s. Settings no longer makes one up: without a password the page
+waits and says why.
+
+- **Sign-in.** The page's form sends the password to `GET /login` in
+  `Authorization: Bearer`, never in the address or the history. The
+  answer sets `pj_session` (`HttpOnly`, `SameSite=Strict`, a year), which
+  holds not the password but a SHA-256 of it under the page's own label
+  (`server::session`), so changing the password signs every phone out.
+  The API still takes `Authorization: Bearer <password>`. `?token=` is
+  gone.
+- **Not in the repository.** The password lives only in
+  `projectors.json`, in Strobe's data directory, as the projectors'
+  passwords already do.
+
+**Test.** `server::tests` (no password gets the form or a 401; `/login`
+buys a cookie that is not the password, and the password itself is no
+cookie; nothing signs in through the address); `config::tests` (a
+D502-era file's token is the password; short and missing passwords
+refused); `projectors::tests` (the form saves the password and refuses a
+short one; turning the page on without one says so); the fake projector
+test through the page.
+
+**Would reopen:** a page that has to be reachable beyond the venue
+network, where a typed password over plain HTTP is not enough (L-07).
+
+### D517: a release publishes only a green, immutable, single commit (2026-10-28)
 
 **Context.** An outside engineering audit (2026-10-28) read `release.yml`
 and found that "release from green master" was a habit, not a rule. The
