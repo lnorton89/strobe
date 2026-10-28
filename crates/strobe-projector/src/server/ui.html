@@ -2,84 +2,392 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Projector Control</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#080b14">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Projectors">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<title>Strobe projectors</title>
 <style>
-  :root { --bg:#0f1115; --card:#181b22; --line:#2a2f3a; --fg:#e6e8ec; --mut:#8a93a3;
-          --on:#2fbf71; --off:#e5484d; --warn:#f5a524; --btn:#232834; }
-  * { box-sizing:border-box }
-  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.4 system-ui,Segoe UI,sans-serif; padding:16px }
-  h1 { font-size:18px; font-weight:600; margin:0 0 16px; display:flex; justify-content:space-between; align-items:center }
-  .all { display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap }
-  .grid { display:grid; gap:12px; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)) }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px }
-  .head { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:10px }
-  .name { font-weight:600 } .ip { color:var(--mut); font-size:13px }
-  .pill { display:inline-block; padding:2px 10px; border-radius:99px; font-size:13px; font-weight:600; background:var(--btn) }
-  .pill.on { background:color-mix(in srgb,var(--on) 25%,transparent); color:var(--on) }
-  .pill.off { background:color-mix(in srgb,var(--off) 20%,transparent); color:var(--off) }
-  .pill.warming,.pill.cooling { background:color-mix(in srgb,var(--warn) 22%,transparent); color:var(--warn) }
-  dl { display:grid; grid-template-columns:auto 1fr; gap:4px 12px; margin:10px 0; font-size:13px }
-  dt { color:var(--mut) } dd { margin:0; word-break:break-word }
-  .row { display:flex; gap:8px }
-  button { flex:1; background:var(--btn); color:var(--fg); border:1px solid var(--line); border-radius:8px;
-           padding:10px 14px; font:inherit; font-weight:600; cursor:pointer }
-  button:hover { border-color:var(--mut) } button:disabled { opacity:.5; cursor:wait }
-  button.on { border-color:color-mix(in srgb,var(--on) 50%,transparent) }
-  button.off { border-color:color-mix(in srgb,var(--off) 50%,transparent) }
-  #msg { color:var(--mut); font-size:13px; margin-top:14px; white-space:pre-wrap }
+/*
+ * The website's tokens (site/src/app/globals.css, docs/branding.md section 3),
+ * dark only, as the remote: the venue's booth is dark. Good, warn and danger
+ * are the app's Strobe theme (crates/strobe-app/assets/themes.toml).
+ */
+:root {
+  --ground: #080b14;
+  --panel: #101725;
+  --panel-raised: #172033;
+  --hairline: #253247;
+  --hairline-strong: #34445e;
+  --mute: #5d6b80;
+  --secondary: #9aa8bc;
+  --bright: #c9d3e0;
+  --text: #f3f6fa;
+  --label: #8a98ae;
+  --accent: #00e5ff;
+  --accent-deep: #00b8d4;
+  --on-accent: #080b14;
+  --cyan: #00e5ff;
+  --blue: #3382f6;
+  --violet: #8a55f7;
+  --magenta: #ec4b99;
+  --good: #5fd08a;
+  --warn: #ff9a47;
+  --danger: #ff6b7c;
+  --on-danger: #080b14;
+  --terminal: #05070d;
+  --display: "Space Grotesk", "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --gutter-l: max(16px, env(safe-area-inset-left));
+  --gutter-r: max(16px, env(safe-area-inset-right));
+  --speed: 140ms;
+  color-scheme: dark;
+}
+@media (min-width: 900px) {
+  :root { --gutter-l: max(32px, env(safe-area-inset-left)); --gutter-r: max(32px, env(safe-area-inset-right)); }
+}
+@media (prefers-contrast: more) {
+  :root {
+    --ground: #000; --panel: #000; --panel-raised: #000; --terminal: #000;
+    --hairline: #fff; --hairline-strong: #fff;
+    --secondary: #fff; --bright: #fff; --label: #fff; --text: #fff;
+    --accent: #5ff; --warn: #ff0; --danger: #f66;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  :root { --speed: 0ms; }
+}
+* { box-sizing: border-box; }
+html { background: var(--ground); -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+body {
+  margin: 0;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: var(--ground);
+  color: var(--text);
+  font: 15px/1.5 var(--sans);
+  -webkit-font-smoothing: antialiased;
+  padding: 0 var(--gutter-r) max(20px, env(safe-area-inset-bottom)) var(--gutter-l);
+  -webkit-tap-highlight-color: transparent;
+}
+::selection { background: var(--accent); color: var(--on-accent); }
+h1, h2, h3 { font-family: var(--display); margin: 0; }
+p, dl, dd { margin: 0; }
+[hidden] { display: none !important; }
+main, .bar-row { width: 100%; max-width: 1200px; margin: 0 auto; }
+
+.bar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  margin: 0 calc(-1 * var(--gutter-r)) 0 calc(-1 * var(--gutter-l));
+  padding: max(12px, env(safe-area-inset-top)) var(--gutter-r) 0 var(--gutter-l);
+  background: var(--ground);
+}
+.bar-row { display: flex; align-items: center; gap: 12px; min-height: 52px; }
+.brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.brand svg { display: block; flex: none; }
+.brand .word { fill: var(--text); }
+.tag {
+  border-left: 1px solid var(--hairline);
+  padding-left: 10px;
+  color: var(--label);
+  font: 500 10px/1 var(--mono);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.updated { margin-left: auto; color: var(--label); font: 11px/1.2 var(--mono); white-space: nowrap; }
+.spectrum {
+  height: 2px;
+  background: linear-gradient(90deg, var(--cyan) 0%, var(--blue) 35%, var(--violet) 68%, var(--magenta) 100%);
+}
+
+main { display: flex; flex-direction: column; gap: 28px; padding-top: 24px; }
+section { display: flex; flex-direction: column; gap: 14px; }
+
+/* The section rule: an uppercase name over a hairline, a mono note to its right. */
+.rule { display: flex; align-items: baseline; gap: 12px; border-bottom: 1px solid var(--hairline); padding-bottom: 10px; }
+.heading { font: 600 11px/1.2 var(--sans); letter-spacing: 0.2em; text-transform: uppercase; color: var(--text); }
+.note { margin-left: auto; color: var(--label); font: 11px/1.2 var(--mono); }
+.label { color: var(--label); font: 500 10px/1.2 var(--mono); letter-spacing: 0.16em; text-transform: uppercase; }
+
+/* The site's layout device: a hairline showing through 1px gaps. */
+.grid { display: grid; background: var(--hairline); border: 1px solid var(--hairline); gap: 1px; }
+.all { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+button {
+  font: 600 12.5px/1.2 var(--sans);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text);
+  background: var(--panel);
+  border: 0;
+  border-radius: 0;
+  min-height: 56px;
+  padding: 10px 12px;
+  touch-action: manipulation;
+  cursor: pointer;
+  box-shadow: inset 0 -2px 0 0 transparent;
+  transition: background-color var(--speed) ease-out, box-shadow var(--speed) ease-out, color var(--speed) ease-out;
+}
+button:active:not(:disabled) { background: var(--panel-raised); box-shadow: inset 0 -2px 0 0 var(--accent); }
+@media (hover: hover) {
+  button:hover:not(:disabled) { background: var(--panel-raised); box-shadow: inset 0 -2px 0 0 var(--accent); }
+}
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button:focus-visible { outline-offset: -3px; }
+button:disabled { color: var(--mute); cursor: wait; }
+button.primary { background: var(--accent); color: var(--on-accent); }
+button.primary:active:not(:disabled) { background: var(--accent-deep); box-shadow: none; }
+@media (hover: hover) {
+  button.primary:hover:not(:disabled) { background: var(--accent-deep); box-shadow: none; }
+}
+button.primary:disabled { background: var(--panel-raised); color: var(--mute); }
+button.off { color: var(--danger); }
+button.off:disabled { color: var(--mute); }
+/* Off asks twice: the first press arms it, red, for a few seconds. */
+button[data-armed="true"],
+button[data-armed="true"]:active:not(:disabled),
+button[data-armed="true"]:hover:not(:disabled) { background: var(--danger); color: var(--on-danger); box-shadow: inset 0 -3px 0 0 var(--on-danger); }
+
+/* Units: one frame each, the site's window: a bar, a body, the actions along its foot. */
+.units { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); }
+.unit {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--hairline);
+  border-radius: 5px;
+  overflow: hidden;
+  background: var(--panel);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.45), 0 8px 24px rgb(0 0 0 / 0.4);
+  transition: border-color 160ms ease-out;
+}
+@media (hover: hover) {
+  .unit:hover { border-color: var(--hairline-strong); }
+}
+.unit-bar { display: flex; align-items: baseline; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--hairline); }
+.unit-name { font: 600 16px/1.25 var(--display); letter-spacing: -0.01em; overflow-wrap: anywhere; }
+.unit-ip { margin-left: auto; color: var(--label); font: 11px/1.2 var(--mono); white-space: nowrap; }
+.unit-body { flex: 1; padding: 14px; display: flex; flex-direction: column; gap: 12px; background: var(--ground); }
+
+.power { display: flex; align-items: center; gap: 10px; font: 600 22px/1.1 var(--display); letter-spacing: -0.02em; text-transform: capitalize; }
+.power::before { content: ""; width: 8px; height: 8px; flex: none; background: var(--hairline-strong); }
+.power[data-state="on"] { color: var(--good); }
+.power[data-state="on"]::before { background: var(--good); }
+.power[data-state="off"] { color: var(--bright); }
+.power[data-state="off"]::before { background: var(--mute); }
+.power[data-state="warming"], .power[data-state="cooling"] { color: var(--warn); }
+.power[data-state="warming"]::before, .power[data-state="cooling"]::before { background: var(--warn); }
+.power[data-state="error"] { color: var(--danger); }
+.power[data-state="error"]::before { background: var(--danger); }
+.power[data-state="checking"] { color: var(--label); }
+
+/* Read-outs as rows: the name left, the value right, a hairline between. */
+.rows { display: flex; flex-direction: column; }
+.rows > div { display: flex; align-items: baseline; gap: 12px; padding: 7px 0; border-top: 1px solid var(--hairline); }
+.rows dd { margin-left: auto; text-align: right; font: 13px/1.4 var(--mono); color: var(--bright); overflow-wrap: anywhere; }
+.rows dd[data-level="bad"] { color: var(--danger); }
+
+.unit-actions { grid-template-columns: repeat(3, minmax(0, 1fr)); border-width: 1px 0 0; }
+
+.empty { color: var(--secondary); }
+
+/* The log: the site's terminal window, mono on the darker ground. */
+.log { border: 1px solid var(--hairline); border-radius: 5px; overflow: hidden; }
+.log-bar { display: flex; align-items: center; gap: 10px; padding: 8px 14px; background: var(--panel); border-bottom: 1px solid var(--hairline); }
+.log-bar .label { margin-left: auto; }
+.dots { display: flex; gap: 6px; }
+.dots span { width: 8px; height: 8px; border-radius: 50%; }
+.dots span:nth-child(1) { background: var(--cyan); }
+.dots span:nth-child(2) { background: var(--violet); }
+.dots span:nth-child(3) { background: var(--magenta); }
+.log pre {
+  margin: 0;
+  padding: 14px;
+  background: var(--terminal);
+  color: var(--secondary);
+  font: 12.5px/1.75 var(--mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.log pre[data-busy="true"]::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 10px; background: var(--accent); animation: breathe 1.6s ease-in-out infinite; }
+@keyframes breathe { 50% { opacity: 0.25; } }
+@media (prefers-reduced-motion: reduce) { .log pre[data-busy="true"]::before { animation: none; } }
+
+footer { max-width: 1200px; margin: 28px auto 0; border-top: 1px solid var(--hairline); padding-top: 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; color: var(--label); font: 11px/1.5 var(--mono); }
+footer p { flex: 1 1 16em; }
+button.ghost { min-height: 36px; padding: 8px 4px; background: none; color: var(--secondary); font-size: 11.5px; box-shadow: none; }
+@media (hover: hover) {
+  button.ghost:hover:not(:disabled) { background: none; color: var(--text); box-shadow: none; }
+}
+
+@media (forced-colors: active) {
+  .power::before, .log pre[data-busy="true"]::before { forced-color-adjust: none; background: CanvasText; }
+  button { border: 1px solid ButtonText; }
+}
 </style>
 </head>
 <body>
-<h1>Projector Control <span class="ip" id="upd"></span></h1>
-<div class="all">
-  <button class="on" data-t="all" data-a="on">All On</button>
-  <button class="off" data-t="all" data-a="off">All Off</button>
-  <button data-t="all" data-a="status">Refresh</button>
-</div>
-<div class="grid" id="grid"></div>
-<div id="msg"></div>
+<header class="bar">
+  <div class="bar-row">
+    <span class="brand">
+      <svg width="22" height="22" viewBox="76 82 322 320" aria-hidden="true" focusable="false">
+        <defs>
+          <linearGradient id="ribbon" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#00e5ff"/>
+            <stop offset=".35" stop-color="#3382f6"/>
+            <stop offset=".68" stop-color="#8a55f7"/>
+            <stop offset="1" stop-color="#ec4b99"/>
+          </linearGradient>
+        </defs>
+        <path d="M117 269 C93 175 166 99 252 119 C318 135 381 205 360 273 C339 334 260 386 192 355 C136 330 115 273 157 226 C202 176 279 180 322 223 C355 258 333 304 290 322" fill="none" stroke="url(#ribbon)" stroke-width="36" stroke-linecap="round"/>
+      </svg>
+      <h1>
+        <svg class="word" width="70" height="12" viewBox="74 68 435 74" role="img" aria-label="Strobe" focusable="false">
+          <path d="M101.1 141.4Q93.2 141.4 87.1 138.6Q81 135.8 77.6 130.4Q74.1 124.9 74.1 117.1V114.6H84.8V117.1Q84.8 124.5 89.3 128.2Q93.7 131.9 101.1 131.9Q108.6 131.9 112.4 128.8Q116.2 125.6 116.2 120.6Q116.2 117.3 114.4 115.2Q112.6 113.1 109.3 111.9Q106 110.6 101.4 109.5L97.7 108.6Q91 107 86.1 104.7Q81.1 102.3 78.4 98.4Q75.7 94.5 75.7 88.4Q75.7 82.2 78.8 77.8Q81.8 73.4 87.2 71Q92.6 68.6 99.9 68.6Q107.2 68.6 113 71.1Q118.7 73.6 122 78.5Q125.3 83.4 125.3 90.8V94.4H114.6V90.8Q114.6 86.3 112.8 83.5Q110.9 80.7 107.6 79.4Q104.3 78.1 99.9 78.1Q93.5 78.1 90 80.8Q86.4 83.4 86.4 88.1Q86.4 91.3 88 93.4Q89.5 95.4 92.5 96.7Q95.5 98 100 99L103.7 99.9Q110.5 101.4 115.7 103.8Q120.9 106.1 123.9 110.1Q126.9 114.1 126.9 120.4Q126.9 126.7 123.8 131.4Q120.6 136.1 114.8 138.8Q109 141.4 101.1 141.4ZM168.9 140V79.8H147.4V70H201.2V79.8H179.7V140ZM225 140V70H254.4Q260.9 70 265.9 72.3Q270.8 74.5 273.6 78.7Q276.3 82.9 276.3 88.7V89.8Q276.3 96.4 273.2 100.4Q270 104.3 265.5 105.9V107.5Q269.3 107.7 271.6 110.1Q273.9 112.4 273.9 116.8V140H263V118.3Q263 115.6 261.6 114Q260.2 112.4 257.1 112.4H235.8V140ZM235.8 102.6H253.2Q259 102.6 262.2 99.6Q265.4 96.7 265.4 91.6V90.8Q265.4 85.7 262.3 82.8Q259.1 79.8 253.2 79.8H235.8ZM328.5 141.4Q315.6 141.4 308 134.2Q300.4 126.9 300.4 113.2V96.8Q300.4 83.1 308 75.9Q315.6 68.6 328.5 68.6Q341.4 68.6 349.1 75.9Q356.7 83.1 356.7 96.8V113.2Q356.7 126.9 349.1 134.2Q341.4 141.4 328.5 141.4ZM328.5 131.7Q336.8 131.7 341.3 126.9Q345.8 122 345.8 113.6V96.4Q345.8 88 341.3 83.2Q336.8 78.3 328.5 78.3Q320.4 78.3 315.8 83.2Q311.2 88 311.2 96.4V113.6Q311.2 122 315.8 126.9Q320.4 131.7 328.5 131.7ZM380.9 140V130.4H390.3V79.6H380.9V70H416.4Q422.7 70 427.4 72.2Q432.1 74.3 434.8 78.3Q437.4 82.2 437.4 87.6V88.6Q437.4 93.4 435.6 96.5Q433.8 99.6 431.3 101.3Q428.7 103 426.4 103.7V105.3Q428.7 105.9 431.4 107.7Q434 109.4 435.9 112.5Q437.7 115.6 437.7 120.6V121.6Q437.7 127.4 435 131.5Q432.3 135.6 427.6 137.8Q422.8 140 416.6 140ZM401.2 130.2H415.3Q420.7 130.2 423.8 127.6Q426.9 125 426.9 120.4V119.5Q426.9 114.9 423.9 112.3Q420.8 109.7 415.3 109.7H401.2ZM401.2 99.8H415.3Q420.4 99.8 423.5 97.3Q426.6 94.7 426.6 90.3V89.3Q426.6 84.9 423.6 82.4Q420.5 79.8 415.3 79.8H401.2ZM463.8 140V70H507.9V79.8H474.6V99.9H505.1V109.7H474.6V130.2H508.4V140Z"/>
+        </svg>
+      </h1>
+      <span class="tag">Projectors</span>
+    </span>
+    <p class="updated" id="upd" role="status" aria-live="polite">Loading</p>
+  </div>
+  <div class="spectrum" aria-hidden="true"></div>
+</header>
+<main>
+  <section aria-labelledby="all-title">
+    <div class="rule"><h2 id="all-title" class="heading">All projectors</h2><span class="note" id="count"></span></div>
+    <div class="grid all">
+      <button class="primary" type="button" data-t="all" data-a="on">All on</button>
+      <button class="off" type="button" data-t="all" data-a="off">All off</button>
+      <button type="button" data-t="all" data-a="status">Refresh</button>
+    </div>
+  </section>
+  <section aria-labelledby="units-title">
+    <div class="rule"><h2 id="units-title" class="heading">Units</h2><span class="note">Status every 30 s</span></div>
+    <div class="units" id="grid"><p class="empty">Reading the configured projectors.</p></div>
+  </section>
+  <section id="log" class="log" hidden aria-label="Last command">
+    <div class="log-bar"><span class="dots" aria-hidden="true"><span></span><span></span><span></span></span><span class="label">Last command</span></div>
+    <pre id="msg" role="status" aria-live="polite"></pre>
+  </section>
+</main>
+<footer>
+  <p>Power switches the projectors themselves. A warming or cooling unit is waited out, up to 90 s.</p>
+  <button id="install" type="button" class="ghost" hidden>Install app</button>
+</footer>
 <script>
-const grid = document.getElementById('grid'), msg = document.getElementById('msg');
+"use strict";
+const grid = document.getElementById('grid'), msg = document.getElementById('msg'), log = document.getElementById('log');
+const ARM_MS = 4000;
 const esc = s => String(s ?? '—').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 async function api(path, method='GET') {
   const r = await fetch(path, {method, credentials:'same-origin'});
   if (r.status === 401) { location.href = '/'; throw new Error('unauthorized'); }
   return [r.status, await r.json()];
 }
+function say(text, busy=false) {
+  log.hidden = !text;
+  msg.textContent = text;
+  msg.dataset.busy = busy ? 'true' : 'false';
+}
+function powerState(s) {
+  if (s.error || (s.power || '').startsWith('error')) return ['error', 'Error'];
+  const word = (s.power || '').split(':')[0];
+  if (!word) return ['checking', 'Checking'];
+  return [word, word];
+}
 function render(units, st={}) {
-  grid.innerHTML = Object.entries(units).map(([k,u]) => {
-    const s = st[k] || {}, p = (s.power||'').split(':')[0];
-    return `<div class="card"><div class="head"><span class="name">${esc(u.name)}</span><span class="ip">${esc(u.ip)}</span></div>
-      <span class="pill ${esc(p)}">${esc(s.power ?? (s.error ? 'error' : '…'))}</span>
-      <dl><dt>Input</dt><dd>${esc(s.input)}</dd><dt>Hours</dt><dd>${esc(s.hours)}</dd><dt>Errors</dt><dd>${esc(s.errors ?? s.error)}</dd></dl>
-      <div class="row"><button class="on" data-t="${esc(k)}" data-a="on">On</button>
-      <button class="off" data-t="${esc(k)}" data-a="off">Off</button>
-      <button data-t="${esc(k)}" data-a="status">Status</button></div></div>`;
+  const keys = Object.keys(units);
+  document.getElementById('count').textContent = keys.length === 1 ? '1 unit' : keys.length + ' units';
+  if (!keys.length) { grid.innerHTML = '<p class="empty">No projectors are configured. Add them in Strobe under Settings, Projectors.</p>'; return; }
+  grid.innerHTML = keys.map(k => {
+    const u = units[k], s = st[k] || {}, [state, word] = powerState(s);
+    const errors = s.errors ?? s.error ?? (state === 'error' ? s.power : null);
+    return `<article class="unit" aria-label="${esc(u.name)}">
+      <div class="unit-bar"><h3 class="unit-name">${esc(u.name)}</h3><span class="unit-ip">${esc(u.ip)}</span></div>
+      <div class="unit-body">
+        <p class="power" data-state="${esc(state)}">${esc(word)}</p>
+        <dl class="rows">
+          <div><dt class="label">Input</dt><dd>${esc(s.input)}</dd></div>
+          <div><dt class="label">Hours</dt><dd>${esc(s.hours)}</dd></div>
+          <div><dt class="label">Errors</dt><dd data-level="${errors && state === 'error' ? 'bad' : ''}">${esc(errors)}</dd></div>
+        </dl>
+      </div>
+      <div class="grid unit-actions">
+        <button type="button" data-t="${esc(k)}" data-a="on">On</button>
+        <button class="off" type="button" data-t="${esc(k)}" data-a="off">Off</button>
+        <button type="button" data-t="${esc(k)}" data-a="status">Status</button>
+      </div>
+    </article>`;
   }).join('');
 }
-let units = {}, last = {};
+let units = {}, last = {}, busy = false;
 async function refresh(t='all') {
   const [, st] = await api('/api/status/' + t);
   Object.assign(last, st); render(units, last);
-  document.getElementById('upd').textContent = 'updated ' + new Date().toLocaleTimeString();
+  document.getElementById('upd').textContent = 'Updated ' + new Date().toLocaleTimeString();
+}
+function disarm(button) {
+  window.clearTimeout(Number(button.dataset.timer || 0));
+  button.dataset.armed = 'false';
+  button.textContent = button.dataset.t === 'all' ? 'All off' : 'Off';
+}
+function lock(on) {
+  busy = on;
+  document.querySelectorAll('button[data-a]').forEach(x => { x.disabled = on; });
 }
 document.addEventListener('click', async e => {
-  const b = e.target.closest('button[data-a]'); if (!b) return;
+  const b = e.target.closest('button[data-a]'); if (!b || busy) return;
   const {t, a} = b.dataset;
-  if (a === 'off' && !confirm(`Power OFF ${t}?`)) return;
-  document.querySelectorAll('button').forEach(x => x.disabled = true);
-  msg.textContent = a === 'status' ? 'Querying…' : `Sending ${a} to ${t}… (waits out warming/cooling, up to 90 s)`;
+  if (a === 'off' && b.dataset.armed !== 'true') {
+    document.querySelectorAll('button[data-armed="true"]').forEach(disarm);
+    b.dataset.armed = 'true';
+    b.textContent = t === 'all' ? 'Confirm all off' : 'Confirm off';
+    b.dataset.timer = String(window.setTimeout(() => disarm(b), ARM_MS));
+    return;
+  }
+  if (a === 'off') disarm(b);
+  const name = t === 'all' ? 'all projectors' : (units[t] ? units[t].name : t);
+  lock(true);
+  say(a === 'status' ? 'Asking ' + name + '…' : `Sending ${a} to ${name}… a warming or cooling unit is waited out, up to 90 s.`, true);
   try {
     if (a !== 'status') {
-      const [code, r] = await api(`/api/power/${t}/${a}`, 'POST');
-      msg.textContent = Object.entries(r).map(([k,v]) => `${k}: ${v.ok ? (v.sent ? a+' sent' : 'already '+v.previous) : 'FAILED – '+v.error}`).join('\n');
-    } else msg.textContent = '';
+      const [, r] = await api(`/api/power/${t}/${a}`, 'POST');
+      say(Object.entries(r).map(([k,v]) => `${units[k] ? units[k].name : k}: ${v.ok ? (v.sent ? a + ' sent' : 'already ' + v.previous) : 'FAILED: ' + v.error}`).join('\n'));
+    } else say('');
     await refresh(t);
-  } catch (err) { msg.textContent = 'Error: ' + err.message; }
-  finally { document.querySelectorAll('button').forEach(x => x.disabled = false); }
+  } catch (err) { say('Could not reach the projector service: ' + err.message); }
+  finally { lock(false); }
 });
-(async () => { [, units] = await api('/api/units'); render(units); refresh(); setInterval(() => refresh(), 30000); })();
+// The installable app (D517): the worker keeps this page for a launch with
+// the service unreachable; the projectors are only ever asked through it.
+if (window.isSecureContext && 'serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch(() => { /* the page works without it */ });
+}
+let installPrompt = null;
+const install = document.getElementById('install');
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installPrompt = e; install.hidden = false; });
+window.addEventListener('appinstalled', () => { installPrompt = null; install.hidden = true; });
+install.addEventListener('click', () => { if (installPrompt) { installPrompt.prompt(); installPrompt = null; install.hidden = true; } });
+(async () => {
+  try {
+    [, units] = await api('/api/units'); render(units);
+    await refresh();
+  } catch (err) {
+    document.getElementById('upd').textContent = 'Offline';
+    say('Could not reach the projector service: ' + err.message);
+  }
+  setInterval(() => { if (!busy) refresh().catch(() => { document.getElementById('upd').textContent = 'Offline'; }); }, 30000);
+})();
 </script>
 </body>
 </html>

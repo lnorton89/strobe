@@ -4,225 +4,489 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#080b14">
 <meta name="referrer" content="no-referrer">
 <meta name="robots" content="noindex">
-<link rel="icon" href="data:,">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Strobe">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon-192.png">
 <title>Strobe remote</title>
 <style>
+/*
+ * The website's tokens (site/src/app/globals.css, docs/branding.md section 3),
+ * dark only: this page is held up in a dark room beside a projector, and a
+ * phone set to light would light the booth. Good, warn and danger are the
+ * app's Strobe theme (crates/strobe-app/assets/themes.toml), which the site
+ * has no need for.
+ */
 :root {
-  --void: #080b14;
+  --ground: #080b14;
   --panel: #101725;
-  --raised: #182133;
-  --border: #3a4a63;
+  --panel-raised: #172033;
+  --hairline: #253247;
+  --hairline-strong: #34445e;
+  --mute: #5d6b80;
+  --secondary: #9aa8bc;
+  --bright: #c9d3e0;
   --text: #f3f6fa;
-  --muted: #b4c0d0;
+  --label: #8a98ae;
   --accent: #00e5ff;
-  --on-accent: #001418;
-  --good: #4ade80;
-  --warn: #fbbf24;
-  --danger: #ff5a6e;
-  --on-danger: #1a0004;
-  --focus: #00e5ff;
-  --radius: 12px;
-  --gap: 12px;
+  --accent-deep: #00b8d4;
+  --on-accent: #080b14;
+  --cyan: #00e5ff;
+  --blue: #3382f6;
+  --violet: #8a55f7;
+  --magenta: #ec4b99;
+  --good: #5fd08a;
+  --warn: #ff9a47;
+  --danger: #ff6b7c;
+  --on-danger: #080b14;
+  --display: "Space Grotesk", "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
   --pad-top: max(12px, env(safe-area-inset-top));
   --pad-right: max(16px, env(safe-area-inset-right));
-  --pad-bottom: max(12px, env(safe-area-inset-bottom));
+  --pad-bottom: max(16px, env(safe-area-inset-bottom));
   --pad-left: max(16px, env(safe-area-inset-left));
-  --speed: 120ms;
+  --speed: 140ms;
+  color-scheme: dark;
 }
 @media (prefers-contrast: more) {
   :root {
-    --void: #000;
+    --ground: #000;
     --panel: #000;
-    --raised: #000;
-    --border: #fff;
+    --panel-raised: #000;
+    --hairline: #fff;
+    --hairline-strong: #fff;
+    --secondary: #fff;
+    --bright: #fff;
+    --label: #fff;
     --text: #fff;
-    --muted: #fff;
     --accent: #5ff;
     --warn: #ff0;
     --danger: #f66;
   }
-  button, .badge, .card { border-width: 2px; }
 }
 @media (prefers-reduced-motion: reduce) {
   :root { --speed: 0ms; }
 }
 * { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+html { background: var(--ground); -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 body {
   margin: 0;
   min-height: 100vh;
   min-height: 100dvh;
-  background: var(--void);
+  background: var(--ground);
   color: var(--text);
-  font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  padding: var(--pad-top) var(--pad-right) var(--pad-bottom) var(--pad-left);
+  font: 15px/1.5 var(--sans);
+  -webkit-font-smoothing: antialiased;
+  padding: 0 var(--pad-right) var(--pad-bottom) var(--pad-left);
   display: flex;
   flex-direction: column;
-  gap: var(--gap);
+  gap: 16px;
   -webkit-tap-highlight-color: transparent;
 }
-header {
+::selection { background: var(--accent); color: var(--on-accent); }
+h1, h2 { font-family: var(--display); margin: 0; }
+p { margin: 0; }
+[hidden] { display: none !important; }
+
+/* The bar: the ribbon and the wordmark, what this page is, and the link's state. */
+.bar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  margin: 0 calc(-1 * var(--pad-right)) 0 calc(-1 * var(--pad-left));
+  padding: var(--pad-top) var(--pad-right) 0 var(--pad-left);
+  background: var(--ground);
+}
+.bar-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--gap);
+  gap: 12px;
+  min-height: 52px;
 }
-h1 { font-size: 1.1rem; letter-spacing: 0.2em; margin: 0; }
-h2 { font-size: 1.2rem; margin: 0 0 8px; }
-p { margin: 0; }
-main { flex: 1; display: flex; flex-direction: column; gap: var(--gap); }
-section[hidden] { display: none; }
-.pill {
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 4px 12px;
-  font-size: 0.9rem;
-  color: var(--muted);
+.brand { display: flex; align-items: center; gap: 10px; }
+.brand svg { display: block; flex: none; }
+.brand .word { fill: var(--text); }
+.tag {
+  border-left: 1px solid var(--hairline);
+  padding-left: 10px;
+  color: var(--label);
+  font: 500 10px/1 var(--mono);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
 }
-.pill::before { content: "\25CF\00A0"; }
-body[data-conn="live"] .pill { color: var(--good); border-color: var(--good); }
-body[data-conn="stale"] .pill,
-body[data-conn="offline"] .pill { color: var(--warn); border-color: var(--warn); }
-body[data-conn="off"] .pill { color: var(--danger); border-color: var(--danger); }
-.card {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 16px;
+/* The primary gradient as a compact rule (guide section 10); red while blacked out. */
+.spectrum {
+  height: 2px;
+  background: linear-gradient(90deg, var(--cyan) 0%, var(--blue) 35%, var(--violet) 68%, var(--magenta) 100%);
 }
-.label { color: var(--muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.08em; }
-.big { font-size: 1.5rem; font-weight: 650; overflow-wrap: anywhere; margin-bottom: 8px; }
-.next { overflow-wrap: anywhere; margin-bottom: 8px; }
-.time { font-size: 1.5rem; font-variant-numeric: tabular-nums; }
-.badges { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
-.badge {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 4px 10px;
-  font-size: 0.9rem;
+body[data-blackout="true"] .spectrum { background: var(--danger); }
+
+.brand { flex: none; }
+.chip {
+  margin-left: auto;
+  flex: 0 1 auto;
+  min-width: 0;
+  border: 1px solid var(--hairline-strong);
+  padding: 6px 10px;
+  color: var(--bright);
+  font: 500 10.5px/1.2 var(--mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.badge[data-level="good"] { border-color: var(--good); }
-.badge[data-level="warn"] { border-color: var(--warn); color: var(--warn); }
-.badge[data-level="bad"] { border-color: var(--danger); color: var(--danger); font-weight: 650; }
-.controls { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap); }
-button {
-  font: inherit;
+.chip::before { content: ""; display: inline-block; vertical-align: 1px; margin-right: 8px; width: 6px; height: 6px; background: var(--label); }
+@media (max-width: 420px) {
+  .tag { display: none; }
+}
+body[data-conn="live"] .chip { color: var(--good); border-color: var(--good); }
+body[data-conn="live"] .chip::before { background: var(--good); }
+body[data-conn="stale"] .chip,
+body[data-conn="offline"] .chip { color: var(--warn); border-color: var(--warn); }
+body[data-conn="stale"] .chip::before,
+body[data-conn="offline"] .chip::before { background: var(--warn); }
+body[data-conn="off"] .chip { color: var(--danger); border-color: var(--danger); }
+body[data-conn="off"] .chip::before { background: var(--danger); }
+
+main { flex: 1; display: flex; flex-direction: column; gap: 16px; }
+
+/*
+ * The site's layout device: a 1px hairline showing through the gaps of a grid
+ * whose cells paint their own ground. Crisper than a border per cell, and it
+ * never doubles up at a shared edge.
+ */
+.grid {
+  display: grid;
+  background: var(--hairline);
+  border: 1px solid var(--hairline);
+  gap: 1px;
+}
+ul.grid { list-style: none; margin: 0; padding: 0; }
+.cell { background: var(--panel); padding: 16px; min-width: 0; }
+
+/* The section rule: an uppercase name over a hairline, a mono note to its right. */
+.rule {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  border-bottom: 1px solid var(--hairline);
+  padding-bottom: 10px;
+  margin-bottom: 14px;
+}
+.heading {
+  font: 600 11px/1.2 var(--sans);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
   color: var(--text);
-  background: var(--raised);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  min-height: 56px;
+}
+.note {
+  margin-left: auto;
+  color: var(--label);
+  font: 11px/1.2 var(--mono);
+}
+.eyebrow {
+  display: block;
+  color: var(--accent);
+  font: 500 10px/1.2 var(--mono);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+.label {
+  display: block;
+  color: var(--label);
+  font: 500 10px/1.2 var(--mono);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+.title {
+  font: 600 26px/1.15 var(--display);
+  letter-spacing: -0.02em;
+  margin-bottom: 10px;
+  text-wrap: balance;
+}
+.lede { color: var(--secondary); }
+
+/* Now playing. */
+.big {
+  font: 600 28px/1.1 var(--display);
+  letter-spacing: -0.025em;
+  overflow-wrap: anywhere;
+  margin-bottom: 18px;
+}
+.next { color: var(--bright); font-size: 16px; overflow-wrap: anywhere; }
+.time {
+  font: 500 34px/1 var(--mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+body[data-blackout="true"] .now { box-shadow: inset 0 2px 0 0 var(--danger); }
+
+/* Status: three cells, each a value with a square in its level's colour. */
+.stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.stat { padding: 12px; }
+.stat .value {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.stat .value::before { content: ""; width: 6px; height: 6px; flex: none; background: var(--hairline-strong); }
+.stat[data-level="good"] .value::before { background: var(--good); }
+.stat[data-level="warn"] .value { color: var(--warn); }
+.stat[data-level="warn"] .value::before { background: var(--warn); }
+.stat[data-level="bad"] .value { color: var(--danger); }
+.stat[data-level="bad"] .value::before { background: var(--danger); }
+
+/*
+ * Actions: uppercase with 0.1em tracking, square, as on the site. In a grid a
+ * press is a background and the accent rule drawn inset, so the hairlines do
+ * not move by a pixel under a thumb.
+ */
+button {
+  font: 600 13px/1.2 var(--sans);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text);
+  background: var(--panel);
+  border: 0;
+  border-radius: 0;
+  min-height: 60px;
   padding: 10px 12px;
   touch-action: manipulation;
-  transition: background var(--speed), transform var(--speed);
+  cursor: pointer;
+  box-shadow: inset 0 -2px 0 0 transparent;
+  transition: background-color var(--speed) ease-out, box-shadow var(--speed) ease-out, color var(--speed) ease-out;
 }
-button:active:not(:disabled) { transform: scale(0.97); background: var(--border); }
-button:focus-visible, input:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
-button:disabled { opacity: 0.45; }
-button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
-button.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); font-weight: 650; }
+button:active:not(:disabled) { background: var(--panel-raised); box-shadow: inset 0 -2px 0 0 var(--accent); }
+@media (hover: hover) {
+  button:hover:not(:disabled) { background: var(--panel-raised); box-shadow: inset 0 -2px 0 0 var(--accent); }
+}
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button:focus-visible { outline-offset: -3px; }
+button:disabled { color: var(--mute); cursor: default; }
+button[aria-pressed="true"] { color: var(--accent); box-shadow: inset 0 0 0 2px var(--accent); }
+button.primary { background: var(--accent); color: var(--on-accent); }
+button.primary:active:not(:disabled) { background: var(--accent-deep); box-shadow: none; }
+@media (hover: hover) {
+  button.primary:hover:not(:disabled) { background: var(--accent-deep); box-shadow: none; }
+}
+button.primary:disabled { background: var(--panel-raised); color: var(--mute); }
+.controls { grid-template-columns: 1fr 1fr; }
+.controls .wide { grid-column: 1 / -1; }
+
 .blackout {
   width: 100%;
-  min-height: 72px;
-  font-size: 1.2rem;
+  min-height: 76px;
+  font-size: 16px;
   font-weight: 700;
+  letter-spacing: 0.16em;
   background: var(--danger);
   color: var(--on-danger);
-  border-color: var(--danger);
 }
-.blackout[aria-pressed="true"] { background: var(--void); color: var(--danger); border: 3px solid var(--danger); }
-button.link { background: none; border: none; min-height: 44px; color: var(--muted); text-decoration: underline; }
-form { display: flex; flex-direction: column; gap: 8px; }
+.blackout:active:not(:disabled) { background: var(--danger); box-shadow: inset 0 -3px 0 0 var(--on-danger); }
+@media (hover: hover) {
+  .blackout:hover:not(:disabled) { background: var(--danger); box-shadow: inset 0 -3px 0 0 var(--on-danger); }
+}
+.blackout:disabled { background: var(--panel-raised); color: var(--mute); }
+.blackout[aria-pressed="true"],
+.blackout[aria-pressed="true"]:active:not(:disabled),
+.blackout[aria-pressed="true"]:hover:not(:disabled) { background: var(--ground); color: var(--danger); box-shadow: inset 0 0 0 2px var(--danger); }
+button[aria-pressed="true"]:active:not(:disabled),
+button[aria-pressed="true"]:hover:not(:disabled) { box-shadow: inset 0 0 0 2px var(--accent); }
+
+button.ghost {
+  min-height: 44px;
+  padding: 10px 4px;
+  background: none;
+  color: var(--secondary);
+  font-size: 11.5px;
+}
+button.ghost:active:not(:disabled) { background: none; color: var(--text); box-shadow: none; }
+@media (hover: hover) {
+  button.ghost:hover:not(:disabled) { background: none; color: var(--text); box-shadow: none; }
+}
+
+form { display: flex; flex-direction: column; gap: 8px; margin-top: 18px; }
 input {
-  font: inherit;
-  font-size: 1.8rem;
-  letter-spacing: 0.25em;
-  text-align: center;
+  font: 500 18px/1.3 var(--sans);
   color: var(--text);
-  background: var(--raised);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 10px;
-  min-height: 56px;
+  background: var(--ground);
+  border: 1px solid var(--hairline-strong);
+  border-radius: 0;
+  padding: 12px 14px;
+  min-height: 52px;
+  transition: border-color var(--speed) ease-out;
 }
-.message { min-height: 1.4em; color: var(--warn); }
-.result { min-height: 1.4em; color: var(--muted); }
-footer { color: var(--muted); font-size: 0.8rem; }
-body[data-blackout="true"] .now { border-color: var(--danger); }
+input::placeholder { color: var(--mute); }
+input:focus { border-color: var(--accent); }
+input:focus-visible { outline-offset: 0; }
+form button { margin-top: 6px; }
+
+.message { min-height: 1.5em; color: var(--warn); margin-top: 10px; }
+.result {
+  min-height: 1.4em;
+  color: var(--label);
+  font: 12px/1.4 var(--mono);
+}
+.result[data-level="bad"] { color: var(--warn); }
+
+/* Waiting: one square that breathes; under reduced motion it simply stays. */
+.pulse { display: flex; align-items: center; gap: 10px; margin-top: 16px; color: var(--label); font: 11px/1.2 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; }
+.pulse::before { content: ""; width: 8px; height: 8px; background: var(--accent); animation: breathe 1.6s ease-in-out infinite; }
+@keyframes breathe { 50% { opacity: 0.25; } }
+@media (prefers-reduced-motion: reduce) { .pulse::before { animation: none; } }
+
+.side { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.actions-foot { display: flex; align-items: center; gap: 12px; }
+.actions-foot .result { flex: 1; }
+
+footer {
+  border-top: 1px solid var(--hairline);
+  padding-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 16px;
+  color: var(--label);
+  font: 11px/1.5 var(--mono);
+}
+footer p { flex: 1 1 16em; }
+footer .ghost { min-height: 36px; }
+
 @media (orientation: landscape) and (min-width: 600px) {
   #show:not([hidden]) {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
-    gap: var(--gap);
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+    gap: 16px;
     align-items: start;
   }
-  #show .side { display: flex; flex-direction: column; gap: var(--gap); }
 }
 @media (orientation: portrait), (max-width: 599px) {
-  #show:not([hidden]) { display: flex; flex-direction: column; gap: var(--gap); }
-  #show .side { display: flex; flex-direction: column; gap: var(--gap); }
+  #show:not([hidden]) { display: flex; flex-direction: column; gap: 16px; }
+}
+@media (min-width: 900px) {
+  body { padding-left: max(32px, env(safe-area-inset-left)); padding-right: max(32px, env(safe-area-inset-right)); }
+  .bar { margin: 0 calc(-1 * max(32px, env(safe-area-inset-right))) 0 calc(-1 * max(32px, env(safe-area-inset-left))); padding-left: max(32px, env(safe-area-inset-left)); padding-right: max(32px, env(safe-area-inset-right)); }
+  main, footer { width: 100%; max-width: 1100px; margin-left: auto; margin-right: auto; }
 }
 @media (forced-colors: active) {
-  .pill::before { content: ""; }
+  .chip::before, .stat .value::before, .pulse::before { forced-color-adjust: none; background: CanvasText; }
+  button { border: 1px solid ButtonText; }
   button[aria-pressed="true"] { border-width: 4px; }
 }
 </style>
 </head>
 <body data-conn="connecting">
-<header>
-  <h1>STROBE</h1>
-  <p id="conn" class="pill" role="status" aria-live="polite">Connecting</p>
+<header class="bar">
+  <div class="bar-row">
+    <span class="brand">
+      <svg width="22" height="22" viewBox="76 82 322 320" aria-hidden="true" focusable="false">
+        <defs>
+          <linearGradient id="ribbon" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#00e5ff"/>
+            <stop offset=".35" stop-color="#3382f6"/>
+            <stop offset=".68" stop-color="#8a55f7"/>
+            <stop offset="1" stop-color="#ec4b99"/>
+          </linearGradient>
+        </defs>
+        <path d="M117 269 C93 175 166 99 252 119 C318 135 381 205 360 273 C339 334 260 386 192 355 C136 330 115 273 157 226 C202 176 279 180 322 223 C355 258 333 304 290 322" fill="none" stroke="url(#ribbon)" stroke-width="36" stroke-linecap="round"/>
+      </svg>
+      <h1>
+        <svg class="word" width="70" height="12" viewBox="74 68 435 74" role="img" aria-label="Strobe" focusable="false">
+          <path d="M101.1 141.4Q93.2 141.4 87.1 138.6Q81 135.8 77.6 130.4Q74.1 124.9 74.1 117.1V114.6H84.8V117.1Q84.8 124.5 89.3 128.2Q93.7 131.9 101.1 131.9Q108.6 131.9 112.4 128.8Q116.2 125.6 116.2 120.6Q116.2 117.3 114.4 115.2Q112.6 113.1 109.3 111.9Q106 110.6 101.4 109.5L97.7 108.6Q91 107 86.1 104.7Q81.1 102.3 78.4 98.4Q75.7 94.5 75.7 88.4Q75.7 82.2 78.8 77.8Q81.8 73.4 87.2 71Q92.6 68.6 99.9 68.6Q107.2 68.6 113 71.1Q118.7 73.6 122 78.5Q125.3 83.4 125.3 90.8V94.4H114.6V90.8Q114.6 86.3 112.8 83.5Q110.9 80.7 107.6 79.4Q104.3 78.1 99.9 78.1Q93.5 78.1 90 80.8Q86.4 83.4 86.4 88.1Q86.4 91.3 88 93.4Q89.5 95.4 92.5 96.7Q95.5 98 100 99L103.7 99.9Q110.5 101.4 115.7 103.8Q120.9 106.1 123.9 110.1Q126.9 114.1 126.9 120.4Q126.9 126.7 123.8 131.4Q120.6 136.1 114.8 138.8Q109 141.4 101.1 141.4ZM168.9 140V79.8H147.4V70H201.2V79.8H179.7V140ZM225 140V70H254.4Q260.9 70 265.9 72.3Q270.8 74.5 273.6 78.7Q276.3 82.9 276.3 88.7V89.8Q276.3 96.4 273.2 100.4Q270 104.3 265.5 105.9V107.5Q269.3 107.7 271.6 110.1Q273.9 112.4 273.9 116.8V140H263V118.3Q263 115.6 261.6 114Q260.2 112.4 257.1 112.4H235.8V140ZM235.8 102.6H253.2Q259 102.6 262.2 99.6Q265.4 96.7 265.4 91.6V90.8Q265.4 85.7 262.3 82.8Q259.1 79.8 253.2 79.8H235.8ZM328.5 141.4Q315.6 141.4 308 134.2Q300.4 126.9 300.4 113.2V96.8Q300.4 83.1 308 75.9Q315.6 68.6 328.5 68.6Q341.4 68.6 349.1 75.9Q356.7 83.1 356.7 96.8V113.2Q356.7 126.9 349.1 134.2Q341.4 141.4 328.5 141.4ZM328.5 131.7Q336.8 131.7 341.3 126.9Q345.8 122 345.8 113.6V96.4Q345.8 88 341.3 83.2Q336.8 78.3 328.5 78.3Q320.4 78.3 315.8 83.2Q311.2 88 311.2 96.4V113.6Q311.2 122 315.8 126.9Q320.4 131.7 328.5 131.7ZM380.9 140V130.4H390.3V79.6H380.9V70H416.4Q422.7 70 427.4 72.2Q432.1 74.3 434.8 78.3Q437.4 82.2 437.4 87.6V88.6Q437.4 93.4 435.6 96.5Q433.8 99.6 431.3 101.3Q428.7 103 426.4 103.7V105.3Q428.7 105.9 431.4 107.7Q434 109.4 435.9 112.5Q437.7 115.6 437.7 120.6V121.6Q437.7 127.4 435 131.5Q432.3 135.6 427.6 137.8Q422.8 140 416.6 140ZM401.2 130.2H415.3Q420.7 130.2 423.8 127.6Q426.9 125 426.9 120.4V119.5Q426.9 114.9 423.9 112.3Q420.8 109.7 415.3 109.7H401.2ZM401.2 99.8H415.3Q420.4 99.8 423.5 97.3Q426.6 94.7 426.6 90.3V89.3Q426.6 84.9 423.6 82.4Q420.5 79.8 415.3 79.8H401.2ZM463.8 140V70H507.9V79.8H474.6V99.9H505.1V109.7H474.6V130.2H508.4V140Z"/>
+        </svg>
+      </h1>
+      <span class="tag">Remote</span>
+    </span>
+    <p id="conn" class="chip" role="status" aria-live="polite">Connecting</p>
+  </div>
+  <div class="spectrum" aria-hidden="true"></div>
 </header>
 <main>
-  <section id="pair" class="card" hidden aria-labelledby="pair-title">
-    <h2 id="pair-title">Ask to control the show</h2>
-    <p>Give this device a name. The person at the Strobe desktop sees it and approves or denies it.</p>
-    <form id="pair-form" novalidate>
-      <label for="name" class="label">Name for this device</label>
-      <input id="name" name="name" autocomplete="off" autocapitalize="words" maxlength="32" spellcheck="false" placeholder="Lighting desk iPad" aria-describedby="pair-message">
-      <button type="submit" class="primary">Ask</button>
-    </form>
-    <p id="pair-message" class="message" role="alert"></p>
+  <section id="idle" class="grid" aria-labelledby="idle-title">
+    <div class="cell">
+      <div class="rule"><span class="heading">Remote</span></div>
+      <h2 id="idle-title" class="title">Looking for Strobe</h2>
+      <p class="lede">This page talks to the Strobe that served it. If it does not connect, check that Strobe is running with the remote on, and that this device is on the same network.</p>
+      <p class="pulse">Connecting</p>
+    </div>
   </section>
-  <section id="wait" class="card" hidden aria-labelledby="wait-title">
-    <h2 id="wait-title">Waiting for approval</h2>
-    <p>The person at the Strobe desktop approves or denies this device. This page continues by itself.</p>
+  <section id="pair" class="grid" hidden aria-labelledby="pair-title">
+    <div class="cell">
+      <div class="rule"><span class="heading">Pair this device</span><span class="note">Step 1 of 2</span></div>
+      <h2 id="pair-title" class="title">Ask to control the show</h2>
+      <p class="lede">Give this device a name. The person at the Strobe desktop sees it and approves or denies it.</p>
+      <form id="pair-form" novalidate>
+        <label for="name" class="label">Name for this device</label>
+        <input id="name" name="name" autocomplete="off" autocapitalize="words" maxlength="32" spellcheck="false" placeholder="Lighting desk iPad" aria-describedby="pair-message">
+        <button type="submit" class="primary">Ask</button>
+      </form>
+      <p id="pair-message" class="message" role="alert"></p>
+    </div>
+  </section>
+  <section id="wait" class="grid" hidden aria-labelledby="wait-title">
+    <div class="cell">
+      <div class="rule"><span class="heading">Pair this device</span><span class="note">Step 2 of 2</span></div>
+      <h2 id="wait-title" class="title">Waiting for approval</h2>
+      <p class="lede">The person at the Strobe desktop approves or denies this device. This page continues by itself.</p>
+      <p class="pulse">Asking</p>
+    </div>
   </section>
   <section id="show" hidden aria-label="Show control">
     <div class="side">
-      <div class="card now">
-        <p class="label">Now</p>
-        <p id="current" class="big">Nothing playing</p>
-        <p class="label">Next</p>
-        <p id="next" class="next">Unknown</p>
-        <p class="label">Cue time left</p>
-        <p id="remaining" class="time">No timed cue</p>
+      <div class="grid">
+        <div class="cell now">
+          <div class="rule"><h2 class="heading">Now playing</h2></div>
+          <p id="current" class="big">Nothing playing</p>
+          <span class="label">Next</span>
+          <p id="next" class="next">Unknown</p>
+        </div>
+        <div class="cell">
+          <span class="label">Cue time left</span>
+          <p id="remaining" class="time">No timed cue</p>
+        </div>
       </div>
-      <ul class="badges" aria-label="Status">
-        <li id="badge-hold" class="badge">Running</li>
-        <li id="badge-output" class="badge">Output</li>
-        <li id="badge-audio" class="badge">Audio</li>
+      <ul class="grid stats" aria-label="Status" role="list">
+        <li id="badge-hold" class="cell stat"><span class="label">Playback</span><span class="value">Running</span></li>
+        <li id="badge-output" class="cell stat"><span class="label">Output</span><span class="value">Output</span></li>
+        <li id="badge-audio" class="cell stat"><span class="label">Audio</span><span class="value">Audio</span></li>
       </ul>
     </div>
     <div class="side">
       <button id="blackout" class="blackout" type="button" data-command="blackout_on" aria-pressed="false">Blackout</button>
-      <div class="controls">
+      <div class="grid controls">
         <button type="button" data-command="prev_scene">Previous</button>
         <button type="button" data-command="next_scene" class="primary">Next</button>
         <button id="hold" type="button" data-command="toggle_hold" aria-pressed="false">Hold</button>
         <button type="button" data-command="restart_cue">Restart cue</button>
         <button type="button" data-command="extend_cue">Add 30 s</button>
         <button type="button" data-command="skip_section">Skip section</button>
-        <button type="button" data-command="tap_tempo">Tap tempo</button>
+        <button type="button" data-command="tap_tempo" class="wide">Tap tempo</button>
       </div>
-      <p id="result" class="result" role="status" aria-live="polite"></p>
-      <button id="forget" type="button" class="link">Forget this device</button>
+      <div class="actions-foot">
+        <p id="result" class="result" role="status" aria-live="polite"></p>
+        <button id="forget" type="button" class="ghost">Forget this device</button>
+      </div>
     </div>
   </section>
 </main>
-<footer>Plain HTTP on your local network. Use it only on a network you trust.</footer>
+<footer>
+  <p id="transport">Plain HTTP on your local network. Use it only on a network you trust.</p>
+  <p id="ios-hint" hidden>Add to Home Screen from the Share menu to open it full screen.</p>
+  <button id="install" type="button" class="ghost" hidden>Install app</button>
+</footer>
 <script>
 "use strict";
 (function () {
@@ -234,10 +498,10 @@ body[data-blackout="true"] .now { border-color: var(--danger); }
   var STALE_MS = 12000;
   var BACKOFF = [1, 2, 4, 8, 10];
   var AUDIO = {
-    active: ["Audio live", "good"],
-    missing: ["No audio input", "warn"],
-    synthetic: ["Synthetic audio", ""],
-    unknown: ["Audio unknown", ""]
+    active: ["Live", "good"],
+    missing: ["No input", "warn"],
+    synthetic: ["Synthetic", ""],
+    unknown: ["Unknown", ""]
   };
 
   var socket = null;
@@ -249,6 +513,7 @@ body[data-blackout="true"] .now { border-color: var(--danger); }
   var nextRequest = 1;
   var revision = -1;
   var blackout = false;
+  var installPrompt = null;
 
   function $(id) { return document.getElementById(id); }
 
@@ -264,12 +529,18 @@ body[data-blackout="true"] .now { border-color: var(--danger); }
   };
 
   function view(name) {
-    ["pair", "wait", "show"].forEach(function (id) { $(id).hidden = id !== name; });
+    ["idle", "pair", "wait", "show"].forEach(function (id) { $(id).hidden = id !== name; });
   }
 
   function connection(text, kind) {
     $("conn").textContent = text;
     document.body.setAttribute("data-conn", kind);
+  }
+
+  function result(text, bad) {
+    var element = $("result");
+    element.textContent = text;
+    element.setAttribute("data-level", bad ? "bad" : "");
   }
 
   function enable(on) {
@@ -364,7 +635,7 @@ body[data-blackout="true"] .now { border-color: var(--danger); }
         render(message);
         break;
       case "command_result":
-        $("result").textContent = message.accepted ? "Done" : ("Not done: " + (message.reason || "refused"));
+        if (message.accepted) { result("Done", false); } else { result("Not done: " + (message.reason || "refused"), true); }
         break;
       case "error":
         error(message.code, message.message || "");
@@ -398,7 +669,7 @@ body[data-blackout="true"] .now { border-color: var(--danger); }
         connection("Remote switched off", "off");
         break;
       default:
-        $("result").textContent = text || code;
+        result(text || code, true);
         break;
     }
   }
@@ -412,7 +683,7 @@ body[data-blackout="true"] .now { border-color: var(--danger); }
 
   function badge(id, text, level) {
     var element = $(id);
-    element.textContent = text;
+    element.querySelector(".value").textContent = text;
     element.setAttribute("data-level", level);
   }
 
@@ -425,8 +696,8 @@ body[data-blackout="true"] .now { border-color: var(--danger); }
     var hold = $("hold");
     hold.setAttribute("aria-pressed", state.held ? "true" : "false");
     hold.textContent = state.held ? "Resume" : "Hold";
-    badge("badge-hold", state.held ? "Held" : "Running", state.held ? "warn" : "");
-    badge("badge-output", state.output_visible ? "Output shown" : "Output hidden", state.output_visible ? "good" : "");
+    badge("badge-hold", state.held ? "Held" : "Running", state.held ? "warn" : "good");
+    badge("badge-output", state.output_visible ? "Shown" : "Hidden", state.output_visible ? "good" : "");
     var audio = AUDIO[state.audio_status] || AUDIO.unknown;
     badge("badge-audio", audio[0], audio[1]);
     blackout = !!state.blackout;
@@ -444,7 +715,7 @@ body[data-blackout="true"] .now { border-color: var(--danger); }
     var id = "r" + nextRequest;
     nextRequest += 1;
     if (send({ type: "command", request_id: id, command: button.getAttribute("data-command") })) {
-      $("result").textContent = "Sent";
+      result("Sent", false);
     }
   });
 
@@ -487,6 +758,37 @@ body[data-blackout="true"] .now { border-color: var(--danger); }
     if (document.visibilityState === "visible" && !socket) { retry = 0; connect(); }
   });
   window.addEventListener("online", function () { if (!socket) { retry = 0; connect(); } });
+
+  // The installable app (D517). The worker keeps only the page and its
+  // icons, so a home-screen launch with Strobe off opens this page and its
+  // "Disconnected" state instead of a browser error. Commands still need
+  // the socket and a token Strobe accepts. Browsers run a worker only in a
+  // secure context: through the operator's HTTPS proxy (D258), not over
+  // plain HTTP on a LAN address.
+  if (window.isSecureContext && "serviceWorker" in navigator) {
+    navigator.serviceWorker.register("/sw.js").catch(function () { /* the page works without it */ });
+  }
+  if (window.location.protocol === "https:") {
+    $("transport").textContent = "HTTPS through your own proxy.";
+  }
+  if (window.navigator.standalone === false) {
+    $("ios-hint").hidden = false;
+  }
+  window.addEventListener("beforeinstallprompt", function (event) {
+    event.preventDefault();
+    installPrompt = event;
+    $("install").hidden = false;
+  });
+  window.addEventListener("appinstalled", function () {
+    installPrompt = null;
+    $("install").hidden = true;
+  });
+  $("install").addEventListener("click", function () {
+    if (!installPrompt) { return; }
+    installPrompt.prompt();
+    installPrompt = null;
+    $("install").hidden = true;
+  });
 
   $("name").value = names.get();
   enable(false);

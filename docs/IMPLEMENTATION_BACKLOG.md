@@ -64,7 +64,7 @@
   `lnorton89/strobe-release-dryrun` could not be deleted from here (the
   token lacks `delete_repo`), and steps 4-5 of
   [RELEASE_PLAN.md](RELEASE_PLAN.md) (clean-machine smoke test, symbolication
-  from the downloaded archive) still need the T480. D517 (2026-10-28) gates
+  from the downloaded archive) still need the T480. D519 (2026-10-28) gates
   publishing on all of `ci.yml` over the tagged commit, resolves the tag to
   one SHA, serialises runs per tag and refuses to rebuild a published
   release; that path has not run on a tag yet, and the next release (or a
@@ -378,8 +378,8 @@
 - **Acceptance:** portrait/landscape, safe areas, keyboard accessibility, high contrast, reduced motion and stale/disconnected states tested; no live preview streaming in v1.
 
 ### L-07 PWA HTTPS and real-device validation
-- **Status:** The TLS decision is made (D258): HTTPS is the operator's own reverse proxy with a real certificate for a domain they own, and `--remote-proxy NAME` lets that proxy in, from this computer only, with an `https://NAME` origin and a `wss:` policy (tested). No self-signed certificate, no warning to click past. Left: Android Chrome and iOS Safari through such a proxy over Wi-Fi; only then a manifest and service worker.
-- **Work:** compare user-managed local HTTPS/reverse proxy and future certificate-enrolment options; do not tell users to bypass warnings; add manifest/service worker only once installability is genuinely supportable.
+- **Status:** The TLS decision is made (D258): HTTPS is the operator's own reverse proxy with a real certificate for a domain they own, and `--remote-proxy NAME` lets that proxy in, from this computer only, with an `https://NAME` origin and a `wss:` policy (tested). No self-signed certificate, no warning to click past. On the owner's request the manifest, icons and a network-first service worker landed ahead of the device tests (D517), for the remote and the projector page, both restyled in the website's design; the worker runs only in a secure context, so over plain HTTP the pages install as home-screen shortcuts without it. Left: Android Chrome and iOS Safari through such a proxy over Wi-Fi, including the install prompt, an offline launch and an update.
+- **Work:** compare user-managed local HTTPS/reverse proxy and future certificate-enrolment options; do not tell users to bypass warnings; test the installed app on both phone platforms.
 - **Acceptance:** Android Chrome and iOS Safari tested on real devices over Wi-Fi; sleep/resume, rotation, roam, browser restart, updates and revocation tested; only then advertise installable PWA support.
 
 ### L-08 Remote soak and operational docs
@@ -388,7 +388,7 @@
 - **Acceptance:** no render regression or unbounded resource growth; listener always visibly enabled and has a one-action desktop kill switch.
 
 ### L-09 Projector power on the real projectors
-- **Status:** In progress. `strobe-projector` (D502) replaces the Python tool of PR #45, which had been verified on the venue's PT-DZ6700 and VPL-PHZ10 (on, off through a 172 s cool-down, wake from standby, API auth, the service after a reboot). On 2026-10-27 (Task M30, [MINIPC.md](hardware/MINIPC.md)) `install.ps1` replaced the Python install on JAJA-MINI-PC, and the Rust build passed on both units: discovery, status, the SYSTEM task, API auth, on with `--wait` (20 s Panasonic, 16 s Sony), off through the cool-down (171 s, 3.5 s) and wake from standby, twice, within a second of the Python tool. Left on the real units: the reboot check, Settings > Projectors and the phone page. The NTCONTROL fallback has never switched a real unit in either language. One command at a time per unit holds within a process only: Strobe and the headless service can each command a unit at once.
+- **Status:** In progress. The service now runs as the show's user (S4U) from a folder they own and is updated by the show launcher at logon (D518); the mini PC still needs one elevated `install.ps1` run and the launcher lines (MINIPC.md, "Still to do"). `strobe-projector` (D502) replaces the Python tool of PR #45, which had been verified on the venue's PT-DZ6700 and VPL-PHZ10 (on, off through a 172 s cool-down, wake from standby, API auth, the service after a reboot). On 2026-10-27 (Task M30, [MINIPC.md](hardware/MINIPC.md)) `install.ps1` replaced the Python install on JAJA-MINI-PC, and the Rust build passed on both units: discovery, status, the SYSTEM task, API auth, on with `--wait` (20 s Panasonic, 16 s Sony), off through the cool-down (171 s, 3.5 s) and wake from standby, twice, within a second of the Python tool. Left on the real units: the reboot check, Settings > Projectors and the phone page. The NTCONTROL fallback has never switched a real unit in either language. One command at a time per unit holds within a process only: Strobe and the headless service can each command a unit at once.
 - **Work:** on JAJA-MINI-PC, run `install.ps1` over the Python install (it migrates the config and replaces the task); repeat the README's checks with `pj` and with Settings > Projectors: status in standby, on with `--wait` through the lamp strike, off through the cool-down, the page from a phone on the Wi-Fi with the token link, the service after a reboot with nobody logged in, and Strobe's "Web page" switch saying the port is held while the service runs. Force the fallback once (a wrong PJLink password on the Panasonic) and switch it over NTCONTROL. Decide whether two processes need a shared lock (a lock file beside the config) or one host only.
 - **Acceptance:** results with timings in the tool's README; no command sent mid-transition (the unit's own log or a `--wait` trace); the fallback switches the PT-DZ6700; the reboot check passes.
 
