@@ -1050,7 +1050,89 @@ without a restart. R-01 stays open on this machine.
 Windows lists only one capture device here (no Stereo Mix, no second mic),
 so there is no other default to switch to. It also needs hands at the PC.
 
+## strobe-projector replaces the Python projector tool (2026-10-27, Task M30, backlog L-09)
+
+Master e61f35d. `cargo build --profile release-fast -p strobe-app` took 2m 13s.
+`setup-network.ps1` changed nothing: Ethernet was already 192.168.50.1/24, DHCP
+off, metric 500, and the only default route was via Wi-Fi.
+
+**Install.** `install.ps1` was run by the owner from an elevated shell, because
+this agent's permissions blocked registering a SYSTEM startup task. The local
+execution policy also refuses scripts, so it was run as
+`powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1`. Output:
+
+```
+    Finished `release` profile [optimized + debuginfo] target(s) in 57.72s
+Moved the Python install's config to C:\Users\JAJA\AppData\Local\strobe\projectors.json (token and passwords kept).
+Removed the Python install's app\
+Removed the Python install's python\
+Task 'ProjectorControl API' registered and started: strobe-projector serve --config C:\Users\JAJA\AppData\Local\strobe\projectors.json
+```
+
+**Checks:**
+- **Discovery:** `pj discover` found 192.168.50.10 (`PANASONIC-PT`, `Panasonic`,
+  `DZ6700`) and 192.168.50.11 (`VPL-PHZ10`, `SONY`, `VPL-PHZ10`), with no
+  PROBLEM lines.
+- **Status:** `pj status` read both over PJLink. Both were off; the Panasonic's
+  lamps were at 682 h and the Sony's light source at 6555 h, with no errors.
+- **Service:** the task runs
+  `C:\ProgramData\ProjectorControl\bin\strobe-projector.exe --config
+  "C:\Users\JAJA\AppData\Local\strobe\projectors.json" serve` as SYSTEM, and
+  `strobe-projector` listens on 10.1.10.155:8780 only.
+- **Auth:** 401 for no token, a wrong token, and an unauthenticated
+  `POST /api/power/all/on`. 200 for `/` and `/api/status` with the token.
+
+**Power** with `pj -v on|off all --wait`, on, off, on, off. The second "on" came
+from standby:
+
+| | Panasonic | Sony |
+|---|---|---|
+| on | 20.1 s, 20.0 s: `on` → `lamp starting` → `on` | 15.6 s, 15.6 s: `off` → `warming` → `on` |
+| off | 171.3 s, 171.3 s: `cooling` → `off` | 3.5 s, 3.5 s |
+| standby `%1POWR ?` at 19:21:41, :56, 19:22:12 | `0` | `0` |
+
+The audit lines, for example:
+
+```
+2026-10-27T19:22:32-0700  src=cli:JAJA  target=panasonic  action=on  result=OK {"unit":"panasonic","sent":true,"previous":"off","via":"pjlink","reached":"on","states_seen":["on","lamp starting","on"],"elapsed_s":20.0}
+2026-10-27T19:21:26-0700  src=cli:JAJA  target=panasonic  action=off  result=OK {..."states_seen":["cooling","off"],"elapsed_s":171.3}
+```
+
+The Rust build reports the Panasonic's `cooling` and the Sony's `warming`.
+The timings match the Python tool's within a second (172 s, 21 s, 16 s, 3-4 s
+in the tool README). Both units were left off, as they were found.
+
+**Cleanup.** The installer removed `app\` and `python\`. The owner then deleted,
+by hand (this agent's permissions blocked deleting an audit log):
+- `C:\ProgramData\ProjectorControl\config\` and the `config.json` in it, which
+  was byte-identical to the migrated `projectors.json`;
+- `C:\ProgramData\ProjectorControl\logs\`, holding `commands.log` and
+  `server.log`.
+
+Left in `C:\ProgramData\ProjectorControl` are `bin\`, `install.ps1`, `pj.cmd`,
+`README.md` and `setup-network.ps1`. No Python remnants were found: the firewall
+rules, the task and the PATH entry all point at `strobe-projector`, and there
+are no venvs, `__pycache__` folders or shortcuts. The py launcher's own CPython
+3.15 (`C:\Users\JAJA\AppData\Local\Python\pythoncore-3.15-64`) is a user
+install and was left alone.
+
+**Strobe's switch.** `projectors.json` had no `strobe` section, so Strobe's
+Settings > Projectors would have opened with projector control off. It was set
+to `"strobe": {"enabled": true, "serve_web": false}`. The web page stays off in
+Strobe because the SYSTEM task already serves it.
+
+**Not tested:** the reboot check, which needs the PC restarted. Strobe's
+Settings > Projectors itself was not opened on this run.
+
+**Seen:** every `pj` command first prints the three-line `=== Strobe session
+started ...` header on stdout.
+
 ## Still to do here
+
+- L-09: reboot the mini PC and check that "ProjectorControl API"
+  (`strobe-projector serve`) comes back with nobody logged in and serves
+  status. Open Strobe's Settings > Projectors once and switch a unit from
+  there.
 
 - M28 / R-01: unplug the C270 for 30 s and then for 2 min while a scene
   plays, and record the fallback, the reopen backoff and the reopen from the
