@@ -4,7 +4,7 @@
 //               loading `--remote-trust` so a failure is reported without
 //               stopping the show.
 //
-// Dependencies: strobe-remote (trust); strobe-diag (failure reports); crate::dialog
+// Dependencies: strobe-remote (trust); strobe-diag (failure reports)
 // ============================================================================
 
 //! Venue mode (D288): control a headless show machine without anyone
@@ -46,23 +46,13 @@ pub fn made_text(path: &Path) -> String {
 }
 
 /// `strobe --make-remote-trust FILE`: writes a new trust file, refusing to
-/// replace one, and tells the person what to do next. Returns whether the
-/// file was made. The release build has no console on Windows, so the text
-/// is also shown in a box.
-pub fn make(path: &Path) -> bool {
-    let (text, made) = match trust::create_file(path) {
-        Ok(_) => (made_text(path), true),
-        Err(error) => (error.to_string(), false),
-    };
-    if made {
-        println!("{text}");
-    } else {
-        eprintln!("{text}");
-    }
-    if !cfg!(debug_assertions) {
-        crate::dialog::show_error(&text);
-    }
-    made
+/// replace one, and returns what to tell the person: what to do next, or
+/// why it was not made. The caller says it, in a box where there is no
+/// console; this does not, so a test of it puts nothing on the screen.
+pub fn make(path: &Path) -> Result<String, String> {
+    trust::create_file(path)
+        .map(|_| made_text(path))
+        .map_err(|error| error.to_string())
 }
 
 /// Reads the trust file named by `--remote-trust` for the host. A file that
@@ -106,9 +96,9 @@ mod tests {
     fn making_a_file_works_once_and_never_overwrites() -> Result<()> {
         let dir = scratch("make")?;
         let path = dir.join("venue.trust");
-        assert!(make(&path), "made");
+        assert!(make(&path).is_ok(), "made");
         let first = std::fs::read(&path)?;
-        assert!(!make(&path), "a second make is refused");
+        assert!(make(&path).is_err(), "a second make is refused");
         assert_eq!(std::fs::read(&path)?, first, "and leaves the file alone");
         assert!(load(&path).is_some(), "what was made loads");
         std::fs::remove_dir_all(&dir)?;

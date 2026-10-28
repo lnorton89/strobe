@@ -112,8 +112,18 @@ fn main() -> ExitCode {
     // session beyond the one already open.
     if let Some(path) = &cli.make_remote_trust {
         let made = strobe_app::venue::make(path);
+        let (Ok(text) | Err(text)) = &made;
+        if made.is_ok() {
+            println!("{text}");
+        } else {
+            eprintln!("{text}");
+        }
+        // The release build has no console on Windows.
+        if !cfg!(debug_assertions) {
+            dialog::show_error(text);
+        }
         strobe_diag::logger::flush(FLUSH_TIMEOUT);
-        return if made {
+        return if made.is_ok() {
             ExitCode::SUCCESS
         } else {
             ExitCode::FAILURE
