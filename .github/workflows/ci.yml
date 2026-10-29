@@ -7,10 +7,24 @@ on:
     branches: [master, "claude/**"]
   pull_request:
   workflow_dispatch:
+  # release.yml runs this whole workflow on the tagged commit before it
+  # publishes (D521). `ref` is that commit's SHA; every checkout below
+  # takes it, and on any other event it is empty, which checks out the
+  # event's own commit as before.
+  workflow_call:
+    inputs:
+      ref:
+        description: "Commit SHA to check out and test"
+        required: true
+        type: string
 
 # A second push to the same branch makes the first run's result irrelevant.
+# A release's run is keyed by its commit instead: called from release.yml,
+# `github.ref` is the caller's, and a dispatched release shares it with
+# master's pushes, which would cancel the release's tests (or be cancelled
+# by them).
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ inputs.ref || github.ref }}
   cancel-in-progress: true
 
 # Least privilege by default: nothing in this workflow writes to the
@@ -30,10 +44,16 @@ jobs:
   format:
     name: rustfmt
     runs-on: ubuntu-latest
+    # Every job has a timeout, well above its slowest cold-cache run, so a
+    # hung test or a GUI step waiting on a display fails in minutes rather
+    # than holding a runner for GitHub's default six hours.
+    timeout-minutes: 10
     steps:
       # Pinned to full SHAs: a mutable tag in a workflow is a supply-chain
       # risk. The versions are in the trailing comments.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
       # The version matches rust-toolchain.toml; strobe-conventions'
       # `toolchain` tests fail the build if the two drift.
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master, 2026-08
@@ -45,10 +65,13 @@ jobs:
   deny:
     name: cargo-deny
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
       - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
           command: check
@@ -56,6 +79,7 @@ jobs:
   changelog:
     name: changelog
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     # CHANGELOG.md is generated from the git history by `cargo xtask
     # changelog`, so a released section that disagrees with the tags is a
     # mistake, not a style choice. Released sections only: `Unreleased`
@@ -64,6 +88,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.ref }}
           # The check reads `git tag` and walks the whole history. The
           # default checkout is shallow and fetches no tags at all, so
           # every release would come back missing and the check would fail
@@ -72,22 +97,34 @@ jobs:
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master, 2026-08
         with:
           toolchain: "1.98.0"
+      # A release's run (D521) restores the caches but saves none: a tag's
+      # cache is readable by that tag alone, and a gigabyte of it per
+      # release would push master's out of the repository's 10 GB, the
+      # ones every pull request starts from (D505).
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           key: changelog
-      - run: cargo xtask changelog --check
+          save-if: ${{ !inputs.ref }}
+      # `--locked` on every cargo command that resolves dependencies: a
+      # Cargo.lock that no longer matches the manifests fails here instead
+      # of being quietly repaired on a throwaway runner. Before the alias,
+      # so it reaches the `cargo run` that builds xtask.
+      - run: cargo --locked xtask changelog --check
       # The icon PNGs and .ico are rendered from assets/brand/*.svg; a
       # source edited without `cargo xtask brand` fails here.
-      - run: cargo xtask brand --check
+      - run: cargo --locked xtask brand --check
       # THIRD_PARTY.md (the About page's credits, D491) is generated from
       # the git history and Cargo.lock. A dependency that arrives, leaves or
       # changes licence, or a new contributor, without `cargo xtask credits`
       # fails here. It needs the whole history, which this job has.
-      - run: cargo xtask credits --check
+      - run: cargo --locked xtask credits --check
 
   windows:
     name: windows (the shipping platform)
     runs-on: windows-latest
+    # About 16 minutes on master with a warm cache; a cold one builds
+    # three profiles' dependencies from scratch.
+    timeout-minutes: 90
     # The platform the show runs on. A GitHub runner has no GPU and no
     # interactive session, so the renderer tests skip themselves here (no
     # headless GL context) — the Linux job below is where shaders are
@@ -95,6 +132,8 @@ jobs:
     # WGL/EGL context code, and release settings compile and link.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master, 2026-08
         with:
           toolchain: "1.98.0"
@@ -106,8 +145,9 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           key: windows-fast
+          save-if: ${{ !inputs.ref }}
       - name: Clippy
-        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+        run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
       # The runner has no headless EGL, so the GPU tests skip and pass.
       # They record each skip (D249), and the next step counts them into
       # the job summary, so a skip is never read as a pass.
@@ -118,7 +158,7 @@ jobs:
         env:
           STROBE_SKIP_LOG: ${{ github.workspace }}/target/test-skips.log
           STROBE_TEST_LAN: "1"
-        run: cargo test --workspace --all-features
+        run: cargo test --locked --workspace --all-features
       - name: Report skipped GPU tests
         if: always()
         shell: bash
@@ -147,15 +187,19 @@ jobs:
       # with pull requests, so that is what keeps their release-fast
       # dependencies warm. Without it every pull request rebuilt them, 343 s
       # against `release`'s six minutes, and saved almost nothing (D505).
+      #
+      # A release's run (D521) skips the fat-LTO build: release.yml builds
+      # exactly that, from the same commit, in its own job.
       - name: Build release-fast binaries
-        run: cargo build --profile release-fast --workspace --bins
+        run: cargo build --locked --profile release-fast --workspace --bins
       - name: Build release binaries (fat LTO, as shipped)
-        if: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/master') || github.event_name == 'workflow_dispatch' }}
-        run: cargo build --release --workspace --bins
+        if: ${{ !inputs.ref && ((github.event_name == 'push' && github.ref == 'refs/heads/master') || github.event_name == 'workflow_dispatch') }}
+        run: cargo build --locked --release --workspace --bins
 
   macos:
     name: macos (the portable crates)
     runs-on: macos-latest
+    timeout-minutes: 60
     # macOS is a later target, so this job is deliberately two-tier.
     #
     # The blocking tier is every crate that has no OpenGL context in it:
@@ -172,6 +216,8 @@ jobs:
     # `continue-on-error`, and make it the blocking tier.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master, 2026-08
         with:
           toolchain: "1.98.0"
@@ -179,14 +225,15 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           key: macos
+          save-if: ${{ !inputs.ref }}
       # Excluding strobe-gfx is not enough: cargo still builds it for a crate
       # that depends on it. strobe-autocontrol does (it renders to measure),
       # and strobe-shadertoy's tests do (they render the fixtures), so the
       # first is excluded and the second is checked without its tests.
       - name: Clippy (portable crates)
-        run: cargo clippy --workspace --exclude strobe-gfx --exclude strobe-bench --exclude strobe-app --exclude strobe-autocontrol --exclude strobe-shadertoy --all-targets --all-features -- -D warnings
+        run: cargo clippy --locked --workspace --exclude strobe-gfx --exclude strobe-bench --exclude strobe-app --exclude strobe-autocontrol --exclude strobe-shadertoy --all-targets --all-features -- -D warnings
       - name: Clippy (strobe-shadertoy without its rendering tests)
-        run: cargo clippy -p strobe-shadertoy --lib --bins --all-features -- -D warnings
+        run: cargo clippy --locked -p strobe-shadertoy --lib --bins --all-features -- -D warnings
       # The renderer tests in strobe-gfx self-skip without an EGL driver,
       # which a Mac runner does not have, so once strobe-gfx builds here
       # they will pass by skipping rather than prove anything; the Linux
@@ -194,16 +241,20 @@ jobs:
       - name: Test (portable crates)
         env:
           STROBE_TEST_LAN: "1"
-        run: cargo test --workspace --exclude strobe-gfx --exclude strobe-bench --exclude strobe-app --exclude strobe-autocontrol --exclude strobe-shadertoy --all-features
+        run: cargo test --locked --workspace --exclude strobe-gfx --exclude strobe-bench --exclude strobe-app --exclude strobe-autocontrol --exclude strobe-shadertoy --all-features
       - name: Clippy (whole workspace, informational)
         continue-on-error: true
-        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+        run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
 
   linux:
     name: linux (headless GL)
     runs-on: ubuntu-latest
+    # About 8 minutes on master with a warm cache.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master, 2026-08
         with:
           toolchain: "1.98.0"
@@ -212,6 +263,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           key: linux-fast
+          save-if: ${{ !inputs.ref }}
       # Mesa's software rasteriser behind surfaceless EGL: a real GLSL
       # compiler for both desktop GL 3.3 core (the native path) and GLES 3.0
       # (the dialect the ANGLE path speaks), with no display and no GPU.
@@ -220,22 +272,25 @@ jobs:
       - name: Install headless GL
         run: sudo apt-get update && sudo apt-get install -y libegl1 libegl-mesa0 libgl1-mesa-dri libglx-mesa0 libxkbcommon-dev libxkbcommon-x11-0 libx11-xcb1 libxcursor1 libxi6 libxrandr2 xvfb libasound2-dev pkg-config
       - name: Clippy
-        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+        run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
       # --all-features keeps `midi` on. This builds strobe-io the way a
       # MIDI-less build does, where code only the device layer reads is dead.
       - name: Clippy (strobe-io without MIDI)
-        run: cargo clippy -p strobe-io --no-default-features --all-targets -- -D warnings
+        run: cargo clippy --locked -p strobe-io --no-default-features --all-targets -- -D warnings
       - name: Test
         env:
           STROBE_REQUIRE_HEADLESS_GL: "1"
           STROBE_TEST_LAN: "1"
-        run: cargo test --workspace --all-features
+        run: cargo test --locked --workspace --all-features
       # Starts the real app on a virtual X display, renders frames on both
       # windows through one shared GL context, and reads them back to PNGs.
-      # The step fails if either image is missing.
+      # The step fails if either image is missing. The two window steps
+      # have timeouts of their own: a window that never gets its frames
+      # waits, it does not fail.
       - name: App smoke test (Xvfb)
+        timeout-minutes: 15
         run: |
-          xvfb-run -a -s "-screen 0 1920x1080x24" cargo run -p strobe-app -- --scene 01 --screenshot target/ci-shot --frames 10
+          xvfb-run -a -s "-screen 0 1920x1080x24" cargo run --locked -p strobe-app -- --scene 01 --screenshot target/ci-shot --frames 10
           test -s target/ci-shot-control.png
           test -s target/ci-shot-output.png
 
@@ -243,10 +298,11 @@ jobs:
       # an EGL device and on a hidden window and the two reports must match
       # (D140). The plain Test step above has no display, so it skips them.
       - name: Auto-controls on a window context (Xvfb)
+        timeout-minutes: 15
         env:
           STROBE_REQUIRE_HEADLESS_GL: "1"
           STROBE_REQUIRE_WINDOW_GL: "1"
-        run: xvfb-run -a -s "-screen 0 1280x720x24" cargo test -p strobe-autocontrol --test window
+        run: xvfb-run -a -s "-screen 0 1280x720x24" cargo test --locked -p strobe-autocontrol --test window
 
       # Render every scene in the library headless, once per GLSL dialect,
       # and keep the frames. Mesa's llvmpipe is CPU rasterisation, so the
@@ -260,9 +316,9 @@ jobs:
       # `release-fast`, not `release`: the frames are the renderer's, and
       # fat LTO only cost build time here (D504).
       - name: Render the scene library (desktop GL 3.3)
-        run: cargo run --profile release-fast -p strobe-bench -- --size 640x360 --frames 10 --warmup 60 --out target/bench
+        run: cargo run --locked --profile release-fast -p strobe-bench -- --size 640x360 --frames 10 --warmup 60 --out target/bench
       - name: Render the scene library (GLES 3.0, the ANGLE dialect)
-        run: cargo run --profile release-fast -p strobe-bench -- --size 640x360 --frames 10 --warmup 60 --api gles --out target/bench-gles
+        run: cargo run --locked --profile release-fast -p strobe-bench -- --size 640x360 --frames 10 --warmup 60 --api gles --out target/bench-gles
       # `!cancelled()` rather than the default success(): a run where one
       # scene broke is exactly the run whose other frames you want to see.
       - name: Upload frames (desktop GL)
@@ -292,6 +348,6 @@ jobs:
       # for MSVC, so it is checked without that feature here (D110); the
       # Linux all-features clippy and the windows job cover the client.
       - name: Cross-check the Windows build
-        run: cargo clippy --workspace --exclude strobe-script --exclude strobe-app --exclude strobe-shadertoy --all-targets --all-features --target x86_64-pc-windows-msvc -- -D warnings
+        run: cargo clippy --locked --workspace --exclude strobe-script --exclude strobe-app --exclude strobe-shadertoy --all-targets --all-features --target x86_64-pc-windows-msvc -- -D warnings
       - name: Cross-check strobe-shadertoy for Windows without its HTTP client
-        run: cargo clippy -p strobe-shadertoy --no-default-features --all-targets --target x86_64-pc-windows-msvc -- -D warnings
+        run: cargo clippy --locked -p strobe-shadertoy --no-default-features --all-targets --target x86_64-pc-windows-msvc -- -D warnings
