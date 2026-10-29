@@ -64,7 +64,7 @@
   `lnorton89/strobe-release-dryrun` could not be deleted from here (the
   token lacks `delete_repo`), and steps 4-5 of
   [RELEASE_PLAN.md](RELEASE_PLAN.md) (clean-machine smoke test, symbolication
-  from the downloaded archive) still need the T480. D520 (2026-10-28) gates
+  from the downloaded archive) still need the T480. D521 (2026-10-28) gates
   publishing on all of `ci.yml` over the tagged commit, resolves the tag to
   one SHA, serialises runs per tag and refuses to rebuild a published
   release; that path has not run on a tag yet, and the next release (or a
