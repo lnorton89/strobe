@@ -528,6 +528,24 @@ before each piece's wobble and one pile octave brought it to 0.81 ms; what
 remains is spread at 0.1-0.17 ms per layer. Native and ANGLE frames differ
 by at most 1/255.
 
+### 2026-10-28: Jester Totem, RX 580 (LIGHTNING)
+
+New scene (D520). LIGHTNING, RX 580, driver 26.5.2, hidden-window
+context, half-float buffers, 1920x1080, 300 timed frames after 90 warm-up
+at scene time 5 s, synthetic 120 BPM audio, one run each, release-fast.
+Not llvmpipe and not old-GPU data.
+
+| Scene | Native GL 3.3 mean ms (p95) | Ratio | ANGLE D3D11 GLES 3.0 mean ms (p95) |
+|---|---:|---:|---:|
+| 05-domain-warp | 0.54 (0.76) | 1.00 | |
+| 17-blacklight-carpet | 1.49 (2.97) | 2.76 | |
+| 18-jester-totem, first draft | 0.77 (1.35) | 1.43 | |
+| 18-jester-totem | 1.01 (2.32) | 1.87 | 0.83 (1.28) |
+
+The rise from the first draft is mostly the twins (D520), which draw a
+whole totem on each of their planks; the ray fan is one `atan` and an
+`exp` a pixel. Native and ANGLE both compile.
+
 ### 2026-10-26: ANGLE's backends, GTX 1080 Ti (TORNADO)
 
 `--gl angle-*` (D485, G-05 and G-06). TORNADO, driver 582.78, Electron
