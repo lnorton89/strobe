@@ -12919,7 +12919,42 @@ moving when hovered.
 where the host's row size and this computer's widgets disagree even at
 the same scale.
 
-### D520: a release publishes only a green, immutable, single commit (2026-10-28)
+### D520: Jester Totem fills the frame with rays and twins and gets a perform group (2026-10-28, owner's request)
+
+**What.** `18-jester-totem`, an original scene after a hand-painted
+blacklight panel (not committed): a horned, one-eyed jester on a
+jack-in-the-box spring, drawn analytically in fluorescent inks on dark
+planks. Its one-texel clock pass integrates the flow time and a damped
+spring (1.7 Hz, damping ratio 0.16), which bass holds up and kicks throw,
+so the jester overshoots, bounces and settles at any frame rate.
+
+The owner asked for it to be improved for the venue, and the first draft
+left two thirds of a 16:9 projector as dim planks:
+
+- **Rays.** A fan of eighteen soft wedges in the four inks turns from
+  behind the jester's head across the whole panel, fading with distance,
+  and flares on kicks (`rays`).
+- **Twins.** A smaller, mirrored copy of the totem on each next plank out,
+  swaying out of step but riding the same spring, faded in and out by a
+  smooth toggle (`twins`, on by default). The drawing is one `drawTotem`
+  in the totem's own frame, called with the twin's frame and pixel size.
+- **Squash and stretch.** The jack's group stretches as the spring throws
+  it up and squashes as it drops, about the starburst so the spring stays
+  on, scaled by `bounce`.
+- **Controls.** A `perform` group first: `pop` (a smooth bang that throws
+  the jester on demand, past a kick's height), `twins`, `rays` and
+  `kick_flash`; and `hue_cycle` beside `hue`. Every control has a
+  description, which Strobe shows as its tooltip.
+
+**Cost.** 1.01 ms a frame at 1920x1080 on the RX 580, from 0.77 ms
+before, against 0.54 ms for `05-domain-warp` and 1.49 ms for
+`17-blacklight-carpet`; ANGLE (D3D11) 0.83 ms. Most of the rise is the
+twins, which only draw on their planks.
+
+**Would reopen:** the Vega 3 dropping frames on it at the venue (then the
+twins default off), or the owner preferring the single totem.
+
+### D521: a release publishes only a green, immutable, single commit (2026-10-28)
 
 **Context.** An outside engineering audit (2026-10-28) read `release.yml`
 and found that "release from green master" was a habit, not a rule. The

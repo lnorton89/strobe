@@ -179,7 +179,7 @@ including a dry run on a throwaway tag before the real one exists.
 
 The tag push triggers `.github/workflows/release.yml`. It resolves the tag
 to one commit and works from that SHA throughout, checks the tag
-against `Cargo.toml`, runs all of `ci.yml` on that commit (D520), creates a **draft** release whose notes are the
+against `Cargo.toml`, runs all of `ci.yml` on that commit (D521), creates a **draft** release whose notes are the
 changelog section, builds `strobe.exe` on Windows, and packages
 `strobe-<tag>-x86_64-pc-windows-msvc.zip` (the exe, the three ANGLE DLLs and the Vulkan loader for `--gl angle-vulkan`,
 and `LICENSES.chromium.html`, `scenes/`, README, LICENSE, `THIRD_PARTY.md`, and
@@ -201,7 +201,7 @@ tagging it.** The tag keeps pointing at the copy you discarded, which
 then sits on no branch at all, and since each release is computed as
 `<previous>..<tag>`, every range from that point on is wrong. The
 changelog check fails on any version tag no branch can reach. A second
-push of a `v*` tag also re-runs the release workflow; since D520 that run
+push of a `v*` tag also re-runs the release workflow; since D521 that run
 stops before building if the release is already published, but a tag
 moved while its draft is still unpublished rebuilds the draft from the new
 commit. If a release is wrong, cut the next patch version.

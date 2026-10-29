@@ -9,7 +9,7 @@ name: Release
 # it is only published once the build *and* the full CI suite on the
 # tagged commit have succeeded — so a failed build or a red test leaves an
 # unpublished draft rather than a half-populated or untested public
-# release (D520). A published release is final: a re-run, a re-pushed tag
+# release (D521). A published release is final: a re-run, a re-pushed tag
 # or a manual dispatch for its version stops in `draft` before anything is
 # built, and a fix is the next patch version.
 #
