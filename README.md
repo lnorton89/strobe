@@ -303,17 +303,16 @@ The full walk-through is in
 
 ## Scene library
 
-`scenes/` holds eighteen original scenes, tagged:
+`scenes/` holds seventeen original scenes, tagged:
 - **Benchmark tiers:** ten span five tiers of GPU load, from a gradient,
   through feedback, Voronoi, domain warping, reaction-diffusion and bloom, to
   a raymarched cathedral and volumetric clouds.
 - **`11-script-orbits`** is driven by a `script.js` physics loop.
 - **`12-silicon-atlas`** is an animated, fictional circuit board.
-- **Six show pieces:** `13-chromatic-rise` (feedback marbling),
+- **Five show pieces:** `13-chromatic-rise` (feedback marbling),
   `14-electric-bloom` (a glowing garden), `15-neon-ribbon-flow`,
-  `16-acid-mirror` (mirrored liquid paint), `17-blacklight-carpet`
-  (confetti under a blacklight) and `18-jester-totem` (a bouncing
-  jack-in-the-box jester painted in UV ink), all audio-reactive.
+  `16-acid-mirror` (mirrored liquid paint) and `17-blacklight-carpet`
+  (confetti under a blacklight), all audio-reactive.
 
 ![The scene library](docs/images/contact-sheet.png)
 
