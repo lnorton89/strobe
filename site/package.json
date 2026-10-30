@@ -1,0 +1,76 @@
+{
+  "name": "strobe-site",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Website for Strobe, an open-source, audio-reactive shader visualizer and VJ engine.",
+  "homepage": "https://github.com/lnorton89/strobe/tree/main/site",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lnorton89/strobe.git",
+    "directory": "site"
+  },
+  "bugs": {
+    "url": "https://github.com/lnorton89/strobe/issues"
+  },
+  "license": "MIT AND Apache-2.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "assets": "node scripts/sync-assets.mjs",
+    "predev": "npm run assets",
+    "dev": "next dev",
+    "prebuild": "npm run assets",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "test:e2e:update": "playwright test --update-snapshots",
+    "test:links": "start-server-and-test \"npx serve out -l 4173\" http://localhost:4173 \"linkinator http://localhost:4173 --recurse --silent --status-code 429:warn\"",
+    "test:lighthouse": "lhci autorun",
+    "deploy": "npx --yes netlify-cli@27 deploy --prod",
+    "deploy:preview": "npx --yes netlify-cli@27 deploy"
+  },
+  "dependencies": {
+    "@fontsource/inter": "^5.3.0",
+    "@fontsource/jetbrains-mono": "^5.3.0",
+    "@fontsource/space-grotesk": "^5.3.0",
+    "github-slugger": "^2.0.0",
+    "motion": "^13.1.0",
+    "next": "16.4.2",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "react-markdown": "^10.1.0",
+    "rehype-slug": "^6.0.0",
+    "remark-gfm": "^4.0.1"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.10.2",
+    "@lhci/cli": "^0.15.1",
+    "@playwright/test": "^1.61.1",
+    "@tailwindcss/postcss": "^4",
+    "@types/github-slugger": "^2.0.0",
+    "@types/node": "^26",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.4.2",
+    "eslint-plugin-better-tailwindcss": "^4.7.0",
+    "linkinator": "^8.0.1",
+    "serve": "^14.2.6",
+    "sharp": "^0.35.5",
+    "start-server-and-test": "^3.0.11",
+    "tailwindcss": "^4",
+    "tsx": "^4.23.15",
+    "typescript": "^5",
+    "vitest": "^4"
+  },
+  "overrides": {
+    "tmp": "^0.2.7",
+    "sharp": "^0.35.5",
+    "@opentelemetry/api": "1.8.0"
+  }
+}
