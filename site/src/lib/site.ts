@@ -43,8 +43,12 @@ export const POSITIONING =
 
 /** The metadata strip under the hero. */
 export const BADGES = ["MIT", "Rust", "OpenGL 3.3"] as const;
-export const STATUS_BADGE = "v0.1.0 · testing";
-export const VERSION = "0.1.0";
+/**
+ * What a release is fit for, beside its number. The number itself is never
+ * written here: it is read from GitHub's latest release at build time
+ * (lib/release.ts), so the site cannot fall behind a release.
+ */
+export const RELEASE_STAGE = "testing";
 
 export type NavItem = {
   href: string;

@@ -234,20 +234,6 @@ export function Callout({
   );
 }
 
-/** A count with its label, as used by the roadmap's status summary. */
-export function Stat({ value, label }: { value: ReactNode; label: string }) {
-  return (
-    <Panel className="gap-2 p-6">
-      <span className="text-text text-[32px] leading-none font-semibold tracking-[-0.03em]">
-        {value}
-      </span>
-      <span className="text-label font-mono text-[10px] tracking-[0.16em] uppercase">
-        {label}
-      </span>
-    </Panel>
-  );
-}
-
 /**
  * A list marked with a small square bullet.
  *
