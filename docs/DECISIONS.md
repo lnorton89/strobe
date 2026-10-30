@@ -13051,3 +13051,34 @@ page. The wasm is 0.9 MB before compression.
 **Would reopen:** a need to save and browse scenes across devices (a
 backend), QuickJS or another engine building for the browser (the shim would
 then go), or a browser whose WebGL2 refuses what the ANGLE path accepts.
+
+### D525: the website deploys to Cloudflare Pages with an account token read per run, never the machine's wrangler login (2026-10-30, owner's request)
+
+**Context.** The owner asked for the site (D523) to be deployed to Cloudflare
+with wrangler. The machine they deploy from has two Cloudflare accounts in
+use: their own, and a venue's, whose site another agent deploys from the same
+user profile. Wrangler keeps one OAuth login per profile, in `~/.wrangler`
+when that legacy folder exists (it does here) and otherwise in the XDG config
+folder, so a second `wrangler login` would sign the other work out.
+
+**Decision.** `npm run deploy:cf` (`site/scripts/deploy-cloudflare.mjs`) reads
+`CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` from a file outside the
+repository (`~/.config/strobe/cloudflare.env`, or `STROBE_CLOUDFLARE_ENV`)
+and gives them to its own wrangler child process only; wrangler prefers them
+to its login, and the login file is never read or written. It prints the
+account before publishing (its name too when the token may list
+memberships; a Pages-only token may not, so that check does not stop a
+deploy), creates the Pages project (`strobe`, or `STROBE_PAGES_PROJECT`) on
+the first run, and deploys `out/` to the `main` branch (`deploy:cf:preview`
+to `preview`). The create passes `--force`: wrangler 4.156 otherwise hands a
+new project to Workers static assets, which needs Workers permissions and
+deployed nothing; once the project exists, deploys go to Pages directly.
+First deployed 2026-10-30 to `strobe-1m0.pages.dev`, where `/play` loads the
+engine (`application/wasm`) and plays a scripted scene. wrangler is pinned (4.156.0) and
+run through npx, not added to the site's dependencies. `public/_headers`
+carries netlify.toml's header rules, which Pages does not read: the social
+images' PNG type, the immutable cache for fingerprinted assets, and the
+security headers. The Netlify scripts stay until the owner retires them.
+
+**Would reopen:** deploys moving into CI (the token then becomes a CI
+secret), or wrangler gaining per-account profiles.

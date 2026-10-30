@@ -33,7 +33,9 @@
     "test:lighthouse": "lhci autorun",
     "deploy": "npx --yes netlify-cli@27 deploy --prod",
     "deploy:preview": "npx --yes netlify-cli@27 deploy",
-    "engine": "node scripts/build-engine.mjs"
+    "engine": "node scripts/build-engine.mjs",
+    "deploy:cf": "node scripts/deploy-cloudflare.mjs",
+    "deploy:cf:preview": "node scripts/deploy-cloudflare.mjs --preview"
   },
   "dependencies": {
     "@codemirror/commands": "^6.11.1",
