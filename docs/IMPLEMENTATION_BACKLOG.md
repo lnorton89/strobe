@@ -388,6 +388,23 @@
 - **Work:** on JAJA-MINI-PC, run `install.ps1` over the Python install (it migrates the config and replaces the task); repeat the README's checks with `pj` and with Settings > Projectors: status in standby, on with `--wait` through the lamp strike, off through the cool-down, the page from a phone on the Wi-Fi with the token link, the service after a reboot with nobody logged in, and Strobe's "Web page" switch saying the port is held while the service runs. Force the fallback once (a wrong PJLink password on the Panasonic) and switch it over NTCONTROL. Decide whether two processes need a shared lock (a lock file beside the config) or one host only.
 - **Acceptance:** results with timings in the tool's README; no command sent mid-transition (the unit's own log or a `--wait` trace); the fallback switches the PT-DZ6700; the reboot check passes.
 
+## Epic W — The website's shader sandbox
+
+### W-01 Sandbox parity with the app
+- **Status:** Open. The `/play` sandbox (D524) runs the real player on WebGL2 and the 18 library scenes play, but a scene's textures and media (`IMAGE_PATH`, image inputs, cubemaps), `#include` (lygia, hg_sdf, the user's own files), `textureFinalPass` (answers black), the Shadertoy audio texture, meta controls and presets are not in the browser.
+- **Work:** load images from the page (a file the visitor adds, kept in the zip and, where small, the link) through the player's media path; resolve `#include` against the scene's own files; read the final pass back asynchronously, as the app does (D162), for `textureFinalPass` and pass it to the worker; offer presets.
+- **Acceptance:** a scene with an image input and one with an include play the same in the sandbox and the app; `C-04`'s textureFinalPass scene answers in the browser.
+
+### W-02 Browsers, devices and context loss
+- **Status:** Open. Verified only in Chromium in the desktop app's browser pane (D524).
+- **Work:** run the sandbox in Chrome, Edge, Firefox and Safari on desktop and on a phone; handle `webglcontextlost`/`restored` by rebuilding the engine and recompiling the open scene; check the microphone permission flow and the AudioWorklet on Safari; check a long share link in each browser's address bar.
+- **Acceptance:** a table of browser × feature results; a forced context loss (`WEBGL_lose_context`) recovers without a reload.
+
+### W-03 Engine and site in CI, and deploys
+- **Status:** Open. `npm run engine` builds the wasm before `dev` and `build`, and Netlify deploys are run by hand from a machine with Rust, the wasm target and `wasm-bindgen-cli` (D523, D524). CI runs `strobe-web`'s native tests on Linux but builds neither the wasm nor the site, and does not clippy the `wasm32` target.
+- **Work:** add a CI job that installs the wasm target and the pinned `wasm-bindgen-cli`, clippies `strobe-web` and `strobe-gfx` for `wasm32-unknown-unknown`, builds the engine, and runs the site's lint, typecheck, unit tests and a Playwright smoke test of `/play` (a scene compiles; an error is marked); add the wasm clippy to `cargo xtask ci`.
+- **Acceptance:** a pull request that breaks the browser build or the sandbox fails CI.
+
 ## Epic G — Graphics backend research
 
 ### G-01 Machine-readable shader compatibility report

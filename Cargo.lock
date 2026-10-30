@@ -3413,6 +3413,7 @@ dependencies = [
  "raw-window-handle",
  "strobe-scene",
  "thiserror 2.0.21",
+ "web-sys",
  "winit",
 ]
 
@@ -3518,6 +3519,21 @@ dependencies = [
 [[package]]
 name = "strobe-ssf-lib"
 version = "0.2.0"
+
+[[package]]
+name = "strobe-web"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "js-sys",
+ "log",
+ "serde_json",
+ "strobe-audio",
+ "strobe-gfx",
+ "strobe-scene",
+ "wasm-bindgen",
+ "web-sys",
+]
 
 [[package]]
 name = "strsim"

@@ -27,7 +27,8 @@ crates/
 ├── strobe-playlist     Playlist model, TOML, generator, timeline, playback clock (pure)
 ├── strobe-io           Show control: MIDI and OSC workers, mappings, learn, soft takeover, macros (no GL)
 ├── strobe-remote       LAN remote: protocol, app-thread bridge, pairing, and the opt-in listener
-└── strobe-projector    Projector power: PJLink + NTCONTROL, the token-protected web page, `pj` and its headless service
+├── strobe-projector    Projector power: PJLink + NTCONTROL, the token-protected web page, `pj` and its headless service
+└── strobe-web          The website's /play sandbox: the scene player on a WebGL2 canvas and the audio DSP, as wasm
 ```
 
 (The localhost import listener stayed in `strobe-shadertoy`, D114. Presets and
@@ -46,6 +47,7 @@ flowchart TD
     script & audio & io & gfx --> scene
     scene --> ssf
     bench[strobe-bench] --> gfx & scene & diag
+    web[strobe-web] --> gfx & audio & scene
 ```
 
 Arrows point at what a crate depends on; this is `cargo metadata`'s
@@ -92,6 +94,16 @@ on no Strobe crate; `strobe-io` brings in `midir` and `rosc`, and
   calls block for seconds (a projector answering, a 90 s cool-down), so the
   app runs them on worker threads and takes their results once a frame;
   its web page runs on threads of its own (D502).
+- `strobe-web` is the website's sandbox engine, built for
+  `wasm32-unknown-unknown` (D524). It takes `strobe-gfx` without its
+  `native` feature (no glutin, winit or offscreen worker: a `Gl` comes from
+  the canvas's WebGL2 context through `Gl::from_webgl2`) and `strobe-audio`
+  without `capture` (the page pushes samples). It never takes
+  `strobe-script`, `strobe-diag` or anything that compiles C: QuickJS does
+  not build for the browser, so the page runs `script.js` in a Web Worker.
+  The workspace therefore names `strobe-gfx` and `strobe-audio` with
+  default features off, and the native crates ask for `native` and
+  `capture` themselves.
 - `strobe-diag` depends on no other Strobe crate, so every crate may
   depend on it (for `log` output, `context::set`, `failure::report`).
   `strobe-gfx` itself only uses the `log` facade; the app is what installs

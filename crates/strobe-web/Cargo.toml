@@ -1,0 +1,39 @@
+[package]
+name = "strobe-web"
+description = "The browser sandbox's engine: the scene player on a WebGL2 canvas and the audio DSP, compiled to wasm for the website's /play page."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+publish = false
+
+[lib]
+# cdylib for wasm-bindgen; rlib so the native tests can drive the sandbox
+# on the headless context.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+strobe-scene.workspace = true
+strobe-gfx.workspace = true
+strobe-audio.workspace = true
+serde_json.workspace = true
+log.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen.workspace = true
+js-sys.workspace = true
+web-sys = { workspace = true, features = [
+    "console",
+    "HtmlCanvasElement",
+    "WebGl2RenderingContext",
+] }
+
+[dev-dependencies]
+anyhow.workspace = true
+
+# The tests run the sandbox on the headless context, which is native only.
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+strobe-gfx = { workspace = true, features = ["native"] }
+
+[lints]
+workspace = true

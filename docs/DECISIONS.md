@@ -12921,6 +12921,9 @@ the same scale.
 
 ### D520: Jester Totem fills the frame with rays and twins and gets a perform group (2026-10-28, owner's request)
 
+**Withdrawn (D526):** the scene is a friend's shader, not original work, and
+was removed from `scenes/` and the website on 2026-10-30.
+
 **What.** `18-jester-totem`, an original scene after a hand-painted
 blacklight panel (not committed): a horned, one-eyed jester on a
 jack-in-the-box spring, drawn analytically in fluorescent inks on dark
@@ -12953,3 +12956,222 @@ twins, which only draw on their planks.
 
 **Would reopen:** the Vega 3 dropping frames on it at the venue (then the
 twins default off), or the owner preferring the single totem.
+
+### D523: the website is a static Next.js export in `site/`, adapted from the Cinnabar site (2026-10-24)
+
+**Context.** Strobe needs a public website. The owner asked for the Cinnabar
+project's site (`bonzupii/cinnabar`, `site/`, Apache-2.0) as the base,
+re-themed to Strobe's brand. That site is Next.js 16 with Tailwind 4, exported
+as static files, with its copy in per-route `content.md` files, the
+repository's own documents rendered at build time, a contrast-checked palette
+and a Playwright suite (axe, layout, theme, motion).
+
+**Decision.** `site/` holds the website, outside the Cargo workspace. It keeps
+the Cinnabar site's structure, components and tests and drops what was
+Cinnabar's own (the in-browser compiler playground, the language pages, the
+syntax highlighter, the easter egg). It is themed from `docs/branding.md`:
+Void/Panel/Border with cyan as the active accent, the gradient kept for the
+ribbon and a few compact rules, Space Grotesk, Inter and JetBrains Mono, the
+ribbon drawn from `icon.svg`'s path data (the small-size form below 32 px).
+Nothing about Strobe is written twice: the guide, compatibility, architecture
+and roadmap pages render the `docs/` files; the scenes page reads
+`scenes/*/scene.json`; screenshots, thumbnails and icons are copied from the
+repository at build time into a git-ignored folder (thumbnails re-encoded to
+640 px WebP, since some are 600 kB PNGs shown 300 px wide). Dark is the
+default; the light theme moves the text accent to a deep cyan because brand
+cyan is 1.4:1 on a light ground. The Apache-2.0 licence and attribution are
+kept in `site/LICENSE-APACHE` and `site/README.md`.
+
+**Test.** `site/`: `npm run lint`, `npm run typecheck`, `npm test` (vitest:
+every text/surface pair in both themes against WCAG AA, link rewriting, the
+scene reader) and `npm run test:e2e` (Playwright on the built export: axe on
+every page in both themes, no horizontal overflow at 390 px, focus traps,
+window chrome, the activity feed's failure modes). Not yet in CI.
+
+**Would reopen:** a hosting choice that is not a static host (Netlify is what
+`netlify.toml` describes, but nothing depends on it), or the docs growing
+past what one rendered page per document can carry.
+
+### D524: the website's `/play` sandbox runs Strobe's own player as wasm on WebGL2, scripts in a worker, with no server (2026-10-30, owner's request)
+
+**Context.** The owner asked for a Shadertoy-like sandbox for Strobe scenes,
+built into the website (D523). The choice was between compiling the real
+renderer for the browser and writing a second, TypeScript one; between a
+backend with accounts and none; and how `script.js` runs where QuickJS cannot.
+
+**Decision.**
+
+- **The real player.** `strobe-web` compiles `strobe-scene`, `strobe-gfx`
+  and `strobe-audio` to `wasm32-unknown-unknown`. WebGL2 is GLSL ES 3.00, the
+  dialect the ANGLE path already assembles (`Dialect::Es300`), so the player
+  runs unchanged and a scene's errors carry the same `main.glsl:N:` lines as
+  in the app. glow already has a WebGL2 backend: `Gl::from_webgl2` wraps the
+  canvas's context, with no reset-status entry point (the browser raises
+  `webglcontextlost` instead) and the usual prime. A second renderer would
+  drift from the app; this one cannot.
+- **Features, not forks.** `strobe-gfx` puts glutin, winit, the context
+  providers and the offscreen worker behind a default `native` feature, and
+  the workspace names `strobe-gfx` and `strobe-audio` with default features
+  off so the browser build gets neither `native` nor `capture`; the app,
+  bench, autocontrol and the Shadertoy tests ask for them. Two small things
+  were native-only: the trace's framebuffer name (WebGL's are objects, not
+  integers) and the prime's timing (`Instant::now` panics on this target, so
+  the browser records zero). `SceneFolder::from_files` loads a scene from
+  text by the rules `load` uses, without `#include`.
+- **Scripts in a Web Worker.** QuickJS is C and does not build for this
+  target, so `script.js` runs in a worker behind a shim of the API
+  (`site/src/lib/play/script-worker.ts`): the same globals, setters, events,
+  `uniforms` object and console, the same frame order, uniforms created in
+  `setup()` or the first `update()` declared at load and refused after (as
+  D161 seals them), three faulted frames disabling the script. The page
+  applies its results one frame later, and a frame that does not come back
+  within a second terminates the worker, the browser's stand-in for the
+  4 ms interrupt. The worker also keeps a visitor's script away from the
+  page. `textureFinalPass` answers black for now.
+- **No backend.** The scene autosaves in the browser's storage, shares as a
+  link whose fragment holds the files deflated (`#s=`, never sent to the
+  server), and exports and imports a `.synScene` zip the app opens. No
+  accounts, no gallery, nothing stored: the site stays a static export.
+- **Audio** is the synthetic 120 BPM track by default, or the microphone or
+  a file through an AudioWorklet into the same `Analyzer` the app runs.
+- **Built, not committed.** `site/scripts/build-engine.mjs` builds the crate
+  (`release-web`: size-optimised, no symbols) and runs `wasm-bindgen` at the
+  version `Cargo.lock` pins into `public/generated/engine/` before `dev` and
+  `build`, and fails with the install commands if the toolchain is missing.
+  `sync-assets.mjs` writes each library scene's text files as JSON for the
+  page's Open menu.
+
+**Test.** `crates/strobe-web/tests/sandbox.rs` drives the sandbox on the
+headless GLES 3.0 context (load and draw, controls, a broken edit keeping
+the last scene with its line named, values kept across an edit, script
+uniforms, the audio sources); they skip where there is no EGL, as on
+Windows. In Chromium (the desktop app's browser pane, 2026-10-30): all 18
+library scenes compile and play from the Open menu, a typed error is
+underlined on its line while the last picture plays on, `11-script-orbits`
+runs its script in the worker, and a share link reopens the scene on a fresh
+page. The wasm is 0.9 MB before compression.
+
+**Would reopen:** a need to save and browse scenes across devices (a
+backend), QuickJS or another engine building for the browser (the shim would
+then go), or a browser whose WebGL2 refuses what the ANGLE path accepts.
+
+### D525: the website deploys to Cloudflare as a static-assets Worker with an account token read per run, never the machine's wrangler login (2026-10-30, owner's request)
+
+**Context.** The owner asked for the site (D523) to be deployed to Cloudflare
+with wrangler. The machine they deploy from has two Cloudflare accounts in
+use: their own, and a venue's, whose site another agent deploys from the same
+user profile. Wrangler keeps one OAuth login per profile, in `~/.wrangler`
+when that legacy folder exists (it does here) and otherwise in the XDG config
+folder, so a second `wrangler login` would sign the other work out.
+
+**Decision.** `npm run deploy:cf` (`site/scripts/deploy-cloudflare.mjs`) reads
+`CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` from a file outside the
+repository (`~/.config/strobe/cloudflare.env`, or `STROBE_CLOUDFLARE_ENV`)
+and gives them to its own wrangler child process only; wrangler prefers them
+to its login, and the login file is never read or written. The token needs
+Account > Workers Scripts > Edit. It prints the account before publishing
+(its name too when the token may list memberships; a narrow token may not,
+so that check does not stop a deploy), then runs `wrangler deploy` with
+`site/wrangler.jsonc`: a Worker named `strobe` (or `STROBE_WORKER_NAME`)
+serving `out/` as static assets with trailing-slash URLs and `out/404.html`
+for a missing path, on the account's workers.dev subdomain. Its only script
+is the share routes of D527, which run first for `/api/*` and `/s/*` alone.
+`deploy:cf:preview` uploads a version with its own preview URL instead.
+The script builds the site itself first, with `NEXT_PUBLIC_SITE_URL` set to
+the address it is served from (`STROBE_SITE_URL`, default
+`https://strobe.lnorton89.workers.dev`), and refuses to publish a build whose
+canonical link names anything else: a plain local build names the test
+server's localhost, and the first deploy shipped canonical and social-card
+URLs pointing there.
+`public/_headers` carries netlify.toml's header rules, which Cloudflare
+reads and netlify.toml it does not: the social images' PNG type, the
+immutable cache for fingerprinted assets, and the security headers. wrangler
+is pinned (4.156.0) and run through npx, not added to the site's
+dependencies. The Netlify scripts stay until the owner retires them.
+
+**Why a Worker, not Pages.** The first deploy went to a Pages project, but
+`strobe.pages.dev` belongs to someone else (Pages names are global), so it
+was `strobe-1m0.pages.dev`. A Worker's address is the worker's name under the
+account's own subdomain, so the site is `strobe.lnorton89.workers.dev`
+(deployed 2026-10-30: pages, `application/wasm`, the headers, the 404 page
+and a scripted scene in `/play` checked there). wrangler 4.156 also treats
+Pages as delegating to Workers now: a new Pages project needed `--force`.
+
+**Would reopen:** deploys moving into CI (the token then becomes a CI
+secret), or wrangler gaining per-account profiles.
+
+### D526: Jester Totem is withdrawn, and the website names the release GitHub publishes (2026-10-30, owner's request)
+
+**Context.** `18-jester-totem` (D520) is a friend's shader, not original
+work, so it is not Strobe's to ship, while `scenes/` is the original library
+(see CLAUDE.md) and the website shows every scene in it. Separately, the site
+named its release as a constant (`v0.1.0`), which was already stale: v0.2.0
+was published on 2026-10-26.
+
+**Decision.**
+
+- **The scene goes.** `scenes/18-jester-totem.synScene` is deleted, so the
+  scenes page, the home page's preview and `/play`'s Open menu no longer have
+  it (they read `scenes/` at build time). The README counts seventeen scenes.
+  D520 and its benchmark entry stay as a record, marked withdrawn. The files
+  remain in git history; nothing here rewrites published history.
+- **GitHub is the source of the release.** `site/src/lib/release.ts` reads
+  `/repos/lnorton89/strobe/releases/latest` once per build, and the header
+  chip, the home page's status badge and project-status line, and the
+  download page's note and button use it, linking to the release's own page.
+  With GitHub unreachable the build still succeeds and the site names no
+  number ("Latest release", linking to the Releases page), since a wrong
+  number is worse than none. `RELEASE_STAGE` ("testing") is the only release
+  fact still written in the site.
+- **The stats band goes.** The home page's "Measured, not claimed" counts
+  were hand-copied numbers that, like the version, drift from the evidence.
+  The Synesthesia comparison stays; the compatibility page carries the
+  evidence.
+
+**Would reopen:** the friend licensing the scene to the project, or a release
+process that writes the version into the site at tag time.
+
+### D527: `/play` shares short links to scenes stored as content-named files in R2, with no database (2026-10-30, owner's request)
+
+**Context.** Share put the whole scene in the link's fragment (D524), which
+made links several kilobytes long. The owner asked for short links without a
+database.
+
+**Decision.** The site's Worker (D525) gains three routes, in
+`site/worker/`:
+
+- `POST /api/share` takes a scene's JSON, checks it (`main.glsl` required,
+  scene file names only, at most 16 files and 256 kB), and writes it once to
+  the R2 bucket `strobe-scenes` as `scenes/<id>.json`, where `<id>` is the
+  first 10 characters of the SHA-256 of its canonical form (files in name
+  order) in a base32 alphabet without 0, 1, o or l. The same scene always
+  gets the same id, so sharing twice stores nothing new. If the 10-character
+  name ever holds other content (its full hash is in the object's metadata),
+  the scene takes 16 characters instead. Ten shares a minute per visitor
+  (Workers rate limiting).
+- `GET /api/scene/<id>` answers the stored JSON, cached for a year as
+  immutable: a name is its content.
+- `GET /s/<id>` serves the `/play` page, which reads the id from the address
+  and loads the scene. The link is `strobe.lnorton89.workers.dev/s/<id>`.
+
+Objects are never changed or deleted by the site: no accounts, no tables, no
+schema. Taking down a reported scene is deleting its object
+(`site/README.md`). Share falls back to the fragment link when the upload
+fails (`next dev`, a plain static host, the rate limit), so the page still
+works anywhere; old fragment links, autosave and zip export are unchanged.
+`wrangler.jsonc` runs the script first only for `/api/*` and `/s/*`; every
+other request is a static file. The deploy creates the bucket on its first
+run; the token needs Workers R2 Storage Edit.
+
+**Test.** `tests/unit/scene-store.test.ts` (what is refused, names
+independent of file order, one object per scene, the collision path, the
+path reader). Live on 2026-10-30: a share returned `/s/ugcu7a5g3u` and the
+same scene with its keys reordered the same id; the JSON read back;
+`/s/<id>` opened the scene in `/play` and compiled it; a bad file name was
+refused (400), an unknown id 404 and a GET on the share route 405; Share in
+the page stored `11-script-orbits` and moved the address to `/s/ep23ughn7z`.
+
+**Would reopen:** abuse beyond what a takedown by hand can handle (then a
+challenge such as Turnstile on Share), or wanting to edit or delete a shared
+scene by its author (then it needs an owner, which this deliberately has
+none of).

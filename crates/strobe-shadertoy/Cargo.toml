@@ -40,7 +40,7 @@ log.workspace = true
 ureq = { workspace = true, optional = true }
 
 [dev-dependencies]
-strobe-gfx.workspace = true
+strobe-gfx = { workspace = true, features = ["native"] }
 image.workspace = true
 
 [lints]

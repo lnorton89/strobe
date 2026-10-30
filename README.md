@@ -239,6 +239,7 @@ and `strobe-diag` depend on no other Strobe crate. `strobe-bench`
 | [`strobe-diag`](crates/strobe-diag/README.md) | Logging, the session context, structured failures, the panic hook and out-of-process crash capture with minidumps. |
 | [`strobe-remote`](crates/strobe-remote/README.md) | LAN control from phones and other Strobe desktops: typed protocol, bounded app bridge, scoped pairing and revocation, phone controller page and optional full desktop UI streaming (trusted networks only). |
 | [`strobe-projector`](crates/strobe-projector/README.md) | Projector power for the show PC: PJLink with a Panasonic NTCONTROL fallback, never a command mid-transition, a token-protected web page for a phone, Settings > Projectors in the app, and `pj` as the CLI and headless service. |
+| [`strobe-web`](crates/strobe-web/README.md) | The website's `/play` sandbox engine: the scene player on a browser's WebGL2 canvas and the audio DSP, compiled to wasm. |
 | [`strobe-bench`](crates/strobe-bench/README.md) | Renders every scene in `scenes/`, times it, and writes frames, a contact sheet and `results.md`. |
 | [`strobe-conventions`](crates/strobe-conventions/README.md) | The house rules as tests: file headers, the `unsafe` boundary, the toolchain pin. |
 | [`xtask`](crates/xtask/README.md) | `cargo xtask ci`, `changelog`, `bench`, `corpus`, `symbolicate`, `brand`. |
@@ -302,17 +303,16 @@ The full walk-through is in
 
 ## Scene library
 
-`scenes/` holds eighteen original scenes, tagged:
+`scenes/` holds seventeen original scenes, tagged:
 - **Benchmark tiers:** ten span five tiers of GPU load, from a gradient,
   through feedback, Voronoi, domain warping, reaction-diffusion and bloom, to
   a raymarched cathedral and volumetric clouds.
 - **`11-script-orbits`** is driven by a `script.js` physics loop.
 - **`12-silicon-atlas`** is an animated, fictional circuit board.
-- **Six show pieces:** `13-chromatic-rise` (feedback marbling),
+- **Five show pieces:** `13-chromatic-rise` (feedback marbling),
   `14-electric-bloom` (a glowing garden), `15-neon-ribbon-flow`,
-  `16-acid-mirror` (mirrored liquid paint), `17-blacklight-carpet`
-  (confetti under a blacklight) and `18-jester-totem` (a bouncing
-  jack-in-the-box jester painted in UV ink), all audio-reactive.
+  `16-acid-mirror` (mirrored liquid paint) and `17-blacklight-carpet`
+  (confetti under a blacklight), all audio-reactive.
 
 ![The scene library](docs/images/contact-sheet.png)
 
