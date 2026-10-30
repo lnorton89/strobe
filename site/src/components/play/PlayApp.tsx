@@ -25,9 +25,12 @@ import {
   type Scene,
   decodeShare,
   encodeShare,
+  fetchShared,
   fileOrder,
   parseScene,
   readZip,
+  sharedIdFromPath,
+  uploadShare,
   validFileName,
   writeZip,
 } from "@/lib/play/files";
@@ -133,6 +136,13 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
   const [autoCompile, setAutoCompile] = useState(true);
   const [audioMode, setAudioMode] = useState<AudioMode>("synthetic");
   const [notice, setNotice] = useState<string | null>(null);
+  /** What Share made, shown in a box under the toolbar until dismissed. */
+  const [shared, setShared] = useState<{
+    url: string;
+    copied: boolean;
+    working: boolean;
+    problem?: string;
+  } | null>(null);
   const [fps, setFps] = useState(0);
 
   const live = useRef<LiveAudio | null>(null);
@@ -167,9 +177,15 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
         setFatal(String(caught));
         return;
       }
-      const fromHash = await decodeShare(window.location.hash).catch(() => undefined);
+      const sharedId = sharedIdFromPath(window.location.pathname);
+      let first = sharedId
+        ? await fetchShared(sharedId).catch((caught: unknown) => {
+            setNotice(`Shared scene: ${String(caught)}`);
+            return undefined;
+          })
+        : undefined;
+      first ??= await decodeShare(window.location.hash).catch(() => undefined);
       const slug = new URLSearchParams(window.location.search).get("scene");
-      let first = fromHash;
       if (!first && slug) first = await fetchScene(slug).catch(() => undefined);
       first ??= readStored() ?? BLANK;
       if (!cancelled) setScene(first);
@@ -426,8 +442,9 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
     setConsoleLines([]);
     setActive("main.glsl");
     setScene(next);
-    if (window.location.hash) {
-      history.replaceState(null, "", window.location.pathname + window.location.search);
+    // The address stops naming a shared scene once another is opened.
+    if (window.location.hash || sharedIdFromPath(window.location.pathname)) {
+      history.replaceState(null, "", "/play/");
     }
   }, []);
 
@@ -444,15 +461,34 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
 
   async function share() {
     if (!scene) return;
-    const fragment = await encodeShare(scene);
-    const url = `${window.location.origin}${window.location.pathname}#${fragment}`;
-    history.replaceState(null, "", `#${fragment}`);
+    // A short link from the site's Worker (D527); without one, the scene
+    // goes in the link's fragment, which needs no server at all.
+    setShared({ url: "", copied: false, working: true });
+    let url: string;
+    let problem: string | undefined;
     try {
-      await navigator.clipboard.writeText(url);
-      setNotice(`Link copied (${Math.round(url.length / 1024)} kB). The scene is in the link itself.`);
-    } catch {
-      setNotice("The link is in the address bar.");
+      url = await uploadShare(scene);
+      history.replaceState(null, "", new URL(url).pathname);
+    } catch (caught) {
+      const fragment = await encodeShare(scene);
+      url = `${window.location.origin}/play/#${fragment}`;
+      problem = String(caught).replace(/^Error: /, "");
+      history.replaceState(null, "", `/play/#${fragment}`);
     }
+    const copied = await navigator.clipboard.writeText(url).then(
+      () => true,
+      () => false,
+    );
+    setShared({ url, copied, working: false, problem });
+  }
+
+  async function copyShared() {
+    if (!shared?.url) return;
+    const copied = await navigator.clipboard.writeText(shared.url).then(
+      () => true,
+      () => false,
+    );
+    setShared({ ...shared, copied });
   }
 
   function exportZip() {
@@ -709,6 +745,53 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
             />
           </label>
         </div>
+        {shared ? (
+          <div
+            className="flex flex-col gap-2 border-b border-accent bg-panel-raised px-3 py-3"
+            role="status"
+            aria-live="polite"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <span className="font-mono text-[11px] tracking-widest text-accent-text uppercase">
+                {shared.working
+                  ? "Making a link…"
+                  : shared.problem
+                    ? "Long link (the scene is inside it)"
+                    : shared.copied
+                      ? "Share link copied"
+                      : "Share link"}
+              </span>
+              <button
+                type="button"
+                aria-label="Close"
+                onClick={() => setShared(null)}
+                className="px-1 text-label hover:text-text"
+              >
+                ×
+              </button>
+            </div>
+            {shared.working ? null : (
+              <div className="flex gap-2">
+                <input
+                  readOnly
+                  value={shared.url}
+                  aria-label="Share link"
+                  onFocus={(event) => event.currentTarget.select()}
+                  className="min-w-0 flex-1 border border-hairline-strong bg-ground px-2 py-1.5 font-mono text-xs text-text"
+                />
+                <button type="button" className={BUTTON} onClick={() => void copyShared()}>
+                  {shared.copied ? "Copied" : "Copy"}
+                </button>
+              </div>
+            )}
+            {shared.problem ? (
+              <p className="text-xs text-secondary">
+                A short link could not be made: {shared.problem}. This link works anywhere, but
+                it is long.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
         <div className="flex items-stretch overflow-x-auto border-b border-hairline" role="tablist">
           {files.map((name) => {
             const broken = (errorsByFile.get(name)?.length ?? 0) > 0;

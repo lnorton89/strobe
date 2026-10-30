@@ -85,6 +85,41 @@ export async function decodeShare(fragment: string): Promise<Scene | undefined> 
   return parseScene(JSON.parse(json));
 }
 
+/*
+ * Short links (D527): the site's Worker stores a shared scene as one file in
+ * R2 named by its content's hash and answers with `/s/<id>`. Where there is
+ * no Worker (`next dev`, a plain static host) the upload fails and Share
+ * falls back to the fragment link above, which needs nothing.
+ */
+
+/** The scene id a short link's path carries (`/s/<id>`), if it is one. */
+export function sharedIdFromPath(pathname: string): string | undefined {
+  return /^\/s\/([2-9a-km-np-z]{10,16})\/?$/.exec(pathname)?.[1];
+}
+
+/** Uploads `scene` and returns its short link. Throws when the site cannot store it. */
+export async function uploadShare(scene: Scene): Promise<string> {
+  const response = await fetch("/api/share", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(scene),
+  });
+  const body = (await response.json().catch(() => ({}))) as { url?: unknown; error?: unknown };
+  if (!response.ok || typeof body.url !== "string") {
+    throw new Error(typeof body.error === "string" ? body.error : `the site answered ${response.status}`);
+  }
+  return body.url;
+}
+
+/** The scene a short link names. */
+export async function fetchShared(id: string): Promise<Scene> {
+  const response = await fetch(`/api/scene/${encodeURIComponent(id)}`);
+  if (!response.ok) throw new Error(response.status === 404 ? "no such shared scene" : `the site answered ${response.status}`);
+  const scene = parseScene(await response.json());
+  if (!scene) throw new Error("the shared scene is damaged");
+  return scene;
+}
+
 /** A scene from untrusted JSON: only string files with valid names survive. */
 export function parseScene(value: unknown): Scene | undefined {
   if (value === null || typeof value !== "object") return undefined;

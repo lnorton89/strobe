@@ -52,9 +52,38 @@ block fails the build rather than rendering an empty section.
 
 ## Deploying
 
-The export in `out/` is plain static files. `netlify.toml` describes a Netlify
-deploy (`npm run deploy`), including the content type the extension-less
-`/og-image` social cards need; any static host works if it can be told that.
+The site runs on Cloudflare as a Worker at
+<https://strobe.lnorton89.workers.dev> (D525): the export in `out/` served
+as static files, plus a small script in `worker/` for `/play`'s short share
+links (D527). `wrangler.jsonc` describes it.
+
+```bash
+npm run deploy:cf
+```
+
+builds the site for that address and deploys it as the account in
+`~/.config/strobe/cloudflare.env` (`CLOUDFLARE_ACCOUNT_ID`,
+`CLOUDFLARE_API_TOKEN` with Workers Scripts and Workers R2 Storage Edit),
+never the machine's wrangler login. `npm run deploy:cf:preview` uploads a
+version with its own preview URL instead.
+
+The export alone still works on any static host (`netlify.toml` describes a
+Netlify deploy, `npm run deploy`); there, Share falls back to links that
+carry the whole scene.
+
+### Shared scenes
+
+Share stores the scene as one JSON file in the R2 bucket `strobe-scenes`,
+named by its content's hash (`scenes/<id>.json`), and links to `/s/<id>`.
+Nothing is ever changed in place. To take down a shared scene someone
+reported, delete its object; the link then says there is no such scene:
+
+```bash
+npx wrangler@4.156.0 r2 object delete strobe-scenes/scenes/<id>.json --remote
+```
+
+(Run it with the same credentials as the deploy, for example by setting
+`CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` in that shell only.)
 
 ## Credits
 
