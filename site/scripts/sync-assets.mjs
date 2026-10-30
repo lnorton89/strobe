@@ -16,7 +16,15 @@
  * renamed screenshot breaks the build instead of shipping a broken image.
  */
 
-import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
 import sharp from "sharp";
 
@@ -88,6 +96,31 @@ for (const entry of readdirSync(scenes, { withFileTypes: true })) {
   thumbnails += 1;
 }
 
+/*
+ * Each scene's text files as one JSON document for the /play page to open
+ * (D524): the shaders, scene.json and script.js at the folder's top level.
+ * Textures and media are left out; the sandbox does not load them yet
+ * (backlog W-01).
+ */
+const SCENE_TEXT = /\.(glsl|frag|json|js)$/i;
+let playable = 0;
+for (const entry of readdirSync(scenes, { withFileTypes: true })) {
+  if (!entry.isDirectory() || !entry.name.endsWith(".synScene")) continue;
+  const dir = path.join(scenes, entry.name);
+  const files = {};
+  for (const file of readdirSync(dir, { withFileTypes: true })) {
+    if (file.isFile() && SCENE_TEXT.test(file.name)) {
+      files[file.name] = readFileSync(path.join(dir, file.name), "utf8");
+    }
+  }
+  if (!files["main.glsl"]) continue;
+  const slug = entry.name.replace(/\.synScene$/, "");
+  const target = path.join(OUT, "play", `${slug}.json`);
+  mkdirSync(path.dirname(target), { recursive: true });
+  writeFileSync(target, JSON.stringify({ title: slug, files }));
+  playable += 1;
+}
+
 console.log(
-  `sync-assets: ${BRAND.length} brand files, ${SCREENSHOTS.length} screenshots, ${figures} document figures, ${thumbnails} scene thumbnails`,
+  `sync-assets: ${BRAND.length} brand files, ${SCREENSHOTS.length} screenshots, ${figures} document figures, ${thumbnails} scene thumbnails, ${playable} playable scenes`,
 );
