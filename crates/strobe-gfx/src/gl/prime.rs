@@ -130,7 +130,7 @@ fn skip_requested(value: Option<&str>) -> bool {
 /// The driver's message when the program does not compile or link, or a
 /// texture or framebuffer cannot be made. The state is restored either way.
 pub fn run(gl: &Gl) -> Result<Primed, String> {
-    let started = Instant::now();
+    let started = now();
     let viewport = gl.viewport_box();
     let unpack = gl.get_i32(glow::UNPACK_ALIGNMENT);
     gl.clear_errors();
@@ -145,9 +145,19 @@ pub fn run(gl: &Gl) -> Result<Primed, String> {
     let landed = drawn?;
     Ok(Primed {
         landed,
-        elapsed: started.elapsed(),
+        elapsed: started.map_or(Duration::ZERO, |started| started.elapsed()),
         errors,
     })
+}
+
+/// The clock the prime is timed by. `wasm32-unknown-unknown` has none
+/// (`Instant::now` panics there), so in a browser the prime reports zero.
+fn now() -> Option<Instant> {
+    if cfg!(target_arch = "wasm32") {
+        None
+    } else {
+        Some(Instant::now())
+    }
 }
 
 /// The draw itself; true when every pixel read back is [`GREEN`]. Every

@@ -12988,3 +12988,66 @@ window chrome, the activity feed's failure modes). Not yet in CI.
 **Would reopen:** a hosting choice that is not a static host (Netlify is what
 `netlify.toml` describes, but nothing depends on it), or the docs growing
 past what one rendered page per document can carry.
+
+### D524: the website's `/play` sandbox runs Strobe's own player as wasm on WebGL2, scripts in a worker, with no server (2026-10-30, owner's request)
+
+**Context.** The owner asked for a Shadertoy-like sandbox for Strobe scenes,
+built into the website (D523). The choice was between compiling the real
+renderer for the browser and writing a second, TypeScript one; between a
+backend with accounts and none; and how `script.js` runs where QuickJS cannot.
+
+**Decision.**
+
+- **The real player.** `strobe-web` compiles `strobe-scene`, `strobe-gfx`
+  and `strobe-audio` to `wasm32-unknown-unknown`. WebGL2 is GLSL ES 3.00, the
+  dialect the ANGLE path already assembles (`Dialect::Es300`), so the player
+  runs unchanged and a scene's errors carry the same `main.glsl:N:` lines as
+  in the app. glow already has a WebGL2 backend: `Gl::from_webgl2` wraps the
+  canvas's context, with no reset-status entry point (the browser raises
+  `webglcontextlost` instead) and the usual prime. A second renderer would
+  drift from the app; this one cannot.
+- **Features, not forks.** `strobe-gfx` puts glutin, winit, the context
+  providers and the offscreen worker behind a default `native` feature, and
+  the workspace names `strobe-gfx` and `strobe-audio` with default features
+  off so the browser build gets neither `native` nor `capture`; the app,
+  bench, autocontrol and the Shadertoy tests ask for them. Two small things
+  were native-only: the trace's framebuffer name (WebGL's are objects, not
+  integers) and the prime's timing (`Instant::now` panics on this target, so
+  the browser records zero). `SceneFolder::from_files` loads a scene from
+  text by the rules `load` uses, without `#include`.
+- **Scripts in a Web Worker.** QuickJS is C and does not build for this
+  target, so `script.js` runs in a worker behind a shim of the API
+  (`site/src/lib/play/script-worker.ts`): the same globals, setters, events,
+  `uniforms` object and console, the same frame order, uniforms created in
+  `setup()` or the first `update()` declared at load and refused after (as
+  D161 seals them), three faulted frames disabling the script. The page
+  applies its results one frame later, and a frame that does not come back
+  within a second terminates the worker, the browser's stand-in for the
+  4 ms interrupt. The worker also keeps a visitor's script away from the
+  page. `textureFinalPass` answers black for now.
+- **No backend.** The scene autosaves in the browser's storage, shares as a
+  link whose fragment holds the files deflated (`#s=`, never sent to the
+  server), and exports and imports a `.synScene` zip the app opens. No
+  accounts, no gallery, nothing stored: the site stays a static export.
+- **Audio** is the synthetic 120 BPM track by default, or the microphone or
+  a file through an AudioWorklet into the same `Analyzer` the app runs.
+- **Built, not committed.** `site/scripts/build-engine.mjs` builds the crate
+  (`release-web`: size-optimised, no symbols) and runs `wasm-bindgen` at the
+  version `Cargo.lock` pins into `public/generated/engine/` before `dev` and
+  `build`, and fails with the install commands if the toolchain is missing.
+  `sync-assets.mjs` writes each library scene's text files as JSON for the
+  page's Open menu.
+
+**Test.** `crates/strobe-web/tests/sandbox.rs` drives the sandbox on the
+headless GLES 3.0 context (load and draw, controls, a broken edit keeping
+the last scene with its line named, values kept across an edit, script
+uniforms, the audio sources); they skip where there is no EGL, as on
+Windows. In Chromium (the desktop app's browser pane, 2026-10-30): all 18
+library scenes compile and play from the Open menu, a typed error is
+underlined on its line while the last picture plays on, `11-script-orbits`
+runs its script in the worker, and a share link reopens the scene on a fresh
+page. The wasm is 0.9 MB before compression.
+
+**Would reopen:** a need to save and browse scenes across devices (a
+backend), QuickJS or another engine building for the browser (the shim would
+then go), or a browser whose WebGL2 refuses what the ANGLE path accepts.

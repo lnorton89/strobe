@@ -97,6 +97,35 @@ impl SceneFolder {
             script,
         })
     }
+
+    /// A scene from its files' text, with no folder behind it: the browser
+    /// sandbox's editor (D524). `file` answers a scene-relative name such as
+    /// `main.glsl`, and the rules are [`Self::load`]'s. `#include` is not
+    /// expanded, since there is no folder or library path to look in, so an
+    /// include is left as its line and the driver's error names it.
+    pub fn from_files<'a>(
+        title: &str,
+        file: impl Fn(&str) -> Option<&'a str>,
+    ) -> Result<Self, SceneError> {
+        let dir = PathBuf::from(format!("{title}.synScene"));
+        let read = |name: &str| file(name).map(|text| clean(text.to_string()));
+        let shader = read(MAIN_SHADER).ok_or_else(|| SceneError::MissingShader(dir.clone()))?;
+        let json = read("scene.json").unwrap_or_else(|| "{}".to_string());
+        let def = SceneDef::parse(&json, title)?;
+        let pass_shaders = def
+            .pass_sources
+            .iter()
+            .flatten()
+            .map(|name| read(name).ok_or_else(|| SceneError::missing_file(&dir, name)))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Self {
+            dir,
+            def,
+            shader,
+            pass_shaders,
+            script: read("script.js"),
+        })
+    }
 }
 
 /// The text of a scene file. A file that is not valid UTF-8, as a Windows
@@ -239,6 +268,45 @@ fn walk(entries: fs::ReadDir, depth: usize, found: &mut Vec<PathBuf>, visits: &m
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_scene_from_files_reads_like_a_folder() -> anyhow::Result<()> {
+        let files = [
+            (
+                "main.glsl",
+                "\u{feff}vec4 renderMain() {\r\n return vec4(1.0);\r\n}\r\n",
+            ),
+            (
+                "scene.json",
+                r#"{"PASSES":[{"TARGET":"a"}],"PASS_SOURCES":["a.glsl","main.glsl"]}"#,
+            ),
+            ("a.glsl", "vec4 renderMain() { return vec4(0.5); }"),
+            ("script.js", "function setup() {}"),
+        ];
+        let file = |name: &str| files.iter().find(|(n, _)| *n == name).map(|(_, t)| *t);
+        let scene = SceneFolder::from_files("web", file)?;
+        assert!(
+            scene.shader.starts_with("vec4") && !scene.shader.contains('\r'),
+            "cleaned like a file on disk: {:?}",
+            scene.shader
+        );
+        assert_eq!(scene.pass_shaders.len(), 2, "one source per pass");
+        assert_eq!(
+            scene.script.as_deref(),
+            Some("function setup() {}"),
+            "the script"
+        );
+        let missing = SceneFolder::from_files("web", |name| {
+            (name == "main.glsl")
+                .then_some("void main() {}")
+                .or_else(|| (name == "scene.json").then_some(r#"{"PASS_SOURCES":["gone.glsl"]}"#))
+        });
+        assert!(
+            missing.is_err_and(|e| e.to_string().contains("gone.glsl")),
+            "a missing pass source is named"
+        );
+        Ok(())
+    }
 
     #[test]
     fn a_deep_scan_finds_scenes_to_its_depth_and_not_inside_scenes() -> anyhow::Result<()> {

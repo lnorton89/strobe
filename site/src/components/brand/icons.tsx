@@ -132,6 +132,16 @@ export function RoadmapIcon(props: IconProps) {
   );
 }
 
+export function PlayIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M8 6.5l6 4.5-6 4.5" />
+      <path d="M3.5 19.5h17" />
+      <path d="M15.5 15.5h5" stroke={ACCENT} />
+    </Icon>
+  );
+}
+
 export function AudioIcon(props: IconProps) {
   return (
     <Icon {...props}>
@@ -242,6 +252,7 @@ export const NAV_ICONS = {
   download: DownloadIcon,
   guide: GuideIcon,
   scenes: ScenesIcon,
+  play: PlayIcon,
   compatibility: CompatibilityIcon,
   architecture: ArchitectureIcon,
   roadmap: RoadmapIcon,

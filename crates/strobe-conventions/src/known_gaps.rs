@@ -55,7 +55,7 @@ pub const GAP_PHRASES: [&str; 17] = [
 const HEADING: &str = "## Status and known gaps";
 
 /// The epics' letters, as in `R-01`.
-const EPICS: &[u8] = b"RUCIPMLGD";
+const EPICS: &[u8] = b"RUCIPMLWGD";
 
 /// Every backlog ID cited in `text`: an epic letter, `-`, two digits, not
 /// inside a longer word.
