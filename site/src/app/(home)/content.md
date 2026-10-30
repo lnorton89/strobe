@@ -76,18 +76,16 @@ frame from the scene it names.
 
 Where the two differ
 
-<!-- @numbers-note -->
-
-Real-world results, with the evidence in the repository
-
 <!-- @status-title -->
 
-v0.1.0 is the first release. It is for testing, not production.
+It is for testing, not yet for production.
 
 <!-- @status -->
 
-The engine, the performer UI, playlists, show control and Shadertoy import are
-built and tested. Windows is the target and has been checked on real Intel,
-NVIDIA and AMD machines; Linux builds and runs on X11 and Wayland; macOS does
-not run yet.
+The engine, the performer UI, playlists, show control, Shadertoy import and the
+LAN remote are built and tested. The current release rebuilt the app's UI,
+added approve-only pairing and venue mode for controlling a show machine, and
+lets you choose ANGLE's backend when a GL driver misbehaves. Windows is the
+target and has been checked on real Intel, NVIDIA and AMD machines; Linux
+builds and runs on X11 and Wayland; macOS does not run yet.
 What is verified, and where, is tracked in the compatibility matrix.

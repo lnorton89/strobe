@@ -6,7 +6,7 @@ import Reveal from "@/components/Reveal";
 import SceneCard from "@/components/SceneCard";
 import Screenshot from "@/components/Screenshot";
 import SectionHeading from "@/components/SectionHeading";
-import { Action, ArrowLink, Stat } from "@/components/ui";
+import { Action, ArrowLink } from "@/components/ui";
 import {
   AudioIcon,
   CompatibilityIcon,
@@ -24,7 +24,8 @@ import {
 import { ICON } from "@/lib/constants";
 import { readPageContent } from "@/lib/page-content";
 import { readScenes } from "@/lib/scenes";
-import { BADGES, REPO_URL, STATUS_BADGE } from "@/lib/site";
+import { latestRelease, releaseLabel } from "@/lib/release";
+import { BADGES, RELEASE_STAGE, REPO_URL } from "@/lib/site";
 
 export const og = {
   eyebrow: "Open-source VJ engine",
@@ -75,7 +76,11 @@ const COMPARISON = [
 const SCENE_PREVIEW = 8;
 
 export default async function Home() {
-  const [content, scenes] = await Promise.all([readPageContent("(home)"), readScenes()]);
+  const [content, scenes, release] = await Promise.all([
+    readPageContent("(home)"),
+    readScenes(),
+    latestRelease(),
+  ]);
 
   return (
     <>
@@ -102,9 +107,14 @@ export default async function Home() {
                     {badge}
                   </span>
                 ))}
-                <span className="bg-accent text-on-accent grow px-4 py-2.5 text-center font-mono text-xs font-medium">
-                  {STATUS_BADGE}
-                </span>
+                <a
+                  href={release.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="bg-accent text-on-accent grow px-4 py-2.5 text-center font-mono text-xs font-medium"
+                >
+                  {releaseLabel(release)} · {RELEASE_STAGE}
+                </a>
               </div>
               <div className="mt-1 flex flex-wrap items-center gap-4">
                 <Action href="/download/" variant="primary" icon={DownloadIcon}>
@@ -190,18 +200,7 @@ export default async function Home() {
       </section>
 
       <section className="mx-auto max-w-350 px-6 py-24 sm:px-10">
-        <SectionHeading
-          title="Measured, not claimed"
-          note={content.block("numbers-note")}
-          icon={CompatibilityIcon}
-        />
-        <Reveal className="rule-grid mt-11 grid grid-cols-2 lg:grid-cols-4">
-          <Stat value="63 / 65" label="Owner scenes play with scripts, NVIDIA" />
-          <Stat value="87 / 90" label="Corpus scenes render, both GL dialects" />
-          <Stat value="GL 3.3" label="The floor: a 2012 Intel HD 4000" />
-          <Stat value="4" label="Windows machines on record: Intel, NVIDIA, AMD" />
-        </Reveal>
-        <Reveal className="mt-20">
+        <Reveal>
           <SectionHeading title="Strobe and Synesthesia" note={content.block("compare-note")} />
           <DataTable
             headings={["Area", "Synesthesia", "Strobe"]}
@@ -216,6 +215,7 @@ export default async function Home() {
           <div>
             <Eyebrow>Project status</Eyebrow>
             <h2 className="text-text mt-4 text-[28px] font-semibold tracking-tight">
+              {release.tag ? `${release.tag} is the current release. ` : ""}
               {content.block("status-title")}
             </h2>
             <p className="text-secondary mt-3 max-w-[70ch] leading-[1.7]">

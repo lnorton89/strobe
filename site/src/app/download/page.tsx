@@ -15,7 +15,8 @@ import {
 } from "@/components/brand/icons";
 import { ogImageMetadata } from "@/lib/og-image";
 import { readPageContent } from "@/lib/page-content";
-import { DEFAULT_BRANCH, RELEASES_URL, REPO_URL } from "@/lib/site";
+import { latestRelease, releaseLabel } from "@/lib/release";
+import { DEFAULT_BRANCH, REPO_URL } from "@/lib/site";
 
 /** Social image copy, rendered by ./og-image/route.tsx. */
 export const og = {
@@ -66,13 +67,13 @@ function SplitStep({ children }: { children: ReactNode }) {
 const README_LINUX = `${REPO_URL}/blob/${DEFAULT_BRANCH}/README.md#linux`;
 
 export default async function DownloadPage() {
-  const content = await readPageContent("download");
+  const [content, release] = await Promise.all([readPageContent("download"), latestRelease()]);
 
   return (
     <article className="pb-28">
       <PageHeader
         section="Download"
-        note="v0.1.0 · for testing, not production"
+        note={`${releaseLabel(release)} · for testing, not production`}
         icon={DownloadIcon}
         title="Unzip it and run it."
         lede={content.block("lede")}
@@ -84,7 +85,7 @@ export default async function DownloadPage() {
             <div>
               <Prose>{content.block("windows")}</Prose>
               <div className="mt-8 flex flex-wrap gap-4">
-                <Action href={RELEASES_URL} variant="primary" icon={DownloadIcon} external>
+                <Action href={release.url} variant="primary" icon={DownloadIcon} external>
                   GitHub Releases
                 </Action>
                 <Action href="/guide/" icon={GuideIcon}>
