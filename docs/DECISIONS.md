@@ -12921,6 +12921,9 @@ the same scale.
 
 ### D520: Jester Totem fills the frame with rays and twins and gets a perform group (2026-10-28, owner's request)
 
+**Withdrawn (D526):** the scene is a friend's shader, not original work, and
+was removed from `scenes/` and the website on 2026-10-30.
+
 **What.** `18-jester-totem`, an original scene after a hand-painted
 blacklight panel (not committed): a horned, one-eyed jester on a
 jack-in-the-box spring, drawn analytically in fluorescent inks on dark
@@ -13052,7 +13055,7 @@ page. The wasm is 0.9 MB before compression.
 backend), QuickJS or another engine building for the browser (the shim would
 then go), or a browser whose WebGL2 refuses what the ANGLE path accepts.
 
-### D525: the website deploys to Cloudflare Pages with an account token read per run, never the machine's wrangler login (2026-10-30, owner's request)
+### D525: the website deploys to Cloudflare as a static-assets Worker with an account token read per run, never the machine's wrangler login (2026-10-30, owner's request)
 
 **Context.** The owner asked for the site (D523) to be deployed to Cloudflare
 with wrangler. The machine they deploy from has two Cloudflare accounts in
@@ -13065,20 +13068,110 @@ folder, so a second `wrangler login` would sign the other work out.
 `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` from a file outside the
 repository (`~/.config/strobe/cloudflare.env`, or `STROBE_CLOUDFLARE_ENV`)
 and gives them to its own wrangler child process only; wrangler prefers them
-to its login, and the login file is never read or written. It prints the
-account before publishing (its name too when the token may list
-memberships; a Pages-only token may not, so that check does not stop a
-deploy), creates the Pages project (`strobe`, or `STROBE_PAGES_PROJECT`) on
-the first run, and deploys `out/` to the `main` branch (`deploy:cf:preview`
-to `preview`). The create passes `--force`: wrangler 4.156 otherwise hands a
-new project to Workers static assets, which needs Workers permissions and
-deployed nothing; once the project exists, deploys go to Pages directly.
-First deployed 2026-10-30 to `strobe-1m0.pages.dev`, where `/play` loads the
-engine (`application/wasm`) and plays a scripted scene. wrangler is pinned (4.156.0) and
-run through npx, not added to the site's dependencies. `public/_headers`
-carries netlify.toml's header rules, which Pages does not read: the social
-images' PNG type, the immutable cache for fingerprinted assets, and the
-security headers. The Netlify scripts stay until the owner retires them.
+to its login, and the login file is never read or written. The token needs
+Account > Workers Scripts > Edit. It prints the account before publishing
+(its name too when the token may list memberships; a narrow token may not,
+so that check does not stop a deploy), then runs `wrangler deploy` with
+`site/wrangler.jsonc`: a Worker named `strobe` (or `STROBE_WORKER_NAME`)
+serving `out/` as static assets with trailing-slash URLs and `out/404.html`
+for a missing path, on the account's workers.dev subdomain. Its only script
+is the share routes of D527, which run first for `/api/*` and `/s/*` alone.
+`deploy:cf:preview` uploads a version with its own preview URL instead.
+The script builds the site itself first, with `NEXT_PUBLIC_SITE_URL` set to
+the address it is served from (`STROBE_SITE_URL`, default
+`https://strobe.lnorton89.workers.dev`), and refuses to publish a build whose
+canonical link names anything else: a plain local build names the test
+server's localhost, and the first deploy shipped canonical and social-card
+URLs pointing there.
+`public/_headers` carries netlify.toml's header rules, which Cloudflare
+reads and netlify.toml it does not: the social images' PNG type, the
+immutable cache for fingerprinted assets, and the security headers. wrangler
+is pinned (4.156.0) and run through npx, not added to the site's
+dependencies. The Netlify scripts stay until the owner retires them.
+
+**Why a Worker, not Pages.** The first deploy went to a Pages project, but
+`strobe.pages.dev` belongs to someone else (Pages names are global), so it
+was `strobe-1m0.pages.dev`. A Worker's address is the worker's name under the
+account's own subdomain, so the site is `strobe.lnorton89.workers.dev`
+(deployed 2026-10-30: pages, `application/wasm`, the headers, the 404 page
+and a scripted scene in `/play` checked there). wrangler 4.156 also treats
+Pages as delegating to Workers now: a new Pages project needed `--force`.
 
 **Would reopen:** deploys moving into CI (the token then becomes a CI
 secret), or wrangler gaining per-account profiles.
+
+### D526: Jester Totem is withdrawn, and the website names the release GitHub publishes (2026-10-30, owner's request)
+
+**Context.** `18-jester-totem` (D520) is a friend's shader, not original
+work, so it is not Strobe's to ship, while `scenes/` is the original library
+(see CLAUDE.md) and the website shows every scene in it. Separately, the site
+named its release as a constant (`v0.1.0`), which was already stale: v0.2.0
+was published on 2026-10-26.
+
+**Decision.**
+
+- **The scene goes.** `scenes/18-jester-totem.synScene` is deleted, so the
+  scenes page, the home page's preview and `/play`'s Open menu no longer have
+  it (they read `scenes/` at build time). The README counts seventeen scenes.
+  D520 and its benchmark entry stay as a record, marked withdrawn. The files
+  remain in git history; nothing here rewrites published history.
+- **GitHub is the source of the release.** `site/src/lib/release.ts` reads
+  `/repos/lnorton89/strobe/releases/latest` once per build, and the header
+  chip, the home page's status badge and project-status line, and the
+  download page's note and button use it, linking to the release's own page.
+  With GitHub unreachable the build still succeeds and the site names no
+  number ("Latest release", linking to the Releases page), since a wrong
+  number is worse than none. `RELEASE_STAGE` ("testing") is the only release
+  fact still written in the site.
+- **The stats band goes.** The home page's "Measured, not claimed" counts
+  were hand-copied numbers that, like the version, drift from the evidence.
+  The Synesthesia comparison stays; the compatibility page carries the
+  evidence.
+
+**Would reopen:** the friend licensing the scene to the project, or a release
+process that writes the version into the site at tag time.
+
+### D527: `/play` shares short links to scenes stored as content-named files in R2, with no database (2026-10-30, owner's request)
+
+**Context.** Share put the whole scene in the link's fragment (D524), which
+made links several kilobytes long. The owner asked for short links without a
+database.
+
+**Decision.** The site's Worker (D525) gains three routes, in
+`site/worker/`:
+
+- `POST /api/share` takes a scene's JSON, checks it (`main.glsl` required,
+  scene file names only, at most 16 files and 256 kB), and writes it once to
+  the R2 bucket `strobe-scenes` as `scenes/<id>.json`, where `<id>` is the
+  first 10 characters of the SHA-256 of its canonical form (files in name
+  order) in a base32 alphabet without 0, 1, o or l. The same scene always
+  gets the same id, so sharing twice stores nothing new. If the 10-character
+  name ever holds other content (its full hash is in the object's metadata),
+  the scene takes 16 characters instead. Ten shares a minute per visitor
+  (Workers rate limiting).
+- `GET /api/scene/<id>` answers the stored JSON, cached for a year as
+  immutable: a name is its content.
+- `GET /s/<id>` serves the `/play` page, which reads the id from the address
+  and loads the scene. The link is `strobe.lnorton89.workers.dev/s/<id>`.
+
+Objects are never changed or deleted by the site: no accounts, no tables, no
+schema. Taking down a reported scene is deleting its object
+(`site/README.md`). Share falls back to the fragment link when the upload
+fails (`next dev`, a plain static host, the rate limit), so the page still
+works anywhere; old fragment links, autosave and zip export are unchanged.
+`wrangler.jsonc` runs the script first only for `/api/*` and `/s/*`; every
+other request is a static file. The deploy creates the bucket on its first
+run; the token needs Workers R2 Storage Edit.
+
+**Test.** `tests/unit/scene-store.test.ts` (what is refused, names
+independent of file order, one object per scene, the collision path, the
+path reader). Live on 2026-10-30: a share returned `/s/ugcu7a5g3u` and the
+same scene with its keys reordered the same id; the JSON read back;
+`/s/<id>` opened the scene in `/play` and compiled it; a bad file name was
+refused (400), an unknown id 404 and a GET on the share route 405; Share in
+the page stored `11-script-orbits` and moved the address to `/s/ep23ughn7z`.
+
+**Would reopen:** abuse beyond what a takedown by hand can handle (then a
+challenge such as Turnstile on Share), or wanting to edit or delete a shared
+scene by its author (then it needs an owner, which this deliberately has
+none of).
