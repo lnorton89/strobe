@@ -239,6 +239,7 @@ and `strobe-diag` depend on no other Strobe crate. `strobe-bench`
 | [`strobe-diag`](crates/strobe-diag/README.md) | Logging, the session context, structured failures, the panic hook and out-of-process crash capture with minidumps. |
 | [`strobe-remote`](crates/strobe-remote/README.md) | LAN control from phones and other Strobe desktops: typed protocol, bounded app bridge, scoped pairing and revocation, phone controller page and optional full desktop UI streaming (trusted networks only). |
 | [`strobe-projector`](crates/strobe-projector/README.md) | Projector power for the show PC: PJLink with a Panasonic NTCONTROL fallback, never a command mid-transition, a token-protected web page for a phone, Settings > Projectors in the app, and `pj` as the CLI and headless service. |
+| [`strobe-web`](crates/strobe-web/README.md) | The website's `/play` sandbox engine: the scene player on a browser's WebGL2 canvas and the audio DSP, compiled to wasm. |
 | [`strobe-bench`](crates/strobe-bench/README.md) | Renders every scene in `scenes/`, times it, and writes frames, a contact sheet and `results.md`. |
 | [`strobe-conventions`](crates/strobe-conventions/README.md) | The house rules as tests: file headers, the `unsafe` boundary, the toolchain pin. |
 | [`xtask`](crates/xtask/README.md) | `cargo xtask ci`, `changelog`, `bench`, `corpus`, `symbolicate`, `brand`. |

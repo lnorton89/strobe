@@ -63,6 +63,7 @@ export type IconName =
   | "download"
   | "guide"
   | "scenes"
+  | "play"
   | "compatibility"
   | "architecture"
   | "roadmap";
@@ -86,6 +87,12 @@ export const NAV: readonly NavItem[] = [
     label: "Scenes",
     blurb: "The original scene library that ships with Strobe.",
     icon: "scenes",
+  },
+  {
+    href: "/play/",
+    label: "Play",
+    blurb: "Write and run Strobe scenes in the browser.",
+    icon: "play",
   },
   {
     href: "/compatibility/",
@@ -113,6 +120,7 @@ export const EXPORTED_ROUTES = [
   "/download/",
   "/guide/",
   "/scenes/",
+  "/play/",
   "/compatibility/",
   "/architecture/",
   "/roadmap/",
