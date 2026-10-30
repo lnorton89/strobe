@@ -3,7 +3,8 @@ import NavLinks from "@/components/NavLinks";
 import MobileMenu from "@/components/MobileMenu";
 import SiteHeaderLogo from "@/components/SiteHeaderLogo";
 import ThemeToggle from "@/components/ThemeToggle";
-import { REPO_URL, VERSION } from "@/lib/site";
+import { latestRelease, releaseLabel } from "@/lib/release";
+import { REPO_URL } from "@/lib/site";
 
 /*
  * Mark and wordmark, uppercase nav, and the version chip pinned to the right.
@@ -11,7 +12,8 @@ import { REPO_URL, VERSION } from "@/lib/site";
  * mark's own gradient and the cyan underline on the current section (guide
  * section 6: cyan for active selection, not for every clickable element).
  */
-export default function SiteHeader() {
+export default async function SiteHeader() {
+  const release = await latestRelease();
   return (
     <header className="border-hairline bg-ground/95 sticky top-0 z-50 border-b backdrop-blur-sm">
       <a
@@ -29,9 +31,14 @@ export default function SiteHeader() {
         </nav>
 
         <div className="ml-auto flex items-center gap-3">
-          <span className="border-hairline text-label hidden border px-3 py-1.5 font-mono text-xs md:inline-block">
-            v{VERSION}
-          </span>
+          <a
+            href={release.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="border-hairline text-label hover:text-text hover:border-hairline-strong hidden border px-3 py-1.5 font-mono text-xs md:inline-block"
+          >
+            {releaseLabel(release)}
+          </a>
           <a
             href={REPO_URL}
             target="_blank"
