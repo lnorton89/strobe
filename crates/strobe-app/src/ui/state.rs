@@ -268,6 +268,8 @@ pub struct UiState {
     pub browser_tag_draft: Option<super::tags::TagDraft>,
     /// The Inspector's media path field while it is open (D217). Not saved.
     pub media_draft: Option<String>,
+    /// The Inspector's camera list while it is open (D528). Not saved.
+    pub cameras: Option<crate::camera::Listing>,
     /// The generated-controls review's edits, one per proposed control
     /// (D219). Not saved.
     pub generate_review: Vec<crate::generate::Review>,
@@ -374,6 +376,7 @@ impl UiState {
             import_tag_draft: None,
             browser_tag_draft: None,
             media_draft: None,
+            cameras: None,
             generate_review: Vec::new(),
             macro_keys_held: Vec::new(),
             hotkeys: super::keys::HotkeyEditor::default(),

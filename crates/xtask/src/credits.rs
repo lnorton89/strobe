@@ -135,6 +135,12 @@ fn shipped() -> Result<Vec<Package>> {
         .iter()
         .filter_map(|package| Some((package["id"].as_str()?, package)))
         .collect();
+    let members: BTreeSet<&str> = metadata["workspace_members"]
+        .as_array()
+        .context("`cargo metadata` listed no workspace members")?
+        .iter()
+        .filter_map(Value::as_str)
+        .collect();
     let nodes: BTreeMap<&str, &Value> = metadata["resolve"]["nodes"]
         .as_array()
         .context("`cargo metadata` resolved nothing")?
@@ -173,8 +179,10 @@ fn shipped() -> Result<Vec<Package>> {
         let Some(package) = packages.get(id) else {
             continue;
         };
-        // The workspace's own crates have no source; they are Strobe.
-        if package["source"].is_null() {
+        // The workspace's own crates are Strobe. A crate vendored under
+        // `vendor/` (D529) has no source either, but it is someone else's
+        // and is credited like any other.
+        if members.contains(id) {
             continue;
         }
         let text = |key: &str| package[key].as_str().unwrap_or_default().trim().to_owned();

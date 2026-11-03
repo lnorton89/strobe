@@ -38,6 +38,7 @@ which backend proved a claim.
 | Scenes | Seventeen original scenes: ten over five GPU-load tiers, one scripted, one circuit-board animation (lnorton89/strobe#11), and five audio-reactive show pieces (D276-D279, D439) | llvmpipe, the T480, TORNADO, the RX 580 and the venue mini-PC |
 | `strobe-remote` | The opt-in LAN remote (D250-D254): typed protocol, bounded bridge, listener, phone page; pairing is an approval at the host with no code, for phones by name and for desktops (D468, D469), and each paired device is listed by that name with its kind, address, paired and last-seen times (D500); Strobes find each other on UDP 47813 (D468); full desktop control (D275) and venue mode with a trust file (D288, D294) | Socket tests in `tests/server.rs`; the phone page in a browser against a local host; two Strobes finding and approving each other on TORNADO; venue mode on loopback on the mini-PC, **not yet across two machines, and no real phone yet** (L-07) |
 | `strobe-projector` | Projector power (D502): PJLink Class 1 with the Panasonic NTCONTROL fallback, the safe power sequence (no command mid-transition, ERR3 and refusal retries, `--wait` through the lamp strike), discovery and DHCP helpers, the token-protected web page on its own HTTP subset bound to the Tailscale or Wi-Fi address, `pj` and the headless service; Settings > Projectors in the app | Fake PJLink and NTCONTROL projectors on loopback (`tests/fake_projector.rs`), the API over sockets, the Settings page headless; the Python tool it replaces was verified on the PT-DZ6700 and VPL-PHZ10; the Rust build on both units at the venue (Task M30), with the reboot check and Settings > Projectors there still to run (L-09) |
+| `strobe-capture` | Webcams behind `syn_Media` (D528): Media Foundation listing and open through nokhwa (its frame leak patched, D529), a capture thread per camera with a 5 s watchdog and reconnect by name, YUY2/NV12/MJPEG to RGBA; in the app a camera is the media choice `camera:<name>` (Inspector > Media > Camera, `--media`, cues, presets), `syn_MediaType` 3, one reused texture, black and said once when it fails; `strobe --list-cameras` | A fake camera on every OS; headless GL in both dialects (`crates/strobe-gfx/tests/live.rs`); the Media Foundation listing on the AMD desktop, which has no camera. **No real camera yet** (M-04's checklist) |
 
 ### In flight
 
@@ -428,9 +429,15 @@ Each item names its acceptance test. Evidence is in [STATUS_AUDIT.md](STATUS_AUD
    key or `--media`), decoded off the frame thread and uploaded once, with
    `syn_MediaType` 1 while it shows. Verified on llvmpipe in both dialects
    (`crates/strobe-gfx/tests/assets.rs`) and under Xvfb. *Left:*
-   - **video and webcam input**, deliberately later: they need a decoder or
-     capture dependency the engine does not carry (nothing heavy should be
-     added for them);
+   - **webcam input** *built on Windows, 2026-11-03 (D528-D530):* a camera
+     is the media choice `camera:<name>`, captured by `strobe-capture`
+     (nokhwa on Media Foundation, +87 KiB in the spike), one upload a frame
+     into one reused texture, `syn_MediaType` 3, black and said once when it
+     fails, back by itself. *Left:* the camera checklist in
+     [research/m04-webcam.md](research/m04-webcam.md) (no camera has opened
+     it yet), the Media Overlay (with C-01), Linux and macOS capture;
+   - **video input**, deliberately later: it needs a decoder decision of its
+     own (nothing heavy should be added for it);
    - ~~checking the `MEDIA` / `CUBEMAPS` / `syn_MediaType` shapes against
      SSF's docs~~ (done in TORNADO T21, Q22; chosen media follows the slot's
      settings, D238); ~~a media picker in the UI~~ and ~~media per playlist
@@ -583,14 +590,14 @@ never per frame.
 | Phase | Scope | State |
 |---|---|---|
 | 0 | Workspace, conventions, CI, GL contexts | Done. Tagged and published as v0.1.0 on 2026-10-14 (D270). |
-| 1 | Renderer, SSF, controls, output window | Done, with the Perform-first UI at stage 1 (D130-D138). Images, cube maps and `syn_Media` stills and sequences work (D185, D186); video and webcam do not. |
+| 1 | Renderer, SSF, controls, output window | Done, with the Perform-first UI at stage 1 (D130-D138). Images, cube maps and `syn_Media` stills and sequences work (D185, D186); a webcam is built on Windows and waits on a camera (D528); video does not. |
 | 2 | JavaScript API | Integrated (D62). `meta/` writes land in a meta bank (D160) that the output post stage and audio gains read (D180, D184); `textureFinalPass` is an asynchronous readback (D162); late uniforms are refused (D161). |
 | 3 | Audio | Integrated (D61). The bench still uses the synthetic stand-in. |
 | 4 | Shadertoy import | The converter (D90-D95), acquisition (REST client, texture downloader, localhost listener), the Import panel, file drop and the userscript (D110-D117) are built, auto-generated controls with their review in the app (D123-D126, D202, D219), drops routed by kind (D218) and a URL on a playlist cue (D229). batch import and a watched folder (D235, D240). Open: live-site verification (Q19), a real OS drop by a person. |
 | 5 | Playlists | The pure core (D73-D77), the app integration (D150-D158), cue editing with inheritance shown (D213), media per cue (D217), drag, disable, multi-select, URL import and comment-keeping save (D224, D229-D231), and audio-event advance (D226, D237) are built. Verified on the T480 (Tasks 14, 26). Open: hearing the downbeat estimate (D233) and the audio events on real music. |
 | 6 | Presets, MIDI, OSC, hotkeys | Built (D170-D179): `strobe-io`, presets and fav slots, the MAP pane, macros stage 2, hotkeys, a hotkey editor (D208), OSC feedback (D209), macro reach and colour (D210), the preset media channel (D223), and a glide and a key per macro (D227, D228). Open: a controller on the T480, MIDI output. |
 | 7b | LAN remote / PWA | LAN web remote v1 built (D232, D236, D250-D254): listener, pairing, tokens, revocation, abuse limits, the controller page, the app integration with a kill switch, and the user guide's section. Tested over loopback sockets only. Next: real phones over Wi-Fi, the Windows firewall prompt, the T480 soak; the installed web app (D517) on real phones through the HTTPS proxy. See [REMOTE_CONTROL_PWA_RESEARCH.md](REMOTE_CONTROL_PWA_RESEARCH.md). |
-| 7 | NDI, media input, song-change transitions | Media stills and image sequences (D186), chosen in the Inspector, per cue and per preset (D217, D223), bounded by shrinking (D225); breakdown and drop detection (D226) and song changes (D237) feed playlists. Video, webcam and NDI are open. `HARD`/`SMOOTH_TRANSITIONS` change on a song change or the `new_song` command (D489). |
+| 7 | NDI, media input, song-change transitions | Media stills and image sequences (D186), chosen in the Inspector, per cue and per preset (D217, D223), bounded by shrinking (D225); breakdown and drop detection (D226) and song changes (D237) feed playlists. A webcam behind `syn_Media` is built on Windows (D528), not yet seen with a camera; video and NDI are open. `HARD`/`SMOOTH_TRANSITIONS` change on a song change or the `new_song` command (D489). |
 
 ## Known gaps in what exists
 
@@ -601,8 +608,10 @@ never per frame.
 - The bench feeds `syn_Spectrum` and `syn_LevelTrail` from the synthetic
   track (D496), and does not run scripts. `11-script-orbits` drives controls
   instead (D62).
-- `syn_Media` shows a still or an image sequence only (D186); **video and
-  webcam are later** and read as no media. Cube maps load (D185). The
+- `syn_Media` shows a still, an image sequence (D186) or, on Windows, a
+  webcam (D528), which **no camera has opened yet** (the M-04 checklist);
+  **video is later** and reads as no media. A camera shows only in scenes
+  that read `syn_Media` until the Media Overlay (C-01). Cube maps load (D185). The
   `MEDIA` and `CUBEMAPS` shapes and `syn_MediaType`'s values are checked
   against SSF's documentation (TORNADO T21, Q22, D238); cube orientation is
   not documented there. The bench has no media or cube-map scene.

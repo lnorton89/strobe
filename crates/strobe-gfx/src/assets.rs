@@ -82,6 +82,10 @@ pub struct AssetProblem {
     pub path: String,
     /// What was wrong.
     pub message: String,
+    /// What the person is told happens and what to do, when the source
+    /// knows better than the host's default (a camera names the likely
+    /// cause, D528).
+    pub action: Option<String>,
 }
 
 /// Six decoded cube faces.

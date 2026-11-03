@@ -104,10 +104,13 @@ pub fn script_load(name: &str, error: &ScriptError) -> Failure {
 /// `syn_Media` picture. The scene keeps playing, and the person is told
 /// what it is playing with instead.
 pub fn asset_problem(scene: &str, dir: &Path, problem: &AssetProblem) -> Failure {
-    let action = if problem.asset == "syn_Media" {
-        "the scene runs without a media picture (syn_Media is black)"
-    } else {
-        "the scene runs with a black cube map"
+    // A camera says what most likely went wrong and what to do (D528).
+    let action = match &problem.action {
+        Some(action) => action.as_str(),
+        None if problem.asset == "syn_Media" => {
+            "the scene runs without a media picture (syn_Media is black)"
+        }
+        None => "the scene runs with a black cube map",
     };
     Failure::new(Subsystem::Io, "asset")
         .scene(scene)
@@ -291,6 +294,7 @@ mod tests {
             asset: "env".to_string(),
             path: "sky/px.png, sky/nx.png".to_string(),
             message: "scenes/x/sky/px.png: No such file or directory".to_string(),
+            action: None,
         };
         let text = asset_problem("x", Path::new("scenes/x"), &problem).to_string();
         for needle in [
@@ -309,6 +313,18 @@ mod tests {
         };
         let text = asset_problem("x", Path::new("scenes/x"), &media).to_string();
         assert!(text.contains("syn_Media is black"), "media action:\n{text}");
+        // A camera's own action, naming the likely cause, wins (D528).
+        let camera = AssetProblem {
+            path: "camera:USB Cam".to_string(),
+            message: "camera \"USB Cam\" in use: busy".to_string(),
+            action: Some(strobe_capture::Cause::Busy.action().to_string()),
+            ..media
+        };
+        let text = asset_problem("x", Path::new("scenes/x"), &camera).to_string();
+        assert!(
+            text.contains("another app") && text.contains("camera:USB Cam"),
+            "camera action:\n{text}"
+        );
     }
 
     #[test]
