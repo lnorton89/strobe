@@ -151,8 +151,14 @@ fn an_edit_keeps_the_values_of_controls_it_did_not_change() -> Result<()> {
             Vec::new(),
         )
         .map_err(|e| anyhow!(e))?;
+    // The value is an f32 widened to f64, so it reads back as 0.8999999761…
+    let parsed: serde_json::Value = serde_json::from_str(&controls)?;
+    let level = parsed
+        .as_array()
+        .and_then(|all| all.iter().find(|c| c["NAME"] == "level"))
+        .and_then(|c| c["VALUE"][0].as_f64());
     assert!(
-        controls.contains("\"VALUE\":[0.9"),
+        level.is_some_and(|v| (v - 0.9).abs() < 1e-6),
         "the value survived the edit: {controls}"
     );
     Ok(())
