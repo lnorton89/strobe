@@ -21,7 +21,7 @@ The release zip carries these next to the program. Their notices are in `LICENSE
 
 ## Crates
 
-Every crate compiled into `strobe.exe` (`strobe-app` for `x86_64-pc-windows-msvc`), 248 in all, with the licence its authors published it under. The release zip's `THIRD-PARTY-NOTICES.txt` has each one's version and full licence text.
+Every crate compiled into `strobe.exe` (`strobe-app` for `x86_64-pc-windows-msvc`), 257 in all, with the licence its authors published it under. The release zip's `THIRD-PARTY-NOTICES.txt` has each one's version and full licence text.
 
 | Crate | Licence | Source |
 |---|---|---|
@@ -92,9 +92,12 @@ Every crate compiled into `strobe.exe` (`strobe-app` for `x86_64-pc-windows-msvc
 | fdeflate | MIT OR Apache-2.0 | https://github.com/image-rs/fdeflate |
 | fearless_simd | Apache-2.0 OR MIT | https://github.com/linebender/fearless_simd |
 | flate2 | MIT OR Apache-2.0 | https://github.com/rust-lang/flate2-rs |
+| flume | Apache-2.0 OR MIT | https://github.com/zesterer/flume |
 | foldhash | Zlib | https://github.com/orlp/foldhash |
 | font-types | MIT OR Apache-2.0 | https://github.com/googlefonts/fontations |
 | form_urlencoded | MIT OR Apache-2.0 | https://github.com/servo/rust-url |
+| futures-core | MIT OR Apache-2.0 | https://github.com/rust-lang/futures-rs |
+| futures-sink | MIT OR Apache-2.0 | https://github.com/rust-lang/futures-rs |
 | getrandom | MIT OR Apache-2.0 | https://github.com/rust-random/getrandom |
 | glifo | Apache-2.0 OR MIT | https://github.com/linebender/vello |
 | glow | MIT OR Apache-2.0 OR Zlib | https://github.com/grovesNL/glow |
@@ -142,7 +145,11 @@ Every crate compiled into `strobe.exe` (`strobe-app` for `x86_64-pc-windows-msvc
 | minimal-lexical | MIT OR Apache-2.0 | https://github.com/Alexhuszagh/minimal-lexical |
 | miniz_oxide | MIT OR Zlib OR Apache-2.0 | https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide |
 | moxcms | BSD-3-Clause OR Apache-2.0 | https://github.com/awxkee/moxcms |
+| nanorand | Zlib | https://github.com/Absolucy/nanorand-rs |
 | nohash-hasher | Apache-2.0 OR MIT | https://github.com/paritytech/nohash-hasher |
+| nokhwa | Apache-2.0 | https://github.com/l1npengtul/nokhwa |
+| nokhwa-bindings-windows | Apache-2.0 | https://github.com/l1npengtul/nokhwa |
+| nokhwa-core | Apache-2.0 | https://github.com/l1npengtul/nokhwa |
 | nom | MIT | https://github.com/Geal/nom |
 | num-complex | MIT OR Apache-2.0 | https://github.com/rust-num/num-complex |
 | num-conv | MIT OR Apache-2.0 | https://github.com/jhpratt/num-conv |
@@ -154,6 +161,7 @@ Every crate compiled into `strobe.exe` (`strobe-app` for `x86_64-pc-windows-msvc
 | option-ext | MPL-2.0 | https://github.com/soc/option-ext |
 | parking_lot | MIT OR Apache-2.0 | https://github.com/Amanieu/parking_lot |
 | parking_lot_core | MIT OR Apache-2.0 | https://github.com/Amanieu/parking_lot |
+| paste | MIT OR Apache-2.0 | https://github.com/dtolnay/paste |
 | peniko | Apache-2.0 OR MIT | https://github.com/linebender/peniko |
 | percent-encoding | MIT OR Apache-2.0 | https://github.com/servo/rust-url |
 | pin-project-lite | Apache-2.0 OR MIT | https://github.com/taiki-e/pin-project-lite |
@@ -202,6 +210,7 @@ Every crate compiled into `strobe.exe` (`strobe-app` for `x86_64-pc-windows-msvc
 | smallvec | MIT OR Apache-2.0 | https://github.com/servo/rust-smallvec |
 | smart-default | MIT | https://github.com/idanarye/rust-smart-default |
 | smol_str | MIT OR Apache-2.0 | https://github.com/rust-analyzer/smol_str |
+| spin | MIT | https://github.com/mvdnes/spin-rs |
 | stable_deref_trait | MIT OR Apache-2.0 | https://github.com/storyyeller/stable_deref_trait |
 | strength_reduce | MIT OR Apache-2.0 | http://github.com/ejmahler/strength_reduce |
 | strsim | MIT | https://github.com/rapidfuzz/strsim-rs |

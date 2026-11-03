@@ -3223,19 +3223,28 @@ impl Running {
     /// Shows `path` behind `syn_Media` in the live scene and in every one
     /// loaded after it, by hand or by a cue that names no media of its own;
     /// `None` gives each scene its own back (D217). Not saved: the choice
-    /// lasts the run, like `--media`.
+    /// lasts the run, like `--media`. A camera (`camera:<name>`, D528) is
+    /// taken as it is: it may be plugged in later.
     fn set_media(&mut self, path: Option<std::path::PathBuf>) {
-        let path = match path.map(std::path::absolute).transpose() {
-            Ok(path) => path,
-            Err(error) => {
-                self.say(
-                    Tone::Warning,
-                    format!("That media path cannot be used: {error}"),
-                );
-                return;
-            }
+        let camera = path
+            .as_deref()
+            .and_then(strobe_scene::camera::name_of)
+            .map(strobe_scene::camera::path_for);
+        let path = match camera {
+            Some(camera) => Some(camera),
+            None => match path.map(std::path::absolute).transpose() {
+                Ok(path) => path,
+                Err(error) => {
+                    self.say(
+                        Tone::Warning,
+                        format!("That media path cannot be used: {error}"),
+                    );
+                    return;
+                }
+            },
         };
         if let Some(path) = &path
+            && strobe_scene::camera::name_of(path).is_none()
             && !path.exists()
         {
             self.say(Tone::Warning, format!("{} was not found.", path.display()));
