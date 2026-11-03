@@ -1,0 +1,30 @@
+// The website on Cloudflare (D525, D527): the static export in out/ as
+// assets, at strobe.<account subdomain>.workers.dev, and a small Worker
+// script for /play's short share links. Cloudflare serves every file itself,
+// reading public/_headers and answering a missing path with out/404.html;
+// the script runs first only for /api/* and /s/*.
+//
+// No account_id here: scripts/deploy-cloudflare.mjs passes the account and
+// its token to wrangler from a file outside the repository, so this config
+// works for whichever account deploys it and the machine's wrangler login is
+// never involved.
+{
+  "name": "strobe",
+  "main": "./worker/index.ts",
+  "compatibility_date": "2026-10-23",
+  "workers_dev": true,
+  "preview_urls": true,
+  "assets": {
+    "directory": "./out",
+    "binding": "ASSETS",
+    "html_handling": "force-trailing-slash",
+    "not_found_handling": "404-page",
+    "run_worker_first": ["/api/*", "/s/*"],
+  },
+  // Shared scenes, one immutable JSON object per scene, named by its hash.
+  "r2_buckets": [{ "binding": "SCENES", "bucket_name": "strobe-scenes" }],
+  // Shares per visitor: ten a minute is far above anyone sharing by hand.
+  "ratelimits": [
+    { "name": "SHARE_LIMIT", "namespace_id": "1001", "simple": { "limit": 10, "period": 60 } },
+  ],
+}
