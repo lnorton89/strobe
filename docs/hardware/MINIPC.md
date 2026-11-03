@@ -1127,7 +1127,118 @@ Settings > Projectors itself was not opened on this run.
 **Seen:** every `pj` command first prints the three-line `=== Strobe session
 started ...` header on stdout.
 
+## Desktop remote control of the show, and what it cost (2026-10-27, Task M31, D508)
+
+### The show now starts with the LAN remote on
+
+The show runs under the owner's "Strobe Show" logon task (JAJA, interactive, session 1). It runs
+`jaja\start-show.ps1` inside the checkout. `jaja\` and `scenes\jaja-test-card.synScene` are
+listed in `.git\info\exclude`, so they're local to this PC and never committed. On every start
+the launcher fast-forwards a clean checkout to master, builds `release-fast`, checks that the 15
+scenes `jaja-4h.toml` names are present, and runs Strobe, relaunching it if it exits. The old
+`strobe-test` copies and the `StrobeShow` task are gone.
+
+At the owner's request, the launcher's Strobe arguments gained
+`--remote --allow-desktop-control`, so the show can be controlled from LIGHTNING (the owner's desktop at JaJa, 10.1.10.124, which the logs still call DESKTOP-30KSOCM) without a
+visit to the mini PC. Before:
+
+```
+'--output-monitor', '1', '--fullscreen', '--audio', 'auto')
+```
+
+After:
+
+```
+'--output-monitor', '1', '--fullscreen', '--audio', 'auto',
+'--remote', '--allow-desktop-control')
+```
+
+The switch applies only to the run the flags start. Strobe never saves it and never starts
+the remote by itself (D254). It doesn't approve anyone: a new device, or one whose token has
+lapsed, still has to be approved on the mini PC's own screen (D288).
+
+The owner restarted the show at 23:22 (this agent's permissions refused to start a Strobe
+that listens on the LAN with desktop control on). Session log
+`strobe-20261028-062249-10268.log`, build 063b25b:
+
+```
+    0.686s INFO  [main] strobe_remote::server: remote: listening on 10.1.10.155:47812
+    0.686s INFO  [main] strobe_remote::discovery: remote: answering discovery on 0.0.0.0:47813
+    0.687s INFO  [main] strobe_app::lan: remote: full desktop access is on (--allow-desktop-control)
+   11.148s INFO  [strobe-remote-conn] strobe_remote::server::session: remote: 10.1.10.124:60153 sent a token that is not valid
+   16.415s INFO  [strobe-remote-conn] strobe_remote::server::session: remote: 10.1.10.124:60154 (DESKTOP-30KSOCM-e60bd08c) asked to pair for desktop control; waiting for approval
+```
+
+**An unexpected restart at 23:24.** Two minutes later the PC restarted without a clean
+shutdown: event 6008 ("the previous system shutdown ... was unexpected"), no 1074, no bugcheck
+or minidump, and no Strobe crash report. Strobe's log just stops at 69.8 s (23:23:59). That
+looks like a power cut or a hard reset, not a crash. The autostart brought everything back:
+- the "ProjectorControl API" task started at 23:25:02, 39 s after boot, served status for both
+  units, and listened on 10.1.10.155:8780 (L-09: back after a reboot; autologin was on);
+- the show started at 23:25:53 with the remote listening again.
+
+That boot's launcher found this file uncommitted on this branch ("uncommitted changes in
+tracked files, not updating") and correctly built the checkout as it was
+(`063b25b+dirty`, same code) instead of updating. **Agents working in this checkout must leave
+it clean and on master**, or the show's boot update is skipped.
+
+**Desktop control needs re-approval after every restart, by design; ordinary pairings don't.**
+LIGHTNING (10.1.10.124) holds two pairings with this host:
+
+| Run (pid) | `c6b61a02d`, "Windows at 10.1.10.124" (saved pairing) | Full desktop control from `DESKTOP-30KSOCM-e60bd08c` |
+|---|---|---|
+| 11004 | reconnects every ~63 s | approved at 2983 s, paired as `c4a7ccfe8` |
+| 10268 (restart, 23:22) | reconnected at 2.8 s, no approval | the old token refused at 11.1 s ("a token that is not valid"), approved again at 25.8 s as `c96250f08` |
+| 3384 (after the reboot, 23:25) | reconnected at 4.8 s, no approval | not back (none in the first 155 s) |
+
+`remote-clients.json` holds only `c6b61a02d`. That's D251: paired clients are kept as token
+digests and survive a restart. Full desktop grants are kept in memory only and never saved
+(D275, `strobe_remote::clients`), and they're revoked when desktop access goes off or the host
+stops listening. So every Strobe restart, including a crash relaunch or a reboot, needs someone
+at the mini PC to approve LIGHTNING's desktop control again. The way round it is venue mode's
+`--remote-trust` file (D288).
+
+### Before the fix: desktop control cost half the frame rate (build 4657653)
+
+Read from `strobe-20261028-033649-11004.log`, the `jaja-4h` show the launcher autostarted at
+20:36. The remote came on at 2972 s, and LIGHTNING paired for desktop control at 2983 s.
+Without the remote, cues 2-12 ran at 57-58.6 fps, 0-2.3% missed refreshes, scale 1.00, with 11-22
+control redraws a minute. The same scene with and without control, `11-script-orbits`:
+
+| Minute ending | State | fps | missed | gpu ms | scale | control redraws | unpainted | swap ms |
+|---|---|---|---|---|---|---|---|---|
+| 2941 s | no remote | 58.1 | 0.0% | 5.43 | 1.00 | 15 | 12 | 51.5 |
+| 3001 s | pairing approved on the PC's screen (window visible) | 59.2 | 0.0% | 3.02 | 1.00 | 953 | 8 | 4.4 |
+| 3061 s | control held, window covered | 37.7 | 26.1% | 4.16 | 1.00 | 610 | 135 | 18.0 |
+
+With control held and the window fully covered, it settled at 285-287 control redraws a minute
+(about 4.8 Hz, D290), **every one unpainted**, at about 48 ms each, of which 43-46 ms was the
+swap. That held the show at **24.7-25.5 fps with 68-77% missed refreshes**. The GPU time did not
+rise.
+
+On `17-blacklight-carpet`, adaptive resolution lowered the scale 0.65 → 0.55 and tried 0.50,
+finding each time that it "cut too few missed refreshes". In minutes where the owner was
+interacting, part of the redraws were painted, and fps rose to 31-37.
+
+There were no `desktop capture` warnings. The only other lines were audio buffer glitches
+(10 in the first minute, then one now and then).
+
+Read: the cost lands on the app thread. A covered control window's SwapBuffers blocks about
+45 ms. At the lease's ~5 Hz that is about 14 s a minute, roughly three output vblanks lost
+per swap. The same redraws cost 7 ms when the window is visible. D508 (PR #56) skips the swap
+of a covered control frame that Windows did not paint. The show was restarted on 063b25b at
+22:04 to measure it.
+
+### After the fix (build 063b25b)
+
+The A/B, 4 minutes controlled from LIGHTNING and 4 minutes returned to local, on
+`17-blacklight-carpet`, still to be run: phase times from the owner, perf lines, and the
+Strobe CPU sampled every 5 s.
+
 ## Still to do here
+
+- M31: run the after-fix A/B on 063b25b, and check that LIGHTNING's view of the covered host
+  keeps updating (not black or stale).
 
 - D518: the projector service still runs the SYSTEM task's 2026-10-27 build,
   and nothing updates it. Once D517 and D518 are on master, run
@@ -1140,10 +1251,11 @@ started ...` header on stdout.
   the swap. Then reboot with nobody logged in and check that the page
   answers.
 
-- L-09: reboot the mini PC and check that "ProjectorControl API"
-  (`strobe-projector serve`) comes back with nobody logged in and serves
-  status. Open Strobe's Settings > Projectors once and switch a unit from
-  there.
+- L-09: the service came back after the 23:24 restart and served status
+  (M31 above), with autologin on. Still to do: reboot with nobody logged in
+  and check that "ProjectorControl API" (`strobe-projector serve`) comes back
+  and serves status, and open Strobe's Settings > Projectors once to switch a
+  unit from there.
 
 - M28 / R-01: unplug the C270 for 30 s and then for 2 min while a scene
   plays, and record the fallback, the reopen backoff and the reopen from the

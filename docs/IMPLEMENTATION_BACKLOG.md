@@ -64,7 +64,11 @@
   `lnorton89/strobe-release-dryrun` could not be deleted from here (the
   token lacks `delete_repo`), and steps 4-5 of
   [RELEASE_PLAN.md](RELEASE_PLAN.md) (clean-machine smoke test, symbolication
-  from the downloaded archive) still need the T480.
+  from the downloaded archive) still need the T480. D521 (2026-10-28) gates
+  publishing on all of `ci.yml` over the tagged commit, resolves the tag to
+  one SHA, serialises runs per tag and refuses to rebuild a published
+  release; that path has not run on a tag yet, and the next release (or a
+  mirror dry run) is its proof.
 - **Work:** create a real release tag; inspect ZIP contents and layout; verify ANGLE DLL source and license/provenance; include matching PDBs, SBOM, checksums and build attestations; test the published artifact rather than only workflow outputs.
 - **Acceptance:** reproducible release checklist completed, archive contents reviewed, checksums verified after download, attestations validate, and the release workflow is proven on an actual tag.
 
