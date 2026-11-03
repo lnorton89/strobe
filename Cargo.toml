@@ -17,8 +17,11 @@ repository = "https://github.com/lnorton89/strobe"
 [workspace.dependencies]
 strobe-scene = { path = "crates/strobe-scene" }
 strobe-ssf-lib = { path = "crates/strobe-ssf-lib" }
-strobe-gfx = { path = "crates/strobe-gfx" }
-strobe-audio = { path = "crates/strobe-audio" }
+# Without `native` (context creation) or `capture` (cpal), so the browser
+# build (strobe-web, D524) can take the renderer and the DSP alone; the
+# native crates name the feature.
+strobe-gfx = { path = "crates/strobe-gfx", default-features = false }
+strobe-audio = { path = "crates/strobe-audio", default-features = false }
 strobe-script = { path = "crates/strobe-script" }
 strobe-diag = { path = "crates/strobe-diag" }
 strobe-playlist = { path = "crates/strobe-playlist" }
@@ -102,6 +105,11 @@ glutin-winit = { version = "0.5", default-features = false, features = ["egl", "
 # title bar until the app's own (D5) lands. See D122.
 winit = { version = "0.30", default-features = false, features = ["rwh_06", "x11", "wayland", "wayland-dlopen"] }
 raw-window-handle = "0.6"
+# The browser build (strobe-web, D524): glow's WebGL2 backend takes a
+# web-sys context, so these are the versions glow 0.17 already resolves.
+wasm-bindgen = "0.2.129"
+js-sys = "0.3.106"
+web-sys = "0.3.106"
 
 egui = { version = "0.37", default-features = false, features = ["default_fonts"] }
 egui_glow = { version = "0.37", features = ["winit"] }
@@ -186,3 +194,13 @@ codegen-units = 256
 codegen-units = 256
 [profile.release-fast.package.strobe-scene]
 codegen-units = 256
+
+# The browser sandbox's engine (strobe-web, D524): `release` sized for a
+# download rather than tuned for speed, since the GPU does the per-frame
+# work and the page's first paint waits on the file. No symbols: a browser
+# has no minidump to symbolicate.
+[profile.release-web]
+inherits = "release"
+opt-level = "s"
+debug = false
+strip = true

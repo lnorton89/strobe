@@ -23,9 +23,9 @@ path = "src/corpus_main.rs"
 
 [dependencies]
 strobe-scene.workspace = true
-strobe-gfx.workspace = true
+strobe-gfx = { workspace = true, features = ["native"] }
 strobe-diag.workspace = true
-strobe-audio.workspace = true
+strobe-audio = { workspace = true, features = ["capture"] }
 strobe-script.workspace = true
 strobe-playlist.workspace = true
 strobe-io.workspace = true
