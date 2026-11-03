@@ -15,6 +15,10 @@
 //! two scenes' frames for a playlist transition, [`timing`] measures the
 //! GPU without waiting for it, and [`adaptive`] turns that into a render
 //! scale.
+//!
+//! The `native` feature (on by default) adds the context providers and the
+//! [`offscreen`] worker. Without it the crate builds for `wasm32`, where
+//! `gl::Gl::from_webgl2` wraps a browser canvas's context (D524).
 
 pub mod adaptive;
 pub mod assets;
@@ -22,6 +26,7 @@ pub mod caps;
 pub mod compositor;
 pub mod gl;
 mod media;
+#[cfg(feature = "native")]
 pub mod offscreen;
 pub mod player;
 pub mod post;
@@ -32,7 +37,9 @@ pub mod timing;
 pub use assets::{AssetProblem, MediaRequest};
 pub use caps::{Caps, FloatPrecision};
 pub use compositor::{Blend, Compositor, CompositorError};
+#[cfg(feature = "native")]
 pub use gl::context::{Api, Headless};
+#[cfg(feature = "native")]
 pub use gl::window::{Backend, GlChoice, SwapWindow, WindowError, WindowedContext, with_icons};
 pub use media::MEDIA_TYPE_IMAGE;
 pub use player::{AudioTextures, FrameInputs, Mouse, Options, PlayerError, ScenePlayer};
