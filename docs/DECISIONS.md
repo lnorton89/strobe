@@ -12953,3 +12953,70 @@ twins, which only draw on their planks.
 
 **Would reopen:** the Vega 3 dropping frames on it at the venue (then the
 twins default off), or the owner preferring the single totem.
+
+### D521: a release publishes only a green, immutable, single commit (2026-10-28)
+
+**Context.** An outside engineering audit (2026-10-28) read `release.yml`
+and found that "release from green master" was a habit, not a rule. The
+workflow checked the tag against `Cargo.toml`, built and packaged, and
+`publish` needed only `draft` and `build`: no test ran on the tagged commit,
+and no check asked whether CI had. An existing release was reused whether
+or not it was still a draft, and the upload is `gh release upload
+--clobber`, so a re-pushed tag or a manual re-run rebuilt a *published*
+release's assets under new checksums (the hazard RELEASE_PLAN.md and
+CONTRIBUTING already warned about, guarded only by "never move a tag").
+Each job checked out the tag by name, so a tag moved mid-run gave the
+draft, the build and the publish different trees. Two runs for one tag
+could race. A manual dispatch from master with `tag: v0.2.0` built the tag
+but attested provenance naming master's commit. Separately, no CI command
+ran `--locked`, and no job had a timeout (GitHub's default is six hours).
+
+**Decision.**
+- A `resolve` job turns the tag into one commit once: `git ls-remote` on
+  `refs/tags/<tag>` only (a branch of the same name cannot stand in),
+  peeled through an annotated tag. Every later job checks out that SHA.
+  The run's own commit must equal it, so a dispatch has to start from the
+  tag (`gh workflow run release.yml --ref v0.2.0 -f tag=v0.2.0`) and the
+  provenance attestation names the commit that was built; on a tag push a
+  mismatch means the tag moved.
+- `validate` calls `ci.yml` as a reusable workflow on that SHA, and
+  `publish` needs it. Reusing the workflow rather than asking the API
+  whether some earlier run was green means there is nothing stale or
+  unrelated to match against: the checks that publish waits for ran on
+  this commit, in this run. `ci.yml` takes a `ref` input for it; every
+  checkout uses it, and on any other event it is empty and changes
+  nothing. Its concurrency group is keyed by that ref, because a called
+  workflow sees the caller's `github.ref` and a dispatched release would
+  otherwise share master's group and cancel, or be cancelled by, master's
+  pushes. Called that way it saves no caches (a tag's cache serves only
+  that tag and would evict master's, D505) and skips the Windows fat-LTO
+  build, which `release.yml` runs itself.
+- `draft` resumes a draft and fails on a published release; `publish`
+  checks again right before `--clobber`, in case the draft was published
+  by hand during the build. A published release is final; a fix is the
+  next patch version.
+- One run per tag at a time (`concurrency`, queued, never cancelled).
+- Every cargo command in a workflow that resolves dependencies passes
+  `--locked` (before the alias: `cargo --locked xtask`), and every job has
+  `timeout-minutes`, well above its slowest cold run; the two Xvfb window
+  steps have their own. `strobe_conventions::actions` enforces both.
+
+**Trade-off.** A release now waits for the whole CI suite as well as the
+build. They run side by side, and the Windows CI job (about 15 minutes)
+takes roughly as long as the fat-LTO build, so the wait grows little; the
+runner minutes double. The macOS
+job blocks a release as it blocks master. `cargo xtask ci` does not pass
+`--locked`: locally a lockfile edit is normal work in progress, and the
+workflow is where a stale one must fail.
+
+**Test.** The convention tests run the new checks over both workflows and
+over synthetic ones (an unlocked command under `xvfb-run`, a job with only
+a step timeout, a reusable-workflow call). The release path itself can
+only be proven by a run: the next release, or a dry run on a throwaway tag
+in a mirror as Q12 was (RELEASE_PLAN.md step 1), should show `validate`
+gating `publish`, a dispatch from master refused in `resolve`, and a
+second run against the published release stopping in `draft`.
+
+**Would reopen:** a release blocked by a flaky job often enough that the
+gate is bypassed by hand, or GitHub adding a native "required checks on
+tag" rule that does the same job without a second CI run.
