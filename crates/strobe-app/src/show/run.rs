@@ -1076,7 +1076,8 @@ impl Show {
             None => session.startup_media(),
         };
         let chosen = match &cue.resolved.media {
-            Some(path) => Some(self.base.join(path)),
+            // A camera is the same camera wherever the playlist lives.
+            Some(path) => Some(strobe_scene::camera::resolve(&self.base, path)),
             None => media.map(Path::to_path_buf).or(preset_media),
         };
         session
