@@ -6,17 +6,24 @@ name: Release
 #   git tag -a v0.2.0 -m "strobe v0.2.0" && git push origin v0.2.0
 #
 # The release is created as a draft, the archives are attached to it, and
-# it is only published once the build has succeeded — so a failed build
-# leaves an unpublished draft rather than a half-populated public release.
-# Never move a tag that has been pushed: a second push re-runs this
-# workflow, which ends in `gh release upload --clobber`.
+# it is only published once the build *and* the full CI suite on the
+# tagged commit have succeeded — so a failed build or a red test leaves an
+# unpublished draft rather than a half-populated or untested public
+# release (D521). A published release is final: a re-run, a re-pushed tag
+# or a manual dispatch for its version stops in `draft` before anything is
+# built, and a fix is the next patch version.
+#
+# A manual run is dispatched *from the tag*, so the run's own commit (the
+# one the provenance attestation names) is the commit that is built:
+#
+#   gh workflow run release.yml --ref v0.2.0 -f tag=v0.2.0
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing tag to build a release from (e.g. v0.1.0)"
+        description: "Existing tag to build a release from (e.g. v0.1.0); run the workflow from that tag"
         required: true
 
 # Least privilege by default. The build below runs third-party code (every
@@ -25,35 +32,106 @@ on:
 permissions:
   contents: read
 
+# One run per tag at a time, queued rather than cancelled: two runs racing
+# each other's uploads onto the same draft is how a release ends up with
+# archives from one build and checksums from the other.
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # The tag is resolved to one commit here, once, and every later job
+  # checks out that SHA rather than the tag's name. A name can be moved
+  # between jobs; a SHA cannot, so what is tested, what is built and what
+  # is published are the same tree.
+  resolve:
+    name: Resolve the tag to one commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+      sha: ${{ steps.resolve.outputs.sha }}
+    steps:
+      # The run's own commit: the tag's on a tag push, and on a dispatch
+      # whatever ref the run was started from. It is compared with the
+      # tag below.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Through `env`, never interpolated into the script: the tag name is
+      # attacker-influenced text in a workflow that later holds a write
+      # token.
+      - name: Resolve the tag
+        id: resolve
+        shell: bash
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "'${TAG}' is not a release tag (vMAJOR.MINOR.PATCH)."
+            exit 1
+          fi
+          # refs/tags/ only, so a branch that happens to share the name
+          # cannot stand in for it. An annotated tag lists twice; the
+          # peeled `^{}` line is the commit it points at.
+          refs=$(git ls-remote --tags origin "refs/tags/${TAG}" "refs/tags/${TAG}^{}")
+          sha=$(printf '%s\n' "$refs" | awk -v r="refs/tags/${TAG}^{}" '$2 == r { print $1 }')
+          if [ -z "$sha" ]; then
+            sha=$(printf '%s\n' "$refs" | awk -v r="refs/tags/${TAG}" '$2 == r { print $1 }')
+          fi
+          if [ -z "$sha" ]; then
+            echo "There is no tag ${TAG} on the remote."
+            exit 1
+          fi
+          # The provenance attestation names the commit this run started
+          # from, so that has to be the commit built. On a tag push a
+          # mismatch means the tag moved after it was pushed.
+          run_sha=$(git rev-parse HEAD)
+          if [ "$run_sha" != "$sha" ]; then
+            echo "This run started from ${run_sha}, but ${TAG} is ${sha}."
+            echo "Run it from the tag: gh workflow run release.yml --ref ${TAG} -f tag=${TAG}"
+            exit 1
+          fi
+          echo "${TAG} is ${sha}."
+          {
+            echo "tag=${TAG}"
+            echo "sha=${sha}"
+          } >> "$GITHUB_OUTPUT"
+
+  # Everything ci.yml runs, on the tagged commit: formatting, clippy, the
+  # tests on Windows, Linux (with a real GLSL compiler) and macOS, the
+  # changelog, brand and credits checks, cargo-deny. A branch that was green
+  # says nothing about this exact commit; this does. It runs beside the
+  # build, and `publish` waits for both.
+  validate:
+    name: CI on the tagged commit
+    needs: resolve
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ needs.resolve.outputs.sha }}
+
   draft:
     name: Create draft release
+    needs: resolve
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     # This job and `publish` are the only ones holding a write-capable
     # token; the build below runs third-party code and needs none.
     permissions:
       contents: write
     outputs:
-      tag: ${{ steps.resolve.outputs.tag }}
+      tag: ${{ needs.resolve.outputs.tag }}
     steps:
-      # The tagged tree, not the default branch: a manual run names a tag
-      # in `inputs.tag`, and the changelog section and version checked
-      # below must come from that tag's tree.
+      # The tagged tree: the changelog section and version checked below
+      # must come from it.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.tag || github.ref_name }}
-
-      # Through `env`, never interpolated into the script: the tag name is
-      # attacker-influenced text in a workflow that holds a write token.
-      - name: Resolve tag
-        id: resolve
-        shell: bash
-        env:
-          TAG: ${{ inputs.tag || github.ref_name }}
-        run: echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          ref: ${{ needs.resolve.outputs.sha }}
 
       # A tag that disagrees with Cargo.toml would ship a binary whose
       # `--version` contradicts its release page, and cannot be fixed
@@ -62,7 +140,7 @@ jobs:
       - name: Check the tag matches the workspace version
         shell: bash
         env:
-          TAG: ${{ steps.resolve.outputs.tag }}
+          TAG: ${{ needs.resolve.outputs.tag }}
         run: |
           set -euo pipefail
           version=$(awk '/^\[workspace.package\]/{in_pkg=1; next} /^\[/{in_pkg=0} in_pkg && /^version *=/{gsub(/[" ]/, "", $0); sub(/^version=/, "", $0); print; exit}' Cargo.toml)
@@ -76,11 +154,21 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.resolve.outputs.tag }}
+          TAG: ${{ needs.resolve.outputs.tag }}
         run: |
           set -euo pipefail
+          # A draft left by a failed run is resumed. A published release is
+          # never rebuilt: its assets, checksums and attestations are what
+          # people have downloaded and verified, and `publish` would
+          # replace them.
           if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release $TAG already exists, reusing it."
+            draft=$(gh release view "$TAG" --json isDraft --jq .isDraft)
+            if [ "$draft" != "true" ]; then
+              echo "Release $TAG is already published; it is not rebuilt."
+              echo "Fix forward: cut the next patch version."
+              exit 1
+            fi
+            echo "Release $TAG is an unpublished draft; resuming it."
             exit 0
           fi
           # The notes are this release's section of CHANGELOG.md, which
@@ -104,8 +192,10 @@ jobs:
 
   build:
     name: ${{ matrix.target }}
-    needs: draft
+    needs: [resolve, draft]
     runs-on: ${{ matrix.os }}
+    # A cold fat-LTO build of the whole dependency tree, plus packaging.
+    timeout-minutes: 90
     permissions:
       contents: read
     strategy:
@@ -125,7 +215,7 @@ jobs:
       # blast radius this pins away.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.draft.outputs.tag }}
+          ref: ${{ needs.resolve.outputs.sha }}
 
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master, 2026-08
         with:
@@ -173,7 +263,7 @@ jobs:
       # here rather than committed, because it is large and its versions
       # move with every bump; THIRD_PARTY.md is the committed summary.
       - name: Third-party notices
-        run: cargo xtask credits --notices target/THIRD-PARTY-NOTICES.txt
+        run: cargo --locked xtask credits --notices target/THIRD-PARTY-NOTICES.txt
 
       - name: Package
         shell: bash
@@ -299,8 +389,12 @@ jobs:
 
   publish:
     name: Publish release
-    needs: [draft, build]
+    # `validate` is what makes "release from green" a rule rather than a
+    # habit: a red test anywhere in ci.yml, on the tagged commit, leaves
+    # the draft unpublished.
+    needs: [resolve, draft, build, validate]
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: write
       # For the provenance attestation below — the OIDC token that proves
@@ -309,6 +403,8 @@ jobs:
       attestations: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
       - name: Download archives
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -358,6 +454,15 @@ jobs:
           TAG: ${{ needs.draft.outputs.tag }}
         run: |
           set -euo pipefail
+          # Checked again here, not only in `draft`: the build takes long
+          # enough for someone to publish the draft by hand meanwhile, and
+          # `--clobber` would then replace a public release's assets. On a
+          # draft it is what lets a resumed run replace a failed one's.
+          draft=$(gh release view "$TAG" --json isDraft --jq .isDraft)
+          if [ "$draft" != "true" ]; then
+            echo "Release $TAG was published while this run built it; nothing is uploaded."
+            exit 1
+          fi
           cd dist
           gh release upload "$TAG" $(find . -type f) --clobber
           gh release edit "$TAG" --draft=false --latest
