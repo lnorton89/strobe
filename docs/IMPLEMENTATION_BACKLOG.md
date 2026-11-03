@@ -327,7 +327,7 @@
 - **Acceptance:** long sequence memory is bounded/documented; decoding stays off the frame thread; missed frames degrade gracefully.
 
 ### M-04 Video and webcam input
-- **Status:** Deferred research; not a v1 blocker.
+- **Status:** Webcam proposed, waiting for a decision; not a v1 blocker. [research/m04-webcam.md](research/m04-webcam.md) (spike on the AMD desktop, 2026-10-28, with synthetic pictures because that machine has no camera): nokhwa 0.10.11 on Media Foundation with default features off adds 8 crates; a picture costs 1.75 ms of capture-thread CPU at 720p YUY2 (MJPEG 5.6 ms); the paced upload call into one reused texture costs 0.2 ms at 720p, native and ANGLE; Strobe adds at most one render frame of latency. Blocking before it lands: cargo-deny's `paste` advisory, nokhwa's open per-frame `IMFSample` leak (upstream #251), a watchdog for a read that never returns, and the camera checklist (real latency, unplug and replug, formats, the T480). The Media Overlay (C-01's media group) is what makes a camera show in scenes that don't read `syn_Media`. Video files are not covered.
 - **Work:** compare lightweight maintained decoder/capture options, license implications, hardware decode availability, Windows device lifecycle and upload path. Avoid introducing a heavy dependency without measurements.
 - **Acceptance:** proposal includes binary size, supported formats, device removal/reconnect, latency, GPU upload cost and license review; implementation starts only after a decision.
 
