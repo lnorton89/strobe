@@ -39,7 +39,7 @@
 //!   and 30 Hz is plenty for sliders. While the fullscreen output covers
 //!   it, it redraws at 2 Hz instead (`update_covered`, TORNADO T10), and a
 //!   frame Windows did not paint is not swapped (`presents_control`, D508).
-//!   While it shows another Strobe's window (the desktop viewer) it redraws
+//!   While it shows another Strobe's window (the  viewer) it redraws
 //!   for a new image, a change of stage or the person's input, and every
 //!   [`VIEWER_PERIOD`] otherwise (D302). The frame normally runs on the control window's `RedrawRequested`,
 //!   which winit delivers on Windows only from a `WM_PAINT`. Windows makes
@@ -799,6 +799,8 @@ struct Running {
     remote: Remote,
     /// The LAN remote: off until asked for (D250 to D254).
     lan: Lan,
+    /// The controls as data for a controlling Strobe (D513).
+    controls_sync: crate::remote_controls::Publisher,
     /// Projector power and its web page (D502).
     projectors: crate::projectors::Projectors,
     desktop_controller: crate::desktop::Controller,
@@ -995,6 +997,7 @@ impl Running {
                 now,
             ),
             remote_out: Vec::new(),
+            controls_sync: crate::remote_controls::Publisher::default(),
             lan: Lan::new(
                 data_dir.clone(),
                 cli.remote_bind,
@@ -4167,7 +4170,6 @@ impl Running {
                 Action::RefreshProjectors => self.projectors.refresh(),
                 Action::SaveProjectors => self.projectors.save_form(),
                 Action::RevertProjectors => self.projectors.revert_form(),
-                Action::NewProjectorToken => self.projectors.new_token(),
                 Action::ConnectDesktop => {
                     self.lan.set_desktop(false);
                     self.desktop_controller.connect();
@@ -4326,6 +4328,20 @@ impl Running {
                 (None, None) => Answer::Rejected("not available here".to_string()),
             };
             incoming.answer(answer);
+        }
+        // The controls as data for the desktop holding the lease (D513),
+        // every frame: its edits first, then what it should now show.
+        if let Some(desktop) = self.lan.desktop() {
+            let live = self
+                .stack
+                .session
+                .as_mut()
+                .map(|session| crate::remote_controls::Live {
+                    title: &session.title,
+                    scene: &mut session.controls,
+                    output: &mut session.meta,
+                });
+            self.controls_sync.tick(&desktop, live, now);
         }
         if !self.lan.publish_due(now) {
             return;
@@ -5033,7 +5049,13 @@ impl Running {
 
         self.advance_preview(now);
         let composited = self.stack.show.as_ref().is_some_and(Show::composited);
-        let preview = if self.posted {
+        // Another Strobe controls this one (D514): the preview, the one part
+        // of the window that changes every frame, would be most of every
+        // picture sent and is not wanted there; the output shows the show.
+        let preview_paused = self.lan.desktop_controlled();
+        let preview = if preview_paused {
+            None
+        } else if self.posted {
             // The meta controls change the picture, so the preview shows
             // what the output shows.
             let texture = self.stack.post.output_texture();
@@ -5173,6 +5195,12 @@ impl Running {
                 .ui
                 .apply_theme(self.ui_state.palette(), self.ui_state.density());
         }
+        // A controller drawing the controls itself is told where this pass
+        // put their rows, to draw its own copies over them (D515).
+        let note_rows = self
+            .lan
+            .desktop()
+            .is_some_and(|desktop| desktop.controls_wanted());
         let mut model = Model {
             ui: &mut self.ui_state,
             library: &self.library,
@@ -5186,6 +5214,7 @@ impl Running {
             media,
             meta,
             preview,
+            preview_paused,
             scene_preview: scene_preview_image.and_then(|(index, image)| {
                 name_of(Some(index)).map(|name| ScenePreview { index, name, image })
             }),
@@ -5289,11 +5318,18 @@ impl Running {
         let window = self.stack.control.window();
         let shell_state = &mut self.shell;
         let ui_started = Instant::now();
+        let mut drawn = Vec::new();
+        let mut screen = egui::Rect::NOTHING;
         self.stack.ui.run(window, |ui| {
+            crate::remote_controls::note_rows(ui.ctx(), note_rows);
             if model.lan.controller.active() {
                 model.lan.controller.show(ui, &mut actions);
             } else {
                 shell::show(ui, shell_state, &mut model, &mut actions);
+            }
+            if note_rows {
+                drawn = crate::remote_controls::drawn_rows(ui.ctx());
+                screen = ui.ctx().content_rect();
             }
         });
         let ran = ui_started.elapsed();
@@ -5306,12 +5342,20 @@ impl Running {
         self.stack.ui.paint(window, crate::ui::theme::clear_color());
         let paint = paint_began.elapsed();
         if let Some(desktop) = self.lan.desktop() {
+            let rows = match self.stack.session.as_ref() {
+                Some(session) if !drawn.is_empty() => {
+                    self.controls_sync
+                        .rows(&drawn, &session.controls, &session.meta, screen)
+                }
+                Some(_) | None => strobe_remote::desktop::ControlLayout::default(),
+            };
             // Starts or collects an asynchronous readback; never waits.
             self.desktop_capture.frame(
                 self.stack.gfx.gl(),
                 now,
                 &desktop,
                 [size.width, size.height],
+                rows,
             );
         }
         self.ui_state.tick(now);

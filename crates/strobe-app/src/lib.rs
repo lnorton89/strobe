@@ -87,6 +87,7 @@ pub mod prefs;
 pub mod projectors;
 pub mod recovery;
 pub mod remote;
+pub mod remote_controls;
 pub mod screenshot;
 pub mod script;
 pub mod session;

@@ -700,11 +700,16 @@ pub fn rows(
 ) {
     let pins = &mut pins;
     for &index in members {
-        control(ui, theme, bank, index, pins, scale);
+        let Some(rect) = control(ui, theme, bank, index, pins, scale) else {
+            continue;
+        };
+        // A controlling Strobe draws its own copy of the row here (D515).
+        crate::remote_controls::noted(ui, bank, index, rect, matches!(scale, Scale::Touch));
     }
 }
 
-/// Draws the control at `index` with its kind's widget.
+/// Draws the control at `index` with its kind's widget, and returns the
+/// rect it took, or `None` when the bank has no control there.
 fn control(
     ui: &mut Ui,
     theme: &Palette,
@@ -712,13 +717,11 @@ fn control(
     index: usize,
     pins: &mut Option<&mut Pins<'_>>,
     scale: Scale,
-) {
-    let Some(def) = bank.defs().get(index).cloned() else {
-        return;
-    };
+) -> Option<Rect> {
+    let def = bank.defs().get(index).cloned()?;
     let target = bank.target(index).copied().unwrap_or_default();
     let output = bank.output(index).copied().unwrap_or_default();
-    ui.push_id(index, |ui| match def.kind {
+    let drawn = ui.push_id(index, |ui| match def.kind {
         ControlKind::Slider(mode) | ControlKind::Knob(mode) => {
             let values = (target[0], output[0], mode);
             slider_row(ui, theme, bank, index, &def, values, pins, scale);
@@ -737,6 +740,7 @@ fn control(
             dropdown_row(ui, theme, bank, index, &def, target[0], pins, scale);
         }
     });
+    Some(drawn.response.rect)
 }
 
 fn describe(response: Response, def: &ControlDef) -> Response {
