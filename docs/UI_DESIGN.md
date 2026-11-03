@@ -204,7 +204,7 @@ While the main view is the Controls view and the panel is docked beside it, the 
 
 ### The Controls view (D291, D477, D479)
 
-The live scene's controls, laid out for the main view and for a finger as much as a mouse: the same groups, rows and actions as the panel's Controls tab (one implementation, `inspector::show` with `Part::Page`), each group a card, flowed into up to three columns of at least 340 points, with 32-point slider rails, larger switches, bangs, swatches and XY pad. The output controls follow under their heading, a card per group in the same columns. The preview, the status strip and the fav slots stay in the side panel beside it.
+The live scene's controls, laid out for the main view and for a finger as much as a mouse: the same groups, rows and actions as the panel's Controls tab (one implementation, `inspector::show` with `Part::Page`), each group a ruled header over its rows (D512), flowed into up to three columns of at least 340 points, 20 points apart, with 30-point value bars and chips (24 at Compact, D510), and larger bangs and XY pad. The output controls follow under their heading, a titled group each in the same columns. The preview, the status strip and the fav slots stay in the side panel beside it.
 
 ## 8. Performance Macros
 
@@ -296,28 +296,41 @@ Control rendering maps directly from ControlKind.
 
 ### Slider
 
-- label;
-- current value;
-- horizontal rail;
-- exact numeric interaction;
-- Shift fine drag;
+A value bar (D510): one row that is the slider, filled to the value, with
+the label inside on the left and the value on the right.
+
+- label and value inside the row, value in the text colour and semibold
+  when it differs from the default;
+- fill from the left, or from zero for a range that spans it;
+- a notch at the default while the value is elsewhere;
+- a thin line at the smoothed output while it catches up; `/s` after a
+  speed control's value;
+- `MACRO` when pinned; range and default in the tooltip;
+- drag anywhere, relative; Shift fine drag (D511);
+- click to type an exact value;
 - middle-click reset;
 - double-click reset;
-- context menu.
+- context menu: Reset, Pin as a macro.
 
-These preserve Synesthesia's established modifier conventions.
+Reset and Shift keep Synesthesia's conventions; a click no longer sets the
+value where it lands (D511). Heights follow the density: 24 or 20 points
+in the side panel, 30 or 24 on the Controls page.
 
 ### Knob
 
 Use sparingly. Circular controls should communicate actual rotary/modulation behaviour.
+A `knob` control is drawn as a value bar. Flat arc knobs were mocked up and
+kept for a possible macro strip of about eight headline controls (D510).
 
 ### Toggle
 
-Compact switch + label.
+A property row (D510): the row frame every control shares, the label at
+the left, the switch at the right end where a bar's number sits. A click
+anywhere on the row flips it.
 
 ### Bang
 
-Momentary button with clear pressed state.
+Momentary button with clear pressed state: the row frame outlined, its name in capitals in the middle (FLASH), as a thing to hit rather than a setting; a counter's hits at the right end.
 
 ### XY
 
@@ -329,13 +342,21 @@ Square field with:
 - numeric values on focus/hover;
 - reset.
 
+As built (D510): a property row with the name and the readout, then the
+pad the rows' full width under it.
+
 ### Color
 
-Small swatch with popup picker, not a permanently large editor.
+Small swatch with popup picker, not a permanently large editor: a property
+row with the label at the left, the hex value and the swatch at the right
+end (D510).
 
 ### Dropdown
 
 Compact select, searchable for long option lists.
+
+As built (D510): a property row with the combo box at its right end, no
+taller than the row.
 
 ## 11. Control groups
 
@@ -355,7 +376,7 @@ Do not create a four-button toolbar beside every control.
 
 Descriptions remain hidden until hover/focus/help mode.
 
-As built (D471, D477): each group is a card with its header inside (chevron, name, count, Default and a die for Random); lock and undo are not built.
+As built (D471, D512): each group is a header over its rows, with no card: chevron, name in semibold capitals, count, then Default and a die for Random (dimmed until the pointer is over the header), over a hairline. D477's cards were removed once the rows became value bars, which are raised surfaces themselves. Lock and undo are not built.
 
 ## 12. Scene library
 
