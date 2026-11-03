@@ -3,9 +3,9 @@
 // Description:  Projector power over the network: the PJLink and NTCONTROL
 //               clients, the safe power sequence, discovery, the DHCP
 //               helpers, the config file, the audit log, and the
-//               token-protected web page with the service that hosts it.
+//               password-protected web page with the service that hosts it.
 //
-// Dependencies: serde, serde_json, thiserror, log, md-5, getrandom, chrono;
+// Dependencies: serde, serde_json, thiserror, log, md-5, sha2, chrono;
 //               strobe-diag (paths)
 // ============================================================================
 
@@ -29,7 +29,7 @@
 //! - [`discover`] and [`dhcp`] find units on the projector LAN, including
 //!   one stuck asking for a DHCP lease, and can answer it.
 //! - [`server`] is the web page and JSON API, a small HTTP/1.1 subset like
-//!   `strobe-remote`'s, behind a token. [`bind`] chooses the address (the
+//!   `strobe-remote`'s, behind a password (D516). [`bind`] chooses the address (the
 //!   Tailscale or Wi-Fi IPv4, never every interface), and [`service`]
 //!   keeps the listener on it, moving when the address changes.
 //!

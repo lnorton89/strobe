@@ -96,6 +96,12 @@ pub struct Limits {
     pub rate_per_second: f64,
     /// Messages a client may send in a burst.
     pub burst: f64,
+    /// Messages the desktop holding the lease may send per second,
+    /// sustained: its input and its control edits, each sent every 50 ms
+    /// while they last (D513), and its pings.
+    pub desktop_rate_per_second: f64,
+    /// Messages the desktop holding the lease may send in a burst.
+    pub desktop_burst: f64,
     /// How often a connection wakes to push state and check its timers.
     pub tick: Duration,
     /// How long a request head may take to arrive.
@@ -122,6 +128,8 @@ impl Default for Limits {
             max_message: crate::MAX_MESSAGE_BYTES,
             rate_per_second: 10.0,
             burst: 20.0,
+            desktop_rate_per_second: 50.0,
+            desktop_burst: 100.0,
             tick: Duration::from_millis(100),
             handshake_timeout: Duration::from_secs(5),
             auth_timeout: Duration::from_secs(120),

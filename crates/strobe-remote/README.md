@@ -25,8 +25,12 @@ playlist or the UI: a command goes onto `bridge::Remote`, the app takes it off
 `bridge::AppEnd` on its own thread and runs it through the same command path a
 key, a pad or an OSC message uses (D172, D232, D254).
 
-It is a **plain-HTTP remote for trusted networks**, not an installable PWA:
-that waits on a TLS decision (backlog L-07).
+It is a **plain-HTTP remote for trusted networks** by default. The page is
+an installable web app (D517): a manifest, the brand icons and a
+network-first service worker are served beside it. The worker and the
+install prompt need a secure context, which a phone gets through the
+operator's HTTPS proxy (D258); real phones are still to be tested
+(backlog L-07).
 
 **Desktop-to-desktop control (D275):** the same listener also supports a
 native Strobe controller that mirrors the complete host control window,
@@ -39,6 +43,14 @@ One connection leases input at a time. Stop, revoke, overflow and app loss
 release the lease and reset held input. The app supplies JPEG captures at
 at most 5 Hz; the network bridge keeps only the latest frame. Text copied
 by a host widget is returned explicitly, without reading its OS clipboard.
+The controls also travel as data (D513): once leased, a controller sends
+`desktop_controls_open`, the host publishes its scene and output banks
+(definitions once per bank id, then values), and the controller draws them
+itself and sends back `desktop_control` edits. The lease holder may send 50
+messages a second for this, where any other client keeps 10. Just before
+each frame, such a controller also gets `desktop_layout`: the host window's size and where that frame
+has each control row, so it draws its own copies over them at that size,
+scaled with the picture (D515, D519).
 See [the user guide](../../docs/USER_GUIDE.md#control-another-strobe-desktop).
 
 **Venue mode (D288):** a headless show machine is controlled with no click at

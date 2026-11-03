@@ -1,33 +1,87 @@
 // ============================================================================
 // Module:       strobe_remote::server::page
-// Description:  The controller page, embedded in the binary, and the
-//               Content-Security-Policy it is served with.
+// Description:  The controller page, embedded in the binary, the
+//               Content-Security-Policy it is served with, and the web app
+//               files beside it (manifest, service worker, icons).
 //
 // Dependencies: sha2; super::ws (base64)
 // ============================================================================
 
-//! The controller page (L-06, D253).
+//! The controller page (L-06, D253) and the installable app around it
+//! (D517).
 //!
 //! `controller.html` is one self-contained file: markup, one `<style>` and
 //! one `<script>`, with nothing loaded from anywhere else. No CDN, no fonts,
-//! no analytics, not even a favicon request (`href="data:,"`).
+//! no analytics. The only other requests it makes are to this listener:
+//! its web app manifest, its icons and its service worker, all embedded
+//! here ([`asset`]).
 //!
 //! It is served with a Content-Security-Policy that allows exactly that
 //! style and that script, by their SHA-256 hashes, worked out from the
 //! embedded file once, so an edit to the page can never be served under a
-//! stale policy. Everything else is `'none'`: no other script, no frames,
-//! no form posts, no plugins, and the page cannot be framed by another
-//! site. `connect-src` allows the listener's own WebSocket.
+//! stale policy. Everything else is `'none'` or this origin only: no other
+//! script, no frames, no form posts, no plugins, and the page cannot be
+//! framed by another site. `connect-src` allows the listener's own
+//! WebSocket.
 //!
 //! The page keeps its token in `localStorage` and sends it only in a
 //! WebSocket message body. It never reads the URL's query or fragment, so
 //! no secret can arrive by link (a test checks the source for that).
+//!
+//! The service worker keeps only the page and its icons, network first, so
+//! an installed app launched with Strobe off shows its own "Disconnected"
+//! state. Browsers run it only in a secure context, which for a phone means
+//! the operator's HTTPS proxy (D258).
 
 use sha2::{Digest as _, Sha256};
 use std::sync::OnceLock;
 
 /// The page, as shipped.
 pub(super) const HTML: &str = include_str!("controller.html");
+
+/// The web app manifest the page links to.
+const MANIFEST: &str = include_str!("manifest.webmanifest");
+
+/// The service worker: network first, the page and icons kept for offline.
+const WORKER: &str = include_str!("sw.js");
+
+/// The policy the worker script runs under: it may fetch this origin only.
+const WORKER_POLICY: &str = "Content-Security-Policy: default-src 'self'";
+
+/// The file at `path` other than the page, with its `Content-Type` and any
+/// extra header lines. The icons are the brand's own renders
+/// (`cargo xtask brand`).
+pub(super) fn asset(path: &str) -> Option<(&'static str, &'static [u8], &'static [&'static str])> {
+    Some(match path {
+        "/manifest.webmanifest" => ("application/manifest+json", MANIFEST.as_bytes(), &[]),
+        "/sw.js" => (
+            "text/javascript; charset=utf-8",
+            WORKER.as_bytes(),
+            &[WORKER_POLICY],
+        ),
+        "/icon.svg" => (
+            "image/svg+xml",
+            include_bytes!("../../../../assets/brand/icon.svg"),
+            &[],
+        ),
+        "/icon-192.png" => (
+            "image/png",
+            include_bytes!("../../../../assets/brand/icon-192.png"),
+            &[],
+        ),
+        "/icon-512.png" => (
+            "image/png",
+            include_bytes!("../../../../assets/brand/icon-512.png"),
+            &[],
+        ),
+        "/icon-maskable-512.png" => (
+            "image/png",
+            include_bytes!("../../../../assets/brand/icon-maskable-512.png"),
+            &[],
+        ),
+        _ => return None,
+    })
+}
 
 /// The text between the first `<tag>` and `</tag>`.
 fn inner<'a>(html: &'a str, tag: &str) -> &'a str {
@@ -51,7 +105,8 @@ fn fixed_policy() -> &'static str {
     static POLICY: OnceLock<String> = OnceLock::new();
     POLICY.get_or_init(|| {
         format!(
-            "default-src 'none'; script-src {}; style-src {}; img-src data:; \
+            "default-src 'none'; script-src {}; style-src {}; img-src 'self' data:; \
+             manifest-src 'self'; worker-src 'self'; \
              base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
             hash_source(inner(HTML, "script")),
             hash_source(inner(HTML, "style")),
@@ -91,7 +146,9 @@ mod tests {
 
     #[test]
     fn the_page_loads_nothing_from_anywhere_else() {
-        let lower = HTML.to_ascii_lowercase();
+        // `url(#id)` names a gradient in the page's own SVG; it loads
+        // nothing, so it is the one `url(` allowed.
+        let lower = HTML.to_ascii_lowercase().replace("url(#", "#");
         for needle in [
             "http://",
             "https://",
@@ -116,6 +173,71 @@ mod tests {
             !lower.contains(" style=\"") && !lower.contains(" onclick="),
             "no inline attributes a hash cannot cover"
         );
+    }
+
+    #[test]
+    fn every_file_the_web_app_names_is_served() {
+        let mut named: Vec<&str> = HTML
+            .split("href=\"")
+            .skip(1)
+            .filter_map(|piece| piece.split('"').next())
+            .collect();
+        named.extend(
+            MANIFEST
+                .split("\"src\": \"")
+                .skip(1)
+                .filter_map(|piece| piece.split('"').next()),
+        );
+        named.extend(
+            WORKER
+                .split_once("SHELL = [")
+                .and_then(|(_, rest)| rest.split_once(']'))
+                .map_or("", |(list, _)| list)
+                .split(',')
+                .map(|item| item.trim().trim_matches('"')),
+        );
+        assert!(named.len() >= 12, "page, manifest and worker: {named:?}");
+        for path in named {
+            assert!(
+                path == "/" || asset(path).is_some(),
+                "{path} is named but not served"
+            );
+        }
+        assert!(
+            HTML.contains("register(\"/sw.js\")") && asset("/sw.js").is_some(),
+            "the page registers the worker it is served"
+        );
+        assert!(asset("/admin").is_none(), "nothing else is served");
+    }
+
+    #[test]
+    fn the_manifest_makes_an_installable_app() -> anyhow::Result<()> {
+        let manifest: serde_json::Value = serde_json::from_str(MANIFEST)?;
+        assert_eq!(manifest["start_url"], "/", "starts at the page");
+        assert_eq!(manifest["display"], "standalone", "its own window");
+        assert!(
+            manifest["name"].is_string() && manifest["short_name"].is_string(),
+            "named"
+        );
+        let icons = manifest["icons"].as_array().map_or(&[][..], Vec::as_slice);
+        for (size, purpose) in [
+            ("192x192", "any"),
+            ("512x512", "any"),
+            ("512x512", "maskable"),
+        ] {
+            assert!(
+                icons
+                    .iter()
+                    .any(|icon| icon["sizes"] == size && icon["purpose"] == purpose),
+                "a {size} {purpose} icon"
+            );
+        }
+        let policy = headers("192.168.1.20:47812", false).join("\n");
+        assert!(
+            policy.contains("manifest-src 'self'") && policy.contains("worker-src 'self'"),
+            "the policy lets the page reach both: {policy}"
+        );
+        Ok(())
     }
 
     #[test]

@@ -283,8 +283,6 @@ pub enum Action {
     SaveProjectors,
     /// Put the Connections form back to what is saved.
     RevertProjectors,
-    /// Replace the projector web page's token.
-    NewProjectorToken,
     /// Explicit full desktop permission on the host, only for this run.
     SetDesktopAccess(bool),
     /// Connect using Settings' desktop address and one-time pairing code.
@@ -698,6 +696,9 @@ pub struct Model<'a> {
     pub meta: Option<&'a mut ControlBank>,
     /// The live preview, once a scene has rendered.
     pub preview: Option<Preview>,
+    /// Another Strobe controls this one (D514): the preview is left out
+    /// of the window it sees, and says so.
+    pub preview_paused: bool,
     /// The browser's preview of a scene that is not live.
     pub scene_preview: Option<ScenePreview<'a>>,
     /// The scene being compiled right now, shown for the frame before the
