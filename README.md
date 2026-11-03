@@ -428,7 +428,7 @@ sudo pacman -S --needed base-devel pkgconf alsa-lib mesa libglvnd \
 #### Nix
 
 `flake.nix` gives a dev shell and a package, for x86_64-linux and
-aarch64-linux ([D295](docs/DECISIONS.md)). On x86_64 with Nix 2.34 the dev
+aarch64-linux ([D295](docs/decisions/D295.md)). On x86_64 with Nix 2.34 the dev
 shell built the app, and the package built and ran: `--help`, `--diagnose`,
 the headless bench, and a window on both X11 (Xvfb) and Wayland (Weston),
 with nixpkgs' Mesa as the software driver. aarch64 evaluates but has not been

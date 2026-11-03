@@ -14,7 +14,7 @@ macOS and Linux later. Performance is a feature, not a polish step.
 | [`docs/IMPLEMENTATION_BACKLOG.md`](docs/IMPLEMENTATION_BACKLOG.md) | Before writing down a gap anywhere. It is the one register of open work. A crate README's "Status and known gaps" only points at it: each gap names its item (`backlog X-NN`), a question (`Qnn`) or "by design" with its decision, and `strobe_conventions::known_gaps` fails the build otherwise (D490). |
 | [`docs/STATUS_AUDIT.md`](docs/STATUS_AUDIT.md) | Before claiming something works. The evidence-based gap list: what is verified, on which machine, and each item's acceptance test. Tick an item only with evidence. |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Before adding a crate, moving code between crates, or touching the frame loop. |
-| [`docs/DECISIONS.md`](docs/DECISIONS.md) | Before reversing a choice. Every non-obvious decision and its reason is logged there. Add one when you make one. |
+| [`docs/DECISIONS.md`](docs/DECISIONS.md) | Before reversing a choice. Every non-obvious decision and its reason is logged in [`docs/decisions/`](docs/decisions/), one file each. Add one when you make one. |
 | [`docs/OPEN_QUESTIONS.md`](docs/OPEN_QUESTIONS.md) | Things not yet verified against real Synesthesia behaviour. Check here before assuming. |
 | [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) | Before and after any change on a per-frame path. |
 | [`docs/DEBUGGING.md`](docs/DEBUGGING.md) | When something hangs, crashes or misbehaves: where logs and crash reports go, `STROBE_LOG`, GL debug output, symbolicating a `.dmp`, and the T480 crash-report checklist. |
@@ -175,8 +175,11 @@ asserts `Gl::state_queries` stays still while a scene plays (D497).
 
 ### Docs links and decision numbers are checked
 
-A relative link in the Markdown must resolve, and a cited `D<n>` must be a
-heading in `docs/DECISIONS.md` (`strobe_conventions::docs`). Every crate's
+A relative link in the Markdown must resolve, and a cited `D<n>` must have
+its file, `docs/decisions/D<n>.md`, whose heading names the same number
+(`strobe_conventions::docs`). One file per decision, so branches don't
+collide (D531); take the next number after the highest on master and open
+PRs. Every crate's
 `build.rs` carries the header banner too, as `build (build script)`.
 
 ---
