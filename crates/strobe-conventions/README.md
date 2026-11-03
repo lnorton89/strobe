@@ -160,12 +160,12 @@ path is what made the query, cache the fact at load time instead
 
 Every `.md` under `docs/`, at the root (not the generated `CHANGELOG.md`)
 and each crate's `README.md`: a relative link or image must resolve from
-the linking file's directory, and a cited `D<number>` must be a heading in
-`docs/DECISIONS.md`. Fenced code blocks and inline code spans are skipped
+the linking file's directory, and a cited `D<number>` must have its file,
+`docs/decisions/D<number>.md`, whose one heading names that number (D531). Fenced code blocks and inline code spans are skipped
 for links; `D3D11` and `HDR` are not citations (D497).
 
 **Fix:** correct the path, or the number. A number used somewhere other
-than DECISIONS.md (an off-master draft, say) is written out as "decision
+than `docs/decisions/` (an off-master draft, say) is written out as "decision
 273", not cited.
 
 ## Design notes
