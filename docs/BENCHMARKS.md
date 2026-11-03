@@ -530,7 +530,8 @@ by at most 1/255.
 
 ### 2026-10-28: Jester Totem, RX 580 (LIGHTNING)
 
-New scene (D520). LIGHTNING, RX 580, driver 26.5.2, hidden-window
+New scene (D520), since withdrawn from the library (D526); the numbers stay
+as a record. LIGHTNING, RX 580, driver 26.5.2, hidden-window
 context, half-float buffers, 1920x1080, 300 timed frames after 90 warm-up
 at scene time 5 s, synthetic 120 BPM audio, one run each, release-fast.
 Not llvmpipe and not old-GPU data.
