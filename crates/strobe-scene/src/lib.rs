@@ -55,6 +55,7 @@
 
 pub mod assemble;
 pub mod audio;
+pub mod camera;
 pub mod control;
 pub mod date;
 pub mod directives;
