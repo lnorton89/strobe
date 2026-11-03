@@ -37,8 +37,9 @@ use std::path::Path;
 /// Where the sources and the outputs live, relative to the workspace root.
 const DIR: &str = "assets/brand";
 
-/// Every PNG size written, in pixels.
-const SIZES: [u32; 8] = [16, 24, 32, 48, 64, 128, 256, 512];
+/// Every PNG size written, in pixels. 192 and 512 are the two a web app
+/// manifest names, for the remote and projector pages (D517).
+const SIZES: [u32; 9] = [16, 24, 32, 48, 64, 128, 192, 256, 512];
 
 /// The largest size drawn from the simplified source.
 const SMALL_MAX: u32 = 32;
@@ -49,11 +50,14 @@ const ICO_SIZES: [u32; 6] = [16, 24, 32, 48, 64, 256];
 
 /// Non-square pictures rendered at their own aspect ratio (D256): source,
 /// output and width in pixels. The README banner and the social preview at
-/// the sizes GitHub uses, and each lockup for places that take no SVG.
-const PICTURES: [(&str, &str, u32); 3] = [
+/// the sizes GitHub uses, each lockup for places that take no SVG, and the
+/// full-bleed maskable icon a phone's launcher crops to its own shape
+/// (D517).
+const PICTURES: [(&str, &str, u32); 4] = [
     ("banner.svg", "banner.png", 1280),
     ("lockup-horizontal.svg", "lockup-horizontal.png", 960),
     ("lockup-stacked.svg", "lockup-stacked.png", 640),
+    ("icon-maskable.svg", "icon-maskable-512.png", 512),
 ];
 
 /// The social preview: an SVG overlay drawn over a real render, a frame of

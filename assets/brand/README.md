@@ -10,6 +10,7 @@ for using it are in [the brand guidelines](../../docs/branding.md).
 | `mark.svg` | The concept ribbon mark with its fine contours. It is a design starting point, not the final production mark. |
 | `icon.svg` | The application icon for 48 px and up: the ribbon with two contours, on the dark tile. |
 | `icon-small.svg` | The application icon for 32 px and below: no contours, the innermost turn dropped, a heavier stroke (guide section 2: "do not merely shrink the detailed master"). |
+| `icon-maskable.svg` | The application icon as a web app's maskable icon: no tile corners, the ribbon inside the central 80% circle. |
 | `mark-mono.svg` | The production ribbon in one colour, `currentColor` (near-black unless a page sets it), for print and low-colour use. |
 | `social-render.png` | A real frame for the social preview: `12-silicon-atlas` from `strobe-bench --size 1280x640 --frames 3 --warmup 120`. |
 
@@ -38,7 +39,8 @@ the fine-contour `mark.svg`, whose 2.3 px strokes vanish at lockup sizes.
 render. Both `cargo xtask ci` and CI run the check.
 
 - `icon-16.png`, `icon-24.png`, `icon-32.png`: from `icon-small.svg`.
-- `icon-48.png`, `icon-64.png`, `icon-128.png`, `icon-256.png`, `icon-512.png`: from `icon.svg`.
+- `icon-48.png`, `icon-64.png`, `icon-128.png`, `icon-192.png`, `icon-256.png`, `icon-512.png`: from `icon.svg`.
+- `icon-maskable-512.png`: from `icon-maskable.svg`, the ribbon on a full-bleed Void square inside the central circle a phone's launcher crops to; the remote and projector pages' install icon (D517).
 - `icon.ico`: 16, 24, 32, 48, 64 and 256, stored as PNG entries.
 - `banner.png` (1280 wide), `lockup-horizontal.png` (960) and `lockup-stacked.png` (640): from their SVGs, at their own aspect ratio.
 - `social-preview.png`: `social-preview.svg` drawn over `social-render.png`, 1280x640.

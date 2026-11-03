@@ -239,6 +239,13 @@ pub fn preview_in(
     let Some(image) = model.preview else {
         match model.loading {
             Some(name) => preparing(ui, theme, area, name, compact),
+            None if model.preview_paused => compact_status(
+                ui,
+                theme,
+                area,
+                Icon::Perform,
+                "Preview off while another Strobe controls this one",
+            ),
             None if compact => compact_status(ui, theme, area, Icon::Perform, "No scene playing"),
             None => no_scene(ui, model, theme, area),
         }

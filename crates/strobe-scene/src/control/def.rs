@@ -4,7 +4,8 @@
 //               resolved to one component per uniform dimension.
 //
 // Dependencies: crate::json (raw input), crate::control::kind, crate::error;
-//               log (a dropdown kept despite a mismatch)
+//               log (a dropdown kept despite a mismatch); serde_json (written
+//               back as a scene.json entry)
 // ============================================================================
 
 //! Control definitions.
@@ -153,6 +154,40 @@ impl ControlDef {
             labels,
             values,
         })
+    }
+
+    /// This control as a `scene.json` entry that [`Self::from_raw`] reads
+    /// back as an equal control. The desktop remote sends a host's controls
+    /// this way, so the controlling Strobe builds the same bank and draws
+    /// it itself (D513).
+    pub fn to_json(&self) -> serde_json::Value {
+        let dims = self.dims();
+        let components = |values: &Values| match values.get(..dims) {
+            Some([one]) => serde_json::json!(one),
+            Some(many) => serde_json::json!(many),
+            None => serde_json::Value::Null,
+        };
+        let mut out = serde_json::Map::new();
+        out.insert("NAME".into(), self.name.clone().into());
+        out.insert("TYPE".into(), self.kind.type_text().into());
+        if let ControlKind::Dropdown { .. } = self.kind {
+            // A dropdown's range is its option indices, made again from
+            // the options.
+            out.insert("LABELS".into(), serde_json::json!(self.labels));
+            out.insert("VALUES".into(), serde_json::json!(self.values));
+        } else {
+            out.insert("MIN".into(), components(&self.min));
+            out.insert("MAX".into(), components(&self.max));
+        }
+        out.insert("DEFAULT".into(), components(&self.default));
+        out.insert("PARAMS".into(), serde_json::json!(self.params));
+        if let Some(group) = &self.group {
+            out.insert("UI_GROUP".into(), group.clone().into());
+        }
+        if let Some(description) = &self.description {
+            out.insert("DESCRIPTION".into(), description.clone().into());
+        }
+        serde_json::Value::Object(out)
     }
 
     /// How many components are meaningful.
@@ -423,6 +458,60 @@ mod tests {
                 "`{name}` should be rejected"
             );
         }
+        Ok(())
+    }
+
+    fn round_trip(def: &ControlDef) -> Result<ControlDef> {
+        let raw: RawControl = serde_json::from_value(def.to_json())?;
+        Ok(ControlDef::from_raw(&raw)?)
+    }
+
+    #[test]
+    fn every_kind_is_written_back_as_an_equal_control() -> Result<()> {
+        let sources = [
+            r#"{ "NAME": "a", "TYPE": "slider", "MIN": -2, "MAX": 5, "DEFAULT": 1.5, "UI_GROUP": "g", "DESCRIPTION": "d" }"#,
+            r#"{ "NAME": "b", "TYPE": "knob traveler", "MIN": 1, "MAX": 0, "PARAMS": 0.3 }"#,
+            r#"{ "NAME": "c", "TYPE": "slider speed" }"#,
+            r#"{ "NAME": "d", "TYPE": "toggle smooth", "DEFAULT": 1 }"#,
+            r#"{ "NAME": "e", "TYPE": "bang counter smooth", "MAX": 4 }"#,
+            r#"{ "NAME": "f", "TYPE": "xy smooth", "MIN": [-1, 0], "MAX": [1, 2], "DEFAULT": [0.5, 1] }"#,
+            r#"{ "NAME": "g", "TYPE": "color", "DEFAULT": [0.2, 0.4, 0.6, 1.0] }"#,
+            r#"{ "NAME": "h", "TYPE": "dropdown smooth", "LABELS": ["x", "y", "z"], "VALUES": [0.5, 2, 9], "DEFAULT": 2 }"#,
+            r#"{ "NAME": "i", "DEFAULT": [0.1, 0.9] }"#,
+        ];
+        for source in sources {
+            let def = control(source)?;
+            assert_eq!(round_trip(&def)?, def, "{source}");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn every_control_in_the_library_and_the_meta_bank_is_written_back_equal() -> Result<()> {
+        let scenes = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scenes");
+        let mut checked = 0;
+        for entry in std::fs::read_dir(&scenes)? {
+            let json = entry?.path().join("scene.json");
+            if !json.is_file() {
+                continue;
+            }
+            let scene: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&json)?)?;
+            let controls = scene
+                .get("CONTROLS")
+                .and_then(serde_json::Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            for raw in controls {
+                let def = ControlDef::from_raw(&serde_json::from_value(raw)?)?;
+                assert_eq!(round_trip(&def)?, def, "{}: {}", json.display(), def.name);
+                checked += 1;
+            }
+        }
+        for def in crate::meta::controls()? {
+            assert_eq!(round_trip(&def)?, def, "meta: {}", def.name);
+            checked += 1;
+        }
+        assert!(checked > 50, "the library has controls to check: {checked}");
         Ok(())
     }
 }
