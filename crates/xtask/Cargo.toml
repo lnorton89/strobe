@@ -18,7 +18,7 @@ clap.workspace = true
 serde_json.workspace = true
 # SVG rasterisation for `cargo xtask brand`. No text, no system fonts: the
 # icons hold no glyphs, and the output must not depend on the machine.
-resvg = { version = "0.48", default-features = false }
+resvg = { version = "0.49", default-features = false }
 
 [lints]
 workspace = true
