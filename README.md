@@ -208,9 +208,10 @@ flowchart TD
     playlist["strobe-playlist<br/>playlists and their clock"]
     remote["strobe-remote<br/>the LAN remote"]
     projector["strobe-projector<br/>projector power"]
+    capture["strobe-capture<br/>webcams, no GL"]
     diag["strobe-diag<br/>logging, failures, crash capture"]
 
-    app --> shadertoy & autocontrol & script & audio & io & gfx & playlist & remote & projector & diag
+    app --> shadertoy & autocontrol & script & audio & io & gfx & playlist & remote & projector & capture & diag
     projector --> diag
     autocontrol --> shadertoy & gfx
     shadertoy --> scene & diag
@@ -219,7 +220,7 @@ flowchart TD
 ```
 
 Arrows point at what a crate depends on (the main edges; ARCHITECTURE.md
-has every one). `strobe-playlist`, `strobe-remote`
+has every one). `strobe-playlist`, `strobe-remote`, `strobe-capture`
 and `strobe-diag` depend on no other Strobe crate. `strobe-bench`
 (benchmarks), `strobe-conventions` (the house rules as tests) and `xtask`
 (repository tooling) sit beside the app, not under it.
@@ -239,6 +240,7 @@ and `strobe-diag` depend on no other Strobe crate. `strobe-bench`
 | [`strobe-diag`](crates/strobe-diag/README.md) | Logging, the session context, structured failures, the panic hook and out-of-process crash capture with minidumps. |
 | [`strobe-remote`](crates/strobe-remote/README.md) | LAN control from phones and other Strobe desktops: typed protocol, bounded app bridge, scoped pairing and revocation, phone controller page and optional full desktop UI streaming (trusted networks only). |
 | [`strobe-projector`](crates/strobe-projector/README.md) | Projector power for the show PC: PJLink with a Panasonic NTCONTROL fallback, never a command mid-transition, a token-protected web page for a phone, Settings > Projectors in the app, and `pj` as the CLI and headless service. |
+| [`strobe-capture`](crates/strobe-capture/README.md) | Webcams behind `syn_Media` (Windows, Media Foundation): listing, a capture thread with a watchdog and reconnect by name, and conversion to RGBA. Never touches GL. |
 | [`strobe-bench`](crates/strobe-bench/README.md) | Renders every scene in `scenes/`, times it, and writes frames, a contact sheet and `results.md`. |
 | [`strobe-conventions`](crates/strobe-conventions/README.md) | The house rules as tests: file headers, the `unsafe` boundary, the toolchain pin. |
 | [`xtask`](crates/xtask/README.md) | `cargo xtask ci`, `changelog`, `bench`, `corpus`, `symbolicate`, `brand`. |

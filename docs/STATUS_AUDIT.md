@@ -722,11 +722,25 @@ they apply, and explicit supported, degraded or unsupported claims.
   an empty folder reports. `assets::tests` cover ordering, flipping, shrinking
   and the decoder thread. Under Xvfb, `--media <folder>` played a two-picture
   sequence and `--media <missing>` printed the IO failure block and ran on.
-  **Video and webcam are not built (later, ROADMAP).** The `MEDIA` key and
+  **Video is not built (later, ROADMAP); a webcam is, below.** The `MEDIA` key and
   `syn_MediaType` values are checked against SSF's documentation (TORNADO
   T21, Q22); D238 samples chosen media as the slot says. On the T480 a
   475 MiB loop shrinks to fit 192 MiB, loads in about 4 s and holds about
   280 MB, flat, at 60 fps (Task 28, D225).
+- [ ] A webcam behind `syn_Media` (backlog M-04, D528-D530). **Built on
+  Windows, not verified with a camera.** Evidence so far: `strobe_capture`'s
+  tests against a fake camera (every pixel format converted upright, the
+  format choice, the failure wording, the supervisor's reconnect, watchdog
+  and thread cap); `crates/strobe-gfx/tests/live.rs` on headless GL in both
+  dialects (upright with `syn_MediaType` 3, ten pictures into one texture
+  with no driver query, a failure black and said once with its action, then
+  back; llvmpipe in CI, skipped on Windows); `strobe_app::camera`'s tests
+  against the real Media Foundation listing on the AMD desktop, which has no
+  camera. **Acceptance, still open:** the camera checklist in
+  [research/m04-webcam.md](research/m04-webcam.md): `--list-cameras` with a
+  camera, the formats picked, glass-to-glass latency, the T480's capture
+  and upload cost, unplug and replug, in use and blocked, sleep and resume,
+  a 4-hour soak flat in private memory (the #251 fix), OBS's virtual camera.
 - [x] Load cubemaps, and report missing or invalid assets without
   crashing the show (D185). Evidence, llvmpipe, both dialects: a fixture
   samples +X, -X, +Y, -Y, +Z and -Z and gets each face's colour from six
