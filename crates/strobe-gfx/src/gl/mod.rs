@@ -52,16 +52,21 @@
 //! current-context invariant plus, for the few calls that take a pointer,
 //! the length of the slice behind it — stated where it applies.
 
+#[cfg(feature = "native")]
 pub mod angle;
+#[cfg(feature = "native")]
 pub mod context;
 pub mod debug;
 pub mod prime;
 pub mod trace;
+#[cfg(feature = "native")]
 pub mod window;
 
 use glow::HasContext;
 use std::cell::Cell;
-use std::ffi::{CStr, CString, c_void};
+use std::ffi::c_void;
+#[cfg(feature = "native")]
+use std::ffi::{CStr, CString};
 use std::marker::PhantomData;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -155,6 +160,10 @@ impl std::fmt::Display for ResetStatus {
 /// extensions. A name is tried only when the context should have it,
 /// because some loaders (Mesa's `glXGetProcAddress`) hand back a stub for
 /// any name they know.
+#[cfg_attr(
+    not(feature = "native"),
+    expect(dead_code, reason = "only native contexts load entry points by name")
+)]
 fn reset_status_names(
     (major, minor, embedded): (u32, u32, bool),
     has_extension: impl Fn(&str) -> bool,
@@ -179,6 +188,19 @@ fn reset_status_names(
         names.push("glGetGraphicsResetStatusEXT");
     }
     names
+}
+
+/// A framebuffer's GL name, for the trace.
+#[cfg(not(target_arch = "wasm32"))]
+fn framebuffer_name(fbo: glow::Framebuffer) -> u32 {
+    fbo.0.get()
+}
+
+/// WebGL framebuffers are objects with no name to show; the trace (off in a
+/// browser, which has no `STROBE_GL_TRACE`) records them all as 1.
+#[cfg(target_arch = "wasm32")]
+fn framebuffer_name(_fbo: glow::Framebuffer) -> u32 {
+    1
 }
 
 /// Calls the driver's reset-status function.
@@ -355,6 +377,7 @@ impl Gl {
     /// Every context in the process is built here, so this is where it is
     /// primed ([`prime::on_new_context`], D311): one draw into a small
     /// target before anyone else draws, with the GL state left as it was.
+    #[cfg(feature = "native")]
     fn from_loader(mut loader: impl FnMut(&CStr) -> *const c_void) -> Self {
         let raw = context::glow_from_loader(&mut loader);
         let version = raw.version();
@@ -368,6 +391,30 @@ impl Gl {
             let address = loader(&name);
             (!address.is_null()).then_some(ResetAddress(address))
         });
+        Self::from_glow(raw, reset)
+    }
+
+    /// Wraps a browser canvas's WebGL2 context (D524). WebGL is GLSL ES 3.00,
+    /// the dialect the ANGLE path already speaks, so the player runs on it
+    /// unchanged. The browser owns the context: there is no reset-status
+    /// entry point (a lost canvas raises `webglcontextlost` instead), and the
+    /// context is current on the page's one thread for its whole life, which
+    /// is the invariant every leaf below relies on.
+    #[cfg(target_arch = "wasm32")]
+    pub fn from_webgl2(context: web_sys::WebGl2RenderingContext) -> Self {
+        Self::from_glow(glow::Context::from_webgl2_context(context), None)
+    }
+
+    /// The fields every constructor shares, then the prime (D311).
+    #[cfg_attr(
+        target_arch = "wasm32",
+        expect(
+            clippy::arc_with_non_send_sync,
+            reason = "glow's WebGL context is not Send; `Gl` is !Send anyway and the Arc is \
+                      only how `glow()` shares it with a painter"
+        )
+    )]
+    fn from_glow(raw: glow::Context, reset: Option<ResetAddress>) -> Self {
         let gl = Self {
             raw: Arc::new(raw),
             reset,
@@ -493,7 +540,9 @@ impl Gl {
             renderer: self.get_string(glow::RENDERER),
             vendor: self.get_string(glow::VENDOR),
             parsed: (version.major, version.minor, version.is_embedded),
-            es_float_render: extensions.contains("GL_EXT_color_buffer_float"),
+            // WebGL names its extensions without the `GL_` prefix.
+            es_float_render: extensions.contains("GL_EXT_color_buffer_float")
+                || extensions.contains("EXT_color_buffer_float"),
             max_texture_size: self.get_i32(glow::MAX_TEXTURE_SIZE),
             max_texture_units: self.get_i32(glow::MAX_TEXTURE_IMAGE_UNITS),
             gpu_timer,
@@ -1183,7 +1232,7 @@ impl Gl {
                 glow::READ_FRAMEBUFFER => trace::Binding::Read,
                 _ => trace::Binding::Both,
             };
-            self.trace.bind(binding, fbo.map_or(0, |raw| raw.0.get()));
+            self.trace.bind(binding, fbo.map_or(0, framebuffer_name));
         }
         // SAFETY: current-context invariant; the handle is owned by a live
         // Framebuffer, or None for the default framebuffer.
