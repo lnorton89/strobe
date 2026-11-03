@@ -133,6 +133,12 @@ impl ControlBank {
         self.states.get(index).map(|state| &state.target)
     }
 
+    /// Presses of bang `index` that the next tick has yet to take: a UI
+    /// that draws a copy of a bank tells a press from this (D513).
+    pub fn presses(&self, index: usize) -> u32 {
+        self.states.get(index).map_or(0, |state| state.presses)
+    }
+
     /// The output of control `index` (what the shader sees).
     pub fn output(&self, index: usize) -> Option<&Values> {
         self.states.get(index).map(|state| &state.output)

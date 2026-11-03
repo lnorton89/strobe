@@ -1240,10 +1240,22 @@ Strobe CPU sampled every 5 s.
 - M31: run the after-fix A/B on 063b25b, and check that LIGHTNING's view of the covered host
   keeps updating (not black or stale).
 
+- D518: the projector service still runs the SYSTEM task's 2026-10-27 build,
+  and nothing updates it. Once D517 and D518 are on master, run
+  `tools\projector-control\install.ps1` once, elevated, as JAJA. It moves the
+  service to JAJA (S4U) under `%LOCALAPPDATA%\strobe\projector-service`. Then
+  add the "Updates" lines from `tools/projector-control/README.md` to
+  `jaja\start-show.ps1` as step 3b. Check at the next logon that
+  `start-show.log` says "new build handed to its supervisor" or "already
+  running this build", and that `projector-logs\service-updates.log` shows
+  the swap. Then reboot with nobody logged in and check that the page
+  answers.
+
 - L-09: the service came back after the 23:24 restart and served status
-  (M31 above), with autologin on. Still to do: a boot with nobody logged in,
-  and opening Strobe's Settings > Projectors once to switch a unit from
-  there.
+  (M31 above), with autologin on. Still to do: reboot with nobody logged in
+  and check that "ProjectorControl API" (`strobe-projector serve`) comes back
+  and serves status, and open Strobe's Settings > Projectors once to switch a
+  unit from there.
 
 - M28 / R-01: unplug the C270 for 30 s and then for 2 min while a scene
   plays, and record the fallback, the reopen backoff and the reopen from the
