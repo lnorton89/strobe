@@ -108,6 +108,11 @@ fn main() -> ExitCode {
         diagnose::run();
         return ExitCode::SUCCESS;
     }
+    if cli.list_cameras {
+        return list_cameras();
+    }
+    // Media choices of `camera:<name>` open through this (D528).
+    strobe_app::camera::install();
     // Venue mode (D288): make a trust file and exit. No windows, no log
     // session beyond the one already open.
     if let Some(path) = &cli.make_remote_trust {
@@ -156,6 +161,35 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+/// `--list-cameras`: the cameras, one per line, on stdout and in the log.
+fn list_cameras() -> ExitCode {
+    let started = std::time::Instant::now();
+    let listed = strobe_capture::list();
+    let took = started.elapsed().as_secs_f64() * 1000.0;
+    let code = match listed {
+        Ok(names) if names.is_empty() => {
+            println!("No cameras ({took:.1} ms).");
+            log::info!("camera: none listed in {took:.1} ms");
+            ExitCode::SUCCESS
+        }
+        Ok(names) => {
+            log::info!("camera: {} listed in {took:.1} ms", names.len());
+            for name in &names {
+                println!("camera:{name}");
+                log::info!("camera: {name}");
+            }
+            ExitCode::SUCCESS
+        }
+        Err(problem) => {
+            eprintln!("Listing cameras failed: {problem}");
+            log::error!("camera: listing failed: {problem}");
+            ExitCode::FAILURE
+        }
+    };
+    strobe_diag::logger::flush(FLUSH_TIMEOUT);
+    code
 }
 
 /// Why a run ended in failure, and whether the windows had opened by then.

@@ -198,7 +198,13 @@ pub fn show(
             }
             if part == Part::Edit {
                 if let Some(media) = model.media {
-                    media_row(ui, theme, media, &mut model.ui.media_draft, actions);
+                    media_row(
+                        ui,
+                        theme,
+                        media,
+                        (&mut model.ui.media_draft, &mut model.ui.cameras),
+                        actions,
+                    );
                 }
                 if has_scene && model.scene_transitions {
                     transitions_row(ui, theme, actions);
@@ -333,16 +339,23 @@ pub fn show(
 }
 
 /// What the playing scene shows behind `syn_Media`, where that comes from,
-/// and the field that chooses another (D217). A scene whose shaders never
-/// read `syn_Media` gets no row unless media was chosen anyway.
+/// and the field that chooses another (D217), or the list of cameras to
+/// choose from (D528). A scene whose shaders never read `syn_Media` gets
+/// no row unless media was chosen anyway.
 fn media_row(
     ui: &mut Ui,
     theme: &Palette,
     media: MediaPanel<'_>,
-    draft: &mut Option<String>,
+    (draft, cameras): (&mut Option<String>, &mut Option<crate::camera::Listing>),
     actions: &mut Vec<Action>,
 ) {
-    if !media.read && !media.chosen && draft.is_none() {
+    if !media.read && !media.chosen && draft.is_none() && cameras.is_none() {
+        return;
+    }
+    if let Some(listing) = cameras.as_mut() {
+        if camera_row(ui, theme, listing, actions) {
+            *cameras = None;
+        }
         return;
     }
     let Some(text) = draft.as_mut() else {
@@ -381,9 +394,17 @@ fn media_row(
                     media
                         .showing
                         .filter(|_| media.from == MediaFrom::Chosen)
+                        .filter(|path| strobe_scene::camera::name_of(path).is_none())
                         .map(|path| path.display().to_string())
                         .unwrap_or_default(),
                 );
+            }
+            if ui
+                .small_button("Camera")
+                .on_hover_text("Show a webcam behind syn_Media")
+                .clicked()
+            {
+                *cameras = Some(crate::camera::Listing::start());
             }
             if media.chosen
                 && ui
@@ -416,6 +437,63 @@ fn media_row(
     if done {
         *draft = None;
     }
+}
+
+/// The cameras to choose from, one button each, while the list is open.
+/// True when it is done (a camera chosen, or cancelled).
+fn camera_row(
+    ui: &mut Ui,
+    theme: &Palette,
+    listing: &mut crate::camera::Listing,
+    actions: &mut Vec<Action>,
+) -> bool {
+    let mut done = false;
+    ui.horizontal_wrapped(|ui| {
+        ui.label(
+            egui::RichText::new("Camera")
+                .small()
+                .color(theme::rgb(theme.text_muted)),
+        );
+        let faint = |text: &str| {
+            egui::RichText::new(text)
+                .small()
+                .color(theme::rgb(theme.text_faint))
+        };
+        match listing.poll() {
+            crate::camera::Listed::Asking => {
+                ui.label(faint("Looking for cameras").italics());
+                // The answer comes from another thread: look again soon.
+                ui.ctx()
+                    .request_repaint_after(std::time::Duration::from_millis(100));
+            }
+            crate::camera::Listed::Cameras(names) if names.is_empty() => {
+                ui.label(faint("No camera found"));
+            }
+            crate::camera::Listed::Cameras(names) => {
+                for name in names {
+                    if ui
+                        .small_button(name.as_str())
+                        .on_hover_text(
+                            "Show this camera behind syn_Media in every scene; it comes back by itself if it is unplugged and plugged in again",
+                        )
+                        .clicked()
+                    {
+                        actions.push(Action::SetMedia(Some(strobe_scene::camera::path_for(
+                            name,
+                        ))));
+                        done = true;
+                    }
+                }
+            }
+            crate::camera::Listed::Failed(why) => {
+                ui.label(faint(&format!("Listing failed: {why}")));
+            }
+        }
+        if ui.small_button("Cancel").clicked() {
+            done = true;
+        }
+    });
+    done
 }
 
 /// Says the playing scene changes its look on a new song (D489), with the
@@ -456,16 +534,24 @@ fn media_words(media: MediaPanel<'_>) -> (String, String) {
             "Nothing shows behind syn_Media".to_string(),
         );
     };
-    let name = path.file_name().map_or_else(
-        || path.display().to_string(),
-        |n| n.to_string_lossy().into_owned(),
-    );
+    let camera = strobe_scene::camera::name_of(path);
+    let name = match camera {
+        Some(camera) => format!("camera {camera}"),
+        None => path.file_name().map_or_else(
+            || path.display().to_string(),
+            |n| n.to_string_lossy().into_owned(),
+        ),
+    };
     let from = match media.from {
         MediaFrom::Scene => "the scene's own",
         MediaFrom::Cue => "named by this cue",
         MediaFrom::Chosen => "chosen",
     };
-    let state = if media.loading { ", loading" } else { "" };
+    let state = match (media.loading, camera) {
+        (true, Some(_)) => ", opening",
+        (true, None) => ", loading",
+        (false, _) => "",
+    };
     (
         format!("{name} ({from}{state})"),
         path.display().to_string(),

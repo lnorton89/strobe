@@ -1,6 +1,10 @@
 [workspace]
 resolver = "3"
 members = ["crates/*"]
+# Third-party crates carried with a fix of ours (D529), wired in by
+# `[patch.crates-io]` below. They are not ours, so not members: our lints
+# and conventions don't apply to them.
+exclude = ["vendor"]
 
 [workspace.package]
 version = "0.2.0"
@@ -26,6 +30,7 @@ strobe-io = { path = "crates/strobe-io" }
 strobe-autocontrol = { path = "crates/strobe-autocontrol" }
 strobe-remote = { path = "crates/strobe-remote" }
 strobe-projector = { path = "crates/strobe-projector" }
+strobe-capture = { path = "crates/strobe-capture" }
 # Without its `net` feature (the HTTP client, which needs C for ring): a
 # crate that only converts or analyses shaders must not pull a C compiler
 # into the Windows cross-check. The app opts in.
@@ -85,6 +90,11 @@ md-5 = "0.11"
 # no time-zone database, no wasm shims.
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+# Webcam capture (M-04, D528), Windows only: Media Foundation and nothing
+# else. No default features: `decoding` pulls mozjpeg (C), and MJPEG decodes
+# through `image` instead. Never `input-native`, which turns on the Linux
+# backend too and its bindgen (libclang) build.
+nokhwa = { version = "0.10.11", default-features = false, features = ["input-msmf"] }
 # Decoding the desktop remote's JPEG frames (D275). Already in the tree
 # through ureq, so it adds no crate.
 base64 = "0.23"
@@ -186,3 +196,9 @@ codegen-units = 256
 codegen-units = 256
 [profile.release-fast.package.strobe-scene]
 codegen-units = 256
+
+# nokhwa's Media Foundation bindings with the per-frame `IMFSample` leak
+# fixed (nokhwa #251) and a read that ends on an error flag instead of
+# spinning (D529). Drop this when an upstream release carries both.
+[patch.crates-io]
+nokhwa-bindings-windows = { path = "vendor/nokhwa-bindings-windows" }

@@ -21,6 +21,7 @@ pub mod assets;
 pub mod caps;
 pub mod compositor;
 pub mod gl;
+pub mod live;
 mod media;
 pub mod offscreen;
 pub mod player;
