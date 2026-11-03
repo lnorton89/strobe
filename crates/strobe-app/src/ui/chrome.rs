@@ -314,7 +314,15 @@ pub fn title_bar(
         .frame(
             egui::Frame::new()
                 .fill(theme::rgb(theme.app))
-                .inner_margin(theme::margin_xy(SPACE_SM, 0.0)),
+                // No margin on the right: the window controls end at the
+                // window's edge, as Windows' own do, so with the window
+                // maximised the screen's top-right pixel is Close.
+                .inner_margin(egui::Margin {
+                    left: theme::as_margin(SPACE_SM),
+                    right: 0,
+                    top: 0,
+                    bottom: 0,
+                }),
         )
         .show(ui, |ui| {
             // The drag surface is registered first, under everything, so any
@@ -348,8 +356,8 @@ pub fn title_bar(
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     if custom {
                         window_buttons(ui, model, theme, actions);
-                        ui.add_space(SPACE_SM);
                     }
+                    ui.add_space(SPACE_SM);
                     health(ui, model, readouts, theme, (compact, narrow), actions);
                 });
             });
