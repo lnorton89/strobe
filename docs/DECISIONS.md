@@ -12953,3 +12953,134 @@ twins, which only draw on their planks.
 
 **Would reopen:** the Vega 3 dropping frames on it at the venue (then the
 twins default off), or the owner preferring the single totem.
+
+### D528: a webcam is a media choice, `camera:<name>`, captured by `strobe-capture` (2026-11-03, owner's approval of the M-04 proposal)
+
+**Context.** Backlog M-04's webcam proposal
+([research/m04-webcam.md](research/m04-webcam.md)) was approved on
+2026-11-03: capture in its own crate, 720p YUY2 or NV12 with MJPEG as the
+fallback, one upload a frame into one reused texture, a camera as a choice
+in the Media row with `syn_MediaType` 3, and a camera that fails reads
+black, is said once and comes back by itself. Step 6, the Media Overlay,
+waits on C-01.
+
+**Decision.**
+
+- **`strobe-capture`**, no GL and no Strobe dependency. Its supervisor,
+  conversion, format choice and failure wording are plain Rust over a
+  `Backend` trait and are tested on every OS with a fake camera. The only
+  backend is nokhwa's Media Foundation binding, a Windows-only target
+  dependency with no default features (`input-msmf` only, never
+  `input-native`; MJPEG through `image`, never mozjpeg). Elsewhere the
+  crate builds with no backend: listing fails with `Unsupported`, and a
+  chosen camera reports it once.
+- **A camera is the media path `camera:<name>`** (`strobe_scene::camera`),
+  everywhere a media choice is a path: the operator's (`--media`, the
+  Inspector), a cue's `media`, a preset's media channel. One spelling keeps
+  every store of a choice and the precedence between them (cue, then
+  operator, then preset, then scene; D217, D223) exactly as it is, with no
+  new field in a playlist or a preset file. Such a path is never joined to
+  a folder. A scene's own `MEDIA` cannot name one.
+- **The player asks the host for a camera** through
+  `strobe_gfx::live::LiveSources`, installed once per process
+  (`strobe_app::camera::install`). A process-wide hook rather than a
+  parameter, because every `ScenePlayer` (the live scene, a warming cue, the
+  browser's preview) may be asked for media, and none of the ways they are
+  built need to learn about cameras. Without it (the bench, the tests) a
+  camera fails as "no camera input".
+- **A camera lives as long as a player shows it.** The app's registry keeps
+  a weak handle on each camera's mailbox; every player showing it holds a
+  clone, and the capture holds one. `Mailbox::retire_if_unshown`, checked
+  and set under the mailbox's lock, is how the capture learns it is the
+  last: it closes the camera within a tick, and the next ask opens it
+  afresh. Two players (the live scene and the next cue) share one capture.
+- **Format:** `format::pick` takes 1280x720 at 30 fps uncompressed; 720p
+  MJPEG before any other size; else the size nearest 720p, uncompressed
+  first; then the rate nearest 30, higher first. Conversion is on the
+  reader thread into a buffer the render thread gave back, bottom row
+  first, so the picture is upright with no pass of its own.
+- **Upload:** at most one picture a frame, `Gl::upload` into one texture,
+  a new texture only on a size change, sampled with the slot's `WRAP` and
+  `FILTER` (D238; mipmaps regenerated per picture when `FILTER` asks for
+  them). A scene whose shaders never read `syn_Media` takes the pictures
+  (so buffers go back and failures are seen) but uploads nothing.
+- **Watchdog:** a reader in a backend call (open or read) for 5 s counts
+  as stalled. The watchdog says so, marks that reader abandoned (it exits
+  without touching the sink if its call ever returns) and starts another.
+  At most three readers are left behind at once; past that it waits for
+  one to return, so a driver that hangs every open cannot pile up threads.
+  Nothing ever joins a capture thread.
+- **Failure:** black, and `syn_MediaType` 0, from the failure until the
+  next picture; said once per outage through the asset-problem path
+  (`strobe_diag::failure`), with an action naming the likely cause
+  (`Cause::from_text` over the backend's wording: not found, unplugged, in
+  use by another app, blocked by the privacy setting, stalled). The
+  wording list is a best guess from Media Foundation's documented errors
+  until the camera checklist records real ones; a wrong guess changes the
+  advice, not the behaviour. Reconnect is by name, re-listed every second.
+  Until its first picture a camera counts as loading, so the picture it
+  replaces stays up meanwhile, as a file choice does.
+- **UI:** the Inspector's Media row gains Camera, which lists cameras on a
+  thread of its own (Media Foundation took 5-48 ms with none) and shows one
+  button each. `strobe --list-cameras` prints the names `--media
+  "camera:<name>"` takes.
+
+**Test.** `strobe_capture`'s tests (conversion of each format, flipped;
+format choice; wording; the supervisor against a fake camera: pictures
+flow and stop when unwanted, a missing camera said once and shown when it
+comes, an unplugged one reopened by name, a hung read left behind, hung
+readers capped); `strobe_gfx::live` (newest wins, buffers come back, a
+failure told once, retirement); `strobe-gfx/tests/live.rs` (headless GL,
+both dialects: upright with type 3, one texture and no driver query over
+ten pictures, a failure black and said once with its action, then back);
+`strobe_scene::camera` and the preset round trip; `strobe_app::camera`
+(one mailbox per camera, retired once unshown, against the real Media
+Foundation listing on a machine with no camera); `failures::tests` (a
+camera's action wins). **Not verified:** anything that needs a camera;
+see the checklist in the research page.
+
+**Would reopen:** the T480 finding the conversion or the paced upload too
+costly (then YUY2 on the GPU, or a pixel-unpack buffer); OBS's virtual
+camera missing from Media Foundation's list (then DirectShow, or Spout and
+NDI input); two identical cameras, which share a name (then the name gets
+the system's device path beside it).
+
+### D529: nokhwa's Media Foundation binding is vendored with the frame leak fixed (2026-11-03)
+
+**Context.** nokhwa-bindings-windows 0.4.6 leaks one `IMFSample` per
+frame (nokhwa issue #251, open): `raw_bytes` makes a sample with
+`MFCreateSample` and passes it as `ReadSample`'s out parameter, which
+writes its own sample over it without releasing the first. About 20 MB an
+hour at 30 fps, which a show of several hours can't carry. The same loop
+also spins for ever if a read returns no sample with an error or
+end-of-stream flag, which an unplugged camera can do.
+
+**Decision.** The crate is vendored in `vendor/nokhwa-bindings-windows`
+(Apache-2.0, its licence beside it) and wired in by `[patch.crates-io]`.
+Two changes, each marked `Strobe (D529)` in its source: the out parameter
+starts empty (upstream's posted fix), and a read whose flags carry
+`MF_SOURCE_READERF_ERROR` or `_ENDOFSTREAM` returns an error. `vendor/` is
+excluded from the workspace, so our lints and conventions don't apply to
+it. `cargo xtask credits` now skips only workspace members, not every
+crate without a registry source, so the vendored crate is still credited.
+
+**Test.** It builds on Windows and the app lists cameras through it. The
+leak's absence needs the camera checklist's 4-hour soak.
+
+**Would reopen:** an upstream release with both fixes (then the patch
+goes), or the soak still growing (then the leak is elsewhere).
+
+### D530: cargo-deny ignores RUSTSEC-2024-0436, `paste` unmaintained (2026-11-03)
+
+**Context.** nokhwa 0.10.11 depends on `paste` 1.0.15, which its author
+archived; RustSec lists it as unmaintained (RUSTSEC-2024-0436). It is not
+a vulnerability. cargo-deny's advisories check fails on it.
+
+**Decision.** `deny.toml` ignores that one advisory, with its reason.
+`paste` is a proc-macro: it runs in the compiler and puts no code of its
+own in `strobe.exe`, and there is no newer release to move to. The ignore
+list was empty until now, and every entry must say which crate, what pulls
+it in and what would clear it.
+
+**Would reopen:** a nokhwa release without `paste` (then the entry goes),
+or an advisory against `paste` that is a vulnerability.
