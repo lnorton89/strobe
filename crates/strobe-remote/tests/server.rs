@@ -493,7 +493,11 @@ fn authenticate(rig: &Rig, token: &str) -> Result<(String, Ws)> {
     let authenticated = ws.json()?;
     ensure!(authenticated["type"] == "authenticated", "{authenticated}");
     let rotated = ws.json()?;
-    ensure!(rotated["type"] == "paired", "a rotation: {rotated}");
+    ensure!(
+        rotated["type"] == "paired",
+        "a rotation: {rotated}\nlog:\n{}",
+        logged()
+    );
     let next = rotated["token"].as_str().context("token")?.to_string();
     ensure!(next != token, "a new token");
     ws.until("state")?;
