@@ -9,9 +9,16 @@ all-features = true
 
 [advisories]
 yanked = "warn"
-# Deliberately empty. An entry must say which crate, what pulls it in, why
-# there is no fix, and what would clear it.
-ignore = []
+# An entry must say which crate, what pulls it in, why there is no fix,
+# and what would clear it.
+ignore = [
+    # paste 1.0.15, unmaintained (archived by its author). Pulled in by
+    # nokhwa 0.10.11, the webcam capture (D528, D530), which uses it
+    # to generate code. It is a proc-macro: it runs in the compiler and puts no code of
+    # its own in strobe.exe, and there is no newer release to move to.
+    # Cleared when a nokhwa release drops it, or capture moves off nokhwa.
+    { id = "RUSTSEC-2024-0436", reason = "paste is a build-time proc-macro of nokhwa's; unmaintained, not vulnerable (D530)" },
+]
 
 [licenses]
 allow = [

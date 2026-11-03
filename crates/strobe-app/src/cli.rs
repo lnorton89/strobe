@@ -152,6 +152,10 @@ pub struct Cli {
     /// next to the logs, and exit. Attach it to bug reports.
     #[arg(long)]
     pub diagnose: bool,
+    /// Print the cameras this machine lists, by the names `--media
+    /// "camera:<name>"` takes, and how long listing took; then exit (D528).
+    #[arg(long)]
+    pub list_cameras: bool,
     /// Open these panes at launch (comma separated): `browser`, `controls`,
     /// `import`, `inspector`, `diagnostics`, `settings`, or `settings:<page>`
     /// for one page of Settings (`settings:audio`). Added to whatever the
@@ -180,6 +184,8 @@ pub struct Cli {
     /// image sequence, played in name order) behind `syn_Media` in every
     /// scene loaded by hand, in place of the scene's own `MEDIA`. It is
     /// decoded off the frame thread. Scenes a playlist plays keep their own.
+    /// `camera:<name>` shows that webcam instead, by the name
+    /// `--list-cameras` prints (D528).
     #[arg(long, value_name = "PATH")]
     pub media: Option<PathBuf>,
     /// In screenshot mode, ask for this scene to be loaded through the UI's

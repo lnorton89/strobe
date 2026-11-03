@@ -411,6 +411,7 @@ impl ScenePlayer {
                             asset: image.name.clone(),
                             path: image.path.clone(),
                             message: error.to_string(),
+                            action: None,
                         });
                         gl.texture_2d(
                             1,
@@ -445,6 +446,7 @@ impl ScenePlayer {
                             asset: cube.name.clone(),
                             path: cube.paths.join(", "),
                             message,
+                            action: None,
                         });
                         None
                     }
@@ -462,6 +464,7 @@ impl ScenePlayer {
                         asset: "syn_Media".to_string(),
                         path: media_def.path.clone(),
                         message,
+                        action: None,
                     });
                     Media::none()
                 })
@@ -550,6 +553,7 @@ impl ScenePlayer {
                 asset: "syn_Media".to_string(),
                 path,
                 message,
+                action: None,
             }),
         }
     }
@@ -632,11 +636,11 @@ impl ScenePlayer {
         let gl = self.gl.clone();
         if self.incoming.is_some() {
             if let Some(incoming) = self.incoming.as_mut() {
-                incoming.poll(&gl);
+                incoming.poll(&gl, self.reads_media);
             }
             self.promote_incoming();
         }
-        self.media.poll(&gl);
+        self.media.poll(&gl, self.reads_media);
         self.collect_media_failure();
     }
 
@@ -648,11 +652,12 @@ impl ScenePlayer {
             .as_ref()
             .is_some_and(|incoming| incoming.has_picture() || !incoming.loading());
         if ready && let Some(mut incoming) = self.incoming.take() {
-            if let Some(message) = incoming.take_failure() {
+            if let Some((message, action)) = incoming.take_failure() {
                 self.problems.push(AssetProblem {
                     asset: "syn_Media".to_string(),
                     path: incoming.label(),
                     message,
+                    action,
                 });
             }
             if incoming.has_picture() {
@@ -662,11 +667,12 @@ impl ScenePlayer {
     }
 
     fn collect_media_failure(&mut self) {
-        if let Some(message) = self.media.take_failure() {
+        if let Some((message, action)) = self.media.take_failure() {
             self.problems.push(AssetProblem {
                 asset: "syn_Media".to_string(),
                 path: self.media.label(),
                 message,
+                action,
             });
         }
     }

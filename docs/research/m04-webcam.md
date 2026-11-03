@@ -1,5 +1,15 @@
 # M-04: webcam input behind `syn_Media` (spike and proposal)
 
+> **Approved 2026-11-03 and built (D528, D529, D530).** Steps 1-5 and 7 of
+> the [proposal](#proposal) are in `strobe-capture`, `strobe_gfx::live` and
+> `strobe_app::camera`; step 6, the Media Overlay, waits on C-01. A camera
+> is chosen as `camera:<name>` (Inspector > Media > Camera, `--media`, a
+> cue, a preset), and `strobe --list-cameras` prints the names. The
+> [checklist](#checklist-for-a-machine-with-a-camera) below is still open:
+> no camera has opened the built version yet. Where the spike's `--webcam`
+> appears below, the built app's `--list-cameras` and `--media
+> "camera:<name>"` replace it.
+
 Backlog [M-04](../IMPLEMENTATION_BACKLOG.md#m-04-video-and-webcam-input)
 asks for a proposal covering binary size, supported formats, device removal
 and reconnect, latency, GPU upload cost and a license review before any
@@ -238,25 +248,28 @@ doesn't list one yet. A USB camera is needed for the unplug items. The
 T480 runs Windows 11, so the Windows 10 items need the AMD desktop and a
 USB camera.
 
-- [ ] `strobe --webcam list`: the cameras, their names, and how long
+- [ ] `strobe --list-cameras`: the cameras, their names, and how long
       listing takes.
 - [ ] The formats each camera offers at 640x480, 720p and 1080p (YUY2,
-      NV12 or MJPEG only), and what the spike's "closest to 720p YUY2 30"
-      request picks.
+      NV12 or MJPEG only), and what `format::pick` chooses (the log's
+      `camera "...": ... of N offered` line).
 - [ ] **Glass-to-glass latency:** a scene drawing a large frame counter
       beside `syn_Media`, the camera pointed at the output, a screenshot
       or phone photo: the difference between the two counters, times the
       frame time.
 - [ ] Capture-thread CPU and the paced upload cost on the i7-8550U and
-      UHD 620, native and ANGLE (`strobe-bench --live --context window`).
+      UHD 620, native and ANGLE. The app logs the conversion cost once a
+      minute (`camera "...": N pictures ..., converting X ms each`); the
+      upload's cost was measured by the spike's `strobe-bench --live`, which
+      is on the local branch `spike/m04-webcam` only.
 - [ ] **Unplug while showing:** the error, how long until it is said,
       whether `frame()` returns or blocks.
 - [ ] **Replug:** reopened by name? After how long? The same index?
 - [ ] Camera in use by another app (Teams, the Camera app), and Windows'
       camera privacy switch off: the error text of each.
 - [ ] Sleep and resume with the camera open.
-- [ ] A 4-hour soak at 30 fps: private memory over time, with and without
-      the #251 fix.
+- [ ] A 4-hour soak at 30 fps: private memory over time, with the #251
+      fix (D529) and, for comparison, without it.
 - [ ] OBS's virtual camera: does Media Foundation list it on Windows 10?
       On Windows 11?
 
