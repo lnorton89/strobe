@@ -1,7 +1,8 @@
 // ============================================================================
 // Module:       strobe_conventions::docs
 // Description:  Checks the Markdown: every relative link resolves to a file,
-//               and every decision number cited exists in DECISIONS.md.
+//               every decision number cited exists in docs/decisions/, and
+//               each decision file is named for the number it defines.
 //
 // Dependencies: anyhow, std::fs; crate::sources (the workspace root)
 // ============================================================================
@@ -17,9 +18,12 @@
 //!   relative path resolves to a file or directory, from the linking file's
 //!   own directory. Web links and in-page anchors are not followed; an
 //!   anchor on a file link is ignored.
-//! - Every `D<number>` cited names a `### D<number>:` heading in
-//!   `docs/DECISIONS.md`. Its numbering has gaps on purpose (blocks were
-//!   reserved per phase), so a cited number in a gap is caught too.
+//! - Every `D<number>` cited names a decision: a file
+//!   `docs/decisions/D<number>.md` whose heading is `# D<number>: …`
+//!   (D531; one file per decision, so two branches that each add one do not
+//!   conflict). The numbering has gaps on purpose (blocks were reserved per
+//!   phase), so a cited number in a gap is caught too.
+//! - Each decision file defines exactly the number in its name.
 //!
 //! The files are every `.md` under `docs/`, the repository root's, and each
 //! crate's `README.md`. `CHANGELOG.md` is generated from commit subjects
@@ -32,8 +36,8 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// The decision log, relative to the root.
-pub const DECISIONS: &str = "docs/DECISIONS.md";
+/// The decision log's folder, relative to the root: one file per decision.
+pub const DECISIONS: &str = "docs/decisions";
 
 /// Generated, never hand-edited, so never checked.
 const GENERATED: [&str; 1] = ["CHANGELOG.md"];
@@ -111,7 +115,7 @@ fn prose(text: &str) -> Vec<(usize, &str)> {
     lines
 }
 
-/// The decision numbers `DECISIONS.md` defines: each heading that opens
+/// The decision numbers a decision file defines: each heading that opens
 /// with `D<number>`.
 pub fn defined_decisions(decisions: &str) -> BTreeSet<u32> {
     decisions
@@ -130,6 +134,47 @@ pub fn defined_decisions(decisions: &str) -> BTreeSet<u32> {
             digits.parse().ok()
         })
         .collect()
+}
+
+/// Every decision file under [`DECISIONS`]: its file name and its text.
+pub fn decision_files(root: &Path) -> Result<Vec<(String, String)>> {
+    let mut files = Vec::new();
+    for entry in fs::read_dir(root.join(DECISIONS))? {
+        let path = entry?.path();
+        if path.extension().is_some_and(|ext| ext == "md") {
+            let name = path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            files.push((name, fs::read_to_string(&path)?));
+        }
+    }
+    files.sort();
+    Ok(files)
+}
+
+/// The decision numbers the decision files define.
+pub fn decision_numbers(root: &Path) -> Result<BTreeSet<u32>> {
+    Ok(decision_files(root)?
+        .iter()
+        .flat_map(|(_, text)| defined_decisions(text))
+        .collect())
+}
+
+/// A decision file whose name is not `D<n>.md` for the one number its
+/// headings define, described; `None` when it matches.
+pub fn misnamed_decision(name: &str, text: &str) -> Option<String> {
+    let defined = defined_decisions(text);
+    let only = defined.iter().next().filter(|_| defined.len() == 1);
+    match only {
+        Some(number) if name == format!("D{number}.md") => None,
+        Some(number) => Some(format!(
+            "{DECISIONS}/{name} defines D{number}, so it should be D{number}.md"
+        )),
+        None => Some(format!(
+            "{DECISIONS}/{name} should define exactly one decision, and defines {defined:?}"
+        )),
+    }
 }
 
 /// Every `D<number>` a line cites: a `D` not preceded by a letter, digit
@@ -283,9 +328,60 @@ mod tests {
     use super::*;
 
     #[test]
+    fn every_decision_file_is_named_for_its_number() -> Result<()> {
+        let root = workspace_root()?;
+        let misnamed: Vec<String> = decision_files(&root)?
+            .iter()
+            .filter_map(|(name, text)| misnamed_decision(name, text))
+            .collect();
+        assert!(
+            misnamed.is_empty(),
+            "{}",
+            misnamed.join(
+                "
+"
+            )
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_decision_file_must_match_its_heading() {
+        assert_eq!(
+            misnamed_decision(
+                "D7.md",
+                "# D7: seven
+"
+            ),
+            None,
+            "matches"
+        );
+        assert!(
+            misnamed_decision(
+                "D8.md",
+                "# D7: seven
+"
+            )
+            .is_some(),
+            "a wrong name is caught"
+        );
+        assert!(
+            misnamed_decision(
+                "D7.md",
+                "# D7: a
+
+# D9: b
+"
+            )
+            .is_some(),
+            "two decisions in one file are caught"
+        );
+    }
+
+    #[test]
     fn every_relative_link_resolves_and_every_cited_decision_exists() -> Result<()> {
         let root = workspace_root()?;
-        let defined = defined_decisions(&fs::read_to_string(root.join(DECISIONS))?);
+        let defined = decision_numbers(&root)?;
         let exists = |relative: &str| root.join(relative).exists();
         let pages = pages()?;
         let failures: Vec<String> = pages
