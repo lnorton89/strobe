@@ -41,6 +41,59 @@ env:
   CARGO_INCREMENTAL: "0"
 
 jobs:
+  # A pull request that changes only Markdown and `docs/` skips the three
+  # platform builds, ten minutes each, and runs `docs` instead: the
+  # conventions tests, which check every link, decision number and known
+  # gap (D531). Pushes, releases and manual runs always build everything.
+  # A skipped job counts as passed for a required check.
+  changes:
+    name: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+      - id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          if [ "$EVENT" != "pull_request" ]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          changed=$(git diff --name-only "$BASE...$HEAD")
+          printf '%s\n' "$changed"
+          if printf '%s\n' "$changed" | grep -qvE '(\.md$|^docs/)'; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "code=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  docs:
+    name: docs (conventions only)
+    needs: changes
+    if: needs.changes.outputs.code == 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master, 2026-08
+        with:
+          toolchain: "1.98.0"
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: docs
+          save-if: ${{ !inputs.ref }}
+      - run: cargo test --locked -p strobe-conventions
+
   format:
     name: rustfmt
     runs-on: ubuntu-latest
@@ -121,6 +174,8 @@ jobs:
 
   windows:
     name: windows (the shipping platform)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: windows-latest
     # About 16 minutes on master with a warm cache; a cold one builds
     # three profiles' dependencies from scratch.
@@ -198,6 +253,8 @@ jobs:
 
   macos:
     name: macos (the portable crates)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: macos-latest
     timeout-minutes: 60
     # macOS is a later target, so this job is deliberately two-tier.
@@ -249,6 +306,8 @@ jobs:
 
   linux:
     name: linux (headless GL)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     # About 8 minutes on master with a warm cache.
     timeout-minutes: 60

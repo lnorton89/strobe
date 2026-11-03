@@ -13,7 +13,7 @@ Before you finish a piece of work:
 2. If you touched a per-frame path, run `strobe-bench` before and after
    and record the delta in `docs/BENCHMARKS.md`.
 3. Update `docs/ROADMAP.md` with what is now done and what is next, and tick `docs/STATUS_AUDIT.md` items only with evidence.
-4. Log any non-obvious choice in `docs/DECISIONS.md`. If you verified or
+4. Log any non-obvious choice as a new file in `docs/decisions/` (see `docs/DECISIONS.md`). If you verified or
    disproved something in `docs/OPEN_QUESTIONS.md`, move it there.
 
 Preserve unrelated changes in a dirty worktree, and never revert another
