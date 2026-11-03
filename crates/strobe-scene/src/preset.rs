@@ -207,12 +207,14 @@ impl Preset {
     }
 
     /// The media this preset shows, resolved against `scene_dir`, when its
-    /// media channel is on.
+    /// media channel is on. A camera (`camera:<name>`) is not resolved.
     pub fn media_path(&self, scene_dir: &Path) -> Option<PathBuf> {
         if !self.channels.media {
             return None;
         }
-        self.media.as_deref().map(|path| scene_dir.join(path))
+        self.media
+            .as_deref()
+            .map(|path| crate::camera::resolve(scene_dir, Path::new(path)))
     }
 
     /// Writes the preset's values into `scene` and `meta` as targets.
@@ -743,6 +745,15 @@ mod tests {
         );
         let round = Preset::from_text(&inside.to_text()?)?;
         assert_eq!(round, inside, "round trip");
+        let camera = crate::camera::path_for("USB Cam");
+        let live =
+            Preset::capture("d", &scene, &meta, Channels::default()).with_media(dir, Some(&camera));
+        assert_eq!(live.media.as_deref(), Some("camera:USB Cam"), "a camera");
+        assert_eq!(
+            Preset::from_text(&live.to_text()?)?.media_path(Path::new("/moved")),
+            Some(camera),
+            "a camera is never joined to the scene folder"
+        );
 
         let old = Preset::from_text(r#"{ "name": "old", "scene": { "speed": 0.2 } }"#)?;
         assert!(!old.channels.media, "an old preset has no media channel");

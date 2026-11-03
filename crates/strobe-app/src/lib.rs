@@ -14,6 +14,8 @@
 //! - [`script`], [`mouse`]: a scene's `script.js` at run time, and the
 //!   pointer uniforms it and the shaders read.
 //! - [`audio`]: live capture or synthetic audio, and its settings.
+//! - [`camera`]: webcams behind `syn_Media` (D528): the registry the player
+//!   asks for a camera by name, and listing cameras off the frame thread.
 //! - [`session`]: the one active scene and the render-scale arithmetic.
 //! - [`song`]: hearing a new song once a frame (or the operator saying so),
 //!   for a scene's transitions and a playlist's `audio-song` cues (D489).
@@ -56,6 +58,7 @@
 pub mod app;
 pub mod audio;
 pub mod brand;
+pub mod camera;
 pub mod cli;
 pub mod color;
 pub mod command_palette;

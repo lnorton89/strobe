@@ -1,0 +1,23 @@
+[package]
+name = "strobe-capture"
+description = "Webcam capture for syn_Media: device listing, a capture thread with a watchdog and reconnect by name, and pixel conversion to RGBA. No GL."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+publish = false
+
+[dependencies]
+log.workspace = true
+image.workspace = true
+
+# Media Foundation through nokhwa, Windows only (D528). Elsewhere the crate
+# builds with no backend: listing and opening say why.
+[target.'cfg(windows)'.dependencies]
+nokhwa.workspace = true
+
+[dev-dependencies]
+anyhow.workspace = true
+
+[lints]
+workspace = true
