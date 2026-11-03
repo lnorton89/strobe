@@ -27,8 +27,13 @@ crates/
 ├── strobe-playlist     Playlist model, TOML, generator, timeline, playback clock (pure)
 ├── strobe-io           Show control: MIDI and OSC workers, mappings, learn, soft takeover, macros (no GL)
 ├── strobe-remote       LAN remote: protocol, app-thread bridge, pairing, and the opt-in listener
-└── strobe-projector    Projector power: PJLink + NTCONTROL, the token-protected web page, `pj` and its headless service
+├── strobe-projector    Projector power: PJLink + NTCONTROL, the token-protected web page, `pj` and its headless service
+└── strobe-capture      Webcams for syn_Media: listing, a capture thread with a watchdog and reconnect by name, RGBA conversion (no GL)
 ```
+
+(`vendor/` holds third-party crates carried with a fix of ours, wired in by
+`[patch.crates-io]`: today nokhwa's Media Foundation binding, D529. They
+are not workspace members.)
 
 (The localhost import listener stayed in `strobe-shadertoy`, D114. Presets and
 fav slots are in `strobe-scene::preset`, D176; tags in `strobe-scene::tags`,
@@ -38,7 +43,7 @@ D205; OSC feedback in `strobe-io::feedback`, D209.)
 
 ```mermaid
 flowchart TD
-    app[strobe-app] --> shadertoy[strobe-shadertoy] & autocontrol[strobe-autocontrol] & script[strobe-script] & audio[strobe-audio] & io[strobe-io] & gfx[strobe-gfx] & scene[strobe-scene] & playlist[strobe-playlist] & remote[strobe-remote] & projector[strobe-projector] & diag[strobe-diag]
+    app[strobe-app] --> shadertoy[strobe-shadertoy] & autocontrol[strobe-autocontrol] & script[strobe-script] & audio[strobe-audio] & io[strobe-io] & gfx[strobe-gfx] & scene[strobe-scene] & playlist[strobe-playlist] & remote[strobe-remote] & projector[strobe-projector] & capture[strobe-capture] & diag[strobe-diag]
     projector --> diag
     autocontrol --> shadertoy & gfx & scene & ssf[strobe-ssf-lib]
     shadertoy --> scene & ssf & diag
@@ -49,8 +54,8 @@ flowchart TD
 ```
 
 Arrows point at what a crate depends on; this is `cargo metadata`'s
-workspace graph. `strobe-playlist`, `strobe-remote` and `strobe-diag` depend
-on no Strobe crate; `strobe-io` brings in `midir` and `rosc`, and
+workspace graph. `strobe-playlist`, `strobe-remote`, `strobe-capture` and
+`strobe-diag` depend on no Strobe crate; `strobe-io` brings in `midir` and `rosc`, and
 `strobe-remote` `serde`, `sha1`, `sha2` and `getrandom`. The app runs
 `strobe-autocontrol` in a worker process (D202).
 
@@ -92,6 +97,13 @@ on no Strobe crate; `strobe-io` brings in `midir` and `rosc`, and
   calls block for seconds (a projector answering, a 90 s cool-down), so the
   app runs them on worker threads and takes their results once a frame;
   its web page runs on threads of its own (D502).
+- `strobe-capture` depends on no other Strobe crate and never on GL, a
+  window or egui (D528). Its threads list, open and read cameras (nokhwa on
+  Media Foundation, Windows only; no backend elsewhere yet) and convert each
+  picture to RGBA into a `Sink`. The app's sink writes into a
+  `strobe_gfx::live::Mailbox`, so neither crate knows the other, and the
+  player asks for a camera through the `LiveSources` hook the app installs
+  at start (`strobe_app::camera`).
 - `strobe-diag` depends on no other Strobe crate, so every crate may
   depend on it (for `log` output, `context::set`, `failure::report`).
   `strobe-gfx` itself only uses the `log` facade; the app is what installs
