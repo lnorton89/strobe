@@ -181,10 +181,11 @@ jobs:
           key: macos
       # Excluding strobe-gfx is not enough: cargo still builds it for a crate
       # that depends on it. strobe-autocontrol does (it renders to measure),
-      # and strobe-shadertoy's tests do (they render the fixtures), so the
-      # first is excluded and the second is checked without its tests.
+      # strobe-web does (its sandbox is the scene player), and
+      # strobe-shadertoy's tests do (they render the fixtures), so the
+      # first two are excluded and the third is checked without its tests.
       - name: Clippy (portable crates)
-        run: cargo clippy --workspace --exclude strobe-gfx --exclude strobe-bench --exclude strobe-app --exclude strobe-autocontrol --exclude strobe-shadertoy --all-targets --all-features -- -D warnings
+        run: cargo clippy --workspace --exclude strobe-gfx --exclude strobe-bench --exclude strobe-app --exclude strobe-autocontrol --exclude strobe-shadertoy --exclude strobe-web --all-targets --all-features -- -D warnings
       - name: Clippy (strobe-shadertoy without its rendering tests)
         run: cargo clippy -p strobe-shadertoy --lib --bins --all-features -- -D warnings
       # The renderer tests in strobe-gfx self-skip without an EGL driver,
@@ -194,7 +195,7 @@ jobs:
       - name: Test (portable crates)
         env:
           STROBE_TEST_LAN: "1"
-        run: cargo test --workspace --exclude strobe-gfx --exclude strobe-bench --exclude strobe-app --exclude strobe-autocontrol --exclude strobe-shadertoy --all-features
+        run: cargo test --workspace --exclude strobe-gfx --exclude strobe-bench --exclude strobe-app --exclude strobe-autocontrol --exclude strobe-shadertoy --exclude strobe-web --all-features
       - name: Clippy (whole workspace, informational)
         continue-on-error: true
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
