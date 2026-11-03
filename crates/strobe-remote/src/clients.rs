@@ -751,20 +751,48 @@ impl Store {
         };
         let text = serde_json::to_string_pretty(&file).map_err(std::io::Error::other)?;
         let temporary = path.with_extension("json.tmp");
-        let mut options = std::fs::OpenOptions::new();
-        options.write(true).create(true).truncate(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt as _;
-            options.mode(0o600);
+        // On Windows another handle on either file (an antivirus scan, the
+        // search indexer, a save racing this one) fails the open or the
+        // rename with access denied or a sharing violation for a moment.
+        // That is worth a few short retries: a failed save costs a paired
+        // client its token rotation (D531).
+        const TRIES: u32 = 10;
+        const PAUSE: std::time::Duration = std::time::Duration::from_millis(20);
+        let mut tries = 1;
+        loop {
+            match write_and_replace(&temporary, path, &text) {
+                Err(error)
+                    if tries < TRIES
+                        && matches!(
+                            error.kind(),
+                            std::io::ErrorKind::PermissionDenied | std::io::ErrorKind::ResourceBusy
+                        ) =>
+                {
+                    tries += 1;
+                    std::thread::sleep(PAUSE);
+                }
+                outcome => return outcome,
+            }
         }
-        let mut out = options.open(&temporary)?;
-        out.write_all(text.as_bytes())?;
-        out.write_all(b"\n")?;
-        out.sync_all()?;
-        drop(out);
-        std::fs::rename(&temporary, path)
     }
+}
+
+/// Writes `text` to `temporary`, then renames it over `path`, so a reader
+/// sees the old list or the new one and never half of either.
+fn write_and_replace(temporary: &Path, path: &Path, text: &str) -> std::io::Result<()> {
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.mode(0o600);
+    }
+    let mut out = options.open(temporary)?;
+    out.write_all(text.as_bytes())?;
+    out.write_all(b"\n")?;
+    out.sync_all()?;
+    drop(out);
+    std::fs::rename(temporary, path)
 }
 
 #[cfg(test)]
