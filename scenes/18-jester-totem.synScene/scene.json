@@ -1,0 +1,31 @@
+{
+  "TITLE": "Jester Totem",
+  "IMAGE_PATH": "thumbnail.png",
+  "CREDIT": "Original Strobe interpretation of a hand-painted blacklight panel",
+  "LICENSE": "MIT",
+  "DESCRIPTION": "A fluorescent jack-in-the-box totem painted on a dark plank. A horned, one-eyed jester with star eyes, a striped party hat and a grinning zigzag mouth rides a lightning bolt, an orange die and a starburst on a coiled spring that rises from a cranked die. The spring is a real damped spring: bass lifts the jester, kicks and the pop button launch it, and it stretches going up, squashes coming down, bounces and settles. A fan of UV rays turns behind it and flares on kicks, and two smaller twins ride the next planks out. The head and horns sway, the star eyes and the sunburst spin, the third eye blinks and looks around, the crank turns, the bolt flickers with the highs, and sparkles, crosses and stars drift up the outer planks. Procedural, no reference media.",
+  "PASSES": [
+    { "TARGET": "clock", "WIDTH": 1, "HEIGHT": 1, "FLOAT": true, "DOUBLE_BUFFER": true, "WRAP": "clamp", "FILTER": "nearest", "FULL_PRECISION": true }
+  ],
+  "CONTROLS": [
+    { "NAME": "pop", "TYPE": "bang smooth", "PARAMS": 0.12, "UI_GROUP": "perform", "DESCRIPTION": "Launch the jester now, on any beat." },
+    { "NAME": "twins", "TYPE": "toggle smooth", "DEFAULT": 1.0, "PARAMS": 0.05, "UI_GROUP": "perform", "DESCRIPTION": "Two smaller jesters on the next planks out; fades in and out." },
+    { "NAME": "rays", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 1.0, "DEFAULT": 0.5, "PARAMS": 0.03, "UI_GROUP": "perform", "DESCRIPTION": "The fan of UV rays behind the jester, which flares on kicks." },
+    { "NAME": "kick_flash", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 3.0, "DEFAULT": 1.0, "PARAMS": 0.03, "UI_GROUP": "perform", "DESCRIPTION": "How hard the whole panel brightens on a kick." },
+    { "NAME": "speed", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 3.0, "DEFAULT": 1.0, "PARAMS": 0.03, "UI_GROUP": "motion", "DESCRIPTION": "How fast everything sways, spins and drifts." },
+    { "NAME": "bounce", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 2.0, "DEFAULT": 1.0, "PARAMS": 0.03, "UI_GROUP": "motion", "DESCRIPTION": "How far the bass and kicks throw the jester, and how much it stretches." },
+    { "NAME": "wobble", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 2.0, "DEFAULT": 1.0, "PARAMS": 0.03, "UI_GROUP": "motion", "DESCRIPTION": "How much the head, horns and spring sway." },
+    { "NAME": "spin", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 2.0, "DEFAULT": 1.0, "PARAMS": 0.03, "UI_GROUP": "motion", "DESCRIPTION": "How fast the eyes, sunburst, crank, rays and sparkles turn." },
+    { "NAME": "zoom", "TYPE": "slider smooth", "MIN": 0.5, "MAX": 2.0, "DEFAULT": 1.0, "PARAMS": 0.03, "UI_GROUP": "pattern", "DESCRIPTION": "Closer to the jester, or further out to show more planks." },
+    { "NAME": "sparkles", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 1.0, "DEFAULT": 0.7, "PARAMS": 0.03, "UI_GROUP": "pattern", "DESCRIPTION": "How many sparkles, crosses and stars drift up the outer planks." },
+    { "NAME": "lightning", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 2.0, "DEFAULT": 1.0, "PARAMS": 0.03, "UI_GROUP": "pattern", "DESCRIPTION": "How bright the bolt under the jester flickers with the highs." },
+    { "NAME": "hue", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 1.0, "DEFAULT": 0.0, "PARAMS": 0.03, "UI_GROUP": "color", "DESCRIPTION": "Turn every ink round the colour wheel." },
+    { "NAME": "hue_cycle", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 1.0, "DEFAULT": 0.0, "PARAMS": 0.03, "UI_GROUP": "color", "DESCRIPTION": "Keep the inks turning round the colour wheel, slowly." },
+    { "NAME": "glow", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 2.0, "DEFAULT": 1.0, "PARAMS": 0.03, "UI_GROUP": "color", "DESCRIPTION": "The fluorescent halo round the paint." },
+    { "NAME": "blacklight", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 1.0, "DEFAULT": 0.5, "PARAMS": 0.03, "UI_GROUP": "color", "DESCRIPTION": "The violet cast of the UV on the wood." },
+    { "NAME": "grain", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 1.0, "DEFAULT": 0.6, "PARAMS": 0.03, "UI_GROUP": "color", "DESCRIPTION": "How much wood grain shows in the planks and the paint." },
+    { "NAME": "brightness", "TYPE": "slider smooth", "MIN": 0.4, "MAX": 1.6, "DEFAULT": 1.0, "PARAMS": 0.03, "UI_GROUP": "color", "DESCRIPTION": "Overall level." },
+    { "NAME": "reactivity", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 2.0, "DEFAULT": 0.8, "PARAMS": 0.03, "UI_GROUP": "audio", "DESCRIPTION": "How much the music drives all of it." }
+  ],
+  "TAGS": ["retro", "blacklight", "neon", "character", "jack-in-the-box", "audio-reactive"]
+}

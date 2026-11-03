@@ -13,6 +13,7 @@
 
 use base64::Engine as _;
 use egui::{Event, Pos2, Vec2};
+use std::collections::VecDeque;
 use std::io::{self, Cursor};
 use std::net::{IpAddr, Shutdown, SocketAddr, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -20,7 +21,10 @@ use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
-use strobe_remote::desktop::{Desktop, Input, MAX_EDGE, MAX_JPEG, Modifiers};
+use strobe_remote::desktop::{
+    ControlEdit, ControlLayout, Desktop, Input, MAX_CONTROL_EDITS, MAX_EDGE, MAX_JPEG, Modifiers,
+    SyncedBank,
+};
 use strobe_remote::{ClientMessage, ErrorCode, ServerMessage};
 
 use crate::trusted;
@@ -87,14 +91,16 @@ struct Readback {
     buffer: strobe_gfx::gl::Buffer,
     /// The window size the buffer was made for.
     size: [u32; 2],
-    /// The size and fence of the capture in flight.
-    pending: Option<([u32; 2], strobe_gfx::gl::Fence)>,
+    /// The size and fence of the capture in flight, and where its control
+    /// rows are (D515).
+    pending: Option<([u32; 2], strobe_gfx::gl::Fence, ControlLayout)>,
 }
 
 struct CaptureFrame {
     desktop: Desktop,
     size: [u32; 2],
     pixels: Vec<u8>,
+    rows: ControlLayout,
 }
 
 impl Default for Capture {
@@ -113,13 +119,15 @@ impl Default for Capture {
 impl Capture {
     /// Once per control frame, after the paint and before the swap: collect
     /// a finished capture for the encoder and, when one is due for an
-    /// active lease, start the next. Never waits on the GPU.
+    /// active lease, start the next. Never waits on the GPU. `rows` is where
+    /// this frame drew the control rows a controller draws itself (D515).
     pub fn frame(
         &mut self,
         gl: &strobe_gfx::gl::Gl,
         now: Instant,
         desktop: &Desktop,
         size: [u32; 2],
+        rows: ControlLayout,
     ) {
         if !desktop.active() {
             // No lease: free the pack buffer and anything in flight.
@@ -149,7 +157,7 @@ impl Capture {
             );
             return;
         }
-        self.start(gl, size);
+        self.start(gl, size, rows);
     }
 
     /// Whether a capture is due at `now`; when it is, the next one is
@@ -172,7 +180,7 @@ impl Capture {
         true
     }
 
-    fn start(&mut self, gl: &strobe_gfx::gl::Gl, size: [u32; 2]) {
+    fn start(&mut self, gl: &strobe_gfx::gl::Gl, size: [u32; 2], rows: ControlLayout) {
         if self.gpu.as_ref().is_none_or(|gpu| gpu.size != size) {
             self.gpu = None;
             match gl.pack_buffer(size[0] as usize * size[1] as usize * 4) {
@@ -197,7 +205,7 @@ impl Capture {
             .read_default_pixels_into(&gpu.buffer, size[0] as i32, size[1] as i32)
             .and_then(|()| gl.fence());
         match started {
-            Ok(fence) => gpu.pending = Some((size, fence)),
+            Ok(fence) => gpu.pending = Some((size, fence, rows)),
             Err(error) => log::warn!("desktop capture: readback not started: {error}"),
         }
     }
@@ -206,7 +214,7 @@ impl Capture {
         let Some(gpu) = self.gpu.as_mut() else {
             return;
         };
-        let Some((size, fence)) = gpu.pending.as_ref() else {
+        let Some((size, fence, _)) = gpu.pending.as_ref() else {
             return;
         };
         let size = *size;
@@ -218,7 +226,11 @@ impl Capture {
             }
             strobe_gfx::gl::FenceStatus::Signaled => {}
         }
-        gpu.pending = None;
+        let rows = gpu
+            .pending
+            .take()
+            .map(|(_, _, rows)| rows)
+            .unwrap_or_default();
         let mut pixels = self
             .spare
             .take()
@@ -226,14 +238,14 @@ impl Capture {
             .unwrap_or_default();
         pixels.resize(size[0] as usize * size[1] as usize * 4, 0);
         if gpu.gl.read_buffer(&gpu.buffer, &mut pixels) {
-            self.submit(desktop.clone(), size, pixels);
+            self.submit(desktop.clone(), size, pixels, rows);
         } else {
             self.spare = Some(pixels);
         }
     }
 
     /// Hand bottom-up RGBA to the encoder, skipping if the queue is full.
-    fn submit(&mut self, desktop: Desktop, size: [u32; 2], pixels: Vec<u8>) {
+    fn submit(&mut self, desktop: Desktop, size: [u32; 2], pixels: Vec<u8>, rows: ControlLayout) {
         if self.sender.is_none() {
             let (sender, frames) = sync_channel::<CaptureFrame>(1);
             let (give_back, returned) = sync_channel::<Vec<u8>>(2);
@@ -261,6 +273,7 @@ impl Capture {
             desktop,
             size,
             pixels,
+            rows,
         }) {
             Ok(()) => {}
             // The encoder is behind: this capture is skipped, its buffer kept.
@@ -274,24 +287,97 @@ impl Capture {
 /// The capture worker: encode, publish, and give the buffer back.
 fn encoder(frames: &Receiver<CaptureFrame>, give_back: &SyncSender<Vec<u8>>) {
     let mut ladder = Ladder::default();
+    let mut last: Option<Sent> = None;
     while let Ok(mut frame) = frames.recv() {
         if frame.desktop.active() {
-            match encode(frame.size, &mut frame.pixels, &mut ladder) {
-                Ok(encoded) => frame.desktop.publish(
-                    encoded.size,
-                    strobe_remote::client::encode_image(&encoded.jpeg),
-                ),
-                Err(error) => {
-                    log::warn!("desktop capture: {error}");
-                    frame.desktop.capture_failed(
-                        "Host capture failed; resize the host window and pair again",
-                    );
+            let now = Instant::now();
+            let print = fingerprint(&frame.pixels);
+            match last
+                .as_mut()
+                .filter(|sent| sent.matches(print, frame.size, &frame.rows))
+            {
+                // The same picture as the last one sent (D514): nothing to
+                // compress, and only a keep-alive copy now and then.
+                Some(sent) => {
+                    if now.saturating_duration_since(sent.at) >= RESEND_UNCHANGED {
+                        frame.desktop.publish_with_rows(
+                            sent.encoded_size,
+                            sent.jpeg.clone(),
+                            sent.rows.clone(),
+                        );
+                        sent.at = now;
+                    }
                 }
+                None => match encode(frame.size, &mut frame.pixels, &mut ladder) {
+                    Ok(encoded) => {
+                        let jpeg = strobe_remote::client::encode_image(&encoded.jpeg);
+                        frame.desktop.publish_with_rows(
+                            encoded.size,
+                            jpeg.clone(),
+                            frame.rows.clone(),
+                        );
+                        last = Some(Sent {
+                            print,
+                            size: frame.size,
+                            encoded_size: encoded.size,
+                            jpeg,
+                            rows: std::mem::take(&mut frame.rows),
+                            at: now,
+                        });
+                    }
+                    Err(error) => {
+                        log::warn!("desktop capture: {error}");
+                        frame.desktop.capture_failed(
+                            "Host capture failed; resize the host window and pair again",
+                        );
+                    }
+                },
             }
+        } else {
+            last = None;
         }
         // A full return queue drops this buffer; the app makes another.
         let _ = give_back.try_send(frame.pixels);
     }
+}
+
+/// How often a picture that has not changed is sent again anyway: well
+/// within the 3 s after which a controller takes a silent host for a
+/// paused one (D514).
+const RESEND_UNCHANGED: Duration = Duration::from_secs(1);
+
+/// The picture last sent, to tell an unchanged capture from it.
+struct Sent {
+    print: u64,
+    size: [u32; 2],
+    encoded_size: [u32; 2],
+    /// As sent: base64 JPEG.
+    jpeg: String,
+    /// Where it had its control rows (D515).
+    rows: ControlLayout,
+    at: Instant,
+}
+
+impl Sent {
+    fn matches(&self, print: u64, size: [u32; 2], rows: &ControlLayout) -> bool {
+        self.print == print && self.size == size && self.rows == *rows
+    }
+}
+
+/// A 64-bit fingerprint of a capture, eight bytes a step: about a
+/// millisecond for a 1080p window where compressing it takes tens (D514).
+fn fingerprint(pixels: &[u8]) -> u64 {
+    const PRIME: u64 = 0x0000_0100_0000_01b3;
+    let (words, tail) = pixels.as_chunks::<8>();
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325 ^ pixels.len() as u64;
+    for word in words {
+        hash = (hash ^ u64::from_le_bytes(*word)).wrapping_mul(PRIME);
+        hash ^= hash >> 29;
+    }
+    for byte in tail {
+        hash = (hash ^ u64::from(*byte)).wrapping_mul(PRIME);
+    }
+    hash
 }
 
 impl Drop for Capture {
@@ -472,7 +558,19 @@ struct View {
     /// The connection proves a trust file (D288/D294): no code, no
     /// approval, and it retries by itself when it drops.
     trusted: bool,
+    /// The host's controls as data (D513): the latest publication, each
+    /// bank with its definitions (kept from an earlier one when this one
+    /// left them out).
+    controls: Option<(u64, Vec<SyncedBank>)>,
+    /// Where the last few frames have their control rows, by revision
+    /// (D515, D519). A frame's rows arrive just before it, so the picture
+    /// still shown needs the one before the newest.
+    layouts: VecDeque<(u64, ControlLayout)>,
 }
+
+/// How many frames' layouts a controller keeps: the picture shown is at
+/// most a frame or two behind the newest rows.
+const LAYOUTS_KEPT: usize = 4;
 
 /// Where a connection stands, for the viewer.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -664,6 +762,19 @@ pub struct Controller {
     /// The stage and readiness the viewer last drew, so the app redraws it
     /// when the worker changes either ([`Self::needs_redraw`]).
     shown: Option<(Stage, bool)>,
+    /// The host's controls, drawn here (D513), and the publication drawn.
+    mirror: crate::remote_controls::Mirror,
+    controls_revision: Option<u64>,
+    /// Where the last few pictures have their control rows, drawn over by
+    /// the copies here (D515, D519), as the worker last had them.
+    layouts: VecDeque<(u64, ControlLayout)>,
+    /// A press began on a row drawn here: the pointer stays here until it
+    /// is released, and none of it goes to the host.
+    local_drag: bool,
+    /// Edits made here, for the worker to send.
+    edits: Option<SyncSender<ControlEdit>>,
+    /// When the rows were last drawn, for their eased outputs.
+    drawn: Option<Instant>,
 }
 
 impl Default for Controller {
@@ -692,6 +803,12 @@ impl Default for Controller {
             reveal: false,
             waiting: None,
             shown: None,
+            mirror: crate::remote_controls::Mirror::default(),
+            controls_revision: None,
+            layouts: VecDeque::new(),
+            local_drag: false,
+            edits: None,
+            drawn: None,
         }
     }
 }
@@ -744,6 +861,16 @@ impl Controller {
     pub fn remembered(&self, into: &mut crate::prefs::RemotePref) {
         into.trust_file = trusted::clean_path(&self.trust_path).to_string();
         into.use_trust = self.use_trust;
+    }
+
+    /// Points the form at a Strobe found on the network, for its Connect.
+    /// A code left in the form is dropped. The trust option stays as the
+    /// operator left it: with a trust file chosen, the Connect proves it and
+    /// the host accepts with no approval; without one, the host is asked
+    /// (D468, D509).
+    pub fn choose_found(&mut self, address: SocketAddr) {
+        self.address = address.to_string();
+        self.code.clear();
     }
 
     /// Start a fresh pairing session; no bearer secret is saved or logged.
@@ -812,12 +939,14 @@ impl Controller {
             trust,
         };
         let (sender, inputs) = sync_channel(512);
+        let (edits, edited) = sync_channel(512);
         match std::thread::Builder::new()
             .name("desktop controller".into())
-            .spawn(move || work(&link, &inputs))
+            .spawn(move || work(&link, &inputs, &edited))
         {
             Ok(worker) => {
                 self.sender = Some(sender);
+                self.edits = Some(edits);
                 self.worker = Some(worker);
             }
             Err(error) => {
@@ -891,6 +1020,8 @@ impl Controller {
             // it. What the form says afterwards must be true of now.
             let mut view = self.view.lock().unwrap_or_else(PoisonError::into_inner);
             view.image = None;
+            view.controls = None;
+            view.layouts.clear();
             if was_active {
                 match view.stage {
                     Stage::Connecting => view.note = "Connection cancelled.".into(),
@@ -905,6 +1036,12 @@ impl Controller {
         self.started = None;
         self.waiting = None;
         self.shown = None;
+        self.edits = None;
+        self.mirror = crate::remote_controls::Mirror::default();
+        self.controls_revision = None;
+        self.layouts.clear();
+        self.local_drag = false;
+        self.drawn = None;
         self.texture = None;
         self.texture_context = None;
         self.revision = 0;
@@ -921,6 +1058,7 @@ impl Controller {
         let view = self.view.lock().unwrap_or_else(PoisonError::into_inner);
         (view.image.is_some() && view.revision != self.revision)
             || self.shown != Some((view.stage, view.ready))
+            || view.controls.as_ref().map(|(revision, _)| *revision) != self.controls_revision
     }
 
     /// Status for Settings or the always-visible viewer toolbar.
@@ -1011,6 +1149,17 @@ impl Controller {
                 }
                 self.revision = view.revision;
                 self.texture_context = Some(ui.ctx().clone());
+            }
+            if let Some((revision, banks)) = &view.controls
+                && self.controls_revision != Some(*revision)
+            {
+                self.mirror.take(*revision, banks, Instant::now());
+                self.controls_revision = Some(*revision);
+            }
+            if view.layouts.back().map(|(revision, _)| *revision)
+                != self.layouts.back().map(|(revision, _)| *revision)
+            {
+                self.layouts.clone_from(&view.layouts);
             }
             (
                 view.size,
@@ -1125,6 +1274,78 @@ impl Controller {
         }
     }
 
+    /// Draws this computer's copy of each control over the host's picture
+    /// of it (D515), where the host says the picture shown has its rows,
+    /// and hands what the person changed to the worker, which sends it at
+    /// once. Returns where rows were drawn: the pointer there stays here.
+    ///
+    /// The rows are laid out at the host's own size, in its points, on a
+    /// layer scaled and moved exactly as the picture is (D519): drawn at
+    /// this computer's size into a shrunken picture they were cut off, and
+    /// the picture's own row showed through around them.
+    fn draw_rows(&mut self, ui: &mut egui::Ui, image: egui::Rect) -> Vec<egui::Rect> {
+        let now = Instant::now();
+        let dt = self.drawn.map_or(0.0, |drawn| {
+            now.saturating_duration_since(drawn).as_secs_f32()
+        });
+        self.drawn = Some(now);
+        let mut covered = Vec::new();
+        let mut edits = Vec::new();
+        // The rows of the picture shown, which is a frame or two behind the
+        // newest rows: rows placed for another picture would sit wrong.
+        let layouts = std::mem::take(&mut self.layouts);
+        let shown = layouts
+            .iter()
+            .find(|(revision, _)| *revision == self.revision)
+            .map(|(_, layout)| layout)
+            .filter(|layout| layout.screen[0] > 0.0 && image.width() > 0.0);
+        if let Some(layout) = shown {
+            let [host_width, host_height] = layout.screen;
+            let scale = image.width() / host_width;
+            let host = egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(host_width, host_height));
+            let area = egui::Area::new(egui::Id::unique("remote control rows"))
+                .fixed_pos(Pos2::ZERO)
+                .order(egui::Order::Middle)
+                .constrain(false)
+                .show(ui.ctx(), |ui| {
+                    ui.set_clip_rect(host);
+                    for row in &layout.rows {
+                        let [x, y, width, height] = row.rect;
+                        let rect = egui::Rect::from_min_size(
+                            Pos2::new(x * host_width, y * host_height),
+                            Vec2::new(width * host_width, height * host_height),
+                        );
+                        if self.mirror.draw_row(ui, row, rect, now, &mut edits) {
+                            covered.push(egui::Rect::from_min_size(
+                                image.min + rect.min.to_vec2() * scale,
+                                rect.size() * scale,
+                            ));
+                        }
+                    }
+                });
+            ui.ctx().set_transform_layer(
+                area.response.layer_id,
+                egui::emath::TSTransform::new(image.min.to_vec2(), scale),
+            );
+        }
+        self.layouts = layouts;
+        self.mirror.ease(dt);
+        for edit in edits {
+            if let Some(sender) = &self.edits
+                && sender.try_send(edit).is_err()
+            {
+                // The worker is gone or far behind: the host's own values
+                // come back on the next publication.
+                log::debug!("desktop controller: a control edit was not queued");
+            }
+        }
+        if !covered.is_empty() {
+            // The copies ease their outputs; keep drawing while they do.
+            ui.ctx().request_repaint_after(Duration::from_millis(33));
+        }
+        covered
+    }
+
     /// Whether a blank code would reconnect to the address shown.
     fn remembers_current(&self) -> bool {
         parse_host(&self.address).is_ok_and(|address| self.remembers(address))
@@ -1149,10 +1370,17 @@ impl Controller {
         let fit = fit_image(ui.available_size(), size);
         let response =
             ui.add(egui::Image::new((texture.id(), fit)).sense(egui::Sense::click_and_drag()));
-        if response.clicked()
-            || response.drag_started()
-            || (response.hovered() && ui.input(|input| input.pointer.any_pressed()))
-            || (self.focused && ui.input(|input| input.focused && !input.pointer.any_pressed()))
+        let covered = self.draw_rows(ui, response.rect);
+        let on_row = |pos: Pos2| covered.iter().any(|rect| rect.contains(pos));
+        let pressed_on_row = ui.input(|input| {
+            input.pointer.any_pressed() && input.pointer.interact_pos().is_some_and(on_row)
+        });
+        if !pressed_on_row
+            && (response.clicked()
+                || response.drag_started()
+                || (response.hovered() && ui.input(|input| input.pointer.any_pressed()))
+                || (self.focused
+                    && ui.input(|input| input.focused && !input.pointer.any_pressed())))
         {
             response.request_focus();
         }
@@ -1182,6 +1410,23 @@ impl Controller {
                 continue;
             }
             if matches!(event, Event::MouseWheel { .. }) && !response.hovered() {
+                continue;
+            }
+            // A row drawn here keeps its own pointer: a press on it and
+            // everything until the release stay on this computer (D515).
+            if let Event::PointerButton { pos, pressed, .. } = &event {
+                if *pressed && on_row(*pos) {
+                    self.local_drag = true;
+                    continue;
+                }
+                if !*pressed && self.local_drag {
+                    self.local_drag = false;
+                    continue;
+                }
+            }
+            if let Event::PointerMoved(pos) = &event
+                && (self.local_drag || on_row(*pos))
+            {
                 continue;
             }
             for input in outgoing(&event, response.rect, focused) {
@@ -1439,11 +1684,11 @@ fn pause(stop: &AtomicBool, wait: Duration) -> bool {
 /// A refusal, or any other ending `control` has already put into the view as
 /// [`Stage::Ended`], is final: retrying a wrong file only feeds the host's
 /// failed-proof limiter.
-fn work(link: &Link, inputs: &Receiver<Input>) {
+fn work(link: &Link, inputs: &Receiver<Input>, edits: &Receiver<ControlEdit>) {
     let mut attempt: u32 = 0;
     loop {
         let mut pictured = false;
-        let ended = control(link, inputs, &mut pictured);
+        let ended = control(link, (inputs, edits), &mut pictured);
         // However the connection ended, its socket closes now. The
         // interrupter in the slot is a second handle on it, so dropping the
         // connection alone would leave it open: after a timeout the host
@@ -1516,12 +1761,17 @@ fn work(link: &Link, inputs: &Receiver<Input>) {
         // Input typed while the host was away is stale; it is never
         // replayed into the new connection (D275).
         while inputs.try_recv().is_ok() {}
+        while edits.try_recv().is_ok() {}
     }
 }
 
 /// One connection, until it ends or `stop` is set. `pictured` is set once a
 /// frame from the host has arrived on it.
-fn control(link: &Link, inputs: &Receiver<Input>, pictured: &mut bool) -> io::Result<()> {
+fn control(
+    link: &Link,
+    (inputs, edits): (&Receiver<Input>, &Receiver<ControlEdit>),
+    pictured: &mut bool,
+) -> io::Result<()> {
     let Link {
         address,
         code,
@@ -1557,6 +1807,10 @@ fn control(link: &Link, inputs: &Receiver<Input>, pictured: &mut bool) -> io::Re
     // taken only shortly after, so a host cannot write into this computer's
     // clipboard unasked.
     let mut last_input: Option<Instant> = None;
+    // The controls as data (D513): asked for once the lease is asked for,
+    // and known to work once the host has sent some. A host from before
+    // D513 answers the request `invalid_request`, which is not a failure.
+    let mut controls = Controls::default();
     while !stop.load(Ordering::Relaxed) {
         let now = Instant::now();
         if authenticated && now.duration_since(last_frame) > Duration::from_secs(3) && !paused {
@@ -1668,6 +1922,35 @@ fn control(link: &Link, inputs: &Receiver<Input>, pictured: &mut bool) -> io::Re
                         };
                     }
                     connection.send(&ClientMessage::DesktopOpen {})?;
+                    connection.send(&ClientMessage::DesktopControlsOpen {})?;
+                    controls.asked = true;
+                }
+                ServerMessage::DesktopLayout {
+                    revision,
+                    screen,
+                    rows,
+                } => {
+                    let mut view = view.lock().unwrap_or_else(PoisonError::into_inner);
+                    view.layouts
+                        .push_back((revision, ControlLayout { screen, rows }));
+                    while view.layouts.len() > LAYOUTS_KEPT {
+                        view.layouts.pop_front();
+                    }
+                }
+                ServerMessage::DesktopControls { revision, banks } => {
+                    controls.seen = true;
+                    let mut view = view.lock().unwrap_or_else(PoisonError::into_inner);
+                    let banks = with_definitions(banks, view.controls.as_ref());
+                    view.controls = Some((revision, banks));
+                }
+                ServerMessage::Error {
+                    code: ErrorCode::InvalidRequest,
+                    ..
+                } if controls.asked && !controls.seen && authenticated => {
+                    // A host from before D513 does not know the request:
+                    // the window alone, as before.
+                    controls.asked = false;
+                    log::info!("desktop controller: the host does not send its controls as data");
                 }
                 ServerMessage::DesktopFrame {
                     revision,
@@ -1768,7 +2051,21 @@ fn control(link: &Link, inputs: &Receiver<Input>, pictured: &mut bool) -> io::Re
                     events: std::mem::take(&mut batch),
                 })?;
                 last_input = Some(now);
-                next_send = now + Duration::from_millis(150);
+                // A host that sends its controls also takes input faster
+                // from the desktop holding its lease (D513); an older one
+                // keeps every client to ten messages a second.
+                next_send = now + if controls.seen { SEND_FAST } else { SEND_SLOW };
+            }
+        }
+        if controls.seen && controls.next_send.is_none_or(|at| now >= at) {
+            let edits = next_edits(edits);
+            if !edits.is_empty() {
+                for chunk in edits.chunks(MAX_CONTROL_EDITS) {
+                    connection.send(&ClientMessage::DesktopControl {
+                        edits: chunk.to_vec(),
+                    })?;
+                }
+                controls.next_send = Some(now + SEND_FAST);
             }
         }
         if now >= next_ping {
@@ -1777,6 +2074,61 @@ fn control(link: &Link, inputs: &Receiver<Input>, pictured: &mut bool) -> io::Re
         }
     }
     Ok(())
+}
+
+/// How often input leaves for a host from before D513, which allows every
+/// client ten messages a second.
+const SEND_SLOW: Duration = Duration::from_millis(150);
+
+/// How often input and control edits leave for a host that sends its
+/// controls (D513), which allows the desktop holding its lease fifty.
+const SEND_FAST: Duration = Duration::from_millis(50);
+
+/// Where one connection stands with the controls as data (D513).
+#[derive(Default)]
+struct Controls {
+    /// `desktop_controls_open` was sent.
+    asked: bool,
+    /// The host has sent its controls, so it takes edits.
+    seen: bool,
+    /// When edits may next leave.
+    next_send: Option<Instant>,
+}
+
+/// The edits waiting in `edits`. A newer value for a control replaces an
+/// older one still waiting, in its place; a press keeps its own.
+fn next_edits(edits: &Receiver<ControlEdit>) -> Vec<ControlEdit> {
+    let mut out: Vec<ControlEdit> = Vec::new();
+    while let Ok(edit) = edits.try_recv() {
+        if !edit.values.is_empty()
+            && let Some(waiting) = out.iter_mut().find(|waiting| {
+                !waiting.values.is_empty()
+                    && waiting.bank == edit.bank
+                    && waiting.index == edit.index
+            })
+        {
+            *waiting = edit;
+            continue;
+        }
+        out.push(edit);
+    }
+    out
+}
+
+/// `banks` with each bank's definitions filled from `before` where the
+/// host left them out because it had sent them already (D513).
+fn with_definitions(
+    mut banks: Vec<SyncedBank>,
+    before: Option<&(u64, Vec<SyncedBank>)>,
+) -> Vec<SyncedBank> {
+    for bank in &mut banks {
+        if bank.defs.is_none() {
+            bank.defs = before
+                .and_then(|(_, earlier)| earlier.iter().find(|earlier| earlier.id == bank.id))
+                .and_then(|earlier| earlier.defs.clone());
+        }
+    }
+    banks
 }
 
 /// Fills `batch` with the input waiting in `inputs`, at most 32 events and
@@ -3041,6 +3393,157 @@ mod tests {
         ))
     }
 
+    /// A bank of `controls`, each a `scene.json` entry.
+    fn bank(controls: &[&str]) -> Result<strobe_scene::control::ControlBank> {
+        let defs = controls
+            .iter()
+            .map(|json| {
+                let raw: strobe_scene::json::RawControl = serde_json::from_str(json)?;
+                Ok(strobe_scene::control::ControlDef::from_raw(&raw)?)
+            })
+            .collect::<Result<Vec<_>>>()?;
+        Ok(strobe_scene::control::ControlBank::new(defs)?)
+    }
+
+    #[test]
+    fn a_row_is_laid_out_at_the_hosts_size_and_lands_on_the_shrunken_picture() -> Result<()> {
+        let host =
+            bank(&[r#"{ "NAME": "speed", "TYPE": "slider", "MIN": 0, "MAX": 2, "DEFAULT": 1 }"#])?;
+        let mut controller = Controller::default();
+        controller.mirror.take(
+            1,
+            &[SyncedBank {
+                id: 9,
+                title: "Scene".into(),
+                defs: Some(
+                    host.defs()
+                        .iter()
+                        .map(strobe_scene::control::ControlDef::to_json)
+                        .collect(),
+                ),
+                values: vec![[1.0; 3]],
+            }],
+            Instant::now(),
+        );
+        controller.revision = 5;
+        let row = strobe_remote::desktop::ControlRow {
+            bank: 9,
+            index: 0,
+            rect: [0.1, 0.25, 0.4, 0.05],
+            touch: true,
+        };
+        // An older picture's rows, then the rows of the one shown.
+        for revision in [4, 5, 6] {
+            controller.layouts.push_back((
+                revision,
+                ControlLayout {
+                    screen: [1000.0, 800.0],
+                    rows: vec![row.clone()],
+                },
+            ));
+        }
+        let ctx = egui::Context::default();
+        let image = egui::Rect::from_min_size(Pos2::new(20.0, 40.0), Vec2::new(500.0, 400.0));
+        let mut covered = Vec::new();
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                Pos2::ZERO,
+                Vec2::new(800.0, 600.0),
+            )),
+            ..egui::RawInput::default()
+        };
+        let mut output = ctx.run_ui(input, |ui| covered = controller.draw_rows(ui, image));
+        output.textures_delta.clear();
+        // Half size: the host's 400 by 40 point row at (100, 200) is a 200 by
+        // 20 rectangle at (50, 100) in the picture.
+        let expected = egui::Rect::from_min_size(Pos2::new(70.0, 140.0), Vec2::new(200.0, 20.0));
+        let near = |a: egui::Rect, b: egui::Rect| {
+            (a.min - b.min).length() < 0.01 && (a.max - b.max).length() < 0.01
+        };
+        assert!(
+            covered.len() == 1 && covered.first().is_some_and(|got| near(*got, expected)),
+            "the row lands where the picture has it, at the picture's scale: {covered:?}"
+        );
+        assert_eq!(controller.layouts.len(), 3, "the layouts are kept");
+        controller.revision = 7;
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            covered = controller.draw_rows(ui, image);
+        });
+        output.textures_delta.clear();
+        assert!(
+            covered.is_empty(),
+            "a picture with no rows of its own gets none drawn over it"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn the_hosts_controls_arrive_as_data_and_an_edit_made_here_reaches_its_bank() -> Result<()> {
+        use crate::remote_controls::{Live, Publisher};
+        let scratch = Scratch::new("controls")?;
+        let file = scratch.0.join("venue.trust");
+        let secret = venue_trust::create_file(&file)?;
+        let (server, app) = trusted_host(&secret, 0)?;
+        let mut controller = trusted_controller(&file, server.addr());
+        controller.connect();
+        within(PATIENCE, || app.desktop.controls_wanted())?;
+        let mut scene =
+            bank(&[r#"{ "NAME": "speed", "TYPE": "slider", "MIN": 0, "MAX": 2, "DEFAULT": 1 }"#])?;
+        let mut output = bank(&[r#"{ "NAME": "fade", "TYPE": "slider" }"#])?;
+        let mut publisher = Publisher::default();
+        let mut tick = |scene: &mut strobe_scene::control::ControlBank| {
+            publisher.tick(
+                &app.desktop,
+                Some(Live {
+                    title: "Acid Mirror",
+                    scene,
+                    output: &mut output,
+                }),
+                Instant::now(),
+            );
+        };
+        tick(&mut scene);
+        within(PATIENCE, || {
+            controller
+                .view
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .controls
+                .is_some()
+        })?;
+        let banks = controller
+            .view
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .controls
+            .clone()
+            .map(|(_, banks)| banks)
+            .unwrap_or_default();
+        let ids: Vec<u64> = banks.iter().map(|bank| bank.id).collect();
+        assert!(
+            banks.len() == 2 && banks.iter().all(|bank| bank.defs.is_some()),
+            "both banks arrived with their controls: {banks:?}"
+        );
+        let Some(&scene_id) = ids.first() else {
+            anyhow::bail!("a scene bank");
+        };
+        let Some(edits) = controller.edits.as_ref() else {
+            anyhow::bail!("an edit channel while connected");
+        };
+        edits.try_send(ControlEdit {
+            bank: scene_id,
+            index: 0,
+            values: vec![1.5],
+        })?;
+        within(PATIENCE, || {
+            tick(&mut scene);
+            scene.target(0).is_some_and(|target| target[0] == 1.5)
+        })?;
+        controller.disconnect();
+        server.stop();
+        Ok(())
+    }
+
     #[test]
     fn a_trusted_controller_connects_with_no_approval_and_keeps_the_secret_to_itself() -> Result<()>
     {
@@ -3085,6 +3588,33 @@ mod tests {
             .find_map(|line| line.strip_prefix("secret "))
             .ok_or_else(|| anyhow::anyhow!("the file has a secret line"))?;
         assert!(!controller.note().contains(hex), "the secret is not shown");
+        controller.disconnect();
+        server.stop();
+        Ok(())
+    }
+
+    #[test]
+    fn a_listed_strobe_is_proved_the_chosen_trust_file_and_asks_nobody() -> Result<()> {
+        let scratch = Scratch::new("listed")?;
+        let file = scratch.0.join("venue.trust");
+        let secret = venue_trust::create_file(&file)?;
+        let (server, app) = trusted_host(&secret, 0)?;
+        // The form as remembered from last time: a trust file chosen, no
+        // address, and a stray code in the field.
+        let mut controller = trusted_controller(&file, server.addr());
+        controller.address.clear();
+        controller.code = "123456".into();
+        controller.choose_found(server.addr());
+        assert!(
+            controller.use_trust && controller.code.is_empty(),
+            "the trust option is kept and the code dropped"
+        );
+        controller.connect();
+        within(PATIENCE, || app.desktop.active())?;
+        assert!(
+            server.pairing_requests().is_empty(),
+            "the found Strobe's Connect proved the file: nobody was asked to approve (D509)"
+        );
         controller.disconnect();
         server.stop();
         Ok(())
@@ -3858,6 +4388,72 @@ mod tests {
             let _ = encode([64, 64], &mut vec![90_u8; 64 * 64 * 4], &mut ladder)?;
         }
         assert_eq!(ladder.step, settled - 1, "one step back up");
+        Ok(())
+    }
+
+    #[test]
+    fn one_changed_pixel_changes_the_fingerprint() {
+        let mut pixels = vec![200_u8; 64 * 48 * 4 + 3];
+        let before = fingerprint(&pixels);
+        assert_eq!(
+            fingerprint(&pixels),
+            before,
+            "the same picture, the same print"
+        );
+        for at in [0, 1234, pixels.len() - 1] {
+            if let Some(byte) = pixels.get_mut(at) {
+                *byte ^= 1;
+            }
+            assert_ne!(fingerprint(&pixels), before, "byte {at} changed");
+            if let Some(byte) = pixels.get_mut(at) {
+                *byte ^= 1;
+            }
+        }
+    }
+
+    #[test]
+    fn an_unchanged_picture_is_not_compressed_again_and_is_resent_only_to_keep_alive() -> Result<()>
+    {
+        let desktop = Desktop::default();
+        desktop.enable(true);
+        anyhow::ensure!(desktop.acquire(1), "a lease to capture for");
+        let (frames, receive) = sync_channel::<CaptureFrame>(1);
+        let (give_back, returned) = sync_channel::<Vec<u8>>(2);
+        let worker = std::thread::spawn(move || encoder(&receive, &give_back));
+        let send = |pixels: Vec<u8>| -> Result<Vec<u8>> {
+            frames.send(CaptureFrame {
+                desktop: desktop.clone(),
+                size: [32, 32],
+                pixels,
+                rows: ControlLayout::default(),
+            })?;
+            Ok(returned.recv_timeout(Duration::from_secs(10))?)
+        };
+        let revision = || desktop.frame().map(|(revision, _)| revision);
+        let still = vec![90_u8; 32 * 32 * 4];
+        send(still.clone())?;
+        let first = revision();
+        assert!(first.is_some(), "the first picture is sent");
+        send(still.clone())?;
+        assert_eq!(revision(), first, "the same picture again is not");
+        let mut moved = still.clone();
+        if let Some(byte) = moved.get_mut(100) {
+            *byte = 10;
+        }
+        send(moved.clone())?;
+        let second = revision();
+        assert_ne!(second, first, "a change is sent");
+        std::thread::sleep(RESEND_UNCHANGED + Duration::from_millis(50));
+        send(moved)?;
+        assert_ne!(
+            revision(),
+            second,
+            "a still picture is sent again to keep alive"
+        );
+        drop(frames);
+        worker
+            .join()
+            .map_err(|_| anyhow::anyhow!("the encoder ended badly"))?;
         Ok(())
     }
 

@@ -12562,3 +12562,394 @@ and the scale climbing back once its locks run out.
 **Would reopen:** a driver that leaves the back buffer undefined until a
 swap, so that captures go black or stale, or a covered window shown stale
 after uncovering.
+
+### D509: Connect on a Strobe found on the network proves the chosen trust file (2026-10-28)
+
+**Context.** D468 listed the Strobes found on the network, each with
+Connect, and that Connect always asked the host for approval: it switched
+the form's trust option off. Venue mode (D288, D294) worked only through
+Connect by address or a `--control HOST --remote-trust FILE` launch. The
+owner controls the JaJa mini PC from the venue desktop and wanted to open
+Strobe, press Connect on the mini PC in the list, and be accepted with
+nobody at the mini PC, after any restart of either.
+
+**Decision.** A found Strobe's Connect (`Controller::choose_found`) sets
+the address and drops a stray code, and leaves the trust option as the
+operator left it. With *Use a trust file* on and a file chosen (both
+remembered in `ui.toml`, D294), Connect proves the file and the host
+accepts with no approval; with it off, the host is asked, as before. The
+proof is bound to the address the controller dialled (D288), so proving
+the file to a Strobe that only claims a name on the network gives it
+nothing it can use elsewhere.
+
+**Test.** `desktop::tests::a_listed_strobe_is_proved_the_chosen_trust_file_and_asks_nobody`:
+a form remembered with a trust file and a stray code, pointed at a found
+host, connects with no pairing request. On the venue: the mini PC started
+with `--remote-trust`, the desktop's Connect in the list, no approval.
+
+**Would reopen:** a controller that proves the file to hosts that do not
+hold it often enough for the failed-proof limits (D288) to get in the way,
+in which case a found host's Connect would try approval after a refusal.
+
+### D513: the desktop remote sends the controls as data, and the controller draws them (2026-10-28)
+
+**Context.** Controlling the JaJa mini PC from the venue desktop, every
+control change lagged. The desktop remote (D275) mirrors the host's whole
+control window as a JPEG at most five times a second. A slider drag
+waited for three things in turn: the controller's input batch, which left
+every 150 ms; the host's control frame, which runs at the stream's 5 Hz
+while the fullscreen output covers the window (D290); and the next
+captured picture, up to 200 ms later. The host's weak CPU also had to
+compress a full window for every picture. D275 itself said to revisit a
+structured protocol once real hardware showed the cost.
+
+**Decision.** The controls travel as data beside the picture, which
+stays for the editor and settings (`strobe_app::remote_controls`).
+
+- **Protocol.** The lease holder sends `desktop_controls_open` after
+  `desktop_open`. The host answers `desktop_controls`: the playing scene's
+  bank and the output's, each with an id, a title, every control's target
+  and, the first time a connection sees that id, its definitions as
+  `scene.json` entries (`ControlDef::to_json`, which `from_raw` reads back
+  equal for every control in the library and the meta bank). Edits come
+  back as `desktop_control`: up to 32 of `{bank, index, values}`, where no
+  values is a bang's press, applied with `ControlBank::set` as the host's
+  own rows do. The definitions change the id, so an edit made against a
+  scene that has since been replaced, even in the same frame, is dropped.
+- **Host.** `Publisher::tick` runs in the scene frame (drain_lan): it
+  applies the queued edits, then publishes when something moved, at most
+  every 50 ms, and only while the lease holder asked. Nothing is
+  published or allocated while nobody asked.
+- **Controller.** `Mirror` rebuilds each bank from its definitions and
+  draws it with `ui::controls::rows`, in a 380-point panel beside the
+  host's window, which the toolbar hides and shows. A drag moves here at
+  once; its edits leave every 50 ms. A value from the host for a control
+  moved here in the last 600 ms is not taken, so the echo of an older
+  value cannot pull a drag back.
+- **Budget.** The lease holder may send 50 messages a second (burst 100),
+  where everyone else keeps 10 (20). Once a host has sent its controls,
+  the controller's input batches also leave every 50 ms instead of 150.
+- **Older peers.** A controller asks only once leased, and a host only
+  sends to one that asked, so an older controller sees nothing new. An
+  older host answers the request `invalid_request`; the controller takes
+  that as "no controls here" and goes on with the picture alone, at the
+  old input rate.
+
+**Test.** `remote_controls::tests` (both banks published and edited, a
+stale bank's edit dropped across a scene change, the publication period,
+a drag kept from its echo); `desktop::tests::the_hosts_controls_arrive_as_data_and_an_edit_made_here_reaches_its_bank`
+through the real worker and server; the server test
+`the_lease_holder_gets_the_controls_once_and_its_edits_reach_the_app`
+(definitions once, a phone refused, a two-second drag at 20 edits a
+second keeps the lease); `def::tests` round trips; the frozen messages in
+`strobe_remote`. On the venue: LIGHTNING dragging a control of the mini
+PC's playing scene.
+
+**Would reopen:** a scene whose script moves controls every frame, so
+that the 20 Hz publication of its values is a cost of its own, or the
+editor's save of new controls while connected, which the id covers but
+which has not been tried by hand.
+
+### D514: a controlled host leaves its preview out and sends a picture only when it changed (2026-10-28)
+
+**Context.** With the controls as data (D513), the window picture is left
+for the editor, settings and the library. It still cost the host a full
+compression of its control window five times a second, and most of each
+JPEG was the live preview, the one part of the window that changes every
+frame. The owner said they do not need the preview there: the projectors
+show the show.
+
+**Decision.**
+
+- **No preview while controlled.** While a desktop holds the lease
+  (`Lan::desktop_controlled`), the UI pass gets no preview texture and the
+  preview's place says *Preview off while another Strobe controls this
+  one*. The host also stops drawing the output into its control window.
+  It comes back when the controller leaves.
+- **Only changed pictures.** The capture worker takes a 64-bit fingerprint
+  of each readback (eight bytes a step, about a millisecond at 1080p) and
+  compresses and sends only a picture that differs from the last one
+  sent. An unchanged one is sent again, as the same JPEG with no new
+  compression, once a second, inside the 3 s after which a controller
+  takes a silent host for a paused one. With the preview gone, a window
+  nobody touches costs a fingerprint every 200 ms and nothing else.
+
+Tiles (sending only the changed part of a picture), binary WebSocket
+frames instead of base64 in JSON, and a faster JPEG encoder are left
+until the mini PC's numbers with this in place say they are needed.
+
+**Test.** `desktop::tests::one_changed_pixel_changes_the_fingerprint`,
+`desktop::tests::an_unchanged_picture_is_not_compressed_again_and_is_resent_only_to_keep_alive`
+and the shell test
+`a_controlled_host_says_its_preview_is_off_instead_of_drawing_it`. On the
+venue: the mini PC's perf lines with LIGHTNING connected and idle, against
+D508's numbers.
+
+**Would reopen:** an operator at a controlled host who needs the preview
+there, or a fingerprint collision showing a stale picture (a change would
+then appear on the next one).
+
+### D515: the controller draws its controls over the host's own rows, not in a panel of their own (2026-10-28, owner's choice)
+
+**Context.** D513 drew the host's controls on the controlling computer in
+a 380-point panel beside the host's window. It worked, but the owner
+found it more complicated than needed: the same controls appeared twice,
+once in the picture, laggy, and once beside it, quick. They asked for
+the controls in the main window to be the quick ones.
+
+**Decision.** The panel is gone. While a controller wants the controls,
+the host notes where each control row is drawn in its UI pass
+(`ui::controls::rows` calls `remote_controls::noted`; nothing is noted
+otherwise) and sends that with the picture taken in the same frame: a
+`desktop_layout` message, `{revision, rows: [{bank, index, rect, touch}]}`,
+with each rectangle a fraction of the window and the revision the
+frame's, sent just before the frame. The controller draws its own copy of
+each row (`Mirror::draw_row`) over the picture of it, on an opaque card,
+at the host's scale, only while the layout's revision is the picture's
+shown, so a row never sits over the wrong place. A press on a row drawn
+there, and everything until its release, stays on the controller; all
+other input goes to the host as before. Rows of a bank whose controls
+changed since they were last published are left to the picture until
+the next publication names them.
+
+Only rows drawn by `ui::controls::rows` are covered: the Controls page
+and the side panel. Macros, presets and everything else stay in the
+picture.
+
+**Test.** `remote_controls::tests` (rows noted only when asked and placed
+under their bank's id as fractions of the window; a row drawn only for a
+held control), `strobe_remote` (`desktop_layout` frozen; rows go with
+their frame only to an owner that asked, and rows outside the picture are
+not sent), the server test (the layout just before its frame, under the
+same revision). On the venue: LIGHTNING dragging a slider on the mini
+PC's Controls page.
+
+**Would reopen:** a controller window much smaller than the host's, where
+a row drawn at full size does not fit the picture's row, or the host and
+controller on different UI densities.
+
+### D516: the projector page asks for a password, not a token in a link (2026-10-28, owner's choice)
+
+**Context.** D502's web page took a 64-character token: Settings made one,
+*Copy link* put it in the address (`/?token=...`), and the page swapped
+it for a cookie. The owner found that harder than it needs to be for a
+venue page and asked for a password that is easy to set.
+
+**Decision.** `api.password` replaces `api.token` in `projectors.json`;
+a file from before D516 still loads, its token read as the password until
+one is set. It needs at least 6 characters (`MIN_PASSWORD`), set as
+*Page password* under Settings > Projectors > Connections and saved with
+the rest, or written into the file, which a running service reloads
+within 10 s. Settings no longer makes one up: without a password the page
+waits and says why.
+
+- **Sign-in.** The page's form sends the password to `GET /login` in
+  `Authorization: Bearer`, never in the address or the history. The
+  answer sets `pj_session` (`HttpOnly`, `SameSite=Strict`, a year), which
+  holds not the password but a SHA-256 of it under the page's own label
+  (`server::session`), so changing the password signs every phone out.
+  The API still takes `Authorization: Bearer <password>`. `?token=` is
+  gone.
+- **Not in the repository.** The password lives only in
+  `projectors.json`, in Strobe's data directory, as the projectors'
+  passwords already do.
+
+**Test.** `server::tests` (no password gets the form or a 401; `/login`
+buys a cookie that is not the password, and the password itself is no
+cookie; nothing signs in through the address); `config::tests` (a
+D502-era file's token is the password; short and missing passwords
+refused); `projectors::tests` (the form saves the password and refuses a
+short one; turning the page on without one says so); the fake projector
+test through the page.
+
+**Would reopen:** a page that has to be reachable beyond the venue
+network, where a typed password over plain HTTP is not enough (L-07).
+
+### D517: the remote and projector pages are installable web apps in the website's design; narrows D258 (2026-10-28, owner's request)
+
+**Context.** The phone remote (`controller.html`, D253) and the projector
+page (`ui.html`, D502) predate the website (`site/`, on its own branch)
+and looked like two different products: system grey cards, rounded pills,
+no mark. D258 also held back the manifest and service worker until real
+phones had passed through the HTTPS proxy. The owner asked for both pages
+to be real PWAs in the site's design.
+
+**Decision.**
+
+- **The site's design, dark only.** Both pages use the site's tokens
+  (`site/src/app/globals.css`: ground, panel, hairline, label, cyan
+  accent) and its devices: the ribbon and the wordmark (as outlines from
+  `assets/brand`, since no font is loaded) over a spectrum rule, hairline
+  grids whose 1px gaps are the rules, uppercase 0.1em actions with square
+  corners, mono labels, a section rule with a note at its right, the
+  window frame for a projector and the terminal block for the command log.
+  Good, warn and danger are the app's Strobe theme. The site's light
+  theme is left out: both pages are used in a dark booth, and a phone set
+  to light would light it. Font stacks name Space Grotesk, Inter and
+  JetBrains Mono first and fall back to the system's.
+- **Stage-safe changes on the way.** The remote shows "Looking for
+  Strobe" until the socket answers, instead of an empty page; its
+  connection chip truncates rather than covering the header. The projector
+  page's Off asks twice in place (the first press arms it, red, for four
+  seconds) instead of the browser's `confirm()`, which an installed app
+  shows as a bare system dialog; the password form (D516) is a page of its own
+  (`login.html`) in the same design.
+- **Installable.** Each server serves a manifest (`standalone`, Void
+  background and theme), the brand icons at 192 and 512 and a full-bleed
+  maskable 512 (`assets/brand/icon-maskable.svg`, rendered by `cargo xtask
+  brand`), and a service worker. The worker is network first for
+  everything, so an update needs no prompt; it keeps only the page and the
+  icons, for a launch with the server unreachable, never caches `/ws` or
+  `/api`, and never keeps the projector login form or a redirect. Nothing
+  cached can send a command: the remote needs the socket and a token
+  Strobe accepts, and the projector API needs the cookie. The remote's CSP
+  gains `manifest-src 'self'`, `worker-src 'self'` and `img-src 'self'`;
+  the files go through the same Host check as the page. The projector's
+  files need no password, because a browser fetches a manifest without
+  cookies.
+- **What this does not claim.** A browser runs a service worker, and
+  Chrome offers its install prompt, only in a secure context. Over the
+  operator's HTTPS proxy (D258) that holds; over plain HTTP on a LAN
+  address the pages still work and Add to Home Screen still opens them
+  full screen, but without the worker. Real Android and iOS devices have
+  not been tested (L-07, L-08).
+
+**Test.** `strobe-remote` `page::tests`: every file the page, manifest and
+worker name is served, the manifest has 192, 512 and maskable icons and
+`standalone`, and the policy names `manifest-src` and `worker-src`.
+`strobe-projector` `server::tests::the_web_app_files_need_no_password`. Both
+pages were checked in a browser at 375 px, in landscape and at 1280 px
+against stand-ins for their servers.
+
+**Would reopen:** a phone platform that refuses to install from either
+server once tested on a device, or the site gaining a component library
+the pages could share instead of copying its tokens.
+
+### D518: the projector service runs as the show's user from a folder they own, and updates at logon; reverses D502's SYSTEM task (2026-10-28, owner's choice)
+
+**Context.** D502's `install.ps1` registered `strobe-projector serve` as a
+SYSTEM startup task running a copy in `C:\ProgramData\ProjectorControl\bin`.
+Only an elevated re-run of the installer replaced that copy. The mini PC's
+show launcher (`jaja\start-show.ps1`, local to that PC) already moves its
+checkout to master and builds Strobe at every logon, but it runs as JAJA
+without elevation and cannot stop a SYSTEM task or write that folder. So
+the projector service stayed on the 2026-10-27 build while master moved,
+and the projector page of D517 would never have reached the PC. The service
+needs none of SYSTEM's rights: it binds a LAN port, talks TCP to the
+projectors and reads `projectors.json`, which is already in the user's
+profile.
+
+**Decision.**
+
+- **The task runs as the user who runs Strobe**, the one running the
+  installer unless `-ServiceUser` says otherwise. The logon type is S4U: it
+  starts at boot with nobody logged in, stores no password, and has no
+  network credentials, which it never used. It is not elevated.
+- **From a folder that user owns:** `projector-service\` beside the config
+  (`%LOCALAPPDATA%\strobe\`), holding the binary and its supervisor
+  `pj-service.ps1`. `pj.cmd` stays on the machine PATH in
+  `C:\ProgramData\ProjectorControl` and points there. The old `bin\` is
+  removed.
+- **The task runs the supervisor, not the binary.** It keeps
+  `strobe-projector serve` running, looks in `next\` every 5 s, and when
+  a new `strobe-projector.exe` is there stops its own service, moves the
+  build over the binary and starts it again. An update is: build, and
+  leave the exe in `next\`. That needs no elevation and no access to the
+  running process, keeps the binary's path (so the firewall rules hold),
+  and logs each swap and restart to `projector-logs\service-updates.log`.
+  The first version had the launcher stop the service itself. On the mini
+  PC that failed: a process the S4U task starts shows the user's own
+  non-elevated shell no path and no command line, so the launcher found
+  nothing to stop, and the build waited in `next\` (2026-10-28).
+- **The mini PC's launcher does it at logon**, after it builds Strobe,
+  with the lines in `tools/projector-control/README.md` ("Updates"): a
+  failed build keeps the running service, an unchanged build does
+  nothing. Elsewhere, re-running `install.ps1` still updates it.
+
+The cost: the binary that serves the page sits in a folder its user can
+write, so that user could replace it. They could already change the config
+and its password, and the binary now runs with that user's rights, not
+SYSTEM's, so nothing is gained by replacing it.
+
+**Test.** The scripts parse (PowerShell's parser, on LIGHTNING), and the
+supervisor, run against a scratch folder, swaps in a build left in `next\`
+while its service runs. On the mini PC the elevated install moved the
+service to JAJA and it came back after a reboot (2026-10-28). Not yet run:
+a boot with nobody logged in, and the swap there (L-09).
+
+**Would reopen:** an account without "Log on as a batch job", which S4U
+needs (administrators have it by default), or a PC where the show's user
+is not the one who should own the service.
+
+### D519: the controller lays its rows out at the host's size and scales them with the picture (2026-10-28)
+
+**Context.** The first cut of D515 drew each control row at the
+controlling computer's own size into the row's rectangle on the shrunken
+picture of the host's window. On the venue desktop the picture is a
+little smaller than the host's window, so the rows did not fit: "ON"
+showed as "O", "Limit low" as "Limit lov". And a frame's rows arrive
+just before it, so for a frame the newest rows did not match the
+picture still shown, the overlay was hidden, and the picture's own row
+showed through at a slightly different size: hovering a row made it
+jump a few pixels.
+
+**Decision.**
+
+- `desktop_layout` carries the host's window size in its points
+  (`screen`), with the rows (`ControlLayout` on both sides).
+- The controller lays every row out at that size, in the host's points,
+  on one layer (an `egui::Area`) whose transform moves and scales it
+  exactly as the picture is moved and scaled
+  (`set_transform_layer`). A row is the host's row, at the picture's
+  scale, so it fits and covers it exactly; input on it goes through the
+  same transform.
+- The controller keeps the last four layouts by revision and draws the
+  one of the picture shown, so a newer frame's rows arriving early no
+  longer hide the overlay.
+
+**Test.** `desktop::tests::a_row_is_laid_out_at_the_hosts_size_and_lands_on_the_shrunken_picture`
+(a 1000 by 800 point host shown at half size: the row lands at half its
+rectangle; a picture with no rows of its own gets none),
+`remote_controls::tests` (the window size goes with the rows),
+`strobe_remote` (the frozen message with `screen`; a window with no size
+sends no rows). On the venue: LIGHTNING's rows not cut off and not
+moving when hovered.
+
+**Would reopen:** the host and controller on different UI densities,
+where the host's row size and this computer's widgets disagree even at
+the same scale.
+
+### D520: Jester Totem fills the frame with rays and twins and gets a perform group (2026-10-28, owner's request)
+
+**What.** `18-jester-totem`, an original scene after a hand-painted
+blacklight panel (not committed): a horned, one-eyed jester on a
+jack-in-the-box spring, drawn analytically in fluorescent inks on dark
+planks. Its one-texel clock pass integrates the flow time and a damped
+spring (1.7 Hz, damping ratio 0.16), which bass holds up and kicks throw,
+so the jester overshoots, bounces and settles at any frame rate.
+
+The owner asked for it to be improved for the venue, and the first draft
+left two thirds of a 16:9 projector as dim planks:
+
+- **Rays.** A fan of eighteen soft wedges in the four inks turns from
+  behind the jester's head across the whole panel, fading with distance,
+  and flares on kicks (`rays`).
+- **Twins.** A smaller, mirrored copy of the totem on each next plank out,
+  swaying out of step but riding the same spring, faded in and out by a
+  smooth toggle (`twins`, on by default). The drawing is one `drawTotem`
+  in the totem's own frame, called with the twin's frame and pixel size.
+- **Squash and stretch.** The jack's group stretches as the spring throws
+  it up and squashes as it drops, about the starburst so the spring stays
+  on, scaled by `bounce`.
+- **Controls.** A `perform` group first: `pop` (a smooth bang that throws
+  the jester on demand, past a kick's height), `twins`, `rays` and
+  `kick_flash`; and `hue_cycle` beside `hue`. Every control has a
+  description, which Strobe shows as its tooltip.
+
+**Cost.** 1.01 ms a frame at 1920x1080 on the RX 580, from 0.77 ms
+before, against 0.54 ms for `05-domain-warp` and 1.49 ms for
+`17-blacklight-carpet`; ANGLE (D3D11) 0.83 ms. Most of the rise is the
+twins, which only draw on their planks.
+
+**Would reopen:** the Vega 3 dropping frames on it at the venue (then the
+twins default off), or the owner preferring the single totem.

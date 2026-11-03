@@ -322,8 +322,15 @@ removes its pairing from that browser.
 HTTPS: someone on the same Wi-Fi who is watching the traffic can see the
 phone's key as it is issued, and could then control the show until you
 revoke it. A home or venue network you
-control is fine; a public or shared Wi-Fi is not. There is no installable
-app (PWA) version yet, because that needs HTTPS.
+control is fine; a public or shared Wi-Fi is not.
+
+**Keep it on the home screen.** The remote can be installed as an app.
+Through your own HTTPS proxy (`--remote-proxy`), Chrome offers
+*Install app* at the foot of the page, and the installed remote opens
+even with Strobe off, saying it is looking for Strobe until it connects.
+Over plain HTTP, use the browser's *Add to Home Screen* (on an iPhone,
+from the Share menu): it opens full screen, but only while Strobe is
+reachable. The projector page installs the same way.
 
 ### Control another Strobe desktop
 
@@ -357,6 +364,20 @@ and file paths refer to the **host computer**. Clipboard text can be pasted
 into the host; Copy/Cut in a host widget returns selected text to the
 controller. Paste at most 64 KiB at a time. Local file drops/uploads and
 operating-system dialogs are outside this Strobe window stream.
+
+The host's window is a picture that updates a few times a second, but its
+controls are not: on the Controls page and the side panel, every
+control's row is drawn by the controlling computer itself, over the
+picture of it. Sliders, toggles and buttons there move as fast as your
+hand, and only their values cross the network. Everything else in the
+window works through the picture as before. Both computers need a build
+from 2026-10-28 or later for this.
+
+While another Strobe controls it, the host leaves its live preview out
+of the window ("Preview off while another Strobe controls this one"):
+watch the projector output instead. The picture is only sent when
+something in the window changed, which keeps the host's processor free
+for the show.
 
 **Return to local Strobe** always belongs to the controlling computer;
 Ctrl+Shift+F12 is its keyboard shortcut (Command+Shift+F12 on macOS).
@@ -564,9 +585,10 @@ A projector warming up or cooling down takes no command, so Strobe waits
 three minutes to cool.
 
 **Web page** serves a page with the same On and Off for a phone on the venue
-Wi-Fi or your tailnet. **Copy link** copies its address with the token: open
-it once on each phone. **New token** signs every phone out. It is plain
-HTTP: never forward its port.
+Wi-Fi or your tailnet. It asks for a password: set it as **Page password**
+under Connections (at least 6 characters) and Save. **Copy link** copies the
+page's address; a phone signs in once and stays signed in until the password
+changes. It is plain HTTP: never forward its port.
 
 The settings live in `%LOCALAPPDATA%strobeprojectors.json`. To have the
 page when Strobe is closed, and the `pj` command line, see

@@ -357,11 +357,9 @@ pub fn control(
                 },
             );
             if connect {
-                // A listed Strobe is asked for approval, never with a trust
-                // file or a code left in the form.
-                panel.controller.address = address;
-                panel.controller.code.clear();
-                panel.controller.use_trust = false;
+                // Proves the trust file when one is chosen, and asks for
+                // approval otherwise (D509).
+                panel.controller.choose_found(found.addr);
                 actions.push(Action::ConnectDesktop);
             }
         }
@@ -389,8 +387,8 @@ pub fn control(
         });
         group.toggle(
             Row::new(USE_TRUST).description(
-                "For an unattended show machine: Connect by address proves a trust file instead \
-                 of asking, and keeps trying again after a drop until you press Disconnect.",
+                "For an unattended show machine: Connect proves a trust file instead of asking, \
+                 and keeps trying again after a drop until you press Disconnect.",
             ),
             &mut panel.controller.use_trust,
         );
