@@ -127,6 +127,10 @@ pub(crate) struct Args {
     /// needs a network connection).
     #[arg(long)]
     no_deny: bool,
+    /// In the `test` lane, run the tests through cargo-nextest and the
+    /// doctests through `cargo test --doc` (D535).
+    #[arg(long)]
+    nextest: bool,
 }
 
 /// A named group of steps, matching a CI job.
@@ -294,6 +298,8 @@ struct Machine {
     deny: bool,
     /// The Windows target's standard library is installed.
     windows_target: bool,
+    /// `cargo nextest --version` succeeds.
+    nextest: bool,
     /// `xvfb-run` is on the path.
     xvfb: bool,
     /// Running under CI (`CI` is set).
@@ -315,6 +321,7 @@ impl Machine {
             host,
             deny: tool_works(&cargo, &["deny", "--version"]),
             windows_target: host != Host::Windows && windows_target_installed(),
+            nextest: tool_works(&cargo, &["nextest", "--version"]),
             xvfb: host == Host::Linux && tool_works("xvfb-run", &["--help"]),
             ci: std::env::var_os("CI").is_some(),
             require_gl_set: std::env::var_os(REQUIRE_GL).is_some(),
@@ -401,7 +408,7 @@ fn plan(lanes: &[Lane], args: &Args, machine: &Machine, tree: Option<String>) ->
                 cargo(machine, &["fmt", "--all", "--", "--check"]),
             )),
             Lane::Check => check_lane(&mut steps, machine),
-            Lane::Test => steps.push(test_step(args, machine)),
+            Lane::Test => steps.extend(test_steps(args, machine)),
             Lane::Deny => steps.push(Step::new(
                 *lane,
                 "cargo-deny",
@@ -605,8 +612,11 @@ fn check_lane(steps: &mut Vec<Step>, machine: &Machine) {
     }
 }
 
-/// The test suite, with this host's exclusions and environment.
-fn test_step(args: &Args, machine: &Machine) -> Step {
+/// The test suite, with this host's exclusions and environment: one
+/// `cargo test`, or with `--nextest` the tests through cargo-nextest and
+/// the doctests (which nextest does not run) through `cargo test --doc`
+/// (D535).
+fn test_steps(args: &Args, machine: &Machine) -> Vec<Step> {
     let mut env: Vec<(&'static str, String)> = Vec::new();
     if machine.host == Host::Linux && !args.allow_gl_skip && !machine.require_gl_set {
         env.push((REQUIRE_GL, "1".to_owned()));
@@ -615,21 +625,50 @@ fn test_step(args: &Args, machine: &Machine) -> Step {
         env.push((LAN_TESTS, "1".to_owned()));
     }
     env.push((SKIP_LOG, machine.skip_log.display().to_string()));
-    let mut test = vec!["test", "--locked", "--workspace"];
-    if machine.host == Host::MacOs {
-        test.extend(macos_excludes());
+    let scope = |mut command: Vec<&'static str>| {
+        command.extend(["--locked", "--workspace"]);
+        if machine.host == Host::MacOs {
+            command.extend(macos_excludes());
+        }
+        command.push("--all-features");
+        command
+    };
+    let step = |name: &'static str, command: Vec<&'static str>| {
+        Step::new(
+            Lane::Test,
+            name,
+            Action::Run {
+                program: machine.cargo.clone(),
+                args: command.iter().map(|arg| (*arg).to_owned()).collect(),
+                env: env.clone(),
+            },
+        )
+        .timeout(45)
+    };
+    if !args.nextest {
+        return vec![step("test", scope(vec!["test"]))];
     }
-    test.push("--all-features");
-    Step::new(
-        Lane::Test,
-        "test",
-        Action::Run {
-            program: machine.cargo.clone(),
-            args: test.iter().map(|arg| (*arg).to_owned()).collect(),
-            env,
-        },
-    )
-    .timeout(45)
+    let nextest = if machine.nextest {
+        let mut run = scope(vec!["nextest", "run"]);
+        // The `ci` profile in .config/nextest.toml: every failure, and a
+        // JUnit file under target/nextest/ci/.
+        if machine.ci {
+            run.extend(["--profile", "ci"]);
+        }
+        step("nextest", run)
+    } else {
+        Step::new(
+            Lane::Test,
+            "nextest",
+            Action::Missing {
+                why: "cargo-nextest is not installed".to_owned(),
+                fix: "cargo install cargo-nextest --locked".to_owned(),
+            },
+        )
+    };
+    let mut doc = scope(vec!["test"]);
+    doc.push("--doc");
+    vec![nextest, step("doctests", doc)]
 }
 
 /// Linux's real-driver checks: the app on a virtual display, the window
@@ -803,7 +842,9 @@ fn build_lane(steps: &mut Vec<Step>, args: &Args, machine: &Machine) {
     }
     // Proves the binaries compile and link with `panic = "abort"` and
     // opt-level 3. A pull request builds `release-fast` (no fat LTO); the
-    // shipping build runs on master and for a release (D504).
+    // shipping build runs on master and for a release (D504). `--timings`
+    // leaves cargo's report of where the build's time went in
+    // target/cargo-timings/, which CI uploads (D535).
     steps.push(
         Step::new(
             LANE,
@@ -817,6 +858,7 @@ fn build_lane(steps: &mut Vec<Step>, args: &Args, machine: &Machine) {
                     "release-fast",
                     "--workspace",
                     "--bins",
+                    "--timings",
                 ],
             ),
         )
@@ -829,7 +871,14 @@ fn build_lane(steps: &mut Vec<Step>, args: &Args, machine: &Machine) {
                 "release",
                 cargo(
                     machine,
-                    &["build", "--locked", "--release", "--workspace", "--bins"],
+                    &[
+                        "build",
+                        "--locked",
+                        "--release",
+                        "--workspace",
+                        "--bins",
+                        "--timings",
+                    ],
                 ),
             )
             .timeout(40),
@@ -1133,6 +1182,7 @@ mod tests {
             shipping: false,
             allow_gl_skip: false,
             no_deny: false,
+            nextest: false,
         }
     }
 
@@ -1142,6 +1192,7 @@ mod tests {
             cargo: "cargo".to_owned(),
             deny: true,
             windows_target: true,
+            nextest: true,
             xvfb: true,
             ci: false,
             require_gl_set: false,
@@ -1313,12 +1364,17 @@ mod tests {
     }
 
     #[test]
-    fn ci_runners_bind_every_interface_and_linux_requires_gl() {
+    fn ci_runners_bind_every_interface_and_linux_requires_gl() -> anyhow::Result<()> {
         let mut runner = machine(Host::Windows);
         runner.ci = true;
-        let windows = test_step(&args(&[]), &runner);
-        let linux = test_step(&args(&[]), &machine(Host::Linux));
-        let desk = test_step(&args(&[]), &machine(Host::Windows));
+        let first = |steps: Vec<Step>| steps.into_iter().next();
+        let (Some(windows), Some(linux), Some(desk)) = (
+            first(test_steps(&args(&[]), &runner)),
+            first(test_steps(&args(&[]), &machine(Host::Linux))),
+            first(test_steps(&args(&[]), &machine(Host::Windows))),
+        ) else {
+            return Err(anyhow::anyhow!("a test lane with no step"));
+        };
         assert!(
             command(&windows).contains("STROBE_TEST_LAN=1"),
             "{}",
@@ -1332,6 +1388,42 @@ mod tests {
             command(&linux).contains("STROBE_REQUIRE_HEADLESS_GL=1"),
             "{}",
             command(&linux)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn nextest_runs_the_tests_and_cargo_runs_the_doctests() {
+        let mut with = args(&[Lane::Test]);
+        with.nextest = true;
+        let mut runner = machine(Host::Windows);
+        runner.ci = true;
+        let steps = test_steps(&with, &runner);
+        let commands: Vec<String> = steps.iter().map(command).collect();
+        assert_eq!(
+            names(&steps),
+            vec!["test nextest", "test doctests"],
+            "two steps: {commands:?}"
+        );
+        assert!(
+            commands.first().is_some_and(
+                |c| c.contains("cargo nextest run --locked") && c.contains("--profile ci")
+            ),
+            "nextest with the CI profile on a runner: {commands:?}"
+        );
+        assert!(
+            commands
+                .get(1)
+                .is_some_and(|c| c.ends_with("--all-features --doc")),
+            "doctests through cargo: {commands:?}"
+        );
+        runner.nextest = false;
+        assert!(
+            matches!(
+                test_steps(&with, &runner).first().map(|s| &s.action),
+                Some(Action::Missing { .. })
+            ),
+            "asked for and absent is missing"
         );
     }
 
