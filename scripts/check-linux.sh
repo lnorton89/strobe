@@ -19,7 +19,7 @@
 # is which renderer it got, so a D3D12 or hardware renderer is visible.
 
 set -u
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 target="${CARGO_TARGET_DIR:-target}"
 mkdir -p "$target"
 exec > >(tee "$target/linux-check.txt") 2>&1
@@ -76,13 +76,15 @@ else
 fi
 
 step "rust toolchain"
+# shellcheck source=/dev/null
 if ! command -v cargo >/dev/null 2>&1 && [ -f "$HOME/.cargo/env" ]; then . "$HOME/.cargo/env"; fi
 if ! command -v cargo >/dev/null 2>&1; then
   curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+  # shellcheck source=/dev/null
   . "$HOME/.cargo/env"
 fi
 # rust-toolchain.toml pins the version; the first cargo call installs it.
-cargo --version && rustc --version && ok "rust toolchain" || bad "rust toolchain"
+if cargo --version && rustc --version; then ok "rust toolchain"; else bad "rust toolchain"; fi
 
 step "build"
 if [ "${STROBE_CHECK_NO_BUILD:-0}" = 1 ]; then
@@ -148,7 +150,7 @@ shot() {
   fi
   # What the session log says about the backend, the renderer and audio.
   local log
-  log="$(ls -t "$HOME/.local/share/strobe/logs/"strobe-*.log 2>/dev/null | head -1)"
+  log="$(find "$HOME/.local/share/strobe/logs" -maxdepth 1 -name 'strobe-*.log' -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)"
   if [ -n "$log" ]; then
     grep -E 'GL backend|strobe_app::audio|audio' "$log" | head -6 | cut -c1-200
   fi

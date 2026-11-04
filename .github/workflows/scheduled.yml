@@ -173,6 +173,9 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           key: coverage
+      # strobe-io's MIDI layer links ALSA (midir), as on the Linux CI job.
+      - name: Install ALSA headers
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config
       - name: Measure
         shell: bash
         env:
