@@ -140,8 +140,8 @@ pub struct Prefs {
     pub recent_playlists: Vec<String>,
     /// Named pane layouts the operator saved (D215).
     pub layouts: BTreeMap<String, Layout>,
-    /// The watched drop folder (D240, D265).
-    pub watch: WatchPref,
+    /// The library's other scene folders (D538).
+    pub scene_folders: SceneFoldersPref,
     /// The side panel's tab (D283): `controls`, `playlist` or `presets`.
     /// Empty means the default.
     pub side_tab: String,
@@ -152,6 +152,8 @@ pub struct Prefs {
     pub library_page: String,
     /// Synesthesia's own scenes in the library (D271).
     pub synesthesia: SynesthesiaPref,
+    /// Prerendering the library's scenes (D542).
+    pub prerender: PrerenderPref,
     /// Controlling another Strobe (D294): the trust file's path and this
     /// laptop's controller id.
     pub remote: RemotePref,
@@ -173,6 +175,23 @@ pub struct RemotePref {
     pub controller_id: String,
 }
 
+/// Whether the library's scenes are prerendered at launch and when the
+/// library is listed again (D542).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PrerenderPref {
+    /// Prerender them.
+    pub enabled: bool,
+}
+
+impl Default for PrerenderPref {
+    /// On: a scene's first load should not stall the output unless the
+    /// person chose that, and a file from before has no switch.
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+
 /// Whether the library lists Synesthesia's scenes where it is installed
 /// (D271).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -190,14 +209,30 @@ impl Default for SynesthesiaPref {
     }
 }
 
-/// The watched drop folder, as Settings last applied it (D265).
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+/// The scene folders listed after the library folder's own (D538), as
+/// Settings last left them.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
-pub struct WatchPref {
-    /// The folder, as typed; empty for none.
-    pub folder: String,
-    /// Whether it is watched at launch.
-    pub enabled: bool,
+pub struct SceneFoldersPref {
+    /// The folders, as added; a relative one is found as the library
+    /// folder is (`library::resolve`).
+    pub folders: Vec<String>,
+}
+
+impl SceneFoldersPref {
+    /// The folder a file from before lists: `user-scenes`, the private
+    /// scene folder beside `scenes` (D532).
+    pub const DEFAULT: &str = "user-scenes";
+}
+
+impl Default for SceneFoldersPref {
+    /// [`Self::DEFAULT`] alone. A list the person emptied saves as empty
+    /// and stays empty.
+    fn default() -> Self {
+        Self {
+            folders: vec![Self::DEFAULT.to_string()],
+        }
+    }
 }
 
 /// A named arrangement of panes (D215): which are open, in which order,
@@ -316,10 +351,11 @@ impl Prefs {
             last_scene: String::new(),
             recent_playlists: Vec::new(),
             layouts: BTreeMap::new(),
-            watch: WatchPref::default(),
+            scene_folders: SceneFoldersPref::default(),
             side_tab: String::new(),
             library_page: String::new(),
             synesthesia: SynesthesiaPref::default(),
+            prerender: PrerenderPref::default(),
             remote: RemotePref::default(),
         }
     }
@@ -597,11 +633,11 @@ mod tests {
     fn preferences_round_trip_through_toml() -> Result<()> {
         let mut prefs = sample();
         prefs.last_scene = "05-domain-warp".to_string();
-        prefs.watch = WatchPref {
-            folder: "D:\\VJ\\inbox".to_string(),
-            enabled: true,
+        prefs.scene_folders = SceneFoldersPref {
+            folders: vec!["D:\\VJ\\friends".to_string(), "user-scenes".to_string()],
         };
         prefs.synesthesia = SynesthesiaPref { show: false };
+        prefs.prerender = PrerenderPref { enabled: false };
         prefs.remote = RemotePref {
             trust_file: "C:\\Users\\me\\venue.trust".to_string(),
             use_trust: true,
@@ -723,9 +759,16 @@ width = 0.0
             "a file from before the field reopens nothing"
         );
         assert_eq!(
-            prefs.watch,
-            WatchPref::default(),
-            "a file from before the watched folder watches nothing"
+            prefs.scene_folders.folders,
+            ["user-scenes"],
+            "a file from before the scene folders lists user-scenes"
+        );
+        let emptied =
+            Prefs::from_text("[scene_folders]\nfolders = []\n\n[watch]\nenabled = true\n")
+                .map_err(anyhow::Error::msg)?;
+        assert!(
+            emptied.scene_folders.folders.is_empty(),
+            "a list the person emptied stays empty, and the old [watch] table is ignored"
         );
         assert!(
             prefs.synesthesia.show,

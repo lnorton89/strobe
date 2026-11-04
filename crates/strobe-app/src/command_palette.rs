@@ -719,6 +719,7 @@ mod tests {
     fn library(names: &[&str]) -> Library {
         Library {
             dir: std::path::PathBuf::from("scenes"),
+            folders: Vec::new(),
             entries: names
                 .iter()
                 .map(|name| {

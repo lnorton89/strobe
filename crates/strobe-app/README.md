@@ -111,12 +111,12 @@ Flags (from the clap `Cli`):
 | `--scene <name>` | none | Scene to load at start: a folder name or a unique prefix. |
 | `--gl auto\|native\|angle\|angle-d3d11\|angle-vulkan\|angle-gl\|angle-metal` | `auto` | Native GL 3.3 first, then ANGLE; or force one. `angle-*` also names ANGLE's backend, and fails with a message if ANGLE cannot start on it (D485). |
 | `--no-synesthesia` | off | Leave Synesthesia's installed scenes out of the library for this run (D271). |
+| `--no-prerender` | off | Do not prerender the library's scenes this run, whatever Settings says (D542). |
 | `--render-scale <f>` | `1.0` | Render resolution as a fraction of the output window, 0.25 to 1.0. |
 | `--no-adaptive` | off | Turn adaptive resolution off; the scale stays where you put it. |
 | `--audio auto\|synthetic\|ambient` | `auto` | Capture an input device (synthetic fallback), always the fixed 120 BPM pattern, or that pattern without its hits and beats. |
 | `--show-output`, `--fullscreen`, `--output-monitor <n>` | off | Show the output window at launch, fullscreen, on monitor N as Settings numbers them (D451 waits for one not connected yet). |
 | `--playlist <file>`, `--no-resume` | none | Load a playlist at launch (everything compiles before the first cue); start it from the top rather than where it was. |
-| `--watch-folder <dir>` | saved | Add scene folders that appear in this folder to the library (D240). |
 | `--osc` | off | Listen for OSC on `127.0.0.1` for this run (the Mappings view's switch saves it). |
 | `--osc-port <n>` | `9000` | The UDP port, for this run. |
 | `--osc-all-interfaces` | off | Listen on every network interface, for this run only. OSC has no password (D172); never saved. |

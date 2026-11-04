@@ -399,7 +399,7 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## CI and releases
 
-18 decision(s).
+19 decision(s).
 
 - [D52](decisions/D52.md): release flow is draft, build, attest, undraft
 - [D53](decisions/D53.md): PDBs are published separately, and the release build must override `strip`
@@ -418,11 +418,12 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D537](decisions/D537.md): the package is built and checked by xtask on every pull request, and a release candidate has a harness
 - [D539](decisions/D539.md): property tests over untrusted input, weekly machete and coverage, and the decisions indexed by crate
 - [D541](decisions/D541.md): the crate graph, `unsafe`, feature configurations, rustdoc, workflows and scripts are checked, and the build names its profile
+- [D543](decisions/D543.md): launch opens on the Library view
 - [D544](decisions/D544.md): what the audit work had skipped: a static C runtime, the imports and the loaded ANGLE checked, the browser engine built, generators that reach the code, and a changelog that can be corrected
 
 ## Not tied to one crate
 
-219 decision(s).
+223 decision(s).
 
 - [D1](decisions/D1.md): native OpenGL (glow + glutin), not wgpu
 - [D2](decisions/D2.md): ANGLE as the fallback context, not native-only
@@ -643,3 +644,7 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D526](decisions/D526.md): Jester Totem is withdrawn, and the website names the release GitHub publishes
 - [D527](decisions/D527.md): `/play` shares short links to scenes stored as content-named files in R2, with no database
 - [D530](decisions/D530.md): cargo-deny ignores RUSTSEC-2024-0436, `paste` unmaintained
+- [D532](decisions/D532.md): `user-scenes/` holds the owner's private scenes and is never committed
+- [D538](decisions/D538.md): the library lists other scene folders where they are, and the watched folder is gone
+- [D540](decisions/D540.md): thumbnails are read by their bytes and fill the card
+- [D542](decisions/D542.md): the library's scenes are prerendered at launch and on a rescan, on by default
