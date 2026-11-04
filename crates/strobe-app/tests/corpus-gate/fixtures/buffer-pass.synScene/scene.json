@@ -1,0 +1,2 @@
+{ "TITLE": "Gate: buffer pass", "CREDIT": "Strobe", "DESCRIPTION": "One buffer pass at a third of the size, sampled by the implicit final pass.",
+  "PASSES": [ { "TARGET": "field", "WIDTH": "$WIDTH/3", "HEIGHT": "$HEIGHT/3", "FLOAT": true, "WRAP": "clamp" } ] }

@@ -1,0 +1,1 @@
+{ "TITLE": "Gate: feedback", "CREDIT": "Strobe", "DESCRIPTION": "Reads the previous frame through syn_FinalPass and fades it." }

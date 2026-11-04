@@ -1,0 +1,3 @@
+{ "TITLE": "Gate: transitions", "CREDIT": "Strobe", "DESCRIPTION": "Hard and smooth transitions declared, drawn at their first values.",
+  "HARD_TRANSITIONS": [ { "UNIFORM": "side", "VALUES": [0.0, 1.0] } ],
+  "SMOOTH_TRANSITIONS": [ { "UNIFORMS": ["warm", "cool"], "DURATION": 1 } ] }

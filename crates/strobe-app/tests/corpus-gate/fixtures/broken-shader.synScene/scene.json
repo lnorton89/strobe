@@ -1,0 +1,1 @@
+{ "TITLE": "Gate: broken shader", "CREDIT": "Strobe", "DESCRIPTION": "Expected to fail to compile: proves the gate tells a failure from a pass." }

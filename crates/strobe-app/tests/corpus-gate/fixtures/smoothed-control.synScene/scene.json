@@ -1,0 +1,5 @@
+{ "TITLE": "Gate: smoothed control", "CREDIT": "Strobe", "DESCRIPTION": "A smoothed slider and a plain one, at their defaults.",
+  "CONTROLS": [
+    { "NAME": "amount", "TYPE": "slider smooth", "MIN": 0.0, "MAX": 1.0, "DEFAULT": 0.6, "PARAMS": 0.05 },
+    { "NAME": "stripes", "TYPE": "slider", "MIN": 1.0, "MAX": 20.0, "DEFAULT": 6.0 }
+  ] }
