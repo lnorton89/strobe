@@ -15,6 +15,7 @@ thiserror.workspace = true
 strobe-ssf-lib.workspace = true
 
 [dev-dependencies]
+proptest.workspace = true
 anyhow.workspace = true
 
 [lints]

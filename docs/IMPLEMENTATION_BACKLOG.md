@@ -519,6 +519,30 @@
 - **The T480 sweep is done (2026-10-27, Task 46, BENCHMARKS.md):** every library scene pays for its pixels there, unlike on the 1080 Ti; 0.5 scale saves at least 22% and about 35% at the median, native and ANGLE-D3D11. `10-volume-clouds` is 210 ms a frame at 720p and still 57.6 ms at half scale, too heavy for Intel at any scale; `07-reaction-diffusion` does not move, because its simulation passes are `FIXED_SIZE` by design (D191).
 - **Left:** the sweep on llvmpipe (CI's llvmpipe run can add `--scales`).
 
+### D-07 Engineering audit follow-ups
+- **Status:** The 2026-10-28 engineering audit's checks are built, D521 and D533-D539:
+  - the release gate;
+  - `--locked` and timeouts;
+  - xtask lanes with `--strict` and one `ci-ok` check;
+  - the script-aware corpus gate with baseline frames;
+  - the audio test profile, a nextest pilot and timings;
+  - the native-dependency manifest, an SBOM that covers it, and scheduled checks;
+  - Nix on the pinned toolchain;
+  - a package lane and the release-candidate harness;
+  - crate-graph rules, `unsafe_code`, feature builds, rustdoc and script lint;
+  - property tests, machete, coverage and the decisions index.
+
+  What is left needs hardware, data or a person:
+  - the first `cargo xtask rc` run on the T480 with a release candidate's own zip, and its `evidence.json` in `hardware/T480.md` (with R-03);
+  - a thin-LTO bench on the T480 (`--profile release-thin` against `--release`, frame times), before production LTO changes (D535);
+  - nextest everywhere or nowhere, decided from a few weeks of the Windows job's JUnit times against the other jobs' `cargo test` (D535);
+  - sccache kept or dropped, decided from the Experiments workflow's hit rates (D535);
+  - the master ruleset requiring `ci-ok` alone, once it has passed on master (D533);
+  - coverage read for missing recovery and protocol cases, and those cases written as tests (D539);
+  - the decisions index stays lexical (D539): a decision is listed under a crate only if it writes that crate's name.
+- **Work:** run the harness at the next release candidate; bench thin LTO on the T480; decide nextest and sccache from their data; switch the ruleset; turn coverage gaps into tests.
+- **Acceptance:** the T480's record cites an `evidence.json` whose verdict is `pass`. A decision records the LTO, nextest and sccache outcomes with their numbers. The ruleset requires `ci-ok` and nothing else.
+
 ## Cross-cutting engineering rules
 
 - Preserve the existing GL 3.3 and ANGLE paths as the reference while evaluating new APIs.

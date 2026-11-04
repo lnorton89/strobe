@@ -21,7 +21,7 @@ The release zip carries these next to the program. Their notices are in `LICENSE
 
 ## Crates
 
-Every crate compiled into `strobe.exe` (`strobe-app` for `x86_64-pc-windows-msvc`), 257 in all, with the licence its authors published it under. The release zip's `THIRD-PARTY-NOTICES.txt` has each one's version and full licence text.
+Every crate compiled into `strobe.exe` (`strobe-app` for `x86_64-pc-windows-msvc`), 258 in all, with the licence its authors published it under. The release zip's `THIRD-PARTY-NOTICES.txt` has each one's version and full licence text.
 
 | Crate | Licence | Source |
 |---|---|---|
@@ -177,6 +177,7 @@ Every crate compiled into `strobe.exe` (`strobe-app` for `x86_64-pc-windows-msvc
 | pxfm | BSD-3-Clause OR Apache-2.0 | https://github.com/awxkee/pxfm |
 | quick-error | MIT OR Apache-2.0 | http://github.com/tailhook/quick-error |
 | quote | MIT OR Apache-2.0 | https://github.com/dtolnay/quote |
+| rand_core | MIT OR Apache-2.0 | https://github.com/rust-random/rand_core |
 | range-map | MIT OR Apache-2.0 | http://github.com/jneem/range-map |
 | raw-window-handle | MIT OR Apache-2.0 OR Zlib | https://github.com/rust-windowing/raw-window-handle |
 | read-fonts | MIT OR Apache-2.0 | https://github.com/googlefonts/fontations |
