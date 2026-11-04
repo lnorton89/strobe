@@ -1368,8 +1368,12 @@ fn lint_lane(steps: &mut Vec<Step>, machine: &Machine) {
         }
         Host::Windows => {
             let files: Vec<String> = powershell.iter().map(|f| format!("'{f}'")).collect();
+            // Every rule at warning and above, but one: these scripts are
+            // run by a person at a console (install, network setup, the
+            // ANGLE fetch), and what they print is meant for that person,
+            // which is what Write-Host is for.
             let script = format!(
-                "$found = @(foreach ($f in @({})) {{ Invoke-ScriptAnalyzer -Path $f -Severity Warning,Error }}); \
+                "$found = @(foreach ($f in @({})) {{ Invoke-ScriptAnalyzer -Path $f -Severity Warning,Error -ExcludeRule PSAvoidUsingWriteHost }}); \
                  $found | Format-Table -AutoSize ScriptName, Line, RuleName, Message | Out-String -Width 220; \
                  if ($found.Count -gt 0) {{ exit 1 }}",
                 files.join(", ")
