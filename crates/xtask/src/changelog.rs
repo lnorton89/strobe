@@ -73,6 +73,7 @@
 //!   wrong. See [`orphan_report`] for the symptom and the fix.
 
 use anyhow::{Context as _, Result, anyhow, bail};
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -525,6 +526,7 @@ fn commits(range: &str) -> Result<Vec<Commit>> {
         ":(exclude)CHANGELOG.md",
     ])?;
 
+    let corrected = corrections()?;
     let mut commits = Vec::new();
     for line in log.lines() {
         let mut fields = line.split(SEP);
@@ -533,9 +535,47 @@ fn commits(range: &str) -> Result<Vec<Commit>> {
         else {
             continue;
         };
+        let subject = corrected.get(hash).map_or(subject, String::as_str);
         commits.push(parse_subject(hash, short, subject));
     }
     Ok(commits)
+}
+
+/// The file of corrected subjects, at the workspace root.
+const CORRECTIONS: &str = "CHANGELOG.corrections";
+
+/// Subjects to use instead of a commit's own, by full hash. A pushed
+/// commit cannot be reworded without rewriting every hash after it, which
+/// the release rules forbid, so a subject that is wrong (a decision number
+/// that moved before merging) is corrected here instead. One correction per
+/// line, `<40-hex hash> <subject>`; `#` starts a comment.
+fn corrections() -> Result<BTreeMap<String, String>> {
+    let Ok(text) = std::fs::read_to_string(CORRECTIONS) else {
+        return Ok(BTreeMap::new());
+    };
+    parse_corrections(&text)
+}
+
+/// [`corrections`]'s parser.
+fn parse_corrections(text: &str) -> Result<BTreeMap<String, String>> {
+    let mut out = BTreeMap::new();
+    for (number, line) in text.lines().enumerate() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Some((hash, subject)) = line.split_once(' ') else {
+            bail!("{CORRECTIONS}:{}: expected `<hash> <subject>`", number + 1);
+        };
+        if hash.len() != 40 || !hash.bytes().all(|b| b.is_ascii_hexdigit()) {
+            bail!(
+                "{CORRECTIONS}:{}: `{hash}` is not a full commit hash",
+                number + 1
+            );
+        }
+        out.insert(hash.to_ascii_lowercase(), subject.trim().to_owned());
+    }
+    Ok(out)
 }
 
 /// Splits a `type(scope)!: summary` subject into its parts, falling back to
@@ -748,6 +788,25 @@ fn undated_heading(line: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn corrections_map_full_hashes_to_subjects_and_refuse_short_ones() -> Result<()> {
+        let parsed = parse_corrections(
+            "# a comment\n\n81404F1E2ED2EDD1087F6B209B60517C2F13F105 ci: right (D521)\n",
+        )?;
+        assert_eq!(
+            parsed
+                .get("81404f1e2ed2edd1087f6b209b60517c2f13f105")
+                .map(String::as_str),
+            Some("ci: right (D521)"),
+            "a full hash, lower-cased, to its subject"
+        );
+        assert!(
+            parse_corrections("81404f1 ci: short").is_err(),
+            "an abbreviated hash would be ambiguous one day"
+        );
+        Ok(())
+    }
 
     const MANIFEST: &str = "\
 [workspace]

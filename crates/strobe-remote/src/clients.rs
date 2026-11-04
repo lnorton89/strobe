@@ -751,6 +751,12 @@ impl Store {
         };
         let text = serde_json::to_string_pretty(&file).map_err(std::io::Error::other)?;
         let temporary = path.with_extension("json.tmp");
+        // One save at a time in this process. Two `Clients` on one file (a
+        // restarted server while the old one's disconnect still saves) each
+        // wrote and renamed the same temporary file, and the second rename
+        // found it gone (NotFound on macOS and Linux), which cost a client
+        // its token rotation. A poisoned lock still serialises.
+        let _saving = SAVING.lock().unwrap_or_else(PoisonError::into_inner);
         // On Windows another handle on either file (an antivirus scan, the
         // search indexer, a save racing this one) fails the open or the
         // rename with access denied or a sharing violation for a moment.
@@ -776,6 +782,10 @@ impl Store {
         }
     }
 }
+
+/// Held while a client list is written and renamed into place, so two
+/// lists on one file in this process never share the temporary file.
+static SAVING: Mutex<()> = Mutex::new(());
 
 /// Writes `text` to `temporary`, then renames it over `path`, so a reader
 /// sees the old list or the new one and never half of either.
@@ -893,6 +903,47 @@ mod tests {
             "a saved desktop grant is not honoured"
         );
         let _ = std::fs::remove_dir_all(&dir); // Best effort: a temp dir.
+        Ok(())
+    }
+
+    #[test]
+    fn two_lists_on_one_file_saving_at_once_both_rotate() -> Result<()> {
+        // What a restarted server does while the old one's disconnect is
+        // still saving: two `Clients` write the same file at the same time.
+        // Saves take turns, so neither finds the other's temporary file
+        // renamed away and skips the rotation.
+        let dir = scratch("race");
+        let (first, _) = Clients::load(&dir);
+        let (_, token) = first.pair("phone")?;
+        let (second, _) = Clients::load(&dir);
+        let rotations = std::thread::scope(|scope| {
+            let handles: Vec<_> = [&first, &second]
+                .into_iter()
+                .map(|clients| {
+                    let token = token.expose().to_owned();
+                    scope.spawn(move || {
+                        (0..100)
+                            .filter(|_| {
+                                clients
+                                    .authenticate(&token)
+                                    .is_some_and(|auth| auth.rotated.is_some())
+                            })
+                            .count()
+                    })
+                })
+                .collect();
+            handles
+                .into_iter()
+                .map(|handle| handle.join().unwrap_or_default())
+                .sum::<usize>()
+        });
+        let leftovers = std::fs::read_dir(&dir)?
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_name().to_string_lossy().ends_with(".tmp"))
+            .count();
+        std::fs::remove_dir_all(&dir)?;
+        assert_eq!(rotations, 200, "every authentication rotated its token");
+        assert_eq!(leftovers, 0, "no temporary file is left behind");
         Ok(())
     }
 

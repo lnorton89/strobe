@@ -396,6 +396,59 @@ mod tests {
     use super::*;
     use anyhow::Result;
 
+    #[test]
+    fn any_bytes_on_the_socket_end_in_messages_or_an_error_within_bounds() -> Result<()> {
+        // A property test (D539): a stranger on the LAN can send any bytes.
+        // Real frames, cut and spliced at random, and raw noise must produce
+        // messages no longer than the limit, or an error, and the reader
+        // must stop: it never loops on what it cannot use.
+        use proptest::prelude::*;
+        use proptest::test_runner::{Config, FileFailurePersistence, TestRunner};
+        const LIMIT: usize = 256;
+        let frame = prop_oneof![
+            (
+                any::<bool>(),
+                0_u8..16,
+                prop::collection::vec(any::<u8>(), 0..300)
+            )
+                .prop_map(|(fin, opcode, payload)| client_frame(fin, opcode, &payload)),
+            prop::collection::vec(any::<u8>(), 0..40),
+        ];
+        let stream = prop::collection::vec(frame, 0..8).prop_map(|parts| parts.concat());
+        let mut runner = TestRunner::new(Config {
+            cases: 1024,
+            failure_persistence: Some(Box::new(FileFailurePersistence::Direct(
+                "src/server/ws.proptest-regressions",
+            ))),
+            ..Config::default()
+        });
+        runner
+            .run(&stream, |bytes| {
+                let total = bytes.len();
+                let mut source = std::io::Cursor::new(bytes);
+                let mut reader = Reader::new(LIMIT, Vec::new());
+                // Each read consumes at least a byte or ends, so this many
+                // rounds is more than any well-behaved reader needs.
+                for _ in 0..=total + 2 {
+                    match reader.read(&mut source) {
+                        Ok(Some(Message::Text(text))) => {
+                            prop_assert!(text.len() <= LIMIT, "{} > {LIMIT}", text.len());
+                        }
+                        Ok(Some(Message::Ping(payload))) => {
+                            prop_assert!(payload.len() <= MAX_CONTROL, "ping {}", payload.len());
+                        }
+                        Ok(Some(Message::Pong | Message::Close(_)) | None) => {}
+                        Err(_) => return Ok(()),
+                    }
+                }
+                Err(TestCaseError::fail(format!(
+                    "{total} bytes kept the reader going for {} rounds",
+                    total + 3
+                )))
+            })
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
     /// A masked client frame, as a browser sends it.
     fn client_frame(fin: bool, opcode: u8, payload: &[u8]) -> Vec<u8> {
         let mask = [0x37_u8, 0xfa, 0x21, 0x3d];

@@ -167,6 +167,12 @@ It compares the **released** sections only. `Unreleased` is exempt on
 purpose: it moves with every merge, and a rebase or squash rewrites the
 very hashes it pins.
 
+A subject that turned out wrong after it was pushed (a decision number
+that moved before the merge, say) is not fixed by rewording the commit,
+which would rewrite every hash after it. Add a line to
+`CHANGELOG.corrections` instead, `<full hash> <corrected subject>`, and
+the generator uses that subject (D544).
+
 ## Releasing
 
 Releases are tags, and the changelog is finished *before* the tag exists.

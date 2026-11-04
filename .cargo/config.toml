@@ -5,3 +5,12 @@
 # the same pinned toolchain and lockfile as the code it checks.
 [alias]
 xtask = "run -p xtask --"
+
+# The MSVC C runtime linked into every Windows binary rather than loaded
+# from vcruntime140.dll, which is not part of Windows: without this a clean
+# machine with no Visual C++ redistributable refuses to start strobe.exe.
+# `cargo xtask package-check` found the import (D544); the C dependencies
+# (QuickJS, ring) follow the same setting through the `cc` crate, which
+# compiles them /MT when this feature is on.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

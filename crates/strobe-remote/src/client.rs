@@ -208,4 +208,170 @@ mod tests {
         assert_eq!(host, address.to_string(), "ip:port, nothing added");
         Ok(())
     }
+
+    /// How a scripted host answers the handshake.
+    #[derive(Clone, Copy)]
+    enum Answer {
+        /// 101 with the right accept key, then `frames`.
+        Upgrade,
+        /// 101 with an accept key for some other key.
+        WrongKey,
+        /// A plain 403.
+        Refuse,
+        /// Closes the socket after reading the request.
+        Hangup,
+    }
+
+    /// A host on loopback that reads one handshake, answers it as told,
+    /// writes `frames` (unmasked, as a server does) and then returns what
+    /// the client sent after the handshake.
+    fn host(
+        answer: Answer,
+        frames: Vec<u8>,
+    ) -> Result<(SocketAddr, std::thread::JoinHandle<io::Result<Vec<u8>>>)> {
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0))?;
+        let address = listener.local_addr()?;
+        let thread = std::thread::spawn(move || -> io::Result<Vec<u8>> {
+            let (mut stream, _) = listener.accept()?;
+            stream.set_read_timeout(Some(Duration::from_secs(5)))?;
+            let mut head = Vec::new();
+            let mut byte = [0_u8; 1];
+            while !head.ends_with(b"\r\n\r\n") && head.len() < 8192 {
+                if stream.read(&mut byte)? == 0 {
+                    break;
+                }
+                head.push(byte[0]);
+            }
+            let head = String::from_utf8_lossy(&head).into_owned();
+            let key = head
+                .lines()
+                .find_map(|line| line.strip_prefix("Sec-WebSocket-Key: "))
+                .unwrap_or_default()
+                .to_owned();
+            let reply = match answer {
+                Answer::Upgrade => Some(ws::accept_key(&key)),
+                Answer::WrongKey => Some(ws::accept_key("dGhlIHNhbXBsZSBub25jZQ==")),
+                Answer::Refuse => {
+                    stream.write_all(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n")?;
+                    None
+                }
+                Answer::Hangup => return Ok(Vec::new()),
+            };
+            let Some(accept) = reply else {
+                return Ok(Vec::new());
+            };
+            stream.write_all(
+                format!(
+                    "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n\
+                     Connection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n"
+                )
+                .as_bytes(),
+            )?;
+            stream.write_all(&frames)?;
+            // What the client answers (a pong), until it hangs up.
+            stream.set_read_timeout(Some(Duration::from_secs(2)))?;
+            let mut sent = Vec::new();
+            let _ = stream.read_to_end(&mut sent);
+            Ok(sent)
+        });
+        Ok((address, thread))
+    }
+
+    /// One unmasked server frame with a short payload.
+    fn frame(opcode: u8, payload: &[u8]) -> Vec<u8> {
+        let mut frame = vec![0x80 | opcode, u8::try_from(payload.len()).unwrap_or(0)];
+        frame.extend_from_slice(payload);
+        frame
+    }
+
+    /// Receives until a message, an error, or two seconds of nothing.
+    fn next(connection: &mut Connection) -> io::Result<Option<ServerMessage>> {
+        let until = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < until {
+            if let Some(message) = connection.receive()? {
+                return Ok(Some(message));
+            }
+        }
+        Ok(None)
+    }
+
+    #[test]
+    fn a_handshake_the_host_did_not_complete_properly_is_refused() -> Result<()> {
+        for (answer, what) in [
+            (Answer::WrongKey, "an accept key for another key"),
+            (Answer::Refuse, "a 403 instead of 101"),
+            (Answer::Hangup, "a host that hangs up"),
+        ] {
+            let (address, thread) = host(answer, Vec::new())?;
+            let outcome = Connection::connect(address);
+            assert!(outcome.is_err(), "{what} must not connect");
+            let _ = thread.join();
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn only_a_private_address_with_a_port_is_dialled() -> Result<()> {
+        for address in ["8.8.8.8:80", "0.0.0.0:80", "127.0.0.1:0"] {
+            let address: SocketAddr = address.parse()?;
+            let refused = Connection::connect(address).err();
+            assert_eq!(
+                refused.as_ref().map(io::Error::kind),
+                Some(io::ErrorKind::InvalidData),
+                "{address} is refused before any packet: {refused:?}"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn a_ping_is_answered_and_a_message_and_a_close_are_read() -> Result<()> {
+        let message = serde_json::to_string(&ServerMessage::error(crate::ErrorCode::Busy, "wait"))?;
+        let mut frames = frame(0x9, b"hi");
+        frames.extend(frame(0x1, message.as_bytes()));
+        frames.extend(frame(0x8, &1000_u16.to_be_bytes()));
+        let (address, thread) = host(Answer::Upgrade, frames)?;
+        let mut connection = Connection::connect(address)?;
+        let got = next(&mut connection)?;
+        assert_eq!(
+            got,
+            Some(ServerMessage::error(crate::ErrorCode::Busy, "wait")),
+            "the message after the ping"
+        );
+        let closed = next(&mut connection);
+        assert!(closed.is_err(), "a close ends the connection: {closed:?}");
+        drop(connection);
+        let sent = thread
+            .join()
+            .map_err(|_| anyhow::anyhow!("host panicked"))??;
+        // The pong: FIN + opcode 0xA, masked, two bytes, unmasked "hi".
+        assert!(sent.len() >= 8, "the client answered the ping: {sent:?}");
+        assert_eq!(sent.first(), Some(&0x8A), "a pong");
+        assert_eq!(sent.get(1), Some(&0x82), "masked, two bytes");
+        let mask: Vec<u8> = sent.get(2..6).context("a mask")?.to_vec();
+        let payload: Vec<u8> = sent
+            .get(6..8)
+            .context("a payload")?
+            .iter()
+            .zip(mask.iter())
+            .map(|(byte, key)| byte ^ key)
+            .collect();
+        assert_eq!(payload, b"hi", "the ping's payload echoed");
+        Ok(())
+    }
+
+    #[test]
+    fn a_message_the_client_does_not_know_ends_the_connection() -> Result<()> {
+        let frames = frame(0x1, br#"{"type":"from_the_future"}"#);
+        let (address, thread) = host(Answer::Upgrade, frames)?;
+        let mut connection = Connection::connect(address)?;
+        let outcome = next(&mut connection);
+        assert!(
+            outcome.is_err(),
+            "an unknown message is an error: {outcome:?}"
+        );
+        drop(connection);
+        let _ = thread.join();
+        Ok(())
+    }
 }

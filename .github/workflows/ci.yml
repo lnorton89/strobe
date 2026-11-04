@@ -248,9 +248,22 @@ jobs:
       # compiler fails the build here rather than shipping a bare exe.
       # The `lint` lane's Windows half: PSScriptAnalyzer over the tracked
       # PowerShell scripts, under the PowerShell 5.1 that runs them (D541).
+      # The pinned package straight from the gallery, checked by hash, into
+      # 5.1's per-user module folder: about 2 s where Install-Module's
+      # NuGet bootstrap took 108 (D544).
       - name: Install PSScriptAnalyzer
         shell: powershell
-        run: Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Scope CurrentUser -Force
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ProgressPreference = 'SilentlyContinue'
+          $zip = Join-Path $env:RUNNER_TEMP 'psscriptanalyzer.zip'
+          Invoke-WebRequest -UseBasicParsing https://www.powershellgallery.com/api/v2/package/PSScriptAnalyzer/1.25.0 -OutFile $zip
+          $hash = (Get-FileHash $zip -Algorithm SHA256).Hash
+          if ($hash -ne '14E634C828EB98EFB9F40B2918BA90F139ED5ECCDF663A2A747736D996995D60') { throw "PSScriptAnalyzer 1.25.0 has SHA-256 $hash, not the pinned one" }
+          $modules = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'WindowsPowerShell\Modules\PSScriptAnalyzer\1.25.0'
+          Expand-Archive $zip -DestinationPath $modules -Force
+          Import-Module PSScriptAnalyzer -RequiredVersion 1.25.0
+          (Get-Module PSScriptAnalyzer).Version.ToString()
       - name: Lint, check, test, build and package
         shell: bash
         env:
@@ -316,8 +329,9 @@ jobs:
           toolchain: "1.98.0"
           components: clippy
           # The `check` lane's Windows cross-check type-checks the
-          # Windows-only code (WGL, ANGLE loading) without linking.
-          targets: x86_64-pc-windows-msvc
+          # Windows-only code (WGL, ANGLE loading) without linking, and its
+          # wasm check builds the browser engine as the website does.
+          targets: x86_64-pc-windows-msvc,wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           key: linux-fast

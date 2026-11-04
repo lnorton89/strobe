@@ -1,0 +1,2 @@
+{ "TITLE": "Gate: media image", "CREDIT": "Strobe", "DESCRIPTION": "Samples a PNG from the scene folder through IMAGES (Strobe's own brand mark, MIT like the repository).",
+  "IMAGES": [ { "NAME": "mark", "PATH": "mark.png" } ] }
