@@ -133,9 +133,9 @@ struct Scenario {
     generate: bool,
     /// The browser has its third scene selected, so its tags show (D264).
     browser_selected: bool,
-    /// Settings' watched folder: whether the app refused it, and its line
-    /// (D265).
-    watch: Option<(bool, &'static str)>,
+    /// Settings' scene folders, two listed (one missing), with the app's
+    /// refusal of the folder typed in the Add field, or none (D538).
+    scene_folders: Option<&'static str>,
     /// The side panel's tab (D283).
     side_tab: crate::ui::side::SideTab,
     /// The library grid's card size (D282).
@@ -204,7 +204,7 @@ const BASE: Scenario = Scenario {
     tagging: false,
     generate: false,
     browser_selected: false,
-    watch: None,
+    scene_folders: None,
     ordered: false,
     synesthesia: false,
     on_synesthesia: false,
@@ -408,18 +408,16 @@ fn scenarios() -> Vec<Scenario> {
             ..BASE
         },
         Scenario {
-            name: "settings watching a folder",
-            watch: Some((false, "Watching D:\\VJ\\Strobe inbox")),
+            name: "settings with scene folders",
+            scene_folders: Some(""),
             panes: &[Pane::Settings],
             ..BASE
         },
         Scenario {
-            name: "settings with a refused watched folder",
-            watch: Some((
-                true,
-                "D:\\VJ\\scenes is the library itself: watch a folder scenes are copied into \
-                 before they join it.",
-            )),
+            name: "settings with a refused scene folder",
+            scene_folders: Some(
+                "D:\\VJ\\scenes is the library folder itself, which is listed already.",
+            ),
             panes: &[Pane::Settings],
             ..BASE
         },
@@ -1007,6 +1005,7 @@ fn draw_events(
     }
     let mut library = Library {
         dir: PathBuf::from("scenes"),
+        folders: Vec::new(),
         entries: (0..scenario.scenes)
             .map(|i| {
                 let entry = Entry::new(format!("{:02}-scene-{i}", i + 1), PathBuf::from("x"));
@@ -1082,7 +1081,7 @@ fn draw_events(
         page
     } else if scenario.capturing.is_some() || scenario.clash {
         crate::ui::settings::SettingsPage::Shortcuts
-    } else if scenario.watch.is_some() {
+    } else if scenario.scene_folders.is_some() {
         crate::ui::settings::SettingsPage::Library
     } else if scenario.lan {
         crate::ui::settings::SettingsPage::Remote
@@ -1141,15 +1140,17 @@ fn draw_events(
         playlist_ui.external_change = Some("playlists/example.toml".to_string());
         ui_state.browser.selected = Some(2);
     }
-    if let Some((failed, note)) = scenario.watch {
-        ui_state.watch.draft = if failed {
-            "D:\\VJ\\scenes".to_string()
-        } else {
-            "D:\\VJ\\Strobe inbox".to_string()
-        };
-        ui_state.watch.watching = !failed;
-        ui_state.watch.failed = failed;
-        ui_state.watch.note = note.to_string();
+    if let Some(refusal) = scenario.scene_folders {
+        ui_state.scene_folders.folders =
+            vec!["user-scenes".to_string(), "D:\\VJ\\friends".to_string()];
+        ui_state.scene_folders.status = vec![
+            "3 scenes".to_string(),
+            "Not found: D:\\VJ\\friends".to_string(),
+        ];
+        if !refusal.is_empty() {
+            ui_state.scene_folders.draft = "D:\\VJ\\scenes".to_string();
+        }
+        ui_state.scene_folders.refusal = refusal.to_string();
     }
     if scenario.browser_selected || scenario.tagging {
         ui_state.browser.selected = Some(if scenario.synesthesia {
@@ -2634,7 +2635,7 @@ fn each_browse_button_asks_for_its_own_dialog() -> Result<()> {
                 panes: &[Pane::Settings],
                 ..BASE
             },
-            Purpose::WatchFolder,
+            Purpose::SceneFolder,
         ),
         (
             Scenario {

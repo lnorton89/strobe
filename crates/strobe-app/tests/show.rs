@@ -80,6 +80,7 @@ impl TempLibrary {
         Ok(Self {
             library: Library {
                 dir: root.clone(),
+                folders: Vec::new(),
                 entries,
             },
             root,
@@ -470,6 +471,7 @@ fn preset_library(tag: &str) -> Result<TempLibrary> {
     Ok(TempLibrary {
         library: Library {
             dir: root.clone(),
+            folders: Vec::new(),
             entries: vec![Entry::new("tint".to_string(), dir)],
         },
         root,
@@ -667,6 +669,7 @@ fn media_library(tag: &str) -> Result<TempLibrary> {
     Ok(TempLibrary {
         library: Library {
             dir: root.clone(),
+            folders: Vec::new(),
             entries: vec![Entry::new("pic".to_string(), dir)],
         },
         root,
@@ -770,6 +773,7 @@ fn library_of(tag: &str, scenes: &[(&str, &str, &str)]) -> Result<TempLibrary> {
     Ok(TempLibrary {
         library: Library {
             dir: root.clone(),
+            folders: Vec::new(),
             entries,
         },
         root,

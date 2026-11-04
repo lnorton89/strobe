@@ -1406,6 +1406,7 @@ mod tests {
         playlist.sections.push(section);
         let library = Library {
             dir: PathBuf::from("no-library"),
+            folders: Vec::new(),
             entries: Vec::new(),
         };
         Show::new(None, playlist, &library, None, None)

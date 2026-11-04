@@ -195,22 +195,19 @@ impl BrowserState {
     }
 }
 
-/// The watched drop folder in Settings (D265).
+/// The library's other scene folders, in Settings (D538).
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct WatchState {
-    /// The folder last applied: saved.
-    pub folder: String,
-    /// Whether it is watched at launch: saved.
-    pub enabled: bool,
-    /// The Settings field, as typed. Not saved.
+pub struct SceneFoldersState {
+    /// The folders, as added, in listing order: saved.
+    pub folders: Vec<String>,
+    /// One line per folder: how many scenes it lists, or why none. Set by
+    /// the app; not saved.
+    pub status: Vec<String>,
+    /// The Add field, as typed. Not saved.
     pub draft: String,
-    /// Whether a folder is being watched now (from Settings or
-    /// `--watch-folder`). Set by the app; not saved.
-    pub watching: bool,
-    /// One line: what is watched, or why not. Set by the app; not saved.
-    pub note: String,
-    /// Whether `note` is an error.
-    pub failed: bool,
+    /// Why the last folder typed was not added; empty when it was. Set by
+    /// the app; not saved.
+    pub refusal: String,
 }
 
 /// Synesthesia's scenes in the library, in Settings (D271).
@@ -283,8 +280,8 @@ pub struct UiState {
     pub thumbs: super::thumbs::Thumbs,
     /// Named pane layouts (D215), saved.
     pub layouts: std::collections::BTreeMap<String, crate::prefs::Layout>,
-    /// The watched drop folder (D265): the folder and the switch are saved.
-    pub watch: WatchState,
+    /// The library's other scene folders (D538): the list is saved.
+    pub scene_folders: SceneFoldersState,
     /// The side panel's tab (D283). Saved.
     pub side_tab: super::side::SideTab,
     /// The library view's page: the scene grid or the live scene's
@@ -382,12 +379,9 @@ impl UiState {
             hotkeys: super::keys::HotkeyEditor::default(),
             thumbs: super::thumbs::Thumbs::default(),
             layouts: prefs.layouts.clone(),
-            watch: WatchState {
-                folder: prefs.watch.folder.clone(),
-                enabled: prefs.watch.enabled,
-                draft: prefs.watch.folder.clone(),
-                note: "Off".to_string(),
-                ..WatchState::default()
+            scene_folders: SceneFoldersState {
+                folders: prefs.scene_folders.folders.clone(),
+                ..SceneFoldersState::default()
             },
             side_tab: super::side::SideTab::from_key(&prefs.side_tab).unwrap_or_default(),
             synesthesia: SynesthesiaState {
@@ -435,9 +429,8 @@ impl UiState {
         prefs.recent_playlists.clone_from(&self.recent_playlists);
         prefs.density = self.density.key().to_string();
         prefs.layouts.clone_from(&self.layouts);
-        prefs.watch = crate::prefs::WatchPref {
-            folder: self.watch.folder.clone(),
-            enabled: self.watch.enabled,
+        prefs.scene_folders = crate::prefs::SceneFoldersPref {
+            folders: self.scene_folders.folders.clone(),
         };
         prefs.synesthesia = crate::prefs::SynesthesiaPref {
             show: self.synesthesia.show,
@@ -596,8 +589,7 @@ impl UiState {
         self.density.key().hash(&mut hasher);
         self.last_scene.hash(&mut hasher);
         self.recent_playlists.hash(&mut hasher);
-        self.watch.folder.hash(&mut hasher);
-        self.watch.enabled.hash(&mut hasher);
+        self.scene_folders.folders.hash(&mut hasher);
         self.synesthesia.show.hash(&mut hasher);
         self.remote.trust_file.hash(&mut hasher);
         self.remote.use_trust.hash(&mut hasher);
@@ -661,6 +653,7 @@ mod tests {
     fn library(names: &[&str]) -> Library {
         Library {
             dir: PathBuf::from("scenes"),
+            folders: Vec::new(),
             entries: names
                 .iter()
                 .map(|n| Entry::new((*n).to_string(), PathBuf::from(n)))
@@ -774,36 +767,36 @@ mod tests {
     }
 
     #[test]
-    fn the_watched_folder_is_saved_and_reread_but_its_field_is_not() {
+    fn the_scene_folders_are_saved_and_reread_but_the_add_field_is_not() {
         let mut state = UiState::ephemeral();
         let start = Instant::now();
         state.tick(start);
-        state.watch.draft = "half typed".to_string();
+        state.scene_folders.draft = "half typed".to_string();
         state.tick(start + Duration::from_millis(33));
         assert!(
             !state.debounce.pending(),
             "typing in the field saves nothing"
         );
-        state.watch.folder = "D:/VJ/inbox".to_string();
-        state.watch.enabled = true;
+        state
+            .scene_folders
+            .folders
+            .push("D:/VJ/friends".to_string());
         state.tick(start + Duration::from_millis(66));
-        assert!(state.debounce.pending(), "an applied folder is saved");
+        assert!(state.debounce.pending(), "an added folder is saved");
         let prefs = state.to_prefs();
         assert_eq!(
-            (prefs.watch.folder.as_str(), prefs.watch.enabled),
-            ("D:/VJ/inbox", true),
+            prefs.scene_folders.folders.last().map(String::as_str),
+            Some("D:/VJ/friends"),
             "written to the preferences"
         );
         let again = UiState::from_prefs(&prefs);
         assert_eq!(
             (
-                again.watch.folder.as_str(),
-                again.watch.enabled,
-                again.watch.draft.as_str(),
-                again.watch.watching
+                again.scene_folders.folders.clone(),
+                again.scene_folders.draft.as_str()
             ),
-            ("D:/VJ/inbox", true, "D:/VJ/inbox", false),
-            "read back with the field filled; watching starts only when the app checks it"
+            (prefs.scene_folders.folders.clone(), ""),
+            "read back with the field empty"
         );
     }
 

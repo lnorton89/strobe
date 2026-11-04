@@ -109,7 +109,6 @@ Flags (from the clap `Cli`):
 | `--audio auto\|synthetic\|ambient` | `auto` | Capture an input device (synthetic fallback), always the fixed 120 BPM pattern, or that pattern without its hits and beats. |
 | `--show-output`, `--fullscreen`, `--output-monitor <n>` | off | Show the output window at launch, fullscreen, on monitor N as Settings numbers them (D451 waits for one not connected yet). |
 | `--playlist <file>`, `--no-resume` | none | Load a playlist at launch (everything compiles before the first cue); start it from the top rather than where it was. |
-| `--watch-folder <dir>` | saved | Add scene folders that appear in this folder to the library (D240). |
 | `--osc` | off | Listen for OSC on `127.0.0.1` for this run (the Mappings view's switch saves it). |
 | `--osc-port <n>` | `9000` | The UDP port, for this run. |
 | `--osc-all-interfaces` | off | Listen on every network interface, for this run only. OSC has no password (D172); never saved. |
