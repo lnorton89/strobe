@@ -119,10 +119,18 @@ Settings > Shortcuts changes any of them.
 - **Other scene folders.** *Settings > Library > Scene folders* lists
   more folders of scenes after your library's own, where they are:
   nothing is copied, and editing one of their scenes changes it there.
-  `user-scenes` is on the list to begin with. Type a folder (or
-  *Browse...*) and *Add*; *Remove* stops listing one and leaves its
-  scenes alone. Each folder shows how many scenes it lists, or that it
+  `user-scenes` is on the list to begin with. Each folder is searched
+  through its subfolders too, so `user-scenes\jaja` lists its scenes
+  without being added on its own (D546). Type a folder (or *Browse...*)
+  and *Add*; *Remove* stops listing one and leaves its scenes alone. Each
+  folder shows how many scenes it lists, subfolders included, or that it
   was not found.
+- **Pictures for scenes without one.** The camera button beside the
+  Library's refresh renders a thumbnail for every scene that has none:
+  it plays each one for three seconds at a small size and keeps the last
+  frame (D547). Its tooltip shows the progress, the output keeps
+  drawing, and it waits while a playlist is loaded. A dull frame can be
+  replaced with *Use frame as picture*.
 - **Synesthesia's scenes.** If Synesthesia is installed on this computer,
   Library also lists its scenes after your own, each marked *Synesthesia*:
   - the scenes it ships (in `C:\Program Files (x86)\Synesthesia\release`
@@ -619,7 +627,10 @@ page when Strobe is closed, and the `pj` command line, see
 ## Importing from Shadertoy
 
 The **Import** pane (on the rail) takes a Shadertoy URL or id, or an exported
-`.json` file, and writes a scene into the library. **Browse...** chooses
+`.json` file, and writes a scene into `user-scenes\shadertoy-imports`,
+not into the library folder, since an imported shader is someone else's
+work (D547). The Library lists it from there, with a picture rendered for
+it. **Browse...** chooses
 the file in the system's dialog and imports it at once; dropping a `.json`
 on the window does the same. Scene folders (*Settings > Library*) and
 a venue trust file (*Settings > Remote*) have a **Browse...** button too.
