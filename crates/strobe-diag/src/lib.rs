@@ -57,7 +57,7 @@ pub mod filter;
 pub mod logger;
 #[expect(
     unsafe_code,
-    reason = "the crash handler's one unsafe entry point (D41, D538)"
+    reason = "the crash handler's one unsafe entry point (D41, D541)"
 )]
 mod native;
 pub mod notify;

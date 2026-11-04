@@ -24,8 +24,8 @@
 //! | lane | what | CI job |
 //! |---|---|---|
 //! | `fmt` | `cargo fmt --all -- --check` | `rustfmt` |
-//! | `lint` | Linux: actionlint over the workflows and shellcheck over the `.sh` scripts; Windows: PSScriptAnalyzer over the `.ps1` scripts (D538) | `rustfmt`, `windows` |
-//! | `check` | clippy `-D warnings` over the workspace; on Linux also `strobe-io`, `strobe-audio` and `strobe-shadertoy` each without its default feature, rustdoc with `-D warnings`, and the Windows cross-check (D538); on macOS the portable crates only | each platform job |
+//! | `lint` | Linux: actionlint over the workflows and shellcheck over the `.sh` scripts; Windows: PSScriptAnalyzer over the `.ps1` scripts (D541) | `rustfmt`, `windows` |
+//! | `check` | clippy `-D warnings` over the workspace; on Linux also `strobe-io`, `strobe-audio` and `strobe-shadertoy` each without its default feature, rustdoc with `-D warnings`, and the Windows cross-check (D541); on macOS the portable crates only | each platform job |
 //! | `test` | `cargo test --workspace --all-features`; on macOS the portable crates | each platform job |
 //! | `deny` | `cargo deny check` | `cargo-deny` |
 //! | `generated` | the changelog, icon and credits checks | `changelog` |
@@ -162,7 +162,7 @@ enum Lane {
     /// The conventions tests alone (links, decisions, known gaps).
     Conventions,
     /// The workflows and scripts: actionlint and shellcheck on Linux,
-    /// PSScriptAnalyzer on Windows (D538).
+    /// PSScriptAnalyzer on Windows (D541).
     Lint,
 }
 
@@ -574,7 +574,7 @@ fn check_lane(steps: &mut Vec<Step>, machine: &Machine) {
 
     // Each crate built the way a build without its default feature uses it,
     // which `--all-features` never does, so feature unification cannot hide
-    // a missing `cfg` or dead code only the feature reads (D538). Linux
+    // a missing `cfg` or dead code only the feature reads (D541). Linux
     // only: the same Rust on every host, and one is enough.
     // - strobe-io without `midi`: a show machine with no MIDI device layer.
     // - strobe-audio without `capture`: pure DSP, as the browser build and
@@ -608,7 +608,7 @@ fn check_lane(steps: &mut Vec<Step>, machine: &Machine) {
 
     // The documentation builds without a warning: a broken intra-doc link
     // or a malformed code block fails here, which the Markdown checks in
-    // strobe-conventions cannot see (D538). These are an application's
+    // strobe-conventions cannot see (D541). These are an application's
     // internal docs, so private items are documented and a public item's
     // link to a private one is fine. Linux only, as above.
     steps.push(Step::new(
@@ -1323,7 +1323,7 @@ fn tracked(glob: &str) -> Vec<String> {
 }
 
 /// The workflows and the scripts, each with the linter for its language
-/// (D538): actionlint, which also runs shellcheck over every `run:` block,
+/// (D541): actionlint, which also runs shellcheck over every `run:` block,
 /// and shellcheck over the tracked `.sh` files, on Linux; PSScriptAnalyzer
 /// over the tracked `.ps1` files on Windows, where PowerShell 5.1 is what
 /// runs them.
