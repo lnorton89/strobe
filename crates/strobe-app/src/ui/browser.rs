@@ -935,18 +935,15 @@ fn card(
         .and_then(|path| model.ui.thumbs.get(path));
     match texture {
         Some((texture, size)) => {
-            painter.rect_filled(picture, radius, theme::rgb(theme.app));
-            // Fit inside, centred, keeping the aspect.
-            let scale = (picture.width() / size[0]).min(picture.height() / size[1]);
-            let fitted = Rect::from_center_size(
-                picture.center(),
-                Vec2::new(size[0] * scale, size[1] * scale),
-            );
-            ui.painter_at(picture).image(
-                texture,
-                fitted,
-                Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
-                egui::Color32::from_white_alpha(255),
+            // Fill the picture, cropping the middle of one of another
+            // shape, under the card's rounded top corners (D540).
+            painter.add(
+                egui::epaint::RectShape::filled(
+                    picture,
+                    radius,
+                    egui::Color32::from_white_alpha(255),
+                )
+                .with_texture(texture, cover_uv(picture.size(), size)),
             );
         }
         None => {
@@ -1411,9 +1408,55 @@ fn preview_card(
     ui.add_space(SPACE_MD - SPACE_SM);
 }
 
+/// The part of a picture `image` pixels big that fills an area `area`
+/// big, keeping its aspect: the middle, as texture coordinates (D540).
+fn cover_uv(area: Vec2, image: [f32; 2]) -> Rect {
+    let full = Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
+    if area.x <= 0.0 || area.y <= 0.0 || image[0] <= 0.0 || image[1] <= 0.0 {
+        return full;
+    }
+    let area_aspect = area.x / area.y;
+    let image_aspect = image[0] / image[1];
+    if image_aspect > area_aspect {
+        let width = area_aspect / image_aspect;
+        Rect::from_min_max(
+            egui::pos2((1.0 - width) / 2.0, 0.0),
+            egui::pos2((1.0 + width) / 2.0, 1.0),
+        )
+    } else {
+        let height = image_aspect / area_aspect;
+        Rect::from_min_max(
+            egui::pos2(0.0, (1.0 - height) / 2.0),
+            egui::pos2(1.0, (1.0 + height) / 2.0),
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_picture_of_another_shape_is_cropped_in_the_middle_to_fill() {
+        let card = Vec2::new(160.0, 90.0);
+        let square = cover_uv(card, [500.0, 500.0]);
+        assert!(
+            (square.min.x, square.max.x) == (0.0, 1.0)
+                && (square.height() - 0.5625).abs() < 1e-4
+                && (square.center().y - 0.5).abs() < 1e-4,
+            "a square keeps its width and loses top and bottom equally: {square:?}"
+        );
+        let wide = cover_uv(card, [320.0, 90.0]);
+        assert!(
+            (wide.min.y, wide.max.y) == (0.0, 1.0) && (wide.width() - 0.5).abs() < 1e-4,
+            "a wide one keeps its height and loses its sides: {wide:?}"
+        );
+        let same = cover_uv(card, [160.0, 90.0]);
+        assert!(
+            (same.min.x, same.min.y, same.max.x, same.max.y) == (0.0, 0.0, 1.0, 1.0),
+            "the same shape is drawn whole: {same:?}"
+        );
+    }
 
     #[test]
     fn columns_follow_the_width_and_never_reach_zero() {
