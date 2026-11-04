@@ -52,9 +52,12 @@ Flags, from the clap definitions:
 
 - `ci`: lanes (any of `all`, `doctor`, `fmt`, `check`, `test`, `deny`,
   `generated`, `render`, `build`, `conventions`), `--strict`, `--shipping`
-  (the `build` lane also builds the fat-LTO `release`), `--allow-gl-skip` and
-  `--no-deny`. The lane table, what each host does, and the strict rules are
-  in `src/ci.rs`'s module docs.
+  (the `build` lane also builds the fat-LTO `release`), `--nextest` (the
+  `test` lane runs the tests through cargo-nextest and the doctests through
+  `cargo test --doc`, configured by `.config/nextest.toml`, D535),
+  `--allow-gl-skip` and `--no-deny`. The lane table, what each host does,
+  and the strict rules are in `src/ci.rs`'s module docs. The `build` lane
+  passes `--timings`, so `target/cargo-timings/` says where its time went.
 - `changelog`: `--check` and `--release <vX.Y.Z>`, which conflict with each
   other.
 - `bench`: everything after `--` goes to `strobe-bench`.

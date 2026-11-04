@@ -183,6 +183,14 @@ panic = "abort"
 opt-level = 2
 debug = "line-tables-only"
 
+# The audio crate's tests synthesise and analyse minutes of signal (tempo,
+# downbeats, onsets), and unoptimised DSP made them the slowest test binary
+# in the workspace: 62 s on CI's Windows runner. Optimised in the test
+# profile only, so a debug app build keeps the crate debuggable; overflow
+# checks and debug assertions stay on (D535).
+[profile.test.package.strobe-audio]
+opt-level = 2
+
 # The optimised build to iterate with (D487): `cargo run --profile
 # release-fast -p strobe-app`. Same opt-level, panic and symbols as
 # `release`, but no LTO and incremental, so an edit rebuilds in seconds
@@ -220,3 +228,11 @@ inherits = "release"
 opt-level = "s"
 debug = false
 strip = true
+
+# An experiment, not a build anyone ships (D535): `release` with thin LTO,
+# so the T480 can bench it against the shipping fat-LTO build and the
+# Experiments workflow can compare their build times and sizes. Production
+# LTO changes only on the T480's frame times, never on CI duration (D504).
+[profile.release-thin]
+inherits = "release"
+lto = "thin"
