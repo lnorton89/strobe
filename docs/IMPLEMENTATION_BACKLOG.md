@@ -540,7 +540,7 @@
   - there are `IMAGES` and `#include` fixtures;
   - `CHANGELOG.corrections` exists;
   - the T480's build timings are recorded (BENCHMARKS.md);
-  - a release dry run on the mirror passed the package check;
+  - a release dry run on the mirror (v0.2.1) published end to end, and `gh attestation verify` confirmed that its provenance names the tagged commit;
   - the first T480 run of `cargo xtask rc` passed native, ANGLE-D3D11 and the symbolicated crash (`hardware/T480.md`), and found two harness bugs, now fixed.
 
   What is left needs hardware, data or a person:
