@@ -31,7 +31,7 @@
 //!   sampler chosen with `?:` moved outside its call.
 //! - [`directives`] reads an `#if` on a name that is not a macro as `0`,
 //!   on every driver, as NVIDIA's compiler does.
-//! - [`include`] expands `#include` against the scene folder and the GLSL
+//! - [`mod@include`] expands `#include` against the scene folder and the GLSL
 //!   library folders when a scene loads.
 //! - [`meta`] is the output-wide meta control bank (master, brightness,
 //!   hue, mirror...), an ordinary [`control::ControlBank`].
@@ -48,7 +48,7 @@
 //!   library (D271).
 //!
 //! Nothing here touches GL, the filesystem beyond [`load`], the
-//! [`include`] it runs, and the folder checks and settings files
+//! [`mod@include`] it runs, and the folder checks and settings files
 //! [`synesthesia`] reads, or a clock:
 //! `dt` is passed in. That is what lets every rule above be tested on any
 //! machine without a window.

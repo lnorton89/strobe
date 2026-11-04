@@ -13,7 +13,7 @@
 //! `#define` used from three pass files is one candidate with the
 //! definition as its single site, and `iTime * 0.3` written in two places
 //! is one candidate with two. Everything here is plain data; the analysis
-//! that finds candidates is in [`crate::analyze`] and the rewrite that
+//! that finds candidates is in [`mod@crate::analyze`] and the rewrite that
 //! applies them is in [`crate::rewrite`].
 
 use serde::Serialize;

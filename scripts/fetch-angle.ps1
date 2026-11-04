@@ -28,8 +28,11 @@
 # LICENSES.chromium.html (extracted alongside) covers them.
 
 param(
+    # Called -Profile on the command line, as it always was; inside, a
+    # variable named $Profile would shadow PowerShell's own $PROFILE (D541).
+    [Alias("Profile")]
     [ValidateSet("release", "debug", "release-fast", "both")]
-    [string]$Profile = "both",
+    [string]$BuildProfile = "both",
     # One folder to fill instead of the profiles under target\; overrides
     # -Profile.
     [string]$Destination = ""
@@ -76,7 +79,7 @@ foreach ($Name in $Files.Keys) {
 
 # "both" fills every profile people run from: release, debug, and
 # release-fast, the one to iterate with (D487).
-$Profiles = if ($Profile -eq "both") { @("release", "debug", "release-fast") } else { @($Profile) }
+$Profiles = if ($BuildProfile -eq "both") { @("release", "debug", "release-fast") } else { @($BuildProfile) }
 $Dests = if ($Destination) { @($Destination) } else { $Profiles | ForEach-Object { Join-Path $Root "target\$_" } }
 foreach ($Dest in $Dests) {
     New-Item -ItemType Directory -Force -Path $Dest | Out-Null

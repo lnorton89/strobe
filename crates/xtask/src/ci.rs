@@ -24,7 +24,8 @@
 //! | lane | what | CI job |
 //! |---|---|---|
 //! | `fmt` | `cargo fmt --all -- --check` | `rustfmt` |
-//! | `check` | clippy `-D warnings` over the workspace; on Linux also `strobe-io` without MIDI and the Windows cross-check; on macOS the portable crates only | each platform job |
+//! | `lint` | Linux: actionlint over the workflows and shellcheck over the `.sh` scripts; Windows: PSScriptAnalyzer over the `.ps1` scripts (D541) | `rustfmt`, `windows` |
+//! | `check` | clippy `-D warnings` over the workspace; on Linux also `strobe-io`, `strobe-audio` and `strobe-shadertoy` each without its default feature, rustdoc with `-D warnings`, and the Windows cross-check (D541); on macOS the portable crates only | each platform job |
 //! | `test` | `cargo test --workspace --all-features`; on macOS the portable crates | each platform job |
 //! | `deny` | `cargo deny check` | `cargo-deny` |
 //! | `generated` | the changelog, icon and credits checks | `changelog` |
@@ -33,7 +34,7 @@
 //! | `package` | Windows: the release zip from that build, unpacked outside the checkout and checked (D537) | `windows` |
 //! | `conventions` | `cargo test -p strobe-conventions` | `docs` (a docs-only pull request) |
 //!
-//! `all` (the default) is `fmt check test deny generated render build package`:
+//! `all` (the default) is `fmt lint check test deny generated render build package`:
 //! every lane this host's CI job runs, plus the cheap shared ones.
 //! `doctor` runs nothing and lists, for the lanes named (or all of them),
 //! what this machine would run, what does not apply here, and what is
@@ -160,12 +161,16 @@ enum Lane {
     Package,
     /// The conventions tests alone (links, decisions, known gaps).
     Conventions,
+    /// The workflows and scripts: actionlint and shellcheck on Linux,
+    /// PSScriptAnalyzer on Windows (D541).
+    Lint,
 }
 
 impl Lane {
     /// The lanes `all` stands for, in the order they run.
-    const ALL: [Self; 8] = [
+    const ALL: [Self; 9] = [
         Self::Fmt,
+        Self::Lint,
         Self::Check,
         Self::Test,
         Self::Deny,
@@ -189,6 +194,7 @@ impl Lane {
             Self::Build => "build",
             Self::Package => "package",
             Self::Conventions => "conventions",
+            Self::Lint => "lint",
         }
     }
 }
@@ -310,6 +316,14 @@ struct Machine {
     nextest: bool,
     /// `xvfb-run` is on the path.
     xvfb: bool,
+    /// `actionlint` is on the path.
+    actionlint: bool,
+    /// `shellcheck` is on the path.
+    shellcheck: bool,
+    /// PowerShell has the PSScriptAnalyzer module.
+    script_analyzer: bool,
+    /// The tracked shell scripts and PowerShell scripts, for the lint lane.
+    scripts: (Vec<String>, Vec<String>),
     /// Running under CI (`CI` is set).
     ci: bool,
     /// The headless GL requirement was already set by the caller.
@@ -331,6 +345,19 @@ impl Machine {
             windows_target: host != Host::Windows && windows_target_installed(),
             nextest: tool_works(&cargo, &["nextest", "--version"]),
             xvfb: host == Host::Linux && tool_works("xvfb-run", &["--help"]),
+            actionlint: host == Host::Linux && tool_works("actionlint", &["-version"]),
+            shellcheck: host == Host::Linux && tool_works("shellcheck", &["--version"]),
+            script_analyzer: host == Host::Windows
+                && tool_works(
+                    "powershell",
+                    &[
+                        "-NoProfile",
+                        "-NonInteractive",
+                        "-Command",
+                        "if (Get-Module -ListAvailable PSScriptAnalyzer) { exit 0 } else { exit 1 }",
+                    ],
+                ),
+            scripts: (tracked("*.sh"), tracked("*.ps1")),
             ci: std::env::var_os("CI").is_some(),
             require_gl_set: std::env::var_os(REQUIRE_GL).is_some(),
             lan_set: std::env::var_os(LAN_TESTS).is_some(),
@@ -439,6 +466,7 @@ fn plan(lanes: &[Lane], args: &Args, machine: &Machine, tree: Option<String>) ->
             Lane::Render => render_lane(&mut steps, args, machine),
             Lane::Build => build_lane(&mut steps, args, machine),
             Lane::Package => package_lane(&mut steps, machine),
+            Lane::Lint => lint_lane(&mut steps, machine),
             Lane::Conventions => steps.push(Step::new(
                 *lane,
                 "conventions",
@@ -544,24 +572,67 @@ fn check_lane(steps: &mut Vec<Step>, machine: &Machine) {
         steps.push(Step::new(LANE, "clippy whole", cargo(machine, &whole)).informational());
     }
 
-    // The `midi` feature is on by default and `--all-features` keeps it on,
-    // so without this nothing builds the crate the way a MIDI-less build
-    // does, and dead code only the device thread reads would go unseen.
-    // Linux only: the same Rust on every host, and one is enough.
-    let mut no_midi = vec![
-        "clippy",
-        "--locked",
-        "-p",
-        "strobe-io",
-        "--no-default-features",
-        "--all-targets",
-    ];
-    no_midi.extend(DENY);
+    // Each crate built the way a build without its default feature uses it,
+    // which `--all-features` never does, so feature unification cannot hide
+    // a missing `cfg` or dead code only the feature reads (D541). Linux
+    // only: the same Rust on every host, and one is enough.
+    // - strobe-io without `midi`: a show machine with no MIDI device layer.
+    // - strobe-audio without `capture`: pure DSP, as the browser build and
+    //   the offline tuning harness use it.
+    // - strobe-shadertoy without `net`: conversion and analysis only, as
+    //   the auto-controls crate uses it.
+    for (name, krate) in [
+        ("clippy no-midi", "strobe-io"),
+        ("clippy no-capture", "strobe-audio"),
+        ("clippy no-net", "strobe-shadertoy"),
+    ] {
+        let mut alone = vec![
+            "clippy",
+            "--locked",
+            "-p",
+            krate,
+            "--no-default-features",
+            "--all-targets",
+        ];
+        alone.extend(DENY);
+        steps.push(Step::new(
+            LANE,
+            name,
+            if machine.host == Host::Linux {
+                cargo(machine, &alone)
+            } else {
+                Action::NotHere("Linux only; CI's Linux job runs it".to_owned())
+            },
+        ));
+    }
+
+    // The documentation builds without a warning: a broken intra-doc link
+    // or a malformed code block fails here, which the Markdown checks in
+    // strobe-conventions cannot see (D541). These are an application's
+    // internal docs, so private items are documented and a public item's
+    // link to a private one is fine. Linux only, as above.
     steps.push(Step::new(
         LANE,
-        "clippy no-midi",
+        "rustdoc",
         if machine.host == Host::Linux {
-            cargo(machine, &no_midi)
+            Action::Run {
+                program: machine.cargo.clone(),
+                args: [
+                    "doc",
+                    "--locked",
+                    "--workspace",
+                    "--no-deps",
+                    "--all-features",
+                    "--document-private-items",
+                ]
+                .iter()
+                .map(|arg| (*arg).to_owned())
+                .collect(),
+                env: vec![(
+                    "RUSTDOCFLAGS",
+                    "-D warnings -A rustdoc::private_intra_doc_links".to_owned(),
+                )],
+            }
         } else {
             Action::NotHere("Linux only; CI's Linux job runs it".to_owned())
         },
@@ -1234,6 +1305,111 @@ fn windows_target_installed() -> bool {
         .is_some_and(|dir| Path::new(dir.trim()).is_dir())
 }
 
+/// The tracked files matching a git pathspec glob, such as `*.sh`; none
+/// when git cannot say.
+fn tracked(glob: &str) -> Vec<String> {
+    Command::new("git")
+        .args(["ls-files", "--", glob])
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|output| {
+            String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The workflows and the scripts, each with the linter for its language
+/// (D541): actionlint, which also runs shellcheck over every `run:` block,
+/// and shellcheck over the tracked `.sh` files, on Linux; PSScriptAnalyzer
+/// over the tracked `.ps1` files on Windows, where PowerShell 5.1 is what
+/// runs them.
+fn lint_lane(steps: &mut Vec<Step>, machine: &Machine) {
+    const LANE: Lane = Lane::Lint;
+    let (shell, powershell) = &machine.scripts;
+    match machine.host {
+        Host::Linux => {
+            steps.push(Step::new(
+                LANE,
+                "actionlint",
+                if machine.actionlint {
+                    Action::Run {
+                        program: "actionlint".to_owned(),
+                        args: Vec::new(),
+                        env: Vec::new(),
+                    }
+                } else {
+                    Action::Missing {
+                        why: "actionlint is not installed".to_owned(),
+                        fix: "go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12"
+                            .to_owned(),
+                    }
+                },
+            ));
+            steps.push(Step::new(
+                LANE,
+                "shellcheck",
+                if machine.shellcheck {
+                    Action::Run {
+                        program: "shellcheck".to_owned(),
+                        args: shell.clone(),
+                        env: Vec::new(),
+                    }
+                } else {
+                    Action::Missing {
+                        why: "shellcheck is not installed".to_owned(),
+                        fix: "sudo apt-get install -y shellcheck".to_owned(),
+                    }
+                },
+            ));
+        }
+        Host::Windows => {
+            let files: Vec<String> = powershell.iter().map(|f| format!("'{f}'")).collect();
+            // Every rule at warning and above, but one: these scripts are
+            // run by a person at a console (install, network setup, the
+            // ANGLE fetch), and what they print is meant for that person,
+            // which is what Write-Host is for.
+            let script = format!(
+                "$found = @(foreach ($f in @({})) {{ Invoke-ScriptAnalyzer -Path $f -Severity Warning,Error -ExcludeRule PSAvoidUsingWriteHost }}); \
+                 $found | Format-Table -AutoSize ScriptName, Line, RuleName, Message | Out-String -Width 220; \
+                 if ($found.Count -gt 0) {{ exit 1 }}",
+                files.join(", ")
+            );
+            steps.push(Step::new(
+                LANE,
+                "psscriptanalyzer",
+                if machine.script_analyzer {
+                    Action::Run {
+                        program: "powershell".to_owned(),
+                        args: vec![
+                            "-NoProfile".to_owned(),
+                            "-NonInteractive".to_owned(),
+                            "-Command".to_owned(),
+                            script,
+                        ],
+                        env: Vec::new(),
+                    }
+                } else {
+                    Action::Missing {
+                        why: "PSScriptAnalyzer is not installed".to_owned(),
+                        fix: "Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Scope CurrentUser".to_owned(),
+                    }
+                },
+            ));
+        }
+        Host::MacOs | Host::Other => steps.push(Step::new(
+            LANE,
+            "lint",
+            Action::NotHere(
+                "CI's Linux and Windows jobs lint the workflows and scripts".to_owned(),
+            ),
+        )),
+    }
+}
+
 /// Whether `program args` runs and succeeds, with its output discarded.
 fn tool_works(program: &str, args: &[&str]) -> bool {
     Command::new(program)
@@ -1265,6 +1441,13 @@ mod tests {
             windows_target: true,
             nextest: true,
             xvfb: true,
+            actionlint: true,
+            shellcheck: true,
+            script_analyzer: true,
+            scripts: (
+                vec!["scripts/check-linux.sh".to_owned()],
+                vec!["scripts/fetch-angle.ps1".to_owned()],
+            ),
             ci: false,
             require_gl_set: false,
             lan_set: false,
@@ -1295,6 +1478,7 @@ mod tests {
             vec![
                 Lane::Test,
                 Lane::Fmt,
+                Lane::Lint,
                 Lane::Check,
                 Lane::Deny,
                 Lane::Generated,

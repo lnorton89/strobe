@@ -55,6 +55,10 @@ pub mod diag;
 pub mod failure;
 pub mod filter;
 pub mod logger;
+#[expect(
+    unsafe_code,
+    reason = "the crash handler's one unsafe entry point (D41, D541)"
+)]
 mod native;
 pub mod notify;
 pub mod panic_hook;

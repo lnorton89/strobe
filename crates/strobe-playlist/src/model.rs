@@ -12,7 +12,7 @@
 //! This is the *authored* shape of a playlist: what a person typed or a
 //! generator produced, with every inheritable field still optional. The
 //! rest of the crate works from a flattened, fully resolved view of it
-//! ([`crate::resolve`]); nothing downstream mutates a `Playlist`.
+//! ([`mod@crate::resolve`]); nothing downstream mutates a `Playlist`.
 //!
 //! # Inheritance
 //!
