@@ -81,6 +81,12 @@ impl Args {
             out: self.out.map(|path| cwd.join(path)),
         }
     }
+
+    /// The arguments for symbolicating `dump` from code (the
+    /// release-candidate harness, D537).
+    pub(crate) fn new(dump: PathBuf, symbols: Vec<PathBuf>, out: Option<PathBuf>) -> Self {
+        Self { dump, symbols, out }
+    }
 }
 
 /// A parsed `MODULE` line from a `.sym` file.

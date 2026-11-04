@@ -47,6 +47,9 @@ cargo xtask symbolicate crash-….dmp           # a crash dump as a readable sta
 cargo xtask brand                             # icon PNGs and .ico from assets/brand/*.svg
 cargo xtask brand --check                     # what CI runs; fails on a stale render
 cargo xtask sbom-native --sbom <f.cdx.json> --dir <dlls>  # the release DLLs into its SBOM, checked against scripts/native-deps.json (D536)
+cargo xtask package --profile release-fast   # the release zip and symbols zip from a build, into dist/ (Windows, D537)
+cargo xtask package-check <zip> --symbols <zip>  # unpack outside the checkout and check it is what a user should get
+cargo xtask rc --zip <zip> --symbols <zip>    # the release-candidate harness for the T480: draw, crash, symbolicate, evidence.json
 ```
 
 Flags, from the clap definitions:
