@@ -5,7 +5,7 @@
 //               shortcut, crash-dump symbolication, and the icon renderer.
 //
 // Dependencies: clap, anyhow; modules brand, changelog, ci, credits, bench,
-//               corpus, native, symbolicate
+//               corpus, native, package, rc, symbolicate
 // ============================================================================
 
 //! `cargo xtask`: the repository's tooling, written in the repository's
@@ -50,6 +50,8 @@ mod ci;
 mod corpus;
 mod credits;
 mod native;
+mod package;
+mod rc;
 mod symbolicate;
 
 use anyhow::{Context as _, Result, anyhow};
@@ -117,6 +119,18 @@ enum Command {
         #[arg(long)]
         check: bool,
     },
+    /// Stage the release zip and its symbols zip from a build (Windows,
+    /// D537): the program, the pinned native DLLs, the scene library and
+    /// the licences.
+    Package(package::PackageArgs),
+    /// Unpack a release zip outside the checkout and check it is what a
+    /// user should get: the file list, the DLLs, the notices, the version
+    /// resource, the symbols, and that `strobe --diagnose` runs (D537).
+    PackageCheck(package::CheckArgs),
+    /// The release-candidate harness for a real Windows machine (D537):
+    /// the package checks, each GL backend drawing, an injected crash
+    /// symbolicated against the archived PDB, and `evidence.json`.
+    Rc(rc::Args),
     /// Add the native files the release carries (ANGLE, the D3D compiler,
     /// the Vulkan loader) to a CycloneDX SBOM, each checked against
     /// scripts/native-deps.json (D536).
@@ -172,6 +186,9 @@ fn run() -> Result<()> {
         Command::Symbolicate(args) => symbolicate::run(&args.anchored(&invoked_from)),
         Command::Brand { check } => brand::run(check),
         Command::SbomNative(args) => native::run(&args.anchored(&invoked_from)),
+        Command::Package(args) => package::run_package(&args.anchored(&invoked_from)),
+        Command::PackageCheck(args) => package::run_check(&args.anchored(&invoked_from)),
+        Command::Rc(args) => rc::run(&args.anchored(&invoked_from)),
         Command::Credits { check, notices } => {
             let notices = notices.map(|path| invoked_from.join(path));
             credits::run(check, notices.as_deref())

@@ -30,9 +30,10 @@
 //! | `generated` | the changelog, icon and credits checks | `changelog` |
 //! | `render` | Linux: the app on Xvfb, auto-controls on a window context, the scene library in both GLSL dialects, the corpus gate (D534) | `linux` |
 //! | `build` | Windows: the `release-fast` binaries, and with `--shipping` the fat-LTO `release` ones | `windows` |
+//! | `package` | Windows: the release zip from that build, unpacked outside the checkout and checked (D537) | `windows` |
 //! | `conventions` | `cargo test -p strobe-conventions` | `docs` (a docs-only pull request) |
 //!
-//! `all` (the default) is `fmt check test deny generated render build`:
+//! `all` (the default) is `fmt check test deny generated render build package`:
 //! every lane this host's CI job runs, plus the cheap shared ones.
 //! `doctor` runs nothing and lists, for the lanes named (or all of them),
 //! what this machine would run, what does not apply here, and what is
@@ -154,13 +155,16 @@ enum Lane {
     Render,
     /// The optimised binaries (Windows).
     Build,
+    /// The release zip from the `release-fast` build, unpacked outside the
+    /// checkout and checked (Windows, D537).
+    Package,
     /// The conventions tests alone (links, decisions, known gaps).
     Conventions,
 }
 
 impl Lane {
     /// The lanes `all` stands for, in the order they run.
-    const ALL: [Self; 7] = [
+    const ALL: [Self; 8] = [
         Self::Fmt,
         Self::Check,
         Self::Test,
@@ -168,6 +172,7 @@ impl Lane {
         Self::Generated,
         Self::Render,
         Self::Build,
+        Self::Package,
     ];
 
     /// The name on the command line.
@@ -182,6 +187,7 @@ impl Lane {
             Self::Generated => "generated",
             Self::Render => "render",
             Self::Build => "build",
+            Self::Package => "package",
             Self::Conventions => "conventions",
         }
     }
@@ -227,6 +233,8 @@ enum Action {
     Changelog,
     /// The in-process icon check.
     Brand,
+    /// The in-process package and package check (D537).
+    Package,
     /// The in-process credits check.
     Credits,
     /// These files exist and are not empty.
@@ -430,6 +438,7 @@ fn plan(lanes: &[Lane], args: &Args, machine: &Machine, tree: Option<String>) ->
             }
             Lane::Render => render_lane(&mut steps, args, machine),
             Lane::Build => build_lane(&mut steps, args, machine),
+            Lane::Package => package_lane(&mut steps, machine),
             Lane::Conventions => steps.push(Step::new(
                 *lane,
                 "conventions",
@@ -886,6 +895,62 @@ fn build_lane(steps: &mut Vec<Step>, args: &Args, machine: &Machine) {
     }
 }
 
+/// The package a release would ship, built from the `build` lane's
+/// `release-fast` output and checked as a user would get it (D537).
+fn package_lane(steps: &mut Vec<Step>, machine: &Machine) {
+    const LANE: Lane = Lane::Package;
+    if machine.host != Host::Windows {
+        steps.push(Step::new(
+            LANE,
+            "package",
+            Action::NotHere("Windows only: the package is a Windows package".to_owned()),
+        ));
+        return;
+    }
+    // A dev build fetches ANGLE in strobe-gfx's build script; CI turns that
+    // off (`CI`), so the lane fetches it, from the same pinned manifest.
+    steps.push(
+        Step::new(
+            LANE,
+            "fetch angle",
+            Action::Run {
+                program: "powershell".to_owned(),
+                args: [
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                    "scripts/fetch-angle.ps1",
+                    "-Profile",
+                    "release-fast",
+                ]
+                .iter()
+                .map(|arg| (*arg).to_owned())
+                .collect(),
+                env: Vec::new(),
+            },
+        )
+        .timeout(15),
+    );
+    steps.push(Step::new(LANE, "package", Action::Package));
+}
+
+/// Builds the `release-fast` package into `target/dist` and checks it.
+fn package_and_check() -> Result<()> {
+    use crate::package::{CheckArgs, PackageArgs, check, package, scratch};
+    let out = crate::workspace_root()?.join("target").join("dist");
+    let (zip, symbols) = package(&PackageArgs::for_lane("release-fast", out))?;
+    let checked = check(&CheckArgs::new(zip, Some(symbols)), &scratch("ci-package"))?;
+    for line in &checked.passed {
+        println!("    ok  {line}");
+    }
+    if checked.problems.is_empty() {
+        return Ok(());
+    }
+    bail!("{}", checked.problems.join("; "))
+}
+
 /// Runs every step in order, stops at the first failure, and summarises.
 fn execute_all(steps: &[Step], strict: bool, machine: &Machine) -> Result<()> {
     let total = steps.len();
@@ -1025,6 +1090,7 @@ fn report_doctor(steps: &[Step], strict: bool) -> Result<()> {
             | Action::Changelog
             | Action::Brand
             | Action::Credits
+            | Action::Package
             | Action::Nonempty(_)
             | Action::CleanTree(_) => println!("ready    {name:<28} {}", describe(&step.action)),
         }
@@ -1053,6 +1119,10 @@ fn describe(action: &Action) -> String {
         Action::Changelog => "cargo xtask changelog --check".to_owned(),
         Action::Brand => "cargo xtask brand --check".to_owned(),
         Action::Credits => "cargo xtask credits --check".to_owned(),
+        Action::Package => {
+            "cargo xtask package --profile release-fast --out target/dist, then package-check"
+                .to_owned()
+        }
         Action::Nonempty(files) => format!("non-empty: {}", files.join(", ")),
         Action::CleanTree(_) => "git status is what it was before the run".to_owned(),
         Action::NotHere(why) => format!("does not apply here ({why})"),
@@ -1075,6 +1145,7 @@ fn execute(action: &Action, timeout: Option<Duration>, strict: bool) -> Outcome 
         Action::Changelog => checked(changelog::run(true, None)),
         Action::Brand => checked(brand::run(true)),
         Action::Credits => checked(credits::run(true, None)),
+        Action::Package => checked(package_and_check()),
         Action::Nonempty(files) => {
             let empty: Vec<&str> = files
                 .iter()
@@ -1228,7 +1299,8 @@ mod tests {
                 Lane::Deny,
                 Lane::Generated,
                 Lane::Render,
-                Lane::Build
+                Lane::Build,
+                Lane::Package
             ],
             "a lane named twice runs once, where it was first named"
         );

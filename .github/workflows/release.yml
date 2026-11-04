@@ -251,70 +251,42 @@ jobs:
       # None of this changes the code that is generated or the size of
       # strobe.exe: the symbols live in the separate .pdb, which is
       # published as the `-symbols` archive and never shipped to users.
+      # STROBE_REQUIRE_RESOURCES: a release without its icon and version
+      # resource fails here instead of shipping (D537).
       - name: Build
         env:
           CARGO_PROFILE_RELEASE_STRIP: none
           CARGO_PROFILE_RELEASE_DEBUG: line-tables-only
+          STROBE_REQUIRE_RESOURCES: "1"
         run: cargo build --release --locked -p strobe-app --target ${{ matrix.target }}
 
-      # The notices the MIT, BSD and Apache licences ask to travel with a
-      # binary: every crate in strobe.exe at its exact version, with each
-      # licence file its package carries (D491). Generated from Cargo.lock
-      # here rather than committed, because it is large and its versions
-      # move with every bump; THIRD_PARTY.md is the committed summary.
-      - name: Third-party notices
-        run: cargo --locked xtask credits --notices target/THIRD-PARTY-NOTICES.txt
-
+      # The package is staged by the same code CI's Windows job runs on
+      # every pull request (D537): strobe.exe, the pinned native DLLs
+      # (fetched into target/release, which is not the --target folder)
+      # with their licence file, the scene library, README, LICENSE,
+      # THIRD_PARTY.md, and the full third-party notices, generated from
+      # Cargo.lock here because they are large and move with every bump
+      # (D491). The symbols go in an archive of their own: the .pdb is
+      # several times the size of the program, and only symbolicates
+      # crash reports from this exact build, so it is kept as long as the
+      # release is supported.
       - name: Package
         shell: bash
         env:
           TAG: ${{ needs.draft.outputs.tag }}
           TARGET: ${{ matrix.target }}
-        run: |
-          set -euo pipefail
-          name="strobe-${TAG}-${TARGET}"
-          staging="dist/${name}"
-          mkdir -p "$staging"
+        run: cargo --locked xtask package --profile release --target "$TARGET" --tag "$TAG" --angle-dir target/release --out dist
 
-          release_dir="target/${TARGET}/release"
-          # ANGLE is fetched into target/release, which is not the
-          # --target directory. Every file is checked by name: `cp` on a
-          # missing source fails anyway, but "libEGL.dll: No such file" is
-          # a clearer end to a release than a half-full archive.
-          for file in \
-            "${release_dir}/strobe.exe" \
-            "${release_dir}/strobe.pdb" \
-            target/release/libEGL.dll \
-            target/release/libGLESv2.dll \
-            target/release/d3dcompiler_47.dll \
-            target/release/vulkan-1.dll \
-            target/release/LICENSES.chromium.html \
-            target/THIRD-PARTY-NOTICES.txt; do
-            test -f "$file" || { echo "missing build output: $file"; exit 1; }
-          done
-
-          cp "${release_dir}/strobe.exe" "$staging/"
-          cp target/release/libEGL.dll target/release/libGLESv2.dll \
-             target/release/d3dcompiler_47.dll target/release/vulkan-1.dll \
-             target/release/LICENSES.chromium.html "$staging/"
-          # The scene library travels with the binary: it is the first
-          # thing a new user plays, and the worked examples anyone writing
-          # a scene starts from.
-          cp -r scenes "$staging/scenes"
-          cp README.md LICENSE THIRD_PARTY.md target/THIRD-PARTY-NOTICES.txt "$staging/"
-
-          # The symbols go in an archive of their own, never in the user's
-          # zip: the .pdb is several times the size of the program, and a
-          # user has no use for it. It is for symbolicating the crash
-          # reports they send back, and it only matches *this* build, so
-          # it must be kept for as long as the release is supported.
-          symbols="${name}-symbols"
-          mkdir -p "dist/${symbols}"
-          cp "${release_dir}/strobe.pdb" "dist/${symbols}/"
-
-          cd dist
-          7z a -tzip "${name}.zip" "$name" >/dev/null
-          7z a -tzip "${symbols}.zip" "$symbols" >/dev/null
+      # The exact zip, unpacked outside the checkout: the file list, the
+      # pinned DLLs, the notices, the version resource, the PDB's GUID
+      # against the program's, and `strobe --diagnose` running from the
+      # unpacked folder. A release that fails here stays a draft.
+      - name: Check the package
+        shell: bash
+        env:
+          TAG: ${{ needs.draft.outputs.tag }}
+          TARGET: ${{ matrix.target }}
+        run: cargo --locked xtask package-check "dist/strobe-${TAG}-${TARGET}.zip" --symbols "dist/strobe-${TAG}-${TARGET}-symbols.zip"
 
       # A CycloneDX SBOM naming every crate in the build, so a consumer
       # can audit what the binary contains without taking this workflow's

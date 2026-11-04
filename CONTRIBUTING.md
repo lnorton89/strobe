@@ -189,6 +189,19 @@ For the first tag, [`docs/RELEASE_PLAN.md`](docs/RELEASE_PLAN.md)
 sequences this order around the checks the workflow has never exercised,
 including a dry run on a throwaway tag before the real one exists.
 
+CI builds and checks the package on every pull request (the Windows job's
+`package` lane, D537), but a runner has no GPU. Before publishing, run the
+draft's own archive on the T480:
+
+```bash
+cargo xtask rc --zip strobe-v0.2.0-x86_64-pc-windows-msvc.zip --symbols strobe-v0.2.0-x86_64-pc-windows-msvc-symbols.zip
+```
+
+It runs the package check, draws on native GL and ANGLE-D3D11, crashes the
+program on purpose and symbolicates the dump against the archived PDB, and
+writes `target/rc/evidence.json`. That file goes with the T480's record in
+`docs/hardware/`. The checks it lists as manual are still done by hand.
+
 The tag push triggers `.github/workflows/release.yml`. It resolves the tag
 to one commit and works from that SHA throughout, checks the tag
 against `Cargo.toml`, runs all of `ci.yml` on that commit (D521), creates a **draft** release whose notes are the
