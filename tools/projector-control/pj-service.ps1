@@ -18,7 +18,9 @@ $Log  = Join-Path (Split-Path -Parent $Config) 'projector-logs\service-updates.l
 $PollSeconds = 5
 
 function Log([string]$m) {
-    try { Add-Content -Path $Log -Value ("[{0:yyyy-MM-dd HH:mm:ss}] {1}" -f (Get-Date), $m) } catch { }
+    # A log line that cannot be written (the disk is full, the file is
+    # held) must not stop the service; it says so in the verbose stream.
+    try { Add-Content -Path $Log -Value ("[{0:yyyy-MM-dd HH:mm:ss}] {1}" -f (Get-Date), $m) } catch { Write-Verbose "log write failed: $_" }
 }
 
 New-Item -ItemType Directory -Force (Split-Path -Parent $Log) | Out-Null
