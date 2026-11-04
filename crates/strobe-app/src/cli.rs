@@ -98,6 +98,10 @@ pub struct Cli {
     /// unusual places.
     #[arg(long)]
     pub no_synesthesia: bool,
+    /// Do not prerender the library's scenes this run, whatever Settings
+    /// says (D542): each scene compiles when it is first loaded.
+    #[arg(long)]
+    pub no_prerender: bool,
     /// Scene to load at start: a folder name, or a unique prefix of one.
     /// The library folder's own scenes are found before Synesthesia's.
     #[arg(long)]

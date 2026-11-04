@@ -126,6 +126,7 @@ use crate::library::{Health, Library, Listed, Synesthesia};
 use crate::localtime::LocalDate;
 use crate::mouse::{Button, MouseTracker};
 use crate::perf::{self, Performance};
+use crate::prerender::{self, Prerender, Stamp};
 use crate::recovery::{Decision, Event, Rebuild, Recovery, Surface};
 use crate::remote::{Overrides, Remote};
 use crate::screenshot::{Screenshot, Target};
@@ -411,6 +412,9 @@ struct Stack {
     /// The browser's preview: a second, small player for a scene that is
     /// not live. Owns GL objects, so it sits before the context.
     preview: Option<Session>,
+    /// The library's prerendered scenes, parked at 1x1 (D542). Their GL
+    /// objects die with the context, so they sit before it.
+    prerendered: Prerender<Session>,
     /// The playlist being played, if one is loaded. Its parked scenes own GL
     /// objects, so it sits before the context in drop order (D151).
     show: Option<Show>,
@@ -508,6 +512,7 @@ impl Stack {
         Ok(Self {
             session: None,
             preview: None,
+            prerendered: Prerender::default(),
             show: None,
             compositor,
             post,
@@ -539,6 +544,7 @@ impl Stack {
         let Self {
             session,
             preview,
+            prerendered,
             show,
             compositor,
             post,
@@ -561,6 +567,7 @@ impl Stack {
             drop(show);
             drop(session);
             drop(preview);
+            drop(prerendered);
             drop(compositor);
             drop(post);
             drop(perf);
@@ -569,6 +576,7 @@ impl Stack {
             drop(show);
             drop(session);
             drop(preview);
+            drop(prerendered);
             drop(compositor);
             drop(post);
             perf.release();
@@ -640,6 +648,16 @@ struct Running {
     pending_cue_import: Option<(crate::show::edit::At, String)>,
     /// A dropped folder of scenes still being added (D235).
     pack: Option<intake::Pack>,
+    /// The folder stamp of the live scene, taken before it was read, so it
+    /// can be parked with the prerendered ones when it is replaced (D542).
+    live_stamp: Option<Stamp>,
+    /// When the last scene was prerendered, so the output draws between
+    /// two (D542).
+    prerender_last: Instant,
+    /// When the prerender in progress began, for its log line.
+    prerender_began: Option<Instant>,
+    /// `--no-prerender`: off this run, whatever Settings says (D542).
+    prerender_off_this_run: bool,
     gl_summary: String,
     audio: AudioInput,
     /// Hears a new song for the scene's transitions and a playlist's
@@ -899,6 +917,9 @@ impl Running {
                 None => log::warn!("--density: \"{density}\" is not comfortable or compact"),
             }
         }
+        // Launch opens on the library, whatever view the last session
+        // ended on (D543). The command line's panes come after, so they win.
+        ui_state.panes.open(Pane::Browser);
         if cli.no_panes {
             ui_state.panes.close_all();
         }
@@ -1039,6 +1060,10 @@ impl Running {
             drop_hint: None,
             pending_cue_import: None,
             pack: None,
+            live_stamp: None,
+            prerender_last: Instant::now(),
+            prerender_began: None,
+            prerender_off_this_run: cli.no_prerender,
             gl_summary,
             audio: AudioInput::new(cli.audio == AudioArg::Auto)
                 .with_ambient(cli.audio == AudioArg::Ambient)
@@ -1187,6 +1212,7 @@ impl Running {
             }
             None => {}
         }
+        running.plan_prerender();
         Ok(running)
     }
 
@@ -1471,6 +1497,7 @@ impl Running {
             pending_load: None,
             last_cue: None,
             ready_frames: None,
+            live_stamp: None,
             ..self
         };
         log::info!("GL: {}", running.gl_summary);
@@ -1528,6 +1555,8 @@ impl Running {
                 (None, _) => String::new(),
             }
         );
+        // The prerendered scenes died with the context too.
+        running.plan_prerender();
         Ok(running)
     }
 
@@ -1557,6 +1586,7 @@ impl Running {
         }
         self.drain_imports();
         self.step_pack();
+        self.step_prerender(now);
         self.poll_generate();
         if now >= self.next_output {
             if self.output_visible {
@@ -2184,15 +2214,27 @@ impl Running {
             self.stack.gfx.caps().info.max_texture_size,
         );
         let started = Instant::now();
-        match Session::load(
-            self.stack.gfx.gl(),
-            self.stack.gfx.caps(),
-            &entry.dir,
-            &entry.name,
-            size,
-            start,
-            &mut self.audio,
-        ) {
+        // The folder as it is now, before it is read (D542).
+        let stamp = prerender::stamp(&entry.dir);
+        let parked = self
+            .stack
+            .prerendered
+            .take(&entry.dir, stamp)
+            .and_then(|session| self.revive(session, size, start));
+        let prerendered = parked.is_some();
+        let loaded = match parked {
+            Some(session) => Ok(session),
+            None => Session::load(
+                self.stack.gfx.gl(),
+                self.stack.gfx.caps(),
+                &entry.dir,
+                &entry.name,
+                size,
+                start,
+                &mut self.audio,
+            ),
+        };
+        match loaded {
             Ok(mut session) => {
                 // The operator's media, else the default preset's, else the
                 // scene's own (D217, D223).
@@ -2212,7 +2254,10 @@ impl Running {
                         log::info!("meta: {taken} output setting(s) carried over");
                     }
                 }
-                self.stack.session = Some(session);
+                let old_stamp = std::mem::replace(&mut self.live_stamp, stamp);
+                if let Some(old) = self.stack.session.replace(session) {
+                    self.park_live(old, old_stamp);
+                }
                 self.playing = Some(index);
                 self.ui_state.last_scene.clone_from(&entry.name);
                 self.pending_resize = None;
@@ -2229,11 +2274,12 @@ impl Running {
                 context::set(context::SCENE, &entry.name);
                 context::set(context::RENDER_SIZE, format!("{}x{}", size[0], size[1]));
                 log::info!(
-                    "Loaded {} ({}x{}) in {:.0} ms",
+                    "Loaded {} ({}x{}) in {:.0} ms{}",
                     entry.name,
                     size[0],
                     size[1],
-                    started.elapsed().as_secs_f64() * 1000.0
+                    started.elapsed().as_secs_f64() * 1000.0,
+                    if prerendered { ", prerendered" } else { "" }
                 );
                 if let Some((target, name)) = self.pending_preset.take()
                     && target == index
@@ -2263,6 +2309,221 @@ impl Running {
             scene: name.to_string(),
             summary,
         });
+    }
+
+    // ------------------------------------------------------------ prerender
+
+    /// Plans a prerender of the library (D542): every scene not parked
+    /// already, except the live one. Nothing is planned while the switch
+    /// is off, and parked scenes are let go.
+    fn plan_prerender(&mut self) {
+        if !self.prerender_on() {
+            self.drop_prerendered();
+            return;
+        }
+        let dirs: Vec<PathBuf> = self
+            .library
+            .entries
+            .iter()
+            .map(|entry| entry.dir.clone())
+            .collect();
+        let live = self
+            .stack
+            .session
+            .as_ref()
+            .map(|session| session.dir.clone());
+        self.stack.prerendered.plan(&dirs, live.as_deref());
+        if self.stack.prerendered.remaining() > 0 {
+            self.prerender_began = Some(Instant::now());
+            log::info!(
+                "prerender: {} of {} scenes to prerender",
+                self.stack.prerendered.remaining(),
+                self.stack.prerendered.total()
+            );
+        }
+        self.note_prerender();
+    }
+
+    /// Lets every prerendered scene go, with the context current so their
+    /// GL objects are freed.
+    fn drop_prerendered(&mut self) {
+        if self.stack.prerendered.parked() > 0 && !self.make_current(Surface::Output) {
+            return;
+        }
+        self.stack.prerendered.clear();
+        self.prerender_began = None;
+        self.note_prerender();
+    }
+
+    /// Prerenders the next queued scene (D542): loaded at 1x1, drawn once,
+    /// parked. One scene per step, at most one step per
+    /// [`PRERENDER_GAP`], and none while a playlist is loaded (its own
+    /// precompile and its cues come first), a load is waiting, the context
+    /// is being rebuilt or a screenshot is being taken.
+    fn step_prerender(&mut self, now: Instant) {
+        /// The least time between two prerendered scenes, so the output
+        /// draws in between.
+        const PRERENDER_GAP: Duration = Duration::from_millis(50);
+        if !self.prerender_on()
+            || self.stack.show.is_some()
+            || self.pending_load.is_some()
+            || self.rebuild.is_some()
+            || self.screenshot.is_some()
+            || now.duration_since(self.prerender_last) < PRERENDER_GAP
+        {
+            return;
+        }
+        let Some(dir) = self.stack.prerendered.next_queued() else {
+            return;
+        };
+        let live = self
+            .stack
+            .session
+            .as_ref()
+            .map(|session| session.dir.as_path());
+        let found = self
+            .library
+            .entries
+            .iter()
+            .position(|entry| entry.dir == dir)
+            .filter(|_| live != Some(dir.as_path()));
+        if let Some(index) = found
+            && self.make_current(Surface::Output)
+        {
+            self.prerender_one(index, dir);
+        }
+        self.prerender_last = Instant::now();
+        if self.stack.prerendered.remaining() == 0
+            && let Some(began) = self.prerender_began.take()
+        {
+            log::info!(
+                "prerender: {} scenes ready in {:.1} s",
+                self.stack.prerendered.parked(),
+                began.elapsed().as_secs_f64()
+            );
+        }
+        self.note_prerender();
+    }
+
+    /// Loads library scene `index` (in `dir`) at 1x1, draws it once so the
+    /// driver finishes its deferred work, and parks it; a scene that does
+    /// not load is marked broken, as a load by hand would mark it.
+    fn prerender_one(&mut self, index: usize, dir: PathBuf) {
+        let Some(name) = self.library.entries.get(index).map(|e| e.name.clone()) else {
+            return;
+        };
+        let stamp = prerender::stamp(&dir);
+        let started = Instant::now();
+        match Session::load(
+            self.stack.gfx.gl(),
+            self.stack.gfx.caps(),
+            &dir,
+            &name,
+            crate::show::run::PARKED,
+            self.start_time,
+            &mut self.audio,
+        ) {
+            Ok(mut session) => {
+                session.prime(&mut self.audio, self.start_time);
+                // Drawn once; its buffers start from black when it plays,
+                // so none is kept while it waits.
+                session.player.release_targets();
+                log::debug!(
+                    "prerender: {name} in {:.0} ms",
+                    started.elapsed().as_secs_f64() * 1000.0
+                );
+                if let Some(stamp) = stamp {
+                    self.stack.prerendered.park(dir, session, stamp);
+                }
+                self.set_health(index, Health::Ready);
+            }
+            Err(error) => {
+                log::info!("prerender: {name} does not load: {error}");
+                self.set_health(index, Health::Failed(summarize(&error.to_string())));
+            }
+        }
+    }
+
+    /// Readies a parked scene to play at `size` from `start`, as a fresh
+    /// load would leave it: passes cleared, controls back to the scene's
+    /// start, script started over (D542). `None`, with the reason logged,
+    /// when it cannot be, and the caller loads the scene afresh.
+    fn revive(&mut self, mut session: Session, size: [i32; 2], start: f32) -> Option<Session> {
+        if let Err(error) = session.player.resize(size) {
+            log::warn!("prerender: could not size {}: {error}", session.name);
+            return None;
+        }
+        if let Err(error) = session.player.restart() {
+            log::warn!("prerender: could not clear {}: {error}", session.name);
+            return None;
+        }
+        session.reset_to_start();
+        session.restart_script(&mut self.audio, start);
+        session.apply_startup_preset();
+        session.restart_clock(start);
+        Some(session)
+    }
+
+    /// Parks the scene that was live, replaced by another, with the
+    /// prerendered ones (D542), so going back to it costs no compile. A
+    /// scene whose folder was not stamped, or with prerendering off, is let
+    /// go.
+    fn park_live(&mut self, mut old: Session, stamp: Option<Stamp>) {
+        let Some(stamp) = stamp.filter(|_| self.prerender_on()) else {
+            return;
+        };
+        if !self
+            .library
+            .entries
+            .iter()
+            .any(|entry| entry.dir == old.dir)
+        {
+            return;
+        }
+        if let Err(error) = old.player.resize(crate::show::run::PARKED) {
+            log::warn!("prerender: could not park {}: {error}", old.name);
+            return;
+        }
+        old.player.release_targets();
+        let dir = old.dir.clone();
+        self.stack.prerendered.park(dir, old, stamp);
+    }
+
+    /// Whether the library is prerendered: the Settings switch, unless
+    /// `--no-prerender` turned it off for this run (D542).
+    fn prerender_on(&self) -> bool {
+        self.ui_state.prerender.enabled && !self.prerender_off_this_run
+    }
+
+    /// Settings' line for the prerender (D542).
+    fn note_prerender(&mut self) {
+        let prerendered = &self.stack.prerendered;
+        self.ui_state.prerender.note = if self.prerender_off_this_run {
+            "Off for this run (--no-prerender).".to_string()
+        } else if !self.ui_state.prerender.enabled {
+            "Off: a scene compiles when it is first loaded.".to_string()
+        } else if prerendered.remaining() > 0 {
+            let paused = if self.stack.show.is_some() {
+                " Paused while a playlist is loaded."
+            } else {
+                ""
+            };
+            format!(
+                "{} of {} scenes prerendered.{paused}",
+                prerendered.parked(),
+                prerendered.total()
+            )
+        } else {
+            format!("{} scenes prerendered.", prerendered.parked())
+        };
+    }
+
+    /// Turns prerendering on (planned at once) or off (every parked scene
+    /// let go), from Settings (D542). Saved with the other preferences.
+    fn set_prerender(&mut self, on: bool) {
+        self.ui_state.prerender.enabled = on;
+        log::info!("prerender {}", if on { "on" } else { "off" });
+        self.plan_prerender();
     }
 
     /// Steps to the next (`delta` 1) or previous (`delta` -1) scene in the
@@ -2397,6 +2658,7 @@ impl Running {
         );
         self.ui_state.scene_folders.status =
             self.library.folders.iter().map(Listed::note).collect();
+        self.plan_prerender();
     }
 
     /// Lists the library again after a source changed in Settings (D271,
@@ -3163,6 +3425,14 @@ impl Running {
     /// (D204). An Editor holding unsaved edits to another scene keeps them
     /// and says so, rather than throwing them away.
     fn open_editor(&mut self, name: Option<&str>) {
+        self.edit_scene(name, true);
+    }
+
+    /// Opens scene `name` (or the live scene) in the Editor; `raise` also
+    /// brings the Editor to the front. The Editor's own fill of a pane that
+    /// is open but empty does not raise it, so a layout that kept the
+    /// Editor behind the Library opens on the Library (D543).
+    fn edit_scene(&mut self, name: Option<&str>, raise: bool) {
         let target = match name {
             Some(name) => self
                 .library
@@ -3180,7 +3450,9 @@ impl Running {
             self.say(Tone::Warning, "There is no scene to open in the Editor.");
             return;
         };
-        self.ui_state.panes.open(Pane::Editor);
+        if raise {
+            self.ui_state.panes.open(Pane::Editor);
+        }
         if let Some(doc) = self.editor_doc.as_ref() {
             if doc.dir == dir {
                 return;
@@ -4076,6 +4348,7 @@ impl Running {
                         from
                     );
                 }
+                Action::SetPrerender(on) => self.set_prerender(on),
                 Action::SetAdaptive(on) => {
                     self.stack.perf.set_enabled(on);
                     self.render_scale = self.stack.perf.scale();
@@ -5097,7 +5370,7 @@ impl Running {
             && self.editor_auto.as_ref() != Some(&dir)
         {
             self.editor_auto = Some(dir);
-            self.open_editor(None);
+            self.edit_scene(None, false);
         }
         let next = self.step_target(1);
         let lan_view = self.lan.view();

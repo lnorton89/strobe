@@ -1867,6 +1867,39 @@ fn restart_clears_every_pass_a_resize_would_keep() -> Result<()> {
 }
 
 #[test]
+fn a_parked_player_whose_targets_were_released_plays_again_from_black() -> Result<()> {
+    // A prerendered library scene (D542): drawn, parked at 1x1 with every
+    // target let go (the literal-size counter's too), then sized for the
+    // output and restarted. It must draw as a fresh load would.
+    for api in BOTH {
+        let Some(headless) = context(api)? else {
+            continue;
+        };
+        let gl = headless.gl();
+        let caps = Caps::from_info(gl.info());
+        let scene = folder(COUNTER_JSON, COUNTER_SHADER)?;
+        let controls = ControlBank::new(scene.def.controls.clone())?;
+        let mut player = ScenePlayer::new(gl, &caps, &scene, [1, 1], Options::default())?;
+        for frame in 0..5 {
+            render_frame(&mut player, &controls, frame);
+        }
+        player.release_targets();
+        player.resize([64, 36])?;
+        player.restart()?;
+        render_frame(&mut player, &controls, 0);
+        let px = centre_pixel(&player)?;
+        assert!(
+            px[0].abs_diff(counter_byte(1)) <= 1 && px[1] == 64,
+            "{api:?}: the revived counter starts again at 1; got {px:?}"
+        );
+        if let Some(code) = gl.error() {
+            return Err(anyhow!("{api:?}: GL error 0x{code:x}"));
+        }
+    }
+    Ok(())
+}
+
+#[test]
 fn a_one_byte_texture_whose_rows_are_not_four_bytes_uploads_tightly_packed() -> Result<()> {
     // `texture_2d` and `upload` take tightly packed rows. GL's default
     // unpack alignment is 4, so without setting it a 3-texel R8 row is read

@@ -204,6 +204,9 @@ pub enum Action {
     NewSong,
     /// Turn adaptive resolution on or off.
     SetAdaptive(bool),
+    /// Prerender the library's scenes, or stop and let them go (D542).
+    /// Applied at once and saved.
+    SetPrerender(bool),
     /// Import this file path, Shadertoy id or URL.
     Import(String),
     /// Replace the scene the import panel is asking about.

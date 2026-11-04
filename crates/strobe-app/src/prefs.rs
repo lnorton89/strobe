@@ -152,6 +152,8 @@ pub struct Prefs {
     pub library_page: String,
     /// Synesthesia's own scenes in the library (D271).
     pub synesthesia: SynesthesiaPref,
+    /// Prerendering the library's scenes (D542).
+    pub prerender: PrerenderPref,
     /// Controlling another Strobe (D294): the trust file's path and this
     /// laptop's controller id.
     pub remote: RemotePref,
@@ -171,6 +173,23 @@ pub struct RemotePref {
     /// kept, so the host can tell this laptop from another and revoke it by
     /// name. Empty until the first launch makes one.
     pub controller_id: String,
+}
+
+/// Whether the library's scenes are prerendered at launch and when the
+/// library is listed again (D542).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PrerenderPref {
+    /// Prerender them.
+    pub enabled: bool,
+}
+
+impl Default for PrerenderPref {
+    /// On: a scene's first load should not stall the output unless the
+    /// person chose that, and a file from before has no switch.
+    fn default() -> Self {
+        Self { enabled: true }
+    }
 }
 
 /// Whether the library lists Synesthesia's scenes where it is installed
@@ -336,6 +355,7 @@ impl Prefs {
             side_tab: String::new(),
             library_page: String::new(),
             synesthesia: SynesthesiaPref::default(),
+            prerender: PrerenderPref::default(),
             remote: RemotePref::default(),
         }
     }
@@ -617,6 +637,7 @@ mod tests {
             folders: vec!["D:\\VJ\\friends".to_string(), "user-scenes".to_string()],
         };
         prefs.synesthesia = SynesthesiaPref { show: false };
+        prefs.prerender = PrerenderPref { enabled: false };
         prefs.remote = RemotePref {
             trust_file: "C:\\Users\\me\\venue.trust".to_string(),
             use_trust: true,
