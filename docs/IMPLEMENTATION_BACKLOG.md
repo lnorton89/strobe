@@ -532,8 +532,19 @@
   - crate-graph rules, `unsafe_code`, feature builds, rustdoc and script lint;
   - property tests, machete, coverage and the decisions index.
 
+  D542 (2026-11-03) did the items those had narrowed or skipped. Its results:
+  - the MSVC runtime is now linked statically, after the new import check found `strobe.exe` needed `VCRUNTIME140.dll`, which a clean machine may not have;
+  - `--diagnose` names the ANGLE that actually loads;
+  - CI builds the browser engine for wasm32;
+  - the property generators now reach the code they test;
+  - there are `IMAGES` and `#include` fixtures;
+  - `CHANGELOG.corrections` exists;
+  - the T480's build timings are recorded (BENCHMARKS.md);
+  - a release dry run on the mirror passed the package check;
+  - the first T480 run of `cargo xtask rc` passed native, ANGLE-D3D11 and the symbolicated crash (`hardware/T480.md`), and found two harness bugs, now fixed.
+
   What is left needs hardware, data or a person:
-  - the first `cargo xtask rc` run on the T480 with a release candidate's own zip, and its `evidence.json` in `hardware/T480.md` (with R-03);
+  - a second `cargo xtask rc` run on the T480, with the next release candidate's own zip, to see the fixed version check and the renderer in `evidence.json`; then the manual items it lists (with R-03);
   - a thin-LTO bench on the T480 (`--profile release-thin` against `--release`, frame times), before production LTO changes (D535);
   - nextest everywhere or nowhere, decided from a few weeks of the Windows job's JUnit times against the other jobs' `cargo test` (D535);
   - sccache kept or dropped, decided from the Experiments workflow's hit rates (D535);

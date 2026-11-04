@@ -83,6 +83,9 @@ use std::time::{Duration, Instant};
 /// The target the Windows cross-check type-checks for.
 const WINDOWS_TARGET: &str = "x86_64-pc-windows-msvc";
 
+/// The browser build's target (strobe-web, D524).
+const WASM_TARGET: &str = "wasm32-unknown-unknown";
+
 /// The environment variable that turns a missing headless GL driver from a
 /// skip into a failure.
 const REQUIRE_GL: &str = "STROBE_REQUIRE_HEADLESS_GL";
@@ -312,6 +315,8 @@ struct Machine {
     cargo: String,
     /// `cargo deny --version` succeeds.
     deny: bool,
+    /// The browser build's target is installed (Linux only, as CI checks it).
+    wasm_target: bool,
     /// The Windows target's standard library is installed.
     windows_target: bool,
     /// `cargo nextest --version` succeeds.
@@ -344,7 +349,8 @@ impl Machine {
         Ok(Self {
             host,
             deny: tool_works(&cargo, &["deny", "--version"]),
-            windows_target: host != Host::Windows && windows_target_installed(),
+            windows_target: host != Host::Windows && target_installed(WINDOWS_TARGET),
+            wasm_target: host == Host::Linux && target_installed(WASM_TARGET),
             nextest: tool_works(&cargo, &["nextest", "--version"]),
             xvfb: host == Host::Linux && tool_works("xvfb-run", &["--help"]),
             actionlint: host == Host::Linux && tool_works("actionlint", &["-version"]),
@@ -608,6 +614,34 @@ fn check_lane(steps: &mut Vec<Step>, machine: &Machine) {
             },
         ));
     }
+
+    // strobe-gfx without `native` has one intended configuration, the
+    // browser's (D524): strobe-web for wasm32, which takes the renderer and
+    // the DSP alone. Clippy over that, so a native-only call in the shared
+    // renderer fails here rather than in the website's deploy (D542).
+    let mut wasm = vec![
+        "clippy",
+        "--locked",
+        "-p",
+        "strobe-web",
+        "--target",
+        WASM_TARGET,
+    ];
+    wasm.extend(DENY);
+    steps.push(Step::new(
+        LANE,
+        "clippy wasm",
+        match machine.host {
+            Host::Linux if machine.wasm_target => cargo(machine, &wasm),
+            Host::Linux => Action::Missing {
+                why: format!("the {WASM_TARGET} standard library is not installed"),
+                fix: format!("rustup target add {WASM_TARGET}"),
+            },
+            Host::Windows | Host::MacOs | Host::Other => {
+                Action::NotHere("Linux only; CI's Linux job runs it".to_owned())
+            }
+        },
+    ));
 
     // The documentation builds without a warning: a broken intra-doc link
     // or a malformed code block fails here, which the Markdown checks in
@@ -1299,11 +1333,11 @@ fn git_status() -> Result<String> {
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
-/// Whether the Windows target's standard library is installed.
-fn windows_target_installed() -> bool {
+/// Whether `triple`'s standard library is installed.
+fn target_installed(triple: &str) -> bool {
     let rustc = std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
     Command::new(rustc)
-        .args(["--print", "target-libdir", "--target", WINDOWS_TARGET])
+        .args(["--print", "target-libdir", "--target", triple])
         .output()
         .ok()
         .filter(|output| output.status.success())
@@ -1445,6 +1479,7 @@ mod tests {
             cargo: "cargo".to_owned(),
             deny: true,
             windows_target: true,
+            wasm_target: true,
             nextest: true,
             xvfb: true,
             actionlint: true,

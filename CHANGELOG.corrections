@@ -1,0 +1,6 @@
+# Corrected subjects for CHANGELOG.md, read by `cargo xtask changelog`.
+# A pushed commit cannot be reworded without rewriting every hash after it,
+# so a wrong subject is corrected here: `<full hash> <subject>`, one a line.
+
+# The release gate's decision moved from D516 to D521 before #63 merged.
+81404f1e2ed2edd1087f6b209b60517c2f13f105 ci: a release publishes only after CI passes on its one tagged commit (D521)

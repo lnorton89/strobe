@@ -392,18 +392,53 @@ pub(crate) fn check(args: &CheckArgs, work: &Path) -> Result<Checked> {
         ),
     );
 
-    // The version resource.
+    // The version resource names the release the zip says it is: the
+    // version in its own name (`strobe-v0.2.1-…`), or the workspace's for a
+    // name without one. Not the checkout's alone: the harness may check a
+    // release from any checkout (D542).
     let exe = root.join("strobe.exe");
     let version = file_version(&exe).unwrap_or_else(|error| format!("unreadable ({error:#})"));
+    let named = args
+        .zip
+        .file_name()
+        .and_then(|name| name.to_str())
+        .and_then(version_in_name);
+    let expected = named.as_deref().unwrap_or(env!("CARGO_PKG_VERSION"));
     note(
         &mut checked,
-        version == env!("CARGO_PKG_VERSION"),
+        version == expected,
         format!("strobe.exe's version resource says {version}"),
-        format!(
-            "strobe.exe's version resource says `{version}`, the workspace is {}",
-            env!("CARGO_PKG_VERSION")
-        ),
+        format!("strobe.exe's version resource says `{version}`, the package is {expected}"),
     );
+
+    // Every DLL the program imports directly is part of Windows or in the
+    // package. One that is neither (the MSVC runtime, say) would make a
+    // clean machine refuse to start it, which no test here would notice.
+    match imports(&exe) {
+        Ok(names) => {
+            let missing: Vec<&String> = names
+                .iter()
+                .filter(|name| !is_windows_dll(name))
+                .filter(|name| {
+                    !present
+                        .iter()
+                        .any(|file| file.eq_ignore_ascii_case(name.as_str()))
+                })
+                .collect();
+            note(
+                &mut checked,
+                missing.is_empty(),
+                format!(
+                    "strobe.exe's {} direct imports are Windows' own or in the package",
+                    names.len()
+                ),
+                format!("strobe.exe imports DLLs neither Windows nor the package has: {missing:?}"),
+            );
+        }
+        Err(error) => checked
+            .problems
+            .push(format!("strobe.exe's import table unreadable: {error:#}")),
+    }
 
     // The symbols belong to this program.
     if let Some(symbols) = &args.symbols {
@@ -456,6 +491,18 @@ pub(crate) fn check(args: &CheckArgs, work: &Path) -> Result<Checked> {
             .push(format!("`strobe --diagnose` failed: {error:#}")),
     }
     Ok(checked)
+}
+
+/// The `MAJOR.MINOR.PATCH` in a package's name, `strobe-v0.2.1-<triple>.zip`
+/// (a `-dev` or other suffix after it is not part of the version resource).
+fn version_in_name(name: &str) -> Option<String> {
+    let rest = name.strip_prefix("strobe-v")?;
+    let version: String = rest
+        .chars()
+        .take_while(|c| c.is_ascii_digit() || *c == '.')
+        .collect();
+    let parts = version.split('.').filter(|p| !p.is_empty()).count();
+    (parts == 3).then_some(version)
 }
 
 /// Records a check as passed or as a problem.
@@ -573,49 +620,171 @@ fn offset(bytes: &[u8], at: usize, what: &str) -> Result<usize> {
     usize::try_from(u32_at(bytes, at, what)?).context("offset does not fit")
 }
 
+/// A PE image's bytes and where its data directories and sections are.
+struct Pe {
+    bytes: Vec<u8>,
+    /// File offset of the first data directory.
+    directories: usize,
+    /// File offset of the section table, and how many sections it holds.
+    sections: (usize, usize),
+}
+
+impl Pe {
+    /// Reads and checks the headers of a PE file.
+    fn read(path: &Path) -> Result<Self> {
+        let bytes = std::fs::read(path)?;
+        let header = offset(&bytes, 0x3c, "the DOS header")?;
+        if bytes.get(header..header + 4) != Some(b"PE\0\0") {
+            bail!("not a PE file");
+        }
+        let coff = header + 4;
+        let count = usize::from(u16_at(&bytes, coff + 2, "the COFF header")?);
+        let optional_size = usize::from(u16_at(&bytes, coff + 16, "the COFF header")?);
+        let optional = coff + 20;
+        // The data directories start after the fields that differ between
+        // PE32 (0x10b) and PE32+ (0x20b).
+        let directories = optional
+            + match u16_at(&bytes, optional, "the optional header")? {
+                0x20b => 112,
+                0x10b => 96,
+                other => bail!("unknown optional header magic {other:#x}"),
+            };
+        Ok(Self {
+            bytes,
+            directories,
+            sections: (optional + optional_size, count),
+        })
+    }
+
+    /// Data directory `index`'s RVA and size.
+    fn directory(&self, index: usize) -> Result<(usize, usize)> {
+        let at = self.directories + index * 8;
+        Ok((
+            offset(&self.bytes, at, "a data directory")?,
+            offset(&self.bytes, at + 4, "a data directory")?,
+        ))
+    }
+
+    /// The file offset an RVA maps to, through the section table.
+    fn file_offset(&self, rva: usize) -> Result<Option<usize>> {
+        let (table, count) = self.sections;
+        for index in 0..count {
+            let section = table + index * 40;
+            let size = offset(&self.bytes, section + 8, "a section")?;
+            let start = offset(&self.bytes, section + 12, "a section")?;
+            let raw = offset(&self.bytes, section + 20, "a section")?;
+            if (start..start + size).contains(&rva) {
+                return Ok(Some(raw + (rva - start)));
+            }
+        }
+        Ok(None)
+    }
+
+    /// The NUL-terminated ASCII string at an RVA.
+    fn string_at(&self, rva: usize) -> Result<String> {
+        let at = self
+            .file_offset(rva)?
+            .context("a name outside every section")?;
+        let tail = self.bytes.get(at..).context("a name past the end")?;
+        let end = tail
+            .iter()
+            .position(|b| *b == 0)
+            .context("an unterminated name")?;
+        Ok(String::from_utf8_lossy(&tail[..end]).into_owned())
+    }
+}
+
+/// The DLLs a PE file imports directly, from its import directory (the
+/// second data directory): one `IMAGE_IMPORT_DESCRIPTOR` of 20 bytes per
+/// DLL, its name's RVA at byte 12, ended by an all-zero descriptor.
+pub(crate) fn imports(exe: &Path) -> Result<Vec<String>> {
+    let image = Pe::read(exe)?;
+    let (rva, _) = image.directory(1)?;
+    if rva == 0 {
+        return Ok(Vec::new());
+    }
+    let mut at = image
+        .file_offset(rva)?
+        .context("the import directory is in no section")?;
+    let mut names = Vec::new();
+    loop {
+        let descriptor = image
+            .bytes
+            .get(at..at + 20)
+            .context("an import descriptor past the end")?;
+        if descriptor.iter().all(|b| *b == 0) {
+            break;
+        }
+        names.push(image.string_at(offset(&image.bytes, at + 12, "an import name")?)?);
+        at += 20;
+    }
+    Ok(names)
+}
+
+/// Whether a DLL a program imports is part of Windows itself, on every
+/// supported version, so a clean machine has it: the API sets, and the
+/// system libraries the Rust standard library, winit, glutin, cpal and
+/// the crash handler link. Anything else must ship in the package or be a
+/// documented prerequisite.
+fn is_windows_dll(name: &str) -> bool {
+    const SYSTEM: [&str; 32] = [
+        "combase.dll",
+        "mmdevapi.dll",
+        "kernel32.dll",
+        "user32.dll",
+        "gdi32.dll",
+        "advapi32.dll",
+        "shell32.dll",
+        "ole32.dll",
+        "oleaut32.dll",
+        "comdlg32.dll",
+        "comctl32.dll",
+        "ws2_32.dll",
+        "ntdll.dll",
+        "bcrypt.dll",
+        "bcryptprimitives.dll",
+        "crypt32.dll",
+        "secur32.dll",
+        "userenv.dll",
+        "dwmapi.dll",
+        "uxtheme.dll",
+        "imm32.dll",
+        "winmm.dll",
+        "opengl32.dll",
+        "dbghelp.dll",
+        "shlwapi.dll",
+        "setupapi.dll",
+        "version.dll",
+        "propsys.dll",
+        "mfplat.dll",
+        "mf.dll",
+        "mfreadwrite.dll",
+        "iphlpapi.dll",
+    ];
+    let lower = name.to_ascii_lowercase();
+    lower.starts_with("api-ms-win-")
+        || lower.starts_with("ext-ms-")
+        || SYSTEM.contains(&lower.as_str())
+}
+
 /// The GUID and age in a PE file's CodeView (`RSDS`) debug record: what a
 /// debugger asks a symbol store for. Reads the optional header's debug data
 /// directory, maps its RVA through the section table, and finds the
 /// CodeView entry.
 pub(crate) fn codeview(exe: &Path) -> Result<([u8; 16], u32)> {
-    let pe = std::fs::read(exe)?;
-    let header = offset(&pe, 0x3c, "the DOS header")?;
-    if pe.get(header..header + 4) != Some(b"PE\0\0") {
-        bail!("not a PE file");
-    }
-    let coff = header + 4;
-    let sections = usize::from(u16_at(&pe, coff + 2, "the COFF header")?);
-    let optional_size = usize::from(u16_at(&pe, coff + 16, "the COFF header")?);
-    let optional = coff + 20;
-    let magic = u16_at(&pe, optional, "the optional header")?;
-    // The data directories start after the fields that differ between
-    // PE32 (0x10b) and PE32+ (0x20b); debug is the seventh.
-    let directories = optional
-        + match magic {
-            0x20b => 112,
-            0x10b => 96,
-            other => bail!("unknown optional header magic {other:#x}"),
-        };
-    let debug_rva = offset(&pe, directories + 6 * 8, "the debug directory")?;
-    let debug_size = offset(&pe, directories + 6 * 8 + 4, "the debug directory")?;
-    let table = optional + optional_size;
-    let mut debug_at = None;
-    for index in 0..sections {
-        let section = table + index * 40;
-        let size = offset(&pe, section + 8, "a section")?;
-        let rva = offset(&pe, section + 12, "a section")?;
-        let raw = offset(&pe, section + 20, "a section")?;
-        if (rva..rva + size).contains(&debug_rva) {
-            debug_at = Some(raw + (debug_rva - rva));
-        }
-    }
-    let debug_at = debug_at.context("the debug directory is in no section")?;
+    let image = Pe::read(exe)?;
+    let pe = &image.bytes;
+    // The debug directory is the seventh data directory.
+    let (debug_rva, debug_size) = image.directory(6)?;
+    let debug_at = image
+        .file_offset(debug_rva)?
+        .context("the debug directory is in no section")?;
     for entry in (0..debug_size / 28).map(|i| debug_at + i * 28) {
         // IMAGE_DEBUG_TYPE_CODEVIEW.
-        if u32_at(&pe, entry + 12, "a debug entry")? != 2 {
+        if u32_at(pe, entry + 12, "a debug entry")? != 2 {
             continue;
         }
-        let record = offset(&pe, entry + 24, "a debug entry")?;
+        let record = offset(pe, entry + 24, "a debug entry")?;
         if pe.get(record..record + 4) != Some(b"RSDS") {
             bail!("the CodeView record is not RSDS");
         }
@@ -623,7 +792,7 @@ pub(crate) fn codeview(exe: &Path) -> Result<([u8; 16], u32)> {
             .get(record + 4..record + 20)
             .and_then(|b| b.try_into().ok())
             .context("the CodeView GUID is cut short")?;
-        return Ok((guid, u32_at(&pe, record + 20, "the CodeView age")?));
+        return Ok((guid, u32_at(pe, record + 20, "the CodeView age")?));
     }
     bail!("no CodeView debug entry")
 }
@@ -715,6 +884,22 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         assert!(not_pe, "a short file is not a PE");
         assert!(not_pdb, "nor a PDB");
+        Ok(())
+    }
+
+    #[test]
+    fn the_expected_version_is_the_packages_own() -> Result<()> {
+        assert_eq!(
+            version_in_name("strobe-v0.2.1-x86_64-pc-windows-msvc.zip").as_deref(),
+            Some("0.2.1"),
+            "a release's name"
+        );
+        assert_eq!(
+            version_in_name("strobe-v0.2.0-dev-x86_64-pc-windows-msvc.zip").as_deref(),
+            Some("0.2.0"),
+            "a dev package's suffix is not in the resource"
+        );
+        assert_eq!(version_in_name("other.zip"), None, "no version in the name");
         Ok(())
     }
 
