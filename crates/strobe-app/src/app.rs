@@ -138,6 +138,7 @@ use crate::stats::{
     ControlDrive, ControlPacer, ControlStep, ControlTimes, FinishMode, FrameStats, PaceChange,
     PerfWindow, SwapPolicy,
 };
+use crate::thumbnails;
 use crate::ui::widgets::Tone;
 use crate::ui::{
     Action, CueTransport, EditorPanel, FailurePanel, GeneratePanel, ImportPanel, LanPanel,
@@ -415,6 +416,10 @@ struct Stack {
     /// The library's prerendered scenes, parked at 1x1 (D542). Their GL
     /// objects die with the context, so they sit before it.
     prerendered: Prerender<Session>,
+    /// The scene being rendered for its thumbnail (D546), and the frames
+    /// left before its picture is taken. Owns GL objects, so it sits
+    /// before the context.
+    thumbnail: Option<(Session, u32)>,
     /// The playlist being played, if one is loaded. Its parked scenes own GL
     /// objects, so it sits before the context in drop order (D151).
     show: Option<Show>,
@@ -513,6 +518,7 @@ impl Stack {
             session: None,
             preview: None,
             prerendered: Prerender::default(),
+            thumbnail: None,
             show: None,
             compositor,
             post,
@@ -545,6 +551,7 @@ impl Stack {
             session,
             preview,
             prerendered,
+            thumbnail,
             show,
             compositor,
             post,
@@ -568,6 +575,7 @@ impl Stack {
             drop(session);
             drop(preview);
             drop(prerendered);
+            drop(thumbnail);
             drop(compositor);
             drop(post);
             drop(perf);
@@ -577,6 +585,7 @@ impl Stack {
             drop(session);
             drop(preview);
             drop(prerendered);
+            drop(thumbnail);
             drop(compositor);
             drop(post);
             perf.release();
@@ -658,6 +667,8 @@ struct Running {
     prerender_began: Option<Instant>,
     /// `--no-prerender`: off this run, whatever Settings says (D542).
     prerender_off_this_run: bool,
+    /// Scenes waiting for a rendered thumbnail (D546).
+    thumbnails: thumbnails::Queue,
     gl_summary: String,
     audio: AudioInput,
     /// Hears a new song for the scene's transitions and a playlist's
@@ -735,6 +746,8 @@ struct Running {
 
     /// The Shadertoy import worker (D113).
     import: import::Service,
+    /// Where Shadertoy imports are written (D546).
+    imports_dir: PathBuf,
     /// The import panel's state.
     import_state: import::State,
     /// The library entry the Import pane last imported, for its tag row
@@ -936,8 +949,10 @@ impl Running {
         // the library's own, before anything looks a scene up by name
         // (D271).
         let synesthesia = Synesthesia::detect(cli.no_synesthesia);
+        let imports_dir = import::imports_dir(&library.dir);
+        log::info!("Shadertoy imports go to {}", imports_dir.display());
         library.list_others(
-            &scene_folder_dirs(&ui_state.scene_folders.folders),
+            &scene_folder_dirs(&ui_state.scene_folders.folders, &imports_dir),
             synesthesia.shown(ui_state.synesthesia.show),
         );
         ui_state.scene_folders.status = library.folders.iter().map(Listed::note).collect();
@@ -976,7 +991,7 @@ impl Running {
         let recovery = Recovery::new(cli.gl.choice(), stack.gfx.backend());
         let data_dir = strobe_diag::paths::base_dir();
         let import = import::Service::start(import::WorkerConfig {
-            library: library.dir.clone(),
+            library: imports_dir.clone(),
             data_dir: data_dir.clone(),
             download_textures: !cli.no_texture_download,
         })
@@ -1064,6 +1079,7 @@ impl Running {
             prerender_last: Instant::now(),
             prerender_began: None,
             prerender_off_this_run: cli.no_prerender,
+            thumbnails: thumbnails::Queue::default(),
             gl_summary,
             audio: AudioInput::new(cli.audio == AudioArg::Auto)
                 .with_ambient(cli.audio == AudioArg::Ambient)
@@ -1107,6 +1123,7 @@ impl Running {
             context_dead: false,
             rebuild: None,
             import,
+            imports_dir,
             import_state: import::State::default(),
             imported_entry: None,
             listener: None,
@@ -1587,6 +1604,7 @@ impl Running {
         self.drain_imports();
         self.step_pack();
         self.step_prerender(now);
+        self.step_thumbnails();
         self.poll_generate();
         if now >= self.next_output {
             if self.output_visible {
@@ -2604,7 +2622,7 @@ impl Running {
     /// keeping what is known of each scene.
     fn rescan_library(&mut self) {
         let shown = self.synesthesia.shown(self.ui_state.synesthesia.show);
-        let folders = scene_folder_dirs(&self.ui_state.scene_folders.folders);
+        let folders = scene_folder_dirs(&self.ui_state.scene_folders.folders, &self.imports_dir);
         match Library::scan_with(&self.library.dir, &folders, shown) {
             Ok(library) => {
                 self.replace_library(library);
@@ -2673,7 +2691,7 @@ impl Running {
                 folders: Vec::new(),
             };
             library.list_others(
-                &scene_folder_dirs(&self.ui_state.scene_folders.folders),
+                &scene_folder_dirs(&self.ui_state.scene_folders.folders, &self.imports_dir),
                 self.synesthesia.shown(self.ui_state.synesthesia.show),
             );
             self.replace_library(library);
@@ -3368,7 +3386,11 @@ impl Running {
                 _ => None,
             };
             match (self.import_state.finished(done), for_cue) {
-                (Outcome::Imported(dir), Some(at)) => self.cue_from_import(at, &dir),
+                (Outcome::Imported(dir), Some(at)) => {
+                    self.cue_from_import(at, &dir);
+                    // Its picture is rendered now (D546).
+                    self.thumbnails.add([dir]);
+                }
                 (Outcome::Exists(dir), Some(at)) => {
                     // Wanted for a cue: the copy already in the library
                     // will do, so there is nothing to ask.
@@ -3379,6 +3401,8 @@ impl Running {
                 (Outcome::Imported(dir), None) => {
                     self.import_state.last = Some(dir.clone());
                     self.show_imported(&dir);
+                    // Its picture is rendered now (D546).
+                    self.thumbnails.add([dir]);
                 }
                 (Outcome::Exists(_), None) => {}
                 (Outcome::Unchanged, _) => {
@@ -3607,6 +3631,127 @@ impl Running {
                 self.say(Tone::Info, format!("{name} has a new picture."));
             }
             Err(why) => self.say(Tone::Error, format!("Could not save the picture: {why}")),
+        }
+    }
+
+    /// Queues a rendered thumbnail for every scene that has no picture and
+    /// that Strobe may write (D546), and says how many.
+    fn make_thumbnails(&mut self) {
+        let wanting = thumbnails::wanting(&self.library.entries);
+        let added = self.thumbnails.add(wanting);
+        match (added, self.thumbnails.is_busy()) {
+            (0, false) => self.say(Tone::Info, "Every scene has a picture already."),
+            (0, true) => self.say(Tone::Info, "Thumbnails are being made already."),
+            (1, _) => self.say(Tone::Info, "Making 1 thumbnail."),
+            (n, _) => self.say(Tone::Info, format!("Making {n} thumbnails.")),
+        }
+    }
+
+    /// Works the thumbnail queue (D546): starts the next scene, loaded at
+    /// the thumbnail's size, or renders [`thumbnails::FRAMES_PER_STEP`]
+    /// more frames of the one started, and saves its picture after the
+    /// last. Waits while a playlist is loaded (its scenes come first), a
+    /// load is waiting, the context is being rebuilt or a screenshot is
+    /// being taken.
+    fn step_thumbnails(&mut self) {
+        if !self.thumbnails.is_busy()
+            || self.stack.show.is_some()
+            || self.pending_load.is_some()
+            || self.rebuild.is_some()
+            || self.screenshot.is_some()
+        {
+            return;
+        }
+        if self.stack.thumbnail.is_none() && self.thumbnails.is_rendering() {
+            // Its scene died with a rebuilt context.
+            self.thumbnails.finish();
+        }
+        if !self.make_current(Surface::Output) {
+            return;
+        }
+        let Some((mut session, left)) = self.stack.thumbnail.take() else {
+            self.start_thumbnail();
+            return;
+        };
+        let frames = left.min(thumbnails::FRAMES_PER_STEP);
+        for _ in 0..frames {
+            session.advance(
+                thumbnails::DT,
+                &mut self.audio,
+                Default::default(),
+                [0.0; 4],
+            );
+        }
+        if left > frames {
+            self.stack.thumbnail = Some((session, left - frames));
+            return;
+        }
+        self.save_thumbnail(&session);
+        drop(session);
+        self.thumbnails.finish();
+    }
+
+    /// Loads the next queued scene at the thumbnail's size, to be rendered
+    /// by the following steps; a scene that is gone or does not load is
+    /// skipped and logged.
+    fn start_thumbnail(&mut self) {
+        let Some(dir) = self.thumbnails.take_next() else {
+            return;
+        };
+        let Some(name) = self
+            .library
+            .entries
+            .iter()
+            .find(|entry| entry.dir == dir)
+            .map(|entry| entry.name.clone())
+        else {
+            log::info!("thumbnail: {} is not in the library", dir.display());
+            self.thumbnails.finish();
+            return;
+        };
+        let [w, h] = snapshot::SIZE;
+        match Session::load(
+            self.stack.gfx.gl(),
+            self.stack.gfx.caps(),
+            &dir,
+            &name,
+            [w as i32, h as i32],
+            0.0,
+            &mut self.audio,
+        ) {
+            Ok(session) => self.stack.thumbnail = Some((session, thumbnails::frames())),
+            Err(error) => {
+                log::info!("thumbnail: {name} does not load: {error}");
+                self.thumbnails.finish();
+            }
+        }
+    }
+
+    /// Writes the last frame `session` drew as its scene's thumbnail, as
+    /// "Use frame as picture" does (D222), unless the Editor holds unsaved
+    /// edits to it.
+    fn save_thumbnail(&mut self, session: &Session) {
+        let (dir, name) = (session.dir.clone(), session.name.clone());
+        if self
+            .editor_doc
+            .as_ref()
+            .is_some_and(|doc| doc.dir == dir && doc.is_dirty())
+        {
+            log::info!("thumbnail: {name} has unsaved edits in the Editor; not written");
+            return;
+        }
+        let [w, h] = session.player.render_size();
+        let pixels = session.player.read_output();
+        match snapshot::save(&dir, [w.max(0) as u32, h.max(0) as u32], pixels) {
+            Ok(path) => {
+                log::info!("thumbnail: {} rendered for {name}", path.display());
+                self.ui_state.thumbs.forget(&path);
+                self.refresh_tags(&dir);
+                if self.editor_doc.as_ref().is_some_and(|doc| doc.dir == dir) {
+                    self.reopen_editor(&dir, &name);
+                }
+            }
+            Err(why) => log::warn!("thumbnail: {name} could not be written: {why}"),
         }
     }
 
@@ -4186,6 +4331,7 @@ impl Running {
                 Action::SetSceneTags { scene, tags } => self.set_scene_tags(&scene, &tags),
                 Action::SetMedia(path) => self.set_media(path),
                 Action::CaptureThumbnail => self.capture_thumbnail(),
+                Action::MakeThumbnails => self.make_thumbnails(),
                 Action::CopyToLibrary(dir) => self.copy_to_library(&dir),
                 Action::SetShowSynesthesia(show) => self.set_show_synesthesia(show),
                 Action::ImportCueAfter { at, text } => {
@@ -5473,6 +5619,7 @@ impl Running {
             library: &self.library,
             health: &self.health,
             library_rev: self.library_rev,
+            thumbnails: self.thumbnails.progress(),
             scan_error: self.scan_error.as_deref(),
             playing: self.playing,
             scene_title,
@@ -6135,12 +6282,18 @@ fn record_gl_facts(gfx: &WindowedContext) {
 }
 
 /// The other scene folders Settings lists (D538), each found as the
-/// library folder is ([`crate::library::resolve`]).
-fn scene_folder_dirs(folders: &[String]) -> Vec<PathBuf> {
-    folders
+/// library folder is ([`crate::library::resolve`]), then `imports`, the
+/// Shadertoy imports' folder, when it exists and none of them holds it
+/// (D546): `user-scenes` removed from the list does not hide the imports.
+fn scene_folder_dirs(folders: &[String], imports: &Path) -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> = folders
         .iter()
         .map(|folder| crate::library::resolve(Path::new(folder.trim())))
-        .collect()
+        .collect();
+    if imports.is_dir() && !dirs.iter().any(|dir| imports.starts_with(dir)) {
+        dirs.push(imports.to_path_buf());
+    }
+    dirs
 }
 
 /// Settings' Add (D538): adds `typed`, trimmed, to the scene folders when
@@ -6158,7 +6311,8 @@ fn add_scene_folder(
         state.refusal = why;
         return false;
     }
-    if scene_folder_dirs(&state.folders)
+    // The listed folders only: no imports' folder is added for this check.
+    if scene_folder_dirs(&state.folders, Path::new(""))
         .iter()
         .any(|listed| intake::same_dir(listed, &dir))
     {
@@ -6458,8 +6612,12 @@ mod tests {
         );
         assert_eq!(state.folders.len(), 1, "a refusal adds nothing");
 
-        let listed = Library::scan_with(&library, &scene_folder_dirs(&state.folders), &[])
-            .map_err(anyhow::Error::msg)?;
+        let listed = Library::scan_with(
+            &library,
+            &scene_folder_dirs(&state.folders, Path::new("")),
+            &[],
+        )
+        .map_err(anyhow::Error::msg)?;
         let Some(entry) = listed.entries.iter().find(|entry| entry.name == "totem") else {
             anyhow::bail!("the folder's scene is not listed: {:?}", listed.entries);
         };
@@ -6468,6 +6626,31 @@ mod tests {
             (crate::library::Source::Folder, false, friends.join("totem")),
             "listed where it is, and written like the library's"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn the_imports_folder_is_listed_when_no_scene_folder_holds_it() -> anyhow::Result<()> {
+        let root = std::env::temp_dir().join(format!("strobe-imports-{}", std::process::id()));
+        let user = root.join("user-scenes");
+        let imports = user.join(import::IMPORTS_FOLDER);
+        std::fs::create_dir_all(&imports)?;
+        let listed = |folders: &[String]| scene_folder_dirs(folders, &imports);
+        assert_eq!(
+            listed(&[user.display().to_string()]),
+            std::slice::from_ref(&user),
+            "user-scenes listed holds it, so it is not listed twice"
+        );
+        assert_eq!(
+            listed(&[]),
+            std::slice::from_ref(&imports),
+            "user-scenes removed: the imports still list"
+        );
+        assert!(
+            scene_folder_dirs(&[], &root.join("none")).is_empty(),
+            "no imports folder yet: nothing added"
+        );
+        let _ = std::fs::remove_dir_all(&root);
         Ok(())
     }
 

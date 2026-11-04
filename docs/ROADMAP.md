@@ -51,6 +51,18 @@ which backend proved a claim.
   `--no-prerender`. About 5 MB a scene parked. **Left:** the T480 check of
   a large library's memory against the HD 4000 laptops' RAM.
 
+- **Other scene folders are searched through their subfolders
+  (2026-11-04, D545):** a folder of scenes inside `user-scenes` (or any
+  folder added in Settings) is listed without adding it by hand, down to
+  10 levels, as Synesthesia searches. Checked by a unit test; not yet in
+  the app on LIGHTNING.
+
+- **Shadertoy imports go to `user-scenes/shadertoy-imports`, and
+  thumbnails are rendered (2026-11-04, D546):** the Library's camera
+  button renders a thumbnail for every scene without one (3 s at 320x180,
+  then the frame is saved as *Use frame as picture* saves it), and a
+  finished import gets one too. Unit tests only; not yet run in the app.
+
 - **Adaptive resolution watches missed refreshes, not only the mean GPU time
   (2026-10-16, D314-D320), verified on the projector (M18-M26; D318's
   lock and its expiry seen in the M26 soak):**

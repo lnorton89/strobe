@@ -221,8 +221,10 @@ fn header(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Vec
     ui.horizontal(|ui| {
         ui.set_height(30.0);
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            // Right to left: refresh at the edge, then New scene.
+            // Right to left: refresh at the edge, thumbnails, then New
+            // scene.
             refresh_button(ui, theme, actions);
+            thumbnails_button(ui, model, theme, actions);
             new_scene_button(ui, model, theme, true);
             if one_row {
                 ui.add_space(SPACE_SM);
@@ -314,6 +316,7 @@ fn toolbar(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Ve
         let labelled = ui.available_width() >= LABELLED;
         new_scene_button(ui, model, theme, labelled);
         refresh_button(ui, theme, actions);
+        thumbnails_button(ui, model, theme, actions);
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             size_switch(ui, model, theme);
         });
@@ -342,6 +345,18 @@ fn new_scene_button(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, labelle
 fn refresh_button(ui: &mut Ui, theme: &Palette, actions: &mut Vec<Action>) {
     if widgets::icon_button(ui, theme, Icon::Refresh, "List the scene folder again").clicked() {
         actions.push(Action::RescanLibrary);
+    }
+}
+
+/// Renders a thumbnail for every scene without a picture (D546). While
+/// they are being made, its tooltip says how far it has got.
+fn thumbnails_button(ui: &mut Ui, model: &Model<'_>, theme: &Palette, actions: &mut Vec<Action>) {
+    let tip = match model.thumbnails {
+        Some((done, total)) => format!("Making thumbnails: {done} of {total} done"),
+        None => "Make a thumbnail for every scene without a picture".to_string(),
+    };
+    if widgets::icon_button(ui, theme, Icon::Camera, &tip).clicked() {
+        actions.push(Action::MakeThumbnails);
     }
 }
 

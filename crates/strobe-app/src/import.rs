@@ -35,6 +35,14 @@
 //! path, a Shadertoy id or URL; the worker classifies it), or JSON that
 //! arrived over the listener. Both end in `strobe_shadertoy::import`.
 //!
+//! ## Where imports go (D546)
+//!
+//! Into `shadertoy-imports` inside the `user-scenes` folder ([`imports_dir`]),
+//! not into the library folder: `scenes/` is tracked by git and holds only
+//! original work, and an imported shader is someone else's. The library
+//! lists that folder through `user-scenes`, which is searched through its
+//! subfolders (D545), or on its own when `user-scenes` is not listed.
+//!
 //! ## Re-importing
 //!
 //! A scene already in the library is not replaced silently: the worker
@@ -42,7 +50,7 @@
 //! Replace sends the same input again with `replace` set (D113). The
 //! userscript gets a 409 and asks the same question in the browser.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
 use std::thread::JoinHandle;
@@ -52,6 +60,33 @@ use strobe_shadertoy::import::{
     Downloader, ImportError, ImportOptions, Imported, Source, import_file, import_id, import_json,
 };
 use strobe_shadertoy::listener::{Handler, Reply, Submission};
+
+/// The folder inside `user-scenes` that Shadertoy imports are written
+/// into (D546).
+pub const IMPORTS_FOLDER: &str = "shadertoy-imports";
+
+/// Where Shadertoy imports are written (D546): [`IMPORTS_FOLDER`] inside
+/// the `user-scenes` folder, found as a scene folder is
+/// (`library::resolve`), else beside the library folder `library`.
+pub fn imports_dir(library: &Path) -> PathBuf {
+    let user_scenes = Path::new(crate::prefs::SceneFoldersPref::DEFAULT);
+    imports_dir_with(library, &crate::library::resolve(user_scenes))
+}
+
+/// [`imports_dir`] with the `user-scenes` folder already resolved: used
+/// when it is a folder, else the one beside `library` (made by the first
+/// import).
+pub fn imports_dir_with(library: &Path, user_scenes: &Path) -> PathBuf {
+    let user = if user_scenes.is_dir() {
+        user_scenes.to_path_buf()
+    } else {
+        library.parent().map_or_else(
+            || user_scenes.to_path_buf(),
+            |parent| parent.join(crate::prefs::SceneFoldersPref::DEFAULT),
+        )
+    };
+    user.join(IMPORTS_FOLDER)
+}
 
 /// Jobs that may wait for the worker.
 pub const QUEUE: usize = 16;
@@ -123,7 +158,7 @@ pub struct Done {
 /// What the worker needs to know.
 #[derive(Debug, Clone)]
 pub struct WorkerConfig {
-    /// The scene library imports are written into.
+    /// The folder imports are written into ([`imports_dir`], D546).
     pub library: PathBuf,
     /// The data directory: the API key, the texture cache.
     pub data_dir: PathBuf,
@@ -439,6 +474,26 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir)?;
         Ok(dir)
+    }
+
+    #[test]
+    fn imports_go_into_user_scenes_or_beside_the_library() -> Result<()> {
+        let root = scratch("imports-dir")?;
+        let library = root.join("scenes");
+        let user = root.join("mine");
+        std::fs::create_dir_all(&user)?;
+        assert_eq!(
+            imports_dir_with(&library, &user),
+            user.join(IMPORTS_FOLDER),
+            "inside user-scenes when it is a folder"
+        );
+        assert_eq!(
+            imports_dir_with(&library, &root.join("gone")),
+            root.join("user-scenes").join(IMPORTS_FOLDER),
+            "else in a user-scenes beside the library folder"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+        Ok(())
     }
 
     fn service(name: &str) -> Result<(Service, PathBuf)> {
