@@ -87,7 +87,9 @@ fn any_image_pass_code_converts_or_is_refused() -> Result<()> {
         .join("fixtures")
         .join("single_image.json");
     let fixture: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path)?)?;
-    check(256, glsl(), |code| {
+    let converted = std::cell::Cell::new(0_u32);
+    let cases = 256;
+    check(cases, glsl(), |code| {
         let mut export = fixture.clone();
         let Some(slot) = export.pointer_mut("/Shader/renderpass/0/code") else {
             return Err(TestCaseError::fail("the fixture has no image pass"));
@@ -96,8 +98,9 @@ fn any_image_pass_code_converts_or_is_refused() -> Result<()> {
         let Ok(shader) = Shader::from_value(export) else {
             return Ok(());
         };
-        if let Ok(converted) = convert(&shader, &Options::default()) {
-            let text = format!("{converted:?}");
+        if let Ok(output) = convert(&shader, &Options::default()) {
+            converted.set(converted.get() + 1);
+            let text = format!("{output:?}");
             prop_assert!(
                 text.len() <= code.len() * 16 + 65_536,
                 "{} bytes of code became {} of output",
@@ -106,7 +109,16 @@ fn any_image_pass_code_converts_or_is_refused() -> Result<()> {
             );
         }
         Ok(())
-    })
+    })?;
+    // The converter rewrites code it does not compile, so most generated
+    // passes should reach the rewrite; if they stopped, the bound above
+    // would be checked over nothing.
+    assert!(
+        converted.get() * 2 >= cases,
+        "only {} of {cases} generated passes converted",
+        converted.get()
+    );
+    Ok(())
 }
 
 #[test]

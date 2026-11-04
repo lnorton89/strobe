@@ -104,6 +104,11 @@ enum Command {
     /// `target/corpus/report.{json,md}` (D195). Arguments after `--` go to
     /// strobe-corpus, e.g. `cargo xtask corpus -- --library scenes`.
     Corpus {
+        /// The cargo profile to build strobe-corpus in: `release` (the
+        /// default, for timings worth comparing), `release-fast` or `dev`
+        /// for correctness runs that only need the statuses and frames.
+        #[arg(long, default_value = "release")]
+        profile: String,
         /// Arguments forwarded to strobe-corpus.
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
@@ -191,7 +196,7 @@ fn run() -> Result<()> {
         Command::Ci(args) => ci::run(&args),
         Command::Changelog { check, release } => changelog::run(check, release.as_deref()),
         Command::Bench { args } => bench::run(&args),
-        Command::Corpus { args } => corpus::run(&args),
+        Command::Corpus { profile, args } => corpus::run(&profile, &args),
         Command::Symbolicate(args) => symbolicate::run(&args.anchored(&invoked_from)),
         Command::Brand { check } => brand::run(check),
         Command::Decisions { check } => decisions::run(check),

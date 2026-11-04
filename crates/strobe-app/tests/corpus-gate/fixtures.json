@@ -23,6 +23,14 @@
       "desktop": "ok",
       "gles": "ok"
     },
+    "include-file": {
+      "desktop": "ok",
+      "gles": "ok"
+    },
+    "media-image": {
+      "desktop": "ok",
+      "gles": "ok"
+    },
     "script-setup-uniform": {
       "desktop": "ok",
       "gles": "ok"
@@ -48,6 +56,8 @@
     "buffer-pass",
     "feedback",
     "gradient",
+    "include-file",
+    "media-image",
     "script-setup-uniform",
     "script-update-uniform",
     "smoothed-control",
