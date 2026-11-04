@@ -427,7 +427,7 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## Not tied to one crate
 
-225 decision(s).
+226 decision(s).
 
 - [D1](decisions/D1.md): native OpenGL (glow + glutin), not wgpu
 - [D2](decisions/D2.md): ANGLE as the fallback context, not native-only
@@ -654,3 +654,4 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D542](decisions/D542.md): the library's scenes are prerendered at launch and on a rescan, on by default
 - [D546](decisions/D546.md): other scene folders are searched through their subfolders
 - [D547](decisions/D547.md): Shadertoy imports go to user-scenes/shadertoy-imports, and thumbnails are rendered for scenes without one
+- [D550](decisions/D550.md): background compiles leave the output four fifths of the time, and a rebuilt context reloads the thumbnails
