@@ -28,7 +28,7 @@
 //!
 //! The pane edits nothing itself: loading, jumping, generating and saving
 //! are [`Action`]s the app carries out, because they touch files, scenes
-//! and the clock. What it shows is read off the [`Show`](crate::show::Show):
+//! and the clock. What it shows is read off the [`Show`]:
 //! the rows (built once per playlist), the clock (current cue, next cue,
 //! failed cues) and the precompile progress.
 //!

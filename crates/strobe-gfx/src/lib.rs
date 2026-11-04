@@ -24,6 +24,10 @@ pub mod adaptive;
 pub mod assets;
 pub mod caps;
 pub mod compositor;
+#[expect(
+    unsafe_code,
+    reason = "the GL boundary: one safe leaf per unsafe glow call (D41, D538)"
+)]
 pub mod gl;
 pub mod live;
 mod media;

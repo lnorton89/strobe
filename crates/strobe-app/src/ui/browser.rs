@@ -379,7 +379,7 @@ fn size_switch(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette) {
 }
 
 /// The filter row: the count, a wide search, the sort and its direction, the
-/// favourites toggle and the health filter. Below [`TWO_ROWS`] the search
+/// favourites toggle and the health filter. Below `TWO_ROWS` the search
 /// keeps a row of its own with the count, and the rest take the next.
 fn filter_row(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Vec<Action>) {
     /// Below this width the row is two rows.

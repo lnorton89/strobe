@@ -88,7 +88,7 @@ impl Rgb {
     /// Returns `None` rather than a fallback colour for anything else.
     /// A theme file with a typo in it should be reported as a broken
     /// theme, not silently rendered in black — see
-    /// [`crate::theme`] for what the loader does with the `None`.
+    /// [`crate::palette`] for what the loader does with the `None`.
     #[must_use]
     pub fn parse(text: &str) -> Option<Self> {
         let hex = text.trim().trim_start_matches('#');
@@ -156,7 +156,7 @@ impl Rgb {
     /// Relative luminance, per WCAG 2.1.
     ///
     /// The gamma-expanded, channel-weighted brightness a contrast ratio
-    /// is computed from — not the `l` of [`Hsl`], which is a much cruder
+    /// is computed from — not the `l` of `Hsl`, which is a much cruder
     /// measure and would pass colour pairs a reader cannot actually
     /// separate.
     #[must_use]
@@ -176,7 +176,7 @@ impl Rgb {
     /// to 21.0 (black on white).
     ///
     /// This is what makes an unreadable theme a failing build rather than
-    /// a subtly unreadable window: see the test in [`crate::theme`].
+    /// a subtly unreadable window: see the test in [`crate::palette`].
     #[must_use]
     pub fn contrast(self, other: Self) -> f32 {
         let a = self.luminance();

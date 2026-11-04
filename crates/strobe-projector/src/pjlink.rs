@@ -13,7 +13,7 @@
 //! the second case every command is prefixed with
 //! `md5(random + password)` in lowercase hex. A command is `%1XXXX param`
 //! and its answer `%1XXXX=value`, where the value may be one of the error
-//! codes in [`PjLinkCode`](crate::error::PjLinkCode). A wrong password
+//! codes in [`PjLinkCode`]. A wrong password
 //! answers `PJLINK ERRA`, at the greeting or after the command.
 //!
 //! One connection per command is the simplest thing that works on every

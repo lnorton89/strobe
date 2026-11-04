@@ -17,9 +17,9 @@
 //! | Part | Module | What it is |
 //! |---|---|---|
 //! | data model | [`model`], [`duration`] | `Playlist`, `Section`, `Cue`, settings, the duration grammar |
-//! | inheritance | [`resolve`] | playlist, section, cue and built-ins flattened to `ResolvedCue`; resume identity; [`distinct_scenes`] |
-//! | persistence | [`parse`], [`write`], [`file`] | the TOML format (PLAN section 7.2), with line/column errors |
-//! | generator | [`generate`], [`rng`] | a section from a library snapshot, pure in its seed |
+//! | inheritance | [`mod@resolve`] | playlist, section, cue and built-ins flattened to `ResolvedCue`; resume identity; [`distinct_scenes`] |
+//! | persistence | [`parse`], [`mod@write`], [`mod@file`] | the TOML format (PLAN section 7.2), with line/column errors |
+//! | generator | [`mod@generate`], [`rng`] | a section from a library snapshot, pure in its seed |
 //! | timeline | [`timeline`], [`schedule`] | every cue's start and length; wall-clock placement |
 //! | playback | [`clock`], [`tempo`] | [`PlaylistClock`]: the state machine the frame loop ticks |
 //! | resume | [`resume`] | where playback was, as a few lines of TOML |

@@ -13,7 +13,7 @@
 //! mutable: the control bank, which is the point of the inspector (the one
 //! sanctioned direct write into runtime state, because the bank *is* the
 //! control model and a second copy would be the fake the plan forbids); the
-//! [`UiState`](super::state::UiState), which is presentation state (pane
+//! [`UiState`], which is presentation state (pane
 //! visibility, the browser query) that the app owns and persists; and the
 //! render-scale slider's working value, which exists so a drag does not
 //! reallocate every render target on every pointer move.
