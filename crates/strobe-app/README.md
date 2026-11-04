@@ -61,7 +61,14 @@ second binary, `strobe-corpus` (`src/corpus_main.rs`, run with `cargo xtask
 corpus -- --library <dir>`), is the compatibility harness (D195): it loads
 every scene in a folder through `Session::load`, script included, renders it
 in both GLSL dialects in a child process per scene, and writes
-`target/corpus/report.{json,md}` (module `corpus`).
+`target/corpus/report.{json,md}` (module `corpus`). With `--expect
+<file.json>` it is a regression gate (D534, module `corpus::gate`): the
+run must match the file's statuses scene by scene, with nothing missing
+and nothing new, and the listed scenes' final frames must match their
+baselines within tolerance. CI's Linux `render` lane gates
+`tests/corpus-gate/fixtures/` (scripts that create uniforms, feedback, a
+buffer pass, transitions, smoothing, and two scenes that are meant to fail)
+and `scenes/` this way.
 
 | Module | What |
 |---|---|

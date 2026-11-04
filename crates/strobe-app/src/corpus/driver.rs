@@ -35,7 +35,7 @@
 
 use super::capture;
 use super::cli::{ContextArg, WORKER_FLAG, WorkerCli};
-use super::run::run_scene;
+use super::run::run_scene_saving;
 use super::{Dialect, Driver, Record, Settings, Status, WorkerResult};
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -72,6 +72,9 @@ pub struct Options {
     /// A folder for the workers' result and stderr files, created here and
     /// removed when the run ends.
     pub work: PathBuf,
+    /// When set, every worker writes its final frame here as
+    /// `<scene>.<dialect>.png`, for the gate (D534).
+    pub frames: Option<PathBuf>,
 }
 
 /// Why a run could not even start.
@@ -133,6 +136,12 @@ pub fn run_library(
         path: options.work.clone(),
         source,
     })?;
+    if let Some(frames) = &options.frames {
+        std::fs::create_dir_all(frames).map_err(|source| DriverError::Work {
+            path: frames.clone(),
+            source,
+        })?;
+    }
 
     let mut outcome = Outcome::default();
     for (index, dir) in scenes.iter().enumerate() {
@@ -183,6 +192,11 @@ fn run_worker_process(
     }
     if let Some(gl) = &options.gl {
         command.args(["--gl", gl]);
+    }
+    if let Some(frames) = &options.frames {
+        command
+            .arg("--frame")
+            .arg(frames.join(frame_name(&name, dialect)));
     }
     let child = command
         .arg("--scene")
@@ -263,6 +277,11 @@ fn run_worker_process(
     }
 }
 
+/// The file a scene's final frame is written to in the frames folder.
+pub fn frame_name(scene: &str, dialect: Dialect) -> String {
+    format!("{scene}.{}.png", dialect.label())
+}
+
 /// The last non-empty line of a file, capped, if it can be read.
 fn last_line(path: &Path) -> Option<String> {
     let text = std::fs::read(path).ok()?;
@@ -295,7 +314,14 @@ pub fn run_worker(cli: &WorkerCli) -> bool {
         &request,
         |why| log::warn!("{why}"),
         |gl, caps, context| WorkerResult {
-            record: run_scene(gl, caps, &cli.scene, dialect, &settings),
+            record: run_scene_saving(
+                gl,
+                caps,
+                &cli.scene,
+                dialect,
+                &settings,
+                cli.frame.as_deref(),
+            ),
             driver: Driver {
                 dialect,
                 renderer: caps.info.renderer.clone(),

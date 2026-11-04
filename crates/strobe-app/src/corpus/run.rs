@@ -72,9 +72,26 @@ pub fn run_scene(
     dialect: Dialect,
     settings: &Settings,
 ) -> Record {
+    run_scene_saving(gl, caps, dir, dialect, settings, None)
+}
+
+/// [`run_scene`], and when `frame` is given the final frame is also written
+/// there as a PNG, top row first, for [`super::gate`] to compare with a
+/// baseline. A frame that cannot be written becomes a note, so the gate
+/// reports the missing image rather than the run failing.
+pub fn run_scene_saving(
+    gl: &Gl,
+    caps: &Caps,
+    dir: &Path,
+    dialect: Dialect,
+    settings: &Settings,
+    frame: Option<&Path>,
+) -> Record {
     let name = strobe_scene::load::folder_title(dir);
     let mut record = Record::new(&name, dialect);
     record.has_script = dir.join("script.js").is_file();
+    let scene_hash = folder_hash(dir);
+    record.scene_hash = scene_hash.clone();
 
     // Context creation can leave an error flag set that is not the
     // scene's doing, and an earlier scene's reports are not this one's.
@@ -93,6 +110,7 @@ pub fn run_scene(
         Err(LoadError::Scene(error)) => {
             let mut failed = Record::failed(&name, dialect, Status::ParseError, &error.to_string());
             failed.has_script = record.has_script;
+            failed.scene_hash = scene_hash;
             return failed;
         }
         Err(LoadError::Player(error)) => {
@@ -111,6 +129,7 @@ pub fn run_scene(
             };
             failed.has_script = record.has_script;
             failed.compile_ms = Some(compile_ms);
+            failed.scene_hash = scene_hash;
             return failed;
         }
     };
@@ -129,7 +148,7 @@ pub fn run_scene(
     captured.extend(capture::take());
 
     let gl_error = gl.error();
-    read_back(&session, &mut record);
+    read_back(&session, &mut record, frame);
 
     let script = first_script_problem(&captured);
     let gl_message = gl_error.map(|code| format!("GL error 0x{code:x}"));
@@ -178,8 +197,9 @@ fn notes(captured: &[Captured], source: &str) -> Vec<Note> {
         .collect()
 }
 
-/// Reads the final frame back and fills in the content check.
-fn read_back(session: &Session, record: &mut Record) {
+/// Reads the final frame back, fills in the content check, and writes it to
+/// `frame` when asked.
+fn read_back(session: &Session, record: &mut Record, frame: Option<&Path>) {
     let pixels = session.player.read_output();
     let [width, height] = session.player.render_size();
     let expected = width.max(0) as usize * height.max(0) as usize * 4;
@@ -199,6 +219,57 @@ fn read_back(session: &Session, record: &mut Record) {
     record.all_black = Some(black);
     record.all_white = Some(white);
     record.checksum = Some(format!("{hash:016x}"));
+    if let Some(path) = frame
+        && let Err(error) = image::save_buffer(
+            path,
+            &pixels,
+            width.unsigned_abs(),
+            height.unsigned_abs(),
+            image::ExtendedColorType::Rgba8,
+        )
+    {
+        record.notes.push(Note {
+            message: format!("cannot write the frame {}: {error}", path.display()),
+            cause: "frame_not_written".to_string(),
+        });
+    }
+}
+
+/// An FNV-1a hash of every file under `dir`: each relative path (with `/`)
+/// and its bytes, in path order. `None` when the folder cannot be read.
+fn folder_hash(dir: &Path) -> Option<String> {
+    let mut files = Vec::new();
+    let mut pending = vec![dir.to_path_buf()];
+    while let Some(folder) = pending.pop() {
+        for entry in std::fs::read_dir(&folder).ok()?.filter_map(Result::ok) {
+            let path = entry.path();
+            if path.is_dir() {
+                pending.push(path);
+            } else {
+                let relative = path
+                    .strip_prefix(dir)
+                    .ok()?
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                files.push((relative, path));
+            }
+        }
+    }
+    files.sort();
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    let mut feed = |bytes: &[u8]| {
+        for &byte in bytes {
+            hash ^= u64::from(byte);
+            hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    };
+    for (relative, path) in files {
+        feed(relative.as_bytes());
+        feed(&[0]);
+        feed(&std::fs::read(path).ok()?);
+        feed(&[0]);
+    }
+    Some(format!("{hash:016x}"))
 }
 
 /// The text of every `.glsl` file in the scene folder (and its `passes/`),

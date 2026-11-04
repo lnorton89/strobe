@@ -147,6 +147,23 @@ pub struct Cli {
     /// choice when absent. Each worker checks its renderer against it.
     #[arg(long, value_parser = ANGLE_GL_VALUES)]
     pub gl: Option<String>,
+    /// Compare the run against this expectations file (D534): every
+    /// expected scene and dialect present with its expected status, no
+    /// scene without an expectation, and the listed scenes' final frames
+    /// within tolerance of their baselines. The run fails if anything
+    /// differs, and `gate.md` and `diff/` in `--out` say what.
+    #[arg(long, value_name = "FILE")]
+    pub expect: Option<PathBuf>,
+    /// The folder of baseline frames for `--expect`, one
+    /// `<scene>.<dialect>.png` each. When absent, `<name>.baselines/`
+    /// beside the file (`fixtures.json` has `fixtures.baselines/`).
+    #[arg(long, value_name = "DIR", requires = "expect")]
+    pub baselines: Option<PathBuf>,
+    /// Instead of comparing, write this run's statuses into the
+    /// expectations file and its frames into the baselines. For a change
+    /// that is meant to alter them; review the diff before committing.
+    #[arg(long, requires = "expect")]
+    pub bless: bool,
 }
 
 /// The `--gl` values the corpus takes: one of ANGLE's backends.
@@ -164,6 +181,16 @@ impl Cli {
     /// The per-scene time budget.
     pub fn budget(&self) -> Duration {
         Duration::from_secs(self.timeout)
+    }
+
+    /// The baselines folder for `--expect`: the one given, or
+    /// `<name>.baselines/` beside the expectations file.
+    pub fn baselines(&self) -> Option<PathBuf> {
+        self.baselines.clone().or_else(|| {
+            self.expect
+                .as_ref()
+                .map(|file| file.with_extension("baselines"))
+        })
     }
 }
 
@@ -192,6 +219,9 @@ pub struct WorkerCli {
     /// Where to write the result JSON.
     #[arg(long)]
     pub result: PathBuf,
+    /// Where to write the final frame as a PNG, for the gate.
+    #[arg(long)]
+    pub frame: Option<PathBuf>,
     /// The driver's `--gl`, read again in the worker's `main` (D485).
     #[arg(long, value_parser = ANGLE_GL_VALUES)]
     pub gl: Option<String>,

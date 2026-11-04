@@ -142,6 +142,7 @@ fn options(library: &Path, work: &Path) -> Options {
         show_window: false,
         gl: None,
         work: work.to_path_buf(),
+        frames: None,
     }
 }
 

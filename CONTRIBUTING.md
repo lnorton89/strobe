@@ -121,6 +121,17 @@ you wrote, or scenes whose license allows redistribution, with the
 license recorded in `scene.json`'s `CREDIT`/`DESCRIPTION`. If you change
 a scene, re-run the bench and update `docs/BENCHMARKS.md`.
 
+The corpus gate (D534) holds every library scene to an expected status in
+`crates/strobe-app/tests/corpus-gate/library.json`, so a new scene needs a
+line there (`"ok"` in both dialects), and a removed one loses its line. For
+the scenes it lists under `images`, the final frame must also match the
+baseline in `library.baselines/`. A change that is meant to alter one of
+those frames takes the new frame from the `corpus-gate` artefact of the
+pull request's CI run (`frames/<scene>.<dialect>.png`), since the baselines
+are what Mesa's llvmpipe draws there. `strobe-corpus --expect <file>
+--bless` rewrites the file and baselines from a local run, for when the
+local driver is the one being checked.
+
 ## Branches
 
 `master` is the default branch and always passes `cargo xtask ci`.
