@@ -122,10 +122,11 @@ use crate::gldebug;
 use crate::import::{self, Input, Outcome};
 use crate::intake;
 use crate::lan::{self, Lan, Situation};
-use crate::library::{Health, Library, Synesthesia};
+use crate::library::{Health, Library, Listed, Synesthesia};
 use crate::localtime::LocalDate;
 use crate::mouse::{Button, MouseTracker};
 use crate::perf::{self, Performance};
+use crate::prerender::{self, Prerender, Stamp};
 use crate::recovery::{Decision, Event, Rebuild, Recovery, Surface};
 use crate::remote::{Overrides, Remote};
 use crate::screenshot::{Screenshot, Target};
@@ -411,6 +412,9 @@ struct Stack {
     /// The browser's preview: a second, small player for a scene that is
     /// not live. Owns GL objects, so it sits before the context.
     preview: Option<Session>,
+    /// The library's prerendered scenes, parked at 1x1 (D542). Their GL
+    /// objects die with the context, so they sit before it.
+    prerendered: Prerender<Session>,
     /// The playlist being played, if one is loaded. Its parked scenes own GL
     /// objects, so it sits before the context in drop order (D151).
     show: Option<Show>,
@@ -508,6 +512,7 @@ impl Stack {
         Ok(Self {
             session: None,
             preview: None,
+            prerendered: Prerender::default(),
             show: None,
             compositor,
             post,
@@ -539,6 +544,7 @@ impl Stack {
         let Self {
             session,
             preview,
+            prerendered,
             show,
             compositor,
             post,
@@ -561,6 +567,7 @@ impl Stack {
             drop(show);
             drop(session);
             drop(preview);
+            drop(prerendered);
             drop(compositor);
             drop(post);
             drop(perf);
@@ -569,6 +576,7 @@ impl Stack {
             drop(show);
             drop(session);
             drop(preview);
+            drop(prerendered);
             drop(compositor);
             drop(post);
             perf.release();
@@ -640,10 +648,16 @@ struct Running {
     pending_cue_import: Option<(crate::show::edit::At, String)>,
     /// A dropped folder of scenes still being added (D235).
     pack: Option<intake::Pack>,
-    /// The watched folder, if one was given (D240).
-    inbox: Option<intake::Inbox>,
-    /// When the inbox was last polled.
-    inbox_polled: Instant,
+    /// The folder stamp of the live scene, taken before it was read, so it
+    /// can be parked with the prerendered ones when it is replaced (D542).
+    live_stamp: Option<Stamp>,
+    /// When the last scene was prerendered, so the output draws between
+    /// two (D542).
+    prerender_last: Instant,
+    /// When the prerender in progress began, for its log line.
+    prerender_began: Option<Instant>,
+    /// `--no-prerender`: off this run, whatever Settings says (D542).
+    prerender_off_this_run: bool,
     gl_summary: String,
     audio: AudioInput,
     /// Hears a new song for the scene's transitions and a playlist's
@@ -903,6 +917,9 @@ impl Running {
                 None => log::warn!("--density: \"{density}\" is not comfortable or compact"),
             }
         }
+        // Launch opens on the library, whatever view the last session
+        // ended on (D543). The command line's panes come after, so they win.
+        ui_state.panes.open(Pane::Browser);
         if cli.no_panes {
             ui_state.panes.close_all();
         }
@@ -915,15 +932,18 @@ impl Running {
         if let Some(query) = &cli.palette {
             ui_state.command_palette.open_with(query);
         }
-        let inbox = watch_at_launch(
-            cli.watch_folder.as_deref(),
-            &mut ui_state.watch,
-            &library.dir,
-        );
-        // Synesthesia's scenes after the library's own, before anything
-        // looks a scene up by name (D271).
+        // The other scene folders (D538), then Synesthesia's scenes, after
+        // the library's own, before anything looks a scene up by name
+        // (D271).
         let synesthesia = Synesthesia::detect(cli.no_synesthesia);
-        library.set_synesthesia(synesthesia.shown(ui_state.synesthesia.show));
+        library.list_others(
+            &scene_folder_dirs(&ui_state.scene_folders.folders),
+            synesthesia.shown(ui_state.synesthesia.show),
+        );
+        ui_state.scene_folders.status = library.folders.iter().map(Listed::note).collect();
+        for listed in &library.folders {
+            log::info!("scene folder {}: {}", listed.dir.display(), listed.note());
+        }
         ui_state.synesthesia.note =
             synesthesia.note(ui_state.synesthesia.show, library.synesthesia_count());
         log::info!("Synesthesia's scenes: {}", ui_state.synesthesia.note);
@@ -1040,8 +1060,10 @@ impl Running {
             drop_hint: None,
             pending_cue_import: None,
             pack: None,
-            inbox,
-            inbox_polled: Instant::now(),
+            live_stamp: None,
+            prerender_last: Instant::now(),
+            prerender_began: None,
+            prerender_off_this_run: cli.no_prerender,
             gl_summary,
             audio: AudioInput::new(cli.audio == AudioArg::Auto)
                 .with_ambient(cli.audio == AudioArg::Ambient)
@@ -1190,6 +1212,7 @@ impl Running {
             }
             None => {}
         }
+        running.plan_prerender();
         Ok(running)
     }
 
@@ -1474,6 +1497,7 @@ impl Running {
             pending_load: None,
             last_cue: None,
             ready_frames: None,
+            live_stamp: None,
             ..self
         };
         log::info!("GL: {}", running.gl_summary);
@@ -1531,6 +1555,8 @@ impl Running {
                 (None, _) => String::new(),
             }
         );
+        // The prerendered scenes died with the context too.
+        running.plan_prerender();
         Ok(running)
     }
 
@@ -1559,8 +1585,8 @@ impl Running {
             self.refresh_monitors(event_loop);
         }
         self.drain_imports();
-        self.poll_inbox(now);
         self.step_pack();
+        self.step_prerender(now);
         self.poll_generate();
         if now >= self.next_output {
             if self.output_visible {
@@ -2188,15 +2214,27 @@ impl Running {
             self.stack.gfx.caps().info.max_texture_size,
         );
         let started = Instant::now();
-        match Session::load(
-            self.stack.gfx.gl(),
-            self.stack.gfx.caps(),
-            &entry.dir,
-            &entry.name,
-            size,
-            start,
-            &mut self.audio,
-        ) {
+        // The folder as it is now, before it is read (D542).
+        let stamp = prerender::stamp(&entry.dir);
+        let parked = self
+            .stack
+            .prerendered
+            .take(&entry.dir, stamp)
+            .and_then(|session| self.revive(session, size, start));
+        let prerendered = parked.is_some();
+        let loaded = match parked {
+            Some(session) => Ok(session),
+            None => Session::load(
+                self.stack.gfx.gl(),
+                self.stack.gfx.caps(),
+                &entry.dir,
+                &entry.name,
+                size,
+                start,
+                &mut self.audio,
+            ),
+        };
+        match loaded {
             Ok(mut session) => {
                 // The operator's media, else the default preset's, else the
                 // scene's own (D217, D223).
@@ -2216,7 +2254,10 @@ impl Running {
                         log::info!("meta: {taken} output setting(s) carried over");
                     }
                 }
-                self.stack.session = Some(session);
+                let old_stamp = std::mem::replace(&mut self.live_stamp, stamp);
+                if let Some(old) = self.stack.session.replace(session) {
+                    self.park_live(old, old_stamp);
+                }
                 self.playing = Some(index);
                 self.ui_state.last_scene.clone_from(&entry.name);
                 self.pending_resize = None;
@@ -2233,11 +2274,12 @@ impl Running {
                 context::set(context::SCENE, &entry.name);
                 context::set(context::RENDER_SIZE, format!("{}x{}", size[0], size[1]));
                 log::info!(
-                    "Loaded {} ({}x{}) in {:.0} ms",
+                    "Loaded {} ({}x{}) in {:.0} ms{}",
                     entry.name,
                     size[0],
                     size[1],
-                    started.elapsed().as_secs_f64() * 1000.0
+                    started.elapsed().as_secs_f64() * 1000.0,
+                    if prerendered { ", prerendered" } else { "" }
                 );
                 if let Some((target, name)) = self.pending_preset.take()
                     && target == index
@@ -2267,6 +2309,221 @@ impl Running {
             scene: name.to_string(),
             summary,
         });
+    }
+
+    // ------------------------------------------------------------ prerender
+
+    /// Plans a prerender of the library (D542): every scene not parked
+    /// already, except the live one. Nothing is planned while the switch
+    /// is off, and parked scenes are let go.
+    fn plan_prerender(&mut self) {
+        if !self.prerender_on() {
+            self.drop_prerendered();
+            return;
+        }
+        let dirs: Vec<PathBuf> = self
+            .library
+            .entries
+            .iter()
+            .map(|entry| entry.dir.clone())
+            .collect();
+        let live = self
+            .stack
+            .session
+            .as_ref()
+            .map(|session| session.dir.clone());
+        self.stack.prerendered.plan(&dirs, live.as_deref());
+        if self.stack.prerendered.remaining() > 0 {
+            self.prerender_began = Some(Instant::now());
+            log::info!(
+                "prerender: {} of {} scenes to prerender",
+                self.stack.prerendered.remaining(),
+                self.stack.prerendered.total()
+            );
+        }
+        self.note_prerender();
+    }
+
+    /// Lets every prerendered scene go, with the context current so their
+    /// GL objects are freed.
+    fn drop_prerendered(&mut self) {
+        if self.stack.prerendered.parked() > 0 && !self.make_current(Surface::Output) {
+            return;
+        }
+        self.stack.prerendered.clear();
+        self.prerender_began = None;
+        self.note_prerender();
+    }
+
+    /// Prerenders the next queued scene (D542): loaded at 1x1, drawn once,
+    /// parked. One scene per step, at most one step per
+    /// [`PRERENDER_GAP`], and none while a playlist is loaded (its own
+    /// precompile and its cues come first), a load is waiting, the context
+    /// is being rebuilt or a screenshot is being taken.
+    fn step_prerender(&mut self, now: Instant) {
+        /// The least time between two prerendered scenes, so the output
+        /// draws in between.
+        const PRERENDER_GAP: Duration = Duration::from_millis(50);
+        if !self.prerender_on()
+            || self.stack.show.is_some()
+            || self.pending_load.is_some()
+            || self.rebuild.is_some()
+            || self.screenshot.is_some()
+            || now.duration_since(self.prerender_last) < PRERENDER_GAP
+        {
+            return;
+        }
+        let Some(dir) = self.stack.prerendered.next_queued() else {
+            return;
+        };
+        let live = self
+            .stack
+            .session
+            .as_ref()
+            .map(|session| session.dir.as_path());
+        let found = self
+            .library
+            .entries
+            .iter()
+            .position(|entry| entry.dir == dir)
+            .filter(|_| live != Some(dir.as_path()));
+        if let Some(index) = found
+            && self.make_current(Surface::Output)
+        {
+            self.prerender_one(index, dir);
+        }
+        self.prerender_last = Instant::now();
+        if self.stack.prerendered.remaining() == 0
+            && let Some(began) = self.prerender_began.take()
+        {
+            log::info!(
+                "prerender: {} scenes ready in {:.1} s",
+                self.stack.prerendered.parked(),
+                began.elapsed().as_secs_f64()
+            );
+        }
+        self.note_prerender();
+    }
+
+    /// Loads library scene `index` (in `dir`) at 1x1, draws it once so the
+    /// driver finishes its deferred work, and parks it; a scene that does
+    /// not load is marked broken, as a load by hand would mark it.
+    fn prerender_one(&mut self, index: usize, dir: PathBuf) {
+        let Some(name) = self.library.entries.get(index).map(|e| e.name.clone()) else {
+            return;
+        };
+        let stamp = prerender::stamp(&dir);
+        let started = Instant::now();
+        match Session::load(
+            self.stack.gfx.gl(),
+            self.stack.gfx.caps(),
+            &dir,
+            &name,
+            crate::show::run::PARKED,
+            self.start_time,
+            &mut self.audio,
+        ) {
+            Ok(mut session) => {
+                session.prime(&mut self.audio, self.start_time);
+                // Drawn once; its buffers start from black when it plays,
+                // so none is kept while it waits.
+                session.player.release_targets();
+                log::debug!(
+                    "prerender: {name} in {:.0} ms",
+                    started.elapsed().as_secs_f64() * 1000.0
+                );
+                if let Some(stamp) = stamp {
+                    self.stack.prerendered.park(dir, session, stamp);
+                }
+                self.set_health(index, Health::Ready);
+            }
+            Err(error) => {
+                log::info!("prerender: {name} does not load: {error}");
+                self.set_health(index, Health::Failed(summarize(&error.to_string())));
+            }
+        }
+    }
+
+    /// Readies a parked scene to play at `size` from `start`, as a fresh
+    /// load would leave it: passes cleared, controls back to the scene's
+    /// start, script started over (D542). `None`, with the reason logged,
+    /// when it cannot be, and the caller loads the scene afresh.
+    fn revive(&mut self, mut session: Session, size: [i32; 2], start: f32) -> Option<Session> {
+        if let Err(error) = session.player.resize(size) {
+            log::warn!("prerender: could not size {}: {error}", session.name);
+            return None;
+        }
+        if let Err(error) = session.player.restart() {
+            log::warn!("prerender: could not clear {}: {error}", session.name);
+            return None;
+        }
+        session.reset_to_start();
+        session.restart_script(&mut self.audio, start);
+        session.apply_startup_preset();
+        session.restart_clock(start);
+        Some(session)
+    }
+
+    /// Parks the scene that was live, replaced by another, with the
+    /// prerendered ones (D542), so going back to it costs no compile. A
+    /// scene whose folder was not stamped, or with prerendering off, is let
+    /// go.
+    fn park_live(&mut self, mut old: Session, stamp: Option<Stamp>) {
+        let Some(stamp) = stamp.filter(|_| self.prerender_on()) else {
+            return;
+        };
+        if !self
+            .library
+            .entries
+            .iter()
+            .any(|entry| entry.dir == old.dir)
+        {
+            return;
+        }
+        if let Err(error) = old.player.resize(crate::show::run::PARKED) {
+            log::warn!("prerender: could not park {}: {error}", old.name);
+            return;
+        }
+        old.player.release_targets();
+        let dir = old.dir.clone();
+        self.stack.prerendered.park(dir, old, stamp);
+    }
+
+    /// Whether the library is prerendered: the Settings switch, unless
+    /// `--no-prerender` turned it off for this run (D542).
+    fn prerender_on(&self) -> bool {
+        self.ui_state.prerender.enabled && !self.prerender_off_this_run
+    }
+
+    /// Settings' line for the prerender (D542).
+    fn note_prerender(&mut self) {
+        let prerendered = &self.stack.prerendered;
+        self.ui_state.prerender.note = if self.prerender_off_this_run {
+            "Off for this run (--no-prerender).".to_string()
+        } else if !self.ui_state.prerender.enabled {
+            "Off: a scene compiles when it is first loaded.".to_string()
+        } else if prerendered.remaining() > 0 {
+            let paused = if self.stack.show.is_some() {
+                " Paused while a playlist is loaded."
+            } else {
+                ""
+            };
+            format!(
+                "{} of {} scenes prerendered.{paused}",
+                prerendered.parked(),
+                prerendered.total()
+            )
+        } else {
+            format!("{} scenes prerendered.", prerendered.parked())
+        };
+    }
+
+    /// Turns prerendering on (planned at once) or off (every parked scene
+    /// let go), from Settings (D542). Saved with the other preferences.
+    fn set_prerender(&mut self, on: bool) {
+        self.ui_state.prerender.enabled = on;
+        log::info!("prerender {}", if on { "on" } else { "off" });
+        self.plan_prerender();
     }
 
     /// Steps to the next (`delta` 1) or previous (`delta` -1) scene in the
@@ -2342,11 +2599,13 @@ impl Running {
         self.preview_index = None;
     }
 
-    /// Lists the library folder again, then Synesthesia's scenes when they
-    /// are shown (D271), keeping what is known of each scene.
+    /// Lists the library folder again, then the other scene folders
+    /// (D538), then Synesthesia's scenes when they are shown (D271),
+    /// keeping what is known of each scene.
     fn rescan_library(&mut self) {
         let shown = self.synesthesia.shown(self.ui_state.synesthesia.show);
-        match Library::scan_with(&self.library.dir, shown) {
+        let folders = scene_folder_dirs(&self.ui_state.scene_folders.folders);
+        match Library::scan_with(&self.library.dir, &folders, shown) {
             Ok(library) => {
                 self.replace_library(library);
                 self.scan_error = None;
@@ -2397,6 +2656,28 @@ impl Running {
             self.ui_state.synesthesia.show,
             self.library.synesthesia_count(),
         );
+        self.ui_state.scene_folders.status =
+            self.library.folders.iter().map(Listed::note).collect();
+        self.plan_prerender();
+    }
+
+    /// Lists the library again after a source changed in Settings (D271,
+    /// D538): everything, or, where the library folder itself cannot be
+    /// read, every other source around the entries it had.
+    fn relist_library(&mut self) {
+        self.rescan_library();
+        if self.scan_error.is_some() {
+            let mut library = Library {
+                dir: self.library.dir.clone(),
+                entries: self.library.entries.clone(),
+                folders: Vec::new(),
+            };
+            library.list_others(
+                &scene_folder_dirs(&self.ui_state.scene_folders.folders),
+                self.synesthesia.shown(self.ui_state.synesthesia.show),
+            );
+            self.replace_library(library);
+        }
     }
 
     /// Lists Synesthesia's scenes after the library's own, or stops, as the
@@ -2409,15 +2690,7 @@ impl Running {
         if show {
             self.synesthesia = Synesthesia::detect(self.synesthesia.off_this_run);
         }
-        self.rescan_library();
-        if self.scan_error.is_some() {
-            let mut library = Library {
-                dir: self.library.dir.clone(),
-                entries: self.library.entries.clone(),
-            };
-            library.set_synesthesia(self.synesthesia.shown(show));
-            self.replace_library(library);
-        }
+        self.relist_library();
         log::info!(
             "Synesthesia's scenes {}: {}",
             if show { "on" } else { "off" },
@@ -3039,29 +3312,6 @@ impl Running {
         }
     }
 
-    /// Takes the scenes that have settled in the watched folder into the
-    /// pack queue (D240).
-    fn poll_inbox(&mut self, now: Instant) {
-        let Some(inbox) = self.inbox.as_mut() else {
-            return;
-        };
-        let dt = now.duration_since(self.inbox_polled).as_secs_f32();
-        self.inbox_polled = now;
-        let scenes = inbox.poll(dt);
-        if scenes.is_empty() {
-            return;
-        }
-        log::info!(
-            "watched folder: {} new scene(s) in {}",
-            scenes.len(),
-            inbox.dir().display()
-        );
-        match self.pack.as_mut() {
-            Some(pack) => pack.extend(scenes),
-            None => self.pack = Some(intake::Pack::new(scenes)),
-        }
-    }
-
     /// Adds the next scene of a dropped folder of scenes to the library,
     /// one a frame so the show keeps running; when the last is done,
     /// rescans and says how it went (D235).
@@ -3175,6 +3425,14 @@ impl Running {
     /// (D204). An Editor holding unsaved edits to another scene keeps them
     /// and says so, rather than throwing them away.
     fn open_editor(&mut self, name: Option<&str>) {
+        self.edit_scene(name, true);
+    }
+
+    /// Opens scene `name` (or the live scene) in the Editor; `raise` also
+    /// brings the Editor to the front. The Editor's own fill of a pane that
+    /// is open but empty does not raise it, so a layout that kept the
+    /// Editor behind the Library opens on the Library (D543).
+    fn edit_scene(&mut self, name: Option<&str>, raise: bool) {
         let target = match name {
             Some(name) => self
                 .library
@@ -3192,7 +3450,9 @@ impl Running {
             self.say(Tone::Warning, "There is no scene to open in the Editor.");
             return;
         };
-        self.ui_state.panes.open(Pane::Editor);
+        if raise {
+            self.ui_state.panes.open(Pane::Editor);
+        }
         if let Some(doc) = self.editor_doc.as_ref() {
             if doc.dir == dir {
                 return;
@@ -4088,6 +4348,7 @@ impl Running {
                         from
                     );
                 }
+                Action::SetPrerender(on) => self.set_prerender(on),
                 Action::SetAdaptive(on) => {
                     self.stack.perf.set_enabled(on);
                     self.render_scale = self.stack.perf.scale();
@@ -4125,7 +4386,7 @@ impl Running {
                     let start = match purpose {
                         crate::picker::Purpose::Playlist => Some(PathBuf::from("playlists")),
                         crate::picker::Purpose::Shadertoy
-                        | crate::picker::Purpose::WatchFolder
+                        | crate::picker::Purpose::SceneFolder
                         | crate::picker::Purpose::TrustFile => None,
                     };
                     self.picker.open(purpose, start);
@@ -4136,26 +4397,23 @@ impl Running {
                     }
                 }
                 Action::CancelReplace => self.import_state.cancel_replace(),
-                Action::SetWatchFolder { folder, enabled } => {
-                    match watch_change(
-                        &folder,
-                        enabled,
-                        &mut self.ui_state.watch,
-                        &self.library.dir,
-                    ) {
-                        WatchChange::Start(inbox) => {
-                            log::info!("watching {} for new scenes", inbox.dir().display());
-                            self.inbox = Some(inbox);
-                            self.inbox_polled = Instant::now();
-                        }
-                        WatchChange::Stop => {
-                            if let Some(inbox) = self.inbox.take() {
-                                log::info!("stopped watching {}", inbox.dir().display());
-                            }
-                        }
-                        WatchChange::Keep => {
-                            log::warn!("watched folder not changed: {}", self.ui_state.watch.note);
-                        }
+                Action::AddSceneFolder(typed) => {
+                    if add_scene_folder(&typed, &mut self.ui_state.scene_folders, &self.library.dir)
+                    {
+                        log::info!("scene folder added: {}", typed.trim());
+                        self.relist_library();
+                    } else {
+                        log::warn!(
+                            "scene folder not added: {}",
+                            self.ui_state.scene_folders.refusal
+                        );
+                    }
+                }
+                Action::RemoveSceneFolder(index) => {
+                    if index < self.ui_state.scene_folders.folders.len() {
+                        let gone = self.ui_state.scene_folders.folders.remove(index);
+                        log::info!("scene folder removed: {gone}");
+                        self.relist_library();
                     }
                 }
                 Action::SetImportListener(on) => {
@@ -5112,7 +5370,7 @@ impl Running {
             && self.editor_auto.as_ref() != Some(&dir)
         {
             self.editor_auto = Some(dir);
-            self.open_editor(None);
+            self.edit_scene(None, false);
         }
         let next = self.step_target(1);
         let lan_view = self.lan.view();
@@ -5876,93 +6134,41 @@ fn record_gl_facts(gfx: &WindowedContext) {
     context::set("gl.robust", gfx.robust());
 }
 
-/// The watched drop folder at launch (D240, D265): `--watch-folder` for
-/// this run when it is given, else the folder Settings saved if it is
-/// switched on. Either is checked as Settings checks it
-/// ([`intake::check_watch_folder`]), and Settings shows the outcome.
-fn watch_at_launch(
-    cli: Option<&Path>,
-    watch: &mut crate::ui::state::WatchState,
-    library: &Path,
-) -> Option<intake::Inbox> {
-    let (folder, from_cli) = match cli {
-        Some(folder) => (folder.to_path_buf(), true),
-        None if watch.enabled => (PathBuf::from(watch.folder.trim()), false),
-        None => return None,
-    };
-    match intake::check_watch_folder(&folder, library) {
-        Ok(dir) => {
-            log::info!("watching {} for new scenes", dir.display());
-            watch.watching = true;
-            watch.failed = false;
-            watch.note = if from_cli {
-                watch.draft = dir.display().to_string();
-                format!("Watching {} (--watch-folder, this run only)", dir.display())
-            } else {
-                format!("Watching {}", dir.display())
-            };
-            Some(intake::Inbox::new(dir))
-        }
-        Err(why) => {
-            let source = if from_cli {
-                "--watch-folder"
-            } else {
-                "the watched folder in Settings"
-            };
-            log::warn!("{source}: {why} Not watching.");
-            watch.watching = false;
-            watch.failed = true;
-            watch.note = format!("Not watching: {why}");
-            None
-        }
-    }
+/// The other scene folders Settings lists (D538), each found as the
+/// library folder is ([`crate::library::resolve`]).
+fn scene_folder_dirs(folders: &[String]) -> Vec<PathBuf> {
+    folders
+        .iter()
+        .map(|folder| crate::library::resolve(Path::new(folder.trim())))
+        .collect()
 }
 
-/// What a change to the watched folder in Settings comes to (D265).
-enum WatchChange {
-    /// Watch this folder, replacing any watch.
-    Start(intake::Inbox),
-    /// Stop watching.
-    Stop,
-    /// The folder was refused; whatever was watched stays watched.
-    Keep,
-}
-
-/// Applies Settings' watched folder to `watch` (the saved folder and
-/// switch, and the line Settings shows) and says what the app must do. A
-/// folder is checked as at launch, and a refused one changes nothing but
-/// the line, so a typo never stops a watch that works.
-fn watch_change(
-    folder: &str,
-    enabled: bool,
-    watch: &mut crate::ui::state::WatchState,
+/// Settings' Add (D538): adds `typed`, trimmed, to the scene folders when
+/// it is a folder that is neither the library nor listed already, and
+/// clears the field; otherwise says why in `state.refusal` and changes
+/// nothing else. Returns whether it was added.
+fn add_scene_folder(
+    typed: &str,
+    state: &mut crate::ui::state::SceneFoldersState,
     library: &Path,
-) -> WatchChange {
-    let folder = folder.trim();
-    if !enabled {
-        // The folder stays saved, so switching it back on needs no typing.
-        watch.enabled = false;
-        watch.watching = false;
-        watch.failed = false;
-        watch.note = "Off".to_string();
-        return WatchChange::Stop;
+) -> bool {
+    let typed = typed.trim();
+    let dir = crate::library::resolve(Path::new(typed));
+    if let Err(why) = intake::check_scene_folder(&dir, library) {
+        state.refusal = why;
+        return false;
     }
-    match intake::check_watch_folder(Path::new(folder), library) {
-        Ok(dir) => {
-            folder.clone_into(&mut watch.folder);
-            folder.clone_into(&mut watch.draft);
-            watch.enabled = true;
-            watch.watching = true;
-            watch.failed = false;
-            watch.note = format!("Watching {}", dir.display());
-            WatchChange::Start(intake::Inbox::new(dir))
-        }
-        Err(why) => {
-            watch.failed = true;
-            watch.note = why;
-            WatchChange::Keep
-        }
+    if scene_folder_dirs(&state.folders)
+        .iter()
+        .any(|listed| intake::same_dir(listed, &dir))
+    {
+        state.refusal = format!("{typed} is listed already.");
+        return false;
     }
+    state.folders.push(typed.to_string());
+    state.draft.clear();
+    state.refusal.clear();
+    true
 }
 
 /// Whether two paths name the same folder, resolving links and relative
@@ -5977,7 +6183,7 @@ fn same_folder(a: &Path, b: &Path) -> bool {
 impl Running {
     /// Puts what a Browse dialog chose where it belongs (D470), and acts
     /// on it as the field's own button would: a playlist loads, an export
-    /// imports, a folder is watched, a trust file fills the connect form.
+    /// imports, a scene folder is added, a trust file fills the connect form.
     fn picked(&mut self, purpose: crate::picker::Purpose, path: &std::path::Path) {
         let text = path.display().to_string();
         log::info!("picker: {purpose:?} chose {text}");
@@ -5990,12 +6196,9 @@ impl Running {
                 self.import_state.text.clone_from(&text);
                 self.actions.push(Action::Import(text));
             }
-            crate::picker::Purpose::WatchFolder => {
-                self.ui_state.watch.draft.clone_from(&text);
-                self.actions.push(Action::SetWatchFolder {
-                    folder: text,
-                    enabled: true,
-                });
+            crate::picker::Purpose::SceneFolder => {
+                self.ui_state.scene_folders.draft.clone_from(&text);
+                self.actions.push(Action::AddSceneFolder(text));
             }
             crate::picker::Purpose::TrustFile => {
                 self.desktop_controller.trust_path = text;
@@ -6066,27 +6269,6 @@ impl LanScan {
 mod tests {
     use super::*;
     use anyhow::Result;
-
-    /// A scratch folder with a library and an inbox beside it, removed on
-    /// drop.
-    struct WatchScratch(PathBuf);
-
-    impl WatchScratch {
-        fn new(tag: &str) -> Result<Self> {
-            let dir =
-                std::env::temp_dir().join(format!("strobe-app-watch-{}-{tag}", std::process::id()));
-            let _ = std::fs::remove_dir_all(&dir);
-            std::fs::create_dir_all(dir.join("scenes"))?;
-            std::fs::create_dir_all(dir.join("inbox"))?;
-            Ok(Self(dir))
-        }
-    }
-
-    impl Drop for WatchScratch {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
-        }
-    }
 
     #[test]
     fn a_playlist_that_does_not_load_at_launch_leaves_a_scene_playing_not_black() -> Result<()> {
@@ -6203,7 +6385,7 @@ mod tests {
             "the library has an ink already, so a free name"
         );
         let library =
-            Library::scan_with(&mine, synesthesia.shown(true)).map_err(anyhow::Error::msg)?;
+            Library::scan_with(&mine, &[], synesthesia.shown(true)).map_err(anyhow::Error::msg)?;
         let Some(entry) = library.entries.iter().find(|entry| entry.dir == copy) else {
             anyhow::bail!("the copy is not listed: {:?}", library.entries);
         };
@@ -6235,95 +6417,56 @@ mod tests {
     }
 
     #[test]
-    fn settings_starts_stops_and_refuses_a_watched_folder() -> Result<()> {
-        let scratch = WatchScratch::new("settings")?;
+    fn settings_adds_a_scene_folder_once_and_refuses_the_library_and_typos() -> Result<()> {
+        let scratch = crate::library::fake::Scratch::new("scene-folders")?;
         let library = scratch.0.join("scenes");
-        let inbox = scratch.0.join("inbox");
-        let mut watch = crate::ui::state::WatchState::default();
-        let typed = format!("  {}  ", inbox.display());
-        let started = watch_change(&typed, true, &mut watch, &library);
+        let friends = scratch.0.join("friends");
+        std::fs::create_dir_all(&library)?;
+        crate::library::fake::scene(&friends.join("totem"), &[])?;
+        let mut state = crate::ui::state::SceneFoldersState {
+            draft: "typed".to_string(),
+            ..crate::ui::state::SceneFoldersState::default()
+        };
+        let typed = format!("  {}  ", friends.display());
         assert!(
-            matches!(&started, WatchChange::Start(found) if found.dir() == inbox),
-            "a folder beside the library is watched"
+            add_scene_folder(&typed, &mut state, &library),
+            "a folder beside the library is added"
         );
         assert_eq!(
             (
-                watch.folder.as_str(),
-                watch.enabled,
-                watch.watching,
-                watch.failed
+                state.folders.clone(),
+                state.draft.as_str(),
+                state.refusal.as_str()
             ),
-            (inbox.to_str().unwrap_or_default(), true, true, false),
-            "saved trimmed, and shown as watching: {watch:?}"
-        );
-        let refused = watch_change(&library.display().to_string(), true, &mut watch, &library);
-        assert!(
-            matches!(refused, WatchChange::Keep),
-            "the library itself is refused, and the watch that works stays"
+            (vec![friends.display().to_string()], "", ""),
+            "saved trimmed, and the field cleared: {state:?}"
         );
         assert!(
-            watch.failed && watch.note.contains("library itself"),
-            "Settings says why: {watch:?}"
+            !add_scene_folder(&typed, &mut state, &library)
+                && state.refusal.contains("listed already"),
+            "the same folder twice: {state:?}"
         );
-        assert_eq!(
-            (watch.folder.as_str(), watch.enabled),
-            (inbox.to_str().unwrap_or_default(), true),
-            "a refusal saves nothing"
-        );
-        let missing = watch_change("no/such/folder", true, &mut watch, &library);
         assert!(
-            matches!(missing, WatchChange::Keep) && watch.note.contains("not a folder"),
-            "a folder that is not there: {watch:?}"
+            !add_scene_folder(&library.display().to_string(), &mut state, &library)
+                && state.refusal.contains("library folder itself"),
+            "the library itself: {state:?}"
         );
-        let stopped = watch_change(&typed, false, &mut watch, &library);
-        assert!(matches!(stopped, WatchChange::Stop), "switched off");
         assert!(
-            !watch.enabled && !watch.watching && !watch.failed,
-            "saved off: {watch:?}"
+            !add_scene_folder("no/such/folder", &mut state, &library)
+                && state.refusal.contains("not a folder"),
+            "a folder that is not there: {state:?}"
         );
-        Ok(())
-    }
+        assert_eq!(state.folders.len(), 1, "a refusal adds nothing");
 
-    #[test]
-    fn launch_watches_the_command_line_folder_first_then_the_saved_one() -> Result<()> {
-        let scratch = WatchScratch::new("launch")?;
-        let library = scratch.0.join("scenes");
-        let inbox = scratch.0.join("inbox");
-        let mut off = crate::ui::state::WatchState::default();
-        assert!(
-            watch_at_launch(None, &mut off, &library).is_none() && !off.watching,
-            "nothing asked for, nothing watched"
-        );
-        let mut saved = crate::ui::state::WatchState {
-            folder: inbox.display().to_string(),
-            enabled: true,
-            ..crate::ui::state::WatchState::default()
+        let listed = Library::scan_with(&library, &scene_folder_dirs(&state.folders), &[])
+            .map_err(anyhow::Error::msg)?;
+        let Some(entry) = listed.entries.iter().find(|entry| entry.name == "totem") else {
+            anyhow::bail!("the folder's scene is not listed: {:?}", listed.entries);
         };
-        let found = watch_at_launch(None, &mut saved, &library);
-        assert!(
-            found.is_some_and(|inbox_watch| inbox_watch.dir() == inbox) && saved.watching,
-            "the saved folder, switched on: {saved:?}"
-        );
-        let mut cli = crate::ui::state::WatchState::default();
-        let found = watch_at_launch(Some(&inbox), &mut cli, &library);
-        assert!(
-            found.is_some() && cli.note.contains("this run only") && !cli.enabled,
-            "--watch-folder is watched but not saved: {cli:?}"
-        );
-        let mut library_itself = crate::ui::state::WatchState::default();
-        assert!(
-            watch_at_launch(Some(&library), &mut library_itself, &library).is_none()
-                && library_itself.failed,
-            "launch refuses what Settings refuses: {library_itself:?}"
-        );
-        let mut gone = crate::ui::state::WatchState {
-            folder: scratch.0.join("gone").display().to_string(),
-            enabled: true,
-            ..crate::ui::state::WatchState::default()
-        };
-        assert!(
-            watch_at_launch(None, &mut gone, &library).is_none() && gone.failed && gone.enabled,
-            "a saved folder that has gone is not watched, and stays saved: {gone:?}"
+        assert_eq!(
+            (entry.source, entry.read_only(), entry.dir.clone()),
+            (crate::library::Source::Folder, false, friends.join("totem")),
+            "listed where it is, and written like the library's"
         );
         Ok(())
     }

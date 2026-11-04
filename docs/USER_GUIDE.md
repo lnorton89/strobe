@@ -39,7 +39,15 @@ Strobe opens one window, the **control window**. The **output window**
 screen until you ask.
 
 - The first scene of the library plays in the preview, and the scene you
-  last played is reopened on later launches.
+  last played is reopened on later launches. Strobe always opens on the
+  **Library** view.
+- **Scenes are prerendered.** For the first several seconds after launch
+  (and after the library is refreshed) Strobe compiles every scene in the
+  background, one at a time, so playing a scene for the first time does
+  not stutter the output. Settings shows how far it has got. Turn it off
+  in *Settings > Output > Prerender scenes*, or for one run with
+  `strobe.exe --no-prerender`; each scene kept ready costs a few MB of
+  memory. It waits while a playlist is loaded.
 - **Show output** (the monitor button under the panel's preview, or the
   button on the preview while the output is hidden), or **F11**, shows the
   output. Use **Settings > Output > Output monitor** to put it on the
@@ -104,11 +112,14 @@ Settings > Keyboard changes any of them.
   pointing `--library` at their folder, or by dropping a scene folder on
   the window (it is copied into the library). Dropping a folder *of* scene
   folders adds them all without playing any; a banner says how many were
-  added. **Settings > Watched folder** does the same for scene folders
-  copied into a folder you choose while Strobe runs: type the folder,
-  *Apply*, and the switch turns it off and on. It is remembered, and it
-  cannot be the library folder itself. `strobe.exe --watch-folder
-  <folder>` watches one for that run only.
+  added.
+- **Other scene folders.** *Settings > Library > Scene folders* lists
+  more folders of scenes after your library's own, where they are:
+  nothing is copied, and editing one of their scenes changes it there.
+  `user-scenes` is on the list to begin with. Type a folder (or
+  *Browse...*) and *Add*; *Remove* stops listing one and leaves its
+  scenes alone. Each folder shows how many scenes it lists, or that it
+  was not found.
 - **Synesthesia's scenes.** If Synesthesia is installed on this computer,
   Library also lists its scenes after your own, each marked *Synesthesia*:
   - the scenes it ships (in `C:\Program Files (x86)\Synesthesia\release`
@@ -599,7 +610,7 @@ page when Strobe is closed, and the `pj` command line, see
 The **Import** pane (on the rail) takes a Shadertoy URL or id, or an exported
 `.json` file, and writes a scene into the library. **Browse...** chooses
 the file in the system's dialog and imports it at once; dropping a `.json`
-on the window does the same. The watched folder (*Settings > Library*) and
+on the window does the same. Scene folders (*Settings > Library*) and
 a venue trust file (*Settings > Remote*) have a **Browse...** button too.
 While a file dialog is open the show keeps playing: the dialog runs beside
 Strobe, not in front of its frame loop.
