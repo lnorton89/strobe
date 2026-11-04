@@ -10,3 +10,6 @@
 # Remote trust files (venue mode, D288) hold a secret that controls any Strobe
 # trusting them; one dropped in a checkout must never be committable.
 *.trust
+# The owner's own scenes in progress, some of them friends' art that has no
+# license to be here (D532): a scene folder like scenes/, never committed.
+/user-scenes
