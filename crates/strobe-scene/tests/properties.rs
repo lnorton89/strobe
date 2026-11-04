@@ -22,6 +22,7 @@ use anyhow::{Result, anyhow};
 use proptest::prelude::*;
 use proptest::test_runner::{Config, FileFailurePersistence, TestRunner};
 use strobe_scene::SceneDef;
+use strobe_scene::directives::Branches;
 use strobe_scene::{fixups, promote, tags};
 
 /// Where shrunk failures are kept, relative to this crate.
@@ -121,14 +122,133 @@ fn bounded(input: &str, output: &str) -> Result<(), TestCaseError> {
     Ok(())
 }
 
+/// A scene.json the parser should accept: controls of every kind with
+/// numbers from ordinary to extreme, passes with sizes as numbers and as
+/// expressions, and images.
+fn valid_scene() -> impl Strategy<Value = String> {
+    use serde_json::{Value, json};
+    let number = prop_oneof![
+        -1.0e6f64..1.0e6,
+        Just(0.0),
+        Just(f64::MAX),
+        Just(f64::MIN_POSITIVE),
+    ];
+    let control = (
+        prop::sample::select(vec![
+            "slider",
+            "slider smooth",
+            "knob",
+            "knob smooth",
+            "xy",
+            "toggle",
+            "toggle smooth",
+            "color",
+            "dropdown",
+        ]),
+        number.clone(),
+        number.clone(),
+        number,
+    )
+        .prop_map(|(kind, a, b, c)| {
+            // Each kind's fields as real scenes write them: xy takes pairs,
+            // colour a DEF_COLOR triple, toggle a number, dropdown labels.
+            let (low, high) = (a.min(b), a.max(b));
+            let mut control: Value = match kind {
+                "xy" | "xy smooth" => {
+                    json!({ "MIN": [low, low], "MAX": [high, high], "DEFAULT": [c, c] })
+                }
+                "color" => json!({ "DEF_COLOR": [a, b, c] }),
+                "toggle" | "toggle smooth" => json!({ "DEFAULT": if a > 0.0 { 1.0 } else { 0.0 } }),
+                "dropdown" => json!({ "DEFAULT": 0 }),
+                _ => json!({ "MIN": low, "MAX": high, "DEFAULT": c }),
+            };
+            control["TYPE"] = json!(kind);
+            if kind == "dropdown" {
+                control["LABELS"] = json!(["one", "two"]);
+                control["VALUES"] = json!([1, 2]);
+            }
+            if kind.ends_with("smooth") {
+                control["PARAMS"] = json!(0.05);
+            }
+            control
+        });
+    let pass = (
+        prop_oneof![
+            Just(json!("$WIDTH/3")),
+            Just(json!("$HEIGHT")),
+            (1u32..4096).prop_map(|n| json!(n)),
+        ],
+        any::<bool>(),
+    )
+        .prop_map(|(size, float)| json!({ "WIDTH": size, "HEIGHT": size, "FLOAT": float }));
+    (
+        prop::collection::vec(control, 0..10),
+        prop::collection::vec(pass, 0..4),
+        any::<bool>(),
+    )
+        .prop_map(|(controls, passes, image)| {
+            let controls: Vec<Value> = controls
+                .into_iter()
+                .enumerate()
+                .map(|(i, mut c)| {
+                    c["NAME"] = json!(format!("control{i}"));
+                    c
+                })
+                .collect();
+            let passes: Vec<Value> = passes
+                .into_iter()
+                .enumerate()
+                .map(|(i, mut p)| {
+                    p["TARGET"] = json!(format!("buffer{i}"));
+                    p
+                })
+                .collect();
+            let mut scene = json!({ "TITLE": "generated", "CONTROLS": controls, "PASSES": passes });
+            if image {
+                scene["IMAGES"] = json!([{ "NAME": "picture", "PATH": "picture.png" }]);
+            }
+            scene.to_string()
+        })
+}
+
+#[test]
+fn a_valid_scene_parses_with_its_controls_whatever_their_numbers() -> Result<()> {
+    let parsed = std::cell::Cell::new(0_u32);
+    let refused = std::cell::RefCell::new(std::collections::BTreeSet::new());
+    let cases = 512;
+    check(cases, valid_scene(), |text| {
+        match SceneDef::parse(&text, "fallback") {
+            Ok(_) => parsed.set(parsed.get() + 1),
+            Err(error) => {
+                refused.borrow_mut().insert(error.to_string());
+            }
+        }
+        Ok(())
+    })?;
+    // A generator the parser mostly refuses would make every property here
+    // pass over nothing.
+    let refused = refused.into_inner();
+    assert!(
+        parsed.get() * 4 >= cases * 3,
+        "only {} of {cases} generated scenes parsed; refusals: {:?}",
+        parsed.get(),
+        refused.iter().take(6).collect::<Vec<_>>()
+    );
+    Ok(())
+}
+
 #[test]
 fn any_scene_json_parses_or_is_refused() -> Result<()> {
-    check(512, prop_oneof![scene_json(), ".{0,200}"], |text| {
-        // Ok or an error are both fine; reaching here without a panic is
-        // the property.
-        let _ = SceneDef::parse(&text, "fallback");
-        Ok(())
-    })
+    check(
+        512,
+        prop_oneof![valid_scene(), scene_json(), ".{0,200}"],
+        |text| {
+            // Ok or an error are both fine; reaching here without a panic is
+            // the property.
+            let _ = SceneDef::parse(&text, "fallback");
+            Ok(())
+        },
+    )
 }
 
 #[test]
@@ -155,6 +275,30 @@ fn the_glsl_rewriters_are_total_and_bounded() -> Result<()> {
         bounded(&source, &fixups::pow_as_exp2_log2(&source))?;
         for es in [false, true] {
             bounded(&source, &promote::int_to_float(&source, "", es))?;
+            let promoted = promote::rewrite(&source, "", es);
+            bounded(&source, &promoted.code)?;
+            let lines = u32::try_from(source.lines().count()).unwrap_or(u32::MAX);
+            prop_assert!(
+                promoted
+                    .unsupported
+                    .iter()
+                    .all(|line| *line >= 1 && *line <= lines.max(1)),
+                "unsupported lines {:?} outside 1..={lines}",
+                promoted.unsupported
+            );
+            let (hoisted, moved) =
+                fixups::hoist_global_initializers(&source, Branches::dialect(es));
+            bounded(&source, &hoisted)?;
+            prop_assert!(
+                moved.len() <= source.len(),
+                "{} initializers hoisted from {} bytes",
+                moved.len(),
+                source.len()
+            );
+            bounded(
+                &source,
+                &fixups::uniform_initializers(&source, Branches::dialect(es)),
+            )?;
         }
         Ok(())
     })

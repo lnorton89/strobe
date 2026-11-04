@@ -195,6 +195,47 @@ mod tests {
     use super::*;
 
     #[test]
+    fn any_title_and_id_make_one_safe_folder_name() -> anyhow::Result<()> {
+        // A property test (D539): the title and id come from a stranger's
+        // export, and the name is joined onto the scene library, so it must
+        // be one plain path component whatever they hold: no separator, no
+        // `..`, nothing Windows refuses, and short.
+        use proptest::prelude::*;
+        use proptest::test_runner::{Config, FileFailurePersistence, TestRunner};
+        let text = prop_oneof![
+            ".{0,80}",
+            "[./\\\\:*?\"<>|a-zA-Z0-9 ]{0,40}",
+            Just("CON".to_owned()),
+            Just("..".to_owned()),
+            Just("lpt1".to_owned()),
+        ];
+        let mut runner = TestRunner::new(Config {
+            cases: 2048,
+            failure_persistence: Some(Box::new(FileFailurePersistence::Direct(
+                "src/convert/names.proptest-regressions",
+            ))),
+            ..Config::default()
+        });
+        runner
+            .run(&(text.clone(), prop::option::of(text)), |(title, id)| {
+                let name = folder_name(&title, id.as_deref());
+                let stem = name.strip_suffix(".synScene").unwrap_or("");
+                prop_assert!(!stem.is_empty(), "a stem: {name:?}");
+                prop_assert!(
+                    stem.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'),
+                    "only letters, digits and hyphens: {name:?}"
+                );
+                prop_assert!(
+                    !WINDOWS_DEVICES.contains(&stem.to_ascii_uppercase().as_str()),
+                    "not a device name: {name:?}"
+                );
+                prop_assert!(name.len() <= 100, "short: {name:?}");
+                Ok(())
+            })
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    #[test]
     fn slugs_are_safe_and_short() {
         assert_eq!(
             slug("Creation by Silexars!"),
