@@ -222,15 +222,27 @@ jobs:
       - uses: taiki-e/install-action@b80e2bb2635f28eb98b9fce1e2f0887e1535c6b2 # v2.90.0
         with:
           tool: cargo-nextest@0.9.151
-      - name: Check, test and build
+      # The `package` lane downloads the pinned Electron archive for ANGLE
+      # (D536); it is the same bytes until the manifest changes.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: target/angle
+          key: angle-${{ hashFiles('scripts/native-deps.json') }}
+      # `package` builds the zip a release would ship from the release-fast
+      # build, unpacks it outside the checkout and checks it: file list,
+      # pinned DLLs, notices, version resource, PDB, and `--diagnose`
+      # running from the unpacked folder (D537). A missing resource
+      # compiler fails the build here rather than shipping a bare exe.
+      - name: Check, test, build and package
         shell: bash
         env:
+          STROBE_REQUIRE_RESOURCES: "1"
           SHIPPING: ${{ !inputs.ref && ((github.event_name == 'push' && github.ref == 'refs/heads/master') || github.event_name == 'workflow_dispatch') }}
         run: |
           if [ "$SHIPPING" = "true" ]; then
-            cargo --locked xtask ci --strict check test build --nextest --shipping
+            cargo --locked xtask ci --strict check test build package --nextest --shipping
           else
-            cargo --locked xtask ci --strict check test build --nextest
+            cargo --locked xtask ci --strict check test build package --nextest
           fi
       # Where the time went: each test's duration (JUnit) and each crate's
       # build (cargo's timings report), kept for comparing runs (D535).
