@@ -78,7 +78,7 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## strobe-audio
 
-10 decision(s).
+11 decision(s).
 
 - [D63](decisions/D63.md): the Windows cross-check from Linux now excludes `strobe-app` too
 - [D75](decisions/D75.md): beat-locked ends: fix the length at cue start, end on the next downbeat
@@ -90,6 +90,7 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D524](decisions/D524.md): the website's `/play` sandbox runs Strobe's own player as wasm on WebGL2, scripts in a worker, with no server
 - [D535](decisions/D535.md): the audio tests are optimised, Windows tests run through nextest, and build speed is measured before it is bought
 - [D541](decisions/D541.md): the crate graph, `unsafe`, feature configurations, rustdoc, workflows and scripts are checked, and the build names its profile
+- [D542](decisions/D542.md): what the audit work had skipped: a static C runtime, the imports and the loaded ANGLE checked, the browser engine built, generators that reach the code, and a changelog that can be corrected
 
 ## strobe-autocontrol
 
@@ -176,7 +177,7 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## strobe-gfx
 
-40 decision(s).
+41 decision(s).
 
 - [D40](decisions/D40.md): our own `log` backend in `strobe-diag`, not tracing or env_logger
 - [D41](decisions/D41.md): unsafe is allowed in exactly one `strobe-diag` file
@@ -218,6 +219,7 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D528](decisions/D528.md): a webcam is a media choice, `camera:<name>`, captured by `strobe-capture`
 - [D536](decisions/D536.md): one manifest pins the native DLLs; the SBOM, the build and `--diagnose` read it; scheduled checks watch what pushes cannot
 - [D541](decisions/D541.md): the crate graph, `unsafe`, feature configurations, rustdoc, workflows and scripts are checked, and the build names its profile
+- [D542](decisions/D542.md): what the audit work had skipped: a static C runtime, the imports and the loaded ANGLE checked, the browser engine built, generators that reach the code, and a changelog that can be corrected
 
 ## strobe-io
 
@@ -355,13 +357,14 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## strobe-web
 
-1 decision(s).
+2 decision(s).
 
 - [D524](decisions/D524.md): the website's `/play` sandbox runs Strobe's own player as wasm on WebGL2, scripts in a worker, with no server
+- [D542](decisions/D542.md): what the audit work had skipped: a static C runtime, the imports and the loaded ANGLE checked, the browser engine built, generators that reach the code, and a changelog that can be corrected
 
 ## xtask
 
-26 decision(s).
+27 decision(s).
 
 - [D50](decisions/D50.md): repository tooling is an `xtask` crate, not examples or scripts
 - [D63](decisions/D63.md): the Windows cross-check from Linux now excludes `strobe-app` too
@@ -389,10 +392,11 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D537](decisions/D537.md): the package is built and checked by xtask on every pull request, and a release candidate has a harness
 - [D539](decisions/D539.md): property tests over untrusted input, weekly machete and coverage, and the decisions indexed by crate
 - [D541](decisions/D541.md): the crate graph, `unsafe`, feature configurations, rustdoc, workflows and scripts are checked, and the build names its profile
+- [D542](decisions/D542.md): what the audit work had skipped: a static C runtime, the imports and the loaded ANGLE checked, the browser engine built, generators that reach the code, and a changelog that can be corrected
 
 ## CI and releases
 
-17 decision(s).
+18 decision(s).
 
 - [D52](decisions/D52.md): release flow is draft, build, attest, undraft
 - [D53](decisions/D53.md): PDBs are published separately, and the release build must override `strip`
@@ -411,6 +415,7 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D537](decisions/D537.md): the package is built and checked by xtask on every pull request, and a release candidate has a harness
 - [D539](decisions/D539.md): property tests over untrusted input, weekly machete and coverage, and the decisions indexed by crate
 - [D541](decisions/D541.md): the crate graph, `unsafe`, feature configurations, rustdoc, workflows and scripts are checked, and the build names its profile
+- [D542](decisions/D542.md): what the audit work had skipped: a static C runtime, the imports and the loaded ANGLE checked, the browser engine built, generators that reach the code, and a changelog that can be corrected
 
 ## Not tied to one crate
 
