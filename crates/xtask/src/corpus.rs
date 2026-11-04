@@ -24,6 +24,7 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
     let status = Command::new(&cargo)
         .args([
             "run",
+            "--locked",
             "--release",
             "-p",
             "strobe-app",

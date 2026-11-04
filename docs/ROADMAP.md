@@ -19,7 +19,7 @@ which backend proved a claim.
 
 | Area | What exists | Verified on |
 |---|---|---|
-| Workspace | Conventions as tests, pinned toolchain and actions, `cargo xtask ci \| changelog \| credits \| bench \| symbolicate \| brand`, release workflow (D50-D59) with third-party notices (D491), gated on CI over the tagged commit (D521) | CI, and the v0.1.0 tag (2026-10-14, D270) |
+| Workspace | Conventions as tests, pinned toolchain and actions, `cargo xtask ci` lanes that CI runs strictly behind one `ci-ok` check (D533), `cargo xtask changelog \| credits \| bench \| symbolicate \| brand`, release workflow (D50-D59) with third-party notices (D491), gated on CI over the tagged commit (D521) | CI, and the v0.1.0 tag (2026-10-14, D270) |
 | `strobe-scene`, `strobe-ssf-lib` | SSF parsing and validation, controls runtime, shader assembly, `PASS_SOURCES` (D90), the SSF GLSL library, which computes what Synesthesia 1.25.4's engine computes (D492) | Headless GL 3.3 core and GLES 3.0 (llvmpipe); Synesthesia's 88 shipped scenes on TORNADO, native and ANGLE (T25) |
 | `strobe-gfx` | Native GL and ANGLE context providers, ANGLE's backend chosen with `--gl angle-d3d11|angle-vulkan|angle-gl|angle-metal` and checked against the renderer (D485), headless EGL, multipass and ping-pong, implicit final pass, images, GPU timer queries, robust contexts and reset status (D66) | llvmpipe; T480 native and ANGLE; TORNADO native and ANGLE on D3D11, Vulkan and GL (2026-10-26) |
 | `strobe-bench` | Timings, frames, contact sheet; headless, window and auto contexts (D70-D72), now `strobe_gfx::offscreen` (D140) | llvmpipe; T480 ([BENCHMARKS.md](BENCHMARKS.md)) |

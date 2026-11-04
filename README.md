@@ -533,7 +533,7 @@ and saving the transcript to `target/linux-check.txt`. It has run on Ubuntu
 ### Developing
 
 ```bash
-cargo xtask ci     # everything CI runs: fmt, clippy, tests, the Windows cross-check, cargo-deny, changelog, brand
+cargo xtask ci     # what CI runs on this host, as lanes: fmt, check, test, deny, generated, render, build (D533)
 cargo test --workspace
 ```
 
