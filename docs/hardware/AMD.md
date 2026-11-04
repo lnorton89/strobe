@@ -20,7 +20,7 @@ cloud session. It writes only under `target\amd\`.
 | Display | One, 1920x1080 @ 59 Hz |
 | Toolchain | Rust 1.98.0 MSVC, Visual Studio 2022, Windows SDK 10.0.26100 (QuickJS builds) |
 
-## Baseline (Task A1, commit 26576b0)
+## Baseline (Task A1, commit 8cdd18a)
 
 - **Build:** release, 0 warnings, 4 min 28 s.
 - **Tests:** 1555 pass. 259 GL tests skip, because Windows has no EGL
@@ -62,7 +62,7 @@ cloud session. It writes only under `target\amd\`.
   11,200 reopens and 33,600 log lines in 158 s.
   - Fixed by D266: glitches are counted, not failures, and repeated quick
     failures back off.
-  - **Re-checked in Task A2 (commit 2e678e4):** 188 s with 0 failures, 0
+  - **Re-checked in Task A2 (commit d722bb9):** 188 s with 0 failures, 0
     stream errors and 0 glitches. One "capturing" line, and the stream was
     kept. A1's glitches came from the reopen loop itself.
   - Whether the levels follow sound is untested here. The microphone hears
@@ -70,7 +70,7 @@ cloud session. It writes only under `target\amd\`.
     headphones), and the app has no input-level meter to show it. "Audio
     live, 120 BPM" looks the same on a dead microphone.
 
-## Task A2 (commit 2e678e4)
+## Task A2 (commit d722bb9)
 
 - **Tests, in parallel:** 1559 passed, 0 failed; the strobe-shadertoy
   render tests are 14/14 with the per-test import folders. 266 GL tests
@@ -83,7 +83,7 @@ cloud session. It writes only under `target\amd\`.
   - 60.0 fps, 0 late frames, GPU 1.69 ms.
   - No WARN or ERROR lines.
 
-## Synesthesia's 90 default scenes (Task A4, commit 776ddf3)
+## Synesthesia's 90 default scenes (Task A4, commit ed8ce70)
 
 The owner's private corpus was cloned on this machine and never copied
 into the repository.
@@ -112,7 +112,7 @@ into the repository.
     gaussian_smoothlife, fuzzy_signal), and churning has a slight hue
     shift.
 
-## The 90 again, and the banding (Task A5, commit e47c44f)
+## The 90 again, and the banding (Task A5, commit 8dbc1bb)
 
 - **Corpus:** with `STROBE_GLSL_PATH` set to Synesthesia's `lib` (the
   corpus copy), the run gives 90 of 90 in both dialects, with no notes.
@@ -133,7 +133,7 @@ into the repository.
   - native: Half 1.32/1.61, Full 1.54/1.79;
   - ANGLE: Half 1.09/1.31, Full 1.45/1.75.
 
-## Against Synesthesia itself (Task A6, commit e47c44f)
+## Against Synesthesia itself (Task A6, commit 8dbc1bb)
 
 **Synesthesia 1.25.4.189** is installed at `C:\Program Files (x86)\Synesthesia`.
 - Built-in scenes are in `release\` (87) and `default\` (welcome_scene).
@@ -171,7 +171,7 @@ Synesthesia's renderer is desktop GL 3.3 (GLFW, WGL). The authors' GPUs
 therefore draw these `fract(sin(…))` hashes the way ANGLE/D3D11 does here,
 and AMD's native driver is the one that differs.
 
-## neon_city and beamers at 30 s, and neon_city at fixed scales (2026-10-14, commit 3fa3ab6, Tasks A8 and A9)
+## neon_city and beamers at 30 s, and neon_city at fixed scales (2026-10-14, commit 1d8cdb3, Tasks A8 and A9)
 
 **A8.** Both scenes were run with `--frames 1800 --audio synthetic`,
 native and ANGLE.
@@ -221,7 +221,7 @@ landscape; the log says the scale stays put (D280). `neuron_proximitors` and
 the same whole picture (RMSE 0.4% and 6.1% of full scale after upscaling,
 the second from hexagon edges resolved at the higher size).
 
-## D280 on the RX 580 (2026-10-14, commit 62204ed, Task A10)
+## D280 on the RX 580 (2026-10-14, commit 20b59d2, Task A10)
 
 **neon_city**, native, 180 frames:
 - All four A9 runs (no adaptive at 1.0, at 0.5, at 1.0 with a 1920x1080
@@ -243,7 +243,7 @@ and the whole scene, with the same log line.
 **Corpus:** 90/90 in both dialects. Frame ms (desktop/GLES): neon_city
 60.3/45.6, bouncy_hexagons 19.2/17.0, entombed_silicon_dreams 14.6/15.2.
 
-## Desktop remote control, host side (2026-10-15, commit d19cc24, Task A11, D275)
+## Desktop remote control, host side (2026-10-15, commit 22cbe8c, Task A11, D275)
 
 The RX 580 was the host at 10.1.10.206:47812, on a Private Wi-Fi network,
 with the T480 controlling (T480 Task 45). No firewall prompt appeared on
@@ -270,7 +270,7 @@ either machine.
 - **Automation note, not a product issue:** posted mouse input lands only
   when the move, down and up messages are posted back to back.
 
-## The rebuilt scenes 13-16 on the RX 580 (2026-10-15, commit 469c8a8, Task A12)
+## The rebuilt scenes 13-16 on the RX 580 (2026-10-15, commit 86434c3, Task A12)
 
 strobe-bench `--context window` at 1920x1080, mean ms native / ANGLE:
 

@@ -219,8 +219,8 @@ claims. The gaps are behavioural, and only a Mac can show them:
   ANGLE.
 - `ANGLE_DEFAULT_PLATFORM=vulkan` with Mesa's lavapipe
   (`VK_ICD_FILENAMES=.../lvp_icd.json`), or `=swiftshader`.
-- No Strobe code changed. Binaries built at 43ccdd3 (SwiftShader column:
-  an earlier build, 81e7fbf, with the same renderer).
+- No Strobe code changed. Binaries built at bc5cce7 (SwiftShader column:
+  an earlier build, b8aa06e, with the same renderer).
 
 The renderer string shows the backend:
 `ANGLE (Mesa, Vulkan 1.4.318 (llvmpipe (LLVM 20.1.2 256 bits) (0x00000000)), llvmpipe-25.2.8) | OpenGL ES 3.1.0 (ANGLE 2.1 git hash: a8c8a6febe63)`.

@@ -4,7 +4,7 @@ _Last researched: 2026-10-08_
 
 This document is the implementation-oriented research cache for future Strobe agents. It is intentionally more concrete than the roadmap: it records verified upstream behaviour, the contracts already present in the code, integration traps discovered by reading the current branch, and acceptance tests that prevent agents from rediscovering the same facts.
 
-The current branch at the time of this research was `66a96767263ab780b1af55467881de106c5e1ed1`.
+The current branch at the time of this research was `860ea61a5029008d6f698eeb5ceb1354d3030282`.
 
 ## 1. Current ground truth
 
