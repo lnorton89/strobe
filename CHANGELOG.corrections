@@ -3,12 +3,12 @@
 # so a wrong subject is corrected here: `<full hash> <subject>`, one a line.
 
 # The release gate's decision moved from D516 to D521 before #63 merged.
-81404f1e2ed2edd1087f6b209b60517c2f13f105 ci: a release publishes only after CI passes on its one tagged commit (D521)
+ff95ba76d3aafae35fb5e0c88e007f23bcc28cd5 ci: a release publishes only after CI passes on its one tagged commit (D521)
 
 # The audit's follow-up decision moved from D542 to D544: master took D542
 # (prerendering) and D543 while #87 was open.
-4d3859656838b4989005afe5b9744c31c0da3b3d fix: timing tests run alone under nextest, and the parse guards cannot flake (D544)
-e2175533ef6ce57a3f9b0780c2b844e64ab085a8 docs: the release dry run published and its provenance names the tagged commit (D544)
-8f8ba6d3bc8ad4b3de1d7253162c280b9274140d test: baselines for the IMAGES and #include fixtures, from CI's Mesa (D534, D544)
-75d283b6072d4f933bc24fa6b08dfe7a9f4b25ee docs: the decisions index includes D544
-b1c8ae4a25a191c6ddcde7a6f0aea1ee0f32f10f fix: link the C runtime statically, and check imports and the loaded ANGLE (D544)
+0951e41f5e4acbc8bc37817f0deb501be7b49f0d fix: timing tests run alone under nextest, and the parse guards cannot flake (D544)
+65da9f4a5bf04a00f3eb06c8e6e8aa79fbee87f6 docs: the release dry run published and its provenance names the tagged commit (D544)
+96d5774923a46cf5b6aeff34535dce7f48e58e30 test: baselines for the IMAGES and #include fixtures, from CI's Mesa (D534, D544)
+d30462ccafaa4293dda57b34954d35d4cde8f125 docs: the decisions index includes D544
+aaf0f2e480d17fa32e04458c203afa0e0da5d80a fix: link the C runtime statically, and check imports and the loaded ANGLE (D544)
