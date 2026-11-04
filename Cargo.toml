@@ -40,6 +40,10 @@ strobe-capture = { path = "crates/strobe-capture" }
 strobe-shadertoy = { path = "crates/strobe-shadertoy", default-features = false }
 
 anyhow = "1"
+# Property tests over the parsers and rewriters that take outside input
+# (D539). Test-only; no fork or timeout support (no `rusty-fork`), and the
+# `std` feature for regex strategies and file-backed regressions.
+proptest = { version = "1.12", default-features = false, features = ["std"] }
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

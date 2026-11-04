@@ -25,6 +25,7 @@ hmac.workspace = true
 log.workspace = true
 
 [dev-dependencies]
+proptest.workspace = true
 anyhow.workspace = true
 
 [lints]
