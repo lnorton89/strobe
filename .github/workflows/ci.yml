@@ -307,6 +307,17 @@ jobs:
           path: target/bench-gles
           if-no-files-found: warn
           retention-days: 14
+      # The corpus gate's reports, gate.md, this run's final frames and, for
+      # a frame that moved, its baseline, candidate and diff (D534). A
+      # change meant to move a frame takes its new baseline from here.
+      - name: Upload the corpus gate
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: corpus-gate
+          path: target/corpus-gate
+          if-no-files-found: warn
+          retention-days: 14
 
   # The one check the master ruleset requires (D533). It runs whatever the
   # others did and passes only when every job that should have run passed:

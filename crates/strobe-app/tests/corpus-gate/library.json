@@ -1,0 +1,88 @@
+{
+  "settings": {
+    "frames": 3,
+    "size": [
+      160,
+      90
+    ]
+  },
+  "scenes": {
+    "01-aurora-gradient": {
+      "desktop": "ok",
+      "gles": "ok"
+    },
+    "02-plasma-pulse": {
+      "desktop": "ok",
+      "gles": "ok"
+    },
+    "03-kaleido-tunnel": {
+      "desktop": "ok",
+      "gles": "ok"
+    },
+    "04-voronoi-glass": {
+      "desktop": "ok",
+      "gles": "ok"
+    },
+    "05-domain-warp": {
+      "desktop": "ok",
+      "gles": "ok"
+    },
+    "06-feedback-trails": {
+      "desktop": "ok",
+      "gles": "ok"
+    },
+    "07-reaction-diffusion": {
+      "desktop": "ok",
+      "gles": "ok"
+    },
+    "08-bloom-orbs": {
+      "desktop": "ok",
+      "gles": "ok"
+    },
+    "09-sdf-cathedral": {
+      "desktop": "ok",
+      "gles": "ok"
+    },
+    "10-volume-clouds": {
+      "desktop": "ok",
+      "gles": "ok"
+    },
+    "11-script-orbits": {
+      "desktop": "ok",
+      "gles": "ok"
+    },
+    "12-silicon-atlas": {
+      "desktop": "ok",
+      "gles": "ok"
+    },
+    "13-chromatic-rise": {
+      "desktop": "ok",
+      "gles": "ok"
+    },
+    "14-electric-bloom": {
+      "desktop": "ok",
+      "gles": "ok"
+    },
+    "15-neon-ribbon-flow": {
+      "desktop": "ok",
+      "gles": "ok"
+    },
+    "16-acid-mirror": {
+      "desktop": "ok",
+      "gles": "ok"
+    },
+    "17-blacklight-carpet": {
+      "desktop": "ok",
+      "gles": "ok"
+    }
+  },
+  "images": [
+    "01-aurora-gradient",
+    "06-feedback-trails",
+    "11-script-orbits"
+  ],
+  "tolerance": {
+    "channel": 16,
+    "fraction": 0.005
+  }
+}

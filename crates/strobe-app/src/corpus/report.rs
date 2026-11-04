@@ -34,6 +34,11 @@ const CELL: usize = 140;
 pub struct Report {
     /// This tool and its version.
     pub tool: String,
+    /// The build that measured: version, commit (with `+dirty` when the
+    /// tree had edits), profile and target, so a result names its source.
+    /// Absent in reports written before it existed.
+    #[serde(default)]
+    pub build: String,
     /// The folder that was measured.
     pub library: String,
     /// What each scene was measured with.
@@ -57,6 +62,7 @@ impl Report {
     ) -> Self {
         Self {
             tool: format!("strobe-corpus {}", env!("CARGO_PKG_VERSION")),
+            build: strobe_diag::buildinfo::summary(),
             library: library.to_string(),
             settings,
             timeout_secs,
@@ -92,8 +98,9 @@ impl Report {
         let dialects = self.dialects();
         out.push_str("# Corpus compatibility report\n\n");
         out.push_str(&format!(
-            "- tool: {}\n- library: `{}`\n- per scene: {} frame(s) at {}x{}, {} s budget\n\n",
+            "- tool: {}\n- build: {}\n- library: `{}`\n- per scene: {} frame(s) at {}x{}, {} s budget\n\n",
             self.tool,
+            self.build,
             self.library,
             self.settings.frames,
             self.settings.size[0],
