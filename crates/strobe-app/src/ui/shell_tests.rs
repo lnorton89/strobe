@@ -1282,6 +1282,7 @@ fn draw_events(
             library: &library,
             health: &health,
             library_rev: 1,
+            thumbnails: None,
             scan_error: None,
             playing: scenario.playing.then_some(playing_index),
             scene_title: if scenario.playing { "Aurora Field" } else { "" },
