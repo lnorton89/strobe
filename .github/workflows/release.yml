@@ -441,5 +441,8 @@ jobs:
             exit 1
           fi
           cd dist
-          gh release upload "$TAG" $(find . -type f) --clobber
+          # Every file, each one argument whatever its name (no word
+          # splitting of the list, SC2046).
+          mapfile -t files < <(find . -type f)
+          gh release upload "$TAG" "${files[@]}" --clobber
           gh release edit "$TAG" --draft=false --latest
