@@ -138,6 +138,11 @@ unreachable_patterns = "forbid"
 unreachable_pub = "forbid"
 missing_docs = "deny"
 unsafe_op_in_unsafe_fn = "deny"
+# The compiler's half of the unsafe boundary (D41, D541): `unsafe` anywhere,
+# macro expansions included, is an error. The two places allowed it say so
+# with `#[expect(unsafe_code)]` on their module, which also fails if they
+# stop needing it; strobe_conventions::unsafe_boundary is the textual half.
+unsafe_code = "deny"
 
 [workspace.lints.clippy]
 unwrap_used = "deny"

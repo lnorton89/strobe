@@ -2357,7 +2357,7 @@ impl Running {
 
     /// Prerenders the next queued scene (D542): loaded at 1x1, drawn once,
     /// parked. One scene per step, at most one step per
-    /// [`PRERENDER_GAP`], and none while a playlist is loaded (its own
+    /// `PRERENDER_GAP` (50 ms), and none while a playlist is loaded (its own
     /// precompile and its cues come first), a load is waiting, the context
     /// is being rebuilt or a screenshot is being taken.
     fn step_prerender(&mut self, now: Instant) {

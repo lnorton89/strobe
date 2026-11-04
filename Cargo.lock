@@ -3477,6 +3477,7 @@ name = "strobe-conventions"
 version = "0.2.0"
 dependencies = [
  "anyhow",
+ "serde_json",
 ]
 
 [[package]]

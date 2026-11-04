@@ -37,6 +37,11 @@
 //!
 //! Without the `midi` feature this module only reports that MIDI is not
 //! built in.
+//!
+//! [`Status::DeviceFound`]: crate::event::Status::DeviceFound
+//! [`Status::DeviceLost`]: crate::event::Status::DeviceLost
+//! [`Status::MidiUnavailable`]: crate::event::Status::MidiUnavailable
+//! [`DeviceInfo::error`]: crate::event::DeviceInfo::error
 
 use crate::config::MidiSettings;
 use crate::hub::{MidiControl, Tx};

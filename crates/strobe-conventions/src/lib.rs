@@ -4,10 +4,11 @@
 //               boundary, the pinned toolchain, pinned workflow actions, and
 //               discarded results that say why, crate READMEs' known gaps
 //               that point at the backlog, GL object owners, counted driver
-//               queries, and the docs' links and decision numbers.
+//               queries, the docs' links and decision numbers, and the crate
+//               graph's layers.
 //
-// Dependencies: anyhow, std::fs (walks every crate's sources and READMEs at
-//               test time)
+// Dependencies: anyhow, serde_json (cargo metadata), std::fs (walks every
+//               crate's sources and READMEs at test time)
 // ============================================================================
 
 //! The workspace's house rules, as tests.
@@ -30,6 +31,10 @@
 //! - [`actions`] — every workflow pins its actions to full commit SHAs
 //!   with a version comment, declares its token permissions, runs cargo
 //!   `--locked`, and gives every job a timeout (D521).
+//! - [`architecture`] — the crate graph keeps its layers: no crate reaches
+//!   one its layer must not (the scene model a GPU, a subsystem the
+//!   renderer, anything the app), through normal edges, transitively
+//!   (D541).
 //! - [`discarded`] — outside tests, a result thrown away with `let _ =` or
 //!   `.ok();` carries a comment saying why (D267).
 //! - [`known_gaps`] — every gap a crate README lists names its backlog
@@ -47,6 +52,7 @@
 //! [`sources`].
 
 pub mod actions;
+pub mod architecture;
 pub mod discarded;
 pub mod docs;
 pub mod driver_queries;

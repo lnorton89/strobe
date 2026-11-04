@@ -10,7 +10,7 @@ numbers.
 
 ## Role in the workspace
 
-- **Depends on:** `anyhow` only. It reads the source tree and
+- **Depends on:** `anyhow`, and `serde_json` to read `cargo metadata`. It reads the source tree and
   `.github/workflows/` from disk at test time, locating the workspace root
   two directories above its own manifest.
 - **Depended on by:** nothing. It is a workspace member, so any `--workspace`
@@ -33,6 +33,7 @@ failure message can be reproduced by calling them:
 | `unsafe_boundary` | `violations(relative_path, text)` and the `ALLOWED` list of places that may hold `unsafe`. |
 | `toolchain` | `pinned_channel()` reads `rust-toolchain.toml`; `workflows()` loads every workflow file. |
 | `actions` | `uses_problem(line)` and `problems(name, workflow_text)` for pinned actions and permissions. |
+| `architecture` | `Graph::load()` (cargo metadata), `Graph::reaches`, the `RULES` and `problems(graph)`. |
 | `gl_objects` | `Owners` (what the `gl` module owns and drops) and `stray_handles(relative_path, text)`. |
 | `driver_queries` | `violations(relative_path, text)`, the `QUERIES` glow methods and the `EXEMPT` leaves. |
 | `docs` | `pages()`, `problems(page, defined, exists)`, `defined_decisions` and `cited_decisions`. |
@@ -51,7 +52,7 @@ fix for each are below.
 
 ## Testing
 
-`cargo test -p strobe-conventions` currently runs 48 tests: one test per
+`cargo test -p strobe-conventions` currently runs 58 tests: one test per
 workspace-walking rule (three for the toolchain) plus unit tests that feed each rule a good and a bad
 input, so a rule that stopped detecting anything would itself fail. No GPU,
 window or network is needed. `cargo xtask ci` runs the same tests as part of
@@ -128,6 +129,22 @@ from the timeout (D521).
 the job that needs more. Add `--locked` to the cargo command (before the
 alias for `cargo --locked xtask …`), and give the job a `timeout-minutes:`
 well above its slowest cold-cache run.
+
+### The crate graph keeps its layers (`architecture`)
+
+`cargo metadata`'s resolved graph is walked from each crate in `RULES`
+through its normal dependencies, transitively. A crate must not reach a
+package its rule forbids. Examples: the scene model never reaches GL, a
+window, the network or the script engine; the audio, script, show-control,
+playlist, remote and projector crates never reach the renderer or a UI
+toolkit; the renderer never reaches the importers or the subsystems above
+it; nothing links the app, the bench or the tooling. Dev-dependencies are
+a separate graph and are allowed, so a renderer test may import a scene
+converter (D541).
+
+**Fix:** move the code down to a crate both sides may use, or up into the
+app, rather than adding the edge. A rule that is wrong is changed in
+`RULES`, with a decision.
 
 ### GL objects have owners (`gl_objects`)
 

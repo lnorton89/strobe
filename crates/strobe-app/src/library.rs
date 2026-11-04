@@ -39,7 +39,7 @@
 //! A scan only lists folders, so a scene's [`Health`] is what the app has
 //! *seen*: unknown until it is loaded, ready after it loads, failed (with
 //! the first line of the error) after it does not. The browser filters by
-//! it ([`HealthFilter`]) and searches names and tags ([`matches`]); both are cheap
+//! it ([`HealthFilter`]) and searches names and tags ([`fn@matches`]); both are cheap
 //! enough to run when the query changes and cached by the browser until it
 //! does.
 

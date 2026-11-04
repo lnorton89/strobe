@@ -62,7 +62,7 @@
 //! out-of-memory killer) would leave capture silently off. A thread started
 //! by [`start_monitor`] asks the monitor's process every thirty seconds
 //! whether it has exited, and reports it once through
-//! [`failure::report`](crate::failure::report) (D398). Capture comes back by
+//! [`failure::report`] (D398). Capture comes back by
 //! restarting the app; the monitor is not respawned.
 //!
 //! ## Platform notes

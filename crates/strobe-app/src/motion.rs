@@ -237,6 +237,8 @@ fn clamp01(t: f32) -> f32 {
 /// scroll position of a panel, the width of a resizing column — because
 /// it does not need an `egui::Context` to advance and can therefore be
 /// tested without one.
+///
+/// [`value`]: crate::ui::motion::value
 #[derive(Clone, Copy, Debug)]
 pub struct Tween {
     /// Where the value is now.
