@@ -20,3 +20,18 @@ slow-timeout = { period = "60s", terminate-after = 5 }
 
 [profile.ci.junit]
 path = "junit.xml"
+
+# Tests that measure time or wait on the OS run alone: `cargo test` ran a
+# binary's tests side by side but one binary at a time, and nextest runs
+# every binary's tests at once, so on a busy runner the QuickJS
+# throughput budget overran (58 ms against 50) and the MIDI device scan
+# missed its three seconds. Asking for every thread keeps the rest of the
+# run off the machine while they do (D542). Both profiles, since a profile's
+# overrides are its own.
+[[profile.default.overrides]]
+filter = "test(ten_thousand_set_uniform_calls_in_one_update_are_cheap) | test(the_midi_worker_reports_unavailable_or_an_empty_list_without_hardware)"
+threads-required = "num-cpus"
+
+[[profile.ci.overrides]]
+filter = "test(ten_thousand_set_uniform_calls_in_one_update_are_cheap) | test(the_midi_worker_reports_unavailable_or_an_empty_list_without_hardware)"
+threads-required = "num-cpus"
