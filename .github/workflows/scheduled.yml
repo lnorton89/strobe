@@ -1,11 +1,12 @@
 name: Scheduled
 
-# Checks that can go red without a push (D536). A new RustSec advisory, an
-# upstream archive that changed under its pin, or a nixpkgs that moved,
-# breaks nothing in ci.yml until the next commit happens to trip it. These
-# run weekly and on demand. The Nix job also runs on a pull request that
-# touches the flake or the toolchain pin, and the pin job on one that
-# touches the native pin.
+# Checks that can go red without a push (D536), and the periodic ones that
+# report rather than gate (D539). A new RustSec advisory, an upstream
+# archive that changed under its pin, or a nixpkgs that moved, breaks
+# nothing in ci.yml until the next commit happens to trip it; an unused
+# dependency or an untested branch never does. These run weekly and on
+# demand, and on a pull request that touches what they check: the flake,
+# the toolchain pin, the native pin, or this workflow.
 on:
   schedule:
     - cron: "41 4 * * 1"
@@ -17,6 +18,7 @@ on:
       - rust-toolchain.toml
       - scripts/native-deps.json
       - scripts/fetch-angle.ps1
+      - .github/workflows/scheduled.yml
 
 permissions:
   contents: read
@@ -32,7 +34,6 @@ env:
 jobs:
   advisories:
     name: cargo-deny (new advisories)
-    if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -133,3 +134,63 @@ jobs:
           esac
       - run: nix flake check
       - run: nix build --print-build-logs
+
+  machete:
+    name: cargo-machete (unused dependencies)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # A dependency a crate declares and no longer uses still builds, and
+    # cargo-deny audits it for nothing. cargo-machete reads the sources, so
+    # it can be wrong about one used only by a macro or a build script;
+    # those are named in the crate's `[package.metadata.cargo-machete]
+    # ignored`, with the reason beside it (D539). Nothing is removed
+    # without a build that proves it unused.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: taiki-e/install-action@b80e2bb2635f28eb98b9fce1e2f0887e1535c6b2 # v2.90.0
+        with:
+          tool: cargo-machete@0.9.2
+      - run: cargo machete
+
+  coverage:
+    name: coverage (the pure-logic crates)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    # Line coverage of the crates with no GPU or device in them: the scene
+    # model, the playlist, show control, the remote, the projector service
+    # and the DSP. A report to find missing cases in recovery and protocol
+    # branches, not a gate and not a percentage to chase (D539): platform
+    # and driver code would dominate a whole-workspace number.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master, 2026-08
+        with:
+          toolchain: "1.98.0"
+          components: llvm-tools-preview
+      - uses: taiki-e/install-action@b80e2bb2635f28eb98b9fce1e2f0887e1535c6b2 # v2.90.0
+        with:
+          tool: cargo-llvm-cov@0.9.1
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: coverage
+      - name: Measure
+        shell: bash
+        env:
+          STROBE_TEST_LAN: "1"
+        run: |
+          set -euo pipefail
+          cargo llvm-cov --locked \
+            -p strobe-scene -p strobe-playlist -p strobe-io -p strobe-remote -p strobe-projector \
+            --lcov --output-path target/lcov.info
+          {
+            echo "### Line coverage"
+            echo
+            echo '```text'
+            cargo llvm-cov report --summary-only
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-lcov
+          path: target/lcov.info
+          retention-days: 30
