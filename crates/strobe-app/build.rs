@@ -30,6 +30,9 @@ const BINARIES: [(&str, &str); 2] = [
     ("strobe-corpus", "assets/strobe-corpus.rc"),
 ];
 
+/// Set by a packaging build: a missing resource compiler fails it.
+const REQUIRE: &str = "STROBE_REQUIRE_RESOURCES";
+
 fn main() {
     let manifest = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_default();
     let icon = Path::new(&manifest).join("../../assets/brand/icon.ico");
@@ -40,6 +43,7 @@ fn main() {
     // another), so an absolute path read as a changed set and reran the
     // script, which relinked the app.
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-env-changed={REQUIRE}");
     println!("cargo:rerun-if-changed=assets");
     println!("cargo:rerun-if-changed=../../assets/brand/icon.ico");
     // rc.exe reads forward slashes in a path, and backslashes in a string
@@ -61,6 +65,15 @@ fn main() {
         let params = ParamsMacrosAndIncludeDirs(macros.iter(), [assets.as_os_str()]);
         match embed_resource::compile_for(script, [binary], params) {
             CompilationResult::NotWindows | CompilationResult::Ok => {}
+            // A package must carry its icon and version, so a packaging build
+            // sets STROBE_REQUIRE_RESOURCES and a missing compiler fails it
+            // (D537); a developer's build without the SDK still builds.
+            CompilationResult::NotAttempted(why) if std::env::var_os(REQUIRE).is_some() => {
+                eprintln!(
+                    "{binary}.exe would get no icon or version ({why}), and {REQUIRE} is set"
+                );
+                std::process::exit(1);
+            }
             CompilationResult::NotAttempted(why) => {
                 println!("cargo:warning={binary}.exe gets no icon or version: {why}");
             }
