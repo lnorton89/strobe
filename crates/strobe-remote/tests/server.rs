@@ -1236,6 +1236,102 @@ fn another_origin_cannot_open_the_socket() -> Result<()> {
 }
 
 #[test]
+fn an_incomplete_upgrade_is_refused_with_its_reason() -> Result<()> {
+    // From the page's own origin, so each refusal is the one named and not
+    // the origin check's 403 (D539's coverage read).
+    let rig = rig()?;
+    let host = rig.host();
+    let good = upgrade_request(&host, Some(&format!("http://{host}")));
+    for (what, request, want) in [
+        (
+            "no Upgrade token",
+            good.replace("Upgrade: websocket\r\n", "Upgrade: h2c\r\n"),
+            426,
+        ),
+        (
+            "no Connection token",
+            good.replace("Connection: Upgrade\r\n", "Connection: keep-alive\r\n"),
+            426,
+        ),
+        (
+            "a key that is not 16 bytes of base64",
+            good.replace("dGhlIHNhbXBsZSBub25jZQ==", "short"),
+            400,
+        ),
+        ("a POST", good.replacen("GET /ws", "POST /ws", 1), 405),
+    ] {
+        let response = http(rig.addr(), &request)?;
+        assert_eq!(status(&response), want, "{what}: {response:.160}");
+        assert!(
+            !response.contains("Sec-WebSocket-Accept"),
+            "{what} must not be accepted"
+        );
+    }
+    // The socket still opens when nothing is missing.
+    let _socket = open(&rig)?;
+    Ok(())
+}
+
+#[test]
+fn a_head_that_is_too_large_or_not_http_1_1_is_answered_and_closed() -> Result<()> {
+    let rig = rig()?;
+    let host = rig.host();
+    let large = http(
+        rig.addr(),
+        &format!(
+            "GET / HTTP/1.1\r\nHost: {host}\r\nX-Padding: {}\r\n\r\n",
+            "a".repeat(9 * 1024)
+        ),
+    )?;
+    assert_eq!(status(&large), 431, "a head past 8 KiB: {large:.120}");
+    let old = http(
+        rig.addr(),
+        &format!("GET / HTTP/1.0\r\nHost: {host}\r\n\r\n"),
+    )?;
+    assert_eq!(status(&old), 400, "HTTP/1.0: {old:.120}");
+    assert!(old.contains("not HTTP/1.1"), "and it says why: {old:.200}");
+    // The server is still serving afterwards.
+    let page = http(
+        rig.addr(),
+        &format!("GET / HTTP/1.1\r\nHost: {host}\r\n\r\n"),
+    )?;
+    assert_eq!(status(&page), 200, "the page after both refusals");
+    Ok(())
+}
+
+#[test]
+fn the_web_app_files_are_served_by_get_only_under_the_same_host_check() -> Result<()> {
+    // The manifest, worker and icon (D517) take the page's Host check and
+    // nothing else; a POST is refused, a stranger's Host too.
+    let rig = rig()?;
+    let host = rig.host();
+    for (path, kind) in [
+        ("/manifest.webmanifest", "application/manifest+json"),
+        ("/sw.js", "javascript"),
+        ("/icon.svg", "image/svg+xml"),
+    ] {
+        let got = http(
+            rig.addr(),
+            &format!("GET {path} HTTP/1.1\r\nHost: {host}\r\n\r\n"),
+        )?;
+        assert_eq!(status(&got), 200, "GET {path}: {got:.160}");
+        assert!(got.contains(kind), "{path} is {kind}: {got:.240}");
+        let posted = http(
+            rig.addr(),
+            &format!("POST {path} HTTP/1.1\r\nHost: {host}\r\nContent-Length: 0\r\n\r\n"),
+        )?;
+        assert_eq!(status(&posted), 405, "POST {path}");
+        let port = rig.addr().port();
+        let stranger = http(
+            rig.addr(),
+            &format!("GET {path} HTTP/1.1\r\nHost: evil.example:{port}\r\n\r\n"),
+        )?;
+        assert_eq!(status(&stranger), 421, "{path} under another Host");
+    }
+    Ok(())
+}
+
+#[test]
 fn pairing_needs_the_code_and_the_desktop_and_then_commands_run() -> Result<()> {
     let rig = rig()?;
     let mut early = open(&rig)?;
@@ -2221,6 +2317,55 @@ fn the_kill_switch_ends_a_trusted_session_and_stops_new_ones() -> Result<()> {
     );
     rig.desktop.enable(true);
     trust_pair(&rig, &secret, "laptop").context("back on, the file works again")?;
+    Ok(())
+}
+
+#[test]
+fn what_changes_between_a_challenge_and_its_proof_is_honoured() -> Result<()> {
+    // The host judges a proof against its state when the proof arrives, not
+    // when the challenge was issued (D539's coverage read).
+    let secret = new_secret()?;
+    let rig = trusted_rig(&secret)?;
+
+    // A proof with no challenge before it.
+    let mut early = open(&rig)?;
+    early.hello()?;
+    early.send(&json!({"type":"trust_proof","response":"00".repeat(32)}))?;
+    assert_eq!(
+        early.until("error")?["code"],
+        "invalid_request",
+        "no challenge is waiting"
+    );
+
+    // Full desktop access switched off while the controller computed its
+    // proof: a right proof opens nothing.
+    let (mut off, nonce) = trust_start(&rig, "laptop")?;
+    rig.desktop.enable(false);
+    let response = secret
+        .respond(&nonce, &rig.host(), "laptop")
+        .context("a response")?;
+    off.send(&json!({"type":"trust_proof","response":response}))?;
+    assert_eq!(
+        off.until("error")?["code"],
+        "unavailable",
+        "the switch went off after the challenge"
+    );
+    assert!(rig.clients.is_empty(), "nothing paired while it was off");
+
+    // Revoke all after the challenge: the proof is right and still refused.
+    rig.desktop.enable(true);
+    let (mut late, nonce) = trust_start(&rig, "laptop")?;
+    let _ = rig.server.revoke_all();
+    let response = secret
+        .respond(&nonce, &rig.host(), "laptop")
+        .context("a response")?;
+    late.send(&json!({"type":"trust_proof","response":response}))?;
+    assert_eq!(
+        late.until("error")?["code"],
+        "unauthorized",
+        "revoked between the challenge and the proof"
+    );
+    assert!(rig.clients.is_empty(), "nothing paired after revoke all");
     Ok(())
 }
 
