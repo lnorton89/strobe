@@ -29,7 +29,7 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## strobe-app
 
-44 decision(s).
+45 decision(s).
 
 - [D42](decisions/D42.md): release builds keep line tables and are not stripped
 - [D55](decisions/D55.md): macOS CI is two-tier until strobe-gfx has a CGL context
@@ -75,6 +75,7 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D528](decisions/D528.md): a webcam is a media choice, `camera:<name>`, captured by `strobe-capture`
 - [D534](decisions/D534.md): the script-aware corpus is a regression gate, with expectations and baseline frames
 - [D536](decisions/D536.md): one manifest pins the native DLLs; the SBOM, the build and `--diagnose` read it; scheduled checks watch what pushes cannot
+- [D544](decisions/D544.md): what the audit work had skipped: a static C runtime, the imports and the loaded ANGLE checked, the browser engine built, generators that reach the code, and a changelog that can be corrected
 
 ## strobe-audio
 
@@ -223,13 +224,14 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## strobe-io
 
-5 decision(s).
+6 decision(s).
 
 - [D170](decisions/D170.md): show control is one crate, `strobe-io`, that depends on `strobe-scene` and nothing that draws
 - [D209](decisions/D209.md): OSC feedback sends what changed, on the listener's own addresses, from a thread of its own
 - [D210](decisions/D210.md): a macro's reach and colour are edited in MAP, and a control is pinned from its name
 - [D539](decisions/D539.md): property tests over untrusted input, weekly machete and coverage, and the decisions indexed by crate
 - [D541](decisions/D541.md): the crate graph, `unsafe`, feature configurations, rustdoc, workflows and scripts are checked, and the build names its profile
+- [D544](decisions/D544.md): what the audit work had skipped: a static C runtime, the imports and the loaded ANGLE checked, the browser engine built, generators that reach the code, and a changelog that can be corrected
 
 ## strobe-playlist
 
@@ -258,7 +260,7 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## strobe-remote
 
-16 decision(s).
+17 decision(s).
 
 - [D232](decisions/D232.md): the remote's bridge to the app thread is a bounded queue with a reply per request
 - [D250](decisions/D250.md): the LAN remote speaks its own small HTTP and WebSocket on std threads, with sha1 the only new crate
@@ -276,6 +278,7 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D517](decisions/D517.md): the remote and projector pages are installable web apps in the website's design; narrows D258
 - [D519](decisions/D519.md): the controller lays its rows out at the host's size and scales them with the picture
 - [D539](decisions/D539.md): property tests over untrusted input, weekly machete and coverage, and the decisions indexed by crate
+- [D544](decisions/D544.md): what the audit work had skipped: a static C runtime, the imports and the loaded ANGLE checked, the browser engine built, generators that reach the code, and a changelog that can be corrected
 
 ## strobe-scene
 

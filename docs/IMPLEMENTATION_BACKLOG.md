@@ -42,12 +42,12 @@
 - **Acceptance:** explain the step with evidence or file a narrowly scoped follow-up bug; no unexplained monotonic growth over the full soak.
 
 ### R-03 Packaged release smoke test
-- **Status:** Run on the T480 (Tasks 21 and 22). The one bug it found, the library path depending on the working directory, is fixed and verified on the packaged build. `release.yml` has since built, attested and published v0.2.0 from its tag (its checksum, attestation and contents checked, 2026-10-26). **The downloaded v0.2.0 archive ran on the T480 (Task 50, 2026-10-27):** both checksums match, both attestations verify (with negative controls), 60 files with all four ANGLE DLLs, and outside the checkout it opens, renders a scene (`--screenshot`) and exits 0 on native and on ANGLE-D3D11, its data all under `%LOCALAPPDATA%\strobe` with nothing pointing into the checkout. It found that `--diagnose` never exited in an optimised build, fixed in lnorton89/strobe#41. Left: a person's eye on the picture, a real click on close, F11 and 150% DPI, and the audio, import-listener and script checks of the work list.
+- **Status:** Run on the T480 (Tasks 21 and 22). The one bug it found, the library path depending on the working directory, is fixed and verified on the packaged build. `release.yml` has since built, attested and published v0.2.0 from its tag (its checksum, attestation and contents checked, 2026-10-26). **The downloaded v0.2.0 archive ran on the T480 (Task 50, 2026-10-27):** both checksums match, both attestations verify (with negative controls), 60 files with all four ANGLE DLLs, and outside the checkout it opens, renders a scene (`--screenshot`) and exits 0 on native and on ANGLE-D3D11, its data all under `%LOCALAPPDATA%\strobe` with nothing pointing into the checkout. It found that `--diagnose` never exited in an optimised build, fixed in lnorton89/strobe#41. **`cargo xtask rc` passed on the T480 (2026-11-04, D544):** a fat-LTO candidate of a71a735 built there, all 11 package checks (the import check found no `VCRUNTIME140.dll`), native and ANGLE-D3D11 600 frames each with their renderer recorded, in `evidence.json`. Left: a person's eye on the picture, a real click on close, F11 and 150% DPI, and the audio, import-listener and script checks of the work list.
 - **Work:** build the release archive from a clean checkout; install/run outside the development tree; test first-run data directories, audio, import listener, scripts, diagnostics, native GL and ANGLE; confirm clean shutdown and upgrade/relaunch behaviour.
 - **Acceptance:** attach exact commands, archive hash, OS/GPU/driver, logs and screenshots to hardware/T480.md; test does not depend on Cargo or developer-only DLLs.
 
 ### R-04 Crash diagnostics and symbolication in packaged build
-- **Status:** Done on the T480 (Task 22): `STROBE_FAULT=crash@120` on the packaged `strobe.exe` wrote a minidump and report, and `cargo xtask symbolicate` with no `--symbols` found the packaged PDB and named `strobe_app::fault::recurse() [fault.rs : 170]`. **From the downloaded v0.2.0 archive too (Task 50, 2026-10-27):** the crash drill exited `0xC00000FD`, and `cargo xtask symbolicate` with the release's own `strobe.pdb` (`--symbols` takes the file) named `strobe_app::fault::recurse()` at `fault.rs:170` and `:173`. The crash report and that run's log hold no secret. Left: the same secret audit on a machine with paired remote clients and a trust file, which the T480 does not have, so "none found" there is weak evidence.
+- **Status:** Done on the T480 (Task 22): `STROBE_FAULT=crash@120` on the packaged `strobe.exe` wrote a minidump and report, and `cargo xtask symbolicate` with no `--symbols` found the packaged PDB and named `strobe_app::fault::recurse() [fault.rs : 170]`. **From the downloaded v0.2.0 archive too (Task 50, 2026-10-27):** the crash drill exited `0xC00000FD`, and `cargo xtask symbolicate` with the release's own `strobe.pdb` (`--symbols` takes the file) named `strobe_app::fault::recurse()` at `fault.rs:170` and `:173`. The crash report and that run's log hold no secret. Left: the same secret audit on a machine with paired remote clients and a trust file, which the T480 does not have, so "none found" there is weak evidence. The release-candidate harness repeats the drill on every candidate (D537); its 2026-11-04 run symbolicated to `fault.rs:170` again (D544).
 - **Work:** reproduce the crash demo from the packaged release, check diagnostic directory permissions and dump retention, verify matching PDB archive and symbolicate using the shipped build ID.
 - **Acceptance:** a packaged-build dump symbolicates to useful function and source locations; secrets and tokens are absent from diagnostic output.
 
@@ -67,8 +67,11 @@
   from the downloaded archive) still need the T480. D521 (2026-10-28) gates
   publishing on all of `ci.yml` over the tagged commit, resolves the tag to
   one SHA, serialises runs per tag and refuses to rebuild a published
-  release; that path has not run on a tag yet, and the next release (or a
-  mirror dry run) is its proof.
+  release; that path ran end to end on the mirror on 2026-11-04 (v0.2.1, run
+  41792295320, D544): the tag resolved to one commit, all of `ci.yml`
+  passed on it, and the published archive's provenance names
+  `refs/tags/v0.2.1` at the tagged commit. The dry-run release, tag and
+  branches were deleted afterwards.
 - **Work:** create a real release tag; inspect ZIP contents and layout; verify ANGLE DLL source and license/provenance; include matching PDBs, SBOM, checksums and build attestations; test the published artifact rather than only workflow outputs.
 - **Acceptance:** reproducible release checklist completed, archive contents reviewed, checksums verified after download, attestations validate, and the release workflow is proven on an actual tag.
 
@@ -532,7 +535,7 @@
   - crate-graph rules, `unsafe_code`, feature builds, rustdoc and script lint;
   - property tests, machete, coverage and the decisions index.
 
-  D544 (2026-11-03) did the items those had narrowed or skipped. Its results:
+  D544 (2026-11-03 and 04) did the items those had narrowed or skipped. Its results:
   - the MSVC runtime is now linked statically, after the new import check found `strobe.exe` needed `VCRUNTIME140.dll`, which a clean machine may not have;
   - `--diagnose` names the ANGLE that actually loads;
   - CI builds the browser engine for wasm32;
@@ -542,17 +545,19 @@
   - the T480's build timings are recorded (BENCHMARKS.md);
   - a release dry run on the mirror (v0.2.1) published end to end, and `gh attestation verify` confirmed that its provenance names the tagged commit;
   - the first T480 run of `cargo xtask rc` passed native, ANGLE-D3D11 and the symbolicated crash (`hardware/T480.md`), and found two harness bugs, now fixed.
+  - the second T480 run (2026-11-04) passed with no problems on a fat-LTO candidate built there: all 11 package checks (the import check too), both backends with their renderer in `evidence.json`, the loaded ANGLE named, the crash symbolicated (`hardware/T480.md`);
+  - thin LTO costs no frame time on the T480: every scene within about 1% of fat over two runs each (BENCHMARKS.md, 2026-11-04).
 
   What is left needs hardware, data or a person:
-  - a second `cargo xtask rc` run on the T480, with the next release candidate's own zip, to see the fixed version check and the renderer in `evidence.json`; then the manual items it lists (with R-03);
-  - a thin-LTO bench on the T480 (`--profile release-thin` against `--release`, frame times), before production LTO changes (D535);
+  - the manual items the harness lists, by a person at the T480: a playlist, audio unplug and replug, fullscreen, `lose-context@60` (with R-03); and the next tag's own zip through `cargo xtask rc`;
+  - fat or thin LTO for shipping, now a build-time question only, from the Experiments workflow's `lto` comparison on a cold runner (D535, D544);
   - nextest everywhere or nowhere, decided from a few weeks of the Windows job's JUnit times against the other jobs' `cargo test` (D535);
   - sccache kept or dropped, decided from the Experiments workflow's hit rates (D535);
   - the master ruleset requiring `ci-ok` alone, once it has passed on master (D533);
   - coverage of the capture worker's reopen loop, the capture device and the MIDI ports, which need a device (R-01, P-04); the protocol gaps the coverage read found are tests now (D544);
   - the decisions index stays lexical (D539): a decision is listed under a crate only if it writes that crate's name.
-- **Work:** run the harness at the next release candidate; bench thin LTO on the T480; decide nextest and sccache from their data; switch the ruleset; cover the device paths when R-01 and P-04 bring hardware tests.
-- **Acceptance:** the T480's record cites an `evidence.json` whose verdict is `pass`. A decision records the LTO, nextest and sccache outcomes with their numbers. The ruleset requires `ci-ok` and nothing else.
+- **Work:** the manual release checks on the T480 and the next tag's zip through the harness; choose LTO from cold build times; decide nextest and sccache from their data; switch the ruleset; cover the device paths when R-01 and P-04 bring hardware tests.
+- **Acceptance:** the T480's record cites an `evidence.json` whose verdict is `pass` (done, 2026-11-04). A decision records the LTO, nextest and sccache outcomes with their numbers. The ruleset requires `ci-ok` and nothing else.
 
 ## Cross-cutting engineering rules
 

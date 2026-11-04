@@ -877,6 +877,47 @@ report (`cargo build --timings`) is the place to look before anyone
 splits a crate to shorten it. Nothing here argues for sccache on a
 developer machine: the warm rebuilds are already linker-bound.
 
+### 2026-11-04: fat against thin LTO, ThinkPad T480 (Intel UHD 620), commit a71a735
+
+The audit asked whether thin LTO costs frame time before the shipping
+profile changes (D535). `strobe-bench` at 1280x720, native GL 3.3 core in a
+hidden window, driver 30.0.101.1122, AC power, 60 timed frames after 90
+warm-up, built `--release` (fat LTO, as shipped) and `--profile
+release-thin`, two runs each. Mean frame time, ms:
+
+| Scene | fat 1 | fat 2 | thin 1 | thin 2 |
+|---|---:|---:|---:|---:|
+| 01-aurora-gradient | 0.93 | 0.74 | 0.87 | 0.76 |
+| 02-plasma-pulse | 0.91 | 0.81 | 0.83 | 0.81 |
+| 03-kaleido-tunnel | 1.03 | 1.02 | 0.99 | 1.04 |
+| 04-voronoi-glass | 3.55 | 3.56 | 3.81 | 3.58 |
+| 05-domain-warp | 2.55 | 2.53 | 2.73 | 2.56 |
+| 06-feedback-trails | 0.95 | 0.94 | 0.98 | 0.96 |
+| 07-reaction-diffusion | 2.38 | 2.30 | 2.44 | 2.31 |
+| 08-bloom-orbs | 1.45 | 1.45 | 1.47 | 1.41 |
+| 09-sdf-cathedral | 19.15 | 19.12 | 20.27 | 19.27 |
+| 10-volume-clouds | 199.93 | 197.12 | 201.40 | 198.36 |
+| 11-script-orbits | 1.44 | 1.38 | 1.40 | 1.41 |
+| 12-silicon-atlas | 35.17 | 34.89 | 35.43 | 35.20 |
+| 13-chromatic-rise | 2.73 | 2.67 | 2.75 | 2.78 |
+| 14-electric-bloom | 8.20 | 8.21 | 8.53 | 8.21 |
+| 15-neon-ribbon-flow | 4.55 | 4.55 | 4.58 | 4.52 |
+| 16-acid-mirror | 5.20 | 5.25 | 5.21 | 5.17 |
+| 17-blacklight-carpet | 6.96 | 6.93 | 7.03 | 7.02 |
+
+The frames are GPU-bound, and the linker's choice does not show in them:
+thin's second run is within about 1% of both fat runs on every scene. Its
+first run was 1-6% slower on 04, 05, 09 and 14, which its second run did
+not repeat, so it is run-to-run noise. The first run of each pair is
+noisier on the lightest scenes. (11 has a script the bench does not run.)
+
+Build cost on this machine: the app `--release` took 497 s; `strobe-bench`
+alone took about 85 s fat (inside the first bench run) and 80 s thin,
+after the fat build, so some dependencies may have been reused. Frame
+time therefore gives no reason to keep fat LTO, and the build saving is
+what would decide a change; CI's Experiments workflow measures that on a
+cold runner.
+
 ## Wanted
 
 - [x] A real-GPU run on the T480: native vs ANGLE, 32F vs 16F, 720p and
