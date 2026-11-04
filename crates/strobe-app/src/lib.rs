@@ -99,6 +99,7 @@ pub mod show;
 pub mod snapshot;
 pub mod song;
 pub mod stats;
+pub mod thumbnails;
 pub mod trusted;
 pub mod ui;
 pub mod venue;

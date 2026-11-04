@@ -21,9 +21,10 @@
 //!
 //! The person's own folder comes first, then the other scene folders
 //! Settings lists (D538; `user-scenes` unless the person removed it), where
-//! they are and written like the library's. Where Synesthesia is installed,
-//! its scene folders (`strobe_scene::synesthesia`) are listed after those,
-//! unless Settings or `--no-synesthesia` says not to: the scenes it ships,
+//! they are and written like the library's, each searched through its
+//! subfolders as deep as Synesthesia searches one by default (D546).
+//! Where Synesthesia is installed, its scene folders
+//! (`strobe_scene::synesthesia`) are listed after those, unless Settings or `--no-synesthesia` says not to: the scenes it ships,
 //! inside its install and read-only, then the scene folders the person
 //! added in Synesthesia's own settings, which are theirs and written like
 //! the library's. Each [`Entry`] knows its [`Source`], so the browser can
@@ -509,7 +510,8 @@ impl Library {
         self.list_synesthesia(synesthesia);
     }
 
-    /// Lists the scenes in `dir`, one of the other scene folders, after
+    /// Lists the scenes in `dir`, one of the other scene folders, and in
+    /// its subfolders down to Synesthesia's default depth (D546), after
     /// those listed already, and says what it came to.
     fn list_folder(&mut self, dir: &Path) -> Listed {
         let listed = |scenes| Listed {
@@ -522,7 +524,7 @@ impl Library {
         if !dir.is_dir() {
             return listed(Err(format!("Not found: {}", dir.display())));
         }
-        match strobe_scene::load::scan(dir) {
+        match strobe_scene::load::scan_deep(dir, strobe_scene::synesthesia::DEFAULT_DEPTH) {
             Ok(scenes) => {
                 let fresh: Vec<PathBuf> = scenes
                     .into_iter()
@@ -1100,6 +1102,39 @@ mod tests {
         assert!(
             missing.note(true, 0).contains("not installed"),
             "and Settings says so"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn another_scene_folder_lists_the_scenes_in_its_subfolders() -> anyhow::Result<()> {
+        let scratch = fake::Scratch::new("nested")?;
+        let own = scratch.0.join("mine");
+        fake::scene(&own.join("aurora"), &[])?;
+        let other = scratch.0.join("user-scenes");
+        fake::scene(&other.join("top"), &[])?;
+        fake::scene(&other.join("jaja/deep.synScene"), &[])?;
+        fake::scene(&other.join("packs/club/strobe"), &[])?;
+        let library = Library::scan_with(&own, std::slice::from_ref(&other), &[])
+            .map_err(anyhow::Error::msg)?;
+        let mut names: Vec<&str> = library
+            .entries
+            .iter()
+            .filter(|e| e.source == Source::Folder)
+            .map(|e| e.name.as_str())
+            .collect();
+        names.sort_unstable();
+        assert_eq!(names, ["deep", "strobe", "top"], "subfolders are searched");
+        assert!(
+            library.folders.first().is_some_and(|f| f.scenes == Ok(3)),
+            "Settings counts them all"
+        );
+        let library = Library::scan_with(&own, &[other.clone(), other.join("jaja")], &[])
+            .map_err(anyhow::Error::msg)?;
+        assert_eq!(
+            library.count(Source::Folder),
+            3,
+            "a subfolder also added by hand lists nothing twice"
         );
         Ok(())
     }
