@@ -1,7 +1,8 @@
 // ============================================================================
 // Module:       strobe_app::library
-// Description:  The scene library: the folders under --library, then
-//               Synesthesia's own scenes read-only where it is installed,
+// Description:  The scene library: the folders under --library, then the
+//               other scene folders Settings lists, then Synesthesia's own
+//               scenes read-only where it is installed,
 //               listed for the browser and found by name for --scene, plus
 //               each scene's health and the browser's search and filter.
 //
@@ -18,8 +19,10 @@
 //!
 //! ## Sources (D271)
 //!
-//! The person's own folder comes first. Where Synesthesia is installed,
-//! its scene folders (`strobe_scene::synesthesia`) are listed after it,
+//! The person's own folder comes first, then the other scene folders
+//! Settings lists (D538; `user-scenes` unless the person removed it), where
+//! they are and written like the library's. Where Synesthesia is installed,
+//! its scene folders (`strobe_scene::synesthesia`) are listed after those,
 //! unless Settings or `--no-synesthesia` says not to: the scenes it ships,
 //! inside its install and read-only, then the scene folders the person
 //! added in Synesthesia's own settings, which are theirs and written like
@@ -49,6 +52,9 @@ pub enum Source {
     /// The person's own library folder: listed first, and written to.
     #[default]
     Own,
+    /// One of the other scene folders Settings lists (D538): listed after
+    /// the library folder's own, and the person's, so written to.
+    Folder,
     /// The scenes Synesthesia ships, inside its install: listed after, and
     /// never written to.
     Synesthesia,
@@ -61,7 +67,7 @@ impl Source {
     /// What the browser and the palette call it, when it is worth saying.
     pub fn label(self) -> Option<&'static str> {
         match self {
-            Self::Own => None,
+            Self::Own | Self::Folder => None,
             Self::Synesthesia | Self::SynesthesiaFolder => Some("Synesthesia"),
         }
     }
@@ -69,7 +75,7 @@ impl Source {
     /// Whether Strobe may write into a scene from here.
     pub fn writable(self) -> bool {
         match self {
-            Self::Own | Self::SynesthesiaFolder => true,
+            Self::Own | Self::Folder | Self::SynesthesiaFolder => true,
             Self::Synesthesia => false,
         }
     }
@@ -77,7 +83,7 @@ impl Source {
     /// Whether it is one of the Synesthesia sources.
     pub fn from_synesthesia(self) -> bool {
         match self {
-            Self::Own => false,
+            Self::Own | Self::Folder => false,
             Self::Synesthesia | Self::SynesthesiaFolder => true,
         }
     }
@@ -85,7 +91,7 @@ impl Source {
     /// The search word that finds every scene from here.
     fn keyword(self) -> Option<&'static str> {
         match self {
-            Self::Own => None,
+            Self::Own | Self::Folder => None,
             Self::Synesthesia | Self::SynesthesiaFolder => Some("synesthesia"),
         }
     }
@@ -410,13 +416,36 @@ pub fn matches(
         })
 }
 
-/// The scenes found under one folder.
+/// The scenes found under the library folder and the other folders.
 #[derive(Debug, Default)]
 pub struct Library {
-    /// The folder scanned.
+    /// The library folder.
     pub dir: PathBuf,
-    /// Scenes sorted by name.
+    /// Scenes: the library folder's own by name, then each other scene
+    /// folder's, then Synesthesia's.
     pub entries: Vec<Entry>,
+    /// What each of the other scene folders listed, in the order given.
+    pub folders: Vec<Listed>,
+}
+
+/// What one of the other scene folders (D538) came to at the last listing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Listed {
+    /// The folder, resolved.
+    pub dir: PathBuf,
+    /// How many scenes it added, or why it added none.
+    pub scenes: Result<usize, String>,
+}
+
+impl Listed {
+    /// One line for Settings.
+    pub fn note(&self) -> String {
+        match &self.scenes {
+            Ok(1) => "1 scene".to_string(),
+            Ok(n) => format!("{n} scenes"),
+            Err(why) => why.clone(),
+        }
+    }
 }
 
 /// The library folder `path` names. A relative path that is not a folder
@@ -445,33 +474,76 @@ pub fn resolve_with(path: &Path, program_dir: Option<&Path>) -> PathBuf {
 impl Library {
     /// Lists the scenes under `dir`.
     pub fn scan(dir: &Path) -> Result<Self, String> {
-        Self::scan_with(dir, &[])
+        Self::scan_with(dir, &[], &[])
     }
 
-    /// Lists the scenes under `dir`, then those in each of `synesthesia`
+    /// Lists the scenes under `dir`, then those in each of `folders` (the
+    /// other scene folders, D538), then those in each of `synesthesia`
     /// (Synesthesia's scene folders, [`Synesthesia::shown`], D271). Only
-    /// `dir` can fail the scan: a Synesthesia folder that cannot be read is
-    /// logged and contributes nothing.
-    pub fn scan_with(dir: &Path, synesthesia: &[SceneFolder]) -> Result<Self, String> {
-        let folders =
+    /// `dir` can fail the scan: another folder that cannot be read is
+    /// noted or logged and contributes nothing.
+    pub fn scan_with(
+        dir: &Path,
+        folders: &[PathBuf],
+        synesthesia: &[SceneFolder],
+    ) -> Result<Self, String> {
+        let own =
             strobe_scene::load::scan(dir).map_err(|e| format!("library {}: {e}", dir.display()))?;
         let mut library = Self {
             dir: dir.to_path_buf(),
-            entries: entries(folders, Source::Own),
+            entries: entries(own, Source::Own),
+            folders: Vec::new(),
         };
-        library.set_synesthesia(synesthesia);
+        library.list_others(folders, synesthesia);
         Ok(library)
     }
 
-    /// Replaces the entries listed from Synesthesia with the scenes in
-    /// `folders`, keeping the library folder's own: how the Settings switch
-    /// and a launch whose own folder could not be read reach them. A folder
-    /// inside the install lists read-only entries; one of the person's
-    /// (from Synesthesia's settings) is searched as deep as it says, and
-    /// its entries are writable. A scene already listed is not listed again,
-    /// and a folder that is the library folder itself is skipped.
-    pub fn set_synesthesia(&mut self, folders: &[SceneFolder]) {
+    /// Replaces every entry but the library folder's own with the scenes in
+    /// `folders` (the other scene folders, D538) and then `synesthesia`:
+    /// how Settings and a launch whose own folder could not be read reach
+    /// them. A scene already listed is not listed again, and a folder that
+    /// is the library folder itself is skipped.
+    pub fn list_others(&mut self, folders: &[PathBuf], synesthesia: &[SceneFolder]) {
         self.entries.retain(|entry| entry.source == Source::Own);
+        self.folders = folders.iter().map(|dir| self.list_folder(dir)).collect();
+        self.list_synesthesia(synesthesia);
+    }
+
+    /// Lists the scenes in `dir`, one of the other scene folders, after
+    /// those listed already, and says what it came to.
+    fn list_folder(&mut self, dir: &Path) -> Listed {
+        let listed = |scenes| Listed {
+            dir: dir.to_path_buf(),
+            scenes,
+        };
+        if crate::intake::same_dir(dir, &self.dir) {
+            return listed(Err("The library folder itself, listed already.".to_string()));
+        }
+        if !dir.is_dir() {
+            return listed(Err(format!("Not found: {}", dir.display())));
+        }
+        match strobe_scene::load::scan(dir) {
+            Ok(scenes) => {
+                let fresh: Vec<PathBuf> = scenes
+                    .into_iter()
+                    .filter(|scene| self.entries.iter().all(|entry| entry.dir != *scene))
+                    .collect();
+                let count = fresh.len();
+                self.entries.extend(entries(fresh, Source::Folder));
+                listed(Ok(count))
+            }
+            Err(error) => {
+                log::warn!("scene folder {} is not listed: {error}", dir.display());
+                listed(Err(format!("Not listed: {error}")))
+            }
+        }
+    }
+
+    /// Lists Synesthesia's scene folders after everything listed already.
+    /// A folder inside the install lists read-only entries; one of the
+    /// person's (from Synesthesia's settings) is searched as deep as it
+    /// says, and its entries are writable.
+    fn list_synesthesia(&mut self, folders: &[SceneFolder]) {
         for folder in folders {
             if crate::intake::same_dir(&folder.path, &self.dir) {
                 continue;
@@ -688,6 +760,7 @@ mod tests {
     fn library(names: &[&str]) -> Library {
         Library {
             dir: PathBuf::from("scenes"),
+            folders: Vec::new(),
             entries: names
                 .iter()
                 .map(|name| Entry::new((*name).to_string(), PathBuf::from(name)))
@@ -881,7 +954,7 @@ mod tests {
         fake::scene(&own.join("ink.synScene"), &["mine"])?;
         fake::scene(&own.join("aurora"), &[])?;
         let library =
-            Library::scan_with(&own, synesthesia.shown(true)).map_err(anyhow::Error::msg)?;
+            Library::scan_with(&own, &[], synesthesia.shown(true)).map_err(anyhow::Error::msg)?;
         let listed: Vec<(&str, Source)> = library
             .entries
             .iter()
@@ -977,7 +1050,7 @@ mod tests {
         let own = scratch.0.join("mine");
         fake::scene(&own.join("aurora"), &[])?;
         let mut library =
-            Library::scan_with(&own, synesthesia.shown(true)).map_err(anyhow::Error::msg)?;
+            Library::scan_with(&own, &[], synesthesia.shown(true)).map_err(anyhow::Error::msg)?;
         assert_eq!(
             library.entries.len(),
             5,
@@ -987,17 +1060,17 @@ mod tests {
             synesthesia.shown(false).is_empty(),
             "the switch off lists none"
         );
-        library.set_synesthesia(synesthesia.shown(false));
+        library.list_others(&[], synesthesia.shown(false));
         let names: Vec<&str> = library.entries.iter().map(|e| e.name.as_str()).collect();
         assert_eq!(names, ["aurora"], "off: exactly what the library has");
         assert_eq!(
-            Library::scan_with(&own, synesthesia.shown(false))
+            Library::scan_with(&own, &[], synesthesia.shown(false))
                 .map_err(anyhow::Error::msg)?
                 .entries,
             Library::scan(&own).map_err(anyhow::Error::msg)?.entries,
             "and the same as before Synesthesia was ever looked for"
         );
-        library.set_synesthesia(synesthesia.shown(true));
+        library.list_others(&[], synesthesia.shown(true));
         assert_eq!(library.entries.len(), 5, "on again");
         let this_run = Synesthesia {
             off_this_run: true,
@@ -1042,7 +1115,7 @@ mod tests {
             read_only: true,
             depth: 1,
         };
-        let library = Library::scan_with(&own, &[gone]).map_err(anyhow::Error::msg)?;
+        let library = Library::scan_with(&own, &[], &[gone]).map_err(anyhow::Error::msg)?;
         assert_eq!(
             library.entries.len(),
             1,
@@ -1061,7 +1134,7 @@ mod tests {
             read_only: false,
             depth: 10,
         };
-        let library = Library::scan_with(&own, &[same]).map_err(anyhow::Error::msg)?;
+        let library = Library::scan_with(&own, &[], &[same]).map_err(anyhow::Error::msg)?;
         let listed: Vec<Source> = library.entries.iter().map(|e| e.source).collect();
         assert_eq!(listed, [Source::Own], "once, as the library's own");
         Ok(())

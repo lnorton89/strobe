@@ -87,6 +87,7 @@ pub mod palette;
 pub mod perf;
 pub mod picker;
 pub mod prefs;
+pub mod prerender;
 pub mod projectors;
 pub mod recovery;
 pub mod remote;

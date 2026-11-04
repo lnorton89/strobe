@@ -13,8 +13,12 @@
 //! picture while drawing it:
 //!
 //! - **Never decoded on the UI thread.** The first request queues the path
-//!   for a worker thread, which decodes it and shrinks it to fit
-//!   [`MAX_SIZE`]; the row draws its colour swatch until it arrives.
+//!   for a worker thread, which decodes it and scales it to fill
+//!   [`MAX_SIZE`], cropping the middle of a picture of another shape; the
+//!   row draws its colour swatch until it arrives.
+//! - **Read by what the file is, not what it is called** (D540). Many of
+//!   the thumbnails Synesthesia ships are JPEGs named `.png`, so the format
+//!   is guessed from the file's first bytes.
 //! - **Asked only for rows on screen.** The browser is virtualised, so a
 //!   library of thousands decodes what is scrolled past, once.
 //! - **Bounded.** At most [`MAX_TEXTURES`] pictures are kept; past that the
@@ -178,16 +182,31 @@ impl Thumbs {
     }
 }
 
-/// Reads and shrinks one picture; `None` if it cannot be.
+/// Reads one picture, whatever its name says it is (D540), and scales it
+/// to fill [`MAX_SIZE`], cropping the middle; `None` if it cannot be read.
 fn decode(path: &Path) -> Option<ColorImage> {
-    let image = match image::open(path) {
+    let read = || -> Result<image::DynamicImage, String> {
+        image::ImageReader::open(path)
+            .map_err(|error| error.to_string())?
+            .with_guessed_format()
+            .map_err(|error| error.to_string())?
+            .decode()
+            .map_err(|error| error.to_string())
+    };
+    let image = match read() {
         Ok(image) => image,
         Err(error) => {
             log::info!("thumbnail {}: {error}", path.display());
             return None;
         }
     };
-    let small = image.thumbnail(MAX_SIZE[0], MAX_SIZE[1]).to_rgba8();
+    let small = image
+        .resize_to_fill(
+            MAX_SIZE[0],
+            MAX_SIZE[1],
+            image::imageops::FilterType::Triangle,
+        )
+        .to_rgba8();
     let size = [small.width() as usize, small.height() as usize];
     Some(ColorImage::from_rgba_unmultiplied(size, small.as_raw()))
 }
@@ -226,13 +245,33 @@ mod tests {
         let Some((_, size)) = thumbs.get(&good) else {
             anyhow::bail!("the picture did not arrive");
         };
-        assert_eq!(size, [160.0, 90.0], "shrunk to fit, aspect kept");
+        assert_eq!(size, [160.0, 90.0], "shrunk to fill");
 
         assert!(thumbs.get(&bad).is_none(), "asked for");
         settle(&mut thumbs, &ctx, &bad);
         assert!(
             matches!(thumbs.slots.get(&bad), Some(Slot::Missing)),
             "remembered as missing, not retried"
+        );
+        std::fs::remove_dir_all(&dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn a_jpeg_named_png_and_a_square_picture_both_fill_the_card() -> Result<()> {
+        let dir = std::env::temp_dir().join(format!("strobe-thumbs-jpeg-{}", std::process::id()));
+        std::fs::create_dir_all(&dir)?;
+        // As Synesthesia ships many: JPEG bytes under a .png name.
+        let jpeg = dir.join("deeper_v2.png");
+        let square = image::RgbImage::from_pixel(500, 500, image::Rgb([0, 0, 255]));
+        square.save_with_format(&jpeg, image::ImageFormat::Jpeg)?;
+        let Some(picture) = decode(&jpeg) else {
+            anyhow::bail!("a JPEG named .png did not decode");
+        };
+        assert_eq!(
+            picture.size,
+            [MAX_SIZE[0] as usize, MAX_SIZE[1] as usize],
+            "a square picture is cropped to fill, not letterboxed"
         );
         std::fs::remove_dir_all(&dir)?;
         Ok(())
