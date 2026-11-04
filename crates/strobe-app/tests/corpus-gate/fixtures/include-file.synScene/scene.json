@@ -1,0 +1,1 @@
+{ "TITLE": "Gate: include", "CREDIT": "Strobe", "DESCRIPTION": "Pulls a helper function in from a .glsl file beside it with #include (D198)." }

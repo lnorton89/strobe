@@ -229,16 +229,31 @@ fn draw(exe: &Path, dir: &Path, backend: &str, frames: u32, fault: Option<&str>)
     }))
 }
 
-/// The first log line that names the GL renderer, from the newest log.
+/// The backend, GL renderer and version the run drew with, from the newest
+/// session log: the app logs `GL: <backend> | <renderer> | <version>` once
+/// its context is up. On the first T480 run (D544) this looked for the word
+/// "renderer", which no log line contains, and recorded nothing.
 fn renderer(logs: &Path) -> Option<String> {
     let newest = std::fs::read_dir(logs)
         .ok()?
         .filter_map(Result::ok)
         .max_by_key(|e| e.metadata().and_then(|m| m.modified()).ok())?;
     let text = std::fs::read_to_string(newest.path()).ok()?;
-    text.lines()
-        .find(|line| line.to_ascii_lowercase().contains("renderer"))
-        .map(|line| line.trim().chars().take(240).collect())
+    gl_line(&text)
+}
+
+/// [`renderer`]'s search: the text after the app's `GL: ` line, or after
+/// the window code's `GL backend ` line when the app's is missing.
+fn gl_line(log: &str) -> Option<String> {
+    let after = |marker: &str| {
+        log.lines().find_map(|line| {
+            line.split_once(marker)
+                .map(|(_, rest)| rest.trim().to_owned())
+        })
+    };
+    after(" strobe_app::app: GL: ")
+        .or_else(|| after(" strobe_gfx::gl::window: GL backend "))
+        .map(|line| line.chars().take(240).collect())
 }
 
 /// The PDB from the unpacked symbols zip, beside the package's work folder.
@@ -291,4 +306,28 @@ fn crash(exe: &Path, dir: &Path, pdb: &Path) -> Result<Value> {
         "names_strobe_functions": named,
         "ok": symbolicated.is_ok() && named,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_renderer_comes_from_the_apps_gl_line() {
+        // Lines from the T480's first run (D544).
+        let window = "0.790s INFO  [main] strobe_gfx::gl::window: GL backend native (OpenGL 3.3 core): Intel(R) UHD Graphics 620 | 3.3.0 - Build 30.0.101.1122";
+        let app = "0.923s INFO  [main] strobe_app::app: GL: native (OpenGL 3.3 core) | Intel(R) UHD Graphics 620 | 3.3.0 - Build 30.0.101.1122";
+        assert_eq!(
+            gl_line(&format!("{window}\n{app}\n")).as_deref(),
+            Some(
+                "native (OpenGL 3.3 core) | Intel(R) UHD Graphics 620 | 3.3.0 - Build 30.0.101.1122"
+            ),
+            "the app's line, without its prefix"
+        );
+        assert!(
+            gl_line(window).is_some_and(|line| line.contains("UHD Graphics 620")),
+            "the window line when the app's is missing"
+        );
+        assert_eq!(gl_line("nothing here"), None, "no GL line, no renderer");
+    }
 }

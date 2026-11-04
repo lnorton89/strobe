@@ -28,7 +28,8 @@ use sha2::Digest as _;
 use std::path::{Path, PathBuf};
 use strobe_diag::context::{GL_BACKEND, GL_RENDERER, GL_VENDOR, GL_VERSION};
 use strobe_diag::{diag, paths};
-use strobe_gfx::{Api, Headless};
+use strobe_gfx::offscreen::{self, ContextMode, Request};
+use strobe_gfx::{Api, Backend, GlChoice, Headless};
 
 /// The GL facts a headless probe can find, as report rows.
 pub fn gl_rows() -> Vec<(String, String)> {
@@ -76,8 +77,37 @@ pub fn report() -> String {
             .and_then(|exe| exe.parent().map(Path::to_path_buf))
     {
         rows.push(("angle".to_string(), angle_status(&dir)));
+        rows.push(("angle.loaded".to_string(), angle_loaded()));
     }
     diag::system_report(&rows)
+}
+
+/// Which ANGLE actually starts, from the version string of a headless
+/// GLES context: ANGLE names itself and its build there (`OpenGL ES 3.0.0
+/// (ANGLE 2.1.x git hash: …)`). The DLLs beside the program can match the
+/// pin and still not be what loads, if a copy elsewhere on the search path
+/// wins, so this is the other half of the `angle` row (D544).
+///
+/// ANGLE has no headless EGL device on Windows, so the probe is one hidden
+/// window with ANGLE alone, as the corpus harness opens one (D195).
+fn angle_loaded() -> String {
+    let request = Request {
+        mode: ContextMode::Window,
+        api: Some(Api::Gles30),
+        gl: GlChoice::Only(Backend::Angle),
+        tiny: false,
+        window_size: None,
+    };
+    match offscreen::run(&request, |_| {}, |gl, _, _| gl.info()) {
+        Ok(info) if info.version.contains("ANGLE") => {
+            format!("{} on {}", info.version, info.renderer)
+        }
+        Ok(info) => format!(
+            "not ANGLE: the GLES context is {} ({})",
+            info.version, info.renderer
+        ),
+        Err(error) => format!("ANGLE did not start ({error})"),
+    }
 }
 
 /// The native dependency pin, as the build and the release read it (D536).

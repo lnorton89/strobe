@@ -35,10 +35,16 @@
 //!   against pinned SHA-256 hashes. The archive is cached in
 //!   `target\angle\<version>`, so a second profile copies without
 //!   downloading.
-//! - **Never a failed build.** ANGLE is the fallback; native GL works
-//!   without it. A failed fetch (offline, say) is a warning, repeated on
-//!   every build until ANGLE is there, naming the script to run by hand;
-//!   `cargo clean -p strobe-gfx` lets the build try again.
+//! - **A failed fetch is a warning in a dev build.** ANGLE is the fallback;
+//!   native GL works without it. A failed fetch (offline, say) is a
+//!   warning, repeated on every build until ANGLE is there, naming the
+//!   script to run by hand; `cargo clean -p strobe-gfx` lets the build try
+//!   again. A build that must carry ANGLE sets `STROBE_REQUIRE_ANGLE`, and
+//!   then a failed fetch fails the build (D544). `cargo xtask package`
+//!   checks every DLL's hash against the pin regardless.
+//! - **The script is watched with the manifest.** A change to
+//!   `fetch-angle.ps1` (what it places, how it checks) reruns this, like a
+//!   change to the pin does.
 //! - **Not in CI** (`CI` set). The release workflow fetches explicitly,
 //!   and the Windows test job does not need ANGLE. `STROBE_NO_ANGLE_FETCH`
 //!   turns it off anywhere.
@@ -68,10 +74,18 @@ const OPT_OUT: &str = "STROBE_NO_ANGLE_FETCH";
 /// the way an absolute one can (D464).
 const MANIFEST: &str = "../../scripts/native-deps.json";
 
+/// The script that fetches and checks ANGLE, relative the same way.
+const SCRIPT: &str = "../../scripts/fetch-angle.ps1";
+
+/// Makes a failed fetch fail the build, for a build that must ship ANGLE.
+const REQUIRE: &str = "STROBE_REQUIRE_ANGLE";
+
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed={MANIFEST}");
+    println!("cargo:rerun-if-changed={SCRIPT}");
     println!("cargo:rerun-if-env-changed={OPT_OUT}");
+    println!("cargo:rerun-if-env-changed={REQUIRE}");
     println!("cargo:rerun-if-env-changed=CI");
     let windows_target = std::env::var("CARGO_CFG_TARGET_OS").is_ok_and(|os| os == "windows");
     if !cfg!(windows) || !windows_target {
@@ -100,6 +114,10 @@ fn main() {
             "ANGLE fetched (pinned, hash-checked) into {}",
             dest.display()
         ),
+        Err(why) if std::env::var_os(REQUIRE).is_some() => {
+            eprintln!("ANGLE was not fetched ({why}), and {REQUIRE} is set; {HAND}");
+            std::process::exit(1);
+        }
         Err(why) => println!("cargo:warning=ANGLE was not fetched: {why}; {HAND}"),
     }
 }
