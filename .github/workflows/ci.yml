@@ -216,16 +216,34 @@ jobs:
       # requests, so that is what keeps their dependencies warm (D505). A
       # release's run (D521) skips the fat-LTO build: release.yml builds
       # exactly that, from the same commit, in its own job.
+      # The nextest pilot (D535): Windows is the longest job, and its test
+      # step the longest part of it, so this is where per-test times,
+      # timeouts and scheduling across test binaries are measured.
+      - uses: taiki-e/install-action@b80e2bb2635f28eb98b9fce1e2f0887e1535c6b2 # v2.90.0
+        with:
+          tool: cargo-nextest@0.9.151
       - name: Check, test and build
         shell: bash
         env:
           SHIPPING: ${{ !inputs.ref && ((github.event_name == 'push' && github.ref == 'refs/heads/master') || github.event_name == 'workflow_dispatch') }}
         run: |
           if [ "$SHIPPING" = "true" ]; then
-            cargo --locked xtask ci --strict check test build --shipping
+            cargo --locked xtask ci --strict check test build --nextest --shipping
           else
-            cargo --locked xtask ci --strict check test build
+            cargo --locked xtask ci --strict check test build --nextest
           fi
+      # Where the time went: each test's duration (JUnit) and each crate's
+      # build (cargo's timings report), kept for comparing runs (D535).
+      - name: Upload test and build timings
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-timings
+          path: |
+            target/nextest/ci/junit.xml
+            target/cargo-timings/
+          if-no-files-found: warn
+          retention-days: 30
 
   macos:
     name: macos (the portable crates)

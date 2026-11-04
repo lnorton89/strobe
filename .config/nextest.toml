@@ -1,0 +1,22 @@
+# cargo-nextest's settings (D535). The Windows CI job runs the test lane
+# through nextest (`cargo xtask ci test --nextest`), a pilot: every test in
+# its own process, a per-test time and timeout, JUnit output, and the test
+# binaries scheduled together rather than one after another. Doctests are
+# not nextest's; the lane runs them with `cargo test --doc`.
+
+[store]
+dir = "target/nextest"
+
+[profile.default]
+# A test that runs past a minute is reported as slow; one that runs past
+# five is stopped and fails, so a hung test costs minutes, not the job.
+slow-timeout = { period = "60s", terminate-after = 5 }
+
+[profile.ci]
+# Every failure in one run, not the first: a CI round trip is ten minutes.
+fail-fast = false
+failure-output = "immediate-final"
+slow-timeout = { period = "60s", terminate-after = 5 }
+
+[profile.ci.junit]
+path = "junit.xml"
