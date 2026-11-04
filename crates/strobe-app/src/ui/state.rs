@@ -210,6 +210,16 @@ pub struct SceneFoldersState {
     pub refusal: String,
 }
 
+/// Prerendering the library's scenes, in Settings (D542).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PrerenderState {
+    /// The switch. Saved.
+    pub enabled: bool,
+    /// One line: how far the prerender has got, or that it is off. Set by
+    /// the app; not saved.
+    pub note: String,
+}
+
 /// Synesthesia's scenes in the library, in Settings (D271).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SynesthesiaState {
@@ -288,6 +298,8 @@ pub struct UiState {
     /// controls (D291). Saved.
     /// Synesthesia's scenes in the library (D271): the switch is saved.
     pub synesthesia: SynesthesiaState,
+    /// Prerendering the library's scenes (D542): the switch is saved.
+    pub prerender: PrerenderState,
     /// What the "Control another Strobe" form remembers (D294). Saved.
     pub remote: crate::prefs::RemotePref,
     /// The Settings pane's layout name field. Not saved.
@@ -388,6 +400,10 @@ impl UiState {
                 show: prefs.synesthesia.show,
                 note: String::new(),
             },
+            prerender: PrerenderState {
+                enabled: prefs.prerender.enabled,
+                note: String::new(),
+            },
             remote: prefs.remote.clone(),
             layout_name: String::new(),
             settings: super::settings::SettingsUi::default(),
@@ -434,6 +450,9 @@ impl UiState {
         };
         prefs.synesthesia = crate::prefs::SynesthesiaPref {
             show: self.synesthesia.show,
+        };
+        prefs.prerender = crate::prefs::PrerenderPref {
+            enabled: self.prerender.enabled,
         };
         prefs.remote.clone_from(&self.remote);
         prefs
@@ -591,6 +610,7 @@ impl UiState {
         self.recent_playlists.hash(&mut hasher);
         self.scene_folders.folders.hash(&mut hasher);
         self.synesthesia.show.hash(&mut hasher);
+        self.prerender.enabled.hash(&mut hasher);
         self.remote.trust_file.hash(&mut hasher);
         self.remote.use_trust.hash(&mut hasher);
         self.remote.controller_id.hash(&mut hasher);
@@ -833,6 +853,28 @@ mod tests {
             browser.visible(&lib, &health, 1),
             &[2, 1, 0],
             "favourites first, then by name"
+        );
+    }
+
+    #[test]
+    fn the_prerender_switch_is_on_by_default_saved_and_reread_but_its_note_is_not() {
+        let mut state = UiState::ephemeral();
+        assert!(state.prerender.enabled, "on by default");
+        let start = Instant::now();
+        state.tick(start);
+        state.prerender.note = "12 of 108 scenes prerendered".to_string();
+        state.tick(start + Duration::from_millis(33));
+        assert!(!state.debounce.pending(), "the note saves nothing");
+        state.prerender.enabled = false;
+        state.tick(start + Duration::from_millis(66));
+        assert!(state.debounce.pending(), "the switch is saved");
+        let prefs = state.to_prefs();
+        assert!(!prefs.prerender.enabled, "written to the preferences");
+        let again = UiState::from_prefs(&prefs);
+        assert_eq!(
+            (again.prerender.enabled, again.prerender.note.as_str()),
+            (false, ""),
+            "read back off, with no note"
         );
     }
 
