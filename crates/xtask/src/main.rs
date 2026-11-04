@@ -5,7 +5,7 @@
 //               shortcut, crash-dump symbolication, and the icon renderer.
 //
 // Dependencies: clap, anyhow; modules brand, changelog, ci, credits, bench,
-//               corpus, symbolicate
+//               corpus, native, symbolicate
 // ============================================================================
 
 //! `cargo xtask`: the repository's tooling, written in the repository's
@@ -22,6 +22,7 @@
 //! cargo xtask brand [--check]                 # icon PNGs and .ico from the SVG sources
 //! cargo xtask credits [--check]               # THIRD_PARTY.md from git and Cargo.lock
 //! cargo xtask credits --notices <file>        # the release zip's full licence texts
+//! cargo xtask sbom-native --sbom <f> --dir <d> # the release DLLs into its SBOM
 //! ```
 //!
 //! The `xtask` alias in `.cargo/config.toml` is the whole installation.
@@ -48,6 +49,7 @@ mod changelog;
 mod ci;
 mod corpus;
 mod credits;
+mod native;
 mod symbolicate;
 
 use anyhow::{Context as _, Result, anyhow};
@@ -115,6 +117,10 @@ enum Command {
         #[arg(long)]
         check: bool,
     },
+    /// Add the native files the release carries (ANGLE, the D3D compiler,
+    /// the Vulkan loader) to a CycloneDX SBOM, each checked against
+    /// scripts/native-deps.json (D536).
+    SbomNative(native::Args),
     /// Write THIRD_PARTY.md: the contributors from the git history and
     /// every crate in strobe.exe with its licence, for the About page.
     Credits {
@@ -165,6 +171,7 @@ fn run() -> Result<()> {
         Command::Corpus { args } => corpus::run(&args),
         Command::Symbolicate(args) => symbolicate::run(&args.anchored(&invoked_from)),
         Command::Brand { check } => brand::run(check),
+        Command::SbomNative(args) => native::run(&args.anchored(&invoked_from)),
         Command::Credits { check, notices } => {
             let notices = notices.map(|path| invoked_from.join(path));
             credits::run(check, notices.as_deref())

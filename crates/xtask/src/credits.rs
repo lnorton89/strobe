@@ -29,7 +29,7 @@
 //!   licence does.
 //! - **Shipped beside** is the ANGLE runtime the release zip carries next
 //!   to `strobe.exe`, with the Electron version read from
-//!   `scripts/fetch-angle.ps1`.
+//!   `scripts/native-deps.json` (D536).
 //!
 //! `THIRD_PARTY.md` is committed, readable on GitHub, and compiled into the
 //! app, which draws its tables on the About page. `--check` regenerates it
@@ -58,9 +58,6 @@ const APP: &str = "strobe-app";
 
 /// The platform the release is built for.
 const TARGET: &str = "x86_64-pc-windows-msvc";
-
-/// Where the ANGLE version is pinned.
-const ANGLE_SCRIPT: &str = "scripts/fetch-angle.ps1";
 
 /// Writes `THIRD_PARTY.md`, checks it, or writes the release notices.
 pub(crate) fn run(check: bool, notices: Option<&Path>) -> Result<()> {
@@ -292,15 +289,13 @@ fn git(args: &[&str]) -> Result<String> {
     String::from_utf8(output.stdout).context("git printed text that is not UTF-8")
 }
 
-/// The Electron release ANGLE is taken from, as pinned in [`ANGLE_SCRIPT`].
+/// The Electron release ANGLE is taken from, as pinned in the native
+/// dependency manifest (D536).
 fn angle_version() -> Result<String> {
-    let script = std::fs::read_to_string(ANGLE_SCRIPT)
-        .with_context(|| format!("could not read {ANGLE_SCRIPT}"))?;
-    script
-        .lines()
-        .find_map(|line| line.trim().strip_prefix("$Version = "))
-        .map(|version| version.trim().trim_matches('"').to_owned())
-        .ok_or_else(|| anyhow!("{ANGLE_SCRIPT} pins no `$Version`"))
+    crate::native::manifest()?["angle"]["version"]
+        .as_str()
+        .map(str::to_owned)
+        .ok_or_else(|| anyhow!("{} pins no angle.version", crate::native::MANIFEST))
 }
 
 /// A table cell: one line, no pipe.

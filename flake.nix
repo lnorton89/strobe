@@ -12,18 +12,28 @@
 # opened with dlopen at run time (winit, glutin, xkbcommon-dl, x11-dl), so on
 # Nix it must be on LD_LIBRARY_PATH, or the window never opens.
 #
-# The Rust toolchain is nixpkgs' own cargo and rustc, not rust-toolchain.toml:
-# the pin there is 1.98.0, nixpkgs-unstable carries 1.98.x, and the workspace's
-# `rust-version` is 1.98. If nixpkgs ever falls behind the pin, swap in
-# rust-overlay's `rust-bin.fromRustupToolchainFile ./rust-toolchain.toml`.
+# The Rust toolchain is rust-toolchain.toml's, read through rust-overlay
+# (D536): the same rustc, clippy and rustfmt as rustup and CI, so a lint
+# cannot fire in one and not the other. The weekly Scheduled workflow checks
+# that the dev shell's rustc is that version, and builds the package.
 # ============================================================================
 {
   description = "Strobe: an audio-reactive VJ engine";
 
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    rust-overlay = {
+      url = "github:oxalica/rust-overlay";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+  };
 
   outputs =
-    { self, nixpkgs }:
+    {
+      self,
+      nixpkgs,
+      rust-overlay,
+    }:
     let
       systems = [
         "x86_64-linux"
@@ -39,10 +49,15 @@
           f (
             import nixpkgs {
               inherit system;
+              overlays = [ rust-overlay.overlays.default ];
               config.allowUnfreePredicate = pkg: (pkg.pname or "") == "strobe";
             }
           )
         );
+
+      # rustc, cargo, clippy and rustfmt at the version rust-toolchain.toml
+      # pins, with the components and targets it lists.
+      toolchain = pkgs: pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
 
       # Opened with dlopen, so no build step sees them and nothing records
       # them in the binary. winit and glutin name each library by its
@@ -65,10 +80,7 @@
           # `stdenv`'s C compiler comes with mkShell: QuickJS (rquickjs-sys)
           # and ring are C.
           nativeBuildInputs = with pkgs; [
-            cargo
-            rustc
-            clippy
-            rustfmt
+            (toolchain pkgs)
             pkg-config
             git # build.rs reads the commit; `cargo xtask changelog` walks history
           ];
@@ -95,7 +107,13 @@
       });
 
       packages = forAllSystems (pkgs: {
-        default = pkgs.rustPlatform.buildRustPackage {
+        # Built with the pinned toolchain, not nixpkgs' default rustc.
+        default =
+          (pkgs.makeRustPlatform {
+            cargo = toolchain pkgs;
+            rustc = toolchain pkgs;
+          }).buildRustPackage
+            {
           pname = "strobe";
           version = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).workspace.package.version;
 

@@ -446,9 +446,10 @@ nix run                      # build and start it
 result/bin/strobe-bench --library result/share/strobe/scenes
 ```
 
-The dev shell uses nixpkgs' own `cargo` and `rustc` (1.98.x), not
-`rust-toolchain.toml`, so the Windows cross-check in `cargo xtask ci` is
-skipped there. The package carries the scene library beside `strobe`, and
+The dev shell and the package use the toolchain `rust-toolchain.toml` pins,
+through rust-overlay, the same `rustc`, clippy and rustfmt as rustup and
+CI. The weekly Scheduled workflow checks that, and builds the flake (D536).
+The package carries the scene library beside `strobe`, and
 also installs `strobe-bench` and `strobe-corpus`. The GPU driver comes from
 the system, not from the flake: on NixOS set `hardware.graphics.enable =
 true`. On another distro Nix's libGL cannot use the host's driver, so use the
