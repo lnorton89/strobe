@@ -3401,6 +3401,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha1",
+ "sha2",
  "strobe-audio",
  "strobe-autocontrol",
  "strobe-capture",
@@ -4819,6 +4820,7 @@ dependencies = [
  "clap",
  "resvg",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]

@@ -218,12 +218,22 @@ stops before building if the release is already published, but a tag
 moved while its draft is still unpublished rebuilds the draft from the new
 commit. If a release is wrong, cut the next patch version.
 
-ANGLE is pinned to Electron 38.2.0 by `scripts/fetch-angle.ps1`, which
-the release workflow runs, and which `strobe-gfx`'s build script runs on a
-Windows dev build whose DLLs are missing (D498). After a bump, run the
-script by hand: the build checks only that the DLLs are there, not their
-version. Do not bump it as a drive-by: newer Electron
-no longer ships the DLLs (see `docs/AGENT_RESEARCH.md`, section 8).
+ANGLE is pinned to Electron 38.2.0 in `scripts/native-deps.json` (D536):
+version, source, and the archive's and each DLL's SHA-256. Everything
+that touches the DLLs reads that one file:
+- `scripts/fetch-angle.ps1`, which the release workflow runs;
+- `strobe-gfx`'s build script, which runs the fetch script on a Windows dev
+  build whose DLLs are missing, or whose `angle.stamp` names another
+  version (D498);
+- the release's SBOM, through `cargo xtask sbom-native`;
+- `strobe --diagnose`, which says whether the DLLs beside the program match
+  the pin.
+
+A bump is one commit to the manifest, and every profile's DLLs refresh on
+its next build. The Scheduled workflow checks the pinned archive weekly
+and names newer releases in the same line. Do not bump it as a drive-by:
+newer Electron no longer ships the DLLs (see `docs/AGENT_RESEARCH.md`,
+section 8).
 
 ## Dependency updates
 

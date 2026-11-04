@@ -46,6 +46,7 @@ cargo xtask corpus -- --library scenes        # compatibility report (D195)
 cargo xtask symbolicate crash-….dmp           # a crash dump as a readable stack
 cargo xtask brand                             # icon PNGs and .ico from assets/brand/*.svg
 cargo xtask brand --check                     # what CI runs; fails on a stale render
+cargo xtask sbom-native --sbom <f.cdx.json> --dir <dlls>  # the release DLLs into its SBOM, checked against scripts/native-deps.json (D536)
 ```
 
 Flags, from the clap definitions:
