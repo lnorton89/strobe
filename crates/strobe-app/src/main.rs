@@ -230,6 +230,7 @@ fn run(cli: cli::Cli) -> Result<(), Stopped> {
         Err(error) => (
             library::Library {
                 dir: library_dir.clone(),
+                folders: Vec::new(),
                 entries: Vec::new(),
             },
             Some(error),

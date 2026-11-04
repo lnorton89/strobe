@@ -8,7 +8,7 @@
 
 //! Browse (D470).
 //!
-//! Every path field (a playlist, a Shadertoy export, the watched folder, a
+//! Every path field (a playlist, a Shadertoy export, a scene folder, a
 //! venue trust file) can also be filled from the system's own file or
 //! folder dialog, with typed paths and drag-and-drop still working.
 //!
@@ -35,8 +35,8 @@ pub enum Purpose {
     Playlist,
     /// An exported Shadertoy `.json`, imported as soon as it is chosen.
     Shadertoy,
-    /// The folder new scenes are dropped into (D265), watched at once.
-    WatchFolder,
+    /// One of the library's other scene folders (D538), added at once.
+    SceneFolder,
     /// A venue trust file (D294), put in the connect form's field.
     TrustFile,
 }
@@ -55,7 +55,7 @@ impl Purpose {
             Self::Shadertoy => dialog
                 .set_title("Import a Shadertoy export")
                 .add_filter("Shadertoy export", &["json"]),
-            Self::WatchFolder => dialog.set_title("Choose the folder to watch for new scenes"),
+            Self::SceneFolder => dialog.set_title("Choose a scene folder to add to the library"),
             Self::TrustFile => dialog
                 .set_title("Choose the venue trust file")
                 .add_filter("Strobe trust file", &["trust"])
@@ -66,7 +66,7 @@ impl Purpose {
     /// Whether this purpose picks a folder rather than a file.
     const fn folder(self) -> bool {
         match self {
-            Self::WatchFolder => true,
+            Self::SceneFolder => true,
             Self::Playlist | Self::Shadertoy | Self::TrustFile => false,
         }
     }
@@ -151,8 +151,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn only_the_watched_folder_picks_a_folder() {
-        assert!(Purpose::WatchFolder.folder(), "a folder");
+    fn only_a_scene_folder_picks_a_folder() {
+        assert!(Purpose::SceneFolder.folder(), "a folder");
         for purpose in [Purpose::Playlist, Purpose::Shadertoy, Purpose::TrustFile] {
             assert!(!purpose.folder(), "{purpose:?} picks a file");
         }

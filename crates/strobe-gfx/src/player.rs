@@ -774,6 +774,18 @@ impl ScenePlayer {
         Ok(())
     }
 
+    /// Lets every buffer pass's targets go, `FIXED_SIZE` and literal-size
+    /// passes included, keeping the compiled programs and the images: for a
+    /// scene parked where nothing draws it, whose next use starts from
+    /// black anyway (a prerendered library scene, D542). [`Self::restart`]
+    /// builds them again, and must be called before the next frame.
+    pub fn release_targets(&mut self) {
+        for pass in &mut self.passes {
+            pass.targets = Vec::new();
+            pass.current = 0;
+        }
+    }
+
     /// Which passes a [`Self::resize`] to `render_size` restarts from black,
     /// by index: every pass whose size changes, the final pass, and every
     /// pass one of those (the final pass aside) reads, transitively. A pass
