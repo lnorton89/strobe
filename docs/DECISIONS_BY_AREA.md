@@ -89,7 +89,7 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D496](decisions/D496.md): the bench uploads the synthetic audio textures, and sweeps render scales
 - [D524](decisions/D524.md): the website's `/play` sandbox runs Strobe's own player as wasm on WebGL2, scripts in a worker, with no server
 - [D535](decisions/D535.md): the audio tests are optimised, Windows tests run through nextest, and build speed is measured before it is bought
-- [D538](decisions/D538.md): the crate graph, `unsafe`, feature configurations, rustdoc, workflows and scripts are checked, and the build names its profile
+- [D541](decisions/D541.md): the crate graph, `unsafe`, feature configurations, rustdoc, workflows and scripts are checked, and the build names its profile
 
 ## strobe-autocontrol
 
@@ -150,7 +150,7 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D497](decisions/D497.md): the last unchecked conventions are tests: build scripts, GL object owners, driver queries, and the docs' links and decision numbers
 - [D521](decisions/D521.md): a release publishes only a green, immutable, single commit
 - [D531](decisions/D531.md): faster iteration: one file per decision, no shared summary lines, docs-only CI, and a client-list save that retries
-- [D538](decisions/D538.md): the crate graph, `unsafe`, feature configurations, rustdoc, workflows and scripts are checked, and the build names its profile
+- [D541](decisions/D541.md): the crate graph, `unsafe`, feature configurations, rustdoc, workflows and scripts are checked, and the build names its profile
 
 ## strobe-diag
 
@@ -172,7 +172,7 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D450](decisions/D450.md): a fullscreen launch puts no crash or stop box over its show
 - [D464](decisions/D464.md): build scripts watch only what moves with a build
 - [D528](decisions/D528.md): a webcam is a media choice, `camera:<name>`, captured by `strobe-capture`
-- [D538](decisions/D538.md): the crate graph, `unsafe`, feature configurations, rustdoc, workflows and scripts are checked, and the build names its profile
+- [D541](decisions/D541.md): the crate graph, `unsafe`, feature configurations, rustdoc, workflows and scripts are checked, and the build names its profile
 
 ## strobe-gfx
 
@@ -217,7 +217,7 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D524](decisions/D524.md): the website's `/play` sandbox runs Strobe's own player as wasm on WebGL2, scripts in a worker, with no server
 - [D528](decisions/D528.md): a webcam is a media choice, `camera:<name>`, captured by `strobe-capture`
 - [D536](decisions/D536.md): one manifest pins the native DLLs; the SBOM, the build and `--diagnose` read it; scheduled checks watch what pushes cannot
-- [D538](decisions/D538.md): the crate graph, `unsafe`, feature configurations, rustdoc, workflows and scripts are checked, and the build names its profile
+- [D541](decisions/D541.md): the crate graph, `unsafe`, feature configurations, rustdoc, workflows and scripts are checked, and the build names its profile
 
 ## strobe-io
 
@@ -226,8 +226,8 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D170](decisions/D170.md): show control is one crate, `strobe-io`, that depends on `strobe-scene` and nothing that draws
 - [D209](decisions/D209.md): OSC feedback sends what changed, on the listener's own addresses, from a thread of its own
 - [D210](decisions/D210.md): a macro's reach and colour are edited in MAP, and a control is pinned from its name
-- [D538](decisions/D538.md): the crate graph, `unsafe`, feature configurations, rustdoc, workflows and scripts are checked, and the build names its profile
 - [D539](decisions/D539.md): property tests over untrusted input, weekly machete and coverage, and the decisions indexed by crate
+- [D541](decisions/D541.md): the crate graph, `unsafe`, feature configurations, rustdoc, workflows and scripts are checked, and the build names its profile
 
 ## strobe-playlist
 
@@ -342,8 +342,8 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D418](decisions/D418.md): "Replace" only ever replaces an earlier import of the same shader
 - [D495](decisions/D495.md): a Shadertoy import's iTime runs on through a resize
 - [D503](decisions/D503.md): tests bind loopback; the few that need every interface wait for `STROBE_TEST_LAN=1`
-- [D538](decisions/D538.md): the crate graph, `unsafe`, feature configurations, rustdoc, workflows and scripts are checked, and the build names its profile
 - [D539](decisions/D539.md): property tests over untrusted input, weekly machete and coverage, and the decisions indexed by crate
+- [D541](decisions/D541.md): the crate graph, `unsafe`, feature configurations, rustdoc, workflows and scripts are checked, and the build names its profile
 
 ## strobe-ssf-lib
 
@@ -387,8 +387,8 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D535](decisions/D535.md): the audio tests are optimised, Windows tests run through nextest, and build speed is measured before it is bought
 - [D536](decisions/D536.md): one manifest pins the native DLLs; the SBOM, the build and `--diagnose` read it; scheduled checks watch what pushes cannot
 - [D537](decisions/D537.md): the package is built and checked by xtask on every pull request, and a release candidate has a harness
-- [D538](decisions/D538.md): the crate graph, `unsafe`, feature configurations, rustdoc, workflows and scripts are checked, and the build names its profile
 - [D539](decisions/D539.md): property tests over untrusted input, weekly machete and coverage, and the decisions indexed by crate
+- [D541](decisions/D541.md): the crate graph, `unsafe`, feature configurations, rustdoc, workflows and scripts are checked, and the build names its profile
 
 ## CI and releases
 
@@ -409,8 +409,8 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D535](decisions/D535.md): the audio tests are optimised, Windows tests run through nextest, and build speed is measured before it is bought
 - [D536](decisions/D536.md): one manifest pins the native DLLs; the SBOM, the build and `--diagnose` read it; scheduled checks watch what pushes cannot
 - [D537](decisions/D537.md): the package is built and checked by xtask on every pull request, and a release candidate has a harness
-- [D538](decisions/D538.md): the crate graph, `unsafe`, feature configurations, rustdoc, workflows and scripts are checked, and the build names its profile
 - [D539](decisions/D539.md): property tests over untrusted input, weekly machete and coverage, and the decisions indexed by crate
+- [D541](decisions/D541.md): the crate graph, `unsafe`, feature configurations, rustdoc, workflows and scripts are checked, and the build names its profile
 
 ## Not tied to one crate
 
