@@ -257,8 +257,8 @@ pub struct Cli {
     #[arg(long, value_name = "FILE")]
     pub show_control: Option<PathBuf>,
     /// Start the LAN remote at launch: a phone or tablet on the same
-    /// network opens the address Strobe shows and pairs with a code and the
-    /// desktop's approval (D250). Off by default; Settings can switch it on
+    /// network opens the address Strobe shows, asks to pair, and is paired
+    /// once the desktop approves it (D250, D500). Off by default; Settings can switch it on
     /// for this run too. Plain HTTP: use it on a network you trust.
     #[arg(long)]
     pub remote: bool,
@@ -296,8 +296,9 @@ pub struct Cli {
     /// the viewer of the host at HOST:PORT (a bare IP takes port 47812). With
     /// `--remote-trust FILE` it connects by proving the file, with no
     /// approval at the host, and reconnects by itself after a host restart
-    /// or a Wi-Fi drop. Without it, the "Control another Strobe" form opens
-    /// with the address filled in, for pairing with a code. Not for a host:
+    /// or a Wi-Fi drop. Without it, Settings > Remote's "Connect by address"
+    /// form opens with the address filled in, to ask the host, whose
+    /// operator approves it (D468). Not for a host:
     /// it cannot be combined with `--remote`.
     #[arg(
         long,

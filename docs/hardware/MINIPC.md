@@ -90,7 +90,7 @@ compilation.
 ran at 56.6 fps (57.1 under Balanced) and 10 at 26.7 fps (27.7). The
 3200U and Vega 3 are GPU-bound.
 
-**strobe-bench at 1920x1200**, in session 1, from a cdfab8e build:
+**strobe-bench at 1920x1200**, in session 1, from a c122827 build:
 - **Native:** fails the black-frame check. A *hidden* window on AMD's WGL
   draws nothing even on the real desktop, so this is not only a session-0
   effect. It matters beyond the bench: the control-generation worker
@@ -141,7 +141,7 @@ So it was not occlusion. Earlier runs launched with `--scene` from another
 task had logged "covered by the fullscreen output: redrawing at 2 Hz", and
 the control window did draw now and then.
 
-**First workaround, fca44a5.** The output frame compiles the next playlist
+**First workaround, 85a6b6e.** The output frame compiles the next playlist
 step when the control window has been quiet for 500 ms. That started the
 show. Everything else in the control frame still never ran: UI actions, the
 remote and LAN UI passes, the desktop remote's capture, `ui_state.tick`, the
@@ -166,7 +166,7 @@ top, and z-order said otherwise.
 250 ms and 4 passes of the event loop, `about_to_wait` runs the control frame
 itself. It keeps doing so at 2 Hz, or 5 Hz while a desktop remote holds the
 lease, until Windows answers a request promptly again. The whole frame runs
-(egui, paint, desktop capture, swap, actions, playlist compile). fca44a5
+(egui, paint, desktop capture, swap, actions, playlist compile). 85a6b6e
 stays as the backstop.
 
 ### Hotfix deploy
@@ -213,8 +213,8 @@ newest log in `%LOCALAPPDATA%\strobe\logs\`:
 The four-hour show kit from the private `jaja-strobe-assets` repository
 (`playlists/jaja-4h.toml`, `show/start-show.cmd`) ran on the two
 mirrored projectors. The topology was Windows Duplicate at 1920x1080. It
-ran on build 4460897, which is c879851 plus the playlist-compile backstop
-(fca44a5), with `--audio synthetic` because there was no microphone. The
+ran on build 16926bd, which is 08fe986 plus the playlist-compile backstop
+(85a6b6e), with `--audio synthetic` because there was no microphone. The
 StrobeShow scheduled task started it at logon in session 1.
 
 - **Timeline:** started 19:38. The output was black until the backstop
@@ -329,7 +329,7 @@ created (`gl::prime`) and reads it back. At debug level the log says
 `GL prime: one 16x16 draw landed in N us (D311)`; a prime that does not land
 is a warning.
 
-### Task M17 part 1: the fix verified (2026-10-16, master b8789bf)
+### Task M17 part 1: the fix verified (2026-10-16, master bdc1b70)
 
 Run as written for Task M15, in session 1 alongside the soak, with no
 `STROBE_D296_*` variable set, over the default library (16 scenes).
@@ -393,8 +393,8 @@ Host and controller both ran on the mini PC, over 127.0.0.1.
 ## The D310 scene pass measured (2026-10-16, Task M17 part 2)
 
 1920x1080, native WGL, `--show-window --window-size 1920x1080 --size
-1920x1080 --filter <scene>`, alternating the scenes before D310 (6923fa5, in
-a temporary worktree) and after (b8789bf). No black frames in any of the 12
+1920x1080 --filter <scene>`, alternating the scenes before D310 (4589908, in
+a temporary worktree) and after (bdc1b70). No black frames in any of the 12
 runs. Means, with p95 in brackets:
 
 | Scene | Before | After | fps before → after |
@@ -430,7 +430,7 @@ lines.
 | B | adaptive on, without `--remote` | 44.0 | 12.64 | 8.8% |
 | C | as B, control window minimised | 42.6 | 13.62 | 10.2% |
 | D | `--no-adaptive --render-scale 1` | 42.2 | 13.6 | about 9% |
-| E | show-night build 4460897 | 42.5-42.8 | | |
+| E | show-night build 16926bd | 42.5-42.8 | | |
 | F | master build, synthetic audio | 42.2-42.3 | | |
 
 - **Adaptive resolution** went 1.00 -> 0.90 -> 0.95 once and then sat; in
@@ -469,7 +469,7 @@ projector, 390 s each; numbers from the `perf:` lines of minutes 2 to 6. The
 
 | Run | Build and setup | fps | Late | Scale |
 |---|---|---|---|---|
-| 1 | before (6ca5248), OLD 13 | 42.5 | 11.9% | 1.00 |
+| 1 | before (4a4a756), OLD 13 | 42.5 | 11.9% | 1.00 |
 | 2 | after (D314), OLD 13 | 53.2 | 4.2% | hunted 0.65-0.80 |
 | 3 | after, OLD 13, control window minimised | 51.5 | 1.2% | 1.00 -> 0.90 (7.7 s) -> 0.80 (129 s), then steady |
 | 4 | `--no-adaptive --render-scale 1`, OLD 13 | 42.3 | 8.2% | 1.00 |
@@ -517,17 +517,17 @@ projector, 390 s each; numbers from the `perf:` lines of minutes 2 to 6. The
 
 ## D315 on the projector: the verdict was too strict (2026-10-16, Task M19, D315 -> D316)
 
-The five M18 runs again, on the D315 build (d76e320), 390 s each, numbers
+The five M18 runs again, on the D315 build (7b7c36a), 390 s each, numbers
 from the `perf:` lines of minutes 2 to 6. The soak was paused for them from
 15:03:16 to 15:36:59.
 
 | Run | Build and setup | fps | Late | Control redraws | Scale |
 |---|---|---|---|---|---|
-| 1 | 12ef170 (D314), OLD 13 | 52.5 | 4.4% | | hunting, as M18 run 2 |
-| 2 | d76e320 (D315), OLD 13, control covered | 42.6 | 8.0% | 11-12 a minute | locked at 1.00 |
-| 3 | d76e320, OLD 13, control minimised | 42.7 | 9.2% | 0 | locked at 1.00 |
+| 1 | f1224ec (D314), OLD 13 | 52.5 | 4.4% | | hunting, as M18 run 2 |
+| 2 | 7b7c36a (D315), OLD 13, control covered | 42.6 | 8.0% | 11-12 a minute | locked at 1.00 |
+| 3 | 7b7c36a, OLD 13, control minimised | 42.7 | 9.2% | 0 | locked at 1.00 |
 | 4 | `--no-adaptive --render-scale 1`, OLD 13 | 42.2 | | | 1.00 |
-| 5 | d76e320, the new scenes, holding `16-acid-mirror` | 49.2 | 0.6% | | locked at 1.00 |
+| 5 | 7b7c36a, the new scenes, holding `16-acid-mirror` | 49.2 | 0.6% | | locked at 1.00 |
 
 "Late" is the perf line's count of intervals over 1.5 periods; the adaptive
 lines count refreshes missed from the window's span (D315), so their shares
@@ -571,18 +571,18 @@ are much larger.
 
 ## D316 on the projector: passed, with a slow third step (2026-10-16, Task M20, D316 -> D317)
 
-The five runs again on the D316 build (ccc06de), 390 s each, numbers from the
+The five runs again on the D316 build (8ab4fe3), 390 s each, numbers from the
 `perf:` lines of minutes 2 to 6. The soak was paused from 16:06:44 to
 16:40:12.
 
 | Run | Build and setup | fps | Missed | Late | GPU ms | Scale | Control |
 |---|---|---|---|---|---|---|---|
 | 1 | M19 build, OLD 13 | 42.5 | | | | locked at 1.00 | |
-| 2 | ccc06de, OLD 13, control covered: three minutes | 52.6 | 14.1% | 1.6% | 9.12 | 0.80 | 11-12 a minute |
+| 2 | 8ab4fe3, OLD 13, control covered: three minutes | 52.6 | 14.1% | 1.6% | 9.12 | 0.80 | 11-12 a minute |
 | 2 | the same run, after 241 s | 58.5 | 2.6% | 1.7% | 7.29 | 0.70 | 11-12 a minute |
-| 3 | ccc06de, OLD 13, control minimised | 58.4 | | | | 0.70 (from 180.5 s) | 0 |
+| 3 | 8ab4fe3, OLD 13, control minimised | 58.4 | | | | 0.70 (from 180.5 s) | 0 |
 | 4 | `--no-adaptive --render-scale 1`, OLD 13 | 42.6 | 40.7% | | | 1.00 | |
-| 5 | ccc06de, the new scenes, holding `16-acid-mirror` | 59.8 | 0.1-0.5% | | | 0.80 | |
+| 5 | 8ab4fe3, the new scenes, holding `16-acid-mirror` | 59.8 | 0.1-0.5% | | | 0.80 | |
 
 **The adaptive lines:**
 - **Run 1:** D315's lock, 41.7% -> 25.8%, back to 1.00.
@@ -623,7 +623,7 @@ The five runs again on the D316 build (ccc06de), 390 s each, numbers from the
 
 ## D317 on the projector: the fast third step, and a false lock (2026-10-17, Task M21, D317 -> D318)
 
-Two hold-13 runs on the D317 build (37880a8), with the control window
+Two hold-13 runs on the D317 build (81b9e5b), with the control window
 covered. The soak was paused from 17:06:47 to 17:11:35.
 
 **Run A, launched about 10 s after the soak's strobe exited:**
@@ -669,7 +669,7 @@ covered. The soak was paused from 17:06:47 to 17:11:35.
 
 ### M22: launches right after another strobe exits
 
-Two hold-13 runs on the D318 build (76104e9), the control window covered,
+Two hold-13 runs on the D318 build (4d41e5d), the control window covered,
 one launched 1.4 s after another strobe exited. The soak was paused from
 about 17:42 to 17:48:13.
 
@@ -714,7 +714,7 @@ paused from 17:49:56 to 17:57:20.
 
 ## A disturbance inside a verdict, and a long hold (2026-10-17, Task M24, D319 -> D320)
 
-Hold-13 on the D319 build (40ad1b1), the old scenes, control window covered.
+Hold-13 on the D319 build (2afcce6), the old scenes, control window covered.
 The soak was paused from 18:26:53 to 18:44:55.
 
 | Run | Load | Steps | Result |
@@ -764,7 +764,7 @@ restore points before a show. That belongs in the venue runbook, which is
 kept with the show kit in the private `jaja-strobe-assets` repository, not
 in this one.
 
-### Task M25: the deferral lines on the projector (2026-10-17, cdfeb5c)
+### Task M25: the deferral lines on the projector (2026-10-17, b78f5dd)
 
 One 600 s hold-13 on the old scenes, the control window covered, with the
 640x360 scene-10 bench from +9.0 s to +13.0 s. Soak paused 19:11:36 to
@@ -793,9 +793,9 @@ Per-minute perf from minute 2: 58.1-59.7 fps, 0.4-3.3% missed, worst gaps
 - **Not a show concern:** the shipped 13 (D310) costs 8.5 ms at full size
   on this machine and needs no scaling.
 
-## The show build's first day: the heavy scenes fixed, and a lock that ran out (2026-10-17, Task M26, 51f2620)
+## The show build's first day: the heavy scenes fixed, and a lock that ran out (2026-10-17, Task M26, a74889f)
 
-The M9 soak moved from 6ca5248 to master 51f2620 (D310's cheaper scenes,
+The M9 soak moved from 4a4a756 to master a74889f (D310's cheaper scenes,
 D311 to D320) at 23:33:06 on 2026-10-16. The playlist resumed at cue 3 of
 loop pass 1, from the old soak's resume point; the test card was not
 replayed. The first daily report came at 02:57, 3.4 h in.
@@ -809,7 +809,7 @@ replayed. The first daily report came at 02:57, 3.4 h in.
 
 Per scene, over 203 perf windows (157 inside one cue):
 
-| Scene | Windows | fps avg (min) | GPU ms | Missed % | Scale | 6ca5248 fps |
+| Scene | Windows | fps avg (min) | GPU ms | Missed % | Scale | 4a4a756 fps |
 |---|---|---|---|---|---|---|
 | 01-aurora-gradient | 9 | 59.9 (59.9) | 1.87 | 0.1 | 1.00 | |
 | 02-plasma-pulse | 13 | 59.9 (59.9) | 2.26 | 0.1 | 1.00 | |
@@ -826,7 +826,7 @@ Per scene, over 203 perf windows (157 inside one cue):
 | 16-acid-mirror | 10 | 59.8 (59.3) | 8.22 | 0.4 | 0.80 | 47.0 |
 
 Overall: 59.5 fps and 0.68% of refreshes missed, against 53.5 fps and 2.5%
-late on day 1 of 6ca5248. `15-neon-ribbon-flow` is now the weakest scene.
+late on day 1 of 4a4a756. `15-neon-ribbon-flow` is now the weakest scene.
 
 **The D318 lock and its expiry, on hardware for the first time** (2 of 99
 adaptive lines; the scene held at 0.90 was 15-neon-ribbon-flow):
@@ -839,12 +839,12 @@ adaptive lines; the scene held at 0.90 was 15-neon-ribbon-flow):
 The step cut 40% of the misses but only 4.5 points, under D316's 5-point
 floor, so it was undone. The lock ran out 66 s later, as designed.
 
-Next: rebuild on master 3c1bde1 (D400-D438) and restart, with
-strobe-6ca5248.exe kept as the rollback.
+Next: rebuild on master 6e36b8b (D400-D438) and restart, with
+strobe-4a4a756.exe kept as the rollback.
 
-## The show build's first full day on 3c1bde1 (2026-10-18, Task M26)
+## The show build's first full day on 6e36b8b (2026-10-18, Task M26)
 
-The soak switched to master 3c1bde1 (D400-D438) at 03:12:53 on 2026-10-17
+The soak switched to master 6e36b8b (D400-D438) at 03:12:53 on 2026-10-17
 and resumed cue 51 at 160.6 s in. Report at 02:59 the next day, 23.8 h in:
 
 - **Health:** no reboot, no restart, no WARN or ERROR besides the startup
@@ -852,7 +852,7 @@ and resumed cue 51 at 160.6 s in. Report at 02:59 the next day, 23.8 h in:
   730 KB, about 0.73 MB a day. resume.toml was written every 5.0 s (D438's
   sync changes nothing visible).
 - **Memory:** private 245 MB, working set 64 MB, 478 handles. The old
-  builds sat at 200-217 MB over several days; 51f2620 went from 214 to
+  builds sat at 200-217 MB over several days; a74889f went from 214 to
   223 MB in 3.4 h. With no hourly samples, creep and a plateau cannot be
   told apart yet; hourly sampling is running.
 - **Playlist:** 315 cue starts, 5 complete loops.
@@ -869,7 +869,7 @@ and resumed cue 51 at 160.6 s in. Report at 02:59 the next day, 23.8 h in:
 
 ### Scene 13's memory, sampled per minute (2026-10-18, Task M26)
 
-Hourly samples on 3c1bde1 read 245, 251 and 288 MB while
+Hourly samples on 6e36b8b read 245, 251 and 288 MB while
 13-chromatic-rise played, against 213-229 MB on every other scene. A
 per-minute sampler then followed all four 13 cues of loop pass 11:
 
@@ -892,7 +892,7 @@ Handles stayed at 478 and threads at 14 throughout.
 
 ### Day 2: windows over the output cost 5-11% of refreshes (2026-10-19, Task M26)
 
-The day-2 report on 3c1bde1 (47.8 h, no restart, 11 complete loops, only
+The day-2 report on 6e36b8b (47.8 h, no restart, 11 complete loops, only
 the startup robustness WARN) showed missed refreshes on the heavy scenes
 rising in two steps:
 
@@ -945,7 +945,7 @@ of the projection, and needs someone at the screen (RUNBOOK, "Once, ever").
 
 ### Day 3: clean, and Windows servicing during the soak (2026-10-20, Task M26)
 
-72.0 h on 3c1bde1, the output in the foreground, no console windows on
+72.0 h on 6e36b8b, the output in the foreground, no console windows on
 screen.
 - **Health:** no restart. Only the startup robustness WARN appeared, and no
   "repeated" line. Private memory is 213 MB with 478 handles. The session log
@@ -980,7 +980,7 @@ owner's options are in the JaJa runbook.
 
 ### End of the soak, and the show set-up for the next show (2026-10-21, Task M26)
 
-**Soak totals on 3c1bde1:** 92.3 h, no crash restart, and no WARN or ERROR
+**Soak totals on 6e36b8b:** 92.3 h, no crash restart, and no WARN or ERROR
 besides the startup robustness line. Memory stayed flat. The owner ended it
 by hand at 23:14 on 2026-10-20: they loaded scenes from the control window,
 Strobe exited with code 0, and the PC was restarted.
@@ -992,9 +992,9 @@ Strobe exited with code 0, and the PC was restarted.
   and the two existing restore points are kept.
 - The firewall dialog was answered at the screen.
 
-**The show machine now runs master 68c7749.** The exe is at
-`strobe-test\strobe-master\target\release`, and the 3c1bde1, 51f2620 and
-6ca5248 builds sit beside it for rollback. The launcher passes
+**The show machine now runs master 8b8a98a.** The exe is at
+`strobe-test\strobe-master\target\release`, and the 6e36b8b, a74889f and
+4a4a756 builds sit beside it for rollback. The launcher passes
 `--audio ambient`. The show library has the D310 versions of 04, 05, 08, 13,
 14 and 16, plus 17-blacklight-carpet; the old folders are kept in
 `strobe-test\backup`. The show folder is a hand-made copy, not a git
@@ -1003,7 +1003,7 @@ checkout, and the machine has no GitHub login for the private assets repo.
 ## Live capture from the webcam mic (2026-10-27, Tasks M27-M29, backlog R-01)
 
 The mini PC now has a microphone: a Logitech C270 webcam. Windows lists one
-capture endpoint, `Microphone (C270 HD WEBCAM)`. Master was ab7e3f3.
+capture endpoint, `Microphone (C270 HD WEBCAM)`. Master was 9f476ea.
 `cargo build --profile release-fast -p strobe-app` took 2m 01s. The ANGLE
 DLLs were already beside the exe, so the build's ANGLE fetch (#40) had
 nothing to do. The app ran as the logged-on user through a scheduled task in
@@ -1052,7 +1052,7 @@ so there is no other default to switch to. It also needs hands at the PC.
 
 ## strobe-projector replaces the Python projector tool (2026-10-27, Task M30, backlog L-09)
 
-Master e61f35d. `cargo build --profile release-fast -p strobe-app` took 2m 13s.
+Master ca6b9f6. `cargo build --profile release-fast -p strobe-app` took 2m 13s.
 `setup-network.ps1` changed nothing: Ethernet was already 192.168.50.1/24, DHCP
 off, metric 500, and the only default route was via Wi-Fi.
 
@@ -1159,7 +1159,7 @@ lapsed, still has to be approved on the mini PC's own screen (D288).
 
 The owner restarted the show at 23:22 (this agent's permissions refused to start a Strobe
 that listens on the LAN with desktop control on). Session log
-`strobe-20261028-062249-10268.log`, build 063b25b:
+`strobe-20261028-062249-10268.log`, build 1ce46e7:
 
 ```
     0.686s INFO  [main] strobe_remote::server: remote: listening on 10.1.10.155:47812
@@ -1179,7 +1179,7 @@ looks like a power cut or a hard reset, not a crash. The autostart brought every
 
 That boot's launcher found this file uncommitted on this branch ("uncommitted changes in
 tracked files, not updating") and correctly built the checkout as it was
-(`063b25b+dirty`, same code) instead of updating. **Agents working in this checkout must leave
+(`1ce46e7+dirty`, same code) instead of updating. **Agents working in this checkout must leave
 it clean and on master**, or the show's boot update is skipped.
 
 **Desktop control needs re-approval after every restart, by design; ordinary pairings don't.**
@@ -1198,7 +1198,7 @@ stops listening. So every Strobe restart, including a crash relaunch or a reboot
 at the mini PC to approve LIGHTNING's desktop control again. The way round it is venue mode's
 `--remote-trust` file (D288).
 
-### Before the fix: desktop control cost half the frame rate (build 4657653)
+### Before the fix: desktop control cost half the frame rate (build 460e359)
 
 Read from `strobe-20261028-033649-11004.log`, the `jaja-4h` show the launcher autostarted at
 20:36. The remote came on at 2972 s, and LIGHTNING paired for desktop control at 2983 s.
@@ -1226,10 +1226,10 @@ There were no `desktop capture` warnings. The only other lines were audio buffer
 Read: the cost lands on the app thread. A covered control window's SwapBuffers blocks about
 45 ms. At the lease's ~5 Hz that is about 14 s a minute, roughly three output vblanks lost
 per swap. The same redraws cost 7 ms when the window is visible. D508 (PR #56) skips the swap
-of a covered control frame that Windows did not paint. The show was restarted on 063b25b at
+of a covered control frame that Windows did not paint. The show was restarted on 1ce46e7 at
 22:04 to measure it.
 
-### After the fix (build 063b25b)
+### After the fix (build 1ce46e7)
 
 The A/B, 4 minutes controlled from LIGHTNING and 4 minutes returned to local, on
 `17-blacklight-carpet`, still to be run: phase times from the owner, perf lines, and the
@@ -1237,7 +1237,7 @@ Strobe CPU sampled every 5 s.
 
 ## Still to do here
 
-- M31: run the after-fix A/B on 063b25b, and check that LIGHTNING's view of the covered host
+- M31: run the after-fix A/B on 1ce46e7, and check that LIGHTNING's view of the covered host
   keeps updating (not black or stale).
 
 - D518: the projector service still runs the SYSTEM task's 2026-10-27 build,

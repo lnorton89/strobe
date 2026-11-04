@@ -9,8 +9,9 @@ compiles. It owns every SSF rule that can be decided without a GPU.
 ## Role in the workspace
 
 - **Depends on:** `strobe-ssf-lib` (the GLSL function library, which the
-  assembler embeds), plus `serde`, `serde_json` and `thiserror`.
+  assembler embeds), plus `serde`, `serde_json`, `thiserror` and `log`.
 - **Depended on by:** `strobe-gfx`, `strobe-audio`, `strobe-script`,
+  `strobe-io`, `strobe-shadertoy`, `strobe-autocontrol`, `strobe-web`,
   `strobe-app` and `strobe-bench`. It is the bottom of the dependency graph
   in [`ARCHITECTURE.md`](../../docs/ARCHITECTURE.md).
 - **Does not:** touch GL, spawn threads, or read a clock (`dt` is always

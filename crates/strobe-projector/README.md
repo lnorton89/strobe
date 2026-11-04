@@ -68,8 +68,11 @@ service's log. No HTTP framework, no async runtime.
 Everything above is tested against fake PJLink and NTCONTROL projectors on
 loopback (`tests/fake_projector.rs`), and the web API over real sockets.
 
-- The Rust build has not yet run against the venue's PT-DZ6700 and
-  VPL-PHZ10; the Python tool it replaces had (backlog L-09).
+- The Rust build has run against the venue's PT-DZ6700 and VPL-PHZ10
+  (Task M30, [`MINIPC.md`](../../docs/hardware/MINIPC.md)): discovery,
+  status, API auth, on with `--wait`, off through the cool-down and wake
+  from standby. Left on the real units: the reboot check, Settings >
+  Projectors and the phone page (backlog L-09).
 - The NTCONTROL fallback has never switched a real unit, in either
   language (backlog L-09).
 - One command at a time per unit holds within a process; Strobe and the

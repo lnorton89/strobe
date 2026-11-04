@@ -5,11 +5,13 @@ name: Release
 #   cargo xtask changelog --release v0.2.0   # commit the result
 #   git tag -a v0.2.0 -m "strobe v0.2.0" && git push origin v0.2.0
 #
-# The release is created as a draft, the archives are attached to it, and
-# it is only published once the build *and* the full CI suite on the
-# tagged commit have succeeded — so a failed build or a red test leaves an
-# unpublished draft rather than a half-populated or untested public
-# release (D521). A published release is final: a re-run, a re-pushed tag
+# The release is created as a draft, and the archives are attached to it
+# only once the build *and* the full CI suite on the tagged commit have
+# succeeded — so a failed build or a red test leaves an unpublished draft
+# rather than a half-populated or untested public release (D521). Then
+# `publish` waits for the owner's approval (the `release` environment,
+# D548): the draft's own archives go through `cargo xtask rc` on a real
+# GPU first. A published release is final: a re-run, a re-pushed tag
 # or a manual dispatch for its version stops in `draft` before anything is
 # built, and a fix is the next patch version.
 #
@@ -105,7 +107,7 @@ jobs:
   # tests on Windows, Linux (with a real GLSL compiler) and macOS, the
   # changelog, brand and credits checks, cargo-deny. A branch that was green
   # says nothing about this exact commit; this does. It runs beside the
-  # build, and `publish` waits for both.
+  # build, and `stage` waits for both.
   validate:
     name: CI on the tagged commit
     needs: resolve
@@ -120,7 +122,7 @@ jobs:
     needs: resolve
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # This job and `publish` are the only ones holding a write-capable
+    # This job, `stage` and `publish` are the only ones holding a write-capable
     # token; the build below runs third-party code and needs none.
     permissions:
       contents: write
@@ -159,7 +161,7 @@ jobs:
           set -euo pipefail
           # A draft left by a failed run is resumed. A published release is
           # never rebuilt: its assets, checksums and attestations are what
-          # people have downloaded and verified, and `publish` would
+          # people have downloaded and verified, and `stage` would
           # replace them.
           if gh release view "$TAG" >/dev/null 2>&1; then
             draft=$(gh release view "$TAG" --json isDraft --jq .isDraft)
@@ -364,11 +366,11 @@ jobs:
             dist/*.cdx.json
             dist/*.sha256
 
-  publish:
-    name: Publish release
+  stage:
+    name: Stage the draft
     # `validate` is what makes "release from green" a rule rather than a
     # habit: a red test anywhere in ci.yml, on the tagged commit, leaves
-    # the draft unpublished.
+    # the draft without its archives and unpublished.
     needs: [resolve, draft, build, validate]
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -424,7 +426,7 @@ jobs:
           subject-path: dist/strobe-*-x86_64-pc-windows-msvc.zip
           sbom-path: dist/strobe-${{ needs.draft.outputs.tag }}-sbom.cdx.json
 
-      - name: Upload and undraft
+      - name: Upload to the draft
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -445,4 +447,41 @@ jobs:
           # splitting of the list, SC2046).
           mapfile -t files < <(find . -type f)
           gh release upload "$TAG" "${files[@]}" --clobber
+          {
+            echo "### $TAG is staged as a draft"
+            echo
+            echo "Run the release-candidate harness on the draft's own archives, then approve the \`publish\` job:"
+            echo
+            echo '```bash'
+            echo "gh release download $TAG -R ${GITHUB_REPOSITORY} --pattern 'strobe-*.zip'"
+            echo "cargo xtask rc --zip strobe-$TAG-x86_64-pc-windows-msvc.zip --symbols strobe-$TAG-x86_64-pc-windows-msvc-symbols.zip"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  publish:
+    name: Publish release
+    # Waits for the owner's approval (the `release` environment, D548), so
+    # the draft's own archives can go through `cargo xtask rc` on a real
+    # GPU before anyone can download them. Everything it publishes was
+    # built, attested and uploaded by `stage`; this job only undrafts.
+    needs: [draft, stage]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - name: Undraft
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.draft.outputs.tag }}
+        run: |
+          set -euo pipefail
+          draft=$(gh release view "$TAG" --json isDraft --jq .isDraft)
+          if [ "$draft" != "true" ]; then
+            echo "Release $TAG is already published."
+            exit 1
+          fi
           gh release edit "$TAG" --draft=false --latest

@@ -72,10 +72,15 @@ cargo xtask ci doctor          # what can run here, and how to install the rest
 
 CI's jobs run the very same lanes, `cargo --locked xtask ci --strict
 <lanes>`, so the commands are written once, in `crates/xtask/src/ci.rs`
-(D533): `fmt`, `check` (clippy; on Linux also `strobe-io` without MIDI
-and the Windows cross-check), `test`, `deny`, `generated` (the changelog,
-icon and credits checks), `render` (Linux: the app on Xvfb and the scene
-library in both dialects) and `build` (Windows: the optimised binaries).
+(D533): `fmt`, `lint` (the workflows and scripts: actionlint and
+shellcheck on Linux, PSScriptAnalyzer on Windows), `check` (clippy; on
+Linux also three crates without their default features, the browser
+engine for wasm32, rustdoc and the Windows cross-check), `test`, `deny`,
+`generated` (the changelog, icon, credits and decisions-index checks),
+`render` (Linux: the app on Xvfb, the scene library in both dialects and
+the corpus gate), `build` (Windows: the optimised binaries) and `package`
+(Windows: the release zip, unpacked and checked). `conventions` runs the
+conventions tests alone; a docs-only pull request runs only that (D531).
 
 A step that does not apply to your host says `n/a`, as CI's job for that
 host would. One whose tool is missing (the Windows target, `cargo-deny`,
@@ -106,8 +111,12 @@ Lints and `crates/strobe-conventions` fail the build for:
   that doesn't match its path;
 - `unwrap`, `expect`, `panic!`, `todo!`, or `unreachable!` anywhere,
   including tests;
-- `unsafe` outside `crates/strobe-gfx/src/gl/`, more than one unsafe
-  operation in a function, a `pub unsafe fn`, or unsafe in a test;
+- `unsafe` outside `crates/strobe-gfx/src/gl/` and
+  `crates/strobe-diag/src/native.rs`, more than one unsafe operation in a
+  function, a `pub unsafe fn`, or unsafe in a test;
+- a crate that depends on one its layer must not (D541);
+- a relative Markdown link that does not resolve, or a cited decision with
+  no file in `docs/decisions/` (D497);
 - `#[allow]` (use `#[expect(lint, reason = "…")]`) and wildcard enum
   match arms;
 - a CI workflow whose Rust version disagrees with `rust-toolchain.toml`,
@@ -190,6 +199,10 @@ In this order:
 4. Merge (a merge commit, never a squash, since the changelog pins
    individual commit hashes), then tag the merge commit, annotated:
    `git tag -a v0.2.0 -m "strobe v0.2.0"`, and push the tag.
+5. Wait for the release workflow to stage the draft, run the
+   release-candidate harness on the draft's own archives (below), and
+   then approve the `publish` job on the run's page on GitHub. If the
+   harness fails, reject it or leave it: the release stays a draft.
 
 For the first tag, [`docs/RELEASE_PLAN.md`](docs/RELEASE_PLAN.md)
 sequences this order around the checks the workflow has never exercised,
@@ -197,16 +210,19 @@ including a dry run on a throwaway tag before the real one exists.
 
 CI builds and checks the package on every pull request (the Windows job's
 `package` lane, D537), but a runner has no GPU. Before publishing, run the
-draft's own archive on the T480:
+draft's own archives on a real Windows machine with a GPU (the T480, or the
+mini PC). A draft's files download with the repository's own access:
 
 ```bash
+gh release download v0.2.0 -R lnorton89/strobe --pattern "strobe-*.zip"
 cargo xtask rc --zip strobe-v0.2.0-x86_64-pc-windows-msvc.zip --symbols strobe-v0.2.0-x86_64-pc-windows-msvc-symbols.zip
 ```
 
 It runs the package check, draws on native GL and ANGLE-D3D11, crashes the
 program on purpose and symbolicates the dump against the archived PDB, and
-writes `target/rc/evidence.json`. That file goes with the T480's record in
-`docs/hardware/`. The checks it lists as manual are still done by hand.
+writes `target/rc/evidence.json`. That file goes with the machine's
+record in `docs/hardware/`. The checks it lists as manual are still done
+by hand.
 
 The tag push triggers `.github/workflows/release.yml`. It resolves the tag
 to one commit and works from that SHA throughout, checks the tag
@@ -218,11 +234,13 @@ and `LICENSES.chromium.html`, `scenes/`, README, LICENSE, `THIRD_PARTY.md`, and
 `cargo xtask credits --notices`). Alongside it
 go a separate `-symbols.zip` holding `strobe.pdb` (keep it: it is what
 symbolicates a crash minidump from that exact build), a CycloneDX SBOM,
-and SHA-256 checksums. A final job attests build provenance and the SBOM
-(`gh attestation verify <file> -R lnorton89/strobe`) and only then, once
-the build and every CI job have passed, publishes the draft, so a failed
-build or a red test leaves an unpublished draft and not a half-populated
-or untested public release. Re-running the workflow resumes a draft; it
+and SHA-256 checksums. Once the build and every CI job have passed,
+`stage` attests build provenance and the SBOM
+(`gh attestation verify <file> -R lnorton89/strobe`) and uploads every
+file to the draft, so a failed build or a red test leaves a draft and not
+a half-populated or untested public release. `publish` then waits for the
+owner's approval in the `release` environment (D548), which only `v*`
+tags may use, and only undrafts the release. Re-running the workflow resumes a draft; it
 refuses a release that is already published. To run it by hand, start it
 from the tag itself, so the provenance names the commit that was built:
 `gh workflow run release.yml --ref v0.2.0 -f tag=v0.2.0`.

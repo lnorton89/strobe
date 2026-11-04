@@ -38,7 +38,7 @@ tracks every known unfinished implementation and validation task across the proj
   `target/desktop-remote-smoke-output.png`. This local test
   build is not a packaged release; the original running processes were left
   untouched.
-  PR integration was repeated against upstream `5507a13` on 2026-10-14:
+  PR integration was repeated against upstream `3b3844c` on 2026-10-14:
   `cargo xtask ci` and the explicit all-workspace Windows-target clippy
   passed (`target/desktop-remote-pr-ci.log`,
   `target/desktop-remote-pr-windows.log`). New rustls advisories required a
@@ -232,7 +232,7 @@ Linux and llvmpipe cannot prove any of these:
   (T480 Tasks 21 and 22). An archive from a real tagged release is R-05.
 - [x] Run for at least 30 minutes with repeated scene switches, and
   inspect for crashes, log growth and resource stability. TORNADO T19
-  (commit 9215858): 31 minutes, a 10 s crossfade playlist over all 12
+  (commit 9f1908a): 31 minutes, a 10 s crossfade playlist over all 12
   scenes, with 186 cues and 185 transitions, all finished.
   - No crash, warning or error; a clean close (exit 0).
   - Working set 145.1 to 145.6 MB over the last 20 minutes (0.2 MB per
@@ -291,7 +291,7 @@ Linux and llvmpipe cannot prove any of these:
 - [x] A late lock heals (D318). Unit-tested
   (`a_lock_on_an_undetected_disturbance_heals_within_the_minute`, the
   backoff checks); the expiry logs a line (D320). Verified on the mini PC
-  (MINIPC.md Task M26, 51f2620, 2026-10-17). At 9797.7 s, 0.90 -> 0.80
+  (MINIPC.md Task M26, a74889f, 2026-10-17). At 9797.7 s, 0.90 -> 0.80
   cut 15-neon-ribbon-flow's missed refreshes from 11.2% to 6.7%, under
   D316's 5-point floor. It was undone and locked, and `the lock at 0.90
   ran out` followed at 9863.7 s, 66 s later.
@@ -687,11 +687,13 @@ the topology before any broad redesign.
   `resizing_restarts_the_readback_from_black`,
   `a_lost_context_makes_the_readback_inert_and_its_drops_harmless`; and
   `script_uniforms.rs` `texture_final_pass_reads_the_picture_a_few_frames_late`.
-  **Not yet:** the latency assertion on the T480. `script_uniforms.rs`
-  skips there because Windows has no headless EGL device (Task 14). The
-  scripted scene runs clean on Intel native, but the fence behaviour and
-  cost on Intel and ANGLE/D3D11 are unmeasured. Running these tests on the
-  window context (D140) would close this.
+  `script_uniforms.rs` skips on the T480 because Windows has no headless
+  EGL device (Task 14), so `strobe-bench --readback` (D245) runs the same
+  checks on a window context: on the T480 (Task 33,
+  [hardware/T480.md](hardware/T480.md)) native and ANGLE/D3D11 both have
+  exactly 2 frames of latency and cost about +0.23 ms a frame, and with the
+  GPU busy ANGLE's data averages 2.3 frames old with no stall (backlog
+  C-04).
 - [x] A script-created uniform that appears after initial preparation is
   refused, and no shader compiles after load (D161). Evidence:
   `script_uniforms.rs`
@@ -705,8 +707,11 @@ the topology before any broad redesign.
   `render.rs` `implicit_int_to_float_and_non_macro_if_compile_in_both_dialects`
   checks values on both dialects; the owner's 90-scene corpus compiles 87
   on GLES (17 before) and every deterministic desktop frame is
-  bit-identical with the rewrite on (llvmpipe). **Not yet:** re-run on
-  ANGLE/D3D11 on TORNADO or the T480.
+  bit-identical with the rewrite on (llvmpipe). Re-run on ANGLE/D3D11:
+  TORNADO T18, 63 of the owner's 65 scenes in both dialects (the two left
+  are the scenes' own bugs); the T480 (Tasks 47-48), the library 17/17 and
+  Synesthesia's 88 installed scenes 88/88 in the GLES dialect (backlog
+  C-02).
 
 *Acceptance:* a fixture per behaviour, tests on both shader dialects where
 they apply, and explicit supported, degraded or unsupported claims.
@@ -837,12 +842,12 @@ survives export.
   TORNADO at 2160p.
 - [ ] Owner-supplied real Shadertoy shaders through NVIDIA's compiler.
 - [~] **Real Synesthesia scenes** (65 of the owner's, T2): 47 compile on
-  native and 35 on ANGLE at commit 963b535, with failures grouped by cause in
+  native and 35 on ANGLE at commit 8889cf3, with failures grouped by cause in
   [hardware/TORNADO.md](hardware/TORNADO.md). D193 and D194 fix the shape and
   size causes (CRLF, missing `TYPE`, 0-sized passes, `MEDIA` slots,
   multi-name globals, absolute data passes). Open: Synesthesia's user-media
   library (8 scenes), and implicit int to float and non-macro `#if` on ANGLE
-  (12, Q8). Re-run at 40ee040 (T4): 55 native, 38 ANGLE. **At bc4668e
+  (12, Q8). Re-run at 4869520 (T4): 55 native, 38 ANGLE. **At 10bf981
   (T6, after D199): 56 native and 56 ANGLE, with no regressions; with
   scripts running (`strobe-corpus` on Windows), 62 of 65.** The missing
   picture now plays as black (D201), so T8 and T18 give 63 of 65 in both
@@ -1040,9 +1045,28 @@ survives export.
   SBOM is CycloneDX 1.3 with 279 components. The ANGLE DLLs are covered by
   `LICENSES.chromium.html` and were hash-checked by
   `scripts/fetch-angle.ps1` during the build, which fails the release on a
-  mismatch. **Not yet:** the clean-machine install and smoke test, and
-  symbolicating a crash from the *downloaded* archive (steps 4 and 5 of
-  [RELEASE_PLAN.md](RELEASE_PLAN.md)).
+  mismatch. **v0.2.0's downloaded archive on the T480** (Task 50,
+  2026-10-27, [hardware/T480.md](hardware/T480.md)): both checksums and
+  both attestations verified, the program ran outside the checkout on
+  native and ANGLE-D3D11, and its crash drill symbolicated with the
+  release's own `strobe.pdb` (steps 4 and 5 of
+  [RELEASE_PLAN.md](RELEASE_PLAN.md), R-03, R-04). **Not yet:** a clean
+  machine with no toolchain, and the manual checks R-03 lists.
+- [x] A release publishes only after all of `ci.yml` passes on its one
+  tagged commit (D521). Evidence: a dry run on the mirror (v0.2.1, run
+  41792295320, 2026-11-04, D544): the tag resolved to one commit, all of
+  `ci.yml` passed on it, the fat-LTO package passed `package-check`, the
+  release was published, and `gh attestation verify` shows its provenance
+  naming `refs/tags/v0.2.1` at the tagged commit. **Not recorded:** the
+  other two runs D521's test asks for, a dispatch from master refused and a
+  second run against the published release stopping in `draft`.
+- [x] A release candidate passes `cargo xtask rc` on the T480 (D537,
+  D544): on 2026-11-04 a fat-LTO candidate built there passed all 11
+  package checks, drew 600 frames on native GL and ANGLE-D3D11, and its
+  injected crash symbolicated against the archived PDB, with
+  `evidence.json` verdict `pass` ([hardware/T480.md](hardware/T480.md)).
+  **Not yet:** the checks the harness leaves to a person, and the next
+  tag's own zip through it.
 - [ ] Document a clean-machine install, a smoke test, and the
   symbolication steps. Portable-crate CI is not a working macOS app; that
   still needs a suitable GL context provider.

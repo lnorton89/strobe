@@ -104,8 +104,9 @@ IDs given here; a gap with no ID is by design, with its decision named.
   file.
 - `_loadMedia` and friends read `syn_Media`, which shows a still or an
   image sequence (D186), sampled as the scene's `MEDIA` slot says (D238).
-  With no media it is black and `syn_MediaType` is 0. Video and webcam are
-  not built (backlog M-04, deferred).
+  With no media it is black and `syn_MediaType` is 0. A webcam reads
+  through the same `syn_Media` on Windows (D528, `syn_MediaType` 3); video
+  is not built (backlog M-04).
 - R8 (was Q8): SSF code that relies on desktop-only implicit conversions is
   rewritten by `strobe-scene`'s typed pass on every dialect (D199). This
   library does not need it: it is written ES-clean.

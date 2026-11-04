@@ -226,7 +226,7 @@ Auth: `Authorization: Bearer <password>`, or the `pj_session` cookie `/login` se
 
 The service also survived a reboot: it came back with nobody logged in and served status.
 
-### `strobe-projector` on the real units (2026-10-27, master e61f35d, Task M30)
+### `strobe-projector` on the real units (2026-10-27, master ca6b9f6, Task M30)
 
 Installed on the mini PC over the Python install with `install.ps1`. The config moved
 over byte-identical.

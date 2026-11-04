@@ -25,7 +25,7 @@ publish are done; steps 4 and 5 await a clean machine and the T480._
 
 | Fact | Value |
 |---|---|
-| Git tags | `v0.1.0`, on the release PR's merge commit `578ea34` (2026-10-14). |
+| Git tags | `v0.1.0`, on the release PR's merge commit `a94ce33` (2026-10-14). |
 | Release | Published as **latest** at [releases/tag/v0.1.0](https://github.com/lnorton89/strobe/releases/tag/v0.1.0), with a "Known limitations" section in its notes. |
 | `[workspace.package] version` | `0.1.0` — the tagged version. No bump was needed (see step 2). |
 | `CHANGELOG.md` | Generated: 318 entries under `[0.1.0]`, `Unreleased` empty. |
@@ -104,7 +104,7 @@ Per CONTRIBUTING, with one deviation this first time:
   recognises a leading section whose tag does not exist yet and validates it as
   the release being cut. All six jobs passed.
 - [x] Merge with a **merge commit** (never a squash: the changelog pins
-  individual commit hashes) — `578ea34` — then tag the merge commit:
+  individual commit hashes) — `a94ce33` — then tag the merge commit:
   `git tag -a v0.1.0 -m "strobe v0.1.0"` and push.
 
 One ordering rule earned the hard way: every non-changelog commit must land
@@ -154,14 +154,15 @@ painted desktop, the invisible fatal-error box, and the all-black bench.
 
 *Evidence:* [hardware/MINIPC.md](hardware/MINIPC.md).
 
-### 5. Crash symbolication from the released archive (R-04) — **not done**
+### 5. Crash symbolication from the released archive (R-04) — **done on the v0.2.0 archive (T480 Task 50, 2026-10-27)**
 
-- [ ] `STROBE_FAULT=crash@120` on the downloaded `strobe.exe` writes a minidump
+- [x] `STROBE_FAULT=crash@120` on the downloaded `strobe.exe` writes a minidump
   and report.
-- [ ] `cargo xtask symbolicate` with the `-symbols.zip`'s PDB names functions and
-  `file:line`.
-- [ ] Audit the report text: no secret, token, API key or path leaks
-  ([DEBUGGING.md](DEBUGGING.md)).
+- [x] `cargo xtask symbolicate` with the `-symbols.zip`'s PDB names functions and
+  `file:line`: `strobe_app::fault::recurse()` at `fault.rs:170` and `:173`.
+- [x] Audit the report text: no secret, token, API key or path leaks
+  ([DEBUGGING.md](DEBUGGING.md)). None found; the T480 has no paired remote
+  or trust file, so R-04 keeps that audit open on a machine that does.
 
 *Accept:* a symbolic thread from the *downloaded* archive, recorded in
 [hardware/T480.md](hardware/T480.md).

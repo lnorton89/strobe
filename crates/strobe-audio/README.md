@@ -13,7 +13,8 @@ live capture from an audio device.
   `strobe_scene::audio::SCALARS` and their silent values), `realfft`, `log`
   and `thiserror`. With the `capture` feature it also uses `cpal`, `rtrb` and
   `arc-swap`.
-- **Depended on by:** `strobe-app`.
+- **Depended on by:** `strobe-app`, and `strobe-web` without `capture` (the
+  analyser in the browser sandbox, D524).
 - **Does not:** depend on `strobe-gfx` or touch GL. It produces an
   `AudioFrame` and the app hands the values to the player. It does not
   decide when to fall back to synthetic audio either: that is the app's

@@ -1,33 +1,43 @@
 # xtask
 
 The workspace's own tooling, behind the `cargo xtask` alias: a local runner
-for everything CI runs, the generator for `CHANGELOG.md`, and a shortcut for
-running the benchmark in release mode. It is a normal workspace crate, so it
+for everything CI runs, the generators for `CHANGELOG.md`, `THIRD_PARTY.md`,
+`docs/DECISIONS_BY_AREA.md` and the icons, the release package and its
+checks, and shortcuts for the benchmark, the corpus and symbolication. It is a normal workspace crate, so it
 is built, linted and tested by the same `--workspace` commands as the rest.
 
 ## Role in the workspace
 
-- **Depends on:** `clap` and `anyhow` only. It shells out to `cargo`, `rustc`
-  and `git`, and optionally `cargo-deny`.
+- **Depends on:** `clap`, `anyhow`, `serde_json` (`cargo metadata` for
+  `credits`), `sha2` (the native DLLs' hashes, D536) and `resvg` (the
+  icons). It shells out to `cargo`, `rustc` and `git`, and optionally
+  `cargo-deny`.
 - **Depended on by:** nothing. It is a binary with no library API.
 - **Does not:** link against any other Strobe crate, or parse
   `strobe-bench`'s flags (they are forwarded untouched). The `xtask` alias in
   `.cargo/config.toml` (`xtask = "run -p xtask --"`) is the whole install.
 
 Every command runs from the workspace root regardless of where it is invoked
-(the root is fixed at compile time from the crate's manifest directory), so
-`cargo xtask ci` works from inside `crates/strobe-gfx`.
+(two folders above the crate's manifest directory, as `cargo run` names it
+at run time, so two checkouts sharing a target directory each check their
+own tree), so `cargo xtask ci` works from inside `crates/strobe-gfx`. A path you
+type is still taken from where you typed it.
 
 ## Main types / entry points
 
 | Command | What |
 |---|---|
-| `cargo xtask ci [lanes] [--strict]` | The commands CI runs, as named lanes (`fmt`, `check`, `test`, `deny`, `generated`, `render`, `build`, `conventions`; `all` by default) with each host's policy in Rust. CI's jobs call it with `--strict`; `doctor` lists what this machine can run (D533). Stops at the first failure. |
+| `cargo xtask ci [lanes] [--strict]` | The commands CI runs, as named lanes (`fmt`, `check`, `test`, `deny`, `generated`, `render`, `build`, `package`, `lint`, `conventions`; `all` by default) with each host's policy in Rust. CI's jobs call it with `--strict`; `doctor` lists what this machine can run (D533). Stops at the first failure. |
 | `cargo xtask changelog` | Regenerates `CHANGELOG.md` from conventional-commit subjects. |
 | `cargo xtask bench -- <args>` | `cargo run --release -p strobe-bench -- <args>`. |
+| `cargo xtask corpus [--profile p] -- <args>` | Builds `strobe-corpus` and runs it over a folder of scenes (D195, D534). |
+| `cargo xtask symbolicate <dump>` | A minidump as a stack with function names and `file:line`. |
+| `cargo xtask brand`, `credits`, `decisions` | The icons from `assets/brand/*.svg` (D190), `THIRD_PARTY.md` and the release's notices (D491), and `docs/DECISIONS_BY_AREA.md` (D539); each takes `--check`. |
+| `cargo xtask package`, `package-check`, `rc`, `sbom-native` | The release zip and its symbols zip, the checks on an unpacked zip, the release-candidate harness for a real Windows machine (D537), and the native DLLs added to the SBOM (D536). |
 
-The code is in `src/main.rs` (the clap `Cli`), `src/ci.rs`, `src/changelog.rs`
-and `src/bench.rs`.
+The code is in `src/main.rs` (the clap `Cli`) and one module per command:
+`ci`, `changelog`, `bench`, `corpus`, `symbolicate`, `brand`, `credits`,
+`decisions`, `package`, `rc` and `native`.
 
 ## Usage
 
@@ -55,7 +65,8 @@ cargo xtask rc --zip <zip> --symbols <zip>    # the release-candidate harness fo
 Flags, from the clap definitions:
 
 - `ci`: lanes (any of `all`, `doctor`, `fmt`, `check`, `test`, `deny`,
-  `generated`, `render`, `build`, `conventions`), `--strict`, `--shipping`
+  `generated`, `render`, `build`, `package`, `lint`, `conventions`),
+  `--strict`, `--shipping`
   (the `build` lane also builds the fat-LTO `release`), `--nextest` (the
   `test` lane runs the tests through cargo-nextest and the doctests through
   `cargo test --doc`, configured by `.config/nextest.toml`, D535),
@@ -66,7 +77,8 @@ Flags, from the clap definitions:
   other.
 - `bench`: everything after `--` goes to `strobe-bench`.
 - `symbolicate <dump>`: `--symbols <file>` (repeatable; the default is
-  every PDB under `target/release` and `target/release/examples`, or the
+  every PDB under `target/x86_64-pc-windows-msvc/release` (a packaged
+  build), `target/release` and `target/release/examples`, or the
   release `strobe` and `crash_demo` binaries where there are no PDBs), and
   `--out <file>`. It needs `cargo install dump_syms minidump-stackwalk
   --locked`, and finds the tools on `PATH` or in cargo's `bin` folder. See
@@ -106,9 +118,12 @@ section with `--release`, merge, then tag, and never move a tag.
 cargo test -p xtask
 ```
 
-The ten unit tests cover the changelog generator (subject parsing, heading
+The changelog generator's unit tests cover subject parsing, heading
 placement, the `Unreleased` exemption, version parsing, the calendar
-conversion, reading `[workspace.package]`). They do not run git or cargo.
+conversion and reading `[workspace.package]`; they do not run git or cargo.
+Others cover the credits (licence files, bots left out), the decisions
+index, the native-DLL pin, the package's PDB and version checks, and
+symbolicate's paths.
 `ci`'s planner is tested without running anything: every host's lanes,
 `--locked` on every resolving command, missing tools and `--strict`, the
 tree check, and the step timeout.
@@ -139,8 +154,9 @@ IDs given here; a gap with no ID is by design, with its decision named.
 
 - Working and used on every change ([`ROADMAP.md`](../../docs/ROADMAP.md)).
 - The release workflow has run from its tags: v0.2.0 was built, attested
-  and published by `release.yml`. Running that archive on the T480 is still
-  to do (backlog R-03).
+  and published by `release.yml`, and the downloaded archive ran on the T480
+  (Task 50). `cargo xtask rc` passed there on a candidate (D544). Left: the
+  checks a person makes at the T480 (backlog R-03).
 - `cargo xtask ci` runs what CI runs on this kind of host (D533). The other
   hosts' lanes need those platforms: the `render` lane needs Linux with Mesa
   and Xvfb, the `build` lane Windows, by design.

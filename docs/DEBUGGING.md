@@ -27,7 +27,10 @@ they never touch a real profile). Inside it:
 | `run/` | The crash monitor's socket file (Windows and macOS). Linux uses an abstract socket with no file. |
 
 `strobe --diagnose` prints a report of the machine, build, GL and audio
-setup, saves it beside the logs, and exits. Attach it to bug reports.
+setup, saves it beside the logs (`diagnose.txt`), and exits. Attach it to
+bug reports. On Windows it also says whether the ANGLE DLLs beside
+`strobe.exe` match the pinned build (D536) and names the ANGLE that
+actually loads, from a hidden ANGLE window's `GL_VERSION` (D544).
 
 ## Environment variables
 

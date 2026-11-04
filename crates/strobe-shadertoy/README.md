@@ -17,13 +17,19 @@ Q19; D110-D117).
 
 ## Role in the workspace
 
-- **Depends on:** `strobe-scene` (to validate what it writes), plus serde,
-  serde_json, thiserror and clap. It has no GL dependency.
+- **Depends on:** `strobe-scene` (to validate what it writes),
+  `strobe-ssf-lib` (the library's global names, which an import's own
+  helpers are aliased away from) and `strobe-diag` (the data directory, for `strobe-import`),
+  plus serde, serde_json, thiserror, anyhow, clap, sha2, getrandom and log.
+  The `net` feature (on by default; the workspace turns it off and the app
+  turns it on) adds `ureq` for the REST client and the texture downloader,
+  whose TLS needs a C compiler (D110). It has no GL dependency.
 - **Used by:** the `strobe-import` binary in this crate, and `strobe-app`
   (its import worker and the listener). `strobe-gfx` only uses it as a dev-dependency, for render
   tests.
 - **Does not:**
-  - touch the network: acquisition is a separate, later layer;
+  - touch the network without the `net` feature: the converter and the
+    loopback listener are plain std;
   - render: the scene folder it writes is played by `strobe-gfx`;
   - generate controls from the shader's literals: that is
     [`strobe-autocontrol`](../strobe-autocontrol/README.md), which reads the
@@ -168,7 +174,7 @@ IDs given here; a gap with no ID is by design, with its decision named.
   (Q16).
 - **Audio:** the app supplies the browser-matched `AudioFrame::shadertoy`
   slice, and the player uploads it as given (D112). The bench and tests,
-  with no slice, resample the 256-texel spectrum. A comparison against
+  with no slice, resample the 1024-texel spectrum (D269). A comparison against
   Shadertoy with the same track is still open (Q18).
 - **`iDate`:** the app feeds local time (D112). The bench and tests use
   the player's UTC default, so frames stay a pure function of time (Q15).

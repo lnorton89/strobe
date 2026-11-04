@@ -188,7 +188,7 @@ IDs given here; a gap with no ID is by design, with its decision named.
 - **Verified:** llvmpipe (Mesa) on desktop GL 3.3 core and GLES 3.0, and
   `--context window` on the T480's Intel UHD 620, native and ANGLE, where
   two runs were byte-identical and both backends kept the same controls
-  ([`T480.md`](../../docs/hardware/T480.md), commit 961acaa).
+  ([`T480.md`](../../docs/hardware/T480.md), commit 855cd5d).
 - **The app's review** (D202, D219, D246) keeps or drops each control,
   re-ranges a slider and renames a control; the kept controls are saved
   into the scene itself, with backups, or kept as a copy (D488).

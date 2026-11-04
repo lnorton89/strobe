@@ -12,9 +12,11 @@ and the `--diagnose` system report.
 
 - **Depends on:** no other Strobe crate. Third-party: `log`, `dirs`,
   `crash-handler` and `minidumper` (and `anyhow` for tests).
-- **Depended on by:** `strobe-app`, which installs it. Nothing else uses it
-  today. `strobe-gfx` and the other libraries use only the `log` facade, and
-  the app installs the backend, so the dependency direction stays one-way
+- **Depended on by:** `strobe-app`, which installs it; the `strobe-bench`,
+  `strobe-import` and `strobe-projector` binaries, for their stderr log and
+  the data directory. `strobe-gfx` and the other libraries use only the
+  `log` facade, and the app installs the backend, so the dependency
+  direction stays one-way
   ([`ARCHITECTURE.md`](../../docs/ARCHITECTURE.md), "Diagnostics wiring").
 - **Does not:** show UI. The message box that tells a person about a crash is
   a callback the app registers (`notify::set_notifier`); the crash monitor

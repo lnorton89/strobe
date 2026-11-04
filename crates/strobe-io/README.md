@@ -12,7 +12,7 @@ test with no device.
 
 - **Depends on:** `strobe-scene` (for `ControlBank`, the script API's name
   matching and presets), `rosc` (OSC 1.0), `midir` (behind the `midi` feature,
-  on by default), `serde`, `serde_json`, `toml`, `thiserror`, `log`.
+  on by default), `serde`, `serde_json`, `thiserror`, `log`.
 - **Depended on by:** `strobe-app`, whose `remote` module owns the workers and
   drains them once per scene frame ([`ARCHITECTURE.md`](../../docs/ARCHITECTURE.md),
   frame step 1b).

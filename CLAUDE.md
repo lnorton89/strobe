@@ -35,11 +35,13 @@ cargo xtask symbolicate <crash.dmp>                       # minidump -> stack wi
 cargo xtask brand [--check]                               # icon PNGs + .ico from assets/brand/*.svg
 cargo xtask credits [--check]                             # THIRD_PARTY.md (About's credits) from git + Cargo.lock (D491)
 cargo xtask decisions [--check]                           # docs/DECISIONS_BY_AREA.md, the decisions by crate (D539)
+cargo xtask rc --zip <zip> --symbols <symbols.zip>        # release-candidate harness on a real Windows machine (D537)
 cargo run --profile release-fast -p strobe-app            # optimised and incremental: iterate with this, not --release (D487)
 cargo test --workspace                                    # everything
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo fmt --all -- --check
 cargo clippy -p strobe-io --no-default-features --all-targets -- -D warnings   # Linux; the build with MIDI off
+cargo clippy -p strobe-web --target wasm32-unknown-unknown -- -D warnings      # Linux; the browser engine (D544)
 cargo clippy --workspace --exclude strobe-script --exclude strobe-app --exclude strobe-shadertoy --all-targets --all-features --target x86_64-pc-windows-msvc -- -D warnings
 cargo clippy -p strobe-shadertoy --no-default-features --all-targets --target x86_64-pc-windows-msvc -- -D warnings
 cargo run --release -p strobe-bench -- --size 1280x720     # benchmark + frames
@@ -47,11 +49,17 @@ cargo run --release -p strobe-bench -- --size 1280x720     # benchmark + frames
 
 All of these are clean on the branch, and CI enforces them. A warning is
 a build failure. CI's jobs run `cargo --locked xtask ci --strict <lanes>`,
-so `cargo xtask ci` runs the same commands: the lanes `fmt`, `check`
-(clippy, the no-MIDI `strobe-io` clippy and the Windows cross-check on
-Linux), `test`, `deny`, `generated` (changelog, brand, credits), `render`
-(Linux: Xvfb and the scene library) and `build` (Windows: the optimised
-binaries), with each host's policy in `crates/xtask/src/ci.rs` (D533). A
+so `cargo xtask ci` runs the same commands: the lanes `fmt`, `lint`
+(actionlint and shellcheck on Linux, PSScriptAnalyzer on Windows, D541),
+`check` (clippy; on Linux also `strobe-io`, `strobe-audio` and
+`strobe-shadertoy` without their default features, `strobe-web` for
+wasm32, rustdoc and the Windows cross-check), `test`, `deny`, `generated`
+(changelog, brand, credits, decisions), `render` (Linux: Xvfb, the scene
+library and the corpus gate, D534), `build` (Windows: the optimised
+binaries) and `package` (Windows: the release zip, unpacked and checked,
+D537), with each host's policy in `crates/xtask/src/ci.rs` (D533).
+`conventions` runs the conventions tests alone, which is all a docs-only
+pull request runs (D531). A
 step that does not apply here says `n/a`; one whose tool is missing says
 `MISSING` and makes the run "partial", and `--strict` fails it. A dependency that arrives or leaves, or a new
 contributor, needs `cargo xtask credits` and the regenerated

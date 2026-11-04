@@ -19,7 +19,7 @@ copy is `C:\Users\Lawrence\documents\dev\strobe`. Agents write only under
 | Display | one 2560x1440 panel at 100% |
 | Toolchain | rustc 1.98.0, `x86_64-pc-windows-msvc` |
 
-## Baseline (2026-10-11, commit 862ad2e, Task T1)
+## Baseline (2026-10-11, commit 202e635, Task T1)
 
 - **Build.** `cargo build --release` of the app, bench, importer and
   autocontrol: clean, no warnings, 2 min 45 s.
@@ -58,7 +58,7 @@ copy is `C:\Users\Lawrence\documents\dev\strobe`. Agents write only under
   a fixed number of cells across, came out half the size on screen. Fixed
   by `FIXED_SIZE` passes (D191). To be re-checked here.
 
-## 65 real Synesthesia scenes (2026-10-11, commit 963b535, Task T2)
+## 65 real Synesthesia scenes (2026-10-11, commit 8889cf3, Task T2)
 
 These are the owner's scenes, kept local on this machine; none of them is in
 the repo. Run on 1920x1080, with a window context, at release.
@@ -93,7 +93,7 @@ the repo. Run on 1920x1080, with a window context, at release.
 - **D191 check:** 07 at 1080p and 2160p shows the same spot size and
   layout.
 
-## The 65 scenes again (2026-10-13, commit 40ee040, Tasks T4 and T5)
+## The 65 scenes again (2026-10-13, commit 4869520, Tasks T4 and T5)
 
 The same scenes at release with a window context, after D193 to D198.
 Built from a detached worktree of `origin/master` under `target\tornado\`.
@@ -131,7 +131,7 @@ Built from a detached worktree of `origin/master` under `target\tornado\`.
   source has them at 243 to 593. Check this when re-running: a line offset
   from an `#include` would be a bug in the `#line` mapping.
 
-## After D199 (2026-10-13, commit bc4668e, Task T6)
+## After D199 (2026-10-13, commit 10bf981, Task T6)
 
 - **No regressions:** every scene that compiled in T4 still compiles on
   both backends.
@@ -159,7 +159,7 @@ Built from a detached worktree of `origin/master` under `target\tornado\`.
   that treat a lone `\r` as a line count double. D201 normalises every
   line-ending form to one `\n`.
 
-## magnetismic, native against ANGLE (2026-10-13, commit 54a9b19, Task T7)
+## magnetismic, native against ANGLE (2026-10-13, commit 58361c1, Task T7)
 
 - **The scene.** Pass `var` is 10x10, `FLOAT`, single-buffered. It reads
   its own target and adds `syn_Intensity`: an accumulator. Every pass reads
@@ -187,7 +187,7 @@ Built from a detached worktree of `origin/master` under `target\tornado\`.
   bit-identical to single-buffered native.
 - **The fix** is D203, confirmed in T8.
 
-## D203 confirmed, and a full re-run (2026-10-13, commit 1199b76, Task T8)
+## D203 confirmed, and a full re-run (2026-10-13, commit df42f49, Task T8)
 
 - **`magnetismic`, native against ANGLE:** 0.00 mean (max 3) at both 10
   and 100 frames. T7 measured 3.38 and 19.25. ANGLE is bit-identical to
@@ -208,7 +208,7 @@ Built from a detached worktree of `origin/master` under `target\tornado\`.
 - The bench installed no logger, so D203's log line went nowhere. It now
   logs to stderr.
 
-## Two backend differences that are the scenes' own (2026-10-13, commit 3533e8b, Task T9)
+## Two backend differences that are the scenes' own (2026-10-13, commit fd6925b, Task T9)
 
 Both scenes are single-pass with no feedback, and the difference is there
 from frame 1 without growing.
@@ -266,7 +266,7 @@ That is the suspect, not yet proved. D206 adds what proves or clears it: a
 window's redraw cost with its swap), and a 2 Hz control window while the
 output covers it.
 
-## The perf line, fullscreen and windowed (2026-10-13, commit 14b1ea5, Task T11)
+## The perf line, fullscreen and windowed (2026-10-13, commit 1e39af9, Task T11)
 
 **Run A, output fullscreen over the control window, 6 min:** after the
 first minute every `perf:` line read **59.9 fps with 2 to 3 late frames a
@@ -290,7 +290,7 @@ each such wait makes the next output frame late. A GPU clocking up after
 minutes of load would also fit the drop. The perf line now times the
 control window's swap separately, to say which (T12).
 
-## The swap is not the wait (2026-10-13, commit 7a1ab45, Task T12)
+## The swap is not the wait (2026-10-13, commit 7ed604c, Task T12)
 
 T11's run B (output windowed beside the control window) twice, back to
 back, 6 minutes each, with the swap timed on its own. Every minute of both
@@ -309,7 +309,7 @@ swap (T13). The driver's global settings could not be read without taking
 over the desktop; the owner can see them under NVIDIA Control Panel >
 Manage 3D settings > Global.
 
-## make_current is the wait (2026-10-13, commit ca804d5, Task T13)
+## make_current is the wait (2026-10-13, commit b635d0e, Task T13)
 
 The T12 layout with the redraw split, 4 minutes with the control window
 visible (W), then 4 with it minimised (M).
@@ -330,7 +330,7 @@ by itself after about 1.5 minutes, as in T11 and unlike T12: an
 intermittent driver or compositor change in how the windowed surfaces
 present, not the app's state. D216 adds a pacer for it.
 
-## The pacer holds late frames to a third (2026-10-13, commit 0831f43, Task T14)
+## The pacer holds late frames to a third (2026-10-13, commit 10396c0, Task T14)
 
 T13's W layout (control window visible, output windowed beside it), 6
 minutes, release build, no driver settings touched. The pacer logged its
@@ -354,7 +354,7 @@ structural cure in D216 (the control window on its own thread and
 context, so the shared context never switches surfaces) removes them. The
 control surface's swap interval is already 0.
 
-## Waiting for the swap on the output's side cures it (2026-10-13, commit 7a49cce, Task T15)
+## Waiting for the swap on the output's side cures it (2026-10-13, commit 8c1698a, Task T15)
 
 The T14 layout, two 6-minute runs of the same build: F with
 `STROBE_FINISH_AFTER_SWAP=1` (the output calls `glFinish` right after its
@@ -373,7 +373,7 @@ the control window no longer waits for it: the control window runs at its
 full rate and the show loses almost nothing. D221 turns this on by
 itself the first time the pacer sees the wait.
 
-## D221 engages by itself (2026-10-13, commit 8bdc079, Task T16)
+## D221 engages by itself (2026-10-13, commit 75d5b4a, Task T16)
 
 Run A, the T14 layout with `STROBE_FINISH_AFTER_SWAP` unset, 6 minutes:
 the swap wait engaged at **0.59 s** and the control window stayed at 30 Hz
@@ -390,7 +390,7 @@ tripped the pacer to 10 Hz. The pacer now ignores redraws while the
 control window is covered, which also lets it come back at full rate
 when the output leaves fullscreen.
 
-## The swap wait costs nothing on a heavy scene (2026-10-13, commit c480514, Task T17)
+## The swap wait costs nothing on a heavy scene (2026-10-13, commit d1a7d9e, Task T17)
 
 D221's risk is that `glFinish` after the swap loses the CPU/GPU overlap
 of one frame. volume-clouds (the heaviest library scene) at render scale
@@ -408,7 +408,7 @@ instead (the clamp now logs a warning). Three minutes each:
 No frames lost to the wait; it removes 98% of the late ones. No warnings
 or errors.
 
-## The corpus after a day of changes (2026-10-13, commit 12a9ddf, Task T18)
+## The corpus after a day of changes (2026-10-13, commit 8c93df5, Task T18)
 
 `cargo xtask corpus` over the owner's private Synesthesia corpus (kept out
 of the repository), both dialects, scripts run: **63 of 65 pass native and
@@ -435,7 +435,7 @@ on the machine. What it settled is recorded in Q23 and D234:
   and output 9000;
 - MIDI mappings as `midi_mappings.json`, with no MIDI-only export.
 
-## A 30-minute soak with a scene change every 10 s (2026-10-13, commit 9215858, Task T19)
+## A 30-minute soak with a scene change every 10 s (2026-10-13, commit 9f1908a, Task T19)
 
 The release build ran a playlist over all 12 library scenes (10 s cues
 with 2 s crossfades, looping), on live audio, with the output shown, for
@@ -473,7 +473,7 @@ is no SSF index page). Recorded in Q22:
 - **Passes:** `FLOAT` passes are documented as 32-bit; Strobe's default
   stays 16-bit (D13).
 
-## The corpus after D233-D238 (2026-10-13, commit 5eaddb0, Task T22)
+## The corpus after D233-D238 (2026-10-13, commit 9b6e046, Task T22)
 
 `cargo xtask corpus`, scripts on, both dialects, 3 frames at 160x90:
 - **The owner's 65 scenes:** 63 of 65 per dialect, the same two scene
@@ -533,7 +533,7 @@ on D3D11):
 
 | Run | Commit | `release\` (87) native | ANGLE | `default\` (1) |
 |---|---|---:|---:|---|
-| Before D492 | a5f51f1 | 87 ok | 86 ok, 1 `gl_error` | not run |
+| Before D492 | 6a871f4 | 87 ok | 86 ok, 1 `gl_error` | not run |
 | After D492 | this branch | 87 ok | 87 ok | 1 ok, both dialects |
 
 - The one failure before D492, `waterly` on ANGLE ("the worker died"),
@@ -594,7 +594,7 @@ main checkout's `target\` alone was 24.9 GB) and recovered by itself.
   number of control redraws.
 - [x] T15: `glFinish` after the output's swap takes make-current to 1.5 ms
   and late frames to 5-8 a minute at 30 Hz (D221).
-- [x] T18: corpus regression check at 12a9ddf: 63/65 native and ANGLE,
+- [x] T18: corpus regression check at 8c93df5: 63/65 native and ANGLE,
   no regressions.
 - [x] T17: on a GPU-heavy scene the wait loses nothing (7-11 late
   frames a minute against 560-573 without it).

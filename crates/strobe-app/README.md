@@ -15,7 +15,8 @@ from a lost GL context.
 ## Role in the workspace
 
 - **Depends on:** `strobe-scene`, `strobe-gfx`, `strobe-diag`, `strobe-audio`,
-  `strobe-script`, `strobe-autocontrol` and `strobe-remote`, plus `winit`,
+  `strobe-script`, `strobe-autocontrol`, `strobe-remote`, `strobe-projector`
+  and `strobe-capture`, plus `winit`,
   `egui`, `egui_glow`, `egui-winit` (0.37), `rfd` (native file dialogs, D470),
   `clap`, `image`, `log`, `thiserror` and `anyhow`.
 - **Depended on by:** nothing. It is the top of the graph.
@@ -50,7 +51,7 @@ from a lost GL context.
   request banners and the title bar's "Remote on" with its Stop button are
   the UI. Controlling another Strobe is `desktop` (the viewer and its
   worker), `trusted` (venue mode's trust file, D294) and `venue` (D288).
-- **Does not:** video and webcam media, NDI output.
+- **Does not:** video media, NDI output.
 - The app has no `#[cfg(windows)]` code of its own, only `cfg!` values; that is
   why the Windows cross-check from Linux can exclude it (D63).
 
@@ -78,6 +79,9 @@ and `scenes/` this way.
 | `session` | One scene: load, advance (clock, audio, script, controls), render, prime, restart its clock. |
 | `show` | A playlist being played (D150-D158): `run::Show` (precompile, clock events, warm-up, transitions), `cache`, `resolve`, `start`, `resume`, `watch`, `view`, `generate`, `beat`. |
 | `audio` | `AudioInput`: live capture started on a thread, with synthetic fallback and settings (device, reactivity, speed, tap tempo). |
+| `camera` | Webcams behind `syn_Media` (D528): the registry the player asks for a camera by name over `strobe-capture`, and listing cameras off the frame thread. |
+| `prerender` | The library's scenes loaded and drawn once at launch and after a rescan, parked lean, and handed out only while their folder is unchanged (D542). |
+| `projectors` | Projector power (D502): `projectors.json`, power and status on worker threads, and the web page's service. |
 | `script`, `mouse` | A scene's `script.js` at run time, and the pointer uniforms. |
 | `perf` | GPU timer ring and adaptive resolution. |
 | `recovery`, `fault` | The context-loss policy (a pure state machine) and `STROBE_FAULT` injection. |
@@ -131,23 +135,24 @@ Flags (from the clap `Cli`):
 | `--make-remote-trust <file>` | | Write a new trust file, print how to use it, and exit. |
 | `--listen`, `--listen-port <n>` | off, `47811` | Accept shaders from the "Send to Strobe" userscript on 127.0.0.1 (the Import panel's switch does the same; the panel shows the token). |
 | `--no-texture-download` | off | Do not download textures on import; they read black and are listed in `images/pending-assets.json`. |
-| `--diagnose` | off | Print a machine/build/GL/audio report, save it beside the logs, exit. |
+| `--diagnose` | off | Print a machine/build/GL/audio report, save it beside the logs, exit. On Windows it also checks the ANGLE DLLs against the pin and names the ANGLE that loads (D544). |
+| `--list-cameras` | off | Print the cameras this machine lists, by the names `--media "camera:<name>"` takes, and how long listing took; then exit (D528). |
 | `--open-pane <list>` | saved layout | Open panes at launch, comma separated: `browser`, `controls`, `import`, `playlist`, `editor`, `map`, `inspector` (the side panel), `diagnostics`, `settings`, or `settings:<page>`. |
 | `--no-panes` | off | Close every pane first: the main view is then the large preview. |
 | `--window-size WxH` | maximized | Open the control window at exactly this size, not maximized (reproducible screenshots; bare Xvfb has no window manager). |
 | `--browser-query <text>` | saved | Put this in the scene browser's search field. |
 | `--preview <scene>` | none | Prepare this scene in the browser's Preview at launch, without making it live. |
 | `--blackout` | off | Start with the output blacked out. |
-| `--media <path>` | none | Show this `.png`/`.jpg` file, or a folder of them played as a sequence in name order, behind `syn_Media` in every scene loaded by hand (instead of the scene's `MEDIA`). Decoded off the frame thread (D186). A missing path is reported and the scene runs with black media. |
+| `--media <path>` | none | Show this `.png`/`.jpg` file, or a folder of them played as a sequence in name order, behind `syn_Media` in every scene loaded by hand (instead of the scene's `MEDIA`). Decoded off the frame thread (D186). A missing path is reported and the scene runs with black media. `camera:<name>` shows that webcam instead (D528). |
 | `--request-load <scene>` | none | With `--screenshot`: ask for this load through the UI path on the frame before the control capture, so the capture shows "Preparing". |
-| `--theme <id>` | saved | Use a theme for this run: `strobe`, `graphite`, `midnight`, `void`, `high-contrast`, `daylight`, or a file in `<data dir>/themes/`. |
+| `--theme <id>` | saved | Use a theme for this run: `strobe`, `amber`, `graphite`, `midnight`, `void`, `high-contrast`, `daylight`, or a file in `<data dir>/themes/`. |
 | `--density comfortable\|compact` | saved | Use this density for this run (D220). |
 | `--system-title-bar` | off | Use the system's title bar for this run (D132); Settings has the saved choice. |
 | `--generate-controls <scene>` | | Hidden: the app starts itself this way to generate controls in a worker (D202). Not for people. |
 | `--palette <text>` | closed | Open the command palette at launch with this text typed (screenshots). |
 | `--help`, `--version` | | Standard clap flags. |
 
-Keys (D134; the table is `commands.rs`, rebound in Settings > Keyboard):
+Keys (D134; the table is `commands.rs`, rebound in Settings > Shortcuts):
 Left and Right step the scene, `Space` holds the cue (with a playlist), `B`
 blacks the output out, `F11` toggles fullscreen on the output window,
 `Ctrl+F` opens the library's search, `Ctrl+L` flips between the library and
@@ -275,11 +280,12 @@ IDs given here; a gap with no ID is by design, with its decision named.
   T480: OSC in and out (Task 25), a macro's key and glide (Task 29, D227,
   D228) and Synesthesia's OSC addresses (Task 31, D234). OSC feedback
   (D209), MIDI output (D257), the macro range and colour editor (D210),
-  shortcuts in Settings > Keyboard (D208) and explicit blackout commands
+  shortcuts in Settings > Shortcuts (D208) and explicit blackout commands
   (D201) are built. **No MIDI controller has been used yet** (backlog P-04,
   P-05).
-- Cube maps and `syn_Media` stills and sequences work (D185, D186); video
-  and webcam are not built (backlog M-04, deferred). Script `meta/` writes
+- Cube maps and `syn_Media` stills and sequences work (D185, D186). A
+  webcam is built on Windows (D528) but has not opened a real camera yet;
+  video is not built (backlog M-04). Script `meta/` writes
   land in the session's meta bank, which the post stage renders from
   (D180); its cost on an HD 4000 is unmeasured (backlog P-03). Meta values
   carry over a scene change (D207). `textureFinalPass` is a two-frame-late

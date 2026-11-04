@@ -12,3 +12,13 @@ ff95ba76d3aafae35fb5e0c88e007f23bcc28cd5 ci: a release publishes only after CI p
 96d5774923a46cf5b6aeff34535dce7f48e58e30 test: baselines for the IMAGES and #include fixtures, from CI's Mesa (D534, D544)
 d30462ccafaa4293dda57b34954d35d4cde8f125 docs: the decisions index includes D544
 aaf0f2e480d17fa32e04458c203afa0e0da5d80a fix: link the C runtime statically, and check imports and the loaded ANGLE (D544)
+
+# The linting and conventions decision moved from D538 to D541 before #83
+# merged: master had taken D538 for scene folders.
+9ad440dacf5f756308e2ebcfafe9fe0eb0c80587 ci: crate layers, unsafe_code, feature builds, rustdoc and script lint are checked (D541)
+6da7273d182ae362ad3a8a959f03137ef0099926 fix: what the new linters found, and actionlint built from its tag (D541)
+
+# #91's decisions moved from D545 and D546 to D546 and D547 before it
+# merged: master had taken D545 for the build trials.
+9657c9cdd9a54481248e7d1be3a5af755d7ec208 feat: other scene folders are searched through their subfolders (D546)
+f97eaa826ebccf519817821be0c54ebdaa545f5b feat: Shadertoy imports go to user-scenes/shadertoy-imports, and the Library renders missing thumbnails (D547)
