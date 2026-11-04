@@ -24,7 +24,7 @@
 //!
 //! ## Writing keeps the file
 //!
-//! [`write`] replaces the `TAGS` value in the text, or adds the key after
+//! [`fn@write`] replaces the `TAGS` value in the text, or adds the key after
 //! the last one, and leaves every other byte alone: key order, spacing,
 //! the scene's own formatting, a byte-order mark. A file that is not a
 //! JSON object is refused, never "repaired". The written tags are the

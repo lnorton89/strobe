@@ -21,7 +21,7 @@
 //!      CONTROLS + GLSL  ◀── keep top K ◀── score (render, nudge, diff)
 //! ```
 //!
-//! - [`analyze`] is pure static analysis over the lossless tokenizer of
+//! - [`mod@analyze`] is pure static analysis over the lossless tokenizer of
 //!   `strobe-shadertoy`: `#define`s and `const`s, `TIME` multipliers, loop
 //!   bounds, `vec3` colours, coordinate scales and frequencies. It is
 //!   conservative on purpose.
@@ -32,7 +32,7 @@
 //!   frames with its value nudged.
 //! - [`script`] reads `script.js` for the uniforms it creates, so a
 //!   scripted scene compiles without running its script (D259).
-//! - [`generate`] runs all of it and returns a [`report::Report`] plus the
+//! - [`mod@generate`] runs all of it and returns a [`report::Report`] plus the
 //!   rewritten scene; [`output`] writes that as a new scene folder.
 //! - [`suggest`] proposes audio mappings for the strongest controls.
 //!

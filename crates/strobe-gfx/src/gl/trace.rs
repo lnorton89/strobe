@@ -37,6 +37,10 @@
 //! the wrappers set, not a query of the driver, so it is exact for code that
 //! goes through [`super::Gl`] and blind to anything that does not. Nothing
 //! else in the workspace calls GL.
+//!
+//! [`Gl::trace_summary`]: super::Gl::trace_summary
+//! [`Gl::trace_capture`]: super::Gl::trace_capture
+//! [`Gl::trace_take`]: super::Gl::trace_take
 
 use std::cell::{Cell, RefCell};
 

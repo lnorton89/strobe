@@ -18,7 +18,7 @@
 //!    REST API with a key (path B), the texture downloader and its cache,
 //!    and the localhost listener the browser userscript posts to (path A).
 //! 3. [`model`]: the JSON as typed Rust, in either of its two shapes.
-//! 4. [`convert`]: the deterministic converter from that model to a Strobe
+//! 4. [`mod@convert`]: the deterministic converter from that model to a Strobe
 //!    scene folder, with [`dialect`] rewriting the shader text and
 //!    [`glsl`] the tokenizer both lean on.
 //!

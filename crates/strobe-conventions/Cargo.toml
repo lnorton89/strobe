@@ -9,6 +9,8 @@ publish = false
 
 [dependencies]
 anyhow.workspace = true
+# `cargo metadata`'s JSON, for the crate-graph rules (D538).
+serde_json.workspace = true
 
 [lints]
 workspace = true

@@ -260,7 +260,7 @@ impl UniformStore {
         out
     }
 
-    /// [`Self::snapshot`] into `out`, which is cleared first and keeps its
+    /// `Self::snapshot` into `out`, which is cleared first and keeps its
     /// capacity, so a frame after the first allocates nothing: a name is
     /// shared, not copied.
     pub(crate) fn snapshot_into(&self, out: &mut Vec<ScriptUniform>) {

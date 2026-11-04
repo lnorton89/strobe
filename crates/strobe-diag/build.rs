@@ -1,6 +1,7 @@
 // ============================================================================
 // Module:       build (build script)
-// Description:  Captures the git commit, dirty flag, target and profile so
+// Description:  Captures the git commit, dirty flag, target and profile (by
+//               name, `release-fast` as well as `release`) so
 //               every log and crash report says exactly which build it is.
 //
 // Dependencies: std::process (git), cargo's build-script environment
@@ -68,8 +69,25 @@ fn main() {
         "cargo:rustc-env=STROBE_BUILD_TARGET={}",
         std::env::var("TARGET").unwrap_or_else(|_| "unknown".to_string())
     );
-    println!(
-        "cargo:rustc-env=STROBE_BUILD_PROFILE={}",
-        std::env::var("PROFILE").unwrap_or_else(|_| "unknown".to_string())
-    );
+    println!("cargo:rustc-env=STROBE_BUILD_PROFILE={}", profile());
+}
+
+/// The cargo profile by name: `release`, `release-fast`, `release-thin`,
+/// `debug`. Cargo's `PROFILE` says only `release` or `debug`, so a
+/// `release-fast` build (no fat LTO, D487) would report itself as the
+/// shipping build (D538). The name is the folder cargo builds into,
+/// `target/[<triple>/]<profile>/build/<package>-<hash>/out`, three levels
+/// above `OUT_DIR`; `PROFILE` when that cannot be read.
+fn profile() -> String {
+    let broad = std::env::var("PROFILE").unwrap_or_else(|_| "unknown".to_string());
+    std::env::var_os("OUT_DIR")
+        .map(PathBuf::from)
+        .and_then(|out| {
+            out.ancestors()
+                .nth(3)
+                .and_then(|dir| dir.file_name())
+                .map(|name| name.to_string_lossy().into_owned())
+        })
+        .filter(|name| !name.is_empty())
+        .unwrap_or(broad)
 }

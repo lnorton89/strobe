@@ -65,7 +65,7 @@ impl Follower {
 pub(crate) struct PeakTracker {
     /// The decayed maximum so far.
     peak: f32,
-    /// The smallest divisor [`PeakTracker::normalise`] will use.
+    /// The smallest divisor [`PeakTracker::divisor`] will return.
     floor: f32,
 }
 

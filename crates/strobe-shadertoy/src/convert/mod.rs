@@ -12,7 +12,7 @@
 //! [`Converted`]: the exact bytes of every file in the scene folder, a
 //! list of things that were converted with a loss ([`Warning`]), and the
 //! assets still to be fetched. It reads no clock, no network and no
-//! environment, so the same input gives the same bytes; [`write`] puts the
+//! environment, so the same input gives the same bytes; [`fn@write`] puts the
 //! result on disk atomically.
 //!
 //! ## The scene it builds

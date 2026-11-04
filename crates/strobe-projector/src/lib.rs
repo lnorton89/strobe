@@ -19,7 +19,7 @@
 //!   command, with the MD5 password prefix when the unit asks for it.
 //! - [`ntcontrol`] speaks Panasonic's own protocol on TCP 1024, used only
 //!   when PJLink is unusable on a unit configured with it as a fallback.
-//! - [`unit`] is the safe power sequence: never a power command while a
+//! - [`mod@unit`] is the safe power sequence: never a power command while a
 //!   unit warms up or cools down, nothing sent when it is already in the
 //!   requested state, ERR3 and refused connections retried with backoff
 //!   for up to 90 s, and `--wait`'s polling (through the PT-DZ6700's lamp

@@ -18,7 +18,7 @@
 //!
 //! ## How
 //!
-//! [`int_to_float`] lexes the user's code ([`lex`]), collects every
+//! [`int_to_float`] lexes the user's code ([`mod@lex`]), collects every
 //! declaration it can see (the generated preamble and the SSF library are
 //! passed in as context, so uniforms and library overloads are known), then
 //! walks each function body and global initializer with a small expression

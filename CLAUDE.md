@@ -144,6 +144,8 @@ is on a projector.
   raw handle. `strobe_conventions::gl_objects` checks it.
 - No `pub unsafe fn`, and no unsafe in tests.
   `strobe_conventions::unsafe_boundary` fails the build otherwise.
+- The compiler enforces it too: `unsafe_code` is denied workspace-wide,
+  and the two allowed modules say so with `#[expect(unsafe_code)]` (D538).
 
 Need a new GL call? Add a leaf wrapper in `gl/mod.rs` next to its
 siblings. Don't reach for `glow` from anywhere else.
@@ -176,6 +178,13 @@ draw path needs a fact, cache it when the scene loads. Never call
 `self.count_query();` (`strobe_conventions::driver_queries` fails the
 build otherwise), and `render.rs`'s `a_playing_scene_asks_the_driver_nothing`
 asserts `Gl::state_queries` stays still while a scene plays (D497).
+
+### The crate graph keeps its layers
+
+`strobe_conventions::architecture` walks `cargo metadata`'s graph and fails
+when a crate reaches one its layer must not: the scene model a GPU, a
+subsystem the renderer, the renderer an importer, anything the app
+(D538). Move the code to a lower crate rather than adding the edge.
 
 ### Docs links and decision numbers are checked
 

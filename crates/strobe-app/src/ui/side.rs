@@ -45,7 +45,7 @@
 //!   group. *Presets* is the preset row and the preset list. *Edit* is the scene's tags, picture, media and Generate
 //!   controls, and the way to the Editor.
 //!
-//! The panel is [`Pane::Inspector`](crate::workspace::Pane::Inspector) in
+//! The panel is [`Pane::Inspector`] in
 //! the pane model: open, it is docked or a drawer; closed, the shell draws a
 //! handle strip that reopens it. The tab is the operator's and is saved.
 //!
