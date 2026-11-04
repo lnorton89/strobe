@@ -2,7 +2,7 @@
 
 **Purpose:** one evidence-based register of every known unfinished or not-yet-verified project area. This is the implementation companion to ROADMAP.md, STATUS_AUDIT.md, PLAN.md, UI_IMPLEMENTATION_PLAN.md, GFX_API_RESEARCH.md, and REMOTE_CONTROL_PWA_RESEARCH.md. It consolidates their open work; it does not re-label untested work as complete.
 
-**Last reconciled:** 2026-10-27 against the T480's Tasks 46-50 (R-03, R-04, C-02, I-05, G-05, D-06 updated; G-08 and R-09 added), for L-09 (D502) and for D-05 (D497); 2026-10-26 against every crate README's "Status and known gaps" (D490: C-07, I-06, D-05, D-06, R-07 and R-08 added, M-05 and R-03 updated), and C-01, C-08 and I-05 against Synesthesia 1.25.4 (TORNADO T25, D492), after G-05 and G-06 (D485) and scene transitions (D489); the UI items reflect D464-D484 in ROADMAP.md and UI_REVIEW.md.
+**Last reconciled:** 2026-11-04 before v0.3.0, against the merged audit follow-ups (D533-D545), the website's deploy (D525) and D540 (R-03, R-05, R-09, W-01, W-03 and D-07 updated), with commit hashes moved to master's rewritten history; 2026-10-27 against the T480's Tasks 46-50 (R-03, R-04, C-02, I-05, G-05, D-06 updated; G-08 and R-09 added), for L-09 (D502) and for D-05 (D497); 2026-10-26 against every crate README's "Status and known gaps" (D490: C-07, I-06, D-05, D-06, R-07 and R-08 added, M-05 and R-03 updated), and C-01, C-08 and I-05 against Synesthesia 1.25.4 (TORNADO T25, D492), after G-05 and G-06 (D485) and scene transitions (D489); the UI items reflect D464-D484 in ROADMAP.md and UI_REVIEW.md.
 
 ## How to use this register
 
@@ -42,7 +42,7 @@
 - **Acceptance:** explain the step with evidence or file a narrowly scoped follow-up bug; no unexplained monotonic growth over the full soak.
 
 ### R-03 Packaged release smoke test
-- **Status:** Run on the T480 (Tasks 21 and 22). The one bug it found, the library path depending on the working directory, is fixed and verified on the packaged build. `release.yml` has since built, attested and published v0.2.0 from its tag (its checksum, attestation and contents checked, 2026-10-26). **The downloaded v0.2.0 archive ran on the T480 (Task 50, 2026-10-27):** both checksums match, both attestations verify (with negative controls), 60 files with all four ANGLE DLLs, and outside the checkout it opens, renders a scene (`--screenshot`) and exits 0 on native and on ANGLE-D3D11, its data all under `%LOCALAPPDATA%\strobe` with nothing pointing into the checkout. It found that `--diagnose` never exited in an optimised build, fixed in lnorton89/strobe#41. **`cargo xtask rc` passed on the T480 (2026-11-04, D544):** a fat-LTO candidate of a71a735 built there, all 11 package checks (the import check found no `VCRUNTIME140.dll`), native and ANGLE-D3D11 600 frames each with their renderer recorded, in `evidence.json`. Left: a person's eye on the picture, a real click on close, F11 and 150% DPI, and the audio, import-listener and script checks of the work list.
+- **Status:** Run on the T480 (Tasks 21 and 22). The one bug it found, the library path depending on the working directory, is fixed and verified on the packaged build. `release.yml` has since built, attested and published v0.2.0 from its tag (its checksum, attestation and contents checked, 2026-10-26). **The downloaded v0.2.0 archive ran on the T480 (Task 50, 2026-10-27):** both checksums match, both attestations verify (with negative controls), 60 files with all four ANGLE DLLs, and outside the checkout it opens, renders a scene (`--screenshot`) and exits 0 on native and on ANGLE-D3D11, its data all under `%LOCALAPPDATA%\strobe` with nothing pointing into the checkout. It found that `--diagnose` never exited in an optimised build, fixed in lnorton89/strobe#41. **`cargo xtask rc` passed on the T480 (2026-11-04, D544):** a fat-LTO candidate of 9f016fb built there, all 11 package checks (the import check found no `VCRUNTIME140.dll`), native and ANGLE-D3D11 600 frames each with their renderer recorded, in `evidence.json`. Left: a person's eye on the picture, a real click on close, F11 and 150% DPI, and the audio, import-listener and script checks of the work list.
 - **Work:** build the release archive from a clean checkout; install/run outside the development tree; test first-run data directories, audio, import listener, scripts, diagnostics, native GL and ANGLE; confirm clean shutdown and upgrade/relaunch behaviour.
 - **Acceptance:** attach exact commands, archive hash, OS/GPU/driver, logs and screenshots to hardware/T480.md; test does not depend on Cargo or developer-only DLLs.
 
@@ -53,18 +53,19 @@
 
 ### R-05 Tagged release, supply chain and provenance
 - **Status:** Done (v0.1.0, 2026-10-14). `v0.1.0` was tagged on the release
-  PR's merge commit (`578ea34`) and published as the latest release by
+  PR's merge commit (`a94ce33`) and published as the latest release by
   `release.yml` (run 38495718734). The workflow had first been run end to end
   on a throwaway public mirror (run 38494313118), whose release and tag were
   then deleted; Q12 is resolved by it. All six assets were downloaded from
   the release page and every `.sha256` verified; `gh attestation verify`
   returned 0 for build provenance and for the SBOM predicate; the zip
   contents, the matching `strobe.pdb` and the 279-component CycloneDX SBOM
-  were inspected. Two housekeeping items remain: the throwaway mirror repo
+  were inspected. The throwaway mirror repo
   `lnorton89/strobe-release-dryrun` could not be deleted from here (the
-  token lacks `delete_repo`), and steps 4-5 of
-  [RELEASE_PLAN.md](RELEASE_PLAN.md) (clean-machine smoke test, symbolication
-  from the downloaded archive) still need the T480. D521 (2026-10-28) gates
+  token lacks `delete_repo`), and it served the D521 dry run below. Steps
+  4-5 of [RELEASE_PLAN.md](RELEASE_PLAN.md) (the smoke test and
+  symbolication from the downloaded archive) ran on the T480 with the
+  v0.2.0 archive (Task 50; R-03, R-04). D521 (2026-10-28) gates
   publishing on all of `ci.yml` over the tagged commit, resolves the tag to
   one SHA, serialises runs per tag and refuses to rebuild a published
   release; that path ran end to end on the mirror on 2026-11-04 (v0.2.1, run
@@ -91,7 +92,7 @@
 - **Acceptance:** STATUS_AUDIT's P1 Linux checklist ticked with the machine's record in `hardware/`.
 
 ### R-09 Small findings from the packaged run
-- **Status:** Open (T480 Task 50, 2026-10-27; each in hardware/T480.md).
+- **Status:** Open (T480 Task 50, 2026-10-27; each in hardware/T480.md). The thumbnails are fixed in code by D540 (they are JPEGs named `.png`, now decoded by their bytes), not yet re-run on the T480.
   - The log says "the last session's scene `<name>` is not in the library" right after it logged loading that same scene, which then plays.
   - Two of Synesthesia's thumbnails fail to decode on every run ("Invalid PNG signature"): `SkaiWalkerOG.synScene\thumb.png` and `audio_indicators.synScene\audio_indicators.png`; each is logged every run.
   - The crash monitor logs a refused connection (os error 10061) and then connects about 31 ms later, every run, so the first line reads like a failure.
@@ -402,7 +403,7 @@
 ## Epic W — The website's shader sandbox
 
 ### W-01 Sandbox parity with the app
-- **Status:** Open. The `/play` sandbox (D524) runs the real player on WebGL2 and the 18 library scenes play, but a scene's textures and media (`IMAGE_PATH`, image inputs, cubemaps), `#include` (lygia, hg_sdf, the user's own files), `textureFinalPass` (answers black), the Shadertoy audio texture, meta controls and presets are not in the browser.
+- **Status:** Open. The `/play` sandbox (D524) runs the real player on WebGL2 and the library's scenes play (18 then; 17 since D526), but a scene's textures and media (`IMAGE_PATH`, image inputs, cubemaps), `#include` (lygia, hg_sdf, the user's own files), `textureFinalPass` (answers black), the Shadertoy audio texture, meta controls and presets are not in the browser.
 - **Work:** load images from the page (a file the visitor adds, kept in the zip and, where small, the link) through the player's media path; resolve `#include` against the scene's own files; read the final pass back asynchronously, as the app does (D162), for `textureFinalPass` and pass it to the worker; offer presets.
 - **Acceptance:** a scene with an image input and one with an include play the same in the sandbox and the app; `C-04`'s textureFinalPass scene answers in the browser.
 
@@ -412,7 +413,7 @@
 - **Acceptance:** a table of browser × feature results; a forced context loss (`WEBGL_lose_context`) recovers without a reload.
 
 ### W-03 Engine and site in CI, and deploys
-- **Status:** Open. `npm run engine` builds the wasm before `dev` and `build`, and Netlify deploys are run by hand from a machine with Rust, the wasm target and `wasm-bindgen-cli` (D523, D524). CI runs `strobe-web`'s native tests on Linux but builds neither the wasm nor the site, and does not clippy the `wasm32` target.
+- **Status:** Open. `npm run engine` builds the wasm before `dev` and `build`, and deploys are run by hand from a machine with Rust, the wasm target and `wasm-bindgen-cli`: to Cloudflare with `npm run deploy:cf` since 2026-10-30 (D523, D524, D525). CI runs `strobe-web`'s native tests on Linux, and since D544 its `check` lane clippies `strobe-web` for `wasm32-unknown-unknown`; it still runs neither `wasm-bindgen` nor the site's build and tests.
 - **Work:** add a CI job that installs the wasm target and the pinned `wasm-bindgen-cli`, clippies `strobe-web` and `strobe-gfx` for `wasm32-unknown-unknown`, builds the engine, and runs the site's lint, typecheck, unit tests and a Playwright smoke test of `/play` (a scene compiles; an error is marked); add the wasm clippy to `cargo xtask ci`.
 - **Acceptance:** a pull request that breaks the browser build or the sandbox fails CI.
 
@@ -554,7 +555,7 @@
   - coverage of the capture worker's reopen loop, the capture device and the MIDI ports, which need a device (R-01, P-04); the protocol gaps the coverage read found are tests now (D544);
   - the decisions index stays lexical (D539): a decision is listed under a crate only if it writes that crate's name.
 - **Work:** the manual release checks on the T480 and the next tag's zip through the harness; decide nextest from its JUnit times; cover the device paths when R-01 and P-04 bring hardware tests.
-- **Acceptance:** the T480's record cites an `evidence.json` whose verdict is `pass` (done, 2026-11-04). A decision records the LTO, nextest and sccache outcomes with their numbers (LTO and sccache done, D545: fat LTO kept, sccache dropped). The ruleset requires `ci-ok` and nothing else (done, 2026-11-04: after the stack merged, `ci-ok` passed on master at d2a1093 and the master ruleset's eight named checks were replaced by it).
+- **Acceptance:** the T480's record cites an `evidence.json` whose verdict is `pass` (done, 2026-11-04). A decision records the LTO, nextest and sccache outcomes with their numbers (LTO and sccache done, D545: fat LTO kept, sccache dropped). The ruleset requires `ci-ok` and nothing else (done, 2026-11-04: after the stack merged, `ci-ok` passed on master at #87's merge (b3c1398) and the master ruleset's eight named checks were replaced by it).
 
 ## Cross-cutting engineering rules
 

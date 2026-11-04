@@ -15,10 +15,10 @@ animated graphics that pulse, swirl and change with the beat. You choose
 the visuals, tweak them live with sliders or a MIDI controller, and line
 them up into a show that runs for hours on its own.
 
-It is free and open source, written in Rust, and built to run well on the
+It is free and source-available, written in Rust, and built to run well on the
 kind of old Windows laptop a small venue actually has.
 
-> **Status: v0.2.0, for testing, not yet for production.**
+> **Status: for testing, not yet for production.**
 > Everything below is built and tested. Windows is the target and has been
 > checked on four real machines: a ThinkPad T480 (Intel UHD 620), desktops
 > with a GTX 1080 Ti and an RX 580, and a venue mini-PC (Ryzen 3 3200U,
@@ -102,7 +102,8 @@ microphone or line-in under **Settings > Audio**. The
 `scene.json` and `script.js`, including:
 - scenes drawn in several passes, and SSF's library of shader helpers;
 - every control type, with smoothing, speed, bangs and counters;
-- images, cube maps, media, and transitions that give a scene a new look
+- images, cube maps, media (a picture, a folder of pictures or, on Windows,
+  a webcam), and transitions that give a scene a new look
   when a new song starts (or when you press **New song**);
 - the JavaScript API (`setup`, `update`, `setControl`, `setUniform`,
   `meta/` writes, `textureFinalPass`).
@@ -189,7 +190,7 @@ worker process, so the show keeps playing.
 
 ## Architecture
 
-A Cargo workspace of fifteen crates. The rules that matter:
+A Cargo workspace of eighteen crates. The rules that matter:
 - **Only the app knows about everything.**
 - **Only `strobe-gfx` touches the GPU.**
 - **Everything that can be tested without a GPU is.**
@@ -222,8 +223,9 @@ flowchart TD
 Arrows point at what a crate depends on (the main edges; ARCHITECTURE.md
 has every one). `strobe-playlist`, `strobe-remote`, `strobe-capture`
 and `strobe-diag` depend on no other Strobe crate. `strobe-bench`
-(benchmarks), `strobe-conventions` (the house rules as tests) and `xtask`
-(repository tooling) sit beside the app, not under it.
+(benchmarks), `strobe-web` (the website's sandbox), `strobe-conventions`
+(the house rules as tests) and `xtask` (repository tooling) sit beside the
+app, not under it.
 
 | Crate | What it owns |
 |---|---|
@@ -243,8 +245,8 @@ and `strobe-diag` depend on no other Strobe crate. `strobe-bench`
 | [`strobe-capture`](crates/strobe-capture/README.md) | Webcams behind `syn_Media` (Windows, Media Foundation): listing, a capture thread with a watchdog and reconnect by name, and conversion to RGBA. Never touches GL. |
 | [`strobe-web`](crates/strobe-web/README.md) | The website's `/play` sandbox engine: the scene player on a browser's WebGL2 canvas and the audio DSP, compiled to wasm. |
 | [`strobe-bench`](crates/strobe-bench/README.md) | Renders every scene in `scenes/`, times it, and writes frames, a contact sheet and `results.md`. |
-| [`strobe-conventions`](crates/strobe-conventions/README.md) | The house rules as tests: file headers, the `unsafe` boundary, the toolchain pin. |
-| [`xtask`](crates/xtask/README.md) | `cargo xtask ci`, `changelog`, `bench`, `corpus`, `symbolicate`, `brand`. |
+| [`strobe-conventions`](crates/strobe-conventions/README.md) | The house rules as tests: file headers, the `unsafe` boundary, the crate layers, the toolchain pin, the docs' links and decision numbers. |
+| [`xtask`](crates/xtask/README.md) | `cargo xtask ci`, `changelog`, `bench`, `corpus`, `symbolicate`, `brand`, `credits`, `decisions`, and the release package's `package`, `package-check` and `rc`. |
 
 ### Graphics: native OpenGL, ANGLE as the fallback
 
@@ -270,8 +272,8 @@ assembler makes real SSF code valid GLSL ES:
 
 One thread owns the GL context and runs the frame. Workers for audio,
 MIDI, OSC, OSC feedback, the import listener, the LAN remote and its
-discovery, file dialogs, file saving and the crash monitor only hand values
-to it, through bounded queues it never waits on.
+discovery, webcam capture, file dialogs, file saving and the crash monitor
+only hand values to it, through bounded queues it never waits on.
 Each output frame, in order:
 
 1. Drain MIDI and OSC into the control banks and commands, and queue OSC
@@ -363,7 +365,7 @@ Running the Windows release, without building anything, is covered in
 flag. The output window starts hidden; *Show
 output* or F11 puts it on the projector. Keys: Left and Right step the
 scene, Space holds, B blacks out, T taps tempo, Ctrl+K opens the palette.
-Settings > Keyboard rebinds any of them.
+Settings > Shortcuts rebinds any of them.
 
 Settings, show-control mappings, logs, crash reports and editor backups live
 in the user data directory (`%LOCALAPPDATA%\strobe` on Windows,
@@ -534,7 +536,7 @@ and saving the transcript to `target/linux-check.txt`. It has run on Ubuntu
 ### Developing
 
 ```bash
-cargo xtask ci     # what CI runs on this host, as lanes: fmt, check, test, deny, generated, render, build (D533)
+cargo xtask ci     # what CI runs on this host, as lanes: fmt, check, test, deny, generated, render, build, package, lint (D533)
 cargo test --workspace
 ```
 

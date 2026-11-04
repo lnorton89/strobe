@@ -4,9 +4,10 @@ The workspace's house rules, written as tests. Nothing links against this
 crate. It exists so that `cargo test --workspace` walks every crate's
 sources and every CI workflow and fails the build when one breaks a rule the
 compiler cannot express: file headers, where `unsafe` may appear, who owns a
-GL object, that a playing frame asks the driver nothing, the pinned Rust
-toolchain, pinned GitHub Actions, and the Markdown's links and decision
-numbers.
+GL object, that a playing frame asks the driver nothing, the crate graph's
+layers, that a discarded result says why, the pinned Rust toolchain, pinned
+GitHub Actions, the Markdown's links and decision numbers, and that every
+known gap in a crate README names where it is tracked.
 
 ## Role in the workspace
 
@@ -37,6 +38,8 @@ failure message can be reproduced by calling them:
 | `gl_objects` | `Owners` (what the `gl` module owns and drops) and `stray_handles(relative_path, text)`. |
 | `driver_queries` | `violations(relative_path, text)`, the `QUERIES` glow methods and the `EXEMPT` leaves. |
 | `docs` | `pages()`, `problems(page, defined, exists)`, `defined_decisions` and `cited_decisions`. |
+| `known_gaps` | `GAP_PHRASES`, `gap_bullets(readme)`, `untracked(bullet)`, `backlog_ids(text)` and `backlog_items()` (D490). |
+| `discarded` | `violations(relative_path, text)`: a `let _ =` or trailing `.ok();` outside tests without a comment saying why (D267). |
 | `sources` | `workspace_root()` and `workspace_sources()`, the walk over each crate's `src/`, `tests/`, `examples/` and `build.rs`; `enclosing_function`. |
 
 ## Usage
@@ -184,6 +187,25 @@ for links; `D3D11` and `HDR` are not citations (D497).
 **Fix:** correct the path, or the number. A number used somewhere other
 than `docs/decisions/` (an off-master draft, say) is written out as "decision
 273", not cited.
+
+### Known gaps are tracked (`known_gaps`)
+
+In each crate README's "Status and known gaps", a bullet that says something
+is missing, unverified or still to do (the words are `GAP_PHRASES`) must
+name a backlog item (`backlog R-01`), an open question (`Q10`) or "by
+design" with its decision, and every backlog ID cited must be an item in
+`docs/IMPLEMENTATION_BACKLOG.md` (D490).
+
+**Fix:** add the item's ID, or open one in the backlog first; a gap that is
+closed comes out of the README.
+
+### Discarded results say why (`discarded`)
+
+Outside tests, a `let _ =` or a statement ending in `.ok();` carries a `//`
+comment on its own line or directly above, saying why the result may be
+dropped (D267). `write!` and `writeln!` are exempt.
+
+**Fix:** write the reason, or handle the result.
 
 ## Design notes
 

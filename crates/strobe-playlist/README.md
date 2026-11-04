@@ -9,7 +9,9 @@ loop ticks.
 
 ## Role in the workspace
 
-- **Depends on:** `serde`, `toml` and `thiserror` only (`anyhow` for tests).
+- **Depends on:** `serde`, `toml`, `toml_edit` (a save that keeps the
+  file's comments, D231) and `thiserror` only (`anyhow` and `proptest` for
+  tests).
   It does not depend on `strobe-audio` or `strobe-scene`: the clock takes a
   small `BeatInfo`, and control overrides use the crate's own `ControlValue`
   so the file format does not move when the scene crate does. The app

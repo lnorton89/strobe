@@ -19,20 +19,20 @@ which backend proved a claim.
 
 | Area | What exists | Verified on |
 |---|---|---|
-| Workspace | Conventions as tests, pinned toolchain and actions, `cargo xtask ci` lanes that CI runs strictly behind one `ci-ok` check (D533), `cargo xtask changelog \| credits \| decisions \| bench \| symbolicate \| brand \| package \| rc`, release workflow (D50-D59) with third-party notices (D491), gated on CI over the tagged commit (D521); the script-aware corpus gate with baseline frames (D534), a nextest pilot and build timings (D535), one native-dependency pin read by the build, SBOM and `--diagnose`, weekly scheduled checks and Nix on the pinned toolchain (D536), the package checked on every pull request and a T480 release-candidate harness (D537), crate-graph rules, `unsafe_code` and rustdoc as errors, and script lint (D541), property tests and a decisions index by crate (D539); a static C runtime, imports and the loaded ANGLE checked, and a release candidate passing the harness on the T480 (D544); what is left is backlog D-07 | CI, and the v0.1.0 tag (2026-10-14, D270) |
+| Workspace | Conventions as tests, pinned toolchain and actions, `cargo xtask ci` lanes that CI runs strictly behind one `ci-ok` check (D533), `cargo xtask changelog \| credits \| decisions \| bench \| symbolicate \| brand \| package \| rc`, release workflow (D50-D59) with third-party notices (D491), gated on CI over the tagged commit (D521); the script-aware corpus gate with baseline frames (D534), a nextest pilot and build timings (D535), one native-dependency pin read by the build, SBOM and `--diagnose`, weekly scheduled checks and Nix on the pinned toolchain (D536), the package checked on every pull request and a T480 release-candidate harness (D537), crate-graph rules, `unsafe_code` and rustdoc as errors, and script lint (D541), property tests and a decisions index by crate (D539); a static C runtime, imports and the loaded ANGLE checked, and a release candidate passing the harness on the T480 (D544); shipping keeps fat LTO and the sccache trial is dropped (D545); master's ruleset requires `ci-ok` alone (D533); what is left is backlog D-07 | CI; the v0.1.0 and v0.2.0 tags (2026-10-14, D270; 2026-10-26); D521's gated release path end to end on the mirror (v0.2.1, 2026-11-04, D544); the T480 release-candidate harness (2026-11-04) |
 | `strobe-scene`, `strobe-ssf-lib` | SSF parsing and validation, controls runtime, shader assembly, `PASS_SOURCES` (D90), the SSF GLSL library, which computes what Synesthesia 1.25.4's engine computes (D492) | Headless GL 3.3 core and GLES 3.0 (llvmpipe); Synesthesia's 88 shipped scenes on TORNADO, native and ANGLE (T25) |
 | `strobe-gfx` | Native GL and ANGLE context providers, ANGLE's backend chosen with `--gl angle-d3d11|angle-vulkan|angle-gl|angle-metal` and checked against the renderer (D485), headless EGL, multipass and ping-pong, implicit final pass, images, GPU timer queries, robust contexts and reset status (D66) | llvmpipe; T480 native and ANGLE; TORNADO native and ANGLE on D3D11, Vulkan and GL (2026-10-26) |
 | `strobe-bench` | Timings, frames, contact sheet; headless, window and auto contexts (D70-D72), now `strobe_gfx::offscreen` (D140) | llvmpipe; T480 ([BENCHMARKS.md](BENCHMARKS.md)) |
 | `strobe-app` | Control window (maximized) and output window on one context; the output starts hidden and the scene frame runs on its own schedule (D96); **Contextual Perform stage 1** (D130-D138): rail, custom title bar with health readouts, preview, transport (prev, next, blackout; hold shown as not wired), first-controls macros, and contextual panes for the scene browser (search, health filter, Preview apart from Load), inspector, diagnostics, import and settings, with saved layout, a focus-aware keyboard model and themes; `--diagnose`, adaptive resolution (D64), context-loss recovery with ANGLE fail-over (D66) | Xvfb (screenshots at 1280x720 and 1440x900 for every state, xdotool for keys); T480: smoke tests, recovery on real WGL (Task 8), hidden output, F11 and the close button (Task 9), the Perform UI at 150% scaling (Task 12) |
-| `strobe-app` layout | **Synesthesia-style control window** (D281-D285), reworked from a screenshot review (docs/UI_REVIEW.md, D464-D484): an 84-point rail in words (Library, Controls, Import, Playlist, Editor, Mappings, Diagnostics, Settings; icons only below 1000 points, D473), with Controls a view of its own and no PLAY entry (D479); a persistent side panel at 31% of the window (preview, status strip, fav slots that look empty when they are, D478, and Playlist, Controls, Presets and Scene tabs); every pane on one form grammar (`ui::form`: pages, group cards, setting rows, toggle switches, outlined fields, Segoe UI, D465, D466), Settings as seven pages with search; control groups as ruled headers over one-row value bars (D510-D512, replacing D477's cards); the library header in one row (D480) with generated cover art (D474); native file and folder pickers (D470); title bar readouts only when they need attention (D472); a help bar under the transport and BLACKOUT, which stay put. One click on a card makes it live (D291) | Headless shell tests (overflow, nothing over BLACKOUT, no text over text) on every state at ten sizes; screenshot-mode captures on TORNADO at 1600x1000 and 1280x720 for every step; the file pickers opened by the owner on Windows (2026-10-26); **not yet seen on the T480** (U-09 at 150%) |
+| `strobe-app` layout | **Synesthesia-style control window** (D281-D285), reworked from a screenshot review (docs/UI_REVIEW.md, D464-D484): an 84-point rail in words (Library, Controls, Import, Playlist, Editor, Mappings, Diagnostics, Settings; icons only below 1000 points, D473), with Controls a view of its own and no PLAY entry (D479); a persistent side panel at 31% of the window (preview, status strip, fav slots that look empty when they are, D478, and Playlist, Controls, Presets and Scene tabs); every pane on one form grammar (`ui::form`: pages, group cards, setting rows, toggle switches, outlined fields, Segoe UI, D465, D466), Settings as seven pages with search; control groups as ruled headers over one-row value bars (D510-D512, replacing D477's cards); the library header in one row (D480) with generated cover art (D474), and thumbnails read by their bytes and cropped to fill the card (D540); native file and folder pickers (D470); title bar readouts only when they need attention (D472); a help bar under the transport and BLACKOUT, which stay put. One click on a card makes it live (D291) | Headless shell tests (overflow, nothing over BLACKOUT, no text over text) on every state at ten sizes; screenshot-mode captures on TORNADO at 1600x1000 and 1280x720 for every step; the file pickers opened by the owner on Windows (2026-10-26); **not yet seen on the T480** (U-09 at 150%) |
 | `strobe-audio` | Capture with retry and synthetic fallback, analysis, spectrum and level-trail textures, tap tempo (D20-D23, D61) | T480 live mic at 48 kHz |
 | `strobe-script` | QuickJS host: events, `update`, controls, `setUniform` compiled in at load, budget and faults (D62) | Xvfb; T480 (`11-script-orbits`) |
 | `strobe-diag` | Session logs, structured failures, panic reports, out-of-process minidumps, GL debug output (D40-D45) | Linux; T480 (`overflow` gives a `.dmp`, bug 2) |
 | `strobe-shadertoy` | Stage 1: id parser, both JSON shapes, dialect rewrite, converter to a scene folder, `strobe-import` (D90-D95). Stage 2: REST client, texture downloader and cache, shared import pipeline, loopback listener, `strobe-import --id` (D110, D111, D113, D114, D117) | Nine original fixtures on llvmpipe, both dialects; stage 2 against fakes and a loopback mock, never the live site |
 | `strobe-autocontrol` | Stage 1: finds candidate literals, rewrites them to uniforms, keeps the ones whose measured effect matters, suggests audio bindings, CLI with `--context auto\|headless\|window` (D123-D126, D140) | llvmpipe, both dialects: 11 of 11 stripped library scenes and 8 of 14 Shadertoy fixtures get controls. In the app through a worker process (D202); T480 Tasks 13 and 23
 | `strobe-playlist` | Stage 1, pure core: model, inheritance, TOML, generator, timeline, playback clock, resume (D73-D77). **Stage 2, in the app (D150-D158):** `--playlist` and the LIST pane, precompile with progress, scenes parked at 1x1, warm-up at a quarter of the pixels, the compositor (crossfade, fade-through-black, custom GLSL), real Hold, extend, restart, skip-section and Next/Prev, NOW/NEXT and remaining time, Generate, Save, a file watcher, resume every 5 s, the wall-clock anchor | Unit tests and 4-hour soaks; stage 2 on headless GL in both dialects (`crates/strobe-app/tests/show.rs`) and under Xvfb with llvmpipe. T480 Task 14: the transition demo closed with 0 runtime compiles, transitions at 60 fps costing about 0.5 ms of GPU |
-| Brand | Parametric Flow guidelines and concept mark (lnorton89/strobe#6); the default theme in the brand palette, the window and taskbar icon, the title-bar mark, and icon PNGs and `.ico` rendered from SVG with a CI check (D190). Open: wordmark, lockups, the `.exe` resource icon | Xvfb screenshots; not yet seen on Windows |
-| Website (`site/`) | Static Next.js 16 export adapted from the Cinnabar site, themed to the brand guide (D523): home, download, guide, scenes, compatibility, architecture and roadmap pages, the last four rendered from `docs/` and `scenes/` at build time; social cards; light and dark themes. Not yet deployed and not yet in CI | Locally: lint, typecheck, 220 unit tests, and 82 Playwright tests (axe in both themes, 390 px overflow, focus traps) on headless Chromium |
+| Brand | Parametric Flow guidelines and concept mark (lnorton89/strobe#6); the default theme in the brand palette, the window and taskbar icon, the title-bar mark, and icon PNGs and `.ico` rendered from SVG with a CI check (D190); the `.exe` resource icon and version block (D241, D244); the wordmark, lockups, one-colour mark, README banner and social preview (D256). Open: a person's look at Explorer and the taskbar (R-06) | Xvfb screenshots; the T480 reads the exes' icon group and version block (Tasks 32 and 33) |
+| Website (`site/`) | Static Next.js 16 export adapted from the Cinnabar site, themed to the brand guide (D523): home, download, guide, scenes, compatibility, architecture and roadmap pages, the last four rendered from `docs/` and `scenes/` at build time; social cards; light and dark themes. Deployed by hand to Cloudflare with `npm run deploy:cf` (D525, first on 2026-10-30); the site is not built in CI (W-03) | Locally: lint, typecheck, 220 unit tests, and 82 Playwright tests (axe in both themes, 390 px overflow, focus traps) on headless Chromium |
 | Sandbox (`/play`, `strobe-web`) | Shadertoy-style sandbox on the website (D524): Strobe's own player compiled to wasm on WebGL2 (the ES 3.00 dialect ANGLE uses), CodeMirror editor for every scene file with errors on their lines, recompile as you type keeping the last good picture, the controls panel, the synthetic track, microphone or a file through `strobe-audio`, `script.js` in a Web Worker behind a shim of the API, autosave, share links with the scene in the URL fragment, `.synScene` zip export and import, the library's scenes to open. Open: textures, `#include`, `textureFinalPass` (W-01); other browsers and context loss (W-02); CI and deploys (W-03) | Chromium in the desktop app's pane: all the library's scenes compile and play (18 at the time, D524), an error marks its line, the scripted scene runs, a share link reopens; native tests on headless GLES skip on Windows |
 | `strobe-io` | Show control (D170-D179): MIDI input and OSC on two worker threads feeding one bounded queue, drained once per scene frame; the mapping model (source to target, range, curve, invert, button mode, soft takeover), learn with conflict detection, the six target states, the built-in `/strobe/...` OSC space, the Performance Macro set, `show-control.json`. Presets and fav slots in `strobe-scene`. In the app: the MAP pane, the macro strip, the preset row, cue `preset`, configurable hotkeys | Unit tests with no devices, real UDP over loopback, `tests/show.rs` on headless GL in both dialects, and the app under Xvfb with hand-built OSC datagrams and a real click on Learn. **No MIDI hardware has touched it** (the parser and the mapper are tested from recorded bytes). Bug sweep 2026-10-17: nested OSC arrays refused (D370), presses with no release fire every time (D371), a lost device lets go of its held pads (D372), a narrowed fader picks up at the end of its reach (D373), twin controllers and fav slot 0 fixed. Follow-ups: the build with MIDI off is clippy-checked in CI and `cargo xtask ci`, the OSC listener binds again after a socket error with a bounded backoff (D374), a double beyond the f32 range is clamped (D375), a hand-edited macro counter at `u32::MAX` recovers (D376) |
 | Scenes | Seventeen original scenes: ten over five GPU-load tiers, one scripted, one circuit-board animation (lnorton89/strobe#11), and five audio-reactive show pieces (D276-D279, D439) | llvmpipe, the T480, TORNADO, the RX 580 and the venue mini-PC |
@@ -93,9 +93,9 @@ which backend proved a claim.
   D319 (ten minutes at 0.70 with no step on noise). Its one stray step came
   from a 915 ms Windows snapshot (VSS) stall, and D320 keeps a stall's
   windows out of a settled scale's evidence. D320 also logs every put-off
-  verdict and every lock that runs out. Open: `hardware/MINIPC.md` Task M25,
-  and the snapshots' schedule on the venue machine (about three a day,
-  18:30-19:10).
+  verdict and every lock that runs out; M25 saw the put-off line on the
+  projector and M26 a lock run out with its line (2026-10-17). Open: the snapshots'
+  schedule on the venue machine (about three a day, 18:30-19:10).
 
 - **`pow` of a negative base on ANGLE (2026-10-15, D301), built, and it does
   NOT fix the bug on hardware (AMD.md Task A15, RX 580): ANGLE gives the same
@@ -169,7 +169,7 @@ which backend proved a claim.
   playlist 14/14 at 60 fps); since D315 a covered control window that is not
   streamed draws only every 5 s and runs its chores in between:** at the JaJa show the fullscreen output took every
   `WM_PAINT`, so the control window ran 0 frames a minute and the playlist,
-  UI actions and desktop remote stopped with it (fca44a5 restarted only the
+  UI actions and desktop remote stopped with it (85a6b6e restarted only the
   playlist). When a control redraw request goes unanswered for 250 ms and
   4 loop passes, `about_to_wait` now runs the whole control frame itself, at
   2 Hz (5 Hz with a desktop remote), until Windows paints it promptly again.
@@ -368,8 +368,8 @@ Each item names its acceptance test. Evidence is in [STATUS_AUDIT.md](STATUS_AUD
      scenes (D207); `Alpha Channel` waits for an output that carries alpha
      (NDI, Phase 7).
    - [x] `textureFinalPass` through an asynchronous PBO readback, two frames
-     late, never a stall (D162, Q14). Checked on llvmpipe only; the T480 and
-     ANGLE/D3D11 are open.
+     late, never a stall (D162, Q14). Checked on llvmpipe, and on the T480
+     on native and ANGLE/D3D11 with `strobe-bench --readback` (D245, Task 33).
    - [x] No shader compiles after load: a late `setUniform` is refused
      (D161).
    - [x] Implicit `int` to `float` written out by a typed rewrite on every
@@ -463,12 +463,16 @@ Each item names its acceptance test. Evidence is in [STATUS_AUDIT.md](STATUS_AUD
    ANGLE DLL provenance, the matching PDB archive, the SBOM, the checksums
    and both attestations were inspected on the published release page, after
    the workflow was proven end to end on a throwaway mirror (Q12 resolved,
-   D270). The ordered checklist is [RELEASE_PLAN.md](RELEASE_PLAN.md); what
-   remains from it is the clean-machine smoke test and symbolication from the
-   downloaded archive (steps 4 and 5), which need the T480. Since D521 the
-   workflow also runs all of `ci.yml` on the tagged commit before it
-   publishes, and refuses to rebuild a published release; that path has not
-   run yet and is proven by the next release.
+   D270). The ordered checklist is [RELEASE_PLAN.md](RELEASE_PLAN.md). The
+   downloaded v0.2.0 archive ran outside the checkout on the T480 and its
+   crash symbolicated with the release's own PDB (Task 50, R-03, R-04); what
+   is left is a person's checks at the T480 (R-03). Since D521 the workflow
+   also runs all of `ci.yml` on the tagged commit before it publishes, and
+   refuses to rebuild a published release. That path ran end to end on the
+   mirror (v0.2.1, run 41792295320, 2026-11-04, D544): the tag resolved to
+   one commit, `ci.yml` passed on it, and the provenance names the tagged
+   commit (a second run against the published release is not recorded). A
+   release candidate also passes `cargo xtask rc` on the T480 (2026-11-04).
 10. **Modern graphics APIs (Vulkan, wgpu, DX12, Metal): research only.** The
    plan is in [GFX_API_RESEARCH.md](GFX_API_RESEARCH.md)
    (lnorton89/strobe#8). OpenGL 3.3 and ANGLE stay the reference and the
@@ -487,8 +491,9 @@ Each item names its acceptance test. Evidence is in [STATUS_AUDIT.md](STATUS_AUD
    `strobe-corpus` binary) loads every scene the way the app does, script
    included, renders it in both dialects in a child process per scene, and
    writes `target/corpus/report.{json,md}` with a cause per failure. Its
-   integration test runs synthetic scenes on llvmpipe. Open: the CI job that
-   runs it on `scenes/`. Windows has no headless EGL, and the harness falls
+   integration test runs synthetic scenes on llvmpipe, and since D534 CI's
+   `render` lane runs it on `scenes/` and its fixtures as a gate, against
+   expected statuses and baseline frames. Windows has no headless EGL, and the harness falls
    back to a window context there: the T480 ran it on `scenes/` in both
    dialects (Task 30) and TORNADO on the owner's corpus (T18).
    *Stages 1 and 2 done (D255), 2026-10-13:*
@@ -630,8 +635,9 @@ never per frame.
   output that carries alpha (D207). Synesthesia's own order and methods
   are now known (R16, read from its engine on TORNADO, T25) and differ from
   Strobe's on almost every point; C-01 is reopened to follow them.
-  `textureFinalPass` is two frames late and unverified on the T480 (D162,
-  Q14).
+  `textureFinalPass` is two frames late, on llvmpipe and on the T480's
+  native and ANGLE contexts (D162, D245); what a real script expects of it
+  is Q14.
 - Implicit int-to-float is written out by a typed, parser-backed rewrite on
   every dialect (D199, R8), not only `PASSINDEX == 0.0` (D163). On ES it
   also types function-like macro calls through their expansions, and on
@@ -641,9 +647,10 @@ never per frame.
 - Adaptive-resolution thresholds are validated on one machine, the T480.
   The missed-refresh rule, its verdict and the fast third step (D314-D317)
   are verified on the mini PC (M20-M24), as are D318's put-off verdicts
-  and D319's settled line. D318's lock expiry has not yet happened on the
-  hardware, and D320's stall exclusion and log lines are checked on
-  synthetic sequences only; Task M25 is their hardware test.
+  and D319's settled line. D318's lock expiry happened there in the M26
+  soak with D320's line for it, and D320's put-off line in M25 (2026-10-17). D320's stall exclusion is
+  checked on synthetic sequences only: no system stall landed in M25's
+  settled hold.
 - Native crash capture cannot see a bare `abort()` on Windows, which is a
   fast-fail ([DEBUGGING.md](DEBUGGING.md)).
 

@@ -118,8 +118,8 @@ mini PC (`hardware/MINIPC.md`, "Re-measuring the D310 scene pass") before
 ticking anything in STATUS_AUDIT.
 
 **Measured on the Vega 3 (2026-10-16, MINIPC.md Task M17),** 1920x1080,
-native WGL, `--show-window --window-size 1920x1080`, before (6923fa5) and
-after (b8789bf) alternating. Image difference on a 4-pixel grid, per channel
+native WGL, `--show-window --window-size 1920x1080`, before (4589908) and
+after (bdc1b70) alternating. Image difference on a 4-pixel grid, per channel
 of 255.
 
 | Scene | Before ms (p95) | After ms (p95) | After / before | Image change |
@@ -252,7 +252,7 @@ no more than 2x 05-domain-warp.
   GLES 3.0 ok. Renders at 2 s, 10 s and 30 s showed no blow-out or fade to
   black; a run with every audio uniform forced to 0 still flows.
 
-### 2026-10-13: AMD Radeon RX 580 (AMD desktop), commit 26576b0
+### 2026-10-13: AMD Radeon RX 580 (AMD desktop), commit 8cdd18a
 
 Driver 31.0.21925.1001, Windows 10 19045. Native GL reports `3.3.0 Core
 Profile Context 26.5.2.260413`; ANGLE is Electron 38.2.0's, on D3D11.
@@ -284,7 +284,7 @@ Profile Context 26.5.2.260413`; ANGLE is Electron 38.2.0's, on D3D11.
   - ANGLE compiles 12-silicon-atlas in 1588 ms against 8.8 ms native.
 - `11-script-orbits` runs without its `script.js` here (C-05).
 
-### 2026-10-11: NVIDIA GTX 1080 Ti (TORNADO), commit 862ad2e
+### 2026-10-11: NVIDIA GTX 1080 Ti (TORNADO), commit 202e635
 
 Driver 582.78, Windows 10 19045. `--context window` (hidden window), 60
 timed frames after 90 warm-up, as above. Details are in
@@ -313,7 +313,7 @@ beats native per frame but compiles up to six times slower, so it costs
 load time, not frames. These 07 numbers predate D191 (`FIXED_SIZE`), so
 its simulation then ran at a quarter of the output's pixels at each size.
 
-### 2026-10-09: first real GPU, ThinkPad T480 (Intel UHD 620), commit b7b0b50
+### 2026-10-09: first real GPU, ThinkPad T480 (Intel UHD 620), commit d1286ab
 
 Intel UHD 620, driver 30.0.101.1122, Windows 11 26300, on AC power.
 `--context window` (hidden window), 60 timed frames after 90 warm-up
@@ -361,7 +361,7 @@ from the contact sheets.
   to reach 30 fps at 720p.
 
 
-### 2026-10-08: baseline, Mesa llvmpipe (no GPU), cloud container, commit f84b564
+### 2026-10-08: baseline, Mesa llvmpipe (no GPU), cloud container, commit 0455ffc
 
 llvmpipe (LLVM 20.1.2, 256-bit), 4 vCPU, desktop GL 4.5 core context,
 GLSL 330. 1280×720, 30 timed frames after 90 warm-up frames. Times are
@@ -442,7 +442,7 @@ the inspected native rendered frame.
 ## 2026-10-14: Desktop remote integration on the updated PR base, Windows RX 580
 
 Before and after `cargo xtask bench -- --size 1280x720` on upstream
-`5507a13`, native GL 3.3 26.5.2.260413, hidden window, half-float
+`3b3844c`, native GL 3.3 26.5.2.260413, hidden window, half-float
 buffers, per-pass programs, 90 warmup / 60 timed frames. Reports:
 `target/bench/desktop-remote-pr-base/results.md` and
 `target/bench/desktop-remote-pr-after/results.md`.
@@ -678,7 +678,7 @@ scenes, half scale (a quarter of the pixels) saves 71-73%, close to the 75%
 that pixel count predicts, which is the lever adaptive resolution pulls on
 a slow GPU (D64). The T480 sweep is below; llvmpipe is still wanted.
 
-### 2026-10-27: render-scale sweep, ThinkPad T480 (Intel UHD 620), commit 6f744d4
+### 2026-10-27: render-scale sweep, ThinkPad T480 (Intel UHD 620), commit 26b7d44
 
 `--scales 1,0.75,0.5` (D496), the sweep the 1080 Ti section above asked
 for. T480, Intel UHD 620, driver build 30.0.101.1122, hidden-window
@@ -758,7 +758,7 @@ Two things to take from it:
 75% that pixel count predicts, and it matches the 1080 Ti's 71-73% on its
 own heavy scenes.
 
-### 2026-10-27: ANGLE's backends, ThinkPad T480 (Intel UHD 620), commit 6f744d4
+### 2026-10-27: ANGLE's backends, ThinkPad T480 (Intel UHD 620), commit 26b7d44
 
 `--gl angle-*` (D485, G-05). The scale-1 columns of the sweep above, plus
 an `angle-vulkan` run. `release` build, hidden-window context, half-float
@@ -853,7 +853,7 @@ compositor or the per-frame audio-texture upload than any one scene. It is
 not explained here, and it matters for a 60 fps target (16.7 ms) because
 an 18 ms frame is a dropped one.
 
-### 2026-11-03: build times, ThinkPad T480, commit 012452a
+### 2026-11-03: build times, ThinkPad T480, commit 9abc3e6
 
 Not a frame-time result: how long the workspace takes to build on the
 slowest machine it is developed on, for the audit's question of where an
@@ -877,7 +877,7 @@ report (`cargo build --timings`) is the place to look before anyone
 splits a crate to shorten it. Nothing here argues for sccache on a
 developer machine: the warm rebuilds are already linker-bound.
 
-### 2026-11-04: fat against thin LTO, ThinkPad T480 (Intel UHD 620), commit a71a735
+### 2026-11-04: fat against thin LTO, ThinkPad T480 (Intel UHD 620), commit 9f016fb
 
 The audit asked whether thin LTO costs frame time before the shipping
 profile changes (D535). `strobe-bench` at 1280x720, native GL 3.3 core in a

@@ -10,9 +10,9 @@ regression check.
 
 ## Role in the workspace
 
-- **Depends on:** `strobe-gfx` (contexts and the scene player) and
-  `strobe-scene` (loading, controls, the synthetic audio), plus `clap`,
-  `anyhow` and `image`. The window context is `strobe_gfx::offscreen`, so it
+- **Depends on:** `strobe-gfx` (contexts and the scene player),
+  `strobe-scene` (loading, controls, the synthetic audio) and `strobe-diag`
+  (the stderr log), plus `clap`, `anyhow` and `image`. The window context is `strobe_gfx::offscreen`, so it
   needs no `winit` of its own.
 - **Depended on by:** nothing. It is a binary; `cargo xtask bench` wraps it and
   CI runs it.
@@ -47,12 +47,14 @@ Every flag is defined in the clap `Cli`:
 | `--size WxH` | `640x360` | Render resolution. |
 | `--frames <n>` | `60` | Timed frames per scene. |
 | `--warmup <n>` | `90` | Untimed frames first, so feedback scenes have history. |
+| `--scales <list>` | `1` | Render scales to time every scene at, comma-separated fractions of `--size` (`1,0.75,0.5`). The first gives the frames, the contact sheet and the main table; with more than one, `results.md` adds each scene's mean frame time per scale (D496). |
 | `--start <seconds>` | `2.0` | Scene time at the first frame. |
 | `--context auto\|headless\|window` | `auto` | An EGL device with no window system, one hidden window, or headless if a device exists and the window otherwise. |
 | `--gl auto\|native\|angle\|angle-d3d11\|angle-vulkan\|angle-gl\|angle-metal` | `auto` | Backend for `--context window`; `angle-*` names ANGLE's backend too (D485). |
 | `--show-window` | off | Start with the tiny off-screen window instead of a hidden one. |
 | `--window-size WxH` | `16x16` | Window contexts: the stand-in window's client size. Renders never depend on it; it is a bisection tool for drivers that draw black above some size (D296). Windows caps it at about the screen size; the report's context line gives the size the window got. |
 | `--probe` | off | Instead of benchmarking, clear, draw into and read back targets at a ladder of sizes plus `--size`, and print the viewport the driver keeps. Writes `probe.md` (D296). |
+| `--readback` | off | Instead of benchmarking, check the `textureFinalPass` readback on this context (latency, cost, a busy GPU, a resize, a lost context). Writes `readback.md` (D245). |
 | `--api desktop\|gles` | unset | Dialect for headless (desktop by default). In window mode the backend decides, and a contradiction with `--gl` is an error (D72). |
 | `--full` | off | RGBA32F instead of the default RGBA16F for `FLOAT` passes. |
 | `--shared` | off | One shared program per scene with a `PASSINDEX` uniform, instead of one specialised program per pass. |

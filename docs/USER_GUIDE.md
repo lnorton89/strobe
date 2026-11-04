@@ -11,8 +11,10 @@ you build Strobe from source (README, "Linux"; settings and logs are in
 
 1. Download `strobe-vX.Y.Z-x86_64-pc-windows-msvc.zip` from the project's
    GitHub Releases page and unzip it anywhere you can write to, for example
-   `C:\Strobe`. There is no installer and nothing goes in the registry.
-2. The folder holds:
+   `C:\Strobe`. There is no installer and nothing goes in the registry,
+   and no Visual C++ redistributable is needed: the C runtime is built
+   into `strobe.exe`.
+2. The zip holds one folder, `strobe-vX.Y.Z-x86_64-pc-windows-msvc`, with:
 
    | File | What it is |
    |---|---|
@@ -21,6 +23,7 @@ you build Strobe from source (README, "Linux"; settings and logs are in
    | `vulkan-1.dll` | The Vulkan loader from the same Electron release, for `--gl angle-vulkan`. |
    | `scenes\` | The seventeen scenes that ship with Strobe. |
    | `README.md`, `LICENSE` | The project and its licence: MIT with the Commons Clause, which lets you run Strobe for pay but not sell Strobe itself. |
+   | `THIRD_PARTY.md`, `THIRD-PARTY-NOTICES.txt` | The contributors and every crate in `strobe.exe` with its licence, and those licences' full texts. |
 
    A separate `...-symbols.zip` holds `strobe.pdb`. You only need it to
    turn a crash report into function names (see *When something goes
@@ -50,7 +53,7 @@ screen until you ask.
   memory. It waits while a playlist is loaded.
 - **Show output** (the monitor button under the panel's preview, or the
   button on the preview while the output is hidden), or **F11**, shows the
-  output. Use **Settings > Output > Output monitor** to put it on the
+  output. Use **Settings > Output > Monitor** to put it on the
   projector, then F11 for fullscreen.
 - The window is Synesthesia's three columns. The **rail** on the left
   switches the main view: **Library** (the scene library, the default),
@@ -86,7 +89,7 @@ screen until you ask.
 | Ctrl+L | Switch between the Library and the live scene's Controls |
 | Esc | Close the top pane |
 
-Settings > Keyboard changes any of them.
+Settings > Shortcuts changes any of them.
 
 ## Scenes
 
@@ -134,8 +137,8 @@ Settings > Keyboard changes any of them.
 
   Search for `synesthesia` to see only them. A scene that is in both your
   library and Synesthesia's shows twice; `--scene`, playlists and fav slots
-  use your own. To hide them, untick **Settings > Synesthesia's scenes >
-  Show Synesthesia's scenes** (remembered), or start with
+  use your own. To hide them, untick **Settings > Library > Show
+  Synesthesia's scenes** (remembered), or start with
   `strobe.exe --no-synesthesia` for one run. Strobe ships none of
   Synesthesia's files: it only reads your own install, the same way it
   finds Synesthesia's `lib` folder for scenes that `#include` it. If
@@ -193,12 +196,12 @@ Scenes react to sound through the default **recording** device.
 - For a machine that starts Strobe by itself (a venue PC), put the output
   on the projector from the command line:
   `strobe --output-monitor 2 --fullscreen`. Monitors are numbered as
-  **Settings > Output > Output monitor** numbers them; `--fullscreen` alone uses the
+  **Settings > Output > Monitor** numbers them; `--fullscreen` alone uses the
   monitor the output opens on. If monitor 2 is not connected yet (the
   projector is switched on after the computer), the output opens where it
   is and moves to the projector when it appears, unless someone has
   placed it by hand meanwhile.
-- **Settings > Performance** holds the render scale and adaptive
+- **Settings > Output** holds the render scale and adaptive
   resolution, which lowers the render size by itself when the GPU falls
   behind; `--no-adaptive` turns it off for a run.
 - The output's look (brightness, hue, mirror, colour limits and the like)
@@ -207,12 +210,18 @@ Scenes react to sound through the default **recording** device.
 
 ## Media behind a scene
 
-Scenes that read `syn_Media` show a picture or a looping folder of
-pictures (PNG or JPEG).
+Scenes that read `syn_Media` show a picture, a looping folder of
+pictures (PNG or JPEG) or, on Windows, a webcam.
 
 - In the panel's Scene tab, **Media > Choose** takes a file or folder
   path; *Scene's own* gives the scene its own back. Dropping a picture or a folder of
   pictures on the window does the same.
+- **Media > Camera** lists the webcams and shows the one you click. From
+  the command line, `strobe.exe --list-cameras` prints their names and
+  `--media "camera:<name>"` shows one; a cue can name one the same way.
+  A camera that fails or is unplugged shows black, says so once, and comes
+  back by itself when it can. **It has not yet been tried with a real
+  camera**; please report what you find.
 - A playlist cue can name its own media, and that wins for the cue.
 - Very long sequences are shrunk to fit 192 MiB of memory rather than cut
   short.
@@ -499,12 +508,13 @@ Remote** (and in its log); the port is `47812` unless you started it with
 show machine's window, with no click anywhere, and reads the file when it
 connects. `--control` is for the laptop only: it cannot be combined with
 `--remote`. Without `--remote-trust`, `--control HOST:PORT` opens
-**Settings > Control another Strobe** with the address filled in, for pairing
-with a code.
+**Settings > Remote** at *Control another Strobe* with the address filled in,
+to connect with the host's approval.
 
-Or, from the running laptop, open **Settings > Control another Strobe**, type
-the address, tick **Use a trust file (venue mode)**, type or paste the file's
-path and press **Connect to desktop**. Strobe remembers the path (never the
+Or, from the running laptop, open **Settings > Remote**, and under *Control
+another Strobe* type the address in **Connect by address**, tick **Use a
+trust file (venue mode)**, type or paste the file's path and press
+**Connect**. Strobe remembers the path (never the
 file's contents) and the choice for next time.
 
 **If the connection drops, the laptop reconnects by itself.** After a host
@@ -516,7 +526,8 @@ long as it takes, and takes the controls back when the host answers. Press
 the file is not the one the host was started with, the controller was
 revoked at the host, or the host was not started with `--remote
 --allow-desktop-control --remote-trust FILE`. **Reconnect** tries the file
-again once you have fixed it. (Pairing by code keeps its manual **Reconnect**.)
+again once you have fixed it. (A connection approved at the host keeps its
+manual **Reconnect**.)
 
 What you see at the host: the title bar says **Desktop controlled remotely**
 while the laptop is in control, and **Settings > Remote** lists the laptop
@@ -601,7 +612,7 @@ under Connections (at least 6 characters) and Save. **Copy link** copies the
 page's address; a phone signs in once and stays signed in until the password
 changes. It is plain HTTP: never forward its port.
 
-The settings live in `%LOCALAPPDATA%strobeprojectors.json`. To have the
+The settings live in `%LOCALAPPDATA%\strobe\projectors.json`. To have the
 page when Strobe is closed, and the `pj` command line, see
 [`tools/projector-control`](../tools/projector-control/README.md).
 
@@ -652,7 +663,7 @@ Strobe tries the GPU's OpenGL driver first and falls back to ANGLE
   its other backends. If ANGLE cannot start on the one asked for, Strobe
   says so and does not quietly use another;
 - `strobe.exe --diagnose` writes a report of the machine, GPU, driver and
-  audio devices, for a bug report.
+  audio devices, and names the ANGLE it loaded, for a bug report.
 
 To run with a flag, make a shortcut to `strobe.exe` and add the flag at
 the end of its *Target*.
@@ -668,6 +679,9 @@ Everything Strobe writes lives in `%LOCALAPPDATA%\strobe`:
 | `ui.toml` | Window and pane layout, theme, density, favourites. |
 | `show-control.json` | MIDI and OSC settings, mappings, macros, keys. |
 | `remote-clients.json` | Phones paired with the remote (no usable keys: only their fingerprints). Deleting it un-pairs every phone. |
+| `projectors.json` | Settings > Projectors: the projectors and the projector page. |
+| `resume.toml` | Where a playlist was, so it resumes after a close. |
+| `diagnose.txt` | The last `--diagnose` report. |
 | `backups\` | The Editor's copies of files before it saved over them. |
 
 - **The Diagnostics pane** shows the GPU, the backend, frame timing, the

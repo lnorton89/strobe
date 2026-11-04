@@ -19,7 +19,7 @@ crates/
 ├── strobe-audio        FFT, bands, onsets, BPM → the syn_* values; cpal capture thread
 ├── strobe-script       QuickJS host for the Synesthesia JavaScript API
 ├── strobe-bench        Benchmark + visual regression frames (headless or hidden-window context)
-├── strobe-conventions  The house rules as tests (headers, unsafe boundary, toolchain pin, README gaps)
+├── strobe-conventions  The house rules as tests (headers, unsafe boundary, GL owners, driver queries, crate layers, toolchain pin, docs links, README gaps)
 ├── strobe-diag         Logger, session context, panic hook, native crash capture
 ├── strobe-shadertoy    Shadertoy export JSON → scene folder (id parser, model, dialect rewrite, converter, strobe-import)
 ├── strobe-autocontrol  Auto-generated controls: finds tunable literals, rewrites them to uniforms, keeps those that measurably change the image
@@ -288,6 +288,12 @@ runs once per control-window frame, after that frame is painted, and compiles
 one scene (or one custom transition) with the context current on the control
 surface; the scene frame does not tick the clock until every step is done.
 See D150-D158.
+
+Prerendering the library is not in the frame either (D542).
+`Running::schedule` calls `step_prerender`, which loads one scene at 1x1,
+draws it once and parks it lean in `Stack::prerendered`, at most one every
+50 ms, and none while a playlist is loaded. Loading a parked scene is a
+resize and a restart, not a compile.
 
 ## The control window's UI (`strobe-app`)
 
