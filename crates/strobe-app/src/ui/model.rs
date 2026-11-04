@@ -212,14 +212,12 @@ pub enum Action {
     CancelReplace,
     /// Start or stop the browser listener.
     SetImportListener(bool),
-    /// Watch this folder for scenes to add to the library, or stop
-    /// watching (D265). Applied at once and saved when it is applied.
-    SetWatchFolder {
-        /// The folder, as typed.
-        folder: String,
-        /// Watch it (`true`) or stop.
-        enabled: bool,
-    },
+    /// List this folder's scenes after the library folder's own (D538).
+    /// Checked by the app, applied at once and saved when it is added.
+    AddSceneFolder(String),
+    /// Stop listing the scene folder at this place in Settings' list
+    /// (D538). Its scenes stay where they are.
+    RemoveSceneFolder(usize),
     /// Quit the app (the control window is the app, D96).
     Quit,
     /// Draw Strobe's title bar (true) or the system's (false).

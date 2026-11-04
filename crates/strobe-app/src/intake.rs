@@ -28,11 +28,9 @@
 //!   keeps running, and a banner then says how many were added, already
 //!   there or refused (D235). At most [`MAX_PACK`] scenes are taken.
 //!
-//! A **watched folder** ([`Inbox`], `--watch-folder` or Settings) takes the
-//! same route without a drop: a scene folder or a folder of scenes that
-//! appears in it is added to the library as a pack is, and nothing plays
-//! (D240). Launch and Settings check the folder the same way
-//! ([`check_watch_folder`], D265).
+//! The library's other **scene folders** (Settings > Library, D533) are
+//! listed where they are, not copied; [`check_scene_folder`] is the check
+//! a folder passes to be added.
 //!
 //! Anything else is refused with a sentence saying what can be dropped.
 //!
@@ -41,9 +39,8 @@
 //! reads, becomes the person's own under a free name, so it can be tagged,
 //! edited and given presets.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
 
 /// The most scenes taken from one dropped folder of scenes.
 pub const MAX_PACK: usize = 500;
@@ -295,161 +292,25 @@ fn remove_partial(dir: &Path) {
     }
 }
 
-/// A watched folder: scenes that appear in it go to the library (D240).
-///
-/// Polled every [`Inbox::EVERY`] seconds from the frame loop: one
-/// `read_dir` and, for an entry not yet taken, a bounded walk that sums its
-/// files. An entry is taken once its sum (files, bytes, newest time) is the
-/// same on two polls in a row, so a folder still being copied in is left
-/// until the copy has finished. What was there when watching began is
-/// never taken: turning the watch on does not import the folder's past.
-#[derive(Debug)]
-pub struct Inbox {
-    dir: PathBuf,
-    since: f32,
-    /// Entries already taken, or there at the start, or not scenes.
-    done: HashSet<PathBuf>,
-    /// Entries seen on the last poll, with their sums.
-    seen: HashMap<PathBuf, Sum>,
-}
-
-/// What a folder holds, enough to tell that it stopped changing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Sum {
-    files: u64,
-    bytes: u64,
-    newest: Option<SystemTime>,
-}
-
-impl Inbox {
-    /// Seconds between polls.
-    pub const EVERY: f32 = 2.0;
-
-    /// The most files walked to sum one entry; past it the entry is not a
-    /// scene a person dropped there.
-    const MAX_WALK: u64 = 10_000;
-
-    /// Watches `dir`, leaving alone what is in it now.
-    pub fn new(dir: PathBuf) -> Self {
-        let done = entries(&dir).into_iter().collect();
-        Self {
-            dir,
-            since: 0.0,
-            done,
-            seen: HashMap::new(),
-        }
-    }
-
-    /// The watched folder.
-    pub fn dir(&self) -> &Path {
-        &self.dir
-    }
-
-    /// Counts `dt`; every [`Inbox::EVERY`] seconds, polls and returns the
-    /// scene folders that have settled since the last poll (a folder of
-    /// scenes gives its scenes), in name order.
-    pub fn poll(&mut self, dt: f32) -> Vec<PathBuf> {
-        if dt.is_finite() && dt > 0.0 {
-            self.since += dt;
-        }
-        if self.since < Self::EVERY {
-            return Vec::new();
-        }
-        self.since = 0.0;
-        self.check()
-    }
-
-    /// One poll, now.
-    fn check(&mut self) -> Vec<PathBuf> {
-        let mut taken = Vec::new();
-        let mut seen = HashMap::new();
-        for entry in entries(&self.dir) {
-            if self.done.contains(&entry) {
-                continue;
-            }
-            let Some(sum) = sum(&entry) else {
-                continue;
-            };
-            if self.seen.get(&entry) != Some(&sum) {
-                seen.insert(entry, sum);
-                continue;
-            }
-            match classify(&entry) {
-                Dropped::Scene(dir) => taken.push(dir),
-                Dropped::Pack(scenes) => taken.extend(scenes),
-                Dropped::Shadertoy | Dropped::Playlist | Dropped::Media | Dropped::Unknown(_) => {
-                    log::info!(
-                        "watched folder: {} is not a scene; left alone",
-                        entry.display()
-                    );
-                }
-            }
-            self.done.insert(entry);
-        }
-        self.seen = seen;
-        taken
-    }
-}
-
-/// The entries directly inside `dir`, in name order.
-fn entries(dir: &Path) -> Vec<PathBuf> {
-    let mut paths: Vec<PathBuf> = std::fs::read_dir(dir)
-        .map(|read| read.filter_map(Result::ok).map(|e| e.path()).collect())
-        .unwrap_or_default();
-    paths.sort();
-    paths
-}
-
-/// The files under `path` (or `path` itself), summed; `None` past
-/// [`Inbox::MAX_WALK`] files or when nothing can be read.
-fn sum(path: &Path) -> Option<Sum> {
-    let mut total = Sum {
-        files: 0,
-        bytes: 0,
-        newest: None,
-    };
-    let mut stack = vec![path.to_path_buf()];
-    while let Some(next) = stack.pop() {
-        let meta = std::fs::symlink_metadata(&next).ok()?;
-        if meta.is_dir() {
-            stack.extend(
-                std::fs::read_dir(&next)
-                    .ok()?
-                    .filter_map(Result::ok)
-                    .map(|e| e.path()),
-            );
-            continue;
-        }
-        total.files += 1;
-        total.bytes += meta.len();
-        let modified = meta.modified().ok();
-        total.newest = total.newest.max(modified);
-        if total.files > Inbox::MAX_WALK {
-            return None;
-        }
-    }
-    Some(total)
-}
-
-/// Whether `folder` can be watched for scenes to add to the library in
-/// `library` (D240, D265): it must be a folder that exists, and not the
-/// library itself, whose own new scenes (an import, a pack) would come back
-/// through the queue as "already there". Launch and Settings both ask this.
+/// Whether `folder` can be listed as one of the library's scene folders
+/// beside the library folder itself (D533): it must be a folder that
+/// exists, and not the library, which is listed already. Adding a folder in
+/// Settings asks this; a saved folder that has gone is listed as missing
+/// instead.
 ///
 /// # Errors
 ///
 /// One sentence saying why not.
-pub fn check_watch_folder(folder: &Path, library: &Path) -> Result<PathBuf, String> {
+pub fn check_scene_folder(folder: &Path, library: &Path) -> Result<PathBuf, String> {
     if folder.as_os_str().is_empty() {
-        return Err("Type the folder to watch.".to_string());
+        return Err("Type the folder to add.".to_string());
     }
     if !folder.is_dir() {
         return Err(format!("{} is not a folder.", folder.display()));
     }
     if same_dir(folder, library) {
         return Err(format!(
-            "{} is the library itself: watch a folder scenes are copied into before they \
-             join it.",
+            "{} is the library folder itself, which is listed already.",
             folder.display()
         ));
     }
@@ -615,19 +476,19 @@ mod tests {
     }
 
     #[test]
-    fn a_watched_folder_must_exist_and_not_be_the_library() -> Result<()> {
-        let scratch = Scratch::new("watch-check")?;
+    fn a_scene_folder_must_exist_and_not_be_the_library() -> Result<()> {
+        let scratch = Scratch::new("folder-check")?;
         let library = scratch.0.join("scenes");
-        let inbox = scratch.0.join("inbox");
+        let mine = scratch.0.join("mine");
         std::fs::create_dir_all(&library)?;
-        std::fs::create_dir_all(&inbox)?;
+        std::fs::create_dir_all(&mine)?;
         std::fs::write(scratch.0.join("file.txt"), "x")?;
         assert_eq!(
-            check_watch_folder(&inbox, &library),
-            Ok(inbox.clone()),
+            check_scene_folder(&mine, &library),
+            Ok(mine.clone()),
             "a folder beside the library"
         );
-        let refused = |folder: &Path| check_watch_folder(folder, &library).err();
+        let refused = |folder: &Path| check_scene_folder(folder, &library).err();
         assert!(
             refused(Path::new("")).is_some_and(|why| why.contains("Type")),
             "nothing typed"
@@ -641,8 +502,8 @@ mod tests {
             "a file"
         );
         assert!(
-            refused(&scratch.0.join("inbox/../scenes"))
-                .is_some_and(|why| why.contains("library itself")),
+            refused(&scratch.0.join("mine/../scenes"))
+                .is_some_and(|why| why.contains("library folder itself")),
             "the library, however it is spelled"
         );
         Ok(())
@@ -801,40 +662,6 @@ mod tests {
             !pack.step(&library, |_| false),
             "an empty pack does nothing"
         );
-        Ok(())
-    }
-
-    #[test]
-    fn a_watched_folder_takes_new_scenes_once_they_settle_and_leaves_the_old() -> Result<()> {
-        let scratch = Scratch::new("inbox")?;
-        let inbox_dir = scratch.0.join("inbox");
-        scene(&inbox_dir.join("old.synScene"))?;
-        let mut inbox = Inbox::new(inbox_dir.clone());
-
-        scene(&inbox_dir.join("new.synScene"))?;
-        std::fs::write(inbox_dir.join("notes.txt"), "x")?;
-        assert!(inbox.check().is_empty(), "first sight: not yet settled");
-        // Still being copied: it changes between polls.
-        std::fs::write(inbox_dir.join("new.synScene/more.glsl"), "// more")?;
-        assert!(inbox.check().is_empty(), "it changed: wait again");
-        let taken = inbox.check();
-        assert_eq!(
-            taken,
-            vec![inbox_dir.join("new.synScene")],
-            "settled: taken, and the old scene and the note are not"
-        );
-        assert!(inbox.check().is_empty(), "taken once");
-
-        let pack = inbox_dir.join("pack");
-        scene(&pack.join("a.synScene"))?;
-        scene(&pack.join("b.synScene"))?;
-        inbox.check();
-        assert_eq!(
-            inbox.check(),
-            vec![pack.join("a.synScene"), pack.join("b.synScene")],
-            "a folder of scenes gives its scenes"
-        );
-        assert!(inbox.poll(0.5).is_empty(), "polls only every two seconds");
         Ok(())
     }
 }
