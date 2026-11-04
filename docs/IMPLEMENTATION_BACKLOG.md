@@ -549,9 +549,9 @@
   - nextest everywhere or nowhere, decided from a few weeks of the Windows job's JUnit times against the other jobs' `cargo test` (D535);
   - sccache kept or dropped, decided from the Experiments workflow's hit rates (D535);
   - the master ruleset requiring `ci-ok` alone, once it has passed on master (D533);
-  - coverage read for missing recovery and protocol cases, and those cases written as tests (D539);
+  - coverage of the capture worker's reopen loop, the capture device and the MIDI ports, which need a device (R-01, P-04); the protocol gaps the coverage read found are tests now (D544);
   - the decisions index stays lexical (D539): a decision is listed under a crate only if it writes that crate's name.
-- **Work:** run the harness at the next release candidate; bench thin LTO on the T480; decide nextest and sccache from their data; switch the ruleset; turn coverage gaps into tests.
+- **Work:** run the harness at the next release candidate; bench thin LTO on the T480; decide nextest and sccache from their data; switch the ruleset; cover the device paths when R-01 and P-04 bring hardware tests.
 - **Acceptance:** the T480's record cites an `evidence.json` whose verdict is `pass`. A decision records the LTO, nextest and sccache outcomes with their numbers. The ruleset requires `ci-ok` and nothing else.
 
 ## Cross-cutting engineering rules
