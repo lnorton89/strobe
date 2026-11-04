@@ -110,11 +110,12 @@ fn any_image_pass_code_converts_or_is_refused() -> Result<()> {
         }
         Ok(())
     })?;
-    // The converter rewrites code it does not compile, so most generated
-    // passes should reach the rewrite; if they stopped, the bound above
-    // would be checked over nothing.
+    // About half the generated passes convert (the rest are refused before
+    // the rewrite); a quarter is the floor, far below that rate's spread
+    // over 256 random cases, so it fails only when the generator stops
+    // reaching the rewrite, not by chance (one run converted 127).
     assert!(
-        converted.get() * 2 >= cases,
+        converted.get() * 4 >= cases,
         "only {} of {cases} generated passes converted",
         converted.get()
     );

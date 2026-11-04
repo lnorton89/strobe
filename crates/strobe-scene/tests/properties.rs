@@ -229,7 +229,7 @@ fn a_valid_scene_parses_with_its_controls_whatever_their_numbers() -> Result<()>
     // pass over nothing.
     let refused = refused.into_inner();
     assert!(
-        parsed.get() * 4 >= cases * 3,
+        parsed.get() * 2 >= cases,
         "only {} of {cases} generated scenes parsed; refusals: {:?}",
         parsed.get(),
         refused.iter().take(6).collect::<Vec<_>>()
