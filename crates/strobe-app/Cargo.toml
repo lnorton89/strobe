@@ -48,6 +48,8 @@ egui-winit.workspace = true
 chrono.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# `--diagnose` checks the ANGLE DLLs beside the program against the pin (D536).
+sha2.workspace = true
 toml.workspace = true
 winit.workspace = true
 rfd.workspace = true
