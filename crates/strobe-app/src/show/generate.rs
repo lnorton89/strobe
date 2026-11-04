@@ -327,6 +327,7 @@ mod tests {
     fn library() -> Library {
         Library {
             dir: PathBuf::from("scenes"),
+            folders: Vec::new(),
             entries: ["01-aurora-gradient", "04-voronoi-glass", "05-domain-warp"]
                 .iter()
                 .map(|n| Entry::new((*n).to_string(), PathBuf::from(n)))
