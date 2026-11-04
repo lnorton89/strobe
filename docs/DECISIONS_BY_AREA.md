@@ -399,7 +399,7 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## CI and releases
 
-19 decision(s).
+20 decision(s).
 
 - [D52](decisions/D52.md): release flow is draft, build, attest, undraft
 - [D53](decisions/D53.md): PDBs are published separately, and the release build must override `strip`
@@ -420,6 +420,7 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D541](decisions/D541.md): the crate graph, `unsafe`, feature configurations, rustdoc, workflows and scripts are checked, and the build names its profile
 - [D543](decisions/D543.md): launch opens on the Library view
 - [D544](decisions/D544.md): what the audit work had skipped: a static C runtime, the imports and the loaded ANGLE checked, the browser engine built, generators that reach the code, and a changelog that can be corrected
+- [D545](decisions/D545.md): shipping keeps fat LTO, sccache is dropped, and nextest waits for more runs
 
 ## Not tied to one crate
 
