@@ -13,6 +13,153 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 Nothing yet — the latest release is the tip of `master`.
 
+## [0.3.0] - 2026-11-04
+
+### Added
+
+- Shadertoy imports go to user-scenes/shadertoy-imports, and the Library renders missing thumbnails (D547) ([`f97eaa8`](https://github.com/lnorton89/strobe/commit/f97eaa826ebccf519817821be0c54ebdaa545f5b))
+- other scene folders are searched through their subfolders (D546) ([`9657c9c`](https://github.com/lnorton89/strobe/commit/9657c9cdd9a54481248e7d1be3a5af755d7ec208))
+- prerender the library's scenes at launch and on a rescan, and open on the Library (D542, D543) ([`ecb8d36`](https://github.com/lnorton89/strobe/commit/ecb8d36982bdb4315e96c48b35dcda74a947aa9b))
+- list other scene folders in place, user-scenes by default; remove the watched folder (D538) ([`00dd39f`](https://github.com/lnorton89/strobe/commit/00dd39f3d608eb0115c4683a88ba982b42f6a483))
+- webcam input behind syn_Media through strobe-capture (M-04, D528-D530) ([`0652441`](https://github.com/lnorton89/strobe/commit/0652441e9399577f54858016caf49bc27b5f2809))
+- /play shares short links, stored once in R2 by content hash, from a Cloudflare Worker (D525, D527) ([`e239561`](https://github.com/lnorton89/strobe/commit/e2395619e65d15a87d7dec40aaeeaac7f8e094b1))
+- the website names the release GitHub publishes and drops its stats band (D526) ([`420064b`](https://github.com/lnorton89/strobe/commit/420064bbd1ea01f9d191aa31fad82b306c7258b8))
+- /play, a browser sandbox running Strobe's own scene player as wasm on WebGL2 (D524) ([`95ccd19`](https://github.com/lnorton89/strobe/commit/95ccd19de0ac94902ef2b135e0c0743981adf77b))
+- scene 18, Jester Totem, with UV rays, twins and a perform group of controls (D520) ([`ca1576f`](https://github.com/lnorton89/strobe/commit/ca1576f0dda845af7d258649f6fd9638c69413ad))
+- remote and projector pages as installable web apps; the projector service updates at logon (D517, D518) ([`be7238e`](https://github.com/lnorton89/strobe/commit/be7238ed3e4c964720bdb1640473086bff819f42))
+- the projector page asks for a password instead of a token in a link (D516) ([`6486003`](https://github.com/lnorton89/strobe/commit/648600356d0c5fb45118601cb4f96a610287a0d6))
+- the controller draws its quick controls over the host's own rows (D515) ([`bef98c7`](https://github.com/lnorton89/strobe/commit/bef98c77c2c9a716fdbcc3583c7177334ca01a27))
+- the desktop remote sends the controls as data and the controller draws them (D513) ([`87fc7a7`](https://github.com/lnorton89/strobe/commit/87fc7a78234270e4c8f1133bab7c9db8a6cc409a))
+- controls as one-row value bars under ruled group headers (D510-D512) ([`2276d8d`](https://github.com/lnorton89/strobe/commit/2276d8dae6b813aaab405dfefd28efebea96de5a))
+- Connect on a Strobe found on the network proves the chosen trust file (D509) ([`bfbf1a4`](https://github.com/lnorton89/strobe/commit/bfbf1a48c1a1785c6453d936da03bc32421261b1))
+- install.ps1 installs strobe-projector and retires the Python tool (D502) ([`773f822`](https://github.com/lnorton89/strobe/commit/773f8222391f7887a98d8ba3385c008bd507aefd))
+- the headless projector service follows its config file (D502) ([`0fb4777`](https://github.com/lnorton89/strobe/commit/0fb477788196d57ab8f576b6e5fea8e002acf50c))
+- Settings > Projectors switches the projectors from Strobe (D502) ([`f85561e`](https://github.com/lnorton89/strobe/commit/f85561ef26787027b95c41ad2dce941fecc03903))
+- strobe-projector, the projector power tool in Rust (D502) ([`3224d56`](https://github.com/lnorton89/strobe/commit/3224d5682fc97bf0c1859d9db23a22277732ca55))
+- name each paired device by what it asked as, its kind, address and times (D500) ([`09cdd76`](https://github.com/lnorton89/strobe/commit/09cdd76b92d0c84caf10f86807534a1cf9959558))
+- **tools:** projector power control over PJLink for the show PC (D497) ([`16b6779`](https://github.com/lnorton89/strobe/commit/16b6779e685b2fefd0e72b1b8a41b5204a9f600c))
+- upload the synthetic audio textures in the bench and add a render-scale sweep ([`32ac6a8`](https://github.com/lnorton89/strobe/commit/32ac6a8a3ff3a1f8ec31a09288990948609a08ef))
+- credit contributors and upstream projects on the About page ([`5fbb9be`](https://github.com/lnorton89/strobe/commit/5fbb9bef7e4783988d37aa6633ba11d3c313818a))
+- change a scene's HARD and SMOOTH transitions on a new song, heard or told with new_song ([`e72ee04`](https://github.com/lnorton89/strobe/commit/e72ee04694aab6db63c0fce012b93b692fb0fa98))
+- generate controls from the Controls view and save them into the scene (#32) ([`6a871f4`](https://github.com/lnorton89/strobe/commit/6a871f4aa21275aaf1c9d7aa4136962906f39f43))
+- add the project website in site/, adapted from the Cinnabar site ([`9fb3464`](https://github.com/lnorton89/strobe/commit/9fb34644f6e89e4a5bf71d7e61374e547ea633cc))
+
+### Fixed
+
+- the QuickJS and MIDI timing tests run alone under nextest on this branch too ([`18fcd4b`](https://github.com/lnorton89/strobe/commit/18fcd4b5c7ebfd2b99d981ec80cd8a258e5f93de))
+- the prerender doc names its function-local gap in plain code, which rustdoc cannot link ([`570d663`](https://github.com/lnorton89/strobe/commit/570d6636e83d23566a24004a6f53eba8f6f391ee))
+- client-list saves take turns under a process-wide lock instead ([`f001763`](https://github.com/lnorton89/strobe/commit/f001763dac3d1f932b99b4b4e64953efd5b6547a))
+- each client-list save writes its own temporary file, so a token still rotates ([`8903945`](https://github.com/lnorton89/strobe/commit/8903945fe88a61796d9a3074018fec0ac928254c))
+- timing tests run alone under nextest, and the parse guards cannot flake (D544) ([`0951e41`](https://github.com/lnorton89/strobe/commit/0951e41f5e4acbc8bc37817f0deb501be7b49f0d))
+- the coverage job installs the ALSA headers strobe-io's MIDI layer links (D539) ([`958b2d7`](https://github.com/lnorton89/strobe/commit/958b2d781d1973cde09bd3d19dbf6a3aaab1e951))
+- check-linux.sh passes shellcheck (D541) ([`2737bae`](https://github.com/lnorton89/strobe/commit/2737baeacf67affaa087c17b354c6cebbce804be))
+- link the C runtime statically, and check imports and the loaded ANGLE (D544) ([`aaf0f2e`](https://github.com/lnorton89/strobe/commit/aaf0f2e480d17fa32e04458c203afa0e0da5d80a))
+- release.yml uploads every file as its own argument (SC2046, D538) ([`8e4600a`](https://github.com/lnorton89/strobe/commit/8e4600a68d64fa0bc3361089872f77890d763016))
+- thumbnails decode by their bytes and fill the card (D540) ([`4fb9eb2`](https://github.com/lnorton89/strobe/commit/4fb9eb2e68a51f1adf8e8cf582e1a46980b521b4))
+- what the new linters found, and actionlint built from its tag (D541) ([`6da7273`](https://github.com/lnorton89/strobe/commit/6da7273d182ae362ad3a8a959f03137ef0099926))
+- the client list's save retries a file Windows holds for a moment, so a token still rotates (D531) ([`65086d3`](https://github.com/lnorton89/strobe/commit/65086d373640559be6440c9ad59b21c9db1a57de))
+- the macOS job skips strobe-web, and the sandbox test reads a control's value as a number ([`0a0f444`](https://github.com/lnorton89/strobe/commit/0a0f4443b48d37e87cb800b7053c401d6726fcd0))
+- withdraw Jester Totem, a friend's shader, from scenes/ and the site (D526) ([`a0cb046`](https://github.com/lnorton89/strobe/commit/a0cb046b247c43fa4f631fae9a9d8f95c57aa4dd))
+- remote control rows are laid out at the host's size and scaled with the picture (D519) ([`f5be68e`](https://github.com/lnorton89/strobe/commit/f5be68ee46e3967b122da7c3e43c880a7fa04a0a))
+- the projector service's supervisor swaps in a new build itself; the launcher only leaves it (D518) ([`c6d8fb4`](https://github.com/lnorton89/strobe/commit/c6d8fb4d901a5034387a7cd1d261dc15901e0958))
+- testing --make-remote-trust no longer puts message boxes on the screen ([`517619e`](https://github.com/lnorton89/strobe/commit/517619e70cc8024210d5cf46c413fc766107aff5))
+- hovering a toggle no longer draws it on; Close reaches the window's corner (D513) ([`45c75b5`](https://github.com/lnorton89/strobe/commit/45c75b5a7b3af849f293d71d625884d8c5b8c624))
+- every control is a row in one frame, with its widget at the right end (D510) ([`a15f984`](https://github.com/lnorton89/strobe/commit/a15f9840db788ee3a93fc776cab6d1a55703e6a5))
+- toggles keep their switch and colours their swatch, not bars (D510) ([`629e6cf`](https://github.com/lnorton89/strobe/commit/629e6cf825ae365cec0c4d1dca60ba30b212e0e6))
+- don't swap a covered control frame Windows did not paint (D508) ([`bf0029f`](https://github.com/lnorton89/strobe/commit/bf0029fbc71b0c677936de10aa7fb642e4f48aa3))
+- pj prints only its own output; the log header reaches stderr only at info (D506) ([`149d77c`](https://github.com/lnorton89/strobe/commit/149d77c12dd9b997c472f6a39db98f9152ffc5ab))
+- credit the people who made Strobe, not the bots and coding agents they ran (D501) ([`40a9376`](https://github.com/lnorton89/strobe/commit/40a93762d2ff179decfd74e4b0f3bae93e063a5f))
+- let --diagnose exit once its report is saved (D499) ([`d24327e`](https://github.com/lnorton89/strobe/commit/d24327e0607e1c1fdd809aaa68b3072447c9ffeb))
+- keep a Shadertoy import's iTime running through a resize at any speed ([`cfeb567`](https://github.com/lnorton89/strobe/commit/cfeb567086fdfbc64b1cf3cbd102688a7d92774b))
+- draw the tilt-shift blur as Synesthesia's engine does, its taps capped for GLSL ES ([`7d7d369`](https://github.com/lnorton89/strobe/commit/7d7d36987e8660c60e6fb30bae503ccc166ade0c))
+- compute the SSF helpers as Synesthesia's engine does, not as its docs say (D490) ([`f5f9536`](https://github.com/lnorton89/strobe/commit/f5f9536db427d230497d3c715d60e51434705891))
+
+### Performance
+
+- optimise the audio tests, pilot nextest on Windows, keep timings (D535) ([`9936127`](https://github.com/lnorton89/strobe/commit/9936127ee1c90c3a27de9604fa604e700cee3f8b))
+- a controlled host leaves its preview out and sends a picture only when it changed (D514) ([`8fea7df`](https://github.com/lnorton89/strobe/commit/8fea7df7f18809ee6c40204e76eb9c96258141a2))
+
+### Documentation
+
+- the guide covers subfolder search, where imports go and rendered pictures, and #91's subjects name D546 and D547 ([`2e9e513`](https://github.com/lnorton89/strobe/commit/2e9e5131d53daf0656b9550db26b2b6b8dded8af))
+- a pre-release sweep brings the guides, READMEs and status docs up to what master does ([`78fb53b`](https://github.com/lnorton89/strobe/commit/78fb53bea3a11269443a3249dcd128def274fda5))
+- the records name the rewritten commits, and the rewrite is recorded (D549) ([`296ca83`](https://github.com/lnorton89/strobe/commit/296ca83853f0aaa380fb02e2f93a2f73ddf0c541))
+- the two #83 subjects that cite D538 are corrected to D541 in the changelog ([`212b144`](https://github.com/lnorton89/strobe/commit/212b1441c857cb5f08238ad95ca4caad790a6831))
+- the changelog and its corrections name the rewritten commits ([`4c7fca4`](https://github.com/lnorton89/strobe/commit/4c7fca42e0facba417e8f25d144f489eb6144cc7))
+- master's ruleset requires ci-ok alone, now that it has passed there (D533) ([`a2ee8e7`](https://github.com/lnorton89/strobe/commit/a2ee8e75ad0f93c0f14da25fac0c87aec3fd1784))
+- the decisions index lists master's D538, D540, D542 and D543 ([`54ef1b8`](https://github.com/lnorton89/strobe/commit/54ef1b8d834dd70baf6133174a3af44cd349e506))
+- the T480 passes the release-candidate harness, and thin LTO costs no frame time there (D544) ([`2590350`](https://github.com/lnorton89/strobe/commit/25903503023a6d0374c88a4357cfa4c3705b8f44))
+- every citation of the audit follow-up names D544, and the pushed subjects are corrected ([`9f016fb`](https://github.com/lnorton89/strobe/commit/9f016fb67a8ddf0b37e16f0d48a1c3e3ca00cd19))
+- the audit follow-up is D544, since master took D542 and D543 ([`f2f0ac0`](https://github.com/lnorton89/strobe/commit/f2f0ac0ccb5e3e8949dda18f3279672f7f47c064))
+- the release dry run published and its provenance names the tagged commit (D544) ([`65da9f4`](https://github.com/lnorton89/strobe/commit/65da9f4a5bf04a00f3eb06c8e6e8aa79fbee87f6))
+- the decisions index includes D544 ([`d30462c`](https://github.com/lnorton89/strobe/commit/d30462ccafaa4293dda57b34954d35d4cde8f125))
+- the roadmap and decisions index cite D541 ([`5f5e288`](https://github.com/lnorton89/strobe/commit/5f5e288515efd7bc1eddec0da9d1c5d1345a0c35))
+- cite D541 everywhere this PR cited D538 ([`fbd3e58`](https://github.com/lnorton89/strobe/commit/fbd3e58f6fc7ffadfc174f2041b711f4ee09f260))
+- this PR's decision is D541; master's #84 took D538 ([`986fa49`](https://github.com/lnorton89/strobe/commit/986fa49f6ca5ebd0fd088977a7d95b815403ebac))
+- the audit's checks on the roadmap, and what is left as backlog D-07 ([`c37f25b`](https://github.com/lnorton89/strobe/commit/c37f25b60e2bbbccf3da4815e15e545f77980bab))
+- one file per decision in docs/decisions/, and no shared summary line in ROADMAP (D531) ([`0360faf`](https://github.com/lnorton89/strobe/commit/0360faf4bf8afe7caf2da6a167dbe6d743f682e5))
+- webcam input built, decisions D528-D530, camera checklist still open ([`c5da431`](https://github.com/lnorton89/strobe/commit/c5da4315ba5bb9c92600daf6ce29c95440fa309d))
+- M-04 webcam spike results and proposal ([`6339526`](https://github.com/lnorton89/strobe/commit/6339526822f31eea89dcf5893975245d66205f2c))
+- the M31 controller is LIGHTNING, the owner's desktop at JaJa, not TORNADO (Task M31) ([`5f841d2`](https://github.com/lnorton89/strobe/commit/5f841d2014d4a02130ec58a9c7445af21c7d5d61))
+- mini PC desktop-control grants end at restart by design, ordinary pairings survive (Task M31) ([`80661e3`](https://github.com/lnorton89/strobe/commit/80661e3dcd9b6a770c2f7fb56956bfed86eb9efd))
+- mini PC show runs with the LAN remote, and desktop control's cost before D508 (Task M31) ([`5d8ae1c`](https://github.com/lnorton89/strobe/commit/5d8ae1c9b8959191a5bb7e1ecc9e47e2cf24005f))
+- record the mini PC's strobe-projector run in the backlog and roadmap (L-09) ([`36de78a`](https://github.com/lnorton89/strobe/commit/36de78acc793e3a036ccf65737090ee8b6765fbf))
+- mini PC runs strobe-projector in place of the Python tool (Task M30, L-09) ([`cfca9a1`](https://github.com/lnorton89/strobe/commit/cfca9a186aaca4cb0ea5debfdd120d9785e62287))
+- T480 re-check of the --diagnose fix at e61f35d (Task 50 follow-up) ([`03031d0`](https://github.com/lnorton89/strobe/commit/03031d0112203a4a521a79e676a175226156d66a))
+- mini PC live capture and audio device reconnect (Tasks M27-M29, R-01) ([`f4df69a`](https://github.com/lnorton89/strobe/commit/f4df69ac5151cccce0429387966624a83f5af17c))
+- reconcile the backlog with the T480's Tasks 46-50, and add G-08 and R-09 ([`98eef61`](https://github.com/lnorton89/strobe/commit/98eef6156999857d3c996f3f7613d05d9475409f))
+- T480 test of the published v0.2.0 release archive (Task 50) ([`ec1431e`](https://github.com/lnorton89/strobe/commit/ec1431e094ea869e1a4c751bbd678a6474e51917))
+- T480 render-scale sweep, ANGLE-Vulkan and Synesthesia's scenes on Intel (Tasks 46-49) ([`04b782c`](https://github.com/lnorton89/strobe/commit/04b782c2402b5322e62b0774d1a3f738786862de))
+- lay the ARCHITECTURE crate graph out top-down ([`7ff4430`](https://github.com/lnorton89/strobe/commit/7ff4430e35f7fb759119e01e2e68ca980f132123))
+- draw the crate graphs as Mermaid from the real dependencies, and drop the wide arrows that broke diagrams ([`8504d8a`](https://github.com/lnorton89/strobe/commit/8504d8a91797d44b64dbaa9d3ba8c4c649d289d9))
+- record D494-D496, close C-08 and D-06, and say how to install Rust ([`3b34a8b`](https://github.com/lnorton89/strobe/commit/3b34a8b076b247f109bce0723d9a82d1682722ff))
+- write the README for someone new, and redraw the architecture diagram by hand ([`b090437`](https://github.com/lnorton89/strobe/commit/b0904370453ab06c4bad6aa75f65d4f3aacca929))
+- renumber the SSF library decision to D492, after the credits took D491 ([`f4e891e`](https://github.com/lnorton89/strobe/commit/f4e891edca7b080bfebf140d79a1e0affc0680c8))
+- renumber the SSF library decision to D491 and the tilt-shift item to C-08 ([`66c8e96`](https://github.com/lnorton89/strobe/commit/66c8e966476462bc4cf4aa94a04ebac3eaba06c3))
+- settle open questions from Synesthesia 1.25.4's install and record its corpus (TORNADO T25) ([`e4e27aa`](https://github.com/lnorton89/strobe/commit/e4e27aaefefc64b5644d6784501ff8c6979dfccb))
+- point every crate README's known gaps at the backlog, and test that they do ([`03d1879`](https://github.com/lnorton89/strobe/commit/03d1879de951c40f61bbf5517fe084a1434decf0))
+
+### Internal
+
+- version 0.3.0 ([`92d31b8`](https://github.com/lnorton89/strobe/commit/92d31b88cc84f797db7b21f63a14bb07fd0f91bc))
+- a release waits in draft for the owner's approval, so its own archives go through the rc harness first (D548) ([`6e28c50`](https://github.com/lnorton89/strobe/commit/6e28c50b5cdfc90339552f9a80a1654290d61e17))
+- shipping keeps fat LTO and the sccache trial is dropped, from their measured runs (D545) ([`bb15b84`](https://github.com/lnorton89/strobe/commit/bb15b842ae7235d2a46e221935efc83fca7b7bcf))
+- fetch the pinned PSScriptAnalyzer by hash instead of Install-Module, 108 s to about 2 (D544) ([`2b889e2`](https://github.com/lnorton89/strobe/commit/2b889e2257a2658b07d71f0ec0b98073564ce025))
+- crate layers, unsafe_code, feature builds, rustdoc and script lint are checked (D541) ([`9ad440d`](https://github.com/lnorton89/strobe/commit/9ad440dacf5f756308e2ebcfafe9fe0eb0c80587))
+- lock rust-overlay in flake.lock (D536) ([`973df0b`](https://github.com/lnorton89/strobe/commit/973df0b668c0ee82229fcce5adb91fb8cccfc8f1))
+- xtask builds and checks the package on every PR, plus an RC harness (D537) ([`b8715be`](https://github.com/lnorton89/strobe/commit/b8715bead9d32a774b31ffa97723b4637c7f10ad))
+- one manifest pins the native DLLs; SBOM, build and --diagnose read it (D536) ([`9939845`](https://github.com/lnorton89/strobe/commit/9939845cdddeb31e3eb63fbcaf69d2dc19d56e71))
+- CI runs xtask's lanes strictly, behind one ci-ok check (D533) ([`0ccbc7d`](https://github.com/lnorton89/strobe/commit/0ccbc7d859fb744008c6666ae32060c5e947381a))
+- ignore user-scenes/, the owner's private scene library (D532) ([`6ae122e`](https://github.com/lnorton89/strobe/commit/6ae122e9a35dc2bed57749ed865d78cbafbb374a))
+- a docs-only pull request skips the platform builds and runs the conventions tests (D531) ([`e614e64`](https://github.com/lnorton89/strobe/commit/e614e6467baca5e0309b093c78781358e94704e7))
+- **deps:** bump ureq from 3.4.2 to 3.5.0 ([`d4e3d10`](https://github.com/lnorton89/strobe/commit/d4e3d10f68c46b8cc77bcb3358177b3cf2d5597d))
+- **deps:** bump resvg from 0.48.1 to 0.49.0 ([`9de6a88`](https://github.com/lnorton89/strobe/commit/9de6a88cc6fea15965cf691c664650549dfc76f5))
+- **deps:** bump the cargo-patch group with 2 updates ([`0b36dfe`](https://github.com/lnorton89/strobe/commit/0b36dfeb7860ff282558442bb344d246f660963b))
+- deploy the website to Cloudflare Pages with an account token, not the wrangler login (D525) ([`d771ba7`](https://github.com/lnorton89/strobe/commit/d771ba73f6bed81e66dd14632c62a2c0c851f72c))
+- a release publishes only after CI passes on its one tagged commit (D521) ([`ff95ba7`](https://github.com/lnorton89/strobe/commit/ff95ba76d3aafae35fb5e0c88e007f23bcc28cd5))
+- key the Windows and Linux caches by profile so master saves release-fast (D507) ([`c96bebe`](https://github.com/lnorton89/strobe/commit/c96bebe5cd70297b585369fb49c6aa5a57537e11))
+- build release-fast on master too, so pull requests restore it from the cache (D505) ([`be9787b`](https://github.com/lnorton89/strobe/commit/be9787bcc97490db8a6c0c9c002bb6a895ff01fc))
+- build release-fast on pull requests and the fat-LTO release on master (D504) ([`e68ed45`](https://github.com/lnorton89/strobe/commit/e68ed4566518a5ffb481fca1029b554ef27e9919))
+- fetch the pinned ANGLE DLLs on a Windows dev build when they are missing (D498) ([`36b857d`](https://github.com/lnorton89/strobe/commit/36b857d49fb46dfbd2b01bb8940d9e96551a3a2f))
+- ignore remote trust files, which hold a secret ([`f63fd11`](https://github.com/lnorton89/strobe/commit/f63fd11c2165addab88d92117ca71bf324a51dad))
+- generate THIRD_PARTY.md and the release's third-party notices with cargo xtask credits ([`e2b42b1`](https://github.com/lnorton89/strobe/commit/e2b42b1930d3224381e84d7fd44aa587bc9808d0))
+- add a release-fast profile and lighter dependency debug info for quicker rebuilds (#31) ([`bedb5a9`](https://github.com/lnorton89/strobe/commit/bedb5a95d089ae1dbb6b0fabb8597c3ba4c5c07b))
+
+### Tests
+
+- the remote's untested refusals and the desktop client's handshake and frames, from a coverage read (D544) ([`283a3ee`](https://github.com/lnorton89/strobe/commit/283a3eeee743e2f2268f9ca9e945d28f05d5e022))
+- baselines for the IMAGES and #include fixtures, from CI's Mesa (D534, D544) ([`96d5774`](https://github.com/lnorton89/strobe/commit/96d5774923a46cf5b6aeff34535dce7f48e58e30))
+- property generators that reach the deep code, and media and include fixtures (D539, D534) ([`558f523`](https://github.com/lnorton89/strobe/commit/558f5234fb2405decd3d08df8e087ca9918f77d4))
+- property tests over untrusted input, weekly machete and coverage, decisions by crate (D539) ([`fb75fc5`](https://github.com/lnorton89/strobe/commit/fb75fc53c13150cdaada5682b73ef88919d1a9f0))
+- the scene library's baseline frames, from CI's Mesa llvmpipe (D534) ([`5dc7ec1`](https://github.com/lnorton89/strobe/commit/5dc7ec150930172593e5819b8da2129c3dd9f080))
+- the corpus fixtures' baseline frames, from CI's Mesa llvmpipe (D534) ([`8184f70`](https://github.com/lnorton89/strobe/commit/8184f705ffa9ebe477a2251b0d6bbc08325405d3))
+- the script-aware corpus is a regression gate with baseline frames (D534) ([`4405449`](https://github.com/lnorton89/strobe/commit/4405449c44212e3484216d1889cc6e402dfa0b4a))
+- clear the texture changes a test UI pass leaves, as a debug build demands ([`97b9bf4`](https://github.com/lnorton89/strobe/commit/97b9bf46c736d253592c41ea2857636d10f1c626))
+- a slow runner's probe timeout is not a test failure ([`5a398e2`](https://github.com/lnorton89/strobe/commit/5a398e23e8b22c824641348396b1ab33aa8927b9))
+- stop tests binding every interface unless STROBE_TEST_LAN=1 ([`d21bbe0`](https://github.com/lnorton89/strobe/commit/d21bbe050c9c793ae2e9f06ed4bd0ee7617301b2))
+- the fake projector's lamp strikes a set time after it reports on ([`edcafab`](https://github.com/lnorton89/strobe/commit/edcafabb237a361884d462d70eb8e5d55f98d59d))
+- check build scripts, GL object owners, driver queries and the docs' links (D497) ([`a3447c9`](https://github.com/lnorton89/strobe/commit/a3447c98c43e33a67c6fe81c47e1d434ac8e2c49))
+
 ## [0.2.0] - 2026-10-26
 
 ### Added
@@ -679,6 +826,7 @@ Nothing yet — the latest release is the tip of `master`.
 - snapshot after usage-limit interruption ([`2bc621b`](https://github.com/lnorton89/strobe/commit/2bc621bcc4eb79d6aa86421cf371a9921c91caf1))
 - snapshot after usage-limit interruption ([`58e9dd9`](https://github.com/lnorton89/strobe/commit/58e9dd96d29e4bb4f2951e553da57788399022b9))
 
-[Unreleased]: https://github.com/lnorton89/strobe/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/lnorton89/strobe/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/lnorton89/strobe/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/lnorton89/strobe/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/lnorton89/strobe/releases/tag/v0.1.0
