@@ -32,8 +32,8 @@
 //! - **Appearance**: the theme, density, reduced motion, the title bar
 //!   (D132), and named layouts (D215).
 //! - **Library**: Synesthesia's own scenes, read-only (D271), and the
-//!   watched folder (D240, D265). Both switches act at once; the app checks
-//!   the folder as at launch and saves it only when it is accepted.
+//!   library's other scene folders (D538). The switch and the list act at
+//!   once; the app checks a folder before it is added and saved.
 //! - **Remote** (`super::lan`): the LAN remote, pairing and paired devices
 //!   (D254), and the form for controlling another Strobe (D275). Ctrl+K
 //!   finds it as "Control another Strobe", which opens this page.
@@ -77,7 +77,7 @@ pub enum SettingsPage {
     Audio,
     /// Theme, density, motion, the title bar and layouts.
     Appearance,
-    /// Synesthesia's scenes and the watched folder.
+    /// Synesthesia's scenes and the other scene folders.
     Library,
     /// The LAN remote and controlling another Strobe.
     Remote,
@@ -190,8 +190,7 @@ const TITLE_BAR: &str = "Strobe title bar";
 const SAVE_LAYOUT: &str = "Save the current layout";
 /// The label of the switch that lists Synesthesia's scenes (D271).
 pub const SHOW_SYNESTHESIA: &str = "Show Synesthesia's scenes";
-const WATCH: &str = "Watch a folder for new scenes";
-const FOLDER: &str = "Folder";
+const ADD_FOLDER: &str = "Add a scene folder";
 const VERSION: &str = "Version";
 const GRAPHICS: &str = "Graphics";
 
@@ -205,7 +204,7 @@ struct Entry {
 
 /// Every row search finds, in page order. The Shortcuts page's rows are
 /// the commands, matched from [`CommandId::ALL`] instead.
-const INDEX: [Entry; 33] = [
+const INDEX: [Entry; 32] = [
     Entry {
         page: SettingsPage::Output,
         title: OUTPUT_WINDOW,
@@ -278,13 +277,8 @@ const INDEX: [Entry; 33] = [
     },
     Entry {
         page: SettingsPage::Library,
-        title: WATCH,
-        words: "inbox drop import",
-    },
-    Entry {
-        page: SettingsPage::Library,
-        title: FOLDER,
-        words: "watched path",
+        title: ADD_FOLDER,
+        words: "scene folders directory path user-scenes",
     },
     Entry {
         page: SettingsPage::Remote,
@@ -626,7 +620,13 @@ fn page_scroll(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mu
                     }
                     SettingsPage::Library => {
                         synesthesia(ui, theme, &model.ui.synesthesia, actions);
-                        watch_folder(ui, theme, &mut model.ui.watch, model.picking, actions);
+                        scene_folders(
+                            ui,
+                            theme,
+                            &mut model.ui.scene_folders,
+                            model.picking,
+                            actions,
+                        );
                     }
                     SettingsPage::Remote => {
                         super::lan::show(ui, theme, &mut model.lan, actions);
@@ -859,62 +859,61 @@ fn synesthesia(
     });
 }
 
-/// The watched drop folder (D265): a switch, then the path and Apply, with
-/// the app's line saying what is watched or why not. Nothing here touches
-/// the disk: the app checks the folder when the action arrives.
-fn watch_folder(
+/// The library's other scene folders (D538): one row per folder with the
+/// app's line saying what it lists, and Remove; then a path, Browse and
+/// Add. Nothing here touches the disk or the list: the app checks a folder
+/// when the action arrives, and lists the library again.
+fn scene_folders(
     ui: &mut Ui,
     theme: &Palette,
-    watch: &mut super::state::WatchState,
+    state: &mut super::state::SceneFoldersState,
     picking: bool,
     actions: &mut Vec<Action>,
 ) {
-    form::group(ui, theme, "Watched folder", |group| {
-        let mut on = watch.watching;
-        let row = Row::new(WATCH).description(
-            "A scene folder, or a folder of scenes, copied into it joins the library, a \
-                 scene a frame, and nothing plays. What is in it when watching starts is left \
-                 alone.",
-        );
-        // The app's line, unless it only repeats what the switch shows.
-        let row = if watch.failed {
-            row.note(&watch.note, theme.danger)
-        } else if watch.watching {
-            row.note(&watch.note, theme.text_muted)
-        } else {
-            row
-        };
-        if group.toggle(row, &mut on).changed() {
-            actions.push(Action::SetWatchFolder {
-                folder: watch.draft.trim().to_string(),
-                enabled: on,
+    form::group(ui, theme, "Scene folders", |group| {
+        let mut remove = None;
+        for (index, folder) in state.folders.iter().enumerate() {
+            let status = state.status.get(index).map_or("", String::as_str);
+            group.row(Row::new(folder).description(status), |ui| {
+                if widgets::button(ui, theme, None, "Remove")
+                    .on_hover_text("Stop listing this folder; its scenes stay where they are")
+                    .clicked()
+                {
+                    remove = Some(index);
+                }
             });
         }
-        let ready = !watch.draft.trim().is_empty();
-        group.wide_row(
-            Row::new(FOLDER).description("A folder beside the library, not the library itself."),
-            |ui| {
-                let apply = ui
-                    .add_enabled_ui(ready, |ui| {
-                        widgets::button(ui, theme, None, "Apply")
-                            .on_hover_text("Watch this folder now, and from the next launch")
-                    })
-                    .inner;
-                if widgets::browse_button(ui, theme, picking) {
-                    actions.push(Action::Browse(crate::picker::Purpose::WatchFolder));
-                }
-                let width = ui.available_size_before_wrap().x;
-                let field = form::field(ui, theme, &mut watch.draft, "D:\\VJ\\inbox", width);
-                let entered =
-                    field.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter));
-                if ready && (apply.clicked() || entered) {
-                    actions.push(Action::SetWatchFolder {
-                        folder: watch.draft.trim().to_string(),
-                        enabled: true,
-                    });
-                }
-            },
+        if let Some(index) = remove {
+            actions.push(Action::RemoveSceneFolder(index));
+        }
+        let ready = !state.draft.trim().is_empty();
+        let row = Row::new(ADD_FOLDER).description(
+            "Its scenes are listed after your library folder's, where they are: nothing is \
+             copied, and editing one changes it there.",
         );
+        let row = if state.refusal.is_empty() {
+            row
+        } else {
+            row.note(&state.refusal, theme.danger)
+        };
+        group.wide_row(row, |ui| {
+            let add = ui
+                .add_enabled_ui(ready, |ui| {
+                    widgets::button(ui, theme, None, "Add")
+                        .on_hover_text("List this folder's scenes now, and from the next launch")
+                })
+                .inner;
+            if widgets::browse_button(ui, theme, picking) {
+                actions.push(Action::Browse(crate::picker::Purpose::SceneFolder));
+            }
+            let width = ui.available_size_before_wrap().x;
+            let field = form::field(ui, theme, &mut state.draft, "D:\\VJ\\friends", width);
+            let entered =
+                field.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter));
+            if ready && (add.clicked() || entered) {
+                actions.push(Action::AddSceneFolder(state.draft.trim().to_string()));
+            }
+        });
     });
 }
 
@@ -1133,19 +1132,19 @@ pub(super) mod tests {
         INDEX.iter().map(|entry| (entry.page, entry.title))
     }
 
-    /// One pass of the watched-folder group; returns where each text was
+    /// One pass of the scene-folders group; returns where each text was
     /// drawn.
     fn draw(
         ctx: &egui::Context,
         events: Vec<egui::Event>,
-        watch: &mut super::super::state::WatchState,
+        folders: &mut super::super::state::SceneFoldersState,
         actions: &mut Vec<Action>,
     ) -> Vec<(String, egui::Rect)> {
         let theme = crate::palette::fallback().clone();
         let pass = crate::ui::testing::run(
             ctx,
             crate::ui::testing::input(Vec2::new(640.0, 480.0), events),
-            |ui| watch_folder(ui, &theme, watch, false, actions),
+            |ui| scene_folders(ui, &theme, folders, false, actions),
         );
         texts(&pass)
     }
@@ -1168,7 +1167,7 @@ pub(super) mod tests {
     fn click(
         ctx: &egui::Context,
         at: Pos2,
-        watch: &mut super::super::state::WatchState,
+        folders: &mut super::super::state::SceneFoldersState,
         actions: &mut Vec<Action>,
     ) {
         let button = |pressed| egui::Event::PointerButton {
@@ -1180,10 +1179,10 @@ pub(super) mod tests {
         let _ = draw(
             ctx,
             vec![egui::Event::PointerMoved(at), button(true)],
-            watch,
+            folders,
             actions,
         );
-        let _ = draw(ctx, vec![button(false)], watch, actions);
+        let _ = draw(ctx, vec![button(false)], folders, actions);
     }
 
     fn find(drawn: &[(String, egui::Rect)], text: &str) -> Result<Pos2> {
@@ -1195,39 +1194,43 @@ pub(super) mod tests {
     }
 
     #[test]
-    fn apply_and_the_switch_ask_the_app_and_change_nothing_themselves() -> Result<()> {
+    fn add_and_remove_ask_the_app_and_change_nothing_themselves() -> Result<()> {
         let ctx = egui::Context::default();
-        let mut watch = super::super::state::WatchState {
-            draft: "  D:/VJ/inbox ".to_string(),
-            note: "Off".to_string(),
-            ..super::super::state::WatchState::default()
+        let mut folders = super::super::state::SceneFoldersState {
+            folders: vec!["user-scenes".to_string()],
+            status: vec!["3 scenes".to_string()],
+            draft: "  D:/VJ/friends ".to_string(),
+            refusal: String::new(),
         };
         let mut actions = Vec::new();
-        let drawn = draw(&ctx, Vec::new(), &mut watch, &mut actions);
-        click(&ctx, find(&drawn, "Apply")?, &mut watch, &mut actions);
+        let drawn = draw(&ctx, Vec::new(), &mut folders, &mut actions);
+        assert!(
+            find(&drawn, "user-scenes").is_ok() && find(&drawn, "3 scenes").is_ok(),
+            "each folder is drawn with the app's line: {drawn:?}"
+        );
+        click(&ctx, find(&drawn, "Add")?, &mut folders, &mut actions);
         assert_eq!(
             actions,
-            vec![Action::SetWatchFolder {
-                folder: "D:/VJ/inbox".to_string(),
-                enabled: true,
-            }],
-            "Apply asks to watch the typed folder, trimmed"
+            vec![Action::AddSceneFolder("D:/VJ/friends".to_string())],
+            "Add asks to add the typed folder, trimmed"
         );
-        assert!(
-            !watch.watching && !watch.enabled && watch.folder.is_empty(),
-            "the pane changes nothing itself: the app checks and saves: {watch:?}"
+        assert_eq!(
+            folders.folders,
+            ["user-scenes"],
+            "the pane changes nothing itself: the app checks and saves"
         );
         actions.clear();
-        watch.watching = true;
-        let drawn = draw(&ctx, Vec::new(), &mut watch, &mut actions);
-        click(&ctx, find(&drawn, WATCH)?, &mut watch, &mut actions);
+        let drawn = draw(&ctx, Vec::new(), &mut folders, &mut actions);
+        click(&ctx, find(&drawn, "Remove")?, &mut folders, &mut actions);
         assert_eq!(
             actions,
-            vec![Action::SetWatchFolder {
-                folder: "D:/VJ/inbox".to_string(),
-                enabled: false,
-            }],
-            "unticking a watch that runs asks to stop it"
+            vec![Action::RemoveSceneFolder(0)],
+            "Remove asks to stop listing that folder"
+        );
+        assert_eq!(
+            folders.folders,
+            ["user-scenes"],
+            "and changes nothing itself"
         );
         Ok(())
     }
