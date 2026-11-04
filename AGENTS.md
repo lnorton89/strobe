@@ -5,7 +5,7 @@ the build enforces, and the map of planning docs.
 
 Before you finish a piece of work:
 
-1. Run the gates (`cargo xtask ci` runs all of them in CI's order):
+1. Run the gates (`cargo xtask ci` runs CI's own lanes, D533):
    `cargo fmt --all -- --check`,
    `cargo clippy --workspace --all-targets --all-features -- -D warnings`,
    `cargo test --workspace`, and the Windows cross-check

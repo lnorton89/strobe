@@ -40,12 +40,23 @@ env:
   # (D504). It also overrides `release-fast`'s `incremental = true`.
   CARGO_INCREMENTAL: "0"
 
+# Every job runs `cargo --locked xtask ci --strict <lanes>` (D533). The
+# commands, their flags and each platform's exclusions live in
+# crates/xtask/src/ci.rs, so this file installs what the lanes need,
+# restores a cache and uploads what they leave behind; a developer runs the
+# same lanes with `cargo xtask ci <lanes>`. `--strict` fails a step whose
+# prerequisite is missing instead of skipping it, and fails a run that
+# changed the tree. `--locked` before the alias reaches the `cargo run`
+# that builds xtask; xtask passes it to every cargo command it runs.
+#
+# Every job has a timeout, well above its slowest cold-cache run, so a hung
+# test fails in minutes rather than holding a runner for six hours. The
+# long steps inside a lane have timeouts of their own, in xtask.
 jobs:
   # A pull request that changes only Markdown and `docs/` skips the three
   # platform builds, ten minutes each, and runs `docs` instead: the
   # conventions tests, which check every link, decision number and known
   # gap (D531). Pushes, releases and manual runs always build everything.
-  # A skipped job counts as passed for a required check.
   changes:
     name: changes
     runs-on: ubuntu-latest
@@ -92,15 +103,12 @@ jobs:
         with:
           key: docs
           save-if: ${{ !inputs.ref }}
-      - run: cargo test --locked -p strobe-conventions
+      - run: cargo --locked xtask ci --strict conventions
 
   format:
     name: rustfmt
     runs-on: ubuntu-latest
-    # Every job has a timeout, well above its slowest cold-cache run, so a
-    # hung test or a GUI step waiting on a display fails in minutes rather
-    # than holding a runner for GitHub's default six hours.
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       # Pinned to full SHAs: a mutable tag in a workflow is a supply-chain
       # risk. The versions are in the trailing comments.
@@ -113,21 +121,34 @@ jobs:
         with:
           toolchain: "1.98.0"
           components: rustfmt
-      - run: cargo fmt --all -- --check
+      # The cache holds the xtask build the lane runs from.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: xtask
+          save-if: ${{ !inputs.ref }}
+      - run: cargo --locked xtask ci --strict fmt
 
   deny:
     name: cargo-deny
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    permissions:
-      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.ref }}
-      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master, 2026-08
         with:
-          command: check
+          toolchain: "1.98.0"
+      # A prebuilt, pinned cargo-deny: the version moves deliberately, in a
+      # reviewed commit, like an action's SHA.
+      - uses: taiki-e/install-action@b80e2bb2635f28eb98b9fce1e2f0887e1535c6b2 # v2.90.0
+        with:
+          tool: cargo-deny@0.20.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: xtask
+          save-if: ${{ !inputs.ref }}
+      - run: cargo --locked xtask ci --strict deny
 
   changelog:
     name: changelog
@@ -135,17 +156,15 @@ jobs:
     timeout-minutes: 20
     # CHANGELOG.md is generated from the git history by `cargo xtask
     # changelog`, so a released section that disagrees with the tags is a
-    # mistake, not a style choice. Released sections only: `Unreleased`
-    # moves with every merge and a squash rewrites the very hashes it pins,
-    # so gating pull requests on it would fail all of them for no signal.
+    # mistake, not a style choice. The icon PNGs and THIRD_PARTY.md (D491)
+    # are generated too, and the `generated` lane checks all three.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.ref }}
-          # The check reads `git tag` and walks the whole history. The
+          # The checks read `git tag` and walk the whole history. The
           # default checkout is shallow and fetches no tags at all, so
-          # every release would come back missing and the check would fail
-          # for a reason that has nothing to do with the changelog.
+          # every release would come back missing.
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master, 2026-08
         with:
@@ -158,19 +177,7 @@ jobs:
         with:
           key: changelog
           save-if: ${{ !inputs.ref }}
-      # `--locked` on every cargo command that resolves dependencies: a
-      # Cargo.lock that no longer matches the manifests fails here instead
-      # of being quietly repaired on a throwaway runner. Before the alias,
-      # so it reaches the `cargo run` that builds xtask.
-      - run: cargo --locked xtask changelog --check
-      # The icon PNGs and .ico are rendered from assets/brand/*.svg; a
-      # source edited without `cargo xtask brand` fails here.
-      - run: cargo --locked xtask brand --check
-      # THIRD_PARTY.md (the About page's credits, D491) is generated from
-      # the git history and Cargo.lock. A dependency that arrives, leaves or
-      # changes licence, or a new contributor, without `cargo xtask credits`
-      # fails here. It needs the whole history, which this job has.
-      - run: cargo --locked xtask credits --check
+      - run: cargo --locked xtask ci --strict generated
 
   windows:
     name: windows (the shipping platform)
@@ -182,9 +189,10 @@ jobs:
     timeout-minutes: 90
     # The platform the show runs on. A GitHub runner has no GPU and no
     # interactive session, so the renderer tests skip themselves here (no
-    # headless GL context) — the Linux job below is where shaders are
-    # actually compiled. This job is what proves the Windows build, the
-    # WGL/EGL context code, and release settings compile and link.
+    # headless GL context) and the lane's summary counts them (D249); the
+    # Linux job is where shaders are actually compiled. This job proves the
+    # Windows build, the WGL/EGL context code and the release settings
+    # compile and link.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -201,55 +209,23 @@ jobs:
         with:
           key: windows-fast
           save-if: ${{ !inputs.ref }}
-      - name: Clippy
-        run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
-      # The runner has no headless EGL, so the GPU tests skip and pass.
-      # They record each skip (D249), and the next step counts them into
-      # the job summary, so a skip is never read as a pass.
-      # The runner asks no one about firewall rules, so the tests that bind
-      # every interface run here (D503); on a developer machine they skip.
-      - name: Test
+      # The `build` lane builds `release-fast` (the shipping settings
+      # without fat LTO and one codegen unit). Master and a manual run add
+      # the fat-LTO `release` build (D504). Master builds `release-fast`
+      # too: GitHub shares only the default branch's cache with pull
+      # requests, so that is what keeps their dependencies warm (D505). A
+      # release's run (D521) skips the fat-LTO build: release.yml builds
+      # exactly that, from the same commit, in its own job.
+      - name: Check, test and build
         shell: bash
         env:
-          STROBE_SKIP_LOG: ${{ github.workspace }}/target/test-skips.log
-          STROBE_TEST_LAN: "1"
-        run: cargo test --locked --workspace --all-features
-      - name: Report skipped GPU tests
-        if: always()
-        shell: bash
+          SHIPPING: ${{ !inputs.ref && ((github.event_name == 'push' && github.ref == 'refs/heads/master') || github.event_name == 'workflow_dispatch') }}
         run: |
-          log=target/test-skips.log
-          if [ ! -s "$log" ]; then
-            echo "No test skipped." | tee -a "$GITHUB_STEP_SUMMARY"
-            exit 0
+          if [ "$SHIPPING" = "true" ]; then
+            cargo --locked xtask ci --strict check test build --shipping
+          else
+            cargo --locked xtask ci --strict check test build
           fi
-          count=$(cut -f1 "$log" | sort -u | wc -l | tr -d ' ')
-          {
-            echo "### ${count} test(s) passed by skipping, not by running"
-            echo
-            echo "| Reason | Skips |"
-            echo "|---|---|"
-            cut -f2 "$log" | sed 's/ (.*//' | sort | uniq -c | while read -r n reason; do
-              echo "| ${reason} | ${n} |"
-            done
-          } | tee -a "$GITHUB_STEP_SUMMARY"
-      # An optimised build proves the Windows binaries compile and link with
-      # `panic = "abort"` and opt-level 3. A pull request builds
-      # `release-fast` (the same settings without fat LTO and one codegen
-      # unit); the shipping `release` build runs once a change is on master,
-      # and again in release.yml for a tag (D504). Master builds
-      # `release-fast` too: GitHub shares only the default branch's cache
-      # with pull requests, so that is what keeps their release-fast
-      # dependencies warm. Without it every pull request rebuilt them, 343 s
-      # against `release`'s six minutes, and saved almost nothing (D505).
-      #
-      # A release's run (D521) skips the fat-LTO build: release.yml builds
-      # exactly that, from the same commit, in its own job.
-      - name: Build release-fast binaries
-        run: cargo build --locked --profile release-fast --workspace --bins
-      - name: Build release binaries (fat LTO, as shipped)
-        if: ${{ !inputs.ref && ((github.event_name == 'push' && github.ref == 'refs/heads/master') || github.event_name == 'workflow_dispatch') }}
-        run: cargo build --locked --release --workspace --bins
 
   macos:
     name: macos (the portable crates)
@@ -257,20 +233,11 @@ jobs:
     if: needs.changes.outputs.code == 'true'
     runs-on: macos-latest
     timeout-minutes: 60
-    # macOS is a later target, so this job is deliberately two-tier.
-    #
-    # The blocking tier is every crate that has no OpenGL context in it:
-    # the scene model, the GLSL library, the conventions and the tooling.
-    # They must keep building and passing on a Mac so the port is not made
-    # harder by drift in the meantime.
-    #
-    # `strobe-gfx` cannot build here yet. Its headless context is written
-    # against glutin's EGL backend, and glutin compiles that backend out on
-    # Apple targets (`not(apple)`); macOS contexts are CGL. That port is
-    # future work, so the whole-workspace step below is informational: it
-    # is allowed to fail, and its log is the running list of what is left.
-    # When it goes green, delete the `--exclude` flags and the
-    # `continue-on-error`, and make it the blocking tier.
+    # macOS is a later target, so its lanes are two-tier (xtask holds the
+    # list): the blocking tier is every crate with no OpenGL context in it,
+    # and a whole-workspace clippy runs as information. `strobe-gfx`'s
+    # headless context is glutin's EGL backend, which glutin compiles out
+    # on Apple targets; the CGL port is future work.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -283,26 +250,7 @@ jobs:
         with:
           key: macos
           save-if: ${{ !inputs.ref }}
-      # Excluding strobe-gfx is not enough: cargo still builds it for a crate
-      # that depends on it. strobe-autocontrol does (it renders to measure),
-      # strobe-web does (its sandbox is the scene player), and
-      # strobe-shadertoy's tests do (they render the fixtures), so the
-      # first two are excluded and the third is checked without its tests.
-      - name: Clippy (portable crates)
-        run: cargo clippy --locked --workspace --exclude strobe-gfx --exclude strobe-bench --exclude strobe-app --exclude strobe-autocontrol --exclude strobe-shadertoy --exclude strobe-web --all-targets --all-features -- -D warnings
-      - name: Clippy (strobe-shadertoy without its rendering tests)
-        run: cargo clippy --locked -p strobe-shadertoy --lib --bins --all-features -- -D warnings
-      # The renderer tests in strobe-gfx self-skip without an EGL driver,
-      # which a Mac runner does not have, so once strobe-gfx builds here
-      # they will pass by skipping rather than prove anything; the Linux
-      # job is where shaders are compiled.
-      - name: Test (portable crates)
-        env:
-          STROBE_TEST_LAN: "1"
-        run: cargo test --locked --workspace --exclude strobe-gfx --exclude strobe-bench --exclude strobe-app --exclude strobe-autocontrol --exclude strobe-shadertoy --exclude strobe-web --all-features
-      - name: Clippy (whole workspace, informational)
-        continue-on-error: true
-        run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+      - run: cargo --locked xtask ci --strict check test
 
   linux:
     name: linux (headless GL)
@@ -319,6 +267,8 @@ jobs:
         with:
           toolchain: "1.98.0"
           components: clippy
+          # The `check` lane's Windows cross-check type-checks the
+          # Windows-only code (WGL, ANGLE loading) without linking.
           targets: x86_64-pc-windows-msvc
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
@@ -326,59 +276,19 @@ jobs:
           save-if: ${{ !inputs.ref }}
       # Mesa's software rasteriser behind surfaceless EGL: a real GLSL
       # compiler for both desktop GL 3.3 core (the native path) and GLES 3.0
-      # (the dialect the ANGLE path speaks), with no display and no GPU.
-      # Without these the renderer tests skip; with them, every shader the
-      # assembler emits is compiled and linked on every push.
+      # (the dialect the ANGLE path speaks), with no display and no GPU,
+      # and Xvfb for the `render` lane's window tests.
       - name: Install headless GL
         run: sudo apt-get update && sudo apt-get install -y libegl1 libegl-mesa0 libgl1-mesa-dri libglx-mesa0 libxkbcommon-dev libxkbcommon-x11-0 libx11-xcb1 libxcursor1 libxi6 libxrandr2 xvfb libasound2-dev pkg-config
-      - name: Clippy
-        run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
-      # --all-features keeps `midi` on. This builds strobe-io the way a
-      # MIDI-less build does, where code only the device layer reads is dead.
-      - name: Clippy (strobe-io without MIDI)
-        run: cargo clippy --locked -p strobe-io --no-default-features --all-targets -- -D warnings
-      - name: Test
-        env:
-          STROBE_REQUIRE_HEADLESS_GL: "1"
-          STROBE_TEST_LAN: "1"
-        run: cargo test --locked --workspace --all-features
-      # Starts the real app on a virtual X display, renders frames on both
-      # windows through one shared GL context, and reads them back to PNGs.
-      # The step fails if either image is missing. The two window steps
-      # have timeouts of their own: a window that never gets its frames
-      # waits, it does not fail.
-      - name: App smoke test (Xvfb)
-        timeout-minutes: 15
-        run: |
-          xvfb-run -a -s "-screen 0 1920x1080x24" cargo run --locked -p strobe-app -- --scene 01 --screenshot target/ci-shot --frames 10
-          test -s target/ci-shot-control.png
-          test -s target/ci-shot-output.png
-
-      # The window half of the auto-controls tests: the CLI scores a scene on
-      # an EGL device and on a hidden window and the two reports must match
-      # (D140). The plain Test step above has no display, so it skips them.
-      - name: Auto-controls on a window context (Xvfb)
-        timeout-minutes: 15
-        env:
-          STROBE_REQUIRE_HEADLESS_GL: "1"
-          STROBE_REQUIRE_WINDOW_GL: "1"
-        run: xvfb-run -a -s "-screen 0 1280x720x24" cargo test --locked -p strobe-autocontrol --test window
-
-      # Render every scene in the library headless, once per GLSL dialect,
-      # and keep the frames. Mesa's llvmpipe is CPU rasterisation, so the
-      # timings in results.md are not a GPU's — but the *images* are a pure
-      # function of time (fixed dt, synthetic audio), so a reviewer can
-      # open the contact sheet from any pull request and see what a shader
-      # or renderer change did, and the ranking of scenes by cost is still
-      # meaningful. A scene that fails to compile in either dialect fails
-      # the step. A few timed frames and a short warm-up keep it to a
-      # minute or two; `cargo xtask bench` is the way to take real numbers.
-      # `release-fast`, not `release`: the frames are the renderer's, and
-      # fat LTO only cost build time here (D504).
-      - name: Render the scene library (desktop GL 3.3)
-        run: cargo run --locked --profile release-fast -p strobe-bench -- --size 640x360 --frames 10 --warmup 60 --out target/bench
-      - name: Render the scene library (GLES 3.0, the ANGLE dialect)
-        run: cargo run --locked --profile release-fast -p strobe-bench -- --size 640x360 --frames 10 --warmup 60 --api gles --out target/bench-gles
+      # `check`: clippy, strobe-io without MIDI, the Windows cross-check.
+      # `test`: with STROBE_REQUIRE_HEADLESS_GL, so a missing driver fails.
+      # `render`: the app on Xvfb (two windows, one shared context, frames
+      # read back to PNGs), auto-controls on a window context (D140), and
+      # the scene library in both dialects. Mesa's llvmpipe is CPU
+      # rasterisation, so results.md's timings are not a GPU's, but the
+      # images are a pure function of time, so a reviewer can open the
+      # contact sheet from any pull request.
+      - run: cargo --locked xtask ci --strict check test render
       # `!cancelled()` rather than the default success(): a run where one
       # scene broke is exactly the run whose other frames you want to see.
       - name: Upload frames (desktop GL)
@@ -397,17 +307,48 @@ jobs:
           path: target/bench-gles
           if-no-files-found: warn
           retention-days: 14
-      # Type-checks the Windows-only code (WGL, ANGLE loading) without
-      # linking, so a Linux push fails fast on a Windows-only mistake.
-      # strobe-script is excluded: rquickjs compiles QuickJS's C sources,
-      # which needs the MSVC toolchain and Windows SDK headers that a Linux
-      # runner does not have. strobe-app depends on it, so it is excluded
-      # too (its Windows branches are `cfg!` values, which the Linux build
-      # already type-checks). The windows job above builds both natively.
-      # strobe-shadertoy's `net` feature (ureq + rustls + ring) compiles C
-      # for MSVC, so it is checked without that feature here (D110); the
-      # Linux all-features clippy and the windows job cover the client.
-      - name: Cross-check the Windows build
-        run: cargo clippy --locked --workspace --exclude strobe-script --exclude strobe-app --exclude strobe-shadertoy --all-targets --all-features --target x86_64-pc-windows-msvc -- -D warnings
-      - name: Cross-check strobe-shadertoy for Windows without its HTTP client
-        run: cargo clippy --locked -p strobe-shadertoy --no-default-features --all-targets --target x86_64-pc-windows-msvc -- -D warnings
+
+  # The one check the master ruleset requires (D533). It runs whatever the
+  # others did and passes only when every job that should have run passed:
+  # a failed or cancelled job fails it, and so does a skipped one unless the
+  # `changes` job's verdict is what skipped it. Requiring each job by name
+  # instead let a job that never started (a broken `if:`, a renamed job)
+  # leave nothing to wait for.
+  ci-ok:
+    name: ci-ok
+    if: always()
+    needs: [changes, docs, format, deny, changelog, windows, macos, linux]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every required job passed
+        shell: bash
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          code=$(jq -r '.changes.outputs.code // ""' <<<"$NEEDS")
+          case "$code" in
+            true) platform=success; docs=skipped ;;
+            false) platform=skipped; docs=success ;;
+            *) echo "The changes job gave no verdict, so nothing can be judged."; exit 1 ;;
+          esac
+          fail=0
+          expect() {
+            got=$(jq -r --arg j "$1" '.[$j].result' <<<"$NEEDS")
+            if [ "$got" = "$2" ]; then
+              echo "ok      $1: $got"
+            else
+              echo "FAILED  $1: $got, expected $2"
+              fail=1
+            fi
+          }
+          expect changes success
+          expect format success
+          expect deny success
+          expect changelog success
+          expect docs "$docs"
+          expect windows "$platform"
+          expect macos "$platform"
+          expect linux "$platform"
+          exit "$fail"
