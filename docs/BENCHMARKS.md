@@ -918,6 +918,12 @@ time therefore gives no reason to keep fat LTO, and the build saving is
 what would decide a change; CI's Experiments workflow measures that on a
 cold runner.
 
+On a cold `windows-latest` runner (Experiments, run 41917572704) the app
+took 677 s fat and 517 s thin, and `strobe.exe` was 16.86 MB and 17.50 MB.
+Shipping keeps fat LTO all the same (D545): the 160 s is saved only in
+master's post-merge job and in releases, and this bench measured GPU-bound
+frames, not the CPU-side paths LTO could change.
+
 ## Wanted
 
 - [x] A real-GPU run on the T480: native vs ANGLE, 32F vs 16F, 720p and
