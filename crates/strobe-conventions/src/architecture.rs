@@ -8,7 +8,7 @@
 //               crate::sources (the workspace root)
 // ============================================================================
 
-//! The layers stay layers (D538).
+//! The layers stay layers (D541).
 //!
 //! `docs/ARCHITECTURE.md` draws the crates as layers: the scene model and
 //! the GLSL library under everything, the renderer above them, the
@@ -277,7 +277,7 @@ pub fn problems(graph: &Graph) -> Vec<String> {
     }
     for (from, to) in graph.dependents_of(&TOP) {
         out.push(format!(
-            "{from} depends on {to}, a binary or tool nothing links (D538)"
+            "{from} depends on {to}, a binary or tool nothing links (D541)"
         ));
     }
     out
@@ -293,7 +293,7 @@ mod tests {
         let found = problems(&graph);
         assert!(
             found.is_empty(),
-            "{} crate-graph rule(s) broken (D538); move the code, or put the shared part in a lower crate:\n{}",
+            "{} crate-graph rule(s) broken (D541); move the code, or put the shared part in a lower crate:\n{}",
             found.len(),
             found.join("\n")
         );

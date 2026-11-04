@@ -75,7 +75,7 @@ fn main() {
 /// The cargo profile by name: `release`, `release-fast`, `release-thin`,
 /// `debug`. Cargo's `PROFILE` says only `release` or `debug`, so a
 /// `release-fast` build (no fat LTO, D487) would report itself as the
-/// shipping build (D538). The name is the folder cargo builds into,
+/// shipping build (D541). The name is the folder cargo builds into,
 /// `target/[<triple>/]<profile>/build/<package>-<hash>/out`, three levels
 /// above `OUT_DIR`; `PROFILE` when that cannot be read.
 fn profile() -> String {
