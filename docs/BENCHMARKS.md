@@ -853,6 +853,30 @@ compositor or the per-frame audio-texture upload than any one scene. It is
 not explained here, and it matters for a 60 fps target (16.7 ms) because
 an 18 ms frame is a dropped one.
 
+### 2026-11-03: build times, ThinkPad T480, commit 012452a
+
+Not a frame-time result: how long the workspace takes to build on the
+slowest machine it is developed on, for the audit's question of where an
+edit's time goes (D535). Intel Core i7-8550U (4 cores, 8 threads), 32 GB,
+Samsung 860 EVO SATA SSD, Windows 11 Pro 26300, rustc 1.98.0. Each figure
+is one run, timed with `Measure-Command`, nothing else running. Each warm
+row appends one comment line to the file, builds, and restores it.
+
+| Build | `release-fast` | dev |
+|---|---:|---:|
+| Cold, from `cargo clean` | 556.6 s | 398.1 s |
+| One line in `strobe-app/src/ui/side.rs` (UI) | 6.7 s | 8.2 s |
+| One line in `strobe-scene/src/scene.rs` (scene model) | 9.3 s | 11.7 s |
+| One line in `strobe-gfx/src/player.rs` (graphics) | 8.7 s | 11.5 s |
+
+`release-fast`'s incremental setup (D487) keeps every one-line edit under
+ten seconds, even one in the scene model that several crates above it
+depend on; the dev profile is slower to relink here, because its debug
+information is larger. A cold build is nine minutes, and the timing
+report (`cargo build --timings`) is the place to look before anyone
+splits a crate to shorten it. Nothing here argues for sccache on a
+developer machine: the warm rebuilds are already linker-bound.
+
 ## Wanted
 
 - [x] A real-GPU run on the T480: native vs ANGLE, 32F vs 16F, 720p and

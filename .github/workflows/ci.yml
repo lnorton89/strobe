@@ -316,8 +316,9 @@ jobs:
           toolchain: "1.98.0"
           components: clippy
           # The `check` lane's Windows cross-check type-checks the
-          # Windows-only code (WGL, ANGLE loading) without linking.
-          targets: x86_64-pc-windows-msvc
+          # Windows-only code (WGL, ANGLE loading) without linking, and its
+          # wasm check builds the browser engine as the website does.
+          targets: x86_64-pc-windows-msvc,wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           key: linux-fast
