@@ -86,7 +86,7 @@ pub fn report() -> String {
 /// GLES context: ANGLE names itself and its build there (`OpenGL ES 3.0.0
 /// (ANGLE 2.1.x git hash: …)`). The DLLs beside the program can match the
 /// pin and still not be what loads, if a copy elsewhere on the search path
-/// wins, so this is the other half of the `angle` row (D542).
+/// wins, so this is the other half of the `angle` row (D544).
 ///
 /// ANGLE has no headless EGL device on Windows, so the probe is one hidden
 /// window with ANGLE alone, as the corpus harness opens one (D195).

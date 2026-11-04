@@ -395,7 +395,7 @@ pub(crate) fn check(args: &CheckArgs, work: &Path) -> Result<Checked> {
     // The version resource names the release the zip says it is: the
     // version in its own name (`strobe-v0.2.1-…`), or the workspace's for a
     // name without one. Not the checkout's alone: the harness may check a
-    // release from any checkout (D542).
+    // release from any checkout (D544).
     let exe = root.join("strobe.exe");
     let version = file_version(&exe).unwrap_or_else(|error| format!("unreadable ({error:#})"));
     let named = args

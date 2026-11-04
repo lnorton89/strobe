@@ -171,7 +171,7 @@ A subject that turned out wrong after it was pushed (a decision number
 that moved before the merge, say) is not fixed by rewording the commit,
 which would rewrite every hash after it. Add a line to
 `CHANGELOG.corrections` instead, `<full hash> <corrected subject>`, and
-the generator uses that subject (D542).
+the generator uses that subject (D544).
 
 ## Releasing
 

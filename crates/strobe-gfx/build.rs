@@ -40,7 +40,7 @@
 //!   warning, repeated on every build until ANGLE is there, naming the
 //!   script to run by hand; `cargo clean -p strobe-gfx` lets the build try
 //!   again. A build that must carry ANGLE sets `STROBE_REQUIRE_ANGLE`, and
-//!   then a failed fetch fails the build (D542). `cargo xtask package`
+//!   then a failed fetch fails the build (D544). `cargo xtask package`
 //!   checks every DLL's hash against the pin regardless.
 //! - **The script is watched with the manifest.** A change to
 //!   `fetch-angle.ps1` (what it places, how it checks) reruns this, like a

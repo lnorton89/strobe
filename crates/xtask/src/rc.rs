@@ -231,7 +231,7 @@ fn draw(exe: &Path, dir: &Path, backend: &str, frames: u32, fault: Option<&str>)
 
 /// The backend, GL renderer and version the run drew with, from the newest
 /// session log: the app logs `GL: <backend> | <renderer> | <version>` once
-/// its context is up. On the first T480 run (D542) this looked for the word
+/// its context is up. On the first T480 run (D544) this looked for the word
 /// "renderer", which no log line contains, and recorded nothing.
 fn renderer(logs: &Path) -> Option<String> {
     let newest = std::fs::read_dir(logs)
@@ -314,7 +314,7 @@ mod tests {
 
     #[test]
     fn the_renderer_comes_from_the_apps_gl_line() {
-        // Lines from the T480's first run (D542).
+        // Lines from the T480's first run (D544).
         let window = "0.790s INFO  [main] strobe_gfx::gl::window: GL backend native (OpenGL 3.3 core): Intel(R) UHD Graphics 620 | 3.3.0 - Build 30.0.101.1122";
         let app = "0.923s INFO  [main] strobe_app::app: GL: native (OpenGL 3.3 core) | Intel(R) UHD Graphics 620 | 3.3.0 - Build 30.0.101.1122";
         assert_eq!(
