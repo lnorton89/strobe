@@ -618,7 +618,7 @@ fn check_lane(steps: &mut Vec<Step>, machine: &Machine) {
     // strobe-gfx without `native` has one intended configuration, the
     // browser's (D524): strobe-web for wasm32, which takes the renderer and
     // the DSP alone. Clippy over that, so a native-only call in the shared
-    // renderer fails here rather than in the website's deploy (D542).
+    // renderer fails here rather than in the website's deploy (D544).
     let mut wasm = vec![
         "clippy",
         "--locked",

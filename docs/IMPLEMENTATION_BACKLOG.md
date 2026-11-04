@@ -532,7 +532,7 @@
   - crate-graph rules, `unsafe_code`, feature builds, rustdoc and script lint;
   - property tests, machete, coverage and the decisions index.
 
-  D542 (2026-11-03) did the items those had narrowed or skipped. Its results:
+  D544 (2026-11-03) did the items those had narrowed or skipped. Its results:
   - the MSVC runtime is now linked statically, after the new import check found `strobe.exe` needed `VCRUNTIME140.dll`, which a clean machine may not have;
   - `--diagnose` names the ANGLE that actually loads;
   - CI builds the browser engine for wasm32;

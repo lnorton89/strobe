@@ -26,7 +26,7 @@ path = "junit.xml"
 # every binary's tests at once, so on a busy runner the QuickJS
 # throughput budget overran (58 ms against 50) and the MIDI device scan
 # missed its three seconds. Asking for every thread keeps the rest of the
-# run off the machine while they do (D542). Both profiles, since a profile's
+# run off the machine while they do (D544). Both profiles, since a profile's
 # overrides are its own.
 [[profile.default.overrides]]
 filter = "test(ten_thousand_set_uniform_calls_in_one_update_are_cheap) | test(the_midi_worker_reports_unavailable_or_an_empty_list_without_hardware)"
