@@ -128,10 +128,17 @@ jobs:
           save-if: ${{ !inputs.ref }}
       # The `lint` lane's tools (D538): actionlint checks every workflow's
       # expressions and structure, and runs shellcheck over each `run:`
-      # block; shellcheck also reads the tracked `.sh` scripts.
+      # block; shellcheck also reads the tracked `.sh` scripts. The pinned
+      # install-action has no actionlint, so it is built from its tag with
+      # Go, whose checksum database verifies the source.
       - uses: taiki-e/install-action@b80e2bb2635f28eb98b9fce1e2f0887e1535c6b2 # v2.90.0
         with:
-          tool: actionlint@1.7.12,shellcheck@0.11.0
+          tool: shellcheck@0.11.0
+      - name: Install actionlint
+        shell: bash
+        run: |
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
       - run: cargo --locked xtask ci --strict fmt lint
 
   deny:
