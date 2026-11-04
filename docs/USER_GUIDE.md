@@ -39,7 +39,15 @@ Strobe opens one window, the **control window**. The **output window**
 screen until you ask.
 
 - The first scene of the library plays in the preview, and the scene you
-  last played is reopened on later launches.
+  last played is reopened on later launches. Strobe always opens on the
+  **Library** view.
+- **Scenes are prerendered.** For the first several seconds after launch
+  (and after the library is refreshed) Strobe compiles every scene in the
+  background, one at a time, so playing a scene for the first time does
+  not stutter the output. Settings shows how far it has got. Turn it off
+  in *Settings > Output > Prerender scenes*, or for one run with
+  `strobe.exe --no-prerender`; each scene kept ready costs a few MB of
+  memory. It waits while a playlist is loaded.
 - **Show output** (the monitor button under the panel's preview, or the
   button on the preview while the output is hidden), or **F11**, shows the
   output. Use **Settings > Output > Output monitor** to put it on the

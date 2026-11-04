@@ -183,6 +183,8 @@ const OUTPUT_WINDOW: &str = "Output window";
 const MONITOR: &str = "Monitor";
 const ADAPTIVE: &str = "Adaptive resolution";
 const SCALE: &str = "Render scale";
+/// The label of the switch that prerenders the library's scenes (D542).
+pub const PRERENDER: &str = "Prerender scenes";
 const THEME: &str = "Theme";
 const DENSITY: &str = "Density";
 const REDUCE_MOTION: &str = "Reduce motion";
@@ -204,7 +206,7 @@ struct Entry {
 
 /// Every row search finds, in page order. The Shortcuts page's rows are
 /// the commands, matched from [`CommandId::ALL`] instead.
-const INDEX: [Entry; 32] = [
+const INDEX: [Entry; 33] = [
     Entry {
         page: SettingsPage::Output,
         title: OUTPUT_WINDOW,
@@ -219,6 +221,11 @@ const INDEX: [Entry; 32] = [
         page: SettingsPage::Output,
         title: ADAPTIVE,
         words: "performance gpu frame budget",
+    },
+    Entry {
+        page: SettingsPage::Output,
+        title: PRERENDER,
+        words: "precompile shaders warm cache lag stutter first load",
     },
     Entry {
         page: SettingsPage::Output,
@@ -717,7 +724,32 @@ fn output(ui: &mut Ui, model: &mut Model<'_>, theme: &Palette, actions: &mut Vec
                 actions.push(Action::SetRenderScale(*model.render_scale));
             }
         });
+        prerender(group, theme, &model.ui.prerender, actions);
     });
+}
+
+/// The prerender switch (D542): applied by the app at once and saved, with
+/// the app's line saying how far it has got.
+fn prerender(
+    group: &mut form::Group<'_>,
+    theme: &Palette,
+    state: &super::state::PrerenderState,
+    actions: &mut Vec<Action>,
+) {
+    let mut on = state.enabled;
+    let row = Row::new(PRERENDER).description(
+        "Compile and draw every library scene once, at launch and when the library is listed \
+         again, so a scene's first load does not stall the output. Each scene kept ready costs \
+         a few MB of memory. Paused while a playlist is loaded.",
+    );
+    let row = if state.note.is_empty() {
+        row
+    } else {
+        row.note(&state.note, theme.text_muted)
+    };
+    if group.toggle(row, &mut on).changed() {
+        actions.push(Action::SetPrerender(on));
+    }
 }
 
 /// The output-monitor combo box.

@@ -42,6 +42,15 @@ which backend proved a claim.
 
 ### In flight
 
+- **The library's scenes are prerendered, and launch opens on the Library
+  (2026-11-03, D542, D543):** at launch and on a rescan every scene is
+  loaded at 1x1, drawn once and parked lean (its render targets let go),
+  so a scene's first load is a resize and a restart: 1-3 ms instead of
+  30-130 ms on LIGHTNING. One scene a step, paused while a playlist is
+  loaded; on by default, *Settings > Output > Prerender scenes* or
+  `--no-prerender`. About 5 MB a scene parked. **Left:** the T480 check of
+  a large library's memory against the HD 4000 laptops' RAM.
+
 - **Adaptive resolution watches missed refreshes, not only the mean GPU time
   (2026-10-16, D314-D320), verified on the projector (M18-M26; D318's
   lock and its expiry seen in the M26 soak):**
