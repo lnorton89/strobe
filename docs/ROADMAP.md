@@ -42,6 +42,15 @@ which backend proved a claim.
 
 ### In flight
 
+- **The library's scenes are prerendered, and launch opens on the Library
+  (2026-11-03, D542, D543):** at launch and on a rescan every scene is
+  loaded at 1x1, drawn once and parked lean (its render targets let go),
+  so a scene's first load is a resize and a restart: 1-3 ms instead of
+  30-130 ms on LIGHTNING. One scene a step, paused while a playlist is
+  loaded; on by default, *Settings > Output > Prerender scenes* or
+  `--no-prerender`. About 5 MB a scene parked. **Left:** the T480 check of
+  a large library's memory against the HD 4000 laptops' RAM.
+
 - **Adaptive resolution watches missed refreshes, not only the mean GPU time
   (2026-10-16, D314-D320), verified on the projector (M18-M26; D318's
   lock and its expiry seen in the M26 soak):**
@@ -300,7 +309,8 @@ Each item names its acceptance test. Evidence is in [STATUS_AUDIT.md](STATUS_AUD
      job);
    - ~~thumbnails and the Needs-work bin~~ (built: D212, D222; the LIB
      "Needs work" filter and DIAG's list of this run's failures);
-   - ~~a batch route and the watched drop folder~~ (built, D235, D240).
+   - ~~a batch route and the watched drop folder~~ (built, D235, D240;
+     the watched folder was replaced by scene folders listed in place, D538).
 
    *Accept:* representative single-pass and multipass imports play on
    native and ANGLE, a missing asset fails visibly, and attribution
@@ -593,7 +603,7 @@ never per frame.
 | 1 | Renderer, SSF, controls, output window | Done, with the Perform-first UI at stage 1 (D130-D138). Images, cube maps and `syn_Media` stills and sequences work (D185, D186); a webcam is built on Windows and waits on a camera (D528); video does not. |
 | 2 | JavaScript API | Integrated (D62). `meta/` writes land in a meta bank (D160) that the output post stage and audio gains read (D180, D184); `textureFinalPass` is an asynchronous readback (D162); late uniforms are refused (D161). |
 | 3 | Audio | Integrated (D61). The bench still uses the synthetic stand-in. |
-| 4 | Shadertoy import | The converter (D90-D95), acquisition (REST client, texture downloader, localhost listener), the Import panel, file drop and the userscript (D110-D117) are built, auto-generated controls with their review in the app (D123-D126, D202, D219), drops routed by kind (D218) and a URL on a playlist cue (D229). batch import and a watched folder (D235, D240). Open: live-site verification (Q19), a real OS drop by a person. |
+| 4 | Shadertoy import | The converter (D90-D95), acquisition (REST client, texture downloader, localhost listener), the Import panel, file drop and the userscript (D110-D117) are built, auto-generated controls with their review in the app (D123-D126, D202, D219), drops routed by kind (D218) and a URL on a playlist cue (D229). batch import (D235); other scene folders listed in place (D538), replacing the watched folder (D240). Open: live-site verification (Q19), a real OS drop by a person. |
 | 5 | Playlists | The pure core (D73-D77), the app integration (D150-D158), cue editing with inheritance shown (D213), media per cue (D217), drag, disable, multi-select, URL import and comment-keeping save (D224, D229-D231), and audio-event advance (D226, D237) are built. Verified on the T480 (Tasks 14, 26). Open: hearing the downbeat estimate (D233) and the audio events on real music. |
 | 6 | Presets, MIDI, OSC, hotkeys | Built (D170-D179): `strobe-io`, presets and fav slots, the MAP pane, macros stage 2, hotkeys, a hotkey editor (D208), OSC feedback (D209), macro reach and colour (D210), the preset media channel (D223), and a glide and a key per macro (D227, D228). Open: a controller on the T480, MIDI output. |
 | 7b | LAN remote / PWA | LAN web remote v1 built (D232, D236, D250-D254): listener, pairing, tokens, revocation, abuse limits, the controller page, the app integration with a kill switch, and the user guide's section. Tested over loopback sockets only. Next: real phones over Wi-Fi, the Windows firewall prompt, the T480 soak; the installed web app (D517) on real phones through the HTTPS proxy. See [REMOTE_CONTROL_PWA_RESEARCH.md](REMOTE_CONTROL_PWA_RESEARCH.md). |
@@ -650,8 +660,9 @@ never per frame.
   the same job and was (D116).
 - Built since: thumbnails (D212, D222), the "Needs work" filter and list,
   batch import of a dropped folder of scenes (D235) and a watched folder
-  (D240), set in Settings and saved (D265). Still open: a real OS drop by
-  a person.
+  (D240), set in Settings and saved (D265), since replaced by other scene
+  folders listed in place, `user-scenes` by default (D538). Still open: a
+  real OS drop by a person.
 - Built since: where Synesthesia is installed, its scenes are in the
   library by default (D271, backlog I-05): the ones it ships read-only
   after the library folder's, then the scene folders in its own settings.
