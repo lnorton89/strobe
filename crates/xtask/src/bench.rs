@@ -26,7 +26,7 @@ use std::process::Command;
 pub(crate) fn run(args: &[String]) -> Result<()> {
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
     let status = Command::new(&cargo)
-        .args(["run", "--release", "-p", "strobe-bench", "--"])
+        .args(["run", "--locked", "--release", "-p", "strobe-bench", "--"])
         .args(args)
         .status()
         .context("failed to run cargo")?;

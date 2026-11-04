@@ -27,7 +27,7 @@ macOS and Linux later. Performance is a feature, not a polish step.
 ## Commands
 
 ```bash
-cargo xtask ci                                            # everything CI runs; stops at the first failure
+cargo xtask ci [lanes] [--strict]                         # what CI runs, as lanes (D533); `doctor` lists what can run here
 cargo xtask changelog [--check | --release vX.Y.Z]       # CHANGELOG.md is generated; never hand-edit it
 cargo xtask bench -- --size 1280x720                      # strobe-bench in release; args forwarded
 cargo xtask corpus -- --library <dir>                     # load+compile+render every scene (scripts too), both dialects
@@ -45,10 +45,14 @@ cargo run --release -p strobe-bench -- --size 1280x720     # benchmark + frames
 ```
 
 All of these are clean on the branch, and CI enforces them. A warning is
-a build failure. `cargo xtask ci` runs the lot (fmt, clippy, the no-MIDI
-`strobe-io` clippy on Linux, tests, the Windows cross-clippy when the target is installed, cargo-deny when
-installed, the changelog check, the brand check, the credits check); a
-skipped step says why. A dependency that arrives or leaves, or a new
+a build failure. CI's jobs run `cargo --locked xtask ci --strict <lanes>`,
+so `cargo xtask ci` runs the same commands: the lanes `fmt`, `check`
+(clippy, the no-MIDI `strobe-io` clippy and the Windows cross-check on
+Linux), `test`, `deny`, `generated` (changelog, brand, credits), `render`
+(Linux: Xvfb and the scene library) and `build` (Windows: the optimised
+binaries), with each host's policy in `crates/xtask/src/ci.rs` (D533). A
+step that does not apply here says `n/a`; one whose tool is missing says
+`MISSING` and makes the run "partial", and `--strict` fails it. A dependency that arrives or leaves, or a new
 contributor, needs `cargo xtask credits` and the regenerated
 `THIRD_PARTY.md` committed.
 

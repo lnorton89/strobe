@@ -22,7 +22,7 @@ Every command runs from the workspace root regardless of where it is invoked
 
 | Command | What |
 |---|---|
-| `cargo xtask ci` | Runs locally, in CI's order, and stops at the first failure: `rustfmt`, `clippy`, `clippy no-midi` (Linux), `test`, the Windows cross-check clippy, `cargo-deny`, and the changelog check. |
+| `cargo xtask ci [lanes] [--strict]` | The commands CI runs, as named lanes (`fmt`, `check`, `test`, `deny`, `generated`, `render`, `build`, `conventions`; `all` by default) with each host's policy in Rust. CI's jobs call it with `--strict`; `doctor` lists what this machine can run (D533). Stops at the first failure. |
 | `cargo xtask changelog` | Regenerates `CHANGELOG.md` from conventional-commit subjects. |
 | `cargo xtask bench -- <args>` | `cargo run --release -p strobe-bench -- <args>`. |
 
@@ -32,7 +32,10 @@ and `src/bench.rs`.
 ## Usage
 
 ```bash
-cargo xtask ci                                # everything CI runs
+cargo xtask ci                                # every lane CI runs on this kind of host
+cargo xtask ci check test                     # just those lanes, as CI's jobs run them
+cargo xtask ci doctor                         # what can run here, and how to install the rest
+cargo xtask ci --strict                       # a missing tool or a changed tree fails, as in CI
 cargo xtask ci --allow-gl-skip                # on a machine with no headless EGL
 cargo xtask ci --no-deny                      # skip cargo-deny (it needs the network)
 cargo xtask changelog                         # regenerate CHANGELOG.md
@@ -47,7 +50,11 @@ cargo xtask brand --check                     # what CI runs; fails on a stale r
 
 Flags, from the clap definitions:
 
-- `ci`: `--allow-gl-skip` and `--no-deny`.
+- `ci`: lanes (any of `all`, `doctor`, `fmt`, `check`, `test`, `deny`,
+  `generated`, `render`, `build`, `conventions`), `--strict`, `--shipping`
+  (the `build` lane also builds the fat-LTO `release`), `--allow-gl-skip` and
+  `--no-deny`. The lane table, what each host does, and the strict rules are
+  in `src/ci.rs`'s module docs.
 - `changelog`: `--check` and `--release <vX.Y.Z>`, which conflict with each
   other.
 - `bench`: everything after `--` goes to `strobe-bench`.
@@ -95,7 +102,9 @@ cargo test -p xtask
 The ten unit tests cover the changelog generator (subject parsing, heading
 placement, the `Unreleased` exemption, version parsing, the calendar
 conversion, reading `[workspace.package]`). They do not run git or cargo.
-`cargo xtask ci` itself is exercised by running it.
+`ci`'s planner is tested without running anything: every host's lanes,
+`--locked` on every resolving command, missing tools and `--strict`, the
+tree check, and the step timeout.
 
 ## Design notes
 
@@ -107,8 +116,11 @@ conversion, reading `[workspace.package]`). They do not run git or cargo.
   listed, and the repository URL is read from `[workspace.package]`.
 - **Draft, build, attest, undraft** (D52) is the release workflow the
   changelog feeds; the tag's section becomes the release notes.
-- **Skipped is never silent**: `ci` reports a step it cannot run as skipped
-  with the reason, so a green run means what CI means.
+- **Skipped is never silent**: `ci` reports a step that does not apply to
+  this host as `n/a`, and one whose tool is missing as `MISSING`, which ends
+  the run as "partial" (and fails it with `--strict`).
+- **One list of commands** (D533): CI's jobs run lanes, so the commands,
+  flags and per-host exclusions are written once, in `src/ci.rs`.
 - **Windows cross-check excludes the app** (D63), because `strobe-app` depends
   on `strobe-script`, whose C sources need the MSVC toolchain.
 
@@ -122,6 +134,6 @@ IDs given here; a gap with no ID is by design, with its decision named.
 - The release workflow has run from its tags: v0.2.0 was built, attested
   and published by `release.yml`. Running that archive on the T480 is still
   to do (backlog R-03).
-- `cargo xtask ci` mirrors the Linux job's steps; CI's other jobs (the
-  Windows build, macOS, the app screenshot under Xvfb, the bench frames
-  upload) are not reproduced locally, by design: they need those platforms.
+- `cargo xtask ci` runs what CI runs on this kind of host (D533). The other
+  hosts' lanes need those platforms: the `render` lane needs Linux with Mesa
+  and Xvfb, the `build` lane Windows, by design.

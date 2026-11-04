@@ -62,27 +62,28 @@ the full package list, and `nix develop` (see `flake.nix`) provides all of it.
 
 ## Before you submit
 
-One command runs everything CI runs, in CI's order, and stops at the
-first failure:
+One command runs what CI runs, and stops at the first failure:
 
 ```bash
-cargo xtask ci
+cargo xtask ci                 # every lane CI runs on this kind of host
+cargo xtask ci check test      # just those lanes
+cargo xtask ci doctor          # what can run here, and how to install the rest
 ```
 
-It is these, plus `cargo deny check` and the changelog check:
+CI's jobs run the very same lanes, `cargo --locked xtask ci --strict
+<lanes>`, so the commands are written once, in `crates/xtask/src/ci.rs`
+(D533): `fmt`, `check` (clippy; on Linux also `strobe-io` without MIDI
+and the Windows cross-check), `test`, `deny`, `generated` (the changelog,
+icon and credits checks), `render` (Linux: the app on Xvfb and the scene
+library in both dialects) and `build` (Windows: the optimised binaries).
 
-```bash
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo clippy -p strobe-io --no-default-features --all-targets -- -D warnings   # Linux
-cargo test --workspace
-cargo clippy --workspace --exclude strobe-script --exclude strobe-app --all-targets --all-features --target x86_64-pc-windows-msvc -- -D warnings
-```
-
-A step that cannot run on your machine (the Windows target not
-installed, `cargo-deny` missing) is reported as skipped with the command
-that would enable it, never silently dropped. CI runs the checks on
-Windows, Linux and macOS. A warning is a build failure.
+A step that does not apply to your host says `n/a`, as CI's job for that
+host would. One whose tool is missing (the Windows target, `cargo-deny`,
+`xvfb-run`) says `MISSING` with the command that installs it, and the run
+ends as "partial", never as a pass. `--strict`, which CI passes, fails it
+instead, and also fails a run that changed a tracked file. CI runs the
+lanes on Windows, Linux and macOS, and its `ci-ok` check passes only when
+every job that should have run passed. A warning is a build failure.
 
 ### What CI can and can't prove
 
