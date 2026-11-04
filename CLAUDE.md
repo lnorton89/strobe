@@ -34,6 +34,7 @@ cargo xtask corpus -- --library <dir>                     # load+compile+render 
 cargo xtask symbolicate <crash.dmp>                       # minidump -> stack with function names and file:line
 cargo xtask brand [--check]                               # icon PNGs + .ico from assets/brand/*.svg
 cargo xtask credits [--check]                             # THIRD_PARTY.md (About's credits) from git + Cargo.lock (D491)
+cargo xtask decisions [--check]                           # docs/DECISIONS_BY_AREA.md, the decisions by crate (D539)
 cargo run --profile release-fast -p strobe-app            # optimised and incremental: iterate with this, not --release (D487)
 cargo test --workspace                                    # everything
 cargo clippy --workspace --all-targets --all-features -- -D warnings

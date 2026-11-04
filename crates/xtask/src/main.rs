@@ -5,7 +5,7 @@
 //               shortcut, crash-dump symbolication, and the icon renderer.
 //
 // Dependencies: clap, anyhow; modules brand, changelog, ci, credits, bench,
-//               corpus, native, package, rc, symbolicate
+//               corpus, decisions, native, package, rc, symbolicate
 // ============================================================================
 
 //! `cargo xtask`: the repository's tooling, written in the repository's
@@ -49,6 +49,7 @@ mod changelog;
 mod ci;
 mod corpus;
 mod credits;
+mod decisions;
 mod native;
 mod package;
 mod rc;
@@ -131,6 +132,14 @@ enum Command {
     /// the package checks, each GL backend drawing, an injected crash
     /// symbolicated against the archived PDB, and `evidence.json`.
     Rc(rc::Args),
+    /// Write docs/DECISIONS_BY_AREA.md: every decision under each crate it
+    /// names (D539).
+    Decisions {
+        /// Fail if the committed index differs from a fresh one instead of
+        /// writing it.
+        #[arg(long)]
+        check: bool,
+    },
     /// Add the native files the release carries (ANGLE, the D3D compiler,
     /// the Vulkan loader) to a CycloneDX SBOM, each checked against
     /// scripts/native-deps.json (D536).
@@ -185,6 +194,7 @@ fn run() -> Result<()> {
         Command::Corpus { args } => corpus::run(&args),
         Command::Symbolicate(args) => symbolicate::run(&args.anchored(&invoked_from)),
         Command::Brand { check } => brand::run(check),
+        Command::Decisions { check } => decisions::run(check),
         Command::SbomNative(args) => native::run(&args.anchored(&invoked_from)),
         Command::Package(args) => package::run_package(&args.anchored(&invoked_from)),
         Command::PackageCheck(args) => package::run_check(&args.anchored(&invoked_from)),

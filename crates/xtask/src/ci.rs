@@ -241,6 +241,8 @@ enum Action {
     Brand,
     /// The in-process package and package check (D537).
     Package,
+    /// The in-process decisions index check (D539).
+    Decisions,
     /// The in-process credits check.
     Credits,
     /// These files exist and are not empty.
@@ -462,6 +464,7 @@ fn plan(lanes: &[Lane], args: &Args, machine: &Machine, tree: Option<String>) ->
                 steps.push(Step::new(*lane, "changelog", Action::Changelog));
                 steps.push(Step::new(*lane, "brand", Action::Brand));
                 steps.push(Step::new(*lane, "credits", Action::Credits));
+                steps.push(Step::new(*lane, "decisions", Action::Decisions));
             }
             Lane::Render => render_lane(&mut steps, args, machine),
             Lane::Build => build_lane(&mut steps, args, machine),
@@ -1161,6 +1164,7 @@ fn report_doctor(steps: &[Step], strict: bool) -> Result<()> {
             | Action::Changelog
             | Action::Brand
             | Action::Credits
+            | Action::Decisions
             | Action::Package
             | Action::Nonempty(_)
             | Action::CleanTree(_) => println!("ready    {name:<28} {}", describe(&step.action)),
@@ -1190,6 +1194,7 @@ fn describe(action: &Action) -> String {
         Action::Changelog => "cargo xtask changelog --check".to_owned(),
         Action::Brand => "cargo xtask brand --check".to_owned(),
         Action::Credits => "cargo xtask credits --check".to_owned(),
+        Action::Decisions => "cargo xtask decisions --check".to_owned(),
         Action::Package => {
             "cargo xtask package --profile release-fast --out target/dist, then package-check"
                 .to_owned()
@@ -1216,6 +1221,7 @@ fn execute(action: &Action, timeout: Option<Duration>, strict: bool) -> Outcome 
         Action::Changelog => checked(changelog::run(true, None)),
         Action::Brand => checked(brand::run(true)),
         Action::Credits => checked(credits::run(true, None)),
+        Action::Decisions => checked(crate::decisions::run(true)),
         Action::Package => checked(package_and_check()),
         Action::Nonempty(files) => {
             let empty: Vec<&str> = files
