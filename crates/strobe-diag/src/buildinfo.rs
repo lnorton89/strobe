@@ -32,7 +32,7 @@ pub const TARGET: &str = env!("STROBE_BUILD_TARGET");
 
 /// The cargo profile by name: `debug`, `release`, `release-fast` (D487) or
 /// another custom profile, so a `release-fast` build never reads as the
-/// fat-LTO shipping one (D538).
+/// fat-LTO shipping one (D541).
 pub const PROFILE: &str = env!("STROBE_BUILD_PROFILE");
 
 /// One line naming the build, such as

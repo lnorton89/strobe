@@ -126,7 +126,7 @@ jobs:
         with:
           key: xtask
           save-if: ${{ !inputs.ref }}
-      # The `lint` lane's tools (D538): actionlint checks every workflow's
+      # The `lint` lane's tools (D541): actionlint checks every workflow's
       # expressions and structure, and runs shellcheck over each `run:`
       # block; shellcheck also reads the tracked `.sh` scripts. The pinned
       # install-action has no actionlint, so it is built from its tag with
@@ -247,7 +247,7 @@ jobs:
       # running from the unpacked folder (D537). A missing resource
       # compiler fails the build here rather than shipping a bare exe.
       # The `lint` lane's Windows half: PSScriptAnalyzer over the tracked
-      # PowerShell scripts, under the PowerShell 5.1 that runs them (D538).
+      # PowerShell scripts, under the PowerShell 5.1 that runs them (D541).
       - name: Install PSScriptAnalyzer
         shell: powershell
         run: Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Scope CurrentUser -Force

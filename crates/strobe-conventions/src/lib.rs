@@ -34,7 +34,7 @@
 //! - [`architecture`] — the crate graph keeps its layers: no crate reaches
 //!   one its layer must not (the scene model a GPU, a subsystem the
 //!   renderer, anything the app), through normal edges, transitively
-//!   (D538).
+//!   (D541).
 //! - [`discarded`] — outside tests, a result thrown away with `let _ =` or
 //!   `.ok();` carries a comment saying why (D267).
 //! - [`known_gaps`] — every gap a crate README lists names its backlog

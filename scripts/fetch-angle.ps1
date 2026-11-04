@@ -29,7 +29,7 @@
 
 param(
     # Called -Profile on the command line, as it always was; inside, a
-    # variable named $Profile would shadow PowerShell's own $PROFILE (D538).
+    # variable named $Profile would shadow PowerShell's own $PROFILE (D541).
     [Alias("Profile")]
     [ValidateSet("release", "debug", "release-fast", "both")]
     [string]$BuildProfile = "both",

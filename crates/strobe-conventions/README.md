@@ -140,7 +140,7 @@ playlist, remote and projector crates never reach the renderer or a UI
 toolkit; the renderer never reaches the importers or the subsystems above
 it; nothing links the app, the bench or the tooling. Dev-dependencies are
 a separate graph and are allowed, so a renderer test may import a scene
-converter (D538).
+converter (D541).
 
 **Fix:** move the code down to a crate both sides may use, or up into the
 app, rather than adding the edge. A rule that is wrong is changed in
