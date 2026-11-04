@@ -1,0 +1,39 @@
+{
+  "angle": {
+    "name": "ANGLE, from Electron",
+    "version": "38.2.0",
+    "source": "https://github.com/electron/electron/releases/download/v38.2.0/electron-v38.2.0-win32-x64.zip",
+    "archive_sha256": "4382b317dbbbc0bbf8a301304749324b88207218aac240b670f1c1247c2a02b0",
+    "licence_file": "LICENSES.chromium.html",
+    "files": [
+      {
+        "name": "libEGL.dll",
+        "sha256": "dfd53ccbfce55510f2afdb52703037452370eb5bdf33143829a8b06253015625",
+        "component": "ANGLE libEGL",
+        "supplier": "Google (ANGLE), as built by Electron",
+        "licence": "BSD-3-Clause"
+      },
+      {
+        "name": "libGLESv2.dll",
+        "sha256": "b348ceedd275843cbe344a29dd8550b18e5d433abff695cdf5658470c1e71c67",
+        "component": "ANGLE libGLESv2",
+        "supplier": "Google (ANGLE), as built by Electron",
+        "licence": "BSD-3-Clause"
+      },
+      {
+        "name": "d3dcompiler_47.dll",
+        "sha256": "289767b49dc8525bce262ea06fee4ef9fced2e131a55b25654ce871c1f0498b2",
+        "component": "Direct3D shader compiler",
+        "supplier": "Microsoft, as redistributed by Chromium and Electron",
+        "licence": "LicenseRef-Microsoft-D3DCompiler-Redistributable"
+      },
+      {
+        "name": "vulkan-1.dll",
+        "sha256": "40e39b8cd62c3292f7c5ad6a2d863f6e3bd3d2c0b1b3a2a0e4d41a61d2a8f758",
+        "component": "Khronos Vulkan loader",
+        "supplier": "Khronos Group, as built by Electron",
+        "licence": "Apache-2.0"
+      }
+    ]
+  }
+}

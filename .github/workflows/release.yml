@@ -346,6 +346,11 @@ jobs:
             --target "$TARGET" \
             --override-filename strobe.cdx
           cp crates/strobe-app/strobe.cdx.json "dist/strobe-${TAG}-sbom.cdx.json"
+          # The zip also carries ANGLE, the D3D compiler and the Vulkan
+          # loader, which no Cargo metadata knows about. Each is added as a
+          # component, after its hash is checked against
+          # scripts/native-deps.json (D536).
+          cargo --locked xtask sbom-native --sbom "dist/strobe-${TAG}-sbom.cdx.json" --dir target/release
 
       # Checksums travel with the artifacts so a download can be verified
       # without trusting the transfer — one step at the end rather than a

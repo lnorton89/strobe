@@ -1,10 +1,12 @@
 // ============================================================================
 // Module:       build (build script)
 // Description:  On a Windows dev build, puts the pinned ANGLE DLLs beside the
-//               executables when they are missing, through the same
-//               hash-checked scripts/fetch-angle.ps1 the release uses.
+//               executables when they are missing or another version,
+//               through the same hash-checked scripts/fetch-angle.ps1 the
+//               release uses.
 //
-// Dependencies: std::process (powershell), cargo's build-script environment
+// Dependencies: std::process (powershell), cargo's build-script environment,
+//               scripts/native-deps.json (the pin)
 // ============================================================================
 
 //! ANGLE beside a dev build (D498).
@@ -20,10 +22,14 @@
 //!
 //! - **Only a Windows host building for Windows.** Elsewhere there is no
 //!   ANGLE to fetch, and a cross-check from Linux has no PowerShell.
-//! - **Only when missing.** The profile's output folder is three levels up
-//!   from `OUT_DIR` (`target/<profile>/build/<package>-<hash>/out`, with the
-//!   target triple before the profile when one is given). If all four DLLs
-//!   are there, nothing runs.
+//! - **Only when missing or stale.** The profile's output folder is three
+//!   levels up from `OUT_DIR` (`target/<profile>/build/<package>-<hash>/out`,
+//!   with the target triple before the profile when one is given). If all
+//!   four DLLs are there and the `angle.stamp` the script writes beside them
+//!   names the version in `scripts/native-deps.json`, nothing runs. A DLL's
+//!   name says nothing about its version, so a bumped pin would otherwise
+//!   leave every existing profile on the old ANGLE (D536). The manifest is
+//!   watched, so a bump reruns this script.
 //! - **The same checks as the release.** It runs the script with
 //!   `-Destination`, which verifies the Electron archive and every DLL
 //!   against pinned SHA-256 hashes. The archive is cached in
@@ -57,8 +63,14 @@ const DLLS: [&str; 4] = [
 /// Turns the fetch off when set to anything.
 const OPT_OUT: &str = "STROBE_NO_ANGLE_FETCH";
 
+/// The manifest that pins ANGLE, relative to this package: cargo records a
+/// relative path as given, so it never reads as changed from another shell
+/// the way an absolute one can (D464).
+const MANIFEST: &str = "../../scripts/native-deps.json";
+
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed={MANIFEST}");
     println!("cargo:rerun-if-env-changed={OPT_OUT}");
     println!("cargo:rerun-if-env-changed=CI");
     let windows_target = std::env::var("CARGO_CFG_TARGET_OS").is_ok_and(|os| os == "windows");
@@ -72,7 +84,10 @@ fn main() {
         println!("cargo:warning=ANGLE: could not tell the output folder from OUT_DIR; {HAND}");
         return;
     };
-    if DLLS.iter().all(|dll| dest.join(dll).is_file()) {
+    let pinned = pinned_version();
+    let stamped = std::fs::read_to_string(dest.join("angle.stamp")).ok();
+    let present = DLLS.iter().all(|dll| dest.join(dll).is_file());
+    if present && stamped.as_deref().map(str::trim) == pinned.as_deref() {
         return;
     }
     // Success is a plain line (in the build script's output file, shown with
@@ -93,6 +108,18 @@ fn main() {
 const HAND: &str = "native GL works without it; for the ANGLE fallback run \
                     `powershell -ExecutionPolicy Bypass -File scripts\\fetch-angle.ps1`, \
                     or `cargo clean -p strobe-gfx` to let the build try again";
+
+/// The ANGLE version the manifest pins: the first `"version"` value in it,
+/// which is the `angle` entry's. A plain scan rather than a JSON parser, so
+/// the build script needs no dependency; `None` when the file is unreadable,
+/// which makes any stamp stale and the fetch report the real error.
+fn pinned_version() -> Option<String> {
+    let manifest = std::env::var_os("CARGO_MANIFEST_DIR")?;
+    let text = std::fs::read_to_string(Path::new(&manifest).join(MANIFEST)).ok()?;
+    let after = text.split_once("\"version\"")?.1;
+    let value = after.split_once('"')?.1;
+    Some(value.split_once('"')?.0.to_owned())
+}
 
 /// The profile's output folder: `OUT_DIR` without `build/<package>/out`.
 fn profile_dir() -> Option<PathBuf> {

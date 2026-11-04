@@ -1,0 +1,135 @@
+name: Scheduled
+
+# Checks that can go red without a push (D536). A new RustSec advisory, an
+# upstream archive that changed under its pin, or a nixpkgs that moved,
+# breaks nothing in ci.yml until the next commit happens to trip it. These
+# run weekly and on demand. The Nix job also runs on a pull request that
+# touches the flake or the toolchain pin, and the pin job on one that
+# touches the native pin.
+on:
+  schedule:
+    - cron: "41 4 * * 1"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - flake.nix
+      - flake.lock
+      - rust-toolchain.toml
+      - scripts/native-deps.json
+      - scripts/fetch-angle.ps1
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scheduled-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  advisories:
+    name: cargo-deny (new advisories)
+    if: ${{ github.event_name != 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master, 2026-08
+        with:
+          toolchain: "1.98.0"
+      - uses: taiki-e/install-action@b80e2bb2635f28eb98b9fce1e2f0887e1535c6b2 # v2.90.0
+        with:
+          tool: cargo-deny@0.20.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: xtask
+          save-if: false
+      - run: cargo --locked xtask ci --strict deny
+
+  native-pin:
+    name: native pin (ANGLE's archive)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Dependabot watches crates and actions, not a DLL from an Electron
+    # release. This downloads the pinned archive and checks it against the
+    # pin, so an upstream change under the same URL fails here first, and
+    # it names any newer release in the same major line, as a notice: a bump
+    # is a deliberate commit, never automatic (Electron 44+ no longer ships
+    # the DLLs, docs/AGENT_RESEARCH.md section 8).
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: The pinned archive is still the pinned bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          url=$(jq -r .angle.source scripts/native-deps.json)
+          want=$(jq -r .angle.archive_sha256 scripts/native-deps.json)
+          curl --fail --location --silent --show-error --output electron.zip "$url"
+          got=$(sha256sum electron.zip | cut -d' ' -f1)
+          if [ "$got" != "$want" ]; then
+            echo "::error::$url is $got, not the pinned $want"
+            exit 1
+          fi
+          echo "$url matches the pin."
+      - name: Newer releases in the pinned line
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version=$(jq -r .angle.version scripts/native-deps.json)
+          major=${version%%.*}
+          newer=$(gh api "repos/electron/electron/releases?per_page=100" --jq '.[].tag_name' \
+            | grep -E "^v${major}\.[0-9]+\.[0-9]+$" | sed 's/^v//' \
+            | sort -V | awk -v pin="$version" '$0 != pin' | tail -n 1 || true)
+          if [ -n "$newer" ] && [ "$(printf '%s\n%s\n' "$version" "$newer" | sort -V | tail -n 1)" = "$newer" ]; then
+            echo "::notice::Electron $newer is out; ANGLE is pinned to $version (scripts/native-deps.json)."
+            echo "Electron $newer is newer than the pinned $version." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "The pinned $version is the newest v${major} release." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  nix:
+    name: nix (flake check and build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    # The flake's toolchain is rust-toolchain.toml's, through rust-overlay
+    # (D536). This proves the flake evaluates, the package builds, and the
+    # dev shell's rustc is the pinned version. The lock is part of the
+    # contract: a flake.lock that `nix flake lock` would change fails, and
+    # the updated file is uploaded so it can be committed.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
+      - name: The lock is complete
+        shell: bash
+        run: |
+          set -euo pipefail
+          nix flake lock
+          if ! git diff --exit-code flake.lock; then
+            echo "::error::flake.lock is out of date with flake.nix; commit the uploaded flake.lock"
+            exit 1
+          fi
+      - name: Upload the lock
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: flake-lock
+          path: flake.lock
+          retention-days: 14
+      - name: The dev shell's rustc is the pinned one
+        shell: bash
+        run: |
+          set -euo pipefail
+          pinned=$(sed -n 's/^channel *= *"\(.*\)"/\1/p' rust-toolchain.toml)
+          actual=$(nix develop --command rustc --version)
+          echo "$actual"
+          case "$actual" in
+            "rustc $pinned "*) echo "rustc matches rust-toolchain.toml ($pinned)." ;;
+            *) echo "::error::the dev shell has $actual, rust-toolchain.toml pins $pinned"; exit 1 ;;
+          esac
+      - run: nix flake check
+      - run: nix build --print-build-logs

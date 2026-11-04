@@ -3,7 +3,8 @@
 // Description:  `strobe --diagnose`: the system report plus whatever GL (and
 //               later audio) facts can be found without opening a window.
 //
-// Dependencies: strobe-diag (diag, context, paths); strobe-gfx (Headless)
+// Dependencies: strobe-diag (diag, context, paths); strobe-gfx (Headless);
+//               sha2, serde_json (the ANGLE pin, scripts/native-deps.json)
 // ============================================================================
 
 //! The `--diagnose` report.
@@ -23,7 +24,8 @@
 //! as `diagnose.txt` beside the logs and its location is shown in a dialog.
 
 use crate::dialog;
-use std::path::PathBuf;
+use sha2::Digest as _;
+use std::path::{Path, PathBuf};
 use strobe_diag::context::{GL_BACKEND, GL_RENDERER, GL_VENDOR, GL_VERSION};
 use strobe_diag::{diag, paths};
 use strobe_gfx::{Api, Headless};
@@ -64,9 +66,71 @@ pub fn report_path() -> PathBuf {
     paths::base_dir().join("diagnose.txt")
 }
 
-/// Builds the report: system, build and environment, then the GL probe.
+/// Builds the report: system, build and environment, then the GL probe and
+/// the ANGLE DLLs beside the program.
 pub fn report() -> String {
-    diag::system_report(&gl_rows())
+    let mut rows = gl_rows();
+    if cfg!(windows)
+        && let Some(dir) = std::env::current_exe()
+            .ok()
+            .and_then(|exe| exe.parent().map(Path::to_path_buf))
+    {
+        rows.push(("angle".to_string(), angle_status(&dir)));
+    }
+    diag::system_report(&rows)
+}
+
+/// The native dependency pin, as the build and the release read it (D536).
+const NATIVE_DEPS: &str = include_str!("../../../scripts/native-deps.json");
+
+/// Which ANGLE is in `dir`, judged by its files' SHA-256 against the pin:
+/// the pinned version, verified; absent (native GL only); or which file is
+/// not the pinned one. A DLL's name says nothing about its version, and a
+/// stale or swapped ANGLE is the first thing to rule out when the fallback
+/// misbehaves.
+pub fn angle_status(dir: &Path) -> String {
+    let Ok(manifest) = serde_json::from_str::<serde_json::Value>(NATIVE_DEPS) else {
+        return "the built-in pin did not parse".to_string();
+    };
+    let angle = &manifest["angle"];
+    let version = angle["version"].as_str().unwrap_or("?");
+    let files: Vec<(&str, &str)> = angle["files"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|file| Some((file["name"].as_str()?, file["sha256"].as_str()?)))
+        .collect();
+    let mut missing = Vec::new();
+    let mut wrong = Vec::new();
+    for (name, pinned) in &files {
+        match std::fs::read(dir.join(name)) {
+            Ok(bytes) => {
+                let digest = sha2::Sha256::digest(&bytes);
+                let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
+                if hex != *pinned {
+                    wrong.push(format!("{name} ({})", hex.get(..12).unwrap_or(&hex)));
+                }
+            }
+            Err(_) => missing.push(*name),
+        }
+    }
+    if missing.len() == files.len() {
+        return "not beside the program: native GL only".to_string();
+    }
+    if missing.is_empty() && wrong.is_empty() {
+        return format!(
+            "{version} (Electron), all {} files match the pin",
+            files.len()
+        );
+    }
+    let mut parts = Vec::new();
+    if !wrong.is_empty() {
+        parts.push(format!("not the pinned {version}: {}", wrong.join(", ")));
+    }
+    if !missing.is_empty() {
+        parts.push(format!("missing: {}", missing.join(", ")));
+    }
+    parts.join("; ")
 }
 
 /// Prints the report, saves it, and (in a release build, which has no
@@ -101,6 +165,29 @@ mod tests {
             rows.iter()
                 .any(|(key, _)| key == GL_RENDERER || key == "gl.probe"),
             "either a renderer or the reason there is none: {rows:?}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn angle_is_judged_by_its_bytes_not_its_name() -> Result<()> {
+        let dir = std::env::temp_dir().join(format!("strobe-angle-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir)?;
+        assert_eq!(
+            angle_status(&dir),
+            "not beside the program: native GL only",
+            "an empty folder has no ANGLE"
+        );
+        std::fs::write(dir.join("libGLESv2.dll"), b"not the pinned build")?;
+        let stale = angle_status(&dir);
+        // Scratch space; a leftover is harmless.
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            stale.contains("not the pinned ")
+                && stale.contains(": libGLESv2.dll")
+                && stale.contains("missing: "),
+            "a file with the right name and the wrong bytes is named: {stale}"
         );
         Ok(())
     }
