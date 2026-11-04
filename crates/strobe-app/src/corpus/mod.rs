@@ -44,6 +44,9 @@
 //!   could report a hang but never recover from it.
 //! - [`cause`] turns a driver or loader message into a category.
 //! - [`report`] writes the two files, and [`cli`] holds the flags.
+//! - [`gate`] compares a report, and the final frames, against committed
+//!   expectations and baselines, which is what turns the measuring tool
+//!   into a regression gate (D534).
 //!
 //! The corpus itself may be third-party and unlicensed (the owner's private
 //! one is). Nothing here copies a scene; the report names scenes and quotes
@@ -53,6 +56,7 @@ pub mod capture;
 pub mod cause;
 pub mod cli;
 pub mod driver;
+pub mod gate;
 pub mod report;
 pub mod run;
 
@@ -196,6 +200,11 @@ pub struct Record {
     /// Problems that did not stop the scene (a missing image, a script's
     /// console errors).
     pub notes: Vec<Note>,
+    /// An FNV-1a hash of every file in the scene folder (paths and bytes,
+    /// in path order), so a report says which version of a scene it
+    /// measured. Absent in reports written before it existed.
+    #[serde(default)]
+    pub scene_hash: Option<String>,
 }
 
 impl Record {
@@ -217,6 +226,7 @@ impl Record {
             all_white: None,
             checksum: None,
             notes: Vec::new(),
+            scene_hash: None,
         }
     }
 

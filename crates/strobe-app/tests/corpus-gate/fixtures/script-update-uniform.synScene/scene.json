@@ -1,0 +1,1 @@
+{ "TITLE": "Gate: uniform from update", "CREDIT": "Strobe", "DESCRIPTION": "A vec3 that exists only because update() creates it (D62)." }

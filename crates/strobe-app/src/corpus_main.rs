@@ -20,10 +20,12 @@
 //! fails, hangs or crashes the driver is a line in the report, never the end
 //! of the run. See [`strobe_app::corpus`] for the design.
 //!
-//! The exit status is 0 when the run completed, whatever the scenes did:
-//! this is a measuring tool, not a gate. (The gate is a later comparison of
-//! two `report.json` files.) It is nonzero when the library has no scenes
-//! or a file cannot be written.
+//! Without `--expect` the exit status is 0 when the run completed, whatever
+//! the scenes did: a measuring tool, not a gate. It is nonzero when the
+//! library has no scenes or a file cannot be written. With
+//! `--expect <file.json>` it is the gate (D534): the run is compared with
+//! the committed expectations and baseline frames, `gate.md` and `diff/`
+//! say what differs, and any difference is a nonzero exit.
 //!
 //! A CLI may print, so this file uses `println!` for progress. The library
 //! code beneath it logs.
@@ -34,6 +36,7 @@ use std::ffi::OsString;
 use std::process::ExitCode;
 use strobe_app::corpus::cli::{Cli, WORKER_FLAG, WorkerCli};
 use strobe_app::corpus::driver::{self, Options};
+use strobe_app::corpus::gate::{self, Expectations};
 use strobe_app::corpus::report::Report;
 use strobe_app::corpus::{Dialect, Record, Status};
 
@@ -76,7 +79,10 @@ fn run(cli: &Cli) -> Result<()> {
         show_window: cli.show_window,
         gl: cli.gl.clone(),
         work: cli.out.join(".work"),
+        frames: cli.expect.as_ref().map(|_| cli.out.join("frames")),
     };
+    // A stale diff from an earlier run must not be read as this one's.
+    let _ = std::fs::remove_dir_all(cli.out.join("diff"));
     let outcome = driver::run_library(&options, progress)?;
     let report = Report::new(
         &cli.library.display().to_string(),
@@ -121,7 +127,63 @@ fn run(cli: &Cli) -> Result<()> {
             );
         }
     }
-    Ok(())
+    match &cli.expect {
+        Some(file) => gate(cli, file, &report),
+        None => Ok(()),
+    }
+}
+
+/// `--expect`: compares the run with the file, or with `--bless` rewrites
+/// the file and the baselines from it (D534).
+fn gate(cli: &Cli, file: &std::path::Path, report: &Report) -> Result<()> {
+    let expectations = Expectations::read(file).map_err(anyhow::Error::msg)?;
+    let frames = cli.out.join("frames");
+    let Some(baselines) = cli.baselines() else {
+        bail!("--expect has no baselines folder");
+    };
+    if cli.bless {
+        let blessed = gate::blessed(report, &expectations);
+        std::fs::write(file, blessed.to_json()?)
+            .with_context(|| format!("cannot write {}", file.display()))?;
+        println!("blessed {}", file.display());
+        for written in
+            gate::bless_frames(&blessed, &frames, &baselines).map_err(anyhow::Error::msg)?
+        {
+            println!("blessed {}", written.display());
+        }
+        return Ok(());
+    }
+    let mut verdict = gate::check_statuses(report, &expectations);
+    gate::check_images(
+        &expectations,
+        report,
+        &frames,
+        &baselines,
+        &cli.out.join("diff"),
+        &mut verdict,
+    );
+    let markdown = cli.out.join("gate.md");
+    std::fs::write(&markdown, verdict.to_markdown(file))
+        .with_context(|| format!("cannot write {}", markdown.display()))?;
+    println!("wrote {}", markdown.display());
+    if verdict.passed() {
+        println!(
+            "gate passed: {} status(es) and {} frame(s) match {}",
+            verdict.matched,
+            verdict.compared.len(),
+            file.display()
+        );
+        return Ok(());
+    }
+    for problem in &verdict.problems {
+        println!("GATE  {problem}");
+    }
+    bail!(
+        "the corpus gate failed with {} problem(s) against {}; see {}",
+        verdict.problems.len(),
+        file.display(),
+        markdown.display()
+    )
 }
 
 /// One line per record, as it arrives.

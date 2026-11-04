@@ -28,7 +28,7 @@
 //! | `test` | `cargo test --workspace --all-features`; on macOS the portable crates | each platform job |
 //! | `deny` | `cargo deny check` | `cargo-deny` |
 //! | `generated` | the changelog, icon and credits checks | `changelog` |
-//! | `render` | Linux: the app on Xvfb, auto-controls on a window context, the scene library in both GLSL dialects | `linux` |
+//! | `render` | Linux: the app on Xvfb, auto-controls on a window context, the scene library in both GLSL dialects, the corpus gate (D534) | `linux` |
 //! | `build` | Windows: the `release-fast` binaries, and with `--shipping` the fat-LTO `release` ones | `windows` |
 //! | `conventions` | `cargo test -p strobe-conventions` | `docs` (a docs-only pull request) |
 //!
@@ -734,7 +734,59 @@ fn render_lane(steps: &mut Vec<Step>, args: &Args, machine: &Machine) {
         bench.extend(extra);
         steps.push(Step::new(LANE, name, cargo(machine, &bench)).timeout(20));
     }
+    // The corpus gate (D534): the fixtures and the library loaded the way
+    // the app loads them, scripts included, compared with their committed
+    // expectations and baseline frames. The bench above runs no scripts, so
+    // this is what notices a scene whose uniforms only its script makes.
+    // The dev profile: the app smoke above already built strobe-app there,
+    // so this costs a link, and correctness does not need opt-level 3.
+    for (name, library, expect, out) in [
+        (
+            "corpus fixtures",
+            GATE_FIXTURES,
+            GATE_FIXTURES_EXPECT,
+            "target/corpus-gate/fixtures",
+        ),
+        (
+            "corpus library",
+            "scenes",
+            GATE_LIBRARY_EXPECT,
+            "target/corpus-gate/library",
+        ),
+    ] {
+        steps.push(
+            Step::new(
+                LANE,
+                name,
+                cargo(
+                    machine,
+                    &[
+                        "run",
+                        "--locked",
+                        "-p",
+                        "strobe-app",
+                        "--bin",
+                        "strobe-corpus",
+                        "--",
+                        "--library",
+                        library,
+                        "--expect",
+                        expect,
+                        "--out",
+                        out,
+                    ],
+                ),
+            )
+            .timeout(20),
+        );
+    }
 }
+
+/// The corpus gate's fixture scenes and the expectations for them and for
+/// the scene library (D534).
+const GATE_FIXTURES: &str = "crates/strobe-app/tests/corpus-gate/fixtures";
+const GATE_FIXTURES_EXPECT: &str = "crates/strobe-app/tests/corpus-gate/fixtures.json";
+const GATE_LIBRARY_EXPECT: &str = "crates/strobe-app/tests/corpus-gate/library.json";
 
 /// The optimised binaries on the shipping platform.
 fn build_lane(steps: &mut Vec<Step>, args: &Args, machine: &Machine) {

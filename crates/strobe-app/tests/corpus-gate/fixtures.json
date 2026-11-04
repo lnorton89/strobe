@@ -1,0 +1,60 @@
+{
+  "settings": {
+    "frames": 3,
+    "size": [
+      160,
+      90
+    ]
+  },
+  "scenes": {
+    "broken-shader": {
+      "desktop": "compile_error",
+      "gles": "compile_error"
+    },
+    "buffer-pass": {
+      "desktop": "ok",
+      "gles": "ok"
+    },
+    "feedback": {
+      "desktop": "ok",
+      "gles": "ok"
+    },
+    "gradient": {
+      "desktop": "ok",
+      "gles": "ok"
+    },
+    "script-setup-uniform": {
+      "desktop": "ok",
+      "gles": "ok"
+    },
+    "script-throws": {
+      "desktop": "script_error",
+      "gles": "script_error"
+    },
+    "script-update-uniform": {
+      "desktop": "ok",
+      "gles": "ok"
+    },
+    "smoothed-control": {
+      "desktop": "ok",
+      "gles": "ok"
+    },
+    "transitions": {
+      "desktop": "ok",
+      "gles": "ok"
+    }
+  },
+  "images": [
+    "buffer-pass",
+    "feedback",
+    "gradient",
+    "script-setup-uniform",
+    "script-update-uniform",
+    "smoothed-control",
+    "transitions"
+  ],
+  "tolerance": {
+    "channel": 16,
+    "fraction": 0.005
+  }
+}
