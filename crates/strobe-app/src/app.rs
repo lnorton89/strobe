@@ -416,7 +416,7 @@ struct Stack {
     /// The library's prerendered scenes, parked at 1x1 (D542). Their GL
     /// objects die with the context, so they sit before it.
     prerendered: Prerender<Session>,
-    /// The scene being rendered for its thumbnail (D546), and the frames
+    /// The scene being rendered for its thumbnail (D547), and the frames
     /// left before its picture is taken. Owns GL objects, so it sits
     /// before the context.
     thumbnail: Option<(Session, u32)>,
@@ -667,7 +667,7 @@ struct Running {
     prerender_began: Option<Instant>,
     /// `--no-prerender`: off this run, whatever Settings says (D542).
     prerender_off_this_run: bool,
-    /// Scenes waiting for a rendered thumbnail (D546).
+    /// Scenes waiting for a rendered thumbnail (D547).
     thumbnails: thumbnails::Queue,
     gl_summary: String,
     audio: AudioInput,
@@ -746,7 +746,7 @@ struct Running {
 
     /// The Shadertoy import worker (D113).
     import: import::Service,
-    /// Where Shadertoy imports are written (D546).
+    /// Where Shadertoy imports are written (D547).
     imports_dir: PathBuf,
     /// The import panel's state.
     import_state: import::State,
@@ -3388,7 +3388,7 @@ impl Running {
             match (self.import_state.finished(done), for_cue) {
                 (Outcome::Imported(dir), Some(at)) => {
                     self.cue_from_import(at, &dir);
-                    // Its picture is rendered now (D546).
+                    // Its picture is rendered now (D547).
                     self.thumbnails.add([dir]);
                 }
                 (Outcome::Exists(dir), Some(at)) => {
@@ -3401,7 +3401,7 @@ impl Running {
                 (Outcome::Imported(dir), None) => {
                     self.import_state.last = Some(dir.clone());
                     self.show_imported(&dir);
-                    // Its picture is rendered now (D546).
+                    // Its picture is rendered now (D547).
                     self.thumbnails.add([dir]);
                 }
                 (Outcome::Exists(_), None) => {}
@@ -3635,7 +3635,7 @@ impl Running {
     }
 
     /// Queues a rendered thumbnail for every scene that has no picture and
-    /// that Strobe may write (D546), and says how many.
+    /// that Strobe may write (D547), and says how many.
     fn make_thumbnails(&mut self) {
         let wanting = thumbnails::wanting(&self.library.entries);
         let added = self.thumbnails.add(wanting);
@@ -3647,7 +3647,7 @@ impl Running {
         }
     }
 
-    /// Works the thumbnail queue (D546): starts the next scene, loaded at
+    /// Works the thumbnail queue (D547): starts the next scene, loaded at
     /// the thumbnail's size, or renders [`thumbnails::FRAMES_PER_STEP`]
     /// more frames of the one started, and saves its picture after the
     /// last. Waits while a playlist is loaded (its scenes come first), a
@@ -6284,7 +6284,7 @@ fn record_gl_facts(gfx: &WindowedContext) {
 /// The other scene folders Settings lists (D538), each found as the
 /// library folder is ([`crate::library::resolve`]), then `imports`, the
 /// Shadertoy imports' folder, when it exists and none of them holds it
-/// (D546): `user-scenes` removed from the list does not hide the imports.
+/// (D547): `user-scenes` removed from the list does not hide the imports.
 fn scene_folder_dirs(folders: &[String], imports: &Path) -> Vec<PathBuf> {
     let mut dirs: Vec<PathBuf> = folders
         .iter()

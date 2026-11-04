@@ -399,7 +399,7 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## CI and releases
 
-19 decision(s).
+20 decision(s).
 
 - [D52](decisions/D52.md): release flow is draft, build, attest, undraft
 - [D53](decisions/D53.md): PDBs are published separately, and the release build must override `strip`
@@ -420,10 +420,11 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D541](decisions/D541.md): the crate graph, `unsafe`, feature configurations, rustdoc, workflows and scripts are checked, and the build names its profile
 - [D543](decisions/D543.md): launch opens on the Library view
 - [D544](decisions/D544.md): what the audit work had skipped: a static C runtime, the imports and the loaded ANGLE checked, the browser engine built, generators that reach the code, and a changelog that can be corrected
+- [D545](decisions/D545.md): shipping keeps fat LTO, sccache is dropped, and nextest waits for more runs
 
 ## Not tied to one crate
 
-223 decision(s).
+225 decision(s).
 
 - [D1](decisions/D1.md): native OpenGL (glow + glutin), not wgpu
 - [D2](decisions/D2.md): ANGLE as the fallback context, not native-only
@@ -648,3 +649,5 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D538](decisions/D538.md): the library lists other scene folders where they are, and the watched folder is gone
 - [D540](decisions/D540.md): thumbnails are read by their bytes and fill the card
 - [D542](decisions/D542.md): the library's scenes are prerendered at launch and on a rescan, on by default
+- [D546](decisions/D546.md): other scene folders are searched through their subfolders
+- [D547](decisions/D547.md): Shadertoy imports go to user-scenes/shadertoy-imports, and thumbnails are rendered for scenes without one

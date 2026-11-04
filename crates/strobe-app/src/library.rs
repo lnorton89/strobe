@@ -22,7 +22,7 @@
 //! The person's own folder comes first, then the other scene folders
 //! Settings lists (D538; `user-scenes` unless the person removed it), where
 //! they are and written like the library's, each searched through its
-//! subfolders as deep as Synesthesia searches one by default (D545).
+//! subfolders as deep as Synesthesia searches one by default (D546).
 //! Where Synesthesia is installed, its scene folders
 //! (`strobe_scene::synesthesia`) are listed after those, unless Settings or `--no-synesthesia` says not to: the scenes it ships,
 //! inside its install and read-only, then the scene folders the person
@@ -511,7 +511,7 @@ impl Library {
     }
 
     /// Lists the scenes in `dir`, one of the other scene folders, and in
-    /// its subfolders down to Synesthesia's default depth (D545), after
+    /// its subfolders down to Synesthesia's default depth (D546), after
     /// those listed already, and says what it came to.
     fn list_folder(&mut self, dir: &Path) -> Listed {
         let listed = |scenes| Listed {

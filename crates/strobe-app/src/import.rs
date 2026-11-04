@@ -35,13 +35,13 @@
 //! path, a Shadertoy id or URL; the worker classifies it), or JSON that
 //! arrived over the listener. Both end in `strobe_shadertoy::import`.
 //!
-//! ## Where imports go (D546)
+//! ## Where imports go (D547)
 //!
 //! Into `shadertoy-imports` inside the `user-scenes` folder ([`imports_dir`]),
 //! not into the library folder: `scenes/` is tracked by git and holds only
 //! original work, and an imported shader is someone else's. The library
 //! lists that folder through `user-scenes`, which is searched through its
-//! subfolders (D545), or on its own when `user-scenes` is not listed.
+//! subfolders (D546), or on its own when `user-scenes` is not listed.
 //!
 //! ## Re-importing
 //!
@@ -62,10 +62,10 @@ use strobe_shadertoy::import::{
 use strobe_shadertoy::listener::{Handler, Reply, Submission};
 
 /// The folder inside `user-scenes` that Shadertoy imports are written
-/// into (D546).
+/// into (D547).
 pub const IMPORTS_FOLDER: &str = "shadertoy-imports";
 
-/// Where Shadertoy imports are written (D546): [`IMPORTS_FOLDER`] inside
+/// Where Shadertoy imports are written (D547): [`IMPORTS_FOLDER`] inside
 /// the `user-scenes` folder, found as a scene folder is
 /// (`library::resolve`), else beside the library folder `library`.
 pub fn imports_dir(library: &Path) -> PathBuf {
@@ -158,7 +158,7 @@ pub struct Done {
 /// What the worker needs to know.
 #[derive(Debug, Clone)]
 pub struct WorkerConfig {
-    /// The folder imports are written into ([`imports_dir`], D546).
+    /// The folder imports are written into ([`imports_dir`], D547).
     pub library: PathBuf,
     /// The data directory: the API key, the texture cache.
     pub data_dir: PathBuf,

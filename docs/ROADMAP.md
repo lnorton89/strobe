@@ -52,13 +52,13 @@ which backend proved a claim.
   a large library's memory against the HD 4000 laptops' RAM.
 
 - **Other scene folders are searched through their subfolders
-  (2026-11-04, D545):** a folder of scenes inside `user-scenes` (or any
+  (2026-11-04, D546):** a folder of scenes inside `user-scenes` (or any
   folder added in Settings) is listed without adding it by hand, down to
   10 levels, as Synesthesia searches. Checked by a unit test; not yet in
   the app on LIGHTNING.
 
 - **Shadertoy imports go to `user-scenes/shadertoy-imports`, and
-  thumbnails are rendered (2026-11-04, D546):** the Library's camera
+  thumbnails are rendered (2026-11-04, D547):** the Library's camera
   button renders a thumbnail for every scene without one (3 s at 320x180,
   then the frame is saved as *Use frame as picture* saves it), and a
   finished import gets one too. Unit tests only; not yet run in the app.

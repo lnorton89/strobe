@@ -7,7 +7,7 @@
 // Dependencies: std (collections, path); crate::library
 // ============================================================================
 
-//! Thumbnails rendered for scenes that have none (D546).
+//! Thumbnails rendered for scenes that have none (D547).
 //!
 //! The browser shows a scene's `IMAGE_PATH` (D212), and "Use frame as
 //! picture" takes one from the live frame (D222). This makes one without

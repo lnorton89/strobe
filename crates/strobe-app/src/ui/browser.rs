@@ -348,7 +348,7 @@ fn refresh_button(ui: &mut Ui, theme: &Palette, actions: &mut Vec<Action>) {
     }
 }
 
-/// Renders a thumbnail for every scene without a picture (D546). While
+/// Renders a thumbnail for every scene without a picture (D547). While
 /// they are being made, its tooltip says how far it has got.
 fn thumbnails_button(ui: &mut Ui, model: &Model<'_>, theme: &Palette, actions: &mut Vec<Action>) {
     let tip = match model.thumbnails {

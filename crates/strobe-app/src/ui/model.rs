@@ -76,7 +76,7 @@ pub enum Action {
     },
     /// Save the playing scene's live frame as its thumbnail (D222).
     CaptureThumbnail,
-    /// Render a thumbnail for every scene without a picture (D546).
+    /// Render a thumbnail for every scene without a picture (D547).
     MakeThumbnails,
     /// Copy this scene folder (one of Synesthesia's, which Strobe only
     /// reads) into the person's own library under a free name, then rescan
@@ -682,7 +682,7 @@ pub struct Model<'a> {
     /// Bumped whenever the library or its health changes, so the browser
     /// knows when to refilter.
     pub library_rev: u64,
-    /// `(finished, total)` while thumbnails are being rendered (D546).
+    /// `(finished, total)` while thumbnails are being rendered (D547).
     pub thumbnails: Option<(usize, usize)>,
     /// Why the last library scan failed, if it did.
     pub scan_error: Option<&'a str>,

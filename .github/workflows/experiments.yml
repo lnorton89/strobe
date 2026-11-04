@@ -1,19 +1,12 @@
 name: Experiments
 
 # Build-speed trials the audit asked to measure before adopting (D535).
-# Nothing here gates anything: each job reports numbers to its summary, for
-# comparing with the windows job in ci.yml. The sccache trial runs weekly,
-# so its hit rate has a history; the LTO comparison only when started by
-# hand, since it is two cold fat builds.
+# Nothing here gates anything: the job reports numbers to its summary. Only
+# the LTO comparison is left, started by hand since it is two cold release
+# builds; the weekly sccache trial was dropped once its warm hit rate was
+# measured (D545).
 on:
-  schedule:
-    - cron: "17 5 * * 1"
   workflow_dispatch:
-    inputs:
-      lto:
-        description: "Also compare fat and thin LTO builds"
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -24,49 +17,11 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  # As in ci.yml: incremental output is not cacheable by sccache either.
   CARGO_INCREMENTAL: "0"
 
 jobs:
-  sccache:
-    name: sccache trial (windows check + test)
-    runs-on: windows-latest
-    timeout-minutes: 120
-    # The same lanes the windows job runs, with sccache as the compiler
-    # wrapper and GitHub's cache as its store, and without rust-cache, so
-    # the time and the hit rate are sccache's alone. Compare the step's
-    # time with the windows job's on the same commit, and read the stats:
-    # a low hit rate, or a large "non-cacheable" count, is the answer.
-    env:
-      SCCACHE_GHA_ENABLED: "true"
-      RUSTC_WRAPPER: sccache
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master, 2026-08
-        with:
-          toolchain: "1.98.0"
-          components: clippy
-      - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
-        with:
-          version: "v0.19.0"
-      - name: Check and test through sccache
-        shell: bash
-        run: cargo --locked xtask ci check test
-      - name: Report the hit rate
-        if: ${{ !cancelled() }}
-        shell: bash
-        run: |
-          {
-            echo "### sccache"
-            echo
-            echo '```text'
-            sccache --show-stats
-            echo '```'
-          } | tee -a "$GITHUB_STEP_SUMMARY"
-
   lto:
     name: fat and thin LTO (windows release builds)
-    if: ${{ inputs.lto }}
     runs-on: windows-latest
     timeout-minutes: 120
     # Build time and binary size of the shipping profile against

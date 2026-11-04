@@ -550,13 +550,11 @@
 
   What is left needs hardware, data or a person:
   - the manual items the harness lists, by a person at the T480: a playlist, audio unplug and replug, fullscreen, `lose-context@60` (with R-03); and the next tag's own zip through `cargo xtask rc`;
-  - fat or thin LTO for shipping, now a build-time question only, from the Experiments workflow's `lto` comparison on a cold runner (D535, D544);
-  - nextest everywhere or nowhere, decided from a few weeks of the Windows job's JUnit times against the other jobs' `cargo test` (D535);
-  - sccache kept or dropped, decided from the Experiments workflow's hit rates (D535);
+  - nextest everywhere or nowhere, decided from a few weeks of the Windows job's JUnit times against the other jobs' `cargo test` (D535); master's JUnit history starts on 2026-11-04, and the samples so far overlap `cargo test`'s (D545);
   - coverage of the capture worker's reopen loop, the capture device and the MIDI ports, which need a device (R-01, P-04); the protocol gaps the coverage read found are tests now (D544);
   - the decisions index stays lexical (D539): a decision is listed under a crate only if it writes that crate's name.
-- **Work:** the manual release checks on the T480 and the next tag's zip through the harness; choose LTO from cold build times; decide nextest and sccache from their data; cover the device paths when R-01 and P-04 bring hardware tests.
-- **Acceptance:** the T480's record cites an `evidence.json` whose verdict is `pass` (done, 2026-11-04). A decision records the LTO, nextest and sccache outcomes with their numbers. The ruleset requires `ci-ok` and nothing else (done, 2026-11-04: after the stack merged, `ci-ok` passed on master at d2a1093 and the master ruleset's eight named checks were replaced by it).
+- **Work:** the manual release checks on the T480 and the next tag's zip through the harness; decide nextest from its JUnit times; cover the device paths when R-01 and P-04 bring hardware tests.
+- **Acceptance:** the T480's record cites an `evidence.json` whose verdict is `pass` (done, 2026-11-04). A decision records the LTO, nextest and sccache outcomes with their numbers (LTO and sccache done, D545: fat LTO kept, sccache dropped). The ruleset requires `ci-ok` and nothing else (done, 2026-11-04: after the stack merged, `ci-ok` passed on master at d2a1093 and the master ruleset's eight named checks were replaced by it).
 
 ## Cross-cutting engineering rules
 
