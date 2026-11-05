@@ -17,7 +17,7 @@ import { linkRepoFile, readRepoDoc, splitRoadmap } from "@/lib/repo-docs";
 export const metadata: Metadata = pageMetadata("/roadmap/", {
   title: "Roadmap",
   description:
-    "Strobe's roadmap: what is implemented and on which machine it was verified, what is in flight, what comes next, and the known gaps — with the repository's recent activity.",
+    "Strobe's roadmap: what is implemented and on which machine it was verified, what is in flight, what comes next, and the known gaps, with the repository's recent activity.",
 });
 
 export default async function RoadmapPage() {
