@@ -45,10 +45,9 @@ export const CARDS: Record<ExportedRoute, CardCopy> = {
   },
   "/scenes/": {
     eyebrow: "Scene library",
-    title: "Original scenes, every one a real frame.",
-    description:
-      "Five tiers of GPU load from a drifting gradient to raymarched clouds, a scripted physics scene, and feedback-driven paint studies. All original work, MIT licensed.",
-    alt: "Strobe social card — the scene library.",
+    title: "The scene library.",
+    description: "Original scenes, from a drifting gradient to raymarched clouds.",
+    alt: "Strobe's scene library, beside a frame of its Voronoi Glass scene.",
     scene: "04-voronoi-glass",
   },
   "/play/": {
