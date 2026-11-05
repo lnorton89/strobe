@@ -8,7 +8,8 @@ import { describe, expect, it } from "vitest";
  * The release comes from GitHub through lib/release.ts, so a version number
  * typed into a page goes stale the day the next release ships, as the site's
  * first constant did (D526). The repository's slug is written once, for the move
- * to another organisation.
+ * to another organisation. And the copy keeps to what is true: the project is
+ * source-available, and it is described by what it does.
  *
  * Tests are not scanned, so their fixtures may name versions. The documents in
  * docs/ are not either: they are dated records, and a past release is a fact there.
@@ -40,9 +41,19 @@ function matches(pattern: RegExp, files: readonly string[] = FILES): string[] {
   );
 }
 
+/** Copy a reader sees: the content files, and the strings on the pages. */
+const COPY_FILES = FILES.filter(
+  (file) =>
+    /content\.md$/.test(file) ||
+    /(page|not-found|layout)\.tsx$/.test(file) ||
+    /(cards|site)\.ts$/.test(file) ||
+    /(SiteFooter|Release|FrameTimes)\.tsx$/.test(file),
+);
+
 describe("the site's source", () => {
   it("has files to scan", () => {
     expect(FILES.length, "the scan found no source").toBeGreaterThan(50);
+    expect(COPY_FILES.length, "the scan found no copy").toBeGreaterThan(10);
   });
 
   it("names no release version; lib/release.ts reads them from GitHub", () => {
@@ -75,5 +86,30 @@ describe("the site's source", () => {
     expect(repo, "site.ts names no REPO").toBeDefined();
     const manifest = readFileSync(path.join(SITE, "package.json"), "utf8");
     expect(manifest.match(/github\.com\/[\w.-]+\/[\w.-]+?(?=[/.]|")/g)?.every((url) => url === `github.com/${repo}`)).toBe(true);
+  });
+});
+
+describe("the site's copy", () => {
+  it("does not call the project open source; it is source-available", () => {
+    expect(matches(/open[- ]source/i, COPY_FILES)).toEqual([]);
+    expect(matches(/\bMIT\b(?! with the Commons Clause)/, COPY_FILES)).toEqual([]);
+  });
+
+  it("states the hardware floor as an engineering fact, not a selling line", () => {
+    expect(matches(/old (laptop|hardware|machine|computer)|bad hardware/i, COPY_FILES)).toEqual([]);
+  });
+
+  it("uses none of the words that say nothing", () => {
+    const empty =
+      /\b(powerful|seamless(ly)?|blazing|stunning|robust|effortless(ly)?|cutting[- ]edge|next[- ]generation|revolutionary|unleash|supercharge|world[- ]class|game[- ]chang\w+)\b/i;
+    expect(matches(empty, COPY_FILES)).toEqual([]);
+  });
+
+  it("uses no em dash in what a reader sees", () => {
+    const code = FILES.filter((file) => COPY_FILES.includes(file) && file.endsWith(".md"));
+    expect(matches(/—/, code)).toEqual([]);
+    // In code, only string and JSX text: comments may keep theirs.
+    const strings = /^(?!\s*(\*|\/\/|\/\*)).*—/;
+    expect(matches(strings, COPY_FILES.filter((file) => !file.endsWith(".md")))).toEqual([]);
   });
 });
