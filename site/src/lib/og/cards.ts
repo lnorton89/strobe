@@ -53,9 +53,8 @@ export const CARDS: Record<ExportedRoute, CardCopy> = {
   "/play/": {
     eyebrow: "Play",
     title: "Write a Strobe scene in your browser.",
-    description:
-      "Strobe's own scene player, compiled to WebAssembly: edit main.glsl, scene.json and script.js, play with the controls, feed it your microphone, and share the result as a link.",
-    alt: "Strobe social card — the shader sandbox.",
+    description: "Strobe's own scene player, compiled to WebAssembly and running on WebGL2.",
+    alt: "Strobe's browser sandbox, beside a frame of its Plasma Pulse scene.",
     scene: "02-plasma-pulse",
   },
   "/compatibility/": {
