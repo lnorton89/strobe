@@ -1,5 +1,6 @@
 import Wordmark from "@/components/brand/Wordmark";
 import DataTable from "@/components/DataTable";
+import FrameTimes from "@/components/FrameTimes";
 import { InlineMarkdown } from "@/components/Markdown";
 import { Eyebrow } from "@/components/PageHeader";
 import Reveal from "@/components/Reveal";
@@ -14,11 +15,13 @@ import {
   GitHubIcon,
   PerformIcon,
   PlayIcon,
+  ResilienceIcon,
   ScenesIcon,
 } from "@/components/brand/icons";
+import { FRAME_BUDGET_MS, readSweep } from "@/lib/benchmarks";
 import { readPageContent } from "@/lib/page-content";
 import { readScenes } from "@/lib/scenes";
-import { BADGES, RELEASE_STAGE, REPO_URL } from "@/lib/site";
+import { BADGES, DEFAULT_BRANCH, RELEASE_STAGE, REPO_URL } from "@/lib/site";
 
 /** README.md's comparison table, row for row. */
 const COMPARISON = [
@@ -50,6 +53,9 @@ const CELL_BODY =
 
 export default async function Home() {
   const [content, scenes] = await Promise.all([readPageContent("(home)"), readScenes()]);
+  const sweep = readSweep();
+  const fit = sweep.scenes.filter((scene) => scene.full <= FRAME_BUDGET_MS).length;
+  const fitHalf = sweep.scenes.filter((scene) => scene.half <= FRAME_BUDGET_MS).length;
 
   return (
     <>
@@ -128,6 +134,53 @@ export default async function Home() {
                 </div>
               </Reveal>
             ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="border-hairline border-b">
+        <div className="mx-auto max-w-350 px-6 py-20 sm:px-10 sm:py-24">
+          <SectionHeading title="Performance and failure" icon={ResilienceIcon} />
+          <div className="mt-10 grid gap-12 *:min-w-0 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)] lg:gap-16">
+            <div>
+              <p className="text-bright max-w-[62ch] text-[18px] leading-[1.6] text-pretty">
+                {content.block("performance")}
+              </p>
+              <div className="mt-10 flex flex-col gap-8">
+                {content.items("performance-items").map(({ slug, title, body }) => (
+                  <div key={slug}>
+                    <h3 className="text-text text-[17px] leading-snug font-semibold tracking-[-0.01em]">
+                      {title}
+                    </h3>
+                    <div className={`${CELL_BODY} mt-2 max-w-[62ch]`}>
+                      <InlineMarkdown>{body}</InlineMarkdown>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <Reveal>
+              <h3 className="text-text text-[17px] leading-snug font-semibold tracking-[-0.01em]">
+                {fit} of {sweep.scenes.length} library scenes fit the frame budget at 720p, and{" "}
+                {fitHalf} at half scale
+              </h3>
+              <div className="mt-4">
+                <FrameTimes
+                  sweep={sweep}
+                  titles={new Map(scenes.map((scene) => [scene.slug, scene.title]))}
+                />
+              </div>
+              <div className="text-secondary mt-4 text-[13px] leading-[1.65] [&_code]:font-mono [&_code]:text-[0.9em]">
+                <InlineMarkdown>{content.block("performance-source")}</InlineMarkdown>
+              </div>
+              <ArrowLink
+                href={`${REPO_URL}/blob/${DEFAULT_BRANCH}/docs/BENCHMARKS.md`}
+                external
+                className="mt-4"
+              >
+                Every machine, in BENCHMARKS.md
+              </ArrowLink>
+            </Reveal>
           </div>
         </div>
       </section>

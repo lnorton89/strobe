@@ -62,6 +62,49 @@ itself a name, and the laptop approves it. Another Strobe desktop can ask the sa
 way, and venue mode uses a trust file so a laptop reconnects to a show machine by
 itself.
 
+<!-- @performance -->
+
+Strobe's floor is OpenGL 3.3 core, the level of a 2012 Intel HD 4000. The slowest
+GPUs it has been measured on are an Intel UHD 620 and an AMD Vega 3; no HD 4000
+has been tested yet.
+
+<!-- @performance-items -->
+
+### The frame loop
+
+One thread owns the GL context. Audio, MIDI, OSC and the remote run on workers
+that hand values over through bounded queues the loop never waits on. Per-frame
+paths do not allocate or query the driver, and a render test fails if a state
+query runs while a scene plays.
+
+### Adaptive resolution
+
+The loop reads a GPU timer from an earlier frame and lowers the render scale when
+the average goes over budget, or when about 4% of frames miss their refresh for
+four seconds. The second rule exists because a mean under budget is not a smooth
+show: on a Vega 3, scenes at 12.4 to 13.8 ms still missed about one refresh in
+eleven.
+
+### ANGLE fallback
+
+If native GL 3.3 will not start, Strobe opens OpenGL ES 3.0 through ANGLE on
+Direct3D 11, the path Chrome uses. Everything above the context is the same code,
+and on the T480 ANGLE's frame times were within 5 to 10% of native.
+
+### When something fails
+
+A lost GL context is rebuilt and the show carries on. A script gets 4 ms a frame,
+so a `while(true){}` is interrupted and the scene keeps rendering. A crash leaves
+a report and a minidump that `cargo xtask symbolicate` turns into a stack with
+file and line.
+
+<!-- @performance-source -->
+
+Mean milliseconds per frame, timed with `glFinish` over 60 frames, on a ThinkPad
+T480 (Intel UHD 620) through native OpenGL. The tick is the 16.7 ms budget of a
+60 Hz refresh. Volume Clouds is the stress scene at the top of the load ladder and
+does not run at this GPU's frame rate at any scale.
+
 <!-- @scenes-note -->
 
 Rendered from scenes/ at build time
