@@ -112,7 +112,10 @@ export function WindowsDownload() {
       <div className="flex flex-wrap items-center gap-4">
         {windows ? (
           <Action href={windows.url} variant="primary" icon={DownloadIcon} file>
-            Download <span className="normal-case">{tag}</span> for Windows
+            {/* One span: the button is a flex box, and bare text would make three items. */}
+            <span>
+              Download <span className="normal-case">{tag}</span> for Windows
+            </span>
           </Action>
         ) : (
           <Action href={url} variant="primary" icon={DownloadIcon} external>
