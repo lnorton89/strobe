@@ -864,9 +864,15 @@ fn render_lane(steps: &mut Vec<Step>, args: &Args, machine: &Machine) {
     // Every scene in the library, headless, once per dialect, frames kept
     // for review. A scene that fails to compile in either dialect fails
     // the step. `release-fast`: the frames are the renderer's, and fat LTO
-    // only costs build time here (D504).
+    // only costs build time here (D504). The desktop run also times every
+    // scene at half scale, so `results.md` carries the render-scale sweep
+    // on llvmpipe beside the 1080 Ti's and the T480's (D-06); its frames
+    // and contact sheet stay the full-scale ones.
     for (name, extra) in [
-        ("scenes desktop", &["--out", "target/bench"][..]),
+        (
+            "scenes desktop",
+            &["--scales", "1,0.5", "--out", "target/bench"][..],
+        ),
         (
             "scenes gles",
             &["--api", "gles", "--out", "target/bench-gles"][..],
