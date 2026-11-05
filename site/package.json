@@ -1,9 +1,9 @@
 {
   "name": "strobe-site",
-  "version": "0.1.0",
+  "version": "0.0.0",
   "private": true,
-  "description": "Website for Strobe, an open-source, audio-reactive shader visualizer and VJ engine.",
-  "homepage": "https://github.com/lnorton89/strobe/tree/main/site",
+  "description": "Website for Strobe, a source-available VJ engine for audio-reactive GLSL scenes.",
+  "homepage": "https://github.com/lnorton89/strobe/tree/master/site",
   "repository": {
     "type": "git",
     "url": "https://github.com/lnorton89/strobe.git",
@@ -12,7 +12,7 @@
   "bugs": {
     "url": "https://github.com/lnorton89/strobe/issues"
   },
-  "license": "MIT AND Apache-2.0",
+  "license": "SEE LICENSE IN ../LICENSE",
   "engines": {
     "node": ">=20"
   },
