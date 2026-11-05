@@ -6,11 +6,32 @@
  * The fragment never reaches a server, so a link carries a scene without
  * the site storing or seeing anything. Compression and decompression are the
  * browser's own streams (deflate-raw), as is reading a zip someone else made.
+ *
+ * A scene's files are text, plus the pictures its IMAGES name (D554), held
+ * as base64 so the scene stays one JSON value. The zip keeps every picture;
+ * a share link and the browser's storage keep them only while they are
+ * small (SHARE_IMAGE_BYTES in all), and say which they left out. Presets are
+ * text files under presets/, as in a scene folder.
  */
 
 export type SceneFiles = Record<string, string>;
 
-export type Scene = { title: string; files: SceneFiles };
+/** Pictures by file name, each base64 of the file's bytes. */
+export type SceneImages = Record<string, string>;
+
+export type Scene = { title: string; files: SceneFiles; images?: SceneImages };
+
+/** The largest picture a visitor may add, in bytes. */
+export const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
+
+/**
+ * The pictures a share link or the browser's storage carries, in bytes in
+ * all: a few small textures fit, and a link stays a link.
+ */
+export const SHARE_IMAGE_BYTES = 48 * 1024;
+
+/** The folder of a scene's presets, as in the app (strobe_scene::preset). */
+export const PRESET_DIR = "presets/";
 
 /** The files a new scene starts with. */
 export const BLANK: Scene = {
@@ -38,16 +59,119 @@ vec4 renderMain() {
   },
 };
 
-/** The order files are shown in: the shader, its JSON, the script, the rest. */
+/** The order files are shown in: the shader, its JSON, the script, the rest, presets last. */
 export function fileOrder(files: SceneFiles): string[] {
   const rank = (name: string) =>
-    name === "main.glsl" ? 0 : name === "scene.json" ? 1 : name === "script.js" ? 2 : 3;
+    name === "main.glsl"
+      ? 0
+      : name === "scene.json"
+        ? 1
+        : name === "script.js"
+          ? 2
+          : name.startsWith(PRESET_DIR)
+            ? 4
+            : 3;
   return Object.keys(files).sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
 }
 
-/** A file name a scene may hold: a plain name ending in a text type. */
+/**
+ * A preset name the app accepts (strobe_scene::preset::valid_name): up to 48
+ * letters, digits, spaces, - _ and ., not starting with a dot or a space.
+ */
+export function validPresetName(name: string): boolean {
+  return (
+    name.length > 0 &&
+    name.length <= 48 &&
+    name === name.trim() &&
+    !name.startsWith(".") &&
+    /^[\p{L}\p{N} ._-]+$/u.test(name)
+  );
+}
+
+/** The scene file a preset lives in. */
+export function presetFile(name: string): string {
+  return `${PRESET_DIR}${name}.json`;
+}
+
+/** The preset a file name holds, if it is one. */
+export function presetName(file: string): string | undefined {
+  if (!file.startsWith(PRESET_DIR) || !file.endsWith(".json")) return undefined;
+  const name = file.slice(PRESET_DIR.length, -".json".length);
+  return validPresetName(name) ? name : undefined;
+}
+
+/** A file name a scene may hold: a plain name ending in a text type, or a preset. */
 export function validFileName(name: string): boolean {
-  return /^[\w.-]+\.(glsl|frag|json|js)$/i.test(name) && !name.startsWith(".");
+  return (
+    (/^[\w.-]+\.(glsl|frag|json|js)$/i.test(name) && !name.startsWith(".")) ||
+    presetName(name) !== undefined
+  );
+}
+
+/** A picture's file name: a plain name ending in .png, .jpg or .jpeg. */
+export function validImageName(name: string): boolean {
+  return /^[\w.-]+\.(png|jpe?g)$/i.test(name) && !name.startsWith(".");
+}
+
+/** The name a picture the visitor picked is kept under: its own, made valid. */
+export function imageNameFor(picked: string): string | undefined {
+  const base = picked.split(/[\\/]/).pop() ?? "";
+  const cleaned = base.replace(/[^\w.-]+/g, "-").replace(/^\.+/, "");
+  return validImageName(cleaned) ? cleaned : undefined;
+}
+
+/** Bytes as base64, for a picture inside the scene's JSON. */
+export function bytesToBase64(bytes: Uint8Array): string {
+  let text = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    text += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(text);
+}
+
+/** The bytes a base64 string holds. */
+export function base64ToBytes(text: string): Uint8Array {
+  return Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
+}
+
+/** Decoded size of a base64 string, without decoding it. */
+function base64Bytes(text: string): number {
+  const padding = text.endsWith("==") ? 2 : text.endsWith("=") ? 1 : 0;
+  return Math.floor((text.length * 3) / 4) - padding;
+}
+
+/**
+ * `scene` as a share link or the browser's storage carries it: every text
+ * file, and the pictures while they fit in SHARE_IMAGE_BYTES together,
+ * smallest first. `dropped` names the pictures left out, which the zip
+ * still keeps.
+ */
+export function forSharing(scene: Scene): { scene: Scene; dropped: string[] } {
+  const images = Object.entries(scene.images ?? {}).sort(
+    ([a, x], [b, y]) => base64Bytes(x) - base64Bytes(y) || a.localeCompare(b),
+  );
+  const kept: SceneImages = {};
+  const dropped: string[] = [];
+  let total = 0;
+  for (const [name, data] of images) {
+    const size = base64Bytes(data);
+    if (total + size <= SHARE_IMAGE_BYTES) {
+      kept[name] = data;
+      total += size;
+    } else {
+      dropped.push(name);
+    }
+  }
+  const out: Scene = { title: scene.title, files: scene.files };
+  if (Object.keys(kept).length > 0) out.images = kept;
+  return { scene: out, dropped: dropped.sort() };
+}
+
+/** The scene's pictures as bytes, by name, for the engine. */
+export function imageBytes(scene: Scene): Record<string, Uint8Array> {
+  return Object.fromEntries(
+    Object.entries(scene.images ?? {}).map(([name, data]) => [name, base64ToBytes(data)]),
+  );
 }
 
 async function pump(bytes: Uint8Array, stream: CompressionStream | DecompressionStream) {
@@ -120,17 +244,30 @@ export async function fetchShared(id: string): Promise<Scene> {
   return scene;
 }
 
-/** A scene from untrusted JSON: only string files with valid names survive. */
+/** A scene from untrusted JSON: only string files and base64 pictures with valid names survive. */
 export function parseScene(value: unknown): Scene | undefined {
   if (value === null || typeof value !== "object") return undefined;
-  const { title, files } = value as { title?: unknown; files?: unknown };
+  const { title, files, images } = value as { title?: unknown; files?: unknown; images?: unknown };
   if (files === null || typeof files !== "object") return undefined;
   const clean: SceneFiles = {};
   for (const [name, text] of Object.entries(files as Record<string, unknown>)) {
     if (validFileName(name) && typeof text === "string") clean[name] = text;
   }
   if (!clean["main.glsl"]) return undefined;
-  return { title: typeof title === "string" && title ? title.slice(0, 80) : "untitled", files: clean };
+  const scene: Scene = {
+    title: typeof title === "string" && title ? title.slice(0, 80) : "untitled",
+    files: clean,
+  };
+  if (images !== null && typeof images === "object") {
+    const pictures: SceneImages = {};
+    for (const [name, data] of Object.entries(images as Record<string, unknown>)) {
+      if (validImageName(name) && typeof data === "string" && /^[A-Za-z0-9+/]*={0,2}$/.test(data)) {
+        pictures[name] = data;
+      }
+    }
+    if (Object.keys(pictures).length > 0) scene.images = pictures;
+  }
+  return scene;
 }
 
 /* ---- zip ---------------------------------------------------------------- */
@@ -152,9 +289,9 @@ function crc32(bytes: Uint8Array): number {
 }
 
 /**
- * A .synScene zip: one folder named for the scene holding its files, stored
- * uncompressed (text this small gains little, and stored entries need no
- * compressor to write).
+ * A .synScene zip: one folder named for the scene holding its files and
+ * pictures, stored uncompressed (text this small gains little, a PNG or JPEG
+ * is compressed already, and stored entries need no compressor to write).
  */
 export function writeZip(scene: Scene): Blob {
   const encoder = new TextEncoder();
@@ -162,9 +299,16 @@ export function writeZip(scene: Scene): Blob {
   const parts: Uint8Array[] = [];
   const central: Uint8Array[] = [];
   let offset = 0;
-  for (const name of fileOrder(scene.files)) {
+  const entries: [string, Uint8Array][] = [
+    ...fileOrder(scene.files).map(
+      (name) => [name, encoder.encode(scene.files[name] ?? "")] as [string, Uint8Array],
+    ),
+    ...Object.keys(scene.images ?? {})
+      .sort()
+      .map((name) => [name, base64ToBytes(scene.images?.[name] ?? "")] as [string, Uint8Array]),
+  ];
+  for (const [name, data] of entries) {
     const path = encoder.encode(folder + name);
-    const data = encoder.encode(scene.files[name] ?? "");
     const crc = crc32(data);
     const local = new DataView(new ArrayBuffer(30));
     local.setUint32(0, 0x04034b50, true);
@@ -228,7 +372,7 @@ export async function readZip(buffer: ArrayBuffer): Promise<Scene> {
     const local = view.getUint32(at + 42, true);
     const name = decoder.decode(new Uint8Array(buffer, at + 46, nameLength));
     at += 46 + nameLength + extra + comment;
-    if (name.endsWith("/") || compressed > 2_000_000) continue;
+    if (name.endsWith("/") || compressed > MAX_IMAGE_BYTES) continue;
     const start =
       local + 30 + view.getUint16(local + 26, true) + view.getUint16(local + 28, true);
     const raw = new Uint8Array(buffer, start, compressed);
@@ -241,9 +385,12 @@ export async function readZip(buffer: ArrayBuffer): Promise<Scene> {
   if (main === undefined) throw new Error("the zip has no main.glsl");
   const folder = main.slice(0, -"main.glsl".length);
   const files: SceneFiles = {};
+  const images: SceneImages = {};
   for (const [name, bytes] of entries) {
+    if (!name.startsWith(folder)) continue;
     const rest = name.slice(folder.length);
-    if (name.startsWith(folder) && validFileName(rest)) files[rest] = decoder.decode(bytes);
+    if (validFileName(rest)) files[rest] = decoder.decode(bytes);
+    else if (validImageName(rest)) images[rest] = bytesToBase64(bytes);
   }
   const title =
     folder
@@ -251,5 +398,5 @@ export async function readZip(buffer: ArrayBuffer): Promise<Scene> {
       .split("/")
       .pop()
       ?.replace(/\.synScene$/i, "") || "imported";
-  return { title, files };
+  return Object.keys(images).length > 0 ? { title, files, images } : { title, files };
 }

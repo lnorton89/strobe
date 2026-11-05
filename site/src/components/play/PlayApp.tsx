@@ -13,6 +13,11 @@
  * - Nothing is stored on a server: the scene autosaves in this browser,
  *   shares as a link with the files in the URL's fragment, and exports as a
  *   .synScene zip the app opens.
+ * - A scene is its files, as in the app (D554): #include finds the scene's
+ *   own .glsl files, IMAGES reads pictures the visitor adds (kept in the
+ *   zip, and in a link or this browser while small), a script that calls
+ *   textureFinalPass gets the engine's 64x36 readback, and presets are
+ *   presets/<name>.json files saved and applied by the app's own rules.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -22,16 +27,25 @@ import { type LiveAudio, openFile, openMicrophone } from "@/lib/play/audio";
 import { type ControlJson, type Engine, controlDims, loadEngine } from "@/lib/play/engine";
 import {
   BLANK,
+  MAX_IMAGE_BYTES,
+  SHARE_IMAGE_BYTES,
   type Scene,
+  bytesToBase64,
   decodeShare,
   encodeShare,
   fetchShared,
   fileOrder,
+  forSharing,
+  imageBytes,
+  imageNameFor,
   parseScene,
+  presetFile,
+  presetName,
   readZip,
   sharedIdFromPath,
   uploadShare,
   validFileName,
+  validPresetName,
   writeZip,
 } from "@/lib/play/files";
 import type { ConsoleLine, ControlInfo, FromWorker, ToWorker } from "@/lib/play/script-protocol";
@@ -45,6 +59,8 @@ const STORAGE_KEY = "strobe.play.scene";
 const RECOMPILE_MS = 450;
 const SCRIPT_DEADLINE_MS = 1000;
 const MAX_CONSOLE = 200;
+/** The textureFinalPass picture: 64x36 RGB, as the engine reads it back. */
+const FINAL_PASS_BYTES = 64 * 36 * 3;
 
 /** `main.glsl:12:5: message` and `main.glsl:12: message`, as the player and the worker write them. */
 function lineErrors(error: string): Map<string, LineError[]> {
@@ -110,7 +126,12 @@ function store(scene: Scene) {
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(scene));
   } catch {
-    // Storage full or blocked: the share link and the zip still work.
+    try {
+      // Too big with its pictures: keep the text and the small ones.
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(forSharing(scene).scene));
+    } catch {
+      // Storage full or blocked: the share link and the zip still work.
+    }
   }
 }
 
@@ -136,12 +157,16 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
   const [autoCompile, setAutoCompile] = useState(true);
   const [audioMode, setAudioMode] = useState<AudioMode>("synthetic");
   const [notice, setNotice] = useState<string | null>(null);
+  /** What the scene names that is not here: a picture not added, a cube map. */
+  const [notes, setNotes] = useState<string[]>([]);
   /** What Share made, shown in a box under the toolbar until dismissed. */
   const [shared, setShared] = useState<{
     url: string;
     copied: boolean;
     working: boolean;
     problem?: string;
+    /** Pictures too large for a link, which the zip still keeps. */
+    dropped?: string[];
   } | null>(null);
   const [fps, setFps] = useState(0);
 
@@ -149,6 +174,9 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
   const worker = useRef<Worker | null>(null);
   const awaiting = useRef<number | null>(null);
   const controlsDirty = useRef(false);
+  /** The script reads the picture, so each frame message carries it. */
+  const readsFinal = useRef(false);
+  const finalPass = useRef(new Uint8Array(FINAL_PASS_BYTES));
   const clock = useRef({ time: 0, frame: 0, last: 0 });
   const playingRef = useRef(playing);
   playingRef.current = playing;
@@ -206,11 +234,12 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
   }, []);
 
   const compile = useCallback(
-    async (next: Scene) => {
+    async (next: Scene, fresh = false) => {
       const made = engine.current;
       if (!made) return;
       stopScript();
       setScriptError(null);
+      readsFinal.current = false;
       let extras: [string, number][] = [];
       let script: Worker | null = null;
       const source = next.files["script.js"];
@@ -247,8 +276,21 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
         }
       }
       try {
-        const json = made.load(next.title, next.files, JSON.stringify(extras));
+        let json = made.load(next.title, next.files, imageBytes(next), JSON.stringify(extras));
+        // A newly opened scene starts from its `default` preset, as in the app.
+        const startup = next.files[presetFile("default")];
+        if (fresh && startup !== undefined) {
+          try {
+            const problems = JSON.parse(made.applyPreset(startup)) as string[];
+            if (problems.length > 0) setNotice(`Preset default: ${problems.join("; ")}`);
+            json = made.controlsJson();
+          } catch (caught) {
+            setNotice(`Preset default: ${String(caught)}`);
+          }
+        }
         setControls(JSON.parse(json) as ControlJson[]);
+        setNotes(JSON.parse(made.notesJson()) as string[]);
+        readsFinal.current = made.readsFinalPass();
         setError(null);
         if (script) {
           script.onmessage = (event: MessageEvent<FromWorker>) => {
@@ -291,7 +333,7 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
     if (fresh || !autoCompile) {
       if (fresh) {
         opened.current = scene;
-        void compile(scene);
+        void compile(scene, true);
       }
       return;
     }
@@ -349,6 +391,11 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
             controls: JSON.parse(made.controlOutputsJson()) as Record<string, number[]>,
             mouse: mouseValues,
           };
+          // The readback lags the picture by two frames, as in the app
+          // (D162); until its first read lands the script sees black.
+          if (readsFinal.current && made.finalPass(finalPass.current)) {
+            message.finalPass = finalPass.current.slice();
+          }
           script.postMessage(message);
         } else if (now - awaiting.current > SCRIPT_DEADLINE_MS) {
           script.terminate();
@@ -464,13 +511,15 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
     // A short link from the site's Worker (D527); without one, the scene
     // goes in the link's fragment, which needs no server at all.
     setShared({ url: "", copied: false, working: true });
+    // Pictures go in the link only while they are small; Export keeps all.
+    const { scene: carried, dropped } = forSharing(scene);
     let url: string;
     let problem: string | undefined;
     try {
-      url = await uploadShare(scene);
+      url = await uploadShare(carried);
       history.replaceState(null, "", new URL(url).pathname);
     } catch (caught) {
-      const fragment = await encodeShare(scene);
+      const fragment = await encodeShare(carried);
       url = `${window.location.origin}/play/#${fragment}`;
       problem = String(caught).replace(/^Error: /, "");
       history.replaceState(null, "", `/play/#${fragment}`);
@@ -479,7 +528,7 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
       () => true,
       () => false,
     );
-    setShared({ url, copied, working: false, problem });
+    setShared({ url, copied, working: false, problem, dropped });
   }
 
   async function copyShared() {
@@ -527,10 +576,70 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
   function removeFile(name: string) {
     if (!scene || name === "main.glsl") return;
     if (!window.confirm(`Remove ${name}?`)) return;
-    const files = { ...scene.files };
-    delete files[name];
-    setScene({ ...scene, files });
+    if (scene.images?.[name] !== undefined) {
+      const images = { ...scene.images };
+      delete images[name];
+      setScene({ ...scene, images });
+    } else {
+      const files = { ...scene.files };
+      delete files[name];
+      setScene({ ...scene, files });
+    }
     setActive("main.glsl");
+  }
+
+  /** A picture for the scene's IMAGES, kept under its own file name. */
+  async function addImage(file: File) {
+    if (!scene) return;
+    const name = imageNameFor(file.name);
+    if (!name) {
+      setNotice(`${file.name}: a picture must be a .png, .jpg or .jpeg`);
+      return;
+    }
+    if (file.size > MAX_IMAGE_BYTES) {
+      setNotice(`${name}: over ${MAX_IMAGE_BYTES / 1024 / 1024} MB, too large for the sandbox`);
+      return;
+    }
+    const data = bytesToBase64(new Uint8Array(await file.arrayBuffer()));
+    setScene((old) => (old ? { ...old, images: { ...old.images, [name]: data } } : old));
+    setActive(name);
+  }
+
+  /** Saves the controls as presets/<name>.json, in the app's format. */
+  function savePreset() {
+    const made = engine.current;
+    if (!scene || !made) return;
+    const name = window.prompt("Preset name", "default");
+    if (name === null) return;
+    if (!validPresetName(name)) {
+      setNotice(`${name}: use up to 48 letters, digits, spaces, - _ and .`);
+      return;
+    }
+    try {
+      const text = made.capturePreset(name);
+      setScene({ ...scene, files: { ...scene.files, [presetFile(name)]: text } });
+      setNotice(`Saved preset ${name}`);
+    } catch (caught) {
+      setNotice(`Preset: ${String(caught)}`);
+    }
+  }
+
+  /** Applies a preset file's values to the controls. */
+  function applyPreset(file: string) {
+    const made = engine.current;
+    const text = scene?.files[file];
+    if (!made || text === undefined) return;
+    try {
+      const problems = JSON.parse(made.applyPreset(text)) as string[];
+      setControls(JSON.parse(made.controlsJson()) as ControlJson[]);
+      setNotice(
+        problems.length > 0
+          ? `Preset ${presetName(file)}: ${problems.join("; ")}`
+          : `Applied preset ${presetName(file)}`,
+      );
+    } catch (caught) {
+      setNotice(`Preset: ${String(caught)}`);
+    }
   }
 
   function rewind() {
@@ -561,6 +670,12 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
     scriptError,
   ]);
   const files = scene ? fileOrder(scene.files) : [];
+  const images = scene ? Object.keys(scene.images ?? {}).sort() : [];
+  const presets = files.flatMap((file) => {
+    const name = presetName(file);
+    return name === undefined ? [] : [{ file, name }];
+  });
+  const activeImage = scene?.images?.[active];
 
   /* ---- pointer ---------------------------------------------------------- */
 
@@ -690,9 +805,33 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
           ) : null}
         </div>
         <div className="min-h-0 overflow-y-auto border-t border-hairline lg:flex-2">
-          <h2 className="border-b border-hairline px-4 py-2 font-mono text-[11px] uppercase tracking-widest text-bright">
-            Controls
-          </h2>
+          <div className="flex flex-wrap items-center gap-2 border-b border-hairline px-4 py-2">
+            <h2 className="mr-auto font-mono text-[11px] uppercase tracking-widest text-bright">
+              Controls
+            </h2>
+            <label className="sr-only" htmlFor="play-preset">
+              Apply a preset
+            </label>
+            <select
+              id="play-preset"
+              className={SELECT}
+              value=""
+              disabled={presets.length === 0}
+              onChange={(event) => {
+                if (event.target.value) applyPreset(event.target.value);
+              }}
+            >
+              <option value="">{presets.length === 0 ? "No presets" : "Preset…"}</option>
+              {presets.map((preset) => (
+                <option key={preset.file} value={preset.file}>
+                  {preset.name}
+                </option>
+              ))}
+            </select>
+            <button type="button" className={BUTTON} onClick={savePreset}>
+              Save preset
+            </button>
+          </div>
           <ControlsPanel controls={controls} set={setControl} />
         </div>
       </section>
@@ -790,6 +929,12 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
                 it is long.
               </p>
             ) : null}
+            {shared.dropped && shared.dropped.length > 0 ? (
+              <p className="text-xs text-secondary">
+                Left out of the link, which carries {SHARE_IMAGE_BYTES / 1024} KB of pictures
+                at most: {shared.dropped.join(", ")}. Export keeps them.
+              </p>
+            ) : null}
           </div>
         ) : null}
         <div className="flex items-stretch overflow-x-auto border-b border-hairline" role="tablist">
@@ -823,6 +968,30 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
               </div>
             );
           })}
+          {images.map((name) => (
+            <div
+              key={name}
+              className={`flex items-center border-r border-hairline ${name === active ? "bg-panel" : ""}`}
+            >
+              <button
+                type="button"
+                role="tab"
+                aria-selected={name === active}
+                onClick={() => setActive(name)}
+                className={`px-3 py-2 font-mono text-xs ${name === active ? "text-accent-text" : "text-secondary hover:text-text"}`}
+              >
+                {name}
+              </button>
+              <button
+                type="button"
+                aria-label={`Remove ${name}`}
+                onClick={() => removeFile(name)}
+                className="pr-2 text-xs text-mute hover:text-magenta"
+              >
+                ×
+              </button>
+            </div>
+          ))}
           <button
             type="button"
             onClick={addFile}
@@ -831,9 +1000,34 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
           >
             +
           </button>
+          <label
+            className="flex cursor-pointer items-center px-3 font-mono text-[11px] uppercase tracking-[0.08em] text-label hover:text-accent-text"
+            title="A picture for the scene's IMAGES (.png or .jpg)"
+          >
+            Add image
+            <input
+              type="file"
+              accept="image/png,image/jpeg"
+              className="hidden"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) void addImage(file);
+                event.target.value = "";
+              }}
+            />
+          </label>
         </div>
         <div className="min-h-0 flex-1">
-          {scene ? (
+          {scene && activeImage !== undefined ? (
+            <div className="grid h-full place-items-center overflow-auto bg-panel p-4">
+              {/* eslint-disable-next-line @next/next/no-img-element -- a data: URI of the visitor's own file */}
+              <img
+                src={`data:${/\.png$/i.test(active) ? "image/png" : "image/jpeg"};base64,${activeImage}`}
+                alt={`${active}, a picture in this scene`}
+                className="max-h-full max-w-full"
+              />
+            </div>
+          ) : scene ? (
             <CodeEditor
               file={active}
               text={scene.files[active] ?? ""}
@@ -854,6 +1048,11 @@ export default function PlayApp({ library }: { library: LibraryScene[] }) {
               </button>
             </p>
           ) : null}
+          {notes.map((note) => (
+            <p key={note} className="text-[#f5c26b]">
+              {note}
+            </p>
+          ))}
           {error ? <pre className="whitespace-pre-wrap text-magenta">{error}</pre> : null}
           {scriptError ? (
             <pre className="whitespace-pre-wrap text-magenta">{scriptError}</pre>

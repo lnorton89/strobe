@@ -26,6 +26,10 @@
 //!    app's library uses for Synesthesia's scenes (D271). Strobe ships none of these libraries: `lygia`'s licence does not allow
 //!    it.
 //!
+//! A scene with no folder behind it, the browser sandbox's (D524), has only
+//! its own files: [`expand_files`] resolves against those, relative to the
+//! including file and then to the scene, with no search path (D554).
+//!
 //! Each file is included once, whatever the number of `#include`s naming it,
 //! which is what lygia's include guards would do anyway and what stops a
 //! cycle. A file that cannot be found is left as the `#include` line, so the
@@ -74,6 +78,19 @@ pub fn search_path_with(
 /// Expands every `#include` in `text`, the user's file in `scene_dir`.
 /// Returns `text` unchanged (no copy) when there is none.
 pub fn expand(text: String, scene_dir: &Path, search: &[PathBuf]) -> String {
+    expand_from(text, scene_dir, search, &Files::Disk)
+}
+
+/// Expands every `#include` in `text` against a scene's own files, with no
+/// folder on disk: `file` answers a scene-relative name such as
+/// `helpers.glsl` or `lib/noise.glsl` (D554). The lookup order is
+/// [`expand`]'s without the search path, and a name that leaves the scene
+/// (`../x.glsl` from the scene's top) finds nothing.
+pub fn expand_files(text: String, file: &dyn Fn(&str) -> Option<String>) -> String {
+    expand_from(text, Path::new(""), &[], &Files::Memory(file))
+}
+
+fn expand_from(text: String, scene_dir: &Path, search: &[PathBuf], files: &Files<'_>) -> String {
     if !text.contains("#include") {
         return text;
     }
@@ -86,6 +103,7 @@ pub fn expand(text: String, scene_dir: &Path, search: &[PathBuf]) -> String {
         &Context {
             scene_dir,
             search,
+            files,
             source: source::USER,
         },
         &mut seen,
@@ -94,10 +112,58 @@ pub fn expand(text: String, scene_dir: &Path, search: &[PathBuf]) -> String {
     out
 }
 
+/// Where included files are read from.
+enum Files<'a> {
+    /// The file system: a scene folder and the library folders.
+    Disk,
+    /// A scene's own files by scene-relative name, as the browser holds them.
+    Memory(&'a dyn Fn(&str) -> Option<String>),
+}
+
+impl Files<'_> {
+    /// The text of the file at `path`, if there is one.
+    fn read(&self, path: &Path) -> Option<String> {
+        match self {
+            Self::Disk => path
+                .is_file()
+                .then(|| crate::load::read_text(path).ok())
+                .flatten(),
+            Self::Memory(file) => file(&scene_name(path)?),
+        }
+    }
+
+    /// What makes two paths the same file, for including each once.
+    fn key(&self, path: &Path) -> PathBuf {
+        match self {
+            Self::Disk => fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()),
+            Self::Memory(_) => scene_name(path).map_or_else(|| path.to_path_buf(), PathBuf::from),
+        }
+    }
+}
+
+/// `path` as a scene-relative name with `/` separators and no `.` or `..`
+/// left in it, or `None` when it climbs out of the scene or is absolute.
+fn scene_name(path: &Path) -> Option<String> {
+    use std::path::Component;
+    let mut parts: Vec<String> = Vec::new();
+    for component in path.components() {
+        match component {
+            Component::Normal(part) => parts.push(part.to_string_lossy().into_owned()),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                parts.pop()?;
+            }
+            Component::RootDir | Component::Prefix(_) => return None,
+        }
+    }
+    (!parts.is_empty()).then(|| parts.join("/"))
+}
+
 /// What stays the same while expanding one file.
 struct Context<'a> {
     scene_dir: &'a Path,
     search: &'a [PathBuf],
+    files: &'a Files<'a>,
     /// The source-string number the current file compiles under.
     source: u32,
 }
@@ -119,21 +185,15 @@ fn expand_into(
         let found = (depth < MAX_DEPTH)
             .then(|| resolve(name, dir, context))
             .flatten();
-        let Some(path) = found else {
+        let Some((path, included)) = found else {
             out.push_str(line);
             out.push('\n');
             continue;
         };
-        let key = fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
-        if !seen.insert(key) {
+        if !seen.insert(context.files.key(&path)) {
             out.push('\n');
             continue;
         }
-        let Ok(included) = crate::load::read_text(&path) else {
-            out.push_str(line);
-            out.push('\n');
-            continue;
-        };
         let included = crate::load::clean(included);
         let _ = writeln!(out, "#line 1 {}", source::INCLUDED);
         let parent = path
@@ -142,6 +202,7 @@ fn expand_into(
         let nested = Context {
             scene_dir: context.scene_dir,
             search: context.search,
+            files: context.files,
             source: source::INCLUDED,
         };
         expand_into(out, &included, &parent, &nested, seen, depth + 1);
@@ -164,13 +225,17 @@ fn include_target(line: &str) -> Option<&str> {
     inner.get(..end).filter(|name| !name.is_empty())
 }
 
-/// The first existing file `name` names, by the lookup order above.
-fn resolve(name: &str, dir: &Path, context: &Context<'_>) -> Option<PathBuf> {
+/// The first readable file `name` names, by the lookup order above, and its
+/// text.
+fn resolve(name: &str, dir: &Path, context: &Context<'_>) -> Option<(PathBuf, String)> {
     std::iter::once(dir)
         .chain(std::iter::once(context.scene_dir))
         .chain(context.search.iter().map(PathBuf::as_path))
         .map(|base| base.join(name))
-        .find(|candidate| candidate.is_file())
+        .find_map(|candidate| {
+            let text = context.files.read(&candidate)?;
+            Some((candidate, text))
+        })
 }
 
 #[cfg(test)]
@@ -285,6 +350,44 @@ mod tests {
         let out = expand(main.to_string(), &scene.0, &[]);
         assert_eq!(out, main, "unchanged");
         Ok(())
+    }
+
+    #[test]
+    fn a_scenes_own_files_resolve_with_no_folder_behind_them() {
+        let files = [
+            ("main.glsl", "unused"),
+            (
+                "helpers.glsl",
+                "#include \"lib/k.glsl\"\nfloat twice(float x) { return x * K; }\n",
+            ),
+            // Relative to the including file, as lygia includes its siblings.
+            ("lib/k.glsl", "#include \"../lib/k.glsl\"\n#define K 2.0\n"),
+        ];
+        let file = |name: &str| {
+            files
+                .iter()
+                .find(|(n, _)| *n == name)
+                .map(|(_, text)| (*text).to_string())
+        };
+        let main = "#include \"helpers.glsl\"\n#include \"./lib/k.glsl\"\nvec4 renderMain() { return vec4(twice(0.25)); }\n";
+        let out = expand_files(main.to_string(), &file);
+        assert!(out.contains("float twice"), "helpers.glsl is in: {out}");
+        assert_eq!(
+            out.matches("#define K").count(),
+            1,
+            "lib/k.glsl once, by any spelling: {out}"
+        );
+        assert!(
+            out.contains("#line 2 1\n\nvec4 renderMain()"),
+            "main.glsl's lines keep their numbers: {out}"
+        );
+        let outside = "#include \"../secret.glsl\"\nvec4 renderMain() { return vec4(1.0); }\n";
+        let none = |_: &str| Some("float leaked;".to_string());
+        assert_eq!(
+            expand_files(outside.to_string(), &none),
+            outside,
+            "a name that leaves the scene finds nothing"
+        );
     }
 
     #[test]

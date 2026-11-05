@@ -49,6 +49,31 @@ const CONTROLS = [
 ];
 
 describe("the script worker", () => {
+  it("reads textureFinalPass from the picture the page sends, nearest texel, y up", () => {
+    const { post } = startWorker();
+    post({
+      type: "load",
+      source: `function update() {
+        setUniform("at", textureFinalPass(10.5 / 64, 20.5 / 36));
+        setUniform("corner", textureFinalPass(5, 5));
+      }`,
+      controls: CONTROLS,
+      scalars: SCALARS,
+    });
+    const black = post(frame(1));
+    if (black?.type !== "frame") throw new Error("no frame came back");
+    expect(black.uniforms).toEqual([0, 0, 0, 0, 0, 0, 0, 0]);
+    const pixels = new Uint8Array(64 * 36 * 3);
+    pixels.set([255, 51, 0], (20 * 64 + 10) * 3);
+    pixels.set([0, 0, 255], (36 * 64 - 1) * 3);
+    const lit = post(frame(2, { finalPass: pixels }));
+    if (lit?.type !== "frame") throw new Error("no frame came back");
+    expect(lit.uniforms).toEqual([1, 0.2, 0, 0, 0, 0, 1, 0]);
+    const short = post(frame(3, { finalPass: new Uint8Array(10).fill(255) }));
+    if (short?.type !== "frame") throw new Error("no frame came back");
+    expect(short.uniforms.slice(0, 3)).toEqual([0, 0, 0]);
+  });
+
   it("declares the uniforms setup and the first update create, and refuses later ones", () => {
     const { post } = startWorker();
     const loaded = post({

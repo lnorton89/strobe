@@ -13,10 +13,11 @@ it does in the app, line numbers in errors included.
 ## Layout
 
 - `sandbox` — the engine, plain Rust over a `strobe_gfx::gl::Gl`: load a
-  scene from its files' text (a failed load keeps the last good scene),
-  controls by name, the script's uniforms, three audio sources (the
-  synthetic 120 BPM track, pushed live samples through `strobe-audio`'s
-  `Analyzer`, silence), and a frame.
+  scene from its files' text and pictures (a failed load keeps the last
+  good scene), controls by name, presets, the script's uniforms and its
+  `textureFinalPass` readback, three audio sources (the synthetic 120 BPM
+  track, pushed live samples through `strobe-audio`'s `Analyzer`, silence),
+  and a frame.
 - `web` (wasm32 only) — the wasm-bindgen class the page calls, `Engine`, which
   opens the canvas's WebGL2 context and wraps it with `Gl::from_webgl2`.
 - `tests/sandbox.rs` — the sandbox on the headless GLES 3.0 context, so what
@@ -42,6 +43,14 @@ wasm-bindgen --target web --no-typescript --out-dir site/public/generated/engine
   takes their values each frame, as the app does with `strobe-script`.
 - **No clock.** `std::time` panics on this target, so nothing on the
   sandbox's path reads one: time, `dt` and the wall clock come from the page.
+- **A scene is its files** (D554). `#include` resolves against them
+  (`strobe_scene::include::expand_files`). `IMAGES` pictures are bytes the
+  page passes, uploaded by `ScenePlayer::replace_image`, the image path a
+  scene folder's file takes. A script that names `textureFinalPass` turns
+  on the app's 64x36 asynchronous readback (D162); WebGL2 cannot map a
+  buffer, so the read is `getBufferSubData` once the fence has signalled.
+  Presets are `presets/<name>.json` text, captured and applied by
+  `strobe_scene::preset` with the scene channel only.
 
 ## Status and known gaps
 
@@ -53,8 +62,10 @@ IDs given here; a gap with no ID is by design, with its decision named.
   scenes compile and play, an edit's error marks its line, a scripted scene
   runs in the worker, share links round-trip. Other browsers and phones are
   not yet tried (backlog W-02).
-- Textures and media (`IMAGE_PATH`, image inputs), `#include`, and
-  `textureFinalPass` are not yet supported in the browser (backlog W-01).
+- Cube maps, `MEDIA` (`syn_Media`), the Shadertoy audio texture and the
+  meta controls are not in the browser; `IMAGES`, `#include`,
+  `textureFinalPass` and presets are (D554). An include of lygia or hg_sdf
+  works only when the scene holds the file (backlog W-01).
 - The native tests skip where there is no headless EGL, as on Windows; CI's
   Linux job runs them, and its `check` lane clippies this crate and
   strobe-gfx for `wasm32-unknown-unknown` (D544, D552). CI's `site` job

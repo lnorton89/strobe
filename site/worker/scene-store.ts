@@ -14,7 +14,7 @@
  * tested without Cloudflare (tests/unit/scene-store.test.ts).
  */
 
-import { validFileName } from "../src/lib/play/files";
+import { SHARE_IMAGE_BYTES, validFileName, validImageName } from "../src/lib/play/files";
 
 /** Largest upload accepted, in bytes: far above any real scene's text. */
 export const MAX_BYTES = 256 * 1024;
@@ -28,7 +28,12 @@ export const LONG_ID_LENGTH = 16;
 /** The links' alphabet: lowercase base32 without 0, 1, o or l. */
 const ALPHABET = "23456789abcdefghijkmnpqrstuvwxyz";
 
-export type StoredScene = { title: string; files: Record<string, string> };
+export type StoredScene = {
+  title: string;
+  files: Record<string, string>;
+  /** The scene's small pictures, base64 by file name (D554). */
+  images?: Record<string, string>;
+};
 
 /** The minimal R2 surface the store uses, so tests can pass a fake. */
 export interface Bucket {
@@ -46,8 +51,9 @@ export interface Bucket {
 
 /**
  * A scene from an untrusted upload, or the reason it is refused: a JSON
- * object with an optional title and a `files` map of scene file names to
- * text, `main.glsl` among them.
+ * object with an optional title, a `files` map of scene file names to
+ * text, `main.glsl` among them, and optionally an `images` map of picture
+ * names to base64, SHARE_IMAGE_BYTES in all at most (D554).
  */
 export function validateScene(value: unknown): StoredScene | string {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
@@ -69,17 +75,44 @@ export function validateScene(value: unknown): StoredScene | string {
   }
   if (clean["main.glsl"] === undefined) return "a scene needs main.glsl";
   const name = typeof title === "string" ? title.trim().slice(0, 80) : "";
-  return { title: name || "untitled", files: clean };
+  const scene: StoredScene = { title: name || "untitled", files: clean };
+  const { images } = value as { images?: unknown };
+  if (images === undefined) return scene;
+  if (images === null || typeof images !== "object" || Array.isArray(images)) {
+    return "expected `images`, an object of picture name to base64";
+  }
+  const pictures: Record<string, string> = {};
+  let total = 0;
+  for (const [picture, data] of Object.entries(images as Record<string, unknown>)) {
+    if (!validImageName(picture)) return `${picture}: not a picture name`;
+    if (typeof data !== "string" || !/^[A-Za-z0-9+/]*={0,2}$/.test(data)) {
+      return `${picture}: not base64`;
+    }
+    total += Math.floor((data.length * 3) / 4);
+    pictures[picture] = data;
+  }
+  if (total > SHARE_IMAGE_BYTES + 2 * Object.keys(pictures).length) {
+    return `the pictures are over ${SHARE_IMAGE_BYTES / 1024} KB in all`;
+  }
+  if (Object.keys(pictures).length > 0) scene.images = pictures;
+  return scene;
 }
 
 /** The scene as one string, the same for the same scene however it arrived. */
 export function canonical(scene: StoredScene): string {
-  const files = Object.fromEntries(
-    Object.keys(scene.files)
-      .sort()
-      .map((name) => [name, scene.files[name]]),
-  );
-  return JSON.stringify({ title: scene.title, files });
+  const sorted = (map: Record<string, string>) =>
+    Object.fromEntries(
+      Object.keys(map)
+        .sort()
+        .map((name) => [name, map[name]]),
+    );
+  const files = sorted(scene.files);
+  // A scene with no pictures keeps the form it had before they existed, so
+  // its name does not change.
+  if (!scene.images || Object.keys(scene.images).length === 0) {
+    return JSON.stringify({ title: scene.title, files });
+  }
+  return JSON.stringify({ title: scene.title, files, images: sorted(scene.images) });
 }
 
 /** The full SHA-256 of `text`, in the links' alphabet (5 bits a character). */
