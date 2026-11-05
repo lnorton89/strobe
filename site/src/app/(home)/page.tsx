@@ -219,18 +219,24 @@ export default async function Home() {
       </section>
 
       <section className="border-hairline bg-panel border-t">
-        <Reveal className="mx-auto flex max-w-350 flex-col gap-6 px-6 py-20 sm:px-10 lg:flex-row lg:items-center lg:justify-between">
+        <Reveal className="mx-auto flex max-w-350 flex-col gap-8 px-6 py-20 sm:px-10 lg:flex-row lg:items-center lg:justify-between lg:gap-16">
           <div>
             <Eyebrow>Project status</Eyebrow>
-            <h2 className="text-text mt-4 text-[28px] font-semibold tracking-tight">
+            <h2 className="text-text mt-4 text-[28px] leading-tight font-semibold tracking-tight">
               <CurrentReleaseSentence />
               {content.block("status-title")}
             </h2>
             <p className="text-secondary mt-3 max-w-[70ch] leading-[1.7]">
               {content.block("status")}
             </p>
+            <p className="text-bright mt-3 max-w-[70ch] leading-[1.7]">
+              {content.block("status-unverified")}
+            </p>
+            <p className="text-label mt-6 max-w-[70ch] text-[13px] leading-[1.65]">
+              {content.block("licence")}
+            </p>
           </div>
-          <div className="flex flex-wrap gap-4">
+          <div className="flex flex-none flex-wrap gap-4">
             <Action href="/compatibility/" variant="primary" icon={CompatibilityIcon}>
               Compatibility
             </Action>

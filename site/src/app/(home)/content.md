@@ -128,10 +128,16 @@ It is for testing, not yet for production.
 
 <!-- @status -->
 
-The engine, the performer UI, playlists, show control, Shadertoy import and the
-LAN remote are built and tested. The current release rebuilt the app's UI,
-added approve-only pairing and venue mode for controlling a show machine, and
-lets you choose ANGLE's backend when a GL driver misbehaves. Windows is the
-target and has been checked on real Intel, NVIDIA and AMD machines; Linux
-builds and runs on X11 and Wayland; macOS does not run yet.
-What is verified, and where, is tracked in the compatibility matrix.
+Windows is the target. It has run on a ThinkPad T480 (Intel UHD 620), desktops
+with a GTX 1080 Ti and an RX 580, and a venue mini PC (Ryzen 3 3200U, Vega 3)
+driving a projector. Linux builds and runs on X11 and Wayland, so far on Mesa's
+software renderer. macOS does not run yet.
+
+<!-- @status-unverified -->
+
+Not verified yet: MIDI hardware, a live Shadertoy import, phones, and an HD 4000.
+
+<!-- @licence -->
+
+Source-available: MIT with the Commons Clause and an added permission. You may
+use, change and share Strobe and run it for pay. You may not sell Strobe itself.
