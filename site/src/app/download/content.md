@@ -5,9 +5,8 @@ runs from source, on X11 and Wayland. macOS does not run yet.
 
 <!-- @windows -->
 
-Download `strobe-vX.Y.Z-x86_64-pc-windows-msvc.zip` from the GitHub Releases
-page and unzip it anywhere you can write to, for example `C:\Strobe`. There is
-no installer and nothing goes in the registry. Double-click `strobe.exe`.
+Unzip it anywhere you can write to, for example `C:\Strobe`, and double-click
+`strobe.exe`. There is no installer and nothing goes in the registry.
 
 Windows SmartScreen may warn about an unrecognised app the first time: choose
 *More info*, then *Run anyway*.

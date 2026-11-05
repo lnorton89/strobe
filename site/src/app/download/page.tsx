@@ -6,7 +6,7 @@ import PageHeader from "@/components/PageHeader";
 import Reveal from "@/components/Reveal";
 import SectionHeading from "@/components/SectionHeading";
 import ShellBlock from "@/components/ShellBlock";
-import { ReleaseName } from "@/components/Release";
+import { ReleaseName, WindowsDownload } from "@/components/Release";
 import { Action, ArrowLink, Callout, MarkedList, Prose } from "@/components/ui";
 import {
   CompatibilityIcon,
@@ -16,7 +16,6 @@ import {
 } from "@/components/brand/icons";
 import { pageMetadata } from "@/lib/og/metadata";
 import { readPageContent } from "@/lib/page-content";
-import { buildRelease } from "@/lib/release-build";
 import { DEFAULT_BRANCH, REPO_URL } from "@/lib/site";
 
 export const metadata: Metadata = pageMetadata("/download/", {
@@ -58,7 +57,6 @@ const README_LINUX = `${REPO_URL}/blob/${DEFAULT_BRANCH}/README.md#linux`;
 
 export default async function DownloadPage() {
   const content = await readPageContent("download");
-  const release = buildRelease();
 
   return (
     <article className="pb-28">
@@ -78,15 +76,11 @@ export default async function DownloadPage() {
         <Step title="Windows" note="x86_64 · no installer" icon={DownloadIcon}>
           <SplitStep>
             <div>
-              <Prose>{content.block("windows")}</Prose>
-              <div className="mt-8 flex flex-wrap gap-4">
-                <Action href={release.url} variant="primary" icon={DownloadIcon} external>
-                  GitHub Releases
-                </Action>
-                <Action href="/guide/" icon={GuideIcon}>
-                  First run
-                </Action>
-              </div>
+              <WindowsDownload />
+              <Prose className="mt-8">{content.block("windows")}</Prose>
+              <ArrowLink href="/guide/#first-run" className="mt-6">
+                First run, in the user guide
+              </ArrowLink>
             </div>
             <Callout className="sm:p-9">
               <h3 className="text-text text-[18px] font-semibold tracking-[-0.01em]">
