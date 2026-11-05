@@ -6,7 +6,7 @@ import {
   GuideIcon,
   NAV_ICONS,
 } from "@/components/brand/icons";
-import { BADGES, DEFAULT_BRANCH, NAV, POSITIONING, RELEASES_URL, REPO_URL } from "@/lib/site";
+import { DEFAULT_BRANCH, LICENCE, NAV, RELEASES_URL, REPO_URL, SUMMARY } from "@/lib/site";
 import { CONTAINER, ICON } from "@/lib/constants";
 
 /*
@@ -34,16 +34,16 @@ export default function SiteFooter() {
           <div className="flex flex-col gap-5">
             <Wordmark size={30} withMark withDescriptor />
             <p className="text-secondary max-w-[46ch] text-sm leading-relaxed">
-              {POSITIONING}
+              {SUMMARY}
             </p>
             <p className="text-label font-mono text-[11px] tracking-[0.08em]">
-              {BADGES.join(" · ")} · Windows first, Linux too
+              Windows, and Linux from source
             </p>
           </div>
 
           <div className="flex flex-wrap gap-16">
             <nav aria-label="Footer" className="flex flex-col gap-3">
-              <h2 className={HEADING}>Documentation</h2>
+              <h2 className={HEADING}>Site</h2>
               {NAV.map((item) => {
                 const Icon = NAV_ICONS[item.icon];
                 return (
@@ -92,13 +92,22 @@ export default function SiteFooter() {
                 <GuideIcon size={ICON.inline} />
                 License
               </a>
+              <a
+                href={`${REPO_URL}/blob/${DEFAULT_BRANCH}/THIRD_PARTY.md`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={LINK}
+              >
+                <GuideIcon size={ICON.inline} />
+                Credits
+              </a>
             </div>
           </div>
         </div>
 
         <div className="border-hairline mt-14 flex flex-col gap-3 border-t pt-8 sm:flex-row sm:items-center sm:justify-between">
-          <span className="text-label font-mono text-[11px] tracking-[0.16em] uppercase">
-            Strobe · open source · MIT
+          <span className="text-label font-mono text-[11px] tracking-[0.04em]">
+            {LICENCE}
           </span>
           <span className="text-label font-mono text-[11px]">
             {REPO_URL.replace("https://", "")}

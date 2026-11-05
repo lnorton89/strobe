@@ -49,12 +49,10 @@ const jetbrainsMono = localFont({
   ],
 });
 
-const TITLE = `Strobe — ${TAGLINE}`;
-
 export const metadata: Metadata = {
   ...pageMetadata("/", {
     title: {
-      default: TITLE,
+      default: `Strobe: ${TAGLINE.charAt(0).toLowerCase()}${TAGLINE.slice(1)}`,
       template: "%s · Strobe",
     },
     description: DESCRIPTION,

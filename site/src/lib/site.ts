@@ -34,22 +34,19 @@ export const LATEST_RELEASE_URL = `${RELEASES_URL}/latest`;
 export const SITE_URL =
   process.env.NEXT_PUBLIC_SITE_URL ?? process.env.URL ?? "http://localhost:4173";
 
-/** The guide's descriptor, and the page title's second half. */
-export const TAGLINE = "Real-time shader visualization for live shows.";
+/** The page title's second half, and what the project is in one line. */
+export const TAGLINE = "A VJ engine for audio-reactive GLSL scenes";
 
-/**
- * The site's meta description.
- *
- * The guide's positioning statement names what Strobe turns into what; this
- * adds the two facts a visitor needs to tell whether it is for them: it plays
- * Synesthesia scenes, and it runs on old hardware.
- */
+/** The site's meta description. */
 export const DESCRIPTION =
-  "Strobe is an open-source VJ engine that plays audio-reactive GLSL scenes, imports Shadertoy shaders and runs long playlists — built to stay up on old laptops, projectors and LED walls.";
+  "Strobe is a VJ engine in Rust. It plays Synesthesia scenes unchanged, imports Shadertoy shaders and runs shows from playlists, on OpenGL 3.3 with ANGLE as the fallback. Source-available; for testing, not yet for production.";
 
-/** The guide's positioning statement, verbatim. */
-export const POSITIONING =
-  "STROBE turns real-time signals and shader code into expressive visual systems for screens, projectors, and live environments.";
+/** The footer's one line about the project. */
+export const SUMMARY =
+  "A VJ engine for audio-reactive GLSL scenes, in Rust. Plays Synesthesia scenes, imports Shadertoy shaders, runs playlists.";
+
+/** The licence, the same words wherever it is named. See the repository's LICENSE. */
+export const LICENCE = "Source-available: MIT with the Commons Clause";
 
 /** The metadata strip under the hero. */
 export const BADGES = ["Source-available", "Rust", "OpenGL 3.3"] as const;
