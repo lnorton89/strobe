@@ -1065,8 +1065,15 @@ survives export.
   package checks, drew 600 frames on native GL and ANGLE-D3D11, and its
   injected crash symbolicated against the archived PDB, with
   `evidence.json` verdict `pass` ([hardware/T480.md](hardware/T480.md)).
-  **Not yet:** the checks the harness leaves to a person, and the next
-  tag's own zip through it.
+  **Not yet:** the checks the harness leaves to a person.
+- [x] A tagged release's own archives pass `cargo xtask rc` behind the
+  approval gate (D548). v0.3.0 (e401d98) staged as a draft, and its
+  downloaded zip and symbols zip passed on LIGHTNING on 2026-11-05: 11 of 11
+  package checks, 600 frames on native GL and ANGLE-D3D11 on the RX 580, and
+  the crash symbolicated to `strobe_app::fault::recurse()`
+  ([hardware/AMD.md](hardware/AMD.md)). Its provenance attestation names
+  `refs/tags/v0.3.0` at e401d98. **Note:** the publish was approved before
+  the harness finished. It passed on the same files.
 - [ ] Document a clean-machine install, a smoke test, and the
   symbolication steps. Portable-crate CI is not a working macOS app; that
   still needs a suitable GL context provider.

@@ -557,11 +557,11 @@
   - thin LTO costs no frame time on the T480: every scene within about 1% of fat over two runs each (BENCHMARKS.md, 2026-11-04).
 
   What is left needs hardware, data or a person:
-  - the manual items the harness lists, by a person at the T480: a playlist, audio unplug and replug, fullscreen, `lose-context@60` (with R-03); and the next tag's own zip through `cargo xtask rc`;
+  - the manual items the harness lists, by a person at a show machine: fullscreen and back, and audio unplug and replug (with R-03). A playlist and `lose-context@60` passed on the mini PC (2026-11-04 and 05, `hardware/MINIPC.md`), and v0.3.0's own zip passed `cargo xtask rc` on LIGHTNING behind the approval gate (2026-11-05, D548, `hardware/AMD.md`);
   - nextest everywhere or nowhere, decided from a few weeks of the Windows job's JUnit times against the other jobs' `cargo test` (D535); master's JUnit history starts on 2026-11-04, and the samples so far overlap `cargo test`'s (D545);
   - coverage of the capture worker's reopen loop, the capture device and the MIDI ports, which need a device (R-01, P-04); the protocol gaps the coverage read found are tests now (D544);
   - the decisions index stays lexical (D539): a decision is listed under a crate only if it writes that crate's name.
-- **Work:** the manual release checks on the T480 and the next tag's zip through the harness; decide nextest from its JUnit times; cover the device paths when R-01 and P-04 bring hardware tests.
+- **Work:** fullscreen and audio replug by hand at a show machine; decide nextest from its JUnit times; cover the device paths when R-01 and P-04 bring hardware tests.
 - **Acceptance:** the T480's record cites an `evidence.json` whose verdict is `pass` (done, 2026-11-04). A decision records the LTO, nextest and sccache outcomes with their numbers (LTO and sccache done, D545: fat LTO kept, sccache dropped). The ruleset requires `ci-ok` and nothing else (done, 2026-11-04: after the stack merged, `ci-ok` passed on master at #87's merge (b3c1398) and the master ruleset's eight named checks were replaced by it).
 
 ## Cross-cutting engineering rules

@@ -370,3 +370,39 @@ commit before D301 and the D301 commit side by side, or run step 1 on both.
 
 If native red or green is not 0, or ANGLE with D301 still differs from
 native in steps 3 and 4, reopen D301 and record the probe values in Q28.
+
+## v0.3.0's own archives through `cargo xtask rc` (2026-11-05, LIGHTNING, D548)
+
+The first release through D548's gate. The tag (e401d98) staged a draft
+with all six assets, and the release-candidate harness ran here on the
+draft's own program and symbols zips, downloaded with `gh release
+download`. Both `.sha256` files matched, and `gh attestation verify` named
+`refs/tags/v0.3.0` at e401d98 for build provenance; the SBOM attestation
+verifies too.
+
+Machine: this desktop (LIGHTNING), Radeon RX 580 Series, driver
+31.0.21925.1001 (native GL 3.3.0 Core Profile Context 26.5.2.260413),
+Windows 10 Pro 19045. Harness from e401d98.
+
+**Verdict: pass, no problems** (`target\rc\evidence.json` on this machine,
+archive SHA-256 e97a720c…).
+
+| Step | Result |
+|---|---|
+| Package check | 11 of 11: the 11 files, the 17 scenes, the four pinned DLLs, the notices, version 0.3.0, the 28 direct imports all Windows' own, the PDB against the exe (GUID 8acc1bf9…, age 1), `--diagnose` with the pinned ANGLE |
+| Native GL, 600 frames | ok in 11.0 s: `native (OpenGL 3.3 core) \| Radeon RX 580 Series \| 3.3.0 Core Profile Context 26.5.2.260413` |
+| ANGLE-D3D11, 600 frames | ok in 10.8 s: `ANGLE (AMD, Radeon RX 580 Series (0x000067DF) Direct3D11 …, D3D11-31.0.21925.1001) \| OpenGL ES 3.0.0 (ANGLE 2.1.25847 git hash: a8c8a6febe63)` |
+| `--diagnose`'s `angle.loaded` | the pinned ANGLE build, a8c8a6febe63 |
+| `STROBE_FAULT=crash@120` | ok: `0xc00000fd` after 2.5 s; symbolicated against the archived PDB to `__chkstk`, then `strobe_app::fault::recurse() [fault.rs:170]` and `[fault.rs:173]` |
+
+The first run failed only its crash step: this machine had neither
+`dump_syms` nor `minidump-stackwalk`. Once they were installed
+(`cargo install dump_syms minidump-stackwalk --locked`), the run above
+passed.
+
+The publish was approved at 01:24:44 UTC, before the harness had
+finished. It passed at 01:30 on the same files, so the published bytes
+are the ones checked. The manual checks it lists (playlist, audio replug,
+fullscreen, `lose-context@60`) are covered on the mini PC (`MINIPC.md`,
+2026-11-04 and 05), apart from fullscreen and back and the C270 replug,
+which need a person there.
