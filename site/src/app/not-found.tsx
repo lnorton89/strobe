@@ -15,10 +15,10 @@ export default function NotFound() {
         404
       </p>
       <h1 className="text-text mt-6 max-w-[18ch] text-[40px] leading-[1.05] font-semibold tracking-[-0.03em] sm:text-[56px]">
-        No scene loaded at this address.
+        Nothing at this address.
       </h1>
       <p className="text-secondary mt-6 max-w-[56ch] text-[18px] leading-[1.55]">
-        The page you asked for does not exist. One of these will.
+        The page you asked for does not exist. These do.
       </p>
 
       <nav aria-label="Site sections" className="rule-grid mt-14 grid w-fit sm:grid-cols-2">
