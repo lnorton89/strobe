@@ -683,7 +683,7 @@ fn a_cube_map_with_no_faces_reads_black_and_still_renders() -> Result<()> {
         let [r, g, b, _] = frame.center();
         assert!(
             r == g && g == b && r > 0,
-            "{api:?}: the sky is black, so only the grey horizon term shows; got ({r}, {g}, {b})"
+            "{api:?}: the sky is black, so only the grey horizon and facing terms show; got ({r}, {g}, {b})"
         );
     }
     Ok(())
