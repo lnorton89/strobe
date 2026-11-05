@@ -47,6 +47,8 @@ pub use gl::context::{Api, Headless};
 #[cfg(feature = "native")]
 pub use gl::window::{Backend, GlChoice, SwapWindow, WindowError, WindowedContext, with_icons};
 pub use media::MEDIA_TYPE_IMAGE;
-pub use player::{AudioTextures, FrameInputs, Mouse, Options, PlayerError, ScenePlayer};
+pub use player::{
+    AudioTextures, FrameInputs, Mouse, Options, PendingPlayer, PlayerError, ScenePlayer,
+};
 pub use post::{Post, PostError};
 pub use timing::GpuTimer;
