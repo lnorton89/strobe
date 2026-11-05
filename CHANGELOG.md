@@ -46,6 +46,7 @@ Nothing yet — the latest release is the tip of `master`.
 
 ### Fixed
 
+- the crash monitor's start-up refusals stay out of the log, and --diagnose keeps the run before (R-09) ([`c875131`](https://github.com/lnorton89/strobe/commit/c875131baefbad83762d4fb8c6399b2b1f359a82))
 - background compiles leave the output four fifths of the time, and a rebuilt context reloads the thumbnails (D550) ([`62f7c6b`](https://github.com/lnorton89/strobe/commit/62f7c6b59bd3da3a8421e755d2134487e8b9fa37))
 - the QuickJS and MIDI timing tests run alone under nextest on this branch too ([`18fcd4b`](https://github.com/lnorton89/strobe/commit/18fcd4b5c7ebfd2b99d981ec80cd8a258e5f93de))
 - the prerender doc names its function-local gap in plain code, which rustdoc cannot link ([`570d663`](https://github.com/lnorton89/strobe/commit/570d6636e83d23566a24004a6f53eba8f6f391ee))
@@ -123,6 +124,7 @@ Nothing yet — the latest release is the tip of `master`.
 
 ### Internal
 
+- the llvmpipe bench times every scene at half scale too (D-06) ([`8088410`](https://github.com/lnorton89/strobe/commit/8088410db933c3c730b24ab5864812d56c4316be))
 - version 0.3.0 ([`92d31b8`](https://github.com/lnorton89/strobe/commit/92d31b88cc84f797db7b21f63a14bb07fd0f91bc))
 - a release waits in draft for the owner's approval, so its own archives go through the rc harness first (D548) ([`6e28c50`](https://github.com/lnorton89/strobe/commit/6e28c50b5cdfc90339552f9a80a1654290d61e17))
 - shipping keeps fat LTO and the sccache trial is dropped, from their measured runs (D545) ([`bb15b84`](https://github.com/lnorton89/strobe/commit/bb15b842ae7235d2a46e221935efc83fca7b7bcf))
@@ -149,6 +151,7 @@ Nothing yet — the latest release is the tip of `master`.
 
 ### Tests
 
+- the Shadertoy fixtures go through the corpus harness in both dialects (G-01) ([`9178f5a`](https://github.com/lnorton89/strobe/commit/9178f5ab50bfad45a9066084d5e9021f757b60f2))
 - the remote's untested refusals and the desktop client's handshake and frames, from a coverage read (D544) ([`283a3ee`](https://github.com/lnorton89/strobe/commit/283a3eeee743e2f2268f9ca9e945d28f05d5e022))
 - baselines for the IMAGES and #include fixtures, from CI's Mesa (D534, D544) ([`96d5774`](https://github.com/lnorton89/strobe/commit/96d5774923a46cf5b6aeff34535dce7f48e58e30))
 - property generators that reach the deep code, and media and include fixtures (D539, D534) ([`558f523`](https://github.com/lnorton89/strobe/commit/558f5234fb2405decd3d08df8e087ca9918f77d4))
