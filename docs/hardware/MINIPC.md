@@ -1262,12 +1262,38 @@ Logs, `%LOCALAPPDATA%\strobe\logs`: `strobe-20261104-231158-12928.log`
 (Library and prerender), `-233156-11792.log` (playlist), `-233430-7804.log`
 (context loss).
 
+### The re-test on f6b270a, with D550 (2026-11-05)
+
+`release-fast` build of f6b270a, fast-forwarded from a76b53d with a clean
+tree; the owner approved stopping the show again.
+
+| Check | Before (6612575) | After (f6b270a) |
+|---|---|---|
+| Launch prerender, full library | 116 scenes in 60.6 s; 7.4 fps, 34.0% missed, worst gap 4,315 ms, 3 audio glitches | **Pass (narrowly).** 116 scenes in 43.9 s; 51.2 fps, 4.4% missed (136 of 3,075 frames), worst gap 1,070.6 ms, no audio glitches |
+| `lose-context@60` | recovered in 310 ms; thumbnails blank; 103,675 "Failed to find texture" lines | **Pass.** Recovered in 295 ms; thumbnails back (screenshot at 36 s); 0 warnings; then 28 scenes prerendered in 6.8 s |
+| `--scene` and the "not in the library" line | logged | **Pass.** Gone |
+
+Notes:
+- The prerender was faster than before, not about four times slower as
+  expected. It was the second run on this machine, so the driver's
+  shader cache may have held the first run's programs.
+- The worst gap is one heavy scene's compile, which a background step
+  still holds the frame loop for (D550). The log does not say which
+  scene was compiling. The longest quiet stretch started after
+  `13-chromatic-rise`; `12-silicon-atlas`, which compiles in 6.5 s here,
+  is a candidate.
+- The four scenes with no picture keep their placeholders, as they
+  should until the camera button renders one (D547).
+
+Logs: `strobe-20261105-001950-8028.log` (prerender) and
+`strobe-20261105-002214-7688.log` (context loss and `--scene`). The show
+was restarted afterwards with the "Strobe Show" task.
+
 ## Still to do here
 
-- v0.3.0: re-run the launch prerender and `lose-context@60` on a build with
-  D550. Pass means no minute under 50 fps during the prerender, and the
-  thumbnails back with no egui texture warnings after the rebuild. Then run
-  `cargo xtask rc` on the v0.3.0 draft's own archives (D548).
+- v0.3.0: run `cargo xtask rc` on the draft's own archives (D548), then
+  the two checks a person makes at the machine: fullscreen and back, and
+  unplugging the C270.
 
 - M31: run the after-fix A/B on 1ce46e7, and check that LIGHTNING's view of the covered host
   keeps updating (not black or stale).
