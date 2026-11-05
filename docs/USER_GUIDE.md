@@ -54,7 +54,9 @@ screen until you ask.
 - **Show output** (the monitor button under the panel's preview, or the
   button on the preview while the output is hidden), or **F11**, shows the
   output. Use **Settings > Output > Monitor** to put it on the
-  projector, then F11 for fullscreen.
+  projector, then F11 for fullscreen. While the output is fullscreen,
+  Windows does not sleep, turn the display off or start the screen saver;
+  out of fullscreen, its own power settings apply again.
 - The window is Synesthesia's three columns. The **rail** on the left
   switches the main view: **Library** (the scene library, the default),
   **Controls** (the playing scene's controls at full size), **Import** (a

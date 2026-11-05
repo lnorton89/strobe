@@ -808,6 +808,9 @@ struct Running {
     /// A scene the UI asked for, to be loaded *after* the frame that shows
     /// "preparing" has been painted, because loading blocks.
     pending_load: Option<usize>,
+    /// Holds off sleep and the screen saver while the output is fullscreen
+    /// (D556). Kept across a context rebuild: the output stays up.
+    awake: crate::awake::KeepAwake,
     /// The last scene that failed to load.
     load_failure: Option<LoadFailure>,
     /// A notice banner and when it appeared.
@@ -1013,6 +1016,7 @@ impl Running {
             media_override: cli.media.clone(),
             post_failed: false,
             pending_load: None,
+            awake: crate::awake::KeepAwake::default(),
             load_failure: None,
             notice: None,
             preview_index: None,
@@ -5468,6 +5472,9 @@ impl Running {
         desktop_events.clear();
         self.desktop_events = desktop_events;
         self.audio.refresh_status(now);
+        // Sleep and the screen saver wait while the show is up (D556).
+        self.awake
+            .follow(self.stack.output.window().fullscreen().is_some());
         if self
             .notice
             .as_ref()

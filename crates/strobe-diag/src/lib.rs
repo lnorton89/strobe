@@ -57,12 +57,14 @@ pub mod filter;
 pub mod logger;
 #[expect(
     unsafe_code,
-    reason = "the crash handler's one unsafe entry point (D41, D541)"
+    reason = "the crash handler's unsafe entry point and Windows' power request, each a leaf \
+              (D41, D541, D556)"
 )]
 mod native;
 pub mod notify;
 pub mod panic_hook;
 pub mod paths;
+pub mod power;
 pub mod report;
 mod rotate;
 pub mod system;
