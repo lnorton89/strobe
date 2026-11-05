@@ -108,4 +108,16 @@ Copyright 2026 Micah Ostrow, used under the Apache License 2.0
 ([`LICENSE-APACHE`](LICENSE-APACHE)). It has been modified: re-themed to the
 Strobe brand, with Strobe's own pages, content, icons, mark and social cards,
 and the Cinnabar-specific features (the playground, its compiler and syntax
-highlighter, the learning pages) removed. Strobe itself is MIT licensed.
+highlighter, the learning pages) removed.
+
+The site's fonts are self-hosted from the `@fontsource` npm packages, so a build
+asks no font service for anything: [Space Grotesk](https://github.com/floriankarsten/space-grotesk)
+(Copyright 2020 The Space Grotesk Project Authors),
+[Inter](https://github.com/rsms/inter) (Copyright 2016 The Inter Project Authors)
+and [JetBrains Mono](https://github.com/JetBrains/JetBrainsMono) (Copyright 2020
+The JetBrains Mono Project Authors), all under the SIL Open Font License 1.1.
+`scripts/sync-assets.mjs` publishes each licence beside the export, at
+`/generated/fonts/`.
+
+Strobe itself is MIT with the Commons Clause, so source-available rather than
+open source; the repository's [`LICENSE`](../LICENSE) has the exact terms.

@@ -58,6 +58,17 @@ function copy(from, to) {
 
 rmSync(OUT, { recursive: true, force: true });
 
+/*
+ * The web fonts come from @fontsource at build time (app/layout.tsx) and are
+ * SIL OFL 1.1, whose terms ask that the licence travel with the font files.
+ */
+for (const font of ["inter", "jetbrains-mono", "space-grotesk"]) {
+  copy(
+    path.join(SITE, "node_modules", "@fontsource", font, "LICENSE"),
+    path.join(OUT, "fonts", `${font}-LICENSE.txt`),
+  );
+}
+
 for (const file of BRAND) {
   copy(path.join(REPO, "assets", "brand", file), path.join(OUT, "brand", file));
 }
