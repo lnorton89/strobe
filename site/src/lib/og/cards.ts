@@ -60,9 +60,8 @@ export const CARDS: Record<ExportedRoute, CardCopy> = {
   "/compatibility/": {
     eyebrow: "Compatibility",
     title: "What works, where, and the evidence.",
-    description:
-      "Supported, degraded, unsupported and unverified: the scene format, scripts, real Synesthesia scenes, Shadertoy, graphics backends, audio, playlists and show control.",
-    alt: "Strobe social card — the compatibility matrix.",
+    description: "Supported, degraded, unsupported or unverified, each with what shows it.",
+    alt: "Strobe's compatibility matrix, beside a frame of its SDF Cathedral scene.",
     scene: "09-sdf-cathedral",
   },
   "/architecture/": {
