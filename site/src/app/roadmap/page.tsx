@@ -20,6 +20,9 @@ export const metadata: Metadata = pageMetadata("/roadmap/", {
     "Strobe's roadmap: what is implemented and on which machine it was verified, what is in flight, what comes next, and the known gaps, with the repository's recent activity.",
 });
 
+const JUMP =
+  "text-accent-text hover:text-text panel-hover text-[13px] font-semibold tracking-widest uppercase underline decoration-1 underline-offset-4";
+
 export default async function RoadmapPage() {
   const [document, content, commits] = await Promise.all([
     readRepoDoc("docs/ROADMAP.md"),
@@ -70,7 +73,13 @@ export default async function RoadmapPage() {
         lede={content.block("lede")}
       />
 
-      <section className={`${CONTAINER} pt-16`}>
+      <nav aria-label="On this page" className={`${CONTAINER} flex flex-wrap gap-x-8 gap-y-3 pt-8`}>
+        <a href="#now" className={JUMP}>Now</a>
+        <a href="#next-in-priority-order" className={JUMP}>Next</a>
+        <a href="#known-gaps-in-what-exists" className={JUMP}>Known gaps</a>
+      </nav>
+
+      <section className={`${CONTAINER} pt-14`}>
         <SectionHeading
           title="Recent activity"
           note={content.block("activity-note")}
