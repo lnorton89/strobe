@@ -489,6 +489,23 @@ Current Shadertoy-compatible libraries confirm that exported JSON uses `info` + 
 
 Source: https://github.com/reindernijhoff/shadertoy-package
 
+### Cube maps and the keyboard (verified, D553)
+
+Read from Shadertoy's own player code, `effect.js` and `piLibs.js`, as
+vendored in https://github.com/samuelmaddock/shadertoy-extension (`public/`)
+and ported in https://github.com/liriliri/luna (`src/shader-toy-player/Effect.ts`):
+
+- a `cubemap` input loads `src`, then `src` with `_1` to `_5` before its
+  last `.`, and uploads picture `i` to `TEXTURE_CUBE_MAP_POSITIVE_X + i`
+  (+X, -X, +Y, -Y, +Z, -Z), top row first; with the sampler's `vflip`
+  (`"true"` only) every picture goes up flipped and pictures 2 and 3 trade
+  places;
+- a `cubemap` input with id `4dX3Rr` reads the shader's Cube A pass, not a
+  picture;
+- the keyboard is one 256x3 `R8` texture, nearest and clamped: column = DOM
+  `keyCode`, row 0 held, row 1 pressed this frame (cleared after each
+  frame), row 2 toggled on each press.
+
 ### Licensing
 
 The importer should preserve author/source/license metadata even when the source does not declare a formal SPDX value. Never treat a successful download as permission for commercial use.
