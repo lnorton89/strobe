@@ -3,7 +3,7 @@ import NavLinks from "@/components/NavLinks";
 import MobileMenu from "@/components/MobileMenu";
 import SiteHeaderLogo from "@/components/SiteHeaderLogo";
 import ThemeToggle from "@/components/ThemeToggle";
-import { latestRelease, releaseLabel } from "@/lib/release";
+import { ReleaseLink } from "@/components/Release";
 import { REPO_URL } from "@/lib/site";
 
 /*
@@ -12,8 +12,7 @@ import { REPO_URL } from "@/lib/site";
  * mark's own gradient and the cyan underline on the current section (guide
  * section 6: cyan for active selection, not for every clickable element).
  */
-export default async function SiteHeader() {
-  const release = await latestRelease();
+export default function SiteHeader() {
   return (
     <header className="border-hairline bg-ground/95 sticky top-0 z-50 border-b backdrop-blur-sm">
       <a
@@ -31,14 +30,7 @@ export default async function SiteHeader() {
         </nav>
 
         <div className="ml-auto flex items-center gap-3">
-          <a
-            href={release.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="border-hairline text-label hover:text-text hover:border-hairline-strong hidden border px-3 py-1.5 font-mono text-xs md:inline-block"
-          >
-            {releaseLabel(release)}
-          </a>
+          <ReleaseLink className="border-hairline text-label hover:text-text hover:border-hairline-strong hidden border px-3 py-1.5 font-mono text-xs md:inline-block" />
           <a
             href={REPO_URL}
             target="_blank"

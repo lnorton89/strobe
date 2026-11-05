@@ -5,12 +5,22 @@
  * (docs/branding.md, "Brand at a glance" and section 9), not rewritten here.
  */
 
-export const REPO_URL = "https://github.com/lnorton89/strobe";
+/**
+ * The repository. Its slug is written here and nowhere else in the site's code
+ * (tests/unit/hardcoded.test.ts holds that), so a move to another GitHub
+ * organisation is one edit here and the `repository` fields of package.json.
+ */
+export const REPO = "lnorton89/strobe";
+
+export const REPO_URL = `https://github.com/${REPO}`;
 
 /** The branch the site links into and the activity feed reads. */
 export const DEFAULT_BRANCH = "master";
 
 export const RELEASES_URL = `${REPO_URL}/releases`;
+
+/** GitHub's redirect to the newest published release, whatever it is. */
+export const LATEST_RELEASE_URL = `${RELEASES_URL}/latest`;
 
 /**
  * The deployed origin, used as the metadata base for canonical and social
@@ -45,8 +55,7 @@ export const POSITIONING =
 export const BADGES = ["MIT", "Rust", "OpenGL 3.3"] as const;
 /**
  * What a release is fit for, beside its number. The number itself is never
- * written here: it is read from GitHub's latest release at build time
- * (lib/release.ts), so the site cannot fall behind a release.
+ * written here: it comes from lib/release.ts.
  */
 export const RELEASE_STAGE = "testing";
 

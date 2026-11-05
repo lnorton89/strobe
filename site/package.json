@@ -17,7 +17,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "assets": "node scripts/sync-assets.mjs && tsx scripts/render-cards.mts",
+    "assets": "node scripts/sync-assets.mjs && tsx scripts/sync-release.mts && tsx scripts/render-cards.mts",
     "predev": "npm run assets && npm run engine",
     "dev": "next dev",
     "prebuild": "npm run assets && npm run engine",

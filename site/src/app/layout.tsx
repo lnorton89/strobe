@@ -2,7 +2,9 @@ import type { Metadata } from "next";
 import localFont from "next/font/local";
 import SiteHeader from "@/components/SiteHeader";
 import SiteFooter from "@/components/SiteFooter";
+import { ReleaseProvider } from "@/components/Release";
 import { pageMetadata } from "@/lib/og/metadata";
+import { buildRelease } from "@/lib/release-build";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
 import { DESCRIPTION, SITE_URL, TAGLINE } from "@/lib/site";
 import "./globals.css";
@@ -98,11 +100,13 @@ export default function RootLayout({
           before any of the page below it is painted.
         */}
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
-        <SiteHeader />
-        <main id="main-content" tabIndex={-1} className="flex-1 outline-none">
-          {children}
-        </main>
-        <SiteFooter />
+        <ReleaseProvider initial={buildRelease()}>
+          <SiteHeader />
+          <main id="main-content" tabIndex={-1} className="flex-1 outline-none">
+            {children}
+          </main>
+          <SiteFooter />
+        </ReleaseProvider>
       </body>
     </html>
   );

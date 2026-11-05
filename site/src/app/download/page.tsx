@@ -6,6 +6,7 @@ import PageHeader from "@/components/PageHeader";
 import Reveal from "@/components/Reveal";
 import SectionHeading from "@/components/SectionHeading";
 import ShellBlock from "@/components/ShellBlock";
+import { ReleaseName } from "@/components/Release";
 import { Action, ArrowLink, Callout, MarkedList, Prose } from "@/components/ui";
 import {
   CompatibilityIcon,
@@ -15,7 +16,7 @@ import {
 } from "@/components/brand/icons";
 import { pageMetadata } from "@/lib/og/metadata";
 import { readPageContent } from "@/lib/page-content";
-import { latestRelease, releaseLabel } from "@/lib/release";
+import { buildRelease } from "@/lib/release-build";
 import { DEFAULT_BRANCH, REPO_URL } from "@/lib/site";
 
 export const metadata: Metadata = pageMetadata("/download/", {
@@ -56,13 +57,18 @@ function SplitStep({ children }: { children: ReactNode }) {
 const README_LINUX = `${REPO_URL}/blob/${DEFAULT_BRANCH}/README.md#linux`;
 
 export default async function DownloadPage() {
-  const [content, release] = await Promise.all([readPageContent("download"), latestRelease()]);
+  const content = await readPageContent("download");
+  const release = buildRelease();
 
   return (
     <article className="pb-28">
       <PageHeader
         section="Download"
-        note={`${releaseLabel(release)} · for testing, not production`}
+        note={
+          <>
+            <ReleaseName /> · for testing, not production
+          </>
+        }
         icon={DownloadIcon}
         title="Unzip it and run it."
         lede={content.block("lede")}
@@ -138,7 +144,7 @@ export default async function DownloadPage() {
             <ShellBlock
               title="Build and run"
               lines={[
-                "git clone https://github.com/lnorton89/strobe",
+                `git clone ${REPO_URL}`,
                 "cd strobe",
                 "cargo run --release -p strobe-app",
                 "cargo run --release -p strobe-app -- --playlist playlists/example.toml",

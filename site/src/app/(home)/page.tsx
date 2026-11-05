@@ -6,7 +6,8 @@ import Reveal from "@/components/Reveal";
 import SceneCard from "@/components/SceneCard";
 import Screenshot from "@/components/Screenshot";
 import SectionHeading from "@/components/SectionHeading";
-import { Action, ArrowLink } from "@/components/ui";
+import { Action, ArrowLink } from "@/components/Action";
+import { CurrentReleaseSentence, ReleaseLink } from "@/components/Release";
 import {
   AudioIcon,
   CompatibilityIcon,
@@ -24,7 +25,6 @@ import {
 import { ICON } from "@/lib/constants";
 import { readPageContent } from "@/lib/page-content";
 import { readScenes } from "@/lib/scenes";
-import { latestRelease, releaseLabel } from "@/lib/release";
 import { BADGES, RELEASE_STAGE, REPO_URL } from "@/lib/site";
 
 /**
@@ -68,11 +68,7 @@ const COMPARISON = [
 const SCENE_PREVIEW = 8;
 
 export default async function Home() {
-  const [content, scenes, release] = await Promise.all([
-    readPageContent("(home)"),
-    readScenes(),
-    latestRelease(),
-  ]);
+  const [content, scenes] = await Promise.all([readPageContent("(home)"), readScenes()]);
 
   return (
     <>
@@ -99,14 +95,10 @@ export default async function Home() {
                     {badge}
                   </span>
                 ))}
-                <a
-                  href={release.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                <ReleaseLink
+                  suffix={RELEASE_STAGE}
                   className="bg-accent text-on-accent grow px-4 py-2.5 text-center font-mono text-xs font-medium"
-                >
-                  {releaseLabel(release)} · {RELEASE_STAGE}
-                </a>
+                />
               </div>
               <div className="mt-1 flex flex-wrap items-center gap-4">
                 <Action href="/download/" variant="primary" icon={DownloadIcon}>
@@ -207,7 +199,7 @@ export default async function Home() {
           <div>
             <Eyebrow>Project status</Eyebrow>
             <h2 className="text-text mt-4 text-[28px] font-semibold tracking-tight">
-              {release.tag ? `${release.tag} is the current release. ` : ""}
+              <CurrentReleaseSentence />
               {content.block("status-title")}
             </h2>
             <p className="text-secondary mt-3 max-w-[70ch] leading-[1.7]">
