@@ -160,7 +160,8 @@ Need a new GL call? Add a leaf wrapper in `gl/mod.rs` next to its
 siblings. Don't reach for `glow` from anywhere else.
 
 The one other place is `crates/strobe-diag/src/native.rs` (the crash
-handler's callback, decision D41), under the same leaf rules. Debug
+handler's callback, decision D41, and Windows' power request that keeps a
+fullscreen show awake, D556), under the same leaf rules. Debug
 logging and crash reports are described in
 [`docs/DEBUGGING.md`](docs/DEBUGGING.md); use `log::` macros, not
 `println!`, and `strobe_diag::failure::report` for anything a person

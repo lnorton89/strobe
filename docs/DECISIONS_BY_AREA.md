@@ -160,7 +160,7 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## strobe-diag
 
-17 decision(s).
+18 decision(s).
 
 - [D40](decisions/D40.md): our own `log` backend in `strobe-diag`, not tracing or env_logger
 - [D41](decisions/D41.md): unsafe is allowed in exactly one `strobe-diag` file
@@ -179,6 +179,7 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D464](decisions/D464.md): build scripts watch only what moves with a build
 - [D528](decisions/D528.md): a webcam is a media choice, `camera:<name>`, captured by `strobe-capture`
 - [D541](decisions/D541.md): the crate graph, `unsafe`, feature configurations, rustdoc, workflows and scripts are checked, and the build names its profile
+- [D556](decisions/D556.md): the computer and display stay awake while the output is fullscreen
 
 ## strobe-gfx
 

@@ -820,6 +820,9 @@ struct Running {
     /// A scene the UI asked for, to be loaded *after* the frame that shows
     /// "preparing" has been painted, because loading blocks.
     pending_load: Option<usize>,
+    /// Holds off sleep and the screen saver while the output is fullscreen
+    /// (D556). Kept across a context rebuild: the output stays up.
+    awake: crate::awake::KeepAwake,
     /// A hand load whose shaders the driver is still compiling (D555). The
     /// scene before it plays on until [`Self::poll_loading`] finds it ready.
     loading: Option<Loading>,
@@ -1028,6 +1031,7 @@ impl Running {
             media_override: cli.media.clone(),
             post_failed: false,
             pending_load: None,
+            awake: crate::awake::KeepAwake::default(),
             loading: None,
             load_failure: None,
             notice: None,
@@ -5626,6 +5630,9 @@ impl Running {
         desktop_events.clear();
         self.desktop_events = desktop_events;
         self.audio.refresh_status(now);
+        // Sleep and the screen saver wait while the show is up (D556).
+        self.awake
+            .follow(self.stack.output.window().fullscreen().is_some());
         if self
             .notice
             .as_ref()
