@@ -112,7 +112,7 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## strobe-bench
 
-22 decision(s).
+23 decision(s).
 
 - [D55](decisions/D55.md): macOS CI is two-tier until strobe-gfx has a CGL context
 - [D56](decisions/D56.md): CI keeps the rendered frames
@@ -136,6 +136,7 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D498](decisions/D498.md): a Windows dev build fetches the pinned ANGLE DLLs itself when they are missing
 - [D504](decisions/D504.md): pull requests build `release-fast`; the fat-LTO `release` build runs on master
 - [D534](decisions/D534.md): the script-aware corpus is a regression gate, with expectations and baseline frames
+- [D555](decisions/D555.md): a hand-loaded scene compiles in the background where the driver can, and the output plays on meanwhile
 
 ## strobe-capture
 
@@ -145,7 +146,7 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## strobe-conventions
 
-8 decision(s).
+9 decision(s).
 
 - [D41](decisions/D41.md): unsafe is allowed in exactly one `strobe-diag` file
 - [D54](decisions/D54.md): actions pinned by SHA, permissions declared, both enforced by a test
@@ -155,6 +156,7 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D521](decisions/D521.md): a release publishes only a green, immutable, single commit
 - [D531](decisions/D531.md): faster iteration: one file per decision, no shared summary lines, docs-only CI, and a client-list save that retries
 - [D541](decisions/D541.md): the crate graph, `unsafe`, feature configurations, rustdoc, workflows and scripts are checked, and the build names its profile
+- [D555](decisions/D555.md): a hand-loaded scene compiles in the background where the driver can, and the output plays on meanwhile
 
 ## strobe-diag
 
