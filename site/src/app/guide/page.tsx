@@ -15,10 +15,10 @@ export default async function GuidePage() {
   return (
     <RepoDocPage
       section="Guide"
-      note="For running Strobe, not building it"
+      note="docs/USER_GUIDE.md"
       icon={GuideIcon}
       title="Running a show with Strobe."
-      lede="Everything a performer needs, from unzipping the release to a venue machine that runs a show unattended. You do not need Rust or a compiler for any of it."
+      lede="From unzipping the release to a venue machine that runs a show unattended."
       source={linkRepoFile(
         "This page is `docs/USER_GUIDE.md`, rendered at build time. Fixes to it are fixes to that file.",
         "docs/USER_GUIDE.md",
