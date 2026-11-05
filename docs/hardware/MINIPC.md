@@ -1291,9 +1291,10 @@ was restarted afterwards with the "Strobe Show" task.
 
 ## Still to do here
 
-- v0.3.0: run `cargo xtask rc` on the draft's own archives (D548), then
-  the two checks a person makes at the machine: fullscreen and back, and
-  unplugging the C270.
+- The two checks a person makes at the machine: fullscreen and back, and
+  unplugging the C270. (v0.3.0's own archives passed `cargo xtask rc` on
+  LIGHTNING instead, since this machine was running the show:
+  `hardware/AMD.md`, 2026-11-05.)
 
 - M31: run the after-fix A/B on 1ce46e7, and check that LIGHTNING's view of the covered host
   keeps updating (not black or stale).

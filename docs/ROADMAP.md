@@ -471,7 +471,7 @@ Each item names its acceptance test. Evidence is in [STATUS_AUDIT.md](STATUS_AUD
    *Accept:* a cube-map fixture where each direction returns its face, a
    missing one failing visibly while the scene runs, and an image read
    through `syn_Media`. Met on llvmpipe.
-9. ~~**A real tagged release.**~~ **Done (v0.1.0, 2026-10-14; v0.2.0, 2026-10-26).** The zip, the
+9. ~~**A real tagged release.**~~ **Done (v0.1.0, 2026-10-14; v0.2.0, 2026-10-26; v0.3.0, 2026-11-05).** The zip, the
    ANGLE DLL provenance, the matching PDB archive, the SBOM, the checksums
    and both attestations were inspected on the published release page, after
    the workflow was proven end to end on a throwaway mirror (Q12 resolved,
@@ -485,6 +485,9 @@ Each item names its acceptance test. Evidence is in [STATUS_AUDIT.md](STATUS_AUD
    one commit, `ci.yml` passed on it, and the provenance names the tagged
    commit (a second run against the published release is not recorded). A
    release candidate also passes `cargo xtask rc` on the T480 (2026-11-04).
+   v0.3.0 (2026-11-05) was the first release through the approval gate
+   (D548): staged as a draft, its own archives passed `cargo xtask rc` on
+   LIGHTNING, and it was published on the owner's approval.
 10. **Modern graphics APIs (Vulkan, wgpu, DX12, Metal): research only.** The
    plan is in [GFX_API_RESEARCH.md](GFX_API_RESEARCH.md)
    (lnorton89/strobe#8). OpenGL 3.3 and ANGLE stay the reference and the
