@@ -107,6 +107,11 @@ const CONNECT_BUDGET: Duration = Duration::from_secs(10);
 /// Pause between connection attempts.
 const CONNECT_RETRY: Duration = Duration::from_millis(25);
 
+/// How long a refused connection is taken for a monitor still starting and
+/// left out of the log. The T480 connects in about 30 ms; a slow disk or an
+/// antivirus scan of the new process can take several times that.
+const CONNECT_QUIET: Duration = Duration::from_millis(500);
+
 /// How long a monitor waits for its app before giving up and exiting.
 const MONITOR_PATIENCE: Duration = Duration::from_secs(60);
 
@@ -724,25 +729,43 @@ fn spawn_connector(slot: Arc<OnceLock<Client>>, name: String) {
         .spawn(move || {
             let started = Instant::now();
             let mut last_error: Option<String> = None;
+            let mut logged: Option<String> = None;
+            let mut failures = 0_u32;
             while started.elapsed() < CONNECT_BUDGET {
                 match socket(&name, Client::with_name) {
                     Ok(client) => {
                         // First connection wins; there is only ever one.
                         slot.set(client).ok();
-                        log::info!("connected to crash monitor after {:?}", started.elapsed());
+                        log::info!(
+                            "connected to crash monitor after {:?} ({})",
+                            started.elapsed(),
+                            match failures {
+                                0 => "first try".to_string(),
+                                n => format!("{} tries; it was still starting", n + 1),
+                            }
+                        );
                         return;
                     }
                     Err(error) => {
-                        // The first failure is expected (the monitor may not
-                        // be listening yet) but its text is the only clue when
-                        // every attempt fails, so it is logged straight away:
-                        // a crash inside the budget would otherwise leave no
-                        // trace of why capture never connected.
+                        // A refusal in the first moments is the monitor not
+                        // listening yet (about 30 ms on the T480), so it is
+                        // not logged then: the log read like a failure on
+                        // every run (T480 Task 50, R-09). Its text is still
+                        // the only clue when every attempt fails, so past
+                        // the grace each new text is logged at once, long
+                        // before the budget runs out.
+                        failures = failures.saturating_add(1);
                         let text = error.to_string();
-                        if last_error.as_deref() != Some(text.as_str()) {
-                            log::info!("crash monitor connect to {name} failed: {text}");
-                            last_error = Some(text);
+                        if started.elapsed() >= CONNECT_QUIET
+                            && logged.as_deref() != Some(text.as_str())
+                        {
+                            log::info!(
+                                "crash monitor connect to {name} still failing after {:?}: {text}",
+                                started.elapsed()
+                            );
+                            logged = Some(text.clone());
                         }
+                        last_error = Some(text);
                     }
                 }
                 std::thread::sleep(CONNECT_RETRY);

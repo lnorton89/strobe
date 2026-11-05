@@ -22,6 +22,8 @@
 //!
 //! The release build has no console on Windows, so the report is also saved
 //! as `diagnose.txt` beside the logs and its location is shown in a dialog.
+//! The report before it is kept as `diagnose.previous.txt`, so two runs can
+//! be compared and a second run never loses the first (R-09).
 
 use crate::dialog;
 use sha2::Digest as _;
@@ -65,6 +67,33 @@ pub fn gl_rows() -> Vec<(String, String)> {
 /// Where the saved report goes.
 pub fn report_path() -> PathBuf {
     paths::base_dir().join("diagnose.txt")
+}
+
+/// The report before this one, beside it. One is kept, so a second run (a
+/// dev build after a release build, or a run after a fix) does not lose the
+/// first, and the folder never holds more than two (T480 Task 50, R-09).
+fn previous_path(path: &Path) -> PathBuf {
+    path.with_file_name("diagnose.previous.txt")
+}
+
+/// Saves `text` at `path`, first moving a report already there to
+/// [`previous_path`], replacing the one before it.
+fn save(path: &Path, text: &str) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    if path.exists() {
+        let previous = previous_path(path);
+        // `rename` does not replace an existing file on every Windows
+        // filesystem, so the older copy goes first. Absent is fine.
+        match std::fs::remove_file(&previous) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
+        std::fs::rename(path, &previous)?;
+    }
+    std::fs::write(path, text)
 }
 
 /// Builds the report: system, build and environment, then the GL probe and
@@ -170,12 +199,12 @@ pub fn run() {
     let text = report();
     println!("{text}");
     let path = report_path();
-    let saved = path
-        .parent()
-        .map_or(Ok(()), std::fs::create_dir_all)
-        .and_then(|()| std::fs::write(&path, &text));
-    match saved {
-        Ok(()) => println!("Saved to {}", path.display()),
+    match save(&path, &text) {
+        Ok(()) => println!(
+            "Saved to {} (the run before is {})",
+            path.display(),
+            previous_path(&path).display()
+        ),
         Err(error) => eprintln!("Could not save {}: {error}", path.display()),
     }
     if !cfg!(debug_assertions) {
@@ -229,6 +258,27 @@ mod tests {
             Some(paths::base_dir().as_path()),
             "diagnose.txt lives in the base directory"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn a_second_report_keeps_the_first_as_the_previous_one() -> Result<()> {
+        let dir = std::env::temp_dir().join(format!("strobe-diagnose-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("diagnose.txt");
+        save(&path, "first")?;
+        let first_alone = !previous_path(&path).exists();
+        save(&path, "second")?;
+        save(&path, "third")?;
+        let current = std::fs::read_to_string(&path)?;
+        let previous = std::fs::read_to_string(previous_path(&path))?;
+        let files = std::fs::read_dir(&dir)?.count();
+        // Scratch space; a leftover is harmless.
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(first_alone, "the first report has no previous one");
+        assert_eq!(current, "third", "diagnose.txt is the newest report");
+        assert_eq!(previous, "second", "the previous file is the run before");
+        assert_eq!(files, 2, "only one older report is kept");
         Ok(())
     }
 }

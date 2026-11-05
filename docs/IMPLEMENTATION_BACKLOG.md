@@ -2,7 +2,7 @@
 
 **Purpose:** one evidence-based register of every known unfinished or not-yet-verified project area. This is the implementation companion to ROADMAP.md, STATUS_AUDIT.md, PLAN.md, UI_IMPLEMENTATION_PLAN.md, GFX_API_RESEARCH.md, and REMOTE_CONTROL_PWA_RESEARCH.md. It consolidates their open work; it does not re-label untested work as complete.
 
-**Last reconciled:** 2026-11-04 before v0.3.0, against the merged audit follow-ups (D533-D545), the website's deploy (D525) and D540 (R-03, R-05, R-09, W-01, W-03 and D-07 updated), with commit hashes moved to master's rewritten history; 2026-10-27 against the T480's Tasks 46-50 (R-03, R-04, C-02, I-05, G-05, D-06 updated; G-08 and R-09 added), for L-09 (D502) and for D-05 (D497); 2026-10-26 against every crate README's "Status and known gaps" (D490: C-07, I-06, D-05, D-06, R-07 and R-08 added, M-05 and R-03 updated), and C-01, C-08 and I-05 against Synesthesia 1.25.4 (TORNADO T25, D492), after G-05 and G-06 (D485) and scene transitions (D489); the UI items reflect D464-D484 in ROADMAP.md and UI_REVIEW.md.
+**Last reconciled:** 2026-11-05 for R-09, D-06 and G-01; 2026-11-04 before v0.3.0, against the merged audit follow-ups (D533-D545), the website's deploy (D525) and D540 (R-03, R-05, R-09, W-01, W-03 and D-07 updated), with commit hashes moved to master's rewritten history; 2026-10-27 against the T480's Tasks 46-50 (R-03, R-04, C-02, I-05, G-05, D-06 updated; G-08 and R-09 added), for L-09 (D502) and for D-05 (D497); 2026-10-26 against every crate README's "Status and known gaps" (D490: C-07, I-06, D-05, D-06, R-07 and R-08 added, M-05 and R-03 updated), and C-01, C-08 and I-05 against Synesthesia 1.25.4 (TORNADO T25, D492), after G-05 and G-06 (D485) and scene transitions (D489); the UI items reflect D464-D484 in ROADMAP.md and UI_REVIEW.md.
 
 ## How to use this register
 
@@ -92,14 +92,21 @@
 - **Acceptance:** STATUS_AUDIT's P1 Linux checklist ticked with the machine's record in `hardware/`.
 
 ### R-09 Small findings from the packaged run
-- **Status:** Open (T480 Task 50, 2026-10-27; each in hardware/T480.md). The thumbnails are fixed in code by D540 (they are JPEGs named `.png`, now decoded by their bytes), not yet re-run on the T480.
+- **Status:** Fixed or explained in code (2026-11-05); waiting on a packaged re-run on the T480. Found by T480 Task 50 (2026-10-27; each in hardware/T480.md):
+  - the resume message is logged only when the last session's scene was the one to reopen, not after a `--screenshot` or `--scene` chose another (62f7c6b);
+  - the thumbnails are JPEGs named `.png`, now decoded by their bytes (D540);
+  - the crash monitor's refusals in its first 500 ms are not logged, since the monitor is still starting; the connect line says how many tries it took, and a refusal that lasts past that is logged at once (`strobe_diag::crash`);
+  - the title is not a bug: on this PC (LIGHTNING) both backends' control window is titled `Strobe` (EnumWindows, 2026-11-05). .NET's `MainWindowTitle`, which the T480's probe read, can pick winit's untitled "Winit Thread Event Target" window, which Windows reports as visible;
+  - `--diagnose` keeps the run before as `diagnose.previous.txt`, one copy only (`a_second_report_keeps_the_first_as_the_previous_one`).
+
+  The original findings:
   - The log says "the last session's scene `<name>` is not in the library" right after it logged loading that same scene, which then plays.
   - Two of Synesthesia's thumbnails fail to decode on every run ("Invalid PNG signature"): `SkaiWalkerOG.synScene\thumb.png` and `audio_indicators.synScene\audio_indicators.png`; each is logged every run.
   - The crash monitor logs a refused connection (os error 10061) and then connects about 31 ms later, every run, so the first line reads like a failure.
   - Under ANGLE the control window's title reads empty where native reads "Strobe".
   - `diagnose.txt` is one fixed path, so a second run overwrites the first.
 - **Work:** fix or explain each: the resume message's order, a bad thumbnail logged once and shown as missing, the monitor's first try retried before it is logged, the title set on both backends, and whether `diagnose.txt` keeps the previous one.
-- **Acceptance:** a clean packaged run on the T480 logs none of the first three, and the title reads "Strobe" on both backends.
+- **Acceptance:** a clean packaged run on the T480 logs none of the first three, and the title reads "Strobe" on both backends (read with EnumWindows or a screenshot, not `MainWindowTitle`).
 
 ## Epic U — Performer UI and app workflows
 
@@ -420,7 +427,7 @@
 ## Epic G — Graphics backend research
 
 ### G-01 Machine-readable shader compatibility report
-- **Status:** Met by the corpus harness (D195): `cargo xtask corpus` writes `report.json` with the driver each dialect ran on, one record per scene and dialect (status, categorised cause, first error line, compile, first-frame and per-frame times, black/white flags, an FNV-1a checksum of the final frame) and a derived `report.md`. `tests/corpus.rs` runs a working, a broken, a scripted, a bad-JSON, a throwing and a blank scene through it on CI's headless context in both dialects, so a deliberately broken shader is caught and categorised in CI. Run on TORNADO over the real corpus (T6, T18) and on the T480 over the library (Task 30: 12 of 12 in both dialects). Left: the Shadertoy fixtures through the same report (they are covered by the autocontrol engine tests today).
+- **Status:** Met by the corpus harness (D195): `cargo xtask corpus` writes `report.json` with the driver each dialect ran on, one record per scene and dialect (status, categorised cause, first error line, compile, first-frame and per-frame times, black/white flags, an FNV-1a checksum of the final frame) and a derived `report.md`. `tests/corpus.rs` runs a working, a broken, a scripted, a bad-JSON, a throwing and a blank scene through it on CI's headless context in both dialects, so a deliberately broken shader is caught and categorised in CI. Run on TORNADO over the real corpus (T6, T18) and on the T480 over the library (Task 30: 12 of 12 in both dialects). The Shadertoy fixtures go through it too (2026-11-05): `tests/corpus.rs` `shadertoy_fixtures_convert_and_pass_the_harness_in_both_dialects` converts every converter fixture as an import does and requires an `ok` record with a frame in both dialects. Nothing left in code; the owner's own shaders on NVIDIA are STATUS_AUDIT's.
 - **Work:** compile/render the current scene library, Shadertoy fixtures, Synesthesia corpus and owner-supplied shaders; record backend/compiler, compile result, image checksum, frame time and categorized failure; run on llvmpipe CI, T480 and TORNADO.
 - **Acceptance:** deterministic report format, a deliberately broken shader is detected in CI, and unsupported shaders are categorized rather than omitted silently.
 
@@ -521,7 +528,7 @@
 ### D-06 Benchmark coverage
 - **Status:** Done (D496). The bench feeds `syn_Spectrum` (1024 texels) and `syn_LevelTrail` (256) from the synthetic track, `strobe_scene::synthetic::fill_textures`, as the app does without a device, and uploads them inside each timed frame; `results.md` says so. `--scales 1,0.75,0.5` renders every scene again at each scale and adds a table of mean frame time per scale and what the smallest saves; the GTX 1080 Ti run is in BENCHMARKS.md. Scripts still do not run, by design (D239).
 - **The T480 sweep is done (2026-10-27, Task 46, BENCHMARKS.md):** every library scene pays for its pixels there, unlike on the 1080 Ti; 0.5 scale saves at least 22% and about 35% at the median, native and ANGLE-D3D11. `10-volume-clouds` is 210 ms a frame at 720p and still 57.6 ms at half scale, too heavy for Intel at any scale; `07-reaction-diffusion` does not move, because its simulation passes are `FIXED_SIZE` by design (D191).
-- **Left:** the sweep on llvmpipe (CI's llvmpipe run can add `--scales`).
+- **The llvmpipe sweep is in CI (2026-11-05):** the `render` lane's desktop bench runs `--scales 1,0.5`, so each run's `bench-desktop` artifact carries the table. Nothing left.
 
 ### D-07 Engineering audit follow-ups
 - **Status:** The 2026-10-28 engineering audit's checks are built, D521 and D533-D539:
