@@ -22,6 +22,7 @@
     "dev": "next dev",
     "prebuild": "npm run assets && npm run engine",
     "build": "next build",
+    "postbuild": "node scripts/flatten-segments.mjs",
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
