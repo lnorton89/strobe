@@ -30,7 +30,7 @@ export default function SiteHeader() {
         </nav>
 
         <div className="ml-auto flex items-center gap-3">
-          <ReleaseLink className="border-hairline text-label hover:text-text hover:border-hairline-strong hidden border px-3 py-1.5 font-mono text-xs md:inline-block" />
+          <ReleaseLink className="border-hairline text-label hover:text-text hover:border-hairline-strong hidden border px-3 py-1.5 font-mono text-xs whitespace-nowrap xl:inline-block" />
           <a
             href={REPO_URL}
             target="_blank"
