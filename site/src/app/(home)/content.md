@@ -115,7 +115,12 @@ which runs Strobe's own player as WebAssembly.
 
 <!-- @compare-note -->
 
-Where the two differ
+From the README
+
+<!-- @compare-disclaimer -->
+
+Strobe is an independent project. It is not made by, endorsed by or affiliated
+with Synesthesia's makers, and it ships none of their scenes.
 
 <!-- @status-title -->
 

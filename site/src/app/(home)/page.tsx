@@ -204,7 +204,7 @@ export default async function Home() {
         </div>
       </section>
 
-      <section className="mx-auto max-w-350 px-6 py-24 sm:px-10">
+      <section className="mx-auto max-w-350 px-6 py-20 sm:px-10 sm:py-24">
         <Reveal>
           <SectionHeading title="Strobe and Synesthesia" note={content.block("compare-note")} />
           <DataTable
@@ -212,6 +212,9 @@ export default async function Home() {
             data={COMPARISON}
             className="mt-9"
           />
+          <p className="text-label mt-4 text-[13px] leading-[1.65]">
+            {content.block("compare-disclaimer")}
+          </p>
         </Reveal>
       </section>
 
