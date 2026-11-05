@@ -39,9 +39,8 @@ export const CARDS: Record<ExportedRoute, CardCopy> = {
   "/guide/": {
     eyebrow: "User guide",
     title: "Running a show with Strobe.",
-    description:
-      "Install, first run, scenes, audio, the output, playlists, MIDI and OSC, remote control from a phone, Shadertoy import and what to do when something goes wrong.",
-    alt: "Strobe social card — the user guide.",
+    description: "Scenes, audio, playlists, MIDI and OSC, phone remotes and Shadertoy import.",
+    alt: "Strobe's user guide, beside a frame of its Neon Ribbon Flow scene.",
     scene: "15-neon-ribbon-flow",
   },
   "/scenes/": {
