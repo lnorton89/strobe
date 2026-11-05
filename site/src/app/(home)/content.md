@@ -15,51 +15,52 @@ The control window at 1440x900, playing Electric Bloom: the scene library, the
 live preview and its controls, and the transport, macros and BLACKOUT along the
 bottom.
 
-<!-- @features-note -->
-
-From the README, in practical terms
-
 <!-- @features -->
 
-### Plays Synesthesia scenes
+### Scenes
 
-Reads `main.glsl`, `scene.json` and `script.js` unchanged: multipass, the SSF
-function library, every control type, images, media, and the JavaScript API.
+Reads a `.synScene` folder as it is: `main.glsl`, `scene.json` and `script.js`.
+That covers multipass, the SSF function library, every control type, images,
+cube maps, media, and the JavaScript API under QuickJS. Of 65 real Synesthesia
+scenes run through the test harness on NVIDIA, 63 play with their scripts; the
+other two have bugs of their own.
 
-### Imports Shadertoy
+### Shadertoy import
 
-A "Send to Strobe" userscript posts a shader to the app. Buffers become
-passes, the audio channel becomes your live sound, and the licence is kept.
+A "Send to Strobe" userscript posts a shader from its page to the app, which
+converts it into an ordinary scene folder. Buffers A to D become passes, the
+audio channel takes your live sound, and the source, author and licence are
+recorded. The converter is tested with fixtures; a live import from the site has
+not been verified yet.
 
-### Generates controls
+### Generated controls
 
-Finds the literals that shape a scene and turns them into controls, keeping
-only those that measurably change the picture. The original is never touched.
+For a scene with no controls, Strobe finds the literals that shape it (colours,
+scales, speeds, loop counts), renders with each one changed, and keeps those
+that measurably change the picture. It runs in a worker process while the show
+plays, and saving backs up the files it replaces.
 
-### Runs long shows
+### Playlists
 
-Playlists in hand-writable TOML with inherited settings. Every scene is
-compiled before it plays, the next one warms up off screen, and a crash resumes.
+A show is TOML you can write by hand. A cue that names only a scene inherits its
+duration, advance and transition from its section and the playlist, and a seeded
+generator can build a section from scene tags. Every scene is compiled before
+the show starts, the next one warms up off screen, and a show resumes after a
+crash.
 
-### Takes show control
+### Show control
 
-MIDI and OSC in with learn, soft takeover and curves; OSC feedback out;
-Performance Macros, presets and eight fav slots; rebindable keys.
+MIDI and OSC in, with learn, soft takeover and curves, and OSC feedback out for
+motorised faders and TouchOSC. Macros, presets, eight fav slots and rebindable
+keys. The transport and BLACKOUT stay in one place in every view. MIDI has been
+tested in software and not yet with hardware.
 
-### Remote from a phone
+### LAN remote
 
-Pair a phone or another Strobe desktop over the LAN, with scoped pairing and
-revocation, and an unattended venue mode for show machines.
-
-### A performer-first UI
-
-The live preview with the transport underneath, a command palette, a scene
-editor that keeps the last good scene playing, and tag search with thumbnails.
-
-### Stays up on bad hardware
-
-Adaptive resolution, an ANGLE fallback when the GL driver fails, context-loss
-recovery, runaway scripts stopped within a frame budget, and crash minidumps.
+Opt-in, for trusted networks. A phone opens the address Settings shows, gives
+itself a name, and the laptop approves it. Another Strobe desktop can ask the same
+way, and venue mode uses a trust file so a laptop reconnects to a show machine by
+itself.
 
 <!-- @scenes-note -->
 

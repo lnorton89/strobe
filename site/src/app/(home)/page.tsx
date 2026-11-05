@@ -9,39 +9,16 @@ import SectionHeading from "@/components/SectionHeading";
 import { Action, ArrowLink } from "@/components/Action";
 import { CurrentReleaseSentence, ReleaseLink } from "@/components/Release";
 import {
-  AudioIcon,
   CompatibilityIcon,
-  ControllerIcon,
   DownloadIcon,
   GitHubIcon,
-  ImportIcon,
   PerformIcon,
   PlayIcon,
-  PlaylistIcon,
-  RemoteIcon,
-  ResilienceIcon,
   ScenesIcon,
 } from "@/components/brand/icons";
-import { ICON } from "@/lib/constants";
 import { readPageContent } from "@/lib/page-content";
 import { readScenes } from "@/lib/scenes";
 import { BADGES, RELEASE_STAGE, REPO_URL } from "@/lib/site";
-
-/**
- * The icon each feature is drawn with, bound to its `###` heading in
- * content.md by slug. Rewording a heading without updating this fails the
- * build, naming the slug.
- */
-const FEATURE_ICONS = {
-  "plays-synesthesia-scenes": AudioIcon,
-  "imports-shadertoy": ImportIcon,
-  "generates-controls": ControllerIcon,
-  "runs-long-shows": PlaylistIcon,
-  "takes-show-control": ControllerIcon,
-  "remote-from-a-phone": RemoteIcon,
-  "a-performer-first-ui": PerformIcon,
-  "stays-up-on-bad-hardware": ResilienceIcon,
-} as const;
 
 /** README.md's comparison table, row for row. */
 const COMPARISON = [
@@ -66,6 +43,10 @@ const COMPARISON = [
 
 /** How many scenes the home page previews; the rest are one click away. */
 const SCENE_PREVIEW = 8;
+
+/** Prose under a heading in one of the plain grids. */
+const CELL_BODY =
+  "text-secondary text-[15px] leading-[1.65] text-pretty [&_code]:font-mono [&_code]:text-[0.9em]";
 
 export default async function Home() {
   const [content, scenes] = await Promise.all([readPageContent("(home)"), readScenes()]);
@@ -130,32 +111,23 @@ export default async function Home() {
       </section>
 
       <section className="border-hairline bg-panel border-y">
-        <div className="mx-auto max-w-350 px-6 py-24 sm:px-10">
-          <SectionHeading
-            title="What it does"
-            note={content.block("features-note")}
-            icon={PerformIcon}
-          />
-          <div className="rule-grid mt-11 grid sm:grid-cols-2 xl:grid-cols-4">
-            {content.items("features").map(({ slug, title, body }, index) => {
-              const Icon = FEATURE_ICONS[slug as keyof typeof FEATURE_ICONS];
-              if (!Icon) throw new Error(`No icon bound for feature "${slug}"`);
-              return (
-                <Reveal
-                  key={slug}
-                  delay={Math.min(index * 0.03, 0.15)}
-                  className="bg-ground hover:bg-panel-raised panel-hover flex flex-col gap-4 p-7"
-                >
-                  <Icon size={ICON.card} className="text-text" />
-                  <h3 className="text-text text-[19px] leading-snug font-semibold tracking-[-0.015em]">
-                    {title}
-                  </h3>
-                  <div className="text-secondary text-[14.5px] leading-[1.65] text-pretty [&_code]:font-mono [&_code]:text-[0.9em]">
-                    <InlineMarkdown>{body}</InlineMarkdown>
-                  </div>
-                </Reveal>
-              );
-            })}
+        <div className="mx-auto max-w-350 px-6 py-20 sm:px-10 sm:py-24">
+          <SectionHeading title="What it does" icon={PerformIcon} />
+          <div className="rule-grid mt-10 grid md:grid-cols-2 xl:grid-cols-3">
+            {content.items("features").map(({ slug, title, body }, index) => (
+              <Reveal
+                key={slug}
+                delay={Math.min(index * 0.03, 0.15)}
+                className="bg-ground flex flex-col gap-3 p-7"
+              >
+                <h3 className="text-text text-[19px] leading-snug font-semibold tracking-[-0.015em]">
+                  {title}
+                </h3>
+                <div className={CELL_BODY}>
+                  <InlineMarkdown>{body}</InlineMarkdown>
+                </div>
+              </Reveal>
+            ))}
           </div>
         </div>
       </section>

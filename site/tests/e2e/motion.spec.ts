@@ -40,7 +40,7 @@ test("revealed content ends fully visible", async ({ page }) => {
   // The reveal wraps the card, so opacity is asserted on the wrapper. It is
   // brought into view explicitly: a scroll-through can pass a mid-page card
   // between two observer callbacks, and that race is the test's, not a reader's.
-  const card = page.locator(".reveal").filter({ hasText: "Plays Synesthesia scenes" }).first();
+  const card = page.locator(".reveal").filter({ hasText: "Shadertoy import" }).first();
   await card.scrollIntoViewIfNeeded();
   await expect(card).toBeVisible();
   await expect(card).toHaveClass(/is-in/);
