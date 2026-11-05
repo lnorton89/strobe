@@ -10,7 +10,7 @@ import {
   storeScene,
   validateScene,
 } from "../../worker/scene-store";
-import { sharedIdFromPath } from "../../src/lib/play/files";
+import { SHARE_IMAGE_BYTES, sharedIdFromPath } from "../../src/lib/play/files";
 
 /*
  * Short share links (D527): what the Worker accepts, how a scene is named,
@@ -51,6 +51,19 @@ describe("shared scenes", () => {
     expect(validateScene({ files: { "main.glsl": 3 } })).toMatch(/not text/);
     const many = Object.fromEntries(Array.from({ length: 17 }, (_, i) => [`p${i}.glsl`, ""]));
     expect(validateScene({ files: { ...many, "main.glsl": "" } })).toMatch(/1 to 16/);
+  });
+
+  it("accepts a scene's small pictures and refuses large or misnamed ones", () => {
+    const images = { "mark.png": "iVBORw0KGgo=" };
+    expect(validateScene({ ...SCENE, images })).toEqual({ ...SCENE, images });
+    expect(validateScene({ ...SCENE, images: {} })).toEqual(SCENE);
+    expect(validateScene({ ...SCENE, images: { "../x.png": "AAAA" } })).toMatch(/not a picture name/);
+    expect(validateScene({ ...SCENE, images: { "x.png": 3 } })).toMatch(/not base64/);
+    const big = "A".repeat(Math.ceil(((SHARE_IMAGE_BYTES + 1024) * 4) / 3));
+    expect(validateScene({ ...SCENE, images: { "x.png": big } })).toMatch(/KB in all/);
+    // A scene without pictures keeps the name it had before pictures existed.
+    expect(canonical({ ...SCENE, images: {} })).toBe(canonical(SCENE));
+    expect(canonical({ ...SCENE, images })).not.toBe(canonical(SCENE));
   });
 
   it("names a scene by its content, whatever order its files came in", async () => {

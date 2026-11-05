@@ -70,7 +70,7 @@ const SELF: &str = "crates/strobe-conventions/";
 /// The leaves allowed to query the driver without counting: `(file, fn,
 /// why)`. Each is part of how a frame avoids waiting, or runs before a
 /// `Gl` exists.
-pub const EXEMPT: [(&str, &str, &str); 3] = [
+pub const EXEMPT: [(&str, &str, &str); 4] = [
     (
         "crates/strobe-gfx/src/gl/mod.rs",
         "query_u32",
@@ -80,6 +80,11 @@ pub const EXEMPT: [(&str, &str, &str); 3] = [
         "crates/strobe-gfx/src/gl/mod.rs",
         "disjoint_flag",
         "GL_GPU_DISJOINT_EXT, read only alongside an available timer result",
+    ),
+    (
+        "crates/strobe-gfx/src/gl/mod.rs",
+        "read_pack_buffer",
+        "WebGL2's read of the readback's pixels, only after its fence signalled (D554)",
     ),
     (
         "crates/strobe-gfx/src/gl/debug.rs",

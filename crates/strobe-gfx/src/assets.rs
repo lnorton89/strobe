@@ -114,6 +114,17 @@ pub(crate) fn decode_file(path: &Path) -> Result<image::DynamicImage, String> {
         .map_err(|e| e.to_string())
 }
 
+/// Decodes an image held in memory, by its content as [`decode_file`] does:
+/// the browser sandbox's pictures, which a visitor added to the page and
+/// which are on no disk (D554).
+pub(crate) fn decode_bytes(bytes: &[u8]) -> Result<image::DynamicImage, String> {
+    image::ImageReader::new(std::io::Cursor::new(bytes))
+        .with_guessed_format()
+        .map_err(|e| e.to_string())?
+        .decode()
+        .map_err(|e| e.to_string())
+}
+
 /// Reads the cube map `def` declares, relative to the scene folder `dir`.
 pub fn load_cubemap(dir: &Path, def: &CubemapDef) -> Result<CubeFaces, String> {
     if let Some(bad) = def.paths.iter().find(|path| !is_folder_relative(path)) {

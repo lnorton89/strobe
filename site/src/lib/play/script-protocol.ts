@@ -38,6 +38,12 @@ export type ToWorker =
       controls: Record<string, number[]>;
       /** _mouse x, y, click x, click y; _click l, r, m; _muv; _muvc. */
       mouse: number[];
+      /**
+       * The picture for textureFinalPass: 64x36 RGB8, rows from the bottom
+       * up, two frames old (D162, D554). Sent only to a script that calls
+       * it, once the engine's first read has landed; black until then.
+       */
+      finalPass?: Uint8Array;
     };
 
 export type FromWorker =

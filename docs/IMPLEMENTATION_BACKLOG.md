@@ -410,9 +410,15 @@
 ## Epic W — The website's shader sandbox
 
 ### W-01 Sandbox parity with the app
-- **Status:** Open. The `/play` sandbox (D524) runs the real player on WebGL2 and the library's scenes play (18 then; 17 since D526), but a scene's textures and media (`IMAGE_PATH`, image inputs, cubemaps), `#include` (lygia, hg_sdf, the user's own files), `textureFinalPass` (answers black), the Shadertoy audio texture, meta controls and presets are not in the browser.
-- **Work:** load images from the page (a file the visitor adds, kept in the zip and, where small, the link) through the player's media path; resolve `#include` against the scene's own files; read the final pass back asynchronously, as the app does (D162), for `textureFinalPass` and pass it to the worker; offer presets.
-- **Acceptance:** a scene with an image input and one with an include play the same in the sandbox and the app; `C-04`'s textureFinalPass scene answers in the browser.
+- **Status:** The first Work line is done (D554).
+  - **Pictures.** `IMAGES` pictures are files the visitor adds (Add image), uploaded by `ScenePlayer::replace_image` through the same decode and upload as a file from a scene folder. The zip keeps them all; a share link and the browser's storage keep them while they come to 48 KB in all, and Share names the ones it left out. A picture the scene names but the page lacks reads black and is named under the editor.
+  - **Includes.** `#include` resolves against the scene's own files (`include::expand_files`).
+  - **`textureFinalPass`.** It gets the app's asynchronous 64x36 readback (D162). On WebGL2 the read is `getBufferSubData` after the fence. The page sends it to the worker with each frame.
+  - **Presets.** They are `presets/<name>.json` files, saved and applied by `strobe_scene::preset`, with `default` applied when a scene opens. They travel in the zip and the link.
+  - **Evidence.** strobe-web's native tests check that the corpus gate's `media-image` and `include-file` fixtures draw byte for byte what the app's `SceneFolder::load` and `ScenePlayer` draw. Playwright (`tests/e2e/play-parity.spec.ts`) runs an include, an added picture, a textureFinalPass script and a preset in Chromium.
+  - **Left:** cube maps and `MEDIA` (`syn_Media`). They load from folders on decoder threads, and the browser build has no threads; the page names them as not loaded. Also left: lygia and hg_sdf, which only resolve when the scene holds those files; the Shadertoy audio texture; and meta controls (a preset's meta channel is ignored).
+- **Work:** cube maps from added pictures, as `IMAGES` now are; a still `MEDIA` picture without the decoder thread; the Shadertoy audio texture from the analyser; the meta controls.
+- **Acceptance:** a scene with an image input and one with an include play the same in the sandbox and the app (met on llvmpipe's GLES, D554); `C-04`'s textureFinalPass scene answers in the browser (met in Chromium, D554); a cube-map scene and a `MEDIA` scene play in the browser.
 
 ### W-02 Browsers, devices and context loss
 - **Status:** Open. Verified only in Chromium in the desktop app's browser pane (D524).

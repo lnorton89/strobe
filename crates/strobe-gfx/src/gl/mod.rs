@@ -1633,16 +1633,44 @@ impl Gl {
             return false;
         };
         self.bind_raw_buffer(glow::PIXEL_PACK_BUFFER, Some(buffer.raw));
+        let copied = self.copy_pack_buffer(length, out);
+        self.bind_raw_buffer(glow::PIXEL_PACK_BUFFER, None);
+        copied
+    }
+
+    /// Copies the bound pack buffer's first `out.len()` (= `length`) bytes
+    /// by mapping it.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn copy_pack_buffer(&self, length: i32, out: &mut [u8]) -> bool {
         let mapped = self.map_pack_buffer(length);
         let copied = !mapped.is_null();
         if copied {
             copy_from_mapped(mapped, out);
             self.unmap_pack_buffer();
         }
-        self.bind_raw_buffer(glow::PIXEL_PACK_BUFFER, None);
         copied
     }
 
+    /// WebGL2 cannot map a buffer; `getBufferSubData` is its read of one,
+    /// and after the fence has signalled it does not wait (D554).
+    #[cfg(target_arch = "wasm32")]
+    fn copy_pack_buffer(&self, _length: i32, out: &mut [u8]) -> bool {
+        self.read_pack_buffer(out);
+        true
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn read_pack_buffer(&self, out: &mut [u8]) {
+        // SAFETY: current-context invariant; the buffer is bound to the
+        // pack target and `read_buffer` checked `out` against its size, so
+        // the copy stays inside both.
+        unsafe {
+            self.raw
+                .get_buffer_sub_data(glow::PIXEL_PACK_BUFFER, 0, out)
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     fn map_pack_buffer(&self, length: i32) -> *const u8 {
         // SAFETY: current-context invariant; the buffer is bound to the
         // pack target and `length` was checked against its size. The
@@ -1655,6 +1683,7 @@ impl Gl {
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn unmap_pack_buffer(&self) {
         // SAFETY: current-context invariant; the buffer is mapped, and no
         // pointer into it is used afterwards.
@@ -1798,6 +1827,7 @@ impl Drop for TimerQuery {
 }
 
 /// Copies `out.len()` bytes from a mapped buffer pointer.
+#[cfg(not(target_arch = "wasm32"))]
 fn copy_from_mapped(mapped: *const u8, out: &mut [u8]) {
     // SAFETY: the caller mapped at least `out.len()` readable bytes starting
     // at `mapped` (`Gl::read_buffer` maps exactly that many and has not yet
