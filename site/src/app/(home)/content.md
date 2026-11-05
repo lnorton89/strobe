@@ -11,9 +11,9 @@ the floor is **OpenGL 3.3**, roughly a 2012 Intel HD 4000.
 
 <!-- @hero-proof -->
 
-The control window at 1440x900, playing Script Orbits: the live preview, the
-scene's controls in the side panel, and the transport, macros and BLACKOUT
-along the bottom.
+The control window at 1440x900, playing Electric Bloom: the scene library, the
+live preview and its controls, and the transport, macros and BLACKOUT along the
+bottom.
 
 <!-- @features-note -->
 

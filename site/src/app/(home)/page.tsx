@@ -115,10 +115,10 @@ export default async function Home() {
             <div className="min-w-0">
               <Screenshot
                 src="/generated/docs-images/app-control.png"
-                alt="Strobe's control window playing Script Orbits: the live preview at the centre, the scene's controls in the side panel, and the transport, macros and BLACKOUT along the bottom."
+                alt="Strobe's control window playing Electric Bloom: the scene library in the middle, the live preview and the scene's controls in the side panel, and the transport, macros and BLACKOUT along the bottom."
                 width={1440}
                 height={900}
-                title="Perform"
+                title="Library"
                 priority
               />
               <p className="text-secondary mt-4 text-[13px] leading-[1.65]">
