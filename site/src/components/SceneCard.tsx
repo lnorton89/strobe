@@ -63,14 +63,20 @@ export default function SceneCard({
         <p className={FACT}>{facts.join(" · ")}</p>
         {detailed ? (
           <>
-            <p className="text-secondary text-[13.5px] leading-[1.6] text-pretty">
+            {/*
+              Clamped: the longest descriptions are a dozen lines of notes to
+              whoever edits the scene, and they set the height of their whole
+              row. Their full text is in the app and the scene's file.
+            */}
+            <p className="text-secondary line-clamp-4 text-[13.5px] leading-[1.6]">
               {scene.description}
             </p>
-            {scene.credit ? (
-              <p className="text-label text-[12px] leading-normal">
-                {scene.credit}
-                {scene.license ? ` · ${scene.license}` : ""}
-              </p>
+            {/*
+              Only a credit to someone else. The library is Strobe's own, under
+              the licence the page states, so most would only repeat that.
+            */}
+            {scene.credit && !/^(original )?strobe\b/i.test(scene.credit) ? (
+              <p className="text-label text-[12px] leading-normal">{scene.credit}</p>
             ) : null}
             {scene.tags.length > 0 ? (
               <ul aria-label="Tags" className="mt-auto flex list-none flex-wrap gap-1.5 pt-2">
