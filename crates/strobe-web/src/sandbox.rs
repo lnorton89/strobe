@@ -5,7 +5,8 @@
 //               draws a frame.
 //
 // Dependencies: strobe-gfx (player), strobe-scene (scene, controls,
-//               synthetic audio), strobe-audio (analyser), serde_json
+//               presets, synthetic audio), strobe-audio (analyser),
+//               serde_json
 // ============================================================================
 
 //! The sandbox engine.
@@ -28,6 +29,13 @@
 //!   script creates: they are declared at load like the app's
 //!   ([`ScenePlayer::with_extras`]) and set each frame from the worker's
 //!   latest values.
+//! - **A scene is its files, and nothing else** (D554). `#include` resolves
+//!   against them, `IMAGES` pictures are files the visitor added, uploaded
+//!   through the player's own image path ([`ScenePlayer::replace_image`]),
+//!   and a script that calls `textureFinalPass` gets the app's asynchronous
+//!   64x36 readback (D162), which the page hands to the worker. Presets are
+//!   `presets/<name>.json` files, captured and applied by
+//!   `strobe_scene::preset` as the app's are.
 
 use serde_json::{Value, json};
 use strobe_audio::analyzer::Analyzer;
@@ -37,6 +45,7 @@ use strobe_scene::assemble::ExtraType;
 use strobe_scene::audio::SCALARS;
 use strobe_scene::control::ControlBank;
 use strobe_scene::load::SceneFolder;
+use strobe_scene::preset::{self, Channels, Preset};
 
 /// Where the audio uniforms come from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -68,6 +77,11 @@ struct Loaded {
     transitions: Vec<f32>,
     extras: Vec<(String, ExtraType)>,
     extra_values: Vec<[f32; 4]>,
+    /// What the scene names that the page did not supply, or that the
+    /// browser cannot show yet, one line each.
+    notes: Vec<String>,
+    /// The script calls `textureFinalPass`, so the readback is on.
+    reads_final_pass: bool,
 }
 
 /// The audio state, whichever source is chosen.
@@ -180,21 +194,17 @@ impl Sandbox {
     /// `main.glsl:N:` (the player's own error format).
     ///
     /// `extras` are the uniforms the scene's script creates, as the worker
-    /// reported them after `setup()`.
+    /// reported them after `setup()`. `asset` answers a picture the page
+    /// holds, by its file name, for the scene's `IMAGES`; a picture it does
+    /// not have reads black and is listed in [`Self::notes_json`].
     pub fn load(
         &mut self,
         title: &str,
         file: impl Fn(&str) -> Option<String>,
+        asset: impl Fn(&str) -> Option<Vec<u8>>,
         extras: Vec<(String, ExtraType)>,
     ) -> Result<String, String> {
-        let texts: Vec<(String, String)> = scene_files(&file);
-        let lookup = |name: &str| {
-            texts
-                .iter()
-                .find(|(n, _)| n == name)
-                .map(|(_, text)| text.as_str())
-        };
-        let scene = SceneFolder::from_files(title, lookup).map_err(|e| e.to_string())?;
+        let scene = SceneFolder::from_files(title, file).map_err(|e| e.to_string())?;
         let mut controls =
             ControlBank::new(scene.def.controls.clone()).map_err(|e| e.to_string())?;
         if let Some(old) = &self.scene {
@@ -206,7 +216,7 @@ impl Sandbox {
             .iter()
             .map(|t| t.initial)
             .collect();
-        let player = ScenePlayer::with_extras(
+        let mut player = ScenePlayer::with_extras(
             &self.gl,
             &self.caps,
             &scene,
@@ -215,6 +225,18 @@ impl Sandbox {
             &extras,
         )
         .map_err(|e| e.to_string())?;
+        // As the app's session does (D162): only a script that asks for the
+        // picture pays for reading it back.
+        let reads_final_pass = scene
+            .script
+            .as_deref()
+            .is_some_and(|script| script.contains("textureFinalPass"));
+        if reads_final_pass {
+            player
+                .enable_final_pass_readback()
+                .map_err(|e| e.to_string())?;
+        }
+        let notes = attach_images(&mut player, &scene, &asset);
         let extra_values = vec![[0.0; 4]; extras.len()];
         self.scene = Some(Loaded {
             player,
@@ -222,8 +244,68 @@ impl Sandbox {
             transitions,
             extras,
             extra_values,
+            notes,
+            reads_final_pass,
         });
         Ok(self.controls_json())
+    }
+
+    /// What the loaded scene names that is not here, as a JSON array of
+    /// lines: an `IMAGES` picture the page has not added, a cube map or
+    /// `MEDIA`, which the browser does not load. `[]` when nothing is
+    /// missing or with no scene.
+    pub fn notes_json(&self) -> String {
+        let notes = self.scene.as_ref().map_or(&[][..], |scene| &scene.notes);
+        json!(notes).to_string()
+    }
+
+    /// Whether the scene's script reads the picture (`textureFinalPass`),
+    /// so the page sends [`Self::final_pass`] to its worker.
+    pub fn reads_final_pass(&self) -> bool {
+        self.scene
+            .as_ref()
+            .is_some_and(|scene| scene.reads_final_pass)
+    }
+
+    /// The newest 64x36 RGB8 downsample of the picture, rows from the
+    /// bottom up, two frames old (D162); `None` before the first lands or
+    /// when the script does not read it.
+    pub fn final_pass(&self) -> Option<&[u8]> {
+        self.scene
+            .as_ref()
+            .and_then(|scene| scene.player.final_pass_pixels())
+    }
+
+    /// The scene's controls as a preset named `name`, as the text of
+    /// `presets/<name>.json`, in the app's own format
+    /// (`strobe_scene::preset`). The sandbox has no meta controls, so the
+    /// preset covers the scene's alone.
+    pub fn capture_preset(&self, name: &str) -> Result<String, String> {
+        if !preset::valid_name(name) {
+            return Err(preset::PresetError::BadName(name.to_string()).to_string());
+        }
+        let scene = self.scene.as_ref().ok_or("no scene is loaded")?;
+        let meta = ControlBank::new(Vec::new()).map_err(|e| e.to_string())?;
+        let channels = Channels {
+            scene: true,
+            meta: false,
+            media: false,
+        };
+        Preset::capture(name, &scene.controls, &meta, channels)
+            .to_text()
+            .map_err(|e| e.to_string())
+    }
+
+    /// Applies a preset's text to the scene's controls as targets, as the
+    /// app does (a smoothed control eases to it). Returns what could not be
+    /// applied, one line each. Its meta channel is ignored: the sandbox has
+    /// no meta controls.
+    pub fn apply_preset(&mut self, text: &str) -> Result<Vec<String>, String> {
+        let mut preset = Preset::from_text(text).map_err(|e| format!("preset: {e}"))?;
+        preset.channels.meta = false;
+        let scene = self.scene.as_mut().ok_or("no scene is loaded")?;
+        let mut meta = ControlBank::new(Vec::new()).map_err(|e| e.to_string())?;
+        Ok(preset.apply(&mut scene.controls, &mut meta))
     }
 
     /// The scene's controls as a JSON array: each control's `scene.json`
@@ -430,24 +512,43 @@ impl Sandbox {
     }
 }
 
-/// Every file a scene can name, read once: `main.glsl`, `scene.json`,
-/// `script.js`, and the `PASS_SOURCES` files `scene.json` lists (looked up
-/// lazily by name, so any `.glsl` the page holds is offered).
-fn scene_files(file: &impl Fn(&str) -> Option<String>) -> Vec<(String, String)> {
-    let mut names: Vec<String> = ["main.glsl", "scene.json", "script.js"]
-        .into_iter()
-        .map(str::to_string)
-        .collect();
-    let listed = file("scene.json")
-        .and_then(|json| serde_json::from_str::<Value>(&json).ok())
-        .and_then(|json| json.get("PASS_SOURCES").cloned());
-    if let Some(Value::Array(sources)) = listed {
-        names.extend(sources.iter().filter_map(Value::as_str).map(str::to_string));
+/// Uploads each `IMAGES` picture the page holds, by the entry's path or,
+/// failing that, its file name (the page keeps no folders), and says what
+/// is missing. The player tried the scene folder first, which in the
+/// browser does not exist, so its problems for those entries are dropped;
+/// the ones left are cube maps and `MEDIA`, which the browser cannot load.
+fn attach_images(
+    player: &mut ScenePlayer,
+    scene: &SceneFolder,
+    asset: &impl Fn(&str) -> Option<Vec<u8>>,
+) -> Vec<String> {
+    let mut notes = Vec::new();
+    for (index, image) in scene.def.images.iter().enumerate() {
+        let base = image.path.rsplit('/').next().unwrap_or(&image.path);
+        let found = asset(&image.path).or_else(|| asset(base));
+        match found {
+            Some(bytes) => {
+                if let Err(error) = player.replace_image(index, &bytes) {
+                    notes.push(format!("image `{}`: {error}", image.name));
+                }
+            }
+            None => notes.push(format!(
+                "image `{}` reads {base}, which is not in the scene: add it with Add image",
+                image.name
+            )),
+        }
     }
-    names
-        .into_iter()
-        .filter_map(|name| file(&name).map(|text| (name, text)))
-        .collect()
+    let images: Vec<&str> = scene.def.images.iter().map(|i| i.name.as_str()).collect();
+    for problem in player.take_asset_problems() {
+        if images.contains(&problem.asset.as_str()) {
+            continue;
+        }
+        notes.push(format!(
+            "`{}` ({}) does not load in the browser yet: cube maps and MEDIA are app-only",
+            problem.asset, problem.path
+        ));
+    }
+    notes
 }
 
 /// Components in a script uniform of type `ty`.

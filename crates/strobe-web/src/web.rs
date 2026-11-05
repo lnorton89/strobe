@@ -93,10 +93,18 @@ impl Engine {
         self.sandbox.renderer()
     }
 
-    /// Loads a scene from `files` (an object of file name to text) with the
-    /// script uniforms `extras` (`[[name, dims], ...]` as JSON). Returns the
-    /// controls as JSON; throws the error text and keeps the old scene.
-    pub fn load(&mut self, title: &str, files: JsValue, extras: &str) -> Result<String, String> {
+    /// Loads a scene from `files` (an object of file name to text) and
+    /// `assets` (an object of file name to `Uint8Array`: the pictures the
+    /// visitor added) with the script uniforms `extras` (`[[name, dims],
+    /// ...]` as JSON). Returns the controls as JSON; throws the error text
+    /// and keeps the old scene.
+    pub fn load(
+        &mut self,
+        title: &str,
+        files: JsValue,
+        assets: JsValue,
+        extras: &str,
+    ) -> Result<String, String> {
         let extras: Vec<(String, strobe_scene::assemble::ExtraType)> =
             serde_json::from_str::<Vec<(String, usize)>>(extras)
                 .map_err(|e| format!("script uniforms: {e}"))?
@@ -108,7 +116,56 @@ impl Engine {
                 .ok()
                 .and_then(|value| value.as_string())
         };
-        self.sandbox.load(title, file, extras)
+        let asset = |name: &str| {
+            js_sys::Reflect::get(&assets, &JsValue::from_str(name))
+                .ok()
+                .and_then(|value| value.dyn_into::<js_sys::Uint8Array>().ok())
+                .map(|bytes| bytes.to_vec())
+        };
+        self.sandbox.load(title, file, asset, extras)
+    }
+
+    /// What the scene names that is not here (a picture not added, a cube
+    /// map), as a JSON array of lines.
+    #[wasm_bindgen(js_name = notesJson)]
+    pub fn notes_json(&self) -> String {
+        self.sandbox.notes_json()
+    }
+
+    /// Whether the script reads the picture with `textureFinalPass`.
+    #[wasm_bindgen(js_name = readsFinalPass)]
+    pub fn reads_final_pass(&self) -> bool {
+        self.sandbox.reads_final_pass()
+    }
+
+    /// Copies the newest 64x36 RGB downsample of the picture into `out`
+    /// (6912 bytes, rows from the bottom up), for the script worker. `false`,
+    /// with `out` untouched, before the first read has landed.
+    #[wasm_bindgen(js_name = finalPass)]
+    pub fn final_pass(&self, out: &mut [u8]) -> bool {
+        match self.sandbox.final_pass() {
+            Some(pixels) if pixels.len() == out.len() => {
+                out.copy_from_slice(pixels);
+                true
+            }
+            Some(_) | None => false,
+        }
+    }
+
+    /// The controls as the text of `presets/<name>.json`; throws for a bad
+    /// name.
+    #[wasm_bindgen(js_name = capturePreset)]
+    pub fn capture_preset(&self, name: &str) -> Result<String, String> {
+        self.sandbox.capture_preset(name)
+    }
+
+    /// Applies a preset's text; returns what could not be applied as a JSON
+    /// array of lines, and throws for text that is not a preset.
+    #[wasm_bindgen(js_name = applyPreset)]
+    pub fn apply_preset(&mut self, text: &str) -> Result<String, String> {
+        self.sandbox
+            .apply_preset(text)
+            .map(|problems| serde_json::json!(problems).to_string())
     }
 
     /// The controls with their current values, as JSON.

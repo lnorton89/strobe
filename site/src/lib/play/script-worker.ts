@@ -12,8 +12,9 @@
  * overwritten each frame), _mouse/_click/_muv/_muvc, setUniform, setControl,
  * setControlNormalized, defaultControl, randomizeControl, defaultGroup,
  * randomizeGroup, the five event registrations, the deprecated `uniforms`
- * object, console/print and printGlobalKeys. textureFinalPass answers black:
- * the browser engine does not read the picture back yet (backlog W-01).
+ * object, console/print and printGlobalKeys. textureFinalPass reads the
+ * engine's 64x36 asynchronous readback of the picture, which the page sends
+ * with each frame (D162, D554), nearest texel as the native host does.
  */
 
 import type {
@@ -56,6 +57,24 @@ export function workerMain(): void {
   const handlers: Handler[] = [];
   /** Uniform values staged this frame, by name. */
   let staged = new Map<string, number[]>();
+  /** The latest 64x36 RGB picture the page sent, for textureFinalPass. */
+  let finalPass: Uint8Array | undefined;
+  const FINAL_WIDTH = 64;
+  const FINAL_HEIGHT = 36;
+
+  /** The cell `t` (0..1, clamped) falls in, out of `n`: the host's `cell`. */
+  function cell(t: number, n: number): number {
+    if (!Number.isFinite(t)) return 0;
+    return Math.min(Math.floor(Math.min(Math.max(t, 0), 1) * n), n - 1);
+  }
+
+  /** textureFinalPass(x, y): `[r, g, b]` in 0..1 at the nearest texel, y up. */
+  function textureFinalPass(x: unknown, y: unknown): number[] {
+    if (!finalPass || finalPass.length !== FINAL_WIDTH * FINAL_HEIGHT * 3) return [0, 0, 0];
+    const at = (cell(Number(y), FINAL_HEIGHT) * FINAL_WIDTH + cell(Number(x), FINAL_WIDTH)) * 3;
+    return [0, 1, 2].map((i) => (finalPass?.[at + i] ?? 0) / 255);
+  }
+
   /** The uniforms the scene was built with, in order; sealed after load. */
   let declared: [string, number][] = [];
   let sealed = false;
@@ -263,6 +282,7 @@ export function workerMain(): void {
   function writeGlobals(message: Extract<ToWorker, { type: "frame" }>) {
     scope.TIME = message.time;
     scope.FRAMECOUNT = message.frame;
+    finalPass = message.finalPass;
     scalars.forEach((name, i) => {
       scope[name] = message.audio[i] ?? 0;
     });
@@ -302,7 +322,7 @@ export function workerMain(): void {
       onOnToOff: register("onToOff"),
       whileOn: register("whileOn"),
       whileOff: register("whileOff"),
-      textureFinalPass: () => [0, 0, 0],
+      textureFinalPass,
       print: (...args: unknown[]) => say("log", args),
       printGlobalKeys: () =>
         say("log", [

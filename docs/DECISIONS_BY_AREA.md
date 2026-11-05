@@ -291,7 +291,7 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## strobe-scene
 
-28 decision(s).
+29 decision(s).
 
 - [D61](decisions/D61.md): audio is the app's, started on a thread, falls back to synthetic by capture state
 - [D73](decisions/D73.md): the playlist model is authored data, resolved once into a flat view
@@ -321,10 +321,11 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D539](decisions/D539.md): property tests over untrusted input, weekly machete and coverage, and the decisions indexed by crate
 - [D552](decisions/D552.md): the website and its wasm engine are built and played in CI, as a lane of their own
 - [D553](decisions/D553.md): Shadertoy cube-map inputs become scene cube maps, the keyboard is 256x3 with every key up, and the Needs-work bin is closed
+- [D554](decisions/D554.md): the sandbox's scene is its files: pictures added, includes resolved, the picture read back, presets as files
 
 ## strobe-script
 
-13 decision(s).
+14 decision(s).
 
 - [D62](decisions/D62.md): script uniforms are compiled in at load, from the script's first frame
 - [D63](decisions/D63.md): the Windows cross-check from Linux now excludes `strobe-app` too
@@ -339,6 +340,7 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D326](decisions/D326.md): `setup` and `update` declared with a top-level `let` or `const` run too
 - [D413](decisions/D413.md): a promise rejection nobody handles is a console error, once per reason
 - [D414](decisions/D414.md): an event callback may be a `let`/`const` function or the function itself
+- [D554](decisions/D554.md): the sandbox's scene is its files: pictures added, includes resolved, the picture read back, presets as files
 
 ## strobe-shadertoy
 
@@ -372,11 +374,12 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## strobe-web
 
-3 decision(s).
+4 decision(s).
 
 - [D524](decisions/D524.md): the website's `/play` sandbox runs Strobe's own player as wasm on WebGL2, scripts in a worker, with no server
 - [D544](decisions/D544.md): what the audit work had skipped: a static C runtime, the imports and the loaded ANGLE checked, the browser engine built, generators that reach the code, and a changelog that can be corrected
 - [D552](decisions/D552.md): the website and its wasm engine are built and played in CI, as a lane of their own
+- [D554](decisions/D554.md): the sandbox's scene is its files: pictures added, includes resolved, the picture read back, presets as files
 
 ## xtask
 

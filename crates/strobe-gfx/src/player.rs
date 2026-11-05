@@ -594,6 +594,30 @@ impl ScenePlayer {
         std::mem::take(&mut self.problems)
     }
 
+    /// Replaces the picture behind `IMAGES` entry `index` with the image in
+    /// `encoded` (PNG or JPEG, told by its content), decoded and uploaded
+    /// exactly as a file from the scene folder is (`load_image`): flipped,
+    /// wrapped and filtered as the entry says. The browser sandbox's way in,
+    /// where a scene's pictures are files a visitor added to the page and no
+    /// folder exists to read them from (D554). A problem reported for that
+    /// entry at load is withdrawn. On an error the old picture stays.
+    pub fn replace_image(&mut self, index: usize, encoded: &[u8]) -> Result<(), PlayerError> {
+        let Some(def) = self.def.images.get(index) else {
+            return Err(PlayerError::Resource(format!(
+                "the scene has no image {index}"
+            )));
+        };
+        let opened = crate::assets::decode_bytes(encoded)
+            .map_err(|e| PlayerError::Resource(format!("{}: {e}", def.path)))?;
+        let texture = upload_image(&self.gl, opened, def)?;
+        let name = def.name.clone();
+        if let Some(slot) = self.images.get_mut(index) {
+            *slot = texture;
+        }
+        self.problems.retain(|problem| problem.asset != name);
+        Ok(())
+    }
+
     /// Shows `request` (a picture, or a folder of pictures) behind
     /// `syn_Media` in place of the scene's own. It decodes on a thread of
     /// its own; the old picture stays up until the first new one has landed,
@@ -1784,6 +1808,17 @@ fn quantise(value: f32) -> u8 {
 fn load_image(gl: &Gl, path: &Path, def: &ImageDef) -> Result<Texture, PlayerError> {
     let opened = crate::assets::decode_file(path)
         .map_err(|e| PlayerError::Resource(format!("{}: {e}", path.display())))?;
+    upload_image(gl, opened, def)
+}
+
+/// Uploads a decoded `IMAGES` picture the way `def` asks: flipped if it
+/// says so, with its wrap and filter, mipmapped for `mipmap`. The one path
+/// a file from the scene folder and a picture from the browser both take.
+fn upload_image(
+    gl: &Gl,
+    opened: image::DynamicImage,
+    def: &ImageDef,
+) -> Result<Texture, PlayerError> {
     let decoded = if def.vflip { opened.flipv() } else { opened }.into_rgba8();
     let (w, h) = decoded.dimensions();
     let sampling = sampling_for(def.wrap, def.filter);

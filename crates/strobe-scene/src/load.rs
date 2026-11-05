@@ -100,15 +100,17 @@ impl SceneFolder {
 
     /// A scene from its files' text, with no folder behind it: the browser
     /// sandbox's editor (D524). `file` answers a scene-relative name such as
-    /// `main.glsl`, and the rules are [`Self::load`]'s. `#include` is not
-    /// expanded, since there is no folder or library path to look in, so an
-    /// include is left as its line and the driver's error names it.
-    pub fn from_files<'a>(
+    /// `main.glsl`, and the rules are [`Self::load`]'s. `#include` resolves
+    /// against the scene's own files (`include::expand_files`, D554); with
+    /// no library path, an include of lygia or hg_sdf finds nothing unless
+    /// the scene holds that file, and is left as its line for the driver's
+    /// error to name.
+    pub fn from_files(
         title: &str,
-        file: impl Fn(&str) -> Option<&'a str>,
+        file: impl Fn(&str) -> Option<String>,
     ) -> Result<Self, SceneError> {
         let dir = PathBuf::from(format!("{title}.synScene"));
-        let read = |name: &str| file(name).map(|text| clean(text.to_string()));
+        let read = |name: &str| file(name).map(clean);
         let shader = read(MAIN_SHADER).ok_or_else(|| SceneError::MissingShader(dir.clone()))?;
         let json = read("scene.json").unwrap_or_else(|| "{}".to_string());
         let def = SceneDef::parse(&json, title)?;
@@ -118,6 +120,11 @@ impl SceneFolder {
             .flatten()
             .map(|name| read(name).ok_or_else(|| SceneError::missing_file(&dir, name)))
             .collect::<Result<Vec<_>, _>>()?;
+        let shader = crate::include::expand_files(shader, &file);
+        let pass_shaders = pass_shaders
+            .into_iter()
+            .map(|text| crate::include::expand_files(text, &file))
+            .collect();
         Ok(Self {
             dir,
             def,
@@ -283,7 +290,12 @@ mod tests {
             ("a.glsl", "vec4 renderMain() { return vec4(0.5); }"),
             ("script.js", "function setup() {}"),
         ];
-        let file = |name: &str| files.iter().find(|(n, _)| *n == name).map(|(_, t)| *t);
+        let file = |name: &str| {
+            files
+                .iter()
+                .find(|(n, _)| *n == name)
+                .map(|(_, t)| (*t).to_string())
+        };
         let scene = SceneFolder::from_files("web", file)?;
         assert!(
             scene.shader.starts_with("vec4") && !scene.shader.contains('\r'),
@@ -300,6 +312,7 @@ mod tests {
             (name == "main.glsl")
                 .then_some("void main() {}")
                 .or_else(|| (name == "scene.json").then_some(r#"{"PASS_SOURCES":["gone.glsl"]}"#))
+                .map(str::to_string)
         });
         assert!(
             missing.is_err_and(|e| e.to_string().contains("gone.glsl")),

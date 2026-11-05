@@ -9,7 +9,21 @@
 /** The wasm-bindgen class, as crates/strobe-web/src/web.rs declares it. */
 export interface Engine {
   renderer(): string;
-  load(title: string, files: Record<string, string>, extras: string): string;
+  load(
+    title: string,
+    files: Record<string, string>,
+    assets: Record<string, Uint8Array>,
+    extras: string,
+  ): string;
+  /** What the scene names that is not here, as a JSON array of lines. */
+  notesJson(): string;
+  readsFinalPass(): boolean;
+  /** Fills `out` (64x36 RGB) with the newest readback; false before the first. */
+  finalPass(out: Uint8Array): boolean;
+  /** The controls as the text of presets/<name>.json; throws for a bad name. */
+  capturePreset(name: string): string;
+  /** Applies a preset's text; returns what could not be applied, as JSON. */
+  applyPreset(text: string): string;
   controlsJson(): string;
   controlOutputsJson(): string;
   extrasJson(): string;
