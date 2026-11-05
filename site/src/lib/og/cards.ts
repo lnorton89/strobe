@@ -66,10 +66,9 @@ export const CARDS: Record<ExportedRoute, CardCopy> = {
   },
   "/architecture/": {
     eyebrow: "Architecture",
-    title: "Fifteen crates, one GPU boundary.",
-    description:
-      "Only the app knows about everything, only strobe-gfx touches the GPU, and everything that can be tested without a GPU is.",
-    alt: "Strobe social card — the architecture.",
+    title: "How Strobe is put together.",
+    description: "The crate graph, the frame loop, and the one crate that touches the GPU.",
+    alt: "Strobe's architecture, beside a frame of its Silicon Atlas scene.",
     scene: "12-silicon-atlas",
   },
   "/roadmap/": {
