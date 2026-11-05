@@ -36,7 +36,9 @@
 
 use crate::assets::{self, AssetProblem, MediaRequest};
 use crate::caps::{Caps, FloatPrecision};
-use crate::gl::{Format, Framebuffer, Gl, Program, Sampling, Stage, Texture, VertexArray};
+use crate::gl::{
+    Format, Framebuffer, Gl, LinkFailure, Program, Sampling, Stage, Texture, VertexArray,
+};
 use crate::media::Media;
 use crate::readback::FinalPassReader;
 use std::path::Path;
@@ -293,7 +295,24 @@ impl ScenePlayer {
         options: Options,
         extras: &[(String, ExtraType)],
     ) -> Result<Self, PlayerError> {
-        let res = |e: String| PlayerError::Resource(e);
+        Self::begin(gl, caps, scene, render_size, options, extras)?.finish(gl, caps)
+    }
+
+    /// Starts building `scene`: every pass's shader is handed to the driver
+    /// to compile and link, and nothing waits for it (D555). On a driver
+    /// that compiles in the background ([`Gl::compiles_in_parallel`]) this
+    /// returns in milliseconds while the work goes on, so the host can keep
+    /// drawing, poll [`PendingPlayer::ready`] once a frame, and call
+    /// [`PendingPlayer::finish`] when it says yes. Elsewhere `finish` just
+    /// waits. [`Self::with_extras`] is `begin` then `finish`.
+    pub fn begin(
+        gl: &Gl,
+        caps: &Caps,
+        scene: &SceneFolder,
+        render_size: [i32; 2],
+        options: Options,
+        extras: &[(String, ExtraType)],
+    ) -> Result<PendingPlayer, PlayerError> {
         let def = scene.def.clone();
         let requested = [render_size[0].max(1), render_size[1].max(1)];
         let pinned = strobe_scene::pin::pinned_size(scene);
@@ -301,12 +320,12 @@ impl ScenePlayer {
         check_absolute_sizes(&def, texture_limit(caps))?;
 
         let vertex_src = assemble::vertex(caps.dialect);
-        let vertex =
-            gl.compile(Stage::Vertex, &vertex_src)
-                .map_err(|log| PlayerError::Program {
-                    pass: 0,
-                    message: format!("vertex: {log}"),
-                })?;
+        let vertex = gl
+            .start_compile(Stage::Vertex, &vertex_src)
+            .map_err(|log| PlayerError::Program {
+                pass: 0,
+                message: format!("vertex: {log}"),
+            })?;
 
         // Different source per pass means different programs: sharing one
         // is not an option, so `PASS_SOURCES` overrides the benchmark's
@@ -324,46 +343,87 @@ impl ScenePlayer {
             specialise_passes: specialise,
             ..options
         };
-        let mut shared: Option<Rc<Compiled>> = None;
-        let mut programs = Vec::with_capacity(def.passes.len());
+        // Every program is started before any is waited on, so a driver
+        // with compiler threads builds the passes side by side.
+        let mut started: Vec<Started> = Vec::new();
+        let mut pass_program = Vec::with_capacity(def.passes.len());
         for index in 0..def.passes.len() {
-            let program = match (&shared, specialise) {
-                (Some(program), false) => Rc::clone(program),
-                (None, false) | (_, true) => {
-                    let pass_index = if specialise {
-                        PassIndex::Constant(index)
-                    } else {
-                        PassIndex::Uniform
-                    };
-                    let source = assemble::fragment(&Request {
-                        scene: &def,
-                        user_code: scene.shader_for(index),
-                        dialect: caps.dialect,
-                        pass_index,
-                        extra: extras,
-                    });
-                    dump_fragment(&def.title, caps.dialect, index, &source);
-                    let compiled = Rc::new(build_program(
-                        gl,
-                        caps,
-                        &def,
-                        extras,
-                        &vertex,
-                        Fragment {
-                            source: &source,
-                            user_code: scene.shader_for(index),
-                            file: scene.file_for(index),
-                        },
-                        index,
-                    )?);
-                    if !specialise {
-                        shared = Some(Rc::clone(&compiled));
-                    }
-                    compiled
-                }
+            if !specialise && !started.is_empty() {
+                // The one shared program.
+                pass_program.push(0);
+                continue;
+            }
+            let pass_index = if specialise {
+                PassIndex::Constant(index)
+            } else {
+                PassIndex::Uniform
             };
-            programs.push(program);
+            let source = assemble::fragment(&Request {
+                scene: &def,
+                user_code: scene.shader_for(index),
+                dialect: caps.dialect,
+                pass_index,
+                extra: extras,
+            });
+            dump_fragment(&def.title, caps.dialect, index, &source);
+            pass_program.push(started.len());
+            started.push(start_program(
+                gl,
+                &vertex,
+                source,
+                scene.shader_for(index).to_string(),
+                scene.file_for(index).to_string(),
+                index,
+            )?);
         }
+        Ok(PendingPlayer {
+            scene: scene.clone(),
+            def,
+            requested,
+            pinned,
+            render_size,
+            options,
+            extras: extras.to_vec(),
+            vertex,
+            started,
+            pass_program,
+        })
+    }
+
+    /// The rest of a build once its programs are linked (or waited for):
+    /// locations, textures, media and targets.
+    fn assemble(pending: PendingPlayer, gl: &Gl, caps: &Caps) -> Result<Self, PlayerError> {
+        let res = |e: String| PlayerError::Resource(e);
+        let PendingPlayer {
+            scene,
+            def,
+            requested,
+            pinned,
+            render_size,
+            options,
+            extras,
+            vertex,
+            started,
+            pass_program,
+        } = pending;
+        let extras = extras.as_slice();
+        let finished = started
+            .into_iter()
+            .map(|program| finish_program(gl, caps, &def, extras, &vertex, program).map(Rc::new))
+            .collect::<Result<Vec<_>, _>>()?;
+        let programs = pass_program
+            .iter()
+            .map(|&i| {
+                finished
+                    .get(i)
+                    .map(Rc::clone)
+                    .ok_or_else(|| PlayerError::Program {
+                        pass: i,
+                        message: "link: a pass has no program".to_string(),
+                    })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let scene = &scene;
 
         let black = gl
             .texture_2d(
@@ -1413,28 +1473,139 @@ struct Fragment<'a> {
     file: &'a str,
 }
 
-/// Compiles and links one pass program and resolves its locations.
-fn build_program(
+/// A scene whose programs the driver is still compiling (D555), from
+/// [`ScenePlayer::begin`]. Holds everything the build needs to finish;
+/// dropped, it frees what it made.
+pub struct PendingPlayer {
+    scene: SceneFolder,
+    def: SceneDef,
+    requested: [i32; 2],
+    pinned: Option<[i32; 2]>,
+    render_size: [i32; 2],
+    options: Options,
+    extras: Vec<(String, ExtraType)>,
+    vertex: crate::gl::Shader,
+    /// One per distinct program: one per pass, or one shared.
+    started: Vec<Started>,
+    /// Which of `started` each pass runs.
+    pass_program: Vec<usize>,
+}
+
+impl std::fmt::Debug for PendingPlayer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PendingPlayer")
+            .field("scene", &self.def.title)
+            .field("programs", &self.started.len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl PendingPlayer {
+    /// Whether every program is compiled and linked, so [`Self::finish`]
+    /// will not wait on the driver. A poll, cheap enough for once a frame.
+    /// Always true on a driver without background compiles.
+    pub fn ready(&self, gl: &Gl) -> bool {
+        self.started
+            .iter()
+            .all(|started| gl.link_finished(&started.program))
+    }
+
+    /// The scene's title.
+    pub fn title(&self) -> &str {
+        &self.def.title
+    }
+
+    /// Finishes the build: reads how each program went (waiting for the
+    /// driver if it is not done), resolves locations, and allocates
+    /// textures and targets, as [`ScenePlayer::with_extras`] does.
+    pub fn finish(self, gl: &Gl, caps: &Caps) -> Result<ScenePlayer, PlayerError> {
+        ScenePlayer::assemble(self, gl, caps)
+    }
+}
+
+/// One pass program handed to the driver, and what its errors are told in
+/// terms of.
+struct Started {
+    program: crate::gl::Program,
+    fragment: crate::gl::Shader,
+    /// The assembled shader.
+    source: String,
+    /// The pass's code as the scene holds it.
+    user_code: String,
+    /// The file it came from.
+    file: String,
+    pass: usize,
+}
+
+/// Hands one pass program to the driver: its fragment shader is compiled
+/// and linked with `vertex`, and nothing waits for either (D555).
+fn start_program(
+    gl: &Gl,
+    vertex: &crate::gl::Shader,
+    source: String,
+    user_code: String,
+    file: String,
+    pass: usize,
+) -> Result<Started, PlayerError> {
+    let refused = |log: String| PlayerError::Program {
+        pass,
+        message: format!("link: {log}"),
+    };
+    let fragment = gl
+        .start_compile(Stage::Fragment, &source)
+        .map_err(refused)?;
+    let program = gl.start_link(vertex, &fragment).map_err(refused)?;
+    Ok(Started {
+        program,
+        fragment,
+        source,
+        user_code,
+        file,
+        pass,
+    })
+}
+
+/// Reads how one started program went and resolves its locations.
+fn finish_program(
     gl: &Gl,
     caps: &Caps,
     def: &SceneDef,
     extras: &[(String, ExtraType)],
     vertex: &crate::gl::Shader,
-    fragment: Fragment<'_>,
-    pass: usize,
+    started: Started,
 ) -> Result<Compiled, PlayerError> {
-    let fragment = gl
-        .compile(Stage::Fragment, fragment.source)
-        .map_err(|log| PlayerError::Program {
-            pass,
-            message: describe_log(&log, fragment),
-        })?;
+    let Started {
+        program,
+        fragment,
+        source,
+        user_code,
+        file,
+        pass,
+    } = started;
     let program = gl
-        .link(vertex, &fragment)
-        .map_err(|log| PlayerError::Program {
-            pass,
-            message: format!("link: {log}"),
+        .finish_link(program, vertex, &fragment)
+        .map_err(|failure| match failure {
+            LinkFailure::Fragment(log) => PlayerError::Program {
+                pass,
+                message: describe_log(
+                    &log,
+                    Fragment {
+                        source: &source,
+                        user_code: &user_code,
+                        file: &file,
+                    },
+                ),
+            },
+            LinkFailure::Vertex(log) => PlayerError::Program {
+                pass,
+                message: format!("vertex: {log}"),
+            },
+            LinkFailure::Link(log) => PlayerError::Program {
+                pass,
+                message: format!("link: {log}"),
+            },
         })?;
+    drop(fragment);
     let loc = |name: &str| gl.uniform_location(&program, name);
 
     gl.use_program(&program);

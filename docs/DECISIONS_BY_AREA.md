@@ -29,7 +29,7 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## strobe-app
 
-46 decision(s).
+47 decision(s).
 
 - [D42](decisions/D42.md): release builds keep line tables and are not stripped
 - [D55](decisions/D55.md): macOS CI is two-tier until strobe-gfx has a CGL context
@@ -77,6 +77,7 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D536](decisions/D536.md): one manifest pins the native DLLs; the SBOM, the build and `--diagnose` read it; scheduled checks watch what pushes cannot
 - [D544](decisions/D544.md): what the audit work had skipped: a static C runtime, the imports and the loaded ANGLE checked, the browser engine built, generators that reach the code, and a changelog that can be corrected
 - [D551](decisions/D551.md): `--diagnose` raises its box only when nothing reads its output, so a harness run ends
+- [D553](decisions/D553.md): Shadertoy cube-map inputs become scene cube maps, the keyboard is 256x3 with every key up, and the Needs-work bin is closed
 
 ## strobe-audio
 
@@ -112,7 +113,7 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## strobe-bench
 
-22 decision(s).
+23 decision(s).
 
 - [D55](decisions/D55.md): macOS CI is two-tier until strobe-gfx has a CGL context
 - [D56](decisions/D56.md): CI keeps the rendered frames
@@ -136,6 +137,7 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D498](decisions/D498.md): a Windows dev build fetches the pinned ANGLE DLLs itself when they are missing
 - [D504](decisions/D504.md): pull requests build `release-fast`; the fat-LTO `release` build runs on master
 - [D534](decisions/D534.md): the script-aware corpus is a regression gate, with expectations and baseline frames
+- [D555](decisions/D555.md): a hand-loaded scene compiles in the background where the driver can, and the output plays on meanwhile
 
 ## strobe-capture
 
@@ -145,7 +147,7 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## strobe-conventions
 
-9 decision(s).
+10 decision(s).
 
 - [D41](decisions/D41.md): unsafe is allowed in exactly one `strobe-diag` file
 - [D54](decisions/D54.md): actions pinned by SHA, permissions declared, both enforced by a test
@@ -156,10 +158,11 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D531](decisions/D531.md): faster iteration: one file per decision, no shared summary lines, docs-only CI, and a client-list save that retries
 - [D541](decisions/D541.md): the crate graph, `unsafe`, feature configurations, rustdoc, workflows and scripts are checked, and the build names its profile
 - [D552](decisions/D552.md): the website and its wasm engine are built and played in CI, as a lane of their own
+- [D555](decisions/D555.md): a hand-loaded scene compiles in the background where the driver can, and the output plays on meanwhile
 
 ## strobe-diag
 
-17 decision(s).
+18 decision(s).
 
 - [D40](decisions/D40.md): our own `log` backend in `strobe-diag`, not tracing or env_logger
 - [D41](decisions/D41.md): unsafe is allowed in exactly one `strobe-diag` file
@@ -178,10 +181,11 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D464](decisions/D464.md): build scripts watch only what moves with a build
 - [D528](decisions/D528.md): a webcam is a media choice, `camera:<name>`, captured by `strobe-capture`
 - [D541](decisions/D541.md): the crate graph, `unsafe`, feature configurations, rustdoc, workflows and scripts are checked, and the build names its profile
+- [D556](decisions/D556.md): the computer and display stay awake while the output is fullscreen
 
 ## strobe-gfx
 
-42 decision(s).
+43 decision(s).
 
 - [D40](decisions/D40.md): our own `log` backend in `strobe-diag`, not tracing or env_logger
 - [D41](decisions/D41.md): unsafe is allowed in exactly one `strobe-diag` file
@@ -225,6 +229,7 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D541](decisions/D541.md): the crate graph, `unsafe`, feature configurations, rustdoc, workflows and scripts are checked, and the build names its profile
 - [D544](decisions/D544.md): what the audit work had skipped: a static C runtime, the imports and the loaded ANGLE checked, the browser engine built, generators that reach the code, and a changelog that can be corrected
 - [D552](decisions/D552.md): the website and its wasm engine are built and played in CI, as a lane of their own
+- [D553](decisions/D553.md): Shadertoy cube-map inputs become scene cube maps, the keyboard is 256x3 with every key up, and the Needs-work bin is closed
 
 ## strobe-io
 
@@ -286,7 +291,7 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## strobe-scene
 
-27 decision(s).
+28 decision(s).
 
 - [D61](decisions/D61.md): audio is the app's, started on a thread, falls back to synthetic by capture state
 - [D73](decisions/D73.md): the playlist model is authored data, resolved once into a flat view
@@ -315,6 +320,7 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D528](decisions/D528.md): a webcam is a media choice, `camera:<name>`, captured by `strobe-capture`
 - [D539](decisions/D539.md): property tests over untrusted input, weekly machete and coverage, and the decisions indexed by crate
 - [D552](decisions/D552.md): the website and its wasm engine are built and played in CI, as a lane of their own
+- [D553](decisions/D553.md): Shadertoy cube-map inputs become scene cube maps, the keyboard is 256x3 with every key up, and the Needs-work bin is closed
 
 ## strobe-script
 
@@ -336,7 +342,7 @@ crate" when it names none. The log itself, and how to add to it, is
 
 ## strobe-shadertoy
 
-16 decision(s).
+17 decision(s).
 
 - [D94](decisions/D94.md): dialect normalisation is token-level, dialect-neutral, and stops where types begin
 - [D110](decisions/D110.md): the HTTP client is ureq with rustls and compiled-in roots, behind a `net` feature
@@ -354,6 +360,7 @@ crate" when it names none. The log itself, and how to add to it, is
 - [D503](decisions/D503.md): tests bind loopback; the few that need every interface wait for `STROBE_TEST_LAN=1`
 - [D539](decisions/D539.md): property tests over untrusted input, weekly machete and coverage, and the decisions indexed by crate
 - [D541](decisions/D541.md): the crate graph, `unsafe`, feature configurations, rustdoc, workflows and scripts are checked, and the build names its profile
+- [D553](decisions/D553.md): Shadertoy cube-map inputs become scene cube maps, the keyboard is 256x3 with every key up, and the Needs-work bin is closed
 
 ## strobe-ssf-lib
 

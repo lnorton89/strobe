@@ -1,18 +1,21 @@
 // ============================================================================
 // Module:       strobe_diag::native
-// Description:  The only unsafe code in strobe-diag: one leaf wrapper that
-//               builds the crash handler's callback object.
+// Description:  The only unsafe code in strobe-diag: leaf wrappers for the
+//               crash handler's callback object and Windows' power request.
 //
-// Dependencies: crash-handler
+// Dependencies: crash-handler; windows-sys (Windows)
 // ============================================================================
 
-//! The native-crash unsafe leaf.
+//! The native unsafe leaves.
 //!
 //! `crash-handler` exposes exactly one unsafe entry point that this crate
 //! needs: `make_crash_event`, which turns a closure into the object that
 //! the signal handler (Linux/macOS) or exception filter (Windows) calls.
 //! Attaching that object to the process, [`crash_handler::CrashHandler::attach`],
 //! is a safe function, and so is everything else in [`crate::crash`].
+//!
+//! On Windows, `SetThreadExecutionState` is the other (D556): how a
+//! fullscreen show keeps the system and display awake ([`crate::power`]).
 //!
 //! This file follows the same leaf rules as `strobe-gfx/src/gl/`: one
 //! named, private-to-the-crate, **safe** function per unsafe operation;
@@ -44,4 +47,15 @@ where
     // by its bounds, so it may be called from any thread for the life of
     // the process.
     unsafe { crash_handler::make_crash_event(on_crash) }
+}
+
+/// `SetThreadExecutionState(flags)`: sets the calling thread's power
+/// requirements and returns the previous ones, or 0 when Windows refused.
+#[cfg(windows)]
+pub(crate) fn set_thread_execution_state(flags: u32) -> u32 {
+    // SAFETY: the function takes a flags value and no pointers, so it has
+    // no memory-safety precondition: an invalid combination is refused with
+    // a 0 return, which the caller checks. It changes only this thread's
+    // power request, which the system drops when the thread exits.
+    unsafe { windows_sys::Win32::System::Power::SetThreadExecutionState(flags) }
 }

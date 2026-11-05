@@ -142,6 +142,13 @@ impl<T> Prerender<T> {
         (Some(parked.stamp) == now).then_some(parked.item)
     }
 
+    /// Whether a scene is parked for `dir`, without taking it or checking
+    /// its stamp: a load asks this to know there is no compile to wait for
+    /// (D555), and [`Self::take`] still decides.
+    pub fn is_parked(&self, dir: &Path) -> bool {
+        self.parked.contains_key(dir)
+    }
+
     /// Drops every parked scene and the queue.
     pub fn clear(&mut self) {
         self.queue.clear();

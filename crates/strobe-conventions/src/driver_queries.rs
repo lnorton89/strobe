@@ -70,7 +70,12 @@ const SELF: &str = "crates/strobe-conventions/";
 /// The leaves allowed to query the driver without counting: `(file, fn,
 /// why)`. Each is part of how a frame avoids waiting, or runs before a
 /// `Gl` exists.
-pub const EXEMPT: [(&str, &str, &str); 3] = [
+pub const EXEMPT: [(&str, &str, &str); 4] = [
+    (
+        "crates/strobe-gfx/src/gl/mod.rs",
+        "program_completion",
+        "a parallel compile's completion, polled so a loading scene's link is never waited on (D555)",
+    ),
     (
         "crates/strobe-gfx/src/gl/mod.rs",
         "query_u32",

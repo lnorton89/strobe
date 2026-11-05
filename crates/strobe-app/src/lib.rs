@@ -57,6 +57,7 @@
 
 pub mod app;
 pub mod audio;
+pub mod awake;
 pub mod brand;
 pub mod camera;
 pub mod cli;

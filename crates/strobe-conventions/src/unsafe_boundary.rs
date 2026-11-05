@@ -18,8 +18,9 @@
 //!
 //! There are two places: `crates/strobe-gfx/src/gl/`, where every GL call
 //! and context creation lives, and the single file
-//! `crates/strobe-diag/src/native.rs`, which holds the one unsafe call that
-//! installs the native crash handler (decision D41). An entry ending in `/`
+//! `crates/strobe-diag/src/native.rs`, which holds the unsafe call that
+//! installs the native crash handler (decision D41) and Windows' power
+//! request (D556), each a leaf. An entry ending in `/`
 //! is a directory; any other entry is exactly one file.
 //!
 //! Compiler lints check the local mechanics (`undocumented_unsafe_blocks`,

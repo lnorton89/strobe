@@ -95,7 +95,7 @@ fn scratch(tag: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!("autocontrol-{tag}"))
 }
 
-/// Every Shadertoy fixture: the converter's nine, then this crate's five.
+/// Every Shadertoy fixture: the converter's, then this crate's.
 fn fixtures() -> Result<Vec<(String, PathBuf)>> {
     let mut found = Vec::new();
     for dir in [
