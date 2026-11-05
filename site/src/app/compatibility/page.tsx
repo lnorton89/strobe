@@ -15,7 +15,7 @@ export default async function CompatibilityPage() {
   return (
     <RepoDocPage
       section="Compatibility"
-      note="Every status points at its evidence"
+      note="docs/COMPATIBILITY.md"
       icon={CompatibilityIcon}
       title="What works, where, and the evidence."
       lede="A type, a parser or a UI control existing is never enough for “Supported”. Where a feature depends on real hardware or real music and the only evidence is synthetic, it says **Unverified**."
