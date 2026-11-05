@@ -1,13 +1,13 @@
 <!-- @tagline -->
 
-Audio-reactive shaders for screens, projectors and LED walls.
+A VJ engine for audio-reactive GLSL scenes.
 
 <!-- @hero-why -->
 
-Strobe is an open-source VJ engine in Rust. It plays **Synesthesia scenes as
-they are** — GLSL, controls and JavaScript — imports **Shadertoy** shaders,
-and runs long shows from playlists. It is built to stay up on old laptops:
-the floor is **OpenGL 3.3**, roughly a 2012 Intel HD 4000.
+Strobe plays Synesthesia scenes unchanged, including their controls and
+JavaScript, imports Shadertoy shaders, and runs shows from playlists. It is
+written in Rust and draws through OpenGL 3.3, with ANGLE on Direct3D 11 for
+machines whose GL driver fails.
 
 <!-- @hero-proof -->
 
