@@ -49,6 +49,18 @@ pub(super) const BLACK_FILE: &str = "images/st_black.png";
 pub(super) const PENDING_FILE_NAME: &str = "pending-assets.json";
 /// The standard sampler the player provides for audio inputs.
 pub(super) const AUDIO_SAMPLER: &str = "strobe_ShadertoyAudio";
+/// The black cube map's sampler name: a cube map input whose faces are
+/// not all there reads it (D553).
+pub(super) const BLACK_CUBE: &str = "st_black_cube";
+/// The keyboard image's sampler name: Shadertoy's 256x3 keyboard
+/// texture with every key up (D553).
+pub(super) const KEYBOARD_IMAGE: &str = "st_keyboard";
+/// Where the keyboard image lives.
+pub(super) const KEYBOARD_FILE: &str = "images/st_keyboard.png";
+/// The input id Shadertoy gives a `cubemap` input that reads the shader's
+/// own cube-map pass (Cube A) rather than a picture (`effect.js`'s
+/// `assetID_to_cubemapBuferID`).
+pub(super) const CUBE_A_INPUT_ID: &str = "4dX3Rr";
 
 /// The Image pass's file.
 pub(super) const IMAGE_FILE: &str = "main.glsl";
@@ -71,6 +83,37 @@ pub(super) fn image_name(n: usize) -> String {
     format!("st_tex{n}")
 }
 
+/// The sampler name of the `n`th distinct cube map.
+pub(super) fn cube_name(n: usize) -> String {
+    format!("st_cube{n}")
+}
+
+/// The six face pictures of the cube map whose first face is `src`, in
+/// Shadertoy's order: `src` itself, then `_1` to `_5` before the extension
+/// (`effect.js` `NewTexture`, which uploads picture `i` to GL face `i`:
+/// +X, -X, +Y, -Y, +Z, -Z). With no `.` in the last segment the suffix
+/// goes on the end; Shadertoy would put it before the last `.` anywhere
+/// in the path, which only differs for a name it never serves.
+pub(super) fn cube_face_sources(src: &str) -> [String; 6] {
+    let (path, rest) = match src.find(['?', '#']) {
+        Some(at) => src.split_at(at),
+        None => (src, ""),
+    };
+    let segment_start = path.rfind('/').map_or(0, |at| at + 1);
+    let dot = path
+        .get(segment_start..)
+        .and_then(|segment| segment.rfind('.'))
+        .map(|at| segment_start + at);
+    std::array::from_fn(|face| match (face, dot) {
+        (0, _) => src.to_string(),
+        (_, Some(dot)) => {
+            let (stem, extension) = path.split_at(dot);
+            format!("{stem}_{face}{extension}{rest}")
+        }
+        (_, None) => format!("{path}_{face}{rest}"),
+    })
+}
+
 /// `A` to `D` (and `?` beyond, which validation prevents).
 pub(super) fn letter_name(letter: usize) -> char {
     char::from(b'A'.wrapping_add(u8::try_from(letter).unwrap_or(0xff)))
@@ -87,12 +130,15 @@ pub(super) fn reserved() -> Vec<String> {
         CLOCK_TARGET,
         FRAME_TARGET,
         BLACK_IMAGE,
+        BLACK_CUBE,
+        KEYBOARD_IMAGE,
     ]
     .iter()
     .map(|s| (*s).to_string())
     .collect();
     names.extend((0..4).map(buffer_target));
     names.extend((0..16).map(image_name));
+    names.extend((0..16).map(cube_name));
     names
 }
 
@@ -337,6 +383,34 @@ mod tests {
             "odd characters"
         );
         assert_eq!(asset_file_name("/"), "asset", "nothing left");
+    }
+
+    #[test]
+    fn cube_faces_are_named_as_shadertoy_names_them() {
+        let faces = cube_face_sources("/media/a/0123abcd.jpg");
+        assert_eq!(
+            faces,
+            [
+                "/media/a/0123abcd.jpg",
+                "/media/a/0123abcd_1.jpg",
+                "/media/a/0123abcd_2.jpg",
+                "/media/a/0123abcd_3.jpg",
+                "/media/a/0123abcd_4.jpg",
+                "/media/a/0123abcd_5.jpg",
+            ]
+            .map(String::from),
+            "the first face as given, then _1 to _5 before the extension"
+        );
+        assert_eq!(
+            cube_face_sources("https://x.test/v1.2/sky.png?v=3")[4],
+            "https://x.test/v1.2/sky_4.png?v=3",
+            "the extension of the file, not of a folder, and the query kept"
+        );
+        assert_eq!(
+            cube_face_sources("/media/a/sky")[2],
+            "/media/a/sky_2",
+            "no extension: on the end"
+        );
     }
 
     #[test]

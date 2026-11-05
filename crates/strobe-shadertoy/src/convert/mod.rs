@@ -23,7 +23,8 @@
 //!   main.glsl               the Image pass (also the last PASS_SOURCES entry)
 //!   passes/st_clock.glsl    the time and frame passes, only when a pass reads time
 //!   passes/buffer_a.glsl    ... one file per Shadertoy buffer, A to D
-//!   images/                 textures, a 1x1 black PNG, pending-assets.json
+//!   images/                 textures and cube faces, a 1x1 black PNG, the
+//!                           256x3 keyboard PNG, pending-assets.json
 //!   shadertoy.json          the original export, verbatim, when supplied
 //! ```
 //!
@@ -40,14 +41,28 @@
 //! every buffer `DOUBLE_BUFFER` so a buffer can read itself. The tests
 //! confirm the rule numerically rather than assuming it.
 //!
+//! ## Cube maps and the keyboard (D553)
+//!
+//! A `cubemap` input becomes a scene `CUBEMAPS` entry behind `iChannelN`,
+//! its six faces fetched as textures are: the input's own picture for
+//! +X, then the same name with `_1` to `_5` before the extension for -X,
+//! +Y, -Y, +Z and -Z, used as decoded, as Shadertoy uploads them. A
+//! sampler that says `vflip` gets the cube's `VFLIP`, which turns each
+//! face over and swaps +Y and -Y, as Shadertoy's renderer does. With a
+//! face missing the channel reads a black cube and the faces are pending.
+//!
+//! A `keyboard` input reads a 256x3 image with every key up: Shadertoy's
+//! layout, so a shader indexing it by key code compiles and runs, but
+//! Strobe gives a scene no key feed, and the import says so.
+//!
 //! ## What is rejected
 //!
-//! `sound` and `cubemap` passes, and `cubemap` and `volume` inputs,
-//! cannot be expressed (no audio-synthesis pass, no `samplerCube` or 3D
-//! binding behind `iChannelN`), so they are errors naming the pass and
-//! channel. `video`, `webcam` and `keyboard` inputs are bound to black
-//! with a [`Warning`], because the shader still runs sensibly without
-//! them.
+//! `sound` and `cubemap` passes, a `cubemap` input reading the cube-map
+//! pass, and `volume` inputs cannot be expressed (no audio-synthesis
+//! pass, no cube render target, no 3D textures), so they are errors naming
+//! the pass and channel (D553). `video` and `webcam` inputs are bound to
+//! black with a [`Warning`], because the shader still runs sensibly
+//! without them.
 
 mod names;
 mod plan;
@@ -112,6 +127,16 @@ const BLACK_PNG: [u8; 70] = [
     0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
 ];
 
+/// A 256x3 8-bit grey PNG, all zero: Shadertoy's keyboard texture with
+/// every key up (row 0 held, row 1 pressed this frame, row 2 toggled).
+const KEYBOARD_PNG: [u8; 72] = [
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+    0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x03, 0x08, 0x00, 0x00, 0x00, 0x00, 0x59, 0xfa, 0x8e,
+    0xa0, 0x00, 0x00, 0x00, 0x0f, 0x49, 0x44, 0x41, 0x54, 0x78, 0xda, 0x63, 0x60, 0x18, 0x05, 0xa3,
+    0x60, 0x44, 0x03, 0x00, 0x03, 0x03, 0x00, 0x01, 0xb4, 0xe5, 0xf5, 0x42, 0x00, 0x00, 0x00, 0x00,
+    0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+];
+
 /// Where Shadertoy's media paths (`/media/a/<hash>.jpg`) are served from.
 const MEDIA_HOST: &str = "https://www.shadertoy.com";
 
@@ -166,7 +191,8 @@ pub struct PendingAsset {
 pub enum Warning {
     /// A texture asset was not supplied; the channel reads black.
     MissingAsset(PendingAsset),
-    /// An input kind with no equivalent yet; the channel reads black.
+    /// An input kind with no live equivalent; the channel reads black
+    /// (the keyboard: Shadertoy's texture with every key up).
     InputBoundToBlack {
         /// The pass.
         pass: String,
@@ -205,6 +231,16 @@ pub enum Warning {
         field: &'static str,
         /// The value as written.
         value: String,
+    },
+    /// A cube map input asks for a filter other than `mipmap`; Strobe's
+    /// cube maps are always mipmapped and linear (D185, D553).
+    CubeFilterIgnored {
+        /// The pass.
+        pass: String,
+        /// The channel.
+        channel: u32,
+        /// The filter as written.
+        filter: String,
     },
     /// `srgb: true` on a texture: the texture is sampled as plain data,
     /// not decoded from sRGB, so it will look brighter than on Shadertoy.
@@ -256,6 +292,15 @@ impl fmt::Display for Warning {
             } => write!(
                 f,
                 "{pass} channel {channel}: unknown sampler {field} `{value}`, using the default"
+            ),
+            Self::CubeFilterIgnored {
+                pass,
+                channel,
+                filter,
+            } => write!(
+                f,
+                "{pass} channel {channel}: the cube map asks for the `{filter}` filter; \
+                 Strobe's cube maps are always mipmapped and linear"
             ),
             Self::SrgbNotDecoded { pass, channel } => write!(
                 f,
@@ -379,6 +424,9 @@ pub fn convert(shader: &Shader, options: &Options) -> Result<Converted, ConvertE
     if plan.black_used {
         files.insert(names::BLACK_FILE.to_string(), BLACK_PNG.to_vec());
     }
+    if plan.keyboard_used {
+        files.insert(names::KEYBOARD_FILE.to_string(), KEYBOARD_PNG.to_vec());
+    }
     if !plan.pending.is_empty() {
         files.insert(
             format!("images/{}", names::PENDING_FILE_NAME),
@@ -413,6 +461,16 @@ mod tests {
 
     fn bank(json: &str) -> Result<ControlBank> {
         Ok(ControlBank::new(SceneDef::parse(json, "test")?.controls)?)
+    }
+
+    #[test]
+    fn the_keyboard_png_is_256_by_3_grey() {
+        // IHDR: width, height, bit depth 8, colour type 0 (grey).
+        assert_eq!(
+            KEYBOARD_PNG.get(16..26),
+            Some(&[0, 0, 1, 0, 0, 0, 0, 3, 8, 0][..]),
+            "the header says 256x3, 8-bit grey"
+        );
     }
 
     #[test]

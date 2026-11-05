@@ -132,6 +132,11 @@ pub struct CubemapDef {
     pub name: String,
     /// Face paths +X, -X, +Y, -Y, +Z, -Z, relative to the scene folder.
     pub paths: Vec<String>,
+    /// `VFLIP`: load the faces as Shadertoy does for a cube map whose
+    /// sampler says `vflip`, each face upside down and +Y and -Y swapped
+    /// (D553). False unless the scene says so; faces are otherwise used as
+    /// decoded (D185).
+    pub vflip: bool,
 }
 
 /// The default sequence rate, frames per second.
@@ -298,6 +303,7 @@ impl SceneDef {
             .map(|cube| CubemapDef {
                 name: cube.name.trim().to_string(),
                 paths: cube.paths.clone(),
+                vflip: cube.vflip,
             })
             .collect::<Vec<_>>();
 

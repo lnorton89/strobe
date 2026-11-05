@@ -162,6 +162,9 @@ pub struct RawCubemap {
     pub name: String,
     /// Six face paths: +X, -X, +Y, -Y, +Z, -Z.
     pub paths: Vec<String>,
+    /// Shadertoy's `vflip` on a cube map: each face flipped top to bottom
+    /// and the +Y and -Y faces swapped (D553). Off when absent.
+    pub vflip: bool,
 }
 
 /// The `MEDIA` key: a bare path, or an object with options.

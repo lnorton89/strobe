@@ -31,7 +31,7 @@ use strobe_shadertoy::{Converted, Shader, convert};
 const BOTH: [Api; 2] = [Api::DesktopCore33, Api::Gles30];
 
 /// Every fixture, by file stem.
-const FIXTURES: [&str; 9] = [
+const FIXTURES: [&str; 11] = [
     "single_image",
     "common_image",
     "buffer_feedback",
@@ -41,6 +41,8 @@ const FIXTURES: [&str; 9] = [
     "music",
     "missing_texture",
     "name_collisions",
+    "cube_map",
+    "keyboard",
 ];
 
 /// Frame size for the tests: small, and even in both directions.
@@ -69,8 +71,17 @@ fn fixture_text(name: &str) -> Result<String> {
 /// the same fixture in parallel, and on Windows two of them swapping one
 /// staging folder fail with "Access is denied" (AMD desktop, Task A1).
 fn import_text(json: &str, tag: &str) -> Result<(Converted, SceneFolder)> {
+    import_with(json, tag, &strobe_shadertoy::Options::default())
+}
+
+/// [`import_text`] with conversion options, for supplied assets.
+fn import_with(
+    json: &str,
+    tag: &str,
+    options: &strobe_shadertoy::Options,
+) -> Result<(Converted, SceneFolder)> {
     let shader = Shader::from_json(json)?;
-    let converted = convert(&shader, &strobe_shadertoy::Options::default())?;
+    let converted = convert(&shader, options)?;
     let thread = std::thread::current();
     let test = thread.name().unwrap_or("main").replace("::", "-");
     let library = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!("scenes-{tag}-{test}"));
@@ -552,6 +563,156 @@ fn colliding_helper_names_in_two_passes_each_get_their_own() -> Result<()> {
         assert!(
             near(r, 64) && near(g, 128) && near(b, 64),
             "{api:?}: expected (64, 128, 64); got ({r}, {g}, {b})"
+        );
+    }
+    Ok(())
+}
+
+/// The top and bottom halves of cube face picture `n`: red tells the
+/// pictures apart, green the top half and blue the bottom.
+fn face_halves(n: usize) -> ([u8; 4], [u8; 4]) {
+    let red = 20 + 40 * n as u8;
+    ([red, 200, 0, 255], [red, 0, 200, 255])
+}
+
+/// An 8x8 PNG, its top four rows `top` and the rest `bottom`.
+fn face_png(top: [u8; 4], bottom: [u8; 4]) -> Result<Vec<u8>> {
+    let picture =
+        image::RgbaImage::from_fn(8, 8, |_, y| image::Rgba(if y < 4 { top } else { bottom }));
+    let mut bytes = Vec::new();
+    image::DynamicImage::ImageRgba8(picture).write_to(
+        &mut std::io::Cursor::new(&mut bytes),
+        image::ImageFormat::Png,
+    )?;
+    Ok(bytes)
+}
+
+/// A shader reading its `cubemap` channel in twelve columns: GL face
+/// `c / 2` (+X, -X, +Y, -Y, +Z, -Z), towards the top of the face's picture
+/// for an even `c` and towards its bottom for an odd one. "Top" is GL's
+/// cube-face rule (the spec's major-axis table): row 0 of a face, which is
+/// the first row uploaded, is towards +Y on the four side faces, towards
+/// -Z on +Y and towards +Z on -Y. WebGL uses the same rule, so this is
+/// where Shadertoy shows each picture's top.
+fn cube_reader(vflip: bool) -> String {
+    serde_json::json!({
+        "ver": "0.1",
+        "info": { "id": "Tst102", "name": "cube-faces", "username": "strobe-tests" },
+        "renderpass": [ { "type": "image", "name": "Image",
+            "code": "void mainImage(out vec4 c, in vec2 p) {\n\
+                int i = int(floor(p.x / iResolution.x * 12.0));\n\
+                int face = i / 2;\n\
+                float up = (i - 2 * face) == 0 ? 0.5 : -0.5;\n\
+                vec3 d = vec3(1.0, up, 0.0);\n\
+                if (face == 1) d = vec3(-1.0, up, 0.0);\n\
+                if (face == 2) d = vec3(0.0, 1.0, -up);\n\
+                if (face == 3) d = vec3(0.0, -1.0, up);\n\
+                if (face == 4) d = vec3(0.0, up, 1.0);\n\
+                if (face == 5) d = vec3(0.0, up, -1.0);\n\
+                c = texture(iChannel0, d);\n}\n",
+            "inputs": [ { "id": "XdX3Rn", "type": "cubemap", "channel": 0,
+                "filepath": "/media/a/facetest.png",
+                "sampler": { "filter": "mipmap", "wrap": "clamp",
+                             "vflip": if vflip { "true" } else { "false" },
+                             "srgb": "false", "internal": "byte" } } ],
+            "outputs": [] } ]
+    })
+    .to_string()
+}
+
+#[test]
+fn a_cube_map_input_shows_each_picture_where_shadertoy_puts_it() -> Result<()> {
+    // Shadertoy (effect.js `NewTexture`, piRenderer `CreateTextureFromImage`)
+    // loads `x.png`, `x_1.png` ... `x_5.png` and uploads picture i to GL face
+    // i, top row first. With `vflip` it uploads every picture upside down
+    // (UNPACK_FLIP_Y_WEBGL) and puts picture 3 on +Y and picture 2 on -Y.
+    let mut options = strobe_shadertoy::Options::default();
+    for n in 0..6 {
+        let file = if n == 0 {
+            "facetest.png".to_string()
+        } else {
+            format!("facetest_{n}.png")
+        };
+        let (top, bottom) = face_halves(n);
+        options.assets.insert(file, face_png(top, bottom)?);
+    }
+    for vflip in [false, true] {
+        let (converted, scene) = import_with(&cube_reader(vflip), "cube-faces", &options)?;
+        assert!(
+            converted.pending_assets.is_empty(),
+            "every face supplied: {:?}",
+            converted.pending_assets
+        );
+        for api in BOTH {
+            let Some(frame) = render(api, &scene, 1, Options::default(), |_, _| Ok(()))? else {
+                continue;
+            };
+            for column in 0..12_usize {
+                let (face, towards_top) = (column / 2, column % 2 == 0);
+                let picture = if vflip {
+                    [0, 1, 3, 2, 4, 5][face]
+                } else {
+                    face
+                };
+                let (top, bottom) = face_halves(picture);
+                // Flipped, the picture's bottom is where its top was.
+                let expected = if towards_top != vflip { top } else { bottom };
+                let x = (column * SIZE[0] as usize + SIZE[0] as usize / 2) / 12;
+                let got = frame.at(x, SIZE[1] as usize / 2);
+                assert!(
+                    got.iter().zip(expected).all(|(g, e)| near(*g, e)),
+                    "{api:?} vflip {vflip}: face {face} towards its {} should show picture \
+                     {picture}'s {} half {expected:?}, got {got:?}",
+                    if towards_top { "top" } else { "bottom" },
+                    if expected == top { "top" } else { "bottom" },
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn a_cube_map_with_no_faces_reads_black_and_still_renders() -> Result<()> {
+    let (converted, scene) = import("cube_map")?;
+    assert_eq!(converted.pending_assets.len(), 6, "six faces to fetch");
+    for api in BOTH {
+        let Some(frame) = render(api, &scene, 1, Options::default(), |_, _| Ok(()))? else {
+            continue;
+        };
+        let [r, g, b, _] = frame.center();
+        assert!(
+            r == g && g == b && r > 0,
+            "{api:?}: the sky is black, so only the grey horizon term shows; got ({r}, {g}, {b})"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn a_keyboard_input_is_256_by_3_with_every_key_up() -> Result<()> {
+    let json = serde_json::json!({
+        "ver": "0.1",
+        "info": { "id": "Tst103", "name": "keys", "username": "strobe-tests" },
+        "renderpass": [ { "type": "image", "name": "Image",
+            "code": "void mainImage(out vec4 c, in vec2 p) {\n\
+                float held = texelFetch(iChannel1, ivec2(32, 0), 0).x;\n\
+                float toggled = texelFetch(iChannel1, ivec2(65, 2), 0).x;\n\
+                c = vec4(iChannelResolution[1].x / 512.0, iChannelResolution[1].y / 12.0,\n\
+                         0.1 + held + toggled, 1.0);\n}\n",
+            "inputs": [ { "id": "4dXGRr", "ctype": "keyboard", "channel": 1 } ],
+            "outputs": [] } ]
+    })
+    .to_string();
+    let (_, scene) = import_text(&json, "keys")?;
+    for api in BOTH {
+        let Some(frame) = render(api, &scene, 1, Options::default(), |_, _| Ok(()))? else {
+            continue;
+        };
+        let [r, g, b, _] = frame.center();
+        assert!(
+            near(r, 128) && near(g, 64) && near(b, 26),
+            "{api:?}: 256 wide -> 128, 3 high -> 64, no key -> 0.1 -> 26; got ({r}, {g}, {b})"
         );
     }
     Ok(())
