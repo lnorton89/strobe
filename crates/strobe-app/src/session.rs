@@ -79,7 +79,9 @@ use std::ops::RangeInclusive;
 use std::path::{Path, PathBuf};
 use strobe_diag::failure;
 use strobe_gfx::gl::Gl;
-use strobe_gfx::{AudioTextures, Caps, FrameInputs, Mouse, Options, PlayerError, ScenePlayer};
+use strobe_gfx::{
+    AudioTextures, Caps, FrameInputs, Mouse, Options, PendingPlayer, PlayerError, ScenePlayer,
+};
 use strobe_scene::assemble::ExtraType;
 use strobe_scene::control::def::Values;
 use strobe_scene::control::{ControlBank, ControlKind};
@@ -208,6 +210,40 @@ fn transition_seed() -> u64 {
         })
 }
 
+/// A scene being loaded, its shaders still with the driver (D555), from
+/// [`Session::begin`]. Its script has started and run its first frame.
+#[derive(Debug)]
+pub struct PendingSession {
+    name: String,
+    dir: PathBuf,
+    scene: SceneFolder,
+    controls: ControlBank,
+    meta: ControlBank,
+    transitions: Transitions,
+    script: Option<ScriptRun>,
+    start: f32,
+    player: PendingPlayer,
+}
+
+impl PendingSession {
+    /// Whether the driver has finished every program, so
+    /// [`Self::finish`] will not wait. Cheap enough for once a frame.
+    pub fn ready(&self, gl: &Gl) -> bool {
+        self.player.ready(gl)
+    }
+
+    /// The scene's folder.
+    pub fn dir(&self) -> &Path {
+        &self.dir
+    }
+
+    /// Finishes the load, as [`Session::load`] does after its shaders:
+    /// the player, the script's uniforms, presets and the startup preset.
+    pub fn finish(self, gl: &Gl, caps: &Caps) -> Result<Session, LoadError> {
+        Session::assemble(self, gl, caps)
+    }
+}
+
 /// One loaded, compiled scene.
 #[derive(Debug)]
 pub struct Session {
@@ -258,6 +294,24 @@ impl Session {
         start: f32,
         audio: &mut AudioInput,
     ) -> Result<Self, LoadError> {
+        Self::begin(gl, caps, dir, name, render_size, start, audio)?.finish(gl, caps)
+    }
+
+    /// Starts loading the scene in `dir`: it is read, its script started,
+    /// and its shaders handed to the driver without waiting for them
+    /// (D555). On a driver that compiles in the background, poll
+    /// [`PendingSession::ready`] once a frame and call
+    /// [`PendingSession::finish`] when it says yes, so the output keeps
+    /// drawing meanwhile. [`Self::load`] is `begin` then `finish`.
+    pub fn begin(
+        gl: &Gl,
+        caps: &Caps,
+        dir: &Path,
+        name: &str,
+        render_size: [i32; 2],
+        start: f32,
+        audio: &mut AudioInput,
+    ) -> Result<PendingSession, LoadError> {
         let scene = SceneFolder::load(dir)?;
         let mut controls = ControlBank::new(scene.def.controls.clone())?;
         let mut meta = strobe_scene::meta::bank()?;
@@ -290,8 +344,37 @@ impl Session {
         if !extras.is_empty() {
             log::info!("script uniforms compiled in at load: {}", names_of(&extras));
         }
-        let mut player =
-            ScenePlayer::with_extras(gl, caps, &scene, render_size, Options::default(), &extras)?;
+        let player =
+            ScenePlayer::begin(gl, caps, &scene, render_size, Options::default(), &extras)?;
+        Ok(PendingSession {
+            name: name.to_string(),
+            dir: dir.to_path_buf(),
+            scene,
+            controls,
+            meta,
+            transitions,
+            script,
+            start,
+            player,
+        })
+    }
+
+    /// The rest of a load once the player is built.
+    fn assemble(pending: PendingSession, gl: &Gl, caps: &Caps) -> Result<Self, LoadError> {
+        let PendingSession {
+            name,
+            dir,
+            scene,
+            controls,
+            meta,
+            transitions,
+            mut script,
+            start,
+            player,
+        } = pending;
+        let name = name.as_str();
+        let dir = dir.as_path();
+        let mut player = player.finish(gl, caps)?;
         // `textureFinalPass` costs a few blits and a fence a frame, so only
         // a script that names it pays for the readback (D162).
         if scene

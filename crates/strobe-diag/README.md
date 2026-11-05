@@ -21,9 +21,13 @@ and the `--diagnose` system report.
 - **Does not:** show UI. The message box that tells a person about a crash is
   a callback the app registers (`notify::set_notifier`); the crash monitor
   process calls it. It also does not upload anything.
-- **Holds the other `unsafe`.** `src/native.rs` contains the single unsafe
-  call that builds the crash handler's callback, under the same leaf rules as
-  `strobe-gfx/src/gl/` (D41).
+- **Holds the other `unsafe`.** `src/native.rs` contains the unsafe call
+  that builds the crash handler's callback (D41) and, on Windows,
+  `SetThreadExecutionState` (D556), each a leaf under the same rules as
+  `strobe-gfx/src/gl/`.
+- **Keeps a show awake.** `power::AwakeRequest` holds the system and display
+  awake until it is dropped; the app holds one while the output is
+  fullscreen (D556). Windows only for now.
 
 ## Main types / entry points
 
@@ -117,7 +121,7 @@ or `ok`. The expected files per mode are in
   full channel drops and counts lines rather than blocking a frame), a ring
   for the UI, and a flush crash paths can demand. Timestamps are seconds
   since start plus a UTC session header.
-- **`unsafe` in exactly one file** (D41), `src/native.rs`.
+- **`unsafe` in exactly one file** (D41, D556), `src/native.rs`.
 - **Release builds keep line tables and are not stripped** (D42), and PDBs are
   published separately (D53), so a minidump can be symbolicated.
 - **Crashes are captured out of process** (D43): a second process (the same

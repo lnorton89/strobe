@@ -1,0 +1,47 @@
+{
+  "ver": "0.1",
+  "info": {
+    "id": "Tst011",
+    "date": "1700000000",
+    "viewed": 0,
+    "name": "Keyboard",
+    "username": "strobe-tests",
+    "description": "Original test shader written for Strobe's fixtures. MIT, like the repository.",
+    "likes": 0,
+    "published": 3,
+    "flags": 0,
+    "usePreview": 0,
+    "tags": [],
+    "hasliked": 0
+  },
+  "renderpass": [
+    {
+      "inputs": [
+        {
+          "id": "4dXGRr",
+          "src": "/presets/tex00.jpg",
+          "ctype": "keyboard",
+          "channel": 1,
+          "sampler": {
+            "filter": "nearest",
+            "wrap": "clamp",
+            "vflip": "true",
+            "srgb": "false",
+            "internal": "byte"
+          },
+          "published": 1
+        }
+      ],
+      "outputs": [
+        {
+          "id": "4dfGRr",
+          "channel": 0
+        }
+      ],
+      "code": "// Key state from channel 1: row 0 held, row 1 pressed this frame, row 2 toggled.\nconst int KEY_SPACE = 32;\nconst int KEY_LEFT = 37;\nconst int KEY_A = 65;\n\nfloat held(int key) { return texelFetch(iChannel1, ivec2(key, 0), 0).x; }\nfloat toggled(int key) { return texelFetch(iChannel1, ivec2(key, 2), 0).x; }\nfloat pressed(int key)\n{\n    return texture(iChannel1, vec2((float(key) + 0.5) / 256.0, 1.5 / 3.0)).x;\n}\n\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord )\n{\n    vec2 uv = fragCoord / iResolution.xy;\n    vec3 calm = vec3(0.15, 0.35, 0.7);\n    vec3 hot = vec3(1.0, 0.45, 0.1);\n    vec3 col = mix(calm, hot, held(KEY_SPACE));\n    col += 0.3 * toggled(KEY_A) + 0.3 * pressed(KEY_LEFT);\n    col *= 0.6 + 0.4 * uv.y;\n    fragColor = vec4(col, 1.0);\n}\n",
+      "name": "Image",
+      "description": "",
+      "type": "image"
+    }
+  ]
+}

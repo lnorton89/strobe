@@ -605,6 +605,18 @@ impl Stack {
     }
 }
 
+/// A hand load whose shaders are with the driver (D555).
+#[derive(Debug)]
+struct Loading {
+    /// The library scene being loaded.
+    index: usize,
+    /// Its folder's stamp, taken before it was read (D542).
+    stamp: Option<Stamp>,
+    /// When the load was asked for, for its log line.
+    started: Instant,
+    pending: session::PendingSession,
+}
+
 /// The scene that was playing when the context was lost.
 struct Resume {
     /// Its index in the library.
@@ -808,6 +820,12 @@ struct Running {
     /// A scene the UI asked for, to be loaded *after* the frame that shows
     /// "preparing" has been painted, because loading blocks.
     pending_load: Option<usize>,
+    /// Holds off sleep and the screen saver while the output is fullscreen
+    /// (D556). Kept across a context rebuild: the output stays up.
+    awake: crate::awake::KeepAwake,
+    /// A hand load whose shaders the driver is still compiling (D555). The
+    /// scene before it plays on until [`Self::poll_loading`] finds it ready.
+    loading: Option<Loading>,
     /// The last scene that failed to load.
     load_failure: Option<LoadFailure>,
     /// A notice banner and when it appeared.
@@ -1013,6 +1031,8 @@ impl Running {
             media_override: cli.media.clone(),
             post_failed: false,
             pending_load: None,
+            awake: crate::awake::KeepAwake::default(),
+            loading: None,
             load_failure: None,
             notice: None,
             preview_index: None,
@@ -1249,6 +1269,8 @@ impl Running {
     }
 
     fn shutdown(mut self) {
+        // A half-loaded scene's programs go while their context is current.
+        self.cancel_loading();
         // Drop the phones and stop accepting browser requests before the
         // windows go.
         self.lan.stop();
@@ -1523,6 +1545,8 @@ impl Running {
             preview_index: None,
             pending_preview: None,
             pending_load: None,
+            // Its programs died with the lost context.
+            loading: None,
             last_cue: None,
             ready_frames: None,
             live_stamp: None,
@@ -2267,69 +2291,202 @@ impl Running {
             ),
         };
         match loaded {
-            Ok(mut session) => {
-                // The operator's media, else the default preset's, else the
-                // scene's own (D217, D223).
-                let media = self
-                    .media_override
-                    .clone()
-                    .or_else(|| session.startup_media());
-                if media.is_some() {
-                    session
-                        .player
-                        .choose_media(media.map(MediaRequest::for_path));
-                }
-                // The operator's output settings carry over (D207).
-                if let Some(old) = self.stack.session.as_ref() {
-                    let taken = session.meta.carry_unchanged_from(&old.meta);
-                    if taken > 0 {
-                        log::info!("meta: {taken} output setting(s) carried over");
-                    }
-                }
-                let old_stamp = std::mem::replace(&mut self.live_stamp, stamp);
-                if let Some(old) = self.stack.session.replace(session) {
-                    self.park_live(old, old_stamp);
-                }
-                self.playing = Some(index);
-                self.ui_state.last_scene.clone_from(&entry.name);
-                self.pending_resize = None;
-                self.load_failure = None;
-                self.set_health(index, Health::Ready);
-                self.scene_loaded_for_perf(Instant::now());
-                // The size drawn, which a scene that pins its final pass
-                // (D280) keeps whatever size was asked for.
-                let size = self
-                    .stack
-                    .session
-                    .as_ref()
-                    .map_or(size, |session| session.player.render_size());
-                context::set(context::SCENE, &entry.name);
-                context::set(context::RENDER_SIZE, format!("{}x{}", size[0], size[1]));
-                log::info!(
-                    "Loaded {} ({}x{}) in {:.0} ms{}",
+            Ok(session) => self.install(index, &entry, stamp, started, prerendered, session),
+            Err(error) => self.load_failed(index, &entry, &error),
+        }
+    }
+
+    /// Asks for scene `index` the way the UI does (D555). A prerendered copy
+    /// plays at once. Otherwise, on a driver that compiles in the
+    /// background, the scene's shaders are handed to it and the scene that
+    /// is playing keeps playing while "Preparing" shows. [`Self::poll_loading`]
+    /// swaps it in when the driver is done. Without background compiles
+    /// this is [`Self::load`].
+    fn begin_load(&mut self, index: usize) {
+        self.cancel_loading();
+        let Some(entry) = self.library.entries.get(index).cloned() else {
+            return;
+        };
+        let parked = self.stack.prerendered.is_parked(&entry.dir);
+        if parked || !self.stack.gfx.gl().compiles_in_parallel() {
+            self.load(index);
+            return;
+        }
+        if !self.make_current(Surface::Output) {
+            return;
+        }
+        if self.stack.show.is_some() {
+            self.unload_show("a scene was loaded by hand");
+        }
+        let window = self.stack.output.window().inner_size();
+        let size = session::render_size(
+            [window.width, window.height],
+            self.render_scale,
+            self.stack.gfx.caps().info.max_texture_size,
+        );
+        let started = Instant::now();
+        let stamp = prerender::stamp(&entry.dir);
+        match Session::begin(
+            self.stack.gfx.gl(),
+            self.stack.gfx.caps(),
+            &entry.dir,
+            &entry.name,
+            size,
+            self.start_time,
+            &mut self.audio,
+        ) {
+            Ok(pending) => {
+                log::debug!(
+                    "loading {}: shaders handed to the driver in {:.0} ms",
                     entry.name,
-                    size[0],
-                    size[1],
-                    started.elapsed().as_secs_f64() * 1000.0,
-                    if prerendered { ", prerendered" } else { "" }
+                    started.elapsed().as_secs_f64() * 1000.0
                 );
-                if let Some((target, name)) = self.pending_preset.take()
-                    && target == index
-                {
-                    self.recall_preset(&name);
-                }
+                self.loading = Some(Loading {
+                    index,
+                    stamp,
+                    started,
+                    pending,
+                });
+                // A driver that was already done needs no extra frame.
+                self.poll_loading();
             }
-            Err(error) => {
-                self.pending_preset = None;
-                failure::report(failures::scene_load(
-                    &entry.name,
-                    &entry.dir,
-                    &error,
-                    self.stack.session.is_some(),
-                ));
-                self.scene_failed(index, &entry.name, &error.to_string());
+            Err(error) => self.load_failed(index, &entry, &error),
+        }
+    }
+
+    /// Swaps in the scene [`Self::begin_load`] started, once the driver has
+    /// finished its programs: called once a control-window frame. The
+    /// output keeps drawing the scene before it until then.
+    fn poll_loading(&mut self) {
+        if self.loading.is_none() || !self.make_current(Surface::Output) {
+            return;
+        }
+        let gl = self.stack.gfx.gl();
+        if !self
+            .loading
+            .as_ref()
+            .is_some_and(|loading| loading.pending.ready(gl))
+        {
+            return;
+        }
+        let Some(Loading {
+            index,
+            stamp,
+            started,
+            pending,
+        }) = self.loading.take()
+        else {
+            return;
+        };
+        let Some(entry) = self
+            .library
+            .entries
+            .get(index)
+            .filter(|entry| entry.dir == pending.dir())
+            .cloned()
+        else {
+            // The library was listed again meanwhile and the scene moved.
+            return;
+        };
+        let finishing = Instant::now();
+        let finished = pending.finish(self.stack.gfx.gl(), self.stack.gfx.caps());
+        log::debug!(
+            "loading {}: the driver was done; finishing took {:.0} ms",
+            entry.name,
+            finishing.elapsed().as_secs_f64() * 1000.0
+        );
+        match finished {
+            Ok(session) => self.install(index, &entry, stamp, started, false, session),
+            Err(error) => self.load_failed(index, &entry, &error),
+        }
+    }
+
+    /// Drops a load still with the driver, with the context current so its
+    /// programs are freed through it.
+    fn cancel_loading(&mut self) {
+        if self.loading.is_some() && self.make_current(Surface::Output) {
+            self.loading = None;
+        }
+    }
+
+    /// Makes `session`, loaded from library scene `index`, the live scene.
+    fn install(
+        &mut self,
+        index: usize,
+        entry: &crate::library::Entry,
+        stamp: Option<Stamp>,
+        started: Instant,
+        prerendered: bool,
+        mut session: Session,
+    ) {
+        // The operator's media, else the default preset's, else the
+        // scene's own (D217, D223).
+        let media = self
+            .media_override
+            .clone()
+            .or_else(|| session.startup_media());
+        if media.is_some() {
+            session
+                .player
+                .choose_media(media.map(MediaRequest::for_path));
+        }
+        // The operator's output settings carry over (D207).
+        if let Some(old) = self.stack.session.as_ref() {
+            let taken = session.meta.carry_unchanged_from(&old.meta);
+            if taken > 0 {
+                log::info!("meta: {taken} output setting(s) carried over");
             }
         }
+        let old_stamp = std::mem::replace(&mut self.live_stamp, stamp);
+        if let Some(old) = self.stack.session.replace(session) {
+            self.park_live(old, old_stamp);
+        }
+        self.playing = Some(index);
+        self.ui_state.last_scene.clone_from(&entry.name);
+        self.pending_resize = None;
+        self.load_failure = None;
+        self.set_health(index, Health::Ready);
+        self.scene_loaded_for_perf(Instant::now());
+        // The size drawn, which a scene that pins its final pass
+        // (D280) keeps whatever size was asked for.
+        let size = self
+            .stack
+            .session
+            .as_ref()
+            .map_or([0, 0], |session| session.player.render_size());
+        context::set(context::SCENE, &entry.name);
+        context::set(context::RENDER_SIZE, format!("{}x{}", size[0], size[1]));
+        log::info!(
+            "Loaded {} ({}x{}) in {:.0} ms{}",
+            entry.name,
+            size[0],
+            size[1],
+            started.elapsed().as_secs_f64() * 1000.0,
+            if prerendered { ", prerendered" } else { "" }
+        );
+        if let Some((target, name)) = self.pending_preset.take()
+            && target == index
+        {
+            self.recall_preset(&name);
+        }
+    }
+
+    /// Reports that library scene `index` did not load. The scene that was
+    /// playing keeps playing.
+    fn load_failed(
+        &mut self,
+        index: usize,
+        entry: &crate::library::Entry,
+        error: &session::LoadError,
+    ) {
+        self.pending_preset = None;
+        failure::report(failures::scene_load(
+            &entry.name,
+            &entry.dir,
+            error,
+            self.stack.session.is_some(),
+        ));
+        self.scene_failed(index, &entry.name, &error.to_string());
     }
 
     /// Remembers that a scene failed: its row says so, and a banner names
@@ -2397,6 +2554,7 @@ impl Running {
         if !self.prerender_on()
             || self.stack.show.is_some()
             || self.pending_load.is_some()
+            || self.loading.is_some()
             || self.rebuild.is_some()
             || self.screenshot.is_some()
             || now < self.prerender_next
@@ -3041,6 +3199,9 @@ impl Running {
         self.stack.show = Some(show);
         self.last_cue = None;
         self.ready_frames = None;
+        // The playlist plays its own cues: a scene still loading by hand is
+        // not wanted any more.
+        self.cancel_loading();
     }
 
     /// Closes the playlist, saving where it was. The live scene keeps
@@ -3670,6 +3831,7 @@ impl Running {
         if !self.thumbnails.is_busy()
             || self.stack.show.is_some()
             || self.pending_load.is_some()
+            || self.loading.is_some()
             || self.rebuild.is_some()
             || self.screenshot.is_some()
         {
@@ -5468,6 +5630,9 @@ impl Running {
         desktop_events.clear();
         self.desktop_events = desktop_events;
         self.audio.refresh_status(now);
+        // Sleep and the screen saver wait while the show is up (D556).
+        self.awake
+            .follow(self.stack.output.window().fullscreen().is_some());
         if self
             .notice
             .as_ref()
@@ -5609,7 +5774,9 @@ impl Running {
         let entries = &self.library.entries;
         let name_of =
             |index: Option<usize>| index.and_then(|i| entries.get(i)).map(|e| e.name.as_str());
-        let loading_name = name_of(loading.or(preparing));
+        // "Preparing" stays up while the driver compiles (D555).
+        let in_flight = self.loading.as_ref().map(|loading| loading.index);
+        let loading_name = name_of(loading.or(in_flight).or(preparing));
         let playing_name = name_of(self.playing);
         let transport = match self.stack.show.as_ref() {
             Some(show) => show_transport(show, playing_name, scene_time, self.blackout),
@@ -5836,9 +6003,13 @@ impl Running {
         }
         if self.rebuild.is_none() {
             self.apply(&mut actions);
-            // Now that "preparing" has been on screen, do the blocking work.
+            // A load the driver was compiling may be ready now (D555).
+            self.poll_loading();
+            // Now that "preparing" has been on screen, start the load. Where
+            // the driver compiles in the background it finishes in a later
+            // frame; elsewhere it is done here.
             if let Some(index) = loading {
-                self.load(index);
+                self.begin_load(index);
             }
             if let Some(index) = preparing {
                 self.preview_load(index);

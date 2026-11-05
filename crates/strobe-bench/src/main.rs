@@ -216,6 +216,9 @@ struct Row {
     /// The scene has a `script.js`, which the bench does not run (C-05).
     script: bool,
     compile_ms: f64,
+    /// How long a frame would wait in a hand load: `begin` plus `finish`,
+    /// without the background compile between (D555).
+    blocked_ms: f64,
     mean_ms: f64,
     p95_ms: f64,
     max_ms: f64,
@@ -278,7 +281,7 @@ fn run(
         },
     };
     println!(
-        "{} | {} | {:?} | {context} | {}x{} | {} | float {:?}",
+        "{} | {} | {:?} | {context} | {}x{} | {} | float {:?} | parallel compile {}",
         caps.info.renderer,
         caps.info.version,
         caps.dialect,
@@ -290,6 +293,11 @@ fn run(
             "shared program"
         },
         options.float_precision,
+        if caps.info.parallel_compile {
+            "available"
+        } else {
+            "not available"
+        },
     );
 
     // Context creation can leave an error flag set that is not the
@@ -345,8 +353,9 @@ fn run(
         match &row.error {
             Some(error) => println!("{name:<28} FAILED: {error}"),
             None => println!(
-                "{name:<28} compile {:>7.1} ms | frame mean {:>8.2} ms  p95 {:>8.2} ms  ({:>6.1} fps)",
+                "{name:<28} compile {:>7.1} ms (blocks {:>7.1}) | frame mean {:>8.2} ms  p95 {:>8.2} ms  ({:>6.1} fps)",
                 row.compile_ms,
+                row.blocked_ms,
                 row.mean_ms,
                 row.p95_ms,
                 1000.0 / row.mean_ms.max(0.001)
@@ -501,6 +510,7 @@ fn bench_scene(
         name: name.to_string(),
         script,
         compile_ms: 0.0,
+        blocked_ms: 0.0,
         mean_ms: 0.0,
         p95_ms: 0.0,
         max_ms: 0.0,
@@ -522,13 +532,29 @@ fn bench_scene(
         .map(|t| t.initial)
         .collect();
 
+    // Timed as the app loads a scene by hand (D555): `begin` hands the
+    // shaders to the driver, the driver is polled until it is done, and
+    // `finish` resolves and allocates. `compile` is the whole wall time;
+    // `blocked` is the part a frame would wait for, `begin` plus `finish`.
+    // On a driver without background compiles they are the same.
     let compile_start = Instant::now();
-    let mut player = match ScenePlayer::new(gl, caps, &scene, size, options) {
+    let pending = match ScenePlayer::begin(gl, caps, &scene, size, options, &[]) {
+        Ok(pending) => pending,
+        Err(error) => return failed(error.to_string()),
+    };
+    let mut blocked = compile_start.elapsed();
+    while !pending.ready(gl) {
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    let finish_start = Instant::now();
+    let mut player = match pending.finish(gl, caps) {
         Ok(player) => player,
         Err(error) => return failed(error.to_string()),
     };
     gl.finish();
+    blocked += finish_start.elapsed();
     let compile_ms = compile_start.elapsed().as_secs_f64() * 1000.0;
+    let blocked_ms = blocked.as_secs_f64() * 1000.0;
 
     // The app's audio texture sizes (strobe-audio's default layout, D269),
     // filled from the synthetic track as the app fills them without a
@@ -589,6 +615,7 @@ fn bench_scene(
         name: name.to_string(),
         script,
         compile_ms,
+        blocked_ms,
         mean_ms,
         p95_ms,
         max_ms: times.last().copied().unwrap_or(0.0),
@@ -642,9 +669,14 @@ fn report(
     let _ = writeln!(out, "# Strobe benchmark\n");
     let _ = writeln!(
         out,
-        "- Renderer: {} ({})\n- Context: {}\n- Dialect: {:?}\n- Resolution: {}x{}\n- Programs: {}\n- Float passes: {:?}\n- Frames: {} timed after {} warm-up\n- Audio: the synthetic 120 BPM track, its levels and its textures (`syn_Spectrum` 1024 texels, `syn_LevelTrail` 256), uploaded inside each timed frame\n",
+        "- Renderer: {} ({})\n- Parallel shader compile: {}\n- Context: {}\n- Dialect: {:?}\n- Resolution: {}x{}\n- Programs: {}\n- Float passes: {:?}\n- Frames: {} timed after {} warm-up\n- Audio: the synthetic 120 BPM track, its levels and its textures (`syn_Spectrum` 1024 texels, `syn_LevelTrail` 256), uploaded inside each timed frame\n",
         caps.info.renderer,
         caps.info.version,
+        if caps.info.parallel_compile {
+            "available"
+        } else {
+            "not available"
+        },
         context,
         caps.dialect,
         size[0],
@@ -670,15 +702,15 @@ fn report(
     }
     let _ = writeln!(
         out,
-        "| Scene | Compile ms | Mean ms | p95 ms | Max ms | FPS |"
+        "| Scene | Compile ms | Blocks ms | Mean ms | p95 ms | Max ms | FPS |"
     );
-    let _ = writeln!(out, "|---|---:|---:|---:|---:|---:|");
+    let _ = writeln!(out, "|---|---:|---:|---:|---:|---:|---:|");
     for row in rows {
         match &row.error {
             Some(error) => {
                 let _ = writeln!(
                     out,
-                    "| {}{} | failed: {} | | | | |",
+                    "| {}{} | failed: {} | | | | | |",
                     row.name,
                     if row.script { " *" } else { "" },
                     error.replace('\n', " ")
@@ -687,10 +719,11 @@ fn report(
             None => {
                 let _ = writeln!(
                     out,
-                    "| {}{} | {:.1} | {:.2} | {:.2} | {:.2} | {:.1} |",
+                    "| {}{} | {:.1} | {:.1} | {:.2} | {:.2} | {:.2} | {:.1} |",
                     row.name,
                     if row.script { " *" } else { "" },
                     row.compile_ms,
+                    row.blocked_ms,
                     row.mean_ms,
                     row.p95_ms,
                     row.max_ms,

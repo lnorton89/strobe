@@ -12,8 +12,8 @@
 //! JSON writer only format the plan. In order: classify the passes and
 //! reject the ones that cannot be converted; put the buffers in
 //! Shadertoy's order (A to D); normalise each pass's code; bind every
-//! input channel to a pass target, an image, the audio texture, or black;
-//! and decide whether the clock pass is needed (only when some pass reads
+//! input channel to a pass target, an image, a cube map, the audio
+//! texture, the keyboard image, or black; and decide whether the clock pass is needed (only when some pass reads
 //! time).
 
 use super::names;
@@ -33,6 +33,10 @@ pub(super) const CLOCK_NAMES: &[&str] = &[
     "iChannelTime",
 ];
 
+/// Why a cube-map pass, or a cube map input reading one, is refused (D553).
+const CUBE_PASS_REASON: &str = "cube-map buffers (mainCubemap) render six 1024x1024 faces a \
+     frame into a cube target, which Strobe's passes cannot do (D553)";
+
 /// What a pass is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Role {
@@ -49,8 +53,14 @@ pub(super) enum Binding {
     Buffer(usize),
     /// `Plan::images[n]`.
     Image(usize),
+    /// `Plan::cubes[n]`, a `samplerCube`.
+    Cube(usize),
+    /// The black cube map, for a cube map input whose faces are missing.
+    BlackCube,
     /// The Shadertoy audio texture.
     Audio,
+    /// The keyboard image: 256x3, every key up (D553).
+    Keyboard,
     /// The black image.
     Black,
 }
@@ -64,6 +74,17 @@ pub(super) struct PlannedImage {
     pub file: String,
     pub wrap: Wrap,
     pub filter: Filter,
+    pub vflip: bool,
+}
+
+/// A cube map input's six face files, bound as a scene cube map.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct PlannedCube {
+    /// Sampler name.
+    pub name: String,
+    /// File names under `images/`, +X, -X, +Y, -Y, +Z, -Z.
+    pub files: [String; 6],
+    /// Shadertoy's `vflip` for this input (off unless it says `true`).
     pub vflip: bool,
 }
 
@@ -111,6 +132,11 @@ pub(super) struct Plan {
     /// Sampling for each buffer's target, parallel to the buffers in `passes`.
     pub sampling: Vec<TargetSampling>,
     pub images: Vec<PlannedImage>,
+    pub cubes: Vec<PlannedCube>,
+    /// Whether some cube map input reads the black cube.
+    pub black_cube_used: bool,
+    /// Whether some input reads the keyboard image.
+    pub keyboard_used: bool,
     /// Asset files to copy into `images/`.
     pub assets: BTreeMap<String, Vec<u8>>,
     pub black_used: bool,
@@ -135,7 +161,13 @@ impl Plan {
                 .images
                 .get(n)
                 .map_or_else(|| names::BLACK_IMAGE.to_string(), |i| i.name.clone()),
+            Binding::Cube(n) => self
+                .cubes
+                .get(n)
+                .map_or_else(|| names::BLACK_CUBE.to_string(), |c| c.name.clone()),
+            Binding::BlackCube => names::BLACK_CUBE.to_string(),
             Binding::Audio => names::AUDIO_SAMPLER.to_string(),
+            Binding::Keyboard => names::KEYBOARD_IMAGE.to_string(),
             Binding::Black => names::BLACK_IMAGE.to_string(),
         }
     }
@@ -253,7 +285,7 @@ pub(super) fn build(shader: &Shader, options: &Options) -> Result<Plan, ConvertE
                 return Err(ConvertError::Unsupported {
                     pass: display_name(pass, "Cubemap"),
                     what: "a Cubemap pass".to_string(),
-                    reason: "cube-map buffers (mainCubemap) are not supported yet",
+                    reason: CUBE_PASS_REASON,
                 });
             }
             PassKind::Other(kind) => {
@@ -320,6 +352,9 @@ pub(super) fn build(shader: &Shader, options: &Options) -> Result<Plan, ConvertE
         passes: Vec::new(),
         sampling: Vec::new(),
         images: Vec::new(),
+        cubes: Vec::new(),
+        black_cube_used: false,
+        keyboard_used: false,
         assets: BTreeMap::new(),
         black_used: false,
         asset_files: BTreeMap::new(),
@@ -508,16 +543,30 @@ fn bind(
     };
     match &input.kind {
         InputKind::Music | InputKind::MusicStream | InputKind::Mic => Ok(Binding::Audio),
-        InputKind::Keyboard => Ok(black(plan, "keyboard input arrives in a later phase")),
+        InputKind::Keyboard => {
+            // Shadertoy's 256x3 texture, every key up: Strobe gives a scene
+            // no key feed (D553), but the shape is right, so `texelFetch`
+            // at a key code and `iChannelResolution` read what they would
+            // on Shadertoy with no key pressed.
+            plan.warnings.push(Warning::InputBoundToBlack {
+                pass: pass.clone(),
+                channel,
+                kind: input.kind.name().to_string(),
+                reason: "Strobe has no key feed, so every key reads as up (D553)",
+            });
+            plan.keyboard_used = true;
+            Ok(Binding::Keyboard)
+        }
         InputKind::Video => Ok(black(plan, "video input arrives in a later phase")),
         InputKind::Webcam => Ok(black(plan, "webcam input arrives in a later phase")),
-        InputKind::Cubemap => Err(unsupported(
-            "a cubemap input",
-            "cube-map inputs need a samplerCube behind iChannelN, which is not built yet",
-        )),
+        InputKind::Cubemap if input.id.as_deref() == Some(names::CUBE_A_INPUT_ID) => Err(
+            unsupported("a cubemap input reading Cube A", CUBE_PASS_REASON),
+        ),
+        InputKind::Cubemap => bind_cube(plan, options, &pass, input),
         InputKind::Volume => Err(unsupported(
             "a volume input",
-            "3D textures are not supported",
+            "Strobe's renderer has no 3D textures, and Shadertoy's volumes are its own \
+             binary files (D553)",
         )),
         InputKind::Other(kind) => Err(unsupported(
             &format!("an input of type `{kind}`"),
@@ -628,6 +677,95 @@ fn bind(
             Ok(Binding::Image(index))
         }
     }
+}
+
+/// Binds a `cubemap` input: its six faces ([`names::cube_face_sources`]),
+/// each a texture asset like any other. With every face supplied it is a
+/// scene cube map with Shadertoy's `vflip`; with any missing it reads the
+/// black cube, and the missing faces are pending as a texture would be.
+fn bind_cube(
+    plan: &mut Plan,
+    options: &Options,
+    pass: &str,
+    input: &Input,
+) -> Result<Binding, ConvertError> {
+    let channel = input.channel;
+    let src = input
+        .src
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+        .ok_or(ConvertError::MissingSrc {
+            pass: pass.to_string(),
+            channel,
+        })?;
+    let mut files: [String; 6] = Default::default();
+    let mut found = Vec::with_capacity(6);
+    for (slot, face) in files.iter_mut().zip(names::cube_face_sources(src)) {
+        let url = if face.starts_with('/') {
+            format!("{MEDIA_HOST}{face}")
+        } else {
+            face.clone()
+        };
+        let file = asset_file(plan, &url, &face);
+        if let Some(bytes) = options.assets.get(&file) {
+            found.push((file.clone(), bytes.clone()));
+        } else {
+            let asset = PendingAsset {
+                pass: pass.to_string(),
+                channel,
+                file: file.clone(),
+                url,
+            };
+            if options.strict_assets {
+                return Err(ConvertError::MissingAsset(asset));
+            }
+            if !plan.pending.iter().any(|p| p.file == file) {
+                plan.pending.push(asset.clone());
+            }
+            plan.warnings.push(Warning::MissingAsset(asset));
+        }
+        *slot = file;
+    }
+    // The renderer's cube maps are mipmapped, linear and seamless (D185),
+    // which is Shadertoy's default for a cube map.
+    if let Some(filter) = input
+        .sampler
+        .filter
+        .as_deref()
+        .filter(|f| !f.eq_ignore_ascii_case("mipmap"))
+    {
+        plan.warnings.push(Warning::CubeFilterIgnored {
+            pass: pass.to_string(),
+            channel,
+            filter: filter.to_string(),
+        });
+    }
+    if input.sampler.srgb == Some(true) {
+        plan.warnings.push(Warning::SrgbNotDecoded {
+            pass: pass.to_string(),
+            channel,
+        });
+    }
+    if found.len() < files.len() {
+        plan.black_cube_used = true;
+        plan.black_used = true;
+        return Ok(Binding::BlackCube);
+    }
+    let vflip = input.sampler.vflip == Some(true);
+    plan.assets.extend(found);
+    let index = plan
+        .cubes
+        .iter()
+        .position(|c| c.files == files && c.vflip == vflip)
+        .unwrap_or_else(|| {
+            plan.cubes.push(PlannedCube {
+                name: names::cube_name(plan.cubes.len()),
+                files,
+                vflip,
+            });
+            plan.cubes.len() - 1
+        });
+    Ok(Binding::Cube(index))
 }
 
 /// The file name under `images/` for the texture at `url` (`src` as the

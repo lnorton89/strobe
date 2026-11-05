@@ -27,7 +27,7 @@ type is still taken from where you typed it.
 
 | Command | What |
 |---|---|
-| `cargo xtask ci [lanes] [--strict]` | The commands CI runs, as named lanes (`fmt`, `check`, `test`, `deny`, `generated`, `render`, `build`, `package`, `lint`, `conventions`; `all` by default) with each host's policy in Rust. CI's jobs call it with `--strict`; `doctor` lists what this machine can run (D533). Stops at the first failure. |
+| `cargo xtask ci [lanes] [--strict]` | The commands CI runs, as named lanes (`fmt`, `check`, `test`, `deny`, `generated`, `render`, `build`, `package`, `lint`, `site`, `conventions`; `all` by default) with each host's policy in Rust. CI's jobs call it with `--strict`; `doctor` lists what this machine can run (D533). Stops at the first failure. |
 | `cargo xtask changelog` | Regenerates `CHANGELOG.md` from conventional-commit subjects. |
 | `cargo xtask bench -- <args>` | `cargo run --release -p strobe-bench -- <args>`. |
 | `cargo xtask corpus [--profile p] -- <args>` | Builds `strobe-corpus` and runs it over a folder of scenes (D195, D534). |
@@ -65,7 +65,7 @@ cargo xtask rc --zip <zip> --symbols <zip>    # the release-candidate harness fo
 Flags, from the clap definitions:
 
 - `ci`: lanes (any of `all`, `doctor`, `fmt`, `check`, `test`, `deny`,
-  `generated`, `render`, `build`, `package`, `lint`, `conventions`),
+  `generated`, `render`, `build`, `package`, `lint`, `site`, `conventions`),
   `--strict`, `--shipping`
   (the `build` lane also builds the fat-LTO `release`), `--nextest` (the
   `test` lane runs the tests through cargo-nextest and the doctests through
@@ -159,4 +159,5 @@ IDs given here; a gap with no ID is by design, with its decision named.
   checks a person makes at the T480 (backlog R-03).
 - `cargo xtask ci` runs what CI runs on this kind of host (D533). The other
   hosts' lanes need those platforms: the `render` lane needs Linux with Mesa
-  and Xvfb, the `build` lane Windows, by design.
+  and Xvfb, the `build` lane Windows, by design. The `site` lane runs on any
+  host with Node, the wasm target and the pinned `wasm-bindgen` (D552).

@@ -67,8 +67,9 @@ IDs given here; a gap with no ID is by design, with its decision named.
   `textureFinalPass` and presets are (D554). An include of lygia or hg_sdf
   works only when the scene holds the file (backlog W-01).
 - The native tests skip where there is no headless EGL, as on Windows; CI's
-  Linux job runs them, and its `check` lane clippies this crate for
-  `wasm32-unknown-unknown` (D544), but CI does not yet build the wasm
-  engine or the site (backlog W-03).
+  Linux job runs them, and its `check` lane clippies this crate and
+  strobe-gfx for `wasm32-unknown-unknown` (D544, D552). CI's `site` job
+  builds the engine as a deploy does and plays it in headless Chromium
+  (D552); deploys are still run by hand (backlog W-03).
 - Saved scenes, accounts and a gallery are left out by design: the sandbox
   has no server, and a scene lives in the browser, a link or a zip (D524).

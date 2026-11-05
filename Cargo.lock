@@ -3554,6 +3554,7 @@ dependencies = [
  "dirs",
  "log",
  "minidumper",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

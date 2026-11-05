@@ -94,6 +94,7 @@ mod tests {
             max_texture_size: 4096,
             max_texture_units: 16,
             gpu_timer: true,
+            parallel_compile: false,
         }
     }
 

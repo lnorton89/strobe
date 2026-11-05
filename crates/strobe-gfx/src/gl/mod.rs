@@ -92,6 +92,10 @@ pub struct Gl {
     /// The opt-in record of framebuffer traffic (`STROBE_GL_TRACE`); shared
     /// by every clone. See [`trace`].
     trace: Rc<trace::Trace>,
+    /// Whether the driver compiles and links on threads of its own, so a
+    /// program's completion can be polled instead of waited for (D555).
+    /// Decided once, when the context is built.
+    parallel: bool,
     /// `!Send` and `!Sync`: the context is current on one thread only.
     _thread: PhantomData<*const ()>,
 }
@@ -242,6 +246,18 @@ impl Stage {
     }
 }
 
+/// Why a program from [`Gl::start_link`] did not link, with the driver's
+/// log for the stage at fault.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LinkFailure {
+    /// The fragment shader did not compile.
+    Fragment(String),
+    /// The vertex shader did not compile.
+    Vertex(String),
+    /// Both compiled, and the link failed.
+    Link(String),
+}
+
 /// A texture's storage format.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Format {
@@ -328,6 +344,10 @@ pub struct Info {
     /// Whether `GL_TIME_ELAPSED` queries work: core in desktop GL 3.3 (or
     /// `ARB_timer_query`), and `EXT_disjoint_timer_query` on ES.
     pub gpu_timer: bool,
+    /// Whether the driver can compile and link in the background
+    /// (`KHR_parallel_shader_compile` or `ARB_parallel_shader_compile`), so
+    /// a program's completion can be polled rather than waited for (G-08).
+    pub parallel_compile: bool,
 }
 
 /// What a context has bound, as [`Gl::bindings`] reads it. Object names are
@@ -415,6 +435,13 @@ impl Gl {
         )
     )]
     fn from_glow(raw: glow::Context, reset: Option<ResetAddress>) -> Self {
+        // A browser exposes the extension only once it is enabled through
+        // WebGL, so the sandbox keeps the blocking path.
+        let parallel = !cfg!(target_arch = "wasm32") && {
+            let extensions = raw.supported_extensions();
+            extensions.contains("GL_KHR_parallel_shader_compile")
+                || extensions.contains("GL_ARB_parallel_shader_compile")
+        };
         let gl = Self {
             raw: Arc::new(raw),
             reset,
@@ -422,10 +449,30 @@ impl Gl {
             compiles: Rc::new(Cell::new(0)),
             queries: Rc::new(Cell::new(0)),
             trace: Rc::new(trace::Trace::from_env()),
+            parallel,
             _thread: PhantomData,
         };
+        if parallel {
+            // As many compiler threads as the driver will give. Its default
+            // is its own choice, and may be none.
+            gl.max_shader_compiler_threads(u32::MAX);
+        }
         prime::on_new_context(&gl);
         gl
+    }
+
+    fn max_shader_compiler_threads(&self, count: u32) {
+        // SAFETY: current-context invariant; called only when the context
+        // reported KHR_ or ARB_parallel_shader_compile, whose entry point
+        // glow loaded with the context.
+        unsafe { self.raw.max_shader_compiler_threads(count) }
+    }
+
+    /// Whether this context compiles and links in the background (D555):
+    /// [`Self::start_link`] then returns before the driver is done, and
+    /// [`Self::link_finished`] says when it is.
+    pub fn compiles_in_parallel(&self) -> bool {
+        self.parallel
     }
 
     /// Whether this is an OpenGL ES context (ANGLE, or the headless GLES
@@ -546,6 +593,11 @@ impl Gl {
             max_texture_size: self.get_i32(glow::MAX_TEXTURE_SIZE),
             max_texture_units: self.get_i32(glow::MAX_TEXTURE_IMAGE_UNITS),
             gpu_timer,
+            // Compiles and links that the driver finishes on its own
+            // threads, polled with `COMPLETION_STATUS_KHR` instead of
+            // waited on (G-08, D555). ANGLE exposes the KHR name.
+            parallel_compile: extensions.contains("GL_KHR_parallel_shader_compile")
+                || extensions.contains("GL_ARB_parallel_shader_compile"),
         }
     }
 
@@ -734,6 +786,81 @@ impl Gl {
         } else {
             Err(self.shader_log(raw))
         }
+    }
+
+    /// Starts compiling one shader stage and returns without asking how it
+    /// went (D555). On a driver that compiles in the background the work
+    /// continues on its threads. [`Self::finish_link`] reads the outcome
+    /// once the program it went into is linked.
+    pub fn start_compile(&self, stage: Stage, source: &str) -> Result<Shader, String> {
+        self.compiles.set(self.compiles.get() + 1);
+        let raw = self.create_shader(stage)?;
+        let shader = Shader {
+            gl: self.clone(),
+            raw,
+        };
+        self.shader_source(raw, source);
+        self.compile_shader(raw);
+        Ok(shader)
+    }
+
+    /// Starts linking `vertex` and `fragment` (both from
+    /// [`Self::start_compile`] or [`Self::compile`]) and returns without
+    /// waiting (D555). The shaders stay attached until [`Self::finish_link`].
+    pub fn start_link(&self, vertex: &Shader, fragment: &Shader) -> Result<Program, String> {
+        let raw = self.create_program()?;
+        let program = Program {
+            gl: self.clone(),
+            raw,
+        };
+        self.attach(raw, vertex.raw);
+        self.attach(raw, fragment.raw);
+        self.link_program(raw);
+        Ok(program)
+    }
+
+    /// Whether the driver has finished `program`'s compile and link, so
+    /// [`Self::finish_link`] will not wait. Always true on a driver that
+    /// does not compile in the background, which did the work in
+    /// [`Self::start_link`] already.
+    ///
+    /// Not counted by [`Self::state_queries`]. Like a fence's zero-timeout
+    /// wait, it is how a frame avoids waiting: polled only while a scene
+    /// is loading, never while one just plays (D497, D555).
+    pub fn link_finished(&self, program: &Program) -> bool {
+        !self.parallel || self.program_completion(program.raw)
+    }
+
+    fn program_completion(&self, program: glow::Program) -> bool {
+        // SAFETY: current-context invariant; only called when the context
+        // reported parallel shader compile, which defines
+        // GL_COMPLETION_STATUS_KHR for programs.
+        unsafe { self.raw.get_program_completion_status(program) }
+    }
+
+    /// Reads how [`Self::start_link`] went: the linked program, or which
+    /// stage failed with the driver's log. Waits for the driver if it is not
+    /// done ([`Self::link_finished`] says whether it is), then detaches the
+    /// shaders.
+    pub fn finish_link(
+        &self,
+        program: Program,
+        vertex: &Shader,
+        fragment: &Shader,
+    ) -> Result<Program, LinkFailure> {
+        let linked = self.program_linked(program.raw);
+        self.detach(program.raw, vertex.raw);
+        self.detach(program.raw, fragment.raw);
+        if linked {
+            return Ok(program);
+        }
+        if !self.shader_compiled(fragment.raw) {
+            return Err(LinkFailure::Fragment(self.shader_log(fragment.raw)));
+        }
+        if !self.shader_compiled(vertex.raw) {
+            return Err(LinkFailure::Vertex(self.shader_log(vertex.raw)));
+        }
+        Err(LinkFailure::Link(self.program_log(program.raw)))
     }
 
     fn create_shader(&self, stage: Stage) -> Result<glow::Shader, String> {
