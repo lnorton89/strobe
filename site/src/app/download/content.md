@@ -1,7 +1,7 @@
 <!-- @lede -->
 
-Windows is the target and has a release you unzip and run. Linux builds and
-runs from source, on X11 and Wayland. macOS does not run yet.
+Windows has a release you unzip and run. Linux builds from source, on X11 and
+Wayland. macOS does not run yet. Strobe is for testing, not yet for production.
 
 <!-- @windows -->
 
@@ -30,14 +30,16 @@ The original scenes that ship with Strobe.
 
 ### README.md, LICENSE
 
-The project and its MIT licence. A separate `...-symbols.zip` holds
-`strobe.pdb`, which you only need to turn a crash report into function names.
+The project's description and its licence: MIT with the Commons Clause, so
+source-available. You may use, change and share Strobe and run it for pay; you
+may not sell Strobe itself. A separate `...-symbols.zip` holds `strobe.pdb`, which
+you only need to turn a crash report into function names.
 
 <!-- @requirements -->
 
-- A GPU with OpenGL 3.3 (a 2012 Intel HD 4000 or newer) or, failing that, Direct3D 11. Strobe picks one by itself.
+- A GPU with OpenGL 3.3, or failing that Direct3D 11. Strobe picks one by itself. OpenGL 3.3 is the level of a 2012 Intel HD 4000, though the slowest GPUs tested so far are an Intel UHD 620 and an AMD Vega 3.
 - 64-bit Windows. It has been checked on Windows 10 and Windows 11.
-- An audio input for audio-reactive scenes; without one, Strobe plays a synthetic 120 BPM track.
+- An audio input for audio-reactive scenes. Without one, Strobe plays a synthetic 120 BPM track.
 
 <!-- @linux -->
 
@@ -48,9 +50,9 @@ too old.
 
 <!-- @linux-runtime -->
 
-A minimal server or container also needs the libraries Strobe opens at run
-time — EGL and GL, and the X11 or Wayland client libraries. The README lists
-them, with Fedora and Arch equivalents.
+A minimal server or container also needs the libraries Strobe opens at run time:
+EGL and GL, and the X11 or Wayland client libraries. The README lists them, with
+Fedora and Arch equivalents.
 
 <!-- @nix -->
 

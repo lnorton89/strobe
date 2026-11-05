@@ -64,7 +64,7 @@ export default async function DownloadPage() {
         section="Download"
         note={
           <>
-            <ReleaseName /> · for testing, not production
+            <ReleaseName /> · for testing, not yet for production
           </>
         }
         icon={DownloadIcon}
@@ -112,8 +112,8 @@ export default async function DownloadPage() {
               title="Debian and Ubuntu"
               lines={[
                 "sudo apt-get install -y build-essential pkg-config libasound2-dev",
-                "cargo build --release -p strobe-app     # about 10 minutes on four cores",
-                "target/release/strobe --diagnose        # GPU, driver and audio report",
+                "cargo build --release -p strobe-app  # about 10 minutes on 4 cores",
+                "target/release/strobe --diagnose     # GPU, driver and audio",
               ]}
             />
           </SplitStep>
@@ -123,9 +123,9 @@ export default async function DownloadPage() {
               <ShellBlock
                 title="Nix"
                 lines={[
-                  "nix develop                  # toolchain, ALSA, and the run-time libraries",
+                  "nix develop  # toolchain, ALSA and run-time libraries",
                   "cargo run --release -p strobe-app",
-                  "nix run                      # or build the package and start it",
+                  "nix run      # or build the package and start it",
                 ]}
               />
             </SplitStep>
