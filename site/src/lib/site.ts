@@ -52,7 +52,7 @@ export const POSITIONING =
   "STROBE turns real-time signals and shader code into expressive visual systems for screens, projectors, and live environments.";
 
 /** The metadata strip under the hero. */
-export const BADGES = ["MIT", "Rust", "OpenGL 3.3"] as const;
+export const BADGES = ["Source-available", "Rust", "OpenGL 3.3"] as const;
 /**
  * What a release is fit for, beside its number. The number itself is never
  * written here: it comes from lib/release.ts.

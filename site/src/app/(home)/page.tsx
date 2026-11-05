@@ -14,9 +14,9 @@ import {
   ControllerIcon,
   DownloadIcon,
   GitHubIcon,
-  GuideIcon,
   ImportIcon,
   PerformIcon,
+  PlayIcon,
   PlaylistIcon,
   RemoteIcon,
   ResilienceIcon,
@@ -73,44 +73,44 @@ export default async function Home() {
   return (
     <>
       <section className="hero-field relative overflow-hidden">
-        <div className="mx-auto max-w-350 px-6 pt-16 pb-20 sm:px-10 sm:pt-24 sm:pb-28">
-          <div className="grid gap-14 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:items-center lg:gap-16">
-            <div className="flex flex-col gap-7">
-              <Eyebrow>Open-source VJ engine</Eyebrow>
+        <div className="mx-auto max-w-350 px-6 pt-14 pb-16 sm:px-10 sm:pt-20 sm:pb-24">
+          <div className="grid gap-12 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:items-center lg:gap-16">
+            <div className="flex flex-col gap-6">
               <h1>
-                <Wordmark size="clamp(40px, 5.4vw, 72px)" withMark withDescriptor />
+                <Wordmark size="clamp(34px, 3.8vw, 52px)" withMark withDescriptor />
               </h1>
-              <p className="text-text font-display text-[28px] leading-[1.12] font-semibold tracking-[-0.02em] text-balance sm:text-[38px]">
+              <p className="text-text font-display text-[30px] leading-[1.12] font-semibold tracking-[-0.02em] text-balance sm:text-[42px]">
                 {content.block("tagline")}
               </p>
-              <div className="text-secondary text-[17px] leading-[1.65] text-pretty [&_code]:font-mono [&_strong]:text-text">
+              <div className="text-secondary text-[17px] leading-[1.65] text-pretty">
                 <InlineMarkdown>{content.block("hero-why")}</InlineMarkdown>
-              </div>
-              <div className="rule-grid flex w-fit flex-wrap">
-                {BADGES.map((badge) => (
-                  <span
-                    key={badge}
-                    className="bg-ground text-secondary grow px-4 py-2.5 text-center font-mono text-xs"
-                  >
-                    {badge}
-                  </span>
-                ))}
-                <ReleaseLink
-                  suffix={RELEASE_STAGE}
-                  className="bg-accent text-on-accent grow px-4 py-2.5 text-center font-mono text-xs font-medium"
-                />
               </div>
               <div className="mt-1 flex flex-wrap items-center gap-4">
                 <Action href="/download/" variant="primary" icon={DownloadIcon}>
                   Download
                 </Action>
-                <Action href="/guide/" icon={GuideIcon}>
-                  User guide
-                </Action>
-                <Action href={REPO_URL} variant="ghost" icon={GitHubIcon} external>
-                  Source
+                <Action href="/play/" icon={PlayIcon}>
+                  Try it in your browser
                 </Action>
               </div>
+              <p className="text-label flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs leading-relaxed">
+                <ReleaseLink
+                  suffix={RELEASE_STAGE}
+                  className="text-accent-text hover:text-text underline decoration-1 underline-offset-[3px]"
+                />
+                {BADGES.map((badge) => (
+                  <span key={badge}>{badge}</span>
+                ))}
+                <a
+                  href={REPO_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:text-text inline-flex items-center gap-1.5"
+                >
+                  <GitHubIcon size={13} />
+                  Source
+                </a>
+              </p>
             </div>
             <div className="min-w-0">
               <Screenshot
