@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 use strobe_shadertoy::convert::{ConvertError, Warning, write};
 use strobe_shadertoy::{Converted, Options, Shader, convert};
 
-const FIXTURES: [&str; 9] = [
+const FIXTURES: [&str; 11] = [
     "single_image",
     "common_image",
     "buffer_feedback",
@@ -29,6 +29,8 @@ const FIXTURES: [&str; 9] = [
     "music",
     "missing_texture",
     "name_collisions",
+    "cube_map",
+    "keyboard",
 ];
 
 fn manifest() -> PathBuf {
@@ -351,9 +353,10 @@ fn unsupported_things_are_errors_that_name_the_pass_and_channel() -> Result<()> 
                 "image",
                 "Image",
                 MAIN,
-                json!([{ "channel": 2, "ctype": "cubemap", "src": "/media/a/x.png" }])
+                json!([{ "id": "4dX3Rr", "channel": 2, "ctype": "cubemap",
+                         "src": "/media/previz/cubemap00.png" }])
             )]),
-            "cubemap input on channel 2",
+            "cubemap input reading Cube A on channel 2",
         ),
         (
             json!([pass(
@@ -434,7 +437,7 @@ fn structural_mistakes_have_specific_errors() -> Result<()> {
 }
 
 #[test]
-fn inputs_with_no_equivalent_yet_read_black_with_a_warning() -> Result<()> {
+fn inputs_with_no_live_equivalent_read_black_with_a_warning() -> Result<()> {
     let inputs = json!([
         { "channel": 0, "ctype": "video", "src": "/media/a/v.webm" },
         { "channel": 1, "ctype": "webcam" },
@@ -469,6 +472,183 @@ fn inputs_with_no_equivalent_yet_read_black_with_a_warning() -> Result<()> {
     assert!(
         main.contains("#define iChannel1 st_black"),
         "bound to black: {main}"
+    );
+    assert!(
+        main.contains("#define iChannel2 st_keyboard"),
+        "the keyboard reads its own image: {main}"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_keyboard_input_reads_a_256_by_3_image_with_every_key_up() -> Result<()> {
+    let converted = import("keyboard")?;
+    let def = strobe_scene::SceneDef::parse(text(&converted, "scene.json")?, "t")?;
+    let keyboard = def
+        .images
+        .iter()
+        .find(|i| i.name == "st_keyboard")
+        .ok_or_else(|| anyhow!("no st_keyboard image: {:?}", def.images))?;
+    assert_eq!(
+        (
+            keyboard.path.as_str(),
+            keyboard.filter,
+            keyboard.wrap,
+            keyboard.vflip
+        ),
+        (
+            "images/st_keyboard.png",
+            strobe_scene::scene::Filter::Nearest,
+            strobe_scene::scene::Wrap::Clamp,
+            false
+        ),
+        "nearest and clamped, as Shadertoy creates it, and not flipped"
+    );
+    let png = converted
+        .files
+        .get("images/st_keyboard.png")
+        .ok_or_else(|| anyhow!("the keyboard picture is shipped"))?;
+    let picture = image::load_from_memory(png)?.into_luma8();
+    assert_eq!(picture.dimensions(), (256, 3), "Shadertoy's layout");
+    assert!(
+        picture.pixels().all(|p| p.0 == [0]),
+        "every key up, in all three rows"
+    );
+    let main = text(&converted, "main.glsl")?;
+    assert!(
+        main.contains("#define iChannel1 st_keyboard"),
+        "channel 1 is the keyboard: {main}"
+    );
+    assert!(
+        converted
+            .warnings
+            .iter()
+            .any(|w| w.to_string().contains("every key reads as up")),
+        "the import says no key arrives: {:?}",
+        converted.warnings
+    );
+    Ok(())
+}
+
+/// The face file names of `cube_map.json`'s cube, in Shadertoy's order.
+fn cube_faces() -> [String; 6] {
+    let stem = "c0ffee00".repeat(8);
+    std::array::from_fn(|face| match face {
+        0 => format!("{stem}.png"),
+        n => format!("{stem}_{n}.png"),
+    })
+}
+
+#[test]
+fn a_cube_map_with_its_six_faces_becomes_a_scene_cube_map() -> Result<()> {
+    let shader = Shader::from_json(&fixture("cube_map")?)?;
+    let mut options = Options::default();
+    for (n, file) in cube_faces().iter().enumerate() {
+        options.assets.insert(file.clone(), vec![n as u8; 3]);
+    }
+    let converted = convert(&shader, &options)?;
+    assert!(converted.pending_assets.is_empty(), "nothing pending");
+    assert!(converted.warnings.is_empty(), "{:?}", converted.warnings);
+    for (n, file) in cube_faces().iter().enumerate() {
+        assert_eq!(
+            converted.files.get(&format!("images/{file}")),
+            Some(&vec![n as u8; 3]),
+            "face {n} is copied in"
+        );
+    }
+    let def = strobe_scene::SceneDef::parse(text(&converted, "scene.json")?, "t")?;
+    let [cube] = def.cubemaps.as_slice() else {
+        return Err(anyhow!("one cube map: {:?}", def.cubemaps));
+    };
+    assert_eq!(cube.name, "st_cube0", "its sampler");
+    let expected: Vec<String> = cube_faces().iter().map(|f| format!("images/{f}")).collect();
+    assert_eq!(cube.paths, expected, "+X, -X, +Y, -Y, +Z, -Z: _1 to _5");
+    assert!(!cube.vflip, "the fixture's sampler says vflip false");
+    let main = text(&converted, "main.glsl")?;
+    assert!(
+        main.contains("#define iChannel0 st_cube0"),
+        "iChannel0 is the samplerCube: {main}"
+    );
+    assert!(
+        !converted.files.contains_key("images/st_black.png"),
+        "nothing black"
+    );
+
+    // `vflip` on the sampler travels to the cube, which flips as Shadertoy does.
+    let mut value: Value = serde_json::from_str(&fixture("cube_map")?)?;
+    value["renderpass"][0]["inputs"][0]["sampler"]["vflip"] = json!("true");
+    value["renderpass"][0]["inputs"][0]["sampler"]["filter"] = json!("linear");
+    let flipped = convert(&Shader::from_value(value)?, &options)?;
+    let def = strobe_scene::SceneDef::parse(text(&flipped, "scene.json")?, "t")?;
+    assert!(
+        def.cubemaps.first().is_some_and(|c| c.vflip),
+        "VFLIP is written: {:?}",
+        def.cubemaps
+    );
+    assert!(
+        flipped
+            .warnings
+            .iter()
+            .any(|w| matches!(w, Warning::CubeFilterIgnored { filter, .. } if filter == "linear")),
+        "a filter the cube cannot honour is a warning: {:?}",
+        flipped.warnings
+    );
+    Ok(())
+}
+
+#[test]
+fn a_cube_map_missing_a_face_reads_a_black_cube_and_lists_every_missing_face() -> Result<()> {
+    let shader = Shader::from_json(&fixture("cube_map")?)?;
+    let mut options = Options::default();
+    // Faces 0 and 1 are here; 2 to 5 are not.
+    for file in cube_faces().iter().take(2) {
+        options.assets.insert(file.clone(), vec![7]);
+    }
+    let converted = convert(&shader, &options)?;
+    let pending: Vec<&str> = converted
+        .pending_assets
+        .iter()
+        .map(|a| a.file.as_str())
+        .collect();
+    let faces = cube_faces();
+    let missing: Vec<&str> = faces.iter().skip(2).map(String::as_str).collect();
+    assert_eq!(pending, missing, "the four missing faces are pending");
+    assert!(
+        converted.pending_assets.iter().all(|a| a
+            .url
+            .starts_with("https://www.shadertoy.com/media/a/c0ffee00")),
+        "with their URLs: {:?}",
+        converted.pending_assets
+    );
+    let def = strobe_scene::SceneDef::parse(text(&converted, "scene.json")?, "t")?;
+    let [cube] = def.cubemaps.as_slice() else {
+        return Err(anyhow!("one cube map: {:?}", def.cubemaps));
+    };
+    assert_eq!(cube.name, "st_black_cube", "the black cube");
+    assert_eq!(
+        cube.paths,
+        vec!["images/st_black.png".to_string(); 6],
+        "six square black faces"
+    );
+    assert!(
+        converted.files.contains_key("images/st_black.png"),
+        "the black picture is shipped"
+    );
+    assert!(
+        text(&converted, "main.glsl")?.contains("#define iChannel0 st_black_cube"),
+        "iChannel0 is the black cube"
+    );
+
+    let strict = convert(
+        &shader,
+        &Options {
+            strict_assets: true,
+            ..options
+        },
+    );
+    assert!(
+        matches!(&strict, Err(ConvertError::MissingAsset(a)) if a.file == cube_faces()[2]),
+        "strict mode names the first missing face: {strict:?}"
     );
     Ok(())
 }

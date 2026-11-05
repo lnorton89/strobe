@@ -759,11 +759,14 @@ they apply, and explicit supported, degraded or unsupported claims.
 - [x] Shadertoy conversion (stage 1, D90-D95). It covers:
   - multipass dependencies in Shadertoy order, and buffer feedback;
   - texture and buffer channels;
+  - cube-map channels with Shadertoy's face names, order and `vflip`, and
+    the 256x3 keyboard with every key up (D553);
   - a live audio texture, `iDate` and the "Strobe" control group;
   - token-level dialect rewriting;
   - attribution and licence metadata in `SOURCE`.
   
-  Nine original fixtures render on both dialects.
+  Eleven original fixtures render on both dialects (the cube-map and
+  keyboard ones on llvmpipe only).
 - [x] Shadertoy acquisition (stage 2, D110-D117), against fakes. *Evidence:*
   `cargo test -p strobe-shadertoy` (REST, downloader, cache, pipeline and
   listener, with a loopback mock Shadertoy and no live site); under Xvfb

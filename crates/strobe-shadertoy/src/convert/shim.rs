@@ -270,9 +270,15 @@ pub(super) fn pass_file(plan: &Plan, pass: &PlannedPass, shader: &Shader) -> Gen
     if used("iChannelTime") {
         let slots = pass.channels.map(|binding| match binding {
             Some(Binding::Audio) => "strobe_clock.x".to_string(),
-            Some(Binding::Buffer(_) | Binding::Image(_) | Binding::Black) | None => {
-                "0.0".to_string()
-            }
+            Some(
+                Binding::Buffer(_)
+                | Binding::Image(_)
+                | Binding::Cube(_)
+                | Binding::BlackCube
+                | Binding::Keyboard
+                | Binding::Black,
+            )
+            | None => "0.0".to_string(),
         });
         let _ = writeln!(
             parts.macros,

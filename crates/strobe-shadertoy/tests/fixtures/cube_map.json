@@ -1,0 +1,48 @@
+{
+  "ver": "0.1",
+  "info": {
+    "id": "Tst010",
+    "date": "1700000000",
+    "viewed": 0,
+    "name": "Cube map",
+    "username": "strobe-tests",
+    "description": "Original test shader written for Strobe's fixtures. MIT, like the repository.",
+    "likes": 0,
+    "published": 3,
+    "flags": 0,
+    "usePreview": 0,
+    "tags": [],
+    "hasliked": 0
+  },
+  "renderpass": [
+    {
+      "inputs": [
+        {
+          "id": "XdX3Rn",
+          "filepath": "/media/a/c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00.png",
+          "previewfilepath": "/media/ap/c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00.png",
+          "type": "cubemap",
+          "channel": 0,
+          "sampler": {
+            "filter": "mipmap",
+            "wrap": "clamp",
+            "vflip": "false",
+            "srgb": "false",
+            "internal": "byte"
+          },
+          "published": 1
+        }
+      ],
+      "outputs": [
+        {
+          "id": "4dfGRr",
+          "channel": 0
+        }
+      ],
+      "code": "// A camera turning slowly inside the cube map on channel 0.\nmat2 turn(float a)\n{\n    float c = cos(a), s = sin(a);\n    return mat2(c, -s, s, c);\n}\n\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord )\n{\n    vec2 p = (2.0 * fragCoord - iResolution.xy) / iResolution.y;\n    vec3 rd = normalize(vec3(p, 1.5));\n    rd.yz = turn(0.25) * rd.yz;\n    rd.xz = turn(0.6 * iTime) * rd.xz;\n    vec3 sky = textureCube(iChannel0, rd).rgb;\n    float horizon = 1.0 - abs(rd.y);\n    float facing = 0.5 + 0.5 * rd.x;\n    fragColor = vec4(0.1 + 0.1 * horizon + 0.3 * facing + 0.5 * sky, 1.0);\n}\n",
+      "name": "Image",
+      "description": "",
+      "type": "image"
+    }
+  ]
+}

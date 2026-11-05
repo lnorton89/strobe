@@ -243,6 +243,7 @@ pub fn import_json(text: &str, options: &ImportOptions<'_>) -> Result<Imported, 
             | Warning::UnboundChannelRead { .. }
             | Warning::SamplerConflict { .. }
             | Warning::UnknownSamplerValue { .. }
+            | Warning::CubeFilterIgnored { .. }
             | Warning::SrgbNotDecoded { .. } => true,
         })
         .map(ToString::to_string)
