@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { SceneSummary } from "@/lib/scenes";
 
 /*
@@ -5,6 +6,9 @@ import type { SceneSummary } from "@/lib/scenes";
  * performer picks a scene by — tier, passes, controls, whether it is
  * scripted. The thumbnail is a real frame of the scene (guide section 7), and
  * it carries no decorative caption over it.
+ *
+ * The whole card opens the scene in the browser sandbox: the title's link
+ * stretches over it, so there is one link to tab to and one name to announce.
  */
 
 const FACT = "text-label font-mono text-[10px] tracking-[0.12em] uppercase";
@@ -25,7 +29,7 @@ export default function SceneCard({
   ].filter((fact): fact is string => fact !== undefined);
 
   return (
-    <article className="bg-panel flex min-w-0 flex-col">
+    <article className="group bg-panel hover:bg-panel-raised panel-hover relative flex min-w-0 flex-col">
       <div className="bg-code-ground relative aspect-video overflow-hidden">
         {scene.thumbnail ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -42,10 +46,17 @@ export default function SceneCard({
       </div>
       <div className="flex flex-1 flex-col gap-2.5 p-5">
         <div className="flex items-baseline justify-between gap-3">
-          <h3 className="text-text min-w-0 truncate text-[16px] leading-snug font-semibold tracking-[-0.01em]">
-            {scene.title}
+          <h3 className="text-text min-w-0 text-[16px] leading-snug font-semibold tracking-[-0.01em]">
+            <Link
+              href={`/play/?scene=${scene.slug}`}
+              prefetch={false}
+              aria-label={`Open ${scene.title} in Play`}
+              className="after:absolute after:inset-0 group-hover:underline group-hover:underline-offset-[3px] focus-visible:outline-none focus-visible:after:outline-2 focus-visible:after:-outline-offset-2 focus-visible:after:outline-accent-text"
+            >
+              {scene.title}
+            </Link>
           </h3>
-          <span className="text-label flex-none font-mono text-[10px]">
+          <span className="text-label flex-none font-mono text-[10px] max-sm:hidden">
             {scene.slug.slice(0, 2)}
           </span>
         </div>
