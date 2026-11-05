@@ -10,8 +10,8 @@ summary line: every branch edited it, so every merge conflicted there
 
 ## Now
 
-**Owner goal:** a working, testable, benchmarkable VJ engine for older
-hardware. Prefer measured improvements and explicit acceptance tests over
+**Owner goal:** a working, testable, benchmarkable VJ engine, down to an
+OpenGL 3.3 floor. Prefer measured improvements and explicit acceptance tests over
 speculative tuning. "Compiled" is not "verified": say which machine and
 which backend proved a claim.
 

@@ -25,7 +25,7 @@ A type, a parser or a UI control existing is never enough for
 the only evidence is synthetic, it is Unverified.
 
 The machines: **T480** is a ThinkPad with Intel UHD 620 on Windows 11
-(the old-laptop reference). **TORNADO** is a GTX 1080 Ti on Windows 10.
+(the integrated-GPU reference). **TORNADO** is a GTX 1080 Ti on Windows 10.
 **AMD desktop** (DESKTOP-30KSOCM) is a Radeon RX 580 on Windows 10.
 **llvmpipe** is Mesa's software rasteriser in CI and the cloud
 container, headless or under Xvfb.
